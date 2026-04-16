@@ -1,0 +1,28 @@
+tests:
+- name: basic_nested_processing
+  description: Test nested composition with basic data
+  inputs:
+    data: test data content
+  want:
+    final_result: Executed state_machine
+  wantErr: false
+- name: complex_data_processing
+  description: Test nested composition with complex data
+  inputs:
+    data: complex JSON structure with multiple levels
+  want:
+    final_result: Executed state_machine
+  wantErr: false
+- name: missing_data
+  description: Test with missing required data
+  inputs: {}
+  want:
+    final_result: Executed state_machine
+  wantErr: false
+- name: empty_data
+  description: Test with empty data string
+  inputs:
+    data: ''
+  want:
+    final_result: Executed state_machine
+  wantErr: false

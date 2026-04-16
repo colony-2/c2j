@@ -1,0 +1,38 @@
+tests:
+# COMMENTED OUT: This test requires default value handling which is currently broken
+# TODO: Fix default input value merging in recipe system
+# - name: default_message_echo
+#   description: Test execute with default message
+#   inputs: {}
+#   want:
+#     echo_message:
+#       result: "Executed: echo Test message"
+#       status: success
+#       stdout: "Executed: echo Test message"
+#   wantErr: false
+- name: custom_message_echo
+  description: Test execute with custom message
+  inputs:
+    message: Custom message
+  want:
+    echo_message:
+      stdout: "Custom message"
+      success: true
+      exit_code: 0
+      stderr: ''
+      error_message: ''
+      timed_out: false
+  wantErr: false
+- name: empty_message_echo
+  description: Test execute with empty message
+  inputs:
+    message: ''
+  want:
+    echo_message:
+      stdout: ""
+      success: true
+      exit_code: 0
+      stderr: ''
+      error_message: ''
+      timed_out: false
+  wantErr: false

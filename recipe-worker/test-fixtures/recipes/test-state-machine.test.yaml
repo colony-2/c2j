@@ -1,0 +1,34 @@
+tests:
+- name: state_machine_flow
+  description: Test basic state machine execution flow with process action
+  inputs:
+    action: process
+    should_fail: false
+  want:
+    start_message: 'Starting with action: process'
+    final_message: 'Workflow completed'
+    process_result: 'Processing data'
+    error_result: 'no error'
+  wantErr: false
+- name: state_machine_error_handling
+  description: Test state machine error transition
+  inputs:
+    action: process
+    should_fail: true
+  want:
+    start_message: 'Starting with action: process'
+    final_message: 'Workflow completed'
+    process_result: 'Processing data'
+    error_result: 'Error occurred during processing'
+  wantErr: false
+- name: state_machine_conditional
+  description: Test conditional state transitions with skip action
+  inputs:
+    action: skip
+    should_fail: false
+  want:
+    start_message: 'Starting with action: skip'
+    final_message: 'Workflow completed'
+    process_result: 'not processed'
+    error_result: 'no error'
+  wantErr: false

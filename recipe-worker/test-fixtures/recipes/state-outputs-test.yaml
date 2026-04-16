@@ -1,0 +1,18 @@
+id: state_outputs_test
+desc: Test state machine outputs functionality
+version: 1.0.0
+input_schema:
+  message:
+    type: string
+    default_value: test
+inputs:
+  message: '{{ inputs.message }}'
+state:
+  initial: simple_state
+  states:
+    simple_state:
+      op: echo_activity
+      inputs:
+        message: 'Hello {{ inputs.message }}'
+outputs:
+  result: '{{ inputs.message }}'

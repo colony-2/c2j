@@ -1,0 +1,66 @@
+# Example demonstrating the new template interpolation feature
+
+# Before (using CEL string concatenation):
+old_style:
+  message: '${{ "Hello " + inputs.name + ", your order " + inputs.order_id + " is ready" }}'
+  url: '${{ "https://api." + inputs.env + ".example.com/" + inputs.version + "/orders/" + inputs.order_id }}'
+
+# After (using string interpolation):
+new_style:
+  # Multiple expressions in a single string
+  message: "Hello {{ inputs.name }}, your order {{ inputs.order_id }} is ready"
+  
+  # URL construction with interpolation
+  url: "https://api.{{ inputs.env }}.example.com/{{ inputs.version }}/orders/{{ inputs.order_id }}"
+  
+  # Log message with mixed content
+  log: "[{{ scope.timestamp }}] User {{ inputs.user_id }} performed {{ inputs.action }}"
+  
+  # Complex formatting
+  notification:
+    subject: "[{{ inputs.priority }}] Order {{ inputs.order_id }} Update"
+    body: |
+      Dear {{ inputs.customer_name }},
+      
+      Your order {{ inputs.order_id }} has been {{ sequence.process.outputs.status }}.
+      Total amount: ${{ inputs.amount }}
+      Processing time: {{ sequence.process.outputs.duration }}ms
+      
+      Thank you for your business!
+  
+  # Single expressions still return raw types (backward compatible)
+  user_data: "{{ sequence.fetch.outputs.user }}"  # Returns the user object
+  count: "{{ sequence.calc.outputs.total }}"      # Returns a number
+  is_valid: "{{ sequence.check.outputs.valid }}"  # Returns a boolean
+
+# State machine example with pure CEL for when conditions
+state_machine:
+  states:
+    process:
+      sequence:
+        - id: validate
+          op: validate_order
+          inputs:
+            # Interpolation works in inputs
+            order_id: "{{ inputs.order_id }}"
+            message: "Validating order {{ inputs.order_id }} for customer {{ inputs.customer_name }}"
+      
+      transitions:
+        - to: success
+          # When conditions use pure CEL (no interpolation)
+          when: "sequence.validate.outputs.valid == true && inputs.retry_count < 3"
+        
+        - to: retry
+          # Pure CEL expression, no ${{ }} needed
+          when: "sequence.validate.outputs.valid == false && inputs.retry_count < inputs.max_retries"
+        
+        - to: error
+          # Complex CEL logic
+          when: 'sequence.validate.outputs.error_code == "FATAL" || inputs.retry_count >= inputs.max_retries'
+
+# Benefits of the new approach:
+# 1. More natural and readable template syntax
+# 2. Less verbose than CEL string concatenation
+# 3. Backward compatible - single expressions return raw types
+# 4. Clear separation - when conditions remain pure CEL
+# 5. Better error messages with position tracking

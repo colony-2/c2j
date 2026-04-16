@@ -1,0 +1,49 @@
+tests:
+- name: medium_depth_analysis
+  description: Test basic state machine with medium analysis
+  inputs:
+    message: 'Test message'
+    analysis_depth: medium
+    output_format: json
+  want:
+    result: ['Test message']
+    metadata:
+      analysis_type: medium
+      output_format: json
+  wantErr: false
+- name: deep_analysis
+  description: Test state machine with deep analysis
+  inputs:
+    message: 'Deep test'
+    analysis_depth: deep
+    output_format: xml
+  want:
+    result: ['Deep test']
+    metadata:
+      analysis_type: deep
+      output_format: xml
+  wantErr: false
+- name: quick_analysis
+  description: Test state machine with quick analysis
+  inputs:
+    message: 'Quick test'
+    analysis_depth: quick
+    output_format: csv
+  want:
+    result: ['Quick test']
+    metadata:
+      analysis_type: quick
+      output_format: csv
+  wantErr: false
+- name: default_values
+  description: Test with default values
+  inputs:
+    message: 'Default test'
+    analysis_depth: medium
+    output_format: json
+  want:
+    result: ['Default test']
+    metadata:
+      analysis_type: medium
+      output_format: json
+  wantErr: false

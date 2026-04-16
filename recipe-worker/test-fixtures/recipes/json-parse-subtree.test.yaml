@@ -1,0 +1,30 @@
+tests:
+- name: json_parse_into_structured_input
+  description: Parse JSON into op input struct and preserve nested fields
+  inputs:
+    config_json: '{"enabled":true,"threshold":2,"nested":{"name":"demo"},"items":[{"id":1},{"id":2}]}'
+    label: demo-label
+    flag: hot
+  want:
+    config:
+      enabled: true
+      threshold: 2
+      nested:
+        name: demo
+      items:
+      - id: 1
+      - id: 2
+    meta:
+      label: demo-label
+      flags:
+      - hot
+      - static-flag
+  wantErr: false
+- name: json_parse_invalid
+  description: Invalid JSON should fail before op execution
+  inputs:
+    config_json: '{bad'
+    label: demo-label
+  want: {}
+  wantErr: true
+  wantErrContains: "json_parse: invalid JSON"

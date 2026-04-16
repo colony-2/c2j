@@ -1,0 +1,12 @@
+id: test-sleep-operation
+desc: Test recipe for sleep operation with const discrimination
+version: '1.0'
+input_schema: {}
+sequence:
+- id: sleep_step
+  op: sleep
+  inputs:
+    duration: 1s
+outputs:
+  sleep_completed: '{{ sequence.sleep_step.outputs.completed }}'
+  was_interrupted: '{{ sequence.sleep_step.outputs.interrupted }}'

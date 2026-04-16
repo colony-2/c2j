@@ -1,0 +1,11 @@
+id: next-task-override
+desc: Validate op-level next task override
+version: '1.0'
+sequence:
+- id: override
+  op: test_next_task_override
+  inputs:
+    message: 'hello'
+outputs:
+  result: '{{ sequence.override.outputs.step }}'
+  message: '{{ sequence.override.outputs.message }}'

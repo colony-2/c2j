@@ -1,0 +1,34 @@
+id: test-sequence-node
+desc: Test recipe for sequence node with multiple operations
+version: '1.0'
+input_schema: {}
+sequence:
+- id: step1
+  op: command_execution
+  inputs:
+    run: echo 'first step'
+    working_directory: /tmp
+    shell: bash
+    env: {}
+    continue_on_error: false
+    timeout: 30s
+- id: step2
+  op: sleep
+  inputs:
+    duration: 2s
+- id: step3
+  op: command_execution
+  inputs:
+    run: echo 'Step 3 complete'
+    working_directory: /tmp
+    shell: bash
+    env: {}
+    continue_on_error: false
+    timeout: 30s
+outputs:
+  command_output: '{{ sequence.step1.outputs.stdout }}'
+  sleep_completed: '{{ sequence.step2.outputs.completed }}'
+  execution_order: command -> sleep
+  command_completion_time: T1
+  sleep_start_time: '> T1'
+  total_duration: command_time + sleep_time

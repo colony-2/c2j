@@ -1,0 +1,16 @@
+tests:
+- name: nested_template_test
+  description: Test nested template interpolation
+  inputs:
+    value1: 'test1'
+    value2: 'test2'
+  want:
+    simple: 'test1'
+    nested:
+      level1: 'test1'
+      level2:
+        deep: 'test2'
+    array:
+    - 'test1'
+    - item: 'test2'
+  wantErr: false

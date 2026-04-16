@@ -1,0 +1,214 @@
+id: advanced_document_processor
+desc: Advanced document processing pipeline with state machine composition (requires sub-recipes)
+version: 1.0.0
+inputs:
+  document: ''
+  document_type: auto
+  analysis_depth: medium
+  priority: normal
+  output_format: json
+outputs:
+  result: '{{ sequence.document_processor.outputs.result }}'
+  metadata: '{{ sequence.document_processor.outputs.metadata }}'
+sequence:
+- id: document_processor
+  name: Document Processing State Machine
+  op: state_machine
+  config:
+    initial_state: intake
+    timeout: 30m
+    states:
+      intake:
+        conditional:
+        - when: inputs.document_type == 'structured'
+          parallel:
+          - id: extract_fields
+            op: field_extractor
+            inputs:
+              doc: '{{ inputs.document }}'
+          - id: validate_schema
+            op: schema_validator
+            inputs:
+              doc: '{{ inputs.document }}'
+        - when: inputs.document_type == 'unstructured'
+          sequential:
+          - id: detect_language
+            op: language_detector
+            inputs:
+              doc: '{{ inputs.document }}'
+          - id: extract_content
+            conditional:
+            - when: sequence.detect_language.outputs.language == 'en'
+              op: english_extractor
+            - when: sequence.detect_language.outputs.language == 'es'
+              op: spanish_extractor
+            - default: true
+              op: universal_extractor
+            inputs:
+              doc: '{{ inputs.document }}'
+        - default: true
+          op: auto_classifier
+          inputs:
+            doc: '{{ inputs.document }}'
+        transitions:
+        - to: processing
+          when: .Outputs != null
+      processing:
+        sequential:
+        - id: prepare_data
+          parallel:
+          - id: clean
+            op: data_cleaner
+            inputs:
+              data: '{{ states.intake.outputs }}'
+          - id: normalize
+            op: data_normalizer
+            inputs:
+              data: '{{ states.intake.outputs }}'
+          - id: enhance_metadata
+            sequential:
+            - id: extract_entities
+              op: entity_extractor
+              inputs:
+                data: '{{ states.intake.outputs }}'
+            - id: link_entities
+              op: entity_linker
+              inputs:
+                entities: '{{ sequence.extract_entities.outputs.entities }}'
+        - id: analyze
+          conditional:
+          - when: inputs.analysis_depth == 'deep'
+            parallel:
+            - id: sentiment
+              op: sentiment_analyzer
+              inputs:
+                text: '{{ sequence.prepare_data.outputs.clean.text }}'
+            - id: topics
+              op: topic_modeler
+              inputs:
+                text: '{{ sequence.prepare_data.outputs.clean.text }}'
+            - id: ml_pipeline
+              sequential:
+              - id: feature_extract
+                op: feature_extractor
+                inputs:
+                  data: '{{ sequence.prepare_data.outputs.normalize.data }}'
+              - id: classify
+                op: ml_classifier
+                inputs:
+                  features: '{{ sequence.feature_extract.outputs.features }}'
+              - id: confidence_check
+                conditional:
+                - when: sequence.classify.outputs.confidence > 0.95
+                  op: high_confidence_processor
+                - when: sequence.classify.outputs.confidence > 0.7
+                  op: medium_confidence_processor
+                - default: true
+                  parallel:
+                  - id: human_review
+                    op: send_to_review_queue
+                  - id: uncertainty_sampling
+                    op: active_learning_sampler
+                inputs:
+                  classification: '{{ sequence.classify.outputs.result }}'
+          - when: inputs.analysis_depth == 'quick'
+            op: fast_analyzer
+            inputs:
+              data: '{{ sequence.prepare_data.outputs.clean.text }}'
+          - default: true
+            sequential:
+            - id: basic_analysis
+              op: standard_analyzer
+              inputs:
+                data: '{{ sequence.prepare_data.outputs.clean.text }}'
+            - id: should_enhance
+              conditional:
+              - when: sequence.basic_analysis.outputs.complexity_score > 0.8
+                op: enhanced_analyzer
+                inputs:
+                  data: '{{ sequence.prepare_data.outputs.clean.text }}'
+                  initial: '{{ sequence.basic_analysis.outputs.results }}'
+              - default: true
+                op: finalize_basic
+                inputs:
+                  results: '{{ sequence.basic_analysis.outputs.results }}'
+        transitions:
+        - to: quality_assurance
+          when: outputs.analyze != null
+        - to: error_handling
+          when: outputs.analyze.error != null
+      quality_assurance:
+        parallel:
+        - id: validate_results
+          sequential:
+          - id: schema_check
+            op: result_schema_validator
+            inputs:
+              results: '{{ states.processing.outputs.analyze }}'
+          - id: business_rules
+            op: business_rule_engine
+            inputs:
+              results: '{{ states.processing.outputs.analyze }}'
+              rules: '{{ inputs.business_rules }}'
+        - id: generate_outputs
+          conditional:
+          - when: inputs.output_format == 'report'
+            sequential:
+            - id: generate_report
+              op: report_generator
+              inputs:
+                data: '{{ states.processing.outputs.analyze }}'
+            - id: add_visualizations
+              parallel:
+              - id: charts
+                op: chart_generator
+                inputs:
+                  data: '{{ states.processing.outputs.analyze }}'
+              - id: tables
+                op: table_generator
+                inputs:
+                  data: '{{ states.processing.outputs.analyze }}'
+          - when: inputs.output_format == 'api'
+            op: api_formatter
+            inputs:
+              data: '{{ states.processing.outputs.analyze }}'
+          - default: true
+            op: json_formatter
+            inputs:
+              data: '{{ states.processing.outputs.analyze }}'
+        transitions:
+        - to: delivery
+          when: outputs.validate_results.business_rules.passed == true
+        - to: manual_review
+          when: outputs.validate_results.business_rules.requires_review == true
+        - to: rejection
+          when: outputs.validate_results.business_rules.failed == true
+      delivery:
+        terminal: true
+        outputs:
+          result: '{{ states.quality_assurance.outputs.generate_outputs }}'
+          metadata:
+            processing_time: '{{ .Context.elapsed_time }}'
+            confidence: '{{ states.processing.outputs.analyze.confidence }}'
+            validations: '{{ states.quality_assurance.outputs.validate_results }}'
+      manual_review:
+        op: queue_for_review
+        inputs:
+          data: '{{ states.quality_assurance.outputs }}'
+          reason: '{{ states.quality_assurance.outputs.validate_results.business_rules.reason }}'
+        transitions:
+        - to: delivery
+          when: outputs.approved == true
+        - to: rejection
+          when: outputs.rejected == true
+      rejection:
+        terminal: true
+        error: Document processing rejected
+        outputs:
+          error: .Document processing rejected
+          reason: '{{ states.quality_assurance.outputs.validate_results.business_rules.reason }}'
+      error_handling:
+        terminal: true
+        error: Processing error occurred
+        outputs:
+          error: '{{ states.processing.outputs.analyze.error }}'

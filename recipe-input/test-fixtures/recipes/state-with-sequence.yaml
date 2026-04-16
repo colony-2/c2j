@@ -1,0 +1,24 @@
+id: state-with-sequence
+desc: State machine where a state is a sequence node; outputs should be visible via states.<state>.outputs.*
+version: 1.0.0
+state:
+  initial: pipeline
+  states:
+    pipeline:
+      sequence:
+        - id: step
+          op: echo
+          inputs:
+            message: from-sequence
+      outputs:
+        result: "{{ sequence.step.outputs.output }}"
+      transitions:
+        - to: done
+          when: "true"
+    done:
+      op: echo
+      inputs:
+        message: done
+outputs:
+  result: "{{ states.pipeline.outputs.result }}"
+

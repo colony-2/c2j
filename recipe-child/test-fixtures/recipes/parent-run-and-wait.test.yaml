@@ -1,0 +1,11 @@
+recipes:
+  - child-simple.yaml
+
+tests:
+  - name: run_and_wait_returns_child_output
+    inputs:
+      value: "hello"
+      git_ref: "refs/heads/test"
+    want:
+      child_value: "hello"
+    wantErr: false

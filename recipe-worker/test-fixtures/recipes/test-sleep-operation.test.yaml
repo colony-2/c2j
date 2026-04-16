@@ -1,0 +1,8 @@
+tests:
+- name: basic_sleep
+  description: Test basic sleep operation
+  inputs: {}
+  want:
+    sleep_completed: true
+    was_interrupted: false
+  wantErr: false

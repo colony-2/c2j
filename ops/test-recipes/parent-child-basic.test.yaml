@@ -1,0 +1,49 @@
+tests:
+- name: standard_processing
+  description: Test standard processing mode with multiple datasets
+  inputs:
+    dataset_ids:
+    - dataset-001
+    - dataset-002
+    - dataset-003
+    processing_mode: standard
+  want:
+    final_report: Aggregated results from 3 datasets
+    status: complete
+  wantErr: false
+- name: fast_processing
+  description: Test fast processing mode
+  inputs:
+    dataset_ids:
+    - dataset-001
+    processing_mode: fast
+  want:
+    final_report: Aggregated results from 3 datasets
+    status: complete
+  wantErr: false
+- name: thorough_processing
+  description: Test thorough processing mode
+  inputs:
+    dataset_ids:
+    - dataset-001
+    - dataset-002
+    processing_mode: thorough
+  want:
+    final_report: Aggregated results from 3 datasets
+    status: complete
+  wantErr: false
+- name: default_mode
+  description: Test with default processing mode
+  inputs:
+    dataset_ids:
+    - dataset-001
+  want:
+    final_report: Aggregated results from 0 datasets
+    status: complete
+  wantErr: false
+- name: missing_dataset_ids
+  description: Test with missing required dataset_ids
+  inputs:
+    processing_mode: standard
+  want: {}
+  wantErr: true

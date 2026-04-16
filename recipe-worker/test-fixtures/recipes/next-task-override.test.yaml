@@ -1,0 +1,7 @@
+tests:
+  - name: next_task_override
+    inputs: {}
+    want:
+      result: first
+      message: hello
+    wantErr: false

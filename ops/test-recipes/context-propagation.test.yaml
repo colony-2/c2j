@@ -1,0 +1,31 @@
+tests:
+- name: basic_context_propagation
+  description: Test basic context propagation through pipeline
+  inputs:
+    request_id: req-123
+    user_id: user-456
+    data_source: test-data-source
+  want:
+    execution_hierarchy: mock-hierarchy
+    audit_trail_id: audit-123
+    processing_result: processed
+    context_info:
+      recipe:
+        name: context_aware_pipeline
+      execution:
+        id: exec-123
+  wantErr: false
+- name: missing_request_id
+  description: Test with missing required request_id
+  inputs:
+    user_id: user-456
+    data_source: test-data-source
+  want: {}
+  wantErr: true
+- name: missing_user_id
+  description: Test with missing required user_id
+  inputs:
+    request_id: req-123
+    data_source: test-data-source
+  want: {}
+  wantErr: true

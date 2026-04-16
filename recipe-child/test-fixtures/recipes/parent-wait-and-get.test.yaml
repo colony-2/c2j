@@ -1,0 +1,12 @@
+recipes:
+  - child-artifact.yaml
+
+tests:
+  - name: wait_and_get_returns_child_output_and_artifacts
+    inputs:
+      git_ref: "refs/heads/test"
+    want:
+      artifact_name: "foo"
+    wantArtifacts:
+      - foo
+    wantErr: false

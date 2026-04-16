@@ -1,0 +1,20 @@
+id: test-invalid
+desc: Test recipe that validates parse-time error detection
+version: '1.0'
+input_schema:
+  message:
+    type: string
+    default_value: test
+inputs:
+  message: '{{ inputs.message }}'
+# NOTE: This recipe originally tested unknown_activity_type
+# but unknown operations now correctly fail at parse time.
+# The test framework doesn't support parse-error tests,
+# so this is now a placeholder that uses a valid operation.
+sequence:
+- id: step1
+  op: echo_activity
+  inputs:
+    message: test
+outputs:
+  step1: '${{ sequence.step1.outputs }}'

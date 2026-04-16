@@ -1,0 +1,16 @@
+id: simple-test-recipe
+version: 1.0.0
+desc: A simple test recipe for integration testing
+input_schema: {}
+sequence:
+- id: step1
+  op: command_execution
+  inputs:
+    run: echo 'Step 1 output'
+- id: step2
+  op: command_execution
+  inputs:
+    run: echo 'Hello from test'
+outputs:
+  step1: '${{ sequence.step1.outputs }}'
+  step2: '${{ sequence.step2.outputs }}'

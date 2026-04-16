@@ -1,0 +1,12 @@
+tests:
+  - name: thinpack_artifact_in_job_result
+    description: Writes to outbox and worktree, expecting thinpack on job result
+    inputs: {}
+    want:
+      write_success: true
+    wantArtifacts:
+      - thinpack.txt
+    wantJobArtifacts:
+      - __git_state_thin_pack__
+      - thinpack.txt
+    wantErr: false

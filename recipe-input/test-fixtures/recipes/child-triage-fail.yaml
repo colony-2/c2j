@@ -1,0 +1,11 @@
+id: child-triage-fail
+desc: Child recipe that fails (command_execution with invalid command)
+version: 1.0.0
+sequence:
+  - id: boom
+    op: command_execution
+    inputs:
+      run: this-command-should-not-exist-xyz
+outputs:
+  should_not: be_reached
+

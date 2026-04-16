@@ -1,0 +1,20 @@
+id: write-read-ops
+desc: Test writing then reading a file across ops
+version: "1.0"
+input_schema: {}
+sequence:
+  - id: write_file
+    op: command_execution
+    inputs:
+      run: |
+        mkdir -p cells/test-cell
+        printf 'hello world' > cells/test-cell/hello.txt
+  - id: read_file
+    op: command_execution
+    inputs:
+      run: cat cells/test-cell/hello.txt
+outputs:
+  write_success: "{{ sequence.write_file.outputs.success }}"
+  write_stdout: "{{ sequence.write_file.outputs.stdout }}"
+  read_success: "{{ sequence.read_file.outputs.success }}"
+  read_stdout: "{{ sequence.read_file.outputs.stdout }}"

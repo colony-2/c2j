@@ -1,0 +1,101 @@
+tests:
+- name: basic_template_processing
+  description: Test basic template feature with items
+  inputs:
+    items: apple, banana, cherry
+    separator: ', '
+  want:
+    prepare:
+      result: "Processed by prepare_data"
+      status: processed
+    format:
+      report: "Report from format_text"
+      status: generated
+    analyze:
+      result: "Processed by analyze_data"
+      status: processed
+    summarize:
+      report: "Report from create_summary"
+      status: generated
+  wantErr: false
+- name: custom_separator
+  description: Test with custom separator
+  inputs:
+    items: one | two | three
+    separator: ' | '
+  want:
+    prepare:
+      result: "Processed by prepare_data"
+      status: processed
+    format:
+      report: "Report from format_text"
+      status: generated
+    analyze:
+      result: "Processed by analyze_data"
+      status: processed
+    summarize:
+      report: "Report from create_summary"
+      status: generated
+  wantErr: false
+- name: single_item
+  description: Test with single item
+  inputs:
+    items: solo
+    separator: ', '
+  want:
+    prepare:
+      result: "Processed by prepare_data"
+      status: processed
+    format:
+      report: "Report from format_text"
+      status: generated
+    analyze:
+      result: "Processed by analyze_data"
+      status: processed
+    summarize:
+      report: "Report from create_summary"
+      status: generated
+  wantErr: false
+- name: empty_items
+  description: Test with empty items array
+  inputs:
+    items: ''
+    separator: ', '
+  want:
+    prepare:
+      result: "Processed by prepare_data"
+      status: processed
+    format:
+      report: "Report from format_text"
+      status: generated
+    analyze:
+      result: "Processed by analyze_data"
+      status: processed
+    summarize:
+      report: "Report from create_summary"
+      status: generated
+  wantErr: false
+- name: default_separator
+  description: Test with default separator
+  inputs:
+    items: first, second
+  want:
+    prepare:
+      result: "Processed by prepare_data"
+      status: processed
+    format:
+      report: "Report from format_text"
+      status: generated
+    analyze:
+      result: "Processed by analyze_data"
+      status: processed
+    summarize:
+      report: "Report from create_summary"
+      status: generated
+  wantErr: false
+- name: missing_items
+  description: Test with missing required items
+  inputs:
+    separator: ', '
+  want: {}
+  wantErr: true

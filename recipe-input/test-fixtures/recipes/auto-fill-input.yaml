@@ -1,0 +1,27 @@
+id: auto-fill-input
+version: "1.0"
+input_schema:
+  prompt:
+    type: string
+    required: true
+inputs:
+  prompt: "{{ inputs.prompt }}"
+sequence:
+  - id: question
+    op: input
+    inputs:
+      form:
+        question: "{{ inputs.prompt }}"
+        autofill:
+          response: "auto-answer"
+          user_id: "fixture-user"
+          metadata:
+            source: "fixture"
+  - id: echo
+    op: echo
+    inputs:
+      message: "{{ sequence.question.outputs.response }}"
+outputs:
+  result: "{{ sequence.echo.outputs.output }}"
+  user: "{{ sequence.question.outputs.user_id }}"
+  meta: "${{ sequence.question.outputs.metadata }}"

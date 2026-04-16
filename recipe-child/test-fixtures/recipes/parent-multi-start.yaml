@@ -1,0 +1,33 @@
+id: parent-multi-start
+version: "1.0"
+input_schema:
+  git_ref:
+    type: string
+    required: true
+inputs:
+  git_ref: "{{ inputs.git_ref }}"
+sequence:
+  - id: start
+    op: recipes.run
+    inputs:
+      git_ref: "{{ inputs.git_ref }}"
+      recipes:
+        - name: child-simple
+          inputs:
+            value: "one"
+          artifacts: []
+        - name: child-simple
+          inputs:
+            value: "two"
+          artifacts: []
+  - id: wait_one
+    op: recipe.await_result
+    inputs:
+      job_id: "${{ sequence.start.outputs.job_ids[0] }}"
+  - id: wait_two
+    op: recipe.await_result
+    inputs:
+      job_id: "${{ sequence.start.outputs.job_ids[1] }}"
+outputs:
+  first: "{{ sequence.wait_one.outputs.outputs.value }}"
+  second: "{{ sequence.wait_two.outputs.outputs.value }}"

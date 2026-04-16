@@ -1,0 +1,32 @@
+id: gemini_research_recipe
+desc: Research recipe using Google Gemini AI
+version: '1.0'
+input_schema:
+  topic:
+    type: string
+    required: true
+inputs:
+  topic: '{{ inputs.topic }}'
+outputs:
+  report: '{{ sequence.generate_report.outputs.report }}'
+sequence:
+- id: generate_report
+  op: gemini_report_activity
+  inputs:
+    message: '{{ inputs.topic }}'
+  outputs:
+    report: .report
+defs:
+  gemini_report_activity:
+    op: llm
+    inputs:
+      message: "Generate a concise technical report about '{{ inputs.topic }}'. \n\
+        \nStructure the report with:\n1. Executive Summary (2-3 sentences)\n2. Key\
+        \ Concepts (3-5 bullet points)\n3. Current State (1 paragraph)\n4. Future\
+        \ Outlook (1 paragraph)\n\nKeep the total length under 500 words. Be informative\
+        \ and professional."
+      extra:
+        provider: gemini
+        model: gemini-2.0-flash-exp
+        temperature: 0.7
+        timeout: 2m

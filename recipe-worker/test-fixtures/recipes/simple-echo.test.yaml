@@ -1,0 +1,28 @@
+tests:
+- name: basic_echo
+  description: Test basic text echoing
+  inputs:
+    text: Hello World
+  want:
+    result: 'Hello World'
+  wantErr: false
+- name: echo_with_spaces
+  description: Test echoing with multiple spaces
+  inputs:
+    text: Hello    World
+  want:
+    result: 'Hello    World'
+  wantErr: false
+- name: echo_empty_string
+  description: Test echoing empty string
+  inputs:
+    text: ''
+  want:
+    result: ''
+  wantErr: false
+- name: missing_input
+  description: Test missing required input
+  inputs: {}
+  want:
+    result: '<no value>'
+  wantErr: false

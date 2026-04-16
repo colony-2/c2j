@@ -1,0 +1,111 @@
+tests:
+- name: default_research
+  description: Test research with default values
+  inputs: {}
+  want:
+    research:
+      stdout: Researching topic
+      success: true
+      exit_code: 0
+      stderr: ''
+      error_message: ''
+      timed_out: false
+    analyze:
+      stdout: Analyzing data
+      success: true
+      exit_code: 0
+      stderr: ''
+      error_message: ''
+      timed_out: false
+    writereport:
+      stdout: Writing report
+      success: true
+      exit_code: 0
+      stderr: ''
+      error_message: ''
+      timed_out: false
+  wantErr: false
+- name: custom_topic
+  description: Test research with custom topic
+  inputs:
+    topic: Quantum Computing
+    max_sources: 5
+  want:
+    research:
+      stdout: Researching topic
+      success: true
+      exit_code: 0
+      stderr: ''
+      error_message: ''
+      timed_out: false
+    analyze:
+      stdout: Analyzing data
+      success: true
+      exit_code: 0
+      stderr: ''
+      error_message: ''
+      timed_out: false
+    writereport:
+      stdout: Writing report
+      success: true
+      exit_code: 0
+      stderr: ''
+      error_message: ''
+      timed_out: false
+  wantErr: false
+- name: limited_sources
+  description: Test research with limited sources
+  inputs:
+    topic: Machine Learning
+    max_sources: 2
+  want:
+    research:
+      stdout: Researching topic
+      success: true
+      exit_code: 0
+      stderr: ''
+      error_message: ''
+      timed_out: false
+    analyze:
+      stdout: Analyzing data
+      success: true
+      exit_code: 0
+      stderr: ''
+      error_message: ''
+      timed_out: false
+    writereport:
+      stdout: Writing report
+      success: true
+      exit_code: 0
+      stderr: ''
+      error_message: ''
+      timed_out: false
+  wantErr: false
+- name: empty_topic
+  description: Test research with empty topic
+  inputs:
+    topic: ''
+    max_sources: 10
+  want:
+    research:
+      stdout: Researching topic
+      success: true
+      exit_code: 0
+      stderr: ''
+      error_message: ''
+      timed_out: false
+    analyze:
+      stdout: Analyzing data
+      success: true
+      exit_code: 0
+      stderr: ''
+      error_message: ''
+      timed_out: false
+    writereport:
+      stdout: Writing report
+      success: true
+      exit_code: 0
+      stderr: ''
+      error_message: ''
+      timed_out: false
+  wantErr: false

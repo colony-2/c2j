@@ -1,0 +1,37 @@
+id: basic_state_machine_test
+desc: Basic state machine test using simple operations
+version: 1.0.0
+input_schema:
+  message:
+    type: string
+    default_value: Hello
+  analysis_depth:
+    type: string
+    default_value: medium
+  output_format:
+    type: string
+    default_value: json
+inputs:
+  message: '${{ has(inputs.message) ? inputs.message : "Hello" }}'
+  analysis_depth: '${{ has(inputs.analysis_depth) ? inputs.analysis_depth : "medium" }}'
+  output_format: '${{ has(inputs.output_format) ? inputs.output_format : "json" }}'
+state:
+  initial: processing
+  states:
+    processing:
+      op: echo_activity
+      inputs:
+        message: 'Processing: {{ inputs.message }}'
+      transitions:
+      - to: final_state
+        when: outputs.result != null
+    final_state:
+      op: echo_activity
+      inputs:
+        message: 'Final state'
+outputs:
+  result:
+  - '{{ inputs.message }}'
+  metadata:
+    analysis_type: '{{ inputs.analysis_depth }}'
+    output_format: '{{ inputs.output_format }}'

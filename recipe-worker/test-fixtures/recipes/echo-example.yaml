@@ -1,0 +1,23 @@
+id: echo_example
+desc: Simple recipe that echoes an input string
+version: '1.0'
+input_schema:
+  message:
+    type: string
+    default_value: Hello
+  repeat_count:
+    type: number
+    default_value: 1
+inputs:
+  message: '{{ inputs.message }}'
+  repeat_count: '{{ inputs.repeat_count }}'
+sequence:
+- id: echo
+  desc: Echo Message
+  op: command_execution
+  inputs:
+    run: '${{ "for i in $(seq 1 " + string(has(inputs.repeat_count) ? inputs.repeat_count
+      : 1) + "); do echo ''" + (has(inputs.message) ? inputs.message : "Hello") +
+      "''; done" }}'
+outputs:
+  echo_result: '{{ sequence.echo.outputs.stdout }}'

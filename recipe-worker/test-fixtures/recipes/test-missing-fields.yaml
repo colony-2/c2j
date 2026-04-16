@@ -1,0 +1,11 @@
+id: test-missing-fields
+desc: Test recipe with missing required fields
+version: '1.0'
+input_schema: {}
+sequence:
+- id: step1
+  op: echo_activity
+  # Missing required 'message' input for echo_activity
+- id: step2
+  op: command_execution
+  # Missing required 'run' input for command_execution

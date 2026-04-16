@@ -1,0 +1,9 @@
+tests:
+  - name: outbox_artifact_capture
+    description: Command execution writes a file to outbox and it is captured
+    inputs: {}
+    want:
+      write_success: true
+    wantArtifacts:
+      - subdir/random.bin
+    wantErr: false

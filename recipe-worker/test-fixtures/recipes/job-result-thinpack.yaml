@@ -1,0 +1,16 @@
+id: job-result-thinpack
+version: "1.0.0"
+desc: Verify thinpack artifacts are surfaced on job results
+input_schema: {}
+sequence:
+  - id: write_files
+    op: command_execution
+    inputs:
+      working_directory: "{{ context.environment.outbox }}"
+      env:
+        WORKTREE_PATH: "{{ context.environment.worktree_path }}"
+      run: |
+        printf 'thinpack test' > thinpack.txt
+        printf 'thinpack test' > "$WORKTREE_PATH/{{ context.workflow.cell_path }}/thinpack.txt"
+outputs:
+  write_success: "{{ sequence.write_files.outputs.success }}"

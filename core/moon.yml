@@ -1,0 +1,6 @@
+id: 'be-core'
+language: 'go'
+type: 'library'
+
+project:
+  description: Provides core interfaces and types shared across the backend application.

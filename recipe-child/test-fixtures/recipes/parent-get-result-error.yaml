@@ -1,0 +1,9 @@
+id: parent-get-result-error
+version: "1.0"
+sequence:
+  - id: get
+    op: recipe.get_result
+    inputs:
+      job_id: "missing-job"
+outputs:
+  value: "{{ sequence.get.outputs.outputs.value }}"

@@ -1,0 +1,53 @@
+tests:
+- name: research_operation
+  description: Test research operation definition
+  operation: research_op
+  inputs:
+    topic: AI Research
+    max_sources: 5
+  want:
+    research:
+      result: Found by research_op
+      status: found
+    analyze:
+      result: Processed by analyze_op
+      status: processed
+    report:
+      report: Report from write_report_op
+      status: generated
+  wantErr: false
+- name: analyze_operation
+  description: Test analyze operation definition
+  operation: analyze_op
+  inputs:
+    data: sample data
+    topic: Data Analysis
+  want:
+    research:
+      result: Found by research_op
+      status: found
+    analyze:
+      result: Processed by analyze_op
+      status: processed
+    report:
+      report: Report from write_report_op
+      status: generated
+  wantErr: false
+- name: write_report_operation
+  description: Test write report operation definition
+  operation: write_report_op
+  inputs:
+    research: research data
+    analysis: analysis data
+    topic: Final Report
+  want:
+    research:
+      result: Found by research_op
+      status: found
+    analyze:
+      result: Processed by analyze_op
+      status: processed
+    report:
+      report: Report from write_report_op
+      status: generated
+  wantErr: false

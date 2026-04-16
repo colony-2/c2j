@@ -1,0 +1,13 @@
+tests:
+- name: missing_required_fields
+  description: Test that missing required fields cause failure
+  inputs: {}
+  want: {}
+  wantErr: true
+  expectedError: missing required fields
+- name: no_inputs_provided
+  description: Test with no inputs at all
+  inputs: {}
+  want: {}
+  wantErr: true
+  expectedError: missing required fields

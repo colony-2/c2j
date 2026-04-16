@@ -1,0 +1,16 @@
+id: hello_world
+desc: A minimal recipe that demonstrates basic structure
+version: '1.0'
+input_schema:
+  name:
+    type: string
+inputs:
+  name: '${{ has(inputs.name) ? inputs.name : "" }}'
+  greeting: '${{ "Hello, " + (has(inputs.name) ? inputs.name : "<no value>") + "!" }}'
+sequence:
+- id: echo
+  op: echo_activity
+  inputs:
+    message: '{{ inputs.greeting }}'
+outputs:
+  output: '{{ sequence.echo.outputs.output }}'

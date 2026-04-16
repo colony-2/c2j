@@ -1,0 +1,14 @@
+id: artifact-flow-test
+version: 1.0.0
+desc: Template artifact flow test recipe
+input_schema: {}
+sequence:
+- id: emit
+  op: test_emit_artifact
+- id: consume
+  op: test_consume_artifact
+  inputs:
+    artifact: '${{ sequence.emit.artifacts["foo"] }}'
+outputs:
+  emitted: '{{ sequence.emit.outputs.name }}'
+  consumed: '{{ sequence.consume.outputs.name }}'

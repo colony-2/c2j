@@ -1,0 +1,16 @@
+id: test-execute
+desc: Test recipe for execution refactoring
+version: '1.0'
+input_schema:
+  message:
+    type: string
+    default_value: Test message
+inputs:
+  message: '{{ inputs.message }}'
+sequence:
+- id: echo_message
+  op: command_execution
+  inputs:
+    run: 'echo {{ inputs.message }}'
+outputs:
+  echo_message: '${{ sequence.echo_message.outputs }}'

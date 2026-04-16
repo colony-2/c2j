@@ -1,0 +1,16 @@
+id: basic-test
+desc: Basic test recipe
+version: '1.0'
+input_schema:
+  message:
+    type: string
+    required: true
+inputs:
+  message: '{{ inputs.message }}'
+sequence:
+- id: cmd
+  op: command_execution
+  inputs:
+    run: '${{ "echo ''" + inputs.message + "''" }}'
+outputs:
+  result: '{{ sequence.cmd.outputs.stdout }}'

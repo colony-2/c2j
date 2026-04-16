@@ -1,0 +1,31 @@
+tests:
+- name: default_echo
+  description: Test echo with default values
+  inputs: {}
+  want:
+    echo_result: 'Hello'
+  wantErr: false
+- name: custom_message
+  description: Test echo with custom message
+  inputs:
+    message: Test Message
+    repeat_count: 1
+  want:
+    echo_result: 'Test Message'
+  wantErr: false
+- name: multiple_repeats
+  description: Test echo with multiple repeats
+  inputs:
+    message: Hi
+    repeat_count: 3
+  want:
+    echo_result: "Hi\nHi\nHi"
+  wantErr: false
+- name: empty_message
+  description: Test echo with empty message
+  inputs:
+    message: ''
+    repeat_count: 1
+  want:
+    echo_result: ''
+  wantErr: false

@@ -1,0 +1,10 @@
+id: repro-child-fail
+desc: Child recipe that fails with a non-zero exit code
+version: 1.0.0
+sequence:
+  - id: boom
+    op: command_execution
+    inputs:
+      run: |
+        echo "child failing"
+        exit 1

@@ -1,0 +1,16 @@
+id: inputs
+desc: Test static inputs
+version: '1.0'
+input_schema:
+  message:
+    type: string
+    default_value: test
+inputs:
+  message: '${{ has(inputs.message) ? inputs.message : "" }}'
+sequence:
+- id: echo
+  op: echo_activity
+  inputs:
+    message: '{{ inputs.message }}'
+outputs:
+  output: '{{ sequence.echo.outputs.output }}'

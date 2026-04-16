@@ -1,0 +1,22 @@
+id: test-command-execution
+desc: Test recipe for command execution operation with const discrimination
+version: '1.0'
+input_schema: {}
+sequence:
+- id: cmd
+  op: command_execution
+  inputs:
+    run: echo 'Testing command execution'
+    working_directory: /tmp
+    shell: bash
+    env:
+      TEST_ENV: value1
+    continue_on_error: false
+    timeout: 30s
+outputs:
+  stdout: '{{ sequence.cmd.outputs.stdout }}'
+  success: '{{ sequence.cmd.outputs.success }}'
+  exit_code: '{{ sequence.cmd.outputs.exit_code }}'
+  stderr: '{{ sequence.cmd.outputs.stderr }}'
+  error_message: '{{ sequence.cmd.outputs.error_message }}'
+  timed_out: '{{ sequence.cmd.outputs.timed_out }}'

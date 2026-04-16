@@ -1,0 +1,8 @@
+recipes:
+  - repro-child-fail.yaml
+
+tests:
+  - name: run_and_get_result_child_exit_1_returns_error
+    inputs: {}
+    wantErr: true
+    wantErrContains: "exit status 1"

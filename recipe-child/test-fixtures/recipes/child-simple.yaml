@@ -1,0 +1,25 @@
+id: child-simple
+version: "1.0"
+input_schema:
+  value:
+    type: string
+    required: true
+inputs:
+  value: "{{ inputs.value }}"
+sequence:
+  - id: echo
+    op: test_complex_input
+    inputs:
+      config:
+        enabled: true
+        threshold: 1
+        nested:
+          name: "{{ inputs.value }}"
+        items:
+          - id: 1
+      meta:
+        label: "{{ inputs.value }}"
+        flags:
+          - child
+outputs:
+  value: "{{ sequence.echo.outputs.meta.label }}"

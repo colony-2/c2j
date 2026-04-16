@@ -1,0 +1,437 @@
+openapi: 3.0.3
+info:
+  title: Recipe Input API
+  description: OpenAPI subset for recipe-input form and management payloads.
+  version: 1.0.0
+
+servers:
+  - url: http://localhost:8080
+    description: Local development server
+
+tags:
+  - name: UserInputs
+    description: Recipe input management and SSE endpoints
+
+paths:
+  /api/projects/{projectId}/user-inputs/pending:
+    parameters:
+      - name: projectId
+        in: path
+        required: true
+        description: Project identifier
+        schema:
+          type: string
+    get:
+      tags: [UserInputs]
+      summary: List pending input jobs
+      description: Returns all pending user input requests from the workflow engine for the specified project.
+      responses:
+        '200':
+          description: Pending input list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/PendingInput'
+
+  /api/projects/{projectId}/user-inputs/{jobId}:
+    parameters:
+      - name: projectId
+        in: path
+        required: true
+        description: Project identifier
+        schema:
+          type: string
+      - name: jobId
+        in: path
+        required: true
+        description: Input job identifier
+        schema:
+          type: string
+    get:
+      tags: [UserInputs]
+      summary: Get input request details
+      description: Returns details for a pending user input request in the specified project.
+      responses:
+        '200':
+          description: Input request details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserInputDetails'
+        '404':
+          description: Input request not found
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /api/projects/{projectId}/user-inputs/{jobId}/respond:
+    parameters:
+      - name: projectId
+        in: path
+        required: true
+        description: Project identifier
+        schema:
+          type: string
+      - name: jobId
+        in: path
+        required: true
+        description: Input job identifier
+        schema:
+          type: string
+    post:
+      tags: [UserInputs]
+      summary: Submit input response
+      description: Completes a pending input request with user-provided fields in the specified project.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FormResponse'
+      responses:
+        '200':
+          description: Response accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OkResponse'
+        '400':
+          description: Invalid request
+          content:
+            text/plain:
+              schema:
+                type: string
+        '404':
+          description: Input request not found
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /api/projects/{projectId}/user-inputs/{jobId}/cancel:
+    parameters:
+      - name: projectId
+        in: path
+        required: true
+        description: Project identifier
+        schema:
+          type: string
+      - name: jobId
+        in: path
+        required: true
+        description: Input job identifier
+        schema:
+          type: string
+    post:
+      tags: [UserInputs]
+      summary: Cancel input request
+      description: Cancels a pending input request in the specified project and broadcasts an SSE event.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CancelRequest'
+      responses:
+        '200':
+          description: Cancellation acknowledged
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OkResponse'
+        '404':
+          description: Input request not found
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /api/projects/{projectId}/user-inputs/stream:
+    parameters:
+      - name: projectId
+        in: path
+        required: true
+        description: Project identifier
+        schema:
+          type: string
+    get:
+      tags: [UserInputs]
+      summary: User input SSE stream
+      description: "Server-Sent Events stream emitting input lifecycle events for the specified project."
+      responses:
+        '200':
+          description: SSE stream established
+          content:
+            text/event-stream:
+              schema:
+                $ref: '#/components/schemas/InputSSEEvent'
+              example: |
+                event: connected
+                data: {"client_id":"client-123"}
+
+                event: input_pending
+                data: {"id":"job-abc"}
+
+                event: heartbeat
+                data: {"timestamp":"2024-01-15T10:30:00Z"}
+
+components:
+  schemas:
+    FieldType:
+      type: string
+      enum:
+        - short_answer
+        - paragraph_text
+        - multiple_choice
+        - checkboxes
+        - dropdown
+        - linear_scale
+        - multiple_choice_grid
+        - checkbox_grid
+        - date
+        - time
+        - file_upload
+
+    Option:
+      type: object
+      properties:
+        value:
+          type: string
+        label:
+          type: string
+      required: [value]
+
+    LinearScale:
+      type: object
+      properties:
+        min:
+          type: integer
+        max:
+          type: integer
+        min_label:
+          type: string
+        max_label:
+          type: string
+      required: [min, max]
+
+    FieldValidation:
+      type: object
+      properties:
+        min_length:
+          type: integer
+          minimum: 0
+        max_length:
+          type: integer
+          minimum: 1
+        pattern:
+          type: string
+        min:
+          type: integer
+        max:
+          type: integer
+
+    FormField:
+      type: object
+      properties:
+        id:
+          type: string
+        type:
+          $ref: '#/components/schemas/FieldType'
+        question:
+          type: string
+        required:
+          type: boolean
+        placeholder:
+          type: string
+        options:
+          type: array
+          items:
+            $ref: '#/components/schemas/Option'
+        scale:
+          $ref: '#/components/schemas/LinearScale'
+        validation:
+          $ref: '#/components/schemas/FieldValidation'
+      required: [id, type, question]
+
+    Artifact:
+      type: object
+      properties:
+        path:
+          type: string
+      required: [path]
+
+    GlobPattern:
+      type: object
+      properties:
+        pattern:
+          type: string
+      required: [pattern]
+
+    FormContext:
+      type: object
+      properties:
+        artifacts:
+          type: array
+          items:
+            $ref: '#/components/schemas/Artifact'
+        artifacts_from_output:
+          type: string
+        artifacts_glob:
+          type: array
+          items:
+            $ref: '#/components/schemas/GlobPattern'
+
+    InputFormConfig:
+      type: object
+      description: Configuration for a single- or multi-question input form.
+      properties:
+        question:
+          type: string
+        type:
+          $ref: '#/components/schemas/FieldType'
+        options:
+          type: array
+          items:
+            $ref: '#/components/schemas/Option'
+        scale:
+          $ref: '#/components/schemas/LinearScale'
+        title:
+          type: string
+        fields:
+          type: array
+          items:
+            $ref: '#/components/schemas/FormField'
+        context:
+          $ref: '#/components/schemas/FormContext'
+        timeout:
+          type: integer
+          description: Timeout in seconds
+          default: 300
+        default_on_timeout:
+          description: Default value to return if input times out
+
+    PendingInput:
+      type: object
+      properties:
+        id:
+          type: string
+          description: Workflow job ID
+      required: [id]
+
+    UserInputDetails:
+      type: object
+      properties:
+        jobId:
+          type: string
+        status:
+          type: string
+        startTime:
+          type: string
+          format: date-time
+        form:
+          $ref: '#/components/schemas/InputFormConfig'
+        hash:
+          type: string
+      required: [jobId, status, startTime, form]
+
+    FormResponse:
+      type: object
+      properties:
+        activity_id:
+          type: string
+        user_id:
+          type: string
+        response:
+          description: Single-question response value
+        fields:
+          type: object
+          additionalProperties: {}
+          description: Field responses for multi-field forms
+        submitted_at:
+          type: string
+          format: date-time
+        time_to_complete:
+          type: integer
+        hash:
+          type: string
+      required: [fields]
+
+    CancelRequest:
+      type: object
+      properties:
+        reason:
+          type: string
+          description: Human-readable cancellation reason
+
+    OkResponse:
+      type: object
+      properties:
+        ok:
+          type: boolean
+
+    InputSSEEventType:
+      type: string
+      enum:
+        - connected
+        - input_pending
+        - input_cancelled
+        - heartbeat
+        - error
+      description: "Input SSE event type emitted by /api/projects/{projectId}/user-inputs/stream."
+
+    InputSSEConnectedData:
+      type: object
+      properties:
+        client_id:
+          type: string
+      required: [client_id]
+
+    InputSSEPendingData:
+      type: object
+      properties:
+        id:
+          type: string
+          description: Workflow job ID
+      required: [id]
+
+    InputSSECancelledData:
+      type: object
+      properties:
+        jobId:
+          type: string
+        reason:
+          type: string
+      required: [jobId]
+
+    InputSSEHeartbeatData:
+      type: object
+      properties:
+        timestamp:
+          type: string
+          format: date-time
+      required: [timestamp]
+
+    InputSSEErrorData:
+      type: object
+      properties:
+        error:
+          type: string
+      required: [error]
+
+    InputSSEEvent:
+      type: object
+      description: "Event envelope emitted by /api/projects/{projectId}/user-inputs/stream."
+      properties:
+        type:
+          $ref: '#/components/schemas/InputSSEEventType'
+        data:
+          oneOf:
+            - $ref: '#/components/schemas/InputSSEConnectedData'
+            - $ref: '#/components/schemas/InputSSEPendingData'
+            - $ref: '#/components/schemas/InputSSECancelledData'
+            - $ref: '#/components/schemas/InputSSEHeartbeatData'
+            - $ref: '#/components/schemas/InputSSEErrorData'
+      required: [type, data]

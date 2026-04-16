@@ -1,0 +1,11 @@
+recipes:
+  - child-simple.yaml
+
+tests:
+  - name: multi_start_waits_for_each_child
+    inputs:
+      git_ref: "refs/heads/test"
+    want:
+      first: "one"
+      second: "two"
+    wantErr: false

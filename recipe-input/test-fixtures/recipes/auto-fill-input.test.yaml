@@ -1,0 +1,10 @@
+tests:
+  - name: auto_fill_response
+    inputs:
+      prompt: "What is your name?"
+    want:
+      result: "auto-answer"
+      user: "fixture-user"
+      meta:
+        source: "fixture"
+    wantErr: false

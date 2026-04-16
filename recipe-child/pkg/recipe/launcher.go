@@ -1,0 +1,124 @@
+package recipe
+
+import (
+	"context"
+	"crypto/sha256"
+	"encoding/binary"
+	"fmt"
+	"strings"
+
+	recipeartifacts "github.com/colony-2/c2j/recipe-core/pkg/artifacts"
+	"github.com/colony-2/c2j/recipe-core/pkg/contextual"
+	"github.com/colony-2/c2j/recipe-core/pkg/workflowctl"
+	"github.com/colony-2/c2j/recipe-worker/pkg/compiler"
+	"github.com/colony-2/swf-go/pkg/swf"
+	"github.com/segmentio/ksuid"
+)
+
+const childJobIDNamespace = "colony2.recipe-child/v1"
+
+func deterministicChildJobID(parentJobID string, invocation contextual.Invocation, recipeIndex int) string {
+	hasher := sha256.New()
+	hasher.Write([]byte(childJobIDNamespace))
+	hasher.Write([]byte{0})
+	hasher.Write([]byte(parentJobID))
+	hasher.Write([]byte{0})
+	hasher.Write([]byte(invocation.NodePath))
+	hasher.Write([]byte{0})
+
+	var intBuf [8]byte
+	binary.BigEndian.PutUint64(intBuf[:], uint64(invocation.InvokeSeq))
+	hasher.Write(intBuf[:])
+	binary.BigEndian.PutUint64(intBuf[:], uint64(recipeIndex))
+	hasher.Write(intBuf[:])
+
+	sum := hasher.Sum(nil)
+	var jobID ksuid.KSUID
+	copy(jobID[:], sum[:len(jobID)])
+	return jobID.String()
+}
+
+func recipeToStart(ctx context.Context, tenantId string, ctl workflowctl.WorkflowControl, recipe SingleRecipe, recipeSourceRepo string, recipeSourceRef string, gitRef string, jobID string) (workflowctl.StartJob, error) {
+	artifacts := make([]swf.Artifact, 0, len(recipe.Artifacts))
+	for _, artifactRef := range recipe.Artifacts {
+		key, ok := artifactRef.StoredKey()
+		if !ok {
+			continue
+		}
+		artifacts = append(artifacts, ctl.GetArtifactLazy(ctx, tenantId, key))
+	}
+
+	recipeName := recipe.Name
+	if !compiler.IsGitRecipeSelector(recipeName) {
+		selectorRepo := strings.TrimSpace(recipeSourceRepo)
+		if selectorRepo == "" {
+			selectorRepo = strings.TrimSpace(recipe.Git.BaseRepo)
+		}
+		selectorRef := strings.TrimSpace(recipeSourceRef)
+		if selectorRef == "" {
+			selectorRef = strings.TrimSpace(recipe.Git.BaseRef)
+		}
+		selector, err := compiler.BuildCellRecipeSelector(selectorRepo, recipeName, selectorRef)
+		if err != nil {
+			return workflowctl.StartJob{}, err
+		}
+		recipeName = selector
+	}
+
+	return workflowctl.StartJob{
+		TenantId:     tenantId,
+		JobID:        jobID,
+		RecipeName:   recipeName,
+		Inputs:       recipe.Inputs,
+		Artifacts:    artifacts,
+		ArtifactRefs: append([]recipeartifacts.Ref(nil), recipe.Artifacts...),
+		JobContext: contextual.JobContext{
+			Workflow: contextual.WorkflowContext{
+				CellName: recipe.CellName,
+				CellPath: recipe.CellPath,
+			},
+			GitBase: contextual.GitBaseContext{
+				BaseRepo:         recipe.Git.BaseRepo,
+				BaseRef:          recipe.Git.BaseRef,
+				ResolvedBaseHash: recipe.Git.BaseHash,
+				GitAuthor:        recipe.Git.Author,
+			},
+		},
+		GitRef: gitRef,
+	}, nil
+}
+
+// func(deps OpDependencies, ctx context.Context, in In)
+// Execute runs the activity with provided configuration and inputs
+func startJobs(ctx context.Context, parentJobKey swf.JobKey, invocation contextual.Invocation, ctl workflowctl.WorkflowControl, recipeSourceRepo string, recipeSourceRef string, recipes []SingleRecipe, gitRef string) ([]swf.JobKey, error) {
+	if len(recipes) == 0 {
+		return nil, fmt.Errorf("no jobs to start")
+	}
+
+	jobs := make([]workflowctl.StartJob, len(recipes))
+	for i, recipe := range recipes {
+		job, err := recipeToStart(ctx, parentJobKey.TenantId, ctl, recipe, recipeSourceRepo, recipeSourceRef, gitRef, deterministicChildJobID(parentJobKey.JobId, invocation, i))
+		if err != nil {
+			return nil, err
+		}
+		jobs[i] = job
+	}
+
+	if len(jobs) == 1 {
+		key, err := ctl.StartJob(ctx, jobs[0])
+		if err != nil {
+			return nil, err
+		}
+		return []swf.JobKey{key}, nil
+	}
+
+	keys := make([]swf.JobKey, len(jobs))
+	for i, job := range jobs {
+		key, err := ctl.StartJob(ctx, job)
+		if err != nil {
+			return nil, err
+		}
+		keys[i] = key
+	}
+	return keys, nil
+}

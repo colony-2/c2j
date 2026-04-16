@@ -1,0 +1,7 @@
+tests:
+  - name: outputs_visible
+    inputs: {}
+    want:
+      child: inner-ok
+    wantErr: false
+

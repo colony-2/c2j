@@ -1,0 +1,22 @@
+id: simple_research
+desc: A simple research workflow using unified activity model
+version: '1.0'
+input_schema:
+  query:
+    type: string
+    required: true
+inputs:
+  query: '{{ inputs.query }}'
+outputs:
+  result: '{{ sequence.summarize.outputs.report }}'
+sequence:
+- id: search
+  name: Quick Search
+  op: quick_search_activity
+  inputs:
+    message: '{{ inputs.query }}'
+- id: summarize
+  name: Summarize Results
+  op: summarize_activity
+  inputs:
+    data: '${{ sequence.search.outputs.result  }}'

@@ -1,0 +1,9 @@
+id: minimal_state_test
+desc: Minimal state machine test
+version: 1.0.0
+input_schema: {}
+state:
+  initial: start
+  states:
+    start:
+      op: echo_activity

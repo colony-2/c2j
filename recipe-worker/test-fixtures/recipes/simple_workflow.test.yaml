@@ -1,0 +1,34 @@
+tests:
+- name: basic_research
+  description: Test simple research workflow
+  inputs:
+    query: What is artificial intelligence?
+  want:
+    result: "Report from summarize_activity"
+  wantErr: false
+- name: technical_query
+  description: Test research with technical query
+  inputs:
+    query: Explain quantum entanglement
+  want:
+    result: "Report from summarize_activity"
+  wantErr: false
+- name: missing_query
+  description: Test with missing required query
+  inputs: {}
+  want: {}
+  wantErr: true
+- name: empty_query
+  description: Test with empty query string
+  inputs:
+    query: ''
+  want:
+    result: "Report from summarize_activity"
+  wantErr: false
+- name: complex_query
+  description: Test with complex multi-part query
+  inputs:
+    query: Compare machine learning and deep learning approaches in computer vision
+  want:
+    result: "Report from summarize_activity"
+  wantErr: false

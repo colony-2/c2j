@@ -1,0 +1,8 @@
+tests:
+- name: simple_passthrough
+  description: Test simple input to output passthrough
+  inputs:
+    message: Hello Test
+  want:
+    result: 'Hello Test'
+  wantErr: false

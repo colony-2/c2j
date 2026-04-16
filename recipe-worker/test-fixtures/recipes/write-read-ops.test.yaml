@@ -1,0 +1,22 @@
+tests:
+  - name: write_then_read
+    description: Write a file in the first op and read it in the second op
+    inputs: {}
+    want:
+      write_success: true
+      write_stdout: ""
+      read_success: true
+      read_stdout: "hello world"
+    wantErr: false
+  - name: write_then_read_with_artifacts
+    description: Verify thin pack and diff artifacts are produced
+    inputs: {}
+    want:
+      write_success: true
+      write_stdout: ""
+      read_success: true
+      read_stdout: "hello world"
+    wantArtifacts:
+      - "__git_state_thin_pack__"
+      - "diff_from_parent.diff"
+    wantErr: false

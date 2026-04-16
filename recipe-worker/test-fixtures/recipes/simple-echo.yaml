@@ -1,0 +1,16 @@
+id: simple_echo
+desc: Very simple echo recipe for testing
+version: '1.0'
+input_schema:
+  text:
+    type: string
+    default_value: "<no value>"
+inputs:
+  text: '{{ inputs.text }}'
+sequence:
+- id: echo_cmd
+  op: command_execution
+  inputs:
+    run: '${{ "echo ''" + (has(inputs.text) ? inputs.text : "<no value>") + "''" }}'
+outputs:
+  result: '{{ sequence.echo_cmd.outputs.stdout }}'

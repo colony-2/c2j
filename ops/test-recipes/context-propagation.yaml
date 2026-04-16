@@ -1,0 +1,89 @@
+id: context_aware_pipeline
+version: '1.0'
+desc: Demonstrates context propagation through recipe hierarchy
+inputs:
+  request_id: ''
+  user_id: ''
+  data_source: ''
+sequence:
+- id: initialize
+  op: context_logger
+  inputs:
+    message: Starting context-aware pipeline
+    request_id: '{{ inputs.request_id }}'
+    user_id: '{{ inputs.user_id }}'
+    parent_execution_id: '${{ "parent-exec-" + string(has(inputs.request_id) ? inputs.request_id
+      : "unknown") }}'
+    environment: '${{ "default-env" }}'
+    region: '${{ "us-west-1" }}'
+  outputs:
+    initialization_id: .logged
+- id: process_with_context
+  op: recipe
+  config:
+    recipe: context-aware-processor
+    timeout: 10m
+  inputs:
+    data_source: '{{ inputs.data_source }}'
+    request_id: '{{ inputs.request_id }}'
+    parent_init_id: '{{ sequence.initialize.outputs.initialization_id }}'
+  outputs:
+    result: .result
+    child_execution_id: .execution_id
+    child_received_context: .result.context_info
+- id: secondary_processing
+  op: recipe
+  config:
+    recipe: context-validator
+    timeout: 5m
+  inputs:
+    previous_result: '{{ sequence.process_with_context.outputs.result }}'
+    previous_child_id: '{{ sequence.process_with_context.outputs.child_execution_id }}'
+  outputs:
+    validation_result: .result.validation
+    context_chain: .result.execution_chain
+- id: nested_invocation
+  op: recipe
+  config:
+    recipe: nested-orchestrator
+    timeout: 15m
+  inputs:
+    data: '{{ sequence.process_with_context.outputs.result }}'
+  outputs:
+    nested_result: .result
+    execution_tree: .result.execution_hierarchy
+- id: create_audit_trail
+  op: audit_logger
+  inputs:
+    request_id: '{{ inputs.request_id }}'
+    user_id: '{{ inputs.user_id }}'
+    execution_chain:
+      parent_id: '${{ "exec-" + string(has(inputs.request_id) ? inputs.request_id :
+        "unknown") + "-" + string(now().getSeconds()) }}'
+      children:
+      - id: '{{ sequence.process_with_context.outputs.child_execution_id }}'
+        context: '{{ sequence.process_with_context.outputs.child_received_context }}'
+      - id: '{{ sequence.secondary_processing.outputs.context_chain }}'
+      - id: '{{ sequence.nested_invocation.outputs.execution_tree }}'
+    environment:
+      name: '${{ "default-env" }}'
+      region: '${{ "us-west-1" }}'
+      cluster: '${{ "default-cluster" }}'
+    auth:
+      identity: '${{ "default-identity" }}'
+  outputs:
+    audit_id: .audit_record_id
+outputs:
+  execution_hierarchy: '{{ sequence.nested_invocation.outputs.execution_tree }}'
+  audit_trail_id: '{{ sequence.create_audit_trail.outputs.audit_id }}'
+  processing_result: '{{ sequence.process_with_context.outputs.result }}'
+  context_info:
+    recipe_name: '${{ "context_aware_pipeline" }}'
+    recipe_version: '${{ "1.0" }}'
+    execution_id: '${{ "exec-" + string(has(inputs.request_id) ? inputs.request_id
+      : "unknown") + "-" + string(now().getSeconds()) }}'
+    parent_execution_id: '${{ "parent-exec-" + string(has(inputs.request_id) ? inputs.request_id
+      : "unknown") }}'
+    environment: '${{ "default-env" }}'
+    region: '${{ "us-west-1" }}'
+    identity: '${{ "default-identity" }}'

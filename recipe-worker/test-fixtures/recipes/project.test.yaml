@@ -1,0 +1,8 @@
+tests:
+- name: project_definition
+  description: Test project file structure and references
+  inputs: {}
+  want:
+    output: "project test"
+  wantErr: false
+  skipExecution: true

@@ -1,0 +1,27 @@
+id: state-child-run
+desc: Repro fixture for state machine running a child recipe via recipe.run_and_get_result
+version: 1.0.0
+input_schema:
+  child_recipe:
+    type: string
+    required: true
+inputs:
+  child_recipe: "{{ inputs.child_recipe }}"
+state:
+  initial: triage
+  states:
+    triage:
+      op: recipe.run_and_get_result
+      inputs:
+        name: "{{ inputs.child_recipe }}"
+        inputs: {}
+      transitions:
+        - to: done
+          when: "true"
+    done:
+      op: echo
+      inputs:
+        message: done
+outputs:
+  ok: "{{ states.triage.outputs.outputs.cell_is_appropriate }}"
+  recommended: "{{ states.triage.outputs.outputs.recommended_cell }}"

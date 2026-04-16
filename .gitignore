@@ -1,0 +1,53 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+server/vendor/
+
+# Build outputs
+web/build/
+web/dist/
+web/.cache/
+build/
+server/static/dist/
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Test binary, built with `go test -c`
+*.test
+
+# Output of the go coverage tool
+*.out
+
+
+# IDE files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Environment files
+.env
+.env.local
+
+# BBolt database files
+*.db
+graph_positions.db
+
+
+# moon
+.moon/lcache
+.moon/docker
+.example/.moon/cache
+server/colony2/static/assets
+server/colony2/colony2
+/colony2/
+**/playwright-report/*
+**/test-results/*
+.nx

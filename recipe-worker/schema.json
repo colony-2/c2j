@@ -1,0 +1,621 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/colony-2/colony2/server/recipe-core/pkg/p2/recipe",
+  "$defs": {
+    "Node": {
+      "oneOf": [
+        {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "desc": {
+              "type": "string"
+            },
+            "timeout": {
+              "type": "string",
+              "title": "Duration"
+            },
+            "retry": {
+              "properties": {
+                "initial_interval": {
+                  "type": "integer"
+                },
+                "backoff_coefficient": {
+                  "type": "number"
+                },
+                "maximum_interval": {
+                  "type": "integer"
+                },
+                "maximum_attempts": {
+                  "type": "integer"
+                },
+                "non_retryable_error_types": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                }
+              },
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "when": {
+              "type": "string"
+            },
+            "op": {
+              "type": "string",
+              "const": "Command Execution"
+            },
+            "inputs": {
+              "$schema": "https://json-schema.org/draft/2020-12/schema",
+              "properties": {
+                "Run": {
+                  "type": "string"
+                },
+                "WorkingDirectory": {
+                  "type": "string"
+                },
+                "Shell": {
+                  "type": "string"
+                },
+                "Env": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "type": "object"
+                },
+                "ContinueOnError": {
+                  "type": "boolean"
+                },
+                "Timeout": {
+                  "type": "string"
+                }
+              },
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "artifacts": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "object",
+                "properties": {
+                  "jobId": {
+                    "type": "string"
+                  },
+                  "taskOrdinal": {
+                    "type": "integer"
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "sizeBytes": {
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "jobId",
+                  "taskOrdinal",
+                  "name"
+                ]
+              }
+            }
+          },
+          "additionalProperties": true,
+          "type": "object",
+          "required": [
+            "op",
+            "inputs"
+          ],
+          "title": "Command Execution"
+        },
+        {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "desc": {
+              "type": "string"
+            },
+            "timeout": {
+              "type": "string",
+              "title": "Duration"
+            },
+            "retry": {
+              "properties": {
+                "initial_interval": {
+                  "type": "integer"
+                },
+                "backoff_coefficient": {
+                  "type": "number"
+                },
+                "maximum_interval": {
+                  "type": "integer"
+                },
+                "maximum_attempts": {
+                  "type": "integer"
+                },
+                "non_retryable_error_types": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                }
+              },
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "when": {
+              "type": "string"
+            },
+            "op": {
+              "type": "string",
+              "const": "Sleep/Delay"
+            },
+            "inputs": {
+              "$schema": "https://json-schema.org/draft/2020-12/schema",
+              "properties": {
+                "Duration": {
+                  "type": "string"
+                }
+              },
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "artifacts": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "object",
+                "properties": {
+                  "jobId": {
+                    "type": "string"
+                  },
+                  "taskOrdinal": {
+                    "type": "integer"
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "sizeBytes": {
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "jobId",
+                  "taskOrdinal",
+                  "name"
+                ]
+              }
+            }
+          },
+          "additionalProperties": true,
+          "type": "object",
+          "required": [
+            "op",
+            "inputs"
+          ],
+          "title": "Sleep/Delay"
+        },
+        {
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "desc": {
+              "type": "string"
+            },
+            "timeout": {
+              "type": "string",
+              "title": "Duration"
+            },
+            "retry": {
+              "properties": {
+                "initial_interval": {
+                  "type": "integer"
+                },
+                "backoff_coefficient": {
+                  "type": "number"
+                },
+                "maximum_interval": {
+                  "type": "integer"
+                },
+                "maximum_attempts": {
+                  "type": "integer"
+                },
+                "non_retryable_error_types": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                }
+              },
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "when": {
+              "type": "string"
+            },
+            "sequence": {
+              "items": {
+                "$ref": "#/$defs/Node"
+              },
+              "type": "array"
+            },
+            "inputs": {
+              "type": "object"
+            },
+            "outputs": {
+              "type": "object"
+            }
+          },
+          "additionalProperties": true,
+          "type": "object",
+          "title": "Sequence"
+        },
+        {
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "desc": {
+              "type": "string"
+            },
+            "timeout": {
+              "type": "string",
+              "title": "Duration"
+            },
+            "retry": {
+              "properties": {
+                "initial_interval": {
+                  "type": "integer"
+                },
+                "backoff_coefficient": {
+                  "type": "number"
+                },
+                "maximum_interval": {
+                  "type": "integer"
+                },
+                "maximum_attempts": {
+                  "type": "integer"
+                },
+                "non_retryable_error_types": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                }
+              },
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "when": {
+              "type": "string"
+            },
+            "states": {
+              "properties": {
+                "initial": {
+                  "type": "string"
+                }
+              },
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "inputs": {
+              "type": "object"
+            },
+            "outputs": {
+              "type": "object"
+            }
+          },
+          "additionalProperties": true,
+          "type": "object",
+          "title": "State"
+        }
+      ],
+      "title": "Node"
+    }
+  },
+  "oneOf": [
+    {
+      "properties": {
+        "version": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "desc": {
+          "type": "string"
+        },
+        "timeout": {
+          "type": "string",
+          "title": "Duration"
+        },
+        "retry": {
+          "properties": {
+            "initial_interval": {
+              "type": "integer"
+            },
+            "backoff_coefficient": {
+              "type": "number"
+            },
+            "maximum_interval": {
+              "type": "integer"
+            },
+            "maximum_attempts": {
+              "type": "integer"
+            },
+            "non_retryable_error_types": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          },
+          "additionalProperties": true,
+          "type": "object"
+        },
+        "when": {
+          "type": "string"
+        },
+        "defs": {
+          "additionalProperties": {
+            "$ref": "#/$defs/Node"
+          },
+          "type": "object"
+        },
+        "input_schema": {
+          "additionalProperties": {
+            "properties": {
+              "type": {
+                "type": "string"
+              },
+              "description": {
+                "type": "string"
+              },
+              "required": {
+                "type": "boolean"
+              },
+              "default_value": {
+                "oneOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "number"
+                  }
+                ]
+              }
+            },
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "type": "object"
+        },
+        "states": {
+          "properties": {
+            "initial": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": true,
+          "type": "object"
+        },
+        "inputs": {
+          "type": "object"
+        },
+        "outputs": {
+          "type": "object"
+        }
+      },
+      "additionalProperties": true,
+      "type": "object"
+    },
+    {
+      "properties": {
+        "version": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "desc": {
+          "type": "string"
+        },
+        "timeout": {
+          "type": "string",
+          "title": "Duration"
+        },
+        "retry": {
+          "properties": {
+            "initial_interval": {
+              "type": "integer"
+            },
+            "backoff_coefficient": {
+              "type": "number"
+            },
+            "maximum_interval": {
+              "type": "integer"
+            },
+            "maximum_attempts": {
+              "type": "integer"
+            },
+            "non_retryable_error_types": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          },
+          "additionalProperties": true,
+          "type": "object"
+        },
+        "when": {
+          "type": "string"
+        },
+        "defs": {
+          "additionalProperties": {
+            "$ref": "#/$defs/Node"
+          },
+          "type": "object"
+        },
+        "input_schema": {
+          "additionalProperties": {
+            "properties": {
+              "type": {
+                "type": "string"
+              },
+              "description": {
+                "type": "string"
+              },
+              "required": {
+                "type": "boolean"
+              },
+              "default_value": {
+                "oneOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "number"
+                  }
+                ]
+              }
+            },
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "type": "object"
+        },
+        "sequence": {
+          "items": {
+            "$ref": "#/$defs/Node"
+          },
+          "type": "array"
+        },
+        "inputs": {
+          "type": "object"
+        },
+        "outputs": {
+          "type": "object"
+        }
+      },
+      "additionalProperties": true,
+      "type": "object"
+    },
+    {
+      "properties": {
+        "version": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "desc": {
+          "type": "string"
+        },
+        "timeout": {
+          "type": "string",
+          "title": "Duration"
+        },
+        "retry": {
+          "properties": {
+            "initial_interval": {
+              "type": "integer"
+            },
+            "backoff_coefficient": {
+              "type": "number"
+            },
+            "maximum_interval": {
+              "type": "integer"
+            },
+            "maximum_attempts": {
+              "type": "integer"
+            },
+            "non_retryable_error_types": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          },
+          "additionalProperties": true,
+          "type": "object"
+        },
+        "when": {
+          "type": "string"
+        },
+        "defs": {
+          "additionalProperties": {
+            "$ref": "#/$defs/Node"
+          },
+          "type": "object"
+        },
+        "input_schema": {
+          "additionalProperties": {
+            "properties": {
+              "type": {
+                "type": "string"
+              },
+              "description": {
+                "type": "string"
+              },
+              "required": {
+                "type": "boolean"
+              },
+              "default_value": {
+                "oneOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "number"
+                  }
+                ]
+              }
+            },
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "type": "object"
+        },
+        "op": {
+          "type": "string"
+        },
+        "inputs": {
+          "type": "object"
+        },
+        "artifacts": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "properties": {
+              "jobId": {
+                "type": "string"
+              },
+              "taskOrdinal": {
+                "type": "integer"
+              },
+              "name": {
+                "type": "string"
+              },
+              "sizeBytes": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "jobId",
+              "taskOrdinal",
+              "name"
+            ]
+          }
+        }
+      },
+      "additionalProperties": true,
+      "type": "object"
+    }
+  ],
+  "title": "recipe"
+}

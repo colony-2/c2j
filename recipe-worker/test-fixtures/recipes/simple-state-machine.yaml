@@ -1,0 +1,23 @@
+id: simple_data_pipeline
+desc: Simple data pipeline demonstrating state machine composition features
+version: 1.0.0
+input_schema:
+  data_size:
+    type: number
+    default_value: 1000
+  priority:
+    type: string
+    default_value: normal
+inputs:
+  data_size: '{{ inputs.data_size }}'
+  priority: '{{ inputs.priority }}'
+sequence:
+- id: run
+  op: state_machine
+  inputs:
+    data:
+      data_size: '{{ inputs.data_size }}'
+      priority: '{{ inputs.priority }}'
+outputs:
+  result: '{{ sequence.run.outputs.result }}'
+  status: '{{ sequence.run.outputs.status }}'

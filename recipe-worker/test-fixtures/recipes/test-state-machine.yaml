@@ -1,0 +1,65 @@
+id: test-state-machine
+desc: Test recipe for state machine with conditional transitions
+version: '1.0'
+input_schema:
+  action:
+    type: string
+    default_value: process
+  should_fail:
+    type: boolean
+inputs:
+  action: '{{ inputs.action }}'
+  should_fail: '{{ inputs.should_fail }}'
+state:
+  initial: start
+  states:
+    start:
+      op: echo_activity
+      inputs:
+        message: 'Starting with action: {{ inputs.action }}'
+      transitions:
+      - to: validate
+        when: 'inputs.action == "validate"'
+      - to: process
+        when: 'inputs.action == "process"'
+      - to: skip
+        when: 'inputs.action == "skip"'
+    validate:
+      op: echo_activity
+      inputs:
+        message: 'Validating data'
+      transitions:
+      - to: process
+        when: 'states.validate.outputs.output != ""'
+    process:
+      op: echo_activity
+      inputs:
+        message: 'Processing data'
+      transitions:
+      - to: error
+        when: 'inputs.should_fail == true'
+      - to: complete
+        when: 'inputs.should_fail == false'
+    skip:
+      op: echo_activity
+      inputs:
+        message: 'Skipping processing'
+      transitions:
+      - to: complete
+        when: 'true'
+    error:
+      op: echo_activity
+      inputs:
+        message: 'Error occurred during processing'
+      transitions:
+      - to: complete
+        when: 'true'
+    complete:
+      op: echo_activity
+      inputs:
+        message: 'Workflow completed'
+outputs:
+  start_message: 'Starting with action: {{ inputs.action }}'
+  final_message: 'Workflow completed'
+  process_result: '${{ inputs.action == "process" ? "Processing data" : "not processed" }}'
+  error_result: '${{ inputs.should_fail == true ? "Error occurred during processing" : "no error" }}'

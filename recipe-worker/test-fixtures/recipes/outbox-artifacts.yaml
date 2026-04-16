@@ -1,0 +1,14 @@
+id: outbox-artifacts
+version: "1.0.0"
+desc: Verify outbox files are captured as artifacts
+input_schema: {}
+sequence:
+  - id: write_outbox
+    op: command_execution
+    inputs:
+      working_directory: "{{ context.environment.outbox }}"
+      run: |
+        mkdir -p subdir
+        head -c 16 /dev/urandom > subdir/random.bin
+outputs:
+  write_success: "{{ sequence.write_outbox.outputs.success }}"

@@ -1,0 +1,27 @@
+tests:
+- name: basic_research
+  description: Test basic research report generation
+  inputs:
+    topic: Artificial Intelligence
+  want:
+    report: Generated report
+  wantErr: false
+- name: technical_topic
+  description: Test research on technical topic
+  inputs:
+    topic: Quantum Computing Applications
+  want:
+    report: Generated report
+  wantErr: false
+- name: missing_topic
+  description: Test with missing required topic
+  inputs: {}
+  want: {}
+  wantErr: true
+- name: empty_topic
+  description: Test with empty topic string
+  inputs:
+    topic: ''
+  want:
+    report: Generated report
+  wantErr: false

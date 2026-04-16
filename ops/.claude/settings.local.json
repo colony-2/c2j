@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(moon run:*)",
+      "Bash(mkdir:*)",
+      "Bash(rm:*)",
+      "Bash(go mod:*)",
+      "Bash(go test:*)",
+      "Bash(git add:*)",
+      "Bash(go build:*)",
+      "Bash(moon test:*)",
+      "Bash(grep:*)"
+    ],
+    "deny": []
+  }
+}

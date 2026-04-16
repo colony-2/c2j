@@ -1,0 +1,27 @@
+id: test-template-nested
+desc: Minimal test for nested template interpolation
+version: 1.0.0
+input_schema:
+  value1:
+    type: string
+    default_value: default1
+  value2:
+    type: string
+    default_value: default2
+inputs:
+  value1: '{{ inputs.value1 }}'
+  value2: '{{ inputs.value2 }}'
+sequence:
+- id: echo_step
+  op: echo_activity
+  inputs:
+    message: 'Testing nested templates'
+outputs:
+  simple: '{{ inputs.value1 }}'
+  nested:
+    level1: '{{ inputs.value1 }}'
+    level2:
+      deep: '{{ inputs.value2 }}'
+  array:
+  - '{{ inputs.value1 }}'
+  - item: '{{ inputs.value2 }}'

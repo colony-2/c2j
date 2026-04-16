@@ -1,0 +1,26 @@
+id: state-with-nested-state-machine
+desc: State machine where a state is a nested state machine; outer states.<state>.outputs should expose inner outputs
+version: 1.0.0
+state:
+  initial: nested
+  states:
+    nested:
+      state:
+        initial: inner
+        states:
+          inner:
+            op: echo
+            inputs:
+              message: inner-ok
+      outputs:
+        child: "{{ states.inner.outputs.output }}"
+      transitions:
+        - to: done
+          when: "true"
+    done:
+      op: echo
+      inputs:
+        message: done
+outputs:
+  child: "{{ states.nested.outputs.child }}"
+

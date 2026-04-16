@@ -1,0 +1,140 @@
+id: multi_dataset_aggregator
+version: '1.0'
+desc: Process multiple datasets through child recipes and aggregate results
+inputs:
+  datasets:
+  - id: dataset-001
+    source: s3://bucket/data1.csv
+    format: csv
+  - id: dataset-002
+    source: s3://bucket/data2.json
+    format: json
+  aggregation_method: weighted_average
+  quality_threshold: 0.75
+sequence:
+- id: validate_datasets
+  op: batch_validator
+  inputs:
+    items: '{{ inputs.datasets }}'
+  outputs:
+    valid_datasets: '{{ .items }}'
+    validation_report: '{{ .count }}'
+- id: process_dataset_0
+  op: recipe
+  config:
+    recipe: dataset-processor
+    timeout: 20m
+    retry_policy:
+      maximum_attempts: 3
+      initial_interval: 10s
+      backoff_coefficient: 2.0
+      maximum_interval: 1m
+  inputs:
+    dataset: '${{ sequence.validate_datasets.outputs.valid_datasets[0] }}'
+    processing_config:
+      normalize: true
+      remove_outliers: true
+      fill_missing: interpolate
+  outputs:
+    processed_data: '{{ .result.data }}'
+    metrics: '{{ .result.metrics }}'
+    quality_score: '{{ .result.quality_score }}'
+    processing_time: '{{ .execution_metadata.duration_ms }}'
+- id: process_dataset_1
+  op: recipe
+  config:
+    recipe: dataset-processor
+    timeout: 20m
+  inputs:
+    dataset: '${{ sequence.validate_datasets.outputs.valid_datasets[1] }}'
+    processing_config:
+      normalize: true
+      remove_outliers: true
+      fill_missing: interpolate
+  outputs:
+    processed_data: '{{ .result.data }}'
+    metrics: '{{ .result.metrics }}'
+    quality_score: '{{ .result.quality_score }}'
+- id: process_dataset_2
+  op: recipe
+  config:
+    recipe: dataset-processor
+    timeout: 20m
+  inputs:
+    dataset: '${{ sequence.validate_datasets.outputs.valid_datasets[2] }}'
+    processing_config:
+      normalize: true
+      remove_outliers: false
+      fill_missing: forward_fill
+  outputs:
+    processed_data: '{{ .result.data }}'
+    metrics: '{{ .result.metrics }}'
+    quality_score: '{{ .result.quality_score }}'
+- id: filter_by_quality
+  op: quality_filter
+  inputs:
+    results:
+    - dataset_id: '{{ index inputs.datasets 0 ''id'' }}'
+      data: '{{ sequence.process_dataset_0.outputs.processed_data }}'
+      quality: '{{ sequence.process_dataset_0.outputs.quality_score }}'
+      metrics: '{{ sequence.process_dataset_0.outputs.metrics }}'
+    - dataset_id: '{{ index inputs.datasets 1 ''id'' }}'
+      data: '{{ sequence.process_dataset_1.outputs.processed_data }}'
+      quality: '{{ sequence.process_dataset_1.outputs.quality_score }}'
+      metrics: '{{ sequence.process_dataset_1.outputs.metrics }}'
+    - dataset_id: '{{ index inputs.datasets 2 ''id'' }}'
+      data: '{{ sequence.process_dataset_2.outputs.processed_data }}'
+      quality: '{{ sequence.process_dataset_2.outputs.quality_score }}'
+      metrics: '{{ sequence.process_dataset_2.outputs.metrics }}'
+    threshold: '{{ inputs.quality_threshold }}'
+  outputs:
+    passing_datasets: '{{ .datasets_above_threshold }}'
+    failing_datasets: '{{ .datasets_below_threshold }}'
+    passing_count: '{{ .count_above_threshold }}'
+- id: aggregate_data
+  op: data_aggregator
+  inputs:
+    datasets: '{{ sequence.filter_by_quality.outputs.passing_datasets }}'
+    method: '{{ inputs.aggregation_method }}'
+    weights: quality_score
+  outputs:
+    aggregated_data: '{{ .result }}'
+    aggregation_stats: '{{ .statistics }}'
+- id: generate_insights
+  op: recipe
+  config:
+    recipe: insight-generator
+    timeout: 10m
+  inputs:
+    aggregated_data: '{{ sequence.aggregate_data.outputs.aggregated_data }}'
+    statistics: '{{ sequence.aggregate_data.outputs.aggregation_stats }}'
+    original_count: '${{ len inputs.datasets }}'
+    processed_count: '{{ sequence.filter_by_quality.outputs.passing_count }}'
+  outputs:
+    insights: '{{ .result.insights }}'
+    recommendations: '{{ .result.recommendations }}'
+    confidence_score: '{{ .result.confidence }}'
+- id: create_report
+  op: report_builder
+  inputs:
+    validation_report: '{{ sequence.validate_datasets.outputs.validation_report }}'
+    passing_datasets: '{{ sequence.filter_by_quality.outputs.passing_datasets }}'
+    failing_datasets: '{{ sequence.filter_by_quality.outputs.failing_datasets }}'
+    aggregated_data: '{{ sequence.aggregate_data.outputs.aggregated_data }}'
+    insights: '{{ sequence.generate_insights.outputs.insights }}'
+    recommendations: '{{ sequence.generate_insights.outputs.recommendations }}'
+    metadata:
+      total_datasets: '${{ len inputs.datasets }}'
+      processed_successfully: '{{ sequence.filter_by_quality.outputs.passing_count }}'
+      aggregation_method: '{{ inputs.aggregation_method }}'
+      quality_threshold: '{{ inputs.quality_threshold }}'
+  outputs:
+    report: '{{ .final_report }}'
+    summary: '{{ .executive_summary }}'
+outputs:
+  final_report: '{{ sequence.create_report.outputs.report }}'
+  executive_summary: '{{ sequence.create_report.outputs.summary }}'
+  processed_count: '{{ sequence.filter_by_quality.outputs.passing_count }}'
+  insights: '{{ sequence.generate_insights.outputs.insights }}'
+  confidence_score: '{{ sequence.generate_insights.outputs.confidence_score }}'
+  aggregated_statistics: '{{ sequence.aggregate_data.outputs.aggregation_stats }}'

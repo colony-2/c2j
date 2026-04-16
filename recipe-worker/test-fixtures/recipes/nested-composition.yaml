@@ -1,0 +1,83 @@
+id: nested_composition_demo
+desc: Demonstrates nested composition using supported schema nodes
+version: 1.0.0
+input_schema:
+  data:
+    type: string
+    default_value: ""
+inputs:
+  data: '{{ inputs.data }}'
+outputs:
+  final_result: Executed state_machine
+sequence:
+- id: processor
+  inputs:
+    data: '{{ inputs.data }}'
+  state:
+    initial: validate
+    states:
+      validate:
+        inputs:
+          data: '{{ inputs.data }}'
+        sequence:
+        - id: clean
+          op: data_cleaner
+          inputs:
+            data: '{{ inputs.data }}'
+        - id: validate
+          op: data_validator
+          inputs:
+            data: '{{ inputs.data }}'
+        outputs:
+          data: '{{ inputs.data }}'
+        transitions:
+        - to: process
+      process:
+        inputs:
+          validated_data: '${{ states.validate.outputs.data  }}'
+        sequence:
+        - id: transform
+          op: data_transformer
+          inputs:
+            data: '{{ inputs.validated_data }}'
+        - id: aggregate
+          op: result_aggregator
+          inputs:
+            data: '${{ sequence.transform.outputs.data  }}'
+        outputs:
+          aggregate: '${{ sequence.aggregate.outputs.result  }}'
+        transitions:
+        - to: finalize
+      finalize:
+        inputs:
+          aggregate: '${{ states.process.outputs.aggregate  }}'
+        sequence:
+        - id: format_output
+          op: output_formatter
+          inputs:
+            data: '{{ inputs.aggregate }}'
+        - id: create_summary
+          op: summary_generator
+          inputs:
+            data: '{{ inputs.aggregate }}'
+        - id: add_charts
+          op: chart_generator
+          inputs:
+            data:
+              summary: '${{ sequence.create_summary.outputs.result  }}'
+              report: '{{ inputs.aggregate }}'
+        - id: store_results
+          op: result_storage
+          inputs:
+            data: '{{ inputs.aggregate }}'
+        outputs:
+          format_output: '${{ sequence.format_output.outputs.result  }}'
+          create_summary: '${{ sequence.create_summary.outputs.result  }}'
+          store_results:
+            id: '${{ sequence.store_results.outputs.result  }}'
+        transitions:
+        - to: success
+      success:
+        op: echo_activity
+        inputs:
+          message: completed

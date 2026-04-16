@@ -1,0 +1,20 @@
+tests:
+- name: basic_execution
+  description: Test basic recipe execution
+  inputs: {}
+  want:
+    step1:
+      stdout: 'Step 1 output'
+      success: true
+      exit_code: 0
+      stderr: ''
+      error_message: ''
+      timed_out: false
+    step2:
+      stdout: 'Hello from test'
+      success: true
+      exit_code: 0
+      stderr: ''
+      error_message: ''
+      timed_out: false
+  wantErr: false

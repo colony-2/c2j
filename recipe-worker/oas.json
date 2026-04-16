@@ -1,0 +1,352 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Recipe API",
+    "version": "1.0.0"
+  },
+  "components": {
+    "schemas": {
+      "InputSchema": {
+        "properties": {
+          "default": {},
+          "description": {
+            "type": "string"
+          },
+          "required": {
+            "type": "boolean"
+          },
+          "type": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "NodeMetadata": {
+        "properties": {
+          "desc": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "retry": {
+            "$ref": "#/components/schemas/RetryPolicy"
+          },
+          "timeout": {
+            "type": "integer"
+          },
+          "when": {
+            "description": "cel expression",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "NodeOp": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/OpImpl"
+          },
+          {
+            "$ref": "#/components/schemas/NodeMetadata"
+          }
+        ]
+      },
+      "NodeSequence": {
+        "properties": {
+          "inputs": {
+            "description": "input configuration mapping",
+            "additionalProperties": {},
+            "type": "object"
+          },
+          "outputs": {
+            "description": "output schema and mapping",
+            "additionalProperties": {},
+            "type": "object"
+          },
+          "sequence": {
+            "items": {
+              "type": "object"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object",
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/NodeMetadata"
+          }
+        ]
+      },
+      "NodeShared": {
+        "properties": {
+          "shared": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "NodeState": {
+        "properties": {
+          "inputs": {
+            "description": "input configuration mapping",
+            "additionalProperties": {},
+            "type": "object"
+          },
+          "outputs": {
+            "description": "output schema and mapping",
+            "additionalProperties": {},
+            "type": "object"
+          },
+          "states": {
+            "$ref": "#/components/schemas/StateMap"
+          }
+        },
+        "type": "object",
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/NodeMetadata"
+          }
+        ]
+      },
+      "OneOfNode": {
+        "type": "object",
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/NodeOp"
+          },
+          {
+            "$ref": "#/components/schemas/NodeState"
+          },
+          {
+            "$ref": "#/components/schemas/NodeShared"
+          },
+          {
+            "$ref": "#/components/schemas/NodeSequence"
+          }
+        ]
+      },
+      "OpImpl": {
+        "oneOf": [
+          {
+            "title": "Command Execution",
+            "required": [
+              "op",
+              "inputs"
+            ],
+            "unevaluatedProperties": false,
+            "properties": {
+              "inputs": {
+                "properties": {
+                  "continue_on_error": {
+                    "type": "boolean"
+                  },
+                  "env": {
+                    "additionalProperties": {
+                      "type": "string"
+                    },
+                    "type": [
+                      "object",
+                      "null"
+                    ]
+                  },
+                  "run": {
+                    "type": "string"
+                  },
+                  "shell": {
+                    "type": "string"
+                  },
+                  "timeout": {
+                    "type": "string"
+                  },
+                  "working_directory": {
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              },
+              "op": {
+                "const": "Command Execution",
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          {
+            "title": "Sleep/Delay",
+            "required": [
+              "op",
+              "inputs"
+            ],
+            "unevaluatedProperties": false,
+            "properties": {
+              "inputs": {
+                "properties": {
+                  "duration": {
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              },
+              "op": {
+                "const": "Sleep/Delay",
+                "type": "string"
+              }
+            },
+            "type": "object"
+          }
+        ]
+      },
+      "RecipeMetadata": {
+        "properties": {
+          "defs": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/OneOfNode"
+            },
+            "type": "object"
+          },
+          "input_schema": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/InputSchema"
+            },
+            "type": "object"
+          },
+          "version": {
+            "type": "string"
+          }
+        },
+        "type": "object",
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/NodeMetadata"
+          }
+        ]
+      },
+      "RecipeOp": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/OpImpl"
+          },
+          {
+            "$ref": "#/components/schemas/RecipeMetadata"
+          }
+        ]
+      },
+      "RecipeSequence": {
+        "unevaluatedProperties": false,
+        "properties": {
+          "sequence": {
+            "items": {
+              "$ref": "#/components/schemas/OneOfNode"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object",
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/RecipeMetadata"
+          }
+        ]
+      },
+      "RecipeState": {
+        "unevaluatedProperties": false,
+        "properties": {
+          "states": {
+            "$ref": "#/components/schemas/StateMap"
+          }
+        },
+        "type": "object",
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/RecipeMetadata"
+          }
+        ]
+      },
+      "RetryPolicy": {
+        "properties": {
+          "backoff_coefficient": {
+            "type": "number"
+          },
+          "initial_interval": {
+            "type": "integer"
+          },
+          "maximum_attempts": {
+            "type": "integer"
+          },
+          "maximum_interval": {
+            "type": "integer"
+          },
+          "non_retryable_error_types": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object"
+      },
+      "State": {
+        "properties": {
+          "Node": {
+            "type": "object"
+          },
+          "error": {
+            "type": "string"
+          },
+          "transitions": {
+            "items": {
+              "$ref": "#/components/schemas/Transition"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object"
+      },
+      "StateMap": {
+        "properties": {
+          "States": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/State"
+            },
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "initial": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "Transition": {
+        "properties": {
+          "to": {
+            "type": "string"
+          },
+          "when": {
+            "description": "cel expression",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "Recipe": {
+        "type": "object",
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/RecipeState"
+          },
+          {
+            "$ref": "#/components/schemas/RecipeSequence"
+          },
+          {
+            "$ref": "#/components/schemas/RecipeOp"
+          }
+        ]
+      }
+    }
+  }
+
+}

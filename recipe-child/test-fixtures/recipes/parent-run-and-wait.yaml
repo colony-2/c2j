@@ -1,0 +1,23 @@
+id: parent-run-and-wait
+version: "1.0"
+input_schema:
+  value:
+    type: string
+    required: true
+  git_ref:
+    type: string
+    required: true
+inputs:
+  value: "{{ inputs.value }}"
+  git_ref: "{{ inputs.git_ref }}"
+sequence:
+  - id: child
+    op: recipe.run_and_get_result
+    inputs:
+      name: child-simple
+      inputs:
+        value: "{{ inputs.value }}"
+      artifacts: []
+      git_ref: "{{ inputs.git_ref }}"
+outputs:
+  child_value: "{{ sequence.child.outputs.outputs.value }}"

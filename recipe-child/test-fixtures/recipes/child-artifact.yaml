@@ -1,0 +1,8 @@
+id: child-artifact
+version: "1.0"
+sequence:
+  - id: emit
+    op: test_emit_artifact
+    inputs: {}
+outputs:
+  name: "{{ sequence.emit.outputs.name }}"

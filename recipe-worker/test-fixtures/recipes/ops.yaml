@@ -1,0 +1,45 @@
+id: ops
+desc: Test operations
+version: '1.0'
+input_schema:
+  topic:
+    type: string
+    default_value: ''
+  max_sources:
+    type: number
+    default_value: 0
+  data:
+    type: string
+    default_value: ''
+  research:
+    type: string
+    default_value: ''
+  analysis:
+    type: string
+    default_value: ''
+inputs:
+  topic: '${{ has(inputs.topic) ? inputs.topic : "" }}'
+  max_sources: '${{ has(inputs.max_sources) ? inputs.max_sources : 0 }}'
+  data: '${{ has(inputs.data) ? inputs.data : "" }}'
+  research: '${{ has(inputs.research) ? inputs.research : "" }}'
+  analysis: '${{ has(inputs.analysis) ? inputs.analysis : "" }}'
+sequence:
+- id: research
+  op: research_op
+  inputs:
+    message: '{{ inputs.topic }}'
+- id: analyze
+  op: analyze_op
+  inputs:
+    data: '{{ inputs.data }}'
+- id: report
+  op: write_report_op
+  inputs:
+    data:
+      research: '{{ inputs.research }}'
+      analysis: '{{ inputs.analysis }}'
+      topic: '{{ inputs.topic }}'
+outputs:
+  research: '${{ sequence.research.outputs }}'
+  analyze: '${{ sequence.analyze.outputs }}'
+  report: '${{ sequence.report.outputs }}'

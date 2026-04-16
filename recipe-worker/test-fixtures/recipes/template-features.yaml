@@ -1,0 +1,46 @@
+id: template_demo
+desc: Demonstrates various template features and expressions
+version: '1.0'
+input_schema:
+  items:
+    type: string
+    required: true
+  separator:
+    type: string
+    default_value: ', '
+inputs:
+  items: '{{ inputs.items }}'
+  separator: ', '
+outputs:
+  prepare: '${{ sequence.prepare.outputs }}'
+  format: '${{ sequence.format.outputs }}'
+  analyze: '${{ sequence.analyze.outputs }}'
+  summarize: '${{ sequence.summarize.outputs }}'
+sequence:
+- id: prepare
+  op: prepare_data
+  inputs:
+    data:
+      items: []
+      separator: '${{ has(inputs.separator) ? inputs.separator : ", " }}'
+- id: format
+  op: format_text
+  inputs:
+    data:
+      text: 'Processing items: ${{ size(inputs.items) }} items'
+      count: 0
+- id: analyze
+  op: analyze_data
+  inputs:
+    data:
+      source: template_demo
+      step_id: static_id
+      formatted_output: static_format
+- id: summarize
+  op: create_summary
+  inputs:
+    data:
+      prepared_data: static_prepared
+      formatted_text: static_formatted
+      analysis: static_analysis
+      item_count: 0

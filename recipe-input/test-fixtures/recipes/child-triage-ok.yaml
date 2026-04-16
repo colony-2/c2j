@@ -1,0 +1,12 @@
+id: child-triage-ok
+desc: Child recipe that succeeds and returns triage-like outputs
+version: 1.0.0
+sequence:
+  - id: noop
+    op: echo
+    inputs:
+      message: ok
+outputs:
+  cell_is_appropriate: true
+  recommended_cell: cells/foo
+

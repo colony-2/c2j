@@ -1,0 +1,58 @@
+id: data_processing_pipeline
+version: '1.0'
+desc: Parent recipe that orchestrates data processing through child recipes
+inputs:
+  dataset_ids: []
+  processing_mode: standard
+sequence:
+- id: validate_inputs
+  op: validation
+  inputs:
+    datasets: '{{ inputs.dataset_ids }}'
+    mode: '{{ inputs.processing_mode }}'
+  outputs:
+    validation_result: '{{ .validation_status }}'
+- id: process_dataset_1
+  op: recipe
+  config:
+    recipe: data-processor
+    timeout: 10m
+    retry_policy:
+      maximum_attempts: 3
+      initial_interval: 5s
+      backoff_coefficient: 2.0
+  inputs:
+    dataset_id: '{{ index inputs.dataset_ids 0 }}'
+    mode: '{{ inputs.processing_mode }}'
+    parent_validation: '{{ sequence.validate_inputs.outputs.validation_result }}'
+  outputs:
+    processed_data: '{{ .result }}'
+    execution_id: '{{ .execution_id }}'
+    status: '{{ .status }}'
+- id: process_dataset_2
+  op: recipe
+  config:
+    recipe: data-processor@v2.0.0
+    timeout: 15m
+  inputs:
+    dataset_id: '{{ index inputs.dataset_ids 1 }}'
+    mode: enhanced
+    previous_result: '{{ sequence.process_dataset_1.outputs.processed_data }}'
+  outputs:
+    processed_data: '{{ .result }}'
+- id: aggregate_results
+  op: aggregation
+  inputs:
+    dataset_1_result: '{{ sequence.process_dataset_1.outputs.processed_data }}'
+    dataset_2_result: '{{ sequence.process_dataset_2.outputs.processed_data }}'
+    dataset_1_status: '{{ sequence.process_dataset_1.outputs.status }}'
+    dataset_2_status: '{{ sequence.process_dataset_2.outputs.status }}'
+  outputs:
+    final_result: '{{ .aggregated_data }}'
+    summary: '{{ .summary_stats }}'
+outputs:
+  processing_summary: '{{ sequence.aggregate_results.outputs.summary }}'
+  final_data: '{{ sequence.aggregate_results.outputs.final_result }}'
+  child_execution_ids:
+  - '{{ sequence.process_dataset_1.outputs.execution_id }}'
+  - '{{ sequence.process_dataset_2.outputs.execution_id }}'

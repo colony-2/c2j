@@ -1,0 +1,54 @@
+tests:
+- name: basic_aggregation
+  description: Test basic dataset aggregation
+  inputs:
+    datasets:
+    - id: dataset1
+      source: source1
+      format: json
+    - id: dataset2
+      source: source2
+      format: csv
+    aggregation_method: weighted_average
+    quality_threshold: 0.75
+  want:
+    final_report: Aggregation complete
+    executive_summary: Summary of 2 datasets
+    processed_count: 2
+    insights: Generated insights
+    confidence_score: 0.85
+    aggregated_statistics:
+      total_records: 1000
+  wantErr: false
+- name: low_quality_threshold
+  description: Test with low quality threshold
+  inputs:
+    datasets:
+    - id: dataset1
+      source: source1
+      format: json
+    aggregation_method: mean
+    quality_threshold: 0.2
+  want:
+    processed_count: 1
+    confidence_score: 0.5
+  wantErr: false
+- name: missing_datasets
+  description: Test with missing required datasets
+  inputs:
+    aggregation_method: weighted_average
+    quality_threshold: 0.75
+  want: {}
+  wantErr: true
+- name: default_values
+  description: Test with default aggregation method and threshold
+  inputs:
+    datasets:
+    - id: dataset1
+      source: source1
+      format: json
+  want:
+    aggregation_method: weighted_average
+    quality_threshold: 0.75
+    processed_count: 1
+  wantErr: false

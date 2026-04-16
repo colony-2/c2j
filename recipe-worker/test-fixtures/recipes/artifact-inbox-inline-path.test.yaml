@@ -1,0 +1,9 @@
+tests:
+  - name: inbox_inline_path_roundtrip
+    description: Command op reads artifact from inbox path embedded in run string
+    inputs: {}
+    want:
+      read_content: "hello inbox"
+    wantArtifacts:
+      - payload.txt
+    wantErr: false

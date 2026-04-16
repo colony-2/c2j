@@ -1,0 +1,23 @@
+tests:
+- name: sequential_execution
+  description: Test sequential execution of command then sleep
+  inputs: {}
+  want:
+    command_output: "first step"
+    sleep_completed: true
+    execution_order: command -> sleep
+    command_completion_time: T1
+    sleep_start_time: '> T1'
+    total_duration: command_time + sleep_time
+  wantErr: false
+- name: sequential_timing
+  description: Test that operations execute in sequence
+  inputs: {}
+  want:
+    command_output: "first step"
+    sleep_completed: true
+    execution_order: command -> sleep
+    command_completion_time: T1
+    sleep_start_time: '> T1'
+    total_duration: command_time + sleep_time
+  wantErr: false

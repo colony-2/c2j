@@ -1,0 +1,9 @@
+tests:
+- name: artifact_roundtrip
+  inputs: {}
+  want:
+    emitted: foo
+    consumed: foo
+  wantErr: false
+  wantArtifacts:
+  - foo

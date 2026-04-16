@@ -1,0 +1,16 @@
+id: research_report_project
+version: '1.0'
+desc: Research and report generation recipe
+input_schema:
+  message:
+    type: string
+    default_value: project test
+inputs:
+  message: '{{ inputs.message }}'
+sequence:
+- id: echo
+  op: echo_activity
+  inputs:
+    message: '{{ inputs.message }}'
+outputs:
+  output: '{{ sequence.echo.outputs.output }}'

@@ -1,0 +1,7 @@
+tests:
+  - name: outputs_visible
+    inputs: {}
+    want:
+      result: from-sequence
+    wantErr: false
+

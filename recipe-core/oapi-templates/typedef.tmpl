@@ -1,0 +1,21 @@
+{{range .Types}}
+{{$typeName := .TypeName -}}
+{{$isUnion := .Schema.UnionElements -}}
+{{ if .Schema.Description }}{{ toGoComment .Schema.Description .TypeName  }}{{ else }}// {{.TypeName}} defines model for {{.JsonName}}.{{ end }}
+type {{.TypeName}} {{if .IsAlias }}= {{end}}{{if $isUnion}}struct {
+    {{/* Add fields for each union element */}}
+    {{range .Schema.UnionElements}}
+    // {{.}} holds the value if this is a {{.}} type
+    {{.}} *{{.}} `json:"-" yaml:"-"`
+    {{end}}
+    
+    {{/* Keep the original union field for backward compatibility */}}
+    union json.RawMessage
+    
+    {{/* Add any additional properties from the original schema */}}
+    {{range .Schema.Properties}}
+    {{toGoComment .Description .GoFieldName}}
+    {{.GoFieldName}} {{if not .Required}}*{{end}}{{.Schema.TypeDecl}} `json:"{{.JsonFieldName}},omitempty"`
+    {{end}}
+}{{else}}{{.Schema.TypeDecl}}{{end}}
+{{end}}

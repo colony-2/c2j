@@ -1,0 +1,12 @@
+id: repro-parent-run-and-get-child-fail
+desc: Parent recipe that runs a failing child recipe via recipe.run_and_get_result
+version: 1.0.0
+sequence:
+  - id: child
+    op: recipe.run_and_get_result
+    inputs:
+      name: repro-child-fail
+      inputs: {}
+      artifacts: []
+outputs:
+  should_not: be_reached

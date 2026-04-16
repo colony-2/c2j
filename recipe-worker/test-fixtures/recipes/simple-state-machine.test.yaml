@@ -1,0 +1,44 @@
+tests:
+- name: default_processing
+  description: Test state machine with default values
+  inputs: {}
+  want:
+    result: Executed state_machine
+    status: success
+  wantErr: false
+- name: small_data_high_priority
+  description: Test with small data and high priority
+  inputs:
+    data_size: 100
+    priority: high
+  want:
+    result: Executed state_machine
+    status: success
+  wantErr: false
+- name: large_data_low_priority
+  description: Test with large data and low priority
+  inputs:
+    data_size: 10000
+    priority: low
+  want:
+    result: Executed state_machine
+    status: success
+  wantErr: false
+- name: custom_values
+  description: Test with custom data size and priority
+  inputs:
+    data_size: 5000
+    priority: medium
+  want:
+    result: Executed state_machine
+    status: success
+  wantErr: false
+- name: zero_data_size
+  description: Test with zero data size
+  inputs:
+    data_size: 0
+    priority: normal
+  want:
+    result: Executed state_machine
+    status: success
+  wantErr: false
