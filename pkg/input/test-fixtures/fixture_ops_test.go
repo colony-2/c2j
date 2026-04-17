@@ -4,9 +4,9 @@ import (
 	"context"
 	"sync"
 
-	childops "github.com/colony-2/c2j/pkg/child/recipe"
-	coreops "github.com/colony-2/c2j/pkg/core/ops"
 	"github.com/colony-2/c2j/pkg/input"
+	coreops "github.com/colony-2/c2j/pkg/ops"
+	childops "github.com/colony-2/c2j/pkg/ops/recipe"
 	"github.com/colony-2/c2j/pkg/worker/commandop"
 )
 

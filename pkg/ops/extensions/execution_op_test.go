@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	coreops "github.com/colony-2/c2j/pkg/core/ops"
+	coreops "github.com/colony-2/c2j/pkg/ops"
 )
 
 func TestExecutionOpRunsLocalSelector(t *testing.T) {

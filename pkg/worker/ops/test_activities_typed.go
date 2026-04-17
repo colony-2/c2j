@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	recipeops "github.com/colony-2/c2j/pkg/core/ops"
+	recipeops "github.com/colony-2/c2j/pkg/ops"
 )
 
 func registerTypedTestActivities() {

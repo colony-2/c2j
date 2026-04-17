@@ -3,7 +3,7 @@ package thinpackrebase
 import (
 	"context"
 
-	"github.com/colony-2/c2j/pkg/core/ops"
+	"github.com/colony-2/c2j/pkg/ops"
 )
 
 // ThinpackRebaseInput captures the parameters required to rebase a thin-pack backed workspace.

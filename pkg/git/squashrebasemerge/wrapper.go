@@ -3,7 +3,7 @@ package squashrebasemerge
 import (
 	"context"
 
-	"github.com/colony-2/c2j/pkg/core/ops"
+	"github.com/colony-2/c2j/pkg/ops"
 )
 
 // SquashRebaseMergeInput defines the parameters for the squash-rebase-merge git op.

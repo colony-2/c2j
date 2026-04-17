@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	recipeops "github.com/colony-2/c2j/pkg/core/ops"
+	recipeops "github.com/colony-2/c2j/pkg/ops"
 	"github.com/colony-2/swf-go/pkg/swf"
 )
 

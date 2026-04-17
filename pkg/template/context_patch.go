@@ -4,8 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/colony-2/c2j/pkg/core/contextual"
-	coretask "github.com/colony-2/c2j/pkg/core/task"
+	"github.com/colony-2/c2j/pkg/contextual"
+	coretask "github.com/colony-2/c2j/pkg/task"
 )
 
 // ApplyContextPatch mutates template-visible context for this ResolutionContext.

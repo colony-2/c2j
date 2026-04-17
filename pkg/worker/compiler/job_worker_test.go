@@ -3,7 +3,7 @@ package compiler
 import (
 	"testing"
 
-	"github.com/colony-2/c2j/pkg/core/contextual"
+	"github.com/colony-2/c2j/pkg/contextual"
 )
 
 func TestApplyRootRecipeSourceUsesResolvedGitSelector(t *testing.T) {

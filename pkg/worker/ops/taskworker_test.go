@@ -8,9 +8,9 @@ import (
 	"path/filepath"
 	"testing"
 
-	recipeops "github.com/colony-2/c2j/pkg/core/ops"
-	coretask "github.com/colony-2/c2j/pkg/core/task"
 	"github.com/colony-2/c2j/pkg/git/gitstate"
+	recipeops "github.com/colony-2/c2j/pkg/ops"
+	coretask "github.com/colony-2/c2j/pkg/task"
 	"github.com/colony-2/swf-go/pkg/swf"
 	"github.com/stretchr/testify/require"
 )

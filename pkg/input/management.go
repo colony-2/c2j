@@ -10,11 +10,11 @@ import (
 	"sort"
 	"time"
 
-	"github.com/colony-2/c2j/pkg/core/ops"
-	coretask "github.com/colony-2/c2j/pkg/core/task"
-	"github.com/colony-2/c2j/pkg/core/workflowctl"
 	openapi "github.com/colony-2/c2j/pkg/input/openapi"
+	"github.com/colony-2/c2j/pkg/ops"
+	coretask "github.com/colony-2/c2j/pkg/task"
 	ops2 "github.com/colony-2/c2j/pkg/worker/ops"
+	"github.com/colony-2/c2j/pkg/workflowctl"
 	"github.com/colony-2/swf-go/pkg/swf"
 	"github.com/gorilla/mux"
 )

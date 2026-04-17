@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/colony-2/c2j/pkg/core/contextual"
-	"github.com/colony-2/c2j/pkg/core/recipe"
+	"github.com/colony-2/c2j/pkg/contextual"
+	"github.com/colony-2/c2j/pkg/recipe"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

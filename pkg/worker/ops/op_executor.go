@@ -18,11 +18,11 @@ import (
 	"strings"
 	"time"
 
-	recipeartifacts "github.com/colony-2/c2j/pkg/core/artifacts"
-	"github.com/colony-2/c2j/pkg/core/contextual"
-	"github.com/colony-2/c2j/pkg/core/logutil"
-	"github.com/colony-2/c2j/pkg/core/ops"
+	recipeartifacts "github.com/colony-2/c2j/pkg/artifacts"
+	"github.com/colony-2/c2j/pkg/contextual"
 	"github.com/colony-2/c2j/pkg/git/gitstate"
+	"github.com/colony-2/c2j/pkg/logutil"
+	"github.com/colony-2/c2j/pkg/ops"
 	"github.com/colony-2/swf-go/pkg/swf"
 )
 

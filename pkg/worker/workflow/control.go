@@ -4,12 +4,12 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/colony-2/c2j/pkg/core/contextual"
-	"github.com/colony-2/c2j/pkg/core/recipe"
-	"github.com/colony-2/c2j/pkg/core/starter"
-	coretask "github.com/colony-2/c2j/pkg/core/task"
-	"github.com/colony-2/c2j/pkg/core/workflowctl"
+	"github.com/colony-2/c2j/pkg/contextual"
+	"github.com/colony-2/c2j/pkg/recipe"
+	"github.com/colony-2/c2j/pkg/starter"
+	coretask "github.com/colony-2/c2j/pkg/task"
 	"github.com/colony-2/c2j/pkg/worker/ops"
+	"github.com/colony-2/c2j/pkg/workflowctl"
 	"github.com/colony-2/swf-go/pkg/swf"
 )
 

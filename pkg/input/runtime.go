@@ -6,10 +6,10 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/colony-2/c2j/pkg/core/ops"
-	coretask "github.com/colony-2/c2j/pkg/core/task"
-	"github.com/colony-2/c2j/pkg/core/workflowctl"
+	"github.com/colony-2/c2j/pkg/ops"
+	coretask "github.com/colony-2/c2j/pkg/task"
 	workerops "github.com/colony-2/c2j/pkg/worker/ops"
+	"github.com/colony-2/c2j/pkg/workflowctl"
 	"github.com/colony-2/swf-go/pkg/swf"
 	"github.com/fatih/structs"
 )

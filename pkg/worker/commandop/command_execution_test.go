@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	ops "github.com/colony-2/c2j/pkg/core/ops"
+	ops "github.com/colony-2/c2j/pkg/ops"
 )
 
 func TestCommandExecutionActivity_GetMetadata(t *testing.T) {

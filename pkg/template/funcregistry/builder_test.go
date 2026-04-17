@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/colony-2/c2j/pkg/core/contextual"
+	"github.com/colony-2/c2j/pkg/contextual"
 	"github.com/google/cel-go/cel"
 	"github.com/stretchr/testify/require"
 )

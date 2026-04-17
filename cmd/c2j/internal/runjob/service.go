@@ -11,10 +11,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/colony-2/c2j/cmd/c2j/internal/c2jops"
 	"github.com/colony-2/c2j/cmd/c2j/internal/jobutil"
-	"github.com/colony-2/c2j/pkg/c2j/c2jops"
-	coreops "github.com/colony-2/c2j/pkg/core/ops"
 	"github.com/colony-2/c2j/pkg/input"
+	coreops "github.com/colony-2/c2j/pkg/ops"
 	"github.com/colony-2/c2j/pkg/template"
 	"github.com/colony-2/c2j/pkg/template/colonycel"
 	"github.com/colony-2/c2j/pkg/worker/compiler"

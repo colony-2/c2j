@@ -3,7 +3,7 @@ package compiler
 import (
 	"fmt"
 
-	"github.com/colony-2/c2j/pkg/core/recipe"
+	"github.com/colony-2/c2j/pkg/recipe"
 )
 
 func prepareRecipeInputs(meta recipe.RecipeMetadata, raw map[string]interface{}, opts ExecutionOptions) (map[string]interface{}, error) {

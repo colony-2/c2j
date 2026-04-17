@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	coreops "github.com/colony-2/c2j/pkg/core/ops"
+	coreops "github.com/colony-2/c2j/pkg/ops"
 	extops "github.com/colony-2/c2j/pkg/ops/extensions"
 )
 

@@ -3,7 +3,7 @@ package compiler
 import (
 	"fmt"
 
-	"github.com/colony-2/c2j/pkg/core/recipe"
+	"github.com/colony-2/c2j/pkg/recipe"
 	"github.com/colony-2/c2j/pkg/template"
 )
 

@@ -3,9 +3,9 @@ package template
 import (
 	"testing"
 
-	"github.com/colony-2/c2j/pkg/core/contextual"
-	"github.com/colony-2/c2j/pkg/core/recipe"
-	coretask "github.com/colony-2/c2j/pkg/core/task"
+	"github.com/colony-2/c2j/pkg/contextual"
+	"github.com/colony-2/c2j/pkg/recipe"
+	coretask "github.com/colony-2/c2j/pkg/task"
 	"github.com/stretchr/testify/require"
 )
 

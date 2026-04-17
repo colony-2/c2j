@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/colony-2/c2j/pkg/core/ops"
+	"github.com/colony-2/c2j/pkg/ops"
 )
 
 // PersistCommitInput defines the input for persist commit activities - ALL fields MUST have json tags

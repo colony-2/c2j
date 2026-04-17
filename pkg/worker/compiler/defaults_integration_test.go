@@ -5,7 +5,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/colony-2/c2j/pkg/core/ops"
+	"github.com/colony-2/c2j/pkg/ops"
 	workerops "github.com/colony-2/c2j/pkg/worker/ops"
 )
 

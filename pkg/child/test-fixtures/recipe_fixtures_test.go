@@ -3,8 +3,8 @@ package test_fixtures_test
 import (
 	"testing"
 
-	recipechild "github.com/colony-2/c2j/pkg/child/recipe"
-	"github.com/colony-2/c2j/pkg/core/ops"
+	"github.com/colony-2/c2j/pkg/ops"
+	recipechild "github.com/colony-2/c2j/pkg/ops/recipe"
 	testfixtures "github.com/colony-2/c2j/pkg/worker/test-fixtures"
 )
 

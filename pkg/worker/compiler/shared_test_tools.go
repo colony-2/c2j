@@ -8,7 +8,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/colony-2/c2j/pkg/core/contextual"
+	"github.com/colony-2/c2j/pkg/contextual"
 )
 
 var (

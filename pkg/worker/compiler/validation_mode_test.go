@@ -6,10 +6,10 @@ import (
 	"log/slog"
 	"testing"
 
-	"github.com/colony-2/c2j/pkg/core/cel"
-	coreops "github.com/colony-2/c2j/pkg/core/ops"
-	"github.com/colony-2/c2j/pkg/core/recipe"
-	"github.com/colony-2/c2j/pkg/core/workflow"
+	"github.com/colony-2/c2j/pkg/cel"
+	coreops "github.com/colony-2/c2j/pkg/ops"
+	"github.com/colony-2/c2j/pkg/recipe"
+	"github.com/colony-2/c2j/pkg/workflow"
 	"github.com/colony-2/swf-go/pkg/swf"
 	"github.com/stretchr/testify/require"
 )

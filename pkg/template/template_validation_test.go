@@ -3,7 +3,7 @@ package template
 import (
 	"testing"
 
-	"github.com/colony-2/c2j/pkg/core/contextual"
+	"github.com/colony-2/c2j/pkg/contextual"
 	"github.com/colony-2/c2j/pkg/template/funcregistry"
 	"github.com/google/cel-go/cel"
 	"github.com/google/cel-go/common/types"

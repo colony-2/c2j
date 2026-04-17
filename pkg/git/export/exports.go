@@ -1,12 +1,12 @@
 package export
 
 import (
-	"github.com/colony-2/c2j/pkg/core/ops"
 	"github.com/colony-2/c2j/pkg/git/gitcollector"
 	"github.com/colony-2/c2j/pkg/git/gitcommit"
 	"github.com/colony-2/c2j/pkg/git/gitshallow"
 	"github.com/colony-2/c2j/pkg/git/squashrebasemerge"
 	"github.com/colony-2/c2j/pkg/git/thinpackrebase"
+	"github.com/colony-2/c2j/pkg/ops"
 )
 
 // GetAll returns all Git activities available in this module

@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	coretask "github.com/colony-2/c2j/pkg/core/task"
+	coretask "github.com/colony-2/c2j/pkg/task"
 	workerops "github.com/colony-2/c2j/pkg/worker/ops"
 )
 

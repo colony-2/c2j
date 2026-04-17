@@ -9,10 +9,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/colony-2/c2j/pkg/core/file"
-	"github.com/colony-2/c2j/pkg/core/ops"
+	"github.com/colony-2/c2j/pkg/file"
 	"github.com/colony-2/c2j/pkg/git/common"
 	"github.com/colony-2/c2j/pkg/git/internal/commands"
+	"github.com/colony-2/c2j/pkg/ops"
 )
 
 // GitFileCollectorInput defines the input parameters

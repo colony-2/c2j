@@ -7,9 +7,9 @@ import (
 	"strings"
 	"time"
 
-	recipeartifacts "github.com/colony-2/c2j/pkg/core/artifacts"
-	"github.com/colony-2/c2j/pkg/core/contextual"
-	"github.com/colony-2/c2j/pkg/core/recipe"
+	recipeartifacts "github.com/colony-2/c2j/pkg/artifacts"
+	"github.com/colony-2/c2j/pkg/contextual"
+	"github.com/colony-2/c2j/pkg/recipe"
 	"github.com/colony-2/c2j/pkg/template/funcregistry"
 	"github.com/colony-2/swf-go/pkg/swf"
 	"github.com/google/cel-go/cel"

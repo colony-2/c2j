@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	recipeartifacts "github.com/colony-2/c2j/pkg/core/artifacts"
-	"github.com/colony-2/c2j/pkg/core/ops"
+	recipeartifacts "github.com/colony-2/c2j/pkg/artifacts"
+	"github.com/colony-2/c2j/pkg/ops"
 )
 
 const ExecutionOpType = "extension_execution"

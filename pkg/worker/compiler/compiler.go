@@ -5,18 +5,18 @@ import (
 	"log/slog"
 	"time"
 
-	recipeartifacts "github.com/colony-2/c2j/pkg/core/artifacts"
-	"github.com/colony-2/c2j/pkg/core/contextual"
-	"github.com/colony-2/c2j/pkg/core/ops"
-	"github.com/colony-2/c2j/pkg/core/recipe"
-	coretask "github.com/colony-2/c2j/pkg/core/task"
+	recipeartifacts "github.com/colony-2/c2j/pkg/artifacts"
+	"github.com/colony-2/c2j/pkg/contextual"
 	"github.com/colony-2/c2j/pkg/git/gitstate"
+	"github.com/colony-2/c2j/pkg/ops"
 	extops "github.com/colony-2/c2j/pkg/ops/extensions"
+	"github.com/colony-2/c2j/pkg/recipe"
+	coretask "github.com/colony-2/c2j/pkg/task"
 	"github.com/colony-2/c2j/pkg/template"
 	workerops "github.com/colony-2/c2j/pkg/worker/ops"
 	"github.com/colony-2/swf-go/pkg/swf"
 
-	"github.com/colony-2/c2j/pkg/core/workflow"
+	"github.com/colony-2/c2j/pkg/workflow"
 )
 
 // RecipeExecutor defines the surface area for executing recipes, states, and ops.

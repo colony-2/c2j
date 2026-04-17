@@ -1,6 +1,6 @@
 package gitstate
 
-import "github.com/colony-2/c2j/pkg/core/contextual"
+import "github.com/colony-2/c2j/pkg/contextual"
 
 // GlobalGitTaskContext contains machine-independent git context (serializable)
 // This can be safely serialized and sent between machines

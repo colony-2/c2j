@@ -6,8 +6,8 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/colony-2/c2j/pkg/core/recipe"
-	"github.com/colony-2/c2j/pkg/core/starter"
+	"github.com/colony-2/c2j/pkg/recipe"
+	"github.com/colony-2/c2j/pkg/starter"
 	"github.com/colony-2/swf-go/pkg/swf"
 	"gopkg.in/yaml.v3"
 )

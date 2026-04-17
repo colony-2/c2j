@@ -6,7 +6,7 @@ import (
 	"strings"
 	"sync"
 
-	coreops "github.com/colony-2/c2j/pkg/core/ops"
+	coreops "github.com/colony-2/c2j/pkg/ops"
 	"github.com/go-playground/validator/v10"
 	"github.com/mitchellh/mapstructure"
 	"google.golang.org/protobuf/types/known/structpb"

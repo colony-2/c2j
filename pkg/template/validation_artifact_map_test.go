@@ -3,8 +3,8 @@ package template
 import (
 	"testing"
 
-	recipeartifacts "github.com/colony-2/c2j/pkg/core/artifacts"
-	"github.com/colony-2/c2j/pkg/core/contextual"
+	recipeartifacts "github.com/colony-2/c2j/pkg/artifacts"
+	"github.com/colony-2/c2j/pkg/contextual"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

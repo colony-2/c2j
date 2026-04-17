@@ -3,7 +3,7 @@ package template
 import (
 	"strings"
 
-	"github.com/colony-2/c2j/pkg/core/contextual"
+	"github.com/colony-2/c2j/pkg/contextual"
 )
 
 type invocationTracker struct {

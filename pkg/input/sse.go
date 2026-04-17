@@ -3,7 +3,7 @@ package input
 import (
 	"sync"
 
-	"github.com/colony-2/c2j/pkg/core/ops"
+	"github.com/colony-2/c2j/pkg/ops"
 )
 
 // SimpleSSEManager is a basic implementation of SSEManager

@@ -11,12 +11,12 @@ import (
 	"testing"
 	"time"
 
-	ops2 "github.com/colony-2/c2j/pkg/core/ops"
-	"github.com/colony-2/c2j/pkg/core/recipe"
-	"github.com/colony-2/c2j/pkg/core/starter"
-	"github.com/colony-2/c2j/pkg/core/swfutil"
-	"github.com/colony-2/c2j/pkg/core/workflowctl"
+	ops2 "github.com/colony-2/c2j/pkg/ops"
+	"github.com/colony-2/c2j/pkg/recipe"
+	"github.com/colony-2/c2j/pkg/starter"
+	"github.com/colony-2/c2j/pkg/swfutil"
 	workerops "github.com/colony-2/c2j/pkg/worker/ops"
+	"github.com/colony-2/c2j/pkg/workflowctl"
 	"github.com/colony-2/swf-go/pkg/swf"
 	"github.com/stretchr/testify/require"
 )

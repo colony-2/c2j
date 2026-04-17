@@ -7,9 +7,9 @@ import (
 	"strings"
 	"testing"
 
-	rops "github.com/colony-2/c2j/pkg/core/ops"
-	rec "github.com/colony-2/c2j/pkg/core/recipe"
+	rops "github.com/colony-2/c2j/pkg/ops"
 	ext "github.com/colony-2/c2j/pkg/ops/extensions"
+	rec "github.com/colony-2/c2j/pkg/recipe"
 	yamlv3 "gopkg.in/yaml.v3"
 )
 

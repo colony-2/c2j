@@ -38,7 +38,7 @@ Location suggestion: `pkg/recipe/`
 ## Fixture Integration Tests (recipe-worker harness)
 Location suggestion:
 - Recipes: `/src/pkg/child/test-fixtures/recipes/`
-- Test runner: `/src/pkg/child/recipe_fixtures_test.go`
+- Test runner: `/src/pkg/ops/recipe_fixtures_test.go`
 
 ### Fixture recipes
 Primary recipes under test (parent):

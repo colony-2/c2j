@@ -6,11 +6,11 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/colony-2/c2j/pkg/core/contextual"
-	"github.com/colony-2/c2j/pkg/core/recipe"
-	coreworkflow "github.com/colony-2/c2j/pkg/core/workflow"
+	"github.com/colony-2/c2j/pkg/contextual"
+	"github.com/colony-2/c2j/pkg/recipe"
 	"github.com/colony-2/c2j/pkg/template"
 	"github.com/colony-2/c2j/pkg/worker/compiler"
+	coreworkflow "github.com/colony-2/c2j/pkg/workflow"
 	"github.com/colony-2/swf-go/pkg/swf"
 )
 

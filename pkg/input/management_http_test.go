@@ -9,13 +9,13 @@ import (
 	"testing"
 	"time"
 
-	coreops "github.com/colony-2/c2j/pkg/core/ops"
-	"github.com/colony-2/c2j/pkg/core/recipe"
-	"github.com/colony-2/c2j/pkg/core/starter"
-	"github.com/colony-2/c2j/pkg/core/workflowctl"
+	coreops "github.com/colony-2/c2j/pkg/ops"
+	"github.com/colony-2/c2j/pkg/recipe"
+	"github.com/colony-2/c2j/pkg/starter"
 	"github.com/colony-2/c2j/pkg/worker/compiler"
 	"github.com/colony-2/c2j/pkg/worker/ops"
 	"github.com/colony-2/c2j/pkg/worker/workflow"
+	"github.com/colony-2/c2j/pkg/workflowctl"
 	"github.com/gorilla/mux"
 	"github.com/stretchr/testify/require"
 )

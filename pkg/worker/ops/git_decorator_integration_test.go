@@ -8,9 +8,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/colony-2/c2j/pkg/core/contextual"
-	coreops "github.com/colony-2/c2j/pkg/core/ops"
-	"github.com/colony-2/c2j/pkg/core/recipe"
+	"github.com/colony-2/c2j/pkg/contextual"
+	coreops "github.com/colony-2/c2j/pkg/ops"
+	"github.com/colony-2/c2j/pkg/recipe"
 	"github.com/colony-2/c2j/pkg/worker/executor"
 	"github.com/colony-2/c2j/pkg/worker/ops"
 	"go.uber.org/zap/zaptest"

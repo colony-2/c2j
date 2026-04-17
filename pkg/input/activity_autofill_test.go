@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/colony-2/c2j/pkg/core/ops"
+	"github.com/colony-2/c2j/pkg/ops"
 	"github.com/stretchr/testify/require"
 )
 

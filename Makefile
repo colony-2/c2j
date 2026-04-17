@@ -5,7 +5,7 @@ OAPI_CODEGEN ?= github.com/deepmap/oapi-codegen/v2/cmd/oapi-codegen@v2.1.0
 
 build:
 	mkdir -p bin
-	$(GO) build -o bin/c2j ./cmd/c2j
+	$(GO) build -buildvcs=false -o bin/c2j ./cmd/c2j
 
 test:
 	$(GO) test ./...

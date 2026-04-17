@@ -3,7 +3,7 @@ package gitshallow
 import (
 	"context"
 
-	"github.com/colony-2/c2j/pkg/core/ops"
+	"github.com/colony-2/c2j/pkg/ops"
 )
 
 // GitShallowInput defines the input for git shallow clone activities - ALL fields MUST have json tags

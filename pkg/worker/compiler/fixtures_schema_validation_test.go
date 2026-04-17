@@ -8,7 +8,7 @@ import (
 
 	_ "github.com/colony-2/c2j/pkg/worker/ops" // ensure test ops are registered via init
 
-	recipe "github.com/colony-2/c2j/pkg/core/recipe"
+	recipe "github.com/colony-2/c2j/pkg/recipe"
 )
 
 // Test that fixture recipes conform to the generated schema and that

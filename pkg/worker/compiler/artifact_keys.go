@@ -3,7 +3,7 @@ package compiler
 import (
 	"fmt"
 
-	recipeartifacts "github.com/colony-2/c2j/pkg/core/artifacts"
+	recipeartifacts "github.com/colony-2/c2j/pkg/artifacts"
 	"github.com/colony-2/swf-go/pkg/swf"
 )
 
