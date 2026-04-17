@@ -1,6 +1,0 @@
-id: 'be-git'
-language: 'go'
-type: 'library'
-
-project:
-  description: Provides Git repository operations and command execution functionality.
