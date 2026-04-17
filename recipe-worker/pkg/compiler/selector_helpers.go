@@ -19,6 +19,39 @@ func IsGitRecipeSelector(selector string) bool {
 	return isGitRecipeSelector(selector)
 }
 
+func IsLocalRecipeFileReference(value string) bool {
+	value = strings.TrimSpace(value)
+	if value == "" || isGitRecipeSelector(value) {
+		return false
+	}
+
+	switch {
+	case filepath.IsAbs(value):
+		return true
+	case value == "." || value == "..":
+		return true
+	case strings.HasPrefix(value, "./"), strings.HasPrefix(value, "../"):
+		return true
+	case strings.Contains(value, "/"), strings.Contains(value, "\\"):
+		return true
+	}
+
+	switch strings.ToLower(filepath.Ext(value)) {
+	case ".yaml", ".yml":
+		return true
+	default:
+		return false
+	}
+}
+
+func IsCellRecipeName(value string) bool {
+	value = strings.TrimSpace(value)
+	if value == "" || isGitRecipeSelector(value) {
+		return false
+	}
+	return !IsLocalRecipeFileReference(value)
+}
+
 func NormalizeGitRepositorySource(source string) (string, error) {
 	source = strings.TrimSpace(source)
 	if source == "" {

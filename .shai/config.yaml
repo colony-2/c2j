@@ -1,0 +1,134 @@
+type: shai-sandbox
+version: 1
+image: ghcr.io/colony-2/shai-mega:dind-latest
+resources:
+  default:
+    vars:
+      - source: GOPRIVATE
+      - source: MOON_TOOLCHAIN_FORCE_GLOBALS
+      - source: ANTHROPIC_API_KEY
+      - source: GEMINI_API_KEY
+    options:
+      privileged: true
+    calls:
+      - name: uname
+        command: uname -a
+    mounts:
+      - source: ${{ env.HOME }}/shaihome
+        target: /home/shai/
+        mode: rw
+      - source: ${{ env.HOME }}/.cache/go-build
+        target: /home/shai/go/pkg
+        mode: rw
+      - source: ${{ env.HOME }}/.cache/go-mod
+        target: /home/shai/go/mod
+        mode: rw
+      - source: /src/colony2/.moon/lcache
+        target: /src/.moon/cache
+        mode: rw
+    root-commands:
+      - |
+        socket="/var/run/docker.sock"
+
+        # Initial quick check
+        if [ ! -S "$socket" ]; then
+          sleep 0.2
+          if [ ! -S "$socket" ]; then
+            echo "Waiting for $socket..."
+
+            # Now loop for the remainder of the 2s (approx 1.7s left)
+            count=0
+            while [ ! -S "$socket" ] && [ $count -lt 18 ]; do
+              sleep 0.1
+              ((count++))
+            done
+          fi
+        fi
+
+        if [ -S "$socket" ]; then
+          chmod 666 "$socket"
+        else
+          echo "Docker socket not available within 2s" >&2
+          exit 1
+        fi
+    http:
+      - openai.com
+      - api.openai.com
+      - chatgpt.com
+      - anthropic.com
+      - api.anthropic.com
+      - googleapis.com
+      - generativelanguage.googleapis.com
+      - ai.google.dev
+      - oauth2.googleapis.com
+      - accounts.google.com
+      - github.com
+      - gitlab.com
+      - bitbucket.org
+      - codeload.github.com
+      - githubusercontent.com
+      - nodejs.org
+      - npmjs.org
+      - npmjs.com
+      - registry.npmjs.org
+      - registry.yarnpkg.com
+      - dl.yarnpkg.com
+      - pnpm.io
+      - registry.npmmirror.com
+      - golang.org
+      - go.dev
+      - proxy.golang.org
+      - sum.golang.org
+      - gopkg.in
+      - storage.googleapis.com
+      - rust-lang.org
+      - static.rust-lang.org
+      - sh.rustup.rs
+      - crates.io
+      - index.crates.io
+      - static.crates.io
+      - docs.rs
+      - doc.rust-lang.org
+      - pypi.org
+      - files.pythonhosted.org
+      - pythonhosted.org
+      - python.org
+      - docs.python.org
+      - repo.maven.apache.org
+      - repo1.maven.org
+      - search.maven.org
+      - jitpack.io
+      - pkg.go.dev
+      - devdocs.io
+      - maven.pkg.github.com
+      - npm.pkg.github.com
+      - pkg.github.com
+      - packages.githubusercontent.com
+      - pkg-containers.githubusercontent.com
+      - docker.io
+      - registry-1.docker.io
+      - index.docker.io
+      - auth.docker.io
+      - production.cloudflare.docker.com
+      - ghcr.io
+      - quay.io
+      - gcr.io
+      - registry.k8s.io
+      - k8s.gcr.io
+      - mcr.microsoft.com
+      - public.ecr.aws
+      - playwright.dev
+      - microsoft.com
+      - go.dev
+      - google.com
+    ports:
+      - host: github.com
+        port: 22
+apply:
+  - path: ./
+    resources:
+      - default
+  - path: server/ops
+    resources:
+      - default
+    image: ghcr.io/colony-2/shai-mega:dind-latest

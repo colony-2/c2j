@@ -118,7 +118,11 @@ func Run(ctx context.Context, opts Options) error {
 }
 
 func loadRecipeStart(opts Options, target targetCell) (string, *recipe.Recipe, func(), error) {
-	if recipeFile := strings.TrimSpace(opts.RecipeFile); recipeFile != "" {
+	recipeFile := strings.TrimSpace(opts.RecipeFile)
+	if recipeFile == "" && compiler.IsLocalRecipeFileReference(opts.Recipe) {
+		recipeFile = strings.TrimSpace(opts.Recipe)
+	}
+	if recipeFile != "" {
 		absPath, err := absPathFromWorkingDir(opts.WorkingDir, recipeFile)
 		if err != nil {
 			return "", nil, nil, fmt.Errorf("resolve recipe file: %w", err)
@@ -138,7 +142,7 @@ func loadRecipeStart(opts Options, target targetCell) (string, *recipe.Recipe, f
 	}
 
 	selector := strings.TrimSpace(opts.Recipe)
-	if !compiler.IsGitRecipeSelector(selector) {
+	if compiler.IsCellRecipeName(selector) {
 		builtSelector, err := compiler.BuildCellRecipeSelector(target.RepositorySource, selector, target.DefaultRef)
 		if err != nil {
 			return "", nil, nil, err

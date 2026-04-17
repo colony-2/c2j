@@ -70,6 +70,49 @@ func TestBuildCellRecipeSelector(t *testing.T) {
 	}
 }
 
+func TestIsLocalRecipeFileReference(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		value string
+		want  bool
+	}{
+		{value: "deploy", want: false},
+		{value: "deploy.yaml", want: true},
+		{value: "recipes/deploy.yaml", want: true},
+		{value: "./deploy.yaml", want: true},
+		{value: "../deploy.yaml", want: true},
+		{value: "/tmp/deploy.yaml", want: true},
+		{value: "git+https://github.com/acme/demo.git//.c2j/recipes/deploy.yaml@main", want: false},
+	}
+
+	for _, tt := range tests {
+		if got := IsLocalRecipeFileReference(tt.value); got != tt.want {
+			t.Fatalf("IsLocalRecipeFileReference(%q) = %v, want %v", tt.value, got, tt.want)
+		}
+	}
+}
+
+func TestIsCellRecipeName(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		value string
+		want  bool
+	}{
+		{value: "deploy", want: true},
+		{value: "deploy.yaml", want: false},
+		{value: "./deploy.yaml", want: false},
+		{value: "git+https://github.com/acme/demo.git//.c2j/recipes/deploy.yaml@main", want: false},
+	}
+
+	for _, tt := range tests {
+		if got := IsCellRecipeName(tt.value); got != tt.want {
+			t.Fatalf("IsCellRecipeName(%q) = %v, want %v", tt.value, got, tt.want)
+		}
+	}
+}
+
 func TestRepositoryNameFromSource(t *testing.T) {
 	t.Parallel()
 

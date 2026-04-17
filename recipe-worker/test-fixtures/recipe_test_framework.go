@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -48,60 +49,95 @@ type TestCases struct {
 	Tests   []TestCase `yaml:"tests"`
 }
 
-var (
-	fixturesRepoOnce sync.Once
-	fixturesRepoPath string
-	fixturesRepoHash string
-)
-
 func init() {
 	coreops.Register(gitexport.GetAll()...)
 }
 
-func ensureTestRepo() (string, string) {
-	fixturesRepoOnce.Do(func() {
-		dir, err := os.MkdirTemp("", "fixtures-repo-*")
-		if err != nil {
-			panic(err)
+func initFixtureRepo(dir string) error {
+	if err := runGit(dir, "git", "init"); err != nil {
+		return err
+	}
+	if err := runGit(dir, "git", "config", "user.email", "test@example.com"); err != nil {
+		return err
+	}
+	if err := runGit(dir, "git", "config", "user.name", "Test User"); err != nil {
+		return err
+	}
+	readme := filepath.Join(dir, "README.md")
+	if err := os.WriteFile(readme, []byte("initial\n"), 0o644); err != nil {
+		return err
+	}
+	cells := []string{"cells/test-cell", "cells/alpha", "cells/beta", "cells/cell-a"}
+	for _, rel := range cells {
+		full := filepath.Join(dir, rel)
+		if err := os.MkdirAll(full, 0o755); err != nil {
+			return err
 		}
-		if err := runGit(dir, "git", "init"); err != nil {
-			panic(err)
+		seed := filepath.Join(full, "README.md")
+		if err := os.WriteFile(seed, []byte(rel+"\n"), 0o644); err != nil {
+			return err
 		}
-		if err := runGit(dir, "git", "config", "user.email", "test@example.com"); err != nil {
-			panic(err)
+	}
+	return nil
+}
+
+func fixtureRecipeRelPath(recipePath string) string {
+	relPath, err := filepath.Rel("recipes", recipePath)
+	if err != nil || strings.HasPrefix(relPath, "..") {
+		return filepath.Base(recipePath)
+	}
+	return filepath.ToSlash(relPath)
+}
+
+func copyRecipeIntoFixtureRepo(repoDir string, sourcePath string, relPath string) error {
+	data, err := os.ReadFile(sourcePath)
+	if err != nil {
+		return err
+	}
+	destPath := filepath.Join(repoDir, filepath.FromSlash(path.Join(compiler.CellRecipeDirectory, relPath)))
+	if err := os.MkdirAll(filepath.Dir(destPath), 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(destPath, data, 0o644)
+}
+
+func createFixtureRepo(primaryPath string, secondaryPaths []string) (string, string, func(), error) {
+	dir, err := os.MkdirTemp("", "fixtures-repo-*")
+	if err != nil {
+		return "", "", nil, err
+	}
+	cleanup := func() {
+		_ = os.RemoveAll(dir)
+	}
+	if err := initFixtureRepo(dir); err != nil {
+		cleanup()
+		return "", "", nil, err
+	}
+	if err := copyRecipeIntoFixtureRepo(dir, primaryPath, fixtureRecipeRelPath(primaryPath)); err != nil {
+		cleanup()
+		return "", "", nil, err
+	}
+	for _, relPath := range secondaryPaths {
+		sourcePath := filepath.Join("recipes", relPath)
+		if err := copyRecipeIntoFixtureRepo(dir, sourcePath, filepath.ToSlash(relPath)); err != nil {
+			cleanup()
+			return "", "", nil, err
 		}
-		if err := runGit(dir, "git", "config", "user.name", "Test User"); err != nil {
-			panic(err)
-		}
-		readme := filepath.Join(dir, "README.md")
-		if err := os.WriteFile(readme, []byte("initial\n"), 0o644); err != nil {
-			panic(err)
-		}
-		cells := []string{"cells/test-cell", "cells/alpha", "cells/beta", "cells/cell-a"}
-		for _, rel := range cells {
-			full := filepath.Join(dir, rel)
-			if err := os.MkdirAll(full, 0o755); err != nil {
-				panic(err)
-			}
-			seed := filepath.Join(full, "README.md")
-			if err := os.WriteFile(seed, []byte(rel+"\n"), 0o644); err != nil {
-				panic(err)
-			}
-		}
-		if err := runGit(dir, "git", "add", "."); err != nil {
-			panic(err)
-		}
-		if err := runGit(dir, "git", "commit", "-m", "init"); err != nil {
-			panic(err)
-		}
-		output, err := exec.Command("git", "-C", dir, "rev-parse", "HEAD").CombinedOutput()
-		if err != nil {
-			panic(fmt.Errorf("rev-parse HEAD failed: %w (%s)", err, output))
-		}
-		fixturesRepoPath = dir
-		fixturesRepoHash = strings.TrimSpace(string(output))
-	})
-	return fixturesRepoPath, fixturesRepoHash
+	}
+	if err := runGit(dir, "git", "add", "."); err != nil {
+		cleanup()
+		return "", "", nil, err
+	}
+	if err := runGit(dir, "git", "commit", "-m", "add fixture recipes"); err != nil {
+		cleanup()
+		return "", "", nil, err
+	}
+	output, err := exec.Command("git", "-C", dir, "rev-parse", "HEAD").CombinedOutput()
+	if err != nil {
+		cleanup()
+		return "", "", nil, fmt.Errorf("rev-parse HEAD failed: %w (%s)", err, output)
+	}
+	return dir, strings.TrimSpace(string(output)), cleanup, nil
 }
 
 func runGit(dir string, name string, args ...string) error {
@@ -114,9 +150,7 @@ func runGit(dir string, name string, args ...string) error {
 	return nil
 }
 
-func defaultTestContext() (contextual.JobContext, contextual.GitCommitContext) {
-	baseRepo, baseHash := ensureTestRepo()
-
+func defaultTestContext(baseRepo string, baseHash string) (contextual.JobContext, contextual.GitCommitContext) {
 	job := contextual.JobContext{
 		Actor: contextual.ActorContext{
 			TicketID:   "TEST-TICKET",
@@ -228,8 +262,8 @@ func mergeGitContext(base contextual.GitCommitContext, override *contextual.GitC
 	return base
 }
 
-func generateTestContext(jobOverride *contextual.JobContext, gitOverride *contextual.GitCommitContext) (contextual.JobContext, contextual.GitCommitContext) {
-	baseJob, baseGit := defaultTestContext()
+func generateTestContext(baseRepo string, baseHash string, jobOverride *contextual.JobContext, gitOverride *contextual.GitCommitContext) (contextual.JobContext, contextual.GitCommitContext) {
+	baseJob, baseGit := defaultTestContext(baseRepo, baseHash)
 	return mergeJobContext(baseJob, jobOverride), mergeGitContext(baseGit, gitOverride)
 }
 
@@ -425,24 +459,53 @@ func loadRecipeDefinition(path string) (recipe.Recipe, error) {
 	return def, nil
 }
 
-func buildRecipeRegistry(primaryPath string, primary recipe.Recipe, secondaryPaths []string) (workflow.RecipeProjectProvider, error) {
+func buildFixtureRecipeSelector(repositorySource string, recipeRelPath string, ref string) (string, error) {
+	repoSource, err := compiler.NormalizeGitRepositorySource(repositorySource)
+	if err != nil {
+		return "", err
+	}
+	recipePath := path.Join(compiler.CellRecipeDirectory, filepath.ToSlash(recipeRelPath))
+	return fmt.Sprintf("git+%s//%s@%s", repoSource, recipePath, ref), nil
+}
+
+func buildRecipeRegistry(primaryPath string, primary recipe.Recipe, secondaryPaths []string, repositorySource string, ref string) (workflow.RecipeProjectProvider, error) {
 	recipes := make(map[string]*recipe.Recipe)
 	recipeSources := make(map[string]string)
 
-	addRecipe := func(path string, def recipe.Recipe) error {
-		id := def.GetMetadata().ID
-		if id == "" {
-			return fmt.Errorf("recipe id missing in %s", path)
+	addLookup := func(key string, sourcePath string, def recipe.Recipe) error {
+		if key == "" {
+			return nil
 		}
-		if existing, ok := recipeSources[id]; ok {
-			return fmt.Errorf("duplicate recipe id %s in %s (already registered from %s)", id, path, existing)
+		if existing, ok := recipeSources[key]; ok {
+			return fmt.Errorf("duplicate recipe lookup key %s in %s (already registered from %s)", key, sourcePath, existing)
 		}
-		recipes[id] = &def
-		recipeSources[id] = path
+		recipes[key] = &def
+		recipeSources[key] = sourcePath
 		return nil
 	}
 
-	if err := addRecipe(primaryPath, primary); err != nil {
+	addRecipe := func(sourcePath string, recipeRelPath string, def recipe.Recipe) error {
+		id := def.GetMetadata().ID
+		if id == "" {
+			return fmt.Errorf("recipe id missing in %s", sourcePath)
+		}
+		if err := addLookup(id, sourcePath, def); err != nil {
+			return err
+		}
+		if strings.TrimSpace(repositorySource) == "" || strings.TrimSpace(ref) == "" {
+			return nil
+		}
+		selector, err := buildFixtureRecipeSelector(repositorySource, recipeRelPath, ref)
+		if err != nil {
+			return err
+		}
+		if err := addLookup(selector, sourcePath, def); err != nil {
+			return err
+		}
+		return nil
+	}
+
+	if err := addRecipe(primaryPath, fixtureRecipeRelPath(primaryPath), primary); err != nil {
 		return nil, err
 	}
 
@@ -452,7 +515,7 @@ func buildRecipeRegistry(primaryPath string, primary recipe.Recipe, secondaryPat
 		if err != nil {
 			return nil, err
 		}
-		if err := addRecipe(recipePath, def); err != nil {
+		if err := addRecipe(recipePath, filepath.ToSlash(relPath), def); err != nil {
 			return nil, err
 		}
 	}
@@ -509,7 +572,11 @@ func RunTestOnAllRecipesWithDeps(deps coreops.ServiceDependencies2, path string,
 			require.NoError(t, err, "Failed to load recipe file: %s", recipePath)
 			recipeDef := *recipeDefP
 
-			registry, err := buildRecipeRegistry(recipePath, recipeDef, testCases.Recipes)
+			repoPath, repoHash, cleanup, err := createFixtureRepo(recipePath, testCases.Recipes)
+			require.NoError(t, err, "Failed to create fixture repo")
+			t.Cleanup(cleanup)
+
+			registry, err := buildRecipeRegistry(recipePath, recipeDef, testCases.Recipes, repoPath, repoHash)
 			require.NoError(t, err, "Failed to build recipe registry")
 
 			// Run table-driven tests
@@ -517,7 +584,7 @@ func RunTestOnAllRecipesWithDeps(deps coreops.ServiceDependencies2, path string,
 				tc := tc // capture range variable
 				t.Run(tc.Name, func(t *testing.T) {
 					// Execute recipe using standalone executor
-					jobCtx, gitCtx := generateTestContext(tc.JobContext, tc.GitContext)
+					jobCtx, gitCtx := generateTestContext(repoPath, repoHash, tc.JobContext, tc.GitContext)
 					var result map[string]interface{}
 					var artifacts []string
 					var jobArtifacts []string
@@ -631,12 +698,21 @@ func executeRecipeWithArtifacts(
 	recipeRegistry workflow.RecipeProjectProvider,
 	deps coreops.ServiceDependencies2,
 ) (map[string]interface{}, []string, []string, error) {
+	rootResolver := compiler.NewRecipeSourceResolver(compiler.RecipeSourceResolverOptions{
+		RecipeRefResolver: compiler.NewProviderBackedRecipeRefResolver(func(projectID string, recipeRef string) (*recipe.Recipe, error) {
+			return recipeRegistry(projectID, recipeRef)
+		}),
+	})
+
 	control := &workflow.SWFWorkflowControl{
-		Registry: recipeRegistry,
+		Registry:                      recipeRegistry,
+		PreferRuntimeRecipeResolution: true,
 	}
 
 	deps = coreops.NewServiceDepsBuilder().WithWorkflowControl(control).WithDatabase(deps.Database()).WithSSEManager(deps.SSEManager()).Build()
-	workset, err := compiler.NewRecipeWorker(deps, registry, nil)
+	workset, err := compiler.NewRecipeWorkerWithOptions(deps, registry, compiler.RecipeJobWorkerOptions{
+		RootSourceResolver: rootResolver,
+	})
 	if err != nil {
 		return nil, nil, nil, err
 	}
