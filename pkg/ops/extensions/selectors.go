@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"io"
 	"net/url"
 	"os"
 	"path"
@@ -21,6 +22,14 @@ type ResolveOptions struct {
 	BaseDir          string
 	RepositorySource string
 	RepositoryRef    string
+}
+
+type ResolvedSelectorPath struct {
+	Selector         string
+	ResolvedSelector string
+	ResolvedCommit   string
+	ProjectRoot      string
+	Dir              string
 }
 
 type ResolvedOp struct {
@@ -48,15 +57,23 @@ func IsLocalSelector(selector string) bool {
 }
 
 func Resolve(ctx context.Context, selector string, opts ResolveOptions) (*ResolvedOp, error) {
+	resolvedPath, err := ResolvePath(ctx, selector, opts)
+	if err != nil {
+		return nil, err
+	}
+	return loadResolvedOpFromPath(resolvedPath)
+}
+
+func ResolvePath(ctx context.Context, selector string, opts ResolveOptions) (*ResolvedSelectorPath, error) {
 	selector = strings.TrimSpace(selector)
 	switch {
 	case IsLocalSelector(selector):
 		if strings.TrimSpace(opts.RepositorySource) != "" && strings.TrimSpace(opts.RepositoryRef) != "" {
-			return resolveSameRepoSelector(ctx, selector, opts)
+			return resolveSameRepoSelectorPath(ctx, selector, opts)
 		}
-		return resolveLocalSelector(selector, opts)
+		return resolveLocalSelectorPath(selector, opts)
 	case isGitOpSelector(selector):
-		return resolveGitSelector(ctx, selector)
+		return resolveGitSelectorPath(ctx, selector)
 	default:
 		return nil, fmt.Errorf("unsupported extension selector %q", selector)
 	}
@@ -116,7 +133,7 @@ func (r *ResolvedOp) ZeroOutput() map[string]interface{} {
 	return zeroObjectFromSchema(r.Spec.OutputSchema)
 }
 
-func resolveLocalSelector(selector string, opts ResolveOptions) (*ResolvedOp, error) {
+func resolveLocalSelectorPath(selector string, opts ResolveOptions) (*ResolvedSelectorPath, error) {
 	baseDirs, err := resolveLocalBaseDirs(opts.BaseDir)
 	if err != nil {
 		return nil, err
@@ -137,12 +154,14 @@ func resolveLocalSelector(selector string, opts ResolveOptions) (*ResolvedOp, er
 			}
 			continue
 		}
-		resolved, err := loadResolvedOp(selector, "", "", baseDir, opDir)
-		if err == nil {
-			return resolved, nil
-		}
-		if firstErr == nil {
-			firstErr = err
+		if _, statErr := os.Stat(opDir); statErr == nil {
+			return &ResolvedSelectorPath{
+				Selector:    selector,
+				ProjectRoot: baseDir,
+				Dir:         opDir,
+			}, nil
+		} else if firstErr == nil {
+			firstErr = statErr
 		}
 	}
 	if firstErr != nil {
@@ -151,7 +170,7 @@ func resolveLocalSelector(selector string, opts ResolveOptions) (*ResolvedOp, er
 	return nil, fmt.Errorf("failed to determine local selector base directory")
 }
 
-func resolveSameRepoSelector(ctx context.Context, selector string, opts ResolveOptions) (*ResolvedOp, error) {
+func resolveSameRepoSelectorPath(ctx context.Context, selector string, opts ResolveOptions) (*ResolvedSelectorPath, error) {
 	repoURL, err := normalizeGitRepositorySource(opts.RepositorySource)
 	if err != nil {
 		return nil, err
@@ -164,7 +183,7 @@ func resolveSameRepoSelector(ctx context.Context, selector string, opts ResolveO
 		return nil, fmt.Errorf("same-repo selector %q must not escape the recipe source repo", selector)
 	}
 	opPath := strings.TrimPrefix(selector, "./")
-	return resolveGitSelector(ctx, fmt.Sprintf("git+%s//%s@%s", repoURL, path.Clean(opPath), ref))
+	return resolveGitSelectorPath(ctx, fmt.Sprintf("git+%s//%s@%s", repoURL, path.Clean(opPath), ref))
 }
 
 func resolveLocalBaseDirs(baseDir string) ([]string, error) {
@@ -233,7 +252,7 @@ func findRepoRoot(startDir string) (string, error) {
 	return "", nil
 }
 
-func resolveGitSelector(ctx context.Context, selector string) (*ResolvedOp, error) {
+func resolveGitSelectorPath(ctx context.Context, selector string) (*ResolvedSelectorPath, error) {
 	parsed, err := parseGitOpSelector(selector)
 	if err != nil {
 		return nil, err
@@ -243,7 +262,13 @@ func resolveGitSelector(ctx context.Context, selector string) (*ResolvedOp, erro
 	if err != nil {
 		return nil, err
 	}
-	return loadResolvedOp(selector, parsed.WithRef(commit), commit, cacheDir, filepath.Join(cacheDir, parsed.OpPath))
+	return &ResolvedSelectorPath{
+		Selector:         selector,
+		ResolvedSelector: parsed.WithRef(commit),
+		ResolvedCommit:   commit,
+		ProjectRoot:      cacheDir,
+		Dir:              filepath.Join(cacheDir, parsed.OpPath),
+	}, nil
 }
 
 func materializeGitSelector(ctx context.Context, selector gitOpSelector) (string, string, error) {
@@ -287,8 +312,11 @@ func materializeGitSelector(ctx context.Context, selector gitOpSelector) (string
 		return "", "", fmt.Errorf("clear extension cache dir: %w", err)
 	}
 	if err := os.Rename(repoDir, cacheDir); err != nil {
+		if copyErr := copyDirTree(repoDir, cacheDir); copyErr != nil {
+			cleanup()
+			return "", "", fmt.Errorf("persist extension cache dir: %w", err)
+		}
 		cleanup()
-		return "", "", fmt.Errorf("persist extension cache dir: %w", err)
 	}
 	return cacheDir, commit, nil
 }
@@ -303,6 +331,64 @@ func extensionCacheRoot() (string, error) {
 		return "", fmt.Errorf("create extension cache root: %w", err)
 	}
 	return root, nil
+}
+
+func copyDirTree(src string, dst string) error {
+	info, err := os.Stat(src)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(dst, info.Mode()); err != nil {
+		return err
+	}
+	entries, err := os.ReadDir(src)
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		srcPath := filepath.Join(src, entry.Name())
+		dstPath := filepath.Join(dst, entry.Name())
+		if entry.IsDir() {
+			if err := copyDirTree(srcPath, dstPath); err != nil {
+				return err
+			}
+			continue
+		}
+		if err := copyFile(srcPath, dstPath); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func copyFile(src string, dst string) error {
+	info, err := os.Stat(src)
+	if err != nil {
+		return err
+	}
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+
+	out, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, info.Mode())
+	if err != nil {
+		return err
+	}
+	defer out.Close()
+
+	if _, err := io.Copy(out, in); err != nil {
+		return err
+	}
+	return out.Close()
+}
+
+func loadResolvedOpFromPath(path *ResolvedSelectorPath) (*ResolvedOp, error) {
+	if path == nil {
+		return nil, fmt.Errorf("resolved selector path is required")
+	}
+	return loadResolvedOp(path.Selector, path.ResolvedSelector, path.ResolvedCommit, path.ProjectRoot, path.Dir)
 }
 
 func loadResolvedOp(submittedSelector string, resolvedSelector string, resolvedCommit string, projectRoot string, opDir string) (*ResolvedOp, error) {

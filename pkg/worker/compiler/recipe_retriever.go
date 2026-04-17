@@ -9,7 +9,6 @@ import (
 	"github.com/colony-2/c2j/pkg/recipe"
 	"github.com/colony-2/c2j/pkg/starter"
 	"github.com/colony-2/swf-go/pkg/swf"
-	"gopkg.in/yaml.v3"
 )
 
 // Concrete implementation of the recipeRetriever
@@ -65,15 +64,33 @@ func (r *recipeRetriever) GetRecipe(name string) (recipe.Recipe, error) {
 		return recipe.Recipe{}, fmt.Errorf("failed to read artifact bytes for %s: %w", name, err)
 	}
 
-	// Deserialize the recipe
-	var newRecipe recipe.Recipe
-	if err := yaml.Unmarshal(yamlBytes, &newRecipe); err != nil {
+	// Deserialize the recipe. Embedded artifacts may be in authored YAML form or in
+	// the internal marshaled recipe shape used by StartRecipeJob.
+	newRecipe, err := loadEmbeddedRecipeYAML(yamlBytes)
+	if err != nil {
 		return recipe.Recipe{}, fmt.Errorf("failed to unmarshal YAML for %s: %w. Data: %s", name, err, string(yamlBytes))
 	}
 
 	// Cache the deserialized recipe
 	r.recipeCache[name] = newRecipe
 	return newRecipe, nil
+}
+
+func (r *recipeRetriever) GetRecipeYAML(name string) ([]byte, error) {
+	if r == nil {
+		return nil, fmt.Errorf("recipe retriever is required")
+	}
+
+	art, ok := r.artifactMap[name]
+	if !ok {
+		return nil, fmt.Errorf("recipe artifact not found: %s", name)
+	}
+
+	yamlBytes, err := art.Bytes(context.Background())
+	if err != nil {
+		return nil, fmt.Errorf("failed to read artifact bytes for %s: %w", name, err)
+	}
+	return yamlBytes, nil
 }
 
 func newRetriever(artifacts []swf.Artifact) *recipeRetriever {

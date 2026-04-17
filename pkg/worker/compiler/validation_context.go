@@ -60,6 +60,10 @@ func (v *validationJobContext) AwaitDuration(waitFor swf.Duration) error {
 }
 
 func (v *validationJobContext) DoTask(_ swf.RunPolicy, taskType string, data swf.TaskData) (swf.TaskData, error) {
+	if taskType == WithinRecipeResolutionTaskType {
+		return newWithinRecipeResolutionTaskWorker().Run(swf.TaskContext{}, data)
+	}
+
 	parts := strings.SplitN(taskType, ":", 2)
 	if len(parts) != 2 {
 		return nil, fmt.Errorf("invalid task type: %s", taskType)
@@ -126,6 +130,17 @@ func (v *validationJobContext) DoTask(_ swf.RunPolicy, taskType string, data swf
 		if selector != "" {
 			repoSource, _ := invocation.Input["repository_source"].(string)
 			repoRef, _ := invocation.Input["repository_ref"].(string)
+			if strings.TrimSpace(repoSource) == "" || strings.TrimSpace(repoRef) == "" {
+				repoSource = strings.TrimSpace(invocation.GitTaskContext.RecipeSourceRepo)
+				repoRef = strings.TrimSpace(invocation.GitTaskContext.RecipeSourceRef)
+			}
+			if strings.TrimSpace(repoSource) == "" || strings.TrimSpace(repoRef) == "" {
+				repoSource = strings.TrimSpace(invocation.GitTaskContext.BaseRepo)
+				repoRef = strings.TrimSpace(invocation.GitTaskContext.ResolvedBaseHash)
+				if repoRef == "" {
+					repoRef = strings.TrimSpace(invocation.GitTaskContext.BaseRef)
+				}
+			}
 			resolved, _, err := loadSelectorOp(selector, extops.ResolveOptions{
 				RepositorySource: repoSource,
 				RepositoryRef:    repoRef,

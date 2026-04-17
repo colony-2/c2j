@@ -9,7 +9,6 @@ import (
 	"github.com/colony-2/c2j/pkg/contextual"
 	"github.com/colony-2/c2j/pkg/git/gitstate"
 	"github.com/colony-2/c2j/pkg/ops"
-	extops "github.com/colony-2/c2j/pkg/ops/extensions"
 	"github.com/colony-2/c2j/pkg/recipe"
 	coretask "github.com/colony-2/c2j/pkg/task"
 	"github.com/colony-2/c2j/pkg/template"
@@ -91,8 +90,17 @@ func (d DefaultRecipeExecutor) ExecuteRecipe(ctx workflow.Context, r recipe.Reci
 	ctx.JobContext = newThinPackForwardingJobContext(ctx.JobContext)
 
 	execOpts := normalizeExecutionOptions(opts)
+	var err error
 	if execOpts.CELOptionsProvider == nil && d.celProvider != nil {
 		execOpts.CELOptionsProvider = d.celProvider
+	}
+	execOpts.ResolvedSelectors, err = resolveWithinRecipeSelectors(ctx, r, execCtx, commitContext, execOpts)
+	if err != nil {
+		return nil, nil, err
+	}
+	execOpts.CELOptionsProvider, err = recipeCELOptionsProvider(r, execCtx, commitContext, execOpts, execOpts.CELOptionsProvider)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to configure recipe extension functions: %w", err)
 	}
 	recipeInputs, err := prepareRecipeInputs(r.GetMetdata(), rawRecipeInputs, execOpts)
 	if err != nil {
@@ -112,7 +120,7 @@ func (d DefaultRecipeExecutor) ExecuteRecipe(ctx workflow.Context, r recipe.Reci
 
 	switch t := r.RecipeImpl.(type) {
 	case *recipe.RecipeState:
-		err = d.self().ExecuteStateMachine(ctx, rCtx, metadata, t.Outputs, t.StateMachineData.States, opts...)
+		err = d.self().ExecuteStateMachine(ctx, rCtx, metadata, t.Outputs, t.StateMachineData.States, execOpts)
 	case *recipe.RecipeOp:
 		err = d.self().ExecuteOp(ctx, rCtx, metadata, t.OpData.Op)
 	case *recipe.RecipeSequence:
@@ -185,11 +193,9 @@ func (d DefaultRecipeExecutor) executeOp2(ctx workflow.Context, parentResolution
 		}
 	)
 	if isSelectorOp(op) {
-		resolvedSelectorOp, selectorRegisteredOp, err := loadSelectorOp(op, extops.ResolveOptions{
-			BaseDir:          resCtx.TaskExecutionContext().Environment.WorktreePath,
-			RepositorySource: resCtx.TaskExecutionContext().RecipeSource.Repo,
-			RepositoryRef:    resCtx.TaskExecutionContext().RecipeSource.Ref,
-		})
+		pinnedSelector := resolvedSelector(op, resCtx.Options.ResolvedSelectors)
+		resolveOpts := selectorLoadResolveOptions(resCtx.TaskExecutionContext().JobContext(), resCtx.GetGitCommitContext())
+		resolvedSelectorOp, selectorRegisteredOp, err := loadSelectorOp(pinnedSelector, resolveOpts)
 		if err != nil {
 			return err
 		}
@@ -230,11 +236,12 @@ func (d DefaultRecipeExecutor) executeOp2(ctx workflow.Context, parentResolution
 			if err := selectorOp.ValidateInvocationInputs(resolvedNodeInputs); err != nil {
 				return nil, nil, fmt.Errorf("failed to validate selector inputs: %w", err)
 			}
+			invocationRepoSource, invocationRepoRef := selectorInvocationRepository(resCtx.TaskExecutionContext())
 			normalizedInput, err := NormalizeOpInput(chain[0].InputType, selectorInvocationInput(
-				op,
+				resolvedSelector(op, resCtx.Options.ResolvedSelectors),
 				resolvedNodeInputs,
-				resCtx.TaskExecutionContext().RecipeSource.Repo,
-				resCtx.TaskExecutionContext().RecipeSource.Ref,
+				invocationRepoSource,
+				invocationRepoRef,
 			))
 			if err != nil {
 				return nil, nil, fmt.Errorf("failed to normalize selector op inputs: %w", err)

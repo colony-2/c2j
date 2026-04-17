@@ -50,22 +50,11 @@ func (r ResolvedRecipeSource) LoadRecipe() (recipe.Recipe, error) {
 	if strings.TrimSpace(r.RecipeYAML) == "" {
 		return recipe.Recipe{}, fmt.Errorf("resolved recipe YAML is empty")
 	}
-	rec, err := recipe.LoadRecipeFromString([]byte(r.RecipeYAML))
+	rec, err := loadEmbeddedRecipeYAML([]byte(r.RecipeYAML))
 	if err != nil {
 		return recipe.Recipe{}, fmt.Errorf("parse resolved recipe YAML: %w", err)
 	}
-	return *rec, nil
-}
-
-func NewResolvedRecipeSource(resolution RecipeSourceResolution, rec recipe.Recipe) (ResolvedRecipeSource, error) {
-	yamlBytes, err := marshalRecipeYAML(rec)
-	if err != nil {
-		return ResolvedRecipeSource{}, err
-	}
-	return ResolvedRecipeSource{
-		RecipeSourceResolution: resolution,
-		RecipeYAML:             string(yamlBytes),
-	}, nil
+	return rec, nil
 }
 
 func ParseResolvedRecipeSourceTaskData(td swf.TaskData) (*ResolvedRecipeSource, error) {
@@ -351,9 +340,6 @@ func (w rootSourceResolutionTaskWorker) Name() string {
 }
 
 func (w rootSourceResolutionTaskWorker) Run(_ swf.TaskContext, input swf.TaskData) (swf.TaskData, error) {
-	if w.resolver == nil {
-		return nil, fmt.Errorf("recipe source resolver not configured")
-	}
 	if input == nil {
 		return nil, fmt.Errorf("recipe source resolution input is required")
 	}
@@ -367,34 +353,74 @@ func (w rootSourceResolutionTaskWorker) Run(_ swf.TaskContext, input swf.TaskDat
 		return nil, fmt.Errorf("decode recipe source resolution input: %w", err)
 	}
 
+	if w.resolver == nil {
+		return nil, fmt.Errorf("recipe source resolver not configured")
+	}
 	resolution, err := w.resolver.Resolve(context.Background(), strings.TrimSpace(req.ProjectID), strings.TrimSpace(req.Selector))
 	if err != nil {
 		return nil, err
 	}
-	var source ResolvedRecipeSource
+
+	var recipeYAMLRaw string
 	if loader, ok := w.resolver.(RecipeSourceYAMLLoader); ok {
 		yamlBytes, err := loader.LoadYAML(context.Background(), strings.TrimSpace(req.ProjectID), resolution)
 		if err != nil {
 			return nil, err
 		}
-		if _, err := recipe.LoadRecipeFromString(yamlBytes); err != nil {
-			return nil, fmt.Errorf("parse resolved recipe YAML: %w", err)
-		}
-		source = ResolvedRecipeSource{
-			RecipeSourceResolution: resolution,
-			RecipeYAML:             string(yamlBytes),
-		}
+		recipeYAMLRaw = string(yamlBytes)
 	} else {
 		rec, err := w.resolver.Load(context.Background(), strings.TrimSpace(req.ProjectID), resolution)
 		if err != nil {
 			return nil, err
 		}
-		source, err = NewResolvedRecipeSource(resolution, rec)
+		yamlBytes, err := marshalRecipeYAML(rec)
 		if err != nil {
 			return nil, err
 		}
+		recipeYAMLRaw = string(yamlBytes)
+	}
+
+	source := ResolvedRecipeSource{
+		RecipeSourceResolution: resolution,
+		RecipeYAML:             recipeYAMLRaw,
 	}
 	return swf.NewTaskData(source)
+}
+
+func loadEmbeddedRecipeYAML(raw []byte) (recipe.Recipe, error) {
+	parsed, err := recipe.LoadRecipeFromString(raw)
+	if err == nil {
+		return *parsed, nil
+	}
+
+	var rec recipe.Recipe
+	if err2 := yaml.Unmarshal(raw, &rec); err2 == nil && rec.RecipeImpl != nil {
+		return rec, nil
+	}
+
+	var rawMap map[string]any
+	if err2 := yaml.Unmarshal(raw, &rawMap); err2 == nil {
+		if rawMap["sequence"] == nil && rawMap["state"] == nil && rawMap["op"] == nil {
+			var seq recipe.RecipeSequence
+			if err3 := yaml.Unmarshal(raw, &seq); err3 == nil {
+				return recipe.Recipe{RecipeImpl: &seq}, nil
+			}
+		}
+	}
+	return recipe.Recipe{}, fmt.Errorf("parse embedded recipe YAML: %w", err)
+}
+
+func recipeMetadataPtr(rec *recipe.Recipe) *recipe.RecipeMetadata {
+	switch typed := rec.RecipeImpl.(type) {
+	case *recipe.RecipeOp:
+		return &typed.RecipeMetadata
+	case *recipe.RecipeSequence:
+		return &typed.RecipeMetadata
+	case *recipe.RecipeState:
+		return &typed.RecipeMetadata
+	default:
+		return nil
+	}
 }
 
 type gitRecipeSelector struct {

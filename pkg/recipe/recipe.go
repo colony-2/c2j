@@ -79,6 +79,17 @@ type RecipeMetadata struct {
 	NodeMetadata `yaml:",inline"`
 	Defs         map[string]Node        `yaml:"defs,omitempty"`         // Shared node definitions
 	InputSchema  map[string]InputSchema `yaml:"input_schema,omitempty"` // Optional schema for inputs
+	Extensions   ExtensionImports       `yaml:"extensions,omitempty"`
+}
+
+type ExtensionImports struct {
+	Functions []ExtensionFunctionImport `yaml:"functions,omitempty"`
+}
+
+type ExtensionFunctionImport struct {
+	Selector string            `yaml:"selector"`
+	Include  []string          `yaml:"include,omitempty"`
+	Rename   map[string]string `yaml:"rename,omitempty"`
 }
 
 func (n RecipeMetadata) ValidateInputShapeAndFillDefaults(data map[string]interface{}) (map[string]interface{}, error) {

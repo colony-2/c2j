@@ -27,6 +27,8 @@ type ExecutionOptions struct {
 	// Optional CEL options provider to inject extra functions/types.
 	CELOptionsProvider template.CELOptionsProvider
 	StateObserver      StateObserver
+	// ResolvedSelectors carries internal selector pins for the current recipe run.
+	ResolvedSelectors map[string]string
 }
 
 func normalizeExecutionOptions(opts []ExecutionOptions) ExecutionOptions {
@@ -41,12 +43,14 @@ func normalizeExecutionOptions(opts []ExecutionOptions) ExecutionOptions {
 	if out.Validation.Mode == "" {
 		out.Validation.Mode = ValidateAll
 	}
+	out.ResolvedSelectors = cloneResolvedSelectors(out.ResolvedSelectors)
 	return out
 }
 
 func resolutionOptionsFromExecution(opts ExecutionOptions) template.ResolutionOptions {
 	resolution := template.DefaultResolutionOptions()
 	resolution.CELOptionsProvider = opts.CELOptionsProvider
+	resolution.ResolvedSelectors = cloneResolvedSelectors(opts.ResolvedSelectors)
 	if opts.Mode == ExecutionModeValidate {
 		resolution.Mode = template.ModeValidate
 		resolution.ClampSliceIndex = true

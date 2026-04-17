@@ -414,7 +414,11 @@ func parseSchema(m map[string]any) (*invschema.Schema, *jsonschemav6.Schema, err
 	}
 	comp := jsonschemav6.NewCompiler()
 	comp.DefaultDraft(jsonschemav6.Draft2020)
-	if err := comp.AddResource("inmem://op-schema.json", bytes.NewReader(b)); err != nil {
+	var docValue any
+	if err := json.Unmarshal(b, &docValue); err != nil {
+		return &doc, nil, fmt.Errorf("decode schema: %w", err)
+	}
+	if err := comp.AddResource("inmem://op-schema.json", docValue); err != nil {
 		return &doc, nil, fmt.Errorf("add resource: %w", err)
 	}
 	compiled, err := comp.Compile("inmem://op-schema.json")
