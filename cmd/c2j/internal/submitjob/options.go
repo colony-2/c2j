@@ -17,6 +17,9 @@ type Options struct {
 	Recipe     string
 	RecipeFile string
 
+	Prompt    string
+	PromptSet bool
+
 	InputsJSON string
 	InputsFile string
 
@@ -25,10 +28,12 @@ type Options struct {
 	Self       bool
 	Cell       string
 
-	JSONOutput bool
-	WorkingDir string
-	Stdout     io.Writer
-	Stderr     io.Writer
+	RunAfterSubmit bool
+	JSONOutput     bool
+	WorkingDir     string
+	Stdin          io.Reader
+	Stdout         io.Writer
+	Stderr         io.Writer
 }
 
 func (o *Options) Complete() {
@@ -52,6 +57,9 @@ func (o *Options) Complete() {
 	}
 	if o.Stderr == nil {
 		o.Stderr = os.Stderr
+	}
+	if o.Stdin == nil {
+		o.Stdin = os.Stdin
 	}
 	if strings.TrimSpace(o.WorkingDir) == "" {
 		if cwd, err := os.Getwd(); err == nil {
@@ -83,6 +91,9 @@ func (o Options) Validate() error {
 	}
 	if strings.TrimSpace(o.InputsJSON) != "" && strings.TrimSpace(o.InputsFile) != "" {
 		return fmt.Errorf("--inputs-json and --inputs-file are mutually exclusive")
+	}
+	if o.JSONOutput && o.RunAfterSubmit {
+		return fmt.Errorf("--json and --run are mutually exclusive")
 	}
 	return nil
 }

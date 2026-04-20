@@ -239,7 +239,7 @@ outputs:
 
 	baseRepo, _ := createGitRepo(t)
 	mustWriteRepoFile(t, baseRepo, ".c2j/recipes/default.yaml", recipeYAML)
-	mustWriteRepoFile(t, baseRepo, ".c2j/config.yaml", "canonical_repo:\n  value: "+baseRepo+"\ndefault_ref:\n  value: main\n")
+	mustWriteRepoFile(t, baseRepo, ".c2j/config.yaml", "self:\n  repo: "+baseRepo+"\n  ref: main\n")
 	commitRepo(t, baseRepo, "add self config and default recipe")
 
 	underlying := toyruntime.New()
@@ -313,6 +313,105 @@ outputs:
 	if got["result"] != "hello-from-self" {
 		t.Fatalf("unexpected output: %#v", got)
 	}
+}
+
+func TestRun_SubmitsPromptAndRunsJobImmediately(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	tenantID := "tenant-submit-prompt-test"
+	recipeYAML := strings.TrimSpace(`
+id: prompt_submit_recipe
+desc: verifies positional prompt input and immediate execution
+version: "1.0"
+input_schema:
+  prompt:
+    type: string
+    required: true
+inputs:
+  prompt: "{{ inputs.prompt }}"
+sequence: []
+outputs:
+  received_prompt: "{{ inputs.prompt }}"
+`) + "\n"
+
+	recipePath := filepath.Join(t.TempDir(), "prompt_submit_recipe.yaml")
+	if err := os.WriteFile(recipePath, []byte(recipeYAML), 0o644); err != nil {
+		t.Fatalf("write recipe: %v", err)
+	}
+
+	baseRepo, _ := createGitRepo(t)
+
+	underlying := toyruntime.New()
+	server := httptest.NewServer(remoteruntime.NewServer(underlying))
+	defer server.Close()
+
+	var submitStdout bytes.Buffer
+	var submitStderr bytes.Buffer
+	if err := Run(ctx, Options{
+		TenantID:       tenantID,
+		SWFURL:         server.URL,
+		RecipeFile:     recipePath,
+		Cell:           baseRepo,
+		Prompt:         "hello from positional prompt",
+		PromptSet:      true,
+		RunAfterSubmit: true,
+		Stdin:          bytes.NewBuffer(nil),
+		Stdout:         &submitStdout,
+		Stderr:         &submitStderr,
+	}); err != nil {
+		t.Fatalf("submit and run job: %v\nstderr:\n%s", err, submitStderr.String())
+	}
+
+	firstLine, _, _ := strings.Cut(submitStdout.String(), "\n")
+	jobID := extractSubmittedJobID(firstLine)
+	if jobID == "" {
+		t.Fatalf("expected job id in submit output: %q", submitStdout.String())
+	}
+
+	runtime, err := remoteruntime.New(server.URL, server.Client())
+	if err != nil {
+		t.Fatalf("create remote runtime: %v", err)
+	}
+	engine, err := swf.NewEngineBuilder().WithRuntime(runtime).BuildEngine()
+	if err != nil {
+		t.Fatalf("build engine: %v", err)
+	}
+
+	run, err := engine.GetJobRun(ctx, swf.GetJobRunRequest{
+		JobKey:         swf.JobKey{TenantId: tenantID, JobId: jobID},
+		IncludeOutputs: true,
+	})
+	if err != nil {
+		t.Fatalf("get job run: %v", err)
+	}
+	output, err := run.GetOutput(engine, tenantID)
+	if err != nil {
+		t.Fatalf("get output: %v", err)
+	}
+	raw, err := output.GetData()
+	if err != nil {
+		t.Fatalf("get output data: %v", err)
+	}
+
+	got := map[string]any{}
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatalf("decode output: %v", err)
+	}
+	if got["received_prompt"] != "hello from positional prompt" {
+		t.Fatalf("unexpected output: %#v", got)
+	}
+}
+
+func extractSubmittedJobID(line string) string {
+	for _, field := range strings.Fields(line) {
+		if value, ok := strings.CutPrefix(field, "job_id="); ok {
+			return value
+		}
+	}
+	return ""
 }
 
 func createGitRepo(t *testing.T) (string, string) {

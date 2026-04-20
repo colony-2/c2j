@@ -55,3 +55,18 @@ func TestOptionsValidateRequiresExactlyOneTarget(t *testing.T) {
 		t.Fatal("expected conflicting targets to fail validation")
 	}
 }
+
+func TestOptionsValidateRejectsJSONOutputWithRun(t *testing.T) {
+	opts := Options{
+		TenantID:       "tenant",
+		SWFURL:         "http://example.invalid",
+		Recipe:         "default",
+		Self:           true,
+		JSONOutput:     true,
+		RunAfterSubmit: true,
+	}
+
+	if err := opts.Validate(); err == nil {
+		t.Fatal("expected --json and --run to fail validation together")
+	}
+}

@@ -17,6 +17,9 @@ func Execute(version string, buildTime string) (int, error) {
 
 	root.AddCommand(newSubmitCmd())
 	root.AddCommand(newExecCmd())
+	root.AddCommand(newInitCmd())
+	root.AddCommand(newCellsCmd())
+	root.AddCommand(newSelfCmd())
 
 	if err := root.Execute(); err != nil {
 		if coded, ok := err.(exitCoder); ok {

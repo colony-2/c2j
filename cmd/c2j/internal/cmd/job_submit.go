@@ -11,15 +11,24 @@ import (
 
 func newSubmitCmd() *cobra.Command {
 	opts := submitjob.Options{
+		Stdin:  os.Stdin,
 		Stdout: os.Stdout,
 		Stderr: os.Stderr,
 	}
 
 	cmd := &cobra.Command{
-		Use:   "submit",
+		Use:   "submit [prompt]",
 		Short: "Submit a new recipe job through the SWF remote runtime",
+		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return submitjob.Run(context.Background(), opts)
+			runOpts := opts
+			runOpts.Prompt = ""
+			runOpts.PromptSet = false
+			if len(args) == 1 {
+				runOpts.Prompt = args[0]
+				runOpts.PromptSet = true
+			}
+			return submitjob.Run(context.Background(), runOpts)
 		},
 	}
 
@@ -34,6 +43,7 @@ func newSubmitCmd() *cobra.Command {
 	flags.StringVar(&opts.Cell, "cell", "", "Target cell git repository (canonical repo, clone URL, or local path)")
 	flags.StringVar(&opts.ActorEmail, "actor-email", "", "Actor email recorded in job context")
 	flags.StringVar(&opts.TicketID, "ticket-id", "", "Ticket ID recorded in job context")
+	flags.BoolVarP(&opts.RunAfterSubmit, "run", "r", false, "Run the submitted job immediately after submission")
 	flags.BoolVar(&opts.JSONOutput, "json", false, "Emit the submitted job identity as JSON")
 
 	return cmd
