@@ -39,14 +39,14 @@ func TestOptionsCompletePrefersEnvironmentOverHardcodedDefaults(t *testing.T) {
 	}
 }
 
-func TestOptionsValidateRequiresExactlyOneTarget(t *testing.T) {
+func TestOptionsValidateAllowsDefaultSelfTarget(t *testing.T) {
 	opts := Options{
 		TenantID: "tenant",
 		SWFURL:   "http://example.invalid",
 		Recipe:   "default",
 	}
-	if err := opts.Validate(); err == nil {
-		t.Fatal("expected missing target to fail validation")
+	if err := opts.Validate(); err != nil {
+		t.Fatalf("expected missing target to default to self, got %v", err)
 	}
 
 	opts.Self = true

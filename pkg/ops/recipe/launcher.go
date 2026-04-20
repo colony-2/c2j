@@ -9,7 +9,6 @@ import (
 
 	recipeartifacts "github.com/colony-2/c2j/pkg/artifacts"
 	"github.com/colony-2/c2j/pkg/contextual"
-	"github.com/colony-2/c2j/pkg/worker/compiler"
 	"github.com/colony-2/c2j/pkg/workflowctl"
 	"github.com/colony-2/swf-go/pkg/swf"
 	"github.com/segmentio/ksuid"
@@ -48,21 +47,18 @@ func recipeToStart(ctx context.Context, tenantId string, ctl workflowctl.Workflo
 		artifacts = append(artifacts, ctl.GetArtifactLazy(ctx, tenantId, key))
 	}
 
-	recipeName := recipe.Name
-	if !compiler.IsGitRecipeSelector(recipeName) {
-		selectorRepo := strings.TrimSpace(recipeSourceRepo)
-		if selectorRepo == "" {
-			selectorRepo = strings.TrimSpace(recipe.Git.BaseRepo)
-		}
-		selectorRef := strings.TrimSpace(recipeSourceRef)
-		if selectorRef == "" {
-			selectorRef = strings.TrimSpace(recipe.Git.BaseRef)
-		}
-		selector, err := compiler.BuildCellRecipeSelector(selectorRepo, recipeName, selectorRef)
-		if err != nil {
-			return workflowctl.StartJob{}, err
-		}
-		recipeName = selector
+	recipeName := strings.TrimSpace(recipe.Name)
+	if recipeName == "" {
+		return workflowctl.StartJob{}, fmt.Errorf("recipe name is required")
+	}
+
+	lookupRepo := strings.TrimSpace(recipeSourceRepo)
+	if lookupRepo == "" {
+		lookupRepo = strings.TrimSpace(recipe.Git.BaseRepo)
+	}
+	lookupRef := strings.TrimSpace(recipeSourceRef)
+	if lookupRef == "" {
+		lookupRef = strings.TrimSpace(recipe.Git.BaseRef)
 	}
 
 	return workflowctl.StartJob{
@@ -82,6 +78,10 @@ func recipeToStart(ctx context.Context, tenantId string, ctl workflowctl.Workflo
 				BaseRef:          recipe.Git.BaseRef,
 				ResolvedBaseHash: recipe.Git.BaseHash,
 				GitAuthor:        recipe.Git.Author,
+			},
+			RecipeSource: contextual.RecipeSourceContext{
+				Repo: lookupRepo,
+				Ref:  lookupRef,
 			},
 		},
 		GitRef: gitRef,

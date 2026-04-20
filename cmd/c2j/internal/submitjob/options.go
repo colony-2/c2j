@@ -83,11 +83,8 @@ func (o Options) Validate() error {
 	if strings.TrimSpace(o.Recipe) != "" && strings.TrimSpace(o.RecipeFile) != "" {
 		return fmt.Errorf("--recipe and --recipe-file are mutually exclusive")
 	}
-	switch {
-	case o.Self && strings.TrimSpace(o.Cell) != "":
+	if o.Self && strings.TrimSpace(o.Cell) != "" {
 		return fmt.Errorf("--self and --cell are mutually exclusive")
-	case !o.Self && strings.TrimSpace(o.Cell) == "":
-		return fmt.Errorf("exactly one of --self or --cell is required")
 	}
 	if strings.TrimSpace(o.InputsJSON) != "" && strings.TrimSpace(o.InputsFile) != "" {
 		return fmt.Errorf("--inputs-json and --inputs-file are mutually exclusive")

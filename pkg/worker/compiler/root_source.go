@@ -320,8 +320,10 @@ func (r providerBackedRecipeRefResolver) LoadRecipeRef(_ context.Context, projec
 }
 
 type rootSourceResolutionTaskInput struct {
-	ProjectID string `json:"project_id"`
-	Selector  string `json:"selector"`
+	ProjectID  string `json:"project_id"`
+	Selector   string `json:"selector"`
+	LookupRepo string `json:"lookup_repo,omitempty"`
+	LookupRef  string `json:"lookup_ref,omitempty"`
 }
 
 type rootSourceResolutionTaskWorker struct {
@@ -356,9 +358,18 @@ func (w rootSourceResolutionTaskWorker) Run(_ swf.TaskContext, input swf.TaskDat
 	if w.resolver == nil {
 		return nil, fmt.Errorf("recipe source resolver not configured")
 	}
-	resolution, err := w.resolver.Resolve(context.Background(), strings.TrimSpace(req.ProjectID), strings.TrimSpace(req.Selector))
+	submittedSelector := strings.TrimSpace(req.Selector)
+	effectiveSelector, err := resolveRecipeSelectorForLookup(submittedSelector, strings.TrimSpace(req.LookupRepo), strings.TrimSpace(req.LookupRef))
 	if err != nil {
 		return nil, err
+	}
+
+	resolution, err := w.resolver.Resolve(context.Background(), strings.TrimSpace(req.ProjectID), effectiveSelector)
+	if err != nil {
+		return nil, err
+	}
+	if submittedSelector != "" {
+		resolution.SubmittedSelector = submittedSelector
 	}
 
 	var recipeYAMLRaw string
@@ -385,6 +396,17 @@ func (w rootSourceResolutionTaskWorker) Run(_ swf.TaskContext, input swf.TaskDat
 		RecipeYAML:             recipeYAMLRaw,
 	}
 	return swf.NewTaskData(source)
+}
+
+func resolveRecipeSelectorForLookup(selector string, lookupRepo string, lookupRef string) (string, error) {
+	selector = strings.TrimSpace(selector)
+	if selector == "" || isGitRecipeSelector(selector) {
+		return selector, nil
+	}
+	if strings.TrimSpace(lookupRepo) == "" {
+		return selector, nil
+	}
+	return BuildCellRecipeSelector(lookupRepo, selector, lookupRef)
 }
 
 func loadEmbeddedRecipeYAML(raw []byte) (recipe.Recipe, error) {

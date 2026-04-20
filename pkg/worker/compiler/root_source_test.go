@@ -156,6 +156,78 @@ outputs:
 	require.Contains(t, resolvedSource.RecipeYAML, "id: remote_root_recipe")
 }
 
+func TestRecipeJobWorker_ResolvesBareRootRecipeAgainstLookupContext(t *testing.T) {
+	t.Parallel()
+
+	repoDir := t.TempDir()
+	require.NoError(t, runGit(repoDir, "git", "init"))
+	require.NoError(t, runGit(repoDir, "git", "config", "user.email", "root-source-test@example.com"))
+	require.NoError(t, runGit(repoDir, "git", "config", "user.name", "Root Source Test"))
+
+	recipePath := filepath.Join(repoDir, ".c2j", "recipes", "remote-root.yaml")
+	require.NoError(t, os.MkdirAll(filepath.Dir(recipePath), 0o755))
+	require.NoError(t, os.WriteFile(recipePath, []byte(strings.TrimSpace(`
+id: remote_root_lookup_recipe
+version: "1.0"
+sequence: []
+outputs:
+  ok: true
+`)+"\n"), 0o644))
+	require.NoError(t, runGit(repoDir, "git", "add", "."))
+	require.NoError(t, runGit(repoDir, "git", "commit", "-m", "add bare lookup recipe"))
+
+	output, err := exec.Command("git", "-C", repoDir, "rev-parse", "HEAD").CombinedOutput()
+	require.NoError(t, err, string(output))
+	commit := strings.TrimSpace(string(output))
+	repoURL := (&url.URL{Scheme: "file", Path: repoDir}).String()
+
+	registry, err := workerops.NewActivityRegistry()
+	require.NoError(t, err)
+
+	workset, err := NewRecipeWorkerWithOptions(ops2.NewServiceDepsBuilder().Build(), registry, RecipeJobWorkerOptions{
+		RootSourceResolver: NewRecipeSourceResolver(RecipeSourceResolverOptions{}),
+	})
+	require.NoError(t, err)
+
+	engine := newToyEngineWithWorkSet(t, workset, nil)
+	jobCtx, _ := GenerateTestContext()
+	jobCtx.RecipeSource.Repo = repoURL
+	jobCtx.RecipeSource.Ref = commit
+	job := workflowctl.StartJob{
+		TenantId:   "tenant",
+		RecipeName: "remote-root",
+		Inputs:     map[string]interface{}{},
+		JobContext: jobCtx,
+		GitRef:     commit,
+	}
+
+	jobKey, err := starter.StartRecipeJob(context.Background(), job, engine)
+	require.NoError(t, err)
+	require.NoError(t, swf.WaitForJobToComplete(context.Background(), 30*time.Second, jobKey, engine))
+
+	out, err := swfutil.JobResult(context.Background(), engine, jobKey)
+	require.NoError(t, err)
+	raw, err := out.GetData()
+	require.NoError(t, err)
+	got := map[string]interface{}{}
+	require.NoError(t, json.Unmarshal(raw, &got))
+	require.Equal(t, true, got["ok"])
+
+	run, err := engine.GetJobRun(context.Background(), swf.GetJobRunRequest{
+		JobKey:         jobKey,
+		IncludeOutputs: true,
+	})
+	require.NoError(t, err)
+	require.Len(t, run.Attempts, 1)
+	require.GreaterOrEqual(t, len(run.Attempts[0].Tasks), 1)
+	require.Equal(t, RootSourceResolutionTaskType, run.Attempts[0].Tasks[0].TaskType)
+
+	resolvedSource, err := ParseResolvedRecipeSourceJSON(run.Attempts[0].Tasks[0].Attempts[0].Output.Data)
+	require.NoError(t, err)
+	require.Equal(t, "remote-root", resolvedSource.SubmittedSelector)
+	require.Equal(t, fmt.Sprintf("git+%s//.c2j/recipes/remote-root.yaml@%s", repoURL, commit), resolvedSource.ResolvedSelector)
+}
+
 func TestWithinRecipeResolutionTaskResolvesSelectors(t *testing.T) {
 	t.Parallel()
 

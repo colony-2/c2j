@@ -39,7 +39,7 @@ func newSubmitCmd() *cobra.Command {
 	flags.StringVar(&opts.RecipeFile, "recipe-file", "", "Path to a recipe YAML file to submit")
 	flags.StringVar(&opts.InputsJSON, "inputs-json", "", "Inline JSON object for recipe inputs")
 	flags.StringVar(&opts.InputsFile, "inputs-file", "", "Path to a JSON or YAML file containing recipe inputs")
-	flags.BoolVar(&opts.Self, "self", false, "Target the current cell from .c2j/config.yaml")
+	flags.BoolVar(&opts.Self, "self", false, "Target the current cell explicitly (also the default when --cell is omitted)")
 	flags.StringVar(&opts.Cell, "cell", "", "Target cell git repository (canonical repo, clone URL, or local path)")
 	flags.StringVar(&opts.ActorEmail, "actor-email", "", "Actor email recorded in job context")
 	flags.StringVar(&opts.TicketID, "ticket-id", "", "Ticket ID recorded in job context")

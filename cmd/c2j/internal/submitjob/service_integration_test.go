@@ -176,6 +176,9 @@ outputs:
 	if err := json.Unmarshal(submitStdout.Bytes(), &submitted); err != nil {
 		t.Fatalf("decode submit output: %v", err)
 	}
+	if submitted.Recipe != "nucleus_submit_ref_recipe" {
+		t.Fatalf("submitted recipe = %q", submitted.Recipe)
+	}
 
 	var runStdout bytes.Buffer
 	var runStderr bytes.Buffer
@@ -216,7 +219,7 @@ outputs:
 	}
 }
 
-func TestRun_SubmitsSelfUsingConfigDefaultRecipe(t *testing.T) {
+func TestRun_SubmitsCurrentCellByDefaultUsingConfigDefaultRecipe(t *testing.T) {
 	t.Parallel()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
@@ -250,7 +253,6 @@ outputs:
 	if err := Run(ctx, Options{
 		TenantID:   tenantID,
 		SWFURL:     server.URL,
-		Self:       true,
 		WorkingDir: baseRepo,
 		JSONOutput: true,
 		Stdout:     &submitStdout,

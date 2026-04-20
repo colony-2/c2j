@@ -25,3 +25,25 @@ func TestApplyRootRecipeSourceUsesResolvedGitSelector(t *testing.T) {
 		t.Fatalf("RecipeSource.Path = %q", runContext.RecipeSource.Path)
 	}
 }
+
+func TestRootRecipeLookupPrefersRecipeSourceContext(t *testing.T) {
+	t.Parallel()
+
+	jobContext := contextual.JobContext{
+		GitBase: contextual.GitBaseContext{
+			BaseRepo: "https://github.com/acme/self.git",
+			BaseRef:  "main",
+		},
+		RecipeSource: contextual.RecipeSourceContext{
+			Repo: "https://github.com/acme/templates.git",
+			Ref:  "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
+		},
+	}
+
+	if got := rootRecipeLookupRepo(jobContext); got != "https://github.com/acme/templates.git" {
+		t.Fatalf("rootRecipeLookupRepo() = %q", got)
+	}
+	if got := rootRecipeLookupRef(jobContext); got != "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef" {
+		t.Fatalf("rootRecipeLookupRef() = %q", got)
+	}
+}

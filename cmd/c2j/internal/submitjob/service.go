@@ -50,7 +50,7 @@ func Run(ctx context.Context, opts Options) error {
 		return err
 	}
 
-	recipeName, embeddedRecipe, cleanup, err := loadRecipeStart(opts, target)
+	recipeName, embeddedRecipe, cleanup, err := loadRecipeStart(opts)
 	if err != nil {
 		return err
 	}
@@ -89,6 +89,10 @@ func Run(ctx context.Context, opts Options) error {
 			GitBase: contextual.GitBaseContext{
 				BaseRepo: target.RepositorySource,
 				BaseRef:  target.DefaultRef,
+			},
+			RecipeSource: contextual.RecipeSourceContext{
+				Repo: target.RepositorySource,
+				Ref:  target.DefaultRef,
 			},
 		},
 		GitRef:      target.DefaultRef,
@@ -137,7 +141,7 @@ func writeSubmitResult(opts Options, result submitResult) error {
 	return err
 }
 
-func loadRecipeStart(opts Options, target targetCell) (string, *recipe.Recipe, func(), error) {
+func loadRecipeStart(opts Options) (string, *recipe.Recipe, func(), error) {
 	recipeFile := strings.TrimSpace(opts.RecipeFile)
 	if recipeFile == "" && compiler.IsLocalRecipeFileReference(opts.Recipe) {
 		recipeFile = strings.TrimSpace(opts.Recipe)
@@ -162,13 +166,6 @@ func loadRecipeStart(opts Options, target targetCell) (string, *recipe.Recipe, f
 	}
 
 	selector := strings.TrimSpace(opts.Recipe)
-	if compiler.IsCellRecipeName(selector) {
-		builtSelector, err := compiler.BuildCellRecipeSelector(target.RepositorySource, selector, target.DefaultRef)
-		if err != nil {
-			return "", nil, nil, err
-		}
-		selector = builtSelector
-	}
 	if err := compiler.ValidateRecipeSelector(selector); err != nil {
 		return "", nil, nil, err
 	}
@@ -226,7 +223,7 @@ func hashInputs(inputs map[string]interface{}) string {
 }
 
 func resolveTargetCell(ctx context.Context, opts Options) (targetCell, error) {
-	if opts.Self {
+	if opts.Self || strings.TrimSpace(opts.Cell) == "" {
 		return resolveSelfTarget(ctx, opts.WorkingDir)
 	}
 	return resolveExplicitTarget(ctx, opts.WorkingDir, opts.Cell)
@@ -236,7 +233,7 @@ func resolveSelfTarget(ctx context.Context, workingDir string) (targetCell, erro
 	cfg, err := configpkg.LoadProjectConfig(workingDir)
 	if err != nil {
 		if err == configpkg.ErrConfigNotFound {
-			return targetCell{}, fmt.Errorf("--self requires %s/%s", ".c2j", "config.yaml")
+			return targetCell{}, fmt.Errorf("current cell requires %s/%s or a supported auto-detected base", ".c2j", "config.yaml")
 		}
 		return targetCell{}, err
 	}
@@ -247,7 +244,10 @@ func resolveSelfTarget(ctx context.Context, workingDir string) (targetCell, erro
 	}
 	selfRepo = strings.TrimSpace(selfRepo)
 	if selfRepo == "" {
-		return targetCell{}, fmt.Errorf("--self requires self.repo to resolve from %s", cfg.Path())
+		if path := strings.TrimSpace(cfg.Path()); path != "" {
+			return targetCell{}, fmt.Errorf("current cell requires self.repo to resolve from %s", path)
+		}
+		return targetCell{}, fmt.Errorf("current cell requires self.repo to resolve")
 	}
 
 	defaultRef, err := cfg.SelfRef(ctx)

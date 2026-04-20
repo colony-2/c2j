@@ -152,8 +152,10 @@ func (j recipeJobWorker) Run(ctx swf.JobContext, jobData swf.JobData) (swf.JobDa
 			return nil, err
 		}
 		taskInput, err := swf.NewTaskData(rootSourceResolutionTaskInput{
-			ProjectID: strings.TrimSpace(input.TenantId),
-			Selector:  input.RecipeName,
+			ProjectID:  strings.TrimSpace(input.TenantId),
+			Selector:   input.RecipeName,
+			LookupRepo: rootRecipeLookupRepo(input.JobContext),
+			LookupRef:  rootRecipeLookupRef(input.JobContext),
 		})
 		if err != nil {
 			logger.Error("recipe job: failed to encode root recipe source resolution input",
@@ -303,6 +305,14 @@ func ensureSentinel(field *string, sentinel string, name string) error {
 }
 
 var _ swf.JobWorker = &recipeJobWorker{}
+
+func rootRecipeLookupRepo(jobContext contextual.JobContext) string {
+	return strings.TrimSpace(jobContext.RecipeSource.Repo)
+}
+
+func rootRecipeLookupRef(jobContext contextual.JobContext) string {
+	return strings.TrimSpace(jobContext.RecipeSource.Ref)
+}
 
 func applyRootRecipeSource(runContext *contextual.JobContext, resolution RecipeSourceResolution) {
 	if runContext == nil {

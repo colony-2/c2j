@@ -40,8 +40,14 @@ func TestStartJobsSingle(t *testing.T) {
 	if ctl.startSawTx[0] {
 		t.Fatal("did not expect transaction for single job")
 	}
-	if got := ctl.startRequests[0].RecipeName; got != "git+https://github.com/acme/demo.git//.c2j/recipes/child.yaml@main" {
+	if got := ctl.startRequests[0].RecipeName; got != "child" {
 		t.Fatalf("RecipeName = %q", got)
+	}
+	if got := ctl.startRequests[0].JobContext.RecipeSource.Repo; got != "github.com/acme/demo" {
+		t.Fatalf("RecipeSource.Repo = %q", got)
+	}
+	if got := ctl.startRequests[0].JobContext.RecipeSource.Ref; got != "main" {
+		t.Fatalf("RecipeSource.Ref = %q", got)
 	}
 }
 

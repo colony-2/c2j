@@ -151,7 +151,7 @@ func TestStartSingleJobBareNameUsesRecipeSourceForLookup(t *testing.T) {
 	}
 
 	start := ctl.startRequests[0]
-	if start.RecipeName != "git+https://github.com/acme/templates.git//.c2j/recipes/child-recipe.yaml@deadbeefdeadbeefdeadbeefdeadbeefdeadbeef" {
+	if start.RecipeName != "child-recipe" {
 		t.Fatalf("RecipeName = %q", start.RecipeName)
 	}
 	if start.JobContext.GitBase.BaseRepo != "https://github.com/acme/self.git" {
@@ -159,5 +159,11 @@ func TestStartSingleJobBareNameUsesRecipeSourceForLookup(t *testing.T) {
 	}
 	if start.JobContext.GitBase.BaseRef != "main" {
 		t.Fatalf("child job base ref = %q", start.JobContext.GitBase.BaseRef)
+	}
+	if start.JobContext.RecipeSource.Repo != "https://github.com/acme/templates.git" {
+		t.Fatalf("child job recipe source repo = %q", start.JobContext.RecipeSource.Repo)
+	}
+	if start.JobContext.RecipeSource.Ref != "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef" {
+		t.Fatalf("child job recipe source ref = %q", start.JobContext.RecipeSource.Ref)
 	}
 }

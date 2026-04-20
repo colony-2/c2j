@@ -172,9 +172,6 @@ func TestLoadRecipeStartTreatsRecipeFlagLocalFileAsEmbeddedRecipe(t *testing.T) 
 	name, rec, cleanup, err := loadRecipeStart(Options{
 		Recipe:     "local-recipe.yaml",
 		WorkingDir: root,
-	}, targetCell{
-		RepositorySource: "github.com/acme/demo",
-		DefaultRef:       "main",
 	})
 	if cleanup != nil {
 		defer cleanup()
@@ -196,9 +193,6 @@ func TestLoadRecipeStartTreatsBareRecipeAsCellSelector(t *testing.T) {
 	name, rec, cleanup, err := loadRecipeStart(Options{
 		Recipe:     "deploy",
 		WorkingDir: t.TempDir(),
-	}, targetCell{
-		RepositorySource: "github.com/acme/demo",
-		DefaultRef:       "main",
 	})
 	if cleanup != nil {
 		defer cleanup()
@@ -209,9 +203,8 @@ func TestLoadRecipeStartTreatsBareRecipeAsCellSelector(t *testing.T) {
 	if rec != nil {
 		t.Fatal("expected bare recipe reference to stay unresolved until execution")
 	}
-	want := "git+https://github.com/acme/demo.git//.c2j/recipes/deploy.yaml@main"
-	if name != want {
-		t.Fatalf("recipe name = %q, want %q", name, want)
+	if name != "deploy" {
+		t.Fatalf("recipe name = %q, want %q", name, "deploy")
 	}
 }
 
@@ -222,9 +215,6 @@ func TestLoadRecipeStartPassesThroughGitSelector(t *testing.T) {
 	name, rec, cleanup, err := loadRecipeStart(Options{
 		Recipe:     selector,
 		WorkingDir: t.TempDir(),
-	}, targetCell{
-		RepositorySource: "github.com/acme/demo",
-		DefaultRef:       "main",
 	})
 	if cleanup != nil {
 		defer cleanup()
