@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"strconv"
 	"strings"
 	"time"
 
@@ -73,7 +72,7 @@ func executeExtension(deps ops.OpDependencies, ctx context.Context, input Execut
 	if err != nil {
 		return nil, fmt.Errorf("marshal extension input: %w", err)
 	}
-	env := buildExecutionEnv(deps, resolved, inJSON)
+	env := buildExecutionEnv(resolved)
 
 	var cancel context.CancelFunc
 	if d, err := parseDurationOrZero(resolved.Spec.Timeout); err == nil && d > 0 {
@@ -87,7 +86,6 @@ func executeExtension(deps ops.OpDependencies, ctx context.Context, input Execut
 		Shell:         resolved.Spec.Shell,
 		Run:           resolved.Spec.Run,
 		Command:       resolved.Spec.Command,
-		Args:          resolved.Spec.Args,
 		Env:           env,
 		Stdin:         inJSON,
 		Sandbox:       sandbox,
@@ -116,31 +114,10 @@ func executeExtension(deps ops.OpDependencies, ctx context.Context, input Execut
 	return outputs, nil
 }
 
-func buildExecutionEnv(deps ops.OpDependencies, resolved *ResolvedOp, inputJSON []byte) map[string]string {
+func buildExecutionEnv(resolved *ResolvedOp) map[string]string {
 	env := map[string]string{}
 	for key, value := range resolved.Spec.Env {
 		env[key] = value
-	}
-	gitCtx := deps.GitContext()
-	env["VIBETHIS_PROJECT_ROOT"] = resolved.ProjectRoot
-	env["VIBETHIS_OP_DIR"] = resolved.OpDir
-	env["VIBETHIS_OP_NAME"] = resolved.Spec.Name
-	env["VIBETHIS_OP_SELECTOR"] = resolved.Selector
-	env["VIBETHIS_INPUT_JSON"] = string(inputJSON)
-	env["VIBETHIS_WORKTREE_PATH"] = deps.WorktreePath()
-	env["VIBETHIS_GIT_BASE_REPO"] = gitCtx.BaseRepo
-	env["VIBETHIS_GIT_BASE_REF"] = gitCtx.BaseRef
-	env["VIBETHIS_GIT_RESOLVED_BASE_HASH"] = gitCtx.ResolvedBaseHash
-	env["VIBETHIS_GIT_RECIPE_SOURCE_REPO"] = gitCtx.RecipeSourceRepo
-	env["VIBETHIS_GIT_RECIPE_SOURCE_REF"] = gitCtx.RecipeSourceRef
-	env["VIBETHIS_GIT_PERSIST_HASH"] = gitCtx.PersistHash
-	env["VIBETHIS_GIT_PARENT_HASH"] = gitCtx.ParentHash
-	env["VIBETHIS_GIT_CELL_NAME"] = gitCtx.CellName
-	env["VIBETHIS_GIT_CELL_PATH"] = gitCtx.CellPath
-	env["VIBETHIS_GIT_NODE_PATH"] = gitCtx.NodePath
-	env["VIBETHIS_GIT_INVOKE_HASH"] = gitCtx.InvokeHash
-	if gitCtx.InvokeSeq != 0 {
-		env["VIBETHIS_GIT_INVOKE_SEQ"] = strconv.FormatInt(gitCtx.InvokeSeq, 10)
 	}
 	return env
 }

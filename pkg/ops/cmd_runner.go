@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 
 	"github.com/colony-2/swf-go/pkg/swf"
@@ -22,7 +21,7 @@ func CommandMain(op RegisterableOp) {
 	os.Exit(RunAsCommand(op))
 }
 
-// RunAsCommand executes a single-step RegisterableOp using JSON stdin/stdout and env-provided context.
+// RunAsCommand executes a single-step RegisterableOp using JSON stdin/stdout.
 func RunAsCommand(op RegisterableOp) int {
 	if op == nil {
 		_, _ = fmt.Fprintln(os.Stderr, "op is required")
@@ -40,10 +39,7 @@ func RunAsCommand(op RegisterableOp) int {
 		return 1
 	}
 
-	deps := NewOpDependenciesBuilder().
-		WithWorktreePath(strings.TrimSpace(os.Getenv("VIBETHIS_WORKTREE_PATH"))).
-		WithGitContext(loadCommandGitContext()).
-		Build()
+	deps := NewOpDependenciesBuilder().Build()
 
 	output, err := steps[0].Invoke(deps, context.Background(), input)
 	writeCommandArtifacts(deps.GetOutputArtifacts(), commandOutboxPath(input))
@@ -66,29 +62,6 @@ func RunAsCommand(op RegisterableOp) int {
 	}
 	_, _ = fmt.Fprintln(os.Stderr, err.Error())
 	return 1
-}
-
-func loadCommandGitContext() GitExecutionContext {
-	ctx := GitExecutionContext{
-		BaseRepo:         strings.TrimSpace(os.Getenv("VIBETHIS_GIT_BASE_REPO")),
-		BaseRef:          strings.TrimSpace(os.Getenv("VIBETHIS_GIT_BASE_REF")),
-		ResolvedBaseHash: strings.TrimSpace(os.Getenv("VIBETHIS_GIT_RESOLVED_BASE_HASH")),
-		RecipeSourceRepo: strings.TrimSpace(os.Getenv("VIBETHIS_GIT_RECIPE_SOURCE_REPO")),
-		RecipeSourceRef:  strings.TrimSpace(os.Getenv("VIBETHIS_GIT_RECIPE_SOURCE_REF")),
-		PersistHash:      strings.TrimSpace(os.Getenv("VIBETHIS_GIT_PERSIST_HASH")),
-		ParentHash:       strings.TrimSpace(os.Getenv("VIBETHIS_GIT_PARENT_HASH")),
-		CellName:         strings.TrimSpace(os.Getenv("VIBETHIS_GIT_CELL_NAME")),
-		CellPath:         strings.TrimSpace(os.Getenv("VIBETHIS_GIT_CELL_PATH")),
-		NodePath:         strings.TrimSpace(os.Getenv("VIBETHIS_GIT_NODE_PATH")),
-		InvokeHash:       strings.TrimSpace(os.Getenv("VIBETHIS_GIT_INVOKE_HASH")),
-		WorktreePath:     strings.TrimSpace(os.Getenv("VIBETHIS_WORKTREE_PATH")),
-	}
-	if invokeSeq := strings.TrimSpace(os.Getenv("VIBETHIS_GIT_INVOKE_SEQ")); invokeSeq != "" {
-		if parsed, err := strconv.ParseInt(invokeSeq, 10, 64); err == nil {
-			ctx.InvokeSeq = parsed
-		}
-	}
-	return ctx
 }
 
 func commandOutboxPath(input map[string]interface{}) string {

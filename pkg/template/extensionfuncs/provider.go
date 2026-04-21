@@ -37,14 +37,13 @@ type BuildOptions struct {
 }
 
 type PackageManifest struct {
-	Name             string                `yaml:"name"`
-	Description      string                `yaml:"description"`
-	Version          string                `yaml:"version"`
-	Shell            string                `yaml:"shell"`
-	Timeout          string                `yaml:"timeout"`
-	WorkingDirectory string                `yaml:"working_directory"`
-	Env              map[string]string     `yaml:"env"`
-	Functions        []PackageFunctionSpec `yaml:"functions"`
+	Name        string                `yaml:"name"`
+	Description string                `yaml:"description"`
+	Version     string                `yaml:"version"`
+	Shell       string                `yaml:"shell"`
+	Timeout     string                `yaml:"timeout"`
+	Env         map[string]string     `yaml:"env"`
+	Functions   []PackageFunctionSpec `yaml:"functions"`
 }
 
 type PackageFunctionSpec struct {
@@ -145,6 +144,9 @@ func loadPackage(ctx context.Context, selector string, opts BuildOptions) (*load
 	if err := yaml.Unmarshal(buf, &manifest); err != nil {
 		return nil, fmt.Errorf("parse %s: %w", manifestPath, err)
 	}
+	if err := validatePackageManifest(buf); err != nil {
+		return nil, fmt.Errorf("parse %s: %w", manifestPath, err)
+	}
 	if strings.TrimSpace(manifest.Name) == "" {
 		manifest.Name = filepath.Base(resolved.Dir)
 	}
@@ -162,7 +164,7 @@ func loadPackage(ctx context.Context, selector string, opts BuildOptions) (*load
 		manifestPath:    manifestPath,
 		manifest:        manifest,
 		timeout:         timeout,
-		workingDir:      resolveWorkingDir(resolved.Dir, manifest.WorkingDirectory),
+		workingDir:      resolved.Dir,
 		functionsByName: map[string]*loadedFunction{},
 	}
 	if err := pkg.validateAndCompile(); err != nil {
@@ -711,15 +713,15 @@ func toFloat64(value any) (float64, error) {
 	}
 }
 
-func resolveWorkingDir(packageDir string, configured string) string {
-	configured = strings.TrimSpace(configured)
-	if configured == "" {
-		return packageDir
+func validatePackageManifest(raw []byte) error {
+	var top map[string]any
+	if err := yaml.Unmarshal(raw, &top); err != nil {
+		return err
 	}
-	if filepath.IsAbs(configured) {
-		return configured
+	if _, ok := top["working_directory"]; ok {
+		return fmt.Errorf("manifest field %q is not supported; working directory is engine-controlled", "working_directory")
 	}
-	return filepath.Join(packageDir, configured)
+	return nil
 }
 
 func parseDurationOrZero(raw string) (time.Duration, error) {

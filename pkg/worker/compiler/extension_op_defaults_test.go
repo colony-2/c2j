@@ -90,6 +90,11 @@ input_schema:
       items:
         type: string
       default: ["triage"]
+output_schema:
+  type: object
+  properties:
+    ok:
+      type: boolean
 `), 0o644))
 
 	withRegisteredOps(t, extops.GetExecutionOp())
@@ -135,116 +140,4 @@ input_schema:
 	config, ok := rawInputs["config"].(map[string]interface{})
 	require.True(t, ok)
 	require.Equal(t, "Hello", config["label"])
-}
-
-func TestExecuteRecipeDiscoveredExtensionOpAppliesSchemaDefaultsBeforeResolution(t *testing.T) {
-	tmpDir := t.TempDir()
-	opDir := filepath.Join(tmpDir, ".colony2", "ops", "defaulted")
-	require.NoError(t, os.MkdirAll(opDir, 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(opDir, "op.yaml"), []byte(`
-name: defaulted
-run: cat
-input_schema:
-  type: object
-  required: [message, ref]
-  properties:
-    message:
-      type: string
-    ref:
-      type: string
-      default: "${{ context.git.ref }}"
-    config:
-      type: object
-      properties:
-        label:
-          type: string
-          default: "${{ inputs.title }}"
-    tags:
-      type: array
-      items:
-        type: string
-      default: ["triage"]
-`), 0o644))
-
-	discovered, err := extops.Discover(tmpDir)
-	require.NoError(t, err)
-	require.Len(t, discovered, 1)
-	withRegisteredOps(t, discovered[0])
-
-	jobCtx, gitCtx := GenerateTestContext()
-
-	stub := &capturingInvocationJobContext{
-		jobKey: swf.JobKey{TenantId: "tenant", JobId: "discovered-defaults"},
-		out:    newActivityOutputTaskData(t, gitCtx),
-	}
-
-	rec := recipe.Recipe{
-		RecipeImpl: &recipe.RecipeOp{
-			RecipeMetadata: recipe.RecipeMetadata{
-				InputSchema: map[string]recipe.InputSchema{
-					"title": {Type: "string", Required: true},
-				},
-				NodeMetadata: recipe.NodeMetadata{
-					ID: "discovered-defaults",
-					Inputs: map[string]interface{}{
-						"message": "${{ inputs.title }}",
-					},
-				},
-			},
-			OpData: recipe.OpData{Op: "defaulted"},
-		},
-	}
-
-	result, _, err := ExecuteRecipe(newWorkflowContext(stub), rec, map[string]interface{}{"title": "Hello"}, jobCtx, gitCtx)
-	require.NoError(t, err)
-	require.Equal(t, map[string]interface{}{"ok": true}, result)
-	require.Equal(t, 1, stub.calls)
-	require.Equal(t, "defaulted:defaulted", stub.lastTaskType)
-
-	require.Equal(t, "Hello", stub.lastInvocation.Input["message"])
-	require.Equal(t, jobCtx.GitBase.BaseRef, stub.lastInvocation.Input["ref"])
-	require.Equal(t, []interface{}{"triage"}, stub.lastInvocation.Input["tags"])
-
-	config, ok := stub.lastInvocation.Input["config"].(map[string]interface{})
-	require.True(t, ok)
-	require.Equal(t, "Hello", config["label"])
-}
-
-func TestExecuteRecipeDiscoveredExtensionOpSkipsRequiredDefaultAtParseTime(t *testing.T) {
-	tmpDir := t.TempDir()
-	opDir := filepath.Join(tmpDir, ".colony2", "ops", "defaulted")
-	require.NoError(t, os.MkdirAll(opDir, 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(opDir, "op.yaml"), []byte(`
-name: defaulted
-run: cat
-input_schema:
-  type: object
-  required: [ref]
-  properties:
-    ref:
-      type: string
-      default: "${{ context.git.ref }}"
-`), 0o644))
-
-	discovered, err := extops.Discover(tmpDir)
-	require.NoError(t, err)
-	require.Len(t, discovered, 1)
-	withRegisteredOps(t, discovered[0])
-
-	_, err = recipe.LoadRecipeFromString([]byte(`
-id: parse-time-defaults
-version: "1.0"
-input_schema:
-  title:
-    type: string
-    required: true
-inputs:
-  title: "${{ inputs.title }}"
-sequence:
-  - id: call
-    op: defaulted
-outputs:
-  ok: true
-`))
-	require.NoError(t, err)
 }

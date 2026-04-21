@@ -138,14 +138,7 @@ func (r *ResolvedOp) ApplyInvocationDefaults(raw map[string]interface{}) (bool, 
 }
 
 func (r *ResolvedOp) WorkingDir() string {
-	wd := strings.TrimSpace(r.Spec.WorkingDirectory)
-	if wd == "" {
-		return r.OpDir
-	}
-	if filepath.IsAbs(wd) {
-		return wd
-	}
-	return filepath.Join(r.ProjectRoot, wd)
+	return r.OpDir
 }
 
 func (r *ResolvedOp) ZeroOutput() map[string]interface{} {
@@ -209,9 +202,6 @@ func resolveLocalBaseDirs(baseDir string) ([]string, error) {
 	candidates := []string{}
 	if strings.TrimSpace(baseDir) != "" {
 		candidates = append(candidates, baseDir)
-	}
-	if envRoot := strings.TrimSpace(os.Getenv("VIBETHIS_PROJECT_ROOT")); envRoot != "" {
-		candidates = append(candidates, envRoot)
 	}
 	if found, err := findRepoRoot(""); err == nil && found != "" {
 		candidates = append(candidates, found)
@@ -425,10 +415,19 @@ func loadResolvedOp(submittedSelector string, resolvedSelector string, resolvedC
 	if err != nil {
 		return nil, fmt.Errorf("reading %s: %w", specPath, err)
 	}
+	if err := validateExtensionOpManifest(specBytes); err != nil {
+		return nil, fmt.Errorf("parsing %s: %w", specPath, err)
+	}
 
 	var spec ExtensionOpSpec
 	if err := yaml.Unmarshal(specBytes, &spec); err != nil {
 		return nil, fmt.Errorf("parsing %s: %w", specPath, err)
+	}
+	if spec.InputSchema == nil {
+		return nil, fmt.Errorf("extension selector %q missing required input_schema", submittedSelector)
+	}
+	if spec.OutputSchema == nil {
+		return nil, fmt.Errorf("extension selector %q missing required output_schema", submittedSelector)
 	}
 
 	resolved := &ResolvedOp{
@@ -443,24 +442,22 @@ func loadResolvedOp(submittedSelector string, resolvedSelector string, resolvedC
 	if strings.TrimSpace(resolved.Spec.Name) == "" {
 		resolved.Spec.Name = filepath.Base(opDir)
 	}
-	if is := spec.InputSchema; is != nil {
-		if doc, compiled, err := parseSchema(is); err == nil {
-			resolved.inputSchemaDoc = doc
-			resolved.compiledInput = compiled
-			defaults, defaultsErr := BuildInputDefaults(is, compiled)
-			if defaultsErr != nil {
-				return nil, fmt.Errorf("extension selector %q input defaults are invalid: %w", submittedSelector, defaultsErr)
-			}
-			resolved.inputDefaults = defaults
-		} else if schemaHasDefaultKeyword(is) {
-			return nil, fmt.Errorf("extension selector %q input defaults require a valid schema: %w", submittedSelector, err)
+	if doc, compiled, err := parseSchema(spec.InputSchema); err == nil {
+		resolved.inputSchemaDoc = doc
+		resolved.compiledInput = compiled
+		defaults, defaultsErr := BuildInputDefaults(spec.InputSchema, compiled)
+		if defaultsErr != nil {
+			return nil, fmt.Errorf("extension selector %q input defaults are invalid: %w", submittedSelector, defaultsErr)
 		}
+		resolved.inputDefaults = defaults
+	} else {
+		return nil, fmt.Errorf("extension selector %q input_schema is invalid: %w", submittedSelector, err)
 	}
-	if oschema := spec.OutputSchema; oschema != nil {
-		if doc, compiled, err := parseSchema(oschema); err == nil {
-			resolved.outputSchemaDoc = doc
-			resolved.compiledOutput = compiled
-		}
+	if doc, compiled, err := parseSchema(spec.OutputSchema); err == nil {
+		resolved.outputSchemaDoc = doc
+		resolved.compiledOutput = compiled
+	} else {
+		return nil, fmt.Errorf("extension selector %q output_schema is invalid: %w", submittedSelector, err)
 	}
 	return resolved, nil
 }

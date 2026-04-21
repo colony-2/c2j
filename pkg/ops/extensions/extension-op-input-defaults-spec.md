@@ -10,10 +10,7 @@ Extension ops should support input defaults in the same practical way built-in G
 
 The extension-op schema format already uses JSON Schema-shaped `input_schema` data. The right author-facing syntax is to adopt the standard `default` keyword at the schema node where the default belongs, matching OpenAPI and JSON Schema conventions, rather than inventing a new field.
 
-This spec covers both extension-op execution paths:
-
-- selector-backed extension ops resolved through `pkg/ops/extensions/selectors.go`
-- legacy runtime-discovered extension ops loaded from `.colony2/ops/*/op.yaml`
+This spec covers selector-resolved extension ops loaded through `pkg/ops/extensions/selectors.go`.
 
 ## Goals
 
@@ -22,7 +19,7 @@ This spec covers both extension-op execution paths:
 - Allow string defaults to flow through the normal template/CEL expansion path.
 - Allow `required` plus `default` on the same property.
 - Keep behavior aligned with existing built-in op defaults where practical.
-- Share one default-materialization implementation between selector-backed and discovered extension ops.
+- Share one default-materialization implementation across selector-resolved extension ops.
 
 ## Non-Goals
 
@@ -36,8 +33,7 @@ This spec covers both extension-op execution paths:
 Today extension ops load and validate `input_schema`, but they do not materialize defaults.
 
 - selector-backed ops skip `workerops.InjectDefaults(...)` entirely in the compiler path
-- discovered extension ops use a dynamic wrapper input type, so struct-tag defaults do not apply
-- both paths validate against the compiled schema, which means missing required fields fail even if the schema author wrote a `default`
+- validation happens against the compiled schema, which means missing required fields fail even if the schema author wrote a `default`
 
 As a result, extension ops currently cannot express:
 
@@ -240,7 +236,7 @@ func BuildInputDefaults(schema map[string]any) (*InputDefaults, error)
 func (d *InputDefaults) Apply(input map[string]interface{}) (bool, error)
 ```
 
-The parsed form is preferable because selector-backed and discovered ops already parse `input_schema` during load.
+The parsed form is preferable because selector-resolved ops already parse `input_schema` during load.
 
 The materializer should:
 
@@ -283,53 +279,13 @@ Recommended API on the resolved selector object:
 func (r *ResolvedOp) ApplyInvocationDefaults(input map[string]interface{}) (bool, error)
 ```
 
-### Discovered Extension Ops
-
-Discovered extension ops need the same runtime behavior, but the compiler only sees a registered `RegisterableOp`.
-
-Recommended approach:
-
-- add an optional op-level interface for custom input default application
-- let discovered extension ops implement it using the same shared schema-default helper
-- keep the existing struct-tag `InjectDefaults(...)` path for built-in Go ops
-
-Example optional interface:
-
-```go
-type InputDefaultsApplier interface {
-    ApplyInputDefaults(input map[string]interface{}) (bool, error)
-}
-```
-
-Compiler behavior:
-
-1. If the registered op implements `InputDefaultsApplier`, call it.
-2. Then run existing `workerops.InjectDefaults(...)` for struct-tag defaults.
-
-This keeps built-in ops unchanged while giving extension ops a first-class schema-based default path.
-
 ### Parse-Time Validation
-
-Discovered extension ops already do parse-time YAML validation through `extInputsWrapper.UnmarshalYAML(...)`.
-
-That validation must be updated so missing required fields with defaults no longer fail early.
-
-Recommended behavior:
-
-- copy the authored input map
-- apply schema defaults to the copy
-- validate the copy against the compiled schema
-- preserve the original authored input map for recipe storage
-
-This keeps recipe authoring ergonomic without rewriting the recipe's explicit input payload.
 
 Selector-backed ops currently skip parse-time input validation because their concrete schema is not available in static recipe parsing. That should remain unchanged.
 
 ### Schema Generation
 
 No new schema-generation keyword is needed.
-
-Discovered extension ops already expose their `input_schema` through the wrapper type used for schema reflection. Because `default` is already a standard schema annotation, generated documentation should carry it through automatically wherever the reflector preserves it.
 
 Selector-backed ops remain generic in the static recipe schema because their concrete `input_schema` is only known once the selector is resolved.
 
@@ -346,8 +302,6 @@ Selector-backed ops remain generic in the static recipe schema because their con
 - Compiler / integration:
   - selector-backed op with `default: main`
   - selector-backed op with `default: "${{ context.git.base_ref }}"`
-  - discovered extension op allows omitted required+default fields during parse-time validation
-  - discovered extension op executes with schema defaults materialized before template resolution
   - replay/validation mode keeps the same materialized payload shape
 
 ## Backwards Compatibility
@@ -368,4 +322,4 @@ That gives extension ops the missing behavior users expect while keeping the aut
 
 - same keyword as OpenAPI / JSON Schema
 - same execution timing as built-in op defaults
-- one shared implementation across selector-backed and discovered extension ops
+- one shared implementation across selector-resolved extension ops

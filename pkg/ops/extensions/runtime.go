@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/colony-2/shai/pkg/shai"
@@ -29,7 +30,6 @@ type RunRequest struct {
 	Shell         string
 	Run           string
 	Command       []string
-	Args          []string
 	Env           map[string]string
 	Stdin         []byte
 	Sandbox       *SandboxInput
@@ -97,10 +97,7 @@ func executeOnHost(ctx context.Context, req RunRequest, workingDir string) ([]by
 		return nil, nil, err
 	}
 	cmd.Dir = workingDir
-	cmd.Env = os.Environ()
-	for key, value := range req.Env {
-		cmd.Env = append(cmd.Env, fmt.Sprintf("%s=%s", key, value))
-	}
+	cmd.Env = buildProcessEnv(req.Env)
 	if len(req.Stdin) > 0 {
 		cmd.Stdin = bytes.NewReader(req.Stdin)
 	}
@@ -157,6 +154,22 @@ func executeInShai(ctx context.Context, req RunRequest, workspaceRoot string, wo
 	return stdout.Bytes(), stderr.Bytes(), nil
 }
 
+func buildProcessEnv(env map[string]string) []string {
+	if len(env) == 0 {
+		return []string{}
+	}
+	keys := make([]string, 0, len(env))
+	for key := range env {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	out := make([]string, 0, len(keys))
+	for _, key := range keys {
+		out = append(out, fmt.Sprintf("%s=%s", key, env[key]))
+	}
+	return out
+}
+
 func buildExecCommand(ctx context.Context, req RunRequest) (*exec.Cmd, error) {
 	argv, err := buildExecArgv(req)
 	if err != nil {
@@ -167,11 +180,7 @@ func buildExecCommand(ctx context.Context, req RunRequest) (*exec.Cmd, error) {
 
 func buildExecArgv(req RunRequest) ([]string, error) {
 	if len(req.Command) > 0 {
-		argv := append([]string{}, req.Command...)
-		if len(req.Args) > 0 {
-			argv = append(argv, req.Args...)
-		}
-		return argv, nil
+		return append([]string{}, req.Command...), nil
 	}
 
 	run := strings.TrimSpace(req.Run)

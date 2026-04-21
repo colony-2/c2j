@@ -127,7 +127,6 @@ version: 1.0.0
 
 shell: bash
 timeout: 100ms
-working_directory: .
 env:
   PYTHONUNBUFFERED: "1"
 
