@@ -45,6 +45,7 @@ type ResolvedOp struct {
 	outputSchemaDoc *invschema.Schema
 	compiledInput   *jsonschemav6.Schema
 	compiledOutput  *jsonschemav6.Schema
+	inputDefaults   *InputDefaults
 }
 
 func IsSelector(selector string) bool {
@@ -116,6 +117,24 @@ func (r *ResolvedOp) ValidateInvocationInputs(raw map[string]interface{}) error 
 		}
 	}
 	return nil
+}
+
+func (r *ResolvedOp) ApplyInvocationDefaults(raw map[string]interface{}) (bool, error) {
+	if r == nil || r.inputDefaults == nil {
+		return false, nil
+	}
+	payload, _, err := r.SanitizeInvocationInputs(raw)
+	if err != nil {
+		return false, err
+	}
+	changed, err := r.inputDefaults.Apply(payload)
+	if err != nil {
+		return false, err
+	}
+	for key, value := range payload {
+		raw[key] = value
+	}
+	return changed, nil
 }
 
 func (r *ResolvedOp) WorkingDir() string {
@@ -428,6 +447,13 @@ func loadResolvedOp(submittedSelector string, resolvedSelector string, resolvedC
 		if doc, compiled, err := parseSchema(is); err == nil {
 			resolved.inputSchemaDoc = doc
 			resolved.compiledInput = compiled
+			defaults, defaultsErr := BuildInputDefaults(is, compiled)
+			if defaultsErr != nil {
+				return nil, fmt.Errorf("extension selector %q input defaults are invalid: %w", submittedSelector, defaultsErr)
+			}
+			resolved.inputDefaults = defaults
+		} else if schemaHasDefaultKeyword(is) {
+			return nil, fmt.Errorf("extension selector %q input defaults require a valid schema: %w", submittedSelector, err)
 		}
 	}
 	if oschema := spec.OutputSchema; oschema != nil {

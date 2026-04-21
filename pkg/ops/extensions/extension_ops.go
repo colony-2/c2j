@@ -57,6 +57,7 @@ type runtimeCtx struct {
 	// compiled schemas (optional)
 	compiledInput  *jsonschemav6.Schema
 	compiledOutput *jsonschemav6.Schema
+	inputDefaults  *InputDefaults
 	// retained for docs/introspection
 	inputSchemaDoc  *invschema.Schema
 	outputSchemaDoc *invschema.Schema
@@ -73,6 +74,19 @@ type extInputsWrapper struct {
 	// Schema (not marshaled) used for JSON Schema and validation
 	schemaDoc      *invschema.Schema    `yaml:"-" json:"-"`
 	compiledSchema *jsonschemav6.Schema `yaml:"-" json:"-"`
+	defaults       *InputDefaults       `yaml:"-" json:"-"`
+}
+
+type discoveredExtensionOp struct {
+	ops.RegisterableOp
+	runtime *runtimeCtx
+}
+
+func (d *discoveredExtensionOp) ApplyInputDefaults(input map[string]interface{}) (bool, error) {
+	if d == nil || d.runtime == nil || d.runtime.inputDefaults == nil {
+		return false, nil
+	}
+	return d.runtime.inputDefaults.Apply(input)
 }
 
 // JSONSchema provides the extension's input JSON Schema to the reflector.
@@ -100,19 +114,49 @@ func (w *extInputsWrapper) UnmarshalYAML(n *yaml.Node) error {
 	if err := n.Decode(&m); err != nil {
 		return err
 	}
+	if err := w.validateInputMap(m); err != nil {
+		return err
+	}
+	w.Data = m
+	return nil
+}
+
+func (w *extInputsWrapper) DecodeFromMap(input any) error {
+	m, ok, _ := toStringMap(input)
+	if !ok {
+		return fmt.Errorf("expected object input, got %T", input)
+	}
+	if err := w.validateInputMap(m); err != nil {
+		return err
+	}
+	w.Data = m
+	return nil
+}
+
+func (w *extInputsWrapper) validateInputMap(m map[string]interface{}) error {
+	validateMap := map[string]interface{}{}
+	if m != nil {
+		if copied, ok := deepCopyAny(m).(map[string]interface{}); ok {
+			validateMap = copied
+		}
+	}
+	if w.defaults != nil {
+		if _, err := w.defaults.Apply(validateMap); err != nil {
+			return err
+		}
+	}
 	if w.compiledSchema != nil {
-		if err := w.compiledSchema.Validate(m); err != nil {
+		if err := w.compiledSchema.Validate(validateMap); err != nil {
 			return err
 		}
 	} else if w.schemaDoc != nil && len(w.schemaDoc.Required) > 0 {
 		// Fallback: enforce required keys from schemaDoc when no compiled validator
 		for _, req := range w.schemaDoc.Required {
-			if _, ok := m[req]; !ok {
+			if _, ok := validateMap[req]; !ok {
 				return fmt.Errorf("missing required field: %s", req)
 			}
 		}
 	}
-	w.Data = m
 	return nil
 }
 
@@ -261,6 +305,13 @@ func Discover(startDir string) ([]ops.RegisterableOp, error) {
 			if doc, compiled, err := parseSchema(is); err == nil {
 				rctx.inputSchemaDoc = doc
 				rctx.compiledInput = compiled
+				defaults, defaultsErr := BuildInputDefaults(is, compiled)
+				if defaultsErr != nil {
+					return nil, fmt.Errorf("extension op '%s' input defaults are invalid: %w", opName, defaultsErr)
+				}
+				rctx.inputDefaults = defaults
+			} else if schemaHasDefaultKeyword(is) {
+				return nil, fmt.Errorf("extension op '%s' input defaults require a valid schema: %w", opName, err)
 			}
 		}
 		if oschema := spec.OutputSchema; oschema != nil {
@@ -335,9 +386,10 @@ func Discover(startDir string) ([]ops.RegisterableOp, error) {
 			return &extInputsWrapper{
 				schemaDoc:      rctx.inputSchemaDoc,
 				compiledSchema: rctx.compiledInput,
+				defaults:       rctx.inputDefaults,
 			}
 		})
-		out = append(out, op)
+		out = append(out, &discoveredExtensionOp{RegisterableOp: op, runtime: rctx})
 	}
 	return out, nil
 }

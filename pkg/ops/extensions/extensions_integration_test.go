@@ -16,6 +16,14 @@ import (
 // Test that a discovered extension op contributes its input schema to the
 // generated recipe schema and enforces YAML parse-time validation.
 func TestExtension_Discover_Schema_And_YAMLValidation(t *testing.T) {
+	originalOps := rops.List()
+	t.Cleanup(func() {
+		rops.Clear()
+		if len(originalOps) > 0 {
+			rops.Register(originalOps...)
+		}
+	})
+
 	tmpDir := t.TempDir()
 
 	// Build the legacy runtime-discovery path .colony2/ops/example/op.yaml.
@@ -84,5 +92,52 @@ input_schema:
 	yOK := []byte("op: example\ninputs:\n  foo: bar\n")
 	if err := yamlv3.Unmarshal(yOK, &n); err != nil {
 		t.Fatalf("valid YAML failed parse: %v", err)
+	}
+}
+
+func TestExtension_Discover_YAMLValidationAllowsRequiredDefaults(t *testing.T) {
+	originalOps := rops.List()
+	t.Cleanup(func() {
+		rops.Clear()
+		if len(originalOps) > 0 {
+			rops.Register(originalOps...)
+		}
+	})
+
+	tmpDir := t.TempDir()
+	opDir := filepath.Join(tmpDir, ".colony2", "ops", "with-defaults")
+	if err := os.MkdirAll(opDir, 0o755); err != nil {
+		t.Fatalf("mkdir failed: %v", err)
+	}
+	opYAML := `name: with-defaults
+description: extension op with required defaults
+run: "echo {}"
+input_schema:
+  type: object
+  required: [foo]
+  properties:
+    foo:
+      type: string
+      default: bar
+`
+	if err := os.WriteFile(filepath.Join(opDir, "op.yaml"), []byte(opYAML), 0o644); err != nil {
+		t.Fatalf("write op.yaml failed: %v", err)
+	}
+
+	opsList, err := ext.Discover(tmpDir)
+	if err != nil {
+		t.Fatalf("discover error: %v", err)
+	}
+	if len(opsList) == 0 {
+		t.Fatalf("expected discovered ops")
+	}
+
+	rops.Clear()
+	rops.Register(opsList...)
+
+	var n rec.Node
+	yOK := []byte("op: with-defaults\n")
+	if err := yamlv3.Unmarshal(yOK, &n); err != nil {
+		t.Fatalf("YAML with omitted required+default input should parse: %v", err)
 	}
 }

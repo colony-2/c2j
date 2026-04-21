@@ -189,6 +189,7 @@ func (d DefaultRecipeExecutor) executeOp2(ctx workflow.Context, parentResolution
 		chain        []ops.TaskStep
 		taskPrefix   string
 		selectorOp   interface {
+			ApplyInvocationDefaults(map[string]interface{}) (bool, error)
 			ValidateInvocationInputs(map[string]interface{}) error
 		}
 	)
@@ -203,6 +204,9 @@ func (d DefaultRecipeExecutor) executeOp2(ctx workflow.Context, parentResolution
 		chain = registeredOp.TaskChain()
 		taskPrefix = registeredOp.GetMetadata().Type
 		selectorOp = resolvedSelectorOp
+		if _, err := selectorOp.ApplyInvocationDefaults(metadata.Inputs); err != nil {
+			return fmt.Errorf("failed to apply selector input defaults: %w", err)
+		}
 	} else {
 		var exists bool
 		registeredOp, exists = ops.Get(op)
@@ -214,6 +218,11 @@ func (d DefaultRecipeExecutor) executeOp2(ctx workflow.Context, parentResolution
 		}
 		chain = registeredOp.TaskChain()
 		taskPrefix = registeredOp.GetMetadata().Type
+		if defaultsApplier, ok := registeredOp.(ops.InputDefaultsApplier); ok {
+			if _, err := defaultsApplier.ApplyInputDefaults(metadata.Inputs); err != nil {
+				return fmt.Errorf("failed to apply op input defaults: %w", err)
+			}
+		}
 		if len(chain) > 0 {
 			if err := workerops.InjectDefaults(chain[0].InputType, metadata.Inputs); err != nil {
 				return fmt.Errorf("failed to inject defaults: %w", err)
