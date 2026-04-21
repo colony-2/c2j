@@ -15,6 +15,7 @@ import (
 	"github.com/colony-2/c2j/cmd/c2j/internal/jobutil"
 	"github.com/colony-2/c2j/pkg/input"
 	coreops "github.com/colony-2/c2j/pkg/ops"
+	storylive "github.com/colony-2/c2j/pkg/story/live"
 	"github.com/colony-2/c2j/pkg/template"
 	"github.com/colony-2/c2j/pkg/template/colonycel"
 	"github.com/colony-2/c2j/pkg/worker/compiler"
@@ -45,21 +46,21 @@ func Run(ctx context.Context, opts Options) error {
 	defer cleanup()
 
 	jobKey := swf.JobKey{TenantId: opts.TenantID, JobId: opts.JobID}
+	renderer := newStoryProgressRenderer(opts.Stdout, "cached", !opts.CI && isTerminalWriter(opts.Stdout))
 
-	if err := replayCachedHistory(ctx, deps, jobKey, opts.Stdout, opts.Stderr); err != nil {
+	if err := replayCachedHistory(ctx, deps, jobKey, renderer, opts.Stderr); err != nil {
 		return exitError{code: exitCodeFailure, err: err}
 	}
+	renderer.Flush()
+	renderer.SetMode("live")
 
 	deadline := time.Now().Add(opts.WaitTimeout)
 	for {
-		livePrinter := newProgressPrinter(opts.Stdout, "live")
-		liveWorker := compiler.NewRecipeJobWorker(compiler.RecipeJobWorkerOptions{
-			CELOptionsProvider: deps.celProvider,
-			RootSourceResolver: deps.rootResolver,
-			ExecutorFactory: func() compiler.RecipeExecutor {
-				return newPrintingExecutor(livePrinter)
-			},
+		liveRecorder := storylive.NewRecorder(storylive.Options{
+			JobKey:   jobKey,
+			OnChange: renderer.Render,
 		})
+		liveWorker := newStoryJobWorker(deps, liveRecorder)
 
 		runnable, err := swf.GetJobForRun(ctx, deps.runtime, swf.GetJobForRunRequest{
 			JobKey:         jobKey,
@@ -85,7 +86,9 @@ func Run(ctx context.Context, opts Options) error {
 			continue
 		}
 
-		outcome, err := runnable.Run(livePrinter)
+		outcome, err := runnable.Run(liveRecorder.Observer())
+		renderer.Render(liveRecorder.Finalize(err))
+		renderer.Flush()
 		if err != nil {
 			return exitError{code: exitCodeFailure, err: err}
 		}
@@ -196,7 +199,17 @@ func taskWorkersFromWorkSet(workset *swf.WorkSet) []swf.TaskWorker {
 	return taskWorkers
 }
 
-func replayCachedHistory(ctx context.Context, deps *runnerDeps, jobKey swf.JobKey, stdout io.Writer, stderr io.Writer) error {
+func newStoryJobWorker(deps *runnerDeps, recorder *storylive.Recorder) swf.JobWorker {
+	return compiler.NewRecipeJobWorker(compiler.RecipeJobWorkerOptions{
+		CELOptionsProvider:     deps.celProvider,
+		RootSourceResolver:     deps.rootResolver,
+		OnRecipeLoaded:         recorder.OnRecipeLoaded,
+		OnRecipeSourceResolved: recorder.OnRecipeSourceResolved,
+		ExecutorFactory:        recorder.ExecutorFactory(),
+	})
+}
+
+func replayCachedHistory(ctx context.Context, deps *runnerDeps, jobKey swf.JobKey, renderer storyProgressRenderer, stderr io.Writer) error {
 	run, err := deps.engine.GetJobRun(ctx, swf.GetJobRunRequest{JobKey: jobKey})
 	if err != nil {
 		if errors.Is(err, swf.ErrJobNotFound) {
@@ -209,20 +222,19 @@ func replayCachedHistory(ctx context.Context, deps *runnerDeps, jobKey swf.JobKe
 		return nil
 	}
 
-	cachedPrinter := newProgressPrinter(stdout, "cached")
-	replayWorker := compiler.NewRecipeJobWorker(compiler.RecipeJobWorkerOptions{
-		CELOptionsProvider: deps.celProvider,
-		RootSourceResolver: deps.rootResolver,
-		ExecutorFactory: func() compiler.RecipeExecutor {
-			return newPrintingExecutor(cachedPrinter)
-		},
+	cachedRecorder := storylive.NewRecorder(storylive.Options{
+		JobKey:   jobKey,
+		OnChange: renderer.Render,
 	})
+	replayWorker := newStoryJobWorker(deps, cachedRecorder)
 
 	_, err = deps.engine.ReplayJobRun(ctx, swf.ReplayRunRequest{
 		JobKey:    jobKey,
-		Observer:  cachedPrinter,
+		Observer:  cachedRecorder.Observer(),
 		JobWorker: replayWorker,
 	})
+	renderer.Render(cachedRecorder.Finalize(err))
+	renderer.Flush()
 	if err == nil {
 		return nil
 	}

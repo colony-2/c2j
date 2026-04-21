@@ -106,7 +106,15 @@ func (o Options) Validate() error {
 }
 
 func isTerminalReader(r io.Reader) bool {
-	f, ok := r.(*os.File)
+	return isTerminalFile(r)
+}
+
+func isTerminalWriter(w io.Writer) bool {
+	return isTerminalFile(w)
+}
+
+func isTerminalFile(v any) bool {
+	f, ok := v.(*os.File)
 	if !ok {
 		return false
 	}
