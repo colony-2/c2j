@@ -331,8 +331,7 @@ The extension process receives stdin equivalent to:
 
 - Prefer stdin JSON for all business inputs.
 - Use manifest `env` only for explicit process configuration that is not part of the typed input payload.
-- Use `input_schema` and `output_schema` whenever possible so validation failures are immediate.
-- Use schema `default` for missing-field behavior instead of baking defaults into the script.
-- If you need portable, replay-friendly behavior, keep the extension process deterministic with respect to its stdin payload.
+- `input_schema` and `output_schema` are required so validation failures are immediate.
+- Use schema `default` for missing-field behavior instead of baking defaults into the script. Use CEL expressions/templates to automatically configure common context values.
 - Use cell-local paths for ops that live with the current cell or repo.
 - Use git selectors for ops loaded from another repo or pinned ref.
