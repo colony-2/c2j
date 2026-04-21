@@ -506,6 +506,111 @@ func TestControllerPersistWithDiffs_MultipleCommits(t *testing.T) {
 		"Diff from base should be larger than diff from parent")
 }
 
+func TestControllerPersistWithDiffs_OpCommitsWithoutDirtyState(t *testing.T) {
+	t.Parallel()
+
+	baseRepo, baseHash, cleanup := setupGitRepo(t)
+	defer cleanup()
+
+	worktree := filepath.Join(t.TempDir(), "worktree")
+
+	ctx := newTaskContext(baseRepo, baseHash, worktree, "cells/alpha")
+
+	controller := NewController(nil)
+	require.NoError(t, controller.prepareWorkspace(context.Background(), ctx))
+	require.NoError(t, controller.Restore(context.Background(), ctx, nil))
+
+	runGit(t, worktree, "git", "config", "user.email", "test@example.com")
+	runGit(t, worktree, "git", "config", "user.name", "Test User")
+
+	firstFile := filepath.Join(worktree, "cells", "alpha", "op-commit-1.txt")
+	require.NoError(t, os.WriteFile(firstFile, []byte("first op commit\n"), 0o644))
+	runGit(t, worktree, "git", "add", "cells/alpha/op-commit-1.txt")
+	runGit(t, worktree, "git", "commit", "-m", "operation commit 1")
+	firstCommit := gitRevParse(t, worktree, "HEAD")
+
+	secondFile := filepath.Join(worktree, "cells", "alpha", "op-commit-2.txt")
+	require.NoError(t, os.WriteFile(secondFile, []byte("second op commit\n"), 0o644))
+	runGit(t, worktree, "git", "add", "cells/alpha/op-commit-2.txt")
+	runGit(t, worktree, "git", "commit", "-m", "operation commit 2")
+	secondCommit := gitRevParse(t, worktree, "HEAD")
+
+	output, artifacts, err := controller.PersistWithDiffs(context.Background(), ctx)
+	require.NoError(t, err)
+
+	require.True(t, output.HasChanges)
+	require.Equal(t, secondCommit, output.CommitHash)
+	require.Equal(t, firstCommit, output.ParentHash)
+	require.Equal(t, secondCommit, ctx.PersistHash)
+	require.Equal(t, firstCommit, ctx.ParentHash)
+	require.Equal(t, secondCommit, gitRevParse(t, worktree, "HEAD"), "persist should carry the op-created history without adding another commit")
+	require.Len(t, artifacts, 3, "two op-created commits should produce thin pack plus parent/base diffs")
+	require.Equal(t, ThinPackArtifactName, artifacts[0].Name())
+	require.Equal(t, "diff_from_parent.diff", artifacts[1].Name())
+	require.Equal(t, "diff_from_base.diff", artifacts[2].Name())
+
+	parentDiff, err := os.ReadFile(output.DiffFromParentPath)
+	require.NoError(t, err)
+	require.Contains(t, string(parentDiff), "op-commit-2.txt")
+	require.NotContains(t, string(parentDiff), "op-commit-1.txt")
+
+	baseDiff, err := os.ReadFile(output.DiffFromBasePath)
+	require.NoError(t, err)
+	require.Contains(t, string(baseDiff), "op-commit-1.txt")
+	require.Contains(t, string(baseDiff), "op-commit-2.txt")
+}
+
+func TestControllerPersistWithDiffs_OpCommitsWithDirtyState(t *testing.T) {
+	t.Parallel()
+
+	baseRepo, baseHash, cleanup := setupGitRepo(t)
+	defer cleanup()
+
+	worktree := filepath.Join(t.TempDir(), "worktree")
+
+	ctx := newTaskContext(baseRepo, baseHash, worktree, "cells/alpha")
+
+	controller := NewController(nil)
+	require.NoError(t, controller.prepareWorkspace(context.Background(), ctx))
+	require.NoError(t, controller.Restore(context.Background(), ctx, nil))
+
+	runGit(t, worktree, "git", "config", "user.email", "test@example.com")
+	runGit(t, worktree, "git", "config", "user.name", "Test User")
+
+	committedFile := filepath.Join(worktree, "cells", "alpha", "op-committed.txt")
+	require.NoError(t, os.WriteFile(committedFile, []byte("committed by op\n"), 0o644))
+	runGit(t, worktree, "git", "add", "cells/alpha/op-committed.txt")
+	runGit(t, worktree, "git", "commit", "-m", "operation commit")
+	opCommit := gitRevParse(t, worktree, "HEAD")
+
+	dirtyFile := filepath.Join(worktree, "cells", "alpha", "op-dirty.txt")
+	require.NoError(t, os.WriteFile(dirtyFile, []byte("left dirty by op\n"), 0o644))
+
+	output, artifacts, err := controller.PersistWithDiffs(context.Background(), ctx)
+	require.NoError(t, err)
+
+	require.True(t, output.HasChanges)
+	require.Equal(t, opCommit, output.ParentHash)
+	require.NotEqual(t, opCommit, output.CommitHash)
+	require.Equal(t, output.CommitHash, ctx.PersistHash)
+	require.Equal(t, opCommit, ctx.ParentHash)
+	require.Equal(t, output.CommitHash, gitRevParse(t, worktree, "HEAD"))
+	require.Len(t, artifacts, 3, "op commit plus dirty follow-up should produce thin pack plus parent/base diffs")
+	require.Equal(t, ThinPackArtifactName, artifacts[0].Name())
+	require.Equal(t, "diff_from_parent.diff", artifacts[1].Name())
+	require.Equal(t, "diff_from_base.diff", artifacts[2].Name())
+
+	parentDiff, err := os.ReadFile(output.DiffFromParentPath)
+	require.NoError(t, err)
+	require.Contains(t, string(parentDiff), "op-dirty.txt")
+	require.NotContains(t, string(parentDiff), "op-committed.txt")
+
+	baseDiff, err := os.ReadFile(output.DiffFromBasePath)
+	require.NoError(t, err)
+	require.Contains(t, string(baseDiff), "op-committed.txt")
+	require.Contains(t, string(baseDiff), "op-dirty.txt")
+}
+
 func TestControllerPersistWithDiffs_ArtifactCleanup(t *testing.T) {
 	t.Parallel()
 

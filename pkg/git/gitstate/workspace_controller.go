@@ -195,11 +195,12 @@ func (c *Controller) Persist(ctx context.Context, task *GitTaskContext) (*gitcom
 	}
 
 	persistInput := gitcommit.PersistCommitActivity{
-		RepoPath:        task.GetWorktreePath(),
-		StorageLocation: thinPackDir,
-		RootHash:        rootHash,
-		CommitMessage:   commitMessage,
-		Author:          author,
+		RepoPath:         task.GetWorktreePath(),
+		StorageLocation:  thinPackDir,
+		RootHash:         rootHash,
+		ExpectedHeadHash: rootHash,
+		CommitMessage:    commitMessage,
+		Author:           author,
 	}
 
 	output, err := gitcommit.PersistCommit(ctx, persistInput)
@@ -292,11 +293,12 @@ func (c *Controller) PersistWithDiffs(ctx context.Context, task *GitTaskContext)
 	}
 
 	persistInput := gitcommit.PersistCommitActivity{
-		RepoPath:        task.GetWorktreePath(),
-		StorageLocation: persistDir,
-		RootHash:        rootHash,
-		CommitMessage:   commitMessage,
-		Author:          author,
+		RepoPath:         task.GetWorktreePath(),
+		StorageLocation:  persistDir,
+		RootHash:         rootHash,
+		ExpectedHeadHash: rootHash,
+		CommitMessage:    commitMessage,
+		Author:           author,
 	}
 
 	// Call PersistCommitWithDiffs with baseHash from task context

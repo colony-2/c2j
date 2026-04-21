@@ -51,9 +51,11 @@ func PersistCommit(ctx context.Context, input PersistCommitActivity) (*PersistCo
 	}
 
 	var commitHash string
-	hasChanges := len(strings.TrimSpace(string(statusOutput))) > 0
+	dirtyChanges := len(strings.TrimSpace(string(statusOutput))) > 0
+	historyAdvanced := strings.TrimSpace(input.ExpectedHeadHash) != "" && !hashMatches(initialCommit, input.ExpectedHeadHash)
+	hasChanges := dirtyChanges || historyAdvanced
 
-	if hasChanges {
+	if dirtyChanges {
 		// There are changes to commit
 		// Stage all changes (both untracked and modified)
 		_, err = common.ExecuteGitCommand(ctx, input.RepoPath, "add", "-A")
@@ -99,6 +101,14 @@ func PersistCommit(ctx context.Context, input PersistCommitActivity) (*PersistCo
 			return nil, fmt.Errorf("failed to get commit hash: %w", err)
 		}
 		commitHash = newCommitHash
+	} else if historyAdvanced {
+		// The operation advanced HEAD itself, so carry that history forward even
+		// when the worktree is clean.
+		commitHash = initialCommit
+		parentHash, err = common.GetCommitHash(ctx, input.RepoPath, "HEAD^")
+		if err != nil {
+			return nil, fmt.Errorf("failed to get parent hash for existing head %s: %w", shortHash(commitHash), err)
+		}
 	} else {
 		// No changes to commit, use current HEAD
 		commitHash = parentHash
@@ -147,6 +157,21 @@ func PersistCommit(ctx context.Context, input PersistCommitActivity) (*PersistCo
 		CreatedAt:    time.Now(),
 		HasChanges:   hasChanges,
 	}, nil
+}
+
+func hashMatches(actual, expected string) bool {
+	actual = strings.TrimSpace(actual)
+	expected = strings.TrimSpace(expected)
+	if actual == "" || expected == "" {
+		return false
+	}
+	if len(actual) > 7 {
+		actual = actual[:7]
+	}
+	if len(expected) > 7 {
+		expected = expected[:7]
+	}
+	return strings.EqualFold(actual, expected)
 }
 
 // PersistCommitWithDiffs performs commit, thin pack generation, and creates diffs from parent and base

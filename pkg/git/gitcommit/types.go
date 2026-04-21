@@ -12,19 +12,20 @@ type PersistCommitActivity struct {
 	RootHash        string `json:"root_hash"`        // Base commit hash this set was built upon
 
 	// Optional configuration
-	CommitMessage string        `json:"commit_message,omitempty"` // Message for the commit
-	Author        string        `json:"author,omitempty"`         // Author name and email
-	Timeout       time.Duration `json:"timeout,omitempty"`        // Operation timeout
+	ExpectedHeadHash string        `json:"expected_head_hash,omitempty"` // HEAD hash expected before persistence starts; used to detect history-only changes
+	CommitMessage    string        `json:"commit_message,omitempty"`     // Message for the commit
+	Author           string        `json:"author,omitempty"`             // Author name and email
+	Timeout          time.Duration `json:"timeout,omitempty"`            // Operation timeout
 }
 
 // PersistCommitOutput represents the output from persist operation
 type PersistCommitOutput struct {
-	CommitHash   string    `json:"commit_hash"`    // SHA-1 hash of created commit
-	ParentHash   string    `json:"parent_hash"`    // SHA-1 hash of parent commit
+	CommitHash   string    `json:"commit_hash"`    // SHA-1 hash of the persisted HEAD commit
+	ParentHash   string    `json:"parent_hash"`    // SHA-1 hash of the persisted commit's parent
 	ThinPackPath string    `json:"thin_pack_path"` // Full path to generated thin pack
 	ThinPackSize int64     `json:"thin_pack_size"` // Size of thin pack in bytes
 	CreatedAt    time.Time `json:"created_at"`     // Timestamp of operation
-	HasChanges   bool      `json:"has_changes"`    // True when a new commit was created
+	HasChanges   bool      `json:"has_changes"`    // True when repository history advanced or new worktree changes were committed
 }
 
 // RestoreCommitActivity defines the recipe operation for restoring Git commits

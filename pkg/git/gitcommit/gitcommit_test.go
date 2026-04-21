@@ -221,6 +221,115 @@ func TestPersistCommit_MultipleCommits(t *testing.T) {
 	assert.Len(t, packFiles, 5)
 }
 
+func TestPersistCommit_DetectsAdvancedHeadWithoutDirtyState(t *testing.T) {
+	repoPath, _, cleanup := setupTestRepo(t)
+	defer cleanup()
+
+	storageDir, err := os.MkdirTemp("", "thin-packs-*")
+	require.NoError(t, err)
+	defer os.RemoveAll(storageDir)
+
+	startHead := getCommitHash(t, repoPath)
+
+	firstFile := filepath.Join(repoPath, "op-commit-1.txt")
+	err = os.WriteFile(firstFile, []byte("first op commit\n"), 0o644)
+	require.NoError(t, err)
+	cmd := exec.Command("git", "add", "op-commit-1.txt")
+	cmd.Dir = repoPath
+	err = cmd.Run()
+	require.NoError(t, err)
+	cmd = exec.Command("git", "commit", "-m", "operation commit 1")
+	cmd.Dir = repoPath
+	err = cmd.Run()
+	require.NoError(t, err)
+	firstCommit := getCommitHash(t, repoPath)
+
+	secondFile := filepath.Join(repoPath, "op-commit-2.txt")
+	err = os.WriteFile(secondFile, []byte("second op commit\n"), 0o644)
+	require.NoError(t, err)
+	cmd = exec.Command("git", "add", "op-commit-2.txt")
+	cmd.Dir = repoPath
+	err = cmd.Run()
+	require.NoError(t, err)
+	cmd = exec.Command("git", "commit", "-m", "operation commit 2")
+	cmd.Dir = repoPath
+	err = cmd.Run()
+	require.NoError(t, err)
+	secondCommit := getCommitHash(t, repoPath)
+
+	input := PersistCommitActivity{
+		RepoPath:         repoPath,
+		StorageLocation:  storageDir,
+		RootHash:         startHead,
+		ExpectedHeadHash: startHead,
+		CommitMessage:    "envelope commit",
+	}
+
+	output, err := PersistCommit(context.Background(), input)
+	require.NoError(t, err)
+
+	assert.True(t, output.HasChanges)
+	assert.Equal(t, secondCommit, output.CommitHash)
+	assert.Equal(t, firstCommit, output.ParentHash)
+	assert.NotEmpty(t, output.ThinPackPath)
+	assert.Equal(t, secondCommit, getCommitHash(t, repoPath), "persist should not create an extra commit when the op already advanced HEAD")
+	verifyThinPack(t, output.ThinPackPath, repoPath)
+}
+
+func TestPersistCommit_DetectsAdvancedHeadWithDirtyState(t *testing.T) {
+	repoPath, _, cleanup := setupTestRepo(t)
+	defer cleanup()
+
+	storageDir, err := os.MkdirTemp("", "thin-packs-*")
+	require.NoError(t, err)
+	defer os.RemoveAll(storageDir)
+
+	startHead := getCommitHash(t, repoPath)
+
+	committedFile := filepath.Join(repoPath, "op-committed.txt")
+	err = os.WriteFile(committedFile, []byte("committed by op\n"), 0o644)
+	require.NoError(t, err)
+	cmd := exec.Command("git", "add", "op-committed.txt")
+	cmd.Dir = repoPath
+	err = cmd.Run()
+	require.NoError(t, err)
+	cmd = exec.Command("git", "commit", "-m", "operation commit")
+	cmd.Dir = repoPath
+	err = cmd.Run()
+	require.NoError(t, err)
+	opCommit := getCommitHash(t, repoPath)
+
+	dirtyFile := filepath.Join(repoPath, "op-dirty.txt")
+	err = os.WriteFile(dirtyFile, []byte("left dirty by op\n"), 0o644)
+	require.NoError(t, err)
+
+	input := PersistCommitActivity{
+		RepoPath:         repoPath,
+		StorageLocation:  storageDir,
+		RootHash:         startHead,
+		ExpectedHeadHash: startHead,
+		CommitMessage:    "envelope commit",
+		Author:           "Test User <test@example.com>",
+	}
+
+	output, err := PersistCommit(context.Background(), input)
+	require.NoError(t, err)
+
+	assert.True(t, output.HasChanges)
+	assert.Equal(t, opCommit, output.ParentHash)
+	assert.NotEqual(t, opCommit, output.CommitHash)
+	assert.Equal(t, output.CommitHash, getCommitHash(t, repoPath))
+	assert.NotEmpty(t, output.ThinPackPath)
+	verifyThinPack(t, output.ThinPackPath, repoPath)
+
+	showCmd := exec.Command("git", "show", "--name-only", "--pretty=format:", output.CommitHash)
+	showCmd.Dir = repoPath
+	showOutput, err := showCmd.CombinedOutput()
+	require.NoError(t, err)
+	assert.Contains(t, string(showOutput), "op-dirty.txt")
+	assert.NotContains(t, string(showOutput), "op-committed.txt")
+}
+
 func TestRestoreCommit_FromRepository(t *testing.T) {
 	// Test restoring a commit that exists in the repository
 	repoPath, rootCommit, cleanup := setupTestRepo(t)
