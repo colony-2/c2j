@@ -10,6 +10,7 @@ import (
 )
 
 func newListCmd() *cobra.Command {
+	var useEmbed bool
 	opts := listjobs.Options{
 		Stdout: os.Stdout,
 		Stderr: os.Stderr,
@@ -17,15 +18,19 @@ func newListCmd() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "list",
-		Short: "List jobs from the SWF remote runtime",
+		Short: "List jobs from the SWF runtime",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return listjobs.Run(context.Background(), opts)
+			runOpts := opts
+			if useEmbed {
+				runOpts.SWFURL = defaults.EmbedURL
+			}
+			return listjobs.Run(context.Background(), runOpts)
 		},
 	}
 
 	flags := cmd.Flags()
 	flags.StringVar(&opts.TenantID, "tenant-id", "", "Tenant/project ID to query (defaults to "+defaults.TenantID+")")
-	flags.StringVar(&opts.SWFURL, "swf-url", "", "Base URL for the SWF remote runtime (defaults to "+defaults.SWFURL+")")
+	flags.StringVar(&opts.SWFURL, "swf-url", "", "SWF runtime URL (http(s)://... or embed:///; defaults to "+defaults.SWFURL+")")
 	flags.BoolVar(&opts.Self, "self", false, "List jobs for the current cell")
 	flags.StringVar(&opts.Cell, "cell", "", "List jobs for a specific cell (short name or repo/path)")
 	flags.StringSliceVar(&opts.Statuses, "status", nil, "Filter by job status (repeatable)")
@@ -37,6 +42,7 @@ func newListCmd() *cobra.Command {
 	flags.IntVar(&opts.PageSize, "page-size", 0, "Page size for the SWF query (0 uses the server default)")
 	flags.StringVar(&opts.PageToken, "page-token", "", "Pagination token returned from a prior list call")
 	flags.BoolVar(&opts.All, "all", false, "Fetch all pages instead of a single page")
+	flags.BoolVar(&useEmbed, "embed", false, "Use the embedded SWF runtime (equivalent to --swf-url "+defaults.EmbedURL+")")
 	flags.BoolVar(&opts.JSONOutput, "json", false, "Emit job data as JSON")
 
 	return cmd

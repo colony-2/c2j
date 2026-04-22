@@ -10,6 +10,7 @@ import (
 )
 
 func newSubmitCmd() *cobra.Command {
+	var useEmbed bool
 	opts := submitjob.Options{
 		Stdin:  os.Stdin,
 		Stdout: os.Stdout,
@@ -18,12 +19,15 @@ func newSubmitCmd() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "submit [prompt]",
-		Short: "Submit a new recipe job through the SWF remote runtime",
+		Short: "Submit a new recipe job through the SWF runtime",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			runOpts := opts
 			runOpts.Prompt = ""
 			runOpts.PromptSet = false
+			if useEmbed {
+				runOpts.SWFURL = defaults.EmbedURL
+			}
 			if len(args) == 1 {
 				runOpts.Prompt = args[0]
 				runOpts.PromptSet = true
@@ -34,7 +38,7 @@ func newSubmitCmd() *cobra.Command {
 
 	flags := cmd.Flags()
 	flags.StringVar(&opts.TenantID, "tenant-id", "", "Tenant/project ID for the job (defaults to "+defaults.TenantID+")")
-	flags.StringVar(&opts.SWFURL, "swf-url", "", "Base URL for the SWF remote runtime (defaults to "+defaults.SWFURL+")")
+	flags.StringVar(&opts.SWFURL, "swf-url", "", "SWF runtime URL (http(s)://... or embed:///; defaults to "+defaults.SWFURL+")")
 	flags.StringVar(&opts.Recipe, "recipe", "", "Recipe name or git selector to submit (defaults to default)")
 	flags.StringVar(&opts.RecipeFile, "recipe-file", "", "Path to a recipe YAML file to submit")
 	flags.StringVar(&opts.InputsJSON, "inputs-json", "", "Inline JSON object for recipe inputs")
@@ -44,6 +48,7 @@ func newSubmitCmd() *cobra.Command {
 	flags.StringVar(&opts.ActorEmail, "actor-email", "", "Actor email recorded in job context")
 	flags.StringVar(&opts.TicketID, "ticket-id", "", "Ticket ID recorded in job context")
 	flags.BoolVarP(&opts.RunAfterSubmit, "run", "r", false, "Run the submitted job immediately after submission")
+	flags.BoolVar(&useEmbed, "embed", false, "Use the embedded SWF runtime (equivalent to --swf-url "+defaults.EmbedURL+")")
 	flags.BoolVar(&opts.JSONOutput, "json", false, "Emit the submitted job identity as JSON")
 
 	return cmd

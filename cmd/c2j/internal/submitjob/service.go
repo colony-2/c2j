@@ -5,8 +5,8 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
-	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -14,6 +14,7 @@ import (
 
 	"github.com/colony-2/c2j/cmd/c2j/internal/c2jops"
 	"github.com/colony-2/c2j/cmd/c2j/internal/runjob"
+	"github.com/colony-2/c2j/cmd/c2j/internal/swfruntime"
 	configpkg "github.com/colony-2/c2j/pkg/config"
 	"github.com/colony-2/c2j/pkg/contextual"
 	"github.com/colony-2/c2j/pkg/recipe"
@@ -21,7 +22,6 @@ import (
 	"github.com/colony-2/c2j/pkg/worker/compiler"
 	"github.com/colony-2/c2j/pkg/workflowctl"
 	"github.com/colony-2/swf-go/pkg/swf"
-	remoteruntime "github.com/colony-2/swf-go/pkg/swf/runtime/remote"
 	"gopkg.in/yaml.v3"
 )
 
@@ -61,61 +61,62 @@ func Run(ctx context.Context, opts Options) error {
 		return err
 	}
 
-	runtime, err := remoteruntime.New(opts.SWFURL, &http.Client{Timeout: 30 * time.Second})
-	if err != nil {
-		return fmt.Errorf("create remote runtime: %w", err)
-	}
+	var result submitResult
+	if err := func() error {
+		handle, err := swfruntime.Open(ctx, opts.SWFURL)
+		if err != nil {
+			return fmt.Errorf("open SWF runtime: %w", err)
+		}
+		closeHandle := func(err error) error {
+			return errors.Join(err, handle.Cleanup())
+		}
 
-	engine, err := swf.NewEngineBuilder().WithRuntime(runtime).BuildEngine()
-	if err != nil {
-		return fmt.Errorf("build engine: %w", err)
-	}
+		submittedAt := time.Now().UTC()
+		start := workflowctl.StartJob{
+			TenantId:   opts.TenantID,
+			RecipeName: recipeName,
+			Inputs:     inputs,
+			JobContext: contextual.JobContext{
+				Actor: contextual.ActorContext{
+					TicketID:   strings.TrimSpace(opts.TicketID),
+					ActorEmail: strings.TrimSpace(opts.ActorEmail),
+				},
+				Workflow: contextual.WorkflowContext{
+					CellName:  target.CellName,
+					CellPath:  ".",
+					ProjectId: opts.TenantID,
+				},
+				GitBase: contextual.GitBaseContext{
+					BaseRepo: target.RepositorySource,
+					BaseRef:  target.DefaultRef,
+				},
+				RecipeSource: contextual.RecipeSourceContext{
+					Repo: target.RepositorySource,
+					Ref:  target.DefaultRef,
+				},
+			},
+			GitRef:      target.DefaultRef,
+			SubmittedAt: &submittedAt,
+			InputHash:   hashInputs(inputs),
+		}
 
-	submittedAt := time.Now().UTC()
-	start := workflowctl.StartJob{
-		TenantId:   opts.TenantID,
-		RecipeName: recipeName,
-		Inputs:     inputs,
-		JobContext: contextual.JobContext{
-			Actor: contextual.ActorContext{
-				TicketID:   strings.TrimSpace(opts.TicketID),
-				ActorEmail: strings.TrimSpace(opts.ActorEmail),
-			},
-			Workflow: contextual.WorkflowContext{
-				CellName:  target.CellName,
-				CellPath:  ".",
-				ProjectId: opts.TenantID,
-			},
-			GitBase: contextual.GitBaseContext{
-				BaseRepo: target.RepositorySource,
-				BaseRef:  target.DefaultRef,
-			},
-			RecipeSource: contextual.RecipeSourceContext{
-				Repo: target.RepositorySource,
-				Ref:  target.DefaultRef,
-			},
-		},
-		GitRef:      target.DefaultRef,
-		SubmittedAt: &submittedAt,
-		InputHash:   hashInputs(inputs),
-	}
+		var jobKey swf.JobKey
+		if embeddedRecipe != nil {
+			jobKey, err = starter.StartRecipeJob(ctx, start, handle.Engine, *embeddedRecipe)
+		} else {
+			jobKey, err = starter.StartRecipeJob(ctx, start, handle.Engine)
+		}
+		if err != nil {
+			return closeHandle(fmt.Errorf("submit job: %w", err))
+		}
 
-	var jobKey swf.JobKey
-	if embeddedRecipe != nil {
-		jobKey, err = starter.StartRecipeJob(ctx, start, engine, *embeddedRecipe)
-	} else {
-		jobKey, err = starter.StartRecipeJob(ctx, start, engine)
-	}
-	if err != nil {
-		return fmt.Errorf("submit job: %w", err)
-	}
-
-	result := submitResult{
-		TenantID: opts.TenantID,
-		JobID:    jobKey.JobId,
-		Recipe:   recipeName,
-	}
-	if err := writeSubmitResult(opts, result); err != nil {
+		result = submitResult{
+			TenantID: opts.TenantID,
+			JobID:    jobKey.JobId,
+			Recipe:   recipeName,
+		}
+		return closeHandle(writeSubmitResult(opts, result))
+	}(); err != nil {
 		return err
 	}
 

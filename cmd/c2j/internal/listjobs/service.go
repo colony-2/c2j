@@ -4,17 +4,16 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"net/http"
 	"path/filepath"
 	"strings"
 	"text/tabwriter"
 	"time"
 
+	"github.com/colony-2/c2j/cmd/c2j/internal/swfruntime"
 	configpkg "github.com/colony-2/c2j/pkg/config"
 	"github.com/colony-2/c2j/pkg/starter"
 	"github.com/colony-2/c2j/pkg/worker/compiler"
 	"github.com/colony-2/swf-go/pkg/swf"
-	remoteruntime "github.com/colony-2/swf-go/pkg/swf/runtime/remote"
 )
 
 type jobRow struct {
@@ -52,20 +51,16 @@ func Run(ctx context.Context, opts Options) error {
 		return err
 	}
 
-	runtime, err := remoteruntime.New(opts.SWFURL, &http.Client{Timeout: 30 * time.Second})
+	handle, err := swfruntime.Open(ctx, opts.SWFURL)
 	if err != nil {
-		return fmt.Errorf("create remote runtime: %w", err)
+		return fmt.Errorf("open SWF runtime: %w", err)
 	}
-
-	engine, err := swf.NewEngineBuilder().WithRuntime(runtime).BuildEngine()
-	if err != nil {
-		return fmt.Errorf("build engine: %w", err)
-	}
+	defer handle.Cleanup()
 
 	rows := make([]jobRow, 0)
 	nextPageToken := ""
 	for {
-		resp, err := engine.ListJobs(ctx, request)
+		resp, err := handle.Engine.ListJobs(ctx, request)
 		if err != nil {
 			return fmt.Errorf("list jobs: %w", err)
 		}

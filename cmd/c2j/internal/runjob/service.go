@@ -7,12 +7,12 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"net/http"
 	"strings"
 	"time"
 
 	"github.com/colony-2/c2j/cmd/c2j/internal/c2jops"
 	"github.com/colony-2/c2j/cmd/c2j/internal/jobutil"
+	"github.com/colony-2/c2j/cmd/c2j/internal/swfruntime"
 	"github.com/colony-2/c2j/pkg/input"
 	coreops "github.com/colony-2/c2j/pkg/ops"
 	storylive "github.com/colony-2/c2j/pkg/story/live"
@@ -22,7 +22,6 @@ import (
 	workerops "github.com/colony-2/c2j/pkg/worker/ops"
 	workerworkflow "github.com/colony-2/c2j/pkg/worker/workflow"
 	"github.com/colony-2/swf-go/pkg/swf"
-	remoteruntime "github.com/colony-2/swf-go/pkg/swf/runtime/remote"
 )
 
 const (
@@ -104,24 +103,20 @@ func Run(ctx context.Context, opts Options) error {
 }
 
 type runnerDeps struct {
-	runtime      *remoteruntime.Runtime
+	runtime      swf.WorkflowRuntime
 	engine       swf.SWFEngine
 	taskWorkers  []swf.TaskWorker
 	celProvider  template.CELOptionsProvider
 	rootResolver compiler.RecipeSourceResolver
 	inputRuntime *input.Runtime
 	stopRegistry func()
+	stopRuntime  func() error
 }
 
 func buildDeps(ctx context.Context, opts Options) (*runnerDeps, func(), error) {
-	runtime, err := remoteruntime.New(opts.SWFURL, &http.Client{Timeout: 30 * time.Second})
+	handle, err := swfruntime.Open(ctx, opts.SWFURL)
 	if err != nil {
-		return nil, nil, fmt.Errorf("create remote runtime: %w", err)
-	}
-
-	engine, err := swf.NewEngineBuilder().WithRuntime(runtime).BuildEngine()
-	if err != nil {
-		return nil, nil, fmt.Errorf("build engine: %w", err)
+		return nil, nil, fmt.Errorf("open SWF runtime: %w", err)
 	}
 
 	c2jops.Register()
@@ -132,7 +127,7 @@ func buildDeps(ctx context.Context, opts Options) (*runnerDeps, func(), error) {
 	}
 
 	ctl := &workerworkflow.SWFWorkflowControl{
-		Engine:                        engine,
+		Engine:                        handle.Engine,
 		PreferRuntimeRecipeResolution: true,
 	}
 	serviceDeps := coreops.NewServiceDepsBuilder().WithWorkflowControl(ctl).Build()
@@ -157,7 +152,7 @@ func buildDeps(ctx context.Context, opts Options) (*runnerDeps, func(), error) {
 		}
 		return nil, nil, fmt.Errorf("create recipe worker: %w", err)
 	}
-	if err := engine.RegisterWorkers(workset); err != nil {
+	if err := handle.Engine.RegisterWorkers(workset); err != nil {
 		if stopRegistry != nil {
 			stopRegistry()
 		}
@@ -173,15 +168,19 @@ func buildDeps(ctx context.Context, opts Options) (*runnerDeps, func(), error) {
 	}
 
 	deps := &runnerDeps{
-		runtime:      runtime,
-		engine:       engine,
+		runtime:      handle.Runtime,
+		engine:       handle.Engine,
 		taskWorkers:  taskWorkersFromWorkSet(workset),
 		celProvider:  celProvider,
 		rootResolver: recipeSourceResolver,
 		inputRuntime: inputRuntime,
 		stopRegistry: stopRegistry,
+		stopRuntime:  handle.Cleanup,
 	}
 	return deps, func() {
+		if deps.stopRuntime != nil {
+			_ = deps.stopRuntime()
+		}
 		if deps.stopRegistry != nil {
 			deps.stopRegistry()
 		}

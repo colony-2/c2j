@@ -11,7 +11,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/colony-2/c2j/cmd/c2j/internal/defaults"
 	"github.com/colony-2/c2j/cmd/c2j/internal/runjob"
+	"github.com/colony-2/c2j/cmd/c2j/internal/swfruntime"
 	"github.com/colony-2/c2j/pkg/worker/compiler"
 	"github.com/colony-2/swf-go/pkg/swf"
 	remoteruntime "github.com/colony-2/swf-go/pkg/swf/runtime/remote"
@@ -403,6 +405,105 @@ outputs:
 		t.Fatalf("decode output: %v", err)
 	}
 	if got["received_prompt"] != "hello from positional prompt" {
+		t.Fatalf("unexpected output: %#v", got)
+	}
+}
+
+func TestRun_SubmitsAndExecutesWithEmbeddedRuntime(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+
+	t.Setenv(defaults.EmbedRootEnv, t.TempDir())
+
+	tenantID := "tenant-submit-embed-test"
+	recipeYAML := strings.TrimSpace(`
+id: embed_submit_recipe
+desc: simple recipe used to verify c2j embedded execution
+version: "1.0"
+sequence:
+  - id: echo
+    op: command_execution
+    inputs:
+      run: "echo hello-from-embed"
+      working_directory: "."
+outputs:
+  result: "{{ sequence.echo.outputs.stdout }}"
+`) + "\n"
+
+	recipePath := filepath.Join(t.TempDir(), "embed_submit_recipe.yaml")
+	if err := os.WriteFile(recipePath, []byte(recipeYAML), 0o644); err != nil {
+		t.Fatalf("write recipe: %v", err)
+	}
+
+	baseRepo, _ := createGitRepo(t)
+
+	var submitStdout bytes.Buffer
+	if err := Run(ctx, Options{
+		TenantID:   tenantID,
+		SWFURL:     "embed:///",
+		RecipeFile: recipePath,
+		Cell:       baseRepo,
+		JSONOutput: true,
+		Stdout:     &submitStdout,
+		Stderr:     &bytes.Buffer{},
+	}); err != nil {
+		t.Fatalf("submit job: %v", err)
+	}
+
+	var submitted struct {
+		TenantID string `json:"tenant_id"`
+		JobID    string `json:"job_id"`
+		Recipe   string `json:"recipe"`
+	}
+	if err := json.Unmarshal(submitStdout.Bytes(), &submitted); err != nil {
+		t.Fatalf("decode submit output: %v", err)
+	}
+	if submitted.JobID == "" {
+		t.Fatalf("expected job id in submit output: %s", submitStdout.String())
+	}
+
+	var runStdout bytes.Buffer
+	var runStderr bytes.Buffer
+	if err := runjob.Run(ctx, runjob.Options{
+		JobID:        submitted.JobID,
+		TenantID:     tenantID,
+		SWFURL:       "embed:///",
+		WaitTimeout:  15 * time.Second,
+		PollInterval: 10 * time.Millisecond,
+		InputMode:    "fail",
+		Stdout:       &runStdout,
+		Stderr:       &runStderr,
+	}); err != nil {
+		t.Fatalf("run submitted job: %v\nstderr:\n%s", err, runStderr.String())
+	}
+
+	handle, err := swfruntime.Open(ctx, "embed:///")
+	if err != nil {
+		t.Fatalf("Open(embed): %v", err)
+	}
+	defer handle.Cleanup()
+
+	run, err := handle.Engine.GetJobRun(ctx, swf.GetJobRunRequest{
+		JobKey:         swf.JobKey{TenantId: tenantID, JobId: submitted.JobID},
+		IncludeOutputs: true,
+	})
+	if err != nil {
+		t.Fatalf("get job run: %v", err)
+	}
+	output, err := run.GetOutput(handle.Engine, tenantID)
+	if err != nil {
+		t.Fatalf("get output: %v", err)
+	}
+	raw, err := output.GetData()
+	if err != nil {
+		t.Fatalf("get output data: %v", err)
+	}
+
+	got := map[string]any{}
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatalf("decode output: %v", err)
+	}
+	if got["result"] != "hello-from-embed" {
 		t.Fatalf("unexpected output: %#v", got)
 	}
 }
