@@ -1,0 +1,6 @@
+interface:
+  display_name: "C2 Requirements Author"
+  short_description: "Draft compatible cell-scoped requirement plans"
+  default_prompt: "Use $c2-requirements-author to turn this ticket into a testable requirements bundle."
+policy:
+  allow_implicit_invocation: true

@@ -1,0 +1,778 @@
+id: skill-quality-smoke
+version: 0.2.0
+sequence:
+  - id: triage_local
+    op: ./server/llm/pkg/codex/extension-codex-exec
+    inputs:
+      worktree_path: "{{ context.environment.worktree_path }}"
+      cell_relative_path: >-
+        ${{
+          (has(context.workflow.cell_path) && context.workflow.cell_path != "")
+            ? context.workflow.cell_path
+            : "."
+        }}
+      skill: "c2-triage-cell-boundary"
+      skill_mode: "enforce"
+      skills:
+        - "gitl.colony2.com/jnadeau/skills/.agents/skills@1362438426e25c733174ea85f248db11af99a8a7"
+      prompt: |
+        Follow the `c2-triage-cell-boundary` skill contract.
+
+        Ticket Title: Improve recipe test execution guidance
+        Ticket Description:
+        Add non-breaking recipe test coverage and supporting guidance for the recipe-testing cell.
+
+        Current Cell: recipe-tests
+        Available Cells (name, path, description):
+        [
+          {"name":"recipe-tests","path":".","description":"Recipe authoring, testing, and workflow guidance."},
+          {"name":"frontend","path":"frontend","description":"UI implementation and styling."},
+          {"name":"infra","path":"infra","description":"Infrastructure provisioning and deployment automation."}
+        ]
+
+        Decide if the current cell is appropriate to run the work.
+        - Treat the current cell as appropriate ONLY if it is the best match among the Available Cells.
+        - Prefer specialized cells over general-purpose cells when a specialized cell clearly matches.
+        - If the current cell is not the best match, set cell_is_appropriate=false and choose the
+          single best cell name from the Available Cells list (use the cell "name" value).
+        - Use the cell descriptions to guide your choice and provide a concise rationale.
+
+        Write JSON artifact files:
+        - `/src/outbox/triage/latest-status.json`
+        - `/src/outbox/triage/decision.md`
+
+        JSON schema:
+        {
+          "cell_is_appropriate": boolean,
+          "recommended_cell": string,
+          "rationale": string
+        }
+
+        Final response must be ONLY the exact JSON object above.
+
+  - id: triage_frontend
+    op: ./server/llm/pkg/codex/extension-codex-exec
+    inputs:
+      worktree_path: "{{ context.environment.worktree_path }}"
+      cell_relative_path: >-
+        ${{
+          (has(context.workflow.cell_path) && context.workflow.cell_path != "")
+            ? context.workflow.cell_path
+            : "."
+        }}
+      skill: "c2-triage-cell-boundary"
+      skill_mode: "enforce"
+      skills:
+        - "gitl.colony2.com/jnadeau/skills/.agents/skills@1362438426e25c733174ea85f248db11af99a8a7"
+      prompt: |
+        Follow the `c2-triage-cell-boundary` skill contract.
+
+        Ticket Title: Redesign filter drawer interaction
+        Ticket Description:
+        Update the React filter drawer in the browser UI, change button spacing, and add a loading skeleton while results fetch.
+
+        Current Cell: recipe-tests
+        Available Cells (name, path, description):
+        [
+          {"name":"recipe-tests","path":".","description":"Recipe authoring, testing, and workflow guidance."},
+          {"name":"frontend","path":"frontend","description":"UI implementation and styling."},
+          {"name":"infra","path":"infra","description":"Infrastructure provisioning and deployment automation."}
+        ]
+
+        Decide if the current cell is appropriate to run the work.
+        - Treat the current cell as appropriate ONLY if it is the best match among the Available Cells.
+        - Prefer specialized cells over general-purpose cells when a specialized cell clearly matches.
+        - If the current cell is not the best match, set cell_is_appropriate=false and choose the
+          single best cell name from the Available Cells list (use the cell "name" value).
+        - Use the cell descriptions to guide your choice and provide a concise rationale.
+
+        Write JSON artifact files:
+        - `/src/outbox/triage/latest-status.json`
+        - `/src/outbox/triage/decision.md`
+
+        JSON schema:
+        {
+          "cell_is_appropriate": boolean,
+          "recommended_cell": string,
+          "rationale": string
+        }
+
+        Final response must be ONLY the exact JSON object above.
+
+  - id: requirements_good
+    op: ./server/llm/pkg/codex/extension-codex-exec
+    inputs:
+      worktree_path: "{{ context.environment.worktree_path }}"
+      cell_relative_path: >-
+        ${{
+          (has(context.workflow.cell_path) && context.workflow.cell_path != "")
+            ? context.workflow.cell_path
+            : "."
+        }}
+      skill: "c2-requirements-author"
+      skill_mode: "enforce"
+      skills:
+        - "gitl.colony2.com/jnadeau/skills/.agents/skills@1362438426e25c733174ea85f248db11af99a8a7"
+      prompt: |
+        Follow the `c2-requirements-author` skill contract.
+        Create a requirements bundle for this ticket and write artifacts directly.
+
+        Ticket Title: Improve recipe test execution guidance
+        Ticket Description:
+        Add non-breaking recipe test coverage and supporting guidance for the recipe-testing cell.
+
+        Current Cell: recipe-tests
+        Available Cells (name, path, description):
+        [
+          {"name":"recipe-tests","path":".","description":"Recipe authoring, testing, and workflow guidance."},
+          {"name":"frontend","path":"frontend","description":"UI implementation and styling."},
+          {"name":"infra","path":"infra","description":"Infrastructure provisioning and deployment automation."}
+        ]
+
+        Prior plan JSON fallback (only when inbox artifact is missing):
+
+        User feedback to incorporate (if any):
+        Keep the change local to recipe authoring and testing.
+
+        Requirements:
+        - Produce one or more requirements.
+        - Use stable IDs like REQ-1, REQ-2, ...
+        - Include all requirement IDs in dependency_order in valid topological order.
+        - Each requirement.target_cell MUST be one of the provided cell names.
+        - requirements[].depends_on MUST reference only IDs in requirements[].
+        - API changes MUST be backwards compatible. Do not include breaking changes.
+        - Move answered details out of open_questions into scope/acceptance criteria.
+
+        Write files under this absolute outbox directory:
+        `/src/outbox/requirements`
+
+        Required files:
+        1) `plan.json` as valid JSON with EXACT keys:
+           - summary (string)
+           - needs_cross_cell_support (boolean)
+           - dependency_order (array of string)
+           - requirements (array of objects)
+           - notes_for_user_review (string)
+
+        Each requirements[] object must include:
+           - id, title, target_cell, depends_on, scope, api_changes, acceptance_criteria, risks, open_questions
+        Each api_changes[] entry must include:
+           - service, change_type, description, backwards_compatible, migration_plan
+
+        2) `index.md` summary document.
+        3) One markdown file per requirement: `<REQ-ID>.md`.
+
+        Do not modify repo code for this step.
+        Final response must be ONLY the exact `plan.json` object content (no markdown, no prose).
+
+  - id: requirements_review_good
+    op: ./server/llm/pkg/codex/extension-codex-exec
+    artifacts:
+      plan.json: '${{ sequence.requirements_good.artifacts["requirements/plan.json"] }}'
+    inputs:
+      worktree_path: "{{ context.environment.worktree_path }}"
+      cell_relative_path: >-
+        ${{
+          (has(context.workflow.cell_path) && context.workflow.cell_path != "")
+            ? context.workflow.cell_path
+            : "."
+        }}
+      skill: "c2-requirements-contrarian-review"
+      skill_mode: "enforce"
+      skills:
+        - "gitl.colony2.com/jnadeau/skills/.agents/skills@1362438426e25c733174ea85f248db11af99a8a7"
+      prompt: |
+        Follow the `c2-requirements-contrarian-review` skill contract.
+        You are a contrarian reviewer focused on API design and backwards compatibility.
+        Be skeptical. Reject any backwards-incompatible change.
+        Also verify API changes align with target cell ownership/scope.
+
+        Current Cell: recipe-tests
+        Available Cells (name, path, description):
+        [
+          {"name":"recipe-tests","path":".","description":"Recipe authoring, testing, and workflow guidance."},
+          {"name":"frontend","path":"frontend","description":"UI implementation and styling."},
+          {"name":"infra","path":"infra","description":"Infrastructure provisioning and deployment automation."}
+        ]
+        Requirements plan artifact path: `/src/inbox/plan.json`
+        Read `plan.json` and evaluate it.
+
+        Produce a review object:
+        {
+          "ok": boolean,
+          "feedback": string,
+          "blocking_issues": [string]
+        }
+
+        Write artifacts:
+        - `/src/outbox/requirements/api-review.json`
+        - `/src/outbox/requirements/api-review.md`
+
+        Final response must be ONLY the exact review JSON object.
+
+  - id: requirements_bad_seed
+    op: command_execution
+    inputs:
+      timeout: 5m
+      run: |
+        set -euo pipefail
+        OUT="{{ context.environment.outbox }}"
+        mkdir -p "$OUT/bad-requirements"
+        cat > "$OUT/bad-requirements/plan.json" <<'JSON'
+        {
+          "summary": "Break the recipe test CLI to simplify invocation.",
+          "needs_cross_cell_support": false,
+          "dependency_order": ["REQ-1"],
+          "requirements": [
+            {
+              "id": "REQ-1",
+              "title": "Remove the old case selection flag",
+              "target_cell": "recipe-tests",
+              "depends_on": [],
+              "scope": "Delete the existing CLI flag and require a new incompatible replacement immediately.",
+              "api_changes": [
+                {
+                  "service": "recipe-test-cli",
+                  "change_type": "remove_flag",
+                  "description": "Remove --case and require --case-id only.",
+                  "backwards_compatible": false,
+                  "migration_plan": "none"
+                }
+              ],
+              "acceptance_criteria": [
+                "Only the new flag is accepted."
+              ],
+              "risks": [
+                "Existing callers will fail."
+              ],
+              "open_questions": []
+            }
+          ],
+          "notes_for_user_review": ""
+        }
+        JSON
+
+  - id: requirements_review_bad
+    op: ./server/llm/pkg/codex/extension-codex-exec
+    artifacts:
+      plan.json: '${{ sequence.requirements_bad_seed.artifacts["bad-requirements/plan.json"] }}'
+    inputs:
+      worktree_path: "{{ context.environment.worktree_path }}"
+      cell_relative_path: >-
+        ${{
+          (has(context.workflow.cell_path) && context.workflow.cell_path != "")
+            ? context.workflow.cell_path
+            : "."
+        }}
+      skill: "c2-requirements-contrarian-review"
+      skill_mode: "enforce"
+      skills:
+        - "gitl.colony2.com/jnadeau/skills/.agents/skills@1362438426e25c733174ea85f248db11af99a8a7"
+      prompt: |
+        Follow the `c2-requirements-contrarian-review` skill contract.
+        You are a contrarian reviewer focused on API design and backwards compatibility.
+        Be skeptical. Reject any backwards-incompatible change.
+        Also verify API changes align with target cell ownership/scope.
+
+        Current Cell: recipe-tests
+        Available Cells (name, path, description):
+        [
+          {"name":"recipe-tests","path":".","description":"Recipe authoring, testing, and workflow guidance."},
+          {"name":"frontend","path":"frontend","description":"UI implementation and styling."},
+          {"name":"infra","path":"infra","description":"Infrastructure provisioning and deployment automation."}
+        ]
+        Requirements plan artifact path: `/src/inbox/plan.json`
+        Read `plan.json` and evaluate it.
+
+        Produce a review object:
+        {
+          "ok": boolean,
+          "feedback": string,
+          "blocking_issues": [string]
+        }
+
+        Write artifacts:
+        - `/src/outbox/requirements/api-review.json`
+        - `/src/outbox/requirements/api-review.md`
+
+        Final response must be ONLY the exact review JSON object.
+
+  - id: implementation_good
+    op: ./server/llm/pkg/codex/extension-codex-exec
+    artifacts:
+      requirements/plan.json: '${{ sequence.requirements_good.artifacts["requirements/plan.json"] }}'
+      requirements/index.md: '${{ sequence.requirements_good.artifacts["requirements/index.md"] }}'
+    inputs:
+      worktree_path: "{{ context.environment.worktree_path }}"
+      cell_relative_path: >-
+        ${{
+          (has(context.workflow.cell_path) && context.workflow.cell_path != "")
+            ? context.workflow.cell_path
+            : "."
+        }}
+      skill: "c2-implementation-plan-author"
+      skill_mode: "enforce"
+      skills:
+        - "gitl.colony2.com/jnadeau/skills/.agents/skills@1362438426e25c733174ea85f248db11af99a8a7"
+      prompt: |
+        Follow the `c2-implementation-plan-author` skill contract.
+        Build an implementation plan for this ticket and write artifacts directly.
+
+        Ticket Title: Improve recipe test execution guidance
+        Ticket Description:
+        Add non-breaking recipe test coverage and supporting guidance for the recipe-testing cell.
+
+        Current Cell: recipe-tests
+        Available Cells (name, path, description):
+        [
+          {"name":"recipe-tests","path":".","description":"Recipe authoring, testing, and workflow guidance."},
+          {"name":"frontend","path":"frontend","description":"UI implementation and styling."},
+          {"name":"infra","path":"infra","description":"Infrastructure provisioning and deployment automation."}
+        ]
+
+        Input artifacts:
+        - `/src/inbox/requirements/plan.json`
+        - `/src/inbox/requirements/index.md`
+
+        User feedback to incorporate (if any):
+        Keep the work local to recipe authoring and testing.
+
+        Rules:
+        - Never plan a backwards-incompatible change.
+        - If dependent cells must complete work before this cell can safely implement, set `requires_dependency_tickets=true`.
+        - `dependency_order` must be valid topological order for all requirement IDs referenced.
+        - `dependency_ticket_specs` must include ONLY requirements targeting other cells.
+        - `dependency_ticket_specs[].depends_on_ids` must reference requirement IDs.
+
+        Write files under this absolute outbox directory:
+        `/src/outbox/implementation`
+
+        Required files:
+        1) `plan.json` as valid JSON with EXACT keys:
+           - summary (string)
+           - requires_dependency_tickets (boolean)
+           - dependency_order (array of string)
+           - dependency_ticket_specs (array of objects)
+           - local_steps (array of string)
+           - notes_for_user_review (string)
+
+        Each dependency_ticket_specs[] object must include:
+           - id (string)
+           - title (string)
+           - target_cell (string)
+           - depends_on_ids (array of string)
+           - depends_on_markdown (string)
+           - scope (string)
+           - acceptance_criteria_markdown (string)
+           - risks_markdown (string)
+           - notes (string)
+
+        2) `index.md` implementation summary document.
+        3) One markdown file per dependency ticket spec: `<REQ-ID>.md`.
+
+        Do not modify repo code for this step.
+        Final response must be ONLY the exact `plan.json` object content (no markdown, no prose).
+
+  - id: implementation_review_good
+    op: ./server/llm/pkg/codex/extension-codex-exec
+    artifacts:
+      plan.json: '${{ sequence.implementation_good.artifacts["implementation/plan.json"] }}'
+    inputs:
+      worktree_path: "{{ context.environment.worktree_path }}"
+      cell_relative_path: >-
+        ${{
+          (has(context.workflow.cell_path) && context.workflow.cell_path != "")
+            ? context.workflow.cell_path
+            : "."
+        }}
+      skill: "c2-implementation-compat-review"
+      skill_mode: "enforce"
+      skills:
+        - "gitl.colony2.com/jnadeau/skills/.agents/skills@1362438426e25c733174ea85f248db11af99a8a7"
+      prompt: |
+        Follow the `c2-implementation-compat-review` skill contract.
+        You are a contrarian implementation-plan reviewer focused on compatibility and dependency sequencing.
+        Reject any backwards-incompatible proposal.
+
+        Current Cell: recipe-tests
+        Available Cells (name, path, description):
+        [
+          {"name":"recipe-tests","path":".","description":"Recipe authoring, testing, and workflow guidance."},
+          {"name":"frontend","path":"frontend","description":"UI implementation and styling."},
+          {"name":"infra","path":"infra","description":"Infrastructure provisioning and deployment automation."}
+        ]
+        Plan artifact path: `/src/inbox/plan.json`
+        Read `plan.json` and evaluate it.
+
+        Produce a review object:
+        {
+          "ok": boolean,
+          "feedback": string,
+          "blocking_issues": [string]
+        }
+
+        Write artifacts:
+        - `/src/outbox/implementation/compat-review.json`
+        - `/src/outbox/implementation/compat-review.md`
+
+        Final response must be ONLY the exact review JSON object.
+
+  - id: implementation_bad_seed
+    op: command_execution
+    inputs:
+      timeout: 5m
+      run: |
+        set -euo pipefail
+        OUT="{{ context.environment.outbox }}"
+        mkdir -p "$OUT/bad-implementation"
+        cat > "$OUT/bad-implementation/plan.json" <<'JSON'
+        {
+          "summary": "Land the change by directly editing other cells and skipping compatibility work.",
+          "requires_dependency_tickets": false,
+          "dependency_order": ["REQ-1"],
+          "dependency_ticket_specs": [],
+          "local_steps": [
+            "Edit the frontend React drawer components from this cell.",
+            "Remove the old CLI contract without a compatibility path.",
+            "Skip validation until after merge."
+          ],
+          "notes_for_user_review": ""
+        }
+        JSON
+
+  - id: implementation_review_bad
+    op: ./server/llm/pkg/codex/extension-codex-exec
+    artifacts:
+      plan.json: '${{ sequence.implementation_bad_seed.artifacts["bad-implementation/plan.json"] }}'
+    inputs:
+      worktree_path: "{{ context.environment.worktree_path }}"
+      cell_relative_path: >-
+        ${{
+          (has(context.workflow.cell_path) && context.workflow.cell_path != "")
+            ? context.workflow.cell_path
+            : "."
+        }}
+      skill: "c2-implementation-compat-review"
+      skill_mode: "enforce"
+      skills:
+        - "gitl.colony2.com/jnadeau/skills/.agents/skills@1362438426e25c733174ea85f248db11af99a8a7"
+      prompt: |
+        Follow the `c2-implementation-compat-review` skill contract.
+        You are a contrarian implementation-plan reviewer focused on compatibility and dependency sequencing.
+        Reject any backwards-incompatible proposal.
+
+        Current Cell: recipe-tests
+        Available Cells (name, path, description):
+        [
+          {"name":"recipe-tests","path":".","description":"Recipe authoring, testing, and workflow guidance."},
+          {"name":"frontend","path":"frontend","description":"UI implementation and styling."},
+          {"name":"infra","path":"infra","description":"Infrastructure provisioning and deployment automation."}
+        ]
+        Plan artifact path: `/src/inbox/plan.json`
+        Read `plan.json` and evaluate it.
+
+        Produce a review object:
+        {
+          "ok": boolean,
+          "feedback": string,
+          "blocking_issues": [string]
+        }
+
+        Write artifacts:
+        - `/src/outbox/implementation/compat-review.json`
+        - `/src/outbox/implementation/compat-review.md`
+
+        Final response must be ONLY the exact review JSON object.
+
+  - id: outcome_good
+    op: ./server/llm/pkg/codex/extension-codex-exec
+    artifacts:
+      requirements/plan.json: '${{ sequence.requirements_good.artifacts["requirements/plan.json"] }}'
+      requirements/index.md: '${{ sequence.requirements_good.artifacts["requirements/index.md"] }}'
+      implementation/plan.json: '${{ sequence.implementation_good.artifacts["implementation/plan.json"] }}'
+      implementation/index.md: '${{ sequence.implementation_good.artifacts["implementation/index.md"] }}'
+    inputs:
+      worktree_path: "{{ context.environment.worktree_path }}"
+      cell_relative_path: >-
+        ${{
+          (has(context.workflow.cell_path) && context.workflow.cell_path != "")
+            ? context.workflow.cell_path
+            : "."
+        }}
+      skill: "c2-test-statement-curator"
+      skill_mode: "enforce"
+      skills:
+        - "gitl.colony2.com/jnadeau/skills/.agents/skills@1362438426e25c733174ea85f248db11af99a8a7"
+      prompt: |
+        Follow the `c2-test-statement-curator` skill contract.
+        Build an outcome-determination bundle for this ticket before implementation starts.
+
+        Ticket Title: Improve recipe test execution guidance
+        Ticket Description:
+        Add non-breaking recipe test coverage and supporting guidance for the recipe-testing cell.
+
+        Current Cell: recipe-tests
+        Available Cells (name, path, description):
+        [
+          {"name":"recipe-tests","path":".","description":"Recipe authoring, testing, and workflow guidance."},
+          {"name":"frontend","path":"frontend","description":"UI implementation and styling."},
+          {"name":"infra","path":"infra","description":"Infrastructure provisioning and deployment automation."}
+        ]
+
+        Input artifacts:
+        - `/src/inbox/requirements/plan.json`
+        - `/src/inbox/requirements/index.md`
+        - `/src/inbox/implementation/plan.json`
+        - `/src/inbox/implementation/index.md`
+
+        Authoritative test statement location in the cell repo:
+        - `.c2/tests/*.md` (relative to the current cell root)
+
+        User feedback to incorporate (if any):
+        Use consistent statement formatting so human reviewers can quickly scan the outcome.
+
+        Requirements:
+        - Identify current test statements relevant to this ticket and this cell.
+        - Decide whether test statements need to be altered before implementation.
+        - Keep expectations backwards compatible.
+        - Test statements MUST be markdown.
+        - Each test statement line must be 30 words or fewer.
+        - Each statement must include filename(s), importance, test type + dependencies, and polarity.
+        - Use canonical bullet annotations so the statements are easy to scan.
+        - Include positive and negative cases for critical behavior and integration points.
+        - Avoid trivial getter/setter checks.
+
+        Write files under this absolute outbox directory:
+        `/src/outbox/outcome`
+
+        Required files:
+        1) `plan.json` as valid JSON with EXACT keys:
+           - summary (string)
+           - current_test_statements_summary (string)
+           - test_statement_updates_required (boolean)
+           - test_statement_repo_glob (string)
+           - validation_commands (string)
+           - notes_for_user_review (string)
+        2) `tests-index.md` (lists statement files under `.c2/tests/`)
+        3) `validation-commands.txt` (newline-separated commands)
+        4) `index.md`
+
+        Also update or create test statement markdown files under `.c2/tests/*.md`.
+        Do not modify source code for this step; only `.c2/tests/*.md` is allowed in repo changes.
+
+        Final response must be ONLY the exact `plan.json` object content (no markdown, no prose).
+
+  - id: outcome_probe
+    op: command_execution
+    inputs:
+      timeout: 5m
+      env:
+        WT: "{{ context.environment.worktree_path }}"
+        CELL: >-
+          ${{
+            (has(context.workflow.cell_path) && context.workflow.cell_path != "")
+              ? context.workflow.cell_path
+              : "."
+          }}
+      run: |
+        set -euo pipefail
+        DIR="$WT/$CELL"
+        TEST_DIR="$DIR/.c2/tests"
+        FILE_COUNT=$(find "$TEST_DIR" -maxdepth 1 -type f -name '*.md' | wc -l | tr -d ' ')
+        if [ "$FILE_COUNT" -gt 0 ]; then
+          FILES_OK=true
+        else
+          FILES_OK=false
+        fi
+
+        if rg -n '^-[[:space:]]+\[files:' "$TEST_DIR" -g '*.md' >/dev/null 2>&1 \
+          && rg -n '\[importance:[^]]+\]' "$TEST_DIR" -g '*.md' >/dev/null 2>&1 \
+          && rg -n '\[type:[^]]+\]' "$TEST_DIR" -g '*.md' >/dev/null 2>&1 \
+          && rg -n '\[deps:[^]]*\]' "$TEST_DIR" -g '*.md' >/dev/null 2>&1 \
+          && rg -n '\[polarity:[^]]+\]' "$TEST_DIR" -g '*.md' >/dev/null 2>&1; then
+          ANNOTATIONS_OK=true
+        else
+          ANNOTATIONS_OK=false
+        fi
+
+        if rg -n '\[polarity:[[:space:]]*positive\]' "$TEST_DIR" -g '*.md' >/dev/null 2>&1; then
+          POSITIVE_OK=true
+        else
+          POSITIVE_OK=false
+        fi
+
+        if rg -n '\[polarity:[[:space:]]*negative\]' "$TEST_DIR" -g '*.md' >/dev/null 2>&1; then
+          NEGATIVE_OK=true
+        else
+          NEGATIVE_OK=false
+        fi
+
+        jq -n \
+          --argjson statement_files_exist "$FILES_OK" \
+          --argjson statement_annotations_present "$ANNOTATIONS_OK" \
+          --argjson positive_present "$POSITIVE_OK" \
+          --argjson negative_present "$NEGATIVE_OK" \
+          '{statement_files_exist:$statement_files_exist, statement_annotations_present:$statement_annotations_present, positive_present:$positive_present, negative_present:$negative_present}'
+  - id: outcome_review_good
+    op: ./server/llm/pkg/codex/extension-codex-exec
+    artifacts:
+      plan.json: '${{ sequence.outcome_good.artifacts["outcome/plan.json"] }}'
+      tests-index.md: '${{ sequence.outcome_good.artifacts["outcome/tests-index.md"] }}'
+    inputs:
+      worktree_path: "{{ context.environment.worktree_path }}"
+      cell_relative_path: >-
+        ${{
+          (has(context.workflow.cell_path) && context.workflow.cell_path != "")
+            ? context.workflow.cell_path
+            : "."
+        }}
+      skill: "c2-outcome-contrarian-review"
+      skill_mode: "enforce"
+      skills:
+        - "gitl.colony2.com/jnadeau/skills/.agents/skills@1362438426e25c733174ea85f248db11af99a8a7"
+      prompt: |
+        Follow the `c2-outcome-contrarian-review` skill contract.
+        You are a contrarian reviewer for outcome determination and test statement quality.
+        Be skeptical and block weak or incompatible outcomes.
+
+        Review artifacts:
+        - `/src/inbox/plan.json`
+        - `/src/inbox/tests-index.md`
+        - Cell repo statements under `.c2/tests/*.md`
+
+        Validate:
+        - Statements are markdown.
+        - Each statement is 30 words or fewer.
+        - Each statement includes filename(s), importance, test type + dependencies, and polarity.
+        - Statements follow the canonical bullet annotation format.
+        - Critical behavior includes both positive and negative statements.
+        - Statements match requirements/implementation plan scope and avoid backwards-incompatible expectations.
+        - Validation commands are sufficient for the stated outcomes.
+
+        Produce a review object:
+        {
+          "ok": boolean,
+          "feedback": string,
+          "blocking_issues": [string]
+        }
+
+        Write artifacts:
+        - `/src/outbox/outcome/review.json`
+        - `/src/outbox/outcome/review.md`
+
+        Final response must be ONLY the exact review JSON object.
+
+  - id: outcome_bad_seed
+    op: command_execution
+    inputs:
+      timeout: 5m
+      env:
+        WT: "{{ context.environment.worktree_path }}"
+        CELL: >-
+          ${{
+            (has(context.workflow.cell_path) && context.workflow.cell_path != "")
+              ? context.workflow.cell_path
+              : "."
+          }}
+      run: |
+        set -euo pipefail
+        OUT="{{ context.environment.outbox }}"
+        DIR="$WT/$CELL"
+        mkdir -p "$OUT/bad-outcome" "$DIR/.c2/tests"
+
+        cat > "$OUT/bad-outcome/plan.json" <<'JSON'
+        {
+          "summary": "Keep testing lightweight.",
+          "current_test_statements_summary": "There are some statements.",
+          "test_statement_updates_required": false,
+          "test_statement_repo_glob": ".c2/tests/*.md",
+          "validation_commands": "",
+          "notes_for_user_review": ""
+        }
+        JSON
+
+        cat > "$OUT/bad-outcome/tests-index.md" <<'EOF_INDEX'
+        - `.c2/tests/skill-quality-bad.md`
+        EOF_INDEX
+
+        cat > "$DIR/.c2/tests/skill-quality-bad.md" <<'EOF_BAD'
+        - The UI still works.
+        - The happy path succeeds.
+        EOF_BAD
+  - id: outcome_review_bad
+    op: ./server/llm/pkg/codex/extension-codex-exec
+    artifacts:
+      plan.json: '${{ sequence.outcome_bad_seed.artifacts["bad-outcome/plan.json"] }}'
+      tests-index.md: '${{ sequence.outcome_bad_seed.artifacts["bad-outcome/tests-index.md"] }}'
+    inputs:
+      worktree_path: "{{ context.environment.worktree_path }}"
+      cell_relative_path: >-
+        ${{
+          (has(context.workflow.cell_path) && context.workflow.cell_path != "")
+            ? context.workflow.cell_path
+            : "."
+        }}
+      skill: "c2-outcome-contrarian-review"
+      skill_mode: "enforce"
+      skills:
+        - "gitl.colony2.com/jnadeau/skills/.agents/skills@1362438426e25c733174ea85f248db11af99a8a7"
+      prompt: |
+        Follow the `c2-outcome-contrarian-review` skill contract.
+        You are a contrarian reviewer for outcome determination and test statement quality.
+        Be skeptical and block weak or incompatible outcomes.
+
+        Review artifacts:
+        - `/src/inbox/plan.json`
+        - `/src/inbox/tests-index.md`
+        - Cell repo statements under `.c2/tests/*.md`
+
+        Validate:
+        - Statements are markdown.
+        - Each statement is 30 words or fewer.
+        - Each statement includes filename(s), importance, test type + dependencies, and polarity.
+        - Statements follow the canonical bullet annotation format.
+        - Critical behavior includes both positive and negative statements.
+        - Statements match requirements/implementation plan scope and avoid backwards-incompatible expectations.
+        - Validation commands are sufficient for the stated outcomes.
+
+        Produce a review object:
+        {
+          "ok": boolean,
+          "feedback": string,
+          "blocking_issues": [string]
+        }
+
+        Write artifacts:
+        - `/src/outbox/outcome/review.json`
+        - `/src/outbox/outcome/review.md`
+
+        Final response must be ONLY the exact review JSON object.
+
+outputs:
+  triage_skill_ref_resolved: "${{ size(sequence.triage_local.outputs.skills_installed) > 0 ? sequence.triage_local.outputs.skills_installed[0] : \"\" }}"
+  triage_local_ok: "${{ json_parse(sequence.triage_local.outputs.assistantSummary).cell_is_appropriate }}"
+  triage_local_rationale_nonempty: "${{ has(json_parse(sequence.triage_local.outputs.assistantSummary).rationale) && json_parse(sequence.triage_local.outputs.assistantSummary).rationale != \"\" }}"
+  triage_frontend_redirect: "${{ !json_parse(sequence.triage_frontend.outputs.assistantSummary).cell_is_appropriate }}"
+  triage_frontend_target: "${{ json_parse(sequence.triage_frontend.outputs.assistantSummary).recommended_cell }}"
+  requirements_review_good_ok: "${{ json_parse(sequence.requirements_review_good.outputs.assistantSummary).ok }}"
+  requirements_count_nonzero: "${{ size(json_parse(sequence.requirements_good.outputs.assistantSummary).requirements) > 0 }}"
+  requirements_cross_cell_false: "${{ json_parse(sequence.requirements_good.outputs.assistantSummary).needs_cross_cell_support == false }}"
+  requirements_targets_valid: "${{ json_parse(sequence.requirements_good.outputs.assistantSummary).requirements.all(r, has(r.target_cell) && (r.target_cell == \"recipe-tests\" || r.target_cell == \"frontend\" || r.target_cell == \"infra\")) }}"
+  requirements_acceptance_nonempty: "${{ json_parse(sequence.requirements_good.outputs.assistantSummary).requirements.all(r, has(r.acceptance_criteria) && size(r.acceptance_criteria) > 0) }}"
+  requirements_open_questions_reasonable: "${{ json_parse(sequence.requirements_good.outputs.assistantSummary).requirements.all(r, has(r.open_questions) && size(r.open_questions) <= 1) }}"
+  requirements_bad_review_rejects: "${{ !json_parse(sequence.requirements_review_bad.outputs.assistantSummary).ok }}"
+  requirements_bad_blockers_nonempty: "${{ size(json_parse(sequence.requirements_review_bad.outputs.assistantSummary).blocking_issues) > 0 }}"
+  implementation_review_good_ok: "${{ json_parse(sequence.implementation_review_good.outputs.assistantSummary).ok }}"
+  implementation_requires_dependency_tickets_false: "${{ json_parse(sequence.implementation_good.outputs.assistantSummary).requires_dependency_tickets == false }}"
+  implementation_local_steps_nonzero: "${{ size(json_parse(sequence.implementation_good.outputs.assistantSummary).local_steps) > 0 }}"
+  implementation_has_validation_step: "${{ json_parse(sequence.implementation_good.outputs.assistantSummary).local_steps.exists(s, matches(s, \"(?i)test|validat\")) }}"
+  implementation_bad_review_rejects: "${{ !json_parse(sequence.implementation_review_bad.outputs.assistantSummary).ok }}"
+  implementation_bad_blockers_nonempty: "${{ size(json_parse(sequence.implementation_review_bad.outputs.assistantSummary).blocking_issues) > 0 }}"
+  outcome_review_good_ok: "${{ json_parse(sequence.outcome_review_good.outputs.assistantSummary).ok }}"
+  outcome_validation_commands_nonempty: "${{ has(json_parse(sequence.outcome_good.outputs.assistantSummary).validation_commands) && json_parse(sequence.outcome_good.outputs.assistantSummary).validation_commands != \"\" }}"
+  outcome_repo_glob: "${{ json_parse(sequence.outcome_good.outputs.assistantSummary).test_statement_repo_glob }}"
+  outcome_statement_files_exist: "${{ json_parse(sequence.outcome_probe.outputs.stdout).statement_files_exist }}"
+  outcome_statement_annotations_present: "${{ json_parse(sequence.outcome_probe.outputs.stdout).statement_annotations_present }}"
+  outcome_positive_and_negative_present: "${{ json_parse(sequence.outcome_probe.outputs.stdout).positive_present && json_parse(sequence.outcome_probe.outputs.stdout).negative_present }}"
+  outcome_bad_review_rejects: "${{ !json_parse(sequence.outcome_review_bad.outputs.assistantSummary).ok }}"
+  outcome_bad_blockers_nonempty: "${{ size(json_parse(sequence.outcome_review_bad.outputs.assistantSummary).blocking_issues) > 0 }}"

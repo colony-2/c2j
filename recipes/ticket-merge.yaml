@@ -1,0 +1,111 @@
+id: ticket-merge
+version: 0.2.0
+desc: Squash, rebase, and merge the current workspace back to upstream (requires explicit approval)
+input_schema:
+  local_hash:
+    type: string
+    required: false
+  upstream_repo:
+    type: string
+    required: false
+  upstream_branch:
+    type: string
+    required: false
+  commit_message:
+    type: string
+    required: false
+inputs:
+  local_hash: '${{ has(inputs.local_hash) && inputs.local_hash != "" ? inputs.local_hash : (has(context.git.hash) ? context.git.hash : "") }}'
+  upstream_repo: '${{ has(inputs.upstream_repo) && inputs.upstream_repo != "" ? inputs.upstream_repo : (has(context.git.repo) ? context.git.repo : "") }}'
+  upstream_branch: '${{ has(inputs.upstream_branch) && inputs.upstream_branch != "" ? inputs.upstream_branch : (has(context.git.ref) ? context.git.ref : "") }}'
+  commit_message: '${{ has(inputs.commit_message) ? inputs.commit_message : "" }}'
+state:
+  initial:
+    - to: prompt
+      when: 'inputs.upstream_repo == "" || inputs.upstream_branch == "" || inputs.commit_message == ""'
+    - to: approve
+      when: "true"
+  states:
+    prompt:
+      op: input
+      transitions:
+        - to: approve
+          when: "true"
+      inputs:
+        form:
+          title: "Merge details"
+          fields:
+            - id: upstream_repo
+              type: short_answer
+              question: "Upstream repo (e.g. git@host:org/repo.git)"
+              required: true
+            - id: upstream_branch
+              type: short_answer
+              question: "Upstream branch (e.g. main)"
+              required: true
+            - id: commit_message
+              type: paragraph_text
+              question: "Squash commit message"
+              required: true
+
+    approve:
+      op: input
+      transitions:
+        - to: skipped_no_changes
+          when: 'has(outputs.response) && outputs.response == "merge" && inputs.local_hash == ""'
+        - to: merge
+          when: 'has(outputs.response) && outputs.response == "merge" && inputs.local_hash != ""'
+      inputs:
+        form:
+          title: "Approve merge"
+          question: |
+            This will run `squashrebasemerge` and fast-forward merge back to the upstream branch.
+
+            Local hash: {{ inputs.local_hash }}
+            Upstream repo: ${{ "prompt" in states ? states.prompt.outputs.fields.upstream_repo : inputs.upstream_repo }}
+            Upstream branch: ${{ "prompt" in states ? states.prompt.outputs.fields.upstream_branch : inputs.upstream_branch }}
+            Commit message:
+            ${{ "prompt" in states ? states.prompt.outputs.fields.commit_message : inputs.commit_message }}
+          type: multiple_choice
+          options:
+            - value: merge
+              label: Merge
+            - value: cancel
+              label: Cancel
+
+    skipped_no_changes:
+      op: sleep
+      transitions: []
+      inputs:
+        duration: 1ms
+
+    merge:
+      op: squashrebasemerge
+      inputs:
+        repo_path: "{{ context.environment.worktree_path }}"
+        local_hash: "{{ inputs.local_hash }}"
+        upstream_repo: >-
+          ${{
+            "prompt" in states
+              ? states.prompt.outputs.fields.upstream_repo
+              : inputs.upstream_repo
+          }}
+        upstream_branch: >-
+          ${{
+            "prompt" in states
+              ? states.prompt.outputs.fields.upstream_branch
+              : inputs.upstream_branch
+          }}
+        rebase: true
+        author: "${{ has(context.git.author) ? context.git.author : \"\" }}"
+        commit_message: >-
+          ${{
+            "prompt" in states
+              ? states.prompt.outputs.fields.commit_message
+              : inputs.commit_message
+          }}
+
+outputs:
+  merged: "${{ 'merge' in states && has(states.merge.outputs.merged_hash) && states.merge.outputs.merged_hash != \"\" }}"
+  merged_hash: "${{ 'merge' in states && has(states.merge.outputs.merged_hash) ? states.merge.outputs.merged_hash : \"\" }}"
+  target_branch: "${{ 'merge' in states && has(states.merge.outputs.target_branch) ? states.merge.outputs.target_branch : \"\" }}"

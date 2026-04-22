@@ -1,0 +1,156 @@
+id: ticket-implement
+version: 0.2.0
+desc: Implement approved requirements in the current cell using Codex
+input_schema:
+  title:
+    type: string
+    required: false
+  description:
+    type: string
+    required: false
+  requirements_plan_json:
+    type: string
+    required: false
+  validation_feedback:
+    type: string
+    required: false
+  cell_relative_path:
+    type: string
+    required: false
+  session_id:
+    type: string
+    required: false
+  prior_session_summary:
+    type: string
+    required: false
+  include_prior_summary:
+    type: boolean
+    required: false
+  extra_instructions:
+    type: string
+    required: false
+inputs:
+  title: '${{ has(inputs.title) ? inputs.title : "" }}'
+  description: '${{ has(inputs.description) ? inputs.description : "" }}'
+  requirements_plan_json: '${{ has(inputs.requirements_plan_json) ? inputs.requirements_plan_json : "" }}'
+  validation_feedback: '${{ has(inputs.validation_feedback) ? inputs.validation_feedback : "" }}'
+  cell_relative_path: '${{ has(inputs.cell_relative_path) ? inputs.cell_relative_path : "" }}'
+  session_id: '${{ has(inputs.session_id) ? inputs.session_id : "" }}'
+  prior_session_summary: '${{ has(inputs.prior_session_summary) ? inputs.prior_session_summary : "" }}'
+  include_prior_summary: '${{ has(inputs.include_prior_summary) ? inputs.include_prior_summary : false }}'
+  extra_instructions: '${{ has(inputs.extra_instructions) ? inputs.extra_instructions : "" }}'
+state:
+  initial:
+    - to: continue_session
+      when: 'has(inputs.session_id) && inputs.session_id != ""'
+    - to: new_session
+      when: "true"
+  states:
+    continue_session:
+      op: ./server/llm/pkg/codex/extension-codex-exec
+      transitions: []
+      inputs:
+        sessionId: "{{ inputs.session_id }}"
+        worktree_path: "{{ context.environment.worktree_path }}"
+        cell_relative_path: >-
+          ${{
+            (has(inputs.cell_relative_path) && inputs.cell_relative_path != "")
+              ? inputs.cell_relative_path
+              : ((has(context.workflow.cell_path) && context.workflow.cell_path != "") ? context.workflow.cell_path : ".")
+          }}
+        prompt: |
+          You are implementing a software ticket in the c2 system.
+
+          Ticket:
+          - Title: {{ inputs.title }}
+          - Description:
+          {{ inputs.description }}
+
+          Requirements plan artifact path (preferred):
+          `/src/inbox/requirements/plan.json`
+
+          Requirements plan JSON fallback (use only if artifact is absent):
+          {{ inputs.requirements_plan_json }}
+
+          Validation feedback from the last attempt (if any):
+          {{ inputs.validation_feedback }}
+
+          Previous session summary (included only when requested):
+          ${{
+            (has(inputs.include_prior_summary) && inputs.include_prior_summary == true)
+              ? inputs.prior_session_summary
+              : ""
+          }}
+
+          Extra instructions:
+          {{ inputs.extra_instructions }}
+
+          Constraints:
+          - Keep changes scoped to the current cell’s code.
+          - Do NOT write requirements/plan/review docs into the git repo.
+          - If notes are needed, write artifacts under `/src/outbox/implementation/`.
+          - Input artifacts are available under `/src/inbox`.
+          - Update/add tests if appropriate.
+          - Prefer small, safe changes and keep backwards compatibility.
+
+          Deliverables:
+          - Make the code changes in-repo.
+          - Leave the workspace in a state where validation commands are likely to pass.
+
+    new_session:
+      op: ./server/llm/pkg/codex/extension-codex-exec
+      transitions: []
+      inputs:
+        worktree_path: "{{ context.environment.worktree_path }}"
+        cell_relative_path: >-
+          ${{
+            (has(inputs.cell_relative_path) && inputs.cell_relative_path != "")
+              ? inputs.cell_relative_path
+              : ((has(context.workflow.cell_path) && context.workflow.cell_path != "") ? context.workflow.cell_path : ".")
+          }}
+        prompt: |
+          You are implementing a software ticket in the c2 system.
+
+          Ticket:
+          - Title: {{ inputs.title }}
+          - Description:
+          {{ inputs.description }}
+
+          Requirements plan artifact path (preferred):
+          `/src/inbox/requirements/plan.json`
+
+          Requirements plan JSON fallback (use only if artifact is absent):
+          {{ inputs.requirements_plan_json }}
+
+          Validation feedback from the last attempt (if any):
+          {{ inputs.validation_feedback }}
+
+          Previous session summary (included only when requested):
+          ${{
+            (has(inputs.include_prior_summary) && inputs.include_prior_summary == true)
+              ? inputs.prior_session_summary
+              : ""
+          }}
+
+          Extra instructions:
+          {{ inputs.extra_instructions }}
+
+          Constraints:
+          - Keep changes scoped to the current cell’s code.
+          - Do NOT write requirements/plan/review docs into the git repo.
+          - If notes are needed, write artifacts under `/src/outbox/implementation/`.
+          - Input artifacts are available under `/src/inbox`.
+          - Update/add tests if appropriate.
+          - Prefer small, safe changes and keep backwards compatibility.
+
+          Deliverables:
+          - Make the code changes in-repo.
+          - Leave the workspace in a state where validation commands are likely to pass.
+
+outputs:
+  status: "${{ ('continue_session' in states) ? states.continue_session.outputs.status : states.new_session.outputs.status }}"
+  assistant_summary: "${{ ('continue_session' in states) ? states.continue_session.outputs.assistantSummary : states.new_session.outputs.assistantSummary }}"
+  session_id: "${{ ('continue_session' in states) ? states.continue_session.outputs.sessionId : states.new_session.outputs.sessionId }}"
+  incomplete_reason: "${{ ('continue_session' in states) ? states.continue_session.outputs.incompleteReason : states.new_session.outputs.incompleteReason }}"
+  incomplete_category: "${{ ('continue_session' in states) ? states.continue_session.outputs.incompleteCategory : states.new_session.outputs.incompleteCategory }}"
+  pending_dependencies: "${{ ('continue_session' in states) ? states.continue_session.outputs.pendingDependencies : states.new_session.outputs.pendingDependencies }}"

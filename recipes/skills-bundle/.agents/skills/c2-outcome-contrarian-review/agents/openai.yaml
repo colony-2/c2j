@@ -1,0 +1,6 @@
+interface:
+  display_name: "C2 Outcome Review"
+  short_description: "Challenge test statement and validation quality"
+  default_prompt: "Use $c2-outcome-contrarian-review to review this outcome plan and its test statements."
+policy:
+  allow_implicit_invocation: true

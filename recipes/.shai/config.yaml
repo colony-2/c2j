@@ -1,0 +1,121 @@
+type: shai-sandbox
+version: 1
+image: ghcr.io/colony-2/shai-mega
+resources:
+  shai-default-allow:
+    vars:
+      - source: GOPRIVATE
+      - source: MOON_TOOLCHAIN_FORCE_GLOBALS
+      - source: ANTHROPIC_API_KEY
+      - source: GEMINI_API_KEY
+    calls:
+      - name: c2
+        description: run c2 command
+        command: c2
+        allowed-args: '.*'
+    mounts:
+      - source: ${{ env.HOME }}/shaihome
+        target: /home/shai/
+        mode: rw
+      - source: ${{ env.HOME }}/.cache/go-build
+        target: /home/shai/go/pkg
+        mode: rw
+      - source: ${{ env.HOME }}/.cache/go-mod
+        target: /home/shai/go/mod
+        mode: rw
+      - source: /src/colony2/.moon/lcache
+        target: /src/.moon/cache
+        mode: rw
+    root-commands:
+      - "sleep 1"
+      - "cp /home/shai/.netrc /root/"
+      - "go install github.com/colony-2/colony2/cli/cmd/c2@latest"
+      - "mv ~/go/bin/c2 /usr/local/bin/"
+      - |
+        bash -c "echo -e 'export COLONY2_API_URL=http://host.docker.internal:8080\nexport COLONY2_PROJECT=38r2PdGA2VbPg9rlyhuE1ubuuNS' > /etc/profile.d/colony2.sh"
+        
+
+    http:
+      - openai.com
+      - api.openai.com
+      - chatgpt.com
+      - anthropic.com
+      - api.anthropic.com
+      - googleapis.com
+      - generativelanguage.googleapis.com
+      - ai.google.dev
+      - oauth2.googleapis.com
+      - accounts.google.com
+      - github.com
+      - gitlab.com
+      - bitbucket.org
+      - codeload.github.com
+      - githubusercontent.com
+      - nodejs.org
+      - npmjs.org
+      - npmjs.com
+      - registry.npmjs.org
+      - registry.yarnpkg.com
+      - dl.yarnpkg.com
+      - pnpm.io
+      - registry.npmmirror.com
+      - golang.org
+      - go.dev
+      - proxy.golang.org
+      - sum.golang.org
+      - gopkg.in
+      - storage.googleapis.com
+      - rust-lang.org
+      - static.rust-lang.org
+      - sh.rustup.rs
+      - crates.io
+      - index.crates.io
+      - static.crates.io
+      - docs.rs
+      - doc.rust-lang.org
+      - pypi.org
+      - files.pythonhosted.org
+      - pythonhosted.org
+      - python.org
+      - docs.python.org
+      - repo.maven.apache.org
+      - repo1.maven.org
+      - search.maven.org
+      - jitpack.io
+      - pkg.go.dev
+      - devdocs.io
+      - maven.pkg.github.com
+      - npm.pkg.github.com
+      - pkg.github.com
+      - packages.githubusercontent.com
+      - pkg-containers.githubusercontent.com
+      - docker.io
+      - registry-1.docker.io
+      - index.docker.io
+      - auth.docker.io
+      - production.cloudflare.docker.com
+      - ghcr.io
+      - quay.io
+      - gcr.io
+      - registry.k8s.io
+      - k8s.gcr.io
+      - mcr.microsoft.com
+      - public.ecr.aws
+      - playwright.dev
+      - microsoft.com
+      - go.dev
+      - google.com
+      - colony2.com
+    ports:
+      - host: github.com
+        port: 22
+      - host: 127.0.0.1
+        port: 8080
+      - host: 192.168.1.33
+        port: 22
+
+    
+apply:
+  - path: ./
+    resources:
+      - shai-default-allow

@@ -1,0 +1,6 @@
+interface:
+  display_name: "C2 Implementation Plan Author"
+  short_description: "Build ordered implementation plans from requirements"
+  default_prompt: "Use $c2-implementation-plan-author to turn approved requirements into a safe implementation plan."
+policy:
+  allow_implicit_invocation: true

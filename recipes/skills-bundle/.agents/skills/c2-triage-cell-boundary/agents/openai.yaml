@@ -1,0 +1,6 @@
+interface:
+  display_name: "C2 Triage Cell Boundary"
+  short_description: "Assess whether work belongs in this cell"
+  default_prompt: "Use $c2-triage-cell-boundary to decide whether this ticket belongs in the current cell."
+policy:
+  allow_implicit_invocation: true

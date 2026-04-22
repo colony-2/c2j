@@ -1,0 +1,6 @@
+interface:
+  display_name: "C2 Test Statement Curator"
+  short_description: "Define outcome statements and validation commands"
+  default_prompt: "Use $c2-test-statement-curator to produce outcome test statements and validation commands for this ticket."
+policy:
+  allow_implicit_invocation: true

@@ -1,0 +1,6 @@
+interface:
+  display_name: "C2 Implementation Review"
+  short_description: "Challenge implementation sequencing and safety"
+  default_prompt: "Use $c2-implementation-compat-review to find unsafe or incompatible implementation-plan decisions."
+policy:
+  allow_implicit_invocation: true
