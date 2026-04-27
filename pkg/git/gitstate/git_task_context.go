@@ -12,7 +12,6 @@ type GlobalGitTaskContext struct {
 	RecipeSourceRef  string
 	PersistHash      string
 	ParentHash       string
-	TicketID         string
 	CellName         string
 	CellPath         string // Cell relative path from repo root
 	GitAuthor        string
@@ -32,7 +31,6 @@ func NewGlobalGitTaskContext(tec contextual.TaskExecutionContext) *GlobalGitTask
 		GitAuthor:        tec.GitTask.GitAuthor,
 		PersistHash:      tec.GitTask.PersistHash,
 		ParentHash:       tec.GitTask.ParentHash,
-		TicketID:         tec.Actor.TicketID,
 		CellName:         tec.Workflow.CellName,
 		CellPath:         tec.Workflow.CellPath,
 		NodePath:         tec.Invocation.NodePath,
@@ -64,7 +62,6 @@ func (c *GitTaskContext) GetRecipeSourceRef() string  { return c.GlobalGitTaskCo
 func (c *GitTaskContext) GetPersistHash() string      { return c.GlobalGitTaskContext.PersistHash }
 func (c *GitTaskContext) GetParentHash() string       { return c.GlobalGitTaskContext.ParentHash }
 func (c *GitTaskContext) GetWorktreePath() string     { return c.WorktreePath }
-func (c *GitTaskContext) GetTicketID() string         { return c.GlobalGitTaskContext.TicketID }
 func (c *GitTaskContext) GetCellName() string         { return c.GlobalGitTaskContext.CellName }
 func (c *GitTaskContext) GetCellPath() string         { return c.GlobalGitTaskContext.CellPath }
 func (c *GitTaskContext) GetGitAuthor() string        { return c.GlobalGitTaskContext.GitAuthor }

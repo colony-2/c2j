@@ -32,10 +32,10 @@ sequence:
         - "gitl.colony2.com/jnadeau/skills/.agents/skills@1362438426e25c733174ea85f248db11af99a8a7"
       prompt: |
         Follow the `c2-implementation-plan-author` skill contract.
-        Build an implementation plan for this ticket and write artifacts directly.
+        Build an implementation plan for this job and write artifacts directly.
 
-        Ticket Title: {{ inputs.title }}
-        Ticket Description:
+        Job Title: {{ inputs.title }}
+        Job Description:
         {{ inputs.description }}
 
         Current Cell: {{ context.workflow.cell }}
@@ -54,10 +54,10 @@ sequence:
 
         Rules:
         - Never plan a backwards-incompatible change.
-        - If dependent cells must complete work before this cell can safely implement, set `requires_dependency_tickets=true`.
+        - If dependent cells must complete work before this cell can safely implement, set `requires_dependency_jobs=true`.
         - `dependency_order` must be valid topological order for all requirement IDs referenced.
-        - `dependency_ticket_specs` must include ONLY requirements targeting other cells.
-        - `dependency_ticket_specs[].depends_on_ids` must reference requirement IDs.
+        - `dependency_job_specs` must include ONLY requirements targeting other cells.
+        - `dependency_job_specs[].depends_on_ids` must reference requirement IDs.
 
         Write files under this absolute outbox directory:
         `/src/outbox/implementation`
@@ -65,13 +65,13 @@ sequence:
         Required files:
         1) `plan.json` as valid JSON with EXACT keys:
            - summary (string)
-           - requires_dependency_tickets (boolean)
+           - requires_dependency_jobs (boolean)
            - dependency_order (array of string)
-           - dependency_ticket_specs (array of objects)
+           - dependency_job_specs (array of objects)
            - local_steps (array of string)
            - notes_for_user_review (string)
 
-        Each dependency_ticket_specs[] object must include:
+        Each dependency_job_specs[] object must include:
            - id (string)
            - title (string)
            - target_cell (string)
@@ -83,7 +83,7 @@ sequence:
            - notes (string)
 
         2) `index.md` implementation summary document.
-        3) One markdown file per dependency ticket spec: `<REQ-ID>.md`.
+        3) One markdown file per dependency job spec: `<REQ-ID>.md`.
 
         Do not modify repo code for this step.
         Final response must be ONLY the exact `plan.json` object content (no markdown, no prose).
@@ -136,9 +136,9 @@ sequence:
 outputs:
   plan_json: "{{ sequence.build_plan.outputs.assistantSummary }}"
   summary: "${{ json_parse(sequence.build_plan.outputs.assistantSummary).summary }}"
-  requires_dependency_tickets: "${{ json_parse(sequence.build_plan.outputs.assistantSummary).requires_dependency_tickets }}"
+  requires_dependency_jobs: "${{ json_parse(sequence.build_plan.outputs.assistantSummary).requires_dependency_jobs }}"
   dependency_order: "${{ json_parse(sequence.build_plan.outputs.assistantSummary).dependency_order }}"
-  dependency_ticket_specs: "${{ json_parse(sequence.build_plan.outputs.assistantSummary).dependency_ticket_specs }}"
+  dependency_job_specs: "${{ json_parse(sequence.build_plan.outputs.assistantSummary).dependency_job_specs }}"
   local_steps: "${{ json_parse(sequence.build_plan.outputs.assistantSummary).local_steps }}"
   notes_for_user_review: "${{ json_parse(sequence.build_plan.outputs.assistantSummary).notes_for_user_review }}"
   compat_review_ok: "${{ json_parse(sequence.compat_review.outputs.assistantSummary).ok }}"

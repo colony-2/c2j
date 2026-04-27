@@ -328,20 +328,6 @@ func mergeJobContext(base contextual.JobContext, override *contextual.JobContext
 		return base
 	}
 
-	if override.Actor.TicketID != "" {
-		base.Actor.TicketID = override.Actor.TicketID
-	}
-	if override.Actor.ActorName != "" {
-		base.Actor.ActorName = override.Actor.ActorName
-	}
-	if override.Actor.ActorEmail != "" {
-		base.Actor.ActorEmail = override.Actor.ActorEmail
-	}
-
-	if !reflect.DeepEqual(override.Ticket, contextual.TicketContext{}) {
-		base.Ticket = override.Ticket
-	}
-
 	if override.Environment.WorktreePath != "" {
 		base.Environment.WorktreePath = override.Environment.WorktreePath
 	}

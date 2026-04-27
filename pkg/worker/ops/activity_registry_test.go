@@ -245,7 +245,6 @@ func TestWithGitWorkspaceAppliesContextPatch(t *testing.T) {
 			ResolvedBaseHash: baseHash,
 			PersistHash:      "",
 			ParentHash:       "",
-			TicketID:         "T-1",
 			CellName:         "cells/beta",
 			CellPath:         "cells/beta",
 			GitAuthor:        "",
@@ -319,7 +318,6 @@ func TestWithGitWorkspaceProducesDiffAndThinPack(t *testing.T) {
 			ResolvedBaseHash: baseHash,
 			PersistHash:      "",
 			ParentHash:       "",
-			TicketID:         "T-1",
 			CellName:         "cells/beta",
 			CellPath:         "cells/beta",
 			GitAuthor:        "",
@@ -400,7 +398,6 @@ func TestEnableActivitiesInWorkerInjectsDependencies(t *testing.T) {
 			BaseRepo:         repoPath,
 			BaseRef:          baseHash,
 			ResolvedBaseHash: baseHash,
-			TicketID:         "TEST-1",
 			CellName:         "cells/cell-a",
 			CellPath:         "cells/cell-a",
 			PersistHash:      "",
@@ -1047,7 +1044,6 @@ func TestControllerPersist_DirectCall(t *testing.T) {
 			CellName:         "cells/alpha/test", // Full file system path to the cell directory
 			CellPath:         "cells/alpha/test",
 			NodePath:         "recipe/node", // Recipe node path (not file system path)
-			TicketID:         "TEST-1",
 			InvokeSeq:        1,
 			InvokeHash:       "",
 			GitAuthor:        "",

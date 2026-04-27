@@ -67,11 +67,6 @@ func GenerateTestContext() (contextual.JobContext, contextual.GitCommitContext) 
 	baseRepo, baseHash := ensureTestRepo()
 
 	job := contextual.JobContext{
-		Actor: contextual.ActorContext{
-			TicketID:   "TEST-TICKET",
-			ActorName:  "test-actor",
-			ActorEmail: "test-actor@colony2",
-		},
 		Environment: contextual.EnvironmentContext{},
 		Workflow: contextual.WorkflowContext{
 			CellName: "cells/test-cell",

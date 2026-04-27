@@ -16,8 +16,7 @@ git:
   resolved_base_hash: %s
   parent_hash: %s
   persist_hash: %s
-ticket:
-  id: %s
+workflow:
   cell: %s
 invocation:
   path: %s
@@ -32,7 +31,6 @@ invocation:
 		ctx.ResolvedBaseHash,
 		ctx.ParentHash,
 		persistHash,
-		ctx.TicketID,
 		ctx.CellName,
 		ctx.NodePath,
 		ctx.InvokeSeq,

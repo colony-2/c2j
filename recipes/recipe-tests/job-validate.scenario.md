@@ -1,4 +1,4 @@
-# ticket-validate test suite
+# job-validate test suite
 
 ```yaml
 cases:
@@ -9,14 +9,14 @@ cases:
     mocks:
       ops:
         - match:
-            node_path: ticket-validate/detect/command_execution
+            node_path: job-validate/detect/command_execution
           behavior:
             mode: return
             outputs:
               stdout: '{"suggested_commands":"npm test"}'
               exit_code: 0
         - match:
-            node_path: ticket-validate/run_provided/command_execution
+            node_path: job-validate/run_provided/command_execution
           behavior:
             mode: return
             outputs:
@@ -40,20 +40,20 @@ cases:
     mocks:
       ops:
         - match:
-            node_path: ticket-validate/detect/command_execution
+            node_path: job-validate/detect/command_execution
           behavior:
             mode: return
             outputs:
               stdout: '{"suggested_commands":"go test ./..."}'
               exit_code: 0
         - match:
-            node_path: ticket-validate/choose_mode/input
+            node_path: job-validate/choose_mode/input
           behavior:
             mode: return
             outputs:
               response: use_suggested
         - match:
-            node_path: ticket-validate/run_suggested/command_execution
+            node_path: job-validate/run_suggested/command_execution
           behavior:
             mode: return
             outputs:
@@ -75,26 +75,26 @@ cases:
     mocks:
       ops:
         - match:
-            node_path: ticket-validate/detect/command_execution
+            node_path: job-validate/detect/command_execution
           behavior:
             mode: return
             outputs:
               stdout: '{"suggested_commands":"python3 -m pytest -q"}'
               exit_code: 0
         - match:
-            node_path: ticket-validate/choose_mode/input
+            node_path: job-validate/choose_mode/input
           behavior:
             mode: return
             outputs:
               response: provide_custom
         - match:
-            node_path: ticket-validate/prompt_custom/input
+            node_path: job-validate/prompt_custom/input
           behavior:
             mode: return
             outputs:
               response: python3 -m pytest -q
         - match:
-            node_path: ticket-validate/run_custom/command_execution
+            node_path: job-validate/run_custom/command_execution
           behavior:
             mode: return
             outputs:
@@ -116,14 +116,14 @@ cases:
     mocks:
       ops:
         - match:
-            node_path: ticket-validate/detect/command_execution
+            node_path: job-validate/detect/command_execution
           behavior:
             mode: return
             outputs:
               stdout: '{"suggested_commands":"npm test"}'
               exit_code: 0
         - match:
-            node_path: ticket-validate/run_provided/command_execution
+            node_path: job-validate/run_provided/command_execution
           behavior:
             mode: return
             outputs:
@@ -146,14 +146,14 @@ cases:
     mocks:
       ops:
         - match:
-            node_path: ticket-validate/detect/command_execution
+            node_path: job-validate/detect/command_execution
           behavior:
             mode: return
             outputs:
               stdout: '{"suggested_commands":"npm test"}'
               exit_code: 0
         - match:
-            node_path: ticket-validate/run_provided/command_execution
+            node_path: job-validate/run_provided/command_execution
           behavior:
             mode: return
             outputs:

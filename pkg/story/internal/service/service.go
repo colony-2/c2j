@@ -301,9 +301,6 @@ func (s *Service) StartWorkflow(ctx context.Context, req model.StartWorkflowRequ
 		RecipeName: recipeName,
 		Inputs:     req.Inputs,
 		JobContext: contextual.JobContext{
-			Actor: contextual.ActorContext{
-				ActorEmail: derefString(req.ActorEmail),
-			},
 			Workflow: contextual.WorkflowContext{
 				CellID:    cellID,
 				CellName:  cellRecord.Name,
@@ -340,9 +337,6 @@ func (s *Service) StartWorkflow(ctx context.Context, req model.StartWorkflowRequ
 		StartTime:   &submittedAt,
 		CreatedAt:   submittedAt,
 		Actor:       model.Actor{Type: model.ActorTypeUser},
-	}
-	if email := strings.TrimSpace(derefString(req.ActorEmail)); email != "" {
-		summary.Actor.User = &model.ActorUser{Email: email}
 	}
 
 	return summary, nil
@@ -1412,13 +1406,7 @@ func jobMetadataFromRaw(raw json.RawMessage) (*starter.JobMetadata, error) {
 }
 
 func actorFromJobMetadata(meta *starter.JobMetadata) model.Actor {
-	actor := model.Actor{Type: model.ActorTypeUser}
-	if meta != nil {
-		if email := strings.TrimSpace(meta.ActorEmail); email != "" {
-			actor.User = &model.ActorUser{Email: email}
-		}
-	}
-	return actor
+	return model.Actor{Type: model.ActorTypeUser}
 }
 
 func (s *Service) findCellID(ctx context.Context, projectID string, cellName string) (*string, error) {

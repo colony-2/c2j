@@ -1,4 +1,4 @@
-id: ticket-implement
+id: job-implement
 version: 0.2.0
 desc: Implement approved requirements in the current cell using Codex
 input_schema:
@@ -59,9 +59,9 @@ state:
               : ((has(context.workflow.cell_path) && context.workflow.cell_path != "") ? context.workflow.cell_path : ".")
           }}
         prompt: |
-          You are implementing a software ticket in the c2 system.
+          You are implementing a software job in the c2 system.
 
-          Ticket:
+          Job:
           - Title: {{ inputs.title }}
           - Description:
           {{ inputs.description }}
@@ -109,9 +109,9 @@ state:
               : ((has(context.workflow.cell_path) && context.workflow.cell_path != "") ? context.workflow.cell_path : ".")
           }}
         prompt: |
-          You are implementing a software ticket in the c2 system.
+          You are implementing a software job in the c2 system.
 
-          Ticket:
+          Job:
           - Title: {{ inputs.title }}
           - Description:
           {{ inputs.description }}

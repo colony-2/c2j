@@ -1,6 +1,6 @@
 id: new-ticket
 version: 0.8.0
-desc: "Checkpoint-centric ticket recipe with skill-based implementation supervision"
+desc: "Checkpoint-centric job recipe with skill-based implementation supervision"
 input_schema:
   title:
     type: string
@@ -34,7 +34,7 @@ state:
       op: recipe.run_and_get_result
       transitions:
         - to: reassign_create
-          when: 'has(context.ticket.id) && context.ticket.id != "" && !outputs.outputs.cell_is_appropriate && outputs.outputs.recommended_cell_is_valid'
+          when: '!outputs.outputs.cell_is_appropriate && outputs.outputs.recommended_cell_is_valid'
         - to: requirements_planning
           when: "true"
       inputs:
@@ -44,43 +44,36 @@ state:
             ${{
               (has(inputs.title) && inputs.title != "")
                 ? inputs.title
-                : ((has(context.ticket.title) && context.ticket.title != "") ? context.ticket.title : "")
+                : ""
             }}
           description: >-
             ${{
               (has(inputs.description) && inputs.description != "")
                 ? inputs.description
-                : ((has(context.ticket.description) && context.ticket.description != "") ? context.ticket.description : "")
+                : ""
             }}
 
     reassign_create:
-      op: ticket.manage
-      when: 'has(context.ticket.id) && context.ticket.id != ""'
+      op: recipes.run
       transitions:
-        - to: reassign_annotate
+        - to: reassign_done
           when: "true"
       inputs:
-        actions:
-          - type: create_ticket
-            project_id: "{{ context.workflow.project_id }}"
-            cell: '${{ "triage" in states ? states.triage.outputs.outputs.recommended_cell_final : context.workflow.cell }}'
-            title: "${{ (has(inputs.title) && inputs.title != \"\") ? inputs.title : (has(context.ticket.title) ? context.ticket.title : \"\") }}"
-            description: "${{ (has(inputs.description) && inputs.description != \"\") ? inputs.description : (has(context.ticket.description) ? context.ticket.description : \"\") }}"
-            stage: open
-            state: working
+        git_ref: '${{ has(context.git.hash) && context.git.hash != "" ? context.git.hash : context.git.ref }}'
+        recipes:
+          - name: new-ticket
+            cell_name: '${{ "triage" in states ? states.triage.outputs.outputs.recommended_cell_final : context.workflow.cell }}'
+            cell_path: '${{ "triage" in states ? states.triage.outputs.outputs.recommended_cell_final : context.workflow.cell }}'
+            inputs:
+              title: '${{ has(inputs.title) ? inputs.title : "" }}'
+              description: '${{ has(inputs.description) ? inputs.description : "" }}'
+            artifacts: []
 
-    reassign_annotate:
-      op: ticket.manage
-      when: 'has(context.ticket.id) && context.ticket.id != ""'
+    reassign_done:
+      op: sleep
       transitions: []
       inputs:
-        actions:
-          - type: append_ticket_note
-            ticket_id: "{{ context.ticket.id }}"
-            note: '${{ "Reassigned to cell \"" + ("triage" in states ? states.triage.outputs.outputs.recommended_cell_final : "") + "\". Created new ticket " + (size(states.reassign_create.outputs.results) > 0 ? states.reassign_create.outputs.results[0].ticket.id : "(unknown)") + "." }}'
-          - type: update_ticket
-            ticket_id: "{{ context.ticket.id }}"
-            state: waiting_user
+        duration: 1ms
 
     requirements_planning:
       op: recipe.run_and_get_result
@@ -105,13 +98,13 @@ state:
             ${{
               (has(inputs.title) && inputs.title != "")
                 ? inputs.title
-                : ((has(context.ticket.title) && context.ticket.title != "") ? context.ticket.title : "")
+                : ""
             }}
           description: >-
             ${{
               (has(inputs.description) && inputs.description != "")
                 ? inputs.description
-                : ((has(context.ticket.description) && context.ticket.description != "") ? context.ticket.description : "")
+                : ""
             }}
           user_feedback: >-
             ${{
@@ -146,8 +139,8 @@ state:
       transitions:
         - to: pre_implementation_review
           when: "has(outputs.compat_review_ok) && !outputs.compat_review_ok"
-        - to: spawn_dependency_tickets
-          when: "has(outputs.requires_dependency_tickets) && outputs.requires_dependency_tickets"
+        - to: spawn_dependency_jobs
+          when: "has(outputs.requires_dependency_jobs) && outputs.requires_dependency_jobs"
         - to: outcome_determination
           when: "true"
       inputs:
@@ -160,13 +153,13 @@ state:
             ${{
               (has(inputs.title) && inputs.title != "")
                 ? inputs.title
-                : ((has(context.ticket.title) && context.ticket.title != "") ? context.ticket.title : "")
+                : ""
             }}
           description: >-
             ${{
               (has(inputs.description) && inputs.description != "")
                 ? inputs.description
-                : ((has(context.ticket.description) && context.ticket.description != "") ? context.ticket.description : "")
+                : ""
             }}
           user_feedback: >-
             ${{
@@ -213,13 +206,13 @@ state:
             ${{
               (has(inputs.title) && inputs.title != "")
                 ? inputs.title
-                : ((has(context.ticket.title) && context.ticket.title != "") ? context.ticket.title : "")
+                : ""
             }}
           description: >-
             ${{
               (has(inputs.description) && inputs.description != "")
                 ? inputs.description
-                : ((has(context.ticket.description) && context.ticket.description != "") ? context.ticket.description : "")
+                : ""
             }}
           user_feedback: >-
             ${{
@@ -269,40 +262,30 @@ state:
                   )
             }}
 
-    spawn_dependency_tickets:
-      op: ticket.manage
+    spawn_dependency_jobs:
+      op: recipes.run
       transitions:
         - to: dependency_wait_note
-          when: 'has(context.actor.ticket_id) && context.actor.ticket_id != ""'
+          when: 'has(context.workflow.job_id) && context.workflow.job_id != ""'
         - to: dependency_wait_hold
           when: "true"
       inputs:
-        actions: >-
+        git_ref: '${{ has(context.git.hash) && context.git.hash != "" ? context.git.hash : context.git.ref }}'
+        recipes: >-
           ${{
             jq(
               states.implementation_planning.outputs.outputs.plan_json,
-              'fromjson | (.dependency_ticket_specs // []) | map(select((.target_cell // "") != "" and .target_cell != "' + context.workflow.cell + '") | {type:"create_ticket", project_id:"' + context.workflow.project_id + '", cell:.target_cell, title:(((.id // "") | if . != "" then "[" + . + "] " else "" end) + ((.title // "") | if . != "" then . else "Dependency work" end)), description:("Parent ticket: ' + (has(context.actor.ticket_id) ? context.actor.ticket_id : "") + '\n\nRequirement ID: " + (.id // "(none)") + "\n\nDepends on requirement IDs:\n" + ((.depends_on_markdown // "- (none)")) + "\n\n## Scope\n" + ((.scope // "(tbd)")) + "\n\n## Acceptance criteria\n" + ((.acceptance_criteria_markdown // "- (none)")) + "\n\n## Risks\n" + ((.risks_markdown // "- (none)")) + "\n\n## Notes\n" + ((.notes // "(none)"))), stage:"open", state:"working"})'
+              'fromjson | (.dependency_job_specs // []) | map(select((.target_cell // "") != "" and .target_cell != "' + context.workflow.cell + '") | {name:"new-ticket", cell_name:.target_cell, cell_path:.target_cell, inputs:{title:(((.id // "") | if . != "" then "[" + . + "] " else "" end) + ((.title // "") | if . != "" then . else "Dependency work" end)), description:("Parent job: ' + (has(context.workflow.job_id) ? context.workflow.job_id : "") + '\n\nRequirement ID: " + (.id // "(none)") + "\n\nDepends on requirement IDs:\n" + ((.depends_on_markdown // "- (none)")) + "\n\n## Scope\n" + ((.scope // "(tbd)")) + "\n\n## Acceptance criteria\n" + ((.acceptance_criteria_markdown // "- (none)")) + "\n\n## Risks\n" + ((.risks_markdown // "- (none)")) + "\n\n## Notes\n" + ((.notes // "(none)"))), artifacts:[]})'
             )
           }}
 
     dependency_wait_note:
-      op: ticket.manage
+      op: sleep
       transitions:
         - to: dependency_wait_hold
           when: "true"
       inputs:
-        actions:
-          - type: append_ticket_note
-            ticket_id: "{{ context.actor.ticket_id }}"
-            note: >-
-              Dependency tickets were created and must complete before local implementation starts.
-              - Dependency order: ${{ "implementation_planning" in states ? states.implementation_planning.outputs.outputs.dependency_order : [] }}.
-              - Created dependency ticket IDs: ${{ "spawn_dependency_tickets" in states && size(states.spawn_dependency_tickets.outputs.results) > 0 ? states.spawn_dependency_tickets.outputs.results.map(r, r.ticket.id) : [] }}.
-              - Parent ticket remains open and waiting.
-          - type: update_ticket
-            ticket_id: "{{ context.actor.ticket_id }}"
-            stage: open
-            state: waiting_user
+        duration: 1ms
 
     dependency_wait_hold:
       op: sleep
@@ -313,8 +296,8 @@ state:
     pre_implementation_review:
       op: input
       transitions:
-        - to: cancel_ticket_route
-          when: 'has(outputs.fields.decision) && outputs.fields.decision == "cancel_ticket"'
+        - to: cancel_job_route
+          when: 'has(outputs.fields.decision) && outputs.fields.decision == "cancel_job"'
         - to: requirements_planning
           when: 'has(outputs.fields.decision) && outputs.fields.decision == "revise_current_stage" && has(outputs.fields.target_stage) && outputs.fields.target_stage == "requirements"'
         - to: implementation_planning
@@ -375,8 +358,8 @@ state:
                   label: Back up to implementation planning
                 - value: back_up_requirements
                   label: Back up to requirements
-                - value: cancel_ticket
-                  label: Cancel ticket
+                - value: cancel_job
+                  label: Cancel job
             - id: target_stage
               type: multiple_choice
               question: "For revise current stage, select the stage to run (optional)"
@@ -400,8 +383,8 @@ state:
     pre_implementation_followup_review:
       op: input
       transitions:
-        - to: cancel_ticket_route
-          when: 'has(outputs.fields.decision) && outputs.fields.decision == "cancel_ticket"'
+        - to: cancel_job_route
+          when: 'has(outputs.fields.decision) && outputs.fields.decision == "cancel_job"'
         - to: implement_resume
           when: 'has(outputs.fields.decision) && outputs.fields.decision == "continue" && has(outputs.fields.implementation_answers) && outputs.fields.implementation_answers != ""'
         - to: implement
@@ -427,8 +410,8 @@ state:
               options:
                 - value: continue
                   label: Continue implementation
-                - value: cancel_ticket
-                  label: Cancel ticket
+                - value: cancel_job
+                  label: Cancel job
             - id: feedback
               type: paragraph_text
               question: "Optional implementation guidance"
@@ -448,7 +431,7 @@ state:
         - to: pre_implementation_followup_review
           when: 'has(outputs.incompleteCategory) && outputs.incompleteCategory == "blocked"'
         - to: implement_bugs
-          when: 'has(outputs.incompleteCategory) && outputs.incompleteCategory == "needs_dependency_tickets"'
+          when: 'has(outputs.incompleteCategory) && outputs.incompleteCategory == "needs_dependency_jobs"'
         - to: implement_bugs
           when: "has(outputs.pendingDependencies) && size(outputs.pendingDependencies) > 0"
         - to: validate
@@ -482,19 +465,19 @@ state:
         return_on:
           - needs_user_input
           - needs_test_statement_update
-          - needs_dependency_tickets
+          - needs_dependency_jobs
           - ready_for_validation
           - blocked
         status_contract:
           path: implementation/latest-status.json
         prompt: |
           Follow the `c2-implementation-loop` skill contract.
-          You are implementing a software ticket in the c2 system.
+          You are implementing a software job in the c2 system.
 
-          Ticket:
-          - Title: ${{ has(inputs.title) && inputs.title != "" ? inputs.title : (has(context.ticket.title) ? context.ticket.title : "") }}
+          Job:
+          - Title: ${{ has(inputs.title) ? inputs.title : "" }}
           - Description:
-          ${{ has(inputs.description) && inputs.description != "" ? inputs.description : (has(context.ticket.description) ? context.ticket.description : "") }}
+          ${{ has(inputs.description) ? inputs.description : "" }}
 
           Requirements plan artifact path:
           `/src/inbox/requirements/plan.json`
@@ -543,7 +526,7 @@ state:
           - Do NOT write requirements/plan/review docs into the git repo.
           - If notes are needed, write artifacts under `/src/outbox/implementation/`.
           - Input artifacts are available under `/src/inbox`.
-          - If you discover bugs in other cells, write `implementation/dependency-ticket-specs.json` and add one entry per bug to `pendingDependencies`:
+          - If you discover bugs in other cells, write `implementation/dependency-job-specs.json` and add one entry per bug to `pendingDependencies`:
             - `component`: exact target cell name.
             - `requestedChanges`: bug summary, impact, and concrete repro/fix guidance.
           - If you need user clarification before continuing, write `implementation/questions.json` and set:
@@ -564,16 +547,17 @@ state:
           - Leave the workspace in a state where validation commands are likely to pass.
 
     implement_bugs:
-      op: ticket.manage
+      op: recipes.run
       transitions:
         - to: validate
           when: "true"
       inputs:
-        actions: >-
+        git_ref: '${{ has(context.git.hash) && context.git.hash != "" ? context.git.hash : context.git.ref }}'
+        recipes: >-
           ${{
             jq(
               states.implement.outputs.pendingDependencies,
-              'map(select((.component // "") != "" and .component != "' + context.workflow.cell + '") | {type:"create_ticket", project_id:"' + context.workflow.project_id + '", cell:.component, title:("[BUG][" + .component + "] follow-up"), description:(.requestedChanges // "Bug details were not provided."), stage:"open", state:"working"})'
+              'map(select((.component // "") != "" and .component != "' + context.workflow.cell + '") | {name:"new-ticket", cell_name:.component, cell_path:.component, inputs:{title:("[BUG][" + .component + "] follow-up"), description:(.requestedChanges // "Bug details were not provided.")}, artifacts:[]})'
             )
           }}
 
@@ -587,7 +571,7 @@ state:
         - to: pre_implementation_followup_review
           when: 'has(outputs.incompleteCategory) && outputs.incompleteCategory == "blocked"'
         - to: implement_resume_bugs
-          when: 'has(outputs.incompleteCategory) && outputs.incompleteCategory == "needs_dependency_tickets"'
+          when: 'has(outputs.incompleteCategory) && outputs.incompleteCategory == "needs_dependency_jobs"'
         - to: implement_resume_bugs
           when: "has(outputs.pendingDependencies) && size(outputs.pendingDependencies) > 0"
         - to: validate
@@ -623,7 +607,7 @@ state:
         return_on:
           - needs_user_input
           - needs_test_statement_update
-          - needs_dependency_tickets
+          - needs_dependency_jobs
           - ready_for_validation
           - blocked
         status_contract:
@@ -631,10 +615,10 @@ state:
         prompt: |
           Continue implementation using the same c2 skill contract and previous session context.
 
-          Ticket:
-          - Title: ${{ has(inputs.title) && inputs.title != "" ? inputs.title : (has(context.ticket.title) ? context.ticket.title : "") }}
+          Job:
+          - Title: ${{ has(inputs.title) ? inputs.title : "" }}
           - Description:
-          ${{ has(inputs.description) && inputs.description != "" ? inputs.description : (has(context.ticket.description) ? context.ticket.description : "") }}
+          ${{ has(inputs.description) ? inputs.description : "" }}
 
           User clarification answers:
           ${{
@@ -651,16 +635,17 @@ state:
           }}
 
     implement_resume_bugs:
-      op: ticket.manage
+      op: recipes.run
       transitions:
         - to: validate
           when: "true"
       inputs:
-        actions: >-
+        git_ref: '${{ has(context.git.hash) && context.git.hash != "" ? context.git.hash : context.git.ref }}'
+        recipes: >-
           ${{
             jq(
               states.implement_resume.outputs.pendingDependencies,
-              'map(select((.component // "") != "" and .component != "' + context.workflow.cell + '") | {type:"create_ticket", project_id:"' + context.workflow.project_id + '", cell:.component, title:("[BUG][" + .component + "] follow-up"), description:(.requestedChanges // "Bug details were not provided."), stage:"open", state:"working"})'
+              'map(select((.component // "") != "" and .component != "' + context.workflow.cell + '") | {name:"new-ticket", cell_name:.component, cell_path:.component, inputs:{title:("[BUG][" + .component + "] follow-up"), description:(.requestedChanges // "Bug details were not provided.")}, artifacts:[]})'
             )
           }}
 
@@ -670,7 +655,7 @@ state:
         - to: ready_to_merge_review
           when: "true"
       inputs:
-        name: ticket-validate
+        name: job-validate
         inputs:
           commands: >-
             ${{
@@ -686,8 +671,8 @@ state:
     ready_to_merge_review:
       op: input
       transitions:
-        - to: cancel_ticket_route
-          when: 'has(outputs.fields.decision) && outputs.fields.decision == "cancel_ticket"'
+        - to: cancel_job_route
+          when: 'has(outputs.fields.decision) && outputs.fields.decision == "cancel_job"'
         - to: requirements_planning
           when: 'has(outputs.fields.decision) && outputs.fields.decision == "back_up_requirements"'
         - to: implementation_planning
@@ -733,8 +718,8 @@ state:
                   label: Back up to implementation planning
                 - value: back_up_requirements
                   label: Back up to requirements
-                - value: cancel_ticket
-                  label: Cancel ticket
+                - value: cancel_job
+                  label: Cancel job
             - id: feedback
               type: paragraph_text
               question: "Revision/backtrack feedback for selected stage (optional)"
@@ -781,47 +766,27 @@ state:
               : (
                   (has(inputs.title) && inputs.title != "")
                     ? inputs.title
-                    : ((has(context.ticket.title) && context.ticket.title != "") ? context.ticket.title : "Update")
+                    : "Update"
                 )
           }}
 
-    cancel_ticket_route:
+    cancel_job_route:
       op: sleep
       transitions:
-        - to: cancel_ticket_update
-          when: 'has(context.actor.ticket_id) && context.actor.ticket_id != ""'
-        - to: cancel_ticket_done
+        - to: cancel_job_update
           when: "true"
       inputs:
         duration: 1ms
 
-    cancel_ticket_update:
-      op: ticket.manage
+    cancel_job_update:
+      op: sleep
       transitions:
-        - to: cancel_ticket_done
+        - to: cancel_job_done
           when: "true"
       inputs:
-        actions:
-          - type: append_ticket_note
-            ticket_id: "{{ context.actor.ticket_id }}"
-            note: >-
-              Ticket was cancelled by workflow decision.
-              - Reason: ${{
-                  ("ready_to_merge_review" in states && has(states.ready_to_merge_review.outputs.fields.decision) && states.ready_to_merge_review.outputs.fields.decision == "cancel_ticket")
-                    ? "Cancelled during ready-to-merge review."
-                    : (
-                        ("pre_implementation_review" in states && has(states.pre_implementation_review.outputs.fields.decision) && states.pre_implementation_review.outputs.fields.decision == "cancel_ticket")
-                          ? "Cancelled during pre-implementation review."
-                          : "Cancelled by workflow decision."
-                      )
-                }}
-              - Validation passed at cancellation: ${{ "validate" in states ? states.validate.outputs.outputs.passed : false }}.
-          - type: update_ticket
-            ticket_id: "{{ context.actor.ticket_id }}"
-            stage: completed
-            state: canceled
+        duration: 1ms
 
-    cancel_ticket_done:
+    cancel_job_done:
       op: sleep
       transitions: []
       inputs:
@@ -831,41 +796,17 @@ state:
       op: sleep
       transitions:
         - to: complete_done_update
-          when: 'has(context.actor.ticket_id) && context.actor.ticket_id != ""'
-        - to: complete_done_noop
           when: "true"
       inputs:
         duration: 1ms
 
     complete_done_update:
-      op: ticket.manage
+      op: sleep
       transitions:
         - to: complete_done_noop
           when: "true"
       inputs:
-        actions:
-          - type: append_ticket_note
-            ticket_id: "{{ context.actor.ticket_id }}"
-            note: >-
-              Workflow completed successfully.
-              - Requirements artifacts generated under `requirements/` (see `requirements/index.md`).
-              - Implementation plan artifacts generated under `implementation/` (see `implementation/index.md`).
-              - Outcome artifacts generated under `outcome/` (see `outcome/index.md` and `outcome/tests-index.md`).
-              - Authoritative test statements are maintained in `.c2/tests/*.md`.
-              - Dependency order: ${{ "implementation_planning" in states ? states.implementation_planning.outputs.outputs.dependency_order : [] }}.
-              - Outcome test statement updates required: ${{ "outcome_determination" in states ? states.outcome_determination.outputs.outputs.test_statement_updates_required : false }}.
-              - Validation commands source: ${{ (has(inputs.validate_commands) && inputs.validate_commands != "") ? "ticket input" : (("outcome_determination" in states && has(states.outcome_determination.outputs.outputs.validation_commands) && states.outcome_determination.outputs.outputs.validation_commands != "") ? "outcome bundle" : "ticket-validate defaults") }}.
-              - Cross-cell bug tickets created during implementation: ${{ ('implement_bugs' in states && size(states.implement_bugs.outputs.results) > 0) || ('implement_resume_bugs' in states && size(states.implement_resume_bugs.outputs.results) > 0) }}.
-              - User clarification requested during implementation: ${{
-                  ('implement' in states && has(states.implement.outputs.incompleteCategory) && states.implement.outputs.incompleteCategory == "needs_user_input") ||
-                  ('implement_resume' in states && has(states.implement_resume.outputs.incompleteCategory) && states.implement_resume.outputs.incompleteCategory == "needs_user_input")
-                }}.
-              - Validation passed: ${{ "validate" in states ? states.validate.outputs.outputs.passed : false }}.
-              - Merged: ${{ "merge" in states && has(states.merge.outputs.merged_hash) && states.merge.outputs.merged_hash != "" }} (hash: ${{ "merge" in states ? states.merge.outputs.merged_hash : "" }}).
-          - type: update_ticket
-            ticket_id: "{{ context.actor.ticket_id }}"
-            stage: completed
-            state: done
+        duration: 1ms
 
     complete_done_noop:
       op: sleep
@@ -880,8 +821,7 @@ outputs:
   recommended_cell_final: "${{ 'triage' in states ? states.triage.outputs.outputs.recommended_cell_final : '' }}"
   rationale: "${{ 'triage' in states ? states.triage.outputs.outputs.rationale : '' }}"
   reassign_performed: "${{ 'triage' in states ? (!states.triage.outputs.outputs.cell_is_appropriate && states.triage.outputs.outputs.recommended_cell_is_valid) : false }}"
-  reassigned_ticket_id: "${{ 'reassign_create' in states && size(states.reassign_create.outputs.results) > 0 ? states.reassign_create.outputs.results[0].ticket.id : \"\" }}"
-  reassigned_ticket_job_id: "${{ 'reassign_create' in states && size(states.reassign_create.outputs.results) > 0 && has(states.reassign_create.outputs.results[0].job_id) ? states.reassign_create.outputs.results[0].job_id : \"\" }}"
+  reassigned_job_id: "${{ 'reassign_create' in states && size(states.reassign_create.outputs.job_ids) > 0 ? states.reassign_create.outputs.job_ids[0] : \"\" }}"
   requirements_plan_json: "${{ 'requirements_planning' in states ? states.requirements_planning.outputs.outputs.plan_json : \"\" }}"
   requirements_dependency_order: "${{ 'requirements_planning' in states ? states.requirements_planning.outputs.outputs.dependency_order : [] }}"
   requirements: "${{ 'requirements_planning' in states ? states.requirements_planning.outputs.outputs.requirements : [] }}"
@@ -890,8 +830,8 @@ outputs:
   cross_cell_required: "${{ 'requirements_planning' in states ? states.requirements_planning.outputs.outputs.requirements.exists(r, has(r.target_cell) && r.target_cell != \"\" && r.target_cell != context.workflow.cell) : false }}"
   implementation_plan_json: "${{ 'implementation_planning' in states ? states.implementation_planning.outputs.outputs.plan_json : \"\" }}"
   implementation_dependency_order: "${{ 'implementation_planning' in states ? states.implementation_planning.outputs.outputs.dependency_order : [] }}"
-  implementation_requires_dependency_tickets: "${{ 'implementation_planning' in states ? states.implementation_planning.outputs.outputs.requires_dependency_tickets : false }}"
-  implementation_dependency_ticket_specs: "${{ 'implementation_planning' in states ? states.implementation_planning.outputs.outputs.dependency_ticket_specs : [] }}"
+  implementation_requires_dependency_jobs: "${{ 'implementation_planning' in states ? states.implementation_planning.outputs.outputs.requires_dependency_jobs : false }}"
+  implementation_dependency_job_specs: "${{ 'implementation_planning' in states ? states.implementation_planning.outputs.outputs.dependency_job_specs : [] }}"
   outcome_plan_json: "${{ 'outcome_determination' in states ? states.outcome_determination.outputs.outputs.plan_json : \"\" }}"
   outcome_current_test_statements_summary: "${{ 'outcome_determination' in states ? states.outcome_determination.outputs.outputs.current_test_statements_summary : \"\" }}"
   outcome_test_statement_updates_required: "${{ 'outcome_determination' in states ? states.outcome_determination.outputs.outputs.test_statement_updates_required : false }}"
@@ -900,13 +840,13 @@ outputs:
   outcome_review_ok: "${{ 'outcome_determination' in states ? states.outcome_determination.outputs.outputs.review_ok : false }}"
   outcome_approved: "${{ 'pre_implementation_review' in states && has(states.pre_implementation_review.outputs.fields.decision) ? states.pre_implementation_review.outputs.fields.decision == \"continue\" : false }}"
   implementation_requested_test_statement_update: "${{ ('implement' in states && has(states.implement.outputs.incompleteCategory) && states.implement.outputs.incompleteCategory == \"needs_test_statement_update\") || ('implement_resume' in states && has(states.implement_resume.outputs.incompleteCategory) && states.implement_resume.outputs.incompleteCategory == \"needs_test_statement_update\") }}"
-  implementation_bug_ticket_ids_initial: "${{ 'implement_bugs' in states && size(states.implement_bugs.outputs.results) > 0 ? states.implement_bugs.outputs.results.map(r, has(r.ticket.id) ? r.ticket.id : \"\") : [] }}"
-  implementation_bug_ticket_ids_resume: "${{ 'implement_resume_bugs' in states && size(states.implement_resume_bugs.outputs.results) > 0 ? states.implement_resume_bugs.outputs.results.map(r, has(r.ticket.id) ? r.ticket.id : \"\") : [] }}"
+  implementation_bug_job_ids_initial: "${{ 'implement_bugs' in states && size(states.implement_bugs.outputs.job_ids) > 0 ? states.implement_bugs.outputs.job_ids : [] }}"
+  implementation_bug_job_ids_resume: "${{ 'implement_resume_bugs' in states && size(states.implement_resume_bugs.outputs.job_ids) > 0 ? states.implement_resume_bugs.outputs.job_ids : [] }}"
   implementation_user_questions_requested: "${{ ('implement' in states && has(states.implement.outputs.incompleteCategory) && states.implement.outputs.incompleteCategory == \"needs_user_input\") || ('implement_resume' in states && has(states.implement_resume.outputs.incompleteCategory) && states.implement_resume.outputs.incompleteCategory == \"needs_user_input\") }}"
   dependency_waiting: "${{ 'dependency_wait_hold' in states }}"
   validation_selected_commands: "${{ (has(inputs.validate_commands) && inputs.validate_commands != \"\") ? inputs.validate_commands : (('outcome_determination' in states && has(states.outcome_determination.outputs.outputs.validation_commands) && states.outcome_determination.outputs.outputs.validation_commands != \"\") ? states.outcome_determination.outputs.outputs.validation_commands : \"\") }}"
   validation_passed: "${{ 'validate' in states ? states.validate.outputs.outputs.passed : false }}"
   merged: "${{ 'merge' in states && has(states.merge.outputs.merged_hash) && states.merge.outputs.merged_hash != \"\" }}"
   merged_hash: "${{ 'merge' in states && has(states.merge.outputs.merged_hash) ? states.merge.outputs.merged_hash : \"\" }}"
-  canceled: "${{ 'cancel_ticket_done' in states }}"
-  ticket_done: "${{ 'complete_done_noop' in states }}"
+  canceled: "${{ 'cancel_job_done' in states }}"
+  job_done: "${{ 'complete_done_noop' in states }}"

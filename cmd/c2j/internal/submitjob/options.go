@@ -23,10 +23,8 @@ type Options struct {
 	InputsJSON string
 	InputsFile string
 
-	ActorEmail string
-	TicketID   string
-	Self       bool
-	Cell       string
+	Self bool
+	Cell string
 
 	RunAfterSubmit bool
 	JSONOutput     bool

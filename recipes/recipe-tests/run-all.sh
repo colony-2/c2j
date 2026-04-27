@@ -39,9 +39,9 @@ run_suite "new-ticket-requirements-planning.yaml" "new-ticket-requirements-plann
 run_suite "new-ticket-implementation-planning.yaml" "new-ticket-implementation-planning.scenario.md" "implementation_planning"
 run_suite "new-ticket-outcome-determination.yaml" "new-ticket-outcome-determination.scenario.md" "outcome_determination"
 run_suite "new-ticket.yaml" "new-ticket.scenario.md" "new_ticket"
-run_suite "ticket-implement.yaml" "ticket-implement.scenario.md" "implement"
-run_suite "ticket-validate.yaml" "ticket-validate.scenario.md" "validate"
-run_suite "ticket-merge.yaml" "ticket-merge.scenario.md" "merge"
+run_suite "job-implement.yaml" "job-implement.scenario.md" "implement"
+run_suite "job-validate.yaml" "job-validate.scenario.md" "validate"
+run_suite "job-merge.yaml" "job-merge.scenario.md" "merge"
 
 echo "TS-001..TS-041 (recipe suites) passed."
 "$ROOT_DIR/verify-cli-framework.sh"

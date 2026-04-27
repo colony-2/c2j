@@ -1,4 +1,4 @@
-id: ticket-merge
+id: job-merge
 version: 0.2.0
 desc: Squash, rebase, and merge the current workspace back to upstream (requires explicit approval)
 input_schema:

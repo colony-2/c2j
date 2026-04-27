@@ -77,10 +77,6 @@ func Run(ctx context.Context, opts Options) error {
 			RecipeName: recipeName,
 			Inputs:     inputs,
 			JobContext: contextual.JobContext{
-				Actor: contextual.ActorContext{
-					TicketID:   strings.TrimSpace(opts.TicketID),
-					ActorEmail: strings.TrimSpace(opts.ActorEmail),
-				},
 				Workflow: contextual.WorkflowContext{
 					CellName:  target.CellName,
 					CellPath:  ".",

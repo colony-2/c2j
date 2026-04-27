@@ -1,4 +1,4 @@
-# ticket-implement test suite
+# job-implement test suite
 
 ```yaml
 cases:
@@ -12,7 +12,7 @@ cases:
     mocks:
       ops:
         - match:
-            node_path: ticket-implement/continue_session/codex.exec
+            node_path: job-implement/continue_session/codex.exec
           behavior:
             mode: return
             outputs:
@@ -40,7 +40,7 @@ cases:
     mocks:
       ops:
         - match:
-            node_path: ticket-implement/new_session/codex.exec
+            node_path: job-implement/new_session/codex.exec
           behavior:
             mode: return
             outputs:
@@ -66,7 +66,7 @@ cases:
     mocks:
       ops:
         - match:
-            node_path: ticket-implement/new_session/codex.exec
+            node_path: job-implement/new_session/codex.exec
           behavior:
             mode: return
             outputs:

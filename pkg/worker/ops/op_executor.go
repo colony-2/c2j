@@ -72,7 +72,6 @@ func (t opExecutor) do(ctx context.Context, jobTool ops.JobTool, req ActivityInv
 		"op_type", reg.Metadata.Type,
 		"step", reg.Step.Name,
 		"step_index", reg.StepIndex,
-		"ticket_id", req.GitTaskContext.TicketID,
 		"cell_name", req.GitTaskContext.CellName,
 		"cell_path", req.GitTaskContext.CellPath,
 		"node_path", req.GitTaskContext.NodePath,

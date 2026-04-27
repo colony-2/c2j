@@ -152,11 +152,6 @@ func runGit(dir string, name string, args ...string) error {
 
 func defaultTestContext(baseRepo string, baseHash string) (contextual.JobContext, contextual.GitCommitContext) {
 	job := contextual.JobContext{
-		Actor: contextual.ActorContext{
-			TicketID:   "TEST-TICKET",
-			ActorName:  "test-actor",
-			ActorEmail: "test-actor@colony2",
-		},
 		Environment: contextual.EnvironmentContext{},
 		Workflow: contextual.WorkflowContext{
 			CellName: "cells/test-cell",
@@ -185,22 +180,7 @@ func mergeJobContext(base contextual.JobContext, override *contextual.JobContext
 		return base
 	}
 
-	// Actor
-	if override.Actor.TicketID != "" {
-		base.Actor.TicketID = override.Actor.TicketID
-	}
-	if override.Actor.ActorName != "" {
-		base.Actor.ActorName = override.Actor.ActorName
-	}
-	if override.Actor.ActorEmail != "" {
-		base.Actor.ActorEmail = override.Actor.ActorEmail
-	}
-
 	// Ticket (replace if any field is set)
-	if !reflect.DeepEqual(override.Ticket, contextual.TicketContext{}) {
-		base.Ticket = override.Ticket
-	}
-
 	// Environment
 	if override.Environment.WorktreePath != "" {
 		base.Environment.WorktreePath = override.Environment.WorktreePath

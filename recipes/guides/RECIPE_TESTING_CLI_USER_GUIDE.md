@@ -2,6 +2,19 @@
 
 This guide covers how to compile, validate, and execute recipe test suites with `c2 recipe test`.
 
+This is not the default day-to-day authoring loop for recipes in this repo.
+
+Start manual authoring with:
+
+```bash
+c2j submit \
+  --recipe-file ./recipes/my-recipe.yaml \
+  --run \
+  --embed
+```
+
+Use `c2 recipe test` when you need curated suites, mocks, repeated cases, or artifact assertions that go beyond one interactive validation run.
+
 The CLI orchestrates test suites locally and calls per-case server APIs:
 
 1. `POST /api/projects/{projectId}/recipe-tests/cases/validate`

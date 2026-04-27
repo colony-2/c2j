@@ -1,4 +1,4 @@
-id: ticket-validate
+id: job-validate
 version: 0.2.0
 desc: Run validation commands (tests/lint/build) in the current cell and summarize results
 input_schema:

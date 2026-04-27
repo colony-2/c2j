@@ -48,11 +48,6 @@ outputs:
 
 	inputs := map[string]interface{}{}
 	jobCtx := contextual.JobContext{
-		Actor: contextual.ActorContext{
-			TicketID:   "TEST-TICKET",
-			ActorName:  "test-actor",
-			ActorEmail: "test-actor@colony2",
-		},
 		Environment: contextual.EnvironmentContext{},
 		Workflow: contextual.WorkflowContext{
 			CellName: "cells/test-cell",

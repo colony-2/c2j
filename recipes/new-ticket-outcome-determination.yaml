@@ -32,10 +32,10 @@ sequence:
         - "gitl.colony2.com/jnadeau/skills/.agents/skills@1362438426e25c733174ea85f248db11af99a8a7"
       prompt: |
         Follow the `c2-test-statement-curator` skill contract.
-        Build an outcome-determination bundle for this ticket before implementation starts.
+        Build an outcome-determination bundle for this job before implementation starts.
 
-        Ticket Title: {{ inputs.title }}
-        Ticket Description:
+        Job Title: {{ inputs.title }}
+        Job Description:
         {{ inputs.description }}
 
         Current Cell: {{ context.workflow.cell }}
@@ -60,7 +60,7 @@ sequence:
         {{ inputs.user_feedback }}
 
         Requirements:
-        - Identify current test statements relevant to this ticket and this cell.
+        - Identify current test statements relevant to this job and this cell.
         - Decide whether test statements need to be altered before implementation.
         - Keep expectations backwards compatible.
         - Test statements MUST be markdown.

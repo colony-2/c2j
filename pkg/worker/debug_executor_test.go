@@ -110,11 +110,6 @@ inputs:
 
 	repo, hash := ensureDebugRepo()
 	jobCtx := contextual.JobContext{
-		Actor: contextual.ActorContext{
-			TicketID:   "TEST-TICKET",
-			ActorName:  "test-user",
-			ActorEmail: "test-user@colony2",
-		},
 		Environment: contextual.EnvironmentContext{},
 		Workflow: contextual.WorkflowContext{
 			CellName: "cells/test-cell",
@@ -172,11 +167,6 @@ inputs:
 
 	repo, hash := ensureDebugRepo()
 	jobCtx := contextual.JobContext{
-		Actor: contextual.ActorContext{
-			TicketID:   "TEST-TICKET",
-			ActorName:  "test-user",
-			ActorEmail: "test-user@colony2",
-		},
 		Environment: contextual.EnvironmentContext{},
 		Workflow: contextual.WorkflowContext{
 			CellName: "root-cell",

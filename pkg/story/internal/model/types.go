@@ -163,7 +163,6 @@ type StartWorkflowRequest struct {
 	CellID         string
 	Inputs         map[string]interface{}
 	GitRef         *string
-	ActorEmail     *string
 	IdempotencyKey *string
 	Prerequisites  []swf.JobPrerequisite
 }

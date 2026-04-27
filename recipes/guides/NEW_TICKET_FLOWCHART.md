@@ -8,7 +8,7 @@ flowchart TD
   REQUIREMENTS["requirements_planning"]
   IMPLEMENTATION_PLAN["implementation_planning"]
   OUTCOME["outcome_determination"]
-  SPAWN_DEPS["spawn_dependency_tickets"]
+  SPAWN_DEPS["spawn_dependency_jobs"]
   DEP_WAIT_NOTE["dependency_wait_note"]
   DEP_WAIT_HOLD["dependency_wait_hold (terminal wait)"]
 
@@ -24,9 +24,9 @@ flowchart TD
   MERGE_REVIEW["ready_to_merge_review"]
   MERGE["merge"]
 
-  CANCEL_ROUTE["cancel_ticket_route"]
-  CANCEL_UPDATE["cancel_ticket_update"]
-  CANCEL_DONE["cancel_ticket_done"]
+  CANCEL_ROUTE["cancel_job_route"]
+  CANCEL_UPDATE["cancel_job_update"]
+  CANCEL_DONE["cancel_job_done"]
 
   COMPLETE_ROUTE["complete_done_route"]
   COMPLETE_UPDATE["complete_done_update"]
@@ -41,16 +41,16 @@ flowchart TD
   REQUIREMENTS -->|"api_review_ok == true"| IMPLEMENTATION_PLAN
 
   IMPLEMENTATION_PLAN -->|"compat_review_ok == false"| PRE_REVIEW
-  IMPLEMENTATION_PLAN -->|"requires_dependency_tickets == true"| SPAWN_DEPS
+  IMPLEMENTATION_PLAN -->|"requires_dependency_jobs == true"| SPAWN_DEPS
   IMPLEMENTATION_PLAN -->|"otherwise"| OUTCOME
 
-  SPAWN_DEPS -->|"has context.actor.ticket_id"| DEP_WAIT_NOTE
+  SPAWN_DEPS -->|"has context.workflow.job_id"| DEP_WAIT_NOTE
   SPAWN_DEPS -->|"otherwise"| DEP_WAIT_HOLD
   DEP_WAIT_NOTE -->|"always"| DEP_WAIT_HOLD
 
   OUTCOME -->|"always"| PRE_REVIEW
 
-  PRE_REVIEW -->|"decision == cancel_ticket"| CANCEL_ROUTE
+  PRE_REVIEW -->|"decision == cancel_job"| CANCEL_ROUTE
   PRE_REVIEW -->|"decision == revise_current_stage + target_stage=requirements"| REQUIREMENTS
   PRE_REVIEW -->|"decision == revise_current_stage + target_stage=implementation_planning"| IMPLEMENTATION_PLAN
   PRE_REVIEW -->|"decision == revise_current_stage + target_stage=outcome_determination (or empty)"| OUTCOME
@@ -73,7 +73,7 @@ flowchart TD
 
   IMPLEMENT_RESUME_BUGS -->|"always"| VALIDATE
 
-  PRE_FOLLOWUP -->|"decision == cancel_ticket"| CANCEL_ROUTE
+  PRE_FOLLOWUP -->|"decision == cancel_job"| CANCEL_ROUTE
   PRE_FOLLOWUP -->|"decision == revise_current_stage + target_stage=requirements"| REQUIREMENTS
   PRE_FOLLOWUP -->|"decision == revise_current_stage + target_stage=implementation_planning"| IMPLEMENTATION_PLAN
   PRE_FOLLOWUP -->|"decision == revise_current_stage + target_stage=outcome_determination (or empty)"| OUTCOME
@@ -84,7 +84,7 @@ flowchart TD
 
   VALIDATE -->|"always"| MERGE_REVIEW
 
-  MERGE_REVIEW -->|"decision == cancel_ticket"| CANCEL_ROUTE
+  MERGE_REVIEW -->|"decision == cancel_job"| CANCEL_ROUTE
   MERGE_REVIEW -->|"decision == back_up_requirements"| REQUIREMENTS
   MERGE_REVIEW -->|"decision == back_up_implementation_planning"| IMPLEMENTATION_PLAN
   MERGE_REVIEW -->|"decision == back_up_outcome"| OUTCOME
@@ -94,11 +94,11 @@ flowchart TD
   MERGE_REVIEW -->|"fallback"| IMPLEMENT
 
   MERGE -->|"always"| COMPLETE_ROUTE
-  COMPLETE_ROUTE -->|"has context.actor.ticket_id"| COMPLETE_UPDATE
+  COMPLETE_ROUTE -->|"has context.workflow.job_id"| COMPLETE_UPDATE
   COMPLETE_ROUTE -->|"otherwise"| COMPLETE_NOOP
   COMPLETE_UPDATE -->|"always"| COMPLETE_NOOP
 
-  CANCEL_ROUTE -->|"has context.actor.ticket_id"| CANCEL_UPDATE
+  CANCEL_ROUTE -->|"has context.workflow.job_id"| CANCEL_UPDATE
   CANCEL_ROUTE -->|"otherwise"| CANCEL_DONE
   CANCEL_UPDATE -->|"always"| CANCEL_DONE
 ```

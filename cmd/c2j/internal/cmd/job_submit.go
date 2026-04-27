@@ -45,8 +45,6 @@ func newSubmitCmd() *cobra.Command {
 	flags.StringVar(&opts.InputsFile, "inputs-file", "", "Path to a JSON or YAML file containing recipe inputs")
 	flags.BoolVar(&opts.Self, "self", false, "Target the current cell explicitly (also the default when --cell is omitted)")
 	flags.StringVar(&opts.Cell, "cell", "", "Target cell git repository (canonical repo, clone URL, or local path)")
-	flags.StringVar(&opts.ActorEmail, "actor-email", "", "Actor email recorded in job context")
-	flags.StringVar(&opts.TicketID, "ticket-id", "", "Ticket ID recorded in job context")
 	flags.BoolVarP(&opts.RunAfterSubmit, "run", "r", false, "Run the submitted job immediately after submission")
 	flags.BoolVar(&useEmbed, "embed", false, "Use the embedded SWF runtime (equivalent to --swf-url "+defaults.EmbedURL+")")
 	flags.BoolVar(&opts.JSONOutput, "json", false, "Emit the submitted job identity as JSON")

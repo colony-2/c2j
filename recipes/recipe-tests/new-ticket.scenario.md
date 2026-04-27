@@ -2,11 +2,11 @@
 
 ```yaml
 cases:
-  - id: ts-031-dependency-tickets-gate-local-implementation
+  - id: ts-031-dependency-jobs-gate-local-implementation
     type: recipe_case
     inputs:
       title: Cross-cell change
-      description: Requires dependency tickets first
+      description: Requires dependency jobs first
     mocks:
       ops:
         - match:
@@ -64,13 +64,13 @@ cases:
             mode: return
             outputs:
               compat_review_ok: true
-              requires_dependency_tickets: true
+              requires_dependency_jobs: true
               outputs:
-                plan_json: '{"summary":"Dependency tickets required","requires_dependency_tickets":true,"dependency_order":["REQ-1","REQ-2"],"dependency_ticket_specs":[{"id":"REQ-1","title":"API prep","target_cell":"api","depends_on_ids":[],"depends_on_markdown":"- (none)","scope":"Prepare API contract","acceptance_criteria_markdown":"- API contract ready","risks_markdown":"- Coordination delay","notes":"Must complete before local work"}],"local_steps":["Implement REQ-2 after REQ-1"],"notes_for_user_review":"Wait on dependency","compat_review_ok":true,"compat_review_feedback":"Compatible","compat_review_blocking_issues":[]}'
-                summary: Dependency tickets required
-                requires_dependency_tickets: true
+                plan_json: '{"summary":"Dependency jobs required","requires_dependency_jobs":true,"dependency_order":["REQ-1","REQ-2"],"dependency_job_specs":[{"id":"REQ-1","title":"API prep","target_cell":"api","depends_on_ids":[],"depends_on_markdown":"- (none)","scope":"Prepare API contract","acceptance_criteria_markdown":"- API contract ready","risks_markdown":"- Coordination delay","notes":"Must complete before local work"}],"local_steps":["Implement REQ-2 after REQ-1"],"notes_for_user_review":"Wait on dependency","compat_review_ok":true,"compat_review_feedback":"Compatible","compat_review_blocking_issues":[]}'
+                summary: Dependency jobs required
+                requires_dependency_jobs: true
                 dependency_order: [REQ-1, REQ-2]
-                dependency_ticket_specs:
+                dependency_job_specs:
                   - id: REQ-1
                     title: API prep
                     target_cell: api
@@ -90,13 +90,12 @@ cases:
               implementation/index.md: '# Implementation'
               implementation/compat-review.json: '{"ok":true}'
         - match:
-            node_path: new-ticket/spawn_dependency_tickets/ticket.manage
+            node_path: new-ticket/spawn_dependency_jobs/recipes.run
           behavior:
             mode: return
             outputs:
-              results:
-                - ticket:
-                    id: T-dep-1
+              job_ids:
+                - job-dep-1
         - match:
             node_path: new-ticket/dependency_wait_hold/sleep
           behavior:
@@ -108,7 +107,7 @@ cases:
               error_message: ""
     assertions:
       - type: node_executed
-        node_path: new-ticket/spawn_dependency_tickets/ticket.manage
+        node_path: new-ticket/spawn_dependency_jobs/recipes.run
       - type: output_equals
         path: dependency_waiting
         value: true
@@ -169,9 +168,9 @@ cases:
               outputs:
                 plan_json: '{"summary":"Impl"}'
                 summary: Local plan
-                requires_dependency_tickets: false
+                requires_dependency_jobs: false
                 dependency_order: [REQ-1]
-                dependency_ticket_specs: []
+                dependency_job_specs: []
                 local_steps: [Implement feature]
                 notes_for_user_review: Ready
                 compat_review_ok: true
@@ -241,13 +240,13 @@ cases:
             mode: return
             outputs:
               fields:
-                decision: cancel_ticket
+                decision: cancel_job
                 feedback: ""
                 upstream_repo: ""
                 upstream_branch: ""
                 commit_message: ""
         - match:
-            node_path: new-ticket/cancel_ticket_route/sleep
+            node_path: new-ticket/cancel_job_route/sleep
           behavior:
             mode: return
             outputs:
@@ -256,7 +255,7 @@ cases:
               actual_duration: 1ms
               error_message: ""
         - match:
-            node_path: new-ticket/cancel_ticket_done/sleep
+            node_path: new-ticket/cancel_job_done/sleep
           behavior:
             mode: return
             outputs:
@@ -266,7 +265,7 @@ cases:
               error_message: ""
     assertions:
       - type: node_executed
-        node_path: new-ticket/cancel_ticket_route/sleep
+        node_path: new-ticket/cancel_job_route/sleep
       - type: output_equals
         path: canceled
         value: true
@@ -327,9 +326,9 @@ cases:
               outputs:
                 plan_json: '{"summary":"Impl"}'
                 summary: Local plan
-                requires_dependency_tickets: false
+                requires_dependency_jobs: false
                 dependency_order: [REQ-1]
-                dependency_ticket_specs: []
+                dependency_job_specs: []
                 local_steps: [Implement feature]
                 notes_for_user_review: Ready
                 compat_review_ok: true
@@ -421,11 +420,11 @@ cases:
             mode: return
             outputs:
               fields:
-                decision: cancel_ticket
+                decision: cancel_job
                 feedback: ""
                 implementation_answers: ""
         - match:
-            node_path: new-ticket/cancel_ticket_route/sleep
+            node_path: new-ticket/cancel_job_route/sleep
           behavior:
             mode: return
             outputs:
@@ -434,7 +433,7 @@ cases:
               actual_duration: 1ms
               error_message: ""
         - match:
-            node_path: new-ticket/cancel_ticket_done/sleep
+            node_path: new-ticket/cancel_job_done/sleep
           behavior:
             mode: return
             outputs:
@@ -450,11 +449,11 @@ cases:
         path: canceled
         value: true
 
-  - id: ts-034-merge-success-completes-ticket
+  - id: ts-034-merge-success-completes-job
     type: recipe_case
     inputs:
       title: Merge success
-      description: Complete ticket after merge
+      description: Complete job after merge
       local_hash: deadbeefdeadbeefdeadbeefdeadbeefdeadbeef
       upstream_repo: git@example.com:org/repo.git
       upstream_branch: main
@@ -509,9 +508,9 @@ cases:
               outputs:
                 plan_json: '{"summary":"Impl"}'
                 summary: Local plan
-                requires_dependency_tickets: false
+                requires_dependency_jobs: false
                 dependency_order: [REQ-1]
-                dependency_ticket_specs: []
+                dependency_job_specs: []
                 local_steps: [Implement feature]
                 notes_for_user_review: Ready
                 compat_review_ok: true
@@ -619,14 +618,14 @@ cases:
         path: merged_hash
         value: cafebabecafebabecafebabecafebabecafebabe
       - type: output_equals
-        path: ticket_done
+        path: job_done
         value: true
 
-  - id: ts-035-implementation-opens-cross-cell-bug-tickets
+  - id: ts-035-implementation-opens-cross-cell-bug-jobs
     type: recipe_case
     inputs:
       title: Implementation finds external bug
-      description: Bug ticket should be created
+      description: Bug job should be created
     mocks:
       ops:
         - match:
@@ -678,9 +677,9 @@ cases:
               outputs:
                 plan_json: '{"summary":"Impl"}'
                 summary: Local plan
-                requires_dependency_tickets: false
+                requires_dependency_jobs: false
                 dependency_order: [REQ-1]
-                dependency_ticket_specs: []
+                dependency_job_specs: []
                 local_steps: [Implement feature]
                 notes_for_user_review: Ready
                 compat_review_ok: true
@@ -736,13 +735,12 @@ cases:
                 - component: api
                   requestedChanges: "Bug: null pointer in API validation path.\nRepro: send empty payload to /v1/items."
         - match:
-            node_path: new-ticket/implement_bugs/ticket.manage
+            node_path: new-ticket/implement_bugs/recipes.run
           behavior:
             mode: return
             outputs:
-              results:
-                - ticket:
-                    id: T-bug-1
+              job_ids:
+                - job-bug-1
         - match:
             node_path: new-ticket/validate/recipe.run_and_get_result
           behavior:
@@ -760,13 +758,13 @@ cases:
             mode: return
             outputs:
               fields:
-                decision: cancel_ticket
+                decision: cancel_job
                 feedback: ""
                 upstream_repo: ""
                 upstream_branch: ""
                 commit_message: ""
         - match:
-            node_path: new-ticket/cancel_ticket_route/sleep
+            node_path: new-ticket/cancel_job_route/sleep
           behavior:
             mode: return
             outputs:
@@ -775,7 +773,7 @@ cases:
               actual_duration: 1ms
               error_message: ""
         - match:
-            node_path: new-ticket/cancel_ticket_done/sleep
+            node_path: new-ticket/cancel_job_done/sleep
           behavior:
             mode: return
             outputs:
@@ -785,7 +783,7 @@ cases:
               error_message: ""
     assertions:
       - type: node_executed
-        node_path: new-ticket/implement_bugs/ticket.manage
+        node_path: new-ticket/implement_bugs/recipes.run
       - type: output_equals
         path: canceled
         value: true
@@ -846,9 +844,9 @@ cases:
               outputs:
                 plan_json: '{"summary":"Impl"}'
                 summary: Local plan
-                requires_dependency_tickets: false
+                requires_dependency_jobs: false
                 dependency_order: [REQ-1]
-                dependency_ticket_specs: []
+                dependency_job_specs: []
                 local_steps: [Implement feature]
                 notes_for_user_review: Ready
                 compat_review_ok: true
@@ -938,13 +936,13 @@ cases:
             mode: return
             outputs:
               fields:
-                decision: cancel_ticket
+                decision: cancel_job
                 feedback: ""
                 upstream_repo: ""
                 upstream_branch: ""
                 commit_message: ""
         - match:
-            node_path: new-ticket/cancel_ticket_route/sleep
+            node_path: new-ticket/cancel_job_route/sleep
           behavior:
             mode: return
             outputs:
@@ -953,7 +951,7 @@ cases:
               actual_duration: 1ms
               error_message: ""
         - match:
-            node_path: new-ticket/cancel_ticket_done/sleep
+            node_path: new-ticket/cancel_job_done/sleep
           behavior:
             mode: return
             outputs:
@@ -1026,9 +1024,9 @@ cases:
               outputs:
                 plan_json: '{"summary":"Impl"}'
                 summary: Local plan
-                requires_dependency_tickets: false
+                requires_dependency_jobs: false
                 dependency_order: [REQ-1]
-                dependency_ticket_specs: []
+                dependency_job_specs: []
                 local_steps: [Implement feature]
                 notes_for_user_review: Ready
                 compat_review_ok: true
@@ -1098,13 +1096,13 @@ cases:
             mode: return
             outputs:
               fields:
-                decision: cancel_ticket
+                decision: cancel_job
                 feedback: ""
                 upstream_repo: ""
                 upstream_branch: ""
                 commit_message: ""
         - match:
-            node_path: new-ticket/cancel_ticket_route/sleep
+            node_path: new-ticket/cancel_job_route/sleep
           behavior:
             mode: return
             outputs:
@@ -1113,7 +1111,7 @@ cases:
               actual_duration: 1ms
               error_message: ""
         - match:
-            node_path: new-ticket/cancel_ticket_done/sleep
+            node_path: new-ticket/cancel_job_done/sleep
           behavior:
             mode: return
             outputs:
@@ -1184,9 +1182,9 @@ cases:
               outputs:
                 plan_json: '{"summary":"Impl"}'
                 summary: Local plan
-                requires_dependency_tickets: false
+                requires_dependency_jobs: false
                 dependency_order: [REQ-1]
-                dependency_ticket_specs: []
+                dependency_job_specs: []
                 local_steps: [Implement feature]
                 notes_for_user_review: Ready
                 compat_review_ok: true
@@ -1245,11 +1243,11 @@ cases:
             mode: return
             outputs:
               fields:
-                decision: cancel_ticket
+                decision: cancel_job
                 feedback: ""
                 implementation_answers: ""
         - match:
-            node_path: new-ticket/cancel_ticket_route/sleep
+            node_path: new-ticket/cancel_job_route/sleep
           behavior:
             mode: return
             outputs:
@@ -1258,7 +1256,7 @@ cases:
               actual_duration: 1ms
               error_message: ""
         - match:
-            node_path: new-ticket/cancel_ticket_done/sleep
+            node_path: new-ticket/cancel_job_done/sleep
           behavior:
             mode: return
             outputs:

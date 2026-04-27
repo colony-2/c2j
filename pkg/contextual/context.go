@@ -15,13 +15,6 @@ const ArtifactInboxSentinel = "__C2_SENTINEL_ARTIFACT_INBOX__"
 const ArtifactOutboxSentinel = "__C2_SENTINEL_ARTIFACT_OUTBOX__"
 const JobIdSentinel = "__C2_SENTINEL_JOB_ID__"
 
-// ActorContext represents the user/cell identity associated with an invocation.
-type ActorContext struct {
-	TicketID   string `json:"ticket_id,omitempty"`
-	ActorName  string `json:"actor_name,omitempty"`
-	ActorEmail string `json:"actor_email,omitempty"`
-}
-
 // EnvironmentContext captures filesystem and storage locations relevant to execution.
 type EnvironmentContext struct {
 	WorktreePath   string `json:"worktree_path,omitempty"`
@@ -54,37 +47,8 @@ type WorkflowContext struct {
 	ProjectId string `json:"project_id,omitempty"`
 }
 
-type TicketCreatorUserContext struct {
-	Email string `json:"email,omitempty"`
-}
-
-type TicketCreatorAgentContext struct {
-	CellName       string `json:"cell,omitempty"`
-	WorkflowName   string `json:"workflow_name,omitempty"`
-	ExecutionID    string `json:"execution_id,omitempty"`
-	InvocationHash string `json:"invocation_hash,omitempty"`
-}
-
-type TicketCreatorContext struct {
-	Type  string                     `json:"type,omitempty"`
-	User  *TicketCreatorUserContext  `json:"user,omitempty"`
-	Agent *TicketCreatorAgentContext `json:"agent,omitempty"`
-}
-
-// TicketContext represents ticket metadata available to recipes.
-type TicketContext struct {
-	ID          string               `json:"id,omitempty"`
-	Title       string               `json:"title,omitempty"`
-	Description string               `json:"description,omitempty"`
-	Creator     TicketCreatorContext `json:"creator,omitempty"`
-	CreatedAt   time.Time            `json:"created_at,omitempty"`
-	UpdatedAt   time.Time            `json:"updated_at,omitempty"`
-}
-
 // ExecutionContext holds typed workflow context available to templates. It is created per task.
 type JobContext struct {
-	Actor        ActorContext        `json:"actor,omitempty"`
-	Ticket       TicketContext       `json:"ticket,omitempty"`
 	Environment  EnvironmentContext  `json:"environment,omitempty"`
 	Workflow     WorkflowContext     `json:"workflow,omitempty"`
 	GitBase      GitBaseContext      `json:"git,omitempty"`
@@ -99,8 +63,6 @@ type TaskContext struct {
 
 func NewTaskExecutionContext(ctx JobContext, ctx2 TaskContext) TaskExecutionContext {
 	return TaskExecutionContext{
-		Actor:        ctx.Actor,
-		Ticket:       ctx.Ticket,
 		Environment:  ctx.Environment,
 		Workflow:     ctx.Workflow,
 		RecipeSource: ctx.RecipeSource,
@@ -123,8 +85,6 @@ func NewTaskExecutionContext(ctx JobContext, ctx2 TaskContext) TaskExecutionCont
 
 type TaskExecutionContext struct {
 	// embed these directly from task and job contexts for easier resolution.
-	Actor        ActorContext        `json:"actor,omitempty"`
-	Ticket       TicketContext       `json:"ticket,omitempty"`
 	Environment  EnvironmentContext  `json:"environment,omitempty"`
 	Workflow     WorkflowContext     `json:"workflow,omitempty"`
 	RecipeSource RecipeSourceContext `json:"recipe_source,omitempty"`
@@ -150,8 +110,6 @@ type InvocationCtx struct {
 
 func (t TaskExecutionContext) JobContext() JobContext {
 	return JobContext{
-		Actor:       t.Actor,
-		Ticket:      t.Ticket,
 		Environment: t.Environment,
 		Workflow:    t.Workflow,
 		GitBase: GitBaseContext{

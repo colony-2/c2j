@@ -145,11 +145,6 @@ func TestMultiStepWithCapabilityClaim(t *testing.T) {
 		RecipeName: rec.GetMetadata().ID,
 		Inputs:     map[string]interface{}{},
 		JobContext: contextual.JobContext{
-			Actor: contextual.ActorContext{
-				TicketID:   "T-123",
-				ActorName:  "tester",
-				ActorEmail: "tester@example.com",
-			},
 			Environment: contextual.EnvironmentContext{},
 			Workflow: contextual.WorkflowContext{
 				CellName: "cells/test",

@@ -102,8 +102,6 @@ func applyJobContextToTaskExecutionContext(exec *contextual.TaskExecutionContext
 	}
 
 	// Update embedded job fields.
-	exec.Actor = job.Actor
-	exec.Ticket = job.Ticket
 	exec.Environment = job.Environment
 	exec.Workflow = job.Workflow
 

@@ -18,8 +18,8 @@ sequence:
       prompt: |
         Follow the `c2-triage-cell-boundary` skill contract.
 
-        Ticket Title: Improve recipe test execution guidance
-        Ticket Description:
+        Job Title: Improve recipe test execution guidance
+        Job Description:
         Add non-breaking recipe test coverage and supporting guidance for the recipe-testing cell.
 
         Current Cell: recipe-tests
@@ -67,8 +67,8 @@ sequence:
       prompt: |
         Follow the `c2-triage-cell-boundary` skill contract.
 
-        Ticket Title: Redesign filter drawer interaction
-        Ticket Description:
+        Job Title: Redesign filter drawer interaction
+        Job Description:
         Update the React filter drawer in the browser UI, change button spacing, and add a loading skeleton while results fetch.
 
         Current Cell: recipe-tests
@@ -115,10 +115,10 @@ sequence:
         - "gitl.colony2.com/jnadeau/skills/.agents/skills@1362438426e25c733174ea85f248db11af99a8a7"
       prompt: |
         Follow the `c2-requirements-author` skill contract.
-        Create a requirements bundle for this ticket and write artifacts directly.
+        Create a requirements bundle for this job and write artifacts directly.
 
-        Ticket Title: Improve recipe test execution guidance
-        Ticket Description:
+        Job Title: Improve recipe test execution guidance
+        Job Description:
         Add non-breaking recipe test coverage and supporting guidance for the recipe-testing cell.
 
         Current Cell: recipe-tests
@@ -316,10 +316,10 @@ sequence:
         - "gitl.colony2.com/jnadeau/skills/.agents/skills@1362438426e25c733174ea85f248db11af99a8a7"
       prompt: |
         Follow the `c2-implementation-plan-author` skill contract.
-        Build an implementation plan for this ticket and write artifacts directly.
+        Build an implementation plan for this job and write artifacts directly.
 
-        Ticket Title: Improve recipe test execution guidance
-        Ticket Description:
+        Job Title: Improve recipe test execution guidance
+        Job Description:
         Add non-breaking recipe test coverage and supporting guidance for the recipe-testing cell.
 
         Current Cell: recipe-tests
@@ -339,10 +339,10 @@ sequence:
 
         Rules:
         - Never plan a backwards-incompatible change.
-        - If dependent cells must complete work before this cell can safely implement, set `requires_dependency_tickets=true`.
+        - If dependent cells must complete work before this cell can safely implement, set `requires_dependency_jobs=true`.
         - `dependency_order` must be valid topological order for all requirement IDs referenced.
-        - `dependency_ticket_specs` must include ONLY requirements targeting other cells.
-        - `dependency_ticket_specs[].depends_on_ids` must reference requirement IDs.
+        - `dependency_job_specs` must include ONLY requirements targeting other cells.
+        - `dependency_job_specs[].depends_on_ids` must reference requirement IDs.
 
         Write files under this absolute outbox directory:
         `/src/outbox/implementation`
@@ -350,13 +350,13 @@ sequence:
         Required files:
         1) `plan.json` as valid JSON with EXACT keys:
            - summary (string)
-           - requires_dependency_tickets (boolean)
+           - requires_dependency_jobs (boolean)
            - dependency_order (array of string)
-           - dependency_ticket_specs (array of objects)
+           - dependency_job_specs (array of objects)
            - local_steps (array of string)
            - notes_for_user_review (string)
 
-        Each dependency_ticket_specs[] object must include:
+        Each dependency_job_specs[] object must include:
            - id (string)
            - title (string)
            - target_cell (string)
@@ -368,7 +368,7 @@ sequence:
            - notes (string)
 
         2) `index.md` implementation summary document.
-        3) One markdown file per dependency ticket spec: `<REQ-ID>.md`.
+        3) One markdown file per dependency job spec: `<REQ-ID>.md`.
 
         Do not modify repo code for this step.
         Final response must be ONLY the exact `plan.json` object content (no markdown, no prose).
@@ -428,9 +428,9 @@ sequence:
         cat > "$OUT/bad-implementation/plan.json" <<'JSON'
         {
           "summary": "Land the change by directly editing other cells and skipping compatibility work.",
-          "requires_dependency_tickets": false,
+          "requires_dependency_jobs": false,
           "dependency_order": ["REQ-1"],
-          "dependency_ticket_specs": [],
+          "dependency_job_specs": [],
           "local_steps": [
             "Edit the frontend React drawer components from this cell.",
             "Remove the old CLI contract without a compatibility path.",
@@ -505,10 +505,10 @@ sequence:
         - "gitl.colony2.com/jnadeau/skills/.agents/skills@1362438426e25c733174ea85f248db11af99a8a7"
       prompt: |
         Follow the `c2-test-statement-curator` skill contract.
-        Build an outcome-determination bundle for this ticket before implementation starts.
+        Build an outcome-determination bundle for this job before implementation starts.
 
-        Ticket Title: Improve recipe test execution guidance
-        Ticket Description:
+        Job Title: Improve recipe test execution guidance
+        Job Description:
         Add non-breaking recipe test coverage and supporting guidance for the recipe-testing cell.
 
         Current Cell: recipe-tests
@@ -532,7 +532,7 @@ sequence:
         Use consistent statement formatting so human reviewers can quickly scan the outcome.
 
         Requirements:
-        - Identify current test statements relevant to this ticket and this cell.
+        - Identify current test statements relevant to this job and this cell.
         - Decide whether test statements need to be altered before implementation.
         - Keep expectations backwards compatible.
         - Test statements MUST be markdown.
@@ -763,7 +763,7 @@ outputs:
   requirements_bad_review_rejects: "${{ !json_parse(sequence.requirements_review_bad.outputs.assistantSummary).ok }}"
   requirements_bad_blockers_nonempty: "${{ size(json_parse(sequence.requirements_review_bad.outputs.assistantSummary).blocking_issues) > 0 }}"
   implementation_review_good_ok: "${{ json_parse(sequence.implementation_review_good.outputs.assistantSummary).ok }}"
-  implementation_requires_dependency_tickets_false: "${{ json_parse(sequence.implementation_good.outputs.assistantSummary).requires_dependency_tickets == false }}"
+  implementation_requires_dependency_jobs_false: "${{ json_parse(sequence.implementation_good.outputs.assistantSummary).requires_dependency_jobs == false }}"
   implementation_local_steps_nonzero: "${{ size(json_parse(sequence.implementation_good.outputs.assistantSummary).local_steps) > 0 }}"
   implementation_has_validation_step: "${{ json_parse(sequence.implementation_good.outputs.assistantSummary).local_steps.exists(s, matches(s, \"(?i)test|validat\")) }}"
   implementation_bad_review_rejects: "${{ !json_parse(sequence.implementation_review_bad.outputs.assistantSummary).ok }}"

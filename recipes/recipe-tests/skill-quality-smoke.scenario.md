@@ -45,7 +45,7 @@ cases:
         path: implementation_review_good_ok
         value: true
       - type: output_equals
-        path: implementation_requires_dependency_tickets_false
+        path: implementation_requires_dependency_jobs_false
         value: true
       - type: output_equals
         path: implementation_local_steps_nonzero

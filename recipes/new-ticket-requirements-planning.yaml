@@ -40,10 +40,10 @@ sequence:
         - "gitl.colony2.com/jnadeau/skills/.agents/skills@1362438426e25c733174ea85f248db11af99a8a7"
       prompt: |
         Follow the `c2-requirements-author` skill contract.
-        Create a requirements bundle for this ticket and write artifacts directly.
+        Create a requirements bundle for this job and write artifacts directly.
 
-        Ticket Title: {{ inputs.title }}
-        Ticket Description:
+        Job Title: {{ inputs.title }}
+        Job Description:
         {{ inputs.description }}
 
         Current Cell: {{ context.workflow.cell }}

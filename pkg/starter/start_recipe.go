@@ -28,22 +28,18 @@ const (
 const (
 	JobMetadataVersion = 1
 
-	MetaFieldVersion    swf.FieldName = "v"
-	MetaFieldRecipe     swf.FieldName = "recipe"
-	MetaFieldTicketID   swf.FieldName = "ticket_id"
-	MetaFieldCellID     swf.FieldName = "cell_id"
-	MetaFieldCellName   swf.FieldName = "cell_name"
-	MetaFieldActorEmail swf.FieldName = "actor_email"
-	MetaFieldGitRef     swf.FieldName = "git_ref"
+	MetaFieldVersion  swf.FieldName = "v"
+	MetaFieldRecipe   swf.FieldName = "recipe"
+	MetaFieldCellID   swf.FieldName = "cell_id"
+	MetaFieldCellName swf.FieldName = "cell_name"
+	MetaFieldGitRef   swf.FieldName = "git_ref"
 )
 
 type JobMetadata struct {
 	Version    int    `json:"v"`
 	RecipeName string `json:"recipe,omitempty"`
-	TicketID   string `json:"ticket_id,omitempty"`
 	CellID     string `json:"cell_id,omitempty"`
 	CellName   string `json:"cell_name,omitempty"`
-	ActorEmail string `json:"actor_email,omitempty"`
 	GitRef     string `json:"git_ref,omitempty"`
 }
 
@@ -51,10 +47,8 @@ func JobMetadataFromStartJob(startJob workflowctl.StartJob) JobMetadata {
 	return JobMetadata{
 		Version:    JobMetadataVersion,
 		RecipeName: startJob.RecipeName,
-		TicketID:   startJob.JobContext.Actor.TicketID,
 		CellID:     startJob.JobContext.Workflow.CellID,
 		CellName:   startJob.JobContext.Workflow.CellName,
-		ActorEmail: startJob.JobContext.Actor.ActorEmail,
 		GitRef:     startJob.GitRef,
 	}
 }

@@ -236,49 +236,6 @@ func TestCELJQFunctions(t *testing.T) {
 	})
 }
 
-func TestResolveTemplate_TicketContext(t *testing.T) {
-	createdAt := time.Date(2024, 2, 3, 4, 5, 6, 0, time.UTC)
-	updatedAt := createdAt.Add(2 * time.Hour)
-	commitCtx := &contextual.GitCommitContext{}
-	jobCtx := contextual.JobContext{
-		Ticket: contextual.TicketContext{
-			ID:          "ticket-123",
-			Title:       "Fix templates",
-			Description: "Ensure ticket context resolves",
-			Creator: contextual.TicketCreatorContext{
-				Type: "user",
-				User: &contextual.TicketCreatorUserContext{
-					Email: "creator@example.com",
-				},
-			},
-			CreatedAt: createdAt,
-			UpdatedAt: updatedAt,
-		},
-	}
-	ctx, err := NewRecipeResolutionContext(commitCtx, map[string]interface{}{}, jobCtx)
-	require.NoError(t, err)
-
-	val, err := ctx.resolveTemplate("${{ context.ticket.id }}")
-	require.NoError(t, err)
-	assert.Equal(t, "ticket-123", val)
-
-	val, err = ctx.resolveTemplate("${{ context.ticket.title }}")
-	require.NoError(t, err)
-	assert.Equal(t, "Fix templates", val)
-
-	val, err = ctx.resolveTemplate("${{ context.ticket.creator.user.email }}")
-	require.NoError(t, err)
-	assert.Equal(t, "creator@example.com", val)
-
-	val, err = ctx.resolveTemplate("${{ context.ticket.created_at }}")
-	require.NoError(t, err)
-	assertResolvedTime(t, val, createdAt)
-
-	val, err = ctx.resolveTemplate("${{ context.ticket.updated_at }}")
-	require.NoError(t, err)
-	assertResolvedTime(t, val, updatedAt)
-}
-
 func assertResolvedTime(t *testing.T, value interface{}, expected time.Time) {
 	t.Helper()
 	switch v := value.(type) {
@@ -716,43 +673,30 @@ func TestScopeVisibility_Negative(t *testing.T) {
 	require.Error(t, err)
 }
 
-func TestResolveTemplate_ContextActorTicketID(t *testing.T) {
-	// Create context with actor ticket_id set
+func TestResolveTemplate_ContextWorkflowJobID(t *testing.T) {
 	commitCtx := &contextual.GitCommitContext{}
 	jobCtx := contextual.JobContext{
-		Actor: contextual.ActorContext{
-			TicketID:   "ticket-12345",
-			ActorName:  "test-user",
-			ActorEmail: "test@example.com",
+		Workflow: contextual.WorkflowContext{
+			JobID: "job-12345",
 		},
 	}
 
 	recipeCtx, err := NewRecipeResolutionContext(commitCtx, nil, jobCtx)
 	require.NoError(t, err)
 
-	// Test resolving context.actor.ticket_id
-	result, err := recipeCtx.resolveTemplate("${{ context.actor.ticket_id }}")
+	result, err := recipeCtx.resolveTemplate("${{ context.workflow.job_id }}")
 	require.NoError(t, err)
-	assert.Equal(t, "ticket-12345", result)
-
-	// Test resolving other actor fields
-	result, err = recipeCtx.resolveTemplate("${{ context.actor.actor_name }}")
-	require.NoError(t, err)
-	assert.Equal(t, "test-user", result)
-
-	result, err = recipeCtx.resolveTemplate("${{ context.actor.actor_email }}")
-	require.NoError(t, err)
-	assert.Equal(t, "test@example.com", result)
+	assert.Equal(t, "job-12345", result)
 
 	// Test in a sequence context - should inherit from parent
 	seqCtx := newSequenceCtx(t, recipeCtx, "test-seq", map[string]interface{}{})
-	result, err = seqCtx.resolveTemplate("${{ context.actor.ticket_id }}")
+	result, err = seqCtx.resolveTemplate("${{ context.workflow.job_id }}")
 	require.NoError(t, err)
-	assert.Equal(t, "ticket-12345", result)
+	assert.Equal(t, "job-12345", result)
 
 	// Test in a state machine context
 	smCtx := newStateMachineCtx(t, recipeCtx, "test-sm", map[string]interface{}{})
-	result, err = smCtx.resolveTemplate("${{ context.actor.ticket_id }}")
+	result, err = smCtx.resolveTemplate("${{ context.workflow.job_id }}")
 	require.NoError(t, err)
-	assert.Equal(t, "ticket-12345", result)
+	assert.Equal(t, "job-12345", result)
 }

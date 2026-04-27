@@ -129,7 +129,6 @@ func TestBuildSummary_UsesJobMetadata(t *testing.T) {
 		RecipeName: "recipe-1",
 		CellID:     "cell-1",
 		CellName:   "alpha",
-		ActorEmail: "user@example.com",
 		GitRef:     "main",
 	}
 	metaRaw, err := json.Marshal(meta)
@@ -164,7 +163,7 @@ func TestBuildSummary_UsesJobMetadata(t *testing.T) {
 	if summary.SubmittedAt == nil || !summary.SubmittedAt.Equal(created) {
 		t.Fatalf("expected submitted_at %v, got %#v", created, summary.SubmittedAt)
 	}
-	if summary.Actor.User == nil || summary.Actor.User.Email != "user@example.com" {
-		t.Fatalf("expected actor email user@example.com, got %#v", summary.Actor)
+	if summary.Actor.Type != model.ActorTypeUser || summary.Actor.User != nil {
+		t.Fatalf("expected actor type user without user details, got %#v", summary.Actor)
 	}
 }

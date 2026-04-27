@@ -42,7 +42,7 @@ inputs:
 ### Go template example
 ```yaml
 inputs:
-  summary: "Ticket {{ context.ticket.id }} in {{ context.workflow.cell }}"
+  summary: "Job {{ context.workflow.job_id }} in {{ context.workflow.cell }}"
 ```
 
 ### Sequence outputs mapping

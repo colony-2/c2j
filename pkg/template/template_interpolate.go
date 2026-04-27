@@ -217,44 +217,7 @@ func (rc *ResolutionContext) goTemplateFuncMap() texttemplate.FuncMap {
 func (rc *ResolutionContext) goTemplateContextMap() map[string]interface{} {
 	ctx := rc.TemplateData.Context
 
-	ticketCreatorUser := map[string]interface{}{
-		"email": "",
-	}
-	if ctx.Ticket.Creator.User != nil {
-		ticketCreatorUser["email"] = ctx.Ticket.Creator.User.Email
-	}
-
-	ticketCreatorAgent := map[string]interface{}{
-		"cell":            "",
-		"workflow_name":   "",
-		"execution_id":    "",
-		"invocation_hash": "",
-	}
-	if ctx.Ticket.Creator.Agent != nil {
-		ticketCreatorAgent["cell"] = ctx.Ticket.Creator.Agent.CellName
-		ticketCreatorAgent["workflow_name"] = ctx.Ticket.Creator.Agent.WorkflowName
-		ticketCreatorAgent["execution_id"] = ctx.Ticket.Creator.Agent.ExecutionID
-		ticketCreatorAgent["invocation_hash"] = ctx.Ticket.Creator.Agent.InvocationHash
-	}
-
 	return map[string]interface{}{
-		"actor": map[string]interface{}{
-			"ticket_id":   ctx.Actor.TicketID,
-			"actor_name":  ctx.Actor.ActorName,
-			"actor_email": ctx.Actor.ActorEmail,
-		},
-		"ticket": map[string]interface{}{
-			"id":          ctx.Ticket.ID,
-			"title":       ctx.Ticket.Title,
-			"description": ctx.Ticket.Description,
-			"creator": map[string]interface{}{
-				"type":  ctx.Ticket.Creator.Type,
-				"user":  ticketCreatorUser,
-				"agent": ticketCreatorAgent,
-			},
-			"created_at": ctx.Ticket.CreatedAt,
-			"updated_at": ctx.Ticket.UpdatedAt,
-		},
 		"environment": map[string]interface{}{
 			"worktree_path": ctx.Environment.WorktreePath,
 			"workdir":       ctx.Environment.WorkdirPath,

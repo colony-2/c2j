@@ -26,7 +26,6 @@ func newTaskContext(baseRepo, baseRef, worktree, cell string) *GitTaskContext {
 			ParentHash:       baseRef,
 			CellName:         cell,
 			CellPath:         cell,
-			TicketID:         "ticket-123",
 			NodePath:         "node",
 			InvokeSeq:        1,
 			InvokeHash:       "",
@@ -265,7 +264,6 @@ func TestBuildCommitMessage(t *testing.T) {
 			ResolvedBaseHash: strings.Repeat("a", 40),
 			ParentHash:       strings.Repeat("b", 40),
 			PersistHash:      strings.Repeat("c", 40),
-			TicketID:         "TICK-1",
 			CellName:         "cells/alpha",
 			CellPath:         "cells/alpha",
 			NodePath:         "cells/alpha/op",
@@ -279,7 +277,6 @@ func TestBuildCommitMessage(t *testing.T) {
 	require.Contains(t, message, ctx.ResolvedBaseHash)
 	require.Contains(t, message, ctx.ParentHash)
 	require.Contains(t, message, ctx.PersistHash)
-	require.Contains(t, message, ctx.TicketID)
 	require.Contains(t, message, ctx.CellName)
 	require.Contains(t, message, ctx.NodePath)
 }

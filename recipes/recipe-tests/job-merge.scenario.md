@@ -1,4 +1,4 @@
-# ticket-merge test suite
+# job-merge test suite
 
 ```yaml
 cases:
@@ -9,7 +9,7 @@ cases:
     mocks:
       ops:
         - match:
-            node_path: ticket-merge/prompt/input
+            node_path: job-merge/prompt/input
           behavior:
             mode: return
             outputs:
@@ -18,14 +18,14 @@ cases:
                 upstream_branch: main
                 commit_message: Merge feature
         - match:
-            node_path: ticket-merge/approve/input
+            node_path: job-merge/approve/input
           behavior:
             mode: return
             outputs:
               response: cancel
     assertions:
       - type: node_executed
-        node_path: ticket-merge/prompt/input
+        node_path: job-merge/prompt/input
       - type: output_equals
         path: merged
         value: false
@@ -40,7 +40,7 @@ cases:
     mocks:
       ops:
         - match:
-            node_path: ticket-merge/approve/input
+            node_path: job-merge/approve/input
           behavior:
             mode: return
             outputs:
@@ -63,13 +63,13 @@ cases:
     mocks:
       ops:
         - match:
-            node_path: ticket-merge/approve/input
+            node_path: job-merge/approve/input
           behavior:
             mode: return
             outputs:
               response: merge
         - match:
-            node_path: ticket-merge/merge/squashrebasemerge
+            node_path: job-merge/merge/squashrebasemerge
           behavior:
             mode: return
             outputs:
@@ -90,7 +90,7 @@ cases:
     mocks:
       ops:
         - match:
-            node_path: ticket-merge/prompt/input
+            node_path: job-merge/prompt/input
           behavior:
             mode: return
             outputs:
@@ -99,13 +99,13 @@ cases:
                 upstream_branch: release
                 commit_message: Prompted merge
         - match:
-            node_path: ticket-merge/approve/input
+            node_path: job-merge/approve/input
           behavior:
             mode: return
             outputs:
               response: merge
         - match:
-            node_path: ticket-merge/merge/squashrebasemerge
+            node_path: job-merge/merge/squashrebasemerge
           behavior:
             mode: return
             outputs:
@@ -113,7 +113,7 @@ cases:
               target_branch: release
     assertions:
       - type: node_executed
-        node_path: ticket-merge/merge/squashrebasemerge
+        node_path: job-merge/merge/squashrebasemerge
       - type: output_equals
         path: target_branch
         value: release
@@ -128,13 +128,13 @@ cases:
     mocks:
       ops:
         - match:
-            node_path: ticket-merge/approve/input
+            node_path: job-merge/approve/input
           behavior:
             mode: return
             outputs:
               response: merge
         - match:
-            node_path: ticket-merge/merge/squashrebasemerge
+            node_path: job-merge/merge/squashrebasemerge
           behavior:
             mode: return
             outputs:
@@ -157,13 +157,13 @@ cases:
     mocks:
       ops:
         - match:
-            node_path: ticket-merge/approve/input
+            node_path: job-merge/approve/input
           behavior:
             mode: return
             outputs:
               response: merge
         - match:
-            node_path: ticket-merge/skipped_no_changes/sleep
+            node_path: job-merge/skipped_no_changes/sleep
           behavior:
             mode: return
             outputs:

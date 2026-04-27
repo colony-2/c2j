@@ -1,11 +1,19 @@
 # Colony2 Recipe Authoring Notes (for agents)
 
-This repo uses Colony2 “recipes” as workflows. When editing recipes, prefer small, incremental changes and validate + run after each change.
+This repo uses Colony2 recipes as workflows. When editing recipes, prefer small, incremental changes and validate after each change with the local `c2j` loop.
 
-## Workflow Debugging (c2)
-- Prefer `c2 workflow outcome <id> --output json` to check status and error details. It can return HTTP 425 while still running/retrying; poll until `status` is terminal.
-- `c2 workflow output get <id>` and `c2 workflow artifact *` are only reliable once the workflow is done; don’t fetch outputs/artifacts while still running.
-- Recipes can retry on failure; allow time before assuming a hang.
+## Default Workflow Debugging (`c2j`)
+- Prefer `c2j submit --recipe-file ... --run --embed` while authoring. It validates the local yaml and runs it through the embedded runtime without requiring a publish step.
+- Use `c2j self` to confirm current-cell resolution before assuming the recipe is targeting the right repo.
+- Use `c2j list --self --embed` to find recent jobs for the current cell.
+- Use `c2j exec --embed --job-id <id>` to continue a submitted job.
+- If the repo has no usable `.c2j/config.yaml`, pass `--cell <repo-or-path>` explicitly on submit.
+
+## Remote-Op Rules
+- Most ops behave like remote durable steps, not like commands sharing your interactive shell state.
+- Use `context.environment.worktree_path`, `context.environment.inbox`, and `context.environment.outbox` instead of ad hoc paths.
+- Move files between steps with `artifacts`, not implicit filesystem assumptions.
+- Export anything outer scopes need with `outputs:`.
 
 ## Template/Scope Rules (CEL + interpolation)
 - State machines expose completed state outputs at `states.<state>.outputs` (root-level `outputs:` can read from there).
@@ -24,13 +32,13 @@ This repo uses Colony2 “recipes” as workflows. When editing recipes, prefer 
 - In prompt text, prefer Go templates: `{{ cells | to_json }}`.
 - Prefer including `cells()` in LLM prompts and instruct the model to choose exactly from the provided `name` values.
 
-## Ticket Context Gotchas
-- Depending on how a workflow was started, `context.ticket.*` may be missing/empty even when `context.actor.ticket_id` is set.
-- If you need ticket data, verify what is actually populated in your run before relying on `context.ticket.title/description`.
+## Job Context
+- `context.workflow.job_id` is the stable identifier for the current job.
+- Use recipe inputs and artifacts as the source of job content.
 
-## Ticket Reassignment
-- `ticket.manage` `update_ticket` does not reliably support changing a ticket’s cell (attempts with `cell` / `cell_name` / `cell_id` may no-op).
-- Current working pattern: create a new ticket in the target cell via `ticket.manage` `create_ticket`, then annotate/close or mark the original ticket as waiting.
+## Cross-Cell Handoff
+- To hand work to another cell, start child jobs with `recipes.run` / `recipe.run_and_get_result`.
+- If a workflow needs to stop after spawning cross-cell work, route into an explicit wait/hold state instead of trying to mutate a separate ticket record.
 
 ## Recipe Publishing
 - `c2 recipe update ... --publish` will fail with “no changes to commit” if the content is identical; make a real edit (even a version/desc bump) before re-publishing.
