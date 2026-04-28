@@ -25,7 +25,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
       - name: Configure Git and Go for Private Modules
-          run: |
+        run: |
             # 1. Tell Go not to use the public proxy/checksum DB for your org
             go env -w GOPRIVATE=github.com/colony-2/*
             
