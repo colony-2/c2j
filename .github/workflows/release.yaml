@@ -63,6 +63,7 @@ jobs:
         with:
           ref: ${{ needs.create-tag.outputs.tag || github.ref }}
           fetch-depth: 0
+          persist-credentials: false
       - name: Configure Git and Go for Private Modules
         run: |
             # 1. Tell Go not to use the public proxy/checksum DB for your org
