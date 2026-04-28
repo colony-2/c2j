@@ -63,7 +63,6 @@ jobs:
         with:
           ref: ${{ needs.create-tag.outputs.tag || github.ref }}
           fetch-depth: 0
-          persist-credentials: false
       - name: Set up Node
         uses: actions/setup-node@v6
         with:
