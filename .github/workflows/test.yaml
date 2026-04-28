@@ -24,7 +24,13 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
+      - name: Configure Git and Go for Private Modules
+          run: |
+            # 1. Tell Go not to use the public proxy/checksum DB for your org
+            go env -w GOPRIVATE=github.com/colony-2/*
+            
+            # 2. Force Git to use your PAT for HTTPS requests to GitHub
+            git config --global url."https://x-access-token:${{ secrets.READ_ALL_C2_REPOS }}@github.com/".insteadOf "https://github.com/"
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
