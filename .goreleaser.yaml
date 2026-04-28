@@ -1,0 +1,139 @@
+project_name: c2j
+version: 2
+
+before:
+  hooks:
+    - go mod tidy
+    - go test ./...
+
+builds:
+  - id: c2j
+    binary: c2j
+    main: ./cmd/c2j
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
+      - -X main.version={{.Version}}
+      - -X main.commit={{.Commit}}
+      - -X main.date={{.Date}}
+
+archives:
+  - id: default
+    formats: [tar.gz]
+    name_template: >-
+      {{ .ProjectName }}_
+      {{- .Version }}_
+      {{- title .Os }}_
+      {{- if eq .Arch "amd64" }}x86_64
+      {{- else if eq .Arch "386" }}i386
+      {{- else }}{{ .Arch }}{{ end }}
+      {{- if .Arm }}v{{ .Arm }}{{ end }}
+    files:
+      - README.md
+      - LICENSE
+      - docs/*
+
+checksum:
+  name_template: 'checksums.txt'
+  algorithm: sha256
+
+changelog:
+  sort: asc
+  use: github
+  filters:
+    exclude:
+      - '^docs:'
+      - '^test:'
+      - '^chore:'
+      - 'typo'
+  groups:
+    - title: Features
+      regexp: '^.*?feat(\([[:word:]]+\))??!?:.+$'
+      order: 0
+    - title: Bug Fixes
+      regexp: '^.*?fix(\([[:word:]]+\))??!?:.+$'
+      order: 1
+    - title: Others
+      order: 999
+
+release:
+  github:
+    owner: colony-2
+    name: c2j-release
+  draft: false
+  prerelease: auto
+  mode: replace
+  header: |
+    ## c2j {{.Version}}
+
+    Release of c2j job system
+
+  footer: |
+    **Full Changelog**: https://github.com/colony-2/c2j/compare/{{ .PreviousTag }}...{{ .Tag }}
+
+notarize:
+  macos:
+    - enabled: '{{ isEnvSet "MACOS_SIGN_P12" }}'
+      ids:
+        - c2j
+      sign:
+        # Path to the .p12 file or its base64 content
+        certificate: "{{.Env.MACOS_SIGN_P12}}"
+        password: "{{.Env.MACOS_SIGN_PASSWORD}}"
+      notarize:
+        issuer_id: "{{.Env.APPLE_API_ISSUER}}"
+        key_id: "{{.Env.APPLE_API_KEY_ID}}"
+        # Path to the .p8 key file or its content
+        key: "{{.Env.APPLE_API_KEY}}"
+        # Wait for the notarization to finish (required for a valid release)
+        wait: true
+
+# npm publishing - GoReleaser Pro feature
+npms:
+  - name: "@colony2/c2j"
+    url_template: "https://github.com/colony-2/c2j-release/releases/download/{{ .Tag }}/{{ .ArtifactName }}"
+    homepage: https://github.com/colony-2/c2j
+    description: c2j job system
+    license: APGL
+    extra:
+      author:
+        name: Colony 2
+        email: noreply@colony2.com
+      keywords:
+        - sandbox
+        - docker
+        - ai
+        - agent
+        - cli
+        - security
+      repository:
+        type: git
+        url: git+https://github.com/colony-2/c2j.git
+      bugs:
+        url: https://github.com/colony-2/c2j/issues
+      engines:
+        node: ">=14.0.0"
+
+# Homebrew tap publishing
+homebrew_casks:
+  - name: c2j
+    url:
+      template: "https://github.com/colony-2/c2j-release/releases/download/{{ .Tag }}/{{ .ArtifactName }}"
+    repository:
+      owner: colony-2
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+    commit_author:
+      name: colony2-bot
+      email: bot@colony2.com
+    commit_msg_template: "Cask update for {{ .ProjectName }} version {{ .Tag }}"
+    homepage: "https://github.com/colony-2/c2j"
+    description: "c2j job system"
+    license: "AGPL"
