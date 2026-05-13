@@ -153,6 +153,51 @@ func TestRunCaseMockedInputAndArtifactLimit(t *testing.T) {
 	}
 }
 
+func TestRunCaseMockedChoiceInputDoesNotPanicBeforeMock(t *testing.T) {
+	resp := RunCase(context.Background(), HarnessOptions{}, "p1", TargetRecipe{
+		Mode:   "inline_recipe",
+		Format: "yaml",
+		Content: `
+version: '1.0'
+id: choice-input
+op: input
+inputs:
+  form:
+    question: Continue?
+    type: multiple_choice
+    options:
+      - value: continue
+        label: Continue
+      - value: cancel
+        label: Cancel
+`,
+	}, Case{
+		ID:   "choice-input-mock",
+		Type: "recipe_case",
+		Mocks: Mocks{
+			Ops: []OpMock{
+				{
+					Match: OpMockMatch{Op: "input"},
+					Behavior: MockBehavior{
+						Mode:    "return",
+						Outputs: map[string]interface{}{"response": "cancel"},
+					},
+				},
+			},
+		},
+		Assertions: []Assertion{
+			{Type: "output_equals", Path: "response", Value: "cancel"},
+		},
+	}, ExecutionOptions{Mode: "isolated"})
+
+	if resp.Status != "passed" {
+		t.Fatalf("status = %q, failure reason: %s", resp.Status, resp.FailureReason)
+	}
+	if len(resp.Diagnostics.MockHits) != 1 {
+		t.Fatalf("mock hits = %#v, want one input mock hit", resp.Diagnostics.MockHits)
+	}
+}
+
 func TestValidateCaseRecipeSelectorUsesResolver(t *testing.T) {
 	rec := mustLoadRecipe(t, inlineInputTarget().Content)
 	resolver := &fakeTargetResolver{recipe: rec, hash: "resolved-hash"}

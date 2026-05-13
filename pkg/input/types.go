@@ -53,7 +53,7 @@ type FormField struct {
 	Question    string          `json:"question" validate:"required" jsonschema:"required,description=Field question or label"`
 	Required    bool            `json:"required,omitempty" jsonschema:"description=Whether field is required"`
 	Placeholder string          `json:"placeholder,omitempty" jsonschema:"description=Placeholder text"`
-	Options     []Option        `json:"options,omitempty" validate:"omitempty,required_if=Type multiple_choice required_if=Type checkboxes required_if=Type dropdown,min=1,dive" jsonschema:"description=Options for choice fields"`
+	Options     []Option        `json:"options,omitempty" validate:"omitempty,min=1,dive" jsonschema:"description=Options for choice fields"`
 	Scale       *LinearScale    `json:"scale,omitempty" validate:"required_if=Type linear_scale" jsonschema:"description=Configuration for linear scale fields"`
 	Validation  FieldValidation `json:"validation,omitempty" jsonschema:"description=Field validation rules"`
 }

@@ -12,7 +12,7 @@ type Config struct {
 	// Single question format
 	Question string       `json:"question,omitempty" validate:"required_without=Fields" jsonschema:"description=Question to ask the user"`
 	Type     FieldType    `json:"type,omitempty" validate:"omitempty,oneof=short_answer paragraph_text multiple_choice checkboxes dropdown linear_scale date time" jsonschema:"enum=short_answer|paragraph_text|multiple_choice|checkboxes|dropdown|linear_scale|date|time,description=Input field type"`
-	Options  []Option     `json:"options,omitempty" validate:"omitempty,required_if=Type multiple_choice required_if=Type checkboxes required_if=Type dropdown,min=1,dive" jsonschema:"description=Options for choice fields"`
+	Options  []Option     `json:"options,omitempty" validate:"omitempty,min=1,dive" jsonschema:"description=Options for choice fields"`
 	Scale    *LinearScale `json:"scale,omitempty" validate:"required_if=Type linear_scale" jsonschema:"description=Configuration for linear scale fields"`
 
 	// Multi-field format

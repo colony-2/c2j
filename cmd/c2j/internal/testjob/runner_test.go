@@ -171,6 +171,51 @@ cases:
 	}
 }
 
+func TestRunMockedChoiceInput(t *testing.T) {
+	root := t.TempDir()
+	recipePath := writeChoiceTestRecipe(t, root)
+	suitePath := filepath.Join(root, "suite.yaml")
+	outDir := filepath.Join(root, "out")
+	suite := `
+cases:
+  - id: choice
+    type: recipe_case
+    mocks:
+      ops:
+        - match:
+            op: input
+          behavior:
+            mode: return
+            outputs:
+              response: cancel
+    assertions:
+      - type: output_equals
+        path: response
+        value: cancel
+`
+	if err := os.WriteFile(suitePath, []byte(suite), 0o644); err != nil {
+		t.Fatalf("write suite: %v", err)
+	}
+
+	stdout := &bytes.Buffer{}
+	err := Run(context.Background(), Options{
+		RecipeFile:  recipePath,
+		FilePath:    suitePath,
+		OutDir:      outDir,
+		WorkingDir:  root,
+		Parallelism: 1,
+		Stdout:      stdout,
+		Stderr:      &bytes.Buffer{},
+		Execution:   ExecutionOptions{ArtifactMode: "none"},
+	})
+	if err != nil {
+		t.Fatalf("Run(): %v; stdout=%s", err, stdout.String())
+	}
+	if !strings.Contains(stdout.String(), "choice passed") {
+		t.Fatalf("stdout = %q, want choice completion", stdout.String())
+	}
+}
+
 func TestRunStopOnFailureStopsScheduling(t *testing.T) {
 	root := t.TempDir()
 	recipePath := writeTestRecipe(t, root)
@@ -237,6 +282,29 @@ func writeTestRecipe(t *testing.T, root string) string {
 	t.Helper()
 	recipePath := filepath.Join(root, "recipe.yaml")
 	raw := "version: '1.0'\nid: x\nop: input\ninputs:\n  form:\n    question: q\n    type: short_answer\n"
+	if err := os.WriteFile(recipePath, []byte(raw), 0o644); err != nil {
+		t.Fatalf("write recipe: %v", err)
+	}
+	return recipePath
+}
+
+func writeChoiceTestRecipe(t *testing.T, root string) string {
+	t.Helper()
+	recipePath := filepath.Join(root, "choice-recipe.yaml")
+	raw := `
+version: '1.0'
+id: choice-input
+op: input
+inputs:
+  form:
+    question: Continue?
+    type: multiple_choice
+    options:
+      - value: continue
+        label: Continue
+      - value: cancel
+        label: Cancel
+`
 	if err := os.WriteFile(recipePath, []byte(raw), 0o644); err != nil {
 		t.Fatalf("write recipe: %v", err)
 	}

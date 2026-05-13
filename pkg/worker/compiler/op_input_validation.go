@@ -44,6 +44,14 @@ func validateDirTag(fl validator.FieldLevel) bool {
 	return strings.TrimSpace(field.String()) != ""
 }
 
+type typedOpInputValidator interface {
+	ValidateOpInput() error
+}
+
+type requiredOpInputValidationError interface {
+	RequiredValidationError() bool
+}
+
 func validateOpInputType(inputType reflect.Type, input map[string]interface{}, allowNulls bool) error {
 	if inputType == nil {
 		return nil
@@ -86,6 +94,25 @@ func validateOpInputType(inputType reflect.Type, input map[string]interface{}, a
 			}
 		}
 		return fmt.Errorf("validate op input: %w", err)
+	}
+	if err := validateTypedOpInput(target, allowNulls); err != nil {
+		return fmt.Errorf("validate op input: %w", err)
+	}
+	return nil
+}
+
+func validateTypedOpInput(target interface{}, allowNulls bool) error {
+	typed, ok := target.(typedOpInputValidator)
+	if !ok {
+		return nil
+	}
+	if err := typed.ValidateOpInput(); err != nil {
+		if allowNulls {
+			if required, ok := err.(requiredOpInputValidationError); ok && required.RequiredValidationError() {
+				return nil
+			}
+		}
+		return err
 	}
 	return nil
 }
