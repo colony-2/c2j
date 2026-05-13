@@ -1,9 +1,11 @@
 package runjob
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -22,23 +24,18 @@ type Options struct {
 	LeaseDuration  time.Duration
 	AwaitThreshold time.Duration
 	CI             bool
+	WorkingDir     string
 	Stdin          io.Reader
 	Stdout         io.Writer
 	Stderr         io.Writer
 }
 
-func (o *Options) Complete() {
+func (o *Options) Complete(ctx context.Context) error {
 	if o.SWFURL == "" {
 		o.SWFURL = strings.TrimSpace(os.Getenv(defaults.SWFEnv))
 	}
 	if o.SWFURL == "" {
 		o.SWFURL = defaults.SWFURL
-	}
-	if o.TenantID == "" {
-		o.TenantID = strings.TrimSpace(os.Getenv(defaults.TenantEnv))
-	}
-	if o.TenantID == "" {
-		o.TenantID = defaults.TenantID
 	}
 	if o.WaitTimeout == 0 {
 		o.WaitTimeout = 15 * time.Minute
@@ -61,6 +58,16 @@ func (o *Options) Complete() {
 	if o.Stderr == nil {
 		o.Stderr = os.Stderr
 	}
+	if strings.TrimSpace(o.WorkingDir) == "" {
+		if cwd, err := os.Getwd(); err == nil {
+			o.WorkingDir = cwd
+		}
+	}
+	if strings.TrimSpace(o.WorkingDir) != "" {
+		if absPath, err := filepath.Abs(o.WorkingDir); err == nil {
+			o.WorkingDir = absPath
+		}
+	}
 	if strings.TrimSpace(o.OnNotReady) == "" {
 		o.OnNotReady = "wait"
 	}
@@ -71,6 +78,17 @@ func (o *Options) Complete() {
 			o.InputMode = "prompt"
 		}
 	}
+	if o.TenantID == "" {
+		o.TenantID = strings.TrimSpace(os.Getenv(defaults.TenantEnv))
+	}
+	if o.TenantID == "" {
+		tenantID, err := defaults.ResolveTenantID(ctx, o.WorkingDir)
+		if err != nil {
+			return err
+		}
+		o.TenantID = tenantID
+	}
+	return nil
 }
 
 func (o Options) Validate() error {
@@ -78,7 +96,7 @@ func (o Options) Validate() error {
 		return fmt.Errorf("--job-id is required")
 	}
 	if strings.TrimSpace(o.TenantID) == "" {
-		return fmt.Errorf("--tenant-id is required (or %s)", defaults.TenantEnv)
+		return fmt.Errorf("--tenant-id is required (or %s, or project self.tenant_id/self.repo)", defaults.TenantEnv)
 	}
 	if strings.TrimSpace(o.SWFURL) == "" {
 		return fmt.Errorf("--swf-url is required (or %s)", defaults.SWFEnv)

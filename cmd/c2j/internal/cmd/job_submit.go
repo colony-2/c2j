@@ -37,7 +37,7 @@ func newSubmitCmd() *cobra.Command {
 	}
 
 	flags := cmd.Flags()
-	flags.StringVar(&opts.TenantID, "tenant-id", "", "Tenant/project ID for the job (defaults to "+defaults.TenantID+")")
+	flags.StringVar(&opts.TenantID, "tenant-id", "", "Tenant/project ID for the job (defaults to project self.tenant_id or derived self.repo hash when available)")
 	flags.StringVar(&opts.SWFURL, "swf-url", "", "SWF runtime URL (http(s)://... or embed:///; defaults to "+defaults.SWFURL+")")
 	flags.StringVar(&opts.Recipe, "recipe", "", "Recipe name or git selector to submit (defaults to default)")
 	flags.StringVar(&opts.RecipeFile, "recipe-file", "", "Path to a recipe YAML file to submit")

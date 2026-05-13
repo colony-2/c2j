@@ -2,11 +2,51 @@ package listjobs
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"reflect"
 	"testing"
 
+	"github.com/colony-2/c2j/cmd/c2j/internal/defaults"
 	"github.com/colony-2/swf-go/pkg/swf"
 )
+
+func TestOptionsCompleteUsesProjectTenantDefault(t *testing.T) {
+	t.Setenv(defaults.SWFEnv, "")
+	t.Setenv(defaults.TenantEnv, "")
+
+	root := t.TempDir()
+	configPath := filepath.Join(root, ".c2j", "config.yaml")
+	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
+		t.Fatalf("mkdir config dir: %v", err)
+	}
+	if err := os.WriteFile(configPath, []byte("self:\n  repo: github.com/acme/self\n"), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	opts := Options{WorkingDir: root}
+	if err := opts.Complete(context.Background()); err != nil {
+		t.Fatalf("Complete(): %v", err)
+	}
+
+	if opts.TenantID == "" {
+		t.Fatalf("TenantID = %q, want project-derived tenant ID", opts.TenantID)
+	}
+}
+
+func TestOptionsCompleteLeavesTenantEmptyWhenUnknown(t *testing.T) {
+	t.Setenv(defaults.SWFEnv, "")
+	t.Setenv(defaults.TenantEnv, "")
+
+	opts := Options{WorkingDir: t.TempDir()}
+	if err := opts.Complete(context.Background()); err != nil {
+		t.Fatalf("Complete(): %v", err)
+	}
+
+	if opts.TenantID != "" {
+		t.Fatalf("TenantID = %q, want empty when no tenant can be derived", opts.TenantID)
+	}
+}
 
 func TestBuildRequestDefaultsToCurrentCellAndVisibleStatuses(t *testing.T) {
 	t.Parallel()

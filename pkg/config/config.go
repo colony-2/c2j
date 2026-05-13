@@ -2,6 +2,8 @@ package config
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"os"
@@ -44,10 +46,16 @@ type CellRefConfig struct {
 	Ref  StringOrCommand `yaml:"ref"`
 }
 
+type SelfConfig struct {
+	Repo     StringOrCommand `yaml:"repo"`
+	Ref      StringOrCommand `yaml:"ref"`
+	TenantID StringOrCommand `yaml:"tenant_id"`
+}
+
 type fileConfig struct {
 	Base       string           `yaml:"base"`
 	Dependents DependentsConfig `yaml:"dependents"`
-	Self       CellRefConfig    `yaml:"self"`
+	Self       SelfConfig       `yaml:"self"`
 	Root       CellRefConfig    `yaml:"root"`
 	Pattern    string           `yaml:"pattern"`
 }
@@ -187,6 +195,27 @@ func (c *ProjectConfig) SelfRef(ctx context.Context) (string, error) {
 		return compiler.DefaultRecipeRef, nil
 	}
 	return ref, nil
+}
+
+func (c *ProjectConfig) SelfTenantID(ctx context.Context) (string, error) {
+	tenantID, err := c.resolveScalar(ctx, c.raw.Self.TenantID)
+	if err != nil {
+		return "", fmt.Errorf("self.tenant_id: %w", err)
+	}
+	tenantID = strings.TrimSpace(tenantID)
+	if tenantID != "" {
+		return tenantID, nil
+	}
+
+	repo, err := c.SelfRepo(ctx)
+	if err != nil {
+		return "", err
+	}
+	repo = strings.TrimSpace(repo)
+	if repo == "" {
+		return "", nil
+	}
+	return deriveTenantIDFromRepo(repo), nil
 }
 
 func (c *ProjectConfig) RootRepo(ctx context.Context) (string, error) {
@@ -551,6 +580,9 @@ func (c fileConfig) validate() error {
 	if err := c.Self.Ref.validate("self.ref"); err != nil {
 		return err
 	}
+	if err := c.Self.TenantID.validate("self.tenant_id"); err != nil {
+		return err
+	}
 	if err := c.Root.Repo.validate("root.repo"); err != nil {
 		return err
 	}
@@ -878,4 +910,9 @@ func isGoMajorVersionSegment(segment string) bool {
 		}
 	}
 	return true
+}
+
+func deriveTenantIDFromRepo(repo string) string {
+	sum := sha256.Sum256([]byte(strings.TrimSpace(repo)))
+	return base64.RawURLEncoding.EncodeToString(sum[:])
 }

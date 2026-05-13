@@ -32,6 +32,7 @@ type CellInfo struct {
 type SelfInfo struct {
 	ShortName string `json:"short_name"`
 	Repo      string `json:"repo"`
+	TenantID  string `json:"tenant_id"`
 	Ref       string `json:"ref"`
 	RootRepo  string `json:"root_repo"`
 	RootRef   string `json:"root_ref"`
@@ -88,6 +89,10 @@ func RunSelf(ctx context.Context, opts SelfOptions) error {
 	if err != nil {
 		return err
 	}
+	tenantID, err := cfg.SelfTenantID(ctx)
+	if err != nil {
+		return err
+	}
 	ref, err := cfg.SelfRef(ctx)
 	if err != nil {
 		return err
@@ -109,6 +114,7 @@ func RunSelf(ctx context.Context, opts SelfOptions) error {
 	info := SelfInfo{
 		ShortName: strings.TrimSpace(shortName),
 		Repo:      strings.TrimSpace(repo),
+		TenantID:  strings.TrimSpace(tenantID),
 		Ref:       strings.TrimSpace(ref),
 		RootRepo:  strings.TrimSpace(rootRepo),
 		RootRef:   strings.TrimSpace(rootRef),
@@ -129,6 +135,7 @@ func RunSelf(ctx context.Context, opts SelfOptions) error {
 	}{
 		{name: "short_name", value: displayValue(info.ShortName)},
 		{name: "repo", value: displayValue(info.Repo)},
+		{name: "tenant_id", value: displayValue(info.TenantID)},
 		{name: "ref", value: displayValue(info.Ref)},
 		{name: "root_repo", value: displayValue(info.RootRepo)},
 		{name: "root_ref", value: displayValue(info.RootRef)},

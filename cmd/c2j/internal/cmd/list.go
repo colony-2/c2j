@@ -29,7 +29,7 @@ func newListCmd() *cobra.Command {
 	}
 
 	flags := cmd.Flags()
-	flags.StringVar(&opts.TenantID, "tenant-id", "", "Tenant/project ID to query (defaults to "+defaults.TenantID+")")
+	flags.StringVar(&opts.TenantID, "tenant-id", "", "Tenant/project ID to query (defaults to project self.tenant_id or derived self.repo hash when available)")
 	flags.StringVar(&opts.SWFURL, "swf-url", "", "SWF runtime URL (http(s)://... or embed:///; defaults to "+defaults.SWFURL+")")
 	flags.BoolVar(&opts.Self, "self", false, "List jobs for the current cell")
 	flags.StringVar(&opts.Cell, "cell", "", "List jobs for a specific cell (short name or repo/path)")

@@ -43,6 +43,40 @@ func TestLoadProjectConfigDiscoversNearestConfig(t *testing.T) {
 	if repo != "github.com/acme/self" {
 		t.Fatalf("SelfRepo() = %q", repo)
 	}
+
+	tenantID, err := cfg.SelfTenantID(context.Background())
+	if err != nil {
+		t.Fatalf("SelfTenantID(): %v", err)
+	}
+	if tenantID != deriveTenantIDFromRepo("github.com/acme/self") {
+		t.Fatalf("SelfTenantID() = %q", tenantID)
+	}
+}
+
+func TestProjectConfig_SelfTenantIDAllowsOverride(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	configPath := filepath.Join(root, ".c2j", "config.yaml")
+	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
+		t.Fatalf("mkdir config dir: %v", err)
+	}
+	if err := os.WriteFile(configPath, []byte("self:\n  repo: github.com/acme/self\n  tenant_id: custom-tenant\n"), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	cfg, err := LoadProjectConfig(root)
+	if err != nil {
+		t.Fatalf("load project config: %v", err)
+	}
+
+	tenantID, err := cfg.SelfTenantID(context.Background())
+	if err != nil {
+		t.Fatalf("SelfTenantID(): %v", err)
+	}
+	if tenantID != "custom-tenant" {
+		t.Fatalf("SelfTenantID() = %q", tenantID)
+	}
 }
 
 func TestDerivePatternFromRepo(t *testing.T) {

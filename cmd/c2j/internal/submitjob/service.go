@@ -38,7 +38,9 @@ type targetCell struct {
 }
 
 func Run(ctx context.Context, opts Options) error {
-	opts.Complete()
+	if err := opts.Complete(ctx); err != nil {
+		return err
+	}
 	if err := opts.Validate(); err != nil {
 		return err
 	}

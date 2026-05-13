@@ -7,5 +7,4 @@ const (
 
 	SWFURL   = "http://localhost:9047"
 	EmbedURL = "embed:///"
-	TenantID = "0"
 )

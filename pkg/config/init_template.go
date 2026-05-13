@@ -66,6 +66,8 @@ func renderGenericInitTemplate() string {
 #
 # self:
 #   repo: github.com/acme/boo-self
+#   # Optional override. By default tenant_id is derived from self.repo.
+#   tenant_id: your-tenant-id
 #   ref: main
 #
 # root:
@@ -98,6 +100,8 @@ func renderGoInitTemplate(data initTemplateData) string {
 			b.WriteString(fmt.Sprintf("#   repo: %s\n", data.Repo))
 		}
 		b.WriteString("#   ref: main\n")
+		b.WriteString("#   # Optional override. By default tenant_id is derived from self.repo.\n")
+		b.WriteString("#   tenant_id: your-tenant-id\n")
 		b.WriteString("# root:\n")
 		b.WriteString("#   repo: root\n")
 		b.WriteString("#   ref: main\n")
@@ -113,6 +117,8 @@ func renderGoInitTemplate(data initTemplateData) string {
 	b.WriteString("# pattern: 'github.com/acme/boo-${{ cell }}'\n")
 	b.WriteString("# self:\n")
 	b.WriteString(fmt.Sprintf("#   repo: %s\n", data.Repo))
+	b.WriteString("#   # Optional override. By default tenant_id is derived from self.repo.\n")
+	b.WriteString("#   tenant_id: your-tenant-id\n")
 	b.WriteString("#   ref: main\n")
 	b.WriteString("# root:\n")
 	b.WriteString("#   repo: github.com/acme/boo-root\n")

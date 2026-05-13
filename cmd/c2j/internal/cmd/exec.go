@@ -32,7 +32,7 @@ func newExecCmd() *cobra.Command {
 
 	flags := cmd.Flags()
 	flags.StringVar(&opts.JobID, "job-id", "", "Job ID to execute")
-	flags.StringVar(&opts.TenantID, "tenant-id", "", "Tenant/project ID for the job (defaults to "+defaults.TenantID+")")
+	flags.StringVar(&opts.TenantID, "tenant-id", "", "Tenant/project ID for the job (defaults to project self.tenant_id or derived self.repo hash when available)")
 	flags.StringVar(&opts.SWFURL, "swf-url", "", "SWF runtime URL (http(s)://... or embed:///; defaults to "+defaults.SWFURL+")")
 	flags.DurationVar(&opts.WaitTimeout, "wait-timeout", 15*time.Minute, "How long to wait on external blocking work before exiting")
 	flags.DurationVar(&opts.PollInterval, "poll-interval", 5*time.Second, "Polling interval while waiting on external blocking work")

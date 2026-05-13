@@ -350,7 +350,6 @@ If a named recipe cannot be found:
 
 If passthrough tests are flaky:
 
-- prefer mocks for deterministic unit-style recipe tests
 - use `--runtime-root <path> --keep-runtime` to inspect embedded runtime state
 - delete the debug runtime root before retrying if you want a clean run
 

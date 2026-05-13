@@ -1,6 +1,7 @@
 package listjobs
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"os"
@@ -34,18 +35,12 @@ type Options struct {
 	Stderr io.Writer
 }
 
-func (o *Options) Complete() {
+func (o *Options) Complete(ctx context.Context) error {
 	if strings.TrimSpace(o.SWFURL) == "" {
 		o.SWFURL = strings.TrimSpace(os.Getenv(defaults.SWFEnv))
 	}
 	if strings.TrimSpace(o.SWFURL) == "" {
 		o.SWFURL = defaults.SWFURL
-	}
-	if strings.TrimSpace(o.TenantID) == "" {
-		o.TenantID = strings.TrimSpace(os.Getenv(defaults.TenantEnv))
-	}
-	if strings.TrimSpace(o.TenantID) == "" {
-		o.TenantID = defaults.TenantID
 	}
 	if strings.TrimSpace(o.WorkingDir) == "" {
 		if cwd, err := os.Getwd(); err == nil {
@@ -63,11 +58,22 @@ func (o *Options) Complete() {
 	if o.Stderr == nil {
 		o.Stderr = os.Stderr
 	}
+	if strings.TrimSpace(o.TenantID) == "" {
+		o.TenantID = strings.TrimSpace(os.Getenv(defaults.TenantEnv))
+	}
+	if strings.TrimSpace(o.TenantID) == "" {
+		tenantID, err := defaults.ResolveTenantID(ctx, o.WorkingDir)
+		if err != nil {
+			return err
+		}
+		o.TenantID = tenantID
+	}
+	return nil
 }
 
 func (o Options) Validate() error {
 	if strings.TrimSpace(o.TenantID) == "" {
-		return fmt.Errorf("--tenant-id is required (or %s)", defaults.TenantEnv)
+		return fmt.Errorf("--tenant-id is required (or %s, or project self.tenant_id/self.repo)", defaults.TenantEnv)
 	}
 	if strings.TrimSpace(o.SWFURL) == "" {
 		return fmt.Errorf("--swf-url is required (or %s)", defaults.SWFEnv)
