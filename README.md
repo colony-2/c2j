@@ -21,6 +21,7 @@ c2j init
 c2j submit
 c2j exec
 c2j list
+c2j test
 ```
 
 Use `go run ./cmd/c2j --help` or `c2j --help` to see the full command tree.
@@ -245,6 +246,46 @@ Note:
 
 - `--json` and `--run` are mutually exclusive
 
+## Testing Recipes
+
+`c2j test` compiles, validates, and runs recipe test suites locally. It does not call the old Colony2 API.
+
+Compile a suite to canonical IR:
+
+```bash
+c2j test compile \
+  --recipe-file ./recipes/my-recipe.yaml \
+  --file ./recipes/my-recipe.test.yaml \
+  --out ./tmp/compiled-test.json
+```
+
+Run a local suite:
+
+```bash
+c2j test run \
+  --recipe-file ./recipes/my-recipe.yaml \
+  --file ./recipes/my-recipe.test.yaml \
+  --artifact-mode inline
+```
+
+Run one case:
+
+```bash
+c2j test case run \
+  --recipe-file ./recipes/my-recipe.yaml \
+  --file ./recipes/my-recipe.test.yaml \
+  --case-id smoke
+```
+
+Useful flags:
+
+- `--recipe <name-or-git-selector>` targets a current-cell recipe or explicit git selector
+- `--recipe-file <path>` uses a local inline recipe file
+- `--case <id>` filters suite mode to selected cases
+- `--parallelism <n>` controls local case concurrency
+- `--out-dir <dir>` defaults to `.c2j/test-results/<timestamp>/`
+- passthrough cases use a disposable embedded runtime root automatically; use `--runtime-root` and `--keep-runtime` only for debugging
+
 ## Running Jobs
 
 `c2j exec` executes or continues an existing job and prints live story progress to stdout.
@@ -450,4 +491,3 @@ c2j submit \
 - command entrypoint: [main.go](main.go)
 - embedded runtime notes: [embed-swf-mode-spec.md](embed-swf-mode-spec.md)
 - recipe authoring docs: [RECIPE_AUTHORING_GUIDE.md](../../recipes/guides/RECIPE_AUTHORING_GUIDE.md)
-
