@@ -1,6 +1,0 @@
-interface:
-  display_name: "C2 Implementation Loop"
-  short_description: "Implement safely with structured checkpoints"
-  default_prompt: "Use $c2-implementation-loop to implement this ticket and stop only at structured c2 checkpoints."
-policy:
-  allow_implicit_invocation: true

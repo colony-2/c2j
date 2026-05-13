@@ -1,6 +1,0 @@
-interface:
-  display_name: "C2 Requirements Review"
-  short_description: "Challenge requirement quality and compatibility"
-  default_prompt: "Use $c2-requirements-contrarian-review to find blocking issues in this requirements plan."
-policy:
-  allow_implicit_invocation: true
