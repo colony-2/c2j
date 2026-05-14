@@ -137,7 +137,7 @@ func executeInShai(ctx context.Context, req RunRequest, workspaceRoot string, wo
 		WorkingDir:       workspaceRoot,
 		ConfigFile:       configPath,
 		ReadWritePaths:   []string{"."},
-		PostSetupExec:    &shai.SandboxExec{Command: argv, Env: req.Env, Workdir: workdirRel, UseTTY: false},
+		PostSetupExec:    &shai.SandboxExec{Command: argv, Env: buildProcessEnvMap(req.Env), Workdir: workdirRel, UseTTY: false},
 		Stdout:           &stdout,
 		Stderr:           &stderr,
 		ShowScriptOutput: false,
@@ -155,19 +155,32 @@ func executeInShai(ctx context.Context, req RunRequest, workspaceRoot string, wo
 }
 
 func buildProcessEnv(env map[string]string) []string {
-	if len(env) == 0 {
-		return []string{}
-	}
-	keys := make([]string, 0, len(env))
-	for key := range env {
+	merged := buildProcessEnvMap(env)
+	keys := make([]string, 0, len(merged))
+	for key := range merged {
 		keys = append(keys, key)
 	}
 	sort.Strings(keys)
 	out := make([]string, 0, len(keys))
 	for _, key := range keys {
-		out = append(out, fmt.Sprintf("%s=%s", key, env[key]))
+		out = append(out, fmt.Sprintf("%s=%s", key, merged[key]))
 	}
 	return out
+}
+
+func buildProcessEnvMap(env map[string]string) map[string]string {
+	merged := map[string]string{}
+	for _, item := range os.Environ() {
+		key, value, ok := strings.Cut(item, "=")
+		if !ok || key == "" {
+			continue
+		}
+		merged[key] = value
+	}
+	for key, value := range env {
+		merged[key] = value
+	}
+	return merged
 }
 
 func buildExecCommand(ctx context.Context, req RunRequest) (*exec.Cmd, error) {

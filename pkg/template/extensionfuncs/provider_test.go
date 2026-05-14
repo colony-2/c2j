@@ -13,8 +13,14 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestExtensionFunctionsUseOnlyManifestEnv(t *testing.T) {
+func TestExtensionFunctionsInheritParentEnvAndManifestOverrides(t *testing.T) {
 	t.Setenv("EXT_FUNC_AMBIENT", "ambient")
+	t.Setenv("DECLARED_ONLY", "ambient-declared")
+	t.Setenv("GOPATH", "fixture-gopath")
+	t.Setenv("GOMODCACHE", "fixture-gomodcache")
+	t.Setenv("VIBETHIS_PROJECT_ROOT", "")
+	t.Setenv("VIBETHIS_OP_SELECTOR", "")
+	t.Setenv("VIBETHIS_INPUT_JSON", "")
 
 	tmpDir := t.TempDir()
 	pkgDir := filepath.Join(tmpDir, "tools", "functions", "envpkg")
@@ -28,9 +34,11 @@ functions:
   - name: env_info
     mode: json
     execution: |
-      printf '{"result":{"declared":"%s","ambient":"%s","project_root":"%s","selector":"%s","input_json":"%s"}}' \
+      printf '{"result":{"declared":"%s","ambient":"%s","gopath":"%s","gomodcache":"%s","project_root":"%s","selector":"%s","input_json":"%s"}}' \
         "${DECLARED_ONLY:-}" \
         "${EXT_FUNC_AMBIENT:-}" \
+        "${GOPATH:-}" \
+        "${GOMODCACHE:-}" \
         "${VIBETHIS_PROJECT_ROOT:-}" \
         "${VIBETHIS_OP_SELECTOR:-}" \
         "${VIBETHIS_INPUT_JSON:-}"
@@ -41,6 +49,10 @@ functions:
           declared:
             type: string
           ambient:
+            type: string
+          gopath:
+            type: string
+          gomodcache:
             type: string
           project_root:
             type: string
@@ -63,7 +75,7 @@ functions:
 	env, err = env.Extend(opts...)
 	require.NoError(t, err)
 
-	ast, iss := env.Compile(`env_info().declared == "manifest" && env_info().ambient == "" && env_info().project_root == "" && env_info().selector == "" && env_info().input_json == ""`)
+	ast, iss := env.Compile(`env_info().declared == "manifest" && env_info().ambient == "ambient" && env_info().gopath == "fixture-gopath" && env_info().gomodcache == "fixture-gomodcache" && env_info().project_root == "" && env_info().selector == "" && env_info().input_json == ""`)
 	require.Nil(t, iss.Err())
 
 	prg, err := env.Program(ast)
