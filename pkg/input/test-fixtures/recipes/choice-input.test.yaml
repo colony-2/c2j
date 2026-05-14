@@ -1,0 +1,11 @@
+tests:
+  - name: choice_forms_with_options
+    inputs: {}
+    want:
+      multiple: cancel
+      checks:
+        - lint
+        - tests
+      lane: ship
+      user: fixture-user
+    wantErr: false

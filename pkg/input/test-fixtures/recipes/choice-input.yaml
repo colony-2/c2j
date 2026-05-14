@@ -1,0 +1,57 @@
+id: choice-input
+version: "1.0"
+input_schema: {}
+sequence:
+  - id: multiple
+    op: input
+    inputs:
+      form:
+        question: Continue?
+        type: multiple_choice
+        options:
+          - value: continue
+            label: Continue
+          - value: cancel
+            label: Cancel
+        autofill:
+          response: cancel
+          user_id: fixture-user
+  - id: checks
+    op: input
+    inputs:
+      form:
+        question: Select checks
+        type: checkboxes
+        options:
+          - value: lint
+            label: Lint
+          - value: tests
+            label: Tests
+        autofill:
+          response:
+            - lint
+            - tests
+          user_id: fixture-user
+  - id: field_dropdown
+    op: input
+    inputs:
+      form:
+        title: Route request
+        fields:
+          - id: lane
+            question: Choose lane
+            type: dropdown
+            options:
+              - value: review
+                label: Review
+              - value: ship
+                label: Ship
+        autofill:
+          fields:
+            lane: ship
+          user_id: fixture-user
+outputs:
+  multiple: "{{ sequence.multiple.outputs.response }}"
+  checks: "${{ sequence.checks.outputs.response }}"
+  lane: "{{ sequence.field_dropdown.outputs.fields.lane }}"
+  user: "{{ sequence.field_dropdown.outputs.user_id }}"
