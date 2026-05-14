@@ -508,6 +508,100 @@ outputs:
 	}
 }
 
+func TestRun_EmbedExtensionFailureCompletesWithOriginalError(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+
+	t.Setenv(defaults.EmbedRootEnv, t.TempDir())
+
+	tenantID := "tenant-submit-embed-extension-failure-test"
+	baseRepo, _ := createGitRepo(t)
+	mustWriteRepoFile(t, baseRepo, ".c2j/recipes/failing_extension_recipe.yaml", strings.TrimSpace(`
+id: failing_extension_recipe
+desc: verifies extension failures become terminal recipe failures
+version: "1.0"
+sequence:
+  - id: fail
+    op: ./tools/ops/fail
+    inputs: {}
+outputs:
+  ok: "{{ sequence.fail.outputs.ok }}"
+`)+"\n")
+	mustWriteRepoFile(t, baseRepo, "tools/ops/fail/op.yaml", strings.TrimSpace(`
+name: fail
+shell: sh
+run: |
+  echo extension failure >&2
+  exit 23
+input_schema:
+  type: object
+  properties: {}
+output_schema:
+  type: object
+  properties:
+    ok:
+      type: boolean
+`)+"\n")
+	commitRepo(t, baseRepo, "add failing extension recipe")
+
+	var submitStdout bytes.Buffer
+	var submitStderr bytes.Buffer
+	err := Run(ctx, Options{
+		TenantID:       tenantID,
+		SWFURL:         "embed:///",
+		Recipe:         "failing_extension_recipe",
+		Cell:           baseRepo,
+		RunAfterSubmit: true,
+		Stdin:          bytes.NewBuffer(nil),
+		Stdout:         &submitStdout,
+		Stderr:         &submitStderr,
+	})
+	if err == nil {
+		t.Fatal("expected submit --run to fail")
+	}
+	errText := err.Error()
+	if !strings.Contains(errText, "extension op") || !strings.Contains(errText, "extension failure") {
+		t.Fatalf("expected original extension failure, got %v\nstderr:\n%s", err, submitStderr.String())
+	}
+	if strings.Contains(errText, "workflow state conflict") || strings.Contains(errText, "chapter ordinal") {
+		t.Fatalf("chapter conflict masked extension failure: %v\nstderr:\n%s", err, submitStderr.String())
+	}
+
+	firstLine, _, _ := strings.Cut(submitStdout.String(), "\n")
+	jobID := extractSubmittedJobID(firstLine)
+	if jobID == "" {
+		t.Fatalf("expected job id in submit output: %q", submitStdout.String())
+	}
+
+	handle, err := swfruntime.Open(ctx, "embed:///")
+	if err != nil {
+		t.Fatalf("Open(embed): %v", err)
+	}
+	defer handle.Cleanup()
+
+	jobKey := swf.JobKey{TenantId: tenantID, JobId: jobID}
+	info, err := handle.Engine.GetJob(ctx, jobKey)
+	if err != nil {
+		t.Fatalf("GetJob(): %v", err)
+	}
+	if info.Status != swf.JobStatusCompleted {
+		t.Fatalf("job status = %s, want %s", info.Status, swf.JobStatusCompleted)
+	}
+
+	run, err := handle.Engine.GetJobRun(ctx, swf.GetJobRunRequest{
+		JobKey:         jobKey,
+		IncludeOutputs: true,
+	})
+	if err != nil {
+		t.Fatalf("get job run: %v", err)
+	}
+	if _, err := run.GetOutput(handle.Engine, tenantID); err == nil {
+		t.Fatal("expected failed job output")
+	} else if !strings.Contains(err.Error(), "extension failure") {
+		t.Fatalf("expected job output error to preserve extension failure, got %v", err)
+	}
+}
+
 func extractSubmittedJobID(line string) string {
 	for _, field := range strings.Fields(line) {
 		if value, ok := strings.CutPrefix(field, "job_id="); ok {

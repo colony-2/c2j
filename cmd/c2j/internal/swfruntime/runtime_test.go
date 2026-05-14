@@ -2,6 +2,7 @@ package swfruntime
 
 import (
 	"context"
+	"sync"
 	"testing"
 	"time"
 
@@ -68,4 +69,68 @@ func TestOpenEmbedRejectsConcurrentOpenOnSameRoot(t *testing.T) {
 		defer other.Cleanup()
 		t.Fatal("expected second Open(embed) to fail while lock is held")
 	}
+}
+
+func TestChapterVisibilityRuntimeWaitsUntilWrittenChapterCanBeRead(t *testing.T) {
+	ref := swf.ChapterRef{
+		JobKey:  swf.JobKey{TenantId: "tenant", JobId: "job"},
+		Ordinal: 2,
+	}
+	chapter := swf.StoredChapter{Ordinal: ref.Ordinal, TaskType: "task"}
+	underlying := &delayedChapterRuntime{
+		visibleAfterGetCalls: 3,
+		chapters:             map[swf.ChapterRef]swf.StoredChapter{},
+	}
+	runtime := &chapterVisibilityRuntime{
+		WorkflowRuntime:        underlying,
+		visibilityTimeout:      time.Second,
+		visibilityPollInterval: time.Millisecond,
+	}
+
+	err := runtime.PutChapter(context.Background(), swf.PutChapterRequest{
+		Ref:     ref,
+		Chapter: chapter,
+	})
+	if err != nil {
+		t.Fatalf("PutChapter(): %v", err)
+	}
+	if got := underlying.getCalls(); got != 3 {
+		t.Fatalf("GetChapter calls = %d, want 3", got)
+	}
+}
+
+type delayedChapterRuntime struct {
+	swf.WorkflowRuntime
+
+	mu                   sync.Mutex
+	visibleAfterGetCalls int
+	getChapterCalls      int
+	chapters             map[swf.ChapterRef]swf.StoredChapter
+}
+
+func (r *delayedChapterRuntime) PutChapter(_ context.Context, req swf.PutChapterRequest) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.chapters[req.Ref] = req.Chapter
+	return nil
+}
+
+func (r *delayedChapterRuntime) GetChapter(_ context.Context, ref swf.ChapterRef) (swf.StoredChapter, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.getChapterCalls++
+	if r.getChapterCalls < r.visibleAfterGetCalls {
+		return swf.StoredChapter{}, swf.ErrChapterNotFound
+	}
+	chapter, ok := r.chapters[ref]
+	if !ok {
+		return swf.StoredChapter{}, swf.ErrChapterNotFound
+	}
+	return chapter, nil
+}
+
+func (r *delayedChapterRuntime) getCalls() int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.getChapterCalls
 }

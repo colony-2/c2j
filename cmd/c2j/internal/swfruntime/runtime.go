@@ -67,10 +67,11 @@ func Open(ctx context.Context, swfURL string) (*Handle, error) {
 }
 
 func openRemote(swfURL string) (*Handle, error) {
-	runtime, err := remoteruntime.New(swfURL, &http.Client{Timeout: defaultHTTPTimeout})
+	baseRuntime, err := remoteruntime.New(swfURL, &http.Client{Timeout: defaultHTTPTimeout})
 	if err != nil {
 		return nil, fmt.Errorf("create remote runtime: %w", err)
 	}
+	runtime := withChapterVisibility(baseRuntime)
 
 	engine, err := swf.NewEngineBuilder().WithRuntime(runtime).BuildEngine()
 	if err != nil {
@@ -133,7 +134,7 @@ func openEmbed(ctx context.Context, parsed *url.URL, rawURL string) (*Handle, er
 		return nil, errors.Join(err, closePostgres(), lock.close())
 	}
 
-	runtime, err := directruntime.NewFromConfig(postgresDSN, strata.BaseURL, strata.APIKey)
+	baseRuntime, err := directruntime.NewFromConfig(postgresDSN, strata.BaseURL, strata.APIKey)
 	if err != nil {
 		return nil, errors.Join(
 			fmt.Errorf("build direct runtime: %w", err),
@@ -142,6 +143,7 @@ func openEmbed(ctx context.Context, parsed *url.URL, rawURL string) (*Handle, er
 			lock.close(),
 		)
 	}
+	runtime := withChapterVisibility(baseRuntime)
 
 	engine, err := swf.NewEngineBuilder().WithRuntime(runtime).BuildEngine()
 	if err != nil {
