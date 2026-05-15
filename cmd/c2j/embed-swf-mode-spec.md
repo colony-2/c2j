@@ -8,7 +8,9 @@
 --swf-url embed:///
 ```
 
-This mode is for local testing and development. It runs the SWF direct runtime stack in-process inside `c2j` instead of talking to a separately managed remote HTTP server.
+This mode is for local testing and development. It runs the SWF SQLite runtime
+in-process inside `c2j` instead of talking to a separately managed remote HTTP
+server.
 
 ## Behavior
 
@@ -37,12 +39,8 @@ Layout:
 ```text
 <root>/
   lock
-  postgres/
-    runtime/
-    data/
-  strata/
-    rows/
-    blobs/
+  swf.db
+  swf.db.blobs/
 ```
 
 ## Implementation
@@ -53,15 +51,13 @@ For `embed:///` it:
 
 1. Resolves the embedded root.
 2. Acquires an exclusive lock file.
-3. Starts embedded Postgres using persistent directories under the root.
-4. Installs/verifies pgwf schema.
-5. Starts embedded Strata using:
-   - `pebble://<root>/strata/rows`
-   - `blobfs://<root>/strata/blobs`
-6. Builds `directruntime.NewFromConfig(...)`.
-7. Builds a SWF engine from that runtime.
+3. Opens `<root>/swf.db` with `github.com/colony-2/swf-go/pkg/swf/runtime/sqlite`.
+4. Uses the SQLite runtime's embedded Strata rowstore and blobfs artifact
+   storage.
+5. Builds a SWF engine from that runtime.
 
-This intentionally does not start an HTTP server. `c2j` uses the direct runtime in-process.
+This intentionally does not start an HTTP server. `c2j` uses the SQLite runtime
+in-process.
 
 ## Command impact
 

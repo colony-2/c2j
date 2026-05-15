@@ -2,6 +2,8 @@ package swfruntime
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"sync"
 	"testing"
 	"time"
@@ -14,7 +16,8 @@ func TestOpenEmbedPersistsJobsAcrossReopen(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
 
-	t.Setenv(defaults.EmbedRootEnv, t.TempDir())
+	root := t.TempDir()
+	t.Setenv(defaults.EmbedRootEnv, root)
 
 	handle, err := Open(ctx, "embed:///")
 	if err != nil {
@@ -35,6 +38,12 @@ func TestOpenEmbedPersistsJobsAcrossReopen(t *testing.T) {
 	}
 	if cleanupErr != nil {
 		t.Fatalf("Cleanup(): %v", cleanupErr)
+	}
+	if info, err := os.Stat(filepath.Join(root, "swf.db")); err != nil || info.IsDir() {
+		t.Fatalf("expected SQLite db file under embed root, stat err=%v, is_dir=%v", err, err == nil && info.IsDir())
+	}
+	if info, err := os.Stat(filepath.Join(root, "swf.db.blobs")); err != nil || !info.IsDir() {
+		t.Fatalf("expected SQLite blob dir under embed root, stat err=%v, is_dir=%v", err, err == nil && info.IsDir())
 	}
 
 	reopened, err := Open(ctx, "embed:///")

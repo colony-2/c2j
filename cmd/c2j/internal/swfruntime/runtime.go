@@ -2,10 +2,8 @@ package swfruntime
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"fmt"
-	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -14,19 +12,14 @@ import (
 	"time"
 
 	"github.com/colony-2/c2j/cmd/c2j/internal/defaults"
-	"github.com/colony-2/pgwf-go/installer"
-	"github.com/colony-2/strata-go/pkg/daemon"
 	"github.com/colony-2/swf-go/pkg/swf"
-	directruntime "github.com/colony-2/swf-go/pkg/swf/runtime/direct"
 	remoteruntime "github.com/colony-2/swf-go/pkg/swf/runtime/remote"
-	embeddedpostgres "github.com/fergusstrange/embedded-postgres"
-	_ "github.com/lib/pq"
+	sqliteruntime "github.com/colony-2/swf-go/pkg/swf/runtime/sqlite"
 	"golang.org/x/sys/unix"
 )
 
 const (
 	embedScheme            = "embed"
-	embedAPIKey            = "c2j-embed-token"
 	defaultHTTPTimeout     = 30 * time.Second
 	defaultSetupTimeout    = 45 * time.Second
 	defaultShutdownTimeout = 10 * time.Second
@@ -117,40 +110,21 @@ func openEmbed(ctx context.Context, parsed *url.URL, rawURL string) (*Handle, er
 	setupCtx, cancel := context.WithTimeout(setupCtx, defaultSetupTimeout)
 	defer cancel()
 
-	postgresDSN, postgresStop, err := startEmbeddedPostgres(root)
+	baseRuntime, err := sqliteruntime.NewFromConfig(setupCtx, sqliteruntime.Config{
+		DBPath: filepath.Join(root, "swf.db"),
+	})
 	if err != nil {
-		return cleanupOnErr(err)
-	}
-	closePostgres := func() error {
-		return postgresStop()
-	}
-
-	if err := installPGWF(setupCtx, postgresDSN); err != nil {
-		return nil, errors.Join(err, closePostgres(), lock.close())
-	}
-
-	strata, err := startEmbeddedStrata(root)
-	if err != nil {
-		return nil, errors.Join(err, closePostgres(), lock.close())
-	}
-
-	baseRuntime, err := directruntime.NewFromConfig(postgresDSN, strata.BaseURL, strata.APIKey)
-	if err != nil {
-		return nil, errors.Join(
-			fmt.Errorf("build direct runtime: %w", err),
-			strata.shutdown(),
-			closePostgres(),
-			lock.close(),
-		)
+		return cleanupOnErr(fmt.Errorf("build sqlite runtime: %w", err))
 	}
 	runtime := withChapterVisibility(baseRuntime)
 
 	engine, err := swf.NewEngineBuilder().WithRuntime(runtime).BuildEngine()
 	if err != nil {
+		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), defaultShutdownTimeout)
+		defer shutdownCancel()
 		return nil, errors.Join(
 			fmt.Errorf("build engine: %w", err),
-			strata.shutdown(),
-			closePostgres(),
+			baseRuntime.Close(shutdownCtx),
 			lock.close(),
 		)
 	}
@@ -159,9 +133,10 @@ func openEmbed(ctx context.Context, parsed *url.URL, rawURL string) (*Handle, er
 		Runtime: runtime,
 		Engine:  engine,
 		cleanup: func() error {
+			shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), defaultShutdownTimeout)
+			defer shutdownCancel()
 			return errors.Join(
-				strata.shutdown(),
-				closePostgres(),
+				baseRuntime.Close(shutdownCtx),
 				lock.close(),
 			)
 		},
@@ -227,124 +202,4 @@ func (l *embedLock) close() error {
 		)
 	}
 	return err
-}
-
-func startEmbeddedPostgres(root string) (string, func() error, error) {
-	pgPort, err := freeTCPPort()
-	if err != nil {
-		return "", nil, err
-	}
-
-	runtimePath := filepath.Join(root, "postgres", "runtime")
-	dataPath := filepath.Join(root, "postgres", "data")
-	if err := os.MkdirAll(runtimePath, 0o755); err != nil {
-		return "", nil, fmt.Errorf("mkdir postgres runtime dir: %w", err)
-	}
-	if err := os.MkdirAll(dataPath, 0o755); err != nil {
-		return "", nil, fmt.Errorf("mkdir postgres data dir: %w", err)
-	}
-
-	postgres := embeddedpostgres.NewDatabase(
-		embeddedpostgres.DefaultConfig().
-			Port(pgPort).
-			RuntimePath(runtimePath).
-			DataPath(dataPath),
-	)
-	if err := postgres.Start(); err != nil {
-		return "", nil, fmt.Errorf("start embedded postgres: %w", err)
-	}
-
-	stop := func() error {
-		return postgres.Stop()
-	}
-	dsn := fmt.Sprintf("postgres://postgres:postgres@localhost:%d/postgres?sslmode=disable", pgPort)
-	return dsn, stop, nil
-}
-
-func installPGWF(ctx context.Context, dsn string) error {
-	db, err := sql.Open("postgres", dsn)
-	if err != nil {
-		return fmt.Errorf("open postgres: %w", err)
-	}
-	defer db.Close()
-
-	if err := db.PingContext(ctx); err != nil {
-		return fmt.Errorf("ping postgres: %w", err)
-	}
-
-	inst := installer.Installer{DB: db}
-	if err := inst.Apply(ctx); err != nil {
-		return fmt.Errorf("install pgwf schema: %w", err)
-	}
-	if err := inst.Verify(ctx); err != nil {
-		return fmt.Errorf("verify pgwf schema: %w", err)
-	}
-	return nil
-}
-
-type strataHandle struct {
-	BaseURL string
-	APIKey  string
-	daemon  *daemon.Daemon
-}
-
-func startEmbeddedStrata(root string) (*strataHandle, error) {
-	rowDir := filepath.Join(root, "strata", "rows")
-	blobDir := filepath.Join(root, "strata", "blobs")
-	if err := os.MkdirAll(rowDir, 0o755); err != nil {
-		return nil, fmt.Errorf("mkdir strata row dir: %w", err)
-	}
-	if err := os.MkdirAll(blobDir, 0o755); err != nil {
-		return nil, fmt.Errorf("mkdir strata blob dir: %w", err)
-	}
-
-	cfg := daemon.Config{
-		ListenAddr:             "127.0.0.1:0",
-		RowStoreURI:            fmt.Sprintf("pebble://%s", filepath.ToSlash(rowDir)),
-		BlobStoreURI:           fmt.Sprintf("blobfs://%s", filepath.ToSlash(blobDir)),
-		MaxInlineArtifactBytes: daemon.DefaultMaxInlineArtifactBytes,
-	}
-	d, err := daemon.StartEmbedded(context.Background(), cfg)
-	if err != nil {
-		return nil, fmt.Errorf("start embedded strata: %w", err)
-	}
-
-	addr, err := d.Addr()
-	if err != nil {
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), defaultShutdownTimeout)
-		defer cancel()
-		return nil, errors.Join(
-			fmt.Errorf("resolve embedded strata address: %w", err),
-			d.Shutdown(shutdownCtx),
-		)
-	}
-
-	return &strataHandle{
-		BaseURL: "http://" + addr,
-		APIKey:  embedAPIKey,
-		daemon:  d,
-	}, nil
-}
-
-func (h *strataHandle) shutdown() error {
-	if h == nil || h.daemon == nil {
-		return nil
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), defaultShutdownTimeout)
-	defer cancel()
-	return h.daemon.Shutdown(ctx)
-}
-
-func freeTCPPort() (uint32, error) {
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		return 0, fmt.Errorf("reserve postgres port: %w", err)
-	}
-	defer listener.Close()
-
-	addr, ok := listener.Addr().(*net.TCPAddr)
-	if !ok {
-		return 0, fmt.Errorf("reserve postgres port: unexpected addr type %T", listener.Addr())
-	}
-	return uint32(addr.Port), nil
 }
