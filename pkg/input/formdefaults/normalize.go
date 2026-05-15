@@ -68,6 +68,39 @@ func NormalizeOutputMap(opInput map[string]interface{}, opOutput map[string]inte
 	return outputAsMap(normalized), nil
 }
 
+// ValidationOutputMap synthesizes an input output for semantic validation. It
+// preserves the normal output shape while marking required fields as present so
+// validation can proceed without a submitted human response.
+func ValidationOutputMap(opInput map[string]interface{}) (map[string]interface{}, bool) {
+	form, ok := configFromInputMap(opInput)
+	if !ok {
+		return nil, false
+	}
+
+	out := Output{Fields: map[string]interface{}{}}
+	if len(form.Fields) > 0 {
+		for _, field := range form.Fields {
+			if field.ID == "" {
+				continue
+			}
+			if value, ok := validationFieldValue(field); ok {
+				out.Fields[field.ID] = value
+			}
+		}
+		return outputAsMap(out), true
+	}
+
+	if form.Question == "" {
+		return outputAsMap(out), true
+	}
+	if value, ok := validationSingleQuestionValue(form); ok {
+		out.Response = value
+		out.ResponsePresent = true
+		out.Fields[singleQuestionFieldID] = cloneValue(value)
+	}
+	return outputAsMap(out), true
+}
+
 func normalizeOutputParts(form Config, parts *Output) error {
 	if parts.Fields == nil {
 		parts.Fields = map[string]interface{}{}
@@ -127,9 +160,23 @@ func fieldDefaultValue(field Field) (interface{}, bool) {
 	return implicitDefaultValue(field.Type, field.ScaleMin, field.HasScale)
 }
 
+func validationFieldValue(field Field) (interface{}, bool) {
+	if value, ok := fieldDefaultValue(field); ok {
+		return value, true
+	}
+	return implicitDefaultValue(field.Type, field.ScaleMin, field.HasScale)
+}
+
 func singleQuestionDefaultValue(form Config) (interface{}, bool) {
 	if form.HasDefault {
 		return cloneValue(form.Default), true
+	}
+	return implicitDefaultValue(form.Type, form.ScaleMin, form.HasScale)
+}
+
+func validationSingleQuestionValue(form Config) (interface{}, bool) {
+	if value, ok := singleQuestionDefaultValue(form); ok {
+		return value, true
 	}
 	return implicitDefaultValue(form.Type, form.ScaleMin, form.HasScale)
 }

@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/colony-2/c2j/pkg/contextual"
+	"github.com/colony-2/c2j/pkg/input/formdefaults"
 	"github.com/colony-2/c2j/pkg/ops"
 	extops "github.com/colony-2/c2j/pkg/ops/extensions"
 	coretask "github.com/colony-2/c2j/pkg/task"
@@ -17,8 +18,13 @@ import (
 )
 
 type validationJobContext struct {
-	inner      swf.JobContext
-	gitContext contextual.GitCommitContext
+	inner              swf.JobContext
+	gitContext         contextual.GitCommitContext
+	inputInitialInputs map[string]map[string]interface{}
+}
+
+type validationTaskOverride interface {
+	DoValidationTask(swf.RunPolicy, string, swf.TaskData) (swf.TaskData, bool, error)
 }
 
 func (v *validationJobContext) AwaitJobs(jobIds ...string) error {
@@ -33,7 +39,11 @@ func wrapValidationContext(ctx workflow.Context, commitContext contextual.GitCom
 		return ctx
 	}
 	return workflow.Context{
-		JobContext:           &validationJobContext{inner: ctx.JobContext, gitContext: commitContext},
+		JobContext: &validationJobContext{
+			inner:              ctx.JobContext,
+			gitContext:         commitContext,
+			inputInitialInputs: map[string]map[string]interface{}{},
+		},
 		ServiceDependencies2: ctx.ServiceDependencies2,
 	}
 }
@@ -59,7 +69,7 @@ func (v *validationJobContext) AwaitDuration(waitFor swf.Duration) error {
 	return v.inner.AwaitDuration(waitFor)
 }
 
-func (v *validationJobContext) DoTask(_ swf.RunPolicy, taskType string, data swf.TaskData) (swf.TaskData, error) {
+func (v *validationJobContext) DoTask(runPolicy swf.RunPolicy, taskType string, data swf.TaskData) (swf.TaskData, error) {
 	if taskType == WithinRecipeResolutionTaskType {
 		return newWithinRecipeResolutionTaskWorker().Run(swf.TaskContext{}, data)
 	}
@@ -71,6 +81,22 @@ func (v *validationJobContext) DoTask(_ swf.RunPolicy, taskType string, data swf
 
 	opName := parts[0]
 	stepName := parts[1]
+
+	var invocation workerops.ActivityInvocationRequest
+	payload, err := data.GetData()
+	if err != nil {
+		return nil, err
+	}
+	if err := json.Unmarshal(payload, &invocation); err != nil {
+		return nil, err
+	}
+	if override, ok := v.inner.(validationTaskOverride); ok {
+		out, handled, err := override.DoValidationTask(runPolicy, taskType, data)
+		if handled || err != nil {
+			return out, err
+		}
+	}
+
 	op, exists := ops.Get(opName)
 	if !exists {
 		return nil, fmt.Errorf("operation %s not found", opName)
@@ -95,15 +121,6 @@ func (v *validationJobContext) DoTask(_ swf.RunPolicy, taskType string, data swf
 		return nil, err
 	}
 
-	var invocation workerops.ActivityInvocationRequest
-	payload, err := data.GetData()
-	if err != nil {
-		return nil, err
-	}
-	if err := json.Unmarshal(payload, &invocation); err != nil {
-		return nil, err
-	}
-
 	gitResult := v.gitContext
 	if gitResult.ParentHash == "" {
 		gitResult.ParentHash = invocation.GitTaskContext.ParentHash
@@ -115,6 +132,30 @@ func (v *validationJobContext) DoTask(_ swf.RunPolicy, taskType string, data swf
 	nextTask := ""
 	if stepIndex < len(chain)-1 {
 		nextTask = fmt.Sprintf("%s:%s", taskPrefix, chain[stepIndex+1].Name)
+	}
+
+	if taskPrefix == "input" {
+		key := validationInputInvocationKey(invocation)
+		switch stepName {
+		case "generate_form":
+			if v.inputInitialInputs != nil {
+				v.inputInitialInputs[key] = cloneValidationInputMap(invocation.Input)
+			}
+		case "collect_user_input":
+			if v.inputInitialInputs != nil {
+				if initialInput, ok := v.inputInitialInputs[key]; ok {
+					if synthesized, ok := formdefaults.ValidationOutputMap(initialInput); ok {
+						zeroOutput = synthesized
+					}
+				}
+			}
+		default:
+			if nextTask == "" {
+				if synthesized, ok := formdefaults.ValidationOutputMap(invocation.Input); ok {
+					zeroOutput = synthesized
+				}
+			}
+		}
 	}
 
 	if taskPrefix == "extension_execution" {
@@ -163,4 +204,34 @@ func (v *validationJobContext) DoTask(_ swf.RunPolicy, taskType string, data swf
 		return nil, err
 	}
 	return swf.NewTaskData(env)
+}
+
+func validationInputInvocationKey(invocation workerops.ActivityInvocationRequest) string {
+	return fmt.Sprintf("%s::%d", invocation.GitTaskContext.NodePath, invocation.GitTaskContext.InvokeSeq)
+}
+
+func cloneValidationInputMap(in map[string]interface{}) map[string]interface{} {
+	if in == nil {
+		return nil
+	}
+	out := make(map[string]interface{}, len(in))
+	for key, value := range in {
+		out[key] = cloneValidationValue(value)
+	}
+	return out
+}
+
+func cloneValidationValue(value interface{}) interface{} {
+	switch typed := value.(type) {
+	case map[string]interface{}:
+		return cloneValidationInputMap(typed)
+	case []interface{}:
+		out := make([]interface{}, len(typed))
+		for i, item := range typed {
+			out[i] = cloneValidationValue(item)
+		}
+		return out
+	default:
+		return typed
+	}
 }

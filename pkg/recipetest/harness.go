@@ -748,14 +748,23 @@ func (j *testJobContext) TransitionSelected(fromState string, toState string, pa
 	j.transitions = append(j.transitions, selected)
 }
 
-func (j *testJobContext) DoTask(_ swf.RunPolicy, taskType string, data swf.TaskData) (swf.TaskData, error) {
+func (j *testJobContext) DoTask(runPolicy swf.RunPolicy, taskType string, data swf.TaskData) (swf.TaskData, error) {
+	out, _, err := j.doMockedTask(runPolicy, taskType, data, true)
+	return out, err
+}
+
+func (j *testJobContext) DoValidationTask(runPolicy swf.RunPolicy, taskType string, data swf.TaskData) (swf.TaskData, bool, error) {
+	return j.doMockedTask(runPolicy, taskType, data, false)
+}
+
+func (j *testJobContext) doMockedTask(_ swf.RunPolicy, taskType string, data swf.TaskData, requireMock bool) (swf.TaskData, bool, error) {
 	raw, err := data.GetData()
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	var inv workerops.ActivityInvocationRequest
 	if err := json.Unmarshal(raw, &inv); err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	opName := taskType
 	if idx := strings.Index(opName, ":"); idx >= 0 {
@@ -767,12 +776,15 @@ func (j *testJobContext) DoTask(_ swf.RunPolicy, taskType string, data swf.TaskD
 	if j.policy.AllowedOnlyNodePath != "" && nodePath != j.policy.AllowedOnlyNodePath {
 		reason := "node outside op_case target scope"
 		j.mockMisses = append(j.mockMisses, MockMiss{NodePath: nodePath, Op: opName, Reason: reason})
-		return nil, fmt.Errorf("%s: %s", opName, reason)
+		return nil, true, fmt.Errorf("%s: %s", opName, reason)
 	}
 
 	invocationKey := fmt.Sprintf("%s::%s::%d", nodePath, opName, inv.GitTaskContext.InvokeSeq)
-	mock, matched := j.selectOpMockForInvocation(invocationKey, nodePath, opName)
+	idx, matched := j.selectOpMockIndexForInvocation(invocationKey, nodePath, opName)
 	if !matched {
+		if !requireMock {
+			return nil, false, nil
+		}
 		reason := "unmocked op"
 		if hasOpMockCandidate(j.caseDef.Mocks.Ops, nodePath, opName) {
 			reason = "mock exhausted for repeated invocation"
@@ -782,56 +794,73 @@ func (j *testJobContext) DoTask(_ swf.RunPolicy, taskType string, data swf.TaskD
 			reason = "policy requires op mock"
 		}
 		j.mockMisses = append(j.mockMisses, MockMiss{NodePath: nodePath, Op: opName, Reason: reason})
-		return nil, fmt.Errorf("%s: %s", opName, reason)
+		return nil, true, fmt.Errorf("%s: %s", opName, reason)
 	}
+	mock := j.caseDef.Mocks.Ops[idx]
+	if !requireMock && mock.Behavior.Mode != "return" {
+		return nil, false, nil
+	}
+	j.mockSelections[invocationKey] = idx
+	j.consumedMockIdxs[idx] = struct{}{}
 
 	j.mockHits = append(j.mockHits, MockHit{NodePath: nodePath, Op: opName, Mode: mock.Behavior.Mode})
 	switch mock.Behavior.Mode {
 	case "return":
-		return j.buildTaskData(mock.Behavior.Outputs, mock.Behavior.Artifacts, "")
+		out, err := j.buildTaskData(mock.Behavior.Outputs, mock.Behavior.Artifacts, "")
+		return out, true, err
 	case "fail":
 		msg := "mock failure"
 		if mock.Behavior.Error != nil && strings.TrimSpace(mock.Behavior.Error.Message) != "" {
 			msg = mock.Behavior.Error.Message
 		}
-		return nil, fmt.Errorf("%s", msg)
+		return nil, true, fmt.Errorf("%s", msg)
 	case "passthrough", "record_passthrough":
 		record, err := j.runPassthroughTask(taskType, inv)
 		if err != nil {
-			return nil, err
+			return nil, true, err
 		}
 		if mock.Behavior.Mode == "record_passthrough" {
 			key := cassetteKeyForMock(mock, nodePath, opName)
 			j.recordings[key] = record
 		}
-		return j.buildTaskData(record.Outputs, bytesMapToStringMap(record.Artifacts), record.NextTask)
+		out, err := j.buildTaskData(record.Outputs, bytesMapToStringMap(record.Artifacts), record.NextTask)
+		return out, true, err
 	case "replay":
 		key := cassetteKeyForMock(mock, nodePath, opName)
 		record, ok := j.recordings[key]
 		if !ok {
-			return nil, fmt.Errorf("replay cassette not found for key %q", key)
+			return nil, true, fmt.Errorf("replay cassette not found for key %q", key)
 		}
-		return j.buildTaskData(record.Outputs, bytesMapToStringMap(record.Artifacts), record.NextTask)
+		out, err := j.buildTaskData(record.Outputs, bytesMapToStringMap(record.Artifacts), record.NextTask)
+		return out, true, err
 	default:
-		return nil, fmt.Errorf("mock mode %q not supported in isolated execution", mock.Behavior.Mode)
+		return nil, true, fmt.Errorf("mock mode %q not supported in isolated execution", mock.Behavior.Mode)
 	}
 }
 
 func (j *testJobContext) selectOpMockForInvocation(invocationKey string, nodePath string, opName string) (OpMock, bool) {
-	if idx, ok := j.mockSelections[invocationKey]; ok {
-		if idx >= 0 && idx < len(j.caseDef.Mocks.Ops) {
-			return j.caseDef.Mocks.Ops[idx], true
-		}
-		return OpMock{}, false
-	}
-
-	idx, matched := selectOpMock(j.caseDef.Mocks.Ops, nodePath, opName, j.consumedMockIdxs)
-	if !matched {
+	idx, ok := j.selectOpMockIndexForInvocation(invocationKey, nodePath, opName)
+	if !ok {
 		return OpMock{}, false
 	}
 	j.mockSelections[invocationKey] = idx
 	j.consumedMockIdxs[idx] = struct{}{}
 	return j.caseDef.Mocks.Ops[idx], true
+}
+
+func (j *testJobContext) selectOpMockIndexForInvocation(invocationKey string, nodePath string, opName string) (int, bool) {
+	if idx, ok := j.mockSelections[invocationKey]; ok {
+		if idx >= 0 && idx < len(j.caseDef.Mocks.Ops) {
+			return idx, true
+		}
+		return -1, false
+	}
+
+	idx, matched := selectOpMock(j.caseDef.Mocks.Ops, nodePath, opName, j.consumedMockIdxs)
+	if !matched {
+		return -1, false
+	}
+	return idx, true
 }
 
 func (j *testJobContext) buildTaskData(outputs map[string]interface{}, artifacts map[string]string, nextTask string) (swf.TaskData, error) {

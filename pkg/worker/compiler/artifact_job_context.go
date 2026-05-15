@@ -29,6 +29,30 @@ func (a *thinpackForwarder) Logger() *slog.Logger {
 }
 
 func (a *thinpackForwarder) DoTask(policy swf.RunPolicy, taskType string, data swf.TaskData) (swf.TaskData, error) {
+	out, err := a.doTask(policy, taskType, data, func(data swf.TaskData) (swf.TaskData, error) {
+		return a.inner.DoTask(policy, taskType, data)
+	})
+	return out, err
+}
+
+func (a *thinpackForwarder) DoValidationTask(policy swf.RunPolicy, taskType string, data swf.TaskData) (swf.TaskData, bool, error) {
+	override, ok := a.inner.(validationTaskOverride)
+	if !ok {
+		return nil, false, nil
+	}
+	var handled bool
+	var innerOut swf.TaskData
+	out, err := a.doTask(policy, taskType, data, func(data swf.TaskData) (swf.TaskData, error) {
+		var innerErr error
+		innerOut, handled, innerErr = override.DoValidationTask(policy, taskType, data)
+		return innerOut, innerErr
+	})
+	return out, handled, err
+}
+
+func (a *thinpackForwarder) doTask(policy swf.RunPolicy, taskType string, data swf.TaskData, invoke func(swf.TaskData) (swf.TaskData, error)) (swf.TaskData, error) {
+	_ = policy
+	_ = taskType
 	last := a.lastThinpack
 
 	if last != nil {
@@ -50,9 +74,12 @@ func (a *thinpackForwarder) DoTask(policy swf.RunPolicy, taskType string, data s
 		}
 	}
 
-	out, err := a.inner.DoTask(policy, taskType, data)
+	out, err := invoke(data)
 	if err != nil {
 		return out, err
+	}
+	if out == nil {
+		return nil, nil
 	}
 	outputArtifacts, err2 := out.GetArtifacts()
 	if err2 != nil {

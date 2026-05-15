@@ -436,6 +436,60 @@ inputs:
 	}
 }
 
+func TestValidateCaseAllowsUnmockedRequiredInputFields(t *testing.T) {
+	validation := ValidateCase(context.Background(), HarnessOptions{}, "p1", requiredDecisionInputTarget(), Case{
+		ID:   "required-input-unmocked",
+		Type: "recipe_case",
+	})
+
+	if !validation.Valid {
+		t.Fatalf("validation errors: %+v", validation.Errors)
+	}
+}
+
+func TestValidateCaseUsesReturnMockForRequiredInputFields(t *testing.T) {
+	validation := ValidateCase(context.Background(), HarnessOptions{}, "p1", requiredDecisionInputTarget(), Case{
+		ID:   "required-input-mocked",
+		Type: "recipe_case",
+		Mocks: Mocks{Ops: []OpMock{{
+			Match: OpMockMatch{Op: "input"},
+			Behavior: MockBehavior{
+				Mode: "return",
+				Outputs: map[string]interface{}{
+					"fields": map[string]interface{}{
+						"decision": "merge",
+					},
+				},
+			},
+		}}},
+	})
+
+	if !validation.Valid {
+		t.Fatalf("validation errors: %+v", validation.Errors)
+	}
+}
+
+func TestValidateCaseRejectsReturnMockMissingRequiredInputField(t *testing.T) {
+	validation := ValidateCase(context.Background(), HarnessOptions{}, "p1", requiredDecisionInputTarget(), Case{
+		ID:   "required-input-bad-mock",
+		Type: "recipe_case",
+		Mocks: Mocks{Ops: []OpMock{{
+			Match: OpMockMatch{Op: "input"},
+			Behavior: MockBehavior{
+				Mode:    "return",
+				Outputs: map[string]interface{}{"fields": map[string]interface{}{}},
+			},
+		}}},
+	})
+
+	if validation.Valid {
+		t.Fatal("expected validation to fail")
+	}
+	if len(validation.Errors) == 0 || !strings.Contains(validation.Errors[0].Message, `required input field "decision" missing`) {
+		t.Fatalf("expected required field error, got %#v", validation.Errors)
+	}
+}
+
 func TestRunCaseOpCaseScopeEnforced(t *testing.T) {
 	resp := RunCase(context.Background(), HarnessOptions{}, "p1", inlineInputTarget(), Case{
 		ID:     "c5",
@@ -624,6 +678,29 @@ func inlineInputTarget() TargetRecipe {
 		Mode:    "inline_recipe",
 		Format:  "yaml",
 		Content: "version: '1.0'\nid: test\nop: input\ninputs:\n  form:\n    question: hi\n    type: short_answer\n",
+	}
+}
+
+func requiredDecisionInputTarget() TargetRecipe {
+	return TargetRecipe{
+		Mode:   "inline_recipe",
+		Format: "yaml",
+		Content: `
+version: '1.0'
+id: required-input
+op: input
+inputs:
+  form:
+    title: Review
+    fields:
+      - id: decision
+        question: Decision?
+        type: multiple_choice
+        required: true
+        options:
+          - value: merge
+          - value: revise
+`,
 	}
 }
 
