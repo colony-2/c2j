@@ -775,9 +775,9 @@ func TestValidateCELExpression(t *testing.T) {
 			wantError: false,
 		},
 		{
-			name:      "unqualified outputs not allowed",
+			name:      "unqualified outputs root is declared for transition contexts",
 			expr:      "outputs.value",
-			wantError: true,
+			wantError: false,
 		},
 	}
 

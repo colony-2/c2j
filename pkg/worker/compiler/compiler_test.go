@@ -6,10 +6,13 @@ import (
 	"testing"
 	"time"
 
+	recipecel "github.com/colony-2/c2j/pkg/cel"
+	"github.com/colony-2/c2j/pkg/contextual"
 	ops2 "github.com/colony-2/c2j/pkg/ops"
 	"github.com/colony-2/c2j/pkg/recipe"
 	"github.com/colony-2/c2j/pkg/starter"
 	"github.com/colony-2/c2j/pkg/swfutil"
+	"github.com/colony-2/c2j/pkg/template"
 	"github.com/colony-2/c2j/pkg/worker/ops"
 	"github.com/colony-2/c2j/pkg/workflowctl"
 	"github.com/colony-2/swf-go/pkg/swf"
@@ -226,6 +229,82 @@ outputs:
 		"result": "again",
 	}
 	s.testRecipe(recipeYaml, map[string]interface{}{}, expectedOutputs)
+}
+
+func (s *CompilerTestSuite) TestTransitionPayloadsAreVisibleInTargetState() {
+	recipeYaml := `
+---
+id: test-recipe
+input_schema:
+  initial_message:
+    type: string
+inputs:
+  initial_message: "${{ inputs.initial_message }}"
+state:
+  initial:
+    to: start
+    payload:
+      message: "${{ inputs.initial_message }}"
+  states:
+    start:
+      op: echo_activity
+      inputs:
+        Message: "${{ transition.payload.message + ':' + transition.to }}"
+      transitions:
+        - to: done
+          when: outputs.output == "hello:start"
+          payload:
+            message: "${{ outputs.output + ':payload' }}"
+            source: "${{ transition.from + '>' + transition.to }}"
+    done:
+      op: echo_activity
+      inputs:
+        Message: "${{ transition.payload.message + ':' + transition.from + '>' + transition.to + ':' + transition.payload.source }}"
+outputs:
+  result: "${{ states.done.outputs.output }}"
+`
+	parsed, err := recipe.LoadRecipeFromString([]byte(recipeYaml))
+	require.NoError(s.T(), err)
+	parsedState := parsed.RecipeImpl.(*recipe.RecipeState)
+	require.Equal(s.T(), "${{ inputs.initial_message }}", parsedState.States.Initial[0].Payload["message"])
+	recipeCtx, err := template.NewRecipeResolutionContext(&contextual.GitCommitContext{}, map[string]interface{}{}, contextual.JobContext{})
+	require.NoError(s.T(), err)
+	smCtx, err := recipeCtx.NewChildContext(template.ScopeStateMachine, recipe.NodeMetadata{ID: "sm"}, "", map[string]interface{}{"initial_message": "hello"})
+	require.NoError(s.T(), err)
+	initialPayload, err := renderTransitionPayload(smCtx, parsedState.States.Initial[0], "")
+	require.NoError(s.T(), err)
+	require.Equal(s.T(), "hello", initialPayload["message"])
+
+	expectedOutputs := map[string]interface{}{
+		"result": "hello:start:payload:start>done:start>done",
+	}
+	s.testRecipe(recipeYaml, map[string]interface{}{"initial_message": "hello"}, expectedOutputs)
+}
+
+func TestTransitionPayloadRenderFailure(t *testing.T) {
+	expr, err := recipecel.NewCELExpr("true")
+	require.NoError(t, err)
+
+	recipeCtx, err := template.NewRecipeResolutionContext(&contextual.GitCommitContext{}, map[string]interface{}{}, contextual.JobContext{})
+	require.NoError(t, err)
+	smCtx, err := recipeCtx.NewChildContext(template.ScopeStateMachine, recipe.NodeMetadata{ID: "sm"}, "", map[string]interface{}{})
+	require.NoError(t, err)
+	stateCtx, err := smCtx.NewChildContext(template.ScopeState, recipe.NodeMetadata{ID: "start"}, "start", nil)
+	require.NoError(t, err)
+	stateCtx.AddExecution(map[string]interface{}{"ok": true})
+
+	_, err = evaluateTransitionsWithContext(NoOpStateObserver{}, []recipe.Transition{
+		{
+			To:   "done",
+			When: *expr,
+			Payload: map[string]interface{}{
+				"bad": "${{ outputs.missing.value }}",
+			},
+		},
+	}, smCtx, "start")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "transition evaluation failed")
+	assert.Contains(t, err.Error(), "failed to render payload")
 }
 
 func (s *CompilerTestSuite) TestSequenceRecipeCompilation() {

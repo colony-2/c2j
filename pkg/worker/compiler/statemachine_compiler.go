@@ -2,7 +2,6 @@ package compiler
 
 import (
 	"fmt"
-	"strings"
 
 	"github.com/colony-2/c2j/pkg/recipe"
 	"github.com/colony-2/c2j/pkg/template"
@@ -40,10 +39,12 @@ func (d DefaultRecipeExecutor) ExecuteStateMachine(ctx workflow.Context, parentC
 	}
 
 	// Resolve initial state using the same transition evaluator used by per-state transitions.
-	currentState, err := evaluateInitialState(observer, stateMap.Initial, resCtx)
+	initialDecision, err := evaluateInitialState(observer, stateMap.Initial, resCtx)
 	if err != nil {
 		return err
 	}
+	currentState := initialDecision.To
+	currentTransition := initialDecision.Transition
 	if _, ok := stateMap.States[currentState]; !ok {
 		return fmt.Errorf("state '%s' not found", currentState)
 	}
@@ -56,7 +57,7 @@ func (d DefaultRecipeExecutor) ExecuteStateMachine(ctx workflow.Context, parentC
 		for _, stateName := range stateNames {
 			stateDef := stateMap.States[stateName]
 			observer.StateEntered(stateName)
-			if err := d.runState(ctx, resCtx, stateName, stateDef); err != nil {
+			if err := d.runState(ctx, resCtx, stateName, stateDef, template.NewTransitionData("", stateName, nil)); err != nil {
 				return fmt.Errorf("state '%s' execution failed: %w", stateName, err)
 			}
 			observer.StateExited(stateName)
@@ -85,7 +86,7 @@ func (d DefaultRecipeExecutor) ExecuteStateMachine(ctx workflow.Context, parentC
 		}
 
 		observer.StateEntered(currentState)
-		if err := d.runState(ctx, resCtx, currentState, stateDef); err != nil {
+		if err := d.runState(ctx, resCtx, currentState, stateDef, currentTransition); err != nil {
 			// Handle retry if configured
 			return fmt.Errorf("state '%s' execution failed: %w", currentState, err)
 		}
@@ -96,17 +97,18 @@ func (d DefaultRecipeExecutor) ExecuteStateMachine(ctx workflow.Context, parentC
 		}
 
 		// Evaluate transitions using resolution context
-		nextState, err := evaluateTransitionsWithContext(observer, stateDef.Transitions, resCtx, currentState)
+		decision, err := evaluateTransitionsWithContext(observer, stateDef.Transitions, resCtx, currentState)
 		if err != nil {
 			return fmt.Errorf("failed to evaluate state transitions: %w", err)
 		}
 		stateInvocationCount[currentState]++
-		if nextState == "" {
+		if decision.To == "" {
 			// No transition matched, state machine completes
 			break
 		}
 
-		currentState = nextState
+		currentState = decision.To
+		currentTransition = decision.Transition
 	}
 
 	// Return final outputs
@@ -125,18 +127,23 @@ func (d DefaultRecipeExecutor) ExecuteStateMachine(ctx workflow.Context, parentC
 	return nil
 }
 
-func evaluateInitialState(obs StateObserver, initial recipe.InitialTransitions, resCtx *template.ResolutionContext) (string, error) {
+type transitionDecision struct {
+	To         string
+	Transition template.TransitionData
+}
+
+func evaluateInitialState(obs StateObserver, initial recipe.InitialTransitions, resCtx *template.ResolutionContext) (transitionDecision, error) {
 	if len(initial) == 0 {
-		return "", fmt.Errorf("state machine initial state is required")
+		return transitionDecision{}, fmt.Errorf("state machine initial state is required")
 	}
-	nextState, err := evaluateTransitionsWithContext(obs, initial.Transitions(), resCtx, "")
+	decision, err := evaluateTransitionsWithContext(obs, initial.Transitions(), resCtx, "")
 	if err != nil {
-		return "", fmt.Errorf("failed to evaluate initial transitions: %w", err)
+		return transitionDecision{}, fmt.Errorf("failed to evaluate initial transitions: %w", err)
 	}
-	if nextState == "" {
-		return "", fmt.Errorf("state machine initial transitions did not match any state")
+	if decision.To == "" {
+		return transitionDecision{}, fmt.Errorf("state machine initial transitions did not match any state")
 	}
-	return nextState, nil
+	return decision, nil
 }
 
 // isTerminalState checks if a state is terminal using the new State type
@@ -149,41 +156,74 @@ func isTerminalState(stateName string, states map[string]recipe.State) bool {
 }
 
 // evaluateTransitionsWithContext evaluates transitions using resolution context
-func evaluateTransitionsWithContext(obs StateObserver, transitions []recipe.Transition, resCtx *template.ResolutionContext, stateName string) (string, error) {
+func evaluateTransitionsWithContext(obs StateObserver, transitions []recipe.Transition, resCtx *template.ResolutionContext, stateName string) (transitionDecision, error) {
 	// Create a temporary context for transition evaluation
-	evalCtx := &template.ResolutionContext{
-		ScopeType:    resCtx.ScopeType,
-		TemplateData: resCtx.TemplateData,
-		CELEnv:       resCtx.CELEnv,
-	}
+	evalCtx := transitionSourceContext(resCtx, stateName, "")
 
 	for _, transition := range transitions {
-		expr := qualifyStateOutputsReference(transition.When.String(), stateName)
+		evalCtx.TemplateData.Transition = template.NewTransitionData(stateName, transition.To, nil)
+		expr := transition.When.String()
 		shouldTransition, err := evalCtx.EvaluateCEL(expr)
 		obs.TransitionEvalauted(transition.When.String(), shouldTransition, transition.To)
 		if err != nil {
-			return "", fmt.Errorf("failed to evaluate transition condition: %w", err)
+			return transitionDecision{}, fmt.Errorf("transition evaluation failed: failed to evaluate condition: %w", err)
 		}
 
 		if shouldTransition {
-			return transition.To, nil
+			payload, err := renderTransitionPayload(resCtx, transition, stateName)
+			if err != nil {
+				return transitionDecision{}, fmt.Errorf("transition evaluation failed: %w", err)
+			}
+			return transitionDecision{
+				To:         transition.To,
+				Transition: template.NewTransitionData(stateName, transition.To, payload),
+			}, nil
 		}
 	}
-	return "", nil
+	return transitionDecision{}, nil
 }
 
-func qualifyStateOutputsReference(expr string, stateName string) string {
-	if strings.TrimSpace(expr) == "" || stateName == "" {
-		return expr
+func renderTransitionPayload(resCtx *template.ResolutionContext, transition recipe.Transition, stateName string) (map[string]interface{}, error) {
+	if len(transition.Payload) == 0 {
+		return map[string]interface{}{}, nil
 	}
-	return strings.ReplaceAll(expr, "outputs.", "states."+stateName+".outputs.")
+	payloadCtx := transitionSourceContext(resCtx, stateName, transition.To)
+	payload, err := payloadCtx.ResolveMap(transition.Payload)
+	if err != nil {
+		return nil, fmt.Errorf("failed to render payload for transition to %q: %w", transition.To, err)
+	}
+	return payload, nil
 }
 
-func (d DefaultRecipeExecutor) runState(ctx workflow.Context, resCtx *template.ResolutionContext, stateName string, node recipe.State) error {
+func transitionSourceContext(resCtx *template.ResolutionContext, stateName string, to string) *template.ResolutionContext {
+	evalCtx := &template.ResolutionContext{
+		ScopeType:    resCtx.ScopeType,
+		Options:      resCtx.Options,
+		TemplateData: resCtx.TemplateData,
+		CELEnv:       resCtx.CELEnv,
+	}
+	evalCtx.TemplateData.Outputs = sourceStateOutputs(resCtx, stateName)
+	evalCtx.TemplateData.Transition = template.NewTransitionData(stateName, to, nil)
+	return evalCtx
+}
+
+func sourceStateOutputs(resCtx *template.ResolutionContext, stateName string) map[string]interface{} {
+	if stateName == "" {
+		return map[string]interface{}{}
+	}
+	state, ok := resCtx.TemplateData.States[stateName]
+	if !ok || state.Outputs == nil {
+		return map[string]interface{}{}
+	}
+	return state.Outputs
+}
+
+func (d DefaultRecipeExecutor) runState(ctx workflow.Context, resCtx *template.ResolutionContext, stateName string, node recipe.State, transition template.TransitionData) error {
 	stateResCtx, err := resCtx.NewChildContext(template.ScopeState, node.GetMetadata(), stateName, nil)
 	if err != nil {
 		return fmt.Errorf("failed to create state context: %w", err)
 	}
+	stateResCtx.TemplateData.Transition = transition.Clone()
 	if err := stateResCtx.ResolveVars(node.GetMetadata().Vars); err != nil {
 		return fmt.Errorf("failed to resolve state vars: %w", err)
 	}

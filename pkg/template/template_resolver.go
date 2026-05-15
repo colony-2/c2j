@@ -37,9 +37,10 @@ type templateData struct {
 	Sequence        map[string]StepOutput           `json:"sequence"`         // Sibling nodes in sequence
 	States          map[string]StepOutput           `json:"states"`           // Completed states in state machine
 	Vars            map[string]interface{}          `json:"vars"`             // Scoped computed values
+	Outputs         map[string]interface{}          `json:"outputs"`          // Current source outputs for transition evaluation/payloads.
+	Transition      TransitionData                  `json:"transition"`       // Transition metadata visible to a target state invocation.
 	Scope           ScopeMetadata                   `json:"scope"`            // Execution metadata
 	Context         contextual.TaskExecutionContext `json:"context"`          // Execution context (typed)
-	// Note: No unqualified "outputs" field - outputs always qualified by context
 }
 
 type StepOutput = contextual.StepOutput
@@ -125,6 +126,8 @@ func newResolutionContext(commitContext *contextual.GitCommitContext, tracker *i
 			Sequence:        make(map[string]StepOutput),
 			States:          make(map[string]StepOutput),
 			Vars:            make(map[string]interface{}),
+			Outputs:         make(map[string]interface{}),
+			Transition:      EmptyTransitionData(),
 			Scope: ScopeMetadata{
 				ExecutionID: generateExecutionID(),
 				Timestamp:   time.Now(),
@@ -147,6 +150,8 @@ func newResolutionContext(commitContext *contextual.GitCommitContext, tracker *i
 		cel.Variable("sequence", cel.MapType(cel.StringType, cel.MapType(cel.StringType, cel.DynType))),
 		cel.Variable("states", cel.MapType(cel.StringType, cel.MapType(cel.StringType, cel.DynType))),
 		cel.Variable("vars", cel.MapType(cel.StringType, cel.DynType)),
+		cel.Variable("outputs", cel.MapType(cel.StringType, cel.DynType)),
+		cel.Variable("transition", cel.MapType(cel.StringType, cel.DynType)),
 		cel.Variable("scope", cel.MapType(cel.StringType, cel.DynType)),
 		cel.Variable("context", cel.ObjectType("contextual.TaskExecutionContext")),
 		ext.NativeTypes(
@@ -309,6 +314,7 @@ func (rc *ResolutionContext) NewChildContext(scopeType ScopeType, metadata recip
 	}
 	child.EffectiveConst = rc.EffectiveConst || metadata.Const
 	child.TemplateData.Vars = cloneTemplateVars(rc.TemplateData.Vars)
+	child.TemplateData.Transition = rc.TemplateData.Transition.Clone()
 
 	// copy items from parents based on scope.
 	switch scopeType {
@@ -349,6 +355,12 @@ func (rc *ResolutionContext) ensureContextBackfill() {
 	}
 	if rc.TemplateData.Vars == nil {
 		rc.TemplateData.Vars = make(map[string]interface{})
+	}
+	if rc.TemplateData.Outputs == nil {
+		rc.TemplateData.Outputs = make(map[string]interface{})
+	}
+	if rc.TemplateData.Transition.Payload == nil {
+		rc.TemplateData.Transition.Payload = make(map[string]interface{})
 	}
 }
 
@@ -414,12 +426,14 @@ func (rc *ResolutionContext) evaluateCELExpression(expr string) (interface{}, er
 
 	// Pass templateData fields as CEL variables with native types
 	result, _, err := program.Eval(map[string]interface{}{
-		"inputs":   rc.TemplateData.ContainerInputs,
-		"sequence": rc.celSequenceValue(),
-		"states":   rc.celStatesValue(),
-		"vars":     rc.TemplateData.Vars,
-		"scope":    rc.TemplateData.Scope,
-		"context":  rc.TemplateData.Context,
+		"inputs":     rc.TemplateData.ContainerInputs,
+		"sequence":   rc.celSequenceValue(),
+		"states":     rc.celStatesValue(),
+		"vars":       rc.TemplateData.Vars,
+		"outputs":    rc.TemplateData.Outputs,
+		"transition": rc.TemplateData.Transition.AsMap(),
+		"scope":      rc.TemplateData.Scope,
+		"context":    rc.TemplateData.Context,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to evaluate CEL expression: %w", err)

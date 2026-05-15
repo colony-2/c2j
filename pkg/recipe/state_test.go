@@ -42,7 +42,11 @@ func TestStateMachine_Initial_Unmarshal_Shapes(t *testing.T) {
 	var fromObject Node
 	require.NoError(t, yamlUnmarshalStrict(`
 state:
-  initial: {to: start, when: true}
+  initial:
+    to: start
+    when: true
+    payload:
+      message: hello
   states:
     start: {op: echo, inputs: {message: hi}}
 `, &fromObject))
@@ -50,6 +54,7 @@ state:
 	require.Len(t, stateFromObject.States.Initial, 1)
 	assert.Equal(t, "start", stateFromObject.States.Initial[0].To)
 	assert.Equal(t, "true", stateFromObject.States.Initial[0].When.String())
+	assert.Equal(t, "hello", stateFromObject.States.Initial[0].Payload["message"])
 
 	var fromList Node
 	require.NoError(t, yamlUnmarshalStrict(`
@@ -87,9 +92,12 @@ inputs:
 transitions:
   - to: done
     when: "true"
+    payload:
+      reason: approved
 `, &st)
 	require.NoError(t, err)
 	require.Len(t, st.Transitions, 1)
 	assert.Equal(t, "done", st.Transitions[0].To)
 	assert.Equal(t, "true", st.Transitions[0].When.String())
+	assert.Equal(t, "approved", st.Transitions[0].Payload["reason"])
 }

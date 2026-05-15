@@ -37,7 +37,7 @@ func (i InitialTransitions) Transitions() []Transition {
 }
 
 func (i InitialTransitions) ShortcutState() (string, bool) {
-	if len(i) != 1 || !i[0].When.AlwaysTrue() {
+	if len(i) != 1 || !i[0].When.AlwaysTrue() || len(i[0].Payload) > 0 {
 		return "", false
 	}
 	return i[0].To, true
@@ -170,8 +170,9 @@ func (s *State) UnmarshalYAML(node *yamlv3.Node) error {
 
 // Transition represents a state transition
 type Transition struct {
-	To   string      `yaml:"to"`
-	When cel.CELExpr `yaml:"when,omitempty"` // CEL expression
+	To      string                 `yaml:"to"`
+	When    cel.CELExpr            `yaml:"when,omitempty"` // CEL expression
+	Payload map[string]interface{} `yaml:"payload,omitempty"`
 }
 
 func (Transition) JSONSchema() *jsonschema.Schema {
@@ -184,6 +185,10 @@ func (Transition) JSONSchema() *jsonschema.Schema {
 	props := jsonschema.NewProperties()
 	props.Set("to", &jsonschema.Schema{Type: "string"})
 	props.Set("when", when)
+	props.Set("payload", &jsonschema.Schema{
+		Type:                 "object",
+		AdditionalProperties: &jsonschema.Schema{},
+	})
 	return &jsonschema.Schema{
 		Type:       "object",
 		Properties: props,
@@ -193,8 +198,9 @@ func (Transition) JSONSchema() *jsonschema.Schema {
 
 func (t *Transition) UnmarshalYAML(node *yamlv3.Node) error {
 	type rawTransition struct {
-		To   string      `yaml:"to"`
-		When interface{} `yaml:"when,omitempty"`
+		To      string                 `yaml:"to"`
+		When    interface{}            `yaml:"when,omitempty"`
+		Payload map[string]interface{} `yaml:"payload,omitempty"`
 	}
 	var raw rawTransition
 	if err := node.Decode(&raw); err != nil {
@@ -211,6 +217,7 @@ func (t *Transition) UnmarshalYAML(node *yamlv3.Node) error {
 	}
 	t.To = raw.To
 	t.When = expr
+	t.Payload = raw.Payload
 	return nil
 }
 
