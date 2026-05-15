@@ -1628,6 +1628,14 @@ func TestReplaceSentinelValue_HandlesInputMap(t *testing.T) {
 		assert.Equal(t, testInbox+"/nested.txt", first["path"])
 	})
 
+	t.Run("embedded sentinel replacement works in map keys", func(t *testing.T) {
+		input := map[string]interface{}{
+			contextual.ArtifactInboxSentinel + "/key": "value",
+		}
+		result := replaceSentinels(input, replacements)
+		assert.Equal(t, "value", result[testInbox+"/key"])
+	})
+
 	t.Run("non-sentinel values unchanged", func(t *testing.T) {
 		input := map[string]interface{}{
 			"string": "hello",

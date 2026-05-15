@@ -50,6 +50,8 @@ type opDepImpl struct {
 	externalArtifacts map[string]recipeartifacts.Ref
 	workflowControl   workflowctl.WorkflowControl
 	worktreePath      string
+	operationPaths    OperationPaths
+	pathRuntime       OperationPathRuntime
 	gitContext        GitExecutionContext
 	jobTool           JobTool
 	nextTaskType      string
@@ -136,6 +138,14 @@ func (c *opDepImpl) WorktreePath() string {
 	return c.worktreePath
 }
 
+func (c *opDepImpl) OperationPaths() OperationPaths {
+	return c.operationPaths
+}
+
+func (c *opDepImpl) OperationPathRuntime() OperationPathRuntime {
+	return c.pathRuntime
+}
+
 func (c *opDepImpl) GitContext() GitExecutionContext {
 	return c.gitContext
 }
@@ -154,6 +164,8 @@ type OpDependenciesBuilder struct {
 	artifacts       []swf.Artifact
 	workflowControl workflowctl.WorkflowControl
 	worktreePath    string
+	operationPaths  OperationPaths
+	pathRuntime     OperationPathRuntime
 	gitContext      GitExecutionContext
 	jobTool         JobTool
 }
@@ -201,6 +213,19 @@ func (b *OpDependenciesBuilder) WithWorktreePath(path string) *OpDependenciesBui
 	return b
 }
 
+func (b *OpDependenciesBuilder) WithOperationPaths(paths OperationPaths) *OpDependenciesBuilder {
+	b.operationPaths = paths
+	if b.worktreePath == "" {
+		b.worktreePath = paths.WorktreePath
+	}
+	return b
+}
+
+func (b *OpDependenciesBuilder) WithOperationPathRuntime(runtime OperationPathRuntime) *OpDependenciesBuilder {
+	b.pathRuntime = runtime
+	return b
+}
+
 func (b *OpDependenciesBuilder) WithGitContext(ctx GitExecutionContext) *OpDependenciesBuilder {
 	b.gitContext = ctx
 	if b.worktreePath == "" {
@@ -215,6 +240,8 @@ func (b *OpDependenciesBuilder) Build() OpDependencies {
 		inputArtifacts:    b.artifacts,
 		workflowControl:   b.workflowControl,
 		worktreePath:      b.worktreePath,
+		operationPaths:    b.operationPaths,
+		pathRuntime:       b.pathRuntime,
 		gitContext:        b.gitContext,
 		outputArtifacts:   make([]swf.Artifact, 0),
 		externalArtifacts: make(map[string]recipeartifacts.Ref),

@@ -213,36 +213,8 @@ func (j recipeJobWorker) Run(ctx swf.JobContext, jobData swf.JobData) (swf.JobDa
 
 	runContext := input.JobContext
 	applyRootRecipeSource(&runContext, resolution)
-	err = ensureSentinel(&runContext.Environment.WorktreePath, contextual.WorktreePathSentinel, "worktree path")
-	if err != nil {
-		logger.Error("recipe job: invalid worktree sentinel",
-			"error", err,
-			"error_chain", logutil.ErrorChain(err),
-			"stacktrace", logutil.Stacktrace(5),
-		)
-		return nil, err
-	}
-	err = ensureSentinel(&runContext.Environment.WorkdirPath, contextual.WorkdirPathSentinel, "workdir path")
-	if err != nil {
-		logger.Error("recipe job: invalid workdir sentinel",
-			"error", err,
-			"error_chain", logutil.ErrorChain(err),
-			"stacktrace", logutil.Stacktrace(5),
-		)
-		return nil, err
-	}
-	err = ensureSentinel(&runContext.Environment.ArtifactInbox, contextual.ArtifactInboxSentinel, "artifact inbox")
-	if err != nil {
-		logger.Error("recipe job: invalid artifact inbox sentinel",
-			"error", err,
-			"error_chain", logutil.ErrorChain(err),
-			"stacktrace", logutil.Stacktrace(5),
-		)
-		return nil, err
-	}
-	err = ensureSentinel(&runContext.Environment.ArtifactOutbox, contextual.ArtifactOutboxSentinel, "artifact outbox")
-	if err != nil {
-		logger.Error("recipe job: invalid artifact outbox sentinel",
+	if err := ensureEnvironmentSentinels(&runContext.Environment); err != nil {
+		logger.Error("recipe job: invalid environment sentinel",
 			"error", err,
 			"error_chain", logutil.ErrorChain(err),
 			"stacktrace", logutil.Stacktrace(5),
@@ -301,6 +273,48 @@ func ensureSentinel(field *string, sentinel string, name string) error {
 	}
 
 	*field = sentinel
+	return nil
+}
+
+func ensureEnvironmentSentinels(env *contextual.EnvironmentContext) error {
+	if err := ensureSentinel(&env.WorktreePath, contextual.WorktreePathSentinel, "worktree path"); err != nil {
+		return err
+	}
+	if err := ensureSentinel(&env.WorkdirPath, contextual.WorkdirPathSentinel, "workdir path"); err != nil {
+		return err
+	}
+	if err := ensureSentinel(&env.ArtifactInbox, contextual.ArtifactInboxSentinel, "artifact inbox"); err != nil {
+		return err
+	}
+	if err := ensureSentinel(&env.ArtifactOutbox, contextual.ArtifactOutboxSentinel, "artifact outbox"); err != nil {
+		return err
+	}
+
+	if err := ensureSentinel(&env.Host.WorktreePath, contextual.WorktreePathSentinel, "host worktree path"); err != nil {
+		return err
+	}
+	if err := ensureSentinel(&env.Host.Workdir, contextual.WorkdirPathSentinel, "host workdir path"); err != nil {
+		return err
+	}
+	if err := ensureSentinel(&env.Host.Inbox, contextual.ArtifactInboxSentinel, "host artifact inbox"); err != nil {
+		return err
+	}
+	if err := ensureSentinel(&env.Host.Outbox, contextual.ArtifactOutboxSentinel, "host artifact outbox"); err != nil {
+		return err
+	}
+
+	if err := ensureSentinel(&env.Op.WorktreePath, contextual.OpWorktreePathSentinel, "op worktree path"); err != nil {
+		return err
+	}
+	if err := ensureSentinel(&env.Op.Workdir, contextual.OpWorkdirPathSentinel, "op workdir path"); err != nil {
+		return err
+	}
+	if err := ensureSentinel(&env.Op.Inbox, contextual.OpArtifactInboxSentinel, "op artifact inbox"); err != nil {
+		return err
+	}
+	if err := ensureSentinel(&env.Op.Outbox, contextual.OpArtifactOutboxSentinel, "op artifact outbox"); err != nil {
+		return err
+	}
 	return nil
 }
 

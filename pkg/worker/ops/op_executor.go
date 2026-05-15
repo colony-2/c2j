@@ -23,6 +23,7 @@ import (
 	"github.com/colony-2/c2j/pkg/git/gitstate"
 	"github.com/colony-2/c2j/pkg/logutil"
 	"github.com/colony-2/c2j/pkg/ops"
+	"github.com/colony-2/c2j/pkg/ops/process"
 	"github.com/colony-2/swf-go/pkg/swf"
 )
 
@@ -118,6 +119,12 @@ func (t opExecutor) do(ctx context.Context, jobTool ops.JobTool, req ActivityInv
 	if err != nil {
 		return zero, nil, err
 	}
+	operationPaths := ops.OperationPaths{
+		Workdir:      workDir,
+		WorktreePath: worktreePath,
+		Inbox:        inbox,
+		Outbox:       outbox,
+	}
 
 	if jobTool == nil {
 		return zero, nil, fmt.Errorf("job tool is required")
@@ -186,6 +193,26 @@ func (t opExecutor) do(ctx context.Context, jobTool ops.JobTool, req ActivityInv
 	// Templates like {{ environment.worktree_path }} resolved to sentinel at compile time
 	// Now replace with real local path
 	hydratedInput := replaceSentinels(req.Input, replacements)
+	pathRuntime := ops.OperationPathRuntime{
+		Views: ops.OperationPathViews{
+			Host: operationPaths,
+			Op:   operationPaths,
+		},
+	}
+	if transformer, ok := reg.Activity.(ops.OperationPathTransformer); ok {
+		transformed, err := transformer.TransformOperationPaths(ctx, ops.OperationPathTransformRequest{
+			Input: hydratedInput,
+			Host:  operationPaths,
+		})
+		if err != nil {
+			return zero, nil, err
+		}
+		pathRuntime = transformed.Runtime
+		hydratedInput = replaceSentinels(hydratedInput, transformed.Replacements)
+	}
+	if process.ContainsOpVisibleSentinel(hydratedInput) {
+		return zero, nil, fmt.Errorf("op-visible path resolution failed: operation %q does not support context.environment.op.*", reg.Metadata.Type)
+	}
 
 	// Build OpDependencies with WorktreePath and filtered artifacts (thin pack hidden from operation)
 	db := deps.Database()
@@ -197,6 +224,8 @@ func (t opExecutor) do(ctx context.Context, jobTool ops.JobTool, req ActivityInv
 		WithJobTool(jobTool).
 		WithDatabase(db).
 		WithWorkflowControl(deps.WorkflowControl()).
+		WithOperationPaths(operationPaths).
+		WithOperationPathRuntime(pathRuntime).
 		WithGitContext(ops.GitExecutionContext{
 			BaseRepo:         fullContext.GetBaseRepo(),
 			BaseRef:          fullContext.GetBaseRef(),
@@ -320,7 +349,7 @@ func (t opExecutor) do(ctx context.Context, jobTool ops.JobTool, req ActivityInv
 func replaceSentinels(input map[string]interface{}, replacements map[string]string) map[string]interface{} {
 	result := make(map[string]interface{})
 	for k, v := range input {
-		result[k] = replaceSentinelValue(v, replacements)
+		result[replaceValue(k, replacements)] = replaceSentinelValue(v, replacements)
 	}
 	return result
 }

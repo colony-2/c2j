@@ -172,6 +172,7 @@ func compile(expression string) (cel.Program, error) {
 			reflect.TypeOf(contextual.JobContext{}),
 			reflect.TypeOf(contextual.TaskContext{}),
 			reflect.TypeOf(contextual.EnvironmentContext{}),
+			reflect.TypeOf(contextual.EnvironmentPathContext{}),
 			reflect.TypeOf(contextual.WorkflowContext{}),
 			reflect.TypeOf(contextual.GitBaseContext{}),
 			reflect.TypeOf(contextual.GitCommitContext{}),

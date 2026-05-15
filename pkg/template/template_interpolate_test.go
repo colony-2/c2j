@@ -811,3 +811,39 @@ func TestGoTemplate_FunctionRegistryBuiltinsAndCustom(t *testing.T) {
 	assert.Contains(t, jsonResult, "cells_json=[")
 	assert.Contains(t, jsonResult, "\"name\":\"alpha\"")
 }
+
+func TestTemplateContextExposesHostAndOpEnvironmentPaths(t *testing.T) {
+	ctx, err := NewRecipeResolutionContext(&contextual.GitCommitContext{}, nil, contextual.JobContext{
+		Environment: contextual.EnvironmentContext{
+			WorkdirPath:    contextual.WorkdirPathSentinel,
+			WorktreePath:   contextual.WorktreePathSentinel,
+			ArtifactInbox:  contextual.ArtifactInboxSentinel,
+			ArtifactOutbox: contextual.ArtifactOutboxSentinel,
+			Host: contextual.EnvironmentPathContext{
+				Workdir:      contextual.WorkdirPathSentinel,
+				WorktreePath: contextual.WorktreePathSentinel,
+				Inbox:        contextual.ArtifactInboxSentinel,
+				Outbox:       contextual.ArtifactOutboxSentinel,
+			},
+			Op: contextual.EnvironmentPathContext{
+				Workdir:      contextual.OpWorkdirPathSentinel,
+				WorktreePath: contextual.OpWorktreePathSentinel,
+				Inbox:        contextual.OpArtifactInboxSentinel,
+				Outbox:       contextual.OpArtifactOutboxSentinel,
+			},
+		},
+	})
+	require.NoError(t, err)
+
+	hostInbox, err := ctx.resolveTemplate("{{ context.environment.host.inbox }}")
+	require.NoError(t, err)
+	require.Equal(t, contextual.ArtifactInboxSentinel, hostInbox)
+
+	opInbox, err := ctx.resolveTemplate("{{ context.environment.op.inbox }}")
+	require.NoError(t, err)
+	require.Equal(t, contextual.OpArtifactInboxSentinel, opInbox)
+
+	opWorktree, err := ctx.resolveTemplate("${{ context.environment.op.worktree_path }}")
+	require.NoError(t, err)
+	require.Equal(t, contextual.OpWorktreePathSentinel, opWorktree)
+}

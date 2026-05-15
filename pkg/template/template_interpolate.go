@@ -223,6 +223,18 @@ func (rc *ResolutionContext) goTemplateContextMap() map[string]interface{} {
 			"workdir":       ctx.Environment.WorkdirPath,
 			"inbox":         ctx.Environment.ArtifactInbox,
 			"outbox":        ctx.Environment.ArtifactOutbox,
+			"host": map[string]interface{}{
+				"worktree_path": ctx.Environment.Host.WorktreePath,
+				"workdir":       ctx.Environment.Host.Workdir,
+				"inbox":         ctx.Environment.Host.Inbox,
+				"outbox":        ctx.Environment.Host.Outbox,
+			},
+			"op": map[string]interface{}{
+				"worktree_path": ctx.Environment.Op.WorktreePath,
+				"workdir":       ctx.Environment.Op.Workdir,
+				"inbox":         ctx.Environment.Op.Inbox,
+				"outbox":        ctx.Environment.Op.Outbox,
+			},
 		},
 		"workflow": map[string]interface{}{
 			"cell_id":    ctx.Workflow.CellID,

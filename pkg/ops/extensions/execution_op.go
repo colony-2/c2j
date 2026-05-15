@@ -5,14 +5,18 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"path"
+	"path/filepath"
 	"strings"
 	"time"
 
 	recipeartifacts "github.com/colony-2/c2j/pkg/artifacts"
 	"github.com/colony-2/c2j/pkg/ops"
+	"github.com/colony-2/c2j/pkg/ops/process"
 )
 
 const ExecutionOpType = "extension_execution"
+const extensionSandboxMount = "/extension"
 
 type ExecutionInput struct {
 	Selector         string                 `json:"selector" validate:"required"`
@@ -27,7 +31,7 @@ type executionEnvelope struct {
 }
 
 func GetExecutionOp() ops.RegisterableOp {
-	return ops.NewActivityMappedOpV2[ExecutionInput, map[string]interface{}](
+	base := ops.NewActivityMappedOpV2[ExecutionInput, map[string]interface{}](
 		ops.OpMetadata{
 			Type:             ExecutionOpType,
 			Description:      "Executes a selector-backed extension op",
@@ -37,6 +41,27 @@ func GetExecutionOp() ops.RegisterableOp {
 		},
 		executeExtension,
 	)
+	return executionOp{RegisterableOp: base}
+}
+
+type executionOp struct {
+	ops.RegisterableOp
+}
+
+func (o executionOp) TransformOperationPaths(ctx context.Context, req ops.OperationPathTransformRequest) (ops.OperationPathTransformResult, error) {
+	return process.TransformOperationPaths(ctx, extensionSandboxInput(req.Input), req.Host)
+}
+
+func extensionSandboxInput(input map[string]interface{}) interface{} {
+	rawInputs, ok := input["inputs"]
+	if !ok {
+		return nil
+	}
+	inputs, ok := rawInputs.(map[string]interface{})
+	if !ok {
+		return nil
+	}
+	return inputs["sandbox"]
 }
 
 func executeExtension(deps ops.OpDependencies, ctx context.Context, input ExecutionInput) (map[string]interface{}, error) {
@@ -80,16 +105,11 @@ func executeExtension(deps ops.OpDependencies, ctx context.Context, input Execut
 		defer cancel()
 	}
 
-	stdout, stderr, err := ExecuteProcess(ctx, RunRequest{
-		WorkspaceRoot: resolved.ProjectRoot,
-		WorkingDir:    resolved.WorkingDir(),
-		Shell:         resolved.Spec.Shell,
-		Run:           resolved.Spec.Run,
-		Command:       resolved.Spec.Command,
-		Env:           env,
-		Stdin:         inJSON,
-		Sandbox:       sandbox,
-	})
+	runReq, err := extensionRunRequest(deps, resolved, sandbox, env, inJSON)
+	if err != nil {
+		return nil, err
+	}
+	stdout, stderr, err := process.ExecuteProcess(ctx, runReq)
 	if err != nil {
 		return nil, fmt.Errorf("extension op %q failed: %w; stderr: %s", input.Selector, err, strings.TrimSpace(string(stderr)))
 	}
@@ -112,6 +132,63 @@ func executeExtension(deps ops.OpDependencies, ctx context.Context, input Execut
 		}
 	}
 	return outputs, nil
+}
+
+func extensionRunRequest(deps ops.OpDependencies, resolved *ResolvedOp, sandbox *SandboxInput, env map[string]string, stdin []byte) (process.RunRequest, error) {
+	req := process.RunRequest{
+		WorkspaceRoot: resolved.ProjectRoot,
+		WorkingDir:    resolved.WorkingDir(),
+		ConfigFile:    filepath.Join(resolved.ProjectRoot, ".shai", "config.yaml"),
+		Shell:         resolved.Spec.Shell,
+		Run:           resolved.Spec.Run,
+		Command:       resolved.Spec.Command,
+		Env:           env,
+		Stdin:         stdin,
+		Sandbox:       sandbox,
+	}
+	if process.SandboxType(sandbox) != process.SandboxTypeShai {
+		return req, nil
+	}
+	runtimeProvider, ok := deps.(ops.OperationPathRuntimeProvider)
+	if !ok {
+		return req, nil
+	}
+	pathRuntime := runtimeProvider.OperationPathRuntime()
+	if strings.TrimSpace(pathRuntime.Views.Host.Workdir) == "" {
+		return req, nil
+	}
+	extensionWorkingDir, err := extensionSandboxWorkingDir(resolved.ProjectRoot, resolved.WorkingDir())
+	if err != nil {
+		return process.RunRequest{}, err
+	}
+	req.WorkspaceRoot = pathRuntime.Views.Host.Workdir
+	req.WorkingDir = extensionWorkingDir
+	req.RequiredMounts = append([]ops.RequiredMount{}, pathRuntime.Mounts...)
+	req.RequiredMounts = append(req.RequiredMounts, ops.RequiredMount{
+		Source: resolved.ProjectRoot,
+		Target: extensionSandboxMount,
+		Mode:   ops.MountModeReadWrite,
+	})
+	return req, nil
+}
+
+func extensionSandboxWorkingDir(projectRoot string, workingDir string) (string, error) {
+	projectRoot = strings.TrimSpace(projectRoot)
+	workingDir = strings.TrimSpace(workingDir)
+	if projectRoot == "" || workingDir == "" {
+		return extensionSandboxMount, nil
+	}
+	rel, err := filepath.Rel(projectRoot, workingDir)
+	if err != nil {
+		return "", fmt.Errorf("extension working directory: %w", err)
+	}
+	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("extension working directory %q escapes project root %q", workingDir, projectRoot)
+	}
+	if rel == "." || rel == "" {
+		return extensionSandboxMount, nil
+	}
+	return path.Join(extensionSandboxMount, filepath.ToSlash(rel)), nil
 }
 
 func buildExecutionEnv(resolved *ResolvedOp) map[string]string {

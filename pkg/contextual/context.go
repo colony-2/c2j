@@ -14,13 +14,26 @@ const WorkdirPathSentinel = "__C2_SENTINEL_WORKDIR__"
 const ArtifactInboxSentinel = "__C2_SENTINEL_ARTIFACT_INBOX__"
 const ArtifactOutboxSentinel = "__C2_SENTINEL_ARTIFACT_OUTBOX__"
 const JobIdSentinel = "__C2_SENTINEL_JOB_ID__"
+const OpWorkdirPathSentinel = "__C2_SENTINEL_OP_WORKDIR__"
+const OpWorktreePathSentinel = "__C2_SENTINEL_OP_WORKTREE__"
+const OpArtifactInboxSentinel = "__C2_SENTINEL_OP_ARTIFACT_INBOX__"
+const OpArtifactOutboxSentinel = "__C2_SENTINEL_OP_ARTIFACT_OUTBOX__"
+
+type EnvironmentPathContext struct {
+	Workdir      string `json:"workdir,omitempty"`
+	WorktreePath string `json:"worktree_path,omitempty"`
+	Inbox        string `json:"inbox,omitempty"`
+	Outbox       string `json:"outbox,omitempty"`
+}
 
 // EnvironmentContext captures filesystem and storage locations relevant to execution.
 type EnvironmentContext struct {
-	WorktreePath   string `json:"worktree_path,omitempty"`
-	WorkdirPath    string `json:"workdir,omitempty"`
-	ArtifactInbox  string `json:"inbox,omitempty"`
-	ArtifactOutbox string `json:"outbox,omitempty"`
+	WorktreePath   string                 `json:"worktree_path,omitempty"`
+	WorkdirPath    string                 `json:"workdir,omitempty"`
+	ArtifactInbox  string                 `json:"inbox,omitempty"`
+	ArtifactOutbox string                 `json:"outbox,omitempty"`
+	Host           EnvironmentPathContext `json:"host,omitempty"`
+	Op             EnvironmentPathContext `json:"op,omitempty"`
 }
 
 // GitBaseContext captures immutable git state information at a point in time.
