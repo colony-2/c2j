@@ -11,6 +11,7 @@ import (
 	coreops "github.com/colony-2/c2j/pkg/ops"
 	recipecore "github.com/colony-2/c2j/pkg/recipe"
 	"github.com/colony-2/c2j/pkg/template/funcregistry"
+	"github.com/colony-2/c2j/pkg/worker/commandop"
 )
 
 func TestValidateCaseInlineRecipe(t *testing.T) {
@@ -146,6 +147,65 @@ outputs:
 	}
 	if repoPath != hostPath {
 		t.Fatalf("repo_path = %q, host_path = %q; want equal in no-sandbox test run", repoPath, hostPath)
+	}
+}
+
+func TestRunCasePassthroughCommandUsesOpPathContractAndCollectsOutbox(t *testing.T) {
+	withRegisteredCoreOps(t, commandop.GetOp())
+
+	target := TargetRecipe{
+		Mode:   "inline_recipe",
+		Format: "yaml",
+		Content: `
+id: passthrough-paths
+version: "1.0.0"
+input_schema: {}
+sequence:
+  - id: seed
+    op: command_execution
+    inputs:
+      run: |
+        workdir="${{ context.environment.op.workdir }}"
+        worktree="${{ context.environment.op.worktree_path }}"
+        outbox="${{ context.environment.op.outbox }}"
+        test -d "$workdir"
+        test -d "$worktree"
+        test -d "${{ context.environment.op.inbox }}"
+        test -d "$outbox"
+        case "$worktree" in "$workdir"/*) ;; *) echo "worktree escapes workdir" >&2; exit 17;; esac
+        mkdir -p "$outbox/results"
+        printf '%s' '{"ok":true}' > "$outbox/results/status.json"
+  - id: read
+    op: command_execution
+    artifacts:
+      results/status.json: '${{ sequence.seed.artifacts["results/status.json"] }}'
+    inputs:
+      run: cat "${{ context.environment.op.inbox }}/results/status.json"
+outputs:
+  status: "{{ sequence.read.outputs.stdout }}"
+`,
+	}
+	testCase := Case{
+		ID:   "passthrough-paths",
+		Type: "recipe_case",
+		Mocks: Mocks{Ops: []OpMock{
+			{Match: OpMockMatch{Op: "command_execution"}, Behavior: MockBehavior{Mode: "passthrough"}},
+			{Match: OpMockMatch{Op: "command_execution"}, Behavior: MockBehavior{Mode: "passthrough"}},
+		}},
+	}
+
+	resp := RunCase(context.Background(), HarnessOptions{
+		Deps:     coreops.NewServiceDepsBuilder().Build(),
+		WorkRoot: t.TempDir(),
+	}, "recipe-test-project", target, testCase, ExecutionOptions{ArtifactMode: "inline"})
+	if resp.Status != "passed" {
+		t.Fatalf("status = %q, failure reason: %s", resp.Status, resp.FailureReason)
+	}
+	if resp.Outputs["status"] != `{"ok":true}` {
+		t.Fatalf("status output = %#v", resp.Outputs["status"])
+	}
+	if _, ok := resp.Artifacts["results/status.json"]; !ok {
+		t.Fatalf("expected collected outbox artifact, got %#v", resp.Artifacts)
 	}
 }
 
@@ -702,6 +762,15 @@ inputs:
           - value: revise
 `,
 	}
+}
+
+func withRegisteredCoreOps(t *testing.T, ops ...coreops.RegisterableOp) {
+	t.Helper()
+	original := coreops.List()
+	coreops.Replace(ops...)
+	t.Cleanup(func() {
+		coreops.Replace(original...)
+	})
 }
 
 func mustLoadRecipe(t *testing.T, raw string) *recipecore.Recipe {

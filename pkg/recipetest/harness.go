@@ -454,8 +454,16 @@ func runPreparedCase(ctx context.Context, opts HarnessOptions, tenantID string, 
 	if workRoot == "" {
 		workRoot = filepath.Join(os.TempDir(), "c2j-recipe-tests")
 	}
+	operationPaths := recipeTestOperationPaths(workRoot)
+	if err := ensureRecipeTestOperationDirs(operationPaths); err != nil {
+		execResp.Status = "failed"
+		execResp.FailureCategory = "runtime_error"
+		execResp.FailureReason = err.Error()
+		return execResp
+	}
+	jobCtx.operationPaths = operationPaths
 	runCtx := contextual.JobContext{
-		Environment: contextual.EnvironmentContext{WorktreePath: filepath.Join(workRoot, "worktree"), WorkdirPath: filepath.Join(workRoot, "workdir"), ArtifactInbox: filepath.Join(workRoot, "inbox"), ArtifactOutbox: filepath.Join(workRoot, "outbox")},
+		Environment: recipeTestEnvironment(operationPaths),
 		Workflow:    contextual.WorkflowContext{CellName: "recipe-tests", CellPath: "recipe-tests", ProjectId: tenantID},
 		GitBase:     contextual.GitBaseContext{BaseRepo: "recipe-tests", BaseRef: prepared.ResolvedHash, ResolvedBaseHash: prepared.ResolvedHash},
 	}
@@ -505,6 +513,46 @@ func runPreparedCase(ctx context.Context, opts HarnessOptions, tenantID string, 
 	}
 	execResp.DurationMs = time.Since(started).Milliseconds()
 	return execResp
+}
+
+func recipeTestOperationPaths(workRoot string) coreops.OperationPaths {
+	workdir := filepath.Join(workRoot, "workdir")
+	return coreops.OperationPaths{
+		Workdir:      workdir,
+		WorktreePath: filepath.Join(workdir, "worktree"),
+		Inbox:        filepath.Join(workdir, "inbox"),
+		Outbox:       filepath.Join(workdir, "outbox"),
+	}
+}
+
+func recipeTestEnvironment(paths coreops.OperationPaths) contextual.EnvironmentContext {
+	return contextual.EnvironmentContext{
+		WorktreePath:   paths.WorktreePath,
+		WorkdirPath:    paths.Workdir,
+		ArtifactInbox:  paths.Inbox,
+		ArtifactOutbox: paths.Outbox,
+		Host: contextual.EnvironmentPathContext{
+			Workdir:      paths.Workdir,
+			WorktreePath: paths.WorktreePath,
+			Inbox:        paths.Inbox,
+			Outbox:       paths.Outbox,
+		},
+		Op: contextual.EnvironmentPathContext{
+			Workdir:      paths.Workdir,
+			WorktreePath: paths.WorktreePath,
+			Inbox:        paths.Inbox,
+			Outbox:       paths.Outbox,
+		},
+	}
+}
+
+func ensureRecipeTestOperationDirs(paths coreops.OperationPaths) error {
+	for _, dir := range []string{paths.Workdir, paths.WorktreePath, paths.Inbox, paths.Outbox} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return fmt.Errorf("create recipe test op directory %q: %w", dir, err)
+		}
+	}
+	return nil
 }
 
 var unknownOpPattern = regexp.MustCompile(`unknown op: \[([^\]]+)\]`)
@@ -670,6 +718,7 @@ type testJobContext struct {
 	mockSelections   map[string]int
 	consumedMockIdxs map[int]struct{}
 	executedNodes    map[string]bool
+	operationPaths   coreops.OperationPaths
 	artifactContents map[string][]byte
 	artifactOrdinal  int64
 	recordings       map[string]passthroughRecord
@@ -918,8 +967,31 @@ func (j *testJobContext) runPassthroughTask(taskType string, inv workerops.Activ
 
 	inputArtifacts := make([]swf.Artifact, 0, len(inv.ArtifactKeys))
 	for _, key := range inv.ArtifactKeys {
-		// Recipe tests are stateless; use empty artifacts as presence tokens for passthrough steps.
-		inputArtifacts = append(inputArtifacts, swf.NewArtifactFromBytes(key.Name, nil))
+		content := j.artifactContents[key.Name]
+		inputArtifacts = append(inputArtifacts, swf.NewArtifactFromBytes(key.Name, content))
+	}
+
+	operationPaths := j.operationPaths
+	if strings.TrimSpace(operationPaths.Workdir) == "" {
+		operationPaths = recipeTestOperationPaths(filepath.Join(os.TempDir(), "c2j-recipe-tests"))
+	}
+	if err := ensureRecipeTestOperationDirs(operationPaths); err != nil {
+		return passthroughRecord{}, err
+	}
+	if err := resetRecipeTestDir(operationPaths.Inbox); err != nil {
+		return passthroughRecord{}, err
+	}
+	if err := resetRecipeTestDir(operationPaths.Outbox); err != nil {
+		return passthroughRecord{}, err
+	}
+	if err := j.materializePassthroughArtifacts(operationPaths, inv); err != nil {
+		return passthroughRecord{}, err
+	}
+	pathRuntime := coreops.OperationPathRuntime{
+		Views: coreops.OperationPathViews{
+			Host: operationPaths,
+			Op:   operationPaths,
+		},
 	}
 
 	deps := coreops.NewOpDependenciesBuilder().
@@ -927,7 +999,25 @@ func (j *testJobContext) runPassthroughTask(taskType string, inv workerops.Activ
 		WithWorkflowControl(j.deps.WorkflowControl()).
 		WithArtifacts(inputArtifacts).
 		WithJobTool(j).
-		WithWorktreePath("/tmp/recipe-tests/worktree").
+		WithOperationPaths(operationPaths).
+		WithOperationPathRuntime(pathRuntime).
+		WithGitContext(coreops.GitExecutionContext{
+			BaseRepo:         inv.GitTaskContext.BaseRepo,
+			BaseRef:          inv.GitTaskContext.BaseRef,
+			ResolvedBaseHash: inv.GitTaskContext.ResolvedBaseHash,
+			RecipeSourceRepo: inv.GitTaskContext.RecipeSourceRepo,
+			RecipeSourceRef:  inv.GitTaskContext.RecipeSourceRef,
+			PersistHash:      inv.GitTaskContext.PersistHash,
+			ParentHash:       inv.GitTaskContext.ParentHash,
+			CellName:         inv.GitTaskContext.CellName,
+			CellPath:         inv.GitTaskContext.CellPath,
+			GitAuthor:        inv.GitTaskContext.GitAuthor,
+			NodePath:         inv.GitTaskContext.NodePath,
+			InvokeSeq:        inv.GitTaskContext.InvokeSeq,
+			InvokeHash:       inv.GitTaskContext.InvokeHash,
+			WorktreePath:     operationPaths.WorktreePath,
+		}).
+		WithWorktreePath(operationPaths.WorktreePath).
 		Build()
 
 	out, err := chain[idx].Invoke(deps, context.Background(), inv.Input)
@@ -950,12 +1040,78 @@ func (j *testJobContext) runPassthroughTask(taskType string, inv workerops.Activ
 			}
 		}
 	}
+	if err := j.collectPassthroughOutboxArtifacts(operationPaths.Outbox, artifacts); err != nil {
+		return passthroughRecord{}, err
+	}
 
 	return passthroughRecord{
 		Outputs:   out,
 		NextTask:  nextTask,
 		Artifacts: artifacts,
 	}, nil
+}
+
+func resetRecipeTestDir(dir string) error {
+	if strings.TrimSpace(dir) == "" {
+		return nil
+	}
+	if err := os.RemoveAll(dir); err != nil {
+		return fmt.Errorf("reset recipe test op directory %q: %w", dir, err)
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return fmt.Errorf("create recipe test op directory %q: %w", dir, err)
+	}
+	return nil
+}
+
+func (j *testJobContext) materializePassthroughArtifacts(paths coreops.OperationPaths, inv workerops.ActivityInvocationRequest) error {
+	for destName, ref := range inv.Artifacts {
+		key, ok := ref.StoredKey()
+		if !ok {
+			continue
+		}
+		content, ok := j.artifactContents[key.Name]
+		if !ok {
+			content, ok = j.artifactContents[ref.NameValue()]
+		}
+		if !ok {
+			return fmt.Errorf("passthrough artifact content not found for %q", ref.NameValue())
+		}
+		dest := filepath.Join(paths.Inbox, filepath.FromSlash(destName))
+		if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
+			return fmt.Errorf("materialize passthrough artifact %q: %w", destName, err)
+		}
+		if err := os.WriteFile(dest, content, 0o644); err != nil {
+			return fmt.Errorf("materialize passthrough artifact %q: %w", destName, err)
+		}
+	}
+	return nil
+}
+
+func (j *testJobContext) collectPassthroughOutboxArtifacts(outbox string, artifacts map[string][]byte) error {
+	if strings.TrimSpace(outbox) == "" {
+		return nil
+	}
+	return filepath.WalkDir(outbox, func(path string, d os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if d.IsDir() {
+			return nil
+		}
+		rel, err := filepath.Rel(outbox, path)
+		if err != nil {
+			return err
+		}
+		name := filepath.ToSlash(rel)
+		content, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		artifacts[name] = content
+		j.artifactContents[name] = content
+		return nil
+	})
 }
 
 func selectOpMock(mocks []OpMock, nodePath string, opName string, consumed map[int]struct{}) (int, bool) {
