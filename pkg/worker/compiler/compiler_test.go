@@ -410,6 +410,56 @@ outputs:
 	s.testRecipe(recipeYaml, map[string]interface{}{"kind": "review", "decision": "needs_changes"}, expectedOutputs)
 }
 
+func (s *CompilerTestSuite) TestReviewFeedbackSelectionUsesTransitionPayloadOnly() {
+	recipeYaml := `
+---
+id: test-recipe
+state:
+  initial: first_review
+  states:
+    first_review:
+      op: test_complex_input
+      inputs:
+        config:
+          user_feedback: "first feedback"
+      transitions:
+        - to: requirements
+          when: true
+          payload:
+            user_feedback: "${{ outputs.config.user_feedback }}"
+    requirements:
+      op: test_complex_input
+      inputs:
+        config:
+          user_feedback: '${{ transition.?payload.user_feedback.orValue("") }}'
+      transitions:
+        - to: second_review
+          when: outputs.config.user_feedback == "first feedback"
+        - to: done
+          when: true
+    second_review:
+      op: test_complex_input
+      inputs:
+        config:
+          user_feedback: "second review deliberately sends no payload"
+      transitions:
+        - to: requirements
+          when: true
+    done:
+      op: test_complex_input
+      inputs:
+        config:
+          result: "${{ state_output('requirements', 'config.user_feedback', 'missing') == '' ? 'empty' : state_output('requirements', 'config.user_feedback', 'missing') }}"
+outputs:
+  result: "${{ state_output('done', 'config.result', 'missing') }}"
+`
+
+	expectedOutputs := map[string]interface{}{
+		"result": "empty",
+	}
+	s.testRecipe(recipeYaml, map[string]interface{}{}, expectedOutputs)
+}
+
 func (s *CompilerTestSuite) TestSequenceRecipeCompilation() {
 	// Test sequence compilation instead of parallel
 	node := &recipe.Node{
