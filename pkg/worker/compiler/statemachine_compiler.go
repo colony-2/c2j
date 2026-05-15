@@ -160,20 +160,21 @@ func evaluateTransitionsWithContext(obs StateObserver, transitions []recipe.Tran
 	// Create a temporary context for transition evaluation
 	evalCtx := transitionSourceContext(resCtx, stateName, "")
 
-	for _, transition := range transitions {
+	for idx, transition := range transitions {
 		evalCtx.TemplateData.Transition = template.NewTransitionData(stateName, transition.To, nil)
 		expr := transition.When.String()
 		shouldTransition, err := evalCtx.EvaluateCEL(expr)
 		obs.TransitionEvalauted(transition.When.String(), shouldTransition, transition.To)
 		if err != nil {
-			return transitionDecision{}, fmt.Errorf("transition evaluation failed: failed to evaluate condition: %w", err)
+			return transitionDecision{}, fmt.Errorf("transition evaluation failed at transition %d from %q to %q: failed to evaluate condition: %w", idx, stateName, transition.To, err)
 		}
 
 		if shouldTransition {
 			payload, err := renderTransitionPayload(resCtx, transition, stateName)
 			if err != nil {
-				return transitionDecision{}, fmt.Errorf("transition evaluation failed: %w", err)
+				return transitionDecision{}, fmt.Errorf("transition evaluation failed at transition %d from %q to %q: %w", idx, stateName, transition.To, err)
 			}
+			notifyTransitionSelected(obs, stateName, transition.To, payload)
 			return transitionDecision{
 				To:         transition.To,
 				Transition: template.NewTransitionData(stateName, transition.To, payload),
@@ -181,6 +182,12 @@ func evaluateTransitionsWithContext(obs StateObserver, transitions []recipe.Tran
 		}
 	}
 	return transitionDecision{}, nil
+}
+
+func notifyTransitionSelected(obs StateObserver, from string, to string, payload map[string]interface{}) {
+	if selected, ok := obs.(TransitionSelectionObserver); ok {
+		selected.TransitionSelected(from, to, payload)
+	}
 }
 
 func renderTransitionPayload(resCtx *template.ResolutionContext, transition recipe.Transition, stateName string) (map[string]interface{}, error) {

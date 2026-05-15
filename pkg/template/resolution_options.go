@@ -23,7 +23,12 @@ type ResolutionOptions struct {
 	ResolvedSelectors map[string]string
 	// CELOptionsProvider allows callers (server/api testserver, cortex) to inject CEL functions.
 	// It is given the adapter to allow proper wrapping of complex return types.
-	CELOptionsProvider CELOptionsProvider
+	CELOptionsProvider  CELOptionsProvider
+	DiagnosticsObserver DiagnosticsObserver
+}
+
+type DiagnosticsObserver interface {
+	VarsResolved(scope ScopeType, nodePath string, vars map[string]interface{})
 }
 
 const (

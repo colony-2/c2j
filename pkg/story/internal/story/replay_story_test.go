@@ -802,6 +802,9 @@ sequence:
       initial: s1
       states:
         s1:
+          vars:
+            selected_feedback: ship it
+            api_token: ghp_abcdefghijklmnopqrstuvwxyz123456
           op: test_story_state_observer
           inputs: {}
           transitions:
@@ -809,6 +812,9 @@ sequence:
               when: "false"
             - to: s2
               when: "true"
+              payload:
+                user_feedback: "ship it"
+                api_token: "ghp_abcdefghijklmnopqrstuvwxyz123456"
         s2:
           op: test_story_state_observer
           inputs: {}
@@ -864,6 +870,12 @@ outputs: {}
 	if s1.IsInitial == nil || *s1.IsInitial != true {
 		t.Fatalf("expected s1 isInitial=true, got %#v", s1.IsInitial)
 	}
+	if s1.RenderedVars["selected_feedback"] != "ship it" {
+		t.Fatalf("expected rendered selected_feedback, got %#v", s1.RenderedVars)
+	}
+	if s1.RenderedVars["api_token"] != "[REDACTED]" {
+		t.Fatalf("expected redacted rendered api_token, got %#v", s1.RenderedVars["api_token"])
+	}
 	te := findFirstKind(s1.Children, model.JobRunStoryNodeKindTransitionEval)
 	if te == nil {
 		t.Fatalf("expected transitionEval under state s1")
@@ -882,6 +894,12 @@ outputs: {}
 	}
 	if te.Decision == nil || te.Decision.Kind != "state" || te.Decision.ToStateID == nil || *te.Decision.ToStateID != "s2" {
 		t.Fatalf("unexpected decision: %#v", te.Decision)
+	}
+	if te.Decision.Payload["user_feedback"] != "ship it" {
+		t.Fatalf("unexpected decision payload: %#v", te.Decision.Payload)
+	}
+	if te.Decision.Payload["api_token"] != "[REDACTED]" {
+		t.Fatalf("expected redacted decision payload, got %#v", te.Decision.Payload["api_token"])
 	}
 }
 

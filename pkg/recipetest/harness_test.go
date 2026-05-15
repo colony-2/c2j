@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/colony-2/c2j/pkg/contextual"
@@ -320,6 +321,79 @@ inputs:
 	}
 }
 
+func TestRunCaseAssertsVarsAndTransitionPayloadDiagnostics(t *testing.T) {
+	const secret = "ghp_abcdefghijklmnopqrstuvwxyz123456"
+	resp := RunCase(context.Background(), HarnessOptions{}, "p1", TargetRecipe{
+		Mode:   "inline_recipe",
+		Format: "yaml",
+		Content: `
+version: '1.0'
+id: diagnostics
+vars:
+  feedback: ship it
+  api_token: ghp_abcdefghijklmnopqrstuvwxyz123456
+state:
+  initial: review
+  states:
+    review:
+      op: test_complex_input
+      inputs:
+        config:
+          status: reviewed
+      transitions:
+        - to: requirements
+          when: true
+          payload:
+            user_feedback: "${{ vars.feedback }}"
+            api_token: "${{ vars.api_token }}"
+    requirements:
+      op: test_complex_input
+      inputs:
+        config:
+          user_feedback: "${{ transition.payload.user_feedback }}"
+outputs:
+  result: "${{ state_output('requirements', 'config.user_feedback', 'missing') }}"
+`,
+	}, Case{
+		ID:   "diagnostics",
+		Type: "recipe_case",
+		Mocks: Mocks{Ops: []OpMock{
+			{Match: OpMockMatch{Op: "test_complex_input"}, Behavior: MockBehavior{Mode: "passthrough"}},
+			{Match: OpMockMatch{Op: "test_complex_input"}, Behavior: MockBehavior{Mode: "passthrough"}},
+		}},
+		Assertions: []Assertion{
+			{Type: "output_equals", Path: "result", Value: "ship it"},
+			{Type: "var_equals", Scope: "recipe", Path: "feedback", Value: "ship it"},
+			{Type: "var_equals", Scope: "recipe", Path: "api_token", Value: secret},
+			{Type: "transition_payload_equals", FromState: "review", ToState: "requirements", Path: "user_feedback", Value: "ship it"},
+			{Type: "transition_payload_equals", FromState: "review", ToState: "requirements", Path: "api_token", Value: secret},
+		},
+	}, ExecutionOptions{})
+
+	if resp.Status != "passed" {
+		t.Fatalf("status = %q, failure reason: %s", resp.Status, resp.FailureReason)
+	}
+	if len(resp.Diagnostics.Vars) == 0 {
+		t.Fatal("expected rendered vars diagnostics")
+	}
+	redactedVar := resp.Diagnostics.Vars[0].Vars["api_token"]
+	if redactedVar != "[REDACTED]" {
+		t.Fatalf("redacted var = %#v, want [REDACTED]", redactedVar)
+	}
+	var foundPayload bool
+	for _, tr := range resp.Diagnostics.Transitions {
+		if tr.Selected && tr.FromState == "review" && tr.ToState == "requirements" {
+			foundPayload = true
+			if tr.Payload["api_token"] != "[REDACTED]" {
+				t.Fatalf("redacted payload = %#v, want [REDACTED]", tr.Payload["api_token"])
+			}
+		}
+	}
+	if !foundPayload {
+		t.Fatal("expected selected transition payload diagnostics")
+	}
+}
+
 func TestValidateCaseRecipeSelectorUsesResolver(t *testing.T) {
 	rec := mustLoadRecipe(t, inlineInputTarget().Content)
 	resolver := &fakeTargetResolver{recipe: rec, hash: "resolved-hash"}
@@ -334,6 +408,31 @@ func TestValidateCaseRecipeSelectorUsesResolver(t *testing.T) {
 	}
 	if resolver.target.Selector != "default" {
 		t.Fatalf("resolver target = %#v", resolver.target)
+	}
+}
+
+func TestValidateCaseRunsSemanticValidation(t *testing.T) {
+	validation := ValidateCase(context.Background(), HarnessOptions{}, "p1", TargetRecipe{
+		Mode:   "inline_recipe",
+		Format: "yaml",
+		Content: `
+version: '1.0'
+id: semantic-validation
+op: test_complex_input
+inputs:
+  config:
+    value: "${{ missing_helper() }}"
+`,
+	}, Case{ID: "semantic-validation", Type: "recipe_case"})
+
+	if validation.Valid {
+		t.Fatal("expected semantic validation to fail")
+	}
+	if len(validation.Errors) == 0 || validation.Errors[0].Code != "semantic_validation" {
+		t.Fatalf("expected semantic_validation error, got %#v", validation.Errors)
+	}
+	if !strings.Contains(validation.Errors[0].Message, "missing_helper") {
+		t.Fatalf("expected helper name in error, got %q", validation.Errors[0].Message)
 	}
 }
 

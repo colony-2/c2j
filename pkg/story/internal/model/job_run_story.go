@@ -97,10 +97,11 @@ type JobRunStoryNode struct {
 	Attempt       int                `json:"attempt"`
 	PriorAttempts []*JobRunStoryNode `json:"prior_attempts"`
 
-	Input        any                   `json:"input"`
-	Output       any                   `json:"output"`
-	ArtifactKeys []swf.ArtifactKey     `json:"artifact_keys"`
-	ArtifactRefs []recipeartifacts.Ref `json:"artifact_refs,omitempty"`
+	Input        any                    `json:"input"`
+	Output       any                    `json:"output"`
+	RenderedVars map[string]interface{} `json:"rendered_vars,omitempty"`
+	ArtifactKeys []swf.ArtifactKey      `json:"artifact_keys"`
+	ArtifactRefs []recipeartifacts.Ref  `json:"artifact_refs,omitempty"`
 
 	// TaskOrdinal is the SWF chapter ordinal for this node's latest attempt (when applicable).
 	// This is the primary "restart cursor" surface for the frontend.
@@ -148,6 +149,7 @@ type JobRunStoryTransitionEval struct {
 }
 
 type JobRunStoryTransitionDecision struct {
-	Kind      string  `json:"kind"` // state|fallthrough
-	ToStateID *string `json:"to_state_id,omitempty"`
+	Kind      string                 `json:"kind"` // state|fallthrough
+	ToStateID *string                `json:"to_state_id,omitempty"`
+	Payload   map[string]interface{} `json:"payload,omitempty"`
 }

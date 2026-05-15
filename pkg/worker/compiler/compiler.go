@@ -36,6 +36,10 @@ type StateObserver interface {
 	TransitionEvalauted(expression string, result bool, nextStateIfExpressionTrue string)
 }
 
+type TransitionSelectionObserver interface {
+	TransitionSelected(fromState string, toState string, payload map[string]interface{})
+}
+
 type NoOpStateObserver struct{}
 
 func (NoOpStateObserver) StateEntered(stateName string) {}

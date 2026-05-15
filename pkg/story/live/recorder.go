@@ -14,6 +14,7 @@ import (
 	recipeartifacts "github.com/colony-2/c2j/pkg/artifacts"
 	"github.com/colony-2/c2j/pkg/contextual"
 	"github.com/colony-2/c2j/pkg/recipe"
+	"github.com/colony-2/c2j/pkg/redact"
 	"github.com/colony-2/c2j/pkg/starter"
 	"github.com/colony-2/c2j/pkg/story/internal/model"
 	coretasks "github.com/colony-2/c2j/pkg/task"
@@ -842,7 +843,12 @@ func (e *recordingExecutor) ExecuteRecipe(ctx coreworkflow.Context, r recipe.Rec
 		e.rec.SetRoot(root)
 	}
 
-	out, arts, err := e.inner.WithDelegate(e).ExecuteRecipe(ctx, r, rawRecipeInputs, execCtx, commitContext, opts...)
+	var execOpts compiler.ExecutionOptions
+	if len(opts) > 0 {
+		execOpts = opts[0]
+	}
+	execOpts.DiagnosticsObserver = chainDiagnosticsObservers(execOpts.DiagnosticsObserver, e)
+	out, arts, err := e.inner.WithDelegate(e).ExecuteRecipe(ctx, r, rawRecipeInputs, execCtx, commitContext, execOpts)
 	if err != nil {
 		root.Status = statusFromErr(err, root.Status)
 		root.Output = out
@@ -859,6 +865,22 @@ func (e *recordingExecutor) ExecuteRecipe(ctx coreworkflow.Context, r recipe.Rec
 		e.rec.notify()
 	}
 	return out, arts, nil
+}
+
+func (e *recordingExecutor) VarsResolved(_ template.ScopeType, _ string, vars map[string]interface{}) {
+	if e == nil || e.tree == nil {
+		return
+	}
+	current := e.tree.current()
+	if current == nil {
+		return
+	}
+	if redacted, ok := redact.Value("vars", vars).(map[string]interface{}); ok {
+		current.RenderedVars = redacted
+	}
+	if e.rec != nil {
+		e.rec.notify()
+	}
 }
 
 func (e *recordingExecutor) ExecuteNode(ctx coreworkflow.Context, parentResCtx *template.ResolutionContext, n *recipe.Node) error {
@@ -1233,6 +1255,37 @@ func (o *storyStateObserver) TransitionEvalauted(expression string, result bool,
 	}
 }
 
+func (o *storyStateObserver) TransitionSelected(fromState string, toState string, payload map[string]interface{}) {
+	if o == nil || o.tree == nil || o.currentState == nil {
+		return
+	}
+	te := o.transitionEval
+	if te == nil {
+		return
+	}
+	if te.Decision == nil {
+		to := strings.TrimSpace(toState)
+		te.Decision = &model.JobRunStoryTransitionDecision{
+			Kind:      "state",
+			ToStateID: &to,
+		}
+	}
+	if te.Decision != nil {
+		if redacted, ok := redact.Value("transition.payload", payload).(map[string]interface{}); ok {
+			te.Decision.Payload = redacted
+		}
+	}
+	for i := len(te.Evaluations) - 1; i >= 0; i-- {
+		if strings.TrimSpace(te.Evaluations[i].ToStateID) == strings.TrimSpace(toState) {
+			te.FromStateID = strings.TrimSpace(fromState)
+			break
+		}
+	}
+	if o.rec != nil {
+		o.rec.notify()
+	}
+}
+
 func (o *storyStateObserver) Flush() {
 	if o == nil {
 		return
@@ -1281,6 +1334,33 @@ type chainedStateObserver struct {
 	b compiler.StateObserver
 }
 
+type chainedDiagnosticsObserver struct {
+	a template.DiagnosticsObserver
+	b template.DiagnosticsObserver
+}
+
+func chainDiagnosticsObservers(a template.DiagnosticsObserver, b template.DiagnosticsObserver) template.DiagnosticsObserver {
+	if a == nil {
+		return b
+	}
+	if b == nil {
+		return a
+	}
+	return &chainedDiagnosticsObserver{a: a, b: b}
+}
+
+func (o *chainedDiagnosticsObserver) VarsResolved(scope template.ScopeType, nodePath string, vars map[string]interface{}) {
+	if o == nil {
+		return
+	}
+	if o.a != nil {
+		o.a.VarsResolved(scope, nodePath, vars)
+	}
+	if o.b != nil {
+		o.b.VarsResolved(scope, nodePath, vars)
+	}
+}
+
 func chainStateObservers(a compiler.StateObserver, b compiler.StateObserver) compiler.StateObserver {
 	if a == nil {
 		return b
@@ -1327,8 +1407,22 @@ func (o *chainedStateObserver) TransitionEvalauted(expression string, result boo
 	}
 }
 
+func (o *chainedStateObserver) TransitionSelected(fromState string, toState string, payload map[string]interface{}) {
+	if o == nil {
+		return
+	}
+	if selected, ok := o.a.(compiler.TransitionSelectionObserver); ok {
+		selected.TransitionSelected(fromState, toState, payload)
+	}
+	if selected, ok := o.b.(compiler.TransitionSelectionObserver); ok {
+		selected.TransitionSelected(fromState, toState, payload)
+	}
+}
+
 var _ compiler.StateObserver = (*storyStateObserver)(nil)
+var _ compiler.TransitionSelectionObserver = (*storyStateObserver)(nil)
 var _ compiler.StateObserver = (*chainedStateObserver)(nil)
+var _ compiler.TransitionSelectionObserver = (*chainedStateObserver)(nil)
 
 type treeBuilder struct {
 	nextID   int64
@@ -1794,6 +1888,7 @@ func cloneNode(src *model.JobRunStoryNode) *model.JobRunStoryNode {
 	dst.FinishedAt = cloneTimePtr(src.FinishedAt)
 	dst.Path = append([]string{}, src.Path...)
 	dst.PriorAttempts = cloneNodes(src.PriorAttempts)
+	dst.RenderedVars = cloneMap(src.RenderedVars)
 	dst.ArtifactKeys = append([]swf.ArtifactKey{}, src.ArtifactKeys...)
 	dst.ArtifactRefs = append([]recipeartifacts.Ref{}, src.ArtifactRefs...)
 	dst.TaskOrdinal = cloneInt64Ptr(src.TaskOrdinal)
@@ -1820,14 +1915,33 @@ func cloneNodes(src []*model.JobRunStoryNode) []*model.JobRunStoryNode {
 }
 
 func cloneInvocation(src map[string]interface{}) map[string]interface{} {
+	return cloneMap(src)
+}
+
+func cloneMap(src map[string]interface{}) map[string]interface{} {
 	if src == nil {
 		return nil
 	}
 	dst := make(map[string]interface{}, len(src))
 	for k, v := range src {
-		dst[k] = v
+		dst[k] = cloneAny(v)
 	}
 	return dst
+}
+
+func cloneAny(src interface{}) interface{} {
+	switch typed := src.(type) {
+	case map[string]interface{}:
+		return cloneMap(typed)
+	case []interface{}:
+		out := make([]interface{}, len(typed))
+		for i, item := range typed {
+			out[i] = cloneAny(item)
+		}
+		return out
+	default:
+		return typed
+	}
 }
 
 func cloneError(src *model.JobRunStoryError) *model.JobRunStoryError {
@@ -1863,6 +1977,7 @@ func cloneDecision(src *model.JobRunStoryTransitionDecision) *model.JobRunStoryT
 		to := *src.ToStateID
 		dst.ToStateID = &to
 	}
+	dst.Payload = cloneMap(src.Payload)
 	return &dst
 }
 

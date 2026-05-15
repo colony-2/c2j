@@ -40,6 +40,9 @@ func (rc *ResolutionContext) ResolveVars(vars map[string]interface{}) error {
 		next[name] = value
 	}
 	rc.TemplateData.Vars = next
+	if rc.Options.DiagnosticsObserver != nil {
+		rc.Options.DiagnosticsObserver.VarsResolved(rc.ScopeType, rc.TaskExecutionContext().Invocation.NodePath, cloneTemplateVars(rc.TemplateData.Vars))
+	}
 	return nil
 }
 

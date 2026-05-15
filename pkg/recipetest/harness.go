@@ -20,6 +20,7 @@ import (
 	"github.com/colony-2/c2j/pkg/contextual"
 	coreops "github.com/colony-2/c2j/pkg/ops"
 	recipecore "github.com/colony-2/c2j/pkg/recipe"
+	"github.com/colony-2/c2j/pkg/redact"
 	coretask "github.com/colony-2/c2j/pkg/task"
 	"github.com/colony-2/c2j/pkg/template"
 	"github.com/colony-2/c2j/pkg/worker/compiler"
@@ -83,14 +84,17 @@ type TestError struct {
 }
 
 type Assertion struct {
-	Type     string      `json:"type" validate:"required,oneof=output_equals output_matches artifact_exists artifact_json_equals node_executed node_not_executed status_is cel_true"`
-	Path     string      `json:"path,omitempty"`
-	Value    interface{} `json:"value,omitempty"`
-	Regex    string      `json:"regex,omitempty"`
-	JsonPath string      `json:"json_path,omitempty"`
-	NodePath string      `json:"node_path,omitempty"`
-	Status   string      `json:"status,omitempty"`
-	Expr     string      `json:"expr,omitempty"`
+	Type      string      `json:"type" validate:"required,oneof=output_equals output_matches artifact_exists artifact_json_equals node_executed node_not_executed status_is cel_true var_equals transition_payload_equals"`
+	Path      string      `json:"path,omitempty"`
+	Value     interface{} `json:"value,omitempty"`
+	Regex     string      `json:"regex,omitempty"`
+	JsonPath  string      `json:"json_path,omitempty"`
+	NodePath  string      `json:"node_path,omitempty"`
+	Scope     string      `json:"scope,omitempty"`
+	FromState string      `json:"from_state,omitempty"`
+	ToState   string      `json:"to_state,omitempty"`
+	Status    string      `json:"status,omitempty"`
+	Expr      string      `json:"expr,omitempty"`
 }
 
 type Evaluation struct {
@@ -170,8 +174,25 @@ type InlineArtifact struct {
 }
 
 type Diagnostics struct {
-	MockHits   []MockHit  `json:"mock_hits,omitempty"`
-	MockMisses []MockMiss `json:"mock_misses,omitempty"`
+	MockHits    []MockHit                `json:"mock_hits,omitempty"`
+	MockMisses  []MockMiss               `json:"mock_misses,omitempty"`
+	Vars        []RenderedVarsDiagnostic `json:"vars,omitempty"`
+	Transitions []TransitionDiagnostic   `json:"transitions,omitempty"`
+}
+
+type RenderedVarsDiagnostic struct {
+	NodePath string                 `json:"node_path"`
+	Scope    string                 `json:"scope"`
+	Vars     map[string]interface{} `json:"vars"`
+}
+
+type TransitionDiagnostic struct {
+	FromState  string                 `json:"from_state,omitempty"`
+	ToState    string                 `json:"to_state,omitempty"`
+	Expression string                 `json:"expression,omitempty"`
+	Result     bool                   `json:"result"`
+	Selected   bool                   `json:"selected,omitempty"`
+	Payload    map[string]interface{} `json:"payload,omitempty"`
 }
 
 type MockHit struct {
@@ -204,8 +225,14 @@ type preparedCase struct {
 }
 
 func ValidateCase(ctx context.Context, opts HarnessOptions, tenantID string, target TargetRecipe, c Case) ValidationResult {
+	opts = opts.withDefaults()
 	input := caseInput{TargetRecipe: target, Case: c}
-	return prepareCase(ctx, opts.withDefaults(), tenantID, input).Validation
+	prepared := prepareCase(ctx, opts, tenantID, input)
+	if prepared.Recipe != nil && len(prepared.Validation.Errors) == 0 {
+		prepared.Validation.Errors = append(prepared.Validation.Errors, validateRecipeExecutionSemantics(ctx, opts, tenantID, input, prepared.Recipe, prepared.ResolvedHash)...)
+		prepared.Validation.Valid = len(prepared.Validation.Errors) == 0
+	}
+	return prepared.Validation
 }
 
 func RunCase(ctx context.Context, opts HarnessOptions, tenantID string, target TargetRecipe, c Case, exec ExecutionOptions) CaseRunResult {
@@ -317,6 +344,33 @@ func prepareCase(ctx context.Context, opts HarnessOptions, tenantID string, req 
 	return preparedCase{Recipe: recipeDef, ResolvedHash: recipeHash, Validation: validate}
 }
 
+func validateRecipeExecutionSemantics(ctx context.Context, opts HarnessOptions, tenantID string, req caseInput, recipeDef *recipecore.Recipe, recipeHash string) []Issue {
+	rawInputs := req.Case.Inputs
+	if rawInputs == nil {
+		rawInputs = map[string]interface{}{}
+	}
+	jobCtx := newTestJobContext(tenantID, req.Case, TestPolicy{}, opts.Deps)
+	wfCtx := workflow.Context{JobContext: jobCtx, ServiceDependencies2: opts.Deps}
+	runCtx := contextual.JobContext{
+		Environment: contextual.EnvironmentContext{WorktreePath: contextual.WorktreePathSentinel, WorkdirPath: contextual.WorkdirPathSentinel, ArtifactInbox: contextual.ArtifactInboxSentinel, ArtifactOutbox: contextual.ArtifactOutboxSentinel},
+		Workflow:    contextual.WorkflowContext{CellName: "recipe-tests", CellPath: "recipe-tests", ProjectId: tenantID},
+		GitBase:     contextual.GitBaseContext{BaseRepo: "recipe-tests", BaseRef: recipeHash, ResolvedBaseHash: recipeHash},
+	}
+	gitCtx := contextual.GitCommitContext{ParentRef: recipeHash}
+	_ = ctx
+	_, _, err := compiler.ExecuteRecipe(wfCtx, *recipeDef, rawInputs, runCtx, gitCtx, compiler.ExecutionOptions{
+		Mode:                compiler.ExecutionModeValidate,
+		Validation:          compiler.ValidationOptions{Mode: compiler.ValidateAll, CollectAll: true},
+		CELOptionsProvider:  opts.CELOptions,
+		StateObserver:       jobCtx,
+		DiagnosticsObserver: jobCtx,
+	})
+	if err == nil {
+		return nil
+	}
+	return []Issue{{Code: "semantic_validation", Field: "target_recipe", Message: err.Error()}}
+}
+
 func resolveRecipeTestTarget(ctx context.Context, opts HarnessOptions, tenantID string, target TargetRecipe) (*recipecore.Recipe, string, []Issue, []Issue) {
 	errorsList := make([]Issue, 0)
 	warnings := make([]Issue, 0)
@@ -413,7 +467,7 @@ func runPreparedCase(ctx context.Context, opts HarnessOptions, tenantID string, 
 		rawInputs,
 		runCtx,
 		gitCtx,
-		compiler.ExecutionOptions{CELOptionsProvider: opts.CELOptions},
+		compiler.ExecutionOptions{CELOptionsProvider: opts.CELOptions, StateObserver: jobCtx, DiagnosticsObserver: jobCtx},
 	)
 	if err != nil {
 		execResp.Status = "failed"
@@ -424,7 +478,7 @@ func runPreparedCase(ctx context.Context, opts HarnessOptions, tenantID string, 
 	}
 
 	artifactBytes := collectArtifactBytes(tctx, jobCtx, artifacts)
-	assertionResults, assertionFailed := runRecipeTestAssertions(req.Case.Assertions, execResp.Outputs, artifactBytes, jobCtx.executedNodes, execResp.Status)
+	assertionResults, assertionFailed := runRecipeTestAssertions(req.Case.Assertions, execResp.Outputs, artifactBytes, jobCtx.executedNodes, execResp.Status, jobCtx.vars, jobCtx.transitions)
 	execResp.Assertions = assertionResults
 	if assertionFailed {
 		markFailure(&execResp, "assertion_failure", "one or more assertions failed")
@@ -436,7 +490,7 @@ func runPreparedCase(ctx context.Context, opts HarnessOptions, tenantID string, 
 		markFailure(&execResp, "evaluation_failure", "one or more enforced evaluations failed")
 	}
 
-	execResp.Diagnostics = Diagnostics{MockHits: jobCtx.mockHits, MockMisses: jobCtx.mockMisses}
+	execResp.Diagnostics = Diagnostics{MockHits: jobCtx.mockHits, MockMisses: jobCtx.mockMisses, Vars: redactVarsDiagnostics(jobCtx.vars), Transitions: redactTransitionDiagnostics(jobCtx.transitions)}
 	if execCfg.ArtifactMode == "inline" {
 		execResp.Artifacts = inlineArtifacts(artifactBytes, execCfg.ArtifactMaxBytes)
 	}
@@ -619,6 +673,8 @@ type testJobContext struct {
 	artifactContents map[string][]byte
 	artifactOrdinal  int64
 	recordings       map[string]passthroughRecord
+	vars             []RenderedVarsDiagnostic
+	transitions      []TransitionDiagnostic
 }
 
 type passthroughRecord struct {
@@ -649,6 +705,48 @@ func (j *testJobContext) AwaitJobs(_ ...string) error        { return nil }
 func (j *testJobContext) GetJobKey() swf.JobKey              { return j.jobKey }
 func (j *testJobContext) Logger() *slog.Logger               { return nil }
 func (j *testJobContext) AwaitDuration(_ swf.Duration) error { return nil }
+
+func (j *testJobContext) VarsResolved(scope template.ScopeType, nodePath string, vars map[string]interface{}) {
+	j.vars = append(j.vars, RenderedVarsDiagnostic{
+		NodePath: strings.TrimSpace(nodePath),
+		Scope:    string(scope),
+		Vars:     cloneStringMap(vars),
+	})
+}
+
+func (j *testJobContext) StateEntered(string) {}
+func (j *testJobContext) StateExited(string)  {}
+
+func (j *testJobContext) TransitionEvalauted(expression string, result bool, nextStateIfExpressionTrue string) {
+	j.transitions = append(j.transitions, TransitionDiagnostic{
+		ToState:    strings.TrimSpace(nextStateIfExpressionTrue),
+		Expression: strings.TrimSpace(expression),
+		Result:     result,
+	})
+}
+
+func (j *testJobContext) TransitionSelected(fromState string, toState string, payload map[string]interface{}) {
+	selected := TransitionDiagnostic{
+		FromState: strings.TrimSpace(fromState),
+		ToState:   strings.TrimSpace(toState),
+		Result:    true,
+		Selected:  true,
+		Payload:   cloneStringMap(payload),
+	}
+	for i := len(j.transitions) - 1; i >= 0; i-- {
+		if j.transitions[i].Selected {
+			continue
+		}
+		if strings.TrimSpace(j.transitions[i].ToState) != selected.ToState {
+			continue
+		}
+		j.transitions[i].FromState = selected.FromState
+		j.transitions[i].Selected = true
+		j.transitions[i].Payload = selected.Payload
+		return
+	}
+	j.transitions = append(j.transitions, selected)
+}
 
 func (j *testJobContext) DoTask(_ swf.RunPolicy, taskType string, data swf.TaskData) (swf.TaskData, error) {
 	raw, err := data.GetData()
@@ -921,7 +1019,7 @@ func parseTimeout(raw string, fallback time.Duration) time.Duration {
 	return d
 }
 
-func runRecipeTestAssertions(assertions []Assertion, outputs map[string]interface{}, artifacts map[string][]byte, executedNodes map[string]bool, status string) ([]AssertionResult, bool) {
+func runRecipeTestAssertions(assertions []Assertion, outputs map[string]interface{}, artifacts map[string][]byte, executedNodes map[string]bool, status string, vars []RenderedVarsDiagnostic, transitions []TransitionDiagnostic) ([]AssertionResult, bool) {
 	results := make([]AssertionResult, 0, len(assertions))
 	failed := false
 	for _, a := range assertions {
@@ -979,6 +1077,20 @@ func runRecipeTestAssertions(assertions []Assertion, outputs map[string]interfac
 			res.Passed = a.Status == status
 			if !res.Passed {
 				res.Message = "status mismatch"
+			}
+		case "var_equals":
+			actual, found := lookupRenderedVar(vars, a.NodePath, a.Scope, a.Path)
+			res.Expected, res.Actual = a.Value, actual
+			res.Passed = found && deepEqualJSON(a.Value, actual)
+			if !res.Passed {
+				res.Message = "rendered var value mismatch"
+			}
+		case "transition_payload_equals":
+			actual, found := lookupTransitionPayload(transitions, a.FromState, a.ToState, a.Path)
+			res.Expected, res.Actual = a.Value, actual
+			res.Passed = found && deepEqualJSON(a.Value, actual)
+			if !res.Passed {
+				res.Message = "transition payload value mismatch"
 			}
 		case "cel_true":
 			expr := strings.TrimSpace(a.Expr)
@@ -1192,6 +1304,96 @@ func lookupPath(root interface{}, p string) (interface{}, bool) {
 		cur = next
 	}
 	return cur, true
+}
+
+func lookupRenderedVar(vars []RenderedVarsDiagnostic, nodePath string, scope string, varPath string) (interface{}, bool) {
+	nodePath = strings.TrimSpace(nodePath)
+	scope = strings.TrimSpace(scope)
+	for i := len(vars) - 1; i >= 0; i-- {
+		item := vars[i]
+		if nodePath != "" && strings.TrimSpace(item.NodePath) != nodePath {
+			continue
+		}
+		if scope != "" && strings.TrimSpace(item.Scope) != scope {
+			continue
+		}
+		return lookupPath(item.Vars, varPath)
+	}
+	return nil, false
+}
+
+func lookupTransitionPayload(transitions []TransitionDiagnostic, fromState string, toState string, payloadPath string) (interface{}, bool) {
+	fromState = strings.TrimSpace(fromState)
+	toState = strings.TrimSpace(toState)
+	for i := len(transitions) - 1; i >= 0; i-- {
+		item := transitions[i]
+		if !item.Selected {
+			continue
+		}
+		if fromState != "" && strings.TrimSpace(item.FromState) != fromState {
+			continue
+		}
+		if toState != "" && strings.TrimSpace(item.ToState) != toState {
+			continue
+		}
+		return lookupPath(item.Payload, payloadPath)
+	}
+	return nil, false
+}
+
+func redactVarsDiagnostics(in []RenderedVarsDiagnostic) []RenderedVarsDiagnostic {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]RenderedVarsDiagnostic, 0, len(in))
+	for _, item := range in {
+		redacted, _ := redact.Value("vars", item.Vars).(map[string]interface{})
+		out = append(out, RenderedVarsDiagnostic{
+			NodePath: item.NodePath,
+			Scope:    item.Scope,
+			Vars:     redacted,
+		})
+	}
+	return out
+}
+
+func redactTransitionDiagnostics(in []TransitionDiagnostic) []TransitionDiagnostic {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]TransitionDiagnostic, 0, len(in))
+	for _, item := range in {
+		redacted, _ := redact.Value("transition.payload", item.Payload).(map[string]interface{})
+		item.Payload = redacted
+		out = append(out, item)
+	}
+	return out
+}
+
+func cloneStringMap(in map[string]interface{}) map[string]interface{} {
+	if in == nil {
+		return nil
+	}
+	out := make(map[string]interface{}, len(in))
+	for key, value := range in {
+		out[key] = cloneValue(value)
+	}
+	return out
+}
+
+func cloneValue(value interface{}) interface{} {
+	switch typed := value.(type) {
+	case map[string]interface{}:
+		return cloneStringMap(typed)
+	case []interface{}:
+		out := make([]interface{}, len(typed))
+		for i, item := range typed {
+			out[i] = cloneValue(item)
+		}
+		return out
+	default:
+		return typed
+	}
 }
 
 func regexMatch(pattern string, value string) bool {
