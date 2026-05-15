@@ -194,6 +194,9 @@ func (rc *ResolutionContext) goTemplateFuncMap() texttemplate.FuncMap {
 			return rc.goTemplateContextMap()
 		},
 	}
+	for name, fn := range rc.stateLookupTemplateFuncs() {
+		funcMap[name] = fn
+	}
 
 	type goTemplateFuncProvider interface {
 		TemplateFuncsWithContext(funcregistry.ContextProvider) map[string]interface{}

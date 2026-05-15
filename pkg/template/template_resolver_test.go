@@ -457,6 +457,106 @@ func TestAddStateOutput(t *testing.T) {
 	assert.Equal(t, "api", state.Outputs["metadata"].(map[string]interface{})["source"])
 }
 
+func TestStateLookupHelpers(t *testing.T) {
+	recipeCtx := newRecipeCtx(t, nil)
+	smCtx := newStateMachineCtx(t, recipeCtx, "test-sm", map[string]interface{}{})
+
+	addStateOutput(t, smCtx, "review", map[string]interface{}{
+		"approved": false,
+		"fields": map[string]interface{}{
+			"feedback":    "ship it",
+			"nested.path": "literal field id",
+		},
+		"nested": map[string]interface{}{
+			"value": "from nested output",
+		},
+	})
+
+	outputs := map[string]interface{}{"done": true}
+	smCtx.TemplateData.States["future"] = StepOutput{
+		Outputs: outputs,
+		Runs: []RunOutput{
+			{Outputs: outputs},
+		},
+	}
+
+	stateCtx := newStateCtx(t, smCtx, "next")
+
+	tests := []struct {
+		name     string
+		template string
+		expected interface{}
+	}{
+		{
+			name:     "state_exists true for completed state",
+			template: `${{ state_exists("review") }}`,
+			expected: true,
+		},
+		{
+			name:     "state_exists false for missing state",
+			template: `${{ state_exists("missing") }}`,
+			expected: false,
+		},
+		{
+			name:     "state_exists false for validation placeholder",
+			template: `${{ state_exists("future") }}`,
+			expected: false,
+		},
+		{
+			name:     "state_output reads nested output path",
+			template: `${{ state_output("review", "nested.value", "fallback") }}`,
+			expected: "from nested output",
+		},
+		{
+			name:     "state_output returns false rather than defaulting",
+			template: `${{ state_output("review", "approved", true) }}`,
+			expected: false,
+		},
+		{
+			name:     "state_output defaults for missing state",
+			template: `${{ state_output("missing", "nested.value", "fallback") }}`,
+			expected: "fallback",
+		},
+		{
+			name:     "state_output defaults for missing path",
+			template: `${{ state_output("review", "nested.missing", "fallback") }}`,
+			expected: "fallback",
+		},
+		{
+			name:     "state_output defaults for validation placeholder",
+			template: `${{ state_output("future", "done", "fallback") }}`,
+			expected: "fallback",
+		},
+		{
+			name:     "state_field reads single form field id",
+			template: `${{ state_field("review", "feedback", "fallback") }}`,
+			expected: "ship it",
+		},
+		{
+			name:     "state_field treats dots as literal field id",
+			template: `${{ state_field("review", "nested.path", "fallback") }}`,
+			expected: "literal field id",
+		},
+		{
+			name:     "state_field defaults for missing field",
+			template: `${{ state_field("review", "missing", "fallback") }}`,
+			expected: "fallback",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := stateCtx.resolveTemplate(tt.template)
+			require.NoError(t, err)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+
+	goTemplateResult, err := stateCtx.resolveTemplate(`exists={{ state_exists "review" }} feedback={{ state_field "review" "feedback" "none" }} missing={{ state_output "missing" "nested.value" "fallback" }}`)
+	require.NoError(t, err)
+	assert.Equal(t, "exists=true feedback=ship it missing=fallback", goTemplateResult)
+}
+
 func TestNewChildContext(t *testing.T) {
 	recipeCtx := newRecipeCtx(t, map[string]interface{}{
 		"child_input": "value",

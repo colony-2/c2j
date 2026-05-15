@@ -200,6 +200,7 @@ func newResolutionContext(commitContext *contextual.GitCommitContext, tracker *i
 			return nil, fmt.Errorf("failed to get CEL options: %w", err)
 		}
 	}
+	extraOpts = append(extraOpts, rc.stateLookupEnvOptions(adapter)...)
 	if len(extraOpts) > 0 {
 		env, err = env.Extend(extraOpts...)
 		if err != nil {
