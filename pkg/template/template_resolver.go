@@ -666,6 +666,20 @@ func placeholderFromCELType(t *types.Type) interface{} {
 	}
 }
 
+var validationSafeCalls = map[string]struct{}{
+	"state_exists":            {},
+	"state_output":            {},
+	"state_field":             {},
+	"nonempty":                {},
+	"first_nonempty":          {},
+	"optional.of":             {},
+	"optional.ofNonZeroValue": {},
+	"optional.none":           {},
+	"orValue":                 {},
+	"hasValue":                {},
+	"value":                   {},
+}
+
 // hasForbiddenCalls detects whether the expression contains function calls that should not
 // be executed during validation (non-operator function calls).
 func hasForbiddenCalls(expr *exprpb.Expr) bool {
@@ -678,6 +692,17 @@ func hasForbiddenCalls(expr *exprpb.Expr) bool {
 		fn := e.CallExpr.Function
 		// Operators are represented with names like _&&_, _?_:_, etc. Allow those.
 		if !strings.HasPrefix(fn, "_") {
+			if _, ok := validationSafeCalls[fn]; ok {
+				if hasForbiddenCalls(e.CallExpr.Target) {
+					return true
+				}
+				for _, arg := range e.CallExpr.Args {
+					if hasForbiddenCalls(arg) {
+						return true
+					}
+				}
+				return false
+			}
 			return true
 		}
 		if hasForbiddenCalls(e.CallExpr.Target) {
