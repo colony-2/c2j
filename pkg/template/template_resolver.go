@@ -140,6 +140,7 @@ func newResolutionContext(commitContext *contextual.GitCommitContext, tracker *i
 	// CEL doesn't natively understand Go's anonymous struct fields, so we need to
 	// provide a flattened view that matches JSON serialization behavior
 	baseOpts := []cel.EnvOption{
+		cel.OptionalTypes(),
 		cel.Variable("inputs", cel.MapType(cel.StringType, cel.DynType)),
 		cel.Variable("sequence", cel.MapType(cel.StringType, cel.MapType(cel.StringType, cel.DynType))),
 		cel.Variable("states", cel.MapType(cel.StringType, cel.MapType(cel.StringType, cel.DynType))),

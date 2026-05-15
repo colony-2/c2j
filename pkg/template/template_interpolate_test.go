@@ -812,6 +812,21 @@ func TestGoTemplate_FunctionRegistryBuiltinsAndCustom(t *testing.T) {
 	assert.Contains(t, jsonResult, "\"name\":\"alpha\"")
 }
 
+func TestGoTemplate_NonemptyHelpers(t *testing.T) {
+	ctx, err := NewRecipeResolutionContext(&contextual.GitCommitContext{}, map[string]interface{}{
+		"blank":      " \n\t ",
+		"feedback":   "  keep whitespace  ",
+		"falsey":     false,
+		"zero":       0,
+		"empty_list": []interface{}{},
+	}, contextual.JobContext{})
+	require.NoError(t, err)
+
+	result, err := ctx.resolveTemplate(`blank={{ nonempty inputs.blank }} false={{ nonempty inputs.falsey }} zero={{ nonempty inputs.zero }} first={{ first_nonempty inputs.blank inputs.empty_list inputs.feedback "fallback" }}`)
+	require.NoError(t, err)
+	assert.Equal(t, "blank=false false=true zero=true first=  keep whitespace  ", result)
+}
+
 func TestTemplateContextExposesHostAndOpEnvironmentPaths(t *testing.T) {
 	ctx, err := NewRecipeResolutionContext(&contextual.GitCommitContext{}, nil, contextual.JobContext{
 		Environment: contextual.EnvironmentContext{

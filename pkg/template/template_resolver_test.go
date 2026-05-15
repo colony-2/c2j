@@ -108,6 +108,124 @@ func TestResolveTemplate_CELFunction(t *testing.T) {
 	assert.Equal(t, int64(15), result)
 }
 
+func TestResolveTemplate_CELOptionalAccessAndNonemptyHelpers(t *testing.T) {
+	inputs := map[string]interface{}{
+		"user": map[string]interface{}{
+			"name": "Ada",
+		},
+		"dashed-key": "dash-value",
+		"blank":      " \t\n ",
+		"falsey":     false,
+		"zero":       0,
+		"empty_list": []interface{}{},
+		"tags":       []interface{}{"alpha"},
+		"empty_map":  map[string]interface{}{},
+		"meta":       map[string]interface{}{"ok": true},
+	}
+	recipeCtx := newRecipeCtx(t, inputs)
+	seqCtx := newSequenceCtx(t, recipeCtx, "test", inputs)
+
+	tests := []struct {
+		name     string
+		template string
+		expected interface{}
+	}{
+		{
+			name:     "missing optional path defaults",
+			template: `${{ inputs.?missing.nested.orValue("fallback") }}`,
+			expected: "fallback",
+		},
+		{
+			name:     "has on missing optional path is false",
+			template: `${{ has(inputs.?missing.nested) }}`,
+			expected: false,
+		},
+		{
+			name:     "has on present optional path is true",
+			template: `${{ has(inputs.?user.name) }}`,
+			expected: true,
+		},
+		{
+			name:     "optional map index supports non-identifier keys",
+			template: `${{ inputs[?"dashed-key"].orValue("fallback") }}`,
+			expected: "dash-value",
+		},
+		{
+			name:     "nonempty rejects absent optional",
+			template: `${{ nonempty(inputs.?missing) }}`,
+			expected: false,
+		},
+		{
+			name:     "nonempty rejects whitespace string",
+			template: `${{ nonempty(inputs.blank) }}`,
+			expected: false,
+		},
+		{
+			name:     "nonempty accepts false boolean",
+			template: `${{ nonempty(inputs.falsey) }}`,
+			expected: true,
+		},
+		{
+			name:     "nonempty accepts zero number",
+			template: `${{ nonempty(inputs.zero) }}`,
+			expected: true,
+		},
+		{
+			name:     "nonempty rejects empty list",
+			template: `${{ nonempty(inputs.empty_list) }}`,
+			expected: false,
+		},
+		{
+			name:     "nonempty accepts non-empty list",
+			template: `${{ nonempty(inputs.tags) }}`,
+			expected: true,
+		},
+		{
+			name:     "nonempty rejects empty map",
+			template: `${{ nonempty(inputs.empty_map) }}`,
+			expected: false,
+		},
+		{
+			name:     "nonempty accepts non-empty map",
+			template: `${{ nonempty(inputs.meta) }}`,
+			expected: true,
+		},
+		{
+			name:     "first_nonempty skips absent and blank values",
+			template: `${{ first_nonempty(inputs.?missing, inputs.blank, "fallback") }}`,
+			expected: "fallback",
+		},
+		{
+			name:     "first_nonempty treats false as non-empty",
+			template: `${{ first_nonempty(inputs.?missing, inputs.blank, inputs.falsey, "fallback") }}`,
+			expected: false,
+		},
+		{
+			name:     "first_nonempty treats zero as non-empty",
+			template: `${{ first_nonempty(inputs.?missing, inputs.blank, inputs.zero, "fallback") }}`,
+			expected: int64(0),
+		},
+		{
+			name:     "first_nonempty returns nil when nothing qualifies",
+			template: `${{ first_nonempty(inputs.?missing, inputs.blank, inputs.empty_list, inputs.empty_map) }}`,
+			expected: nil,
+		},
+		{
+			name:     "first_nonempty supports no arguments",
+			template: `${{ first_nonempty() }}`,
+			expected: nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := seqCtx.resolveTemplate(tt.template)
+			require.NoError(t, err)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
 func TestResolveTemplate_JSONParse(t *testing.T) {
 	inputs := map[string]interface{}{
 		"config_json":  `{"enabled":true,"threshold":2,"nested":{"name":"demo"},"items":[{"id":1},{"id":2}]}`,

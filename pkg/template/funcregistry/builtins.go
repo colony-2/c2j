@@ -3,10 +3,13 @@ package funcregistry
 import (
 	"encoding/json"
 	"fmt"
+	"reflect"
+	"strings"
 
 	"github.com/google/cel-go/cel"
 	"github.com/google/cel-go/common/types"
 	"github.com/google/cel-go/common/types/ref"
+	"github.com/google/cel-go/common/types/traits"
 	"github.com/itchyny/gojq"
 )
 
@@ -74,6 +77,41 @@ func defaultBuiltins() map[string]BuiltinFactory {
 				),
 			)
 		},
+		"nonempty": func(_ types.Adapter, _ ContextProvider) cel.EnvOption {
+			return cel.Function(
+				"nonempty",
+				cel.Overload(
+					"nonempty_any",
+					[]*cel.Type{cel.AnyType},
+					cel.BoolType,
+					cel.UnaryBinding(func(value ref.Val) ref.Val {
+						ok, errVal := nonemptyCEL(value)
+						if errVal != nil {
+							return errVal
+						}
+						return types.Bool(ok)
+					}),
+				),
+			)
+		},
+		"first_nonempty": func(_ types.Adapter, _ ContextProvider) cel.EnvOption {
+			overloads := make([]cel.FunctionOpt, 0, 10)
+			for argc := 0; argc <= 10; argc++ {
+				typesForArgs := make([]*cel.Type, argc)
+				for i := range typesForArgs {
+					typesForArgs[i] = cel.AnyType
+				}
+				overloads = append(overloads, cel.Overload(
+					fmt.Sprintf("first_nonempty_any_%d", argc),
+					typesForArgs,
+					cel.DynType,
+					cel.FunctionBinding(func(values ...ref.Val) ref.Val {
+						return firstNonemptyCEL(values)
+					}),
+				))
+			}
+			return cel.Function("first_nonempty", overloads...)
+		},
 	}
 }
 
@@ -137,6 +175,111 @@ func defaultTemplateBuiltins() map[string]TemplateFuncFactory {
 				}
 			}
 		},
+		"nonempty": func(_ ContextProvider) interface{} {
+			return func(value any) bool {
+				return nonemptyNative(value)
+			}
+		},
+		"first_nonempty": func(_ ContextProvider) interface{} {
+			return func(values ...any) any {
+				for _, value := range values {
+					if nonemptyNative(value) {
+						return value
+					}
+				}
+				return nil
+			}
+		},
+	}
+}
+
+func firstNonemptyCEL(values []ref.Val) ref.Val {
+	for _, value := range values {
+		ok, errVal := nonemptyCEL(value)
+		if errVal != nil {
+			return errVal
+		}
+		if ok {
+			return unwrapOptionalCEL(value)
+		}
+	}
+	return types.NullValue
+}
+
+func nonemptyCEL(value ref.Val) (bool, ref.Val) {
+	value = unwrapOptionalCEL(value)
+	if value == nil || value == types.NullValue {
+		return false, nil
+	}
+	if types.IsError(value) {
+		return false, value
+	}
+
+	switch v := value.(type) {
+	case types.String:
+		return strings.TrimSpace(string(v)) != "", nil
+	case traits.Sizer:
+		size := v.Size()
+		if types.IsError(size) {
+			return false, size
+		}
+		switch n := size.(type) {
+		case types.Int:
+			return n > 0, nil
+		default:
+			return nonemptyNative(size.Value()), nil
+		}
+	default:
+		return nonemptyNative(value.Value()), nil
+	}
+}
+
+func unwrapOptionalCEL(value ref.Val) ref.Val {
+	if optional, ok := value.(*types.Optional); ok {
+		if !optional.HasValue() {
+			return types.NullValue
+		}
+		return optional.GetValue()
+	}
+	return value
+}
+
+func nonemptyNative(value any) bool {
+	if value == nil {
+		return false
+	}
+	if optional, ok := value.(*types.Optional); ok {
+		if !optional.HasValue() {
+			return false
+		}
+		return nonemptyNative(optional.GetValue())
+	}
+	if refValue, ok := value.(ref.Val); ok {
+		ok, errVal := nonemptyCEL(refValue)
+		return errVal == nil && ok
+	}
+
+	rv := reflect.ValueOf(value)
+	for rv.Kind() == reflect.Interface || rv.Kind() == reflect.Pointer {
+		if rv.IsNil() {
+			return false
+		}
+		rv = rv.Elem()
+		value = rv.Interface()
+	}
+
+	switch v := value.(type) {
+	case string:
+		return strings.TrimSpace(v) != ""
+	case []byte:
+		return len(v) > 0
+	}
+
+	switch rv.Kind() {
+	case reflect.Array, reflect.Chan, reflect.Map, reflect.Slice, reflect.String:
+		return rv.Len() > 0
+	default:
+		return true
 	}
 }
 

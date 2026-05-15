@@ -160,6 +160,7 @@ func (e *CELExpr) UnmarshalYAML(unmarshal func(interface{}) error) error {
 // Evaluate evaluates a CEL expression with the given data
 func compile(expression string) (cel.Program, error) {
 	env, err := cel.NewEnv(
+		cel.OptionalTypes(),
 		cel.Variable("inputs", cel.MapType(cel.StringType, cel.DynType)),
 		cel.Variable("sequence", cel.MapType(cel.StringType, cel.MapType(cel.StringType, cel.DynType))),
 		cel.Variable("states", cel.MapType(cel.StringType, cel.MapType(cel.StringType, cel.DynType))),

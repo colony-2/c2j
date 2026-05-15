@@ -61,6 +61,21 @@ func TestCEL_AsBool_AndEvaluate_Types(t *testing.T) {
 	assert.Error(t, err)
 }
 
+func TestCEL_OptionalAccess(t *testing.T) {
+	expr, err := NewCELExpr(`inputs.?missing.nested.orValue("fallback")`)
+	require.NoError(t, err)
+
+	value, err := expr.Evaluate(map[string]interface{}{})
+	require.NoError(t, err)
+	assert.Equal(t, "fallback", value)
+
+	hasExpr, err := NewCELExpr(`has(inputs.?missing.nested)`)
+	require.NoError(t, err)
+	ok, err := hasExpr.AsBool(map[string]interface{}{})
+	require.NoError(t, err)
+	assert.False(t, ok)
+}
+
 // Data Access and Transformation
 func TestCEL_DataAccessAndYamlRoundTrip(t *testing.T) {
 	// Expressions access nested input data for decision making [pkg/cel/cel.go]
