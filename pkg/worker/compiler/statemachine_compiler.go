@@ -21,6 +21,9 @@ func (d DefaultRecipeExecutor) ExecuteStateMachine(ctx workflow.Context, parentC
 	if err != nil {
 		return fmt.Errorf("failed to create resolution context: %w", err)
 	}
+	if err := resCtx.ResolveVars(metadata.Vars); err != nil {
+		return fmt.Errorf("failed to resolve state machine vars: %w", err)
+	}
 	if err := seedStateMachinePlaceholders(resCtx, stateMap); err != nil {
 		return err
 	}
@@ -181,6 +184,29 @@ func (d DefaultRecipeExecutor) runState(ctx workflow.Context, resCtx *template.R
 	if err != nil {
 		return fmt.Errorf("failed to create state context: %w", err)
 	}
+	if err := stateResCtx.ResolveVars(node.GetMetadata().Vars); err != nil {
+		return fmt.Errorf("failed to resolve state vars: %w", err)
+	}
 
-	return d.self().ExecuteNode(ctx, stateResCtx, &node.Node)
+	stateNode := nodeWithoutVars(node.Node)
+	return d.self().ExecuteNode(ctx, stateResCtx, &stateNode)
+}
+
+func nodeWithoutVars(node recipe.Node) recipe.Node {
+	switch n := node.NodeImpl.(type) {
+	case *recipe.NodeOp:
+		clone := *n
+		clone.NodeMetadata.Vars = nil
+		return recipe.Node{NodeImpl: &clone}
+	case *recipe.NodeSequence:
+		clone := *n
+		clone.NodeMetadata.Vars = nil
+		return recipe.Node{NodeImpl: &clone}
+	case *recipe.NodeState:
+		clone := *n
+		clone.NodeMetadata.Vars = nil
+		return recipe.Node{NodeImpl: &clone}
+	default:
+		return node
+	}
 }

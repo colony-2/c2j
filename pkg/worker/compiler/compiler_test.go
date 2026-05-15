@@ -162,6 +162,72 @@ outputs:
 	s.testRecipe(recipeYaml, input, expectedOutputs)
 }
 
+func (s *CompilerTestSuite) TestRecipeVarsResolveAcrossRecipeAndOpScopes() {
+	recipeYaml := `
+---
+id: test-recipe
+input_schema:
+  title:
+    type: string
+vars:
+  root_message: "${{ inputs.title + '-root' }}"
+inputs:
+  sequence_message: "${{ vars.root_message }}"
+sequence:
+  - id: echo
+    op: echo_activity
+    vars:
+      op_message: "${{ vars.root_message + '-op' }}"
+    inputs:
+      Message: "${{ vars.op_message }}"
+outputs:
+  result: "${{ sequence.echo.outputs.output }}"
+  root: "${{ vars.root_message }}"
+`
+
+	input := map[string]interface{}{
+		"title": "demo",
+	}
+
+	expectedOutputs := map[string]interface{}{
+		"result": "demo-root-op",
+		"root":   "demo-root",
+	}
+	s.testRecipe(recipeYaml, input, expectedOutputs)
+}
+
+func (s *CompilerTestSuite) TestStateVarsReevaluateOnEachStateInvocation() {
+	recipeYaml := `
+---
+id: test-recipe
+state:
+  initial: review
+  states:
+    review:
+      op: echo_activity
+      vars:
+        message: "${{ state_exists('review') ? 'again' : 'first' }}"
+      inputs:
+        Message: "${{ vars.message }}"
+      transitions:
+        - to: review
+          when: outputs.output == "first"
+        - to: done
+          when: true
+    done:
+      op: echo_activity
+      inputs:
+        Message: "${{ state_output('review', 'output', 'missing') }}"
+outputs:
+  result: "${{ states.done.outputs.output }}"
+`
+
+	expectedOutputs := map[string]interface{}{
+		"result": "again",
+	}
+	s.testRecipe(recipeYaml, map[string]interface{}{}, expectedOutputs)
+}
+
 func (s *CompilerTestSuite) TestSequenceRecipeCompilation() {
 	// Test sequence compilation instead of parallel
 	node := &recipe.Node{

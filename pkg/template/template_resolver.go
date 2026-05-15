@@ -36,6 +36,7 @@ type templateData struct {
 	ContainerInputs map[string]interface{}          `json:"container_inputs"` // ContainerInputs map if this is a sequence or state machine.
 	Sequence        map[string]StepOutput           `json:"sequence"`         // Sibling nodes in sequence
 	States          map[string]StepOutput           `json:"states"`           // Completed states in state machine
+	Vars            map[string]interface{}          `json:"vars"`             // Scoped computed values
 	Scope           ScopeMetadata                   `json:"scope"`            // Execution metadata
 	Context         contextual.TaskExecutionContext `json:"context"`          // Execution context (typed)
 	// Note: No unqualified "outputs" field - outputs always qualified by context
@@ -123,6 +124,7 @@ func newResolutionContext(commitContext *contextual.GitCommitContext, tracker *i
 			ContainerInputs: containerInputs,
 			Sequence:        make(map[string]StepOutput),
 			States:          make(map[string]StepOutput),
+			Vars:            make(map[string]interface{}),
 			Scope: ScopeMetadata{
 				ExecutionID: generateExecutionID(),
 				Timestamp:   time.Now(),
@@ -144,6 +146,7 @@ func newResolutionContext(commitContext *contextual.GitCommitContext, tracker *i
 		cel.Variable("inputs", cel.MapType(cel.StringType, cel.DynType)),
 		cel.Variable("sequence", cel.MapType(cel.StringType, cel.MapType(cel.StringType, cel.DynType))),
 		cel.Variable("states", cel.MapType(cel.StringType, cel.MapType(cel.StringType, cel.DynType))),
+		cel.Variable("vars", cel.MapType(cel.StringType, cel.DynType)),
 		cel.Variable("scope", cel.MapType(cel.StringType, cel.DynType)),
 		cel.Variable("context", cel.ObjectType("contextual.TaskExecutionContext")),
 		ext.NativeTypes(
@@ -305,6 +308,7 @@ func (rc *ResolutionContext) NewChildContext(scopeType ScopeType, metadata recip
 		return nil, err
 	}
 	child.EffectiveConst = rc.EffectiveConst || metadata.Const
+	child.TemplateData.Vars = cloneTemplateVars(rc.TemplateData.Vars)
 
 	// copy items from parents based on scope.
 	switch scopeType {
@@ -342,6 +346,9 @@ func (rc *ResolutionContext) ensureContextBackfill() {
 	}
 	if rc.TemplateData.ContainerInputs == nil {
 		rc.TemplateData.ContainerInputs = make(map[string]interface{})
+	}
+	if rc.TemplateData.Vars == nil {
+		rc.TemplateData.Vars = make(map[string]interface{})
 	}
 }
 
@@ -410,6 +417,7 @@ func (rc *ResolutionContext) evaluateCELExpression(expr string) (interface{}, er
 		"inputs":   rc.TemplateData.ContainerInputs,
 		"sequence": rc.celSequenceValue(),
 		"states":   rc.celStatesValue(),
+		"vars":     rc.TemplateData.Vars,
 		"scope":    rc.TemplateData.Scope,
 		"context":  rc.TemplateData.Context,
 	})

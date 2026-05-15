@@ -231,6 +231,7 @@ type NodeMetadata struct {
 	Timeout   Duration               `yaml:"timeout,omitempty"`
 	Retry     *RetryPolicy           `yaml:"retry,omitempty"`
 	Inputs    map[string]interface{} `yaml:"inputs,omitempty"`
+	Vars      map[string]interface{} `yaml:"vars,omitempty"`
 	Artifacts map[string]interface{} `yaml:"artifacts,omitempty"`
 	When      cel.CELExpr            `yaml:"when,omitempty"` // Conditional execution
 }

@@ -119,14 +119,19 @@ func (d DefaultRecipeExecutor) ExecuteRecipe(ctx workflow.Context, r recipe.Reci
 	}
 
 	metadata := r.GetMetadata().NodeMetadata
+	if err := rCtx.ResolveVars(metadata.Vars); err != nil {
+		return nil, nil, fmt.Errorf("failed to resolve recipe vars: %w", err)
+	}
+	rootMetadata := metadata
+	rootMetadata.Vars = nil
 
 	switch t := r.RecipeImpl.(type) {
 	case *recipe.RecipeState:
-		err = d.self().ExecuteStateMachine(ctx, rCtx, metadata, t.Outputs, t.StateMachineData.States, execOpts)
+		err = d.self().ExecuteStateMachine(ctx, rCtx, rootMetadata, t.Outputs, t.StateMachineData.States, execOpts)
 	case *recipe.RecipeOp:
-		err = d.self().ExecuteOp(ctx, rCtx, metadata, t.OpData.Op)
+		err = d.self().ExecuteOp(ctx, rCtx, rootMetadata, t.OpData.Op)
 	case *recipe.RecipeSequence:
-		err = d.self().ExecuteSequence(ctx, rCtx, metadata, t.Outputs, t.SequenceData.Sequence)
+		err = d.self().ExecuteSequence(ctx, rCtx, rootMetadata, t.Outputs, t.SequenceData.Sequence)
 	default:
 		return nil, nil, fmt.Errorf("unsupported recipe type: %T", t)
 	}
@@ -228,6 +233,9 @@ func (d DefaultRecipeExecutor) executeOp2(ctx workflow.Context, parentResolution
 	resCtx, err := parentResolutionContext.NewChildContext(template.ScopeOp, metadata, op, nil)
 	if err != nil {
 		return fmt.Errorf("failed to create resolution context: %w", err)
+	}
+	if err := resCtx.ResolveVars(metadata.Vars); err != nil {
+		return fmt.Errorf("failed to resolve op vars: %w", err)
 	}
 
 	var (
@@ -455,6 +463,9 @@ func (d DefaultRecipeExecutor) innerSequence(ctx workflow.Context, parentCtx *te
 	resCtx, err := parentCtx.NewChildContext(template.ScopeSequence, metadata, "", resolvedInputs)
 	if err != nil {
 		return fmt.Errorf("failed to create resolution context: %w", err)
+	}
+	if err := resCtx.ResolveVars(metadata.Vars); err != nil {
+		return fmt.Errorf("failed to resolve sequence vars: %w", err)
 	}
 	if err := seedSequencePlaceholders(resCtx, sequence); err != nil {
 		return err

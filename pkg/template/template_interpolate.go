@@ -96,6 +96,8 @@ func (rc *ResolutionContext) resolveSimpleGoTemplateScalar(input string) (interf
 		current = flattenTemplateValue(rc.TemplateData.Sequence)
 	case "states":
 		current = flattenTemplateValue(rc.TemplateData.States)
+	case "vars":
+		current = flattenTemplateValue(rc.TemplateData.Vars)
 	case "scope":
 		current = flattenTemplateValue(rc.TemplateData.Scope)
 	case "context":
@@ -186,6 +188,9 @@ func (rc *ResolutionContext) goTemplateFuncMap() texttemplate.FuncMap {
 		},
 		"states": func() interface{} {
 			return flattenTemplateValue(rc.TemplateData.States)
+		},
+		"vars": func() map[string]interface{} {
+			return flattenTemplateValue(rc.TemplateData.Vars)
 		},
 		"scope": func() map[string]interface{} {
 			return flattenTemplateValue(rc.TemplateData.Scope)

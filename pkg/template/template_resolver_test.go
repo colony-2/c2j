@@ -226,6 +226,74 @@ func TestResolveTemplate_CELOptionalAccessAndNonemptyHelpers(t *testing.T) {
 	}
 }
 
+func TestResolveVarsScopedComputedValues(t *testing.T) {
+	recipeCtx := newRecipeCtx(t, map[string]interface{}{
+		"title": "demo",
+	})
+
+	err := recipeCtx.ResolveVars(map[string]interface{}{
+		"slug":    `${{ inputs.title + "-recipe" }}`,
+		"enabled": false,
+		"zero":    0,
+		"nested": map[string]interface{}{
+			"name": `${{ inputs.title }}`,
+		},
+	})
+	require.NoError(t, err)
+
+	result, err := recipeCtx.resolveTemplate(`${{ vars.slug }}`)
+	require.NoError(t, err)
+	assert.Equal(t, "demo-recipe", result)
+
+	goResult, err := recipeCtx.resolveTemplate(`slug={{ vars.slug }} enabled={{ vars.enabled }} zero={{ vars.zero }}`)
+	require.NoError(t, err)
+	assert.Equal(t, "slug=demo-recipe enabled=false zero=0", goResult)
+
+	child := newSequenceCtx(t, recipeCtx, "child", map[string]interface{}{
+		"suffix": "child",
+	})
+	err = child.ResolveVars(map[string]interface{}{
+		"child_slug": `${{ vars.slug + "-" + inputs.suffix }}`,
+	})
+	require.NoError(t, err)
+	childSlug, err := child.resolveTemplate(`${{ vars.child_slug }}`)
+	require.NoError(t, err)
+	assert.Equal(t, "demo-recipe-child", childSlug)
+
+	err = recipeCtx.ResolveVars(map[string]interface{}{
+		"slug": "updated-parent",
+	})
+	require.NoError(t, err)
+	childSlugAfterParentUpdate, err := child.resolveTemplate(`${{ vars.child_slug }}`)
+	require.NoError(t, err)
+	assert.Equal(t, "demo-recipe-child", childSlugAfterParentUpdate)
+
+	parentSlug, err := recipeCtx.resolveTemplate(`${{ vars.slug }}`)
+	require.NoError(t, err)
+	assert.Equal(t, "updated-parent", parentSlug)
+}
+
+func TestResolveVarsRejectsSameBlockReferences(t *testing.T) {
+	recipeCtx := newRecipeCtx(t, map[string]interface{}{
+		"title": "demo",
+	})
+
+	err := recipeCtx.ResolveVars(map[string]interface{}{
+		"first":  `${{ inputs.title }}`,
+		"second": `${{ vars.first + "-again" }}`,
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), `references "first" from the same vars block`)
+
+	err = recipeCtx.ResolveVars(map[string]interface{}{
+		"first": `{{ vars.first }}`,
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), `references "first" from the same vars block`)
+
+	require.Empty(t, recipeCtx.TemplateData.Vars)
+}
+
 func TestResolveTemplate_JSONParse(t *testing.T) {
 	inputs := map[string]interface{}{
 		"config_json":  `{"enabled":true,"threshold":2,"nested":{"name":"demo"},"items":[{"id":1},{"id":2}]}`,
