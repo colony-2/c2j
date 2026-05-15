@@ -3,6 +3,7 @@ package compiler
 import (
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	recipeartifacts "github.com/colony-2/c2j/pkg/artifacts"
@@ -85,6 +86,7 @@ func (d DefaultRecipeExecutor) ExecuteRecipe(ctx workflow.Context, r recipe.Reci
 	jobKey := ctx.GetJobKey()
 	execCtx.Workflow.JobID = jobKey.JobId
 	execCtx.Workflow.ProjectId = jobKey.TenantId
+	normalizeEnvironmentPathContext(&execCtx.Environment)
 
 	// we forward thin packs from one task to the next to maintain state.
 	ctx.JobContext = newThinPackForwardingJobContext(ctx.JobContext)
@@ -133,6 +135,50 @@ func (d DefaultRecipeExecutor) ExecuteRecipe(ctx workflow.Context, r recipe.Reci
 		return nil, nil, err
 	}
 	return rCtx.GetLastExecution(), rCtx.GetLastArtifacts(), nil
+}
+
+func normalizeEnvironmentPathContext(env *contextual.EnvironmentContext) {
+	if env == nil {
+		return
+	}
+
+	normalizeHostPathAlias(&env.WorktreePath, &env.Host.WorktreePath, contextual.WorktreePathSentinel)
+	normalizeHostPathAlias(&env.WorkdirPath, &env.Host.Workdir, contextual.WorkdirPathSentinel)
+	normalizeHostPathAlias(&env.ArtifactInbox, &env.Host.Inbox, contextual.ArtifactInboxSentinel)
+	normalizeHostPathAlias(&env.ArtifactOutbox, &env.Host.Outbox, contextual.ArtifactOutboxSentinel)
+
+	normalizeOpPathAlias(&env.Op.WorktreePath, env.Host.WorktreePath, contextual.WorktreePathSentinel, contextual.OpWorktreePathSentinel)
+	normalizeOpPathAlias(&env.Op.Workdir, env.Host.Workdir, contextual.WorkdirPathSentinel, contextual.OpWorkdirPathSentinel)
+	normalizeOpPathAlias(&env.Op.Inbox, env.Host.Inbox, contextual.ArtifactInboxSentinel, contextual.OpArtifactInboxSentinel)
+	normalizeOpPathAlias(&env.Op.Outbox, env.Host.Outbox, contextual.ArtifactOutboxSentinel, contextual.OpArtifactOutboxSentinel)
+}
+
+func normalizeHostPathAlias(flat *string, host *string, sentinel string) {
+	flatValue := strings.TrimSpace(*flat)
+	hostValue := strings.TrimSpace(*host)
+	if flatValue == "" && hostValue != "" {
+		*flat = hostValue
+		flatValue = hostValue
+	}
+	if flatValue == "" {
+		*flat = sentinel
+		flatValue = sentinel
+	}
+	if hostValue == "" {
+		*host = flatValue
+	}
+}
+
+func normalizeOpPathAlias(op *string, host string, hostSentinel string, opSentinel string) {
+	if strings.TrimSpace(*op) != "" {
+		return
+	}
+	host = strings.TrimSpace(host)
+	if host == "" || host == hostSentinel {
+		*op = opSentinel
+		return
+	}
+	*op = host
 }
 
 // ExecuteWorkflow implements the WorkflowExecutor interface for unified recipes

@@ -136,6 +136,12 @@ func (t opExecutor) do(ctx context.Context, jobTool ops.JobTool, req ActivityInv
 		contextual.ArtifactOutboxSentinel: outbox,
 		contextual.JobIdSentinel:          jobTool.GetJobKey().JobId,
 	}
+	defaultOpReplacements := map[string]string{
+		contextual.OpWorktreePathSentinel:   worktreePath,
+		contextual.OpWorkdirPathSentinel:    workDir,
+		contextual.OpArtifactInboxSentinel:  inbox,
+		contextual.OpArtifactOutboxSentinel: outbox,
+	}
 
 	defer removeWorkDir(worktreePath)
 
@@ -209,6 +215,8 @@ func (t opExecutor) do(ctx context.Context, jobTool ops.JobTool, req ActivityInv
 		}
 		pathRuntime = transformed.Runtime
 		hydratedInput = replaceSentinels(hydratedInput, transformed.Replacements)
+	} else {
+		hydratedInput = replaceSentinels(hydratedInput, defaultOpReplacements)
 	}
 	if process.ContainsOpVisibleSentinel(hydratedInput) {
 		return zero, nil, fmt.Errorf("op-visible path resolution failed: operation %q does not support context.environment.op.*", reg.Metadata.Type)

@@ -1650,3 +1650,53 @@ func TestReplaceSentinelValue_HandlesInputMap(t *testing.T) {
 		assert.Nil(t, result["nil"])
 	})
 }
+
+func TestOpExecutorResolvesOpVisibleSentinelsToHostPathsByDefault(t *testing.T) {
+	baseRepo, baseHash, cleanup := setupGitRepo(t)
+	defer cleanup()
+
+	var capturedInput map[string]interface{}
+	var capturedRuntime recipeops.OperationPathRuntime
+	reg := ActivityRegistration{
+		Metadata: recipeops.OpMetadata{Type: "test_op_visible_default"},
+		Step: recipeops.TaskStep{
+			Invoke: func(deps recipeops.OpDependencies, ctx context.Context, input map[string]interface{}) (map[string]interface{}, error) {
+				capturedInput = input
+				runtimeProvider, ok := deps.(recipeops.OperationPathRuntimeProvider)
+				require.True(t, ok)
+				capturedRuntime = runtimeProvider.OperationPathRuntime()
+				return map[string]interface{}{
+					"repo_path":  input["repo_path"],
+					"inbox_file": input["inbox_file"],
+				}, nil
+			},
+		},
+	}
+
+	wrapped := opExecutor{
+		deps:       recipeops.NewServiceDepsBuilder().Build(),
+		reg:        reg,
+		controller: gitstate.NewController(nil),
+	}.do
+	req := ActivityInvocationRequest{
+		Input: map[string]interface{}{
+			"repo_path":  contextual.OpWorktreePathSentinel,
+			"inbox_file": contextual.OpArtifactInboxSentinel + "/item.txt",
+		},
+		GitTaskContext: gitstate.GlobalGitTaskContext{
+			BaseRepo:         baseRepo,
+			BaseRef:          baseHash,
+			ResolvedBaseHash: baseHash,
+			CellName:         "cells/test",
+			CellPath:         "cells/test",
+		},
+	}
+
+	output, _, err := wrapped(context.Background(), &jt{swf.JobKey{TenantId: "test", JobId: "job-op-visible-default"}}, req, nil)
+	require.NoError(t, err)
+
+	require.Equal(t, capturedRuntime.Views.Host, capturedRuntime.Views.Op)
+	require.Equal(t, capturedRuntime.Views.Host.WorktreePath, capturedInput["repo_path"])
+	require.Equal(t, capturedRuntime.Views.Host.Inbox+"/item.txt", capturedInput["inbox_file"])
+	require.Equal(t, capturedInput["repo_path"], output.OpOutput["repo_path"])
+}

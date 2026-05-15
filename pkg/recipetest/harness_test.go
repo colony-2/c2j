@@ -91,6 +91,63 @@ outputs:
 	}
 }
 
+func TestRunCasePopulatesOpVisiblePathsWithoutSandbox(t *testing.T) {
+	const opType = "test_op_visible_path_contract"
+	type pathInput struct {
+		RepoPath string `json:"repo_path" validate:"required"`
+		HostPath string `json:"host_path" validate:"required"`
+	}
+	coreops.Register(coreops.NewActivityMappedOpV2[pathInput, map[string]interface{}](coreops.OpMetadata{Type: opType},
+		func(_ coreops.OpDependencies, _ context.Context, input pathInput) (map[string]interface{}, error) {
+			return map[string]interface{}{
+				"repo_path": input.RepoPath,
+				"host_path": input.HostPath,
+			}, nil
+		}))
+
+	target := TargetRecipe{
+		Mode:   "inline_recipe",
+		Format: "yaml",
+		Content: `
+id: op-visible-paths
+version: "1.0.0"
+input_schema: {}
+sequence:
+  - id: check
+    op: test_op_visible_path_contract
+    inputs:
+      repo_path: "{{ context.environment.op.worktree_path }}"
+      host_path: "{{ context.environment.host.worktree_path }}"
+outputs:
+  repo_path: "{{ sequence.check.outputs.repo_path }}"
+  host_path: "{{ sequence.check.outputs.host_path }}"
+`,
+	}
+	testCase := Case{
+		ID:   "op-visible-paths",
+		Type: "recipe_case",
+		Mocks: Mocks{
+			Ops: []OpMock{{
+				Match:    OpMockMatch{Op: opType},
+				Behavior: MockBehavior{Mode: "passthrough"},
+			}},
+		},
+	}
+
+	resp := RunCase(context.Background(), HarnessOptions{Deps: coreops.NewServiceDepsBuilder().Build()}, "recipe-test-project", target, testCase, ExecutionOptions{})
+	if resp.Status != "passed" {
+		t.Fatalf("status = %q, failure reason: %s", resp.Status, resp.FailureReason)
+	}
+	repoPath, _ := resp.Outputs["repo_path"].(string)
+	hostPath, _ := resp.Outputs["host_path"].(string)
+	if repoPath == "" {
+		t.Fatal("expected op-visible repo path to be populated")
+	}
+	if repoPath != hostPath {
+		t.Fatalf("repo_path = %q, host_path = %q; want equal in no-sandbox test run", repoPath, hostPath)
+	}
+}
+
 func TestRunCaseBlocksUnmockedOpInIsolatedMode(t *testing.T) {
 	resp := RunCase(context.Background(), HarnessOptions{}, "p1", TargetRecipe{
 		Mode:    "inline_recipe",
