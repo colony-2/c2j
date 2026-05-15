@@ -307,6 +307,109 @@ func TestTransitionPayloadRenderFailure(t *testing.T) {
 	assert.Contains(t, err.Error(), "failed to render payload")
 }
 
+func (s *CompilerTestSuite) TestSwitchTransitionsRouteCase() {
+	recipeYaml := `
+---
+id: test-recipe
+input_schema:
+  decision:
+    type: string
+inputs:
+  decision: "${{ inputs.decision }}"
+state:
+  initial: route
+  states:
+    route:
+      op: echo_activity
+      inputs:
+        Message: "${{ inputs.decision }}"
+      transitions:
+        switch: outputs.output
+        cases:
+          - value: approve
+            to: approved
+            payload:
+              reason: "${{ outputs.output }}"
+          - value: reject
+            to: rejected
+        default:
+          to: fallback
+    approved:
+      op: echo_activity
+      inputs:
+        Message: "${{ transition.payload.reason + ':' + transition.from + '>' + transition.to }}"
+    rejected:
+      op: echo_activity
+      inputs:
+        Message: "rejected"
+    fallback:
+      op: echo_activity
+      inputs:
+        Message: "fallback"
+outputs:
+  result: "${{ first_nonempty(state_output('approved', 'output', ''), state_output('rejected', 'output', ''), state_output('fallback', 'output', '')) }}"
+`
+
+	expectedOutputs := map[string]interface{}{
+		"result": "approve:route>approved",
+	}
+	s.testRecipe(recipeYaml, map[string]interface{}{"decision": "approve"}, expectedOutputs)
+}
+
+func (s *CompilerTestSuite) TestSwitchTransitionsRouteDefaultAndNestedSwitch() {
+	recipeYaml := `
+---
+id: test-recipe
+input_schema:
+  kind:
+    type: string
+  decision:
+    type: string
+inputs:
+  kind: "${{ inputs.kind }}"
+  decision: "${{ inputs.decision }}"
+state:
+  initial: route
+  states:
+    route:
+      op: echo_activity
+      inputs:
+        Message: "${{ inputs.kind }}"
+      transitions:
+        switch: outputs.output
+        cases:
+          - value: review
+            switch:
+              switch: inputs.decision
+              cases:
+                - value: approve
+                  to: approved
+              default:
+                to: rejected
+        default:
+          to: fallback
+    approved:
+      op: echo_activity
+      inputs:
+        Message: "approved"
+    rejected:
+      op: echo_activity
+      inputs:
+        Message: "rejected"
+    fallback:
+      op: echo_activity
+      inputs:
+        Message: "fallback"
+outputs:
+  result: "${{ first_nonempty(state_output('approved', 'output', ''), state_output('rejected', 'output', ''), state_output('fallback', 'output', '')) }}"
+`
+
+	expectedOutputs := map[string]interface{}{
+		"result": "rejected",
+	}
+	s.testRecipe(recipeYaml, map[string]interface{}{"kind": "review", "decision": "needs_changes"}, expectedOutputs)
+}
+
 func (s *CompilerTestSuite) TestSequenceRecipeCompilation() {
 	// Test sequence compilation instead of parallel
 	node := &recipe.Node{

@@ -101,3 +101,102 @@ transitions:
 	assert.Equal(t, "true", st.Transitions[0].When.String())
 	assert.Equal(t, "approved", st.Transitions[0].Payload["reason"])
 }
+
+func TestState_UnmarshalYAML_DecodesSwitchTransitions(t *testing.T) {
+	registerTestOp()
+	var st State
+	err := yamlUnmarshalStrict(`
+op: echo
+inputs:
+  message: hi
+transitions:
+  switch: outputs.decision
+  cases:
+    - value: approve
+      to: approved
+      payload:
+        reason: accepted
+    - value: reject
+      when: inputs.allow_reject == true
+      to: rejected
+  default:
+    to: needs_review
+`, &st)
+	require.NoError(t, err)
+	require.Len(t, st.Transitions, 3)
+	assert.Equal(t, "approved", st.Transitions[0].To)
+	assert.Equal(t, `((outputs.decision) == "approve")`, st.Transitions[0].When.String())
+	assert.Equal(t, "accepted", st.Transitions[0].Payload["reason"])
+	assert.Equal(t, "rejected", st.Transitions[1].To)
+	assert.Contains(t, st.Transitions[1].When.String(), `((outputs.decision) == "reject")`)
+	assert.Contains(t, st.Transitions[1].When.String(), `(inputs.allow_reject == true)`)
+	assert.Equal(t, "needs_review", st.Transitions[2].To)
+	assert.Contains(t, st.Transitions[2].When.String(), "!(")
+}
+
+func TestState_UnmarshalYAML_DecodesNestedSwitchTransitions(t *testing.T) {
+	registerTestOp()
+	var st State
+	err := yamlUnmarshalStrict(`
+op: echo
+inputs:
+  message: hi
+transitions:
+  switch: outputs.kind
+  cases:
+    - value: review
+      switch:
+        switch: inputs.decision
+        cases:
+          - value: approve
+            to: approved
+        default:
+          to: rejected
+  default:
+    to: fallback
+`, &st)
+	require.NoError(t, err)
+	require.Len(t, st.Transitions, 3)
+	assert.Equal(t, "approved", st.Transitions[0].To)
+	assert.Contains(t, st.Transitions[0].When.String(), `((outputs.kind) == "review")`)
+	assert.Contains(t, st.Transitions[0].When.String(), `((inputs.decision) == "approve")`)
+	assert.Equal(t, "rejected", st.Transitions[1].To)
+	assert.Contains(t, st.Transitions[1].When.String(), `!(`)
+	assert.Equal(t, "fallback", st.Transitions[2].To)
+}
+
+func TestState_UnmarshalYAML_RejectsInvalidSwitchTransitions(t *testing.T) {
+	registerTestOp()
+	var duplicate State
+	err := yamlUnmarshalStrict(`
+op: echo
+inputs: {message: hi}
+transitions:
+  switch: outputs.kind
+  cases:
+    - value: approve
+      to: a
+    - value: approve
+      to: b
+`, &duplicate)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "duplicate switch case value")
+
+	var both State
+	err = yamlUnmarshalStrict(`
+op: echo
+inputs: {message: hi}
+transitions:
+  switch: outputs.kind
+  cases:
+    - value: approve
+      to: a
+      switch:
+        switch: inputs.next
+        cases:
+          - value: b
+            to: b
+`, &both)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "cannot contain both to and switch")
+}
