@@ -2,7 +2,6 @@ package input
 
 import (
 	"context"
-	"reflect"
 
 	"github.com/colony-2/c2j/pkg/ops"
 )
@@ -11,9 +10,10 @@ import (
 type Config struct {
 	// Single question format
 	Question string       `json:"question,omitempty" validate:"required_without=Fields" jsonschema:"description=Question to ask the user"`
-	Type     FieldType    `json:"type,omitempty" validate:"omitempty,oneof=short_answer paragraph_text multiple_choice checkboxes dropdown linear_scale date time" jsonschema:"enum=short_answer|paragraph_text|multiple_choice|checkboxes|dropdown|linear_scale|date|time,description=Input field type"`
+	Type     FieldType    `json:"type,omitempty" validate:"omitempty,oneof=short_answer paragraph_text multiple_choice checkboxes dropdown linear_scale boolean date time" jsonschema:"enum=short_answer|paragraph_text|multiple_choice|checkboxes|dropdown|linear_scale|boolean|date|time,description=Input field type"`
 	Options  []Option     `json:"options,omitempty" validate:"omitempty,min=1,dive" jsonschema:"description=Options for choice fields"`
 	Scale    *LinearScale `json:"scale,omitempty" validate:"required_if=Type linear_scale" jsonschema:"description=Configuration for linear scale fields"`
+	Default  interface{}  `json:"default,omitempty" jsonschema:"description=Default value used when the response is omitted"`
 
 	// Multi-field format
 	Title   string      `json:"title,omitempty" jsonschema:"description=Form title"`
@@ -62,6 +62,7 @@ func buildForm(deps ops.OpDependencies, ctx context.Context, in Input) (InputFor
 		form.Type = config.Type
 		form.Options = config.Options
 		form.Scale = config.Scale
+		form.Default = config.Default
 	} else if len(config.Fields) > 0 {
 		// Multi-field format
 		form.Title = config.Title
@@ -89,11 +90,11 @@ func hasAutoFillValue(out *Output) bool {
 		return false
 	}
 
-	if !isZeroValue(out.Response) {
+	if out.Response != nil {
 		return true
 	}
 
-	if len(out.Fields) > 0 {
+	if out.Fields != nil {
 		return true
 	}
 
@@ -106,17 +107,4 @@ func hasAutoFillValue(out *Output) bool {
 	}
 
 	return false
-}
-
-func isZeroValue(val interface{}) bool {
-	if val == nil {
-		return true
-	}
-
-	rv := reflect.ValueOf(val)
-	if !rv.IsValid() {
-		return true
-	}
-
-	return rv.IsZero()
 }

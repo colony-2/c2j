@@ -184,6 +184,7 @@ func TestRunCaseMockedInputAndArtifactLimit(t *testing.T) {
 		},
 		Assertions: []Assertion{
 			{Type: "output_equals", Path: "response", Value: "ok"},
+			{Type: "output_equals", Path: "fields.response", Value: "ok"},
 			{Type: "artifact_exists", Path: "report.txt"},
 		},
 	}, ExecutionOptions{Mode: "isolated", ArtifactMode: "inline", ArtifactMaxBytes: 4})
@@ -191,8 +192,8 @@ func TestRunCaseMockedInputAndArtifactLimit(t *testing.T) {
 	if resp.Status != "passed" {
 		t.Fatalf("status = %q, failure reason: %s", resp.Status, resp.FailureReason)
 	}
-	if len(resp.Assertions) != 2 {
-		t.Fatalf("expected 2 assertions, got %#v", resp.Assertions)
+	if len(resp.Assertions) != 3 {
+		t.Fatalf("expected 3 assertions, got %#v", resp.Assertions)
 	}
 	art, ok := resp.Artifacts["report.txt"]
 	if !ok {
@@ -207,6 +208,70 @@ func TestRunCaseMockedInputAndArtifactLimit(t *testing.T) {
 	}
 	if string(decoded) != "1234" {
 		t.Fatalf("artifact content = %q, want 1234", string(decoded))
+	}
+}
+
+func TestRunCaseMockedInputOutputDefaults(t *testing.T) {
+	resp := RunCase(context.Background(), HarnessOptions{}, "p1", TargetRecipe{
+		Mode:   "inline_recipe",
+		Format: "yaml",
+		Content: `
+version: '1.0'
+id: input-defaults
+op: input
+inputs:
+  form:
+    title: Review
+    fields:
+      - id: decision
+        question: Decision?
+        type: dropdown
+        options:
+          - value: approve
+      - id: selected
+        question: Selected targets
+        type: checkboxes
+        options:
+          - value: api
+      - id: approved
+        question: Approved?
+        type: boolean
+      - id: score
+        question: Score
+        type: linear_scale
+        scale:
+          min: 2
+          max: 5
+      - id: note
+        question: Note
+        type: short_answer
+        default: none
+`,
+	}, Case{
+		ID:   "input-defaults",
+		Type: "recipe_case",
+		Mocks: Mocks{
+			Ops: []OpMock{{
+				Match: OpMockMatch{Op: "input"},
+				Behavior: MockBehavior{
+					Mode: "return",
+					Outputs: map[string]interface{}{
+						"fields": map[string]interface{}{"approved": false},
+					},
+				},
+			}},
+		},
+		Assertions: []Assertion{
+			{Type: "output_equals", Path: "fields.decision", Value: ""},
+			{Type: "output_equals", Path: "fields.selected", Value: []interface{}{}},
+			{Type: "output_equals", Path: "fields.approved", Value: false},
+			{Type: "output_equals", Path: "fields.score", Value: float64(2)},
+			{Type: "output_equals", Path: "fields.note", Value: "none"},
+		},
+	}, ExecutionOptions{Mode: "isolated"})
+
+	if resp.Status != "passed" {
+		t.Fatalf("status = %q, failure reason: %s", resp.Status, resp.FailureReason)
 	}
 }
 

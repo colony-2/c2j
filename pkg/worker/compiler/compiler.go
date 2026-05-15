@@ -9,6 +9,7 @@ import (
 	recipeartifacts "github.com/colony-2/c2j/pkg/artifacts"
 	"github.com/colony-2/c2j/pkg/contextual"
 	"github.com/colony-2/c2j/pkg/git/gitstate"
+	"github.com/colony-2/c2j/pkg/input/formdefaults"
 	"github.com/colony-2/c2j/pkg/ops"
 	"github.com/colony-2/c2j/pkg/recipe"
 	coretask "github.com/colony-2/c2j/pkg/task"
@@ -327,6 +328,7 @@ func (d DefaultRecipeExecutor) executeOp2(ctx workflow.Context, parentResolution
 	if err != nil {
 		return err
 	}
+	initialStepInput := cloneStringMap(stepInput)
 	if len(resolvedArtifacts) > 0 {
 		artifactKeys = appendArtifactKeys(artifactKeys, resolvedArtifacts)
 	}
@@ -428,6 +430,7 @@ func (d DefaultRecipeExecutor) executeOp2(ctx workflow.Context, parentResolution
 					if err != nil {
 						return err
 					}
+					initialStepInput = cloneStringMap(stepInput)
 				}
 
 				// Re-resolve artifacts and keys (patch may have changed bindings or inputs).
@@ -448,6 +451,13 @@ func (d DefaultRecipeExecutor) executeOp2(ctx workflow.Context, parentResolution
 		if done {
 			break
 		}
+	}
+	if taskPrefix == "input" {
+		normalizedOutput, err := formdefaults.NormalizeOutputMap(initialStepInput, stepInput)
+		if err != nil {
+			return err
+		}
+		stepInput = normalizedOutput
 	}
 	resCtx.AddExecutionWithArtifactData(stepInput, stepArtifacts, stepOutputArtifacts)
 	return nil

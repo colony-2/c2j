@@ -15,9 +15,10 @@ func TestBuildFormAutoFillRequiresNonZeroOutput(t *testing.T) {
 		expectAuto bool
 	}{
 		{name: "nil output", output: nil, expectAuto: false},
-		{name: "empty response string", output: &Output{Response: ""}, expectAuto: false},
-		{name: "zero numeric response", output: &Output{Response: 0}, expectAuto: false},
+		{name: "empty response string", output: &Output{Response: ""}, expectAuto: true},
+		{name: "zero numeric response", output: &Output{Response: 0}, expectAuto: true},
 		{name: "non-empty response", output: &Output{Response: "value"}, expectAuto: true},
+		{name: "empty fields", output: &Output{Fields: map[string]interface{}{}}, expectAuto: true},
 		{name: "fields present", output: &Output{Fields: map[string]interface{}{"a": "b"}}, expectAuto: true},
 		{name: "metadata present", output: &Output{Metadata: map[string]interface{}{"source": "x"}}, expectAuto: true},
 		{name: "user id present", output: &Output{UserID: "user-1"}, expectAuto: true},

@@ -53,8 +53,10 @@ func TestValidateOpInputAllowsChoiceOptions(t *testing.T) {
 func TestValidateOpInputAllowsNonChoiceInputsWithoutOptions(t *testing.T) {
 	inputs := []Input{
 		{Form: Config{Question: "Describe it", Type: FieldTypeParagraphText}},
+		{Form: Config{Question: "Approve it?", Type: FieldTypeBoolean}},
 		{Form: Config{Fields: []FormField{
 			{ID: "description", Question: "Describe it", Type: FieldTypeParagraphText},
+			{ID: "approved", Question: "Approve it?", Type: FieldTypeBoolean},
 		}}},
 	}
 

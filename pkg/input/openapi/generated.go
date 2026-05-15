@@ -12,6 +12,7 @@ import (
 
 // Defines values for FieldType.
 const (
+	FieldTypeBoolean            FieldType = "boolean"
 	FieldTypeCheckboxGrid       FieldType = "checkbox_grid"
 	FieldTypeCheckboxes         FieldType = "checkboxes"
 	FieldTypeDate               FieldType = "date"
@@ -66,6 +67,8 @@ type FormContext struct {
 
 // FormField defines model for FormField.
 type FormField struct {
+	// Default Default value used when the field is omitted
+	Default     *interface{}     `json:"default,omitempty"`
 	Id          string           `json:"id"`
 	Options     *[]Option        `json:"options,omitempty"`
 	Placeholder *string          `json:"placeholder,omitempty"`
@@ -99,6 +102,9 @@ type GlobPattern struct {
 // InputFormConfig Configuration for a single- or multi-question input form.
 type InputFormConfig struct {
 	Context *FormContext `json:"context,omitempty"`
+
+	// Default Default value used when the response is omitted
+	Default *interface{} `json:"default,omitempty"`
 
 	// DefaultOnTimeout Default value to return if input times out
 	DefaultOnTimeout *interface{} `json:"default_on_timeout,omitempty"`

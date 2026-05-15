@@ -189,6 +189,7 @@ components:
         - checkboxes
         - dropdown
         - linear_scale
+        - boolean
         - multiple_choice_grid
         - checkbox_grid
         - date
@@ -244,6 +245,8 @@ components:
           type: string
         required:
           type: boolean
+        default:
+          description: Default value used when the field is omitted
         placeholder:
           type: string
         options:
@@ -298,6 +301,8 @@ components:
             $ref: '#/components/schemas/Option'
         scale:
           $ref: '#/components/schemas/LinearScale'
+        default:
+          description: Default value used when the response is omitted
         title:
           type: string
         fields:

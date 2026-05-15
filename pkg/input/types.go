@@ -16,6 +16,7 @@ const (
 	FieldTypeCheckboxes         FieldType = "checkboxes"
 	FieldTypeDropdown           FieldType = "dropdown"
 	FieldTypeLinearScale        FieldType = "linear_scale"
+	FieldTypeBoolean            FieldType = "boolean"
 	FieldTypeMultipleChoiceGrid FieldType = "multiple_choice_grid"
 	FieldTypeCheckboxGrid       FieldType = "checkbox_grid"
 	FieldTypeDate               FieldType = "date"
@@ -49,9 +50,10 @@ type FieldValidation struct {
 // FormField represents a single field in a multi-field form
 type FormField struct {
 	ID          string          `json:"id" validate:"required" jsonschema:"required,description=Unique field identifier"`
-	Type        FieldType       `json:"type" validate:"required,oneof=short_answer paragraph_text multiple_choice checkboxes dropdown linear_scale multiple_choice_grid checkbox_grid date time file_upload" jsonschema:"required,enum=short_answer|paragraph_text|multiple_choice|checkboxes|dropdown|linear_scale|multiple_choice_grid|checkbox_grid|date|time|file_upload,description=Field type"`
+	Type        FieldType       `json:"type" validate:"required,oneof=short_answer paragraph_text multiple_choice checkboxes dropdown linear_scale boolean multiple_choice_grid checkbox_grid date time file_upload" jsonschema:"required,enum=short_answer|paragraph_text|multiple_choice|checkboxes|dropdown|linear_scale|boolean|multiple_choice_grid|checkbox_grid|date|time|file_upload,description=Field type"`
 	Question    string          `json:"question" validate:"required" jsonschema:"required,description=Field question or label"`
 	Required    bool            `json:"required,omitempty" jsonschema:"description=Whether field is required"`
+	Default     interface{}     `json:"default,omitempty" jsonschema:"description=Default value used when the field is omitted"`
 	Placeholder string          `json:"placeholder,omitempty" jsonschema:"description=Placeholder text"`
 	Options     []Option        `json:"options,omitempty" validate:"omitempty,min=1,dive" jsonschema:"description=Options for choice fields"`
 	Scale       *LinearScale    `json:"scale,omitempty" validate:"required_if=Type linear_scale" jsonschema:"description=Configuration for linear scale fields"`
@@ -79,9 +81,10 @@ type GlobPattern struct {
 type InputForm struct {
 	// Single question fields
 	Question string       `json:"question,omitempty" jsonschema:"description=Single question text"`
-	Type     FieldType    `json:"type,omitempty" jsonschema:"enum=short_answer|paragraph_text|multiple_choice|checkboxes|dropdown|linear_scale|date|time,description=Field type for single question"`
+	Type     FieldType    `json:"type,omitempty" jsonschema:"enum=short_answer|paragraph_text|multiple_choice|checkboxes|dropdown|linear_scale|boolean|date|time,description=Field type for single question"`
 	Options  []Option     `json:"options,omitempty" jsonschema:"description=Options for single choice field"`
 	Scale    *LinearScale `json:"scale,omitempty" jsonschema:"description=Configuration for linear scale fields"`
+	Default  interface{}  `json:"default,omitempty" jsonschema:"description=Default value used when the response is omitted"`
 
 	// Multi-field form
 	Title  string      `json:"title,omitempty" jsonschema:"description=Form title"`
@@ -108,6 +111,7 @@ type APIFieldType = openapi.FieldType
 const (
 	APIFieldTypeCheckboxes  = openapi.FieldTypeCheckboxes
 	APIFieldTypeLinearScale = openapi.FieldTypeLinearScale
+	APIFieldTypeBoolean     = openapi.FieldTypeBoolean
 )
 
 // InputWorkflowParams represents parameters for the input collection workflow

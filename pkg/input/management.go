@@ -623,6 +623,10 @@ func toOpenAPIInputFormConfig(form InputForm) openapi.InputFormConfig {
 		}
 		out.Scale = &scale
 	}
+	if form.Default != nil {
+		defaultValue := form.Default
+		out.Default = &defaultValue
+	}
 
 	if form.Title != "" {
 		out.Title = &form.Title
@@ -660,6 +664,10 @@ func toOpenAPIFormField(field FormField) openapi.FormField {
 	if field.Required {
 		v := true
 		out.Required = &v
+	}
+	if field.Default != nil {
+		defaultValue := field.Default
+		out.Default = &defaultValue
 	}
 
 	if len(field.Options) > 0 {

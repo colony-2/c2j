@@ -75,14 +75,33 @@ func TestValidateOpInputTypeStillValidatesChoiceOptionValues(t *testing.T) {
 }
 
 func TestValidateOpInputTypeAllowsNonChoiceInputWithoutOptions(t *testing.T) {
-	err := validateOpInputType(reflect.TypeOf(inputop.Input{}), map[string]interface{}{
-		"form": map[string]interface{}{
-			"question": "Describe the change",
-			"type":     "paragraph_text",
+	tests := []map[string]interface{}{
+		{
+			"form": map[string]interface{}{
+				"question": "Describe the change",
+				"type":     "paragraph_text",
+			},
 		},
-	}, false)
-	if err != nil {
-		t.Fatalf("validateOpInputType returned error: %v", err)
+		{
+			"form": map[string]interface{}{
+				"question": "Approve the change?",
+				"type":     "boolean",
+			},
+		},
+		{
+			"form": map[string]interface{}{
+				"title": "Review",
+				"fields": []interface{}{
+					map[string]interface{}{"id": "approved", "question": "Approve?", "type": "boolean"},
+				},
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		if err := validateOpInputType(reflect.TypeOf(inputop.Input{}), tc, false); err != nil {
+			t.Fatalf("validateOpInputType returned error: %v", err)
+		}
 	}
 }
 
