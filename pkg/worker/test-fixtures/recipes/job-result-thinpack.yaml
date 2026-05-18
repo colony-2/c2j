@@ -11,6 +11,6 @@ sequence:
         WORKTREE_PATH: "{{ context.environment.worktree_path }}"
       run: |
         printf 'thinpack test' > thinpack.txt
-        printf 'thinpack test' > "$WORKTREE_PATH/{{ context.workflow.cell_path }}/thinpack.txt"
+        printf 'thinpack test' > "$WORKTREE_PATH/thinpack.txt"
 outputs:
   write_success: "{{ sequence.write_files.outputs.success }}"

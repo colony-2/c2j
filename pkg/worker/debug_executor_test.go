@@ -113,7 +113,6 @@ inputs:
 		Environment: contextual.EnvironmentContext{},
 		Workflow: contextual.WorkflowContext{
 			CellName: "cells/test-cell",
-			CellPath: "cells/test-cell",
 		},
 		GitBase: contextual.GitBaseContext{
 			BaseRepo:         repo,
@@ -138,9 +137,9 @@ inputs:
 	t.Logf("Result: %v", result)
 }
 
-// Reproduces the minimal executor path when the cell working path is set to ".".
+// Reproduces the minimal executor path when the target cell is the repo root.
 // A nil-pointer panic was reported in production; this test guards against it.
-func TestDebugExecutorRootCellPath(t *testing.T) {
+func TestDebugExecutorRootCell(t *testing.T) {
 	yamlStr := `id: hello_world
 desc: A minimal recipe that demonstrates basic structure  
 version: "1.0"
@@ -170,7 +169,6 @@ inputs:
 		Environment: contextual.EnvironmentContext{},
 		Workflow: contextual.WorkflowContext{
 			CellName: "root-cell",
-			CellPath: ".",
 		},
 		GitBase: contextual.GitBaseContext{
 			BaseRepo:         repo,

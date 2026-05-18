@@ -70,7 +70,6 @@ func GenerateTestContext() (contextual.JobContext, contextual.GitCommitContext) 
 		Environment: contextual.EnvironmentContext{},
 		Workflow: contextual.WorkflowContext{
 			CellName: "cells/test-cell",
-			CellPath: "cells/test-cell",
 		},
 		GitBase: contextual.GitBaseContext{
 			BaseRepo:         baseRepo,

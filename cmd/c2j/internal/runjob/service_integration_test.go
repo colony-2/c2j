@@ -69,7 +69,6 @@ outputs:
 			Workflow: contextual.WorkflowContext{
 				ProjectId: tenantID,
 				CellName:  ".",
-				CellPath:  ".",
 			},
 			GitBase: contextual.GitBaseContext{
 				BaseRepo:         baseRepo,

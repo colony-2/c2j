@@ -148,7 +148,6 @@ func TestMultiStepWithCapabilityClaim(t *testing.T) {
 			Environment: contextual.EnvironmentContext{},
 			Workflow: contextual.WorkflowContext{
 				CellName: "cells/test",
-				CellPath: "cells/test",
 			},
 			GitBase: contextual.GitBaseContext{
 				BaseRepo:         repoPath,

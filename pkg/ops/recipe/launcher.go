@@ -71,7 +71,6 @@ func recipeToStart(ctx context.Context, tenantId string, ctl workflowctl.Workflo
 		JobContext: contextual.JobContext{
 			Workflow: contextual.WorkflowContext{
 				CellName: recipe.CellName,
-				CellPath: recipe.CellPath,
 			},
 			GitBase: contextual.GitBaseContext{
 				BaseRepo:         recipe.Git.BaseRepo,

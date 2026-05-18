@@ -11,7 +11,6 @@ type GitExecutionContext struct {
 	PersistHash      string `json:"persist_hash,omitempty"`
 	ParentHash       string `json:"parent_hash,omitempty"`
 	CellName         string `json:"cell_name,omitempty"`
-	CellPath         string `json:"cell_path,omitempty"`
 	GitAuthor        string `json:"git_author,omitempty"`
 	NodePath         string `json:"node_path,omitempty"`
 	InvokeSeq        int64  `json:"invoke_seq,omitempty"`

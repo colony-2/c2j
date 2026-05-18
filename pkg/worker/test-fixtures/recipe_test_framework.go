@@ -155,7 +155,6 @@ func defaultTestContext(baseRepo string, baseHash string) (contextual.JobContext
 		Environment: contextual.EnvironmentContext{},
 		Workflow: contextual.WorkflowContext{
 			CellName: "cells/test-cell",
-			CellPath: "cells/test-cell",
 			//JobID:    "test-job-id",
 		},
 		GitBase: contextual.GitBaseContext{
@@ -198,9 +197,6 @@ func mergeJobContext(base contextual.JobContext, override *contextual.JobContext
 	// Workflow
 	if override.Workflow.CellName != "" {
 		base.Workflow.CellName = override.Workflow.CellName
-	}
-	if override.Workflow.CellPath != "" {
-		base.Workflow.CellPath = override.Workflow.CellPath
 	}
 	if override.Workflow.JobID != "" {
 		base.Workflow.JobID = override.Workflow.JobID

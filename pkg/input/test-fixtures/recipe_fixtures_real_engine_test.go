@@ -344,9 +344,6 @@ func mergeJobContext(base contextual.JobContext, override *contextual.JobContext
 	if override.Workflow.CellName != "" {
 		base.Workflow.CellName = override.Workflow.CellName
 	}
-	if override.Workflow.CellPath != "" {
-		base.Workflow.CellPath = override.Workflow.CellPath
-	}
 	if override.Workflow.JobID != "" {
 		base.Workflow.JobID = override.Workflow.JobID
 	}

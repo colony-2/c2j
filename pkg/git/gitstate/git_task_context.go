@@ -13,7 +13,6 @@ type GlobalGitTaskContext struct {
 	PersistHash      string
 	ParentHash       string
 	CellName         string
-	CellPath         string // Cell relative path from repo root
 	GitAuthor        string
 	NodePath         string
 	InvokeSeq        int64
@@ -32,7 +31,6 @@ func NewGlobalGitTaskContext(tec contextual.TaskExecutionContext) *GlobalGitTask
 		PersistHash:      tec.GitTask.PersistHash,
 		ParentHash:       tec.GitTask.ParentHash,
 		CellName:         tec.Workflow.CellName,
-		CellPath:         tec.Workflow.CellPath,
 		NodePath:         tec.Invocation.NodePath,
 		InvokeSeq:        tec.Invocation.InvokeSeq,
 	}
@@ -63,7 +61,6 @@ func (c *GitTaskContext) GetPersistHash() string      { return c.GlobalGitTaskCo
 func (c *GitTaskContext) GetParentHash() string       { return c.GlobalGitTaskContext.ParentHash }
 func (c *GitTaskContext) GetWorktreePath() string     { return c.WorktreePath }
 func (c *GitTaskContext) GetCellName() string         { return c.GlobalGitTaskContext.CellName }
-func (c *GitTaskContext) GetCellPath() string         { return c.GlobalGitTaskContext.CellPath }
 func (c *GitTaskContext) GetGitAuthor() string        { return c.GlobalGitTaskContext.GitAuthor }
 func (c *GitTaskContext) GetNodePath() string         { return c.GlobalGitTaskContext.NodePath }
 func (c *GitTaskContext) GetInvokeSeq() int64         { return c.GlobalGitTaskContext.InvokeSeq }

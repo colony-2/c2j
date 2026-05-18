@@ -354,7 +354,7 @@ func validateRecipeExecutionSemantics(ctx context.Context, opts HarnessOptions, 
 	wfCtx := workflow.Context{JobContext: jobCtx, ServiceDependencies2: opts.Deps}
 	runCtx := contextual.JobContext{
 		Environment: contextual.EnvironmentContext{WorktreePath: contextual.WorktreePathSentinel, WorkdirPath: contextual.WorkdirPathSentinel, ArtifactInbox: contextual.ArtifactInboxSentinel, ArtifactOutbox: contextual.ArtifactOutboxSentinel},
-		Workflow:    contextual.WorkflowContext{CellName: "recipe-tests", CellPath: "recipe-tests", ProjectId: tenantID},
+		Workflow:    contextual.WorkflowContext{CellName: "recipe-tests", ProjectId: tenantID},
 		GitBase:     contextual.GitBaseContext{BaseRepo: "recipe-tests", BaseRef: recipeHash, ResolvedBaseHash: recipeHash},
 	}
 	gitCtx := contextual.GitCommitContext{ParentRef: recipeHash}
@@ -463,7 +463,7 @@ func runPreparedCase(ctx context.Context, opts HarnessOptions, tenantID string, 
 	jobCtx.operationPaths = operationPaths
 	runCtx := contextual.JobContext{
 		Environment: recipeTestEnvironment(operationPaths),
-		Workflow:    contextual.WorkflowContext{CellName: "recipe-tests", CellPath: "recipe-tests", ProjectId: tenantID},
+		Workflow:    contextual.WorkflowContext{CellName: "recipe-tests", ProjectId: tenantID},
 		GitBase:     contextual.GitBaseContext{BaseRepo: "recipe-tests", BaseRef: prepared.ResolvedHash, ResolvedBaseHash: prepared.ResolvedHash},
 	}
 	gitCtx := contextual.GitCommitContext{ParentRef: prepared.ResolvedHash}
@@ -1070,7 +1070,6 @@ func (j *testJobContext) runPassthroughTask(ctx context.Context, taskType string
 			PersistHash:      inv.GitTaskContext.PersistHash,
 			ParentHash:       inv.GitTaskContext.ParentHash,
 			CellName:         inv.GitTaskContext.CellName,
-			CellPath:         inv.GitTaskContext.CellPath,
 			GitAuthor:        inv.GitTaskContext.GitAuthor,
 			NodePath:         inv.GitTaskContext.NodePath,
 			InvokeSeq:        inv.GitTaskContext.InvokeSeq,

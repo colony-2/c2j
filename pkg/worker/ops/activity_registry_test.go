@@ -246,7 +246,6 @@ func TestWithGitWorkspaceAppliesContextPatch(t *testing.T) {
 			PersistHash:      "",
 			ParentHash:       "",
 			CellName:         "cells/beta",
-			CellPath:         "cells/beta",
 			GitAuthor:        "",
 			NodePath:         "",
 			InvokeSeq:        0,
@@ -319,7 +318,6 @@ func TestWithGitWorkspaceProducesDiffAndThinPack(t *testing.T) {
 			PersistHash:      "",
 			ParentHash:       "",
 			CellName:         "cells/beta",
-			CellPath:         "cells/beta",
 			GitAuthor:        "",
 			NodePath:         "",
 			InvokeSeq:        0,
@@ -399,7 +397,6 @@ func TestEnableActivitiesInWorkerInjectsDependencies(t *testing.T) {
 			BaseRef:          baseHash,
 			ResolvedBaseHash: baseHash,
 			CellName:         "cells/cell-a",
-			CellPath:         "cells/cell-a",
 			PersistHash:      "",
 			ParentHash:       "",
 			GitAuthor:        "",
@@ -761,7 +758,7 @@ func TestWithGitWorkspace_ThinPackFiltering(t *testing.T) {
 		Input: map[string]interface{}{},
 		GitTaskContext: gitstate.GlobalGitTaskContext{
 			BaseRepo: baseRepo,
-			BaseRef:  baseHash, CellPath: "cells/test",
+			BaseRef:  baseHash,
 		},
 	}
 
@@ -819,7 +816,7 @@ func TestWithGitWorkspace_NoThinPackPassThrough(t *testing.T) {
 		Input: map[string]interface{}{},
 		GitTaskContext: gitstate.GlobalGitTaskContext{
 			BaseRepo: baseRepo,
-			BaseRef:  baseHash, CellPath: "cells/test",
+			BaseRef:  baseHash,
 		},
 	}
 
@@ -869,7 +866,7 @@ func TestWithGitWorkspace_OperationFailure_PreservesArtifacts(t *testing.T) {
 		Input: map[string]interface{}{},
 		GitTaskContext: gitstate.GlobalGitTaskContext{
 			BaseRepo: baseRepo,
-			BaseRef:  baseHash, CellPath: "cells/test",
+			BaseRef:  baseHash,
 		},
 	}
 
@@ -920,7 +917,7 @@ func TestWithGitWorkspace_OperationArtifactsPreservedRegardlessOfPersist(t *test
 		Input: map[string]interface{}{},
 		GitTaskContext: gitstate.GlobalGitTaskContext{
 			BaseRepo: baseRepo,
-			BaseRef:  baseHash, CellPath: "cells/test",
+			BaseRef:  baseHash,
 		},
 	}
 
@@ -1003,7 +1000,7 @@ func TestWithGitWorkspace_SuccessPath_StillWorks(t *testing.T) {
 		Input: map[string]interface{}{},
 		GitTaskContext: gitstate.GlobalGitTaskContext{
 			BaseRepo: baseRepo,
-			BaseRef:  baseHash, CellPath: "cells/test",
+			BaseRef:  baseHash,
 		},
 	}
 
@@ -1042,8 +1039,7 @@ func TestControllerPersist_DirectCall(t *testing.T) {
 			PersistHash:      "",
 			ParentHash:       "",
 			CellName:         "cells/alpha/test", // Full file system path to the cell directory
-			CellPath:         "cells/alpha/test",
-			NodePath:         "recipe/node", // Recipe node path (not file system path)
+			NodePath:         "recipe/node",      // Recipe node path (not file system path)
 			InvokeSeq:        1,
 			InvokeHash:       "",
 			GitAuthor:        "",
@@ -1128,7 +1124,6 @@ func TestWithGitWorkspace_NewThinPackCreatedWhenChanges(t *testing.T) {
 		GitTaskContext: gitstate.GlobalGitTaskContext{
 			BaseRepo: baseRepo,
 			BaseRef:  baseHash, CellName: "cells/test",
-			CellPath: "cells/test",
 		},
 	}
 
@@ -1201,7 +1196,6 @@ func TestWithGitWorkspace_NewThinPackReplacesInputWhenChanges(t *testing.T) {
 		GitTaskContext: gitstate.GlobalGitTaskContext{
 			BaseRepo: baseRepo,
 			BaseRef:  baseHash, CellName: "cells/test",
-			CellPath: "cells/test",
 		},
 	}
 
@@ -1269,7 +1263,6 @@ func TestWithGitWorkspace_PersistWithDiffs_CreatesThreeArtifacts(t *testing.T) {
 		GitTaskContext: gitstate.GlobalGitTaskContext{
 			BaseRepo: baseRepo,
 			BaseRef:  baseHash, CellName: "cells/test",
-			CellPath: "cells/test",
 		},
 	}
 
@@ -1329,7 +1322,6 @@ func TestWithGitWorkspace_PersistWithDiffs_NoChanges_NoArtifacts(t *testing.T) {
 		GitTaskContext: gitstate.GlobalGitTaskContext{
 			BaseRepo: baseRepo,
 			BaseRef:  baseHash, CellName: "cells/test",
-			CellPath: "cells/test",
 		},
 	}
 
@@ -1373,7 +1365,6 @@ func TestWithGitWorkspace_PersistWithDiffs_PassThroughWhenNoChanges(t *testing.T
 		GitTaskContext: gitstate.GlobalGitTaskContext{
 			BaseRepo: baseRepo,
 			BaseRef:  baseHash, CellName: "cells/test",
-			CellPath: "cells/test",
 		},
 	}
 
@@ -1420,7 +1411,6 @@ func TestWithGitWorkspace_PersistWithDiffs_PreservesHashModeWhenNoChanges(t *tes
 			PersistHash: persistHash,
 			ParentHash:  parentHash,
 			CellName:    "cells/test-cell",
-			CellPath:    "cells/test-cell",
 		},
 	}
 
@@ -1466,7 +1456,6 @@ func TestWithGitWorkspace_ConstTreatsMutationsAsNoChange(t *testing.T) {
 			PersistHash: persistHash,
 			ParentHash:  parentHash,
 			CellName:    "cells/test-cell",
-			CellPath:    "cells/test-cell",
 		},
 	}
 
@@ -1513,7 +1502,6 @@ func TestWithGitWorkspace_PersistWithDiffs_DiffContent(t *testing.T) {
 		GitTaskContext: gitstate.GlobalGitTaskContext{
 			BaseRepo: baseRepo,
 			BaseRef:  baseHash, CellName: "cells/test",
-			CellPath: "cells/test",
 		},
 	}
 
@@ -1688,7 +1676,6 @@ func TestOpExecutorResolvesOpVisibleSentinelsToHostPathsByDefault(t *testing.T) 
 			BaseRef:          baseHash,
 			ResolvedBaseHash: baseHash,
 			CellName:         "cells/test",
-			CellPath:         "cells/test",
 		},
 	}
 

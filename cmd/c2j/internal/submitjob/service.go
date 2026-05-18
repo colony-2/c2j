@@ -81,7 +81,6 @@ func Run(ctx context.Context, opts Options) error {
 			JobContext: contextual.JobContext{
 				Workflow: contextual.WorkflowContext{
 					CellName:  target.CellName,
-					CellPath:  ".",
 					ProjectId: opts.TenantID,
 				},
 				GitBase: contextual.GitBaseContext{

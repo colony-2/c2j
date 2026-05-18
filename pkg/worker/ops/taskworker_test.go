@@ -49,7 +49,6 @@ func TestTaskWorkerRunReturnsTaskDataOnFailure(t *testing.T) {
 		GitTaskContext: gitstate.GlobalGitTaskContext{
 			BaseRepo: baseRepo,
 			BaseRef:  baseHash,
-			CellPath: "cells/test",
 		},
 	})
 
@@ -112,7 +111,6 @@ func TestTaskWorkerRunCancelsStepOnExecutionTimeout(t *testing.T) {
 		GitTaskContext: gitstate.GlobalGitTaskContext{
 			BaseRepo: baseRepo,
 			BaseRef:  baseHash,
-			CellPath: "cells/test",
 		},
 	})
 

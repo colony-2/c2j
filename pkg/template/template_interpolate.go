@@ -257,7 +257,6 @@ func (rc *ResolutionContext) goTemplateContextMap() map[string]interface{} {
 		"workflow": map[string]interface{}{
 			"cell_id":    ctx.Workflow.CellID,
 			"cell":       ctx.Workflow.CellName,
-			"cell_path":  ctx.Workflow.CellPath,
 			"job_id":     ctx.Workflow.JobID,
 			"project_id": ctx.Workflow.ProjectId,
 		},

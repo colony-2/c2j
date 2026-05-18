@@ -25,7 +25,6 @@ func newTaskContext(baseRepo, baseRef, worktree, cell string) *GitTaskContext {
 			PersistHash:      baseRef,
 			ParentHash:       baseRef,
 			CellName:         cell,
-			CellPath:         cell,
 			NodePath:         "node",
 			InvokeSeq:        1,
 			InvokeHash:       "",
@@ -90,7 +89,7 @@ func TestControllerLifecycle(t *testing.T) {
 	require.True(t, strings.HasPrefix(restoredHead, ctx.PersistHash[:7]))
 }
 
-func TestControllerPersistCleansOutsideCell(t *testing.T) {
+func TestControllerPersistIncludesRepoRootChanges(t *testing.T) {
 	t.Parallel()
 
 	baseRepo, baseHash, cleanup := setupGitRepo(t)
@@ -128,18 +127,17 @@ func TestControllerPersistCleansOutsideCell(t *testing.T) {
 	require.Equal(t, output.ParentHash, ctx.ParentHash)
 
 	_, err = os.Stat(outside)
-	require.Error(t, err)
-	require.True(t, os.IsNotExist(err))
+	require.NoError(t, err)
 
 	status := strings.TrimSpace(runGitOutput(t, worktree, "git", "status", "--porcelain"))
 	require.Equal(t, "", status)
 
 	show := runGitOutput(t, worktree, "git", "show", "--name-only", "--pretty=format:")
 	require.Contains(t, show, "cells/alpha/alpha.txt")
-	require.NotContains(t, show, "rogue.txt")
+	require.Contains(t, show, "rogue.txt")
 }
 
-func TestControllerRestoreCleansOutsideCell(t *testing.T) {
+func TestControllerRestoreCleansRepoRoot(t *testing.T) {
 	t.Parallel()
 
 	baseRepo, baseHash, cleanup := setupGitRepo(t)
@@ -265,7 +263,6 @@ func TestBuildCommitMessage(t *testing.T) {
 			ParentHash:       strings.Repeat("b", 40),
 			PersistHash:      strings.Repeat("c", 40),
 			CellName:         "cells/alpha",
-			CellPath:         "cells/alpha",
 			NodePath:         "cells/alpha/op",
 			InvokeSeq:        3,
 			InvokeHash:       "",
@@ -320,51 +317,14 @@ func runGitOutput(t *testing.T, dir string, name string, args ...string) string 
 	return string(output)
 }
 
-func TestResolveScopePath_RequiresCellPath(t *testing.T) {
+func TestResolveScopePath_ReturnsRepoRoot(t *testing.T) {
 	ctrl := &Controller{}
 	ctx := context.Background()
 
-	t.Run("empty CellPath returns error", func(t *testing.T) {
-		task := &GitTaskContext{GlobalGitTaskContext: &GlobalGitTaskContext{CellPath: ""}}
-		_, err := ctrl.resolveScopePath(ctx, task)
-		require.Error(t, err)
-		require.Contains(t, err.Error(), "cell_path is required")
-	})
-
-	t.Run("valid CellPath returns sanitized path", func(t *testing.T) {
-		task := &GitTaskContext{GlobalGitTaskContext: &GlobalGitTaskContext{CellPath: "cells/my-cell"}}
-		scope, err := ctrl.resolveScopePath(ctx, task)
-		require.NoError(t, err)
-		require.Equal(t, "cells/my-cell", scope)
-	})
-
-	t.Run("path with trailing slash is sanitized", func(t *testing.T) {
-		task := &GitTaskContext{GlobalGitTaskContext: &GlobalGitTaskContext{CellPath: "cells/my-cell/"}}
-		scope, err := ctrl.resolveScopePath(ctx, task)
-		require.NoError(t, err)
-		require.Equal(t, "cells/my-cell", scope)
-	})
-
-	t.Run("path traversal is rejected", func(t *testing.T) {
-		task := &GitTaskContext{GlobalGitTaskContext: &GlobalGitTaskContext{CellPath: "cells/../other"}}
-		_, err := ctrl.resolveScopePath(ctx, task)
-		require.Error(t, err)
-		require.Contains(t, err.Error(), "invalid cell path")
-	})
-
-	t.Run("absolute path with slash is rejected", func(t *testing.T) {
-		task := &GitTaskContext{GlobalGitTaskContext: &GlobalGitTaskContext{CellPath: "/cells/my-cell"}}
-		_, err := ctrl.resolveScopePath(ctx, task)
-		require.Error(t, err)
-		require.Contains(t, err.Error(), "invalid cell path")
-	})
-
-	t.Run("only slashes is rejected as absolute", func(t *testing.T) {
-		task := &GitTaskContext{GlobalGitTaskContext: &GlobalGitTaskContext{CellPath: "///"}}
-		_, err := ctrl.resolveScopePath(ctx, task)
-		require.Error(t, err)
-		require.Contains(t, err.Error(), "invalid cell path")
-	})
+	task := &GitTaskContext{GlobalGitTaskContext: &GlobalGitTaskContext{}}
+	scope, err := ctrl.resolveScopePath(ctx, task)
+	require.NoError(t, err)
+	require.Equal(t, ".", scope)
 }
 
 func TestControllerPersistWithDiffs_WithChanges(t *testing.T) {

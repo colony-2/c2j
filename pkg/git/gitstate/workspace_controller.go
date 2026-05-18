@@ -461,25 +461,7 @@ func (c *Controller) ensureCleanAfterRestore(ctx context.Context, task *GitTaskC
 }
 
 func (c *Controller) resolveScopePath(ctx context.Context, task *GitTaskContext) (string, error) {
-	// Use CellPath for scope - it's required for proper scoping
-	cellPath := strings.TrimSpace(task.GetCellPath())
-	if cellPath == "" {
-		return "", fmt.Errorf("cell_path is required for git persist operations")
-	}
-
-	// Check for absolute paths before trimming
-	if filepath.IsAbs(cellPath) {
-		return "", fmt.Errorf("invalid cell path %s", cellPath)
-	}
-
-	sanitized := filepath.ToSlash(strings.Trim(cellPath, "/"))
-	if sanitized == "" {
-		return "", fmt.Errorf("cell path cannot resolve to repository root")
-	}
-	if strings.Contains(sanitized, "..") {
-		return "", fmt.Errorf("invalid cell path %s", cellPath)
-	}
-	return sanitized, nil
+	return ".", nil
 }
 
 func (c *Controller) adapterFor(uri string) (StorageAdapter, error) {

@@ -348,9 +348,8 @@ func TestInjectDefaults_SquashedEmbeddedRecipe(t *testing.T) {
 	}
 
 	type SingleRecipe struct {
-		Name     string          `json:"name" default:"demo-recipe"`
-		CellPath string          `json:"cell_path" default:"{{ context.workflow.cell_path }}"`
-		Git      SingleRecipeGit `json:"git"`
+		Name string          `json:"name" default:"demo-recipe"`
+		Git  SingleRecipeGit `json:"git"`
 	}
 
 	type SingleRecipeWithRef struct {
@@ -373,10 +372,6 @@ func TestInjectDefaults_SquashedEmbeddedRecipe(t *testing.T) {
 	// Defaults from the squashed embedded struct are currently not injected.
 	if _, ok := inputMap["name"]; !ok {
 		t.Errorf("expected name default from embedded struct to be injected, but it is missing")
-	}
-
-	if _, ok := inputMap["cell_path"]; !ok {
-		t.Errorf("expected cell_path default from embedded struct to be injected, but it is missing")
 	}
 
 	gitValue, ok := inputMap["git"]
@@ -446,7 +441,7 @@ func TestInjectDefaults_SliceOfRecipes(t *testing.T) {
 // Ensure defaults are injected when recipes slice is typed as []map[string]interface{}.
 func TestInjectDefaults_SliceOfMapsRecipes(t *testing.T) {
 	type Recipe struct {
-		CellPath string `json:"cell_path" default:"{{ context.workflow.cell_path }}"`
+		CellName string `json:"cell_name" default:"{{ context.workflow.cell }}"`
 	}
 
 	type MultipleRecipes struct {
@@ -474,8 +469,8 @@ func TestInjectDefaults_SliceOfMapsRecipes(t *testing.T) {
 		t.Fatalf("expected one recipe, got %d", len(recipesTyped))
 	}
 
-	if recipesTyped[0]["cell_path"] != "{{ context.workflow.cell_path }}" {
-		t.Errorf("expected cell_path default injected, got %v", recipesTyped[0]["cell_path"])
+	if recipesTyped[0]["cell_name"] != "{{ context.workflow.cell }}" {
+		t.Errorf("expected cell_name default injected, got %v", recipesTyped[0]["cell_name"])
 	}
 }
 
@@ -535,7 +530,6 @@ func TestInjectDefaults_MultipleRecipes_ExactShape(t *testing.T) {
 	type SingleRecipe struct {
 		Name      string                 `json:"name" validate:"required"`
 		CellName  string                 `json:"cell_name,omitempty" default:"{{ context.workflow.cell }}"`
-		CellPath  string                 `json:"cell_path,omitempty" default:"{{ context.workflow.cell_path }}"`
 		Inputs    map[string]interface{} `json:"inputs"`
 		Artifacts []interface{}          `json:"artifacts"` // swf.ArtifactKey omitted for brevity
 		Git       SingleRecipeGit        `json:"git"`
@@ -579,9 +573,6 @@ func TestInjectDefaults_MultipleRecipes_ExactShape(t *testing.T) {
 	if first["cell_name"] != "{{ context.workflow.cell }}" {
 		t.Errorf("expected cell_name default, got %v", first["cell_name"])
 	}
-	if first["cell_path"] != "{{ context.workflow.cell_path }}" {
-		t.Errorf("expected cell_path default, got %v", first["cell_path"])
-	}
 	git0 := first["git"].(map[string]interface{})
 	if git0["base_repo"] != "{{ context.git.repo }}" ||
 		git0["base_ref"] != "{{ context.git.base_ref }}" ||
@@ -597,9 +588,6 @@ func TestInjectDefaults_MultipleRecipes_ExactShape(t *testing.T) {
 	}
 	if second["cell_name"] != "{{ context.workflow.cell }}" {
 		t.Errorf("expected cell_name default on second recipe, got %v", second["cell_name"])
-	}
-	if second["cell_path"] != "{{ context.workflow.cell_path }}" {
-		t.Errorf("expected cell_path default on second recipe, got %v", second["cell_path"])
 	}
 	git1 := second["git"].(map[string]interface{})
 	if git1["author"] != "provided-author" {
@@ -624,7 +612,6 @@ func TestInjectDefaults_MultipleRecipes_WithArtifactsAndInputs(t *testing.T) {
 	type SingleRecipe struct {
 		Name      string                 `json:"name" validate:"required"`
 		CellName  string                 `json:"cell_name,omitempty" default:"{{ context.workflow.cell }}"`
-		CellPath  string                 `json:"cell_path,omitempty" default:"{{ context.workflow.cell_path }}"`
 		Inputs    map[string]interface{} `json:"inputs"`
 		Artifacts []interface{}          `json:"artifacts"`
 		Git       SingleRecipeGit        `json:"git"`
@@ -665,9 +652,6 @@ func TestInjectDefaults_MultipleRecipes_WithArtifactsAndInputs(t *testing.T) {
 		rec := raw.(map[string]interface{})
 		if rec["cell_name"] != "{{ context.workflow.cell }}" {
 			t.Errorf("recipe %d missing cell_name default, got %v", i, rec["cell_name"])
-		}
-		if rec["cell_path"] != "{{ context.workflow.cell_path }}" {
-			t.Errorf("recipe %d missing cell_path default, got %v", i, rec["cell_path"])
 		}
 		if rec["git"] == nil {
 			t.Fatalf("recipe %d missing git map", i)

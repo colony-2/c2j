@@ -32,9 +32,9 @@ Separately, `pkg/contextual` and downstream git/template code still carry ticket
 
 - `contextual.WorkflowContext.CellID`
 - `contextual.WorkflowContext.CellName`
-- `contextual.WorkflowContext.CellPath`
+- the older repo-relative cell directory field
 
-At minimum, `CellPath` should be removed. It is no longer a valid product/runtime concept, but it still leaks through template defaults, child recipe launch inputs, git execution context, and workspace scoping.
+At minimum, the repo-relative cell directory field should be removed. It is no longer a valid product/runtime concept, but it still leaks through template defaults, child recipe launch inputs, git execution context, and workspace scoping.
 
 The target model for this proposal is:
 
@@ -135,19 +135,19 @@ Ticket and cell-scoped context currently flows through several layers:
 Cell-scoped fields flow through:
 
 - `pkg/contextual/context.go`
-  - `WorkflowContext` exposes `CellID`, `CellName`, and `CellPath`
+  - `WorkflowContext` exposes `CellID`, `CellName`, and the obsolete cell-directory field
 - `pkg/template/template_interpolate.go`
-  - exposes `context.workflow.cell`, `context.workflow.cell_path`, and `context.workflow.cell_id`
+  - exposes `context.workflow.cell`, the obsolete workflow cell-directory template, and `context.workflow.cell_id`
 - `pkg/ops/git_execution_context.go`
-  - duplicates `CellName` and `CellPath`
+  - duplicates `CellName` and the obsolete cell-directory field
 - `pkg/git/gitstate/git_task_context.go`
-  - serializes `CellName` and `CellPath`
+  - serializes `CellName` and the obsolete cell-directory field
 - `pkg/git/gitstate/workspace_controller.go`
-  - currently requires `cell_path` for scoped persist operations
+  - currently requires the obsolete cell-directory key for scoped persist operations
 - `pkg/ops/recipe/op.go`
-  - `SingleRecipe` defaults `cell_name` and `cell_path` from contextual workflow fields
+  - `SingleRecipe` defaults `cell_name` and the obsolete cell-directory key from contextual workflow fields
 - `pkg/ops/recipe/launcher.go`
-  - propagates `CellName` and `CellPath` into child `JobContext`
+  - propagates `CellName` and the obsolete cell-directory field into child `JobContext`
 
 For `root_cell`, there is already a viable source path in config/runtime inspection, but it is distinct from ordinary cell identity:
 
@@ -160,7 +160,7 @@ For `root_cell`, there is already a viable source path in config/runtime inspect
 
 That means `root_cell` should be treated as its own project-level concept and resolved explicitly from root config, not treated as a rename of `cell` and not populated from the current cell short name by default.
 
-This is not passive metadata. The repo still models ticket and job as distinct today, and `cell_path` is part of the current git persist contract, so removing either requires an explicit migration.
+This is not passive metadata. The repo still models ticket and job as distinct today, and the obsolete cell-directory key is part of the current git persist contract, so removing either requires an explicit migration.
 
 ## Recommendation
 
@@ -173,12 +173,12 @@ After the change:
 - the input management API should be poll-only
 - `contextual` should no longer expose ticket-specific fields
 - `contextual` should no longer expose actor-specific fields in the current model
-- `contextual.WorkflowContext` should no longer carry `CellID`, `CellName`, or `CellPath`
+- `contextual.WorkflowContext` should no longer carry `CellID`, `CellName`, or the obsolete cell-directory field
 - `contextual.WorkflowContext` may expose `RootCell`, but only as project-level metadata distinct from ordinary cell identity
 - `WorkflowContext.ProjectId` or a clearly equivalent tenant/project field should remain
 - `ticket.manage` should no longer exist
 - `new-ticket` should become the default job recipe for a cell rather than a special ticket workflow
-- the runtime should stop deriving git/template behavior from `context.workflow.cell_path`
+- the runtime should stop deriving git/template behavior from the obsolete workflow cell-directory template
 - Postgres-backed direct-runtime tests should remain unless we make a separate runtime/testing decision
 
 Recommended broader cleanup in the same change:
@@ -194,7 +194,7 @@ Recommended broader cleanup in the same change:
 - replace:
   - `WorkflowContext.CellID`
   - `WorkflowContext.CellName`
-  - `WorkflowContext.CellPath`
+  - the obsolete workflow cell-directory field
   - optionally add one field such as `WorkflowContext.RootCell` (`json:"root_cell,omitempty"`)
 - keep:
   - `WorkflowContext.ProjectId` (or a clearly equivalent tenant/project field)
@@ -288,7 +288,7 @@ Update `pkg/contextual/context.go`:
 - remove `TicketCreatorAgentContext`
 - remove `WorkflowContext.CellID`
 - remove `WorkflowContext.CellName`
-- remove `WorkflowContext.CellPath`
+- remove the obsolete workflow cell-directory field
 - optionally add separate project-level metadata such as:
 
 ```go
@@ -306,7 +306,7 @@ Update template/runtime projections so they no longer expose removed fields:
   - stop emitting `context.actor.actor_name`
   - stop emitting `context.actor.actor_email`
   - stop emitting `context.ticket.*`
-  - stop emitting `context.workflow.cell_path`
+  - stop emitting the obsolete workflow cell-directory template
   - stop emitting `context.workflow.cell`
   - stop emitting `context.workflow.cell_id`
   - emit `context.workflow.root_cell` only if that field remains in the model
@@ -317,22 +317,22 @@ Update template/runtime projections so they no longer expose removed fields:
 Remove duplicated ticket/cell fields from execution structs:
 
 - `pkg/ops/git_execution_context.go`
-  - remove `CellPath`
+  - remove the obsolete cell-directory field
   - recommended: remove `CellName`
 - `pkg/git/gitstate/git_task_context.go`
   - remove `TicketID`
-  - remove `CellPath`
+  - remove the obsolete cell-directory field
   - recommended: remove `CellName`
   - remove `GetTicketID()`
-  - remove `GetCellPath()`
+  - remove the obsolete cell-directory getter
   - recommended: remove `GetCellName()`
 
 Update recipe child-job APIs that currently default from contextual fields:
 
 - `pkg/ops/recipe/op.go`
-  - remove `SingleRecipe.CellPath`
+  - remove the obsolete child recipe cell-directory field
   - remove `SingleRecipe.CellName`
-  - remove defaults using `{{ context.workflow.cell_path }}`
+  - remove defaults using the obsolete workflow cell-directory template
   - remove defaults using `{{ context.workflow.cell }}`
   - add `root_cell` only if child recipes truly need project-level overseer identity
 - `pkg/ops/recipe/launcher.go`
@@ -343,7 +343,7 @@ Update CLI/runtime entrypoints that currently synthesize ticket/cell fields:
 
 - `cmd/c2j/internal/submitjob/service.go`
   - stop writing `TicketID`
-  - stop writing `CellPath: "."`
+  - stop writing a repo-root value into the obsolete cell-directory field
   - stop writing `CellName`
   - do not populate `RootCell` from the current cell short name
   - if `root_cell` is retained, resolve it from root config (`root_repo` -> explicit root-cell resolution) or extend `c2j self` / config inspection to provide it directly
@@ -376,10 +376,10 @@ Update any runtime/API surface that still distinguishes ticket from job:
 - job metadata, docs, and helper names should stop describing a parallel ticket entity
 - any "create ticket" flow should become "start job" or equivalent job-native behavior
 
-Replace the current git scoping behavior that hard-requires `cell_path`:
+Replace the current git scoping behavior that hard-requires the obsolete cell-directory key:
 
 - `pkg/git/gitstate/workspace_controller.go`
-  - stop treating `cell_path` as required scope input
+  - stop treating the obsolete cell-directory key as required scope input
   - default persist/restore scope to repo root (`"."`) unless a new explicit scoping primitive is introduced
 
 That repo-root fallback is the simplest replacement consistent with "cell path is no longer a concept."
@@ -439,13 +439,13 @@ By contrast, these may remain if direct-runtime tests are kept:
 ### Phase 3: Contextual and git/template cleanup
 
 1. Remove ticket structs and fields from `pkg/contextual`, template exposure, and job metadata.
-2. Remove `CellID` / `CellName` / `CellPath` from `pkg/contextual`.
-3. Remove `context.workflow.cell_path` and `context.workflow.cell` from template exposure and defaults.
+2. Remove `CellID` / `CellName` / the obsolete cell-directory field from `pkg/contextual`.
+3. Remove the obsolete workflow cell-directory template and `context.workflow.cell` from template exposure and defaults.
 4. Add `root_cell` only if project-level overseer metadata is still required, and resolve it explicitly from root config rather than current-cell identity.
 5. Remove `ticket.manage` and related docs/surfaces.
 6. Reframe `new-ticket` as the default cell job flow rather than a separate ticket workflow.
 7. Update child recipe inputs, launch propagation, starter metadata, and CLI submit paths.
-8. Replace `cell_path`-based git scoping with repo-root behavior or another explicit scope input.
+8. Replace the obsolete cell-directory key-based git scoping with repo-root behavior or another explicit scope input.
 
 ### Phase 4: Dependency cleanup
 
@@ -490,11 +490,11 @@ they will break.
 
 Before implementation, we should confirm whether this API is used outside the workspace.
 
-### 4. Removing `cell_path` changes git persist semantics
+### 4. Removing the obsolete cell-directory key changes git persist semantics
 
-Today `pkg/git/gitstate/workspace_controller.go` requires `cell_path` and rejects repository-root scope.
+Today `pkg/git/gitstate/workspace_controller.go` requires the obsolete cell-directory key and rejects repository-root scope.
 
-If `cell_path` is removed, we need to choose one of these behaviors:
+If the obsolete cell-directory key is removed, we need to choose one of these behaviors:
 
 - persist the full repository by default
 - introduce a new explicit scoping input unrelated to contextual workflow fields
@@ -507,7 +507,7 @@ The current repo still references:
 
 - `{{ context.actor.ticket_id }}`
 - `{{ context.ticket.* }}`
-- `{{ context.workflow.cell_path }}`
+- the obsolete workflow cell-directory template
 - `{{ context.workflow.cell }}`
 
 in defaults, tests, and fixtures.
@@ -588,7 +588,7 @@ This proposal does not attempt to:
 - remove embedded Postgres from real-engine tests
 - introduce a new push transport
 - redesign the user-input API beyond removing SSE
-- design a new fine-grained git scoping model after `cell_path` removal
+- design a new fine-grained git scoping model after the obsolete cell-directory key removal
 
 ## Success Criteria
 
@@ -596,11 +596,11 @@ The change is complete when:
 
 1. `ServiceDependencies2` only exposes `WorkflowControl()`.
 2. `OpDependencies` no longer exposes database access.
-3. `contextual.WorkflowContext` no longer carries `CellPath`.
+3. `contextual.WorkflowContext` no longer carries the obsolete cell-directory field.
 4. `contextual` no longer exposes ticket-specific fields.
-5. `contextual.WorkflowContext` no longer carries `CellID`, `CellName`, or `CellPath`.
+5. `contextual.WorkflowContext` no longer carries `CellID`, `CellName`, or the obsolete cell-directory field.
 6. If `root_cell` remains, it is modeled as separate project metadata with explicit semantics and source of truth.
-7. No runtime/template code depends on `context.actor.*`, `context.ticket.*`, or `context.workflow.cell_path`.
+7. No runtime/template code depends on `context.actor.*`, `context.ticket.*`, or the obsolete workflow cell-directory template.
 8. `ticket.manage` no longer exists as an op or documented API.
 9. `new-ticket` is treated as the default job recipe for a cell rather than a separate ticket workflow.
 10. The input API has no SSE route or SSE schemas.
