@@ -115,8 +115,18 @@ func TestTaskWorkerRunCancelsStepOnExecutionTimeout(t *testing.T) {
 	})
 
 	timeout := 150 * time.Millisecond
-	deadline := time.Now().Add(timeout)
+	var deadline time.Time
 	await := func(wakeAt time.Time) error {
+		select {
+		case <-started:
+			if deadline.IsZero() {
+				deadline = time.Now().Add(timeout)
+			}
+		default:
+			time.Sleep(10 * time.Millisecond)
+			return nil
+		}
+
 		now := time.Now()
 		if !deadline.After(now) {
 			return swf.NewTimeoutError("task", timeout, swf.TimeoutScopeTotal, nil, false)

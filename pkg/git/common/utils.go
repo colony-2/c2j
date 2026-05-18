@@ -2,6 +2,7 @@ package common
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os/exec"
 	"path/filepath"
@@ -14,6 +15,11 @@ func ExecuteGitCommand(ctx context.Context, repoPath string, args ...string) ([]
 	cmd.Dir = repoPath
 	output, err := cmd.CombinedOutput()
 	if err != nil {
+		if cause := context.Cause(ctx); cause != nil {
+			err = errors.Join(err, cause)
+		} else if ctxErr := ctx.Err(); ctxErr != nil {
+			err = errors.Join(err, ctxErr)
+		}
 		return output, fmt.Errorf("git command failed: %w (output: %s)", err, string(output))
 	}
 	return output, nil
