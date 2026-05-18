@@ -15,6 +15,7 @@ import (
 
 	"github.com/colony-2/c2j/pkg/contextual"
 	"github.com/colony-2/c2j/pkg/ops"
+	"github.com/colony-2/c2j/pkg/shellcmd"
 	"github.com/colony-2/shai/pkg/shai"
 	yaml "gopkg.in/yaml.v3"
 )
@@ -433,18 +434,7 @@ func buildExecArgv(req RunRequest) ([]string, error) {
 		return nil, fmt.Errorf("command is required")
 	}
 
-	shell := strings.TrimSpace(req.Shell)
-	if shell == "" {
-		if _, err := exec.LookPath("bash"); err == nil {
-			shell = "bash"
-		} else {
-			shell = "sh"
-		}
-	}
-	if shell == "bash" || shell == "zsh" {
-		return []string{shell, "-lc", run}, nil
-	}
-	return []string{shell, "-c", run}, nil
+	return shellcmd.BuildArgv(req.Shell, run)
 }
 
 func findLocalShaiConfig(startDir string, workspaceRoot string) string {

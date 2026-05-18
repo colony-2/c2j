@@ -123,6 +123,37 @@ func TestExecuteProcessTimeoutKillsHostProcessTree(t *testing.T) {
 	require.True(t, os.IsNotExist(statErr), "descendant process wrote marker after timeout")
 }
 
+func TestExecuteProcessUsesNonLoginBash(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("uses POSIX shell script fake bash")
+	}
+
+	binDir := t.TempDir()
+	fakeBash := filepath.Join(binDir, "bash")
+	script := `#!/bin/sh
+if [ "$1" = "-lc" ]; then
+  printf 'profile noise\n' >&2
+fi
+if [ "$1" != "-c" ] && [ "$1" != "-lc" ]; then
+  printf 'unexpected shell args: %s\n' "$*" >&2
+  exit 64
+fi
+shift
+eval "$1"
+`
+	require.NoError(t, os.WriteFile(fakeBash, []byte(script), 0o755))
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	stdout, stderr, err := ExecuteProcess(context.Background(), RunRequest{
+		WorkingDir: t.TempDir(),
+		Shell:      "bash",
+		Run:        "printf ok",
+	})
+	require.NoError(t, err)
+	require.Equal(t, "ok", string(stdout))
+	require.Empty(t, string(stderr))
+}
+
 func testOperationPaths(t *testing.T) ops.OperationPaths {
 	t.Helper()
 	root := t.TempDir()

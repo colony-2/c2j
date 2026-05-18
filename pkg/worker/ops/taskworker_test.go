@@ -71,7 +71,7 @@ func TestTaskWorkerRunReturnsTaskDataOnFailure(t *testing.T) {
 	require.NoError(t, env.DecodePayload(&output))
 	require.Equal(t, "failed", output.OpOutput["status"])
 	require.Equal(t, "boom", output.OpOutput["detail"])
-	require.Equal(t, "stderr.txt", artifacts[0].Name())
+	requireArtifactNamed(t, artifacts, "stderr.txt")
 }
 
 func TestTaskWorkerRunCancelsStepOnExecutionTimeout(t *testing.T) {
@@ -152,6 +152,20 @@ func TestTaskWorkerRunCancelsStepOnExecutionTimeout(t *testing.T) {
 	default:
 		t.Fatal("expected step to start before timeout")
 	}
+}
+
+func requireArtifactNamed(t *testing.T, artifacts []swf.Artifact, name string) {
+	t.Helper()
+	for _, artifact := range artifacts {
+		if artifact.Name() == name {
+			return
+		}
+	}
+	var names []string
+	for _, artifact := range artifacts {
+		names = append(names, artifact.Name())
+	}
+	t.Fatalf("expected artifact %q in %#v", name, names)
 }
 
 func TestTaskExecutionContextIgnoresReplayCacheMiss(t *testing.T) {

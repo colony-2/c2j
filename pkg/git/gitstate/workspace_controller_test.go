@@ -317,6 +317,25 @@ func runGitOutput(t *testing.T, dir string, name string, args ...string) string 
 	return string(output)
 }
 
+func removeGitAuthorConfig(t *testing.T, repoPath string) {
+	t.Helper()
+	unsetGitConfig(t, repoPath, "user.name")
+	unsetGitConfig(t, repoPath, "user.email")
+}
+
+func unsetGitConfig(t *testing.T, repoPath string, key string) {
+	t.Helper()
+	cmd := exec.Command("git", "config", "--unset-all", key)
+	cmd.Dir = repoPath
+	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
+	if output, err := cmd.CombinedOutput(); err != nil {
+		if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() == 5 {
+			return
+		}
+		t.Fatalf("git config --unset-all %s failed: %v (%s)", key, err, output)
+	}
+}
+
 func TestResolveScopePath_ReturnsRepoRoot(t *testing.T) {
 	ctrl := &Controller{}
 	ctx := context.Background()
@@ -371,6 +390,34 @@ func TestControllerPersistWithDiffs_WithChanges(t *testing.T) {
 	require.NotEmpty(t, output.CommitHash)
 	require.NotEqual(t, baseHash, output.CommitHash)
 	require.Equal(t, baseHash, output.ParentHash)
+}
+
+func TestControllerPersistWithDiffsUsesDefaultAuthorWhenUnset(t *testing.T) {
+	t.Parallel()
+
+	baseRepo, baseHash, cleanup := setupGitRepo(t)
+	defer cleanup()
+
+	worktree := filepath.Join(t.TempDir(), "worktree")
+
+	ctx := newTaskContext(baseRepo, baseHash, worktree, "")
+	ctx.GitAuthor = ""
+
+	controller := NewController(nil)
+	require.NoError(t, controller.prepareWorkspace(context.Background(), ctx))
+	require.NoError(t, controller.Restore(context.Background(), ctx, nil))
+	removeGitAuthorConfig(t, worktree)
+
+	file := filepath.Join(worktree, "default-author.txt")
+	require.NoError(t, os.WriteFile(file, []byte("changed\n"), 0o644))
+
+	output, artifacts, err := controller.PersistWithDiffs(context.Background(), ctx)
+	require.NoError(t, err)
+	require.True(t, output.HasChanges)
+	require.NotEmpty(t, artifacts)
+
+	author := runGitOutput(t, worktree, "git", "log", "-1", "--pretty=format:%an <%ae>")
+	require.Equal(t, defaultGitAuthor, author)
 }
 
 func TestControllerPersistWithDiffs_NoChanges(t *testing.T) {

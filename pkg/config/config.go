@@ -1,6 +1,7 @@
 package config
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/base64"
@@ -12,6 +13,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/colony-2/c2j/pkg/shellcmd"
 	"github.com/colony-2/c2j/pkg/worker/compiler"
 	"gopkg.in/yaml.v3"
 )
@@ -558,13 +560,21 @@ func (c *ProjectConfig) runMultiCommand(ctx context.Context, command string) ([]
 		return nil, nil
 	}
 
-	cmd := exec.CommandContext(ctx, "bash", "-lc", command)
-	cmd.Dir = c.rootDir
-	out, err := cmd.CombinedOutput()
+	argv, err := shellcmd.BuildArgv("bash", command)
 	if err != nil {
-		return nil, fmt.Errorf("run command %q in %s: %w (%s)", command, c.rootDir, err, strings.TrimSpace(string(out)))
+		return nil, err
 	}
-	return nonEmptyLines(string(out)), nil
+	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
+	cmd.Dir = c.rootDir
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	err = cmd.Run()
+	if err != nil {
+		return nil, fmt.Errorf("run command %q in %s: %w (%s)", command, c.rootDir, err, strings.TrimSpace(stderr.String()))
+	}
+	return nonEmptyLines(stdout.String()), nil
 }
 
 func (c fileConfig) validate() error {

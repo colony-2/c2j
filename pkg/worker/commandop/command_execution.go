@@ -6,12 +6,12 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"runtime"
 	"strings"
 	"time"
 
 	"github.com/colony-2/c2j/pkg/ops"
 	"github.com/colony-2/c2j/pkg/ops/process"
+	"github.com/colony-2/c2j/pkg/shellcmd"
 )
 
 // CommandExecutionConfig defines the configuration for command execution activities - ALL fields MUST have json tags
@@ -193,12 +193,5 @@ func executionTimedOut(ctx context.Context, err error) bool {
 
 // getDefaultShell returns the default shell based on the operating system
 func getDefaultShell() string {
-	if runtime.GOOS == "windows" {
-		return "cmd"
-	}
-	// Check if bash is available
-	if _, err := exec.LookPath("bash"); err == nil {
-		return "bash"
-	}
-	return "sh"
+	return shellcmd.DefaultShell()
 }

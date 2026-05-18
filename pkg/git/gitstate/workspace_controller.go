@@ -17,6 +17,8 @@ import (
 
 const ThinPackArtifactName = "__git_state_thin_pack__"
 
+const defaultGitAuthor = "c2j <c2j@colony2>"
+
 // Controller orchestrates cloning, restoring, and persisting git state per activity invocation.
 type Controller struct {
 	adapters map[string]StorageAdapter
@@ -189,10 +191,7 @@ func (c *Controller) Persist(ctx context.Context, task *GitTaskContext) (*gitcom
 	}
 
 	commitMessage := buildCommitMessage(task, "pending", "")
-	author := task.GetGitAuthor()
-	if author == "" && task.GetCellName() != "" {
-		author = fmt.Sprintf("%s <%s@colony2>", task.GetCellName(), task.GetCellName())
-	}
+	author := persistAuthor(task)
 
 	persistInput := gitcommit.PersistCommitActivity{
 		RepoPath:         task.GetWorktreePath(),
@@ -287,10 +286,7 @@ func (c *Controller) PersistWithDiffs(ctx context.Context, task *GitTaskContext)
 	}
 
 	commitMessage := buildCommitMessage(task, "pending", "")
-	author := task.GetGitAuthor()
-	if author == "" && task.GetCellName() != "" {
-		author = fmt.Sprintf("%s <%s@colony2>", task.GetCellName(), task.GetCellName())
-	}
+	author := persistAuthor(task)
 
 	persistInput := gitcommit.PersistCommitActivity{
 		RepoPath:         task.GetWorktreePath(),
@@ -499,6 +495,19 @@ func checkoutAndTrackRef(ctx context.Context, repoPath, ref string) (string, err
 		return "", fmt.Errorf("resolve ref %s: %w", ref, err)
 	}
 	return hash, nil
+}
+
+func persistAuthor(task *GitTaskContext) string {
+	if task == nil {
+		return defaultGitAuthor
+	}
+	if author := strings.TrimSpace(task.GetGitAuthor()); author != "" {
+		return author
+	}
+	if cell := strings.TrimSpace(task.GetCellName()); cell != "" {
+		return fmt.Sprintf("%s <%s@colony2>", cell, cell)
+	}
+	return defaultGitAuthor
 }
 
 func (c *Controller) cloneIfNeeded(ctx context.Context, task *GitTaskContext) error {

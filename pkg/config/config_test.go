@@ -225,6 +225,53 @@ root:
 	}
 }
 
+func TestProjectConfig_CommandParsingIgnoresStderrAndUsesNonLoginShell(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	configPath := filepath.Join(root, ".c2j", "config.yaml")
+	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
+		t.Fatalf("mkdir config dir: %v", err)
+	}
+	configYAML := `
+self:
+  repo: github.com/acme/self
+  ref:
+    command: |
+      printf 'Could not open a connection to your authentication agent.\n' >&2
+      shopt -q login_shell && printf 'login\n' || printf 'release\n'
+dependents:
+  command: |
+    printf 'Could not open a connection to your authentication agent.\n' >&2
+    printf '%s\n' github.com/acme/boo-alpha github.com/acme/boo-beta
+`
+	if err := os.WriteFile(configPath, []byte(configYAML), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	cfg, err := LoadProjectConfig(root)
+	if err != nil {
+		t.Fatalf("load project config: %v", err)
+	}
+
+	ref, err := cfg.SelfRef(context.Background())
+	if err != nil {
+		t.Fatalf("SelfRef(): %v", err)
+	}
+	if ref != "release" {
+		t.Fatalf("SelfRef() = %q", ref)
+	}
+
+	repos, err := cfg.DependentRepos(context.Background())
+	if err != nil {
+		t.Fatalf("DependentRepos(): %v", err)
+	}
+	wantRepos := []string{"github.com/acme/boo-alpha", "github.com/acme/boo-beta"}
+	if !reflect.DeepEqual(repos, wantRepos) {
+		t.Fatalf("DependentRepos() = %#v, want %#v", repos, wantRepos)
+	}
+}
+
 func TestProjectConfig_DependentsListIsExplicitFinalSet(t *testing.T) {
 	t.Parallel()
 
