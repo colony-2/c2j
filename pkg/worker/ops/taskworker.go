@@ -87,6 +87,10 @@ func monitorTaskDeadline(ctx context.Context, cancelCause context.CancelCauseFun
 		if err == nil {
 			continue
 		}
+		var cacheMiss swf.ReplayCacheMissError
+		if errors.As(err, &cacheMiss) {
+			return
+		}
 
 		cause := err
 		var timeoutErr *swf.TimeoutError

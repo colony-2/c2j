@@ -153,3 +153,30 @@ func TestTaskWorkerRunCancelsStepOnExecutionTimeout(t *testing.T) {
 		t.Fatal("expected step to start before timeout")
 	}
 }
+
+func TestTaskExecutionContextIgnoresReplayCacheMiss(t *testing.T) {
+	t.Parallel()
+
+	await := func(time.Time) error {
+		return swf.ReplayCacheMissError{
+			JobKey:  swf.JobKey{TenantId: "tenant", JobId: "job"},
+			Ordinal: 1,
+			Attempt: 1,
+			Reason:  swf.ReplayCacheMissAwaitNotReady,
+		}
+	}
+	ctx, cancel := NewTaskExecutionContext(swf.NewTaskContext(
+		swf.JobKey{TenantId: "tenant", JobId: "job"},
+		1,
+		nil,
+		await,
+		nil,
+	))
+	defer cancel()
+
+	select {
+	case <-ctx.Done():
+		t.Fatalf("replay cache miss should not cancel task execution context: %v", context.Cause(ctx))
+	case <-time.After(taskDeadlineCancelDelay + 50*time.Millisecond):
+	}
+}
