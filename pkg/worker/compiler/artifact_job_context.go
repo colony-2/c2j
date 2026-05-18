@@ -2,6 +2,7 @@ package compiler
 
 import (
 	"log/slog"
+	"time"
 
 	"github.com/colony-2/c2j/pkg/git/gitstate"
 	"github.com/colony-2/swf-go/pkg/swf"
@@ -102,6 +103,10 @@ func findThinPack(artifacts []swf.Artifact) swf.Artifact {
 
 func (a *thinpackForwarder) AwaitDuration(waitFor swf.Duration) error {
 	return a.inner.AwaitDuration(waitFor)
+}
+
+func (a *thinpackForwarder) executionTimeoutLimit() time.Duration {
+	return activeExecutionTimeoutLimit(a.inner)
 }
 
 var _ swf.JobContext = &thinpackForwarder{}

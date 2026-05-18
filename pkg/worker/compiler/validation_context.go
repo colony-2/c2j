@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"reflect"
 	"strings"
+	"time"
 
 	"github.com/colony-2/c2j/pkg/contextual"
 	"github.com/colony-2/c2j/pkg/input/formdefaults"
@@ -67,6 +68,10 @@ func (v *validationJobContext) AwaitDuration(waitFor swf.Duration) error {
 		return nil
 	}
 	return v.inner.AwaitDuration(waitFor)
+}
+
+func (v *validationJobContext) executionTimeoutLimit() time.Duration {
+	return activeExecutionTimeoutLimit(v.inner)
 }
 
 func (v *validationJobContext) DoTask(runPolicy swf.RunPolicy, taskType string, data swf.TaskData) (swf.TaskData, error) {

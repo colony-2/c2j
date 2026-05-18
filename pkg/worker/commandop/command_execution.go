@@ -2,6 +2,7 @@ package commandop
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -152,7 +153,7 @@ func execute(deps ops.OpDependencies, ctx context.Context, input CommandExecutio
 	}
 
 	// Check if context was cancelled due to timeout
-	if ctx.Err() == context.DeadlineExceeded {
+	if executionTimedOut(ctx, err) {
 		output.TimedOut = true
 		output.Success = false
 		output.ErrorMessage = "command execution timed out"
@@ -178,6 +179,16 @@ func execute(deps ops.OpDependencies, ctx context.Context, input CommandExecutio
 	}
 
 	return output, nil
+}
+
+func executionTimedOut(ctx context.Context, err error) bool {
+	if errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		return true
+	}
+	return errors.Is(context.Cause(ctx), context.DeadlineExceeded)
 }
 
 // getDefaultShell returns the default shell based on the operating system

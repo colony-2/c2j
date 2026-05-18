@@ -346,9 +346,12 @@ func (d DefaultRecipeExecutor) executeOp2(ctx workflow.Context, parentResolution
 	runPolicy := swf.RunPolicy{
 		Retry: retry,
 	}
-	if timeout := effectiveOpTimeout(metadata, registeredOp); timeout > 0 {
-		ctx.JobContext = withExecutionTimeout(ctx.JobContext, timeout, fmt.Sprintf("op %q", op))
-		totalTimeout := swf.Duration(timeout)
+	if opTimeout := effectiveOpTimeout(metadata, registeredOp); opTimeout > 0 {
+		ctx.JobContext = withExecutionTimeout(ctx.JobContext, opTimeout, fmt.Sprintf("op %q", op))
+	}
+	taskExecutionTimeout := activeExecutionTimeoutLimit(ctx.JobContext)
+	if taskExecutionTimeout > 0 {
+		totalTimeout := swf.Duration(taskExecutionTimeout)
 		runPolicy.TotalTimeout = &totalTimeout
 	}
 

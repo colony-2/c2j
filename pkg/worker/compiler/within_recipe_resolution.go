@@ -10,6 +10,7 @@ import (
 	"github.com/colony-2/c2j/pkg/contextual"
 	extops "github.com/colony-2/c2j/pkg/ops/extensions"
 	"github.com/colony-2/c2j/pkg/recipe"
+	workerops "github.com/colony-2/c2j/pkg/worker/ops"
 	"github.com/colony-2/c2j/pkg/workflow"
 	"github.com/colony-2/swf-go/pkg/swf"
 )
@@ -36,13 +37,15 @@ func (w withinRecipeResolutionTaskWorker) Name() string {
 	return WithinRecipeResolutionTaskType
 }
 
-func (w withinRecipeResolutionTaskWorker) Run(_ swf.TaskContext, input swf.TaskData) (swf.TaskData, error) {
+func (w withinRecipeResolutionTaskWorker) Run(taskCtx swf.TaskContext, input swf.TaskData) (swf.TaskData, error) {
 	req, err := parseWithinRecipeResolutionTaskInput(input)
 	if err != nil {
 		return nil, err
 	}
 
-	resolved, err := resolveSelectors(context.Background(), req.Selectors, extops.ResolveOptions{
+	ctx, cancel := workerops.NewTaskExecutionContext(taskCtx)
+	defer cancel()
+	resolved, err := resolveSelectors(ctx, req.Selectors, extops.ResolveOptions{
 		RepositorySource: strings.TrimSpace(req.RepositorySource),
 		RepositoryRef:    strings.TrimSpace(req.RepositoryRef),
 	})

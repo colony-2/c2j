@@ -191,7 +191,7 @@ func (t opExecutor) do(ctx context.Context, jobTool ops.JobTool, req ActivityInv
 	}
 
 	// Call Restore with full context (includes WorktreePath)
-	if err := controller.Restore(context.Background(), fullContext, thinPackArtifact); err != nil {
+	if err := controller.Restore(ctx, fullContext, thinPackArtifact); err != nil {
 		return zero, nil, err
 	}
 
@@ -312,7 +312,7 @@ func (t opExecutor) do(ctx context.Context, jobTool ops.JobTool, req ActivityInv
 	}
 
 	// Call PersistWithDiffs with full context
-	persistOutput, persistArtifacts, err := controller.PersistWithDiffs(context.Background(), fullContext)
+	persistOutput, persistArtifacts, err := controller.PersistWithDiffs(ctx, fullContext)
 	if err != nil {
 		if stepErr != nil {
 			return ActivityInvocationOutput{

@@ -167,6 +167,25 @@ func TestCommandExecutionActivity_Execute_Timeout(t *testing.T) {
 	}
 }
 
+func TestCommandExecutionActivity_Execute_TimeoutFromCancelCause(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Skipping timeout test on Windows")
+	}
+
+	ctx, cancel := context.WithCancelCause(context.Background())
+	cancel(context.DeadlineExceeded)
+
+	output, err := execute(ops.NewOpDependenciesBuilder().Build(), ctx, CommandExecutionInput{
+		Run: "sleep 5",
+	})
+	if err == nil {
+		t.Fatal("expected timeout error")
+	}
+	if !output.TimedOut {
+		t.Fatalf("expected timed_out=true, got false")
+	}
+}
+
 func TestCommandExecutionActivity_Execute_MissingCommand(t *testing.T) {
 	ctx := context.Background()
 

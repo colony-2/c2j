@@ -13,19 +13,46 @@ type timeoutJobContext struct {
 	inner           swf.JobContext
 	deadline        time.Time
 	declaredTimeout time.Duration
+	limit           time.Duration
 	label           string
+}
+
+type executionTimeoutLimiter interface {
+	executionTimeoutLimit() time.Duration
 }
 
 func withExecutionTimeout(ctx swf.JobContext, timeout time.Duration, label string) swf.JobContext {
 	if timeout <= 0 || ctx == nil {
 		return ctx
 	}
+	limit := timeout
+	if innerLimit := activeExecutionTimeoutLimit(ctx); innerLimit > 0 {
+		limit = minPositiveDuration(limit, innerLimit)
+	}
 	return &timeoutJobContext{
 		inner:           ctx,
 		deadline:        time.Now().Add(timeout),
 		declaredTimeout: timeout,
+		limit:           limit,
 		label:           label,
 	}
+}
+
+func activeExecutionTimeoutLimit(ctx swf.JobContext) time.Duration {
+	if limiter, ok := ctx.(executionTimeoutLimiter); ok {
+		return limiter.executionTimeoutLimit()
+	}
+	return 0
+}
+
+func minPositiveDuration(a, b time.Duration) time.Duration {
+	if a <= 0 {
+		return b
+	}
+	if b <= 0 || a < b {
+		return a
+	}
+	return b
 }
 
 func (t *timeoutJobContext) GetJobKey() swf.JobKey {
@@ -67,6 +94,10 @@ func (t *timeoutJobContext) AwaitDuration(waitFor swf.Duration) error {
 		return err
 	}
 	return t.checkDeadline()
+}
+
+func (t *timeoutJobContext) executionTimeoutLimit() time.Duration {
+	return t.limit
 }
 
 func (t *timeoutJobContext) DoTask(policy swf.RunPolicy, taskType string, data swf.TaskData) (swf.TaskData, error) {

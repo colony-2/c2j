@@ -4,14 +4,45 @@ import (
 	"context"
 	"encoding/json"
 	"testing"
+	"time"
 
 	"github.com/colony-2/c2j/pkg/contextual"
+	"github.com/colony-2/c2j/pkg/recipe"
 	"github.com/colony-2/c2j/pkg/workflowctl"
 	"github.com/colony-2/swf-go/pkg/swf"
 )
 
 type captureSubmitter struct {
 	job swf.SubmitJob
+}
+
+func TestStartRecipeJobUsesRecipeTimeoutAsDurableJobTotalTimeout(t *testing.T) {
+	engine := &captureSubmitter{}
+	rec := recipe.Recipe{RecipeImpl: &recipe.RecipeOp{
+		RecipeMetadata: recipe.RecipeMetadata{
+			NodeMetadata: recipe.NodeMetadata{
+				ID:      "recipe-name",
+				Timeout: recipe.Duration(2 * time.Minute),
+				Inputs:  map[string]interface{}{},
+			},
+		},
+		OpData: recipe.OpData{Op: "noop"},
+	}}
+
+	_, err := StartRecipeJobWithOptions(context.Background(), workflowctl.StartJob{
+		TenantId:   "tenant",
+		RecipeName: "recipe-name",
+	}, engine, StartRecipeJobOptions{}, rec)
+	if err != nil {
+		t.Fatalf("StartRecipeJobWithOptions: %v", err)
+	}
+
+	if engine.job.RunPolicy.TotalTimeout == nil {
+		t.Fatal("expected total timeout to be set")
+	}
+	if got := time.Duration(*engine.job.RunPolicy.TotalTimeout); got != 2*time.Minute {
+		t.Fatalf("expected total timeout %s, got %s", 2*time.Minute, got)
+	}
 }
 
 func (c *captureSubmitter) SubmitJob(_ context.Context, job swf.SubmitJob) (swf.JobKey, error) {

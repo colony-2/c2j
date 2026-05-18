@@ -11,6 +11,7 @@ import (
 
 	gitpkg "github.com/colony-2/c2j/pkg/git"
 	"github.com/colony-2/c2j/pkg/recipe"
+	workerops "github.com/colony-2/c2j/pkg/worker/ops"
 	"github.com/colony-2/swf-go/pkg/swf"
 	"gopkg.in/yaml.v3"
 )
@@ -341,10 +342,12 @@ func (w rootSourceResolutionTaskWorker) Name() string {
 	return RootSourceResolutionTaskType
 }
 
-func (w rootSourceResolutionTaskWorker) Run(_ swf.TaskContext, input swf.TaskData) (swf.TaskData, error) {
+func (w rootSourceResolutionTaskWorker) Run(taskCtx swf.TaskContext, input swf.TaskData) (swf.TaskData, error) {
 	if input == nil {
 		return nil, fmt.Errorf("recipe source resolution input is required")
 	}
+	ctx, cancel := workerops.NewTaskExecutionContext(taskCtx)
+	defer cancel()
 
 	raw, err := input.GetData()
 	if err != nil {
@@ -364,7 +367,7 @@ func (w rootSourceResolutionTaskWorker) Run(_ swf.TaskContext, input swf.TaskDat
 		return nil, err
 	}
 
-	resolution, err := w.resolver.Resolve(context.Background(), strings.TrimSpace(req.ProjectID), effectiveSelector)
+	resolution, err := w.resolver.Resolve(ctx, strings.TrimSpace(req.ProjectID), effectiveSelector)
 	if err != nil {
 		return nil, err
 	}
@@ -374,13 +377,13 @@ func (w rootSourceResolutionTaskWorker) Run(_ swf.TaskContext, input swf.TaskDat
 
 	var recipeYAMLRaw string
 	if loader, ok := w.resolver.(RecipeSourceYAMLLoader); ok {
-		yamlBytes, err := loader.LoadYAML(context.Background(), strings.TrimSpace(req.ProjectID), resolution)
+		yamlBytes, err := loader.LoadYAML(ctx, strings.TrimSpace(req.ProjectID), resolution)
 		if err != nil {
 			return nil, err
 		}
 		recipeYAMLRaw = string(yamlBytes)
 	} else {
-		rec, err := w.resolver.Load(context.Background(), strings.TrimSpace(req.ProjectID), resolution)
+		rec, err := w.resolver.Load(ctx, strings.TrimSpace(req.ProjectID), resolution)
 		if err != nil {
 			return nil, err
 		}

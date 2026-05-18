@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/colony-2/c2j/pkg/recipe"
 	"github.com/colony-2/c2j/pkg/task"
@@ -90,16 +91,32 @@ func StartRecipeJobWithOptions(ctx context.Context, startJob workflowctl.StartJo
 		return swf.JobKey{}, err
 	}
 
+	runPolicy := recipeRunPolicy(startJob, recipes)
 	job := swf.SubmitJob{
 		TenantId:      startJob.TenantId,
 		JobType:       RecipeJobType,
 		JobID:         opts.JobID,
 		Data:          inputData,
-		RunPolicy:     swf.DefaultRunPolicy(),
+		RunPolicy:     runPolicy,
 		Metadata:      metaRaw,
 		Prerequisites: opts.Prerequisites,
 	}
 	return engine.SubmitJob(ctx, job)
+}
+
+func recipeRunPolicy(startJob workflowctl.StartJob, recipes []recipe.Recipe) swf.RunPolicy {
+	policy := swf.DefaultRunPolicy()
+	for _, r := range recipes {
+		if r.GetMetdata().ID != startJob.RecipeName {
+			continue
+		}
+		if timeout := time.Duration(r.GetMetdata().Timeout); timeout > 0 {
+			totalTimeout := swf.Duration(timeout)
+			policy.TotalTimeout = &totalTimeout
+		}
+		return policy
+	}
+	return policy
 }
 
 // RestartRecipeJob restarts an existing recipe job from the provided step offset.

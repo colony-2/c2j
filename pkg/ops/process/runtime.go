@@ -330,7 +330,11 @@ func executeOnHost(ctx context.Context, req RunRequest, workingDir string) ([]by
 			killProcessTree(cmd)
 			<-waitCh
 		}
-		return stdout.Bytes(), stderr.Bytes(), fmt.Errorf("process canceled: %w", ctx.Err())
+		cause := context.Cause(ctx)
+		if cause == nil {
+			cause = ctx.Err()
+		}
+		return stdout.Bytes(), stderr.Bytes(), fmt.Errorf("process canceled: %w", cause)
 	}
 }
 

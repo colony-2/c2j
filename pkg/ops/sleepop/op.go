@@ -82,6 +82,10 @@ func executeSleep(_ ops.OpDependencies, ctx context.Context, input SleepInput) (
 		// Context cancelled (timeout or interruption)
 		endTime := time.Now()
 		actualDuration := endTime.Sub(startTime)
+		err := context.Cause(ctx)
+		if err == nil {
+			err = ctx.Err()
+		}
 
 		output := SleepOutput{
 			StartTime:      startTime,
@@ -89,11 +93,11 @@ func executeSleep(_ ops.OpDependencies, ctx context.Context, input SleepInput) (
 			ActualDuration: actualDuration.String(),
 			Completed:      false,
 			Interrupted:    true,
-			ErrorMessage:   ctx.Err().Error(),
+			ErrorMessage:   err.Error(),
 		}
 
 		// Return the output with the error
 		// The error will cause the activity to fail, but the output still contains useful info
-		return output, ctx.Err()
+		return output, err
 	}
 }
