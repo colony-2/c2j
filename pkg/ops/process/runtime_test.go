@@ -2,9 +2,13 @@ package process
 
 import (
 	"context"
+	"errors"
+	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/colony-2/c2j/pkg/contextual"
 	"github.com/colony-2/c2j/pkg/ops"
@@ -92,6 +96,31 @@ func TestShaiAppendResourceSetRejectsConflictingDuplicateTargets(t *testing.T) {
 	}, root, DefaultShaiWorkdir)
 	require.Error(t, err)
 	require.True(t, strings.Contains(err.Error(), "duplicate mount target"), err.Error())
+}
+
+func TestExecuteProcessTimeoutKillsHostProcessTree(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("uses POSIX shell process-tree behavior")
+	}
+
+	root := t.TempDir()
+	marker := filepath.Join(root, "child-survived")
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+
+	started := time.Now()
+	_, _, err := ExecuteProcess(ctx, RunRequest{
+		WorkingDir: root,
+		Shell:      "sh",
+		Run:        "(sleep 1; echo leaked > child-survived) & sleep 5",
+	})
+	require.Error(t, err)
+	require.True(t, errors.Is(err, context.DeadlineExceeded), "expected deadline exceeded error, got %v", err)
+	require.Less(t, time.Since(started), 2*time.Second)
+
+	time.Sleep(1200 * time.Millisecond)
+	_, statErr := os.Stat(marker)
+	require.True(t, os.IsNotExist(statErr), "descendant process wrote marker after timeout")
 }
 
 func testOperationPaths(t *testing.T) ops.OperationPaths {

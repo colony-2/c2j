@@ -346,9 +346,10 @@ func (d DefaultRecipeExecutor) executeOp2(ctx workflow.Context, parentResolution
 	runPolicy := swf.RunPolicy{
 		Retry: retry,
 	}
-	if metadata.Timeout > 0 {
-		timeout := swf.Duration(metadata.Timeout)
-		runPolicy.TotalTimeout = &timeout
+	if timeout := effectiveOpTimeout(metadata, registeredOp); timeout > 0 {
+		ctx.JobContext = withExecutionTimeout(ctx.JobContext, timeout, fmt.Sprintf("op %q", op))
+		totalTimeout := swf.Duration(timeout)
+		runPolicy.TotalTimeout = &totalTimeout
 	}
 
 	taskType := fmt.Sprintf("%s:%s", taskPrefix, chain[0].Name)
@@ -505,20 +506,31 @@ func (d DefaultRecipeExecutor) innerSequence(ctx workflow.Context, parentCtx *te
 
 func (d DefaultRecipeExecutor) ExecuteSequence(ctx workflow.Context, rCtx *template.ResolutionContext, metadata recipe.NodeMetadata, outputTemplate map[string]interface{}, sequence []recipe.Node) error {
 	timeout := time.Duration(metadata.Timeout)
-	if timeout == 0 {
-		timeout = 30 * time.Second // Default timeout
-	}
 	fn := func(inner workflow.Context) error {
 		e := d.innerSequence(inner, rCtx, metadata, outputTemplate, sequence)
 		return e
 	}
-	err := executeCompositeInEnvelope(ctx, metadata.Retry, timeout, fn)
+	err := executeCompositeInEnvelope(ctx, metadata.Retry, timeout, fmt.Sprintf("sequence %q", template.ScopeID(metadata, "", template.ScopeSequence)), fn)
 
 	return err
 }
 
 // executeCompositeInEnvelope executes a composite nodes in a retry/timeout envelope
-func executeCompositeInEnvelope(ctx workflow.Context, retry *recipe.RetryPolicy, timeoutDuration time.Duration, fn func(inner workflow.Context) error) error {
-	// TODO: update composite executions to respect retry policy and timeouts.
+func executeCompositeInEnvelope(ctx workflow.Context, retry *recipe.RetryPolicy, timeoutDuration time.Duration, label string, fn func(inner workflow.Context) error) error {
+	// TODO: update composite executions to respect retry policy.
+	_ = retry
+	if timeoutDuration > 0 {
+		ctx.JobContext = withExecutionTimeout(ctx.JobContext, timeoutDuration, label)
+	}
 	return fn(ctx)
+}
+
+func effectiveOpTimeout(metadata recipe.NodeMetadata, registeredOp ops.RegisterableOp) time.Duration {
+	if metadata.Timeout > 0 {
+		return time.Duration(metadata.Timeout)
+	}
+	if registeredOp == nil {
+		return 0
+	}
+	return registeredOp.GetMetadata().DefaultTimeout
 }

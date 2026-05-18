@@ -2,6 +2,7 @@ package compiler
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/colony-2/c2j/pkg/recipe"
 	"github.com/colony-2/c2j/pkg/template"
@@ -10,6 +11,10 @@ import (
 
 // ExecuteStateMachine runs the state machine with the new StateMap format
 func (d DefaultRecipeExecutor) ExecuteStateMachine(ctx workflow.Context, parentContext *template.ResolutionContext, metadata recipe.NodeMetadata, outputTemplate map[string]interface{}, stateMap *recipe.StateMap, opts ...ExecutionOptions) error {
+	if timeout := time.Duration(metadata.Timeout); timeout > 0 {
+		ctx.JobContext = withExecutionTimeout(ctx.JobContext, timeout, fmt.Sprintf("state machine %q", template.ScopeID(metadata, "", template.ScopeStateMachine)))
+	}
+
 	// Create resolution context for the state machine
 	resolvedInputs, err := parentContext.ResolveMap(metadata.Inputs)
 	if err != nil {

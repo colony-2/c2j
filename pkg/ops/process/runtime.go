@@ -11,6 +11,7 @@ import (
 	goruntime "runtime"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/colony-2/c2j/pkg/contextual"
 	"github.com/colony-2/c2j/pkg/ops"
@@ -296,7 +297,7 @@ func ExecuteProcess(ctx context.Context, req RunRequest) ([]byte, []byte, error)
 }
 
 func executeOnHost(ctx context.Context, req RunRequest, workingDir string) ([]byte, []byte, error) {
-	cmd, err := buildExecCommand(ctx, req)
+	cmd, err := buildExecCommand(req)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -308,8 +309,29 @@ func executeOnHost(ctx context.Context, req RunRequest, workingDir string) ([]by
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
-	err = cmd.Run()
-	return stdout.Bytes(), stderr.Bytes(), err
+	configureProcessTree(cmd)
+	if err := cmd.Start(); err != nil {
+		return stdout.Bytes(), stderr.Bytes(), err
+	}
+
+	waitCh := make(chan error, 1)
+	go func() {
+		waitCh <- cmd.Wait()
+	}()
+
+	select {
+	case err := <-waitCh:
+		return stdout.Bytes(), stderr.Bytes(), err
+	case <-ctx.Done():
+		terminateProcessTree(cmd)
+		select {
+		case <-waitCh:
+		case <-time.After(processTerminationGrace):
+			killProcessTree(cmd)
+			<-waitCh
+		}
+		return stdout.Bytes(), stderr.Bytes(), fmt.Errorf("process canceled: %w", ctx.Err())
+	}
 }
 
 func executeInShai(ctx context.Context, req RunRequest, workspaceRoot string, workingDir string) ([]byte, []byte, error) {
@@ -389,12 +411,12 @@ func BuildProcessEnvMap(env map[string]string) map[string]string {
 	return merged
 }
 
-func buildExecCommand(ctx context.Context, req RunRequest) (*exec.Cmd, error) {
+func buildExecCommand(req RunRequest) (*exec.Cmd, error) {
 	argv, err := buildExecArgv(req)
 	if err != nil {
 		return nil, err
 	}
-	return exec.CommandContext(ctx, argv[0], argv[1:]...), nil
+	return exec.Command(argv[0], argv[1:]...), nil
 }
 
 func buildExecArgv(req RunRequest) ([]string, error) {
