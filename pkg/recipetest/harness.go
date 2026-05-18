@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -439,9 +440,7 @@ func runPreparedCase(ctx context.Context, opts HarnessOptions, tenantID string, 
 	started := time.Now()
 	execResp := CaseRunResult{CaseId: req.Case.ID, Status: "passed", CaseHash: prepared.Validation.CaseHash}
 	timeout := parseTimeout(req.Execution.Timeout, 60*time.Second)
-
-	tctx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
+	recipeDef := withRecipeTimeoutOverlay(prepared.Recipe, timeout)
 
 	execCfg := normalizedExecutionConfig(req)
 	jobCtx := newTestJobContext(tenantID, req.Case, execCfg.Policy, opts.Deps)
@@ -468,24 +467,32 @@ func runPreparedCase(ctx context.Context, opts HarnessOptions, tenantID string, 
 		GitBase:     contextual.GitBaseContext{BaseRepo: "recipe-tests", BaseRef: prepared.ResolvedHash, ResolvedBaseHash: prepared.ResolvedHash},
 	}
 	gitCtx := contextual.GitCommitContext{ParentRef: prepared.ResolvedHash}
+	timedOut := false
 
 	outputs, artifacts, err := compiler.ExecuteRecipe(
 		wfCtx,
-		*prepared.Recipe,
+		recipeDef,
 		rawInputs,
 		runCtx,
 		gitCtx,
 		compiler.ExecutionOptions{CELOptionsProvider: opts.CELOptions, StateObserver: jobCtx, DiagnosticsObserver: jobCtx},
 	)
 	if err != nil {
-		execResp.Status = "failed"
-		execResp.FailureCategory = failureCategoryFromError(err)
-		execResp.FailureReason = err.Error()
+		if errors.Is(err, context.DeadlineExceeded) {
+			timedOut = true
+			execResp.Status = "timed_out"
+			execResp.FailureCategory = "timeout"
+			execResp.FailureReason = "execution timed out"
+		} else {
+			execResp.Status = "failed"
+			execResp.FailureCategory = failureCategoryFromError(err)
+			execResp.FailureReason = err.Error()
+		}
 	} else {
 		execResp.Outputs = outputs
 	}
 
-	artifactBytes := collectArtifactBytes(tctx, jobCtx, artifacts)
+	artifactBytes := collectArtifactBytes(ctx, jobCtx, artifacts)
 	assertionResults, assertionFailed := runRecipeTestAssertions(req.Case.Assertions, execResp.Outputs, artifactBytes, jobCtx.executedNodes, execResp.Status, jobCtx.vars, jobCtx.transitions)
 	execResp.Assertions = assertionResults
 	if assertionFailed {
@@ -506,13 +513,50 @@ func runPreparedCase(ctx context.Context, opts HarnessOptions, tenantID string, 
 		markFailure(&execResp, "runtime_error", "target op_case node was not executed")
 	}
 
-	if tctx.Err() == context.DeadlineExceeded {
+	if timedOut {
 		execResp.Status = "timed_out"
 		execResp.FailureCategory = "timeout"
 		execResp.FailureReason = "execution timed out"
 	}
 	execResp.DurationMs = time.Since(started).Milliseconds()
 	return execResp
+}
+
+func withRecipeTimeoutOverlay(rec *recipecore.Recipe, timeout time.Duration) recipecore.Recipe {
+	if rec == nil || rec.RecipeImpl == nil || timeout <= 0 {
+		if rec == nil {
+			return recipecore.Recipe{}
+		}
+		return *rec
+	}
+	apply := func(metadata recipecore.RecipeMetadata) recipecore.RecipeMetadata {
+		metadata.NodeMetadata.Timeout = overlayTimeout(metadata.NodeMetadata.Timeout, timeout)
+		return metadata
+	}
+	switch typed := rec.RecipeImpl.(type) {
+	case *recipecore.RecipeOp:
+		clone := *typed
+		clone.RecipeMetadata = apply(typed.RecipeMetadata)
+		return recipecore.Recipe{RecipeImpl: &clone}
+	case *recipecore.RecipeSequence:
+		clone := *typed
+		clone.RecipeMetadata = apply(typed.RecipeMetadata)
+		return recipecore.Recipe{RecipeImpl: &clone}
+	case *recipecore.RecipeState:
+		clone := *typed
+		clone.RecipeMetadata = apply(typed.RecipeMetadata)
+		return recipecore.Recipe{RecipeImpl: &clone}
+	default:
+		return *rec
+	}
+}
+
+func overlayTimeout(existing recipecore.Duration, overlay time.Duration) recipecore.Duration {
+	current := time.Duration(existing)
+	if current <= 0 || overlay < current {
+		return recipecore.Duration(overlay)
+	}
+	return existing
 }
 
 func recipeTestOperationPaths(workRoot string) coreops.OperationPaths {
@@ -806,7 +850,12 @@ func (j *testJobContext) DoValidationTask(runPolicy swf.RunPolicy, taskType stri
 	return j.doMockedTask(runPolicy, taskType, data, false)
 }
 
-func (j *testJobContext) doMockedTask(_ swf.RunPolicy, taskType string, data swf.TaskData, requireMock bool) (swf.TaskData, bool, error) {
+func (j *testJobContext) doMockedTask(runPolicy swf.RunPolicy, taskType string, data swf.TaskData, requireMock bool) (swf.TaskData, bool, error) {
+	ctx, cancel := contextForRunPolicy(runPolicy)
+	defer cancel()
+	if err := ctx.Err(); err != nil {
+		return nil, true, err
+	}
 	raw, err := data.GetData()
 	if err != nil {
 		return nil, false, err
@@ -864,7 +913,7 @@ func (j *testJobContext) doMockedTask(_ swf.RunPolicy, taskType string, data swf
 		}
 		return nil, true, fmt.Errorf("%s", msg)
 	case "passthrough", "record_passthrough":
-		record, err := j.runPassthroughTask(taskType, inv)
+		record, err := j.runPassthroughTask(ctx, taskType, inv)
 		if err != nil {
 			return nil, true, err
 		}
@@ -885,6 +934,17 @@ func (j *testJobContext) doMockedTask(_ swf.RunPolicy, taskType string, data swf
 	default:
 		return nil, true, fmt.Errorf("mock mode %q not supported in isolated execution", mock.Behavior.Mode)
 	}
+}
+
+func contextForRunPolicy(runPolicy swf.RunPolicy) (context.Context, context.CancelFunc) {
+	if runPolicy.TotalTimeout == nil {
+		return context.WithCancel(context.Background())
+	}
+	timeout := time.Duration(*runPolicy.TotalTimeout)
+	if timeout <= 0 {
+		return context.WithCancel(context.Background())
+	}
+	return context.WithTimeout(context.Background(), timeout)
 }
 
 func (j *testJobContext) selectOpMockForInvocation(invocationKey string, nodePath string, opName string) (OpMock, bool) {
@@ -939,7 +999,7 @@ func (j *testJobContext) buildTaskData(outputs map[string]interface{}, artifacts
 	return swf.NewTaskData(env, artifactList...)
 }
 
-func (j *testJobContext) runPassthroughTask(taskType string, inv workerops.ActivityInvocationRequest) (passthroughRecord, error) {
+func (j *testJobContext) runPassthroughTask(ctx context.Context, taskType string, inv workerops.ActivityInvocationRequest) (passthroughRecord, error) {
 	opName, stepName := splitTaskType(taskType)
 	op, exists := coreops.Get(opName)
 	if !exists {
@@ -1020,7 +1080,7 @@ func (j *testJobContext) runPassthroughTask(taskType string, inv workerops.Activ
 		WithWorktreePath(operationPaths.WorktreePath).
 		Build()
 
-	out, err := chain[idx].Invoke(deps, context.Background(), inv.Input)
+	out, err := chain[idx].Invoke(deps, ctx, inv.Input)
 	if err != nil {
 		return passthroughRecord{}, fmt.Errorf("passthrough invoke failed for %s: %w", taskType, err)
 	}
@@ -1034,7 +1094,7 @@ func (j *testJobContext) runPassthroughTask(taskType string, inv workerops.Activ
 	artifacts := map[string][]byte{}
 	if outDeps, ok := deps.(interface{ GetOutputArtifacts() []swf.Artifact }); ok {
 		for _, art := range outDeps.GetOutputArtifacts() {
-			if b, err := art.Bytes(context.Background()); err == nil {
+			if b, err := art.Bytes(ctx); err == nil {
 				artifacts[art.Name()] = b
 				j.artifactContents[art.Name()] = b
 			}
@@ -1618,6 +1678,9 @@ func stringSliceFromAny(v interface{}) ([]string, bool) {
 func failureCategoryFromError(err error) string {
 	if err == nil {
 		return ""
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return "timeout"
 	}
 	e := strings.ToLower(err.Error())
 	switch {

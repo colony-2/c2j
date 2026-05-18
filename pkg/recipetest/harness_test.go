@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/colony-2/c2j/pkg/contextual"
 	coreops "github.com/colony-2/c2j/pkg/ops"
@@ -206,6 +207,125 @@ outputs:
 	}
 	if _, ok := resp.Artifacts["results/status.json"]; !ok {
 		t.Fatalf("expected collected outbox artifact, got %#v", resp.Artifacts)
+	}
+}
+
+func TestRunCaseTimeoutOverlaysRecipeTimeoutForPassthrough(t *testing.T) {
+	const opType = "test_timeout_overlay_passthrough"
+	withRegisteredCoreOps(t, coreops.NewActivityMappedOpV2[map[string]interface{}, map[string]interface{}](coreops.OpMetadata{Type: opType},
+		func(_ coreops.OpDependencies, ctx context.Context, _ map[string]interface{}) (map[string]interface{}, error) {
+			select {
+			case <-ctx.Done():
+				if cause := context.Cause(ctx); cause != nil {
+					return map[string]interface{}{"done": false}, cause
+				}
+				return map[string]interface{}{"done": false}, ctx.Err()
+			case <-time.After(2 * time.Second):
+				return map[string]interface{}{"done": true}, nil
+			}
+		}))
+
+	target := TargetRecipe{
+		Mode:   "inline_recipe",
+		Format: "yaml",
+		Content: `
+id: timeout-overlay
+version: "1.0.0"
+sequence:
+  - id: slow
+    op: test_timeout_overlay_passthrough
+    inputs: {}
+outputs:
+  done: "{{ sequence.slow.outputs.done }}"
+`,
+	}
+	testCase := Case{
+		ID:   "timeout-overlay",
+		Type: "recipe_case",
+		Mocks: Mocks{Ops: []OpMock{{
+			Match:    OpMockMatch{Op: opType},
+			Behavior: MockBehavior{Mode: "passthrough"},
+		}}},
+		Assertions: []Assertion{{Type: "status_is", Status: "passed"}},
+	}
+
+	started := time.Now()
+	resp := RunCase(context.Background(), HarnessOptions{Deps: coreops.NewServiceDepsBuilder().Build()}, "recipe-test-project", target, testCase, ExecutionOptions{Timeout: "75ms"})
+	if resp.Status != "timed_out" {
+		t.Fatalf("status = %q, failure category = %q, reason = %q", resp.Status, resp.FailureCategory, resp.FailureReason)
+	}
+	if resp.FailureCategory != "timeout" {
+		t.Fatalf("failure category = %q, want timeout", resp.FailureCategory)
+	}
+	if elapsed := time.Since(started); elapsed > time.Second {
+		t.Fatalf("timeout overlay did not interrupt passthrough promptly; elapsed %s", elapsed)
+	}
+}
+
+func TestWithRecipeTimeoutOverlayAppliesShorterTestTimeoutToRootRecipeTypes(t *testing.T) {
+	existing := recipecore.Duration(2 * time.Second)
+	overlay := 150 * time.Millisecond
+	cases := []struct {
+		name string
+		rec  *recipecore.Recipe
+	}{
+		{
+			name: "op",
+			rec: &recipecore.Recipe{RecipeImpl: &recipecore.RecipeOp{
+				RecipeMetadata: recipecore.RecipeMetadata{NodeMetadata: recipecore.NodeMetadata{ID: "root", Timeout: existing}},
+			}},
+		},
+		{
+			name: "sequence",
+			rec: &recipecore.Recipe{RecipeImpl: &recipecore.RecipeSequence{
+				RecipeMetadata: recipecore.RecipeMetadata{NodeMetadata: recipecore.NodeMetadata{ID: "root", Timeout: existing}},
+			}},
+		},
+		{
+			name: "state",
+			rec: &recipecore.Recipe{RecipeImpl: &recipecore.RecipeState{
+				RecipeMetadata: recipecore.RecipeMetadata{NodeMetadata: recipecore.NodeMetadata{ID: "root", Timeout: existing}},
+			}},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := withRecipeTimeoutOverlay(tc.rec, overlay)
+			if timeout := recipeRootTimeout(t, got); time.Duration(timeout) != overlay {
+				t.Fatalf("overlay timeout = %s, want %s", time.Duration(timeout), overlay)
+			}
+			if timeout := recipeRootTimeout(t, *tc.rec); timeout != existing {
+				t.Fatalf("original timeout mutated to %s, want %s", time.Duration(timeout), time.Duration(existing))
+			}
+		})
+	}
+}
+
+func TestWithRecipeTimeoutOverlayKeepsShorterRecipeTimeout(t *testing.T) {
+	existing := recipecore.Duration(75 * time.Millisecond)
+	rec := &recipecore.Recipe{RecipeImpl: &recipecore.RecipeSequence{
+		RecipeMetadata: recipecore.RecipeMetadata{NodeMetadata: recipecore.NodeMetadata{ID: "root", Timeout: existing}},
+	}}
+
+	got := withRecipeTimeoutOverlay(rec, time.Second)
+	if timeout := recipeRootTimeout(t, got); timeout != existing {
+		t.Fatalf("overlay timeout = %s, want existing %s", time.Duration(timeout), time.Duration(existing))
+	}
+}
+
+func recipeRootTimeout(t *testing.T, rec recipecore.Recipe) recipecore.Duration {
+	t.Helper()
+	switch typed := rec.RecipeImpl.(type) {
+	case *recipecore.RecipeOp:
+		return typed.RecipeMetadata.NodeMetadata.Timeout
+	case *recipecore.RecipeSequence:
+		return typed.RecipeMetadata.NodeMetadata.Timeout
+	case *recipecore.RecipeState:
+		return typed.RecipeMetadata.NodeMetadata.Timeout
+	default:
+		t.Fatalf("unsupported recipe type %T", typed)
+		return 0
 	}
 }
 
