@@ -24,7 +24,7 @@ type StartJob struct {
 	JobID        string                 `json:"job_id,omitempty"`
 	RecipeName   string                 `json:"recipe"`
 	Inputs       map[string]interface{} `json:"inputs,omitempty"`
-	Artifacts    []swf.Artifact         `json:"artifacts,omitempty"`
+	Artifacts    []swf.Artifact         `json:"-"`
 	ArtifactRefs []recipeartifacts.Ref  `json:"artifact_refs,omitempty"`
 	JobContext   contextual.JobContext  `json:"context,omitempty"`
 	GitRef       string                 `json:"git,omitempty"`

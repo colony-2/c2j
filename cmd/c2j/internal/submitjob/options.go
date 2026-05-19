@@ -24,6 +24,8 @@ type Options struct {
 	InputsJSON string
 	InputsFile string
 
+	ArtifactSpecs []string
+
 	Self bool
 	Cell string
 

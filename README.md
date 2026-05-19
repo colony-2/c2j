@@ -192,6 +192,34 @@ Rules:
 - `--inputs-json` and `--inputs-file` are mutually exclusive
 - the positional prompt cannot also be provided as `inputs.prompt`
 
+### Attaching files
+
+Attach local files as job artifacts with repeatable `--artifact` flags:
+
+```bash
+c2j submit \
+  --recipe-file ./recipes/review-docs.yaml \
+  --artifact ./docs/brief.md \
+  --artifact requirements=./docs/requirements.md \
+  --run \
+  --embed
+```
+
+`--artifact <path>` uses the file basename as the artifact name.
+`--artifact <name>=<path>` sets an explicit artifact name.
+
+Recipes bind submitted artifacts into an op inbox explicitly:
+
+```yaml
+sequence:
+  - id: inspect
+    op: command_execution
+    artifacts:
+      brief.md: '${{ context.artifacts["brief.md"] }}'
+    inputs:
+      run: 'cat "${{ context.environment.op.inbox }}/brief.md"'
+```
+
 ### Choosing the target cell
 
 Use the current cell:
@@ -482,6 +510,7 @@ c2j submit \
 - `--json` and `--run` are mutually exclusive on `submit`
 - `--inputs-json` and `--inputs-file` are mutually exclusive
 - `--self` and `--cell` are mutually exclusive
+- `--artifact` names must be unique relative paths; directories are not supported yet
 - `self`, `cells`, and implicit current-cell submission depend on config or supported auto-detection succeeding
 - short cell names require a config pattern; without config, use an explicit repo or path
 - `--recipe-file` is clearer than passing a local file path through `--recipe`

@@ -254,6 +254,7 @@ func (rc *ResolutionContext) goTemplateContextMap() map[string]interface{} {
 				"outbox":        ctx.Environment.Op.Outbox,
 			},
 		},
+		"artifacts": ctx.Artifacts,
 		"workflow": map[string]interface{}{
 			"cell_id":    ctx.Workflow.CellID,
 			"cell":       ctx.Workflow.CellName,

@@ -129,6 +129,117 @@ outputs:
 	}
 }
 
+func TestRun_SubmitsAttachedArtifactAndRecipeReadsInboxFile(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	tenantID := "tenant-submit-artifact-test"
+	recipeYAML := strings.TrimSpace(`
+id: submit_artifact_recipe
+desc: verifies submit-time file artifacts are visible to recipe ops
+version: "1.0"
+sequence:
+  - id: read_doc
+    op: command_execution
+    artifacts:
+      brief.md: '${{ context.artifacts["brief.md"] }}'
+    inputs:
+      run: 'cat "${{ context.environment.op.inbox }}/brief.md"'
+      working_directory: "."
+outputs:
+  result: "{{ sequence.read_doc.outputs.stdout }}"
+`) + "\n"
+
+	root := t.TempDir()
+	recipePath := filepath.Join(root, "submit_artifact_recipe.yaml")
+	if err := os.WriteFile(recipePath, []byte(recipeYAML), 0o644); err != nil {
+		t.Fatalf("write recipe: %v", err)
+	}
+	briefPath := filepath.Join(root, "brief.md")
+	if err := os.WriteFile(briefPath, []byte("hello from attached markdown"), 0o644); err != nil {
+		t.Fatalf("write brief: %v", err)
+	}
+
+	baseRepo, _ := createGitRepo(t)
+
+	underlying := toyruntime.New()
+	server := httptest.NewServer(remoteruntime.NewServer(underlying))
+	defer server.Close()
+
+	var submitStdout bytes.Buffer
+	if err := Run(ctx, Options{
+		TenantID:      tenantID,
+		SWFURL:        server.URL,
+		RecipeFile:    recipePath,
+		Cell:          baseRepo,
+		WorkingDir:    root,
+		ArtifactSpecs: []string{"brief.md"},
+		JSONOutput:    true,
+		Stdout:        &submitStdout,
+	}); err != nil {
+		t.Fatalf("submit job: %v", err)
+	}
+
+	var submitted struct {
+		TenantID string `json:"tenant_id"`
+		JobID    string `json:"job_id"`
+		Recipe   string `json:"recipe"`
+	}
+	if err := json.Unmarshal(submitStdout.Bytes(), &submitted); err != nil {
+		t.Fatalf("decode submit output: %v", err)
+	}
+
+	var runStdout bytes.Buffer
+	var runStderr bytes.Buffer
+	if err := runjob.Run(ctx, runjob.Options{
+		JobID:        submitted.JobID,
+		TenantID:     tenantID,
+		SWFURL:       server.URL,
+		WaitTimeout:  5 * time.Second,
+		PollInterval: 10 * time.Millisecond,
+		InputMode:    "fail",
+		Stdout:       &runStdout,
+		Stderr:       &runStderr,
+	}); err != nil {
+		t.Fatalf("run submitted job: %v\nstderr:\n%s", err, runStderr.String())
+	}
+
+	runtime, err := remoteruntime.New(server.URL, server.Client())
+	if err != nil {
+		t.Fatalf("create remote runtime: %v", err)
+	}
+	engine, err := swf.NewEngineBuilder().WithRuntime(runtime).BuildEngine()
+	if err != nil {
+		t.Fatalf("build engine: %v", err)
+	}
+
+	run, err := engine.GetJobRun(ctx, swf.GetJobRunRequest{
+		JobKey:         swf.JobKey{TenantId: tenantID, JobId: submitted.JobID},
+		IncludeOutputs: true,
+	})
+	if err != nil {
+		t.Fatalf("get job run: %v", err)
+	}
+	output, err := run.GetOutput(engine, tenantID)
+	if err != nil {
+		t.Fatalf("get output: %v", err)
+	}
+	raw, err := output.GetData()
+	if err != nil {
+		t.Fatalf("get output data: %v", err)
+	}
+
+	got := map[string]any{}
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatalf("decode output: %v", err)
+	}
+	if got["result"] != "hello from attached markdown" {
+		t.Fatalf("unexpected output: %#v", got)
+	}
+}
+
 func TestRun_SubmitsRecipeReferenceThatResolvesAtExecution(t *testing.T) {
 	t.Parallel()
 

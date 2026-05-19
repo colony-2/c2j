@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -277,5 +278,99 @@ func TestLoadInputsRejectsPromptConflict(t *testing.T) {
 		PromptSet:  true,
 	}); err == nil {
 		t.Fatal("expected loadInputs() to reject duplicate prompt sources")
+	}
+}
+
+func TestLoadSubmitArtifactsLoadsDefaultAndCustomNames(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	docsDir := filepath.Join(root, "docs")
+	if err := os.MkdirAll(docsDir, 0o755); err != nil {
+		t.Fatalf("mkdir docs: %v", err)
+	}
+	briefPath := filepath.Join(docsDir, "brief.md")
+	requirementsPath := filepath.Join(docsDir, "requirements.md")
+	if err := os.WriteFile(briefPath, []byte("brief body"), 0o644); err != nil {
+		t.Fatalf("write brief: %v", err)
+	}
+	if err := os.WriteFile(requirementsPath, []byte("requirements body"), 0o644); err != nil {
+		t.Fatalf("write requirements: %v", err)
+	}
+
+	artifacts, err := loadSubmitArtifacts(Options{
+		WorkingDir: root,
+		ArtifactSpecs: []string{
+			"docs/brief.md",
+			"requirements=docs/requirements.md",
+		},
+	}, "review_docs", false)
+	if err != nil {
+		t.Fatalf("loadSubmitArtifacts(): %v", err)
+	}
+	if len(artifacts) != 2 {
+		t.Fatalf("len(artifacts) = %d, want 2", len(artifacts))
+	}
+	if artifacts[0].Name() != "brief.md" {
+		t.Fatalf("first artifact name = %q", artifacts[0].Name())
+	}
+	if artifacts[1].Name() != "requirements" {
+		t.Fatalf("second artifact name = %q", artifacts[1].Name())
+	}
+
+	firstBytes, err := artifacts[0].Bytes(context.Background())
+	if err != nil {
+		t.Fatalf("read first artifact: %v", err)
+	}
+	if string(firstBytes) != "brief body" {
+		t.Fatalf("first artifact bytes = %q", firstBytes)
+	}
+	secondBytes, err := artifacts[1].Bytes(context.Background())
+	if err != nil {
+		t.Fatalf("read second artifact: %v", err)
+	}
+	if string(secondBytes) != "requirements body" {
+		t.Fatalf("second artifact bytes = %q", secondBytes)
+	}
+}
+
+func TestLoadSubmitArtifactsRejectsInvalidSpecs(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "brief.md"), []byte("brief"), 0o644); err != nil {
+		t.Fatalf("write brief: %v", err)
+	}
+	if err := os.Mkdir(filepath.Join(root, "docs"), 0o755); err != nil {
+		t.Fatalf("mkdir docs: %v", err)
+	}
+
+	tests := []struct {
+		name           string
+		specs          []string
+		embeddedRecipe bool
+		want           string
+	}{
+		{name: "empty", specs: []string{""}, want: "cannot be empty"},
+		{name: "missing file", specs: []string{"missing.md"}, want: "stat"},
+		{name: "directory", specs: []string{"docs"}, want: "regular file"},
+		{name: "invalid name", specs: []string{"../bad=brief.md"}, want: "invalid artifact name"},
+		{name: "duplicate name", specs: []string{"brief.md", "brief.md=brief.md"}, want: "duplicates artifact name"},
+		{name: "recipe artifact collision", specs: []string{"review_docs.recipe.yaml=brief.md"}, embeddedRecipe: true, want: "conflicts with internal recipe artifact"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := loadSubmitArtifacts(Options{
+				WorkingDir:    root,
+				ArtifactSpecs: tt.specs,
+			}, "review_docs", tt.embeddedRecipe)
+			if err == nil {
+				t.Fatal("expected error")
+			}
+			if !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("error = %q, want substring %q", err.Error(), tt.want)
+			}
+		})
 	}
 }

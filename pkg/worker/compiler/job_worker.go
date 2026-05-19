@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"strings"
 
+	recipeartifacts "github.com/colony-2/c2j/pkg/artifacts"
 	"github.com/colony-2/c2j/pkg/contextual"
 	"github.com/colony-2/c2j/pkg/logutil"
 	"github.com/colony-2/c2j/pkg/ops"
@@ -131,6 +132,7 @@ func (j recipeJobWorker) Run(ctx swf.JobContext, jobData swf.JobData) (swf.JobDa
 		j.onRecipeLoadedFn(input.RecipeName)
 	}
 
+	hasEmbeddedRecipeArtifact := recipes.HasRecipe(input.RecipeName)
 	resolution := RecipeSourceResolution{
 		SourceKind:        RecipeSourceKindArtifact,
 		SubmittedSelector: input.RecipeName,
@@ -139,7 +141,7 @@ func (j recipeJobWorker) Run(ctx swf.JobContext, jobData swf.JobData) (swf.JobDa
 		WasAlreadyPinned:  true,
 	}
 	var r recipe.Recipe
-	if recipes.HasRecipe(input.RecipeName) {
+	if hasEmbeddedRecipeArtifact {
 		r, err = recipes.GetRecipe(input.RecipeName)
 	} else {
 		if j.rootResolver == nil {
@@ -212,6 +214,16 @@ func (j recipeJobWorker) Run(ctx swf.JobContext, jobData swf.JobData) (swf.JobDa
 	)
 
 	runContext := input.JobContext
+	submittedRefs, err := submittedArtifactRefs(input, artifacts, hasEmbeddedRecipeArtifact)
+	if err != nil {
+		logger.Error("recipe job: failed to index submitted artifacts",
+			"error", err,
+			"error_chain", logutil.ErrorChain(err),
+			"stacktrace", logutil.Stacktrace(5),
+		)
+		return nil, err
+	}
+	runContext.Artifacts = submittedRefs
 	applyRootRecipeSource(&runContext, resolution)
 	if err := ensureEnvironmentSentinels(&runContext.Environment); err != nil {
 		logger.Error("recipe job: invalid environment sentinel",
@@ -261,6 +273,58 @@ func (j recipeJobWorker) Run(ctx swf.JobContext, jobData swf.JobData) (swf.JobDa
 	logger.Info("recipe execution completed successfully")
 	return swf.JobData(taskData), nil
 
+}
+
+func submittedArtifactRefs(input workflowctl.StartJob, jobArtifacts []swf.Artifact, hasEmbeddedRecipeArtifact bool) (map[string]recipeartifacts.Ref, error) {
+	out := make(map[string]recipeartifacts.Ref)
+	for _, artifactRef := range input.ArtifactRefs {
+		if artifactRef.IsZero() {
+			continue
+		}
+		if err := artifactRef.Validate(); err != nil {
+			return nil, fmt.Errorf("invalid submitted artifact ref %q: %w", artifactRef.NameValue(), err)
+		}
+		if err := addSubmittedArtifactRef(out, artifactRef); err != nil {
+			return nil, err
+		}
+	}
+
+	internalRecipeArtifactName := input.RecipeName + starter.RecipeArtifactSuffix
+	for _, artifact := range jobArtifacts {
+		if artifact == nil {
+			continue
+		}
+		if hasEmbeddedRecipeArtifact && artifact.Name() == internalRecipeArtifactName {
+			continue
+		}
+		artifactRef, err := recipeartifacts.RefFromArtifact(artifact)
+		if err != nil {
+			return nil, fmt.Errorf("build submitted artifact ref for %q: %w", artifact.Name(), err)
+		}
+		if err := addSubmittedArtifactRef(out, artifactRef); err != nil {
+			return nil, err
+		}
+	}
+
+	if len(out) == 0 {
+		return nil, nil
+	}
+	return out, nil
+}
+
+func addSubmittedArtifactRef(refs map[string]recipeartifacts.Ref, artifactRef recipeartifacts.Ref) error {
+	name := artifactRef.NameValue()
+	if strings.TrimSpace(name) == "" {
+		return fmt.Errorf("submitted artifact ref name cannot be empty")
+	}
+	if existing, exists := refs[name]; exists {
+		if existing.Identity() != artifactRef.Identity() {
+			return fmt.Errorf("duplicate submitted artifact name %q refers to both %s and %s", name, existing.Identity(), artifactRef.Identity())
+		}
+		return nil
+	}
+	refs[name] = artifactRef
+	return nil
 }
 
 func ensureSentinel(field *string, sentinel string, name string) error {

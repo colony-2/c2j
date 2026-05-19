@@ -109,3 +109,38 @@ func TestStartRecipeJobWithOptions_ForwardsExplicitJobID(t *testing.T) {
 		t.Fatalf("expected explicit job id to be forwarded, got %q", engine.job.JobID)
 	}
 }
+
+func TestStartRecipeJobAttachesArtifactsWithoutSerializingThemInPayload(t *testing.T) {
+	engine := &captureSubmitter{}
+
+	_, err := StartRecipeJobWithOptions(context.Background(), workflowctl.StartJob{
+		TenantId:   "tenant",
+		RecipeName: "recipe-name",
+		Artifacts: []swf.Artifact{
+			swf.NewArtifactFromBytes("brief.md", []byte("brief")),
+		},
+	}, engine, StartRecipeJobOptions{})
+	if err != nil {
+		t.Fatalf("StartRecipeJobWithOptions: %v", err)
+	}
+
+	raw, err := engine.job.Data.GetData()
+	if err != nil {
+		t.Fatalf("GetData(): %v", err)
+	}
+	var payload workflowctl.StartJob
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		t.Fatalf("unmarshal start payload: %v", err)
+	}
+	if len(payload.Artifacts) != 0 {
+		t.Fatalf("payload serialized artifacts: %#v", payload.Artifacts)
+	}
+
+	artifacts, err := engine.job.Data.GetArtifacts()
+	if err != nil {
+		t.Fatalf("GetArtifacts(): %v", err)
+	}
+	if len(artifacts) != 1 || artifacts[0].Name() != "brief.md" {
+		t.Fatalf("attached artifacts = %#v", artifacts)
+	}
+}

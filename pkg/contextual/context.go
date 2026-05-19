@@ -61,10 +61,11 @@ type WorkflowContext struct {
 
 // ExecutionContext holds typed workflow context available to templates. It is created per task.
 type JobContext struct {
-	Environment  EnvironmentContext  `json:"environment,omitempty"`
-	Workflow     WorkflowContext     `json:"workflow,omitempty"`
-	GitBase      GitBaseContext      `json:"git,omitempty"`
-	RecipeSource RecipeSourceContext `json:"recipe_source,omitempty"`
+	Environment  EnvironmentContext       `json:"environment,omitempty"`
+	Artifacts    map[string]artifacts.Ref `json:"artifacts,omitempty"`
+	Workflow     WorkflowContext          `json:"workflow,omitempty"`
+	GitBase      GitBaseContext           `json:"git,omitempty"`
+	RecipeSource RecipeSourceContext      `json:"recipe_source,omitempty"`
 }
 
 type TaskContext struct {
@@ -76,6 +77,7 @@ type TaskContext struct {
 func NewTaskExecutionContext(ctx JobContext, ctx2 TaskContext) TaskExecutionContext {
 	return TaskExecutionContext{
 		Environment:  ctx.Environment,
+		Artifacts:    cloneArtifactRefs(ctx.Artifacts),
 		Workflow:     ctx.Workflow,
 		RecipeSource: ctx.RecipeSource,
 		GitTask: GitTask{
@@ -97,11 +99,12 @@ func NewTaskExecutionContext(ctx JobContext, ctx2 TaskContext) TaskExecutionCont
 
 type TaskExecutionContext struct {
 	// embed these directly from task and job contexts for easier resolution.
-	Environment  EnvironmentContext  `json:"environment,omitempty"`
-	Workflow     WorkflowContext     `json:"workflow,omitempty"`
-	RecipeSource RecipeSourceContext `json:"recipe_source,omitempty"`
-	GitTask      GitTask             `json:"git,omitempty"`
-	Invocation   InvocationCtx       `json:"invocation,omitempty"`
+	Environment  EnvironmentContext       `json:"environment,omitempty"`
+	Artifacts    map[string]artifacts.Ref `json:"artifacts,omitempty"`
+	Workflow     WorkflowContext          `json:"workflow,omitempty"`
+	RecipeSource RecipeSourceContext      `json:"recipe_source,omitempty"`
+	GitTask      GitTask                  `json:"git,omitempty"`
+	Invocation   InvocationCtx            `json:"invocation,omitempty"`
 }
 
 type GitTask struct {
@@ -123,6 +126,7 @@ type InvocationCtx struct {
 func (t TaskExecutionContext) JobContext() JobContext {
 	return JobContext{
 		Environment: t.Environment,
+		Artifacts:   cloneArtifactRefs(t.Artifacts),
 		Workflow:    t.Workflow,
 		GitBase: GitBaseContext{
 			BaseRepo:         t.GitTask.BaseRepo,
@@ -132,6 +136,17 @@ func (t TaskExecutionContext) JobContext() JobContext {
 		},
 		RecipeSource: t.RecipeSource,
 	}
+}
+
+func cloneArtifactRefs(in map[string]artifacts.Ref) map[string]artifacts.Ref {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[string]artifacts.Ref, len(in))
+	for name, ref := range in {
+		out[name] = ref
+	}
+	return out
 }
 
 // WorkspaceResult captures the output of inline/detached workspace executions.

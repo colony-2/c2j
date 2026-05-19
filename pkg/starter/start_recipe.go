@@ -79,7 +79,9 @@ func StartRecipeJobWithOptions(ctx context.Context, startJob workflowctl.StartJo
 		artifacts[recipeCount+i] = a
 	}
 
-	inputData, err := swf.NewTaskData(startJob, artifacts...)
+	payload := startJob
+	payload.Artifacts = nil
+	inputData, err := swf.NewTaskData(payload, artifacts...)
 
 	if err != nil {
 		return swf.JobKey{}, err

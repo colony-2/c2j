@@ -58,6 +58,11 @@ func Run(ctx context.Context, opts Options) error {
 	}
 	defer cleanup()
 
+	submitArtifacts, err := loadSubmitArtifacts(opts, recipeName, embeddedRecipe != nil)
+	if err != nil {
+		return err
+	}
+
 	inputs, err := loadInputs(opts)
 	if err != nil {
 		return err
@@ -78,6 +83,7 @@ func Run(ctx context.Context, opts Options) error {
 			TenantId:   opts.TenantID,
 			RecipeName: recipeName,
 			Inputs:     inputs,
+			Artifacts:  submitArtifacts,
 			JobContext: contextual.JobContext{
 				Workflow: contextual.WorkflowContext{
 					CellName:  target.CellName,
