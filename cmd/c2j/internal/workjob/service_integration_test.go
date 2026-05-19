@@ -672,7 +672,7 @@ func workCreateGitRepo(t *testing.T) (string, string) {
 	run("git", "init", "-b", "main")
 	run("git", "config", "user.email", "c2j-test@example.com")
 	run("git", "config", "user.name", "C2J Work Test")
-	if err := os.WriteFile(filepath.Join(dir, "README.md"), []byte("c2j work\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "README.md"), []byte("c2j run loop\n"), 0o644); err != nil {
 		t.Fatalf("write README: %v", err)
 	}
 	run("git", "add", ".")

@@ -98,9 +98,9 @@ func validateWorkSWFURL(raw string) error {
 	case "http", "https":
 		return nil
 	case "embed":
-		return fmt.Errorf("c2j work requires an external SWF runtime; %s is not supported", defaults.EmbedURL)
+		return fmt.Errorf("c2j run loop requires an external SWF runtime; %s is not supported", defaults.EmbedURL)
 	default:
-		return fmt.Errorf("c2j work requires an external SWF runtime URL (http(s)://...), got %q", raw)
+		return fmt.Errorf("c2j run loop requires an external SWF runtime URL (http(s)://...), got %q", raw)
 	}
 }
 

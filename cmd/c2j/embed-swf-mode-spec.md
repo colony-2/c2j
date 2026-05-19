@@ -62,7 +62,7 @@ in-process.
 ## Command impact
 
 - `submit` uses the shared runtime opener instead of constructing `remoteruntime` directly.
-- `exec` uses the shared runtime opener and passes the resulting `swf.WorkflowRuntime` into `swf.GetJobForRun(...)`.
+- `run`/`run one` uses the shared runtime opener and passes the resulting `swf.WorkflowRuntime` into `swf.GetJobForRun(...)`.
 - `list` uses the shared runtime opener and engine for `ListJobs(...)`.
 
 CLI text should describe `--swf-url` as:
@@ -82,5 +82,5 @@ If another process tries to open the same root while it is already in use, `c2j`
 Minimum coverage:
 
 - runtime persistence across reopen for `embed:///`
-- submit + exec end-to-end using the embedded runtime
+- submit + run end-to-end using the embedded runtime
 - existing remote-mode tests remain unchanged

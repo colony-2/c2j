@@ -19,10 +19,8 @@ c2j self
 c2j cells
 c2j init
 c2j submit
-c2j exec
-c2j work
+c2j run
 c2j ready
-c2j runone
 c2j list
 c2j test
 ```
@@ -88,7 +86,7 @@ c2j list --self --embed
 Continue a submitted job:
 
 ```bash
-c2j exec --job-id <job-id> --embed
+c2j run --job-id <job-id> --embed
 ```
 
 ## Current Cell Commands
@@ -319,20 +317,22 @@ Useful flags:
 
 ## Running Jobs
 
-`c2j exec` executes or continues an existing job and prints live story progress to stdout.
+`c2j run` executes or continues one existing job and prints live story progress
+to stdout. `c2j run one` is the explicit form of the same command.
 
 Basic usage:
 
 ```bash
-c2j exec --job-id <job-id> --embed
+c2j run --job-id <job-id> --embed
+c2j run one --job-id <job-id> --embed
 ```
 
 Common variants:
 
 ```bash
-c2j exec --job-id <job-id> --wait-timeout 30m --embed
-c2j exec --job-id <job-id> --input-mode fail --embed
-c2j exec --job-id <job-id> --ci --embed
+c2j run --job-id <job-id> --wait-timeout 30m --embed
+c2j run --job-id <job-id> --input-mode fail --embed
+c2j run --job-id <job-id> --ci --embed
 ```
 
 Important behavior:
@@ -358,7 +358,7 @@ Important behavior:
 
 ### Not-ready handling
 
-`--on-not-ready` controls how `exec` reacts when a job is not runnable yet:
+`--on-not-ready` controls how `run` reacts when a job is not runnable yet:
 
 - `wait`
 - `fail`
@@ -367,39 +367,40 @@ Important behavior:
 - `fail-on-future`
 - `fail-on-missing-capability`
 
-With the default `wait`, `exec` will print `waiting: ...` lines and poll until the job becomes runnable or the wait timeout is reached.
+With the default `wait`, `run` will print `waiting: ...` lines and poll until
+the job becomes runnable or the wait timeout is reached.
 
 ### Exit codes
 
-`c2j exec` uses distinct exit codes:
+`c2j run` uses distinct exit codes:
 
 - `1`: general failure or job failure
 - `2`: wait timeout
 - `3`: input required
 - `4`: job not runnable under the selected policy
-- `5`: invalid job identity or invalid exec arguments
+- `5`: invalid job identity or invalid run arguments
 
-## Working Jobs
+## Worker Modes
 
-`c2j work` runs a long-lived worker for one tenant. It leases available jobs from
-an external SWF runtime and executes up to the configured local concurrency.
+`c2j run loop` runs a long-lived worker for one tenant. It leases available jobs
+from an external SWF runtime and executes up to the configured local concurrency.
 
 Basic usage:
 
 ```bash
-c2j work --tenant-id <tenant-id> --swf-url http://localhost:9047 --concurrency 4
+c2j run loop --tenant-id <tenant-id> --swf-url http://localhost:9047 --concurrency 4
 ```
 
 Important behavior:
 
 - `--concurrency <n>` controls how many jobs this process can run at once
-- `--tenant-id` defaults the same way as `submit`, `exec`, and `list`
+- `--tenant-id` defaults the same way as `submit`, `run`, and `list`
 - `--swf-url` must be an external `http://` or `https://` runtime
-- `--embed` is not available for `work`
-- `--swf-url embed:///` is rejected for `work`
-- `work` is non-interactive; use `exec` or an ops surface for jobs that need input
+- `--embed` is not available for `run loop`
+- `--swf-url embed:///` is rejected for `run loop`
+- `run loop` is non-interactive; use `run` or an ops surface for jobs that need input
 
-### Loose scheduling with `ready` and `runone`
+### Loose scheduling with `ready` and `run any`
 
 `c2j ready` prints the number of currently ready recipe jobs for one tenant:
 
@@ -407,12 +408,12 @@ Important behavior:
 c2j ready --tenant-id <tenant-id> --swf-url http://localhost:9047
 ```
 
-`c2j runone` atomically polls for one available item of c2j work, leases it, runs
-it, and exits. If no lease is available, it exits successfully after printing
-`no jobs found`.
+`c2j run any` atomically polls for one available item of c2j work, leases it,
+runs it, and exits. If no lease is available, it exits successfully after
+printing `no jobs found`.
 
 ```bash
-c2j runone --tenant-id <tenant-id> --swf-url http://localhost:9047
+c2j run any --tenant-id <tenant-id> --swf-url http://localhost:9047
 ```
 
 These can be composed by an external scheduler:
@@ -420,12 +421,15 @@ These can be composed by an external scheduler:
 ```bash
 count=$(c2j ready --tenant-id <tenant-id> --swf-url http://localhost:9047)
 if [ "$count" -gt 0 ]; then
-  seq 1 "$count" | xargs -n1 -P "$count" c2j runone --tenant-id <tenant-id> --swf-url http://localhost:9047
+  for _ in $(seq 1 "$count"); do
+    c2j run any --tenant-id <tenant-id> --swf-url http://localhost:9047 &
+  done
+  wait
 fi
 ```
 
 `ready` is only a non-mutating snapshot and can become stale under competing
-workers. `runone` uses SWF polling so finding available work and acquiring the
+workers. `run any` uses SWF polling so finding available work and acquiring the
 lease happen in one runtime operation.
 
 ## Listing Jobs
@@ -520,7 +524,7 @@ export C2J_TENANT_ID=123
 ```
 
 When `--embed` is present, it overrides `C2J_SWF_URL` for that command.
-`c2j work` is the exception: it does not support `--embed` and rejects
+`c2j run loop` is the exception: it does not support `--embed` and rejects
 `C2J_SWF_URL=embed:///`.
 
 ## Common Workflows
@@ -536,7 +540,7 @@ c2j submit --recipe-file ./recipes/my-recipe.yaml --run --embed
 
 ```bash
 c2j submit --recipe-file ./recipes/my-recipe.yaml --json --embed
-c2j exec --job-id <job-id> --embed
+c2j run --job-id <job-id> --embed
 ```
 
 ### Run against a remote runtime instead of embed

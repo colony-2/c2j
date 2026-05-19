@@ -10,7 +10,16 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func newExecCmd() *cobra.Command {
+func newRunCmd() *cobra.Command {
+	cmd := newRunOneSpecificCmd("run")
+	cmd.Short = "Run jobs through the SWF runtime"
+	cmd.AddCommand(newRunOneSpecificCmd("one"))
+	cmd.AddCommand(newRunAnyCmd())
+	cmd.AddCommand(newRunLoopCmd())
+	return cmd
+}
+
+func newRunOneSpecificCmd(use string) *cobra.Command {
 	var useEmbed bool
 	opts := runjob.Options{
 		Stdin:  os.Stdin,
@@ -19,8 +28,8 @@ func newExecCmd() *cobra.Command {
 	}
 
 	cmd := &cobra.Command{
-		Use:   "exec",
-		Short: "Execute or continue an existing job through the SWF runtime",
+		Use:   use,
+		Short: "Run or continue one existing job through the SWF runtime",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			runOpts := opts
 			if useEmbed {

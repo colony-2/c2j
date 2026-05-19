@@ -114,7 +114,7 @@ func RunOne(ctx context.Context, opts RunOneOptions) error {
 	}
 	defer cleanup()
 	if once == nil {
-		return exitError{code: exitCodeFailure, err: fmt.Errorf("runone runtime wrapper was not installed")}
+		return exitError{code: exitCodeFailure, err: fmt.Errorf("run any runtime wrapper was not installed")}
 	}
 
 	runCtx, stop := context.WithCancel(ctx)
