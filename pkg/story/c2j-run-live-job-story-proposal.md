@@ -1,10 +1,10 @@
-# Proposal: Use `JobRunStory` as the Live Execution Model for `c2j exec`
+# Proposal: Use `JobRunStory` as the Live Execution Model for `c2j run`
 
 ## Problem
 
-`c2j exec` and the story API currently observe the same job through two different models:
+`c2j run` and the story API currently observe the same job through two different models:
 
-- `c2j exec` renders live progress directly from worker/replay callbacks in
+- `c2j run` renders live progress directly from worker/replay callbacks in
   [cmd/c2j/internal/runjob/progress.go](/src/cmd/c2j/internal/runjob/progress.go).
 - `GetJobRunStory` reconstructs a structured `JobRunStory` by replaying the job in
   [pkg/story/internal/service/service.go](/src/pkg/story/internal/service/service.go)
@@ -14,17 +14,17 @@ That split has a cost:
 
 - CLI progress is human-readable but not structured.
 - Story data is structured but currently produced through replay/service lookup rather than as the
-  primary live model inside `c2j exec`.
+  primary live model inside `c2j run`.
 - We effectively maintain two execution views of the same job.
 
-The goal of this proposal is to make `JobRunStory` the canonical execution model for `c2j exec`,
+The goal of this proposal is to make `JobRunStory` the canonical execution model for `c2j run`,
 while keeping the existing story API and replay behavior.
 
 ## Current Baseline
 
-### `c2j exec`
+### `c2j run`
 
-`c2j exec` currently does two things in
+`c2j run` currently does two things in
 [cmd/c2j/internal/runjob/service.go](/src/cmd/c2j/internal/runjob/service.go):
 
 1. Replays cached history with `deps.engine.ReplayJobRun(...)` and a `progressPrinter`.
@@ -66,17 +66,17 @@ This is not strictly "after the fact." The current story builder already support
 - running step nodes can be synthesized when future task output is not yet available
 
 So the story model itself is already capable of representing live execution. What is missing is
-using it as the in-process model during `c2j exec`.
+using it as the in-process model during `c2j run`.
 
 ## Recommendation
 
-Do **not** make `c2j exec` poll `GetJobRunStory`.
+Do **not** make `c2j run` poll `GetJobRunStory`.
 
 Instead:
 
 1. Extract the reusable live story recorder from `pkg/story/internal/story` into an exported,
    runtime-oriented package.
-2. Use that recorder directly inside `c2j exec`.
+2. Use that recorder directly inside `c2j run`.
 3. Make the existing replay/service path a thin wrapper around the same recorder.
 
 This keeps one execution model and avoids an extra service hop or repeated replay work during local
@@ -124,7 +124,7 @@ func (r *Recorder) Finalize(err error) *story.JobRunStory
 Key point: `Snapshot()` is the missing primitive today.
 
 The current recorder already accumulates enough state incrementally. Right now it mainly exposes
-`BuildStory(replayErr error)` at the end. For `c2j exec`, we need mid-run snapshots as tasks and
+`BuildStory(replayErr error)` at the end. For `c2j run`, we need mid-run snapshots as tasks and
 nodes change state.
 
 ## 2. Keep replay-based `BuildJobRunStory`
@@ -139,7 +139,7 @@ become:
 
 That keeps the current API surface while removing the duplicate implementation.
 
-## 3. Use the recorder directly in `c2j exec`
+## 3. Use the recorder directly in `c2j run`
 
 Replace `progressPrinter` as the primary model source in
 [cmd/c2j/internal/runjob/service.go](/src/cmd/c2j/internal/runjob/service.go).
@@ -177,7 +177,7 @@ Then:
 - live run:
   `runnable.Run(rec.Observer())`
 
-This gives `c2j exec` a single tree that starts with cached history and then continues live.
+This gives `c2j run` a single tree that starts with cached history and then continues live.
 
 ## 4. Add a CLI renderer on top of `JobRunStory`
 
@@ -231,7 +231,7 @@ The important design point is that both modes render the same `JobRunStory`.
 
 ## Why the story model is a good fit
 
-The current model already covers the concepts `c2j exec` needs:
+The current model already covers the concepts `c2j run` needs:
 
 - tree structure:
   recipe / sequence / op / step / state machine / state / transition evaluation
@@ -254,7 +254,7 @@ consumption, so reusing it in the CLI reduces model drift.
 
 ### Today
 
-`c2j exec`:
+`c2j run`:
 
 - prints events as they happen
 - does not preserve a stable in-memory story tree
@@ -262,7 +262,7 @@ consumption, so reusing it in the CLI reduces model drift.
 
 ### After this change
 
-`c2j exec`:
+`c2j run`:
 
 - maintains a canonical `JobRunStory` in memory
 - renders the CLI from that model
@@ -282,7 +282,7 @@ Work:
 
 Success criteria:
 
-- `c2j exec` output is still readable
+- `c2j run` output is still readable
 - `GetJobRunStory` behavior is preserved
 - recorder logic exists only once
 
@@ -298,7 +298,7 @@ Work:
 
 Success criteria:
 
-- interactive `c2j exec` can show a live tree view
+- interactive `c2j run` can show a live tree view
 - cached replay and live work appear in one continuous story
 
 ## Phase 3: Optional structured output
@@ -324,7 +324,7 @@ This is the main structural change:
 Why:
 
 - `cmd/c2j` cannot import `pkg/story/internal/story`
-- the logic is no longer purely internal once `c2j exec` needs it
+- the logic is no longer purely internal once `c2j run` needs it
 - exported runtime recorder is a cleaner seam than making CLI code reach into an `internal` tree
 
 ## Testing strategy
@@ -345,7 +345,7 @@ New tests should verify:
 - retry behavior reflected in `PriorAttempts`
 - cached replay followed by live execution yields one coherent tree
 
-## 3. Add `c2j exec` renderer tests
+## 3. Add `c2j run` renderer tests
 
 Validate:
 
@@ -395,14 +395,14 @@ The best next step is:
 
 1. extract the recorder from `pkg/story/internal/story` into `pkg/story/live`
 2. add `Snapshot()` / `Finalize(...)`
-3. rewire `c2j exec` to use the recorder as its execution model
+3. rewire `c2j run` to use the recorder as its execution model
 4. keep the current terminal UX initially, but render it from story deltas instead of direct event
    printing
 
 That gives us one shared model for:
 
 - API/UI inspection via replay
-- local live execution in `c2j exec`
+- local live execution in `c2j run`
 - future structured progress output
 
 without introducing a second observability system.

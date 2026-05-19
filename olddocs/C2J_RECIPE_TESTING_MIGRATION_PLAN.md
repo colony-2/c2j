@@ -74,7 +74,7 @@ Use c2j-local defaults instead of the old server defaults:
 - explicit git selectors continue to use the existing compiler selector syntax
 - `--recipe-file` remains the simplest local authoring path
 - test commands automatically use embedded SWF mode for any runtime-backed behavior; users should not need to pass `--embed`
-- embedded test runtime state should be per-run and disposable by default, not the persistent `~/.c2j/embed/default` state used by normal `submit`/`exec`
+- embedded test runtime state should be per-run and disposable by default, not the persistent `~/.c2j/embed/default` state used by normal `submit`/`run`
 
 ## Code Reuse Map
 
@@ -294,7 +294,7 @@ Avoid reusing the normal persistent embedded root:
 ~/.c2j/embed/default
 ```
 
-That root is useful for normal `submit` and `exec` workflows, but it makes test runs order-dependent and can leave state behind that changes later test results.
+That root is useful for normal `submit` and `run` workflows, but it makes test runs order-dependent and can leave state behind that changes later test results.
 
 For passthrough modes, initialize dependencies similarly to `runjob.buildDeps` only when needed:
 

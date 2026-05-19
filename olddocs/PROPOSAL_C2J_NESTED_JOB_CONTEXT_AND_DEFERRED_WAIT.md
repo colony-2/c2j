@@ -209,7 +209,7 @@ c2j submit-and-await ...
 ```
 
 Outside a job context, this should submit immediately and then behave like
-`c2j exec --job-id <id> --on-not-ready wait`.
+`c2j run --job-id <id> --on-not-ready wait`.
 
 Inside a c2j task context with `C2J_DEFERRED_ACTIONS_DIR` set, it should not
 submit immediately. Instead it writes a normalized intent file and exits
@@ -382,7 +382,7 @@ This remains useful but does not solve the requested agent-loop case.
    existing recipe child launchers.
 7. Add CLI support:
    - `c2j submit --await` or `c2j submit-and-await`
-   - outside job: submit + `exec` wait
+   - outside job: submit + `run` wait
    - inside job with deferred dir: write intent and return planned id
    - optional `--idempotency-key` for agents that want stable semantic ids
 8. Add list/filter affordances:

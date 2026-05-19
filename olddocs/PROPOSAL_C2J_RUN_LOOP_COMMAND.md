@@ -1,22 +1,22 @@
-# Proposal: `c2j work`
+# Proposal: `c2j run loop`
 
 ## Summary
 
-Add a long-running `c2j work` command that monitors one tenant, leases available
+Add a long-running `c2j run loop` command that monitors one tenant, leases available
 jobs from SWF, and executes them with a bounded local concurrency limit.
 
 Recommended command shape:
 
 ```bash
-c2j work --tenant-id <tenant-id> --concurrency 4 --swf-url <http(s)://...>
+c2j run loop --tenant-id <tenant-id> --concurrency 4 --swf-url <http(s)://...>
 ```
 
-`work` is intentionally active terminology: the command does not merely observe
-jobs, it claims leaseable work and runs the registered c2j recipe worker. The
-name also avoids overloading `exec`, which already means "run or continue this
-specific job id".
+`run loop` is intentionally active terminology: the command does not merely observe
+jobs, it claims leaseable work and runs the registered c2j recipe worker. Grouping
+it under `run` keeps the job-running command surface together while preserving
+`c2j run --job-id ...` for a specific job id.
 
-`c2j work` must not support embedded SWF mode. Do not add a `--embed` flag, and
+`c2j run loop` must not support embedded SWF mode. Do not add a `--embed` flag, and
 reject `--swf-url embed:///` for this command.
 
 ## Goals
@@ -29,7 +29,7 @@ reject `--swf-url embed:///` for this command.
   unavailable.
 - Treat individual job failure as a handled job outcome, not as a fatal worker
   process error.
-- Keep `c2j exec --job-id ...` as the command for inspecting or continuing one
+- Keep `c2j run --job-id ...` as the command for inspecting or continuing one
   known job with live story progress.
 
 ## Non-Goals
@@ -43,7 +43,7 @@ reject `--swf-url embed:///` for this command.
 
 ## Why Not `--embed`
 
-Embedded SWF mode is useful for short-lived local submit/list/exec workflows, but
+Embedded SWF mode is useful for short-lived local submit/list/run workflows, but
 it does not fit a long-running worker command.
 
 Reasons:
@@ -51,23 +51,23 @@ Reasons:
 1. The embedded runtime is single-owner today. A long-running worker would hold
    the embedded runtime lock and block other local commands from using the same
    runtime root.
-2. `work` is intended to behave like a worker process attached to a shared SWF
+2. `run loop` is intended to behave like a worker process attached to a shared SWF
    runtime. That model only makes sense when submitters and workers can
    coordinate through the same external service.
 3. Allowing `--embed` would make local behavior surprising: starting a worker
-   could prevent a separate `submit`, `list`, or `exec` process from opening the
+   could prevent a separate `submit`, `list`, or `run` process from opening the
    embedded runtime.
 
 The command should therefore:
 
 - omit the `--embed` flag entirely
 - validate `--swf-url` and fail if the parsed scheme is `embed`
-- keep the root help text explicit that `work` requires an external SWF runtime
+- keep the root help text explicit that `run loop` requires an external SWF runtime
 
 Example validation error:
 
 ```text
-Error: c2j work requires an external SWF runtime; embed:/// is not supported
+Error: c2j run loop requires an external SWF runtime; embed:/// is not supported
 ```
 
 ## CLI Shape
@@ -75,7 +75,7 @@ Error: c2j work requires an external SWF runtime; embed:/// is not supported
 Required or defaulted flags:
 
 ```bash
-c2j work \
+c2j run loop \
   --tenant-id <tenant-id> \
   --swf-url <http(s)://...> \
   --concurrency 4
@@ -85,7 +85,7 @@ Flags:
 
 ```text
 --tenant-id <id>
-  Tenant/project ID to poll. Defaults the same way as submit/list/exec:
+  Tenant/project ID to poll. Defaults the same way as submit/list/run:
   explicit flag, then C2J_TENANT_ID, then project self tenant resolution.
 
 --swf-url <url>
@@ -106,12 +106,12 @@ Flags:
 Example:
 
 ```bash
-c2j work --tenant-id 123 --swf-url http://127.0.0.1:9047 --concurrency 8
+c2j run loop --tenant-id 123 --swf-url http://127.0.0.1:9047 --concurrency 8
 ```
 
 ## Availability Semantics
 
-`work` should not manually decide job availability from list output. It should
+`run loop` should not manually decide job availability from list output. It should
 use SWF lease APIs through the normal worker loop.
 
 In practice, a job is runnable when SWF can lease it for one of the capabilities
@@ -159,19 +159,19 @@ instead of writing a separate c2j scheduler.
 
 ## Human Input
 
-`work` should not prompt.
+`run loop` should not prompt.
 
 If a job reaches a human-input wait, the worker should let SWF suspend or
 reschedule the job according to existing recipe/input behavior. Operators can
-then use `c2j exec`, an input-management command, or an external ops surface to
+then use `c2j run`, an input-management command, or an external ops surface to
 answer the pending input.
 
 This keeps long-running workers suitable for non-interactive environments.
 
 ## Logging and Output
 
-`work` should use concise operational logs rather than the single-job story
-progress renderer used by `exec`.
+`run loop` should use concise operational logs rather than the single-job story
+progress renderer used by `run`.
 
 Suggested startup output:
 
@@ -212,7 +212,7 @@ cmd/c2j/internal/workjob/options.go
 cmd/c2j/internal/workjob/service.go
 cmd/c2j/internal/workjob/options_test.go
 cmd/c2j/internal/workjob/service_integration_test.go
-cmd/c2j/internal/cmd/work.go
+cmd/c2j/internal/cmd/run_loop.go
 ```
 
 Wire the command from:
@@ -268,7 +268,7 @@ same registered workers through SWF's worker loop.
 ## Runtime Opening
 
 Today `swfruntime.OpenWorker(ctx, swfURL, tenantID)` configures worker tenant
-identity. `work` also needs to set max active work. Add an option-based opener
+identity. `run loop` also needs to set max active work. Add an option-based opener
 or build the SWF engine inside `workjob` after opening the runtime.
 
 For example:
@@ -281,7 +281,7 @@ type WorkerOpenOptions struct {
 }
 ```
 
-The validation for `work` should happen before this point so embedded runtime
+The validation for `run loop` should happen before this point so embedded runtime
 usage fails with a command-specific message.
 
 ## Testing
@@ -294,8 +294,8 @@ Minimum tests:
 3. Validation rejects missing SWF URL.
 4. Validation rejects `--concurrency <= 0`.
 5. Validation rejects `embed:///`.
-6. Cobra wiring does not define a `--embed` flag for `work`.
-7. Integration test submits multiple jobs and verifies `work` completes them.
+6. Cobra wiring does not define a `--embed` flag for `run loop`.
+7. Integration test submits multiple jobs and verifies `run loop` completes them.
 8. Concurrency test verifies no more than `N` jobs are active at once.
 9. Job failure test verifies one failed job does not stop the worker from
    processing later available jobs.
@@ -304,19 +304,19 @@ Minimum tests:
 
 ## Documentation
 
-Update `README.md` with a new "Working Jobs" section:
+Update `README.md` with a new "Worker Modes" section:
 
 ```bash
-c2j work --tenant-id <tenant-id> --swf-url http://127.0.0.1:9047 --concurrency 4
+c2j run loop --tenant-id <tenant-id> --swf-url http://127.0.0.1:9047 --concurrency 4
 ```
 
 Document clearly:
 
-- `work` requires an external SWF runtime
+- `run loop` requires an external SWF runtime
 - `--embed` is not available
 - `embed:///` is rejected
 - `--concurrency` limits active local jobs
-- `exec` remains the command for running or inspecting one known job
+- `run` remains the command for running or inspecting one known job
 
 ## Open Questions
 

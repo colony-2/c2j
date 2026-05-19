@@ -6,6 +6,8 @@ Use it when you want to:
 
 - submit a recipe job from a named recipe or a local recipe file
 - run or continue an existing job
+- count and claim available jobs for external scheduling
+- run a tenant worker loop with bounded local concurrency
 - use the embedded local runtime for fast iteration
 - inspect the current cell configuration used for job targeting
 - list jobs for a cell
@@ -20,6 +22,9 @@ c2j cells
 c2j init
 c2j submit
 c2j run
+c2j run one
+c2j run any
+c2j run loop
 c2j ready
 c2j list
 c2j test
@@ -408,7 +413,7 @@ Important behavior:
 c2j ready --tenant-id <tenant-id> --swf-url http://localhost:9047
 ```
 
-`c2j run any` atomically polls for one available item of c2j work, leases it,
+`c2j run any` atomically polls for one available item of recipe work, leases it,
 runs it, and exits. If no lease is available, it exits successfully after
 printing `no jobs found`.
 
