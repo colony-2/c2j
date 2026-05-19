@@ -1,0 +1,23 @@
+id: artifact-inbox-set-binding
+desc: Read a whole artifact set from an inbox prefix
+version: "1.0.0"
+input_schema: {}
+sequence:
+  - id: write_outbox
+    op: command_execution
+    inputs:
+      working_directory: "{{ context.environment.op.outbox }}"
+      run: |
+        mkdir -p docs
+        printf 'hello set' > brief.txt
+        printf 'nested set' > docs/requirements.txt
+  - id: read_inbox
+    op: command_execution
+    artifacts:
+      submitted/: '${{ sequence.write_outbox.artifacts }}'
+    inputs:
+      working_directory: "{{ context.environment.op.inbox }}"
+      run: |
+        printf '%s|%s' "$(cat submitted/brief.txt)" "$(cat submitted/docs/requirements.txt)"
+outputs:
+  read_content: '{{ sequence.read_inbox.outputs.stdout }}'

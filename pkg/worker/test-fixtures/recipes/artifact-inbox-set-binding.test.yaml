@@ -1,0 +1,10 @@
+tests:
+  - name: inbox_set_binding_roundtrip
+    description: Command op reads a whole artifact set from an inbox prefix
+    inputs: {}
+    want:
+      read_content: "hello set|nested set"
+    wantArtifacts:
+      - brief.txt
+      - docs/requirements.txt
+    wantErr: false

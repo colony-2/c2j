@@ -47,6 +47,58 @@ sequence:
 The key under `artifacts:` controls the path inside the op inbox. The
 `context.artifacts[...]` lookup selects which submitted artifact to materialize.
 
+## Bind All Submitted Files
+
+When an op should receive every submitted artifact, bind the artifact map to an
+inbox directory:
+
+```yaml
+sequence:
+  - id: inspect
+    op: command_execution
+    artifacts:
+      ./: '${{ context.artifacts }}'
+    inputs:
+      run: |
+        find "${{ context.environment.op.inbox }}" -type f
+```
+
+`./` writes each artifact at its submitted name under the inbox root. For
+example, submitted artifacts named `brief.md` and `docs/requirements.md` become:
+
+```text
+${{ context.environment.op.inbox }}/brief.md
+${{ context.environment.op.inbox }}/docs/requirements.md
+```
+
+Use a directory prefix when you want to keep a whole submitted set grouped:
+
+```yaml
+artifacts:
+  submitted/: '${{ context.artifacts }}'
+```
+
+The same two artifacts become:
+
+```text
+${{ context.environment.op.inbox }}/submitted/brief.md
+${{ context.environment.op.inbox }}/submitted/docs/requirements.md
+```
+
+Whole-set bindings can be combined with explicit bindings:
+
+```yaml
+artifacts:
+  submitted/: '${{ context.artifacts }}'
+  canonical-brief.md: '${{ context.artifacts["brief.md"] }}'
+```
+
+If two bindings would write the same inbox path, c2j fails before the op runs
+with a duplicate artifact binding error.
+
+For the same pattern with step or state output artifacts, see
+`C2J_ARTIFACT_SET_BINDINGS_USER_GUIDE.md`.
+
 ## Rules
 
 - Artifact names must be unique.
@@ -56,11 +108,17 @@ The key under `artifacts:` controls the path inside the op inbox. The
   submitted job.
 - Artifacts are not automatically added to every op. Recipes must explicitly
   bind each submitted artifact into the ops that need it.
+- Binding a whole artifact map preserves each artifact's name under the binding
+  directory.
 
 ## Common Errors
 
 If a recipe references a missing submitted artifact, template resolution fails.
 Check that the name in `context.artifacts["..."]` matches the submit name.
+
+If a whole-set binding and an explicit binding target the same inbox path, move
+one set under a different directory prefix or remove the duplicate explicit
+binding.
 
 If an op rejects `artifacts:`, that op does not accept artifact inbox bindings.
 Use an artifact-aware op such as `command_execution`, or update the op.
