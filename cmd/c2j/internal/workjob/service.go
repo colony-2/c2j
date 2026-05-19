@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"time"
 
 	"github.com/colony-2/c2j/cmd/c2j/internal/c2jops"
 	"github.com/colony-2/c2j/cmd/c2j/internal/jobutil"
@@ -56,9 +57,30 @@ type workerDeps struct {
 }
 
 func buildDeps(ctx context.Context, opts Options) (*workerDeps, func(), error) {
+	return buildWorkerDeps(ctx, workerBuildOptions{
+		TenantID:       opts.TenantID,
+		SWFURL:         opts.SWFURL,
+		Concurrency:    opts.Concurrency,
+		AwaitThreshold: opts.AwaitThreshold,
+	})
+}
+
+type workerBuildOptions struct {
+	TenantID       string
+	SWFURL         string
+	Concurrency    int
+	AwaitThreshold time.Duration
+	WrapRuntime    func(swf.WorkflowRuntime) swf.WorkflowRuntime
+}
+
+func buildWorkerDeps(ctx context.Context, opts workerBuildOptions) (*workerDeps, func(), error) {
 	handle, err := swfruntime.Open(ctx, opts.SWFURL)
 	if err != nil {
 		return nil, nil, fmt.Errorf("open SWF runtime: %w", err)
+	}
+	runtime := handle.Runtime
+	if opts.WrapRuntime != nil {
+		runtime = opts.WrapRuntime(runtime)
 	}
 
 	cleanupOnErr := func(err error, stopRegistry func()) (*workerDeps, func(), error) {
@@ -98,7 +120,7 @@ func buildDeps(ctx context.Context, opts Options) (*workerDeps, func(), error) {
 	}
 
 	builder := swf.NewEngineBuilder().
-		WithRuntime(handle.Runtime).
+		WithRuntime(runtime).
 		WithWorkerTenantId(opts.TenantID).
 		WithMaxActive(opts.Concurrency)
 	if opts.AwaitThreshold > 0 {

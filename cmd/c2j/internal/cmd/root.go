@@ -18,6 +18,8 @@ func Execute(version string, buildTime string) (int, error) {
 	root.AddCommand(newSubmitCmd())
 	root.AddCommand(newExecCmd())
 	root.AddCommand(newWorkCmd())
+	root.AddCommand(newReadyCmd())
+	root.AddCommand(newRunOneCmd())
 	root.AddCommand(newListCmd())
 	root.AddCommand(newTestCmd())
 	root.AddCommand(newInitCmd())

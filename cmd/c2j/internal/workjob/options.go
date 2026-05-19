@@ -104,6 +104,19 @@ func validateWorkSWFURL(raw string) error {
 	}
 }
 
+func validateSWFURL(raw string) error {
+	parsed, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil {
+		return fmt.Errorf("parse --swf-url: %w", err)
+	}
+	switch parsed.Scheme {
+	case "http", "https", "embed":
+		return nil
+	default:
+		return fmt.Errorf("unsupported SWF runtime URL %q", raw)
+	}
+}
+
 type exitError struct {
 	code int
 	err  error

@@ -185,3 +185,94 @@ func TestRunRejectsEmbeddedSWFURLFromEnvironment(t *testing.T) {
 		t.Fatalf("stderr = %q, want no direct stderr output", stderr.String())
 	}
 }
+
+func TestReadyOptionsValidate(t *testing.T) {
+	tests := []struct {
+		name    string
+		opts    ReadyOptions
+		wantErr string
+	}{
+		{
+			name: "valid http",
+			opts: ReadyOptions{TenantID: "tenant", SWFURL: "http://localhost:9047"},
+		},
+		{
+			name: "valid embed",
+			opts: ReadyOptions{TenantID: "tenant", SWFURL: defaults.EmbedURL},
+		},
+		{
+			name:    "missing tenant",
+			opts:    ReadyOptions{SWFURL: "http://localhost:9047"},
+			wantErr: "--tenant-id is required",
+		},
+		{
+			name:    "unsupported scheme",
+			opts:    ReadyOptions{TenantID: "tenant", SWFURL: "ftp://example.invalid"},
+			wantErr: "unsupported SWF runtime URL",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.opts.Validate()
+			if tt.wantErr == "" {
+				if err != nil {
+					t.Fatalf("Validate(): %v", err)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatalf("Validate() succeeded, want error containing %q", tt.wantErr)
+			}
+			if !strings.Contains(err.Error(), tt.wantErr) {
+				t.Fatalf("Validate() error = %q, want substring %q", err.Error(), tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestRunOneOptionsValidate(t *testing.T) {
+	tests := []struct {
+		name    string
+		opts    RunOneOptions
+		wantErr string
+	}{
+		{
+			name: "valid",
+			opts: RunOneOptions{TenantID: "tenant", SWFURL: "http://localhost:9047", LeaseDuration: time.Minute},
+		},
+		{
+			name:    "missing tenant",
+			opts:    RunOneOptions{SWFURL: "http://localhost:9047", LeaseDuration: time.Minute},
+			wantErr: "--tenant-id is required",
+		},
+		{
+			name:    "reject zero lease duration",
+			opts:    RunOneOptions{TenantID: "tenant", SWFURL: "http://localhost:9047"},
+			wantErr: "--lease-duration must be > 0",
+		},
+		{
+			name:    "reject negative await threshold",
+			opts:    RunOneOptions{TenantID: "tenant", SWFURL: "http://localhost:9047", LeaseDuration: time.Minute, AwaitThreshold: -time.Second},
+			wantErr: "--await-threshold must be >= 0",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.opts.Validate()
+			if tt.wantErr == "" {
+				if err != nil {
+					t.Fatalf("Validate(): %v", err)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatalf("Validate() succeeded, want error containing %q", tt.wantErr)
+			}
+			if !strings.Contains(err.Error(), tt.wantErr) {
+				t.Fatalf("Validate() error = %q, want substring %q", err.Error(), tt.wantErr)
+			}
+		})
+	}
+}

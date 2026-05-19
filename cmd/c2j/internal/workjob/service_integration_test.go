@@ -165,6 +165,184 @@ outputs:
 	}
 }
 
+func TestReadyCountsAvailableJobsByTenant(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	tenantID := "tenant-ready-count"
+	otherTenantID := "tenant-ready-other"
+	underlying := toyruntime.New()
+	submitEngine, err := swf.NewEngineBuilder().WithRuntime(underlying).BuildEngine()
+	if err != nil {
+		t.Fatalf("build submit engine: %v", err)
+	}
+	server := httptest.NewServer(remoteruntime.NewServer(underlying))
+	defer server.Close()
+
+	recipeYAML := simpleSuccessRecipe("ready_count_recipe", "ready-count")
+	for i := 0; i < 3; i++ {
+		submitRecipeJob(t, ctx, submitEngine, tenantID, recipeYAML)
+	}
+	submitRecipeJob(t, ctx, submitEngine, otherTenantID, recipeYAML)
+
+	var stdout, stderr bytes.Buffer
+	if err := Ready(ctx, ReadyOptions{
+		TenantID:   tenantID,
+		SWFURL:     server.URL,
+		WorkingDir: t.TempDir(),
+		Stdout:     &stdout,
+		Stderr:     &stderr,
+	}); err != nil {
+		t.Fatalf("Ready(): %v\nstdout:\n%s\nstderr:\n%s", err, stdout.String(), stderr.String())
+	}
+	if got := strings.TrimSpace(stdout.String()); got != "3" {
+		t.Fatalf("Ready() stdout = %q, want 3", stdout.String())
+	}
+
+	count, err := CountReady(ctx, ReadyOptions{
+		TenantID:   otherTenantID,
+		SWFURL:     server.URL,
+		WorkingDir: t.TempDir(),
+	})
+	if err != nil {
+		t.Fatalf("CountReady(other tenant): %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("other tenant ready count = %d, want 1", count)
+	}
+}
+
+func TestRunOneReportsNoJobsWhenPollFindsNoLease(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	underlying := toyruntime.New()
+	server := httptest.NewServer(remoteruntime.NewServer(underlying))
+	defer server.Close()
+
+	var stdout, stderr bytes.Buffer
+	if err := RunOne(ctx, RunOneOptions{
+		TenantID:       "tenant-runone-empty",
+		SWFURL:         server.URL,
+		LeaseDuration:  time.Minute,
+		AwaitThreshold: 30 * time.Second,
+		WorkingDir:     t.TempDir(),
+		Stdout:         &stdout,
+		Stderr:         &stderr,
+	}); err != nil {
+		t.Fatalf("RunOne(): %v\nstdout:\n%s\nstderr:\n%s", err, stdout.String(), stderr.String())
+	}
+	if got := strings.TrimSpace(stdout.String()); got != "no jobs found" {
+		t.Fatalf("RunOne() stdout = %q, want no jobs found", stdout.String())
+	}
+}
+
+func TestRunOneProcessesExactlyOneAvailableJob(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	tenantID := "tenant-runone-single"
+	underlying := toyruntime.New()
+	submitEngine, err := swf.NewEngineBuilder().WithRuntime(underlying).BuildEngine()
+	if err != nil {
+		t.Fatalf("build submit engine: %v", err)
+	}
+	server := httptest.NewServer(remoteruntime.NewServer(underlying))
+	defer server.Close()
+
+	keys := []swf.JobKey{
+		submitRecipeJob(t, ctx, submitEngine, tenantID, simpleSuccessRecipe("runone_single_a", "runone-a")),
+		submitRecipeJob(t, ctx, submitEngine, tenantID, simpleSuccessRecipe("runone_single_b", "runone-b")),
+	}
+
+	if count, err := CountReady(ctx, ReadyOptions{TenantID: tenantID, SWFURL: server.URL, WorkingDir: t.TempDir()}); err != nil || count != 2 {
+		t.Fatalf("initial ready count = %d, err=%v; want 2", count, err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	if err := RunOne(ctx, RunOneOptions{
+		TenantID:       tenantID,
+		SWFURL:         server.URL,
+		LeaseDuration:  time.Minute,
+		AwaitThreshold: 30 * time.Second,
+		WorkingDir:     t.TempDir(),
+		Stdout:         &stdout,
+		Stderr:         &stderr,
+	}); err != nil {
+		t.Fatalf("RunOne(): %v\nstdout:\n%s\nstderr:\n%s", err, stdout.String(), stderr.String())
+	}
+	if out := stdout.String(); !strings.Contains(out, "completed job="+tenantID+"/") || !strings.Contains(out, "status=success") {
+		t.Fatalf("RunOne() stdout = %q, want completed job status", out)
+	}
+
+	completed, ready := countStatuses(t, ctx, submitEngine, keys)
+	if completed != 1 || ready != 1 {
+		t.Fatalf("after one RunOne completed=%d ready=%d, want completed=1 ready=1", completed, ready)
+	}
+	if count, err := CountReady(ctx, ReadyOptions{TenantID: tenantID, SWFURL: server.URL, WorkingDir: t.TempDir()}); err != nil || count != 1 {
+		t.Fatalf("ready count after one RunOne = %d, err=%v; want 1", count, err)
+	}
+}
+
+func TestRunOneConcurrentCopiesClaimDistinctJobs(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	tenantID := "tenant-runone-concurrent"
+	underlying := toyruntime.New()
+	submitEngine, err := swf.NewEngineBuilder().WithRuntime(underlying).BuildEngine()
+	if err != nil {
+		t.Fatalf("build submit engine: %v", err)
+	}
+	server := httptest.NewServer(remoteruntime.NewServer(underlying))
+	defer server.Close()
+
+	keys := make([]swf.JobKey, 0, 3)
+	for i := 0; i < 3; i++ {
+		keys = append(keys, submitRecipeJob(t, ctx, submitEngine, tenantID, simpleSuccessRecipe(fmt.Sprintf("runone_concurrent_%d", i), fmt.Sprintf("runone-%d", i))))
+	}
+
+	start := make(chan struct{})
+	errCh := make(chan error, len(keys))
+	for i := range keys {
+		i := i
+		go func() {
+			<-start
+			var stdout, stderr bytes.Buffer
+			err := RunOne(ctx, RunOneOptions{
+				TenantID:       tenantID,
+				SWFURL:         server.URL,
+				LeaseDuration:  time.Minute,
+				AwaitThreshold: 30 * time.Second,
+				WorkingDir:     t.TempDir(),
+				Stdout:         &stdout,
+				Stderr:         &stderr,
+			})
+			if err != nil {
+				errCh <- fmt.Errorf("runone %d: %w\nstdout:\n%s\nstderr:\n%s", i, err, stdout.String(), stderr.String())
+				return
+			}
+			if strings.Contains(stdout.String(), "no jobs found") {
+				errCh <- fmt.Errorf("runone %d found no job unexpectedly\nstdout:\n%s", i, stdout.String())
+				return
+			}
+			errCh <- nil
+		}()
+	}
+	close(start)
+
+	for range keys {
+		if err := <-errCh; err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	completed, ready := countStatuses(t, ctx, submitEngine, keys)
+	if completed != len(keys) || ready != 0 {
+		t.Fatalf("after concurrent RunOne completed=%d ready=%d, want completed=%d ready=0", completed, ready, len(keys))
+	}
+}
+
 func TestRunContinuesAfterCommandErrorWhenRecipeContinues(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
@@ -329,6 +507,41 @@ func jobOutputMap(t *testing.T, ctx context.Context, engine swf.SWFEngine, tenan
 		t.Fatalf("decode job output: %v", err)
 	}
 	return got
+}
+
+func simpleSuccessRecipe(id string, stdout string) string {
+	return fmt.Sprintf(`
+id: %s
+desc: succeeds for worker command tests
+version: "1.0"
+sequence:
+  - id: ok
+    op: command_execution
+    inputs:
+      run: "echo %s"
+      working_directory: "."
+outputs:
+  result: "{{ sequence.ok.outputs.stdout }}"
+`, id, stdout)
+}
+
+func countStatuses(t *testing.T, ctx context.Context, engine swf.SWFEngine, keys []swf.JobKey) (completed int, ready int) {
+	t.Helper()
+	for _, key := range keys {
+		info, err := engine.GetJob(ctx, key)
+		if err != nil {
+			t.Fatalf("get job %s: %v", key, err)
+		}
+		switch info.Status {
+		case swf.JobStatusCompleted:
+			completed++
+		case swf.JobStatusReady:
+			ready++
+		default:
+			t.Fatalf("job %s status = %s, want completed or ready", key, info.Status)
+		}
+	}
+	return completed, ready
 }
 
 func shellQuote(value string) string {

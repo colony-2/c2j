@@ -21,6 +21,8 @@ c2j init
 c2j submit
 c2j exec
 c2j work
+c2j ready
+c2j runone
 c2j list
 c2j test
 ```
@@ -396,6 +398,35 @@ Important behavior:
 - `--embed` is not available for `work`
 - `--swf-url embed:///` is rejected for `work`
 - `work` is non-interactive; use `exec` or an ops surface for jobs that need input
+
+### Loose scheduling with `ready` and `runone`
+
+`c2j ready` prints the number of currently ready recipe jobs for one tenant:
+
+```bash
+c2j ready --tenant-id <tenant-id> --swf-url http://localhost:9047
+```
+
+`c2j runone` atomically polls for one available item of c2j work, leases it, runs
+it, and exits. If no lease is available, it exits successfully after printing
+`no jobs found`.
+
+```bash
+c2j runone --tenant-id <tenant-id> --swf-url http://localhost:9047
+```
+
+These can be composed by an external scheduler:
+
+```bash
+count=$(c2j ready --tenant-id <tenant-id> --swf-url http://localhost:9047)
+if [ "$count" -gt 0 ]; then
+  seq 1 "$count" | xargs -n1 -P "$count" c2j runone --tenant-id <tenant-id> --swf-url http://localhost:9047
+fi
+```
+
+`ready` is only a non-mutating snapshot and can become stale under competing
+workers. `runone` uses SWF polling so finding available work and acquiring the
+lease happen in one runtime operation.
 
 ## Listing Jobs
 
