@@ -2,7 +2,6 @@ package input
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -18,10 +17,8 @@ import (
 	"github.com/colony-2/c2j/pkg/worker/workflow"
 	"github.com/colony-2/c2j/pkg/workflowctl"
 	"github.com/colony-2/swf-go/pkg/swf"
-	directruntime "github.com/colony-2/swf-go/pkg/swf/runtime/direct"
-	directtestsupport "github.com/colony-2/swf-go/pkg/swf/runtime/direct/testsupport"
+	sqliteruntime "github.com/colony-2/swf-go/pkg/swf/runtime/sqlite"
 	toyruntime "github.com/colony-2/swf-go/pkg/swf/runtime/toy"
-	_ "github.com/lib/pq"
 	"github.com/stretchr/testify/require"
 )
 
@@ -219,27 +216,16 @@ inputs:
 	workSet, err := compiler.NewRecipeWorker(workerDeps, registry, nil)
 	require.NoError(t, err)
 
-	dsn, stopPG, err := directtestsupport.StartEmbeddedPostgres()
+	embedded, err := sqliteruntime.StartEmbeddedRuntime(ctx)
 	require.NoError(t, err)
-	defer stopPG()
-
-	sqlDB, err := sql.Open("postgres", dsn)
-	require.NoError(t, err)
-	defer sqlDB.Close()
-	require.NoError(t, directtestsupport.InstallPGWF(ctx, sqlDB))
-
-	strata, err := directtestsupport.StartEmbeddedStrata()
-	require.NoError(t, err)
-	defer strata.Shutdown()
+	defer embedded.Shutdown()
 
 	taskWorkers := make([]swf.TaskWorker, 0, len(workSet.TaskWorkers))
 	for _, tw := range workSet.TaskWorkers {
 		taskWorkers = append(taskWorkers, tw)
 	}
-	swfRuntime, err := directruntime.NewFromConfig(dsn, strata.BaseURL, strata.APIKey)
-	require.NoError(t, err)
 	engine, err := swf.NewEngineBuilder().
-		WithRuntime(swfRuntime).
+		WithRuntime(embedded.Runtime).
 		WithWorkerTenantId("test-tenant").
 		WithAwaitRecycleThreshold(5*time.Second).
 		WithLogger(slog.Default()).

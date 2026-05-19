@@ -2,7 +2,6 @@ package test_fixtures_test
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -27,9 +26,7 @@ import (
 	workflow "github.com/colony-2/c2j/pkg/worker/workflow"
 	"github.com/colony-2/c2j/pkg/workflowctl"
 	"github.com/colony-2/swf-go/pkg/swf"
-	directruntime "github.com/colony-2/swf-go/pkg/swf/runtime/direct"
-	directtestsupport "github.com/colony-2/swf-go/pkg/swf/runtime/direct/testsupport"
-	_ "github.com/lib/pq"
+	sqliteruntime "github.com/colony-2/swf-go/pkg/swf/runtime/sqlite"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
@@ -67,29 +64,18 @@ func TestRecipeFixturesRealEngine(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	dsn, stopPG, err := directtestsupport.StartEmbeddedPostgres()
+	embedded, err := sqliteruntime.StartEmbeddedRuntime(ctx)
 	require.NoError(t, err)
-	t.Cleanup(stopPG)
-
-	sqlDB, err := sql.Open("postgres", dsn)
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = sqlDB.Close() })
-	require.NoError(t, directtestsupport.InstallPGWF(ctx, sqlDB))
-
-	strata, err := directtestsupport.StartEmbeddedStrata()
-	require.NoError(t, err)
-	t.Cleanup(func() { strata.Shutdown() })
+	t.Cleanup(embedded.Shutdown)
 
 	taskWorkers := make([]swf.TaskWorker, 0, len(workSet.TaskWorkers))
 	for _, tw := range workSet.TaskWorkers {
 		taskWorkers = append(taskWorkers, tw)
 	}
-	swfRuntime, err := directruntime.NewFromConfig(dsn, strata.BaseURL, strata.APIKey)
-	require.NoError(t, err)
 
 	tenantID := "test-tenant"
 	engine, err := swf.NewEngineBuilder().
-		WithRuntime(swfRuntime).
+		WithRuntime(embedded.Runtime).
 		WithWorkerTenantId(tenantID).
 		WithAwaitRecycleThreshold(5*time.Second).
 		WithLogger(slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelError}))).
