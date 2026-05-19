@@ -33,14 +33,15 @@ const (
 
 // templateData is the root context for both Go templates and CEL
 type templateData struct {
-	ContainerInputs map[string]interface{}          `json:"container_inputs"` // ContainerInputs map if this is a sequence or state machine.
-	Sequence        map[string]StepOutput           `json:"sequence"`         // Sibling nodes in sequence
-	States          map[string]StepOutput           `json:"states"`           // Completed states in state machine
-	Vars            map[string]interface{}          `json:"vars"`             // Scoped computed values
-	Outputs         map[string]interface{}          `json:"outputs"`          // Current source outputs for transition evaluation/payloads.
-	Transition      TransitionData                  `json:"transition"`       // Transition metadata visible to a target state invocation.
-	Scope           ScopeMetadata                   `json:"scope"`            // Execution metadata
-	Context         contextual.TaskExecutionContext `json:"context"`          // Execution context (typed)
+	ContainerInputs map[string]interface{}          `json:"container_inputs"`  // ContainerInputs map if this is a sequence or state machine.
+	Sequence        map[string]StepOutput           `json:"sequence"`          // Sibling nodes in sequence
+	States          map[string]StepOutput           `json:"states"`            // Completed states in state machine
+	Vars            map[string]interface{}          `json:"vars"`              // Scoped computed values
+	Outputs         map[string]interface{}          `json:"outputs"`           // Current source outputs for transition evaluation/payloads.
+	Transition      TransitionData                  `json:"transition"`        // Transition metadata visible to a target state invocation.
+	Failure         *recipe.RuntimeFailure          `json:"failure,omitempty"` // Runtime failure visible while catch clauses render.
+	Scope           ScopeMetadata                   `json:"scope"`             // Execution metadata
+	Context         contextual.TaskExecutionContext `json:"context"`           // Execution context (typed)
 }
 
 type StepOutput = contextual.StepOutput
@@ -152,6 +153,7 @@ func newResolutionContext(commitContext *contextual.GitCommitContext, tracker *i
 		cel.Variable("vars", cel.MapType(cel.StringType, cel.DynType)),
 		cel.Variable("outputs", cel.MapType(cel.StringType, cel.DynType)),
 		cel.Variable("transition", cel.MapType(cel.StringType, cel.DynType)),
+		cel.Variable("failure", cel.ObjectType("recipe.RuntimeFailure")),
 		cel.Variable("scope", cel.MapType(cel.StringType, cel.DynType)),
 		cel.Variable("context", cel.ObjectType("contextual.TaskExecutionContext")),
 		ext.NativeTypes(
@@ -165,6 +167,10 @@ func newResolutionContext(commitContext *contextual.GitCommitContext, tracker *i
 			reflect.TypeOf(contextual.GitBaseContext{}),
 			reflect.TypeOf(contextual.GitCommitContext{}),
 			reflect.TypeOf(contextual.Invocation{}),
+			reflect.TypeOf(recipe.RuntimeFailure{}),
+			reflect.TypeOf(recipe.FailureNode{}),
+			reflect.TypeOf(recipe.FailureTiming{}),
+			reflect.TypeOf(recipe.FailureTask{}),
 			reflect.TypeOf(recipeartifacts.Ref{}),
 			reflect.TypeOf(recipeartifacts.StoredRef{}),
 			reflect.TypeOf(recipeartifacts.ExternalRef{}),
@@ -315,6 +321,7 @@ func (rc *ResolutionContext) NewChildContext(scopeType ScopeType, metadata recip
 	child.EffectiveConst = rc.EffectiveConst || metadata.Const
 	child.TemplateData.Vars = cloneTemplateVars(rc.TemplateData.Vars)
 	child.TemplateData.Transition = rc.TemplateData.Transition.Clone()
+	child.TemplateData.Failure = rc.TemplateData.Failure.Clone()
 
 	// copy items from parents based on scope.
 	switch scopeType {
@@ -340,6 +347,16 @@ func (rc *ResolutionContext) NewChildContext(scopeType ScopeType, metadata recip
 	child.Parent = rc
 	rc.ensureContextBackfill()
 	return child, nil
+}
+
+func (rc *ResolutionContext) WithFailure(f *recipe.RuntimeFailure) *ResolutionContext {
+	if rc == nil {
+		return nil
+	}
+	out := *rc
+	out.TemplateData = rc.TemplateData
+	out.TemplateData.Failure = f.Clone()
+	return &out
 }
 
 // ensureContextBackfill keeps the template data context initialized even when callers omit it.
@@ -432,6 +449,7 @@ func (rc *ResolutionContext) evaluateCELExpression(expr string) (interface{}, er
 		"vars":       rc.TemplateData.Vars,
 		"outputs":    rc.TemplateData.Outputs,
 		"transition": rc.TemplateData.Transition.AsMap(),
+		"failure":    rc.TemplateData.Failure,
 		"scope":      rc.TemplateData.Scope,
 		"context":    rc.TemplateData.Context,
 	})
@@ -667,17 +685,23 @@ func placeholderFromCELType(t *types.Type) interface{} {
 }
 
 var validationSafeCalls = map[string]struct{}{
-	"state_exists":            {},
-	"state_output":            {},
-	"state_field":             {},
-	"nonempty":                {},
-	"first_nonempty":          {},
-	"optional.of":             {},
-	"optional.ofNonZeroValue": {},
-	"optional.none":           {},
-	"orValue":                 {},
-	"hasValue":                {},
-	"value":                   {},
+	"state_exists":             {},
+	"state_output":             {},
+	"state_field":              {},
+	"nonempty":                 {},
+	"first_nonempty":           {},
+	"failure_is":               {},
+	"failure_message_contains": {},
+	"failure_message_matches":  {},
+	"failure_has_code":         {},
+	"failure_originates_from":  {},
+	"failure_root_cause":       {},
+	"optional.of":              {},
+	"optional.ofNonZeroValue":  {},
+	"optional.none":            {},
+	"orValue":                  {},
+	"hasValue":                 {},
+	"value":                    {},
 }
 
 // hasForbiddenCalls detects whether the expression contains function calls that should not

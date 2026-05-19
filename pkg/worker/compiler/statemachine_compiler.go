@@ -1,6 +1,7 @@
 package compiler
 
 import (
+	"errors"
 	"fmt"
 	"time"
 
@@ -27,6 +28,9 @@ func (d DefaultRecipeExecutor) ExecuteStateMachine(ctx workflow.Context, parentC
 	}
 	if err := resCtx.ResolveVars(metadata.Vars); err != nil {
 		return fmt.Errorf("failed to resolve state machine vars: %w", err)
+	}
+	if len(metadata.Catch) > 0 {
+		resCtx.Options.CatchBeforeRetry = true
 	}
 	if err := seedStateMachinePlaceholders(resCtx, stateMap); err != nil {
 		return err
@@ -59,13 +63,16 @@ func (d DefaultRecipeExecutor) ExecuteStateMachine(ctx workflow.Context, parentC
 		stateNames := sortedStateNames(stateMap.States)
 		lastStateName := ""
 		lastStateDef := recipe.State{}
+		incoming := buildValidationIncomingEdges(metadata.Catch, stateMap, resCtx)
 		for _, stateName := range stateNames {
 			stateDef := stateMap.States[stateName]
-			observer.StateEntered(stateName)
-			if err := d.runState(ctx, resCtx, stateName, stateDef, template.NewTransitionData("", stateName, nil)); err != nil {
-				return fmt.Errorf("state '%s' execution failed: %w", stateName, err)
+			for _, incomingTransition := range validationTransitionsForState(stateName, incoming) {
+				observer.StateEntered(stateName)
+				if _, err := d.runState(ctx, resCtx, stateName, stateDef, incomingTransition); err != nil {
+					return fmt.Errorf("state '%s' execution failed: %w", stateName, err)
+				}
+				observer.StateExited(stateName)
 			}
-			observer.StateExited(stateName)
 			lastStateName = stateName
 			lastStateDef = stateDef
 			if _, err := evaluateTransitionsWithContext(observer, stateDef.Transitions, resCtx, stateName); err != nil {
@@ -91,11 +98,46 @@ func (d DefaultRecipeExecutor) ExecuteStateMachine(ctx workflow.Context, parentC
 		}
 
 		observer.StateEntered(currentState)
-		if err := d.runState(ctx, resCtx, currentState, stateDef, currentTransition); err != nil {
-			// Handle retry if configured
-			return fmt.Errorf("state '%s' execution failed: %w", currentState, err)
+		stateResult, err := d.runState(ctx, resCtx, currentState, stateDef, currentTransition)
+		if err != nil {
+			failure, ok := failureFromError(err)
+			if !ok {
+				failure = normalizeRuntimeFailure(err, resCtx, metadata, recipe.FailureNodeStateMachine, "")
+			}
+			if len(metadata.Catch) > 0 {
+				decision, catchErr := evaluateCatchClauses(metadata.Catch, failure, resCtx, currentState, true)
+				if catchErr != nil {
+					return catchErr
+				}
+				switch decision.Kind {
+				case catchDecisionRoute:
+					if _, ok := stateMap.States[decision.To]; !ok {
+						return fmt.Errorf("catch target state %q not found", decision.To)
+					}
+					observer.StateExited(currentState)
+					sourceState := currentState
+					currentState = decision.To
+					currentTransition = template.NewFailureTransitionData(sourceState, decision.To, decision.Payload, decision.Failure)
+					continue
+				case catchDecisionContinue:
+					parentContext.AddExecutionWithArtifactData(decision.Outputs, nil, nil)
+					observer.StateExited(currentState)
+					return nil
+				case catchDecisionFail:
+					return decision.Error
+				}
+			}
+			return fmt.Errorf("state '%s' execution failed: %w", currentState, newRecipeFailureError(failure, err))
 		}
 		observer.StateExited(currentState)
+		if stateResult.Route != nil {
+			if _, ok := stateMap.States[stateResult.Route.To]; !ok {
+				return fmt.Errorf("catch target state %q not found", stateResult.Route.To)
+			}
+			currentState = stateResult.Route.To
+			currentTransition = stateResult.Route.Clone()
+			continue
+		}
 		// Terminal states end the machine after they run.
 		if isTerminalState(currentState, stateMap.States) {
 			break
@@ -130,6 +172,67 @@ func (d DefaultRecipeExecutor) ExecuteStateMachine(ctx workflow.Context, parentC
 	parentContext.AddExecutionWithArtifactData(resolvedOutputs, stateArtifacts(resCtx, currentState, finalState), resCtx.GetLastArtifacts())
 
 	return nil
+}
+
+type validationIncomingEdges struct {
+	normal bool
+	catch  []template.TransitionData
+}
+
+func buildValidationIncomingEdges(containerCatch []recipe.CatchClause, stateMap *recipe.StateMap, resCtx *template.ResolutionContext) map[string]validationIncomingEdges {
+	incoming := make(map[string]validationIncomingEdges, len(stateMap.States))
+	for _, transition := range stateMap.Initial.Transitions() {
+		entry := incoming[transition.To]
+		entry.normal = true
+		incoming[transition.To] = entry
+	}
+	for source, state := range stateMap.States {
+		for _, transition := range state.Transitions {
+			entry := incoming[transition.To]
+			entry.normal = true
+			incoming[transition.To] = entry
+		}
+		for _, catchTransition := range validationCatchTransitions(state.GetMetadata().Catch, resCtx, source) {
+			entry := incoming[catchTransition.To]
+			entry.catch = append(entry.catch, catchTransition)
+			incoming[catchTransition.To] = entry
+		}
+	}
+	for _, catchTransition := range validationCatchTransitions(containerCatch, resCtx, "") {
+		entry := incoming[catchTransition.To]
+		entry.catch = append(entry.catch, catchTransition)
+		incoming[catchTransition.To] = entry
+	}
+	return incoming
+}
+
+func validationTransitionsForState(stateName string, incoming map[string]validationIncomingEdges) []template.TransitionData {
+	entry, ok := incoming[stateName]
+	out := []template.TransitionData{}
+	if !ok || entry.normal {
+		out = append(out, template.NewTransitionData("", stateName, nil))
+	}
+	out = append(out, entry.catch...)
+	return out
+}
+
+func validationCatchTransitions(clauses []recipe.CatchClause, resCtx *template.ResolutionContext, sourceState string) []template.TransitionData {
+	if len(clauses) == 0 {
+		return nil
+	}
+	out := []template.TransitionData{}
+	failureCtx := resCtx.WithFailure(validationFailure)
+	for _, clause := range clauses {
+		if clause.To == "" {
+			continue
+		}
+		payload, err := failureCtx.ResolveMap(clause.Payload)
+		if err != nil {
+			payload = map[string]interface{}{}
+		}
+		out = append(out, template.NewFailureTransitionData(sourceState, clause.To, payload, validationFailure))
+	}
+	return out
 }
 
 type transitionDecision struct {
@@ -230,18 +333,59 @@ func sourceStateOutputs(resCtx *template.ResolutionContext, stateName string) ma
 	return state.Outputs
 }
 
-func (d DefaultRecipeExecutor) runState(ctx workflow.Context, resCtx *template.ResolutionContext, stateName string, node recipe.State, transition template.TransitionData) error {
+type stateRunResult struct {
+	Route *template.TransitionData
+}
+
+func (d DefaultRecipeExecutor) runState(ctx workflow.Context, resCtx *template.ResolutionContext, stateName string, node recipe.State, transition template.TransitionData) (stateRunResult, error) {
 	stateResCtx, err := resCtx.NewChildContext(template.ScopeState, node.GetMetadata(), stateName, nil)
 	if err != nil {
-		return fmt.Errorf("failed to create state context: %w", err)
+		return stateRunResult{}, fmt.Errorf("failed to create state context: %w", err)
 	}
 	stateResCtx.TemplateData.Transition = transition.Clone()
 	if err := stateResCtx.ResolveVars(node.GetMetadata().Vars); err != nil {
-		return fmt.Errorf("failed to resolve state vars: %w", err)
+		return stateRunResult{}, fmt.Errorf("failed to resolve state vars: %w", err)
+	}
+	if len(node.GetMetadata().Catch) > 0 {
+		stateResCtx.Options.CatchBeforeRetry = true
 	}
 
 	stateNode := nodeWithoutVars(node.Node)
-	return d.self().ExecuteNode(ctx, stateResCtx, &stateNode)
+	err = d.self().ExecuteNode(ctx, stateResCtx, &stateNode)
+	if err == nil {
+		return stateRunResult{}, nil
+	}
+
+	var routeErr *catchRouteError
+	if errors.As(err, &routeErr) {
+		route := routeErr.Transition.Clone()
+		return stateRunResult{Route: &route}, nil
+	}
+
+	failure, ok := failureFromError(err)
+	if !ok {
+		failure = normalizeRuntimeFailure(err, stateResCtx, node.GetMetadata(), recipe.FailureNodeState, "")
+	}
+	if len(node.GetMetadata().Catch) == 0 {
+		return stateRunResult{}, newRecipeFailureError(failure, err)
+	}
+
+	decision, catchErr := evaluateCatchClauses(node.GetMetadata().Catch, failure, stateResCtx, stateName, true)
+	if catchErr != nil {
+		return stateRunResult{}, catchErr
+	}
+	switch decision.Kind {
+	case catchDecisionRoute:
+		route := template.NewFailureTransitionData(stateName, decision.To, decision.Payload, decision.Failure)
+		return stateRunResult{Route: &route}, nil
+	case catchDecisionContinue:
+		stateResCtx.AddExecutionWithArtifactData(decision.Outputs, nil, nil)
+		return stateRunResult{}, nil
+	case catchDecisionFail:
+		return stateRunResult{}, decision.Error
+	default:
+		return stateRunResult{}, newRecipeFailureError(failure, err)
+	}
 }
 
 func nodeWithoutVars(node recipe.Node) recipe.Node {
@@ -249,14 +393,17 @@ func nodeWithoutVars(node recipe.Node) recipe.Node {
 	case *recipe.NodeOp:
 		clone := *n
 		clone.NodeMetadata.Vars = nil
+		clone.NodeMetadata.Catch = nil
 		return recipe.Node{NodeImpl: &clone}
 	case *recipe.NodeSequence:
 		clone := *n
 		clone.NodeMetadata.Vars = nil
+		clone.NodeMetadata.Catch = nil
 		return recipe.Node{NodeImpl: &clone}
 	case *recipe.NodeState:
 		clone := *n
 		clone.NodeMetadata.Vars = nil
+		clone.NodeMetadata.Catch = nil
 		return recipe.Node{NodeImpl: &clone}
 	default:
 		return node

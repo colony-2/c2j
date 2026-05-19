@@ -1,6 +1,7 @@
 package compiler
 
 import (
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -127,6 +128,11 @@ func (d DefaultRecipeExecutor) ExecuteRecipe(ctx workflow.Context, r recipe.Reci
 	if err := rCtx.ResolveVars(metadata.Vars); err != nil {
 		return nil, nil, fmt.Errorf("failed to resolve recipe vars: %w", err)
 	}
+	if execOpts.Mode == ExecutionModeValidate {
+		if err := validateCatchSemantics(r, rCtx); err != nil {
+			return nil, nil, err
+		}
+	}
 	rootMetadata := metadata
 	rootMetadata.Vars = nil
 
@@ -224,9 +230,60 @@ func (d DefaultRecipeExecutor) ExecuteOp(ctx workflow.Context, parentResolutionC
 	return nil
 }
 
-// executeOperation executes a single operation node
 func (d DefaultRecipeExecutor) executeOp2(ctx workflow.Context, parentResolutionContext *template.ResolutionContext, metadata recipe.NodeMetadata, op string) error {
+	catchAware := len(metadata.Catch) > 0 || parentResolutionContext.Options.CatchBeforeRetry
+	if !catchAware {
+		return d.executeOpAttempt(ctx, parentResolutionContext, metadata, op)
+	}
 
+	attemptMetadata := metadata
+	singleAttempt := singleAttemptRetryPolicy(metadata.Retry)
+	attemptMetadata.Retry = &singleAttempt
+	attempts := 1
+	if len(metadata.Catch) > 0 {
+		attempts = retryPolicyAttempts(metadata.Retry)
+	}
+	for attempt := 1; attempt <= attempts; attempt++ {
+		err := d.executeOpAttempt(ctx, parentResolutionContext, attemptMetadata, op)
+		if err == nil {
+			return nil
+		}
+		failure, ok := failureFromError(err)
+		if !ok {
+			return err
+		}
+
+		if len(metadata.Catch) > 0 {
+			decision, catchErr := evaluateCatchClauses(metadata.Catch, failure, parentResolutionContext, containingStateName(parentResolutionContext), canRouteToState(parentResolutionContext))
+			if catchErr != nil {
+				return catchErr
+			}
+			switch decision.Kind {
+			case catchDecisionRoute:
+				return &catchRouteError{Transition: template.NewFailureTransitionData(containingStateName(parentResolutionContext), decision.To, decision.Payload, decision.Failure)}
+			case catchDecisionContinue:
+				return recordSyntheticNodeOutput(parentResolutionContext, template.ScopeOp, metadata, op, decision.Outputs)
+			case catchDecisionFail:
+				err = decision.Error
+				failure = decision.Failure
+			}
+		}
+
+		if attempt < attempts && shouldRetryFailure(err, failure, metadata.Retry) {
+			if delay := retryDelay(metadata.Retry, attempt); delay > 0 {
+				if awaitErr := ctx.JobContext.AwaitDuration(swf.Duration(delay)); awaitErr != nil {
+					return awaitErr
+				}
+			}
+			continue
+		}
+		return newRecipeFailureError(failure, err)
+	}
+	return nil
+}
+
+// executeOperation executes a single operation node attempt.
+func (d DefaultRecipeExecutor) executeOpAttempt(ctx workflow.Context, parentResolutionContext *template.ResolutionContext, metadata recipe.NodeMetadata, op string) error {
 	if metadata.Inputs == nil {
 		metadata.Inputs = map[string]interface{}{}
 	}
@@ -391,7 +448,8 @@ func (d DefaultRecipeExecutor) executeOp2(ctx workflow.Context, parentResolution
 					out = mismatch.CachedTaskData()
 					hadMismatch = true
 				} else {
-					return err
+					failure := normalizeRuntimeFailure(err, resCtx, metadata, recipe.FailureNodeOp, op)
+					return newRecipeFailureError(failure, err)
 				}
 			}
 
@@ -485,6 +543,9 @@ func (d DefaultRecipeExecutor) innerSequence(ctx workflow.Context, parentCtx *te
 	if err := resCtx.ResolveVars(metadata.Vars); err != nil {
 		return fmt.Errorf("failed to resolve sequence vars: %w", err)
 	}
+	if len(metadata.Catch) > 0 {
+		resCtx.Options.CatchBeforeRetry = true
+	}
 	if err := seedSequencePlaceholders(resCtx, sequence); err != nil {
 		return err
 	}
@@ -493,7 +554,31 @@ func (d DefaultRecipeExecutor) innerSequence(ctx workflow.Context, parentCtx *te
 		// Execute the node
 		err := d.self().ExecuteNode(ctx, resCtx, &node)
 		if err != nil {
-			return fmt.Errorf("sequence node %d failed: %w", i, err)
+			var routeErr *catchRouteError
+			if errors.As(err, &routeErr) {
+				return routeErr
+			}
+			failure, ok := failureFromError(err)
+			if !ok {
+				failure = normalizeRuntimeFailure(err, resCtx, metadata, recipe.FailureNodeSequence, "")
+			}
+			if len(metadata.Catch) > 0 {
+				decision, catchErr := evaluateCatchClauses(metadata.Catch, failure, resCtx, containingStateName(resCtx), canRouteToState(resCtx))
+				if catchErr != nil {
+					return catchErr
+				}
+				switch decision.Kind {
+				case catchDecisionRoute:
+					return &catchRouteError{Transition: template.NewFailureTransitionData(containingStateName(resCtx), decision.To, decision.Payload, decision.Failure)}
+				case catchDecisionContinue:
+					parentCtx.AddExecutionWithArtifactData(decision.Outputs, nil, nil)
+					return nil
+				case catchDecisionFail:
+					return decision.Error
+				}
+			}
+			wrapped := fmt.Errorf("sequence node %d failed: %w", i, err)
+			return newRecipeFailureError(failure, wrapped)
 		}
 	}
 
@@ -520,12 +605,31 @@ func (d DefaultRecipeExecutor) ExecuteSequence(ctx workflow.Context, rCtx *templ
 
 // executeCompositeInEnvelope executes a composite nodes in a retry/timeout envelope
 func executeCompositeInEnvelope(ctx workflow.Context, retry *recipe.RetryPolicy, timeoutDuration time.Duration, label string, fn func(inner workflow.Context) error) error {
-	// TODO: update composite executions to respect retry policy.
-	_ = retry
 	if timeoutDuration > 0 {
 		ctx.JobContext = withExecutionTimeout(ctx.JobContext, timeoutDuration, label)
 	}
-	return fn(ctx)
+	attempts := retryPolicyAttempts(retry)
+	for attempt := 1; attempt <= attempts; attempt++ {
+		err := fn(ctx)
+		if err == nil {
+			return nil
+		}
+		var routeErr *catchRouteError
+		if errors.As(err, &routeErr) {
+			return err
+		}
+		failure, _ := failureFromError(err)
+		if attempt < attempts && shouldRetryFailure(err, failure, retry) {
+			if delay := retryDelay(retry, attempt); delay > 0 {
+				if awaitErr := ctx.JobContext.AwaitDuration(swf.Duration(delay)); awaitErr != nil {
+					return awaitErr
+				}
+			}
+			continue
+		}
+		return err
+	}
+	return nil
 }
 
 func effectiveOpTimeout(metadata recipe.NodeMetadata, registeredOp ops.RegisterableOp) time.Duration {

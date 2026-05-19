@@ -4,8 +4,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"reflect"
+	"regexp"
 	"strings"
 
+	"github.com/colony-2/c2j/pkg/recipe"
 	"github.com/google/cel-go/cel"
 	"github.com/google/cel-go/common/types"
 	"github.com/google/cel-go/common/types/ref"
@@ -112,6 +114,24 @@ func defaultBuiltins() map[string]BuiltinFactory {
 			}
 			return cel.Function("first_nonempty", overloads...)
 		},
+		"failure_is":               failureBoolCELFunc("failure_is", failureIs),
+		"failure_message_contains": failureBoolCELFunc("failure_message_contains", failureMessageContains),
+		"failure_message_matches":  failureBoolCELFunc("failure_message_matches", failureMessageMatches),
+		"failure_has_code":         failureBoolCELFunc("failure_has_code", failureHasCode),
+		"failure_originates_from":  failureBoolCELFunc("failure_originates_from", failureOriginatesFrom),
+		"failure_root_cause": func(adapter types.Adapter, _ ContextProvider) cel.EnvOption {
+			return cel.Function(
+				"failure_root_cause",
+				cel.Overload(
+					"failure_root_cause_dyn",
+					[]*cel.Type{cel.DynType},
+					cel.DynType,
+					cel.UnaryBinding(func(value ref.Val) ref.Val {
+						return adapter.NativeToValue(toTemplateValue(failureRootCause(value.Value())))
+					}),
+				),
+			)
+		},
 	}
 }
 
@@ -190,7 +210,115 @@ func defaultTemplateBuiltins() map[string]TemplateFuncFactory {
 				return nil
 			}
 		},
+		"failure_is":               failureBoolTemplateFunc(failureIs),
+		"failure_message_contains": failureBoolTemplateFunc(failureMessageContains),
+		"failure_message_matches":  failureBoolTemplateFunc(failureMessageMatches),
+		"failure_has_code":         failureBoolTemplateFunc(failureHasCode),
+		"failure_originates_from":  failureBoolTemplateFunc(failureOriginatesFrom),
+		"failure_root_cause": func(_ ContextProvider) interface{} {
+			return func(value any) any {
+				return toTemplateValue(failureRootCause(value))
+			}
+		},
 	}
+}
+
+func failureBoolCELFunc(name string, impl func(any, string) bool) BuiltinFactory {
+	return func(_ types.Adapter, _ ContextProvider) cel.EnvOption {
+		return cel.Function(
+			name,
+			cel.Overload(
+				name+"_dyn_string",
+				[]*cel.Type{cel.DynType, cel.StringType},
+				cel.BoolType,
+				cel.BinaryBinding(func(lhs ref.Val, rhs ref.Val) ref.Val {
+					text, ok := rhs.Value().(string)
+					if !ok {
+						return types.Bool(false)
+					}
+					return types.Bool(impl(lhs.Value(), text))
+				}),
+			),
+		)
+	}
+}
+
+func failureBoolTemplateFunc(impl func(any, string) bool) TemplateFuncFactory {
+	return func(_ ContextProvider) interface{} {
+		return func(value any, text string) bool {
+			return impl(value, text)
+		}
+	}
+}
+
+func failureIs(value any, kind string) bool {
+	f := decodeFailure(value)
+	return f != nil && string(f.Kind) == kind
+}
+
+func failureMessageContains(value any, text string) bool {
+	f := decodeFailure(value)
+	return f != nil && strings.Contains(f.Message, text)
+}
+
+func failureMessageMatches(value any, expr string) bool {
+	f := decodeFailure(value)
+	if f == nil {
+		return false
+	}
+	matched, err := regexp.MatchString(expr, f.Message)
+	return err == nil && matched
+}
+
+func failureHasCode(value any, code string) bool {
+	f := decodeFailure(value)
+	return f != nil && f.Code == code
+}
+
+func failureOriginatesFrom(value any, nodePathOrID string) bool {
+	for f := decodeFailure(value); f != nil; f = f.Cause {
+		if f.Node.Path == nodePathOrID || f.Node.ID == nodePathOrID {
+			return true
+		}
+	}
+	return false
+}
+
+func failureRootCause(value any) any {
+	f := decodeFailure(value)
+	if f == nil {
+		return nil
+	}
+	for f.Cause != nil {
+		f = f.Cause
+	}
+	return f.Clone()
+}
+
+func decodeFailure(value any) *recipe.RuntimeFailure {
+	if value == nil {
+		return nil
+	}
+	switch typed := value.(type) {
+	case *recipe.RuntimeFailure:
+		return typed
+	case recipe.RuntimeFailure:
+		return &typed
+	case ref.Val:
+		return decodeFailure(typed.Value())
+	}
+	data, err := json.Marshal(value)
+	if err != nil {
+		return nil
+	}
+	var out recipe.RuntimeFailure
+	if err := json.Unmarshal(data, &out); err != nil {
+		return nil
+	}
+	if out.Kind == "" && out.Message == "" && out.Node.Type == "" {
+		return nil
+	}
+	return &out
 }
 
 func firstNonemptyCEL(values []ref.Val) ref.Val {

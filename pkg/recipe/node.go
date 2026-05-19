@@ -234,4 +234,5 @@ type NodeMetadata struct {
 	Vars      map[string]interface{} `yaml:"vars,omitempty"`
 	Artifacts map[string]interface{} `yaml:"artifacts,omitempty"`
 	When      cel.CELExpr            `yaml:"when,omitempty"` // Conditional execution
+	Catch     []CatchClause          `yaml:"catch,omitempty" json:"catch,omitempty"`
 }
