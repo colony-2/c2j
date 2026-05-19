@@ -25,13 +25,14 @@ func (f *fakeJobTool) AwaitJobs(jobIds ...string) error {
 }
 
 type fakeWorkflowControl struct {
-	startKeys       []swf.JobKey
-	startErrs       []error
-	startRequests   []workflowctl.StartJob
-	startSawTx      []bool
-	jobResultFunc   func(ctx context.Context, key swf.JobKey) (swf.JobData, error)
-	getArtifactFunc func(ctx context.Context, tenantId string, key swf.ArtifactKey) swf.Artifact
-	jobResultCalls  int
+	startKeys        []swf.JobKey
+	startErrs        []error
+	startRequests    []workflowctl.StartJob
+	startSawTx       []bool
+	jobResultFunc    func(ctx context.Context, key swf.JobKey) (swf.JobData, error)
+	getArtifactFunc  func(ctx context.Context, tenantId string, key swf.ArtifactKey) swf.Artifact
+	getArtifactCalls int
+	jobResultCalls   int
 }
 
 func (f *fakeWorkflowControl) StartJob(ctx context.Context, req workflowctl.StartJob) (swf.JobKey, error) {
@@ -68,6 +69,7 @@ func (f *fakeWorkflowControl) GetWaitingTask(ctx context.Context, jobKey swf.Job
 }
 
 func (f *fakeWorkflowControl) GetArtifactLazy(ctx context.Context, tenantId string, key swf.ArtifactKey) swf.Artifact {
+	f.getArtifactCalls++
 	if f.getArtifactFunc != nil {
 		return f.getArtifactFunc(ctx, tenantId, key)
 	}

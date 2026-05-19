@@ -240,6 +240,162 @@ outputs:
 	}
 }
 
+func TestRun_ForwardsSubmittedArtifactToChildRecipe(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	tenantID := "tenant-child-artifact-forwarding-test"
+	parentYAML := strings.TrimSpace(`
+id: parent-artifact-forwarding
+version: "1.0"
+sequence:
+  - id: child
+    op: recipe.run_and_get_result
+    inputs:
+      name: child-artifact-forwarding
+      inputs: {}
+      artifacts: '${{ context.artifacts.map(k, context.artifacts[k]) }}'
+outputs:
+  child_received: "${{ sequence.child.outputs.outputs.received }}"
+`) + "\n"
+	childYAML := strings.TrimSpace(`
+id: child-artifact-forwarding
+version: "1.0"
+sequence:
+  - id: verify
+    op: command_execution
+    artifacts:
+      submitted/: '${{ context.artifacts }}'
+    inputs:
+      run: |
+        set -euo pipefail
+        test -f "{{ context.environment.op.inbox }}/submitted/brief.md"
+        grep -q "child-artifact-forwarding-ok" "{{ context.environment.op.inbox }}/submitted/brief.md"
+      working_directory: "."
+outputs:
+  received: true
+`) + "\n"
+
+	baseRepo, _ := createGitRepo(t)
+	mustWriteRepoFile(t, baseRepo, ".c2j/recipes/parent-artifact-forwarding.yaml", parentYAML)
+	mustWriteRepoFile(t, baseRepo, ".c2j/recipes/child-artifact-forwarding.yaml", childYAML)
+	commitRepo(t, baseRepo, "add artifact forwarding recipes")
+
+	root := t.TempDir()
+	briefPath := filepath.Join(root, "brief.md")
+	if err := os.WriteFile(briefPath, []byte("child-artifact-forwarding-ok\n"), 0o644); err != nil {
+		t.Fatalf("write brief: %v", err)
+	}
+
+	underlying := toyruntime.New()
+	server := httptest.NewServer(remoteruntime.NewServer(underlying))
+	defer server.Close()
+
+	var submitStdout bytes.Buffer
+	if err := Run(ctx, Options{
+		TenantID:      tenantID,
+		SWFURL:        server.URL,
+		Recipe:        "parent-artifact-forwarding",
+		Cell:          baseRepo,
+		WorkingDir:    baseRepo,
+		ArtifactSpecs: []string{"brief.md=" + briefPath},
+		JSONOutput:    true,
+		Stdout:        &submitStdout,
+	}); err != nil {
+		t.Fatalf("submit parent job: %v", err)
+	}
+
+	var submitted struct {
+		TenantID string `json:"tenant_id"`
+		JobID    string `json:"job_id"`
+		Recipe   string `json:"recipe"`
+	}
+	if err := json.Unmarshal(submitStdout.Bytes(), &submitted); err != nil {
+		t.Fatalf("decode submit output: %v", err)
+	}
+
+	var firstParentStdout bytes.Buffer
+	var firstParentStderr bytes.Buffer
+	err := runjob.Run(ctx, runjob.Options{
+		JobID:        submitted.JobID,
+		TenantID:     tenantID,
+		SWFURL:       server.URL,
+		OnNotReady:   "fail-on-pending-jobs",
+		WaitTimeout:  5 * time.Second,
+		PollInterval: 10 * time.Millisecond,
+		InputMode:    "fail",
+		Stdout:       &firstParentStdout,
+		Stderr:       &firstParentStderr,
+	})
+	if err == nil {
+		t.Fatal("expected parent to pause waiting for child job")
+	}
+	childJobID := extractWaitForJobID(t, err)
+
+	var childStdout bytes.Buffer
+	var childStderr bytes.Buffer
+	if err := runjob.Run(ctx, runjob.Options{
+		JobID:        childJobID,
+		TenantID:     tenantID,
+		SWFURL:       server.URL,
+		WaitTimeout:  5 * time.Second,
+		PollInterval: 10 * time.Millisecond,
+		InputMode:    "fail",
+		Stdout:       &childStdout,
+		Stderr:       &childStderr,
+	}); err != nil {
+		t.Fatalf("run child job: %v\nstderr:\n%s", err, childStderr.String())
+	}
+
+	var finalParentStdout bytes.Buffer
+	var finalParentStderr bytes.Buffer
+	if err := runjob.Run(ctx, runjob.Options{
+		JobID:        submitted.JobID,
+		TenantID:     tenantID,
+		SWFURL:       server.URL,
+		WaitTimeout:  5 * time.Second,
+		PollInterval: 10 * time.Millisecond,
+		InputMode:    "fail",
+		Stdout:       &finalParentStdout,
+		Stderr:       &finalParentStderr,
+	}); err != nil {
+		t.Fatalf("resume parent job: %v\nstderr:\n%s", err, finalParentStderr.String())
+	}
+
+	runtime, err := remoteruntime.New(server.URL, server.Client())
+	if err != nil {
+		t.Fatalf("create remote runtime: %v", err)
+	}
+	engine, err := swf.NewEngineBuilder().WithRuntime(runtime).BuildEngine()
+	if err != nil {
+		t.Fatalf("build engine: %v", err)
+	}
+	run, err := engine.GetJobRun(ctx, swf.GetJobRunRequest{
+		JobKey:         swf.JobKey{TenantId: tenantID, JobId: submitted.JobID},
+		IncludeOutputs: true,
+	})
+	if err != nil {
+		t.Fatalf("get parent job run: %v", err)
+	}
+	output, err := run.GetOutput(engine, tenantID)
+	if err != nil {
+		t.Fatalf("get parent output: %v", err)
+	}
+	raw, err := output.GetData()
+	if err != nil {
+		t.Fatalf("get parent output data: %v", err)
+	}
+	got := map[string]any{}
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatalf("decode parent output: %v", err)
+	}
+	if got["child_received"] != true {
+		t.Fatalf("unexpected parent output: %#v", got)
+	}
+}
+
 func TestRun_SubmitsRecipeReferenceThatResolvesAtExecution(t *testing.T) {
 	t.Parallel()
 
@@ -720,6 +876,31 @@ func extractSubmittedJobID(line string) string {
 		}
 	}
 	return ""
+}
+
+func extractWaitForJobID(t *testing.T, err error) string {
+	t.Helper()
+	if err == nil {
+		t.Fatal("expected error containing wait_for job id")
+	}
+	const marker = "wait_for="
+	message := err.Error()
+	idx := strings.Index(message, marker)
+	if idx < 0 {
+		t.Fatalf("expected wait_for job id in error %q", message)
+	}
+	rest := message[idx+len(marker):]
+	if fields := strings.Fields(rest); len(fields) > 0 {
+		rest = fields[0]
+	}
+	if comma := strings.Index(rest, ","); comma >= 0 {
+		rest = rest[:comma]
+	}
+	rest = strings.TrimSpace(rest)
+	if rest == "" {
+		t.Fatalf("expected non-empty wait_for job id in error %q", message)
+	}
+	return rest
 }
 
 func createGitRepo(t *testing.T) (string, string) {

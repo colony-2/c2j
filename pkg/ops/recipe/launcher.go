@@ -37,16 +37,7 @@ func deterministicChildJobID(parentJobID string, invocation contextual.Invocatio
 	return jobID.String()
 }
 
-func recipeToStart(ctx context.Context, tenantId string, ctl workflowctl.WorkflowControl, recipe SingleRecipe, recipeSourceRepo string, recipeSourceRef string, gitRef string, jobID string) (workflowctl.StartJob, error) {
-	artifacts := make([]swf.Artifact, 0, len(recipe.Artifacts))
-	for _, artifactRef := range recipe.Artifacts {
-		key, ok := artifactRef.StoredKey()
-		if !ok {
-			continue
-		}
-		artifacts = append(artifacts, ctl.GetArtifactLazy(ctx, tenantId, key))
-	}
-
+func recipeToStart(tenantId string, recipe SingleRecipe, recipeSourceRepo string, recipeSourceRef string, gitRef string, jobID string) (workflowctl.StartJob, error) {
 	recipeName := strings.TrimSpace(recipe.Name)
 	if recipeName == "" {
 		return workflowctl.StartJob{}, fmt.Errorf("recipe name is required")
@@ -66,7 +57,6 @@ func recipeToStart(ctx context.Context, tenantId string, ctl workflowctl.Workflo
 		JobID:        jobID,
 		RecipeName:   recipeName,
 		Inputs:       recipe.Inputs,
-		Artifacts:    artifacts,
 		ArtifactRefs: append([]recipeartifacts.Ref(nil), recipe.Artifacts...),
 		JobContext: contextual.JobContext{
 			Workflow: contextual.WorkflowContext{
@@ -96,7 +86,7 @@ func startJobs(ctx context.Context, parentJobKey swf.JobKey, invocation contextu
 
 	jobs := make([]workflowctl.StartJob, len(recipes))
 	for i, recipe := range recipes {
-		job, err := recipeToStart(ctx, parentJobKey.TenantId, ctl, recipe, recipeSourceRepo, recipeSourceRef, gitRef, deterministicChildJobID(parentJobKey.JobId, invocation, i))
+		job, err := recipeToStart(parentJobKey.TenantId, recipe, recipeSourceRepo, recipeSourceRef, gitRef, deterministicChildJobID(parentJobKey.JobId, invocation, i))
 		if err != nil {
 			return nil, err
 		}
