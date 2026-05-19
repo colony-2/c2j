@@ -87,8 +87,10 @@ func TestRecipeFixturesRealEngine(t *testing.T) {
 	swfRuntime, err := directruntime.NewFromConfig(dsn, strata.BaseURL, strata.APIKey)
 	require.NoError(t, err)
 
+	tenantID := "test-tenant"
 	engine, err := swf.NewEngineBuilder().
 		WithRuntime(swfRuntime).
+		WithWorkerTenantId(tenantID).
 		WithAwaitRecycleThreshold(5*time.Second).
 		WithLogger(slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelError}))).
 		WithMaxActive(100).

@@ -29,23 +29,7 @@ type CompilerTestSuite struct {
 	//eng *impl.EmbeddedEngine
 }
 
-func newToyEngine(t *testing.T, gen func(string) (swf.JobKey, error)) swf.SWFEngine {
-	t.Helper()
-	ctx, cancel := context.WithCancel(context.Background())
-	t.Cleanup(cancel)
-	opts := make([]toyruntime.Option, 0, 1)
-	if gen != nil {
-		opts = append(opts, toyruntime.WithJobIDGenerator(gen))
-	}
-	engine, err := swf.NewEngineBuilder().
-		WithRuntime(toyruntime.New(opts...)).
-		BuildEngine()
-	require.NoError(t, err)
-	go engine.Run(ctx)
-	return engine
-}
-
-func newToyEngineWithWorkSet(t *testing.T, ws *swf.WorkSet, gen func(string) (swf.JobKey, error)) swf.SWFEngine {
+func newToyEngine(t *testing.T, workerTenantID string, gen func(string) (swf.JobKey, error)) swf.SWFEngine {
 	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
@@ -54,6 +38,27 @@ func newToyEngineWithWorkSet(t *testing.T, ws *swf.WorkSet, gen func(string) (sw
 		opts = append(opts, toyruntime.WithJobIDGenerator(gen))
 	}
 	builder := swf.NewEngineBuilder().WithRuntime(toyruntime.New(opts...))
+	if workerTenantID != "" {
+		builder = builder.WithWorkerTenantId(workerTenantID)
+	}
+	engine, err := builder.BuildEngine()
+	require.NoError(t, err)
+	go engine.Run(ctx)
+	return engine
+}
+
+func newToyEngineWithWorkSet(t *testing.T, workerTenantID string, ws *swf.WorkSet, gen func(string) (swf.JobKey, error)) swf.SWFEngine {
+	t.Helper()
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	opts := make([]toyruntime.Option, 0, 1)
+	if gen != nil {
+		opts = append(opts, toyruntime.WithJobIDGenerator(gen))
+	}
+	builder := swf.NewEngineBuilder().WithRuntime(toyruntime.New(opts...))
+	if workerTenantID != "" {
+		builder = builder.WithWorkerTenantId(workerTenantID)
+	}
 	if ws != nil {
 		taskWorkers := make([]swf.TaskWorker, 0, len(ws.TaskWorkers))
 		for _, tw := range ws.TaskWorkers {
@@ -68,7 +73,7 @@ func newToyEngineWithWorkSet(t *testing.T, ws *swf.WorkSet, gen func(string) (sw
 }
 
 func (s *CompilerTestSuite) SetupTest() {
-	s.eng = newToyEngine(s.T(), nil)
+	s.eng = newToyEngine(s.T(), "test-tenant", nil)
 
 	s.deps = ops2.NewOpDependenciesBuilder().Build()
 	//eng, err := impl.StartEmbeddedEngine(context.Background(), nil)

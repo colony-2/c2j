@@ -122,7 +122,7 @@ func TestMultiStepWithCapabilityClaim(t *testing.T) {
 	require.True(t, foundSecond, "expected second step registration")
 
 	// Toy engine with our workset.
-	engine := newToyEngineWithWorkSet(t, ws, nil)
+	engine := newToyEngineWithWorkSet(t, "test-tenant", ws, nil)
 
 	repoPath, baseHash := makeTwoCommitRepo(t)
 	require.NoError(t, err)

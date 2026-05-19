@@ -118,7 +118,7 @@ outputs:
 	})
 	require.NoError(t, err)
 
-	engine := newToyEngineWithWorkSet(t, workset, nil)
+	engine := newToyEngineWithWorkSet(t, "tenant", workset, nil)
 	jobCtx, gitCtx := GenerateTestContext()
 	job := workflowctl.StartJob{
 		TenantId:   "tenant",
@@ -189,7 +189,7 @@ outputs:
 	})
 	require.NoError(t, err)
 
-	engine := newToyEngineWithWorkSet(t, workset, nil)
+	engine := newToyEngineWithWorkSet(t, "tenant", workset, nil)
 	jobCtx, _ := GenerateTestContext()
 	jobCtx.RecipeSource.Repo = repoURL
 	jobCtx.RecipeSource.Ref = commit
@@ -301,7 +301,7 @@ outputs:
 	workset, err := NewRecipeWorkerWithOptions(ops2.NewServiceDepsBuilder().Build(), registry, RecipeJobWorkerOptions{})
 	require.NoError(t, err)
 
-	engine := newToyEngineWithWorkSet(t, workset, nil)
+	engine := newToyEngineWithWorkSet(t, "tenant", workset, nil)
 	jobCtx, gitCtx := GenerateTestContext()
 	job := workflowctl.StartJob{
 		TenantId:   "tenant",
@@ -416,7 +416,7 @@ outputs:
 	workset, err := NewRecipeWorkerWithOptions(ops2.NewServiceDepsBuilder().Build(), registry, RecipeJobWorkerOptions{})
 	require.NoError(t, err)
 
-	engine := newToyEngineWithWorkSet(t, workset, nil)
+	engine := newToyEngineWithWorkSet(t, "tenant", workset, nil)
 	jobCtx, _ := GenerateTestContext()
 	jobCtx.GitBase.BaseRepo = repoURL
 	jobCtx.GitBase.BaseRef = commit
@@ -539,7 +539,7 @@ outputs:
 	workset, err := NewRecipeWorkerWithOptions(ops2.NewServiceDepsBuilder().Build(), registry, RecipeJobWorkerOptions{})
 	require.NoError(t, err)
 
-	engine := newToyEngineWithWorkSet(t, workset, nil)
+	engine := newToyEngineWithWorkSet(t, "tenant", workset, nil)
 	jobCtx, _ := GenerateTestContext()
 	job := workflowctl.StartJob{
 		TenantId:   "tenant",
@@ -671,7 +671,7 @@ outputs:
 	})
 	require.NoError(t, err)
 
-	engine := newToyEngineWithWorkSet(t, workset, nil)
+	engine := newToyEngineWithWorkSet(t, "tenant", workset, nil)
 	jobCtx, _ := GenerateTestContext()
 	job := workflowctl.StartJob{
 		TenantId:   "tenant",
@@ -811,7 +811,7 @@ outputs:
 	})
 	require.NoError(t, err)
 
-	engine := newToyEngineWithWorkSet(t, workset, nil)
+	engine := newToyEngineWithWorkSet(t, "tenant", workset, nil)
 	jobCtx, _ := GenerateTestContext()
 	job := workflowctl.StartJob{
 		TenantId:   "tenant",
@@ -984,7 +984,7 @@ outputs:
 	})
 	require.NoError(t, err)
 
-	engine := newToyEngineWithWorkSet(t, workset, nil)
+	engine := newToyEngineWithWorkSet(t, "tenant", workset, nil)
 	jobCtx, _ := GenerateTestContext()
 	job := workflowctl.StartJob{
 		TenantId:   "tenant",

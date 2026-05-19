@@ -87,8 +87,10 @@ func (e *StandaloneExecutor) ExecuteWithRegistry(
 	for _, tw := range workset.TaskWorkers {
 		taskWorkers = append(taskWorkers, tw)
 	}
+	tenantID := "default"
 	eng, err := swf.NewEngineBuilder().
 		WithRuntime(toyruntime.New()).
+		WithWorkerTenantId(tenantID).
 		PlusWorkers(workset.JobWorker, taskWorkers...).
 		BuildEngine()
 	if err != nil {
@@ -98,7 +100,7 @@ func (e *StandaloneExecutor) ExecuteWithRegistry(
 	control.Engine = eng
 
 	job := workflowctl.StartJob{
-		TenantId:   "default",
+		TenantId:   tenantID,
 		RecipeName: r.GetMetadata().ID,
 		Inputs:     inputs,
 		JobContext: jobCtx,

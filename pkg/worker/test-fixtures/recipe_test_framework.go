@@ -699,8 +699,10 @@ func executeRecipeWithArtifacts(
 	for _, tw := range workset.TaskWorkers {
 		taskWorkers = append(taskWorkers, tw)
 	}
+	tenantID := "default"
 	engine, err := swf.NewEngineBuilder().
 		WithRuntime(toyruntime.New()).
+		WithWorkerTenantId(tenantID).
 		PlusWorkers(workset.JobWorker, taskWorkers...).
 		BuildEngine()
 	if err != nil {
@@ -709,7 +711,7 @@ func executeRecipeWithArtifacts(
 	go engine.Run(ctx)
 	control.Engine = engine
 	job := workflowctl.StartJob{
-		TenantId:   "default",
+		TenantId:   tenantID,
 		RecipeName: recipeDef.GetMetadata().ID,
 		Inputs:     inputs,
 		JobContext: jobCtx,

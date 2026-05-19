@@ -42,7 +42,7 @@ inputs:
 	registry, err := ops.NewActivityRegistry()
 	require.NoError(t, err)
 	g := gen{max: 1}
-	eng := newToyEngine(t, g.Generate)
+	eng := newToyEngine(t, "test-project", g.Generate)
 
 	wf := workflow.SWFWorkflowControl{
 		Engine: eng,
@@ -171,7 +171,7 @@ func TestMissingProjectIdParameter(t *testing.T) {
 	mgmtService := op.GetManagementService().(*inputManagementService)
 
 	g := gen{max: 1}
-	eng := newToyEngine(t, g.Generate)
+	eng := newToyEngine(t, "", g.Generate)
 	wf := workflow.SWFWorkflowControl{Engine: eng}
 	deps := coreops.NewServiceDepsBuilder().
 		WithWorkflowControl(&wf).

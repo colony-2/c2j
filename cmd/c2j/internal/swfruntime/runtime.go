@@ -39,6 +39,18 @@ func (h *Handle) Cleanup() error {
 }
 
 func Open(ctx context.Context, swfURL string) (*Handle, error) {
+	return open(ctx, swfURL, "")
+}
+
+func OpenWorker(ctx context.Context, swfURL string, workerTenantID string) (*Handle, error) {
+	workerTenantID = strings.TrimSpace(workerTenantID)
+	if workerTenantID == "" {
+		return nil, fmt.Errorf("worker tenant ID is required")
+	}
+	return open(ctx, swfURL, workerTenantID)
+}
+
+func open(ctx context.Context, swfURL string, workerTenantID string) (*Handle, error) {
 	swfURL = strings.TrimSpace(swfURL)
 	if swfURL == "" {
 		return nil, fmt.Errorf("SWF runtime URL is required")
@@ -51,22 +63,26 @@ func Open(ctx context.Context, swfURL string) (*Handle, error) {
 
 	switch parsed.Scheme {
 	case embedScheme:
-		return openEmbed(ctx, parsed, swfURL)
+		return openEmbed(ctx, parsed, swfURL, workerTenantID)
 	case "http", "https":
-		return openRemote(swfURL)
+		return openRemote(swfURL, workerTenantID)
 	default:
 		return nil, fmt.Errorf("unsupported SWF runtime URL %q", swfURL)
 	}
 }
 
-func openRemote(swfURL string) (*Handle, error) {
+func openRemote(swfURL string, workerTenantID string) (*Handle, error) {
 	baseRuntime, err := remoteruntime.New(swfURL, &http.Client{Timeout: defaultHTTPTimeout})
 	if err != nil {
 		return nil, fmt.Errorf("create remote runtime: %w", err)
 	}
 	runtime := withChapterVisibility(baseRuntime)
 
-	engine, err := swf.NewEngineBuilder().WithRuntime(runtime).BuildEngine()
+	builder := swf.NewEngineBuilder().WithRuntime(runtime)
+	if workerTenantID != "" {
+		builder = builder.WithWorkerTenantId(workerTenantID)
+	}
+	engine, err := builder.BuildEngine()
 	if err != nil {
 		return nil, fmt.Errorf("build engine: %w", err)
 	}
@@ -78,7 +94,7 @@ func openRemote(swfURL string) (*Handle, error) {
 	}, nil
 }
 
-func openEmbed(ctx context.Context, parsed *url.URL, rawURL string) (*Handle, error) {
+func openEmbed(ctx context.Context, parsed *url.URL, rawURL string, workerTenantID string) (*Handle, error) {
 	if parsed == nil {
 		return nil, fmt.Errorf("parse SWF runtime URL: missing parsed URL")
 	}
@@ -118,7 +134,11 @@ func openEmbed(ctx context.Context, parsed *url.URL, rawURL string) (*Handle, er
 	}
 	runtime := withChapterVisibility(baseRuntime)
 
-	engine, err := swf.NewEngineBuilder().WithRuntime(runtime).BuildEngine()
+	builder := swf.NewEngineBuilder().WithRuntime(runtime)
+	if workerTenantID != "" {
+		builder = builder.WithWorkerTenantId(workerTenantID)
+	}
+	engine, err := builder.BuildEngine()
 	if err != nil {
 		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), defaultShutdownTimeout)
 		defer shutdownCancel()

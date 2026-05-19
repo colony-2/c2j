@@ -38,7 +38,7 @@ func (g *gen) Generate(tenantId string) (swf.JobKey, error) {
 	return swf.JobKey{TenantId: tenantId, JobId: fmt.Sprintf("job-%d", g.count)}, nil
 }
 
-func newToyEngine(t *testing.T, gen func(string) (swf.JobKey, error)) swf.SWFEngine {
+func newToyEngine(t *testing.T, workerTenantID string, gen func(string) (swf.JobKey, error)) swf.SWFEngine {
 	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
@@ -46,9 +46,11 @@ func newToyEngine(t *testing.T, gen func(string) (swf.JobKey, error)) swf.SWFEng
 	if gen != nil {
 		opts = append(opts, toyruntime.WithJobIDGenerator(gen))
 	}
-	eng, err := swf.NewEngineBuilder().
-		WithRuntime(toyruntime.New(opts...)).
-		BuildEngine()
+	builder := swf.NewEngineBuilder().WithRuntime(toyruntime.New(opts...))
+	if workerTenantID != "" {
+		builder = builder.WithWorkerTenantId(workerTenantID)
+	}
+	eng, err := builder.BuildEngine()
 	require.NoError(t, err)
 	go eng.Run(ctx)
 	return eng
@@ -105,7 +107,7 @@ outputs:
 	registry, err := ops.NewActivityRegistry()
 	require.NoError(t, err)
 	g := gen{max: 1}
-	eng := newToyEngine(t, g.Generate)
+	eng := newToyEngine(t, "test-tenant", g.Generate)
 
 	wf := workflow.SWFWorkflowControl{
 		Engine: eng,
@@ -238,6 +240,7 @@ inputs:
 	require.NoError(t, err)
 	engine, err := swf.NewEngineBuilder().
 		WithRuntime(swfRuntime).
+		WithWorkerTenantId("test-tenant").
 		WithAwaitRecycleThreshold(5*time.Second).
 		WithLogger(slog.Default()).
 		WithMaxActive(100).
