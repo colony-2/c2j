@@ -1,6 +1,7 @@
 package workjob
 
 import (
+	"bytes"
 	"context"
 	"os"
 	"path/filepath"
@@ -151,5 +152,36 @@ func TestRunReturnsInvalidOptionExitCode(t *testing.T) {
 	}
 	if coded.ExitCode() != exitCodeInvalidOptions {
 		t.Fatalf("ExitCode = %d, want %d", coded.ExitCode(), exitCodeInvalidOptions)
+	}
+}
+
+func TestRunRejectsEmbeddedSWFURLFromEnvironment(t *testing.T) {
+	t.Setenv(defaults.SWFEnv, defaults.EmbedURL)
+	t.Setenv(defaults.TenantEnv, "tenant-env")
+
+	var stdout, stderr bytes.Buffer
+	err := Run(context.Background(), Options{
+		WorkingDir: t.TempDir(),
+		Stdout:     &stdout,
+		Stderr:     &stderr,
+	})
+	if err == nil {
+		t.Fatal("Run() succeeded, want embedded SWF URL validation error")
+	}
+	coded, ok := err.(interface{ ExitCode() int })
+	if !ok {
+		t.Fatalf("Run() error %T does not expose ExitCode", err)
+	}
+	if coded.ExitCode() != exitCodeInvalidOptions {
+		t.Fatalf("ExitCode = %d, want %d", coded.ExitCode(), exitCodeInvalidOptions)
+	}
+	if !strings.Contains(err.Error(), "embed:/// is not supported") {
+		t.Fatalf("Run() error = %q, want embed rejection", err.Error())
+	}
+	if stdout.Len() != 0 {
+		t.Fatalf("stdout = %q, want no startup output", stdout.String())
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("stderr = %q, want no direct stderr output", stderr.String())
 	}
 }

@@ -102,6 +102,69 @@ outputs:
 	}
 }
 
+func TestRunOnlyPollsConfiguredTenant(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	tenantID := "tenant-work-selected"
+	otherTenantID := "tenant-work-other"
+	underlying := toyruntime.New()
+	submitEngine, err := swf.NewEngineBuilder().WithRuntime(underlying).BuildEngine()
+	if err != nil {
+		t.Fatalf("build submit engine: %v", err)
+	}
+	server := httptest.NewServer(remoteruntime.NewServer(underlying))
+	defer server.Close()
+
+	recipeYAML := `
+id: work_tenant_recipe
+desc: succeeds when picked by the configured tenant worker
+version: "1.0"
+sequence:
+  - id: ok
+    op: command_execution
+    inputs:
+      run: "echo tenant-job"
+      working_directory: "."
+outputs:
+  result: "{{ sequence.ok.outputs.stdout }}"
+`
+
+	selectedKey := submitRecipeJob(t, ctx, submitEngine, tenantID, recipeYAML)
+	otherKey := submitRecipeJob(t, ctx, submitEngine, otherTenantID, recipeYAML)
+
+	var stdout, stderr bytes.Buffer
+	workerCtx, stopWorker := context.WithCancel(ctx)
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- Run(workerCtx, Options{
+			TenantID:       tenantID,
+			SWFURL:         server.URL,
+			Concurrency:    1,
+			AwaitThreshold: 30 * time.Second,
+			WorkingDir:     t.TempDir(),
+			Stdout:         &stdout,
+			Stderr:         &stderr,
+		})
+	}()
+	t.Cleanup(stopWorker)
+
+	if err := swf.WaitForJobToComplete(ctx, 10*time.Second, selectedKey, submitEngine); err != nil {
+		t.Fatalf("wait for selected tenant job: %v\nworker stdout:\n%s\nworker stderr:\n%s", err, stdout.String(), stderr.String())
+	}
+	got := jobOutputMap(t, ctx, submitEngine, tenantID, selectedKey)
+	if got["result"] != "tenant-job" {
+		t.Fatalf("selected tenant output = %#v, want tenant-job", got)
+	}
+
+	assertJobRemainsStatus(t, ctx, submitEngine, otherKey, swf.JobStatusReady, 750*time.Millisecond)
+
+	stopWorker()
+	if err := waitForWorkerExit(ctx, errCh); err != nil {
+		t.Fatalf("worker returned error: %v\nstdout:\n%s\nstderr:\n%s", err, stdout.String(), stderr.String())
+	}
+}
+
 func TestRunContinuesAfterCommandErrorWhenRecipeContinues(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
@@ -278,6 +341,33 @@ func waitForWorkerExit(ctx context.Context, errCh <-chan error) error {
 		return err
 	case <-ctx.Done():
 		return fmt.Errorf("worker did not exit before context ended: %w", ctx.Err())
+	}
+}
+
+func assertJobRemainsStatus(t *testing.T, ctx context.Context, engine swf.SWFEngine, key swf.JobKey, want swf.JobStatus, duration time.Duration) {
+	t.Helper()
+
+	deadline := time.NewTimer(duration)
+	defer deadline.Stop()
+	ticker := time.NewTicker(25 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		info, err := engine.GetJob(ctx, key)
+		if err != nil {
+			t.Fatalf("get job %s: %v", key, err)
+		}
+		if info.Status != want {
+			t.Fatalf("job %s status = %s, want it to remain %s", key, info.Status, want)
+		}
+
+		select {
+		case <-deadline.C:
+			return
+		case <-ticker.C:
+		case <-ctx.Done():
+			t.Fatalf("context ended while waiting for job %s to remain %s: %v", key, want, ctx.Err())
+		}
 	}
 }
 
