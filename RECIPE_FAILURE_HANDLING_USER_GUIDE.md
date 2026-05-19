@@ -213,3 +213,23 @@ Validation rejects catch blocks before a recipe run when:
 States reached by catch routes are validated with `transition.failure`
 available. States reached by both normal and catch transitions are validated
 with both transition shapes.
+
+## Runnable Examples
+
+The worker fixture suite includes executable examples for the main handling
+paths:
+
+- `pkg/worker/test-fixtures/recipes/failure-handling-state-route.yaml` routes a
+  failed state to a review state and reads `transition.failure`.
+- `pkg/worker/test-fixtures/recipes/failure-handling-sequence-continue.yaml`
+  recovers a failed sequence child with `continue.outputs` and lets the next
+  sibling consume the substitute output.
+- `pkg/worker/test-fixtures/recipes/failure-handling-fail-rewrite.yaml`
+  rewrites a state failure with `fail`, then lets the state-machine catch route
+  on the rewritten code.
+
+Run them with:
+
+```sh
+go test ./pkg/worker/test-fixtures -run 'TestAllRecipes/failure-handling' -count=1
+```

@@ -1,0 +1,26 @@
+id: failure-handling-sequence-continue
+desc: Example recipe showing sequence child catch continue.outputs
+version: "1.0"
+input_schema: {}
+sequence:
+  - id: optional
+    op: error-activity
+    inputs:
+      message: optional data
+      error: true
+    catch:
+      - id: substitute_optional_data
+        when: failure_message_contains(failure, "simulated error")
+        continue:
+          outputs:
+            output: synthetic-data
+            status: recovered
+
+  - id: consume
+    op: echo_activity
+    inputs:
+      message: ${{ "using " + sequence.optional.outputs.output }}
+
+outputs:
+  optional_status: ${{ sequence.optional.outputs.status }}
+  consumed: ${{ sequence.consume.outputs.output }}

@@ -1,0 +1,7 @@
+tests:
+- name: fail_rewrite_routes_at_parent
+  description: A state catch rewrites the failure and the state-machine catch routes on the rewritten code.
+  inputs: {}
+  want:
+    review_output: "review handled REVIEW_REQUIRED caused by error executing step: simulated error"
+  wantErr: false

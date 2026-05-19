@@ -8,6 +8,7 @@ import (
 	"github.com/colony-2/c2j/pkg/recipe"
 	"github.com/colony-2/c2j/pkg/template"
 	"github.com/colony-2/c2j/pkg/workflow"
+	"github.com/colony-2/swf-go/pkg/swf"
 )
 
 // ExecuteStateMachine runs the state machine with the new StateMap format
@@ -90,6 +91,7 @@ func (d DefaultRecipeExecutor) ExecuteStateMachine(ctx workflow.Context, parentC
 	}
 
 	// Execute state machine. Always run the current state at least once, even if it is terminal.
+stateMachineLoop:
 	for {
 		// Get current state definition
 		stateDef, exists := stateMap.States[currentState]
@@ -97,9 +99,18 @@ func (d DefaultRecipeExecutor) ExecuteStateMachine(ctx workflow.Context, parentC
 			return fmt.Errorf("state '%s' not found", currentState)
 		}
 
-		observer.StateEntered(currentState)
-		stateResult, err := d.runState(ctx, resCtx, currentState, stateDef, currentTransition)
-		if err != nil {
+		var stateResult stateRunResult
+		stateRetry := stateDef.GetMetadata().Retry
+		stateAttempts := retryPolicyAttempts(stateRetry)
+		for attempt := 1; attempt <= stateAttempts; attempt++ {
+			observer.StateEntered(currentState)
+			result, err := d.runState(ctx, resCtx, currentState, stateDef, currentTransition)
+			if err == nil {
+				stateResult = result
+				observer.StateExited(currentState)
+				break
+			}
+
 			failure, ok := failureFromError(err)
 			if !ok {
 				failure = normalizeRuntimeFailure(err, resCtx, metadata, recipe.FailureNodeStateMachine, "")
@@ -118,18 +129,28 @@ func (d DefaultRecipeExecutor) ExecuteStateMachine(ctx workflow.Context, parentC
 					sourceState := currentState
 					currentState = decision.To
 					currentTransition = template.NewFailureTransitionData(sourceState, decision.To, decision.Payload, decision.Failure)
-					continue
+					continue stateMachineLoop
 				case catchDecisionContinue:
 					parentContext.AddExecutionWithArtifactData(decision.Outputs, nil, nil)
 					observer.StateExited(currentState)
 					return nil
 				case catchDecisionFail:
-					return decision.Error
+					err = decision.Error
+					failure = decision.Failure
 				}
 			}
+			if attempt < stateAttempts && shouldRetryFailure(err, failure, stateRetry) {
+				observer.StateExited(currentState)
+				if delay := retryDelay(stateRetry, attempt); delay > 0 {
+					if awaitErr := ctx.JobContext.AwaitDuration(swf.Duration(delay)); awaitErr != nil {
+						return awaitErr
+					}
+				}
+				continue
+			}
+			observer.StateExited(currentState)
 			return fmt.Errorf("state '%s' execution failed: %w", currentState, newRecipeFailureError(failure, err))
 		}
-		observer.StateExited(currentState)
 		if stateResult.Route != nil {
 			if _, ok := stateMap.States[stateResult.Route.To]; !ok {
 				return fmt.Errorf("catch target state %q not found", stateResult.Route.To)

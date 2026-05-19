@@ -1,0 +1,26 @@
+id: failure-handling-state-route
+desc: Example recipe showing a state catch route with transition.failure
+version: "1.0"
+input_schema: {}
+state:
+  initial: work
+  states:
+    work:
+      op: error-activity
+      inputs:
+        message: attempt work
+        error: true
+      catch:
+        - id: simulated_error_to_review
+          when: failure_message_contains(failure, "simulated error")
+          to: review
+          payload:
+            handled_kind: ${{ failure.kind }}
+
+    review:
+      op: echo_activity
+      inputs:
+        message: ${{ "handled " + transition.failure.kind + " from " + transition.from + " as " + transition.payload.handled_kind }}
+
+outputs:
+  review_output: ${{ states.review.outputs.output }}

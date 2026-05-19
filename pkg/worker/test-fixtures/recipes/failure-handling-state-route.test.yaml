@@ -1,0 +1,7 @@
+tests:
+- name: task_error_routes_to_review
+  description: State catch routes a task error and exposes transition.failure to the target state.
+  inputs: {}
+  want:
+    review_output: handled unknown from work as unknown
+  wantErr: false

@@ -396,6 +396,108 @@ func TestUnhandledLocalCatchRetriesAccordingToPolicy(t *testing.T) {
 	require.Len(t, script.waits, 2)
 }
 
+func TestStateCatchNoMatchRetriesStateOpBeforeFailing(t *testing.T) {
+	const opName = "catch-state-unmatched-retry-op"
+	registerCatchOp(t, opName)
+	jobCtx, gitCtx := GenerateTestContext()
+	script := &catchScriptedJobContext{
+		jobKey: swf.JobKey{TenantId: "tenant", JobId: "catch-state-retry"},
+		results: []catchTaskResult{
+			{err: appFailure("first", "E_OTHER")},
+			{out: catchOutput(t, gitCtx, map[string]interface{}{"ok": true})},
+		},
+	}
+	retry := recipe.RetryPolicy{MaximumAttempts: 2, InitialInterval: swf.Duration(5 * time.Millisecond)}
+	rec := recipe.Recipe{RecipeImpl: &recipe.RecipeState{
+		RecipeMetadata: recipe.RecipeMetadata{NodeMetadata: recipe.NodeMetadata{Inputs: map[string]interface{}{}}},
+		StateMachineData: recipe.StateMachineData{
+			Outputs: map[string]interface{}{"ok": "${{ states.work.outputs.ok }}"},
+			States: &recipe.StateMap{
+				Initial: recipe.InitialState("work"),
+				States: map[string]recipe.State{
+					"work": {
+						Node: recipe.Node{NodeImpl: &recipe.NodeOp{
+							NodeMetadata: recipe.NodeMetadata{
+								Inputs: map[string]interface{}{},
+								Retry:  &retry,
+								Catch: []recipe.CatchClause{{
+									When: catchExpr(t, `failure.code == "E_BAD"`),
+									Continue: &recipe.CatchContinue{Outputs: map[string]interface{}{
+										"ok": false,
+									}},
+								}},
+							},
+							OpData: recipe.OpData{Op: opName},
+						}},
+					},
+				},
+			},
+		},
+	}}
+
+	result, _, err := ExecuteRecipe(catchWorkflowContext(script), rec, map[string]interface{}{}, jobCtx, gitCtx)
+	require.NoError(t, err)
+	require.Equal(t, map[string]interface{}{"ok": true}, result)
+	require.Equal(t, 2, script.calls)
+	require.Len(t, script.waits, 1)
+	require.Equal(t, int32(1), script.policies[0].Retry.MaximumAttempts)
+	require.Equal(t, int32(1), script.policies[1].Retry.MaximumAttempts)
+}
+
+func TestStateMachineCatchNoMatchRetriesStateOpBeforeFailing(t *testing.T) {
+	const opName = "catch-machine-unmatched-retry-op"
+	registerCatchOp(t, opName)
+	jobCtx, gitCtx := GenerateTestContext()
+	script := &catchScriptedJobContext{
+		jobKey: swf.JobKey{TenantId: "tenant", JobId: "catch-machine-retry"},
+		results: []catchTaskResult{
+			{err: appFailure("first", "E_OTHER")},
+			{out: catchOutput(t, gitCtx, map[string]interface{}{"ok": true})},
+		},
+	}
+	retry := recipe.RetryPolicy{MaximumAttempts: 2, InitialInterval: swf.Duration(5 * time.Millisecond)}
+	rec := recipe.Recipe{RecipeImpl: &recipe.RecipeState{
+		RecipeMetadata: recipe.RecipeMetadata{NodeMetadata: recipe.NodeMetadata{
+			Inputs: map[string]interface{}{},
+			Catch: []recipe.CatchClause{{
+				When: catchExpr(t, `failure.code == "E_BAD"`),
+				To:   "fallback",
+			}},
+		}},
+		StateMachineData: recipe.StateMachineData{
+			Outputs: map[string]interface{}{"ok": "${{ states.work.outputs.ok }}"},
+			States: &recipe.StateMap{
+				Initial: recipe.InitialState("work"),
+				States: map[string]recipe.State{
+					"work": {
+						Node: recipe.Node{NodeImpl: &recipe.NodeOp{
+							NodeMetadata: recipe.NodeMetadata{
+								Inputs: map[string]interface{}{},
+								Retry:  &retry,
+							},
+							OpData: recipe.OpData{Op: opName},
+						}},
+					},
+					"fallback": {
+						Node: recipe.Node{NodeImpl: &recipe.NodeOp{
+							NodeMetadata: recipe.NodeMetadata{Inputs: map[string]interface{}{}},
+							OpData:       recipe.OpData{Op: opName},
+						}},
+					},
+				},
+			},
+		},
+	}}
+
+	result, _, err := ExecuteRecipe(catchWorkflowContext(script), rec, map[string]interface{}{}, jobCtx, gitCtx)
+	require.NoError(t, err)
+	require.Equal(t, map[string]interface{}{"ok": true}, result)
+	require.Equal(t, 2, script.calls)
+	require.Len(t, script.waits, 1)
+	require.Equal(t, int32(1), script.policies[0].Retry.MaximumAttempts)
+	require.Equal(t, int32(1), script.policies[1].Retry.MaximumAttempts)
+}
+
 func TestSequenceChildCatchContinueFeedsLaterSibling(t *testing.T) {
 	const opName = "catch-sequence-child-op"
 	registerCatchOp(t, opName)

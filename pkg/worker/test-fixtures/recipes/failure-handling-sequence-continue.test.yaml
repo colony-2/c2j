@@ -1,0 +1,8 @@
+tests:
+- name: sequence_child_continue_outputs_feed_next_step
+  description: A failed sequence child writes substitute outputs and later siblings can read them.
+  inputs: {}
+  want:
+    optional_status: recovered
+    consumed: using synthetic-data
+  wantErr: false

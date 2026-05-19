@@ -1,0 +1,31 @@
+id: failure-handling-fail-rewrite
+desc: Example recipe showing catch.fail rewriting a failure for a parent catch
+version: "1.0"
+input_schema: {}
+catch:
+  - id: route_rewritten_failure
+    when: failure_has_code(failure, "REVIEW_REQUIRED")
+    to: review
+state:
+  initial: work
+  states:
+    work:
+      op: error-activity
+      inputs:
+        message: needs review
+        error: true
+      catch:
+        - id: classify_failure
+          when: failure_message_contains(failure, "simulated error")
+          fail:
+            kind: task_error
+            code: REVIEW_REQUIRED
+            message: Review required after work failure
+
+    review:
+      op: echo_activity
+      inputs:
+        message: ${{ "review handled " + transition.failure.code + " caused by " + transition.failure.cause.message }}
+
+outputs:
+  review_output: ${{ states.review.outputs.output }}
