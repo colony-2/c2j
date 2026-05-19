@@ -20,6 +20,7 @@ c2j cells
 c2j init
 c2j submit
 c2j exec
+c2j work
 c2j list
 c2j test
 ```
@@ -376,6 +377,26 @@ With the default `wait`, `exec` will print `waiting: ...` lines and poll until t
 - `4`: job not runnable under the selected policy
 - `5`: invalid job identity or invalid exec arguments
 
+## Working Jobs
+
+`c2j work` runs a long-lived worker for one tenant. It leases available jobs from
+an external SWF runtime and executes up to the configured local concurrency.
+
+Basic usage:
+
+```bash
+c2j work --tenant-id <tenant-id> --swf-url http://localhost:9047 --concurrency 4
+```
+
+Important behavior:
+
+- `--concurrency <n>` controls how many jobs this process can run at once
+- `--tenant-id` defaults the same way as `submit`, `exec`, and `list`
+- `--swf-url` must be an external `http://` or `https://` runtime
+- `--embed` is not available for `work`
+- `--swf-url embed:///` is rejected for `work`
+- `work` is non-interactive; use `exec` or an ops surface for jobs that need input
+
 ## Listing Jobs
 
 List jobs for the current cell:
@@ -468,6 +489,8 @@ export C2J_TENANT_ID=123
 ```
 
 When `--embed` is present, it overrides `C2J_SWF_URL` for that command.
+`c2j work` is the exception: it does not support `--embed` and rejects
+`C2J_SWF_URL=embed:///`.
 
 ## Common Workflows
 
