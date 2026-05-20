@@ -70,14 +70,16 @@ type ChildGroupChildRecord struct {
 }
 
 type ChildGroupSummary struct {
-	Total       int `json:"total"`
-	Started     int `json:"started"`
-	Completed   int `json:"completed"`
-	Failed      int `json:"failed"`
-	Skipped     int `json:"skipped"`
-	StartFailed int `json:"start_failed"`
-	Required    int `json:"required"`
-	Optional    int `json:"optional"`
+	Total          int `json:"total"`
+	Started        int `json:"started"`
+	Completed      int `json:"completed"`
+	Failed         int `json:"failed"`
+	FailedRequired int `json:"failed_required"`
+	FailedOptional int `json:"failed_optional"`
+	Skipped        int `json:"skipped"`
+	StartFailed    int `json:"start_failed"`
+	Required       int `json:"required"`
+	Optional       int `json:"optional"`
 }
 
 type ChildGroupOutput struct {
@@ -214,7 +216,11 @@ func awaitChildGroup(deps ops.OpDependencies, ctx context.Context, state ChildGr
 	if len(ids) == 0 {
 		return state, nil
 	}
-	return state, deps.JobTool().AwaitJobs(ids...)
+	err := deps.JobTool().AwaitJobs(ids...)
+	if err != nil && !errors.Is(err, swf.ErrJobFailed) && !errors.Is(err, swf.ErrJobCancelled) {
+		return state, err
+	}
+	return state, nil
 }
 
 func collectChildGroup(deps ops.OpDependencies, ctx context.Context, state ChildGroupStepState) (ChildGroupOutput, error) {
@@ -225,6 +231,9 @@ func collectChildGroup(deps ops.OpDependencies, ctx context.Context, state Child
 		}
 		result, err := getChildGroupRecipeOutput(deps, ctx, child.JobID)
 		if err != nil {
+			if !errors.Is(err, swf.ErrJobFailed) && !errors.Is(err, swf.ErrJobCancelled) {
+				return ChildGroupOutput{}, err
+			}
 			child.Status = "failed"
 			if errors.Is(err, swf.ErrJobCancelled) {
 				child.Status = "cancelled"
@@ -352,9 +361,11 @@ func buildChildGroupOutput(deps ops.OpDependencies, state ChildGroupStepState) (
 			out.FailedChildJobIDs = append(out.FailedChildJobIDs, child.JobID)
 			issue := childGroupIssue(child, "child_failed", child.Error)
 			if child.Required {
+				out.Summary.FailedRequired++
 				out.Ok = false
 				out.BlockingIssues = append(out.BlockingIssues, issue)
 			} else {
+				out.Summary.FailedOptional++
 				out.Warnings = append(out.Warnings, issue)
 			}
 		case "skipped":
@@ -363,9 +374,11 @@ func buildChildGroupOutput(deps ops.OpDependencies, state ChildGroupStepState) (
 			out.Summary.StartFailed++
 			issue := childGroupIssue(child, "child_start_failed", child.Error)
 			if child.Required {
+				out.Summary.FailedRequired++
 				out.Ok = false
 				out.BlockingIssues = append(out.BlockingIssues, issue)
 			} else {
+				out.Summary.FailedOptional++
 				out.Warnings = append(out.Warnings, issue)
 			}
 		}
@@ -374,6 +387,10 @@ func buildChildGroupOutput(deps ops.OpDependencies, state ChildGroupStepState) (
 			if ok, exists := child.Outputs["ok"].(bool); exists && !ok {
 				out.Ok = false
 				out.BlockingIssues = append(out.BlockingIssues, childGroupIssue(child, "child_not_ok", "required child returned ok=false"))
+			}
+		} else if !child.Required && child.Status == "completed" {
+			if ok, exists := child.Outputs["ok"].(bool); exists && !ok {
+				out.Warnings = append(out.Warnings, childGroupIssue(child, "optional_child_not_ok", "optional child returned ok=false"))
 			}
 		}
 	}
@@ -386,12 +403,18 @@ func buildChildGroupOutput(deps ops.OpDependencies, state ChildGroupStepState) (
 		out.Aggregate["children"] = childGroupReviewChildren(state.Children)
 		out.Aggregate["summary"] = out.Summary
 		for _, child := range state.Children {
-			out.BlockingIssues = append(out.BlockingIssues, childGroupOutputIssues(child, "blocking_issues")...)
+			blockingIssues := childGroupOutputIssues(child, "blocking_issues")
+			if child.Required {
+				out.BlockingIssues = append(out.BlockingIssues, blockingIssues...)
+			} else {
+				out.Warnings = append(out.Warnings, blockingIssues...)
+			}
 			out.Warnings = append(out.Warnings, childGroupOutputIssues(child, "warnings")...)
 		}
 		if len(out.BlockingIssues) > 0 {
 			out.Ok = false
 		}
+		out.Aggregate["ok"] = out.Ok
 		out.Aggregate["blocking_issues"] = out.BlockingIssues
 		out.Aggregate["warnings"] = out.Warnings
 	}

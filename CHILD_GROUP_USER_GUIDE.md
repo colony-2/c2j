@@ -75,7 +75,7 @@ The group output includes:
 - `ok`: true when all required children started and completed successfully.
 - `child_job_ids`, `required_child_job_ids`, `optional_child_job_ids`, `failed_child_job_ids`.
 - `children`: ordered child records with `key`, `recipe`, `required`, `status`, `job_id`, `outputs`, and `error`.
-- `summary`: counts for `total`, `started`, `completed`, `failed`, `skipped`, `start_failed`, `required`, and `optional`.
+- `summary`: counts for `total`, `started`, `completed`, `failed`, `failed_required`, `failed_optional`, `skipped`, `start_failed`, `required`, and `optional`.
 - `warnings` and `blocking_issues`.
 - `aggregate`: shape-specific aggregate data.
 
@@ -103,3 +103,19 @@ child_group:
 Child recipe failures are soft at the group level. The `child_group` node itself succeeds and reports failures in `children`, `summary`, `warnings`, and `blocking_issues`.
 
 Use `required: true` for children that should make `ok` false when they fail. Use `required: false` for advisory children that should not block the parent recipe.
+
+For `review_pack`, blocking issues from required children become group `blocking_issues`. Blocking issues from optional children are downgraded to group `warnings`.
+
+## Artifact Inputs
+
+`artifacts.use` passes artifacts to every child. Entries can be full artifact refs or a string key from `context.artifacts`.
+
+```yaml
+child_group:
+  artifacts:
+    use:
+      - ticket-intake
+  children:
+    - key: review
+      recipe: review-ticket
+```

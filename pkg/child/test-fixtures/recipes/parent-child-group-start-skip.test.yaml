@@ -1,0 +1,14 @@
+recipes:
+  - child-simple.yaml
+
+tests:
+  - name: child_group_start_mode_returns_started_and_skipped_records
+    inputs: {}
+    want:
+      ok: true
+      started: 1
+      skipped: 1
+      started_status: started
+      skipped_status: skipped
+      skipped_reason: disabled
+    wantErr: false

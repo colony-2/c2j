@@ -1,0 +1,21 @@
+id: parent-child-group-start-skip
+version: "1.0"
+sequence:
+  - id: group
+    child_group:
+      mode: start
+      children:
+        - key: started
+          recipe: child-simple
+          inputs:
+            value: started
+        - key: skipped
+          when: "false"
+          skip_reason: disabled
+outputs:
+  ok: "${{ sequence.group.outputs.ok }}"
+  started: "${{ sequence.group.outputs.summary.started }}"
+  skipped: "${{ sequence.group.outputs.summary.skipped }}"
+  started_status: "${{ sequence.group.outputs.children[0].status }}"
+  skipped_status: "${{ sequence.group.outputs.children[1].status }}"
+  skipped_reason: "${{ sequence.group.outputs.children[1].skip_reason }}"

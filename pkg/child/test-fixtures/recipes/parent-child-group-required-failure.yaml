@@ -1,0 +1,20 @@
+id: parent-child-group-required-failure
+version: "1.0"
+sequence:
+  - id: group
+    child_group:
+      mode: run_and_get_result
+      children:
+        - key: failing
+          recipe: child-fail
+          required: true
+          inputs:
+            value: required
+      aggregate:
+        shape: review_pack
+outputs:
+  ok: "${{ sequence.group.outputs.ok }}"
+  failed: "${{ sequence.group.outputs.summary.failed }}"
+  failed_required: "${{ sequence.group.outputs.summary.failed_required }}"
+  failed_optional: "${{ sequence.group.outputs.summary.failed_optional }}"
+  blocking_child: "${{ sequence.group.outputs.blocking_issues[0].child }}"

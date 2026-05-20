@@ -294,7 +294,7 @@ func renderArtifactRefs(resCtx *template.ResolutionContext, values []interface{}
 	}
 	out := make([]recipeartifacts.Ref, 0, len(list))
 	for i, item := range list {
-		ref, err := artifactRefFromRendered(item)
+		ref, err := artifactRefFromRendered(resCtx, item)
 		if err != nil {
 			return nil, fmt.Errorf("index %d: %w", i, err)
 		}
@@ -309,10 +309,21 @@ func renderArtifactRefs(resCtx *template.ResolutionContext, values []interface{}
 	return out, nil
 }
 
-func artifactRefFromRendered(value interface{}) (recipeartifacts.Ref, error) {
+func artifactRefFromRendered(resCtx *template.ResolutionContext, value interface{}) (recipeartifacts.Ref, error) {
 	switch typed := value.(type) {
 	case nil:
 		return recipeartifacts.Ref{}, nil
+	case string:
+		name := strings.TrimSpace(typed)
+		if name == "" {
+			return recipeartifacts.Ref{}, nil
+		}
+		if resCtx != nil {
+			if ref, ok := resCtx.TaskExecutionContext().Artifacts[name]; ok {
+				return ref, nil
+			}
+		}
+		return recipeartifacts.Ref{}, fmt.Errorf("artifact %q not found", name)
 	case recipeartifacts.Ref:
 		return typed, nil
 	case *recipeartifacts.Ref:

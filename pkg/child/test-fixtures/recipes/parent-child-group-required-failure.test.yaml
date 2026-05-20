@@ -1,0 +1,13 @@
+recipes:
+  - child-fail.yaml
+
+tests:
+  - name: child_group_required_failure_is_reported_without_failing_parent_task
+    inputs: {}
+    want:
+      ok: false
+      failed: 1
+      failed_required: 1
+      failed_optional: 0
+      blocking_child: failing
+    wantErr: false
