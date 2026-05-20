@@ -1,0 +1,15 @@
+recipes:
+  - child-simple.yaml
+  - child-fail.yaml
+
+tests:
+  - name: child_group_collects_dynamic_children_and_soft_optional_failure
+    inputs: {}
+    want:
+      ok: true
+      total: 2
+      completed: 1
+      failed: 1
+      good_value: alpha
+      optional_status: failed
+    wantErr: false

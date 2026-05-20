@@ -28,6 +28,7 @@ type RecipeExecutor interface {
 	ExecuteNode(ctx workflow.Context, parentResCtx *template.ResolutionContext, n *recipe.Node) error
 	ExecuteStateMachine(ctx workflow.Context, parentContext *template.ResolutionContext, metadata recipe.NodeMetadata, outputTemplate map[string]interface{}, stateMap *recipe.StateMap, opts ...ExecutionOptions) error
 	ExecuteOp(ctx workflow.Context, parentResolutionContext *template.ResolutionContext, metadata recipe.NodeMetadata, op string) error
+	ExecuteChildGroup(ctx workflow.Context, parent *template.ResolutionContext, metadata recipe.NodeMetadata, group recipe.ChildGroupData) error
 	ExecuteSequence(ctx workflow.Context, rCtx *template.ResolutionContext, metadata recipe.NodeMetadata, outputTemplate map[string]interface{}, sequence []recipe.Node) error
 }
 
@@ -143,6 +144,8 @@ func (d DefaultRecipeExecutor) ExecuteRecipe(ctx workflow.Context, r recipe.Reci
 		err = d.self().ExecuteOp(ctx, rCtx, rootMetadata, t.OpData.Op)
 	case *recipe.RecipeSequence:
 		err = d.self().ExecuteSequence(ctx, rCtx, rootMetadata, t.Outputs, t.SequenceData.Sequence)
+	case *recipe.RecipeChildGroup:
+		err = d.self().ExecuteChildGroup(ctx, rCtx, rootMetadata, t.ChildGroup)
 	default:
 		return nil, nil, fmt.Errorf("unsupported recipe type: %T", t)
 	}
@@ -207,6 +210,8 @@ func (d DefaultRecipeExecutor) ExecuteNode(ctx workflow.Context, parentResCtx *t
 		return d.self().ExecuteOp(ctx, parentResCtx, metadata, t.OpData.Op)
 	case *recipe.NodeSequence:
 		return d.self().ExecuteSequence(ctx, parentResCtx, metadata, t.Outputs, t.SequenceData.Sequence)
+	case *recipe.NodeChildGroup:
+		return d.self().ExecuteChildGroup(ctx, parentResCtx, metadata, t.ChildGroup)
 	default:
 		return fmt.Errorf("unsupported recipe type: %T", t)
 	}

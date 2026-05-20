@@ -47,11 +47,13 @@ func (n *Node) UnmarshalYAML(node *yamlv3.Node) error {
 	case raw["op"] != nil:
 		nodeOp = &NodeOp{}
 		impl = nodeOp
+	case raw["child_group"] != nil:
+		impl = &NodeChildGroup{}
 	case raw["shared"] != nil:
 		impl = &NodeShared{}
 	default:
 		foo, _ := yamlv3.Marshal(node)
-		return fmt.Errorf("intermediate node must either be a op, sequence, state, or shared reference at %d:%d. tree: %s", node.Line, node.Column, foo)
+		return fmt.Errorf("intermediate node must either be a op, sequence, state, or shared reference, or a child_group at %d:%d. tree: %s", node.Line, node.Column, foo)
 	}
 
 	// Second pass: decode into concrete type

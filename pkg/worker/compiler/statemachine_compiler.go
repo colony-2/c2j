@@ -426,6 +426,11 @@ func nodeWithoutVars(node recipe.Node) recipe.Node {
 		clone.NodeMetadata.Vars = nil
 		clone.NodeMetadata.Catch = nil
 		return recipe.Node{NodeImpl: &clone}
+	case *recipe.NodeChildGroup:
+		clone := *n
+		clone.NodeMetadata.Vars = nil
+		clone.NodeMetadata.Catch = nil
+		return recipe.Node{NodeImpl: &clone}
 	default:
 		return node
 	}

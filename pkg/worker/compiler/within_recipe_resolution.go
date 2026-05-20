@@ -160,6 +160,8 @@ func collectSelectorsNeedingResolution(rec *recipe.Recipe) []string {
 		collectSelectorsInNodes(typed.SequenceData.Sequence, collect)
 	case *recipe.RecipeState:
 		collectSelectorsInStateMap(typed.StateMachineData.States, collect)
+	case *recipe.RecipeChildGroup:
+		// child_group recipe names are recipe selectors, not op selectors.
 	}
 
 	if len(seen) == 0 {
@@ -191,6 +193,8 @@ func collectSelectorsInNode(node *recipe.Node, collect func(string)) {
 		collectSelectorsInNodes(typed.SequenceData.Sequence, collect)
 	case *recipe.NodeState:
 		collectSelectorsInStateMap(typed.StateMachineData.States, collect)
+	case *recipe.NodeChildGroup:
+		// child_group recipe names are recipe selectors, not op selectors.
 	}
 }
 

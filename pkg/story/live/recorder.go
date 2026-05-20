@@ -1114,6 +1114,10 @@ func (e *recordingExecutor) ExecuteOp(ctx coreworkflow.Context, parentResolution
 	return nil
 }
 
+func (e *recordingExecutor) ExecuteChildGroup(ctx coreworkflow.Context, parent *template.ResolutionContext, metadata recipe.NodeMetadata, group recipe.ChildGroupData) error {
+	return e.inner.WithDelegate(e).ExecuteChildGroup(ctx, parent, metadata, group)
+}
+
 func (e *recordingExecutor) ensureReplayMissStepNode(opNode *model.JobRunStoryNode, opID string, err error) {
 	if opNode == nil {
 		return

@@ -9,6 +9,7 @@ import (
 	recipeartifacts "github.com/colony-2/c2j/pkg/artifacts"
 	"github.com/colony-2/c2j/pkg/ops"
 	extops "github.com/colony-2/c2j/pkg/ops/extensions"
+	recipeops "github.com/colony-2/c2j/pkg/ops/recipe"
 	"github.com/colony-2/c2j/pkg/recipe"
 	"github.com/colony-2/c2j/pkg/template"
 )
@@ -80,6 +81,14 @@ func zeroOutputsFromTemplateMap(templateMap map[string]interface{}) map[string]i
 	out := make(map[string]interface{}, len(templateMap))
 	for key, value := range templateMap {
 		out[key] = zeroValueFromTemplate(value)
+	}
+	return out
+}
+
+func zeroOutputForChildGroup() map[string]interface{} {
+	out, err := zeroOutputFromType(reflect.TypeOf(recipeops.ChildGroupOutput{}))
+	if err != nil {
+		return map[string]interface{}{}
 	}
 	return out
 }

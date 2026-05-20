@@ -148,6 +148,10 @@ func getNodeSchema(r *jsonschema.Reflector) (*jsonschema.Schema, error) {
 	// Require presence of the state key to avoid oneOf ambiguity
 	state.Required = append(state.Required, "state")
 	items = append(items, state)
+	childGroup := stripSchema(r.Reflect(NodeChildGroup{}))
+	childGroup.Title = "ChildGroup"
+	childGroup.Required = append(childGroup.Required, "child_group")
+	items = append(items, childGroup)
 
 	nodeopSchema := &jsonschema.Schema{
 		Title: "Node",
@@ -213,8 +217,10 @@ func (Recipe) JSONSchema() *jsonschema.Schema {
 	state.Required = append(state.Required, "state")
 	op := stripSchema(reflector.Reflect(RecipeOp{}))
 	op.Required = append(op.Required, "op")
+	childGroup := stripSchema(reflector.Reflect(RecipeChildGroup{}))
+	childGroup.Required = append(childGroup.Required, "child_group")
 	reflector.Anonymous = false
-	return &jsonschema.Schema{Title: "recipe", OneOf: []*jsonschema.Schema{seq, state, op}}
+	return &jsonschema.Schema{Title: "recipe", OneOf: []*jsonschema.Schema{seq, state, op, childGroup}}
 }
 
 //func (Node) JSONSchema() *jsonschema.Schema {

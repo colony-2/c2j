@@ -67,6 +67,9 @@ func nodePlaceholder(node recipe.Node) (string, map[string]interface{}, error) {
 		outputs := zeroOutputsFromTemplateMap(t.Outputs)
 		key := template.ScopeID(metadata, "", template.ScopeStateMachine)
 		return key, outputs, nil
+	case *recipe.NodeChildGroup:
+		key := template.ScopeID(metadata, "child_group", template.ScopeOp)
+		return key, zeroOutputForChildGroup(), nil
 	case *recipe.NodeShared:
 		return "", nil, nil
 	default:
@@ -82,6 +85,8 @@ func nodeOutputPlaceholder(node recipe.Node) (map[string]interface{}, error) {
 		return zeroOutputsFromTemplateMap(t.Outputs), nil
 	case *recipe.NodeState:
 		return zeroOutputsFromTemplateMap(t.Outputs), nil
+	case *recipe.NodeChildGroup:
+		return zeroOutputForChildGroup(), nil
 	case *recipe.NodeShared:
 		return map[string]interface{}{}, nil
 	default:

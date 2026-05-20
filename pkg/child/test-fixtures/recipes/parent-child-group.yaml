@@ -1,0 +1,32 @@
+id: parent-child-group
+version: "1.0"
+sequence:
+  - id: group
+    vars:
+      targets:
+        - key: good
+          recipe: child-simple
+          value: alpha
+          required: true
+        - key: optional_fail
+          recipe: child-fail
+          value: beta
+          required: false
+    child_group:
+      mode: run_and_get_result
+      children_from: "${{ vars.targets }}"
+      child:
+        key: "${{ item.key }}"
+        recipe: "${{ item.recipe }}"
+        required: "${{ item.required }}"
+        inputs:
+          value: "${{ item.value }}"
+      aggregate:
+        shape: review_pack
+outputs:
+  ok: "${{ sequence.group.outputs.ok }}"
+  total: "${{ sequence.group.outputs.summary.total }}"
+  completed: "${{ sequence.group.outputs.summary.completed }}"
+  failed: "${{ sequence.group.outputs.summary.failed }}"
+  good_value: "${{ sequence.group.outputs.children[0].outputs.value }}"
+  optional_status: "${{ sequence.group.outputs.children[1].status }}"

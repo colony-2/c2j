@@ -108,6 +108,10 @@ func (rc *ResolutionContext) resolveSimpleGoTemplateScalar(input string) (interf
 		current = flattenTemplateValue(rc.TemplateData.Scope)
 	case "context":
 		current = rc.goTemplateContextMap()
+	case "item":
+		current = flattenTemplateValue(rc.localValue("item"))
+	case "index":
+		current = map[string]interface{}{"value": rc.localValue("index")}
 	default:
 		return nil, false, nil
 	}
@@ -212,6 +216,9 @@ func (rc *ResolutionContext) goTemplateFuncMap() texttemplate.FuncMap {
 		},
 		"context": func() map[string]interface{} {
 			return rc.goTemplateContextMap()
+		},
+		"item": func() map[string]interface{} {
+			return flattenTemplateValue(rc.localValue("item"))
 		},
 	}
 	for name, fn := range rc.stateLookupTemplateFuncs() {
@@ -390,4 +397,8 @@ func (rc *ResolutionContext) ResolveValueWithMode(value interface{}, mode Render
 		// For other types (numbers, bools, etc.), return as-is
 		return value, nil
 	}
+}
+
+func (rc *ResolutionContext) ResolveValueWithLocals(value interface{}, locals map[string]interface{}) (interface{}, error) {
+	return rc.WithLocals(locals).ResolveValueWithMode(value, ModeInterpolation)
 }

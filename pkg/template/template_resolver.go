@@ -42,6 +42,7 @@ type templateData struct {
 	Failure         *recipe.RuntimeFailure          `json:"failure,omitempty"` // Runtime failure visible while catch clauses render.
 	Scope           ScopeMetadata                   `json:"scope"`             // Execution metadata
 	Context         contextual.TaskExecutionContext `json:"context"`           // Execution context (typed)
+	Locals          map[string]interface{}          `json:"locals,omitempty"`  // Per-render locals such as child_group item/index.
 }
 
 type StepOutput = contextual.StepOutput
@@ -137,6 +138,7 @@ func newResolutionContext(commitContext *contextual.GitCommitContext, tracker *i
 				Invocation: tracker.nextInvocation(),
 				GitCommit:  commitContext,
 			}),
+			Locals: make(map[string]interface{}),
 		},
 		artifactCache: make(map[string]swf.Artifact),
 	}
@@ -156,6 +158,8 @@ func newResolutionContext(commitContext *contextual.GitCommitContext, tracker *i
 		cel.Variable("failure", cel.ObjectType("recipe.RuntimeFailure")),
 		cel.Variable("scope", cel.MapType(cel.StringType, cel.DynType)),
 		cel.Variable("context", cel.ObjectType("contextual.TaskExecutionContext")),
+		cel.Variable("item", cel.DynType),
+		cel.Variable("index", cel.DynType),
 		ext.NativeTypes(
 			reflect.TypeOf(StepOutput{}),
 			reflect.TypeOf(RunOutput{}),
@@ -322,6 +326,7 @@ func (rc *ResolutionContext) NewChildContext(scopeType ScopeType, metadata recip
 	child.TemplateData.Vars = cloneTemplateVars(rc.TemplateData.Vars)
 	child.TemplateData.Transition = rc.TemplateData.Transition.Clone()
 	child.TemplateData.Failure = rc.TemplateData.Failure.Clone()
+	child.TemplateData.Locals = cloneTemplateVars(rc.TemplateData.Locals)
 
 	// copy items from parents based on scope.
 	switch scopeType {
@@ -359,6 +364,22 @@ func (rc *ResolutionContext) WithFailure(f *recipe.RuntimeFailure) *ResolutionCo
 	return &out
 }
 
+func (rc *ResolutionContext) WithLocals(locals map[string]interface{}) *ResolutionContext {
+	if rc == nil {
+		return nil
+	}
+	out := *rc
+	out.TemplateData = rc.TemplateData
+	out.TemplateData.Locals = cloneTemplateVars(rc.TemplateData.Locals)
+	if out.TemplateData.Locals == nil {
+		out.TemplateData.Locals = make(map[string]interface{})
+	}
+	for key, value := range locals {
+		out.TemplateData.Locals[key] = value
+	}
+	return &out
+}
+
 // ensureContextBackfill keeps the template data context initialized even when callers omit it.
 func (rc *ResolutionContext) ensureContextBackfill() {
 	if rc.TemplateData.Sequence == nil {
@@ -378,6 +399,9 @@ func (rc *ResolutionContext) ensureContextBackfill() {
 	}
 	if rc.TemplateData.Transition.Payload == nil {
 		rc.TemplateData.Transition.Payload = make(map[string]interface{})
+	}
+	if rc.TemplateData.Locals == nil {
+		rc.TemplateData.Locals = make(map[string]interface{})
 	}
 }
 
@@ -452,6 +476,8 @@ func (rc *ResolutionContext) evaluateCELExpression(expr string) (interface{}, er
 		"failure":    rc.TemplateData.Failure,
 		"scope":      rc.TemplateData.Scope,
 		"context":    rc.TemplateData.Context,
+		"item":       rc.localValue("item"),
+		"index":      rc.localValue("index"),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to evaluate CEL expression: %w", err)
@@ -467,6 +493,13 @@ func (rc *ResolutionContext) evaluateCELExpression(expr string) (interface{}, er
 // resolveValue recursively resolves templates in a value (uses interpolation mode by default)
 func (rc *ResolutionContext) resolveValue(value interface{}) (interface{}, error) {
 	return rc.ResolveValueWithMode(value, ModeInterpolation)
+}
+
+func (rc *ResolutionContext) localValue(key string) interface{} {
+	if rc == nil || rc.TemplateData.Locals == nil {
+		return nil
+	}
+	return rc.TemplateData.Locals[key]
 }
 
 func (rc *ResolutionContext) AddExecution(output map[string]interface{}) {

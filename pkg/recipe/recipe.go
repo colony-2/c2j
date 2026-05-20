@@ -29,6 +29,8 @@ func (r Recipe) GetMetdata() RecipeMetadata {
 		return t.RecipeMetadata
 	case *RecipeOp:
 		return t.RecipeMetadata
+	case *RecipeChildGroup:
+		return t.RecipeMetadata
 	default:
 		panic("invalid recipe type")
 	}
@@ -52,10 +54,12 @@ func (n *Recipe) UnmarshalYAML(node *yamlv3.Node) error {
 		impl = &RecipeSequence{}
 	case raw["op"] != nil:
 		impl = &RecipeOp{}
+	case raw["child_group"] != nil:
+		impl = &RecipeChildGroup{}
 	default:
 		// update to include line/col
 
-		return fmt.Errorf("root node must either be a op, sequence, state, or shared reference at %d:%d", node.Line, node.Column)
+		return fmt.Errorf("root node must either be an op, sequence, state, or child_group at %d:%d", node.Line, node.Column)
 	}
 
 	// Second pass: decode into concrete type

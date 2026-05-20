@@ -90,6 +90,8 @@ func GetOps() []ops.RegisterableOp {
 		BuildOrPanic(),
 	)
 
+	list = append(list, getChildGroupOps()...)
+
 	return list
 }
 

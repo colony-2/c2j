@@ -12,9 +12,11 @@ type NodeVisitor interface {
 	VisitRecipeOp(node *RecipeOp, path []string) (*RecipeOp, error)
 	VisitRecipeSequence(node *RecipeSequence, path []string) (*RecipeSequence, error)
 	VisitRecipeState(node *RecipeState, path []string) (*RecipeState, error)
+	VisitRecipeChildGroup(node *RecipeChildGroup, path []string) (*RecipeChildGroup, error)
 
 	// Intermediate node visitors - return (replacement, error)
 	VisitNodeOp(node *NodeOp, path []string) (Node, error)
+	VisitNodeChildGroup(node *NodeChildGroup, path []string) (Node, error)
 	VisitNodeShared(node *NodeShared, path []string) (Node, error)
 	VisitNodeSequence(node *NodeSequence, path []string) (Node, error)
 	VisitNodeState(node *NodeState, path []string) (Node, error)
@@ -50,6 +52,12 @@ func (b *BaseVisitor) VisitRecipe(recipe *Recipe) (Recipe, error) {
 			return Recipe{}, err
 		}
 		return Recipe{RecipeImpl: newSeq}, nil
+	case *RecipeChildGroup:
+		newGroup, err := b.VisitRecipeChildGroup(r, []string{"root"})
+		if err != nil {
+			return Recipe{}, err
+		}
+		return Recipe{RecipeImpl: newGroup}, nil
 	default:
 		return Recipe{}, fmt.Errorf("unknown recipe type: %T", recipe.RecipeImpl)
 	}
@@ -58,6 +66,10 @@ func (b *BaseVisitor) VisitRecipe(recipe *Recipe) (Recipe, error) {
 
 // Leaf nodes - just return unchanged
 func (b *BaseVisitor) VisitNodeOp(node *NodeOp, path []string) (Node, error) {
+	return Node{NodeImpl: node}, nil
+}
+
+func (b *BaseVisitor) VisitNodeChildGroup(node *NodeChildGroup, path []string) (Node, error) {
 	return Node{NodeImpl: node}, nil
 }
 
@@ -120,6 +132,10 @@ func (b *BaseVisitor) VisitNodeState(node *NodeState, path []string) (Node, erro
 // Root recipe nodes
 func (b *BaseVisitor) VisitRecipeOp(node *RecipeOp, path []string) (*RecipeOp, error) {
 	// RecipeOp is a leaf node, just return it unchanged
+	return node, nil
+}
+
+func (b *BaseVisitor) VisitRecipeChildGroup(node *RecipeChildGroup, path []string) (*RecipeChildGroup, error) {
 	return node, nil
 }
 
@@ -218,6 +234,13 @@ func (w *NodeWalker) Walk(recipe Recipe) (Recipe, error) {
 			return recipe, err
 		}
 		return Recipe{RecipeImpl: newState}, nil
+
+	case *RecipeChildGroup:
+		newGroup, err := w.visitor.VisitRecipeChildGroup(r, []string{"root"})
+		if err != nil {
+			return recipe, err
+		}
+		return Recipe{RecipeImpl: newGroup}, nil
 	}
 	return recipe, fmt.Errorf("unknown recipe type: %T", recipe.RecipeImpl)
 }
@@ -230,6 +253,9 @@ func (w *NodeWalker) WalkNode(node Node, path []string) (Node, error) {
 
 	case *NodeShared:
 		return w.visitor.VisitNodeShared(n, path)
+
+	case *NodeChildGroup:
+		return w.visitor.VisitNodeChildGroup(n, path)
 
 	case *NodeSequence:
 		return w.visitor.VisitNodeSequence(n, path)

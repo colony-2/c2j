@@ -1,0 +1,14 @@
+id: child-fail
+version: "1.0"
+input_schema:
+  value:
+    type: string
+inputs:
+  value: "{{ inputs.value }}"
+sequence:
+  - id: fail
+    op: error-activity
+    inputs:
+      error: true
+outputs:
+  value: "{{ inputs.value }}"

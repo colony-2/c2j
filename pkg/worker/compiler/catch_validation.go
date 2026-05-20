@@ -22,6 +22,8 @@ func validateCatchSemantics(r recipe.Recipe, rootCtx *template.ResolutionContext
 	switch t := r.RecipeImpl.(type) {
 	case *recipe.RecipeOp:
 		return validateCatchClauses(t.NodeMetadata.Catch, rootCtx, nil)
+	case *recipe.RecipeChildGroup:
+		return validateCatchClauses(t.NodeMetadata.Catch, rootCtx, nil)
 	case *recipe.RecipeSequence:
 		if err := validateCatchClauses(t.NodeMetadata.Catch, rootCtx, nil); err != nil {
 			return err
@@ -70,6 +72,8 @@ func validateStateMapCatchSemantics(smCtx *template.ResolutionContext, stateMap 
 func validateNodeCatchSemantics(parent *template.ResolutionContext, node recipe.Node, stateNames map[string]struct{}) error {
 	switch n := node.NodeImpl.(type) {
 	case *recipe.NodeOp:
+		return validateCatchClauses(n.NodeMetadata.Catch, parent, stateNames)
+	case *recipe.NodeChildGroup:
 		return validateCatchClauses(n.NodeMetadata.Catch, parent, stateNames)
 	case *recipe.NodeSequence:
 		if err := validateCatchClauses(n.NodeMetadata.Catch, parent, stateNames); err != nil {

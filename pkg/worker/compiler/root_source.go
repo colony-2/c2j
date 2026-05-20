@@ -425,7 +425,7 @@ func loadEmbeddedRecipeYAML(raw []byte) (recipe.Recipe, error) {
 
 	var rawMap map[string]any
 	if err2 := yaml.Unmarshal(raw, &rawMap); err2 == nil {
-		if rawMap["sequence"] == nil && rawMap["state"] == nil && rawMap["op"] == nil {
+		if rawMap["sequence"] == nil && rawMap["state"] == nil && rawMap["op"] == nil && rawMap["child_group"] == nil {
 			var seq recipe.RecipeSequence
 			if err3 := yaml.Unmarshal(raw, &seq); err3 == nil {
 				return recipe.Recipe{RecipeImpl: &seq}, nil
@@ -442,6 +442,8 @@ func recipeMetadataPtr(rec *recipe.Recipe) *recipe.RecipeMetadata {
 	case *recipe.RecipeSequence:
 		return &typed.RecipeMetadata
 	case *recipe.RecipeState:
+		return &typed.RecipeMetadata
+	case *recipe.RecipeChildGroup:
 		return &typed.RecipeMetadata
 	default:
 		return nil
