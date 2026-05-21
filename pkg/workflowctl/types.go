@@ -19,6 +19,21 @@ type WorkflowControl interface {
 	JobResult(ctx context.Context, key swf.JobKey) (swf.JobData, error)
 }
 
+type JobInspector interface {
+	InspectJob(ctx context.Context, key swf.JobKey) (JobInspection, error)
+}
+
+type JobInspection struct {
+	JobKey         swf.JobKey
+	Terminal       bool
+	Status         string
+	FailureKind    string
+	FailureMessage string
+	Output         swf.JobData
+	StartedAt      time.Time
+	FinishedAt     time.Time
+}
+
 type StartJob struct {
 	TenantId     string                 `json:"tenantId"`
 	JobID        string                 `json:"job_id,omitempty"`

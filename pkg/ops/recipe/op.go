@@ -2,7 +2,6 @@ package recipe
 
 import (
 	"context"
-	"encoding/json"
 	"strings"
 
 	recipeartifacts "github.com/colony-2/c2j/pkg/artifacts"
@@ -63,6 +62,11 @@ func GetOps() []ops.RegisterableOp {
 		BuildOrPanic(),
 	)
 	list = append(list, ops.NewOp().
+		WithType("recipe.await_result_soft").
+		AddStep("inspect", ops.NewStepWithDeps[AwaitResultSoftInput, ChildStatusOutput](awaitResultSoft)).
+		BuildOrPanic(),
+	)
+	list = append(list, ops.NewOp().
 		WithType("recipe.get_result").
 		AddStep("get", ops.NewStepWithDeps[StartedJob, SingleRecipeOutput](getRecipeOutput)).
 		BuildOrPanic(),
@@ -115,56 +119,12 @@ func getRecipeOutput(deps ops.OpDependencies, ctx context.Context, input Started
 		return zero, err
 	}
 
-	jd, err := data.GetData()
+	decoded, err := decodeRecipeJobOutput(deps, data)
 	if err != nil {
 		return zero, err
 	}
 
-	var raw map[string]interface{}
-	if err := json.Unmarshal(jd, &raw); err != nil {
-		return zero, err
-	}
-
-	outputs := map[string]interface{}{}
-	artifactRefs := map[string]recipeartifacts.Ref{}
-	if wrapped, ok := raw["output"]; ok {
-		if cast, ok := wrapped.(map[string]interface{}); ok {
-			outputs = cast
-		}
-	} else {
-		outputs = raw
-	}
-	if wrapped, ok := raw["artifact_refs"]; ok {
-		buf, err := json.Marshal(wrapped)
-		if err != nil {
-			return zero, err
-		}
-		if err := json.Unmarshal(buf, &artifactRefs); err != nil {
-			return zero, err
-		}
-	}
-
-	artifacts, err := data.GetArtifacts()
-	if err != nil {
-		return zero, err
-	}
-
-	for _, a := range artifacts {
-		err = deps.AddOutputArtifact(a)
-		if err != nil {
-			return zero, err
-		}
-	}
-	for name, artifactRef := range artifactRefs {
-		if artifactRef.External == nil {
-			continue
-		}
-		if err := deps.AddExternalArtifact(name, artifactRef.External.URL, artifactRef.External.Expand); err != nil {
-			return zero, err
-		}
-	}
-
-	return SingleRecipeOutput{Outputs: outputs}, nil
+	return SingleRecipeOutput{Outputs: decoded.Outputs}, nil
 }
 
 func startSingleJob(deps ops.OpDependencies, ctx context.Context, input SingleRecipeWithRef) (StartedJob, error) {

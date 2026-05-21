@@ -260,57 +260,11 @@ func getChildGroupRecipeOutput(deps ops.OpDependencies, ctx context.Context, job
 		return zero, err
 	}
 
-	rawData, err := data.GetData()
+	decoded, err := decodeRecipeJobOutput(deps, data)
 	if err != nil {
 		return zero, err
 	}
-	var raw map[string]interface{}
-	if err := json.Unmarshal(rawData, &raw); err != nil {
-		return zero, err
-	}
-
-	outputs := map[string]interface{}{}
-	artifactRefs := map[string]recipeartifacts.Ref{}
-	if wrapped, ok := raw["output"]; ok {
-		if cast, ok := wrapped.(map[string]interface{}); ok {
-			outputs = cast
-		}
-	} else {
-		outputs = raw
-	}
-	if wrapped, ok := raw["artifact_refs"]; ok {
-		buf, err := json.Marshal(wrapped)
-		if err != nil {
-			return zero, err
-		}
-		if err := json.Unmarshal(buf, &artifactRefs); err != nil {
-			return zero, err
-		}
-	}
-
-	artifacts, err := data.GetArtifacts()
-	if err != nil {
-		return zero, err
-	}
-	for _, artifact := range artifacts {
-		if err := deps.AddOutputArtifact(artifact); err != nil {
-			return zero, err
-		}
-		ref, err := recipeartifacts.RefFromArtifact(artifact)
-		if err != nil {
-			return zero, err
-		}
-		artifactRefs[ref.NameValue()] = ref
-	}
-	for name, artifactRef := range artifactRefs {
-		if artifactRef.External == nil {
-			continue
-		}
-		if err := deps.AddExternalArtifact(name, artifactRef.External.URL, artifactRef.External.Expand); err != nil {
-			return zero, err
-		}
-	}
-	return childGroupRecipeOutput{Outputs: outputs, Artifacts: artifactRefs}, nil
+	return childGroupRecipeOutput{Outputs: decoded.Outputs, Artifacts: decoded.Artifacts}, nil
 }
 
 func buildChildGroupOutput(deps ops.OpDependencies, state ChildGroupStepState) (ChildGroupOutput, error) {

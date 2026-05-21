@@ -30,9 +30,11 @@ type fakeWorkflowControl struct {
 	startRequests    []workflowctl.StartJob
 	startSawTx       []bool
 	jobResultFunc    func(ctx context.Context, key swf.JobKey) (swf.JobData, error)
+	inspectFunc      func(ctx context.Context, key swf.JobKey) (workflowctl.JobInspection, error)
 	getArtifactFunc  func(ctx context.Context, tenantId string, key swf.ArtifactKey) swf.Artifact
 	getArtifactCalls int
 	jobResultCalls   int
+	inspectCalls     int
 }
 
 func (f *fakeWorkflowControl) StartJob(ctx context.Context, req workflowctl.StartJob) (swf.JobKey, error) {
@@ -82,6 +84,14 @@ func (f *fakeWorkflowControl) JobResult(ctx context.Context, key swf.JobKey) (sw
 		return nil, errors.New("job result not configured")
 	}
 	return f.jobResultFunc(ctx, key)
+}
+
+func (f *fakeWorkflowControl) InspectJob(ctx context.Context, key swf.JobKey) (workflowctl.JobInspection, error) {
+	f.inspectCalls++
+	if f.inspectFunc == nil {
+		return workflowctl.JobInspection{}, errors.New("inspect job not configured")
+	}
+	return f.inspectFunc(ctx, key)
 }
 
 type errorTaskData struct {
