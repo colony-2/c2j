@@ -20,6 +20,7 @@ Examples below assume you are running from the repo root.
 c2j self
 c2j cells
 c2j init
+c2j version
 c2j submit
 c2j run
 c2j run one
@@ -31,6 +32,20 @@ c2j test
 ```
 
 Use `go run ./cmd/c2j --help` or `c2j --help` to see the full command tree.
+
+## Version Information
+
+Use the `version` subcommand to identify the exact executable you are running:
+
+```bash
+c2j version
+```
+
+Release builds report the release version injected by the release pipeline. Local
+`go build`, `go run`, and `go install` builds fall back to Go's embedded VCS
+metadata, so untagged builds include the current git revision when it is
+available. Dirty suffixes are only included when Go reports that the worktree was
+modified at build time.
 
 ## Quick Start
 
