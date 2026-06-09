@@ -114,7 +114,7 @@ type GitTask struct {
 	GitAuthor        string `json:"author,omitempty"`
 	ParentRef        string `json:"parent_ref,omitempty"`  // ref carrying workspace state until a hash exists
 	PersistHash      string `json:"hash,omitempty"`        // materialized SHA after a commit is created
-	ParentHash       string `json:"parent_hash,omitempty"` // parent SHA once materialized
+	ParentHash       string `json:"parent_hash,omitempty"` // resolved job parent/root SHA once materialized
 }
 
 type InvocationCtx struct {
@@ -153,7 +153,7 @@ func cloneArtifactRefs(in map[string]artifacts.Ref) map[string]artifacts.Ref {
 type GitCommitContext struct {
 	ParentRef   string `json:"parent_ref,omitempty"`  // ref carrying workspace state until a hash exists
 	PersistHash string `json:"hash,omitempty"`        // materialized SHA after a commit is created
-	ParentHash  string `json:"parent_hash,omitempty"` // parent SHA once materialized
+	ParentHash  string `json:"parent_hash,omitempty"` // resolved job parent/root SHA once materialized
 }
 
 type StepOutput struct {

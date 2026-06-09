@@ -106,22 +106,16 @@ func (c *Controller) Restore(ctx context.Context, task *GitTaskContext, thinPack
 	if err != nil {
 		return fmt.Errorf("determine current commit: %w", err)
 	}
+	rootHash := restoreRootHash(task, targetHash)
+	if rootHash == "" {
+		return fmt.Errorf("git workspace requires resolved base hash for restore")
+	}
 	if hashesEqual(current, targetHash) {
-		task.ResolvedBaseHash = current
+		task.ResolvedBaseHash = rootHash
 		return c.ensureCleanAfterRestore(ctx, task)
 	}
 
 	// We need to restore to a different commit
-	rootHash := strings.TrimSpace(task.GetResolvedBaseHash())
-	if rootHash == "" {
-		rootHash = strings.TrimSpace(task.GetParentHash())
-	}
-	if rootHash == "" {
-		rootHash = targetHash
-	}
-	if rootHash == "" {
-		return fmt.Errorf("git workspace requires resolved base hash for restore")
-	}
 
 	// If we need to restore but have no thin pack artifact, return error
 	if thinPack == nil {
@@ -138,7 +132,7 @@ func (c *Controller) Restore(ctx context.Context, task *GitTaskContext, thinPack
 	// Extract artifact to temp directory with appropriate filename
 	// Format: {commit_hash}-{parent_hash}-{root_hash}.pack
 	expectedCommit := shortHash(task.GetPersistHash())
-	expectedParent := shortHash(task.GetParentHash())
+	expectedParent := shortHash(rootHash)
 	expectedRoot := shortHash(rootHash)
 	thinPackFilename := fmt.Sprintf("%s-%s-%s.pack", expectedCommit, expectedParent, expectedRoot)
 	thinPackPath := filepath.Join(thinPackDir, thinPackFilename)
@@ -162,7 +156,7 @@ func (c *Controller) Restore(ctx context.Context, task *GitTaskContext, thinPack
 	if err := c.ensureCleanAfterRestore(ctx, task); err != nil {
 		return err
 	}
-	task.ResolvedBaseHash = targetHash
+	task.ResolvedBaseHash = rootHash
 	return nil
 }
 
@@ -179,15 +173,10 @@ func (c *Controller) Persist(ctx context.Context, task *GitTaskContext) (*gitcom
 		return nil, nil, fmt.Errorf("create temp dir: %w", err)
 	}
 
-	rootHash := task.GetResolvedBaseHash()
-	if strings.TrimSpace(rootHash) == "" {
-		var err error
-		rootHash, err = common.GetCommitHash(ctx, task.GetWorktreePath(), "HEAD")
-		if err != nil {
-			os.RemoveAll(thinPackDir)
-			return nil, nil, fmt.Errorf("resolve base hash: %w", err)
-		}
-		task.ResolvedBaseHash = rootHash
+	rootHash, err := persistRootHash(ctx, task)
+	if err != nil {
+		os.RemoveAll(thinPackDir)
+		return nil, nil, err
 	}
 
 	commitMessage := buildCommitMessage(task, "pending", "")
@@ -197,7 +186,7 @@ func (c *Controller) Persist(ctx context.Context, task *GitTaskContext) (*gitcom
 		RepoPath:         task.GetWorktreePath(),
 		StorageLocation:  thinPackDir,
 		RootHash:         rootHash,
-		ExpectedHeadHash: rootHash,
+		ExpectedHeadHash: persistExpectedHeadHash(task, rootHash),
 		CommitMessage:    commitMessage,
 		Author:           author,
 	}
@@ -218,11 +207,10 @@ func (c *Controller) Persist(ctx context.Context, task *GitTaskContext) (*gitcom
 
 	// Update task context with persist results
 	if output.HasChanges {
-		task.ParentHash = output.ParentHash
+		task.ParentHash = rootHash
 		task.PersistHash = output.CommitHash
-		task.ResolvedBaseHash = output.CommitHash
+		task.ResolvedBaseHash = rootHash
 	} else {
-		task.ParentHash = output.ParentHash
 		task.PersistHash = ""
 		task.ResolvedBaseHash = rootHash
 	}
@@ -274,15 +262,10 @@ func (c *Controller) PersistWithDiffs(ctx context.Context, task *GitTaskContext)
 		return nil, nil, fmt.Errorf("create temp dir: %w", err)
 	}
 
-	rootHash := task.GetResolvedBaseHash()
-	if strings.TrimSpace(rootHash) == "" {
-		var err error
-		rootHash, err = common.GetCommitHash(ctx, task.GetWorktreePath(), "HEAD")
-		if err != nil {
-			os.RemoveAll(persistDir)
-			return nil, nil, fmt.Errorf("resolve base hash: %w", err)
-		}
-		task.ResolvedBaseHash = rootHash
+	rootHash, err := persistRootHash(ctx, task)
+	if err != nil {
+		os.RemoveAll(persistDir)
+		return nil, nil, err
 	}
 
 	commitMessage := buildCommitMessage(task, "pending", "")
@@ -292,14 +275,12 @@ func (c *Controller) PersistWithDiffs(ctx context.Context, task *GitTaskContext)
 		RepoPath:         task.GetWorktreePath(),
 		StorageLocation:  persistDir,
 		RootHash:         rootHash,
-		ExpectedHeadHash: rootHash,
+		ExpectedHeadHash: persistExpectedHeadHash(task, rootHash),
 		CommitMessage:    commitMessage,
 		Author:           author,
 	}
 
-	// Call PersistCommitWithDiffs with baseHash from task context
-	baseHash := task.GetResolvedBaseHash()
-	output, err := gitcommit.PersistCommitWithDiffs(ctx, persistInput, baseHash)
+	output, err := gitcommit.PersistCommitWithDiffs(ctx, persistInput, rootHash)
 	if err != nil {
 		os.RemoveAll(persistDir)
 		return nil, nil, fmt.Errorf("persist with diffs failed: %w", err)
@@ -315,11 +296,10 @@ func (c *Controller) PersistWithDiffs(ctx context.Context, task *GitTaskContext)
 
 	// Update task context with persist results
 	if output.HasChanges {
-		task.ParentHash = output.ParentHash
+		task.ParentHash = rootHash
 		task.PersistHash = output.CommitHash
-		task.ResolvedBaseHash = output.CommitHash
+		task.ResolvedBaseHash = rootHash
 	} else {
-		task.ParentHash = output.ParentHash
 		task.PersistHash = ""
 		task.ResolvedBaseHash = rootHash
 	}
@@ -415,6 +395,39 @@ func (c *Controller) PersistWithDiffs(ctx context.Context, task *GitTaskContext)
 	}
 
 	return output, artifacts, nil
+}
+
+func restoreRootHash(task *GitTaskContext, targetHash string) string {
+	if rootHash := strings.TrimSpace(task.GetParentHash()); rootHash != "" {
+		return rootHash
+	}
+	if rootHash := strings.TrimSpace(task.GetResolvedBaseHash()); rootHash != "" {
+		return rootHash
+	}
+	return strings.TrimSpace(targetHash)
+}
+
+func persistRootHash(ctx context.Context, task *GitTaskContext) (string, error) {
+	rootHash := strings.TrimSpace(task.GetParentHash())
+	if rootHash == "" {
+		rootHash = strings.TrimSpace(task.GetResolvedBaseHash())
+	}
+	if rootHash == "" {
+		var err error
+		rootHash, err = common.GetCommitHash(ctx, task.GetWorktreePath(), "HEAD")
+		if err != nil {
+			return "", fmt.Errorf("resolve base hash: %w", err)
+		}
+	}
+	task.ResolvedBaseHash = rootHash
+	return rootHash, nil
+}
+
+func persistExpectedHeadHash(task *GitTaskContext, rootHash string) string {
+	if expected := strings.TrimSpace(task.GetPersistHash()); expected != "" {
+		return expected
+	}
+	return rootHash
 }
 
 func (c *Controller) prepareScopedWorkspace(ctx context.Context, task *GitTaskContext) (string, error) {

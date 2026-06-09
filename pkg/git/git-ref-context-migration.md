@@ -16,7 +16,7 @@ We need Git contexts to carry arbitrary refs (branches/tags/SHAs) until a step a
 
 ### GitCommitContext (recipe-core/pkg/contextual)
 - Single ref slot: `ParentRef` carries the ref while no commit exists.
-- Add `PersistHash`/`ParentHash` (materialized) to carry SHAs once a commit is created; used for thin-pack naming and rebase helpers. Exclusivity: either `ParentRef` is set (ref-first mode) **or** both hashes are set (hash mode), never both.
+- Add `PersistHash`/`ParentHash` (materialized) once a commit is created. `PersistHash` carries the current workflow commit; `ParentHash` carries the resolved job parent/root SHA used as the stable thin-pack root. Exclusivity: either `ParentRef` is set (ref-first mode) **or** both hashes are set (hash mode), never both.
 
 ### GitTaskContext (git/pkg/gitstate)
 - Mirror the above rename:
@@ -45,7 +45,7 @@ We need Git contexts to carry arbitrary refs (branches/tags/SHAs) until a step a
   - After any fetch/checkout, refresh `ResolvedBaseHash` to the resolved SHA for traceability and to seed thin-pack operations once a commit is made.
 
 - **Persist**
-  - Persist must accept refs. Before committing, resolve the current HEAD SHA; when changes exist, create the commit and set `ParentHash` to the prior SHA, `PersistHash` to the new commit SHA (clear `ParentRef`), and write thin pack using `ResolvedBaseHash`.
+  - Persist must accept refs. Before committing, resolve the current HEAD SHA; when changes exist, create the commit and set `ParentHash` to the resolved job parent/root SHA, `PersistHash` to the new commit SHA (clear `ParentRef`), and write thin pack using that stable root.
   - When **no changes** exist: do not create a thin pack or placeholder file; return the input `ParentRef` unchanged, leave hashes empty, and do not flip the context into hash mode.
   - Output structs should surface either the ref (pre-commit) or the hashes (post-commit) so downstream ops can use thin packs after the first write.
 

@@ -1399,7 +1399,7 @@ func TestWithGitWorkspace_PersistWithDiffs_PreservesHashModeWhenNoChanges(t *tes
 		},
 	}
 
-	baseRepo, parentHash, persistHash := initTwoCommitRepo(t)
+	baseRepo, rootHash, persistHash := initTwoCommitRepo(t)
 
 	controller := gitstate.NewController(nil)
 	wrapped := opExecutor{deps: recipeops.NewServiceDepsBuilder().Build(), reg: reg, controller: controller}.do
@@ -1409,7 +1409,7 @@ func TestWithGitWorkspace_PersistWithDiffs_PreservesHashModeWhenNoChanges(t *tes
 			BaseRepo:    baseRepo,
 			BaseRef:     persistHash,
 			PersistHash: persistHash,
-			ParentHash:  parentHash,
+			ParentHash:  rootHash,
 			CellName:    "cells/test-cell",
 		},
 	}
@@ -1421,7 +1421,7 @@ func TestWithGitWorkspace_PersistWithDiffs_PreservesHashModeWhenNoChanges(t *tes
 	assert.Equal(t, "still-clean", output.OpOutput["result"])
 	require.Empty(t, outputArts, "no-change hash-mode should not emit new artifacts")
 	require.Equal(t, persistHash, output.GitResult.PersistHash, "hash-mode no-change should preserve the current hash")
-	require.Equal(t, parentHash, output.GitResult.ParentHash, "hash-mode no-change should preserve the original parent hash")
+	require.Equal(t, rootHash, output.GitResult.ParentHash, "hash-mode no-change should preserve the job root hash")
 	require.Empty(t, output.GitResult.ParentRef, "hash-mode result should stay in hash mode")
 }
 
@@ -1443,7 +1443,7 @@ func TestWithGitWorkspace_ConstTreatsMutationsAsNoChange(t *testing.T) {
 		},
 	}
 
-	baseRepo, parentHash, persistHash := initTwoCommitRepo(t)
+	baseRepo, rootHash, persistHash := initTwoCommitRepo(t)
 
 	controller := gitstate.NewController(nil)
 	wrapped := opExecutor{deps: recipeops.NewServiceDepsBuilder().Build(), reg: reg, controller: controller}.do
@@ -1454,7 +1454,7 @@ func TestWithGitWorkspace_ConstTreatsMutationsAsNoChange(t *testing.T) {
 			BaseRepo:    baseRepo,
 			BaseRef:     persistHash,
 			PersistHash: persistHash,
-			ParentHash:  parentHash,
+			ParentHash:  rootHash,
 			CellName:    "cells/test-cell",
 		},
 	}
@@ -1465,7 +1465,7 @@ func TestWithGitWorkspace_ConstTreatsMutationsAsNoChange(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "mutated-but-const", output.OpOutput["result"])
 	require.Equal(t, persistHash, output.GitResult.PersistHash, "const should preserve incoming hash-mode state")
-	require.Equal(t, parentHash, output.GitResult.ParentHash, "const should preserve incoming parent hash")
+	require.Equal(t, rootHash, output.GitResult.ParentHash, "const should preserve incoming job root hash")
 	require.Empty(t, output.GitResult.ParentRef, "const hash-mode should stay hash-backed")
 	require.Len(t, outputArts, 1, "const should only pass through the prior thin pack")
 	require.True(t, outputArts[0] == inputThinPack, "const should pass through the SAME thin pack artifact")
@@ -1532,6 +1532,98 @@ func TestWithGitWorkspace_PersistWithDiffs_DiffContent(t *testing.T) {
 
 	// Verify persist hash was set
 	require.NotEmpty(t, output.GitResult.PersistHash)
+}
+
+func TestWithGitWorkspace_ConsecutiveMutationsEmitRestorableReplacementThinPack(t *testing.T) {
+	t.Parallel()
+
+	baseRepo, baseHash, cleanup := setupGitRepo(t)
+	defer cleanup()
+
+	controller := gitstate.NewController(nil)
+	deps := recipeops.NewServiceDepsBuilder().Build()
+	jobKey := swf.JobKey{TenantId: "test", JobId: "job-consecutive-thinpack"}
+
+	writeRegistration := func(filename, content string) ActivityRegistration {
+		return ActivityRegistration{
+			Metadata: recipeops.OpMetadata{Type: "test_git_chain_write"},
+			Step: recipeops.TaskStep{
+				Invoke: func(deps recipeops.OpDependencies, ctx context.Context, input map[string]interface{}) (map[string]interface{}, error) {
+					_ = ctx
+					path := filepath.Join(deps.WorktreePath(), "cells", "test", filename)
+					if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+						return nil, err
+					}
+					if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+						return nil, err
+					}
+					return map[string]interface{}{"wrote": filename}, nil
+				},
+			},
+		}
+	}
+
+	probeRegistration := ActivityRegistration{
+		Metadata: recipeops.OpMetadata{Type: "test_git_chain_probe"},
+		Step: recipeops.TaskStep{
+			Invoke: func(deps recipeops.OpDependencies, ctx context.Context, input map[string]interface{}) (map[string]interface{}, error) {
+				_ = ctx
+				_ = input
+				for filename, expected := range map[string]string{
+					"first.txt":  "first mutation\n",
+					"second.txt": "second mutation\n",
+				} {
+					content, err := os.ReadFile(filepath.Join(deps.WorktreePath(), "cells", "test", filename))
+					if err != nil {
+						return nil, err
+					}
+					if string(content) != expected {
+						return nil, fmt.Errorf("%s content mismatch: %q", filename, string(content))
+					}
+				}
+				return map[string]interface{}{"restored": true}, nil
+			},
+		},
+	}
+
+	run := func(reg ActivityRegistration, gitCtx contextual.GitCommitContext, artifacts []swf.Artifact) (ActivityInvocationOutput, []swf.Artifact, error) {
+		wrapped := opExecutor{deps: deps, reg: reg, controller: controller}.do
+		return wrapped(context.Background(), &jt{jobKey}, ActivityInvocationRequest{
+			Input: map[string]interface{}{},
+			GitTaskContext: gitstate.GlobalGitTaskContext{
+				BaseRepo:    baseRepo,
+				BaseRef:     baseHash,
+				PersistHash: gitCtx.PersistHash,
+				ParentHash:  gitCtx.ParentHash,
+				CellName:    "cells/test",
+			},
+		}, artifacts)
+	}
+
+	firstOut, firstArtifacts, err := run(writeRegistration("first.txt", "first mutation\n"), contextual.GitCommitContext{}, nil)
+	require.NoError(t, err)
+	require.Equal(t, baseHash, firstOut.GitResult.ParentHash)
+	firstThinPack := requireThinPackArtifact(t, firstArtifacts)
+
+	secondOut, secondArtifacts, err := run(writeRegistration("second.txt", "second mutation\n"), firstOut.GitResult, []swf.Artifact{firstThinPack})
+	require.NoError(t, err)
+	require.Equal(t, baseHash, secondOut.GitResult.ParentHash)
+	secondThinPack := requireThinPackArtifact(t, secondArtifacts)
+
+	probeOut, _, err := run(probeRegistration, secondOut.GitResult, []swf.Artifact{secondThinPack})
+	require.NoError(t, err)
+	require.Equal(t, true, probeOut.OpOutput["restored"])
+}
+
+func requireThinPackArtifact(t *testing.T, artifacts []swf.Artifact) swf.Artifact {
+	t.Helper()
+	for _, artifact := range artifacts {
+		if artifact.Name() == gitstate.ThinPackArtifactName {
+			return artifact
+		}
+	}
+	t.Fatalf("expected %s artifact in %d artifacts", gitstate.ThinPackArtifactName, len(artifacts))
+	return nil
 }
 
 func TestReplaceSentinelValue_HandlesInputMap(t *testing.T) {

@@ -483,10 +483,8 @@ func TestControllerPersistWithDiffs_MultipleCommits(t *testing.T) {
 	file2 := filepath.Join(worktree, "cells", "alpha", "file2.txt")
 	require.NoError(t, os.WriteFile(file2, []byte("content 2"), 0o644))
 
-	// Update ctx to continue from firstCommit but restore the original base
-	// After the first PersistWithDiffs, ctx.ResolvedBaseHash was updated to firstCommit
-	// We need to restore it to the original baseHash to test the diff from base != parent case
-	ctx.ParentHash = firstCommit
+	// Continue from firstCommit while preserving the original job parent/root.
+	ctx.ParentHash = baseHash
 	ctx.PersistHash = ""            // Clear this so we can make a new commit
 	ctx.ResolvedBaseHash = baseHash // Restore to original base
 
@@ -546,7 +544,7 @@ func TestControllerPersistWithDiffs_OpCommitsWithoutDirtyState(t *testing.T) {
 	require.Equal(t, secondCommit, output.CommitHash)
 	require.Equal(t, firstCommit, output.ParentHash)
 	require.Equal(t, secondCommit, ctx.PersistHash)
-	require.Equal(t, firstCommit, ctx.ParentHash)
+	require.Equal(t, baseHash, ctx.ParentHash)
 	require.Equal(t, secondCommit, gitRevParse(t, worktree, "HEAD"), "persist should carry the op-created history without adding another commit")
 	require.Len(t, artifacts, 3, "two op-created commits should produce thin pack plus parent/base diffs")
 	require.Equal(t, ThinPackArtifactName, artifacts[0].Name())
@@ -597,7 +595,7 @@ func TestControllerPersistWithDiffs_OpCommitsWithDirtyState(t *testing.T) {
 	require.Equal(t, opCommit, output.ParentHash)
 	require.NotEqual(t, opCommit, output.CommitHash)
 	require.Equal(t, output.CommitHash, ctx.PersistHash)
-	require.Equal(t, opCommit, ctx.ParentHash)
+	require.Equal(t, baseHash, ctx.ParentHash)
 	require.Equal(t, output.CommitHash, gitRevParse(t, worktree, "HEAD"))
 	require.Len(t, artifacts, 3, "op commit plus dirty follow-up should produce thin pack plus parent/base diffs")
 	require.Equal(t, ThinPackArtifactName, artifacts[0].Name())
