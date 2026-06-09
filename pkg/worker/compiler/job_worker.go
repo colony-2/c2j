@@ -170,6 +170,9 @@ func (j recipeJobWorker) Run(ctx swf.JobContext, jobData swf.JobData) (swf.JobDa
 
 		taskOutput, err := ctx.DoTask(swf.RunPolicy{}, RootSourceResolutionTaskType, taskInput)
 		if err != nil {
+			if logReplayCacheMiss(logger, "recipe job: root recipe source resolution replay cache miss", err) {
+				return nil, err
+			}
 			logger.Error("recipe job: root recipe source resolution task failed",
 				"error", err,
 				"error_chain", logutil.ErrorChain(err),

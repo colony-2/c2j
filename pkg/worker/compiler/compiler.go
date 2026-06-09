@@ -227,6 +227,9 @@ func (d DefaultRecipeExecutor) ExecuteOp(ctx workflow.Context, parentResolutionC
 	l.Info("executing op", "op", op)
 	err := d.executeOp2(ctx, parentResolutionContext, metadata, op)
 	if err != nil {
+		if logReplayCacheMiss(l, "op execution replay cache miss", err, "op", op) {
+			return err
+		}
 		l.Error("failed to execute op", "op", op, "err", err)
 		return err
 	}
