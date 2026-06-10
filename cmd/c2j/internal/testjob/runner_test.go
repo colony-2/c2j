@@ -98,6 +98,64 @@ func TestValidateAndRunRecipeFileWithLocalInlineInclude(t *testing.T) {
 	}
 }
 
+func TestRecipeFileLocalInlineIncludeAcceptsBuiltinOp(t *testing.T) {
+	root := t.TempDir()
+	recipePath, suitePath := writeInlineIncludeBuiltinOpFixture(t, root)
+	outDir := filepath.Join(root, "out")
+
+	ir, err := Compile(context.Background(), Options{
+		RecipeFile: recipePath,
+		FilePath:   suitePath,
+		WorkingDir: root,
+		Stdout:     &bytes.Buffer{},
+		Stderr:     &bytes.Buffer{},
+	})
+	if err != nil {
+		t.Fatalf("Compile(): %v", err)
+	}
+	if !ir.TargetRecipe.Expanded {
+		t.Fatalf("target recipe was not marked expanded")
+	}
+	if strings.Contains(ir.TargetRecipe.Content, "include: ./child.yaml") {
+		t.Fatalf("compiled target still contains authored include:\n%s", ir.TargetRecipe.Content)
+	}
+	if !strings.Contains(ir.TargetRecipe.Content, "op: squashrebasemerge") {
+		t.Fatalf("compiled target missing included builtin op:\n%s", ir.TargetRecipe.Content)
+	}
+
+	validateStdout := &bytes.Buffer{}
+	if err := Validate(context.Background(), Options{
+		RecipeFile:  recipePath,
+		FilePath:    suitePath,
+		WorkingDir:  root,
+		Parallelism: 1,
+		Stdout:      validateStdout,
+		Stderr:      &bytes.Buffer{},
+	}); err != nil {
+		t.Fatalf("Validate(): %v; stdout=%s", err, validateStdout.String())
+	}
+	if !strings.Contains(validateStdout.String(), "parent-inline-child-merge-op valid") {
+		t.Fatalf("stdout = %q, want validation completion", validateStdout.String())
+	}
+
+	runStdout := &bytes.Buffer{}
+	if err := Run(context.Background(), Options{
+		RecipeFile:  recipePath,
+		FilePath:    suitePath,
+		OutDir:      outDir,
+		WorkingDir:  root,
+		Parallelism: 1,
+		Stdout:      runStdout,
+		Stderr:      &bytes.Buffer{},
+		Execution:   ExecutionOptions{ArtifactMode: "inline"},
+	}); err != nil {
+		t.Fatalf("Run(): %v; stdout=%s", err, runStdout.String())
+	}
+	if !strings.Contains(runStdout.String(), "parent-inline-child-merge-op passed") {
+		t.Fatalf("stdout = %q, want run completion", runStdout.String())
+	}
+}
+
 func TestCompileScenarioMarkdownAndCaseFilter(t *testing.T) {
 	root := t.TempDir()
 	recipePath := writeTestRecipe(t, root)
@@ -442,6 +500,87 @@ cases:
       - type: output_equals
         path: message
         value: hello
+` + "```" + `
+`
+	if err := os.WriteFile(suitePath, []byte(suite), 0o644); err != nil {
+		t.Fatalf("write suite: %v", err)
+	}
+	return parentPath, suitePath
+}
+
+func writeInlineIncludeBuiltinOpFixture(t *testing.T, root string) (string, string) {
+	t.Helper()
+	childPath := filepath.Join(root, "child.yaml")
+	child := `
+id: child-with-merge-op
+version: "1.0"
+desc: Child recipe that uses a built-in merge op
+state:
+  initial: merge
+  states:
+    merge:
+      op: squashrebasemerge
+      transitions: []
+      inputs:
+        repo_path: "{{ context.environment.op.worktree_path }}"
+        local_hash: "0000000000000000000000000000000000000000"
+        upstream_repo: "git@example.com:org/repo.git"
+        upstream_branch: "main"
+        rebase: true
+        author: ""
+        commit_message: "test merge"
+outputs:
+  merged_hash: "${{ state_output('merge', 'merged_hash', '') }}"
+`
+	if err := os.WriteFile(childPath, []byte(child), 0o644); err != nil {
+		t.Fatalf("write child recipe: %v", err)
+	}
+
+	parentPath := filepath.Join(root, "parent.yaml")
+	parent := `
+id: parent-inline-child-with-merge-op
+version: "1.0"
+desc: Parent recipe that inlines a child recipe using a built-in merge op
+state:
+  initial: child
+  states:
+    child:
+      include: ./child.yaml
+      transitions: []
+      inputs: {}
+outputs:
+  child_merged_hash: "${{ state_output('child', 'merged_hash', '') }}"
+`
+	if err := os.WriteFile(parentPath, []byte(parent), 0o644); err != nil {
+		t.Fatalf("write parent recipe: %v", err)
+	}
+
+	suitePath := filepath.Join(root, "parent.scenario.md")
+	suite := `
+` + "```yaml" + `
+cases:
+  - id: parent-inline-child-merge-op
+    type: recipe_case
+    inputs: {}
+    mocks:
+      ops:
+        - match:
+            op: squashrebasemerge
+          behavior:
+            mode: return
+            outputs:
+              target_branch: main
+              remote_ref: refs/heads/main
+              merged_hash: abc123
+              squashed_commits:
+                base_hash: base123
+                persist_hash: persist123
+              git_context_patch: {}
+              fast_forward: true
+    assertions:
+      - type: output_equals
+        path: child_merged_hash
+        value: abc123
 ` + "```" + `
 `
 	if err := os.WriteFile(suitePath, []byte(suite), 0o644); err != nil {

@@ -145,7 +145,7 @@ func (r *inlineRecipeResolver) expandRecipe(ctx context.Context, rec recipe.Reci
 func (r *inlineRecipeResolver) expandNodeList(ctx context.Context, nodes []recipe.Node, source inlineRecipeSourceContext, pathParts []string) ([]recipe.Node, error) {
 	out := make([]recipe.Node, 0, len(nodes))
 	for i, node := range nodes {
-		expanded, err := r.expandNode(ctx, node, source, append(pathParts, fmt.Sprintf("[%d]", i)))
+		expanded, err := r.expandNode(ctx, node, source, append(pathParts, fmt.Sprintf("[%d]", i)), "")
 		if err != nil {
 			return nil, err
 		}
@@ -169,7 +169,7 @@ func (r *inlineRecipeResolver) expandStateMap(ctx context.Context, states *recip
 	sort.Strings(names)
 	for _, name := range names {
 		state := states.States[name]
-		expanded, err := r.expandNode(ctx, state.Node, source, append(pathParts, name))
+		expanded, err := r.expandNode(ctx, state.Node, source, append(pathParts, name), name)
 		if err != nil {
 			return nil, err
 		}
@@ -181,10 +181,10 @@ func (r *inlineRecipeResolver) expandStateMap(ctx context.Context, states *recip
 	return out, nil
 }
 
-func (r *inlineRecipeResolver) expandNode(ctx context.Context, node recipe.Node, source inlineRecipeSourceContext, pathParts []string) (recipe.Node, error) {
+func (r *inlineRecipeResolver) expandNode(ctx context.Context, node recipe.Node, source inlineRecipeSourceContext, pathParts []string, stateKey string) (recipe.Node, error) {
 	switch n := node.NodeImpl.(type) {
 	case *recipe.NodeInclude:
-		return r.expandInclude(ctx, n, source, pathParts)
+		return r.expandInclude(ctx, n, source, pathParts, stateKey)
 	case *recipe.NodeSequence:
 		expanded, err := r.expandNodeList(ctx, n.Sequence, source, pathParts)
 		if err != nil {
@@ -206,7 +206,7 @@ func (r *inlineRecipeResolver) expandNode(ctx context.Context, node recipe.Node,
 	}
 }
 
-func (r *inlineRecipeResolver) expandInclude(ctx context.Context, include *recipe.NodeInclude, parentSource inlineRecipeSourceContext, pathParts []string) (recipe.Node, error) {
+func (r *inlineRecipeResolver) expandInclude(ctx context.Context, include *recipe.NodeInclude, parentSource inlineRecipeSourceContext, pathParts []string, stateKey string) (recipe.Node, error) {
 	target := strings.TrimSpace(include.Include.Recipe)
 	if target == "" {
 		return recipe.Node{}, fmt.Errorf("include at %s must specify a recipe reference", strings.Join(pathParts, "/"))
@@ -222,7 +222,7 @@ func (r *inlineRecipeResolver) expandInclude(ctx context.Context, include *recip
 	}
 	r.extensions.Functions = append(r.extensions.Functions, expandedRecipe.GetMetdata().Extensions.Functions...)
 
-	wrapper, err := inlineWrapperNode(include, expandedRecipe, loaded, strings.Join(pathParts, "/"))
+	wrapper, err := inlineWrapperNode(include, expandedRecipe, loaded, strings.Join(pathParts, "/"), stateKey)
 	if err != nil {
 		return recipe.Node{}, err
 	}
@@ -390,13 +390,16 @@ func (r *inlineRecipeResolver) loadRecipeFromResolution(ctx context.Context, res
 	}, nil
 }
 
-func inlineWrapperNode(include *recipe.NodeInclude, rec recipe.Recipe, loaded loadedInlineRecipe, callsitePath string) (recipe.Node, error) {
+func inlineWrapperNode(include *recipe.NodeInclude, rec recipe.Recipe, loaded loadedInlineRecipe, callsitePath string, stateKey string) (recipe.Node, error) {
 	inner, innerOutputs, meta, err := includedRecipeRootNode(rec)
 	if err != nil {
 		return recipe.Node{}, fmt.Errorf("include %q: %w", include.Include.Recipe, err)
 	}
 
 	wrapperID := strings.TrimSpace(include.ID)
+	if strings.TrimSpace(stateKey) != "" {
+		wrapperID = strings.TrimSpace(stateKey)
+	}
 	if wrapperID == "" {
 		wrapperID = generatedIncludeID(meta.ID, include.Include.Recipe)
 	}

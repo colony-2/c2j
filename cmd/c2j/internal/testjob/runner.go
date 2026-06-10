@@ -69,6 +69,7 @@ func completeOptions(ctx context.Context, opts Options) (Options, error) {
 }
 
 func compileCompleted(ctx context.Context, opts Options) (CompiledIR, error) {
+	c2jops.Register()
 	target, err := buildTargetRecipe(ctx, opts)
 	if err != nil {
 		return CompiledIR{}, exitError{code: exitCodeCompile, err: err}
