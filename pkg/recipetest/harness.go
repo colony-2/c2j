@@ -45,6 +45,7 @@ type TargetRecipe struct {
 	Selector string `json:"selector,omitempty"`
 	Format   string `json:"format,omitempty" validate:"omitempty,oneof=yaml json"`
 	Content  string `json:"content,omitempty"`
+	Expanded bool   `json:"expanded,omitempty"`
 }
 
 type Case struct {
@@ -216,6 +217,13 @@ type HarnessOptions struct {
 	WorkRoot   string
 }
 
+type InlineTargetExpansionOptions struct {
+	ProjectID  string
+	RootFile   string
+	WorkingDir string
+	Resolver   compiler.RecipeSourceResolver
+}
+
 type TargetResolver interface {
 	ResolveRecipeTarget(ctx context.Context, tenantID string, target TargetRecipe) (*recipecore.Recipe, string, []Issue, []Issue)
 }
@@ -224,6 +232,47 @@ type preparedCase struct {
 	Recipe       *recipecore.Recipe
 	ResolvedHash string
 	Validation   ValidationResult
+}
+
+func ExpandInlineRecipeTarget(ctx context.Context, target TargetRecipe, opts InlineTargetExpansionOptions) (TargetRecipe, []Issue, error) {
+	if target.Mode != "inline_recipe" {
+		return target, nil, fmt.Errorf("target mode %q is not inline_recipe", target.Mode)
+	}
+	if strings.TrimSpace(target.Content) == "" {
+		return target, nil, fmt.Errorf("inline_recipe requires content")
+	}
+	if target.Expanded {
+		return target, nil, nil
+	}
+	if target.Format == "json" && !json.Valid([]byte(target.Content)) {
+		return target, nil, fmt.Errorf("invalid json content")
+	}
+	recipeDef, warnings, err := loadRecipeWithDynamicOpStubs([]byte(target.Content), false)
+	if err != nil {
+		return target, warnings, err
+	}
+	resolver := opts.Resolver
+	if resolver == nil {
+		resolver = compiler.NewRecipeSourceResolver(compiler.RecipeSourceResolverOptions{})
+	}
+	expanded, err := compiler.ResolveInlineRecipes(ctx, *recipeDef, compiler.InlineResolutionOptions{
+		ProjectID:  opts.ProjectID,
+		RootFile:   opts.RootFile,
+		WorkingDir: opts.WorkingDir,
+		Resolver:   resolver,
+	})
+	if err != nil {
+		return target, warnings, err
+	}
+	snapshot, err := yaml.Marshal(&expanded.Recipe)
+	if err != nil {
+		return target, warnings, err
+	}
+	out := target
+	out.Format = "yaml"
+	out.Content = string(snapshot)
+	out.Expanded = true
+	return out, warnings, nil
 }
 
 func ValidateCase(ctx context.Context, opts HarnessOptions, tenantID string, target TargetRecipe, c Case) ValidationResult {
@@ -387,19 +436,21 @@ func resolveRecipeTestTarget(ctx context.Context, opts HarnessOptions, tenantID 
 	if target.Format == "json" && !json.Valid(content) {
 		return nil, "", []Issue{{Code: "invalid_target", Field: "target_recipe.content", Message: "invalid json content"}}, warnings
 	}
-	recipeDef, dynamicWarnings, err := loadRecipeWithDynamicOpStubs(content)
+	recipeDef, dynamicWarnings, err := loadRecipeWithDynamicOpStubs(content, target.Expanded)
 	warnings = append(warnings, dynamicWarnings...)
 	if err != nil {
 		return nil, "", []Issue{{Code: "invalid_recipe", Field: "target_recipe.content", Message: err.Error()}}, warnings
 	}
-	expanded, err := compiler.ResolveInlineRecipes(ctx, *recipeDef, compiler.InlineResolutionOptions{
-		ProjectID: tenantID,
-		Resolver:  compiler.NewRecipeSourceResolver(compiler.RecipeSourceResolverOptions{}),
-	})
-	if err != nil {
-		return nil, "", []Issue{{Code: "invalid_recipe", Field: "target_recipe.content", Message: err.Error()}}, warnings
+	if !target.Expanded {
+		expanded, err := compiler.ResolveInlineRecipes(ctx, *recipeDef, compiler.InlineResolutionOptions{
+			ProjectID: tenantID,
+			Resolver:  compiler.NewRecipeSourceResolver(compiler.RecipeSourceResolverOptions{}),
+		})
+		if err != nil {
+			return nil, "", []Issue{{Code: "invalid_recipe", Field: "target_recipe.content", Message: err.Error()}}, warnings
+		}
+		recipeDef = &expanded.Recipe
 	}
-	recipeDef = &expanded.Recipe
 	snapshot, err := yaml.Marshal(recipeDef)
 	if err != nil {
 		return nil, "", []Issue{{Code: "invalid_recipe", Field: "target_recipe.content", Message: err.Error()}}, warnings
@@ -614,10 +665,14 @@ func ensureRecipeTestOperationDirs(paths coreops.OperationPaths) error {
 
 var unknownOpPattern = regexp.MustCompile(`unknown op: \[([^\]]+)\]`)
 
-func loadRecipeWithDynamicOpStubs(content []byte) (*recipecore.Recipe, []Issue, error) {
+func loadRecipeWithDynamicOpStubs(content []byte, allowInternalMetadata bool) (*recipecore.Recipe, []Issue, error) {
 	warnings := make([]Issue, 0)
+	load := recipecore.LoadRecipeFromString
+	if allowInternalMetadata {
+		load = recipecore.LoadInternalRecipeFromString
+	}
 	for i := 0; i < 32; i++ {
-		r, err := recipecore.LoadRecipeFromString(content)
+		r, err := load(content)
 		if err == nil {
 			return r, warnings, nil
 		}

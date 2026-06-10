@@ -35,6 +35,69 @@ func TestCompileInlineRecipeSuite(t *testing.T) {
 	}
 }
 
+func TestCompileRecipeFileExpandsLocalInlineInclude(t *testing.T) {
+	root := t.TempDir()
+	recipePath, suitePath := writeInlineIncludeRecipeFixture(t, root)
+
+	ir, err := Compile(context.Background(), Options{
+		RecipeFile: recipePath,
+		FilePath:   suitePath,
+		WorkingDir: root,
+		Stdout:     &bytes.Buffer{},
+		Stderr:     &bytes.Buffer{},
+	})
+	if err != nil {
+		t.Fatalf("Compile(): %v", err)
+	}
+	if !ir.TargetRecipe.Expanded {
+		t.Fatalf("target recipe was not marked expanded")
+	}
+	if strings.Contains(ir.TargetRecipe.Content, "include: ./child.yaml") {
+		t.Fatalf("compiled target still contains authored include:\n%s", ir.TargetRecipe.Content)
+	}
+	if !strings.Contains(ir.TargetRecipe.Content, "__c2j_internal") {
+		t.Fatalf("compiled target missing inline provenance metadata:\n%s", ir.TargetRecipe.Content)
+	}
+}
+
+func TestValidateAndRunRecipeFileWithLocalInlineInclude(t *testing.T) {
+	root := t.TempDir()
+	recipePath, suitePath := writeInlineIncludeRecipeFixture(t, root)
+	outDir := filepath.Join(root, "out")
+
+	validateStdout := &bytes.Buffer{}
+	if err := Validate(context.Background(), Options{
+		RecipeFile:  recipePath,
+		FilePath:    suitePath,
+		WorkingDir:  root,
+		Parallelism: 1,
+		Stdout:      validateStdout,
+		Stderr:      &bytes.Buffer{},
+	}); err != nil {
+		t.Fatalf("Validate(): %v; stdout=%s", err, validateStdout.String())
+	}
+	if !strings.Contains(validateStdout.String(), "parent-inline valid") {
+		t.Fatalf("stdout = %q, want validation completion", validateStdout.String())
+	}
+
+	runStdout := &bytes.Buffer{}
+	if err := Run(context.Background(), Options{
+		RecipeFile:  recipePath,
+		FilePath:    suitePath,
+		OutDir:      outDir,
+		WorkingDir:  root,
+		Parallelism: 1,
+		Stdout:      runStdout,
+		Stderr:      &bytes.Buffer{},
+		Execution:   ExecutionOptions{ArtifactMode: "inline"},
+	}); err != nil {
+		t.Fatalf("Run(): %v; stdout=%s", err, runStdout.String())
+	}
+	if !strings.Contains(runStdout.String(), "parent-inline passed") {
+		t.Fatalf("stdout = %q, want run completion", runStdout.String())
+	}
+}
+
 func TestCompileScenarioMarkdownAndCaseFilter(t *testing.T) {
 	root := t.TempDir()
 	recipePath := writeTestRecipe(t, root)
@@ -309,4 +372,80 @@ inputs:
 		t.Fatalf("write recipe: %v", err)
 	}
 	return recipePath
+}
+
+func writeInlineIncludeRecipeFixture(t *testing.T, root string) (string, string) {
+	t.Helper()
+	parentPath := filepath.Join(root, "parent.yaml")
+	parent := `
+id: parent
+version: "1.0"
+input_schema:
+  prompt:
+    type: string
+    required: true
+inputs:
+  prompt: "{{ inputs.prompt }}"
+sequence:
+  - id: child
+    include: ./child.yaml
+    inputs:
+      prompt: "{{ inputs.prompt }}"
+outputs:
+  message: "{{ sequence.child.outputs.message }}"
+`
+	if err := os.WriteFile(parentPath, []byte(parent), 0o644); err != nil {
+		t.Fatalf("write parent recipe: %v", err)
+	}
+
+	childPath := filepath.Join(root, "child.yaml")
+	child := `
+id: child
+version: "1.0"
+input_schema:
+  prompt:
+    type: string
+    required: true
+inputs:
+  prompt: "{{ inputs.prompt }}"
+sequence:
+  - id: ask
+    op: input
+    inputs:
+      form:
+        question: "{{ inputs.prompt }}"
+        type: short_answer
+outputs:
+  message: "{{ sequence.ask.outputs.response }}"
+`
+	if err := os.WriteFile(childPath, []byte(child), 0o644); err != nil {
+		t.Fatalf("write child recipe: %v", err)
+	}
+
+	suitePath := filepath.Join(root, "parent.scenario.md")
+	suite := `
+` + "```yaml" + `
+cases:
+  - id: parent-inline
+    type: recipe_case
+    inputs:
+      prompt: hello
+    mocks:
+      ops:
+        - match:
+            op: input
+          behavior:
+            mode: return
+            outputs:
+              response: hello
+    assertions:
+      - type: output_equals
+        path: message
+        value: hello
+` + "```" + `
+`
+	if err := os.WriteFile(suitePath, []byte(suite), 0o644); err != nil {
+		t.Fatalf("write suite: %v", err)
+	}
+	return parentPath, suitePath
 }

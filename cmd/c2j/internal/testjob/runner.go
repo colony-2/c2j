@@ -398,7 +398,17 @@ func buildTargetRecipe(ctx context.Context, opts Options) (recipetest.TargetReci
 		if strings.EqualFold(filepath.Ext(absPath), ".json") {
 			format = "json"
 		}
-		return recipetest.TargetRecipe{Mode: "inline_recipe", Format: format, Content: string(data)}, nil
+		target := recipetest.TargetRecipe{Mode: "inline_recipe", Format: format, Content: string(data)}
+		expanded, _, err := recipetest.ExpandInlineRecipeTarget(ctx, target, recipetest.InlineTargetExpansionOptions{
+			ProjectID:  opts.TenantID,
+			RootFile:   absPath,
+			WorkingDir: opts.WorkingDir,
+			Resolver:   compiler.NewRecipeSourceResolver(compiler.RecipeSourceResolverOptions{}),
+		})
+		if err != nil {
+			return recipetest.TargetRecipe{}, fmt.Errorf("resolve inline recipes: %w", err)
+		}
+		return expanded, nil
 	}
 
 	selector := strings.TrimSpace(opts.Recipe)
