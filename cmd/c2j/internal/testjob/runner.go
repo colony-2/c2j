@@ -676,8 +676,20 @@ func (defaultTargetResolver) ResolveRecipeTarget(ctx context.Context, tenantID s
 	if err != nil {
 		return nil, "", []recipetest.Issue{{Code: "invalid_recipe", Field: "target_recipe.selector", Message: err.Error()}}, nil
 	}
-	hash := sha256.Sum256(yamlBytes)
-	return rec, hex.EncodeToString(hash[:]), nil, nil
+	expanded, err := compiler.ResolveInlineRecipes(ctx, *rec, compiler.InlineResolutionOptions{
+		ProjectID:  tenantID,
+		Resolver:   resolver,
+		RootSource: &resolution,
+	})
+	if err != nil {
+		return nil, "", []recipetest.Issue{{Code: "invalid_recipe", Field: "target_recipe.selector", Message: err.Error()}}, nil
+	}
+	snapshot, err := yaml.Marshal(&expanded.Recipe)
+	if err != nil {
+		return nil, "", []recipetest.Issue{{Code: "invalid_recipe", Field: "target_recipe.selector", Message: err.Error()}}, nil
+	}
+	hash := sha256.Sum256(snapshot)
+	return &expanded.Recipe, hex.EncodeToString(hash[:]), nil, nil
 }
 
 func buildCurrentCellRecipeSelector(ctx context.Context, opts Options, recipeName string) (string, error) {

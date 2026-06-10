@@ -29,6 +29,7 @@ import (
 	"github.com/colony-2/c2j/pkg/workflow"
 	"github.com/colony-2/swf-go/pkg/swf"
 	"github.com/go-playground/validator/v10"
+	"gopkg.in/yaml.v3"
 )
 
 var validatorInstance = validator.New()
@@ -391,7 +392,19 @@ func resolveRecipeTestTarget(ctx context.Context, opts HarnessOptions, tenantID 
 	if err != nil {
 		return nil, "", []Issue{{Code: "invalid_recipe", Field: "target_recipe.content", Message: err.Error()}}, warnings
 	}
-	hash := sha256.Sum256(content)
+	expanded, err := compiler.ResolveInlineRecipes(ctx, *recipeDef, compiler.InlineResolutionOptions{
+		ProjectID: tenantID,
+		Resolver:  compiler.NewRecipeSourceResolver(compiler.RecipeSourceResolverOptions{}),
+	})
+	if err != nil {
+		return nil, "", []Issue{{Code: "invalid_recipe", Field: "target_recipe.content", Message: err.Error()}}, warnings
+	}
+	recipeDef = &expanded.Recipe
+	snapshot, err := yaml.Marshal(recipeDef)
+	if err != nil {
+		return nil, "", []Issue{{Code: "invalid_recipe", Field: "target_recipe.content", Message: err.Error()}}, warnings
+	}
+	hash := sha256.Sum256(snapshot)
 	return recipeDef, hex.EncodeToString(hash[:]), errorsList, warnings
 }
 

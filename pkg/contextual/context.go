@@ -105,6 +105,19 @@ type TaskExecutionContext struct {
 	RecipeSource RecipeSourceContext      `json:"recipe_source,omitempty"`
 	GitTask      GitTask                  `json:"git,omitempty"`
 	Invocation   InvocationCtx            `json:"invocation,omitempty"`
+	InlineStack  []InlineBoundaryFrame    `json:"inline_stack,omitempty"`
+}
+
+type InlineBoundaryFrame struct {
+	CallsitePath      string `json:"callsite_path,omitempty"`
+	BoundaryNodePath  string `json:"boundary_node_path,omitempty"`
+	RecipeID          string `json:"recipe_id,omitempty"`
+	RecipeVersion     string `json:"recipe_version,omitempty"`
+	SourceKind        string `json:"source_kind,omitempty"`
+	SubmittedSelector string `json:"submitted_selector,omitempty"`
+	ResolvedSelector  string `json:"resolved_selector,omitempty"`
+	ResolvedCommit    string `json:"resolved_commit,omitempty"`
+	ContentSHA256     string `json:"content_sha256,omitempty"`
 }
 
 type GitTask struct {

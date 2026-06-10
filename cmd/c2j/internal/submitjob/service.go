@@ -52,7 +52,7 @@ func Run(ctx context.Context, opts Options) error {
 		return err
 	}
 
-	recipeName, embeddedRecipe, cleanup, err := loadRecipeStart(opts)
+	recipeName, embeddedRecipe, cleanup, err := loadRecipeStartContext(ctx, opts)
 	if err != nil {
 		return err
 	}
@@ -146,6 +146,10 @@ func writeSubmitResult(opts Options, result submitResult) error {
 }
 
 func loadRecipeStart(opts Options) (string, *recipe.Recipe, func(), error) {
+	return loadRecipeStartContext(context.Background(), opts)
+}
+
+func loadRecipeStartContext(ctx context.Context, opts Options) (string, *recipe.Recipe, func(), error) {
 	recipeFile := strings.TrimSpace(opts.RecipeFile)
 	if recipeFile == "" && compiler.IsLocalRecipeFileReference(opts.Recipe) {
 		recipeFile = strings.TrimSpace(opts.Recipe)
@@ -166,6 +170,16 @@ func loadRecipeStart(opts Options) (string, *recipe.Recipe, func(), error) {
 		if err != nil {
 			return "", nil, nil, fmt.Errorf("load recipe file: %w", err)
 		}
+		expanded, err := compiler.ResolveInlineRecipes(ctx, *rec, compiler.InlineResolutionOptions{
+			ProjectID:  opts.TenantID,
+			RootFile:   absPath,
+			WorkingDir: opts.WorkingDir,
+			Resolver:   compiler.NewRecipeSourceResolver(compiler.RecipeSourceResolverOptions{}),
+		})
+		if err != nil {
+			return "", nil, nil, fmt.Errorf("resolve inline recipes: %w", err)
+		}
+		rec = &expanded.Recipe
 		return rec.GetMetdata().ID, rec, func() {}, nil
 	}
 

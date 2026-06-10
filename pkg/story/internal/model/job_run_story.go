@@ -4,6 +4,7 @@ import (
 	"time"
 
 	recipeartifacts "github.com/colony-2/c2j/pkg/artifacts"
+	"github.com/colony-2/c2j/pkg/contextual"
 	"github.com/colony-2/swf-go/pkg/swf"
 )
 
@@ -84,8 +85,9 @@ type JobRunStoryNode struct {
 	StartedAt  *time.Time            `json:"started_at"`
 	FinishedAt *time.Time            `json:"finished_at"`
 
-	Path      []string `json:"path"`
-	InvokeSeq int64    `json:"invoke_seq"`
+	Path        []string                         `json:"path"`
+	InvokeSeq   int64                            `json:"invoke_seq"`
+	InlineStack []contextual.InlineBoundaryFrame `json:"inline_stack,omitempty"`
 
 	// JobAttempt is the SWF "job attempt" number (GetJobRunResponse.Attempts[i].Attempt).
 	// It is only set on recipe root nodes.

@@ -375,28 +375,41 @@ func (w rootSourceResolutionTaskWorker) Run(taskCtx swf.TaskContext, input swf.T
 		resolution.SubmittedSelector = submittedSelector
 	}
 
-	var recipeYAMLRaw string
+	var rec recipe.Recipe
 	if loader, ok := w.resolver.(RecipeSourceYAMLLoader); ok {
 		yamlBytes, err := loader.LoadYAML(ctx, strings.TrimSpace(req.ProjectID), resolution)
 		if err != nil {
 			return nil, err
 		}
-		recipeYAMLRaw = string(yamlBytes)
+		parsed, err := recipe.LoadRecipeFromString(yamlBytes)
+		if err != nil {
+			return nil, err
+		}
+		rec = *parsed
 	} else {
-		rec, err := w.resolver.Load(ctx, strings.TrimSpace(req.ProjectID), resolution)
+		loaded, err := w.resolver.Load(ctx, strings.TrimSpace(req.ProjectID), resolution)
 		if err != nil {
 			return nil, err
 		}
-		yamlBytes, err := marshalRecipeYAML(rec)
-		if err != nil {
-			return nil, err
-		}
-		recipeYAMLRaw = string(yamlBytes)
+		rec = loaded
+	}
+
+	expanded, err := ResolveInlineRecipes(ctx, rec, InlineResolutionOptions{
+		ProjectID:  strings.TrimSpace(req.ProjectID),
+		Resolver:   w.resolver,
+		RootSource: &resolution,
+	})
+	if err != nil {
+		return nil, err
+	}
+	yamlBytes, err := marshalRecipeYAML(expanded.Recipe)
+	if err != nil {
+		return nil, err
 	}
 
 	source := ResolvedRecipeSource{
 		RecipeSourceResolution: resolution,
-		RecipeYAML:             recipeYAMLRaw,
+		RecipeYAML:             string(yamlBytes),
 	}
 	return swf.NewTaskData(source)
 }
@@ -413,7 +426,7 @@ func resolveRecipeSelectorForLookup(selector string, lookupRepo string, lookupRe
 }
 
 func loadEmbeddedRecipeYAML(raw []byte) (recipe.Recipe, error) {
-	parsed, err := recipe.LoadRecipeFromString(raw)
+	parsed, err := recipe.LoadInternalRecipeFromString(raw)
 	if err == nil {
 		return *parsed, nil
 	}

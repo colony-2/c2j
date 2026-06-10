@@ -212,6 +212,8 @@ func (d DefaultRecipeExecutor) ExecuteNode(ctx workflow.Context, parentResCtx *t
 		return d.self().ExecuteSequence(ctx, parentResCtx, metadata, t.Outputs, t.SequenceData.Sequence)
 	case *recipe.NodeChildGroup:
 		return d.self().ExecuteChildGroup(ctx, parentResCtx, metadata, t.ChildGroup)
+	case *recipe.NodeInclude:
+		return fmt.Errorf("include node %q reached execution; resolve inline recipes before execution", template.ScopeID(metadata, "", template.ScopeSequence))
 	default:
 		return fmt.Errorf("unsupported recipe type: %T", t)
 	}
@@ -543,6 +545,10 @@ func (d DefaultRecipeExecutor) innerSequence(ctx workflow.Context, parentCtx *te
 	if err != nil {
 		return fmt.Errorf("failed to resolve sequence inputs: %w", err)
 	}
+	resolvedInputs, err = prepareCompositeInputs(metadata, resolvedInputs)
+	if err != nil {
+		return fmt.Errorf("sequence inputs do not match schema. %w", err)
+	}
 
 	resCtx, err := parentCtx.NewChildContext(template.ScopeSequence, metadata, "", resolvedInputs)
 	if err != nil {
@@ -579,7 +585,7 @@ func (d DefaultRecipeExecutor) innerSequence(ctx workflow.Context, parentCtx *te
 				case catchDecisionRoute:
 					return &catchRouteError{Transition: template.NewFailureTransitionData(containingStateName(resCtx), decision.To, decision.Payload, decision.Failure)}
 				case catchDecisionContinue:
-					parentCtx.AddExecutionWithArtifactData(decision.Outputs, nil, nil)
+					resCtx.AddExecutionWithArtifactData(decision.Outputs, nil, nil)
 					return nil
 				case catchDecisionFail:
 					return decision.Error
@@ -596,7 +602,7 @@ func (d DefaultRecipeExecutor) innerSequence(ctx workflow.Context, parentCtx *te
 	}
 
 	// add resolved output to parent context.
-	parentCtx.AddExecutionWithArtifactData(outputs, lastSequenceArtifacts(resCtx, sequence), resCtx.GetLastArtifacts())
+	resCtx.AddExecutionWithArtifactData(outputs, lastSequenceArtifacts(resCtx, sequence), resCtx.GetLastArtifacts())
 	return nil
 }
 

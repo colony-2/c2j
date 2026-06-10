@@ -17,6 +17,7 @@ type NodeVisitor interface {
 	// Intermediate node visitors - return (replacement, error)
 	VisitNodeOp(node *NodeOp, path []string) (Node, error)
 	VisitNodeChildGroup(node *NodeChildGroup, path []string) (Node, error)
+	VisitNodeInclude(node *NodeInclude, path []string) (Node, error)
 	VisitNodeShared(node *NodeShared, path []string) (Node, error)
 	VisitNodeSequence(node *NodeSequence, path []string) (Node, error)
 	VisitNodeState(node *NodeState, path []string) (Node, error)
@@ -70,6 +71,10 @@ func (b *BaseVisitor) VisitNodeOp(node *NodeOp, path []string) (Node, error) {
 }
 
 func (b *BaseVisitor) VisitNodeChildGroup(node *NodeChildGroup, path []string) (Node, error) {
+	return Node{NodeImpl: node}, nil
+}
+
+func (b *BaseVisitor) VisitNodeInclude(node *NodeInclude, path []string) (Node, error) {
 	return Node{NodeImpl: node}, nil
 }
 
@@ -256,6 +261,9 @@ func (w *NodeWalker) WalkNode(node Node, path []string) (Node, error) {
 
 	case *NodeChildGroup:
 		return w.visitor.VisitNodeChildGroup(n, path)
+
+	case *NodeInclude:
+		return w.visitor.VisitNodeInclude(n, path)
 
 	case *NodeSequence:
 		return w.visitor.VisitNodeSequence(n, path)

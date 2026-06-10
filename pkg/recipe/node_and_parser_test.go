@@ -52,6 +52,12 @@ inputs: {message: hi}`, &n3))
 	var n4 Node
 	require.NoError(t, yamlUnmarshalStrict(`shared: ref`, &n4))
 	assert.IsType(t, &NodeShared{}, n4.NodeImpl)
+
+	// YAML with include key creates an authoring-time recipe include node [pkg/recipe/node.go]
+	var n5 Node
+	require.NoError(t, yamlUnmarshalStrict(`include: ./phase.yaml`, &n5))
+	assert.IsType(t, &NodeInclude{}, n5.NodeImpl)
+	assert.Equal(t, "./phase.yaml", n5.NodeImpl.(*NodeInclude).Include.Recipe)
 }
 
 func TestNode_Unmarshal_Invalids(t *testing.T) {
@@ -60,7 +66,7 @@ func TestNode_Unmarshal_Invalids(t *testing.T) {
 	var n Node
 	err := yamlUnmarshalStrict(`{}`, &n)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "intermediate node must either be a op, sequence, state, or shared reference")
+	assert.Contains(t, err.Error(), "intermediate node must either be a op, sequence, state, include, shared reference")
 
 	// Unknown op errors clearly with location [pkg/recipe/node.go]
 	var n2 Node
@@ -116,6 +122,28 @@ sequence:
 	assert.True(t, checks.Const)
 	require.Len(t, checks.Sequence, 1)
 	assert.False(t, checks.Sequence[0].GetMetadata().Const, "children should retain declared metadata; inheritance is runtime-only")
+}
+
+func TestParser_RejectsAuthoredInternalMetadata(t *testing.T) {
+	registerTestOp()
+
+	data := `version: 1.0
+sequence:
+  - id: generated
+    __c2j_internal:
+      inline:
+        recipe_id: nested
+    sequence: []
+`
+	_, err := LoadRecipeFromString([]byte(data))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "__c2j_internal metadata is reserved")
+
+	rec, err := LoadInternalRecipeFromString([]byte(data))
+	require.NoError(t, err)
+	seq := rec.RecipeImpl.(*RecipeSequence)
+	require.Len(t, seq.Sequence, 1)
+	assert.NotNil(t, seq.Sequence[0].GetMetadata().Internal)
 }
 
 // helper for strict YAML unmarshal through recipe's yaml v3

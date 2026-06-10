@@ -17,6 +17,7 @@ type GlobalGitTaskContext struct {
 	NodePath         string
 	InvokeSeq        int64
 	InvokeHash       string
+	InlineStack      []contextual.InlineBoundaryFrame
 }
 
 // NewGlobalGitTaskContext creates a GlobalGitTaskContext from TaskExecutionContext
@@ -33,6 +34,8 @@ func NewGlobalGitTaskContext(tec contextual.TaskExecutionContext) *GlobalGitTask
 		CellName:         tec.Workflow.CellName,
 		NodePath:         tec.Invocation.NodePath,
 		InvokeSeq:        tec.Invocation.InvokeSeq,
+		InvokeHash:       tec.Invocation.Hash,
+		InlineStack:      cloneInlineStack(tec.InlineStack),
 	}
 }
 
@@ -65,3 +68,12 @@ func (c *GitTaskContext) GetGitAuthor() string        { return c.GlobalGitTaskCo
 func (c *GitTaskContext) GetNodePath() string         { return c.GlobalGitTaskContext.NodePath }
 func (c *GitTaskContext) GetInvokeSeq() int64         { return c.GlobalGitTaskContext.InvokeSeq }
 func (c *GitTaskContext) GetInvokeHash() string       { return c.GlobalGitTaskContext.InvokeHash }
+
+func cloneInlineStack(in []contextual.InlineBoundaryFrame) []contextual.InlineBoundaryFrame {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]contextual.InlineBoundaryFrame, len(in))
+	copy(out, in)
+	return out
+}

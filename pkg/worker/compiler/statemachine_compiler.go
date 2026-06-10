@@ -22,6 +22,10 @@ func (d DefaultRecipeExecutor) ExecuteStateMachine(ctx workflow.Context, parentC
 	if err != nil {
 		return fmt.Errorf("failed to resolve state machine inputs: %w", err)
 	}
+	resolvedInputs, err = prepareCompositeInputs(metadata, resolvedInputs)
+	if err != nil {
+		return fmt.Errorf("state machine inputs do not match schema. %w", err)
+	}
 
 	resCtx, err := parentContext.NewChildContext(template.ScopeStateMachine, metadata, "", resolvedInputs)
 	if err != nil {
@@ -86,7 +90,7 @@ func (d DefaultRecipeExecutor) ExecuteStateMachine(ctx workflow.Context, parentC
 			return fmt.Errorf("failed to resolve state machine outputs: %w", err)
 		}
 
-		parentContext.AddExecutionWithArtifactData(resolvedOutputs, stateArtifacts(resCtx, lastStateName, lastStateDef), resCtx.GetLastArtifacts())
+		resCtx.AddExecutionWithArtifactData(resolvedOutputs, stateArtifacts(resCtx, lastStateName, lastStateDef), resCtx.GetLastArtifacts())
 		return nil
 	}
 
@@ -131,7 +135,7 @@ stateMachineLoop:
 					currentTransition = template.NewFailureTransitionData(sourceState, decision.To, decision.Payload, decision.Failure)
 					continue stateMachineLoop
 				case catchDecisionContinue:
-					parentContext.AddExecutionWithArtifactData(decision.Outputs, nil, nil)
+					resCtx.AddExecutionWithArtifactData(decision.Outputs, nil, nil)
 					observer.StateExited(currentState)
 					return nil
 				case catchDecisionFail:
@@ -190,7 +194,7 @@ stateMachineLoop:
 		return fmt.Errorf("failed to resolve state machine outputs: %w", err)
 	}
 
-	parentContext.AddExecutionWithArtifactData(resolvedOutputs, stateArtifacts(resCtx, currentState, finalState), resCtx.GetLastArtifacts())
+	resCtx.AddExecutionWithArtifactData(resolvedOutputs, stateArtifacts(resCtx, currentState, finalState), resCtx.GetLastArtifacts())
 
 	return nil
 }

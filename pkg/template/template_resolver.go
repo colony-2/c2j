@@ -327,6 +327,10 @@ func (rc *ResolutionContext) NewChildContext(scopeType ScopeType, metadata recip
 	child.TemplateData.Transition = rc.TemplateData.Transition.Clone()
 	child.TemplateData.Failure = rc.TemplateData.Failure.Clone()
 	child.TemplateData.Locals = cloneTemplateVars(rc.TemplateData.Locals)
+	child.TemplateData.Context.InlineStack = cloneInlineStack(rc.TemplateData.Context.InlineStack)
+	if metadata.Internal != nil && metadata.Internal.Inline != nil {
+		child.TemplateData.Context.InlineStack = append(child.TemplateData.Context.InlineStack, inlineBoundaryFrame(metadata.Internal.Inline, child.TemplateData.Context.Invocation.NodePath))
+	}
 
 	// copy items from parents based on scope.
 	switch scopeType {
@@ -352,6 +356,32 @@ func (rc *ResolutionContext) NewChildContext(scopeType ScopeType, metadata recip
 	child.Parent = rc
 	rc.ensureContextBackfill()
 	return child, nil
+}
+
+func inlineBoundaryFrame(inline *recipe.InlineInclusionMetadata, boundaryNodePath string) contextual.InlineBoundaryFrame {
+	if inline == nil {
+		return contextual.InlineBoundaryFrame{}
+	}
+	return contextual.InlineBoundaryFrame{
+		CallsitePath:      inline.CallsitePath,
+		BoundaryNodePath:  boundaryNodePath,
+		RecipeID:          inline.RecipeID,
+		RecipeVersion:     inline.RecipeVersion,
+		SourceKind:        inline.Source.SourceKind,
+		SubmittedSelector: inline.Source.SubmittedSelector,
+		ResolvedSelector:  inline.Source.ResolvedSelector,
+		ResolvedCommit:    inline.Source.ResolvedCommit,
+		ContentSHA256:     inline.ContentSHA256,
+	}
+}
+
+func cloneInlineStack(in []contextual.InlineBoundaryFrame) []contextual.InlineBoundaryFrame {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]contextual.InlineBoundaryFrame, len(in))
+	copy(out, in)
+	return out
 }
 
 func (rc *ResolutionContext) WithFailure(f *recipe.RuntimeFailure) *ResolutionContext {
@@ -542,9 +572,35 @@ func (rc *ResolutionContext) AddExecutionWithArtifactData(output map[string]inte
 	key := rc.scopeId
 
 	switch rc.ScopeType {
-	case ScopeSequence:
-		container = rc.TemplateData.Sequence
-	case ScopeStateMachine, ScopeState:
+	case ScopeSequence, ScopeStateMachine:
+		if rc.Parent == nil {
+			switch rc.ScopeType {
+			case ScopeSequence:
+				container = rc.TemplateData.Sequence
+			case ScopeStateMachine:
+				container = rc.TemplateData.States
+			}
+			break
+		}
+		rc.Parent.lastExecution = output
+		rc.Parent.lastArtifactRefs = append([]recipeartifacts.Ref(nil), refList...)
+		rc.Parent.lastArtifacts = append([]swf.Artifact(nil), artList...)
+		switch rc.Parent.ScopeType {
+		case ScopeRecipe:
+			return
+		case ScopeSequence:
+			container = rc.Parent.TemplateData.Sequence
+			key = rc.scopeId
+		case ScopeStateMachine:
+			container = rc.Parent.TemplateData.States
+			key = rc.scopeId
+		case ScopeState:
+			container = rc.Parent.TemplateData.States
+			key = rc.Parent.scopeId
+		default:
+			panic(fmt.Sprintf("invalid parent scope type: %s", rc.Parent.ScopeType))
+		}
+	case ScopeState:
 		container = rc.TemplateData.States
 	case ScopeRecipe:
 		return

@@ -152,6 +152,10 @@ func getNodeSchema(r *jsonschema.Reflector) (*jsonschema.Schema, error) {
 	childGroup.Title = "ChildGroup"
 	childGroup.Required = append(childGroup.Required, "child_group")
 	items = append(items, childGroup)
+	include := stripSchema(r.Reflect(NodeInclude{}))
+	include.Title = "Include"
+	include.Required = append(include.Required, "include")
+	items = append(items, include)
 
 	nodeopSchema := &jsonschema.Schema{
 		Title: "Node",

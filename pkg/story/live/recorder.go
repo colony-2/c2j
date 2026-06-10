@@ -950,6 +950,7 @@ func (e *recordingExecutor) ExecuteSequence(ctx coreworkflow.Context, rCtx *temp
 	node := e.tree.newNode(model.JobRunStoryNodeKindSequence, "sequence "+seqID)
 	node.SequenceID = seqID
 	node.Status = model.JobRunStoryNodeStatusRunning
+	node.InlineStack = storyInlineStack(rCtx, metadata, seqID)
 	if rCtx != nil {
 		if resolved, err := rCtx.ResolveMap(metadata.Inputs); err == nil {
 			node.Input = resolved
@@ -985,6 +986,7 @@ func (e *recordingExecutor) ExecuteStateMachine(ctx coreworkflow.Context, parent
 	node := e.tree.newNode(model.JobRunStoryNodeKindStateMachine, "stateMachine "+smID)
 	node.StateMachineID = smID
 	node.Status = model.JobRunStoryNodeStatusRunning
+	node.InlineStack = storyInlineStack(parentContext, metadata, smID)
 	if parentContext != nil {
 		nodePath := ""
 		if tec := parentContext.TaskExecutionContext(); strings.TrimSpace(tec.Invocation.NodePath) != "" {
@@ -1038,6 +1040,7 @@ func (e *recordingExecutor) ExecuteOp(ctx coreworkflow.Context, parentResolution
 	opNode.OpID = opID
 	opNode.OpType = "custom"
 	opNode.Status = model.JobRunStoryNodeStatusRunning
+	opNode.InlineStack = storyInlineStack(parentResolutionContext, metadata, opID)
 	e.tree.push("op:"+opID, opNode)
 
 	if e.rec != nil {
@@ -1093,6 +1096,7 @@ func (e *recordingExecutor) ExecuteOp(ctx coreworkflow.Context, parentResolution
 			opNode.Children = make([]*model.JobRunStoryNode, 0)
 			opNode.InvokeSeq = ch.InvokeSeq
 			opNode.Path = append([]string{}, ch.Path...)
+			opNode.InlineStack = cloneInlineBoundaryStack(ch.InlineStack)
 			opNode.Status = ch.Status
 			e.tree.pop()
 			if e.rec != nil {
@@ -1622,6 +1626,49 @@ func setStoryNodePath(n *model.JobRunStoryNode, invocationNodePath string, extra
 	n.Path = path
 }
 
+func storyInlineStack(parent *template.ResolutionContext, metadata recipe.NodeMetadata, boundaryID string) []contextual.InlineBoundaryFrame {
+	var out []contextual.InlineBoundaryFrame
+	parentPath := ""
+	if parent != nil {
+		taskCtx := parent.TaskExecutionContext()
+		out = cloneInlineBoundaryStack(taskCtx.InlineStack)
+		parentPath = strings.TrimSpace(taskCtx.Invocation.NodePath)
+	}
+	if metadata.Internal == nil || metadata.Internal.Inline == nil {
+		return out
+	}
+	inline := metadata.Internal.Inline
+	boundaryPath := strings.TrimSpace(boundaryID)
+	if parentPath != "" {
+		if boundaryPath != "" {
+			boundaryPath = parentPath + "/" + boundaryPath
+		} else {
+			boundaryPath = parentPath
+		}
+	}
+	out = append(out, contextual.InlineBoundaryFrame{
+		CallsitePath:      inline.CallsitePath,
+		BoundaryNodePath:  boundaryPath,
+		RecipeID:          inline.RecipeID,
+		RecipeVersion:     inline.RecipeVersion,
+		SourceKind:        inline.Source.SourceKind,
+		SubmittedSelector: inline.Source.SubmittedSelector,
+		ResolvedSelector:  inline.Source.ResolvedSelector,
+		ResolvedCommit:    inline.Source.ResolvedCommit,
+		ContentSHA256:     inline.ContentSHA256,
+	})
+	return out
+}
+
+func cloneInlineBoundaryStack(in []contextual.InlineBoundaryFrame) []contextual.InlineBoundaryFrame {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]contextual.InlineBoundaryFrame, len(in))
+	copy(out, in)
+	return out
+}
+
 func statusFromErr(err error, fallback model.JobRunStoryNodeStatus) model.JobRunStoryNodeStatus {
 	if err == nil {
 		return fallback
@@ -1751,6 +1798,7 @@ func copyAttemptIntoStep(dst, src *model.JobRunStoryNode) {
 	dst.Error = src.Error
 	dst.InvokeSeq = src.InvokeSeq
 	dst.Path = append([]string{}, src.Path...)
+	dst.InlineStack = cloneInlineBoundaryStack(src.InlineStack)
 }
 
 func applyTaskInputToNode(n *model.JobRunStoryNode, td swf.TaskData) {
@@ -1773,6 +1821,7 @@ func applyTaskInputToNode(n *model.JobRunStoryNode, td swf.TaskData) {
 				setStoryNodePath(n, req.GitTaskContext.NodePath)
 			}
 		}
+		n.InlineStack = cloneInlineBoundaryStack(req.GitTaskContext.InlineStack)
 		return
 	}
 
@@ -1891,6 +1940,7 @@ func cloneNode(src *model.JobRunStoryNode) *model.JobRunStoryNode {
 	dst.StartedAt = cloneTimePtr(src.StartedAt)
 	dst.FinishedAt = cloneTimePtr(src.FinishedAt)
 	dst.Path = append([]string{}, src.Path...)
+	dst.InlineStack = cloneInlineBoundaryStack(src.InlineStack)
 	dst.PriorAttempts = cloneNodes(src.PriorAttempts)
 	dst.RenderedVars = cloneMap(src.RenderedVars)
 	dst.ArtifactKeys = append([]swf.ArtifactKey{}, src.ArtifactKeys...)

@@ -51,9 +51,11 @@ func (n *Node) UnmarshalYAML(node *yamlv3.Node) error {
 		impl = &NodeChildGroup{}
 	case raw["shared"] != nil:
 		impl = &NodeShared{}
+	case raw["include"] != nil:
+		impl = &NodeInclude{}
 	default:
 		foo, _ := yamlv3.Marshal(node)
-		return fmt.Errorf("intermediate node must either be a op, sequence, state, or shared reference, or a child_group at %d:%d. tree: %s", node.Line, node.Column, foo)
+		return fmt.Errorf("intermediate node must either be a op, sequence, state, include, shared reference, or a child_group at %d:%d. tree: %s", node.Line, node.Column, foo)
 	}
 
 	// Second pass: decode into concrete type
@@ -157,6 +159,44 @@ func (n *NodeShared) GetMetadata() NodeMetadata {
 
 func (n *NodeShared) isNode() {}
 
+type IncludeData struct {
+	Recipe string `yaml:"recipe" json:"recipe"`
+}
+
+func (i *IncludeData) UnmarshalYAML(node *yamlv3.Node) error {
+	switch node.Kind {
+	case yamlv3.ScalarNode:
+		var recipeRef string
+		if err := node.Decode(&recipeRef); err != nil {
+			return err
+		}
+		i.Recipe = strings.TrimSpace(recipeRef)
+		return nil
+	case yamlv3.MappingNode:
+		type includeData IncludeData
+		var data includeData
+		if err := node.Decode(&data); err != nil {
+			return err
+		}
+		data.Recipe = strings.TrimSpace(data.Recipe)
+		*i = IncludeData(data)
+		return nil
+	default:
+		return fmt.Errorf("include must be a recipe reference string or object")
+	}
+}
+
+type NodeInclude struct {
+	NodeMetadata `yaml:",inline"`
+	Include      IncludeData `yaml:"include" json:"include"`
+}
+
+func (n *NodeInclude) GetMetadata() NodeMetadata {
+	return n.NodeMetadata
+}
+
+func (n *NodeInclude) isNode() {}
+
 type NodeSequence struct {
 	NodeMetadata `yaml:",inline"`
 	SequenceData `yaml:",inline"`
@@ -237,4 +277,28 @@ type NodeMetadata struct {
 	Artifacts map[string]interface{} `yaml:"artifacts,omitempty"`
 	When      cel.CELExpr            `yaml:"when,omitempty"` // Conditional execution
 	Catch     []CatchClause          `yaml:"catch,omitempty" json:"catch,omitempty"`
+	Internal  *NodeInternalMetadata  `yaml:"__c2j_internal,omitempty" json:"__c2j_internal,omitempty" jsonschema:"-"`
+}
+
+type NodeInternalMetadata struct {
+	Inline               *InlineInclusionMetadata `yaml:"inline,omitempty" json:"inline,omitempty"`
+	CompositeInputSchema map[string]InputSchema   `yaml:"composite_input_schema,omitempty" json:"composite_input_schema,omitempty"`
+}
+
+type InlineInclusionMetadata struct {
+	CallsitePath      string               `yaml:"callsite_path,omitempty" json:"callsite_path,omitempty"`
+	RecipeID          string               `yaml:"recipe_id,omitempty" json:"recipe_id,omitempty"`
+	RecipeVersion     string               `yaml:"recipe_version,omitempty" json:"recipe_version,omitempty"`
+	Source            RecipeSourceSnapshot `yaml:"source,omitempty" json:"source,omitempty"`
+	ContentSHA256     string               `yaml:"content_sha256,omitempty" json:"content_sha256,omitempty"`
+	ResolvedSelectors map[string]string    `yaml:"resolved_selectors,omitempty" json:"resolved_selectors,omitempty"`
+}
+
+type RecipeSourceSnapshot struct {
+	SourceKind        string `yaml:"source_kind,omitempty" json:"source_kind,omitempty"`
+	SubmittedSelector string `yaml:"submitted_selector,omitempty" json:"submitted_selector,omitempty"`
+	ResolvedSelector  string `yaml:"resolved_selector,omitempty" json:"resolved_selector,omitempty"`
+	ResolvedCommit    string `yaml:"resolved_commit,omitempty" json:"resolved_commit,omitempty"`
+	ArtifactName      string `yaml:"artifact_name,omitempty" json:"artifact_name,omitempty"`
+	WasAlreadyPinned  bool   `yaml:"was_already_pinned,omitempty" json:"was_already_pinned,omitempty"`
 }
