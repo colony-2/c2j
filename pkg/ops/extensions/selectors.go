@@ -2,17 +2,14 @@ package extensions
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
-	"io"
 	"net/url"
 	"os"
 	"path"
 	"path/filepath"
 	"strings"
 
-	gitpkg "github.com/colony-2/c2j/pkg/git"
+	"github.com/colony-2/c2j/pkg/git/selectorcache"
 	invschema "github.com/invopop/jsonschema"
 	jsonschemav6 "github.com/santhosh-tekuri/jsonschema/v6"
 	yaml "gopkg.in/yaml.v3"
@@ -267,130 +264,20 @@ func resolveGitSelectorPath(ctx context.Context, selector string) (*ResolvedSele
 		return nil, err
 	}
 
-	cacheDir, commit, err := materializeGitSelector(ctx, parsed)
+	resolved, err := selectorcache.Default().Resolve(ctx, selectorcache.ResolveRequest{
+		RepositoryURL: parsed.RepositoryURL,
+		Ref:           parsed.Ref,
+	})
 	if err != nil {
 		return nil, err
 	}
 	return &ResolvedSelectorPath{
 		Selector:         selector,
-		ResolvedSelector: parsed.WithRef(commit),
-		ResolvedCommit:   commit,
-		ProjectRoot:      cacheDir,
-		Dir:              filepath.Join(cacheDir, parsed.OpPath),
+		ResolvedSelector: parsed.WithRef(resolved.Commit),
+		ResolvedCommit:   resolved.Commit,
+		ProjectRoot:      resolved.SourceDir,
+		Dir:              filepath.Join(resolved.SourceDir, parsed.OpPath),
 	}, nil
-}
-
-func materializeGitSelector(ctx context.Context, selector gitOpSelector) (string, string, error) {
-	repoDir, err := os.MkdirTemp("", "extension-op-git-*")
-	if err != nil {
-		return "", "", fmt.Errorf("create temp git checkout: %w", err)
-	}
-	cleanup := func() { _ = os.RemoveAll(repoDir) }
-
-	repo := gitpkg.NewRepository(gitpkg.Config{})
-	if err := repo.Clone(ctx, selector.RepositoryURL, repoDir, gitpkg.CloneOptions{}); err != nil {
-		cleanup()
-		return "", "", fmt.Errorf("clone git repo %q: %w", selector.RepositoryURL, err)
-	}
-	if err := repo.Checkout(ctx, repoDir, selector.Ref, gitpkg.CheckoutOptions{Detach: true}); err != nil {
-		cleanup()
-		return "", "", fmt.Errorf("checkout git ref %q: %w", selector.Ref, err)
-	}
-	commit, err := repo.GetCurrentCommit(ctx, repoDir)
-	if err != nil {
-		cleanup()
-		return "", "", fmt.Errorf("resolve current git commit for %q: %w", selector.Raw, err)
-	}
-
-	cacheRoot, err := extensionCacheRoot()
-	if err != nil {
-		cleanup()
-		return "", "", err
-	}
-	cacheDir := filepath.Join(cacheRoot, "git", selector.cacheKey(commit))
-	if stat, err := os.Stat(cacheDir); err == nil && stat.IsDir() {
-		cleanup()
-		return cacheDir, commit, nil
-	}
-	if err := os.MkdirAll(filepath.Dir(cacheDir), 0o755); err != nil {
-		cleanup()
-		return "", "", fmt.Errorf("create extension cache parent: %w", err)
-	}
-	if err := os.RemoveAll(cacheDir); err != nil {
-		cleanup()
-		return "", "", fmt.Errorf("clear extension cache dir: %w", err)
-	}
-	if err := os.Rename(repoDir, cacheDir); err != nil {
-		if copyErr := copyDirTree(repoDir, cacheDir); copyErr != nil {
-			cleanup()
-			return "", "", fmt.Errorf("persist extension cache dir: %w", err)
-		}
-		cleanup()
-	}
-	return cacheDir, commit, nil
-}
-
-func extensionCacheRoot() (string, error) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", fmt.Errorf("resolve home directory for extension cache: %w", err)
-	}
-	root := filepath.Join(home, ".c2", "cache", "ops")
-	if err := os.MkdirAll(root, 0o755); err != nil {
-		return "", fmt.Errorf("create extension cache root: %w", err)
-	}
-	return root, nil
-}
-
-func copyDirTree(src string, dst string) error {
-	info, err := os.Stat(src)
-	if err != nil {
-		return err
-	}
-	if err := os.MkdirAll(dst, info.Mode()); err != nil {
-		return err
-	}
-	entries, err := os.ReadDir(src)
-	if err != nil {
-		return err
-	}
-	for _, entry := range entries {
-		srcPath := filepath.Join(src, entry.Name())
-		dstPath := filepath.Join(dst, entry.Name())
-		if entry.IsDir() {
-			if err := copyDirTree(srcPath, dstPath); err != nil {
-				return err
-			}
-			continue
-		}
-		if err := copyFile(srcPath, dstPath); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func copyFile(src string, dst string) error {
-	info, err := os.Stat(src)
-	if err != nil {
-		return err
-	}
-	in, err := os.Open(src)
-	if err != nil {
-		return err
-	}
-	defer in.Close()
-
-	out, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, info.Mode())
-	if err != nil {
-		return err
-	}
-	defer out.Close()
-
-	if _, err := io.Copy(out, in); err != nil {
-		return err
-	}
-	return out.Close()
 }
 
 func loadResolvedOpFromPath(path *ResolvedSelectorPath) (*ResolvedOp, error) {
@@ -520,11 +407,6 @@ type gitOpSelector struct {
 
 func (s gitOpSelector) WithRef(ref string) string {
 	return fmt.Sprintf("git+%s//%s@%s", s.RepositoryURL, s.OpPath, ref)
-}
-
-func (s gitOpSelector) cacheKey(commit string) string {
-	sum := sha256.Sum256([]byte(s.RepositoryURL + "\n" + commit))
-	return hex.EncodeToString(sum[:16])
 }
 
 func isGitOpSelector(selector string) bool {

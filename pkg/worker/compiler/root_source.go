@@ -7,9 +7,11 @@ import (
 	"net/url"
 	"os"
 	"path"
+	"path/filepath"
 	"strings"
 
 	gitpkg "github.com/colony-2/c2j/pkg/git"
+	"github.com/colony-2/c2j/pkg/git/selectorcache"
 	"github.com/colony-2/c2j/pkg/recipe"
 	workerops "github.com/colony-2/c2j/pkg/worker/ops"
 	"github.com/colony-2/swf-go/pkg/swf"
@@ -110,18 +112,22 @@ type RecipeRefYAMLLoader interface {
 }
 
 type RecipeSourceResolverOptions struct {
+	// GitRepository is retained for API compatibility. Git selectors are
+	// resolved through SelectorCache so extension and recipe sources share one
+	// materialization path.
 	GitRepository     gitpkg.Repository
+	SelectorCache     *selectorcache.Cache
 	RecipeRefResolver RecipeRefResolver
 }
 
 func NewRecipeSourceResolver(opts RecipeSourceResolverOptions) RecipeSourceResolver {
-	gitRepo := opts.GitRepository
-	if gitRepo == nil {
-		gitRepo = gitpkg.NewRepository(gitpkg.Config{})
+	sourceCache := opts.SelectorCache
+	if sourceCache == nil {
+		sourceCache = selectorcache.Default()
 	}
 
 	return &defaultRecipeSourceResolver{
-		gitRepo:           gitRepo,
+		selectorCache:     sourceCache,
 		recipeRefResolver: opts.RecipeRefResolver,
 	}
 }
@@ -143,7 +149,7 @@ func ValidateRecipeSelector(selector string) error {
 }
 
 type defaultRecipeSourceResolver struct {
-	gitRepo           gitpkg.Repository
+	selectorCache     *selectorcache.Cache
 	recipeRefResolver RecipeRefResolver
 }
 
@@ -213,26 +219,19 @@ func (r *defaultRecipeSourceResolver) resolveGitSelector(ctx context.Context, se
 		return RecipeSourceResolution{}, err
 	}
 
-	repoDir, cleanup, err := r.cloneGitSelector(ctx, parsed)
+	resolved, err := r.selectorCache.Resolve(ctx, selectorcache.ResolveRequest{
+		RepositoryURL: parsed.RepositoryURL,
+		Ref:           parsed.Ref,
+	})
 	if err != nil {
-		return RecipeSourceResolution{}, err
-	}
-	defer cleanup()
-
-	if err := r.gitRepo.Checkout(ctx, repoDir, parsed.Ref, gitpkg.CheckoutOptions{Detach: true}); err != nil {
-		return RecipeSourceResolution{}, fmt.Errorf("checkout git ref %q: %w", parsed.Ref, err)
-	}
-
-	commit, err := r.gitRepo.GetCurrentCommit(ctx, repoDir)
-	if err != nil {
-		return RecipeSourceResolution{}, fmt.Errorf("resolve current git commit for %q: %w", selector, err)
+		return RecipeSourceResolution{}, fmt.Errorf("resolve git recipe selector %q: %w", selector, err)
 	}
 
 	return RecipeSourceResolution{
 		SourceKind:        RecipeSourceKindGit,
 		SubmittedSelector: selector,
-		ResolvedSelector:  parsed.WithRef(commit),
-		ResolvedCommit:    commit,
+		ResolvedSelector:  parsed.WithRef(resolved.Commit),
+		ResolvedCommit:    resolved.Commit,
 		WasAlreadyPinned:  isFullGitHash(parsed.Ref),
 	}, nil
 }
@@ -256,42 +255,20 @@ func (r *defaultRecipeSourceResolver) loadGitSelectorYAML(ctx context.Context, r
 		return nil, err
 	}
 
-	repoDir, cleanup, err := r.cloneGitSelector(ctx, parsed)
+	resolved, err := r.selectorCache.Resolve(ctx, selectorcache.ResolveRequest{
+		RepositoryURL: parsed.RepositoryURL,
+		Ref:           parsed.Ref,
+	})
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("resolve git recipe selector %q: %w", selector, err)
 	}
-	defer cleanup()
-
-	if err := r.gitRepo.Checkout(ctx, repoDir, parsed.Ref, gitpkg.CheckoutOptions{Detach: true}); err != nil {
-		return nil, fmt.Errorf("checkout git ref %q: %w", parsed.Ref, err)
-	}
-
-	yamlBytes, err := r.gitRepo.GetFileAtCommit(ctx, repoDir, parsed.Ref, parsed.RecipePath)
+	recipePath := filepath.Join(resolved.SourceDir, filepath.FromSlash(parsed.RecipePath))
+	yamlBytes, err := os.ReadFile(recipePath)
 	if err != nil {
 		return nil, fmt.Errorf("load recipe %q from git selector %q: %w", parsed.RecipePath, selector, err)
 	}
+
 	return yamlBytes, nil
-}
-
-func (r *defaultRecipeSourceResolver) cloneGitSelector(ctx context.Context, selector gitRecipeSelector) (string, func(), error) {
-	if r.gitRepo == nil {
-		return "", nil, fmt.Errorf("git repository support is not configured")
-	}
-
-	repoDir, err := os.MkdirTemp("", "recipe-source-git-*")
-	if err != nil {
-		return "", nil, fmt.Errorf("create temp git checkout: %w", err)
-	}
-	cleanup := func() {
-		_ = os.RemoveAll(repoDir)
-	}
-
-	if err := r.gitRepo.Clone(ctx, selector.RepositoryURL, repoDir, gitpkg.CloneOptions{}); err != nil {
-		cleanup()
-		return "", nil, fmt.Errorf("clone git repo %q: %w", selector.RepositoryURL, err)
-	}
-
-	return repoDir, cleanup, nil
 }
 
 type providerBackedRecipeRefResolver struct {
