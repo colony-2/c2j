@@ -85,10 +85,18 @@ func TestChapterVisibilityRuntimeWaitsUntilWrittenChapterCanBeRead(t *testing.T)
 		JobKey:  swf.JobKey{TenantId: "tenant", JobId: "job"},
 		Ordinal: 2,
 	}
-	chapter := swf.StoredChapter{Ordinal: ref.Ordinal, TaskType: "task"}
+	chapter := swf.Chapter{
+		Ordinal:  ref.Ordinal,
+		TaskType: "task",
+		Body: swf.TaskAttemptOutcomeChapter{
+			Outcome: swf.ApplicationOutputOutcome{
+				Output: swf.ApplicationOutputBytes{Data: []byte(`{"ok":true}`)},
+			},
+		},
+	}
 	underlying := &delayedChapterRuntime{
 		visibleAfterGetCalls: 3,
-		chapters:             map[swf.ChapterRef]swf.StoredChapter{},
+		chapters:             map[swf.ChapterRef]swf.Chapter{},
 	}
 	runtime := &chapterVisibilityRuntime{
 		WorkflowRuntime:        underlying,
@@ -114,7 +122,7 @@ type delayedChapterRuntime struct {
 	mu                   sync.Mutex
 	visibleAfterGetCalls int
 	getChapterCalls      int
-	chapters             map[swf.ChapterRef]swf.StoredChapter
+	chapters             map[swf.ChapterRef]swf.Chapter
 }
 
 func (r *delayedChapterRuntime) PutChapter(_ context.Context, req swf.PutChapterRequest) error {
@@ -124,16 +132,16 @@ func (r *delayedChapterRuntime) PutChapter(_ context.Context, req swf.PutChapter
 	return nil
 }
 
-func (r *delayedChapterRuntime) GetChapter(_ context.Context, ref swf.ChapterRef) (swf.StoredChapter, error) {
+func (r *delayedChapterRuntime) GetChapter(_ context.Context, ref swf.ChapterRef) (swf.Chapter, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.getChapterCalls++
 	if r.getChapterCalls < r.visibleAfterGetCalls {
-		return swf.StoredChapter{}, swf.ErrChapterNotFound
+		return swf.Chapter{}, swf.ErrChapterNotFound
 	}
 	chapter, ok := r.chapters[ref]
 	if !ok {
-		return swf.StoredChapter{}, swf.ErrChapterNotFound
+		return swf.Chapter{}, swf.ErrChapterNotFound
 	}
 	return chapter, nil
 }
