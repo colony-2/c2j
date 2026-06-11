@@ -49,6 +49,12 @@ type CaseResult struct {
 	Error      string                       `json:"error,omitempty"`
 }
 
+type validationSummary struct {
+	Cases          int          `json:"cases"`
+	InvalidOrError int          `json:"invalid_or_error"`
+	Results        []CaseResult `json:"results,omitempty"`
+}
+
 func Compile(ctx context.Context, opts Options) (CompiledIR, error) {
 	var err error
 	opts, err = completeOptions(ctx, opts)
@@ -135,7 +141,7 @@ func Validate(ctx context.Context, opts Options) error {
 	}
 	results := runCases(ctx, opts, ir, false)
 	invalid := countByStatus(results, "invalid") + countByStatus(results, "error")
-	summary := map[string]interface{}{"cases": len(results), "invalid_or_error": invalid}
+	summary := validationSummary{Cases: len(results), InvalidOrError: invalid, Results: results}
 	if opts.JSONOutput {
 		if err := json.NewEncoder(opts.Stdout).Encode(summary); err != nil {
 			return exitError{code: exitCodeFailure, err: err}
@@ -244,10 +250,39 @@ func runCases(ctx context.Context, opts Options, ir CompiledIR, execute bool) []
 	out := make([]CaseResult, 0, len(ir.Cases))
 	for r := range results {
 		fmt.Fprintf(opts.Stdout, "%s %s (%dms)\n", r.CaseID, r.Status, r.DurationMs)
+		if !opts.JSONOutput {
+			writeCaseResultDiagnostics(opts.Stdout, r)
+		}
 		out = append(out, r)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].CaseID < out[j].CaseID })
 	return out
+}
+
+func writeCaseResultDiagnostics(w io.Writer, r CaseResult) {
+	if strings.TrimSpace(r.Error) != "" {
+		fmt.Fprintf(w, "  - error: %s\n", r.Error)
+	}
+	if r.Validation == nil {
+		return
+	}
+	for _, issue := range r.Validation.Errors {
+		fmt.Fprintf(w, "  - %s\n", formatValidationIssue(issue))
+	}
+}
+
+func formatValidationIssue(issue recipetest.Issue) string {
+	parts := make([]string, 0, 3)
+	if strings.TrimSpace(issue.Code) != "" {
+		parts = append(parts, issue.Code)
+	}
+	if strings.TrimSpace(issue.Field) != "" {
+		parts = append(parts, issue.Field+":")
+	}
+	if strings.TrimSpace(issue.Message) != "" {
+		parts = append(parts, issue.Message)
+	}
+	return strings.Join(parts, " ")
 }
 
 func runOneCase(ctx context.Context, opts Options, harnessOpts recipetest.HarnessOptions, target recipetest.TargetRecipe, c recipetest.Case, execute bool) CaseResult {

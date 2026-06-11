@@ -3,6 +3,7 @@ package testjob
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -232,6 +233,71 @@ func TestValidateRunsLocally(t *testing.T) {
 	}
 }
 
+func TestValidatePrintsValidationDiagnostics(t *testing.T) {
+	root := t.TempDir()
+	recipePath, suitePath := writeSemanticValidationErrorFixture(t, root)
+
+	stdout := &bytes.Buffer{}
+	err := Validate(context.Background(), Options{
+		RecipeFile:  recipePath,
+		FilePath:    suitePath,
+		WorkingDir:  root,
+		Parallelism: 1,
+		Stdout:      stdout,
+		Stderr:      &bytes.Buffer{},
+	})
+	if err == nil {
+		t.Fatal("expected validation to fail")
+	}
+	out := stdout.String()
+	if !strings.Contains(out, "semantic-error invalid") {
+		t.Fatalf("stdout = %q, want invalid status", out)
+	}
+	if !strings.Contains(out, "semantic_validation target_recipe:") {
+		t.Fatalf("stdout = %q, want semantic validation diagnostic", out)
+	}
+	if !strings.Contains(out, "failed to resolve input 'evidence'") {
+		t.Fatalf("stdout = %q, want validation error detail", out)
+	}
+}
+
+func TestValidateJSONIncludesValidationDiagnostics(t *testing.T) {
+	root := t.TempDir()
+	recipePath, suitePath := writeSemanticValidationErrorFixture(t, root)
+
+	stdout := &bytes.Buffer{}
+	err := Validate(context.Background(), Options{
+		RecipeFile:  recipePath,
+		FilePath:    suitePath,
+		WorkingDir:  root,
+		Parallelism: 1,
+		JSONOutput:  true,
+		Stdout:      stdout,
+		Stderr:      &bytes.Buffer{},
+	})
+	if err == nil {
+		t.Fatal("expected validation to fail")
+	}
+	lines := strings.Split(strings.TrimSpace(stdout.String()), "\n")
+	var summary validationSummary
+	if err := json.Unmarshal([]byte(lines[len(lines)-1]), &summary); err != nil {
+		t.Fatalf("decode validation summary: %v; stdout=%s", err, stdout.String())
+	}
+	if summary.Cases != 1 || summary.InvalidOrError != 1 {
+		t.Fatalf("summary = %#v, want one invalid case", summary)
+	}
+	if len(summary.Results) != 1 || summary.Results[0].Validation == nil || len(summary.Results[0].Validation.Errors) != 1 {
+		t.Fatalf("summary results missing validation errors: %#v", summary.Results)
+	}
+	issue := summary.Results[0].Validation.Errors[0]
+	if issue.Code != "semantic_validation" || issue.Field != "target_recipe" {
+		t.Fatalf("issue = %#v, want semantic target_recipe issue", issue)
+	}
+	if !strings.Contains(issue.Message, "failed to resolve input 'evidence'") {
+		t.Fatalf("issue message = %q, want detail", issue.Message)
+	}
+}
+
 func TestRunWritesArtifacts(t *testing.T) {
 	root := t.TempDir()
 	recipePath := writeTestRecipe(t, root)
@@ -430,6 +496,47 @@ inputs:
 		t.Fatalf("write recipe: %v", err)
 	}
 	return recipePath
+}
+
+func writeSemanticValidationErrorFixture(t *testing.T, root string) (string, string) {
+	t.Helper()
+	recipePath := filepath.Join(root, "semantic-error.yaml")
+	recipe := `
+version: "1.0"
+id: semantic-error
+state:
+  initial: happy
+  states:
+    bad:
+      sequence:
+        - id: produce
+          op: command_execution
+          inputs:
+            run: echo bad
+      transitions: []
+      outputs:
+        evidence: "${{ sequence.produce.outputs.parsed_output.evidence }}"
+    happy:
+      op: command_execution
+      transitions: []
+      inputs:
+        run: echo happy
+outputs:
+  status: ok
+`
+	if err := os.WriteFile(recipePath, []byte(recipe), 0o644); err != nil {
+		t.Fatalf("write recipe: %v", err)
+	}
+	suitePath := filepath.Join(root, "semantic-error.test.yaml")
+	suite := `
+cases:
+  - id: semantic-error
+    type: recipe_case
+`
+	if err := os.WriteFile(suitePath, []byte(suite), 0o644); err != nil {
+		t.Fatalf("write suite: %v", err)
+	}
+	return recipePath, suitePath
 }
 
 func writeInlineIncludeRecipeFixture(t *testing.T, root string) (string, string) {
