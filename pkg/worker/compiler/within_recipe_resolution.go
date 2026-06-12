@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/colony-2/c2j/pkg/contextual"
+	"github.com/colony-2/c2j/pkg/git/selectorcache"
 	extops "github.com/colony-2/c2j/pkg/ops/extensions"
 	"github.com/colony-2/c2j/pkg/recipe"
 	workerops "github.com/colony-2/c2j/pkg/worker/ops"
@@ -18,13 +19,15 @@ import (
 const WithinRecipeResolutionTaskType = "recipe_within_resolution"
 
 type withinRecipeResolutionTaskInput struct {
-	Selectors        []string `json:"selectors,omitempty"`
-	RepositorySource string   `json:"repository_source,omitempty"`
-	RepositoryRef    string   `json:"repository_ref,omitempty"`
+	Selectors        []string          `json:"selectors,omitempty"`
+	RepositorySource string            `json:"repository_source,omitempty"`
+	RepositoryRef    string            `json:"repository_ref,omitempty"`
+	ResolvedGitRefs  map[string]string `json:"resolved_git_refs,omitempty"`
 }
 
 type WithinRecipeResolutionResult struct {
 	ResolvedSelectors map[string]string `json:"resolved_selectors,omitempty"`
+	ResolvedGitRefs   map[string]string `json:"resolved_git_refs,omitempty"`
 }
 
 type withinRecipeResolutionTaskWorker struct{}
@@ -48,11 +51,12 @@ func (w withinRecipeResolutionTaskWorker) Run(taskCtx swf.TaskContext, input swf
 	resolved, err := resolveSelectors(ctx, req.Selectors, extops.ResolveOptions{
 		RepositorySource: strings.TrimSpace(req.RepositorySource),
 		RepositoryRef:    strings.TrimSpace(req.RepositoryRef),
+		ResolvedRefs:     cloneResolvedGitRefs(req.ResolvedGitRefs),
 	})
 	if err != nil {
 		return nil, err
 	}
-	return swf.NewTaskData(WithinRecipeResolutionResult{ResolvedSelectors: resolved})
+	return swf.NewTaskData(resolved)
 }
 
 func ParseWithinRecipeResolutionTaskData(td swf.TaskData) (*WithinRecipeResolutionResult, error) {
@@ -93,32 +97,38 @@ func parseWithinRecipeResolutionTaskInput(input swf.TaskData) (*withinRecipeReso
 	return &req, nil
 }
 
-func resolveWithinRecipeSelectors(ctx workflow.Context, rec recipe.Recipe, execCtx contextual.JobContext, commitContext contextual.GitCommitContext, execOpts ExecutionOptions) (map[string]string, error) {
+func resolveWithinRecipeSelectors(ctx workflow.Context, rec recipe.Recipe, execCtx contextual.JobContext, commitContext contextual.GitCommitContext, execOpts ExecutionOptions) (WithinRecipeResolutionResult, error) {
 	if len(execOpts.ResolvedSelectors) > 0 {
-		return cloneResolvedSelectors(execOpts.ResolvedSelectors), nil
+		return WithinRecipeResolutionResult{
+			ResolvedSelectors: cloneResolvedSelectors(execOpts.ResolvedSelectors),
+			ResolvedGitRefs:   cloneResolvedGitRefs(execOpts.ResolvedGitRefs),
+		}, nil
 	}
 
-	req := buildWithinRecipeResolutionTaskInput(&rec, execCtx, commitContext)
+	req := buildWithinRecipeResolutionTaskInput(&rec, execCtx, commitContext, execOpts)
 	if req == nil {
-		return nil, nil
+		return WithinRecipeResolutionResult{ResolvedGitRefs: cloneResolvedGitRefs(execOpts.ResolvedGitRefs)}, nil
 	}
 
 	taskInput, err := swf.NewTaskData(req)
 	if err != nil {
-		return nil, fmt.Errorf("encode within recipe resolution input: %w", err)
+		return WithinRecipeResolutionResult{}, fmt.Errorf("encode within recipe resolution input: %w", err)
 	}
 	taskOutput, err := ctx.DoTask(swf.RunPolicy{}, WithinRecipeResolutionTaskType, taskInput)
 	if err != nil {
-		return nil, fmt.Errorf("within recipe resolution task failed: %w", err)
+		return WithinRecipeResolutionResult{}, fmt.Errorf("within recipe resolution task failed: %w", err)
 	}
 	parsed, err := ParseWithinRecipeResolutionTaskData(taskOutput)
 	if err != nil {
-		return nil, err
+		return WithinRecipeResolutionResult{}, err
 	}
-	return cloneResolvedSelectors(parsed.ResolvedSelectors), nil
+	return WithinRecipeResolutionResult{
+		ResolvedSelectors: cloneResolvedSelectors(parsed.ResolvedSelectors),
+		ResolvedGitRefs:   cloneResolvedGitRefs(parsed.ResolvedGitRefs),
+	}, nil
 }
 
-func buildWithinRecipeResolutionTaskInput(rec *recipe.Recipe, execCtx contextual.JobContext, commitContext contextual.GitCommitContext) *withinRecipeResolutionTaskInput {
+func buildWithinRecipeResolutionTaskInput(rec *recipe.Recipe, execCtx contextual.JobContext, commitContext contextual.GitCommitContext, execOpts ExecutionOptions) *withinRecipeResolutionTaskInput {
 	if rec == nil || rec.RecipeImpl == nil {
 		return nil
 	}
@@ -133,6 +143,7 @@ func buildWithinRecipeResolutionTaskInput(rec *recipe.Recipe, execCtx contextual
 		Selectors:        selectors,
 		RepositorySource: repoSource,
 		RepositoryRef:    repoRef,
+		ResolvedGitRefs:  cloneResolvedGitRefs(execOpts.ResolvedGitRefs),
 	}
 }
 
@@ -251,9 +262,10 @@ func selectorResolutionRepository(execCtx contextual.JobContext, commitContext c
 	return repoSource, repoRef
 }
 
-func resolveSelectors(ctx context.Context, selectors []string, opts extops.ResolveOptions) (map[string]string, error) {
+func resolveSelectors(ctx context.Context, selectors []string, opts extops.ResolveOptions) (WithinRecipeResolutionResult, error) {
+	refPins := cloneResolvedGitRefs(opts.ResolvedRefs)
 	if len(selectors) == 0 {
-		return nil, nil
+		return WithinRecipeResolutionResult{ResolvedGitRefs: refPins}, nil
 	}
 
 	repoSource := strings.TrimSpace(opts.RepositorySource)
@@ -266,24 +278,36 @@ func resolveSelectors(ctx context.Context, selectors []string, opts extops.Resol
 		}
 		if extops.IsLocalSelector(selector) {
 			if repoSource == "" || repoRef == "" {
-				return nil, fmt.Errorf("local selector %q requires repository source and ref for replayable execution", selector)
+				return WithinRecipeResolutionResult{}, fmt.Errorf("local selector %q requires repository source and ref for replayable execution", selector)
 			}
 		}
 		resolved, err := extops.ResolvePath(ctx, selector, extops.ResolveOptions{
 			RepositorySource: repoSource,
 			RepositoryRef:    repoRef,
+			ResolvedRefs:     refPins,
 		})
 		if err != nil {
-			return nil, fmt.Errorf("resolve selector %q: %w", selector, err)
+			return WithinRecipeResolutionResult{}, fmt.Errorf("resolve selector %q: %w", selector, err)
 		}
 		if pinned := strings.TrimSpace(resolved.ResolvedSelector); pinned != "" {
 			out[selector] = pinned
 		}
+		if key, ok, err := selectorRepoRefKey(selector, repoSource, repoRef); err != nil {
+			return WithinRecipeResolutionResult{}, err
+		} else if ok && strings.TrimSpace(resolved.ResolvedCommit) != "" {
+			if refPins == nil {
+				refPins = make(map[string]string)
+			}
+			refPins[key] = strings.TrimSpace(resolved.ResolvedCommit)
+		}
 	}
 	if len(out) == 0 {
-		return nil, nil
+		out = nil
 	}
-	return out, nil
+	return WithinRecipeResolutionResult{
+		ResolvedSelectors: out,
+		ResolvedGitRefs:   refPins,
+	}, nil
 }
 
 func cloneResolvedSelectors(in map[string]string) map[string]string {
@@ -295,4 +319,33 @@ func cloneResolvedSelectors(in map[string]string) map[string]string {
 		out[key] = value
 	}
 	return out
+}
+
+func cloneResolvedGitRefs(in map[string]string) map[string]string {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(in))
+	for key, value := range in {
+		out[key] = value
+	}
+	return out
+}
+
+func selectorRepoRefKey(selector string, repoSource string, repoRef string) (string, bool, error) {
+	selector = strings.TrimSpace(selector)
+	if selector == "" {
+		return "", false, nil
+	}
+	if extops.IsLocalSelector(selector) {
+		if strings.TrimSpace(repoSource) == "" || strings.TrimSpace(repoRef) == "" {
+			return "", false, nil
+		}
+		normalized, err := extops.NormalizeGitRepositorySourceForSelector(repoSource)
+		if err != nil {
+			return "", true, err
+		}
+		return selectorcache.RepoRefKey(normalized, repoRef), true, nil
+	}
+	return extops.GitSelectorRepoRefKey(selector)
 }

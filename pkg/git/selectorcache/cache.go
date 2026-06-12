@@ -30,6 +30,7 @@ type Cache struct {
 type ResolveRequest struct {
 	RepositoryURL string
 	Ref           string
+	PinnedCommit  string
 }
 
 type ResolveResult struct {
@@ -80,7 +81,13 @@ func (c *Cache) Resolve(ctx context.Context, req ResolveRequest) (ResolveResult,
 	repoKey := cacheRepoKey(repoURL)
 
 	var commit, fetchRef string
-	if isFullGitHash(ref) {
+	if pinnedCommit := strings.TrimSpace(req.PinnedCommit); pinnedCommit != "" {
+		if !isFullGitHash(pinnedCommit) {
+			return ResolveResult{}, fmt.Errorf("pinned commit %q is not a full git hash", pinnedCommit)
+		}
+		commit = strings.ToLower(pinnedCommit)
+		fetchRef = commit
+	} else if isFullGitHash(ref) {
 		commit = strings.ToLower(ref)
 		fetchRef = commit
 	} else {
@@ -352,6 +359,10 @@ func writeMetadata(dir string, repoURL string, commit string) error {
 func cacheRepoKey(repoURL string) string {
 	sum := sha256.Sum256([]byte(repoURL))
 	return hex.EncodeToString(sum[:])
+}
+
+func RepoRefKey(repoURL string, ref string) string {
+	return strings.TrimSpace(repoURL) + "\x00" + strings.TrimSpace(ref)
 }
 
 func commitSourceDir(root string, repoKey string, commit string) string {

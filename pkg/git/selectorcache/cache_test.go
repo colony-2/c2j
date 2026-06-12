@@ -75,6 +75,47 @@ func TestResolvePinnedCommitUsesExistingSourceWithoutRemote(t *testing.T) {
 	}
 }
 
+func TestResolvePinnedMutableRefUsesExistingSourceWithoutRemote(t *testing.T) {
+	repoDir := newTestRepo(t)
+	commit := commitFile(t, repoDir, "file.txt", "cached\n", "cached")
+
+	cache := &Cache{Root: t.TempDir()}
+	first, err := cache.Resolve(context.Background(), ResolveRequest{
+		RepositoryURL: fileURL(repoDir),
+		Ref:           "main",
+	})
+	if err != nil {
+		t.Fatalf("resolve mutable selector source: %v", err)
+	}
+	if first.Commit != commit {
+		t.Fatalf("commit = %q, want %q", first.Commit, commit)
+	}
+
+	if err := os.Rename(repoDir, repoDir+".gone"); err != nil {
+		t.Fatalf("rename remote repo away: %v", err)
+	}
+
+	second, err := cache.Resolve(context.Background(), ResolveRequest{
+		RepositoryURL: fileURL(repoDir),
+		Ref:           "main",
+		PinnedCommit:  commit,
+	})
+	if err != nil {
+		t.Fatalf("resolve pinned mutable selector source from cache: %v", err)
+	}
+	if second.SourceDir != first.SourceDir {
+		t.Fatalf("source dir = %q, want %q", second.SourceDir, first.SourceDir)
+	}
+}
+
+func TestRepoRefKeyTrimsComponents(t *testing.T) {
+	got := RepoRefKey(" https://example.com/acme/repo.git ", " main ")
+	want := "https://example.com/acme/repo.git\x00main"
+	if got != want {
+		t.Fatalf("RepoRefKey() = %q, want %q", got, want)
+	}
+}
+
 func TestResolveMutableRefTracksMovedBranch(t *testing.T) {
 	repoDir := newTestRepo(t)
 	firstCommit := commitFile(t, repoDir, "file.txt", "first\n", "first")

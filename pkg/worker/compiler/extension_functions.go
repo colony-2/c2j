@@ -22,6 +22,7 @@ func recipeCELOptionsProvider(rec recipe.Recipe, execCtx contextual.JobContext, 
 		BaseDir:          normalizeExtensionBaseDir(resolveOpts.BaseDir),
 		RepositorySource: strings.TrimSpace(resolveOpts.RepositorySource),
 		RepositoryRef:    strings.TrimSpace(resolveOpts.RepositoryRef),
+		ResolvedRefs:     cloneResolvedGitRefs(execOpts.ResolvedGitRefs),
 	})
 	if err != nil {
 		return nil, err

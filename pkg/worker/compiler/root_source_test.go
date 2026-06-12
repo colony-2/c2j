@@ -37,6 +37,18 @@ func ensureExtensionExecutionRegistered(t *testing.T, registry *workerops.Activi
 	}
 }
 
+func TestSelectorRepoRefKeyForLocalSelectorUsesRecipeRepoRef(t *testing.T) {
+	key, ok, err := selectorRepoRefKey("./tools/ops/echo", "github.com/acme/repo", "main")
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Equal(t, selectorcache.RepoRefKey("https://github.com/acme/repo.git", "main"), key)
+
+	key, ok, err = selectorRepoRefKey("./tools/ops/echo", "", "")
+	require.NoError(t, err)
+	require.False(t, ok)
+	require.Empty(t, key)
+}
+
 func TestRecipeSourceResolver_ResolveAndLoadGitFileSelector(t *testing.T) {
 	t.Parallel()
 
@@ -344,6 +356,43 @@ func TestWithinRecipeResolutionTaskResolvesSelectors(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, fmt.Sprintf("git+%s//tools/ops/echo@%s", repoURL, commit), resolved.ResolvedSelectors[fmt.Sprintf("git+%s//tools/ops/echo@HEAD", repoURL)])
 	require.Equal(t, fmt.Sprintf("git+%s//tools/cel/text-utils@%s", repoURL, commit), resolved.ResolvedSelectors[fmt.Sprintf("git+%s//tools/cel/text-utils@HEAD", repoURL)])
+	require.Equal(t, map[string]string{
+		selectorcache.RepoRefKey(repoURL, "HEAD"): commit,
+	}, resolved.ResolvedGitRefs)
+}
+
+func TestWithinRecipeResolutionUsesRepoRefPinAcrossDifferentSelectorPaths(t *testing.T) {
+	t.Parallel()
+
+	repoDir := t.TempDir()
+	require.NoError(t, runGit(repoDir, "git", "init"))
+	require.NoError(t, runGit(repoDir, "git", "config", "user.email", "root-source-test@example.com"))
+	require.NoError(t, runGit(repoDir, "git", "config", "user.name", "Root Source Test"))
+
+	require.NoError(t, os.MkdirAll(filepath.Join(repoDir, "tools", "ops", "first"), 0o755))
+	require.NoError(t, os.MkdirAll(filepath.Join(repoDir, "tools", "ops", "second"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(repoDir, "tools", "ops", "first", "op.yaml"), []byte("name: first\n"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(repoDir, "tools", "ops", "second", "op.yaml"), []byte("name: second\n"), 0o644))
+	require.NoError(t, runGit(repoDir, "git", "add", "."))
+	require.NoError(t, runGit(repoDir, "git", "commit", "-m", "add selector targets"))
+	commit := gitHead(t, repoDir)
+	repoURL := (&url.URL{Scheme: "file", Path: repoDir}).String()
+
+	firstSelector := fmt.Sprintf("git+%s//tools/ops/first@HEAD", repoURL)
+	secondSelector := fmt.Sprintf("git+%s//tools/ops/second@HEAD", repoURL)
+	first, err := resolveSelectors(context.Background(), []string{firstSelector}, extops.ResolveOptions{})
+	require.NoError(t, err)
+	require.Equal(t, map[string]string{
+		selectorcache.RepoRefKey(repoURL, "HEAD"): commit,
+	}, first.ResolvedGitRefs)
+
+	require.NoError(t, os.Rename(repoDir, repoDir+".gone"))
+	second, err := resolveSelectors(context.Background(), []string{secondSelector}, extops.ResolveOptions{
+		ResolvedRefs: first.ResolvedGitRefs,
+	})
+	require.NoError(t, err)
+	require.Equal(t, fmt.Sprintf("git+%s//tools/ops/second@%s", repoURL, commit), second.ResolvedSelectors[secondSelector])
+	require.Equal(t, first.ResolvedGitRefs, second.ResolvedGitRefs)
 }
 
 func TestRecipeJobWorker_EmbeddedRecipeSkipsRootSourceResolutionTask(t *testing.T) {
@@ -791,6 +840,123 @@ outputs:
 	require.Equal(t, fmt.Sprintf("git+%s//recipes/remote.yaml@%s", repoURL, commit), resolvedSource.ResolvedSelector)
 	require.Contains(t, resolvedSource.RecipeYAML, "selector: ./tools/cel/text-utils")
 	require.Contains(t, resolvedSource.RecipeYAML, "op: ./tools/ops/echo")
+}
+
+func TestRecipeJobWorker_RootRepoRefPinsExplicitExtensionSelectorsAfterBranchMoves(t *testing.T) {
+	t.Parallel()
+
+	repoDir := t.TempDir()
+	require.NoError(t, runGit(repoDir, "git", "init"))
+	require.NoError(t, runGit(repoDir, "git", "config", "user.email", "root-source-test@example.com"))
+	require.NoError(t, runGit(repoDir, "git", "config", "user.name", "Root Source Test"))
+
+	opDir := filepath.Join(repoDir, "tools", "ops", "echo")
+	recipePath := filepath.Join(repoDir, "recipes", "remote.yaml")
+	require.NoError(t, os.MkdirAll(opDir, 0o755))
+	require.NoError(t, os.MkdirAll(filepath.Dir(recipePath), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(opDir, "op.yaml"), []byte(`
+name: echo
+shell: bash
+run: cat
+input_schema:
+  type: object
+  required: [message]
+  properties:
+    message:
+      type: string
+output_schema:
+  type: object
+  properties:
+    message:
+      type: string
+`), 0o644))
+	repoURL := (&url.URL{Scheme: "file", Path: repoDir}).String()
+	require.NoError(t, os.WriteFile(recipePath, []byte(strings.TrimSpace(fmt.Sprintf(`
+id: remote_git_recipe_with_explicit_selector
+version: "1.0"
+input_schema:
+  title:
+    type: string
+    required: true
+inputs:
+  title: "${{ inputs.title }}"
+sequence:
+  - id: echo
+    op: git+%s//tools/ops/echo@HEAD
+    inputs:
+      message: "${{ inputs.title }}"
+outputs:
+  echoed: "${{ sequence.echo.outputs.message }}"
+`, repoURL))+"\n"), 0o644))
+	require.NoError(t, runGit(repoDir, "git", "add", "."))
+	require.NoError(t, runGit(repoDir, "git", "commit", "-m", "add remote recipe"))
+	rootCommit := gitHead(t, repoDir)
+	rootSelector := fmt.Sprintf("git+%s//recipes/remote.yaml@HEAD", repoURL)
+
+	registry, err := workerops.NewActivityRegistry()
+	require.NoError(t, err)
+	ensureExtensionExecutionRegistered(t, registry)
+
+	moved := false
+	workset, err := NewRecipeWorkerWithOptions(ops2.NewServiceDepsBuilder().Build(), registry, RecipeJobWorkerOptions{
+		RootSourceResolver: NewRecipeSourceResolver(RecipeSourceResolverOptions{}),
+		OnRecipeSourceResolved: func(RecipeSourceResolution) {
+			if moved {
+				return
+			}
+			moved = true
+			require.NoError(t, os.WriteFile(filepath.Join(opDir, "moved.txt"), []byte("branch moved\n"), 0o644))
+			require.NoError(t, runGit(repoDir, "git", "add", "."))
+			require.NoError(t, runGit(repoDir, "git", "commit", "-m", "move branch after root resolution"))
+		},
+	})
+	require.NoError(t, err)
+
+	engine := newToyEngineWithWorkSet(t, "tenant", workset, nil)
+	jobCtx, _ := GenerateTestContext()
+	job := workflowctl.StartJob{
+		TenantId:   "tenant",
+		RecipeName: rootSelector,
+		Inputs: map[string]interface{}{
+			"title": "Hello World",
+		},
+		JobContext: jobCtx,
+	}
+
+	jobKey, err := starter.StartRecipeJob(context.Background(), job, engine)
+	require.NoError(t, err)
+	require.NoError(t, swf.WaitForJobToComplete(context.Background(), 30*time.Second, jobKey, engine))
+	require.NotEqual(t, rootCommit, gitHead(t, repoDir))
+
+	out, err := swfutil.JobResult(context.Background(), engine, jobKey)
+	require.NoError(t, err)
+	raw, err := out.GetData()
+	require.NoError(t, err)
+	got := map[string]interface{}{}
+	require.NoError(t, json.Unmarshal(raw, &got))
+	require.Equal(t, "Hello World", got["echoed"])
+
+	run, err := engine.GetJobRun(context.Background(), swf.GetJobRunRequest{
+		JobKey:         jobKey,
+		IncludeOutputs: true,
+	})
+	require.NoError(t, err)
+	var withinOutput []byte
+	for i := range run.Attempts[0].Tasks {
+		task := &run.Attempts[0].Tasks[i]
+		if task.TaskType == WithinRecipeResolutionTaskType {
+			require.NotEmpty(t, task.Attempts)
+			require.NotNil(t, task.Attempts[0].Output)
+			withinOutput = task.Attempts[0].Output.Data
+		}
+	}
+	require.NotEmpty(t, withinOutput)
+
+	resolved, err := ParseWithinRecipeResolutionJSON(withinOutput)
+	require.NoError(t, err)
+	opSelector := fmt.Sprintf("git+%s//tools/ops/echo@HEAD", repoURL)
+	require.Equal(t, fmt.Sprintf("git+%s//tools/ops/echo@%s", repoURL, rootCommit), resolved.ResolvedSelectors[opSelector])
+	require.Equal(t, rootCommit, resolved.ResolvedGitRefs[selectorcache.RepoRefKey(repoURL, "HEAD")])
 }
 
 func TestRecipeJobWorker_RemoteGitRecipeExplicitRemoteRefsUseWithinRecipeResolution(t *testing.T) {

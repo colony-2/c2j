@@ -44,6 +44,30 @@ func (r RecipeSourceResolution) EffectiveSelector() string {
 	return strings.TrimSpace(r.SubmittedSelector)
 }
 
+func gitRefPinsFromRecipeSource(resolution RecipeSourceResolution) map[string]string {
+	if resolution.SourceKind != RecipeSourceKindGit || strings.TrimSpace(resolution.ResolvedCommit) == "" {
+		return nil
+	}
+	pins := map[string]string{}
+	add := func(selector string) {
+		selector = strings.TrimSpace(selector)
+		if selector == "" || !isGitRecipeSelector(selector) {
+			return
+		}
+		parsed, err := parseGitRecipeSelector(selector)
+		if err != nil {
+			return
+		}
+		pins[selectorcache.RepoRefKey(parsed.RepositoryURL, parsed.Ref)] = strings.TrimSpace(resolution.ResolvedCommit)
+	}
+	add(resolution.SubmittedSelector)
+	add(resolution.ResolvedSelector)
+	if len(pins) == 0 {
+		return nil
+	}
+	return pins
+}
+
 type ResolvedRecipeSource struct {
 	RecipeSourceResolution
 	RecipeYAML string `json:"recipe_yaml,omitempty"`

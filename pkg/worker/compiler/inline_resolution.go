@@ -12,6 +12,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/colony-2/c2j/pkg/git/selectorcache"
 	"github.com/colony-2/c2j/pkg/recipe"
 )
 
@@ -38,6 +39,9 @@ func ResolveInlineRecipes(ctx context.Context, rec recipe.Recipe, opts InlineRes
 		projectID: strings.TrimSpace(opts.ProjectID),
 		resolver:  resolver,
 		gitRefs:   make(map[string]string),
+	}
+	for key, value := range gitRefPinsFromRecipeSourceValue(opts.RootSource) {
+		r.gitRefs[key] = value
 	}
 	rootSource, err := r.rootSourceContext(opts)
 	if err != nil {
@@ -330,7 +334,7 @@ func (r *inlineRecipeResolver) resolveGitRecipe(ctx context.Context, selector st
 	if err != nil {
 		return RecipeSourceResolution{}, err
 	}
-	cacheKey := parsed.RepositoryURL + "\x00" + parsed.Ref
+	cacheKey := selectorcache.RepoRefKey(parsed.RepositoryURL, parsed.Ref)
 	if commit := r.gitRefs[cacheKey]; strings.TrimSpace(commit) != "" {
 		return RecipeSourceResolution{
 			SourceKind:        RecipeSourceKindGit,
@@ -355,6 +359,13 @@ func (r *inlineRecipeResolver) resolveGitRecipe(ctx context.Context, selector st
 		r.gitRefs[cacheKey] = commit
 	}
 	return resolution, nil
+}
+
+func gitRefPinsFromRecipeSourceValue(resolution *RecipeSourceResolution) map[string]string {
+	if resolution == nil {
+		return nil
+	}
+	return gitRefPinsFromRecipeSource(*resolution)
 }
 
 func (r *inlineRecipeResolver) loadRecipeFromResolution(ctx context.Context, resolution RecipeSourceResolution) (loadedInlineRecipe, error) {

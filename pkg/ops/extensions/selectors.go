@@ -19,6 +19,7 @@ type ResolveOptions struct {
 	BaseDir          string
 	RepositorySource string
 	RepositoryRef    string
+	ResolvedRefs     map[string]string
 }
 
 type ResolvedSelectorPath struct {
@@ -71,7 +72,7 @@ func ResolvePath(ctx context.Context, selector string, opts ResolveOptions) (*Re
 		}
 		return resolveLocalSelectorPath(selector, opts)
 	case isGitOpSelector(selector):
-		return resolveGitSelectorPath(ctx, selector)
+		return resolveGitSelectorPath(ctx, selector, opts)
 	default:
 		return nil, fmt.Errorf("unsupported extension selector %q", selector)
 	}
@@ -192,7 +193,7 @@ func resolveSameRepoSelectorPath(ctx context.Context, selector string, opts Reso
 		return nil, fmt.Errorf("same-repo selector %q must not escape the recipe source repo", selector)
 	}
 	opPath := strings.TrimPrefix(selector, "./")
-	return resolveGitSelectorPath(ctx, fmt.Sprintf("git+%s//%s@%s", repoURL, path.Clean(opPath), ref))
+	return resolveGitSelectorPath(ctx, fmt.Sprintf("git+%s//%s@%s", repoURL, path.Clean(opPath), ref), opts)
 }
 
 func resolveLocalBaseDirs(baseDir string) ([]string, error) {
@@ -258,15 +259,17 @@ func findRepoRoot(startDir string) (string, error) {
 	return "", nil
 }
 
-func resolveGitSelectorPath(ctx context.Context, selector string) (*ResolvedSelectorPath, error) {
+func resolveGitSelectorPath(ctx context.Context, selector string, opts ResolveOptions) (*ResolvedSelectorPath, error) {
 	parsed, err := parseGitOpSelector(selector)
 	if err != nil {
 		return nil, err
 	}
 
+	refKey := selectorcache.RepoRefKey(parsed.RepositoryURL, parsed.Ref)
 	resolved, err := selectorcache.Default().Resolve(ctx, selectorcache.ResolveRequest{
 		RepositoryURL: parsed.RepositoryURL,
 		Ref:           parsed.Ref,
+		PinnedCommit:  strings.TrimSpace(opts.ResolvedRefs[refKey]),
 	})
 	if err != nil {
 		return nil, err
@@ -411,6 +414,21 @@ func (s gitOpSelector) WithRef(ref string) string {
 
 func isGitOpSelector(selector string) bool {
 	return strings.HasPrefix(strings.TrimSpace(selector), "git+")
+}
+
+func GitSelectorRepoRefKey(selector string) (string, bool, error) {
+	if !isGitOpSelector(selector) {
+		return "", false, nil
+	}
+	parsed, err := parseGitOpSelector(selector)
+	if err != nil {
+		return "", true, err
+	}
+	return selectorcache.RepoRefKey(parsed.RepositoryURL, parsed.Ref), true, nil
+}
+
+func NormalizeGitRepositorySourceForSelector(source string) (string, error) {
+	return normalizeGitRepositorySource(source)
 }
 
 func normalizeGitRepositorySource(source string) (string, error) {

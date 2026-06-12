@@ -251,6 +251,7 @@ func (j recipeJobWorker) Run(ctx swf.JobContext, jobData swf.JobData) (swf.JobDa
 	if j.celProvider != nil {
 		opts.CELOptionsProvider = j.celProvider
 	}
+	opts.ResolvedGitRefs = gitRefPinsFromRecipeSource(resolution)
 
 	exec := j.executor
 	if j.executorFactory != nil {

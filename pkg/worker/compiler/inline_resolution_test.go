@@ -143,6 +143,55 @@ outputs:
 	require.NotContains(t, second.ResolvedSelector, secondCommit)
 }
 
+func TestResolveInlineRecipesUsesRootRepoRefPinForExplicitSameRepoInclude(t *testing.T) {
+	const rootCommit = "1111111111111111111111111111111111111111"
+	const movedCommit = "2222222222222222222222222222222222222222"
+
+	resolver := &flippingGitResolver{
+		commits: []string{movedCommit},
+		files: map[string]string{
+			"recipes/a.yaml": strings.TrimSpace(`
+id: recipe_a
+version: "1.0"
+sequence: []
+outputs:
+  name: a
+`) + "\n",
+		},
+	}
+
+	root, err := recipe.LoadRecipeFromString([]byte(strings.TrimSpace(`
+id: root
+version: "1.0"
+sequence:
+  - id: first
+    include: git+https://example.com/acme/recipes.git//recipes/a.yaml@main
+outputs:
+  first: "${{ sequence.first.outputs.name }}"
+`) + "\n"))
+	require.NoError(t, err)
+
+	expanded, err := ResolveInlineRecipes(context.Background(), *root, InlineResolutionOptions{
+		Resolver: resolver,
+		RootSource: &RecipeSourceResolution{
+			SourceKind:        RecipeSourceKindGit,
+			SubmittedSelector: "git+https://example.com/acme/recipes.git//recipes/root.yaml@main",
+			ResolvedSelector:  "git+https://example.com/acme/recipes.git//recipes/root.yaml@" + rootCommit,
+			ResolvedCommit:    rootCommit,
+		},
+	})
+	require.NoError(t, err)
+	require.Equal(t, 0, resolver.resolveCalls, "same root repo/ref include should use the root source pin")
+	requireNoIncludeNodes(t, expanded.Recipe)
+
+	seq := expanded.Recipe.RecipeImpl.(*recipe.RecipeSequence)
+	require.Len(t, seq.Sequence, 1)
+	source := seq.Sequence[0].NodeImpl.(*recipe.NodeSequence).Internal.Inline.Source
+	require.Equal(t, rootCommit, source.ResolvedCommit)
+	require.Contains(t, source.ResolvedSelector, "recipes/a.yaml@"+rootCommit)
+	require.NotContains(t, source.ResolvedSelector, movedCommit)
+}
+
 func TestInlineBoundaryStackPropagatesStructurally(t *testing.T) {
 	root, err := template.NewRecipeResolutionContext(
 		&contextual.GitCommitContext{},

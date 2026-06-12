@@ -103,10 +103,12 @@ func (d DefaultRecipeExecutor) ExecuteRecipe(ctx workflow.Context, r recipe.Reci
 	if execOpts.CELOptionsProvider == nil && d.celProvider != nil {
 		execOpts.CELOptionsProvider = d.celProvider
 	}
-	execOpts.ResolvedSelectors, err = resolveWithinRecipeSelectors(ctx, r, execCtx, commitContext, execOpts)
+	withinResolution, err := resolveWithinRecipeSelectors(ctx, r, execCtx, commitContext, execOpts)
 	if err != nil {
 		return nil, nil, err
 	}
+	execOpts.ResolvedSelectors = cloneResolvedSelectors(withinResolution.ResolvedSelectors)
+	execOpts.ResolvedGitRefs = cloneResolvedGitRefs(withinResolution.ResolvedGitRefs)
 	execOpts.CELOptionsProvider, err = recipeCELOptionsProvider(r, execCtx, commitContext, execOpts, execOpts.CELOptionsProvider)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to configure recipe extension functions: %w", err)
@@ -322,6 +324,7 @@ func (d DefaultRecipeExecutor) executeOpAttempt(ctx workflow.Context, parentReso
 	if isSelectorOp(op) {
 		pinnedSelector := resolvedSelector(op, resCtx.Options.ResolvedSelectors)
 		resolveOpts := selectorLoadResolveOptions(resCtx.TaskExecutionContext().JobContext(), resCtx.GetGitCommitContext())
+		resolveOpts.ResolvedRefs = cloneResolvedGitRefs(resCtx.Options.ResolvedGitRefs)
 		resolvedSelectorOp, selectorRegisteredOp, err := loadSelectorOp(pinnedSelector, resolveOpts)
 		if err != nil {
 			return err

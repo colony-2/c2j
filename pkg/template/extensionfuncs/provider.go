@@ -34,6 +34,7 @@ type BuildOptions struct {
 	BaseDir          string
 	RepositorySource string
 	RepositoryRef    string
+	ResolvedRefs     map[string]string
 }
 
 type PackageManifest struct {
@@ -125,6 +126,7 @@ func loadPackage(ctx context.Context, selector string, opts BuildOptions) (*load
 		BaseDir:          strings.TrimSpace(opts.BaseDir),
 		RepositorySource: strings.TrimSpace(opts.RepositorySource),
 		RepositoryRef:    strings.TrimSpace(opts.RepositoryRef),
+		ResolvedRefs:     cloneResolvedRefs(opts.ResolvedRefs),
 	})
 	if err != nil {
 		return nil, err
@@ -171,6 +173,17 @@ func loadPackage(ctx context.Context, selector string, opts BuildOptions) (*load
 		return nil, err
 	}
 	return pkg, nil
+}
+
+func cloneResolvedRefs(in map[string]string) map[string]string {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(in))
+	for key, value := range in {
+		out[key] = value
+	}
+	return out
 }
 
 func locateManifestPath(dir string) (string, error) {

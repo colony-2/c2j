@@ -208,6 +208,87 @@ output_schema:
 	}
 }
 
+func TestGitSelectorRepoRefKey(t *testing.T) {
+	key, ok, err := GitSelectorRepoRefKey("git+https://example.com/acme/repo.git//tools/ops/echo@main")
+	if err != nil {
+		t.Fatalf("GitSelectorRepoRefKey() error = %v", err)
+	}
+	if !ok {
+		t.Fatal("GitSelectorRepoRefKey() ok = false, want true")
+	}
+	if want := "https://example.com/acme/repo.git\x00main"; key != want {
+		t.Fatalf("GitSelectorRepoRefKey() = %q, want %q", key, want)
+	}
+
+	key, ok, err = GitSelectorRepoRefKey("./tools/ops/echo")
+	if err != nil {
+		t.Fatalf("GitSelectorRepoRefKey(local) error = %v", err)
+	}
+	if ok || key != "" {
+		t.Fatalf("GitSelectorRepoRefKey(local) = %q, %v; want empty, false", key, ok)
+	}
+
+	_, ok, err = GitSelectorRepoRefKey("git+https://example.com/acme/repo.git//tools/ops/echo")
+	if err == nil {
+		t.Fatal("GitSelectorRepoRefKey(invalid) error = nil, want error")
+	}
+	if !ok {
+		t.Fatal("GitSelectorRepoRefKey(invalid) ok = false, want true")
+	}
+}
+
+func TestNormalizeGitRepositorySourceForSelector(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	tests := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{
+			name: "file URL",
+			in:   (&url.URL{Scheme: "file", Path: filepath.Join(tmpDir, "repo")}).String(),
+			want: (&url.URL{Scheme: "file", Path: filepath.ToSlash(filepath.Join(tmpDir, "repo"))}).String(),
+		},
+		{
+			name: "canonical repository",
+			in:   "github.com/acme/repo",
+			want: "https://github.com/acme/repo.git",
+		},
+		{
+			name: "canonical repository with suffix",
+			in:   "github.com/acme/repo.git",
+			want: "https://github.com/acme/repo.git",
+		},
+		{
+			name: "scp remote",
+			in:   "git@example.com:acme/repo.git",
+			want: "ssh://git@example.com/acme/repo.git",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := NormalizeGitRepositorySourceForSelector(tt.in)
+			if err != nil {
+				t.Fatalf("NormalizeGitRepositorySourceForSelector(%q) error = %v", tt.in, err)
+			}
+			if got != tt.want {
+				t.Fatalf("NormalizeGitRepositorySourceForSelector(%q) = %q, want %q", tt.in, got, tt.want)
+			}
+		})
+	}
+
+	_, err := NormalizeGitRepositorySourceForSelector("ftp://example.com/repo.git")
+	if err == nil || !strings.Contains(err.Error(), `unsupported git repository scheme "ftp"`) {
+		t.Fatalf("NormalizeGitRepositorySourceForSelector(ftp) error = %v", err)
+	}
+
+	_, err = NormalizeGitRepositorySourceForSelector("git@example.com:../repo.git")
+	if err == nil || !strings.Contains(err.Error(), "unsupported git repository source") {
+		t.Fatalf("NormalizeGitRepositorySourceForSelector(bad scp) error = %v", err)
+	}
+}
+
 func TestExecutionOpHonorsManifestTimeout(t *testing.T) {
 	tmpDir := t.TempDir()
 	opDir := filepath.Join(tmpDir, "testdata", "slow-op")

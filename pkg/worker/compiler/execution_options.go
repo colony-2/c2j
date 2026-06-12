@@ -30,6 +30,8 @@ type ExecutionOptions struct {
 	DiagnosticsObserver template.DiagnosticsObserver
 	// ResolvedSelectors carries internal selector pins for the current recipe run.
 	ResolvedSelectors map[string]string
+	// ResolvedGitRefs carries internal repo/ref pins for the current recipe run.
+	ResolvedGitRefs map[string]string
 }
 
 func normalizeExecutionOptions(opts []ExecutionOptions) ExecutionOptions {
@@ -45,6 +47,7 @@ func normalizeExecutionOptions(opts []ExecutionOptions) ExecutionOptions {
 		out.Validation.Mode = ValidateAll
 	}
 	out.ResolvedSelectors = cloneResolvedSelectors(out.ResolvedSelectors)
+	out.ResolvedGitRefs = cloneResolvedGitRefs(out.ResolvedGitRefs)
 	return out
 }
 
@@ -52,6 +55,7 @@ func resolutionOptionsFromExecution(opts ExecutionOptions) template.ResolutionOp
 	resolution := template.DefaultResolutionOptions()
 	resolution.CELOptionsProvider = opts.CELOptionsProvider
 	resolution.ResolvedSelectors = cloneResolvedSelectors(opts.ResolvedSelectors)
+	resolution.ResolvedGitRefs = cloneResolvedGitRefs(opts.ResolvedGitRefs)
 	resolution.DiagnosticsObserver = opts.DiagnosticsObserver
 	if opts.Mode == ExecutionModeValidate {
 		resolution.Mode = template.ModeValidate
