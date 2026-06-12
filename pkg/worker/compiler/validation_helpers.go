@@ -14,9 +14,9 @@ import (
 	"github.com/colony-2/c2j/pkg/template"
 )
 
-func zeroOutputForOp(opName string) (map[string]interface{}, error) {
+func zeroOutputForOp(opName string, opts extops.ResolveOptions) (map[string]interface{}, error) {
 	if isSelectorOp(opName) {
-		resolved, _, err := loadSelectorOp(opName, extops.ResolveOptions{})
+		resolved, _, err := loadSelectorOp(opName, opts)
 		if err != nil {
 			return nil, err
 		}

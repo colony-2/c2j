@@ -118,13 +118,18 @@ func (d DefaultRecipeExecutor) ExecuteRecipe(ctx workflow.Context, r recipe.Reci
 		return nil, nil, fmt.Errorf("recipe inputs do not match schema. %w", err)
 	}
 
-	if execOpts.Mode == ExecutionModeValidate {
-		ctx = wrapValidationContext(ctx, commitContext)
-	}
-
 	rCtx, err := template.NewRecipeResolutionContext(&commitContext, recipeInputs, execCtx, resolutionOptionsFromExecution(execOpts))
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to create resolution context: %w", err)
+	}
+	if execOpts.Mode == ExecutionModeValidate {
+		if rCtx.Options.ResolvedGitRefs == nil {
+			rCtx.Options.ResolvedGitRefs = map[string]string{}
+		}
+		if rCtx.Options.ResolvedSelectors == nil {
+			rCtx.Options.ResolvedSelectors = map[string]string{}
+		}
+		ctx = wrapValidationContext(ctx, commitContext, rCtx.Options.ResolvedSelectors, rCtx.Options.ResolvedGitRefs)
 	}
 
 	metadata := r.GetMetadata().NodeMetadata
@@ -324,10 +329,19 @@ func (d DefaultRecipeExecutor) executeOpAttempt(ctx workflow.Context, parentReso
 	if isSelectorOp(op) {
 		pinnedSelector := resolvedSelector(op, resCtx.Options.ResolvedSelectors)
 		resolveOpts := selectorLoadResolveOptions(resCtx.TaskExecutionContext().JobContext(), resCtx.GetGitCommitContext())
-		resolveOpts.ResolvedRefs = cloneResolvedGitRefs(resCtx.Options.ResolvedGitRefs)
+		if resCtx.Options.ResolvedGitRefs == nil {
+			resCtx.Options.ResolvedGitRefs = map[string]string{}
+		}
+		resolveOpts.ResolvedRefs = resCtx.Options.ResolvedGitRefs
 		resolvedSelectorOp, selectorRegisteredOp, err := loadSelectorOp(pinnedSelector, resolveOpts)
 		if err != nil {
 			return err
+		}
+		if pinned := strings.TrimSpace(resolvedSelectorOp.ResolvedSelector); pinned != "" {
+			if resCtx.Options.ResolvedSelectors == nil {
+				resCtx.Options.ResolvedSelectors = map[string]string{}
+			}
+			resCtx.Options.ResolvedSelectors[op] = pinned
 		}
 		registeredOp = selectorRegisteredOp
 		chain = registeredOp.TaskChain()

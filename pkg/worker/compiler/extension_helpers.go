@@ -19,6 +19,11 @@ func loadSelectorOp(opName string, opts extops.ResolveOptions) (*extops.Resolved
 	if err != nil {
 		return nil, nil, err
 	}
+	if key, ok, err := selectorRepoRefKey(opName, opts.RepositorySource, opts.RepositoryRef); err != nil {
+		return nil, nil, err
+	} else if ok && opts.ResolvedRefs != nil && strings.TrimSpace(resolved.ResolvedCommit) != "" {
+		opts.ResolvedRefs[key] = strings.TrimSpace(resolved.ResolvedCommit)
+	}
 	registeredOp, exists := coreops.Get(extops.ExecutionOpType)
 	if !exists {
 		return nil, nil, fmt.Errorf("operation %s not found", extops.ExecutionOpType)

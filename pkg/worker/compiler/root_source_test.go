@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/url"
 	"os"
 	"os/exec"
@@ -24,6 +25,34 @@ import (
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
 )
+
+type renameAfterWithinResolutionContext struct {
+	jobKey  swf.JobKey
+	repoDir string
+	moved   bool
+}
+
+func (c *renameAfterWithinResolutionContext) AwaitJobs(jobIds ...string) error { return nil }
+func (c *renameAfterWithinResolutionContext) GetJobKey() swf.JobKey            { return c.jobKey }
+func (c *renameAfterWithinResolutionContext) Logger() *slog.Logger             { return slog.Default() }
+func (c *renameAfterWithinResolutionContext) AwaitDuration(swf.Duration) error { return nil }
+
+func (c *renameAfterWithinResolutionContext) DoTask(_ swf.RunPolicy, taskType string, data swf.TaskData) (swf.TaskData, error) {
+	if taskType != WithinRecipeResolutionTaskType {
+		return nil, fmt.Errorf("unexpected task %q before validation wrapper", taskType)
+	}
+	out, err := newWithinRecipeResolutionTaskWorker().Run(swf.TaskContext{}, data)
+	if err != nil {
+		return nil, err
+	}
+	if !c.moved {
+		c.moved = true
+		if err := os.Rename(c.repoDir, c.repoDir+".gone"); err != nil {
+			return nil, err
+		}
+	}
+	return out, nil
+}
 
 func ensureExtensionExecutionRegistered(t *testing.T, registry *workerops.ActivityRegistry) {
 	t.Helper()
@@ -393,6 +422,60 @@ func TestWithinRecipeResolutionUsesRepoRefPinAcrossDifferentSelectorPaths(t *tes
 	require.NoError(t, err)
 	require.Equal(t, fmt.Sprintf("git+%s//tools/ops/second@%s", repoURL, commit), second.ResolvedSelectors[secondSelector])
 	require.Equal(t, first.ResolvedGitRefs, second.ResolvedGitRefs)
+}
+
+func TestValidateSelectorOpUsesSnapshotPinAfterWithinResolution(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	if _, exists := ops2.Get(extops.ExecutionOpType); !exists {
+		ops2.Register(extops.GetExecutionOp())
+	}
+
+	repoDir := t.TempDir()
+	require.NoError(t, runGit(repoDir, "git", "init"))
+	require.NoError(t, runGit(repoDir, "git", "config", "user.email", "root-source-test@example.com"))
+	require.NoError(t, runGit(repoDir, "git", "config", "user.name", "Root Source Test"))
+
+	opDir := filepath.Join(repoDir, "tools", "ops", "echo")
+	require.NoError(t, os.MkdirAll(opDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(opDir, "op.yaml"), []byte(`
+name: echo
+shell: sh
+run: cat
+input_schema:
+  type: object
+  properties: {}
+output_schema:
+  type: object
+  properties:
+    message:
+      type: string
+`), 0o644))
+	require.NoError(t, runGit(repoDir, "git", "add", "."))
+	require.NoError(t, runGit(repoDir, "git", "commit", "-m", "add selector target"))
+	repoURL := (&url.URL{Scheme: "file", Path: repoDir}).String()
+
+	rec, err := recipe.LoadRecipeFromString([]byte(strings.TrimSpace(fmt.Sprintf(`
+id: validate_selector_snapshot_pin
+version: "1.0"
+sequence:
+  - id: echo
+    op: git+%s//tools/ops/echo@HEAD
+    inputs: {}
+outputs:
+  message: "${{ sequence.echo.outputs.message }}"
+`, repoURL)) + "\n"))
+	require.NoError(t, err)
+
+	jobCtx, gitCtx := GenerateTestContext()
+	inner := &renameAfterWithinResolutionContext{
+		jobKey:  swf.JobKey{TenantId: "tenant", JobId: "job"},
+		repoDir: repoDir,
+	}
+
+	result, _, err := ExecuteRecipe(newWorkflowContext(inner), *rec, nil, jobCtx, gitCtx, ExecutionOptions{Mode: ExecutionModeValidate})
+	require.NoError(t, err)
+	require.True(t, inner.moved, "test did not move the remote after within-recipe resolution")
+	require.Equal(t, map[string]interface{}{"message": ""}, result)
 }
 
 func TestRecipeJobWorker_EmbeddedRecipeSkipsRootSourceResolutionTask(t *testing.T) {

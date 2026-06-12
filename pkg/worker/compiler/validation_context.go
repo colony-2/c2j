@@ -21,6 +21,8 @@ import (
 type validationJobContext struct {
 	inner              swf.JobContext
 	gitContext         contextual.GitCommitContext
+	resolvedSelectors  map[string]string
+	resolvedGitRefs    map[string]string
 	inputInitialInputs map[string]map[string]interface{}
 }
 
@@ -35,7 +37,7 @@ func (v *validationJobContext) AwaitJobs(jobIds ...string) error {
 	return v.inner.AwaitJobs(jobIds...)
 }
 
-func wrapValidationContext(ctx workflow.Context, commitContext contextual.GitCommitContext) workflow.Context {
+func wrapValidationContext(ctx workflow.Context, commitContext contextual.GitCommitContext, resolvedSelectors map[string]string, resolvedGitRefs map[string]string) workflow.Context {
 	if _, ok := ctx.JobContext.(*validationJobContext); ok {
 		return ctx
 	}
@@ -43,6 +45,8 @@ func wrapValidationContext(ctx workflow.Context, commitContext contextual.GitCom
 		JobContext: &validationJobContext{
 			inner:              ctx.JobContext,
 			gitContext:         commitContext,
+			resolvedSelectors:  resolvedSelectors,
+			resolvedGitRefs:    resolvedGitRefs,
 			inputInitialInputs: map[string]map[string]interface{}{},
 		},
 		ServiceDependencies2: ctx.ServiceDependencies2,
@@ -174,6 +178,7 @@ func (v *validationJobContext) DoTask(runPolicy swf.RunPolicy, taskType string, 
 		}
 		selector, _ := invocation.Input["selector"].(string)
 		if selector != "" {
+			selector = resolvedSelector(selector, v.resolvedSelectors)
 			repoSource, _ := invocation.Input["repository_source"].(string)
 			repoRef, _ := invocation.Input["repository_ref"].(string)
 			if strings.TrimSpace(repoSource) == "" || strings.TrimSpace(repoRef) == "" {
@@ -187,9 +192,13 @@ func (v *validationJobContext) DoTask(runPolicy swf.RunPolicy, taskType string, 
 					repoRef = strings.TrimSpace(invocation.GitTaskContext.BaseRef)
 				}
 			}
+			if v.resolvedGitRefs == nil {
+				v.resolvedGitRefs = map[string]string{}
+			}
 			resolved, _, err := loadSelectorOp(selector, extops.ResolveOptions{
 				RepositorySource: repoSource,
 				RepositoryRef:    repoRef,
+				ResolvedRefs:     v.resolvedGitRefs,
 			})
 			if err != nil {
 				return nil, err
