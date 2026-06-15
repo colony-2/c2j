@@ -101,7 +101,7 @@ npms:
     url_template: "https://github.com/colony-2/c2j-release/releases/download/{{ .Tag }}/{{ .ArtifactName }}"
     homepage: https://github.com/colony-2/c2j
     description: c2j job system
-    license: APGL
+    license: Apache-2.0
     extra:
       author:
         name: Colony 2
@@ -136,4 +136,4 @@ homebrew_casks:
     commit_msg_template: "Cask update for {{ .ProjectName }} version {{ .Tag }}"
     homepage: "https://github.com/colony-2/c2j"
     description: "c2j job system"
-    license: "AGPL"
+    license: "Apache-2.0"
