@@ -4,8 +4,8 @@ go 1.26
 
 require (
 	github.com/colony-2/shai v0.0.8
-	github.com/colony-2/strata-go v0.0.0-20260515174944-a1fd136d0c39
-	github.com/colony-2/swf-go v0.0.0-20260610202444-fded37613f9a
+	github.com/colony-2/strata-go v0.0.0-20260621025934-747fa0c819c0
+	github.com/colony-2/swf-go v0.0.2-0.20260621031047-269aa3698792
 	github.com/fatih/structs v1.1.0
 	github.com/go-playground/validator/v10 v10.30.2
 	github.com/goccy/go-yaml v1.19.2
