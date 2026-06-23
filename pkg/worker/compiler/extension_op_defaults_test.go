@@ -12,13 +12,13 @@ import (
 	"github.com/colony-2/c2j/pkg/recipe"
 	coretask "github.com/colony-2/c2j/pkg/task"
 	workerops "github.com/colony-2/c2j/pkg/worker/ops"
-	"github.com/colony-2/swf-go/pkg/swf"
+	"github.com/colony-2/jobdb/pkg/jobdb"
 	"github.com/stretchr/testify/require"
 )
 
 type capturingInvocationJobContext struct {
-	jobKey         swf.JobKey
-	out            swf.TaskData
+	jobKey         jobdb.JobKey
+	out            jobdb.TaskData
 	calls          int
 	lastTaskType   string
 	lastInvocation workerops.ActivityInvocationRequest
@@ -28,11 +28,11 @@ func (c *capturingInvocationJobContext) AwaitJobs(jobIds ...string) error {
 	return nil
 }
 
-func (c *capturingInvocationJobContext) GetJobKey() swf.JobKey            { return c.jobKey }
-func (c *capturingInvocationJobContext) Logger() *slog.Logger             { return slog.Default() }
-func (c *capturingInvocationJobContext) AwaitDuration(swf.Duration) error { return nil }
+func (c *capturingInvocationJobContext) GetJobKey() jobdb.JobKey            { return c.jobKey }
+func (c *capturingInvocationJobContext) Logger() *slog.Logger               { return slog.Default() }
+func (c *capturingInvocationJobContext) AwaitDuration(jobdb.Duration) error { return nil }
 
-func (c *capturingInvocationJobContext) DoTask(_ swf.RunPolicy, taskType string, data swf.TaskData) (swf.TaskData, error) {
+func (c *capturingInvocationJobContext) DoTask(_ jobdb.RunPolicy, taskType string, data jobdb.TaskData) (jobdb.TaskData, error) {
 	c.calls++
 	c.lastTaskType = taskType
 
@@ -46,7 +46,7 @@ func (c *capturingInvocationJobContext) DoTask(_ swf.RunPolicy, taskType string,
 	return c.out, nil
 }
 
-func newActivityOutputTaskData(t *testing.T, gitCtx contextual.GitCommitContext) swf.TaskData {
+func newActivityOutputTaskData(t *testing.T, gitCtx contextual.GitCommitContext) jobdb.TaskData {
 	t.Helper()
 
 	envelope := workerops.ActivityInvocationOutput{
@@ -60,7 +60,7 @@ func newActivityOutputTaskData(t *testing.T, gitCtx contextual.GitCommitContext)
 	}
 	outEnv, err := coretask.NewOutputEnvelope(coretask.OutputKindActivityInvocationOutput, envelope)
 	require.NoError(t, err)
-	return swf.NewTaskDataOrPanic(outEnv)
+	return jobdb.NewTaskDataOrPanic(outEnv)
 }
 
 func TestExecuteRecipeSelectorOpAppliesSchemaDefaultsBeforeResolution(t *testing.T) {
@@ -103,7 +103,7 @@ output_schema:
 	jobCtx.Environment.WorktreePath = tmpDir
 
 	stub := &capturingInvocationJobContext{
-		jobKey: swf.JobKey{TenantId: "tenant", JobId: "selector-defaults"},
+		jobKey: jobdb.JobKey{TenantId: "tenant", JobId: "selector-defaults"},
 		out:    newActivityOutputTaskData(t, gitCtx),
 	}
 

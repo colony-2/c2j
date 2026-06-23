@@ -8,7 +8,7 @@ import (
 
 	recipeartifacts "github.com/colony-2/c2j/pkg/artifacts"
 	"github.com/colony-2/c2j/pkg/template/funcregistry"
-	"github.com/colony-2/swf-go/pkg/swf"
+	"github.com/colony-2/jobdb/pkg/jobdb"
 	"github.com/google/cel-go/cel"
 	"github.com/google/cel-go/common/types"
 	"github.com/google/cel-go/common/types/ref"
@@ -247,7 +247,7 @@ func appendArtifactRefsNative(fnName string, out *[]recipeartifacts.Ref, native 
 	}
 
 	if keyer, ok := native.(interface {
-		ArtifactKey() (swf.ArtifactKey, error)
+		ArtifactKey() (jobdb.ArtifactKey, error)
 	}); ok {
 		key, err := keyer.ArtifactKey()
 		if err != nil {
@@ -261,13 +261,13 @@ func appendArtifactRefsNative(fnName string, out *[]recipeartifacts.Ref, native 
 	}
 
 	switch v := native.(type) {
-	case swf.ArtifactKey:
+	case jobdb.ArtifactKey:
 		if err := v.Validate(); err != nil {
 			return fmt.Errorf("%s: %w", fnName, err)
 		}
 		*out = append(*out, recipeartifacts.NewStoredRef(v))
 		return nil
-	case *swf.ArtifactKey:
+	case *jobdb.ArtifactKey:
 		if v == nil {
 			return nil
 		}
@@ -286,14 +286,14 @@ func appendArtifactRefsNative(fnName string, out *[]recipeartifacts.Ref, native 
 			}
 		}
 		return nil
-	case []swf.ArtifactKey:
+	case []jobdb.ArtifactKey:
 		for _, item := range v {
 			if err := appendArtifactRefsNative(fnName, out, item); err != nil {
 				return err
 			}
 		}
 		return nil
-	case []*swf.ArtifactKey:
+	case []*jobdb.ArtifactKey:
 		for _, item := range v {
 			if err := appendArtifactRefsNative(fnName, out, item); err != nil {
 				return err
@@ -338,7 +338,7 @@ func appendArtifactRefsNative(fnName string, out *[]recipeartifacts.Ref, native 
 			}
 		}
 		return nil
-	case map[string]swf.ArtifactKey:
+	case map[string]jobdb.ArtifactKey:
 		keys := make([]string, 0, len(v))
 		for k := range v {
 			keys = append(keys, k)
@@ -350,7 +350,7 @@ func appendArtifactRefsNative(fnName string, out *[]recipeartifacts.Ref, native 
 			}
 		}
 		return nil
-	case map[string]*swf.ArtifactKey:
+	case map[string]*jobdb.ArtifactKey:
 		keys := make([]string, 0, len(v))
 		for k := range v {
 			keys = append(keys, k)

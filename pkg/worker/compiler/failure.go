@@ -12,7 +12,7 @@ import (
 
 	"github.com/colony-2/c2j/pkg/recipe"
 	"github.com/colony-2/c2j/pkg/template"
-	"github.com/colony-2/swf-go/pkg/swf"
+	"github.com/colony-2/jobdb/pkg/jobdb"
 )
 
 type recipeFailureError struct {
@@ -83,9 +83,9 @@ func normalizeRuntimeFailure(err error, resCtx *template.ResolutionContext, meta
 		},
 	}
 
-	var timeoutErr *swf.TimeoutError
-	var systemErr *swf.SystemError
-	var appErr *swf.AppError
+	var timeoutErr *jobdb.TimeoutError
+	var systemErr *jobdb.SystemError
+	var appErr *jobdb.AppError
 	switch {
 	case errors.As(err, &timeoutErr):
 		failure.Kind = recipe.FailureKindTimeout
@@ -101,7 +101,7 @@ func normalizeRuntimeFailure(err error, resCtx *template.ResolutionContext, meta
 		failure.Kind = recipe.FailureKindTimeout
 		failure.Code = "timeout"
 		failure.Retryable = true
-	case swf.IsSystemError(err):
+	case jobdb.IsSystemError(err):
 		failure.Kind = recipe.FailureKindSystemError
 		if errors.As(err, &systemErr) {
 			failure.Code = systemErr.Payload.Code
@@ -111,7 +111,7 @@ func normalizeRuntimeFailure(err error, resCtx *template.ResolutionContext, meta
 				failure.Attrs = map[string]interface{}{"component": systemErr.Payload.Component}
 			}
 		}
-	case swf.IsAppError(err):
+	case jobdb.IsAppError(err):
 		failure.Kind = recipe.FailureKindTaskError
 		if errors.As(err, &appErr) {
 			failure.Message = firstNonEmpty(appErr.Payload.Message, err.Error())
@@ -121,7 +121,7 @@ func normalizeRuntimeFailure(err error, resCtx *template.ResolutionContext, meta
 				failure.Code = code
 			}
 		}
-	case errors.Is(err, swf.ErrJobCancelled), errors.Is(err, context.Canceled):
+	case errors.Is(err, jobdb.ErrJobCancelled), errors.Is(err, context.Canceled):
 		failure.Kind = recipe.FailureKindCancellation
 		failure.Code = "cancelled"
 		failure.Retryable = false
@@ -385,7 +385,7 @@ func shouldRetryFailure(err error, failure *recipe.RuntimeFailure, retry *recipe
 	if failure != nil && !failure.Retryable {
 		return false
 	}
-	var nonRetryable swf.NonRetryableError
+	var nonRetryable jobdb.NonRetryableError
 	if errors.As(err, &nonRetryable) && nonRetryable.NonRetryable() {
 		return false
 	}
@@ -413,9 +413,9 @@ func errorMatchesTypeName(err error, typeName string) bool {
 	return false
 }
 
-func singleAttemptRetryPolicy(retry *recipe.RetryPolicy) swf.RetryPolicy {
+func singleAttemptRetryPolicy(retry *recipe.RetryPolicy) jobdb.RetryPolicy {
 	if retry == nil {
-		return swf.RetryPolicy{MaximumAttempts: 1}
+		return jobdb.RetryPolicy{MaximumAttempts: 1}
 	}
 	out := *retry
 	out.MaximumAttempts = 1

@@ -15,8 +15,9 @@ import (
 	"github.com/colony-2/c2j/pkg/template"
 	"github.com/colony-2/c2j/pkg/worker/ops"
 	"github.com/colony-2/c2j/pkg/workflowctl"
-	"github.com/colony-2/swf-go/pkg/swf"
-	toyruntime "github.com/colony-2/swf-go/pkg/swf/runtime/toy"
+	"github.com/colony-2/jobdb/pkg/jobdb"
+	toyruntime "github.com/colony-2/jobdb/pkg/jobdb/runtime/toy"
+	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
@@ -24,12 +25,12 @@ import (
 
 type CompilerTestSuite struct {
 	suite.Suite
-	eng  swf.SWFEngine
+	eng  jobworkflow.Engine
 	deps ops2.OpDependencies
 	//eng *impl.EmbeddedEngine
 }
 
-func newToyEngine(t *testing.T, workerTenantID string, gen func(string) (swf.JobKey, error)) swf.SWFEngine {
+func newToyEngine(t *testing.T, workerTenantID string, gen func(string) (jobdb.JobKey, error)) jobworkflow.Engine {
 	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
@@ -37,7 +38,7 @@ func newToyEngine(t *testing.T, workerTenantID string, gen func(string) (swf.Job
 	if gen != nil {
 		opts = append(opts, toyruntime.WithJobIDGenerator(gen))
 	}
-	builder := swf.NewEngineBuilder().WithRuntime(toyruntime.New(opts...))
+	builder := jobworkflow.NewEngineBuilder().WithRuntime(toyruntime.New(opts...))
 	if workerTenantID != "" {
 		builder = builder.WithWorkerTenantId(workerTenantID)
 	}
@@ -47,7 +48,7 @@ func newToyEngine(t *testing.T, workerTenantID string, gen func(string) (swf.Job
 	return engine
 }
 
-func newToyEngineWithWorkSet(t *testing.T, workerTenantID string, ws *swf.WorkSet, gen func(string) (swf.JobKey, error)) swf.SWFEngine {
+func newToyEngineWithWorkSet(t *testing.T, workerTenantID string, ws *jobworkflow.WorkSet, gen func(string) (jobdb.JobKey, error)) jobworkflow.Engine {
 	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
@@ -55,12 +56,12 @@ func newToyEngineWithWorkSet(t *testing.T, workerTenantID string, ws *swf.WorkSe
 	if gen != nil {
 		opts = append(opts, toyruntime.WithJobIDGenerator(gen))
 	}
-	builder := swf.NewEngineBuilder().WithRuntime(toyruntime.New(opts...))
+	builder := jobworkflow.NewEngineBuilder().WithRuntime(toyruntime.New(opts...))
 	if workerTenantID != "" {
 		builder = builder.WithWorkerTenantId(workerTenantID)
 	}
 	if ws != nil {
-		taskWorkers := make([]swf.TaskWorker, 0, len(ws.TaskWorkers))
+		taskWorkers := make([]jobworkflow.TaskWorker, 0, len(ws.TaskWorkers))
 		for _, tw := range ws.TaskWorkers {
 			taskWorkers = append(taskWorkers, tw)
 		}
@@ -133,7 +134,7 @@ func (s *CompilerTestSuite) testRecipe(recipeYaml string, input map[string]inter
 
 	jobKey, err := starter.StartRecipeJob(context.Background(), job, s.eng, *testRecipe)
 	require.NoError(s.T(), err)
-	require.NoError(s.T(), swf.WaitForJobToComplete(context.Background(), 30*time.Second, jobKey, s.eng))
+	require.NoError(s.T(), jobworkflow.WaitForJobToComplete(context.Background(), 30*time.Second, jobKey, s.eng))
 	r, err := swfutil.JobResult(context.Background(), s.eng, jobKey)
 	require.NoError(s.T(), err)
 	d, err := r.GetData()
@@ -543,7 +544,7 @@ func (s *CompilerTestSuite) TestSequenceRecipeCompilation() {
 
 	jobId, err := starter.StartRecipeJob(context.Background(), job, s.eng, *testRecipe)
 	require.NoError(s.T(), err)
-	require.NoError(s.T(), swf.WaitForJobToComplete(context.Background(), 30*time.Second, jobId, s.eng))
+	require.NoError(s.T(), jobworkflow.WaitForJobToComplete(context.Background(), 30*time.Second, jobId, s.eng))
 	r, err := swfutil.JobResult(context.Background(), s.eng, jobId)
 	require.NoError(s.T(), err)
 	d, err := r.GetData()

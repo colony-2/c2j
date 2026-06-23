@@ -10,12 +10,13 @@ import (
 	coreops "github.com/colony-2/c2j/pkg/ops"
 	"github.com/colony-2/c2j/pkg/recipe"
 	"github.com/colony-2/c2j/pkg/workflow"
-	"github.com/colony-2/swf-go/pkg/swf"
+	"github.com/colony-2/jobdb/pkg/jobdb"
+	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
 	"github.com/stretchr/testify/require"
 )
 
 type countingJobContext struct {
-	jobKey swf.JobKey
+	jobKey jobdb.JobKey
 	calls  int
 }
 
@@ -23,10 +24,10 @@ func (c *countingJobContext) AwaitJobs(jobIds ...string) error {
 	return nil
 }
 
-func (c *countingJobContext) GetJobKey() swf.JobKey            { return c.jobKey }
-func (c *countingJobContext) Logger() *slog.Logger             { return slog.Default() }
-func (c *countingJobContext) AwaitDuration(swf.Duration) error { return nil }
-func (c *countingJobContext) DoTask(swf.RunPolicy, string, swf.TaskData) (swf.TaskData, error) {
+func (c *countingJobContext) GetJobKey() jobdb.JobKey            { return c.jobKey }
+func (c *countingJobContext) Logger() *slog.Logger               { return slog.Default() }
+func (c *countingJobContext) AwaitDuration(jobdb.Duration) error { return nil }
+func (c *countingJobContext) DoTask(jobdb.RunPolicy, string, jobdb.TaskData) (jobdb.TaskData, error) {
 	c.calls++
 	return nil, fmt.Errorf("unexpected task invocation")
 }
@@ -84,7 +85,7 @@ func registerArtifactOp(t *testing.T, opName string) {
 	withRegisteredOps(t, op.(coreops.RegisterableOp))
 }
 
-func newWorkflowContext(jobCtx swf.JobContext) workflow.Context {
+func newWorkflowContext(jobCtx jobworkflow.JobContext) workflow.Context {
 	return workflow.Context{
 		JobContext:           jobCtx,
 		ServiceDependencies2: coreops.NewServiceDepsBuilder().Build(),
@@ -103,7 +104,7 @@ func TestValidationAllowsNilInputsAndReturnsZeroOutputs(t *testing.T) {
 	registerOp(t, opName)
 
 	jobCtx, gitCtx := GenerateTestContext()
-	inner := &countingJobContext{jobKey: swf.JobKey{TenantId: "tenant", JobId: "job"}}
+	inner := &countingJobContext{jobKey: jobdb.JobKey{TenantId: "tenant", JobId: "job"}}
 	ctx := newWorkflowContext(inner)
 
 	rec := recipe.Recipe{

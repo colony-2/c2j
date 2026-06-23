@@ -19,9 +19,10 @@ import (
 	"github.com/colony-2/c2j/pkg/recipe"
 	"github.com/colony-2/c2j/pkg/starter"
 	"github.com/colony-2/c2j/pkg/workflowctl"
-	"github.com/colony-2/swf-go/pkg/swf"
-	remoteruntime "github.com/colony-2/swf-go/pkg/swf/runtime/remote"
-	toyruntime "github.com/colony-2/swf-go/pkg/swf/runtime/toy"
+	"github.com/colony-2/jobdb/pkg/jobdb"
+	remoteruntime "github.com/colony-2/jobdb/pkg/jobdb/runtime/remote"
+	toyruntime "github.com/colony-2/jobdb/pkg/jobdb/runtime/toy"
+	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
 )
 
 func TestRunProcessesSubmittedJobsWithConcurrencyLimit(t *testing.T) {
@@ -30,7 +31,7 @@ func TestRunProcessesSubmittedJobsWithConcurrencyLimit(t *testing.T) {
 
 	tenantID := "tenant-work-concurrency"
 	underlying := toyruntime.New()
-	submitEngine, err := swf.NewEngineBuilder().WithRuntime(underlying).BuildEngine()
+	submitEngine, err := jobworkflow.NewEngineBuilder().WithRuntime(underlying).BuildEngine()
 	if err != nil {
 		t.Fatalf("build submit engine: %v", err)
 	}
@@ -56,7 +57,7 @@ outputs:
   done: "{{ sequence.timed.outputs.success }}"
 `, shellQuote(logPath), shellQuote(logPath))
 
-	keys := make([]swf.JobKey, 0, 4)
+	keys := make([]jobdb.JobKey, 0, 4)
 	for i := 0; i < 4; i++ {
 		keys = append(keys, submitRecipeJob(t, ctx, submitEngine, tenantID, recipeYAML))
 	}
@@ -78,7 +79,7 @@ outputs:
 	t.Cleanup(stopWorker)
 
 	for _, key := range keys {
-		if err := swf.WaitForJobToComplete(ctx, 10*time.Second, key, submitEngine); err != nil {
+		if err := jobworkflow.WaitForJobToComplete(ctx, 10*time.Second, key, submitEngine); err != nil {
 			t.Fatalf("wait for %s: %v\nworker stdout:\n%s\nworker stderr:\n%s", key, err, stdout.String(), stderr.String())
 		}
 		got := jobOutputMap(t, ctx, submitEngine, tenantID, key)
@@ -109,7 +110,7 @@ func TestRunOnlyPollsConfiguredTenant(t *testing.T) {
 	tenantID := "tenant-work-selected"
 	otherTenantID := "tenant-work-other"
 	underlying := toyruntime.New()
-	submitEngine, err := swf.NewEngineBuilder().WithRuntime(underlying).BuildEngine()
+	submitEngine, err := jobworkflow.NewEngineBuilder().WithRuntime(underlying).BuildEngine()
 	if err != nil {
 		t.Fatalf("build submit engine: %v", err)
 	}
@@ -149,7 +150,7 @@ outputs:
 	}()
 	t.Cleanup(stopWorker)
 
-	if err := swf.WaitForJobToComplete(ctx, 10*time.Second, selectedKey, submitEngine); err != nil {
+	if err := jobworkflow.WaitForJobToComplete(ctx, 10*time.Second, selectedKey, submitEngine); err != nil {
 		t.Fatalf("wait for selected tenant job: %v\nworker stdout:\n%s\nworker stderr:\n%s", err, stdout.String(), stderr.String())
 	}
 	got := jobOutputMap(t, ctx, submitEngine, tenantID, selectedKey)
@@ -157,7 +158,7 @@ outputs:
 		t.Fatalf("selected tenant output = %#v, want tenant-job", got)
 	}
 
-	assertJobRemainsStatus(t, ctx, submitEngine, otherKey, swf.JobStatusReady, 750*time.Millisecond)
+	assertJobRemainsStatus(t, ctx, submitEngine, otherKey, jobdb.JobStatusReady, 750*time.Millisecond)
 
 	stopWorker()
 	if err := waitForWorkerExit(ctx, errCh); err != nil {
@@ -172,7 +173,7 @@ func TestReadyCountsAvailableJobsByTenant(t *testing.T) {
 	tenantID := "tenant-ready-count"
 	otherTenantID := "tenant-ready-other"
 	underlying := toyruntime.New()
-	submitEngine, err := swf.NewEngineBuilder().WithRuntime(underlying).BuildEngine()
+	submitEngine, err := jobworkflow.NewEngineBuilder().WithRuntime(underlying).BuildEngine()
 	if err != nil {
 		t.Fatalf("build submit engine: %v", err)
 	}
@@ -243,14 +244,14 @@ func TestRunOneProcessesExactlyOneAvailableJob(t *testing.T) {
 
 	tenantID := "tenant-runone-single"
 	underlying := toyruntime.New()
-	submitEngine, err := swf.NewEngineBuilder().WithRuntime(underlying).BuildEngine()
+	submitEngine, err := jobworkflow.NewEngineBuilder().WithRuntime(underlying).BuildEngine()
 	if err != nil {
 		t.Fatalf("build submit engine: %v", err)
 	}
 	server := httptest.NewServer(remoteruntime.NewServer(underlying))
 	defer server.Close()
 
-	keys := []swf.JobKey{
+	keys := []jobdb.JobKey{
 		submitRecipeJob(t, ctx, submitEngine, tenantID, simpleSuccessRecipe("runone_single_a", "runone-a")),
 		submitRecipeJob(t, ctx, submitEngine, tenantID, simpleSuccessRecipe("runone_single_b", "runone-b")),
 	}
@@ -290,14 +291,14 @@ func TestRunOneConcurrentCopiesClaimDistinctJobs(t *testing.T) {
 
 	tenantID := "tenant-runone-concurrent"
 	underlying := toyruntime.New()
-	submitEngine, err := swf.NewEngineBuilder().WithRuntime(underlying).BuildEngine()
+	submitEngine, err := jobworkflow.NewEngineBuilder().WithRuntime(underlying).BuildEngine()
 	if err != nil {
 		t.Fatalf("build submit engine: %v", err)
 	}
 	server := httptest.NewServer(remoteruntime.NewServer(underlying))
 	defer server.Close()
 
-	keys := make([]swf.JobKey, 0, 3)
+	keys := make([]jobdb.JobKey, 0, 3)
 	for i := 0; i < 3; i++ {
 		keys = append(keys, submitRecipeJob(t, ctx, submitEngine, tenantID, simpleSuccessRecipe(fmt.Sprintf("runone_concurrent_%d", i), fmt.Sprintf("runone-%d", i))))
 	}
@@ -349,7 +350,7 @@ func TestRunContinuesAfterCommandErrorWhenRecipeContinues(t *testing.T) {
 
 	tenantID := "tenant-work-failure"
 	underlying := toyruntime.New()
-	submitEngine, err := swf.NewEngineBuilder().WithRuntime(underlying).BuildEngine()
+	submitEngine, err := jobworkflow.NewEngineBuilder().WithRuntime(underlying).BuildEngine()
 	if err != nil {
 		t.Fatalf("build submit engine: %v", err)
 	}
@@ -404,8 +405,8 @@ outputs:
 	}()
 	t.Cleanup(stopWorker)
 
-	for _, key := range []swf.JobKey{commandErrorKey, successKey} {
-		if err := swf.WaitForJobToComplete(ctx, 10*time.Second, key, submitEngine); err != nil {
+	for _, key := range []jobdb.JobKey{commandErrorKey, successKey} {
+		if err := jobworkflow.WaitForJobToComplete(ctx, 10*time.Second, key, submitEngine); err != nil {
 			t.Fatalf("wait for %s: %v\nworker stdout:\n%s\nworker stderr:\n%s", key, err, stdout.String(), stderr.String())
 		}
 	}
@@ -453,7 +454,7 @@ func TestRunReturnsAfterContextCancellation(t *testing.T) {
 	}
 }
 
-func submitRecipeJob(t *testing.T, ctx context.Context, engine swf.SWFEngine, tenantID string, recipeYAML string) swf.JobKey {
+func submitRecipeJob(t *testing.T, ctx context.Context, engine jobworkflow.Engine, tenantID string, recipeYAML string) jobdb.JobKey {
 	t.Helper()
 
 	rec, err := recipe.LoadRecipeFromString([]byte(strings.TrimSpace(recipeYAML) + "\n"))
@@ -484,10 +485,10 @@ func submitRecipeJob(t *testing.T, ctx context.Context, engine swf.SWFEngine, te
 	return key
 }
 
-func jobOutputMap(t *testing.T, ctx context.Context, engine swf.SWFEngine, tenantID string, key swf.JobKey) map[string]any {
+func jobOutputMap(t *testing.T, ctx context.Context, engine jobworkflow.Engine, tenantID string, key jobdb.JobKey) map[string]any {
 	t.Helper()
 
-	run, err := engine.GetJobRun(ctx, swf.GetJobRunRequest{
+	run, err := engine.GetJobRun(ctx, jobdb.GetJobRunRequest{
 		JobKey:         key,
 		IncludeOutputs: true,
 	})
@@ -525,7 +526,7 @@ outputs:
 `, id, stdout)
 }
 
-func countStatuses(t *testing.T, ctx context.Context, engine swf.SWFEngine, keys []swf.JobKey) (completed int, ready int) {
+func countStatuses(t *testing.T, ctx context.Context, engine jobworkflow.Engine, keys []jobdb.JobKey) (completed int, ready int) {
 	t.Helper()
 	for _, key := range keys {
 		info, err := engine.GetJob(ctx, key)
@@ -533,9 +534,9 @@ func countStatuses(t *testing.T, ctx context.Context, engine swf.SWFEngine, keys
 			t.Fatalf("get job %s: %v", key, err)
 		}
 		switch info.Status {
-		case swf.JobStatusCompleted:
+		case jobdb.JobStatusCompleted:
 			completed++
-		case swf.JobStatusReady:
+		case jobdb.JobStatusReady:
 			ready++
 		default:
 			t.Fatalf("job %s status = %s, want completed or ready", key, info.Status)
@@ -557,7 +558,7 @@ func waitForWorkerExit(ctx context.Context, errCh <-chan error) error {
 	}
 }
 
-func assertJobRemainsStatus(t *testing.T, ctx context.Context, engine swf.SWFEngine, key swf.JobKey, want swf.JobStatus, duration time.Duration) {
+func assertJobRemainsStatus(t *testing.T, ctx context.Context, engine jobworkflow.Engine, key jobdb.JobKey, want jobdb.JobStatus, duration time.Duration) {
 	t.Helper()
 
 	deadline := time.NewTimer(duration)

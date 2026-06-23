@@ -8,7 +8,7 @@ import (
 	"strings"
 
 	"github.com/colony-2/c2j/pkg/starter"
-	"github.com/colony-2/swf-go/pkg/swf"
+	"github.com/colony-2/jobdb/pkg/jobdb"
 )
 
 type submitArtifactSpec struct {
@@ -16,13 +16,13 @@ type submitArtifactSpec struct {
 	SourcePath string
 }
 
-func loadSubmitArtifacts(opts Options, recipeName string, embeddedRecipe bool) ([]swf.Artifact, error) {
+func loadSubmitArtifacts(opts Options, recipeName string, embeddedRecipe bool) ([]jobdb.Artifact, error) {
 	if len(opts.ArtifactSpecs) == 0 {
 		return nil, nil
 	}
 
 	seen := make(map[string]string, len(opts.ArtifactSpecs))
-	artifacts := make([]swf.Artifact, 0, len(opts.ArtifactSpecs))
+	artifacts := make([]jobdb.Artifact, 0, len(opts.ArtifactSpecs))
 	reservedRecipeArtifactName := recipeName + starter.RecipeArtifactSuffix
 
 	for _, rawSpec := range opts.ArtifactSpecs {
@@ -56,7 +56,7 @@ func loadSubmitArtifacts(opts Options, recipeName string, embeddedRecipe bool) (
 		if err != nil {
 			return nil, fmt.Errorf("read --artifact %q source: %w", rawSpec, err)
 		}
-		artifacts = append(artifacts, swf.NewArtifactFromBytes(parsed.Name, data))
+		artifacts = append(artifacts, jobdb.NewArtifactFromBytes(parsed.Name, data))
 	}
 
 	return artifacts, nil

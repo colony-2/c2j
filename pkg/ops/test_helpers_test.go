@@ -3,24 +3,24 @@ package ops
 import (
 	recipeartifacts "github.com/colony-2/c2j/pkg/artifacts"
 	"github.com/colony-2/c2j/pkg/workflowctl"
-	"github.com/colony-2/swf-go/pkg/swf"
+	"github.com/colony-2/jobdb/pkg/jobdb"
 	"gorm.io/gorm"
 )
 
 // testDeps is a minimal OpDependencies test double.
 type testDeps struct {
-	artifacts []swf.Artifact
+	artifacts []jobdb.Artifact
 }
 
 func (d *testDeps) JobTool() JobTool {
 	return nil
 }
 
-func (d *testDeps) FindArtifact(key swf.ArtifactKey) (swf.Artifact, error) {
+func (d *testDeps) FindArtifact(key jobdb.ArtifactKey) (jobdb.Artifact, error) {
 	return nil, nil
 }
 
-func (d *testDeps) AddOutputArtifact(artifact swf.Artifact) error {
+func (d *testDeps) AddOutputArtifact(artifact jobdb.Artifact) error {
 	return nil
 }
 
@@ -29,7 +29,7 @@ func (d *testDeps) AddExternalArtifact(name string, url string, expand bool) err
 	return nil
 }
 
-func (d *testDeps) GetOutputArtifacts() []swf.Artifact {
+func (d *testDeps) GetOutputArtifacts() []jobdb.Artifact {
 	return nil
 }
 
@@ -39,12 +39,12 @@ func (d *testDeps) GetExternalArtifacts() map[string]recipeartifacts.Ref {
 
 func (d *testDeps) Database() *gorm.DB { return nil }
 
-func (d *testDeps) AddArtifact(a swf.Artifact) error {
+func (d *testDeps) AddArtifact(a jobdb.Artifact) error {
 	d.artifacts = append(d.artifacts, a)
 	return nil
 }
 
-func (d *testDeps) GetInputArtifacts() []swf.Artifact { return d.artifacts }
+func (d *testDeps) GetInputArtifacts() []jobdb.Artifact { return d.artifacts }
 
 func (d *testDeps) WorkflowControl() workflowctl.WorkflowControl { return nil }
 

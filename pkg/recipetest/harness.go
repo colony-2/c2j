@@ -27,7 +27,7 @@ import (
 	"github.com/colony-2/c2j/pkg/worker/compiler"
 	workerops "github.com/colony-2/c2j/pkg/worker/ops"
 	"github.com/colony-2/c2j/pkg/workflow"
-	"github.com/colony-2/swf-go/pkg/swf"
+	"github.com/colony-2/jobdb/pkg/jobdb"
 	"github.com/go-playground/validator/v10"
 	"gopkg.in/yaml.v3"
 )
@@ -821,7 +821,7 @@ func normalizedExecutionConfig(req caseInput) RuntimeConfig {
 }
 
 type testJobContext struct {
-	jobKey           swf.JobKey
+	jobKey           jobdb.JobKey
 	caseDef          Case
 	policy           TestPolicy
 	deps             coreops.ServiceDependencies2
@@ -850,7 +850,7 @@ func newTestJobContext(projectID string, caseDef Case, policy TestPolicy, deps c
 		tenantID = "recipe-tests"
 	}
 	return &testJobContext{
-		jobKey:           swf.JobKey{TenantId: tenantID, JobId: "recipe-test-job"},
+		jobKey:           jobdb.JobKey{TenantId: tenantID, JobId: "recipe-test-job"},
 		caseDef:          caseDef,
 		policy:           policy,
 		deps:             deps,
@@ -862,10 +862,10 @@ func newTestJobContext(projectID string, caseDef Case, policy TestPolicy, deps c
 	}
 }
 
-func (j *testJobContext) AwaitJobs(_ ...string) error        { return nil }
-func (j *testJobContext) GetJobKey() swf.JobKey              { return j.jobKey }
-func (j *testJobContext) Logger() *slog.Logger               { return nil }
-func (j *testJobContext) AwaitDuration(_ swf.Duration) error { return nil }
+func (j *testJobContext) AwaitJobs(_ ...string) error          { return nil }
+func (j *testJobContext) GetJobKey() jobdb.JobKey              { return j.jobKey }
+func (j *testJobContext) Logger() *slog.Logger                 { return nil }
+func (j *testJobContext) AwaitDuration(_ jobdb.Duration) error { return nil }
 
 func (j *testJobContext) VarsResolved(scope template.ScopeType, nodePath string, vars map[string]interface{}) {
 	j.vars = append(j.vars, RenderedVarsDiagnostic{
@@ -909,16 +909,16 @@ func (j *testJobContext) TransitionSelected(fromState string, toState string, pa
 	j.transitions = append(j.transitions, selected)
 }
 
-func (j *testJobContext) DoTask(runPolicy swf.RunPolicy, taskType string, data swf.TaskData) (swf.TaskData, error) {
+func (j *testJobContext) DoTask(runPolicy jobdb.RunPolicy, taskType string, data jobdb.TaskData) (jobdb.TaskData, error) {
 	out, _, err := j.doMockedTask(runPolicy, taskType, data, true)
 	return out, err
 }
 
-func (j *testJobContext) DoValidationTask(runPolicy swf.RunPolicy, taskType string, data swf.TaskData) (swf.TaskData, bool, error) {
+func (j *testJobContext) DoValidationTask(runPolicy jobdb.RunPolicy, taskType string, data jobdb.TaskData) (jobdb.TaskData, bool, error) {
 	return j.doMockedTask(runPolicy, taskType, data, false)
 }
 
-func (j *testJobContext) doMockedTask(runPolicy swf.RunPolicy, taskType string, data swf.TaskData, requireMock bool) (swf.TaskData, bool, error) {
+func (j *testJobContext) doMockedTask(runPolicy jobdb.RunPolicy, taskType string, data jobdb.TaskData, requireMock bool) (jobdb.TaskData, bool, error) {
 	ctx, cancel := contextForRunPolicy(runPolicy)
 	defer cancel()
 	if err := ctx.Err(); err != nil {
@@ -1004,7 +1004,7 @@ func (j *testJobContext) doMockedTask(runPolicy swf.RunPolicy, taskType string, 
 	}
 }
 
-func contextForRunPolicy(runPolicy swf.RunPolicy) (context.Context, context.CancelFunc) {
+func contextForRunPolicy(runPolicy jobdb.RunPolicy) (context.Context, context.CancelFunc) {
 	if runPolicy.TotalTimeout == nil {
 		return context.WithCancel(context.Background())
 	}
@@ -1040,7 +1040,7 @@ func (j *testJobContext) selectOpMockIndexForInvocation(invocationKey string, no
 	return idx, true
 }
 
-func (j *testJobContext) buildTaskData(outputs map[string]interface{}, artifacts map[string]string, nextTask string) (swf.TaskData, error) {
+func (j *testJobContext) buildTaskData(outputs map[string]interface{}, artifacts map[string]string, nextTask string) (jobdb.TaskData, error) {
 	if outputs == nil {
 		outputs = map[string]interface{}{}
 	}
@@ -1051,12 +1051,12 @@ func (j *testJobContext) buildTaskData(outputs map[string]interface{}, artifacts
 	}
 	j.artifactOrdinal++
 	taskOrdinal := j.artifactOrdinal
-	artifactList := make([]swf.Artifact, 0, len(artifacts))
+	artifactList := make([]jobdb.Artifact, 0, len(artifacts))
 	for name, content := range artifacts {
 		b := []byte(content)
 		j.artifactContents[name] = b
-		artifact := swf.NewArtifactFromBytes(name, b)
-		swf.AssignArtifactKey(artifact, swf.ArtifactKey{
+		artifact := jobdb.NewArtifactFromBytes(name, b)
+		jobdb.AssignArtifactKey(artifact, jobdb.ArtifactKey{
 			JobId:       j.jobKey.JobId,
 			TaskOrdinal: taskOrdinal,
 			Name:        name,
@@ -1064,7 +1064,7 @@ func (j *testJobContext) buildTaskData(outputs map[string]interface{}, artifacts
 		})
 		artifactList = append(artifactList, artifact)
 	}
-	return swf.NewTaskData(env, artifactList...)
+	return jobdb.NewTaskData(env, artifactList...)
 }
 
 func (j *testJobContext) runPassthroughTask(ctx context.Context, taskType string, inv workerops.ActivityInvocationRequest) (passthroughRecord, error) {
@@ -1093,10 +1093,10 @@ func (j *testJobContext) runPassthroughTask(ctx context.Context, taskType string
 		}
 	}
 
-	inputArtifacts := make([]swf.Artifact, 0, len(inv.ArtifactKeys))
+	inputArtifacts := make([]jobdb.Artifact, 0, len(inv.ArtifactKeys))
 	for _, key := range inv.ArtifactKeys {
 		content := j.artifactContents[key.Name]
-		inputArtifacts = append(inputArtifacts, swf.NewArtifactFromBytes(key.Name, content))
+		inputArtifacts = append(inputArtifacts, jobdb.NewArtifactFromBytes(key.Name, content))
 	}
 
 	operationPaths := j.operationPaths
@@ -1159,7 +1159,7 @@ func (j *testJobContext) runPassthroughTask(ctx context.Context, taskType string
 	}
 
 	artifacts := map[string][]byte{}
-	if outDeps, ok := deps.(interface{ GetOutputArtifacts() []swf.Artifact }); ok {
+	if outDeps, ok := deps.(interface{ GetOutputArtifacts() []jobdb.Artifact }); ok {
 		for _, art := range outDeps.GetOutputArtifacts() {
 			if b, err := art.Bytes(ctx); err == nil {
 				artifacts[art.Name()] = b
@@ -1299,7 +1299,7 @@ func bytesMapToStringMap(in map[string][]byte) map[string]string {
 	return out
 }
 
-func collectArtifactBytes(ctx context.Context, jc *testJobContext, artifacts []swf.Artifact) map[string][]byte {
+func collectArtifactBytes(ctx context.Context, jc *testJobContext, artifacts []jobdb.Artifact) map[string][]byte {
 	out := map[string][]byte{}
 	for k, v := range jc.artifactContents {
 		out[k] = v

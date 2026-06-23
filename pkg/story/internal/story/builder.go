@@ -11,16 +11,17 @@ import (
 	storylive "github.com/colony-2/c2j/pkg/story/live"
 	"github.com/colony-2/c2j/pkg/template"
 	"github.com/colony-2/c2j/pkg/worker/compiler"
-	"github.com/colony-2/swf-go/pkg/swf"
+	"github.com/colony-2/jobdb/pkg/jobdb"
+	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
 )
 
 type replayJobRunner interface {
-	ReplayJobRun(ctx context.Context, req swf.ReplayRunRequest) (swf.JobData, error)
+	ReplayJobRun(ctx context.Context, req jobworkflow.ReplayRunRequest) (jobdb.JobData, error)
 }
 
 // BuildJobRunStory replays a job using swf.ReplayJobRun and collects a recipe-centric story
 // by decorating the recipe executor + observing SWF replay events.
-func BuildJobRunStory(ctx context.Context, engine replayJobRunner, jobKey swf.JobKey, celProvider template.CELOptionsProvider, logger *slog.Logger, rootResolvers ...compiler.RecipeSourceResolver) (*model.JobRunStory, error) {
+func BuildJobRunStory(ctx context.Context, engine replayJobRunner, jobKey jobdb.JobKey, celProvider template.CELOptionsProvider, logger *slog.Logger, rootResolvers ...compiler.RecipeSourceResolver) (*model.JobRunStory, error) {
 	return storylive.BuildJobRunStory(ctx, engine, jobKey, celProvider, logger, rootResolvers...)
 }
 
@@ -31,7 +32,7 @@ func mapStoryStatusFromReplayErr(err error) model.WorkflowStatus {
 	if isReplayCacheMissErr(err) {
 		return model.WorkflowStatusRunning
 	}
-	var te swf.TimeoutError
+	var te jobdb.TimeoutError
 	if errors.As(err, &te) {
 		return model.WorkflowStatusTimedOut
 	}
@@ -58,7 +59,7 @@ func isReplayCacheMissErr(err error) bool {
 	if err == nil {
 		return false
 	}
-	var miss swf.ReplayCacheMissError
+	var miss jobworkflow.ReplayCacheMissError
 	if errors.As(err, &miss) {
 		return true
 	}

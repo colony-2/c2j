@@ -21,7 +21,8 @@ import (
 	"github.com/colony-2/c2j/pkg/worker/compiler"
 	workerops "github.com/colony-2/c2j/pkg/worker/ops"
 	workerworkflow "github.com/colony-2/c2j/pkg/worker/workflow"
-	"github.com/colony-2/swf-go/pkg/swf"
+	"github.com/colony-2/jobdb/pkg/jobdb"
+	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
 )
 
 const (
@@ -46,7 +47,7 @@ func Run(ctx context.Context, opts Options) error {
 	}
 	defer cleanup()
 
-	jobKey := swf.JobKey{TenantId: opts.TenantID, JobId: opts.JobID}
+	jobKey := jobdb.JobKey{TenantId: opts.TenantID, JobId: opts.JobID}
 	renderer := newStoryProgressRenderer(opts.Stdout, "cached", !opts.CI && isTerminalWriter(opts.Stdout))
 
 	if err := replayCachedHistory(ctx, deps, jobKey, renderer, opts.Stderr); err != nil {
@@ -63,7 +64,7 @@ func Run(ctx context.Context, opts Options) error {
 		})
 		liveWorker := newStoryJobWorker(deps, liveRecorder)
 
-		runnable, err := swf.GetJobForRun(ctx, deps.runtime, swf.GetJobForRunRequest{
+		runnable, err := jobworkflow.GetJobForRun(ctx, deps.runtime, jobworkflow.GetJobForRunRequest{
 			JobKey:         jobKey,
 			JobWorker:      liveWorker,
 			TaskWorkers:    deps.taskWorkers,
@@ -105,9 +106,9 @@ func Run(ctx context.Context, opts Options) error {
 }
 
 type runnerDeps struct {
-	runtime      swf.WorkflowRuntime
-	engine       swf.SWFEngine
-	taskWorkers  []swf.TaskWorker
+	runtime      jobdb.WorkflowRuntime
+	engine       jobworkflow.Engine
+	taskWorkers  []jobworkflow.TaskWorker
 	celProvider  template.CELOptionsProvider
 	rootResolver compiler.RecipeSourceResolver
 	inputRuntime *input.Runtime
@@ -189,18 +190,18 @@ func buildDeps(ctx context.Context, opts Options) (*runnerDeps, func(), error) {
 	}, nil
 }
 
-func taskWorkersFromWorkSet(workset *swf.WorkSet) []swf.TaskWorker {
+func taskWorkersFromWorkSet(workset *jobworkflow.WorkSet) []jobworkflow.TaskWorker {
 	if workset == nil || len(workset.TaskWorkers) == 0 {
 		return nil
 	}
-	taskWorkers := make([]swf.TaskWorker, 0, len(workset.TaskWorkers))
+	taskWorkers := make([]jobworkflow.TaskWorker, 0, len(workset.TaskWorkers))
 	for _, taskWorker := range workset.TaskWorkers {
 		taskWorkers = append(taskWorkers, taskWorker)
 	}
 	return taskWorkers
 }
 
-func newStoryJobWorker(deps *runnerDeps, recorder *storylive.Recorder) swf.JobWorker {
+func newStoryJobWorker(deps *runnerDeps, recorder *storylive.Recorder) jobworkflow.JobWorker {
 	return compiler.NewRecipeJobWorker(compiler.RecipeJobWorkerOptions{
 		CELOptionsProvider:     deps.celProvider,
 		RootSourceResolver:     deps.rootResolver,
@@ -210,10 +211,10 @@ func newStoryJobWorker(deps *runnerDeps, recorder *storylive.Recorder) swf.JobWo
 	})
 }
 
-func replayCachedHistory(ctx context.Context, deps *runnerDeps, jobKey swf.JobKey, renderer storyProgressRenderer, stderr io.Writer) error {
-	run, err := deps.engine.GetJobRun(ctx, swf.GetJobRunRequest{JobKey: jobKey})
+func replayCachedHistory(ctx context.Context, deps *runnerDeps, jobKey jobdb.JobKey, renderer storyProgressRenderer, stderr io.Writer) error {
+	run, err := deps.engine.GetJobRun(ctx, jobdb.GetJobRunRequest{JobKey: jobKey})
 	if err != nil {
-		if errors.Is(err, swf.ErrJobNotFound) {
+		if errors.Is(err, jobdb.ErrJobNotFound) {
 			return fmt.Errorf("job %s/%s not found", jobKey.TenantId, jobKey.JobId)
 		}
 		fmt.Fprintf(stderr, "warning: unable to inspect prior run history: %v\n", err)
@@ -229,7 +230,7 @@ func replayCachedHistory(ctx context.Context, deps *runnerDeps, jobKey swf.JobKe
 	})
 	replayWorker := newStoryJobWorker(deps, cachedRecorder)
 
-	_, err = deps.engine.ReplayJobRun(ctx, swf.ReplayRunRequest{
+	_, err = deps.engine.ReplayJobRun(ctx, jobworkflow.ReplayRunRequest{
 		JobKey:    jobKey,
 		Observer:  cachedRecorder.Observer(),
 		JobWorker: replayWorker,
@@ -240,11 +241,11 @@ func replayCachedHistory(ctx context.Context, deps *runnerDeps, jobKey swf.JobKe
 		return nil
 	}
 
-	if errors.Is(err, swf.ErrJobNotFound) {
+	if errors.Is(err, jobdb.ErrJobNotFound) {
 		return fmt.Errorf("job %s/%s not found", jobKey.TenantId, jobKey.JobId)
 	}
 
-	var cacheMiss swf.ReplayCacheMissError
+	var cacheMiss jobworkflow.ReplayCacheMissError
 	if errors.As(err, &cacheMiss) {
 		return nil
 	}
@@ -256,17 +257,17 @@ func replayCachedHistory(ctx context.Context, deps *runnerDeps, jobKey swf.JobKe
 	return nil
 }
 
-func handleOutcome(ctx context.Context, opts Options, deps *runnerDeps, jobKey swf.JobKey, outcome swf.JobRunOutcome, deadline time.Time) (bool, error) {
+func handleOutcome(ctx context.Context, opts Options, deps *runnerDeps, jobKey jobdb.JobKey, outcome jobworkflow.JobRunOutcome, deadline time.Time) (bool, error) {
 	switch outcome.Status {
-	case swf.JobRunCompleted:
+	case jobworkflow.JobRunCompleted:
 		return false, nil
-	case swf.JobRunFailed:
+	case jobworkflow.JobRunFailed:
 		jobErr := outcome.JobError
 		if jobErr == nil {
 			jobErr = fmt.Errorf("job failed")
 		}
 		return false, exitError{code: exitCodeFailure, err: jobErr}
-	case swf.JobRunSuspended, swf.JobRunNotLeaseable:
+	case jobworkflow.JobRunSuspended, jobworkflow.JobRunNotLeaseable:
 		handled, err := handlePendingInput(ctx, opts, deps.inputRuntime, jobKey)
 		if err != nil {
 			return false, err
@@ -288,7 +289,7 @@ func handleOutcome(ctx context.Context, opts Options, deps *runnerDeps, jobKey s
 	}
 }
 
-func handlePendingInput(ctx context.Context, opts Options, runtime *input.Runtime, jobKey swf.JobKey) (bool, error) {
+func handlePendingInput(ctx context.Context, opts Options, runtime *input.Runtime, jobKey jobdb.JobKey) (bool, error) {
 	details, err := runtime.GetDetails(ctx, jobKey.TenantId, jobKey.JobId)
 	if err != nil {
 		if errors.Is(err, input.ErrInputNotPending) {
@@ -325,16 +326,16 @@ func handlePendingInput(ctx context.Context, opts Options, runtime *input.Runtim
 	}
 }
 
-func shouldFailNotReady(policy string, outcome swf.JobRunOutcome) bool {
+func shouldFailNotReady(policy string, outcome jobworkflow.JobRunOutcome) bool {
 	switch policy {
 	case "fail":
 		return true
 	case "fail-on-lease":
-		return outcome.JobStatus != nil && (*outcome.JobStatus == swf.JobStatusActive || *outcome.JobStatus == swf.JobStatusCrashConcern)
+		return outcome.JobStatus != nil && (*outcome.JobStatus == jobdb.JobStatusActive || *outcome.JobStatus == jobdb.JobStatusCrashConcern)
 	case "fail-on-pending-jobs":
-		return outcome.JobStatus != nil && *outcome.JobStatus == swf.JobStatusPendingJobs
+		return outcome.JobStatus != nil && *outcome.JobStatus == jobdb.JobStatusPendingJobs
 	case "fail-on-future":
-		return outcome.JobStatus != nil && *outcome.JobStatus == swf.JobStatusAwaitingFuture
+		return outcome.JobStatus != nil && *outcome.JobStatus == jobdb.JobStatusAwaitingFuture
 	case "fail-on-missing-capability":
 		return outcome.MissingCapability != nil && strings.TrimSpace(*outcome.MissingCapability) != ""
 	default:
@@ -342,7 +343,7 @@ func shouldFailNotReady(policy string, outcome swf.JobRunOutcome) bool {
 	}
 }
 
-func describeBlocking(outcome swf.JobRunOutcome) string {
+func describeBlocking(outcome jobworkflow.JobRunOutcome) string {
 	parts := make([]string, 0, 4)
 	if outcome.JobStatus != nil {
 		parts = append(parts, "status="+string(*outcome.JobStatus))

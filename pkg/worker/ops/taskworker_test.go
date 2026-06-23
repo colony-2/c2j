@@ -12,7 +12,8 @@ import (
 	"github.com/colony-2/c2j/pkg/git/gitstate"
 	recipeops "github.com/colony-2/c2j/pkg/ops"
 	coretask "github.com/colony-2/c2j/pkg/task"
-	"github.com/colony-2/swf-go/pkg/swf"
+	"github.com/colony-2/jobdb/pkg/jobdb"
+	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
 	"github.com/stretchr/testify/require"
 )
 
@@ -44,7 +45,7 @@ func TestTaskWorkerRunReturnsTaskDataOnFailure(t *testing.T) {
 		},
 	}
 
-	input := swf.NewTaskDataOrPanic(ActivityInvocationRequest{
+	input := jobdb.NewTaskDataOrPanic(ActivityInvocationRequest{
 		Input: map[string]interface{}{},
 		GitTaskContext: gitstate.GlobalGitTaskContext{
 			BaseRepo: baseRepo,
@@ -52,7 +53,7 @@ func TestTaskWorkerRunReturnsTaskDataOnFailure(t *testing.T) {
 		},
 	})
 
-	td, err := worker.Run(swf.NewTaskContext(swf.JobKey{TenantId: "tenant", JobId: "job"}, 1, nil, nil, nil), input)
+	td, err := worker.Run(jobworkflow.NewTaskContext(jobdb.JobKey{TenantId: "tenant", JobId: "job"}, 1, nil, nil, nil), input)
 	require.Error(t, err)
 	require.NotNil(t, td)
 
@@ -105,7 +106,7 @@ func TestTaskWorkerRunCancelsStepOnExecutionTimeout(t *testing.T) {
 		},
 	}
 
-	input := swf.NewTaskDataOrPanic(ActivityInvocationRequest{
+	input := jobdb.NewTaskDataOrPanic(ActivityInvocationRequest{
 		Input: map[string]interface{}{},
 		Const: true,
 		GitTaskContext: gitstate.GlobalGitTaskContext{
@@ -129,20 +130,20 @@ func TestTaskWorkerRunCancelsStepOnExecutionTimeout(t *testing.T) {
 
 		now := time.Now()
 		if !deadline.After(now) {
-			return swf.NewTimeoutError("task", timeout, swf.TimeoutScopeTotal, nil, false)
+			return jobdb.NewTimeoutError("task", timeout, jobdb.TimeoutScopeTotal, nil, false)
 		}
 		if wakeAt.After(deadline) {
 			wakeAt = deadline
 		}
 		time.Sleep(time.Until(wakeAt))
 		if !time.Now().Before(deadline) {
-			return swf.NewTimeoutError("task", timeout, swf.TimeoutScopeTotal, nil, false)
+			return jobdb.NewTimeoutError("task", timeout, jobdb.TimeoutScopeTotal, nil, false)
 		}
 		return nil
 	}
 
 	start := time.Now()
-	td, err := worker.Run(swf.NewTaskContext(swf.JobKey{TenantId: "tenant", JobId: "job"}, 1, nil, await, nil), input)
+	td, err := worker.Run(jobworkflow.NewTaskContext(jobdb.JobKey{TenantId: "tenant", JobId: "job"}, 1, nil, await, nil), input)
 	require.ErrorIs(t, err, context.DeadlineExceeded)
 	require.NotNil(t, td)
 	require.Less(t, time.Since(start), 2*time.Second)
@@ -154,7 +155,7 @@ func TestTaskWorkerRunCancelsStepOnExecutionTimeout(t *testing.T) {
 	}
 }
 
-func requireArtifactNamed(t *testing.T, artifacts []swf.Artifact, name string) {
+func requireArtifactNamed(t *testing.T, artifacts []jobdb.Artifact, name string) {
 	t.Helper()
 	for _, artifact := range artifacts {
 		if artifact.Name() == name {
@@ -172,15 +173,15 @@ func TestTaskExecutionContextIgnoresReplayCacheMiss(t *testing.T) {
 	t.Parallel()
 
 	await := func(time.Time) error {
-		return swf.ReplayCacheMissError{
-			JobKey:  swf.JobKey{TenantId: "tenant", JobId: "job"},
+		return jobworkflow.ReplayCacheMissError{
+			JobKey:  jobdb.JobKey{TenantId: "tenant", JobId: "job"},
 			Ordinal: 1,
 			Attempt: 1,
-			Reason:  swf.ReplayCacheMissAwaitNotReady,
+			Reason:  jobworkflow.ReplayCacheMissAwaitNotReady,
 		}
 	}
-	ctx, cancel := NewTaskExecutionContext(swf.NewTaskContext(
-		swf.JobKey{TenantId: "tenant", JobId: "job"},
+	ctx, cancel := NewTaskExecutionContext(jobworkflow.NewTaskContext(
+		jobdb.JobKey{TenantId: "tenant", JobId: "job"},
 		1,
 		nil,
 		await,

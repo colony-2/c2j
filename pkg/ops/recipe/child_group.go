@@ -12,7 +12,7 @@ import (
 	recipeartifacts "github.com/colony-2/c2j/pkg/artifacts"
 	"github.com/colony-2/c2j/pkg/contextual"
 	"github.com/colony-2/c2j/pkg/ops"
-	"github.com/colony-2/swf-go/pkg/swf"
+	"github.com/colony-2/jobdb/pkg/jobdb"
 	"github.com/segmentio/ksuid"
 )
 
@@ -217,7 +217,7 @@ func awaitChildGroup(deps ops.OpDependencies, ctx context.Context, state ChildGr
 		return state, nil
 	}
 	err := deps.JobTool().AwaitJobs(ids...)
-	if err != nil && !errors.Is(err, swf.ErrJobFailed) && !errors.Is(err, swf.ErrJobCancelled) {
+	if err != nil && !errors.Is(err, jobdb.ErrJobFailed) && !errors.Is(err, jobdb.ErrJobCancelled) {
 		return state, err
 	}
 	return state, nil
@@ -231,11 +231,11 @@ func collectChildGroup(deps ops.OpDependencies, ctx context.Context, state Child
 		}
 		result, err := getChildGroupRecipeOutput(deps, ctx, child.JobID)
 		if err != nil {
-			if !errors.Is(err, swf.ErrJobFailed) && !errors.Is(err, swf.ErrJobCancelled) {
+			if !errors.Is(err, jobdb.ErrJobFailed) && !errors.Is(err, jobdb.ErrJobCancelled) {
 				return ChildGroupOutput{}, err
 			}
 			child.Status = "failed"
-			if errors.Is(err, swf.ErrJobCancelled) {
+			if errors.Is(err, jobdb.ErrJobCancelled) {
 				child.Status = "cancelled"
 			}
 			child.Error = err.Error()
@@ -255,7 +255,7 @@ type childGroupRecipeOutput struct {
 
 func getChildGroupRecipeOutput(deps ops.OpDependencies, ctx context.Context, jobID string) (childGroupRecipeOutput, error) {
 	var zero childGroupRecipeOutput
-	data, err := deps.WorkflowControl().JobResult(ctx, swf.JobKey{TenantId: deps.JobTool().GetJobKey().TenantId, JobId: jobID})
+	data, err := deps.WorkflowControl().JobResult(ctx, jobdb.JobKey{TenantId: deps.JobTool().GetJobKey().TenantId, JobId: jobID})
 	if err != nil {
 		return zero, err
 	}
@@ -378,7 +378,7 @@ func buildChildGroupOutput(deps ops.OpDependencies, state ChildGroupStepState) (
 		if err != nil {
 			return ChildGroupOutput{}, err
 		}
-		if err := deps.AddOutputArtifact(swf.NewArtifactFromBytes(state.Aggregate.Artifact, payload)); err != nil {
+		if err := deps.AddOutputArtifact(jobdb.NewArtifactFromBytes(state.Aggregate.Artifact, payload)); err != nil {
 			return ChildGroupOutput{}, err
 		}
 		out.AggregateArtifact = state.Aggregate.Artifact

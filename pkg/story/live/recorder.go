@@ -22,7 +22,8 @@ import (
 	"github.com/colony-2/c2j/pkg/worker/compiler"
 	"github.com/colony-2/c2j/pkg/worker/ops"
 	coreworkflow "github.com/colony-2/c2j/pkg/workflow"
-	"github.com/colony-2/swf-go/pkg/swf"
+	"github.com/colony-2/jobdb/pkg/jobdb"
+	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
 )
 
 type (
@@ -67,11 +68,11 @@ const (
 )
 
 type replayJobRunner interface {
-	ReplayJobRun(ctx context.Context, req swf.ReplayRunRequest) (swf.JobData, error)
+	ReplayJobRun(ctx context.Context, req jobworkflow.ReplayRunRequest) (jobdb.JobData, error)
 }
 
 type Options struct {
-	JobKey   swf.JobKey
+	JobKey   jobdb.JobKey
 	Logger   *slog.Logger
 	OnChange func(*JobRunStory)
 }
@@ -79,7 +80,7 @@ type Options struct {
 type Recorder struct {
 	mu sync.Mutex
 
-	jobKey   swf.JobKey
+	jobKey   jobdb.JobKey
 	logger   *slog.Logger
 	onChange func(*JobRunStory)
 
@@ -139,7 +140,7 @@ func NewRecorder(opts Options) *Recorder {
 	}
 }
 
-func BuildJobRunStory(ctx context.Context, engine replayJobRunner, jobKey swf.JobKey, celProvider template.CELOptionsProvider, logger *slog.Logger, rootResolvers ...compiler.RecipeSourceResolver) (*JobRunStory, error) {
+func BuildJobRunStory(ctx context.Context, engine replayJobRunner, jobKey jobdb.JobKey, celProvider template.CELOptionsProvider, logger *slog.Logger, rootResolvers ...compiler.RecipeSourceResolver) (*JobRunStory, error) {
 	if engine == nil {
 		return nil, fmt.Errorf("engine is required")
 	}
@@ -167,7 +168,7 @@ func BuildJobRunStory(ctx context.Context, engine replayJobRunner, jobKey swf.Jo
 		ExecutorFactory:        rec.ExecutorFactory(),
 	})
 
-	_, replayErr := engine.ReplayJobRun(ctx, swf.ReplayRunRequest{
+	_, replayErr := engine.ReplayJobRun(ctx, jobworkflow.ReplayRunRequest{
 		JobKey:    jobKey,
 		Observer:  rec.Observer(),
 		JobWorker: jobWorker,
@@ -180,10 +181,10 @@ func BuildJobRunStory(ctx context.Context, engine replayJobRunner, jobKey swf.Jo
 	if errors.Is(replayErr, context.Canceled) || errors.Is(replayErr, context.DeadlineExceeded) {
 		return nil, replayErr
 	}
-	if errors.Is(replayErr, swf.ErrJobNotFound) {
+	if errors.Is(replayErr, jobdb.ErrJobNotFound) {
 		return nil, replayErr
 	}
-	if errors.Is(replayErr, swf.ErrWorkflowNotDeterministic) {
+	if errors.Is(replayErr, jobdb.ErrWorkflowNotDeterministic) {
 		return story, replayErr
 	}
 	if isReplayCacheMissErr(replayErr) {
@@ -192,7 +193,7 @@ func BuildJobRunStory(ctx context.Context, engine replayJobRunner, jobKey swf.Jo
 	return story, nil
 }
 
-func (r *Recorder) Observer() swf.ReplayObserver {
+func (r *Recorder) Observer() jobworkflow.ReplayObserver {
 	return &observer{rec: r}
 }
 
@@ -241,7 +242,7 @@ func (r *Recorder) OnRecipeSourceResolved(resolution compiler.RecipeSourceResolu
 	r.notify()
 }
 
-func (r *Recorder) OnJobStart(event swf.JobStartEvent) {
+func (r *Recorder) OnJobStart(event jobworkflow.JobStartEvent) {
 	r.mu.Lock()
 	attemptNumber := event.AttemptNumber
 	if attemptNumber <= 0 {
@@ -262,7 +263,7 @@ func (r *Recorder) OnJobStart(event swf.JobStartEvent) {
 	r.notify()
 }
 
-func (r *Recorder) OnJobEnd(event swf.JobEndEvent) {
+func (r *Recorder) OnJobEnd(event jobworkflow.JobEndEvent) {
 	r.mu.Lock()
 	attemptNumber := event.AttemptNumber
 	if attemptNumber <= 0 {
@@ -279,7 +280,7 @@ func (r *Recorder) OnJobEnd(event swf.JobEndEvent) {
 	r.notify()
 }
 
-func (r *Recorder) OnTaskStart(event swf.TaskStartEvent) {
+func (r *Recorder) OnTaskStart(event jobworkflow.TaskStartEvent) {
 	r.mu.Lock()
 	if event.TaskType == compiler.RootSourceResolutionTaskType {
 		r.handleRootSourceResolutionTaskStartLocked(event)
@@ -339,7 +340,7 @@ func (r *Recorder) OnTaskStart(event swf.TaskStartEvent) {
 	r.notify()
 }
 
-func (r *Recorder) OnTaskEnd(event swf.TaskEndEvent) {
+func (r *Recorder) OnTaskEnd(event jobworkflow.TaskEndEvent) {
 	r.mu.Lock()
 	if event.TaskType == compiler.RootSourceResolutionTaskType {
 		r.handleRootSourceResolutionTaskEndLocked(event)
@@ -474,7 +475,7 @@ func (r *Recorder) ensureRootSourceResolutionTrackerLocked(attempt int) *rootSou
 	return tracker
 }
 
-func (r *Recorder) handleRootSourceResolutionTaskStartLocked(event swf.TaskStartEvent) {
+func (r *Recorder) handleRootSourceResolutionTaskStartLocked(event jobworkflow.TaskStartEvent) {
 	attempt := r.currentJobAttempt
 	if attempt <= 0 {
 		attempt = 1
@@ -510,7 +511,7 @@ func (r *Recorder) handleRootSourceResolutionTaskStartLocked(event swf.TaskStart
 	tracker.byAttempt[event.AttemptNumber] = attNode
 }
 
-func (r *Recorder) handleRootSourceResolutionTaskEndLocked(event swf.TaskEndEvent) {
+func (r *Recorder) handleRootSourceResolutionTaskEndLocked(event jobworkflow.TaskEndEvent) {
 	attempt := r.currentJobAttempt
 	if attempt <= 0 {
 		attempt = 1
@@ -712,7 +713,7 @@ func (r *Recorder) syntheticRootForAttemptLocked(attempt int, sourceNode *model.
 		Path:          make([]string, 0, 8),
 		Attempt:       1,
 		PriorAttempts: make([]*model.JobRunStoryNode, 0),
-		ArtifactKeys:  make([]swf.ArtifactKey, 0),
+		ArtifactKeys:  make([]jobdb.ArtifactKey, 0),
 		ArtifactRefs:  make([]recipeartifacts.Ref, 0),
 		Children:      []*model.JobRunStoryNode{sourceNode},
 		RecipeID:      recipeID,
@@ -753,7 +754,7 @@ func mapStoryStatusFromReplayErr(err error) model.WorkflowStatus {
 	if isReplayCacheMissErr(err) {
 		return model.WorkflowStatusRunning
 	}
-	var te swf.TimeoutError
+	var te jobdb.TimeoutError
 	if errors.As(err, &te) {
 		return model.WorkflowStatusTimedOut
 	}
@@ -788,35 +789,35 @@ type observer struct {
 	rec *Recorder
 }
 
-func (o *observer) OnJobStart(event swf.JobStartEvent) {
+func (o *observer) OnJobStart(event jobworkflow.JobStartEvent) {
 	if o == nil || o.rec == nil {
 		return
 	}
 	o.rec.OnJobStart(event)
 }
 
-func (o *observer) OnTaskStart(event swf.TaskStartEvent) {
+func (o *observer) OnTaskStart(event jobworkflow.TaskStartEvent) {
 	if o == nil || o.rec == nil {
 		return
 	}
 	o.rec.OnTaskStart(event)
 }
 
-func (o *observer) OnTaskEnd(event swf.TaskEndEvent) {
+func (o *observer) OnTaskEnd(event jobworkflow.TaskEndEvent) {
 	if o == nil || o.rec == nil {
 		return
 	}
 	o.rec.OnTaskEnd(event)
 }
 
-func (o *observer) OnJobEnd(event swf.JobEndEvent) {
+func (o *observer) OnJobEnd(event jobworkflow.JobEndEvent) {
 	if o == nil || o.rec == nil {
 		return
 	}
 	o.rec.OnJobEnd(event)
 }
 
-var _ swf.ReplayObserver = (*observer)(nil)
+var _ jobworkflow.ReplayObserver = (*observer)(nil)
 
 type recordingExecutor struct {
 	inner compiler.DefaultRecipeExecutor
@@ -829,7 +830,7 @@ func newRecordingExecutor(inner compiler.DefaultRecipeExecutor, tree *treeBuilde
 	return &recordingExecutor{inner: inner, tree: tree, rec: rec}
 }
 
-func (e *recordingExecutor) ExecuteRecipe(ctx coreworkflow.Context, r recipe.Recipe, rawRecipeInputs map[string]interface{}, execCtx contextual.JobContext, commitContext contextual.GitCommitContext, opts ...compiler.ExecutionOptions) (map[string]interface{}, []swf.Artifact, error) {
+func (e *recordingExecutor) ExecuteRecipe(ctx coreworkflow.Context, r recipe.Recipe, rawRecipeInputs map[string]interface{}, execCtx contextual.JobContext, commitContext contextual.GitCommitContext, opts ...compiler.ExecutionOptions) (map[string]interface{}, []jobdb.Artifact, error) {
 	recipeID := strings.TrimSpace(r.GetMetadata().ID)
 	root := e.tree.newNode(model.JobRunStoryNodeKindRecipe, "recipe "+recipeID)
 	root.RecipeID = recipeID
@@ -1127,8 +1128,8 @@ func (e *recordingExecutor) ensureReplayMissStepNode(opNode *model.JobRunStoryNo
 		return
 	}
 
-	var miss swf.ReplayCacheMissError
-	if !errors.As(err, &miss) || miss.Reason != swf.ReplayCacheMissTaskResultMissing {
+	var miss jobworkflow.ReplayCacheMissError
+	if !errors.As(err, &miss) || miss.Reason != jobworkflow.ReplayCacheMissTaskResultMissing {
 		return
 	}
 
@@ -1457,7 +1458,7 @@ func (b *treeBuilder) newNode(kind model.JobRunStoryNodeKind, title string) *mod
 		Path:          make([]string, 0, 8),
 		Attempt:       1,
 		PriorAttempts: make([]*model.JobRunStoryNode, 0),
-		ArtifactKeys:  make([]swf.ArtifactKey, 0),
+		ArtifactKeys:  make([]jobdb.ArtifactKey, 0),
 		ArtifactRefs:  make([]recipeartifacts.Ref, 0),
 		Children:      make([]*model.JobRunStoryNode, 0),
 	}
@@ -1683,7 +1684,7 @@ func isReplayCacheMissErr(err error) bool {
 	if err == nil {
 		return false
 	}
-	var miss swf.ReplayCacheMissError
+	var miss jobworkflow.ReplayCacheMissError
 	if errors.As(err, &miss) {
 		return true
 	}
@@ -1769,7 +1770,7 @@ func findLastChildStep(children []*model.JobRunStoryNode) *model.JobRunStoryNode
 	return nil
 }
 
-func parseResolvedRecipeSource(td swf.TaskData) *compiler.ResolvedRecipeSource {
+func parseResolvedRecipeSource(td jobdb.TaskData) *compiler.ResolvedRecipeSource {
 	if td == nil {
 		return nil
 	}
@@ -1801,7 +1802,7 @@ func copyAttemptIntoStep(dst, src *model.JobRunStoryNode) {
 	dst.InlineStack = cloneInlineBoundaryStack(src.InlineStack)
 }
 
-func applyTaskInputToNode(n *model.JobRunStoryNode, td swf.TaskData) {
+func applyTaskInputToNode(n *model.JobRunStoryNode, td jobdb.TaskData) {
 	if n == nil || td == nil {
 		return
 	}
@@ -1836,12 +1837,12 @@ func applyTaskInputToNode(n *model.JobRunStoryNode, td swf.TaskData) {
 	}
 }
 
-func applyTaskOutputToNode(n *model.JobRunStoryNode, jobID string, taskType string, td swf.TaskData, err error) {
+func applyTaskOutputToNode(n *model.JobRunStoryNode, jobID string, taskType string, td jobdb.TaskData, err error) {
 	if n == nil {
 		return
 	}
 
-	if mismatch, ok := swf.UnexpectedChapter(err); ok && mismatch.CachedTaskDataErr() == nil && mismatch.CachedTaskData() != nil {
+	if mismatch, ok := jobworkflow.UnexpectedChapter(err); ok && mismatch.CachedTaskDataErr() == nil && mismatch.CachedTaskData() != nil {
 		cached := mismatch.CachedTaskData()
 		raw, rerr := cached.GetData()
 		if rerr == nil && len(raw) > 0 {
@@ -1905,7 +1906,7 @@ func applyTaskOutputToNode(n *model.JobRunStoryNode, jobID string, taskType stri
 
 		arts, aerr := td.GetArtifacts()
 		if aerr == nil && len(arts) > 0 {
-			keys := make([]swf.ArtifactKey, 0, len(arts))
+			keys := make([]jobdb.ArtifactKey, 0, len(arts))
 			for _, art := range arts {
 				if art == nil {
 					continue
@@ -1918,7 +1919,7 @@ func applyTaskOutputToNode(n *model.JobRunStoryNode, jobID string, taskType stri
 				if n.TaskOrdinal != nil {
 					ord = *n.TaskOrdinal
 				}
-				keys = append(keys, swf.ArtifactKey{
+				keys = append(keys, jobdb.ArtifactKey{
 					JobId:       jobID,
 					TaskOrdinal: ord,
 					Name:        art.Name(),
@@ -1943,7 +1944,7 @@ func cloneNode(src *model.JobRunStoryNode) *model.JobRunStoryNode {
 	dst.InlineStack = cloneInlineBoundaryStack(src.InlineStack)
 	dst.PriorAttempts = cloneNodes(src.PriorAttempts)
 	dst.RenderedVars = cloneMap(src.RenderedVars)
-	dst.ArtifactKeys = append([]swf.ArtifactKey{}, src.ArtifactKeys...)
+	dst.ArtifactKeys = append([]jobdb.ArtifactKey{}, src.ArtifactKeys...)
 	dst.ArtifactRefs = append([]recipeartifacts.Ref{}, src.ArtifactRefs...)
 	dst.TaskOrdinal = cloneInt64Ptr(src.TaskOrdinal)
 	dst.RestartFromOrdinal = cloneInt64Ptr(src.RestartFromOrdinal)

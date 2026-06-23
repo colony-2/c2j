@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/colony-2/c2j/cmd/c2j/internal/defaults"
-	"github.com/colony-2/swf-go/pkg/swf"
+	"github.com/colony-2/jobdb/pkg/jobdb"
 )
 
 const defaultLeaseDuration = 60 * time.Second
@@ -104,7 +104,7 @@ func RunOne(ctx context.Context, opts RunOneOptions) error {
 		SWFURL:         opts.SWFURL,
 		Concurrency:    1,
 		AwaitThreshold: opts.AwaitThreshold,
-		WrapRuntime: func(runtime swf.WorkflowRuntime) swf.WorkflowRuntime {
+		WrapRuntime: func(runtime jobdb.WorkflowRuntime) jobdb.WorkflowRuntime {
 			once = newRunOneRuntime(runtime, opts.LeaseDuration)
 			return once
 		},
@@ -154,7 +154,7 @@ func RunOne(ctx context.Context, opts RunOneOptions) error {
 }
 
 type runOneRuntime struct {
-	swf.WorkflowRuntime
+	jobdb.WorkflowRuntime
 
 	leaseDuration time.Duration
 
@@ -164,7 +164,7 @@ type runOneRuntime struct {
 	found     bool
 	finalized bool
 	stopped   bool
-	jobKey    swf.JobKey
+	jobKey    jobdb.JobKey
 	action    string
 	status    string
 	err       error
@@ -174,13 +174,13 @@ type runOneState struct {
 	found     bool
 	finalized bool
 	stopped   bool
-	jobKey    swf.JobKey
+	jobKey    jobdb.JobKey
 	action    string
 	status    string
 	err       error
 }
 
-func newRunOneRuntime(runtime swf.WorkflowRuntime, leaseDuration time.Duration) *runOneRuntime {
+func newRunOneRuntime(runtime jobdb.WorkflowRuntime, leaseDuration time.Duration) *runOneRuntime {
 	return &runOneRuntime{
 		WorkflowRuntime: runtime,
 		leaseDuration:   leaseDuration,
@@ -193,7 +193,7 @@ func (r *runOneRuntime) setCancel(cancel context.CancelFunc) {
 	r.cancel = cancel
 }
 
-func (r *runOneRuntime) PollWork(ctx context.Context, req swf.PollWorkRequest) ([]swf.ExecutionLease, error) {
+func (r *runOneRuntime) PollWork(ctx context.Context, req jobdb.PollWorkRequest) ([]jobdb.ExecutionLease, error) {
 	r.mu.Lock()
 	if r.polled {
 		if !r.finalized && r.err == nil {
@@ -232,7 +232,7 @@ func (r *runOneRuntime) PollWork(ctx context.Context, req swf.PollWorkRequest) (
 	r.jobKey = jobKey
 	r.mu.Unlock()
 
-	return []swf.ExecutionLease{&runOneLease{ExecutionLease: lease, runtime: r}}, nil
+	return []jobdb.ExecutionLease{&runOneLease{ExecutionLease: lease, runtime: r}}, nil
 }
 
 func (r *runOneRuntime) markFinalized(action string, status string, err error) {
@@ -272,7 +272,7 @@ func (r *runOneRuntime) state() runOneState {
 }
 
 type runOneLease struct {
-	swf.ExecutionLease
+	jobdb.ExecutionLease
 	runtime *runOneRuntime
 }
 
@@ -290,13 +290,13 @@ func (l *runOneLease) LeaseWorkerID() string {
 	return ""
 }
 
-func (l *runOneLease) Complete(ctx context.Context, req swf.CompleteExecutionRequest) error {
+func (l *runOneLease) Complete(ctx context.Context, req jobdb.CompleteExecutionRequest) error {
 	err := l.ExecutionLease.Complete(ctx, req)
 	l.runtime.markFinalized("completed", req.Status, err)
 	return err
 }
 
-func (l *runOneLease) Reschedule(ctx context.Context, req swf.RescheduleExecutionRequest) error {
+func (l *runOneLease) Reschedule(ctx context.Context, req jobdb.RescheduleExecutionRequest) error {
 	err := l.ExecutionLease.Reschedule(ctx, req)
 	status := "rescheduled"
 	if req.NextNeed != "" {

@@ -3,7 +3,7 @@ package model
 import (
 	"time"
 
-	"github.com/colony-2/swf-go/pkg/swf"
+	"github.com/colony-2/jobdb/pkg/jobdb"
 )
 
 type WorkflowStatus string
@@ -164,5 +164,5 @@ type StartWorkflowRequest struct {
 	Inputs         map[string]interface{}
 	GitRef         *string
 	IdempotencyKey *string
-	Prerequisites  []swf.JobPrerequisite
+	Prerequisites  []jobdb.JobPrerequisite
 }

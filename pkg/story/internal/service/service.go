@@ -23,10 +23,11 @@ import (
 	"github.com/colony-2/c2j/pkg/template"
 	"github.com/colony-2/c2j/pkg/worker/compiler"
 	"github.com/colony-2/c2j/pkg/workflowctl"
+	"github.com/colony-2/jobdb/pkg/jobdb"
+	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
 	"github.com/colony-2/strata-go/pkg/client"
 	"github.com/colony-2/strata-go/pkg/client/pagination"
 	"github.com/colony-2/strata-go/pkg/client/story"
-	"github.com/colony-2/swf-go/pkg/swf"
 )
 
 var (
@@ -41,7 +42,7 @@ var (
 )
 
 type Config struct {
-	Engine             swf.SWFEngine
+	Engine             jobworkflow.Engine
 	Strata             *client.Client
 	Cells              workflowapi.CellService
 	Projects           workflowapi.ProjectService
@@ -52,7 +53,7 @@ type Config struct {
 }
 
 type Service struct {
-	engine       swf.SWFEngine
+	engine       jobworkflow.Engine
 	strata       *client.Client
 	cells        workflowapi.CellService
 	projects     workflowapi.ProjectService
@@ -91,20 +92,20 @@ type chapterEnvelope struct {
 }
 
 type chapterMeta struct {
-	Version       int                 `json:"version"`
-	Ordinal       int64               `json:"ordinal"`
-	TaskType      string              `json:"task_type"`
-	WorkerID      string              `json:"worker_id"`
-	CreatedAt     time.Time           `json:"created_at"`
-	InputHash     string              `json:"input_hash"`
-	Input         json.RawMessage     `json:"input,omitempty"`
-	Attempt       int                 `json:"attempt,omitempty"`
-	MaxAttempts   int                 `json:"max_attempts,omitempty"`
-	NextAttemptAt *time.Time          `json:"next_attempt_at,omitempty"`
-	BackoffMillis int64               `json:"backoff_ms,omitempty"`
-	Retryable     *bool               `json:"retryable,omitempty"`
-	InputRef      *swf.InputReference `json:"input_ref,omitempty"`
-	RunPolicy     *swf.RunPolicy      `json:"run_policy,omitempty"`
+	Version       int                   `json:"version"`
+	Ordinal       int64                 `json:"ordinal"`
+	TaskType      string                `json:"task_type"`
+	WorkerID      string                `json:"worker_id"`
+	CreatedAt     time.Time             `json:"created_at"`
+	InputHash     string                `json:"input_hash"`
+	Input         json.RawMessage       `json:"input,omitempty"`
+	Attempt       int                   `json:"attempt,omitempty"`
+	MaxAttempts   int                   `json:"max_attempts,omitempty"`
+	NextAttemptAt *time.Time            `json:"next_attempt_at,omitempty"`
+	BackoffMillis int64                 `json:"backoff_ms,omitempty"`
+	Retryable     *bool                 `json:"retryable,omitempty"`
+	InputRef      *jobdb.InputReference `json:"input_ref,omitempty"`
+	RunPolicy     *jobdb.RunPolicy      `json:"run_policy,omitempty"`
 }
 
 func (s *Service) ListWorkflows(ctx context.Context, req model.ListWorkflowsRequest) ([]model.WorkflowSummary, error) {
@@ -129,15 +130,15 @@ func (s *Service) ListWorkflows(ctx context.Context, req model.ListWorkflowsRequ
 	if pageSize <= 0 {
 		pageSize = 1
 	}
-	if pageSize > swf.MaxListJobsPageSize {
-		pageSize = swf.MaxListJobsPageSize
+	if pageSize > jobdb.MaxListJobsPageSize {
+		pageSize = jobdb.MaxListJobsPageSize
 	}
 
 	summaries := make([]model.WorkflowSummary, 0, target)
 	pageToken := ""
 	jobStatuses := workflowStatusesToJobStatuses(req.Statuses)
 
-	metaFilter := swf.Metadata()
+	metaFilter := jobdb.Metadata()
 	metaFilterActive := false
 	if req.CellID != nil && strings.TrimSpace(*req.CellID) != "" {
 		cellID := strings.TrimSpace(*req.CellID)
@@ -160,10 +161,10 @@ func (s *Service) ListWorkflows(ctx context.Context, req model.ListWorkflowsRequ
 	}
 
 	for {
-		listReq := swf.ListJobsRequest{
+		listReq := jobdb.ListJobsRequest{
 			TenantIds:     []string{req.ProjectID},
 			Statuses:      jobStatuses,
-			Stores:        []swf.JobStore{swf.JobStoreActive, swf.JobStoreArchived},
+			Stores:        []jobdb.JobStore{jobdb.JobStoreActive, jobdb.JobStoreArchived},
 			JobTypes:      []string{starter.RecipeJobType},
 			CreatedAfter:  req.Since,
 			CreatedBefore: req.Until,
@@ -346,15 +347,15 @@ func (s *Service) GetWorkflow(ctx context.Context, req model.GetWorkflowRequest)
 	if req.WorkflowID == "" {
 		return nil, ErrNotFound
 	}
-	jobKey := swf.JobKey{TenantId: req.ProjectID, JobId: req.WorkflowID}
+	jobKey := jobdb.JobKey{TenantId: req.ProjectID, JobId: req.WorkflowID}
 
 	s.logger.Debug("GetWorkflow: querying engine for job",
 		"project_id", req.ProjectID,
 		"workflow_id", req.WorkflowID)
-	resp, err := s.engine.ListJobs(ctx, swf.ListJobsRequest{
+	resp, err := s.engine.ListJobs(ctx, jobdb.ListJobsRequest{
 		TenantIds: []string{req.ProjectID},
-		JobKeys:   []swf.JobKey{jobKey},
-		Stores:    []swf.JobStore{swf.JobStoreActive, swf.JobStoreArchived},
+		JobKeys:   []jobdb.JobKey{jobKey},
+		Stores:    []jobdb.JobStore{jobdb.JobStoreActive, jobdb.JobStoreArchived},
 		PageSize:  1,
 	})
 	if err != nil {
@@ -481,14 +482,14 @@ func (s *Service) GetWorkflowOutcome(ctx context.Context, req model.GetWorkflowO
 		return nil, ErrNotFound
 	}
 
-	jobKey := swf.JobKey{TenantId: projectID, JobId: jobID}
-	run, err := s.engine.GetJobRun(ctx, swf.GetJobRunRequest{
+	jobKey := jobdb.JobKey{TenantId: projectID, JobId: jobID}
+	run, err := s.engine.GetJobRun(ctx, jobdb.GetJobRunRequest{
 		JobKey:           jobKey,
 		IncludeOutputs:   true,
 		IncludeArtifacts: true,
 	})
 	if err != nil {
-		if errors.Is(err, swf.ErrJobNotFound) {
+		if errors.Is(err, jobdb.ErrJobNotFound) {
 			return nil, ErrNotFound
 		}
 		return nil, err
@@ -500,7 +501,7 @@ func (s *Service) GetWorkflowOutcome(ctx context.Context, req model.GetWorkflowO
 	var output map[string]interface{}
 	var errMsg *string
 
-	latest := (*swf.JobAttempt)(nil)
+	latest := (*jobdb.JobAttempt)(nil)
 	if len(run.Attempts) > 0 {
 		latest = &run.Attempts[len(run.Attempts)-1]
 	}
@@ -508,7 +509,7 @@ func (s *Service) GetWorkflowOutcome(ctx context.Context, req model.GetWorkflowO
 	// With the new SWF shape, job-level output/error is carried directly on the latest attempt.
 	if latest != nil {
 		hasOutput := latest.Output != nil && len(latest.Output.Data) > 0
-		hasError := latest.Outcome.Error != nil || latest.Outcome.Status == swf.TaskOutcomeStatusFailed
+		hasError := latest.Outcome.Error != nil || latest.Outcome.Status == jobdb.TaskOutcomeStatusFailed
 
 		if !hasOutput && !hasError && status == model.WorkflowStatusRunning {
 			return nil, ErrOutcomePending
@@ -526,12 +527,12 @@ func (s *Service) GetWorkflowOutcome(ctx context.Context, req model.GetWorkflowO
 		if latest.Outcome.Error != nil && latest.Outcome.Error.Message != "" {
 			msg := latest.Outcome.Error.Message
 			errMsg = &msg
-		} else if latest.Outcome.Status == swf.TaskOutcomeStatusFailed {
+		} else if latest.Outcome.Status == jobdb.TaskOutcomeStatusFailed {
 			msg := "task failed"
 			errMsg = &msg
 		}
 		// If job status is still running but the current attempt is failed, surface failed status.
-		if status == model.WorkflowStatusRunning && latest.Outcome.Status == swf.TaskOutcomeStatusFailed {
+		if status == model.WorkflowStatusRunning && latest.Outcome.Status == jobdb.TaskOutcomeStatusFailed {
 			status = model.WorkflowStatusFailed
 		}
 	} else if status == model.WorkflowStatusRunning {
@@ -564,13 +565,13 @@ func (s *Service) GetJobRunStory(ctx context.Context, req model.GetJobRunStoryRe
 		return nil, ErrNotFound
 	}
 
-	jobKey := swf.JobKey{TenantId: projectID, JobId: jobID}
+	jobKey := jobdb.JobKey{TenantId: projectID, JobId: jobID}
 	st, err := jobstory.BuildJobRunStory(ctx, s.engine, jobKey, s.celProvider, s.logger, s.rootResolver)
 	if err != nil {
-		if errors.Is(err, swf.ErrJobNotFound) {
+		if errors.Is(err, jobdb.ErrJobNotFound) {
 			return nil, ErrNotFound
 		}
-		if errors.Is(err, swf.ErrWorkflowNotDeterministic) {
+		if errors.Is(err, jobdb.ErrWorkflowNotDeterministic) {
 			return st, ErrJobRunStoryMismatch
 		}
 		return st, err
@@ -578,7 +579,7 @@ func (s *Service) GetJobRunStory(ctx context.Context, req model.GetJobRunStoryRe
 	return st, nil
 }
 
-func latestAttemptTerminalError(run swf.GetJobRunResponse) (msg string, code string, ok bool) {
+func latestAttemptTerminalError(run jobdb.GetJobRunResponse) (msg string, code string, ok bool) {
 	if len(run.Attempts) == 0 {
 		return "", "", false
 	}
@@ -594,14 +595,14 @@ func latestAttemptTerminalError(run swf.GetJobRunResponse) (msg string, code str
 	return msg, code, true
 }
 
-func latestAttemptOutcome(run swf.GetJobRunResponse) (swf.TaskOutcome, bool) {
+func latestAttemptOutcome(run jobdb.GetJobRunResponse) (jobdb.TaskOutcome, bool) {
 	if len(run.Attempts) == 0 {
-		return swf.TaskOutcome{}, false
+		return jobdb.TaskOutcome{}, false
 	}
 	return run.Attempts[len(run.Attempts)-1].Outcome, true
 }
 
-func isTimeoutOutcome(out swf.TaskOutcome) bool {
+func isTimeoutOutcome(out jobdb.TaskOutcome) bool {
 	if strings.EqualFold(strings.TrimSpace(out.PayloadKind), "Timeout") {
 		return true
 	}
@@ -615,21 +616,21 @@ func isTimeoutOutcome(out swf.TaskOutcome) bool {
 	return strings.HasPrefix(code, "timeout")
 }
 
-func isTerminalJobStatus(st swf.JobStatus) bool {
+func isTerminalJobStatus(st jobdb.JobStatus) bool {
 	switch st {
-	case swf.JobStatusCompleted, swf.JobStatusCancelled, swf.JobStatusExpired, swf.JobStatusCrashConcern:
+	case jobdb.JobStatusCompleted, jobdb.JobStatusCancelled, jobdb.JobStatusExpired, jobdb.JobStatusCrashConcern:
 		return true
 	default:
 		return false
 	}
 }
 
-func applyJobAttemptOutcomeAndOutputToStory(st *model.JobRunStory, run swf.GetJobRunResponse) {
+func applyJobAttemptOutcomeAndOutputToStory(st *model.JobRunStory, run jobdb.GetJobRunResponse) {
 	if st == nil || st.Root == nil || len(run.Attempts) == 0 {
 		return
 	}
 
-	byAttempt := make(map[int]swf.JobAttempt, len(run.Attempts))
+	byAttempt := make(map[int]jobdb.JobAttempt, len(run.Attempts))
 	for i := range run.Attempts {
 		att := run.Attempts[i]
 		byAttempt[att.Attempt] = att
@@ -687,8 +688,8 @@ func shouldDebugDumpJobRunStory() bool {
 	}
 }
 
-func dumpSWFJobRunForLog(run swf.GetJobRunResponse) map[string]any {
-	latest := (*swf.JobAttempt)(nil)
+func dumpSWFJobRunForLog(run jobdb.GetJobRunResponse) map[string]any {
+	latest := (*jobdb.JobAttempt)(nil)
 	if len(run.Attempts) > 0 {
 		latest = &run.Attempts[len(run.Attempts)-1]
 	}
@@ -722,7 +723,7 @@ func dumpSWFJobRunForLog(run swf.GetJobRunResponse) map[string]any {
 	return out
 }
 
-func dumpTaskRunsForLog(tasks []swf.TaskRun) []any {
+func dumpTaskRunsForLog(tasks []jobdb.TaskRun) []any {
 	out := make([]any, 0, len(tasks))
 	for _, tr := range tasks {
 		row := map[string]any{
@@ -735,7 +736,7 @@ func dumpTaskRunsForLog(tasks []swf.TaskRun) []any {
 	return out
 }
 
-func dumpTaskAttemptsForLog(attempts []swf.TaskAttempt) []any {
+func dumpTaskAttemptsForLog(attempts []jobdb.TaskAttempt) []any {
 	out := make([]any, 0, len(attempts))
 	for _, a := range attempts {
 		row := map[string]any{
@@ -760,7 +761,7 @@ func dumpTaskAttemptsForLog(attempts []swf.TaskAttempt) []any {
 	return out
 }
 
-func dumpJobAttemptsForLog(attempts []swf.JobAttempt) []any {
+func dumpJobAttemptsForLog(attempts []jobdb.JobAttempt) []any {
 	out := make([]any, 0, len(attempts))
 	for _, a := range attempts {
 		row := map[string]any{
@@ -779,7 +780,7 @@ func dumpJobAttemptsForLog(attempts []swf.JobAttempt) []any {
 	return out
 }
 
-func truncateTaskIOForLog(io *swf.TaskIO) map[string]any {
+func truncateTaskIOForLog(io *jobdb.TaskIO) map[string]any {
 	if io == nil {
 		return nil
 	}
@@ -800,14 +801,14 @@ func truncateTaskIOForLog(io *swf.TaskIO) map[string]any {
 	}
 }
 
-func strataStoryKey(jobKey swf.JobKey) story.Key {
+func strataStoryKey(jobKey jobdb.JobKey) story.Key {
 	return story.Key{
 		AnthologyID: jobKey.TenantId,
 		StoryID:     jobKey.JobId,
 	}
 }
 
-func (s *Service) dumpStrataChaptersForLog(ctx context.Context, jobKey swf.JobKey) ([]any, error) {
+func (s *Service) dumpStrataChaptersForLog(ctx context.Context, jobKey jobdb.JobKey) ([]any, error) {
 	if s.strata == nil {
 		return nil, errors.New("strata unavailable")
 	}
@@ -886,7 +887,7 @@ func errorChainForLog(err error) []string {
 	return out
 }
 
-func countTaskRuns(attempts []swf.JobAttempt) int {
+func countTaskRuns(attempts []jobdb.JobAttempt) int {
 	n := 0
 	for i := range attempts {
 		n += len(attempts[i].Tasks)
@@ -894,7 +895,7 @@ func countTaskRuns(attempts []swf.JobAttempt) int {
 	return n
 }
 
-func summarizeTaskTimelineForLog(attempts []swf.JobAttempt) []string {
+func summarizeTaskTimelineForLog(attempts []jobdb.JobAttempt) []string {
 	if len(attempts) == 0 {
 		return nil
 	}
@@ -1015,9 +1016,9 @@ func (s *Service) RestartRecipeJob(ctx context.Context, req model.RestartRecipeJ
 		return nil, ErrNotFound
 	}
 
-	newKey, err := starter.RestartRecipeJob(ctx, s.engine, swf.JobKey{TenantId: projectID, JobId: jobID}, req.StepOffset, req.Patch)
+	newKey, err := starter.RestartRecipeJob(ctx, s.engine, jobdb.JobKey{TenantId: projectID, JobId: jobID}, req.StepOffset, req.Patch)
 	if err != nil {
-		if errors.Is(err, swf.ErrJobNotFound) {
+		if errors.Is(err, jobdb.ErrJobNotFound) {
 			return nil, ErrNotFound
 		}
 		return nil, err
@@ -1040,7 +1041,7 @@ func (s *Service) GetArtifactByOrdinal(ctx context.Context, req model.GetArtifac
 		return nil, fmt.Errorf("invalid artifact request")
 	}
 
-	key := swf.ArtifactKey{
+	key := jobdb.ArtifactKey{
 		JobId:       strings.TrimSpace(req.JobID),
 		TaskOrdinal: req.TaskOrdinal,
 		Name:        req.ArtifactName,
@@ -1067,7 +1068,7 @@ func (s *Service) GetArtifactByOrdinal(ctx context.Context, req model.GetArtifac
 	}, nil
 }
 
-func (s *Service) buildSummary(ctx context.Context, projectID string, job swf.JobSummary) (model.WorkflowSummary, bool, error) {
+func (s *Service) buildSummary(ctx context.Context, projectID string, job jobdb.JobSummary) (model.WorkflowSummary, bool, error) {
 	meta, metaErr := jobMetadataFromRaw(job.Metadata)
 	if metaErr != nil {
 		s.logger.Debug("buildSummary: failed to parse job metadata",
@@ -1115,7 +1116,7 @@ func (s *Service) buildSummary(ctx context.Context, projectID string, job swf.Jo
 	return summary, true, nil
 }
 
-func (s *Service) loadChapters(ctx context.Context, jobKey swf.JobKey) ([]model.ChapterDetail, error) {
+func (s *Service) loadChapters(ctx context.Context, jobKey jobdb.JobKey) ([]model.ChapterDetail, error) {
 	if s.strata == nil {
 		return []model.ChapterDetail{}, nil
 	}
@@ -1239,42 +1240,42 @@ func chapterToDetail(chap story.Chapter) (model.ChapterDetail, error) {
 	}, nil
 }
 
-func mapWorkflowStatus(status swf.JobStatus) model.WorkflowStatus {
+func mapWorkflowStatus(status jobdb.JobStatus) model.WorkflowStatus {
 	switch status {
-	case swf.JobStatusActive, swf.JobStatusPendingJobs, swf.JobStatusAwaitingFuture, swf.JobStatusReady:
+	case jobdb.JobStatusActive, jobdb.JobStatusPendingJobs, jobdb.JobStatusAwaitingFuture, jobdb.JobStatusReady:
 		return model.WorkflowStatusRunning
-	case swf.JobStatusCompleted:
+	case jobdb.JobStatusCompleted:
 		return model.WorkflowStatusCompleted
-	case swf.JobStatusCancelled:
+	case jobdb.JobStatusCancelled:
 		return model.WorkflowStatusCanceled
-	case swf.JobStatusExpired:
+	case jobdb.JobStatusExpired:
 		return model.WorkflowStatusTimedOut
-	case swf.JobStatusCrashConcern:
+	case jobdb.JobStatusCrashConcern:
 		return model.WorkflowStatusFailed
 	default:
 		return model.WorkflowStatusUnknown
 	}
 }
 
-func workflowStatusesToJobStatuses(statuses []model.WorkflowStatus) []swf.JobStatus {
+func workflowStatusesToJobStatuses(statuses []model.WorkflowStatus) []jobdb.JobStatus {
 	if len(statuses) == 0 {
 		// No status filter - return nil to query all statuses
 		// swf-go correctly handles nil as "all statuses"
 		return nil
 	}
-	jobStatuses := make([]swf.JobStatus, 0, len(statuses)*4)
+	jobStatuses := make([]jobdb.JobStatus, 0, len(statuses)*4)
 	for _, status := range statuses {
 		switch status {
 		case model.WorkflowStatusRunning:
-			jobStatuses = append(jobStatuses, swf.JobStatusActive, swf.JobStatusPendingJobs, swf.JobStatusAwaitingFuture, swf.JobStatusReady)
+			jobStatuses = append(jobStatuses, jobdb.JobStatusActive, jobdb.JobStatusPendingJobs, jobdb.JobStatusAwaitingFuture, jobdb.JobStatusReady)
 		case model.WorkflowStatusCompleted:
-			jobStatuses = append(jobStatuses, swf.JobStatusCompleted)
+			jobStatuses = append(jobStatuses, jobdb.JobStatusCompleted)
 		case model.WorkflowStatusCanceled:
-			jobStatuses = append(jobStatuses, swf.JobStatusCancelled)
+			jobStatuses = append(jobStatuses, jobdb.JobStatusCancelled)
 		case model.WorkflowStatusTimedOut:
-			jobStatuses = append(jobStatuses, swf.JobStatusExpired)
+			jobStatuses = append(jobStatuses, jobdb.JobStatusExpired)
 		case model.WorkflowStatusFailed:
-			jobStatuses = append(jobStatuses, swf.JobStatusCrashConcern)
+			jobStatuses = append(jobStatuses, jobdb.JobStatusCrashConcern)
 		}
 	}
 	return jobStatuses
@@ -1338,7 +1339,7 @@ func stringPtr(val string) *string {
 	return &val
 }
 
-func aggregateArtifacts(jobAttempts []swf.JobAttempt, projectID, jobID string) []model.ArtifactReference {
+func aggregateArtifacts(jobAttempts []jobdb.JobAttempt, projectID, jobID string) []model.ArtifactReference {
 	type artifactKey struct {
 		id   string
 		name string
@@ -1346,7 +1347,7 @@ func aggregateArtifacts(jobAttempts []swf.JobAttempt, projectID, jobID string) [
 	seen := map[artifactKey]bool{}
 	refs := make([]model.ArtifactReference, 0)
 
-	addArtifacts := func(arts []swf.ArtifactInfo, createdAt time.Time, ordinal int64) {
+	addArtifacts := func(arts []jobdb.ArtifactInfo, createdAt time.Time, ordinal int64) {
 		for _, art := range arts {
 			key := artifactKey{id: art.ID, name: art.Name}
 			if seen[key] {
@@ -1474,7 +1475,7 @@ func (s *Service) GetWorkflowArtifact(
 	}
 
 	// 5. Get the chapter from strata to access its artifacts
-	jobKey := swf.JobKey{
+	jobKey := jobdb.JobKey{
 		TenantId: req.ProjectID,
 		JobId:    req.WorkflowID,
 	}

@@ -16,9 +16,10 @@ import (
 	"github.com/colony-2/c2j/pkg/worker/ops"
 	"github.com/colony-2/c2j/pkg/worker/workflow"
 	"github.com/colony-2/c2j/pkg/workflowctl"
-	"github.com/colony-2/swf-go/pkg/swf"
-	sqliteruntime "github.com/colony-2/swf-go/pkg/swf/runtime/sqlite"
-	toyruntime "github.com/colony-2/swf-go/pkg/swf/runtime/toy"
+	"github.com/colony-2/jobdb/pkg/jobdb"
+	sqliteruntime "github.com/colony-2/jobdb/pkg/jobdb/runtime/sqlite"
+	toyruntime "github.com/colony-2/jobdb/pkg/jobdb/runtime/toy"
+	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
 	"github.com/stretchr/testify/require"
 )
 
@@ -27,15 +28,15 @@ type gen struct {
 	max   int
 }
 
-func (g *gen) Generate(tenantId string) (swf.JobKey, error) {
+func (g *gen) Generate(tenantId string) (jobdb.JobKey, error) {
 	g.count++
 	if g.count > g.max {
-		return swf.JobKey{}, fmt.Errorf("too many jobs")
+		return jobdb.JobKey{}, fmt.Errorf("too many jobs")
 	}
-	return swf.JobKey{TenantId: tenantId, JobId: fmt.Sprintf("job-%d", g.count)}, nil
+	return jobdb.JobKey{TenantId: tenantId, JobId: fmt.Sprintf("job-%d", g.count)}, nil
 }
 
-func newToyEngine(t *testing.T, workerTenantID string, gen func(string) (swf.JobKey, error)) swf.SWFEngine {
+func newToyEngine(t *testing.T, workerTenantID string, gen func(string) (jobdb.JobKey, error)) jobworkflow.Engine {
 	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
@@ -43,7 +44,7 @@ func newToyEngine(t *testing.T, workerTenantID string, gen func(string) (swf.Job
 	if gen != nil {
 		opts = append(opts, toyruntime.WithJobIDGenerator(gen))
 	}
-	builder := swf.NewEngineBuilder().WithRuntime(toyruntime.New(opts...))
+	builder := jobworkflow.NewEngineBuilder().WithRuntime(toyruntime.New(opts...))
 	if workerTenantID != "" {
 		builder = builder.WithWorkerTenantId(workerTenantID)
 	}
@@ -168,12 +169,12 @@ outputs:
 	}
 	err = <-errCh
 	require.NoError(t, err)
-	require.NoError(t, swf.WaitForJobToComplete(context.Background(), 5*time.Second, swf.JobKey{
+	require.NoError(t, jobworkflow.WaitForJobToComplete(context.Background(), 5*time.Second, jobdb.JobKey{
 		TenantId: "test-tenant",
 		JobId:    "job-1",
 	}, eng))
 
-	res3, err := swfutil.JobResult(context.Background(), eng, swf.JobKey{TenantId: "test-tenant", JobId: "job-1"})
+	res3, err := swfutil.JobResult(context.Background(), eng, jobdb.JobKey{TenantId: "test-tenant", JobId: "job-1"})
 	require.NoError(t, err)
 
 	res4, err := res3.GetData()
@@ -220,11 +221,11 @@ inputs:
 	require.NoError(t, err)
 	defer embedded.Shutdown()
 
-	taskWorkers := make([]swf.TaskWorker, 0, len(workSet.TaskWorkers))
+	taskWorkers := make([]jobworkflow.TaskWorker, 0, len(workSet.TaskWorkers))
 	for _, tw := range workSet.TaskWorkers {
 		taskWorkers = append(taskWorkers, tw)
 	}
-	engine, err := swf.NewEngineBuilder().
+	engine, err := jobworkflow.NewEngineBuilder().
 		WithRuntime(embedded.Runtime).
 		WithWorkerTenantId("test-tenant").
 		WithAwaitRecycleThreshold(5*time.Second).
@@ -297,7 +298,7 @@ inputs:
 		t.Fatalf("failed to submit response: %v", res2.err)
 	}
 
-	require.NoError(t, swf.WaitForJobToComplete(ctx, 30*time.Second, jobKey, engine))
+	require.NoError(t, jobworkflow.WaitForJobToComplete(ctx, 30*time.Second, jobKey, engine))
 
 	res3, err := swfutil.JobResult(ctx, engine, jobKey)
 	require.NoError(t, err)

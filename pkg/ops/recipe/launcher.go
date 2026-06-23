@@ -10,7 +10,7 @@ import (
 	recipeartifacts "github.com/colony-2/c2j/pkg/artifacts"
 	"github.com/colony-2/c2j/pkg/contextual"
 	"github.com/colony-2/c2j/pkg/workflowctl"
-	"github.com/colony-2/swf-go/pkg/swf"
+	"github.com/colony-2/jobdb/pkg/jobdb"
 	"github.com/segmentio/ksuid"
 )
 
@@ -79,7 +79,7 @@ func recipeToStart(tenantId string, recipe SingleRecipe, recipeSourceRepo string
 
 // func(deps OpDependencies, ctx context.Context, in In)
 // Execute runs the activity with provided configuration and inputs
-func startJobs(ctx context.Context, parentJobKey swf.JobKey, invocation contextual.Invocation, ctl workflowctl.WorkflowControl, recipeSourceRepo string, recipeSourceRef string, recipes []SingleRecipe, gitRef string) ([]swf.JobKey, error) {
+func startJobs(ctx context.Context, parentJobKey jobdb.JobKey, invocation contextual.Invocation, ctl workflowctl.WorkflowControl, recipeSourceRepo string, recipeSourceRef string, recipes []SingleRecipe, gitRef string) ([]jobdb.JobKey, error) {
 	if len(recipes) == 0 {
 		return nil, fmt.Errorf("no jobs to start")
 	}
@@ -98,10 +98,10 @@ func startJobs(ctx context.Context, parentJobKey swf.JobKey, invocation contextu
 		if err != nil {
 			return nil, err
 		}
-		return []swf.JobKey{key}, nil
+		return []jobdb.JobKey{key}, nil
 	}
 
-	keys := make([]swf.JobKey, len(jobs))
+	keys := make([]jobdb.JobKey, len(jobs))
 	for i, job := range jobs {
 		key, err := ctl.StartJob(ctx, job)
 		if err != nil {

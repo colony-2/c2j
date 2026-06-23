@@ -11,7 +11,7 @@ import (
 	recipeartifacts "github.com/colony-2/c2j/pkg/artifacts"
 	"github.com/colony-2/c2j/pkg/contextual"
 	"github.com/colony-2/c2j/pkg/template/funcregistry"
-	"github.com/colony-2/swf-go/pkg/swf"
+	"github.com/colony-2/jobdb/pkg/jobdb"
 )
 
 var simpleGoTemplateExprPattern = regexp.MustCompile(`^\s*\{\{\s*([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)+)\s*\}\}\s*$`)
@@ -311,17 +311,17 @@ func isArtifactInterpolationValue(value interface{}) bool {
 		return !v.IsZero()
 	case *recipeartifacts.Ref:
 		return v != nil && !v.IsZero()
-	case swf.ArtifactKey:
+	case jobdb.ArtifactKey:
 		return true
-	case *swf.ArtifactKey:
+	case *jobdb.ArtifactKey:
 		return v != nil
 	case map[string]recipeartifacts.Ref:
 		return true
 	case map[string]*recipeartifacts.Ref:
 		return true
-	case map[string]swf.ArtifactKey:
+	case map[string]jobdb.ArtifactKey:
 		return true
-	case map[string]*swf.ArtifactKey:
+	case map[string]*jobdb.ArtifactKey:
 		return true
 	case map[string]interface{}:
 		for _, entry := range v {
@@ -332,7 +332,7 @@ func isArtifactInterpolationValue(value interface{}) bool {
 		return false
 	case []recipeartifacts.Ref:
 		return true
-	case []swf.ArtifactKey:
+	case []jobdb.ArtifactKey:
 		return true
 	case []interface{}:
 		for _, entry := range v {

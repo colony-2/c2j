@@ -7,19 +7,19 @@ import (
 
 	"github.com/colony-2/c2j/pkg/ops"
 	workerops "github.com/colony-2/c2j/pkg/worker/ops"
-	"github.com/colony-2/swf-go/pkg/swf"
+	"github.com/colony-2/jobdb/pkg/jobdb"
 )
 
 func TestGetRecipeOutputSuccess(t *testing.T) {
-	artifact := swf.NewArtifactFromBytes("child-art", []byte("data"))
+	artifact := jobdb.NewArtifactFromBytes("child-art", []byte("data"))
 	payload := workerops.ActivityInvocationOutput{OpOutput: map[string]interface{}{"value": "ok"}}
-	jobData, err := swf.NewTaskData(payload, artifact)
+	jobData, err := jobdb.NewTaskData(payload, artifact)
 	if err != nil {
 		t.Fatalf("failed to build task data: %v", err)
 	}
 
 	ctl := &fakeWorkflowControl{
-		jobResultFunc: func(ctx context.Context, key swf.JobKey) (swf.JobData, error) {
+		jobResultFunc: func(ctx context.Context, key jobdb.JobKey) (jobdb.JobData, error) {
 			if key.JobId != "job-1" || key.TenantId != "tenant" {
 				return nil, errors.New("unexpected job key")
 			}
@@ -28,7 +28,7 @@ func TestGetRecipeOutputSuccess(t *testing.T) {
 	}
 	deps := ops.NewOpDependenciesBuilder().
 		WithWorkflowControl(ctl).
-		WithJobTool(&fakeJobTool{key: swf.JobKey{TenantId: "tenant"}}).
+		WithJobTool(&fakeJobTool{key: jobdb.JobKey{TenantId: "tenant"}}).
 		Build()
 
 	out, err := getRecipeOutput(deps, context.Background(), StartedJob{JobId: "job-1"})
@@ -45,13 +45,13 @@ func TestGetRecipeOutputSuccess(t *testing.T) {
 
 func TestGetRecipeOutputJobResultError(t *testing.T) {
 	ctl := &fakeWorkflowControl{
-		jobResultFunc: func(ctx context.Context, key swf.JobKey) (swf.JobData, error) {
+		jobResultFunc: func(ctx context.Context, key jobdb.JobKey) (jobdb.JobData, error) {
 			return nil, errors.New("job result error")
 		},
 	}
 	deps := ops.NewOpDependenciesBuilder().
 		WithWorkflowControl(ctl).
-		WithJobTool(&fakeJobTool{key: swf.JobKey{TenantId: "tenant"}}).
+		WithJobTool(&fakeJobTool{key: jobdb.JobKey{TenantId: "tenant"}}).
 		Build()
 
 	_, err := getRecipeOutput(deps, context.Background(), StartedJob{JobId: "job-1"})
@@ -62,13 +62,13 @@ func TestGetRecipeOutputJobResultError(t *testing.T) {
 
 func TestGetRecipeOutputDataError(t *testing.T) {
 	ctl := &fakeWorkflowControl{
-		jobResultFunc: func(ctx context.Context, key swf.JobKey) (swf.JobData, error) {
+		jobResultFunc: func(ctx context.Context, key jobdb.JobKey) (jobdb.JobData, error) {
 			return &errorTaskData{dataErr: errors.New("data error")}, nil
 		},
 	}
 	deps := ops.NewOpDependenciesBuilder().
 		WithWorkflowControl(ctl).
-		WithJobTool(&fakeJobTool{key: swf.JobKey{TenantId: "tenant"}}).
+		WithJobTool(&fakeJobTool{key: jobdb.JobKey{TenantId: "tenant"}}).
 		Build()
 
 	_, err := getRecipeOutput(deps, context.Background(), StartedJob{JobId: "job-1"})
@@ -79,13 +79,13 @@ func TestGetRecipeOutputDataError(t *testing.T) {
 
 func TestGetRecipeOutputUnmarshalError(t *testing.T) {
 	ctl := &fakeWorkflowControl{
-		jobResultFunc: func(ctx context.Context, key swf.JobKey) (swf.JobData, error) {
+		jobResultFunc: func(ctx context.Context, key jobdb.JobKey) (jobdb.JobData, error) {
 			return &errorTaskData{data: []byte("not-json")}, nil
 		},
 	}
 	deps := ops.NewOpDependenciesBuilder().
 		WithWorkflowControl(ctl).
-		WithJobTool(&fakeJobTool{key: swf.JobKey{TenantId: "tenant"}}).
+		WithJobTool(&fakeJobTool{key: jobdb.JobKey{TenantId: "tenant"}}).
 		Build()
 
 	_, err := getRecipeOutput(deps, context.Background(), StartedJob{JobId: "job-1"})
@@ -96,18 +96,18 @@ func TestGetRecipeOutputUnmarshalError(t *testing.T) {
 
 func TestGetRecipeOutputArtifactsError(t *testing.T) {
 	payload := workerops.ActivityInvocationOutput{OpOutput: map[string]interface{}{}}
-	data, err := swf.NewTaskData(payload)
+	data, err := jobdb.NewTaskData(payload)
 	if err != nil {
 		t.Fatalf("failed to build task data: %v", err)
 	}
 	ctl := &fakeWorkflowControl{
-		jobResultFunc: func(ctx context.Context, key swf.JobKey) (swf.JobData, error) {
+		jobResultFunc: func(ctx context.Context, key jobdb.JobKey) (jobdb.JobData, error) {
 			return &errorTaskData{data: data.GetDataOrPanic(), artifactsErr: errors.New("artifact error")}, nil
 		},
 	}
 	deps := ops.NewOpDependenciesBuilder().
 		WithWorkflowControl(ctl).
-		WithJobTool(&fakeJobTool{key: swf.JobKey{TenantId: "tenant"}}).
+		WithJobTool(&fakeJobTool{key: jobdb.JobKey{TenantId: "tenant"}}).
 		Build()
 
 	_, err = getRecipeOutput(deps, context.Background(), StartedJob{JobId: "job-1"})
@@ -118,7 +118,7 @@ func TestGetRecipeOutputArtifactsError(t *testing.T) {
 
 func TestWaitAndGetRecipeOutputAwaitError(t *testing.T) {
 	ctl := &fakeWorkflowControl{}
-	jobTool := &fakeJobTool{key: swf.JobKey{TenantId: "tenant"}, awaitErr: errors.New("await error")}
+	jobTool := &fakeJobTool{key: jobdb.JobKey{TenantId: "tenant"}, awaitErr: errors.New("await error")}
 	deps := ops.NewOpDependenciesBuilder().
 		WithWorkflowControl(ctl).
 		WithJobTool(jobTool).

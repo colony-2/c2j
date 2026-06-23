@@ -6,13 +6,13 @@ import (
 	"testing"
 
 	"github.com/colony-2/c2j/pkg/ops"
-	"github.com/colony-2/swf-go/pkg/swf"
+	"github.com/colony-2/jobdb/pkg/jobdb"
 )
 
 func TestAwaitChildGroupTreatsTerminalChildErrorsAsCollectable(t *testing.T) {
 	jobTool := &fakeJobTool{
-		key:      swf.JobKey{TenantId: "tenant", JobId: "parent"},
-		awaitErr: &swf.JobFailedError{Cause: swf.AppError{Payload: swf.AppErrorPayload{Message: "child failed"}}},
+		key:      jobdb.JobKey{TenantId: "tenant", JobId: "parent"},
+		awaitErr: &jobdb.JobFailedError{Cause: jobdb.AppError{Payload: jobdb.AppErrorPayload{Message: "child failed"}}},
 	}
 	deps := ops.NewOpDependenciesBuilder().WithJobTool(jobTool).Build()
 
@@ -33,7 +33,7 @@ func TestAwaitChildGroupTreatsTerminalChildErrorsAsCollectable(t *testing.T) {
 
 func TestAwaitChildGroupPropagatesSystemAwaitError(t *testing.T) {
 	deps := ops.NewOpDependenciesBuilder().
-		WithJobTool(&fakeJobTool{key: swf.JobKey{TenantId: "tenant"}, awaitErr: errors.New("backend down")}).
+		WithJobTool(&fakeJobTool{key: jobdb.JobKey{TenantId: "tenant"}, awaitErr: errors.New("backend down")}).
 		Build()
 
 	_, err := awaitChildGroup(deps, context.Background(), ChildGroupStepState{Children: []ChildGroupChildRecord{
@@ -46,13 +46,13 @@ func TestAwaitChildGroupPropagatesSystemAwaitError(t *testing.T) {
 
 func TestCollectChildGroupSoftensOnlyTerminalChildErrors(t *testing.T) {
 	ctl := &fakeWorkflowControl{
-		jobResultFunc: func(ctx context.Context, key swf.JobKey) (swf.JobData, error) {
-			return nil, &swf.JobFailedError{Cause: swf.AppError{Payload: swf.AppErrorPayload{Message: "child failed"}}}
+		jobResultFunc: func(ctx context.Context, key jobdb.JobKey) (jobdb.JobData, error) {
+			return nil, &jobdb.JobFailedError{Cause: jobdb.AppError{Payload: jobdb.AppErrorPayload{Message: "child failed"}}}
 		},
 	}
 	deps := ops.NewOpDependenciesBuilder().
 		WithWorkflowControl(ctl).
-		WithJobTool(&fakeJobTool{key: swf.JobKey{TenantId: "tenant"}}).
+		WithJobTool(&fakeJobTool{key: jobdb.JobKey{TenantId: "tenant"}}).
 		Build()
 
 	out, err := collectChildGroup(deps, context.Background(), ChildGroupStepState{Children: []ChildGroupChildRecord{
@@ -75,13 +75,13 @@ func TestCollectChildGroupSoftensOnlyTerminalChildErrors(t *testing.T) {
 
 func TestCollectChildGroupPropagatesUnexpectedResultError(t *testing.T) {
 	ctl := &fakeWorkflowControl{
-		jobResultFunc: func(ctx context.Context, key swf.JobKey) (swf.JobData, error) {
+		jobResultFunc: func(ctx context.Context, key jobdb.JobKey) (jobdb.JobData, error) {
 			return nil, errors.New("result store down")
 		},
 	}
 	deps := ops.NewOpDependenciesBuilder().
 		WithWorkflowControl(ctl).
-		WithJobTool(&fakeJobTool{key: swf.JobKey{TenantId: "tenant"}}).
+		WithJobTool(&fakeJobTool{key: jobdb.JobKey{TenantId: "tenant"}}).
 		Build()
 
 	_, err := collectChildGroup(deps, context.Background(), ChildGroupStepState{Children: []ChildGroupChildRecord{

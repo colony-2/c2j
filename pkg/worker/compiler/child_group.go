@@ -13,7 +13,7 @@ import (
 	"github.com/colony-2/c2j/pkg/recipe"
 	"github.com/colony-2/c2j/pkg/template"
 	"github.com/colony-2/c2j/pkg/workflow"
-	"github.com/colony-2/swf-go/pkg/swf"
+	"github.com/colony-2/jobdb/pkg/jobdb"
 )
 
 func (d DefaultRecipeExecutor) ExecuteChildGroup(ctx workflow.Context, parent *template.ResolutionContext, metadata recipe.NodeMetadata, group recipe.ChildGroupData) error {
@@ -331,9 +331,9 @@ func artifactRefFromRendered(resCtx *template.ResolutionContext, value interface
 			return recipeartifacts.Ref{}, nil
 		}
 		return *typed, nil
-	case swf.ArtifactKey:
+	case jobdb.ArtifactKey:
 		return recipeartifacts.NewStoredRef(typed), nil
-	case *swf.ArtifactKey:
+	case *jobdb.ArtifactKey:
 		if typed == nil {
 			return recipeartifacts.Ref{}, nil
 		}

@@ -4,16 +4,16 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"github.com/colony-2/jobdb/pkg/jobdb"
+	remoteruntime "github.com/colony-2/jobdb/pkg/jobdb/runtime/remote"
+	toyruntime "github.com/colony-2/jobdb/pkg/jobdb/runtime/toy"
+	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/colony-2/swf-go/pkg/swf"
-	remoteruntime "github.com/colony-2/swf-go/pkg/swf/runtime/remote"
-	toyruntime "github.com/colony-2/swf-go/pkg/swf/runtime/toy"
 )
 
 func TestRunDefaultsToCurrentCell(t *testing.T) {
@@ -230,7 +230,7 @@ self:
 	}
 }
 
-func startListTestRuntime(ctx context.Context) (*httptest.Server, string, swf.JobStatus, error) {
+func startListTestRuntime(ctx context.Context) (*httptest.Server, string, jobdb.JobStatus, error) {
 	tenantID := "tenant-list-test"
 	underlying := toyruntime.New()
 	server := httptest.NewServer(remoteruntime.NewServer(underlying))
@@ -241,7 +241,7 @@ func startListTestRuntime(ctx context.Context) (*httptest.Server, string, swf.Jo
 		return nil, "", "", err
 	}
 
-	engine, err := swf.NewEngineBuilder().WithRuntime(runtime).BuildEngine()
+	engine, err := jobworkflow.NewEngineBuilder().WithRuntime(runtime).BuildEngine()
 	if err != nil {
 		server.Close()
 		return nil, "", "", err
@@ -256,7 +256,7 @@ func startListTestRuntime(ctx context.Context) (*httptest.Server, string, swf.Jo
 		{id: "job-alpha-2", jobType: "alpha", cellName: "alpha"},
 		{id: "job-beta-1", jobType: "beta", cellName: "beta"},
 	} {
-		data, err := swf.NewTaskData(map[string]any{"job_id": job.id})
+		data, err := jobdb.NewTaskData(map[string]any{"job_id": job.id})
 		if err != nil {
 			server.Close()
 			return nil, "", "", err
@@ -266,12 +266,12 @@ func startListTestRuntime(ctx context.Context) (*httptest.Server, string, swf.Jo
 			server.Close()
 			return nil, "", "", err
 		}
-		if _, err := engine.SubmitJob(ctx, swf.SubmitJob{
+		if _, err := engine.SubmitJob(ctx, jobdb.SubmitJob{
 			TenantId:  tenantID,
 			JobID:     job.id,
 			JobType:   job.jobType,
 			Data:      data,
-			RunPolicy: swf.DefaultRunPolicy(),
+			RunPolicy: jobdb.DefaultRunPolicy(),
 			Metadata:  metadata,
 		}); err != nil {
 			server.Close()
@@ -279,7 +279,7 @@ func startListTestRuntime(ctx context.Context) (*httptest.Server, string, swf.Jo
 		}
 	}
 
-	info, err := engine.GetJob(ctx, swf.JobKey{TenantId: tenantID, JobId: "job-alpha-1"})
+	info, err := engine.GetJob(ctx, jobdb.JobKey{TenantId: tenantID, JobId: "job-alpha-1"})
 	if err != nil {
 		server.Close()
 		return nil, "", "", err

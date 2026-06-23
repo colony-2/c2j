@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"reflect"
 
-	"github.com/colony-2/swf-go/pkg/swf"
+	"github.com/colony-2/jobdb/pkg/jobdb"
 	"github.com/invopop/jsonschema"
 	orderedmap "github.com/wk8/go-ordered-map/v2"
 )
@@ -42,7 +42,7 @@ func (g *DefaultSchemaGenerator) GenerateSchema(typ reflect.Type) (*jsonschema.S
 		typ = typ.Elem()
 	}
 
-	if typ == reflect.TypeOf(swf.ArtifactKey{}) {
+	if typ == reflect.TypeOf(jobdb.ArtifactKey{}) {
 		props := orderedmap.New[string, *jsonschema.Schema]()
 		props.Set("jobId", &jsonschema.Schema{Type: "string"})
 		props.Set("taskOrdinal", &jsonschema.Schema{Type: "integer"})

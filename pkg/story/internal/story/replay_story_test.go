@@ -17,14 +17,15 @@ import (
 	"github.com/colony-2/c2j/pkg/template/funcregistry"
 	"github.com/colony-2/c2j/pkg/worker/compiler"
 	"github.com/colony-2/c2j/pkg/workflowctl"
-	"github.com/colony-2/swf-go/pkg/swf"
+	"github.com/colony-2/jobdb/pkg/jobdb"
+	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
 	"github.com/google/cel-go/cel"
 	"github.com/google/cel-go/common/types"
 	"github.com/google/cel-go/common/types/ref"
 )
 
 type fakeReplayEngine struct {
-	jobInput    swf.JobData
+	jobInput    jobdb.JobData
 	taskScripts []fakeTaskScript
 	jobStartAt  time.Time
 	jobEndAt    time.Time
@@ -32,16 +33,16 @@ type fakeReplayEngine struct {
 	skipTaskStartOnMiss bool
 }
 
-func (e *fakeReplayEngine) ReplayJobRun(ctx context.Context, req swf.ReplayRunRequest) (swf.JobData, error) {
+func (e *fakeReplayEngine) ReplayJobRun(ctx context.Context, req jobworkflow.ReplayRunRequest) (jobdb.JobData, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
 	if req.JobWorker == nil {
-		return nil, swf.ReplayCacheMissError{JobKey: req.JobKey, Ordinal: 0, Attempt: 1, Reason: swf.ReplayCacheMissJobResultMissing}
+		return nil, jobworkflow.ReplayCacheMissError{JobKey: req.JobKey, Ordinal: 0, Attempt: 1, Reason: jobworkflow.ReplayCacheMissJobResultMissing}
 	}
 	obs := req.Observer
 	if obs != nil {
-		obs.OnJobStart(swf.JobStartEvent{JobKey: req.JobKey, AttemptNumber: 1, Input: e.jobInput, At: e.jobStartAt})
+		obs.OnJobStart(jobworkflow.JobStartEvent{JobKey: req.JobKey, AttemptNumber: 1, Input: e.jobInput, At: e.jobStartAt})
 	}
 	jc := &fakeReplayJobContext{
 		jobKey:              req.JobKey,
@@ -52,14 +53,14 @@ func (e *fakeReplayEngine) ReplayJobRun(ctx context.Context, req swf.ReplayRunRe
 	}
 	out, err := req.JobWorker.Run(jc, e.jobInput)
 	if obs != nil {
-		obs.OnJobEnd(swf.JobEndEvent{JobKey: req.JobKey, AttemptNumber: 1, Output: out, Err: err, At: e.jobEndAt})
+		obs.OnJobEnd(jobworkflow.JobEndEvent{JobKey: req.JobKey, AttemptNumber: 1, Output: out, Err: err, At: e.jobEndAt})
 	}
 	return out, err
 }
 
 type fakeReplayJobContext struct {
-	jobKey   swf.JobKey
-	observer swf.ReplayObserver
+	jobKey   jobdb.JobKey
+	observer jobworkflow.ReplayObserver
 
 	nextOrdinal int64
 	scripts     []fakeTaskScript
@@ -67,15 +68,15 @@ type fakeReplayJobContext struct {
 	skipTaskStartOnMiss bool
 }
 
-func (c *fakeReplayJobContext) GetJobKey() swf.JobKey { return c.jobKey }
-func (c *fakeReplayJobContext) Logger() *slog.Logger  { return nil }
+func (c *fakeReplayJobContext) GetJobKey() jobdb.JobKey { return c.jobKey }
+func (c *fakeReplayJobContext) Logger() *slog.Logger    { return nil }
 
-func (c *fakeReplayJobContext) AwaitDuration(_ swf.Duration) error { return nil }
-func (c *fakeReplayJobContext) AwaitJobs(_ ...string) error        { return nil }
+func (c *fakeReplayJobContext) AwaitDuration(_ jobdb.Duration) error { return nil }
+func (c *fakeReplayJobContext) AwaitJobs(_ ...string) error          { return nil }
 
 type fakeTaskAttempt struct {
 	Attempt    int
-	Output     swf.TaskData
+	Output     jobdb.TaskData
 	Err        error
 	StartedAt  time.Time
 	FinishedAt time.Time
@@ -86,7 +87,7 @@ type fakeTaskScript struct {
 	Attempts []fakeTaskAttempt
 }
 
-func (c *fakeReplayJobContext) DoTask(_ swf.RunPolicy, taskType string, input swf.TaskData) (swf.TaskData, error) {
+func (c *fakeReplayJobContext) DoTask(_ jobdb.RunPolicy, taskType string, input jobdb.TaskData) (jobdb.TaskData, error) {
 	ord := c.nextOrdinal
 	script := fakeTaskScript{}
 	if len(c.scripts) > 0 {
@@ -103,12 +104,12 @@ func (c *fakeReplayJobContext) DoTask(_ swf.RunPolicy, taskType string, input sw
 		script.Attempts = []fakeTaskAttempt{{
 			Attempt: 1,
 			Output:  nil,
-			Err: swf.ReplayCacheMissError{
+			Err: jobworkflow.ReplayCacheMissError{
 				JobKey:   c.jobKey,
 				TaskType: taskType,
 				Ordinal:  ord,
 				Attempt:  1,
-				Reason:   swf.ReplayCacheMissTaskResultMissing,
+				Reason:   jobworkflow.ReplayCacheMissTaskResultMissing,
 			},
 		}}
 	}
@@ -118,9 +119,9 @@ func (c *fakeReplayJobContext) DoTask(_ swf.RunPolicy, taskType string, input sw
 		if attemptNum <= 0 {
 			attemptNum = 1
 		}
-		var miss swf.ReplayCacheMissError
+		var miss jobworkflow.ReplayCacheMissError
 		if c.observer != nil && !(c.skipTaskStartOnMiss && errors.As(att.Err, &miss)) {
-			c.observer.OnTaskStart(swf.TaskStartEvent{
+			c.observer.OnTaskStart(jobworkflow.TaskStartEvent{
 				JobKey:        c.jobKey,
 				TaskType:      taskType,
 				Ordinal:       ord,
@@ -130,7 +131,7 @@ func (c *fakeReplayJobContext) DoTask(_ swf.RunPolicy, taskType string, input sw
 			})
 		}
 		if c.observer != nil {
-			c.observer.OnTaskEnd(swf.TaskEndEvent{
+			c.observer.OnTaskEnd(jobworkflow.TaskEndEvent{
 				JobKey:        c.jobKey,
 				TaskType:      taskType,
 				Ordinal:       ord,
@@ -146,7 +147,7 @@ func (c *fakeReplayJobContext) DoTask(_ swf.RunPolicy, taskType string, input sw
 	return last.Output, last.Err
 }
 
-var _ swf.JobContext = (*fakeReplayJobContext)(nil)
+var _ jobworkflow.JobContext = (*fakeReplayJobContext)(nil)
 
 func TestJobRunStoryReplay_BuildsTreeAndNormalizesMissingOutputKeys(t *testing.T) {
 	type in struct{}
@@ -168,7 +169,7 @@ outputs:
   present: "{{ sequence.run.outputs.present }}"
   missing: "{{ sequence.run.outputs.missing }}"
 `
-	recipeArt := swf.NewArtifactFromBytes("test"+starter.RecipeArtifactSuffix, []byte(recipeYAML))
+	recipeArt := jobdb.NewArtifactFromBytes("test"+starter.RecipeArtifactSuffix, []byte(recipeYAML))
 	start := workflowctl.StartJob{
 		RecipeName: "test",
 		GitRef:     "main",
@@ -180,7 +181,7 @@ outputs:
 			},
 		},
 	}
-	jobInput, err := swf.NewTaskData(start, recipeArt)
+	jobInput, err := jobdb.NewTaskData(start, recipeArt)
 	if err != nil {
 		t.Fatalf("NewTaskData(job start): %v", err)
 	}
@@ -197,14 +198,14 @@ outputs:
 	if err != nil {
 		t.Fatalf("marshal output: %v", err)
 	}
-	taskOut := &swf.SimpleTaskData{Data: json.RawMessage(outBytes)}
+	taskOut := &jobdb.SimpleTaskData{Data: json.RawMessage(outBytes)}
 
 	engine := &fakeReplayEngine{
-		jobInput:    swf.JobData(jobInput),
+		jobInput:    jobdb.JobData(jobInput),
 		taskScripts: []fakeTaskScript{{Attempts: []fakeTaskAttempt{{Attempt: 1, Output: taskOut, Err: nil}}}},
 	}
 
-	jobKey := swf.JobKey{TenantId: "tenant", JobId: "job"}
+	jobKey := jobdb.JobKey{TenantId: "tenant", JobId: "job"}
 	st, err := BuildJobRunStory(context.Background(), engine, jobKey, nil, nil)
 	if err != nil {
 		t.Fatalf("BuildJobRunStory: %v", err)
@@ -258,12 +259,12 @@ outputs:
 			},
 		},
 	}
-	jobInput, err := swf.NewTaskData(start)
+	jobInput, err := jobdb.NewTaskData(start)
 	if err != nil {
 		t.Fatalf("NewTaskData(job start): %v", err)
 	}
 
-	resolutionOut, err := swf.NewTaskData(compiler.ResolvedRecipeSource{
+	resolutionOut, err := jobdb.NewTaskData(compiler.ResolvedRecipeSource{
 		RecipeSourceResolution: compiler.RecipeSourceResolution{
 			SourceKind:        compiler.RecipeSourceKindServerRef,
 			SubmittedSelector: "story-ref",
@@ -289,17 +290,17 @@ outputs:
 	if err != nil {
 		t.Fatalf("marshal output: %v", err)
 	}
-	taskOut := &swf.SimpleTaskData{Data: json.RawMessage(outBytes)}
+	taskOut := &jobdb.SimpleTaskData{Data: json.RawMessage(outBytes)}
 
 	engine := &fakeReplayEngine{
-		jobInput: swf.JobData(jobInput),
+		jobInput: jobdb.JobData(jobInput),
 		taskScripts: []fakeTaskScript{
 			{Attempts: []fakeTaskAttempt{{Attempt: 1, Output: resolutionOut, Err: nil}}},
 			{Attempts: []fakeTaskAttempt{{Attempt: 1, Output: taskOut, Err: nil}}},
 		},
 	}
 
-	st, err := BuildJobRunStory(context.Background(), engine, swf.JobKey{TenantId: "tenant", JobId: "job"}, nil, nil)
+	st, err := BuildJobRunStory(context.Background(), engine, jobdb.JobKey{TenantId: "tenant", JobId: "job"}, nil, nil)
 	if err != nil {
 		t.Fatalf("BuildJobRunStory: %v", err)
 	}
@@ -369,14 +370,14 @@ sequence:
 outputs:
   done: "{{ sequence.run.outputs.done }}"
 `
-	recipeArt := swf.NewArtifactFromBytes("test"+starter.RecipeArtifactSuffix, []byte(recipeYAML))
+	recipeArt := jobdb.NewArtifactFromBytes("test"+starter.RecipeArtifactSuffix, []byte(recipeYAML))
 	start := workflowctl.StartJob{
 		RecipeName: "test",
 		GitRef:     "main",
 		Inputs:     map[string]any{},
 		JobContext: contextual.JobContext{},
 	}
-	jobInput, err := swf.NewTaskData(start, recipeArt)
+	jobInput, err := jobdb.NewTaskData(start, recipeArt)
 	if err != nil {
 		t.Fatalf("NewTaskData(job start): %v", err)
 	}
@@ -390,7 +391,7 @@ outputs:
 		t.Fatalf("NewOutputEnvelope step1: %v", err)
 	}
 	raw1, _ := json.Marshal(env1)
-	taskOut1 := &swf.SimpleTaskData{Data: json.RawMessage(raw1)}
+	taskOut1 := &jobdb.SimpleTaskData{Data: json.RawMessage(raw1)}
 
 	env2, err := coretasks.NewOutputEnvelope(coretasks.OutputKindActivityInvocationOutput, map[string]any{
 		"git":          map[string]any{},
@@ -401,17 +402,17 @@ outputs:
 		t.Fatalf("NewOutputEnvelope step2: %v", err)
 	}
 	raw2, _ := json.Marshal(env2)
-	taskOut2 := &swf.SimpleTaskData{Data: json.RawMessage(raw2)}
+	taskOut2 := &jobdb.SimpleTaskData{Data: json.RawMessage(raw2)}
 
 	engine := &fakeReplayEngine{
-		jobInput: swf.JobData(jobInput),
+		jobInput: jobdb.JobData(jobInput),
 		taskScripts: []fakeTaskScript{
 			{Attempts: []fakeTaskAttempt{{Attempt: 1, Output: taskOut1, Err: nil}}},
 			{Attempts: []fakeTaskAttempt{{Attempt: 1, Output: taskOut2, Err: nil}}},
 		},
 	}
 
-	jobKey := swf.JobKey{TenantId: "tenant", JobId: "job"}
+	jobKey := jobdb.JobKey{TenantId: "tenant", JobId: "job"}
 	st, err := BuildJobRunStory(context.Background(), engine, jobKey, nil, nil)
 	if err != nil {
 		t.Fatalf("BuildJobRunStory: %v", err)
@@ -459,9 +460,9 @@ sequence:
 outputs:
   value: "{{ sequence.run.outputs.value }}"
 `
-	recipeArt := swf.NewArtifactFromBytes("test"+starter.RecipeArtifactSuffix, []byte(recipeYAML))
+	recipeArt := jobdb.NewArtifactFromBytes("test"+starter.RecipeArtifactSuffix, []byte(recipeYAML))
 	start := workflowctl.StartJob{RecipeName: "test", GitRef: "main", Inputs: map[string]any{}, JobContext: contextual.JobContext{}}
-	jobInput, err := swf.NewTaskData(start, recipeArt)
+	jobInput, err := jobdb.NewTaskData(start, recipeArt)
 	if err != nil {
 		t.Fatalf("NewTaskData(job start): %v", err)
 	}
@@ -475,10 +476,10 @@ outputs:
 		t.Fatalf("NewOutputEnvelope: %v", err)
 	}
 	raw, _ := json.Marshal(env)
-	taskOut := &swf.SimpleTaskData{Data: json.RawMessage(raw)}
+	taskOut := &jobdb.SimpleTaskData{Data: json.RawMessage(raw)}
 
 	engine := &fakeReplayEngine{
-		jobInput: swf.JobData(jobInput),
+		jobInput: jobdb.JobData(jobInput),
 		taskScripts: []fakeTaskScript{{
 			Attempts: []fakeTaskAttempt{
 				{Attempt: 1, Output: nil, Err: errors.New("boom")},
@@ -487,7 +488,7 @@ outputs:
 		}},
 	}
 
-	jobKey := swf.JobKey{TenantId: "tenant", JobId: "job"}
+	jobKey := jobdb.JobKey{TenantId: "tenant", JobId: "job"}
 	st, err := BuildJobRunStory(context.Background(), engine, jobKey, nil, nil)
 	if err != nil {
 		t.Fatalf("BuildJobRunStory: %v", err)
@@ -527,31 +528,31 @@ sequence:
 outputs:
   value: "{{ sequence.run.outputs.value }}"
 `
-	recipeArt := swf.NewArtifactFromBytes("test"+starter.RecipeArtifactSuffix, []byte(recipeYAML))
+	recipeArt := jobdb.NewArtifactFromBytes("test"+starter.RecipeArtifactSuffix, []byte(recipeYAML))
 	start := workflowctl.StartJob{RecipeName: "test", GitRef: "main", Inputs: map[string]any{}, JobContext: contextual.JobContext{}}
-	jobInput, err := swf.NewTaskData(start, recipeArt)
+	jobInput, err := jobdb.NewTaskData(start, recipeArt)
 	if err != nil {
 		t.Fatalf("NewTaskData(job start): %v", err)
 	}
 
 	engine := &fakeReplayEngine{
-		jobInput: swf.JobData(jobInput),
+		jobInput: jobdb.JobData(jobInput),
 		taskScripts: []fakeTaskScript{{
 			Attempts: []fakeTaskAttempt{{
 				Attempt: 1,
 				Output:  nil,
-				Err: swf.ReplayCacheMissError{
-					JobKey:   swf.JobKey{TenantId: "tenant", JobId: "job"},
+				Err: jobworkflow.ReplayCacheMissError{
+					JobKey:   jobdb.JobKey{TenantId: "tenant", JobId: "job"},
 					TaskType: opType + ":" + opType,
 					Ordinal:  1,
 					Attempt:  1,
-					Reason:   swf.ReplayCacheMissTaskResultMissing,
+					Reason:   jobworkflow.ReplayCacheMissTaskResultMissing,
 				},
 			}},
 		}},
 	}
 
-	jobKey := swf.JobKey{TenantId: "tenant", JobId: "job"}
+	jobKey := jobdb.JobKey{TenantId: "tenant", JobId: "job"}
 	st, err := BuildJobRunStory(context.Background(), engine, jobKey, nil, nil)
 	if err != nil {
 		t.Fatalf("BuildJobRunStory: %v", err)
@@ -592,32 +593,32 @@ sequence:
 outputs:
   value: "{{ sequence.run.outputs.value }}"
 `
-	recipeArt := swf.NewArtifactFromBytes("test"+starter.RecipeArtifactSuffix, []byte(recipeYAML))
+	recipeArt := jobdb.NewArtifactFromBytes("test"+starter.RecipeArtifactSuffix, []byte(recipeYAML))
 	start := workflowctl.StartJob{RecipeName: "test", GitRef: "main", Inputs: map[string]any{}, JobContext: contextual.JobContext{}}
-	jobInput, err := swf.NewTaskData(start, recipeArt)
+	jobInput, err := jobdb.NewTaskData(start, recipeArt)
 	if err != nil {
 		t.Fatalf("NewTaskData(job start): %v", err)
 	}
 
 	engine := &fakeReplayEngine{
-		jobInput:            swf.JobData(jobInput),
+		jobInput:            jobdb.JobData(jobInput),
 		skipTaskStartOnMiss: true,
 		taskScripts: []fakeTaskScript{{
 			Attempts: []fakeTaskAttempt{{
 				Attempt: 1,
 				Output:  nil,
-				Err: swf.ReplayCacheMissError{
-					JobKey:   swf.JobKey{TenantId: "tenant", JobId: "job"},
+				Err: jobworkflow.ReplayCacheMissError{
+					JobKey:   jobdb.JobKey{TenantId: "tenant", JobId: "job"},
 					TaskType: opType + ":" + opType,
 					Ordinal:  1,
 					Attempt:  1,
-					Reason:   swf.ReplayCacheMissTaskResultMissing,
+					Reason:   jobworkflow.ReplayCacheMissTaskResultMissing,
 				},
 			}},
 		}},
 	}
 
-	jobKey := swf.JobKey{TenantId: "tenant", JobId: "job"}
+	jobKey := jobdb.JobKey{TenantId: "tenant", JobId: "job"}
 	st, err := BuildJobRunStory(context.Background(), engine, jobKey, nil, nil)
 	if err != nil {
 		t.Fatalf("BuildJobRunStory: %v", err)
@@ -670,20 +671,20 @@ sequence: []
 outputs:
   greet: "${{ hello() }}"
 `
-	recipeArt := swf.NewArtifactFromBytes("test"+starter.RecipeArtifactSuffix, []byte(recipeYAML))
+	recipeArt := jobdb.NewArtifactFromBytes("test"+starter.RecipeArtifactSuffix, []byte(recipeYAML))
 	start := workflowctl.StartJob{
 		RecipeName: "test",
 		GitRef:     "main",
 		Inputs:     map[string]any{},
 		JobContext: contextual.JobContext{},
 	}
-	jobInput, err := swf.NewTaskData(start, recipeArt)
+	jobInput, err := jobdb.NewTaskData(start, recipeArt)
 	if err != nil {
 		t.Fatalf("NewTaskData(job start): %v", err)
 	}
 
-	engine := &fakeReplayEngine{jobInput: swf.JobData(jobInput)}
-	jobKey := swf.JobKey{TenantId: "tenant", JobId: "job"}
+	engine := &fakeReplayEngine{jobInput: jobdb.JobData(jobInput)}
+	jobKey := jobdb.JobKey{TenantId: "tenant", JobId: "job"}
 	st, err := BuildJobRunStory(context.Background(), engine, jobKey, builder, nil)
 	if err != nil {
 		t.Fatalf("BuildJobRunStory: %v", err)
@@ -719,9 +720,9 @@ sequence:
     op: test_story_timestamps
 outputs: {}
 `
-	recipeArt := swf.NewArtifactFromBytes("test"+starter.RecipeArtifactSuffix, []byte(recipeYAML))
+	recipeArt := jobdb.NewArtifactFromBytes("test"+starter.RecipeArtifactSuffix, []byte(recipeYAML))
 	start := workflowctl.StartJob{RecipeName: "test", GitRef: "main", Inputs: map[string]any{}, JobContext: contextual.JobContext{}}
-	jobInput, err := swf.NewTaskData(start, recipeArt)
+	jobInput, err := jobdb.NewTaskData(start, recipeArt)
 	if err != nil {
 		t.Fatalf("NewTaskData(job start): %v", err)
 	}
@@ -735,7 +736,7 @@ outputs: {}
 		t.Fatalf("NewOutputEnvelope: %v", err)
 	}
 	raw, _ := json.Marshal(env)
-	taskOut := &swf.SimpleTaskData{Data: json.RawMessage(raw)}
+	taskOut := &jobdb.SimpleTaskData{Data: json.RawMessage(raw)}
 
 	t0 := time.Date(2026, 2, 1, 0, 0, 0, 0, time.UTC)
 	t1 := t0.Add(10 * time.Second)
@@ -743,7 +744,7 @@ outputs: {}
 	tEnd := t0.Add(1 * time.Minute)
 
 	engine := &fakeReplayEngine{
-		jobInput:   swf.JobData(jobInput),
+		jobInput:   jobdb.JobData(jobInput),
 		jobStartAt: t0,
 		jobEndAt:   tEnd,
 		taskScripts: []fakeTaskScript{{
@@ -757,7 +758,7 @@ outputs: {}
 		}},
 	}
 
-	jobKey := swf.JobKey{TenantId: "tenant", JobId: "job"}
+	jobKey := jobdb.JobKey{TenantId: "tenant", JobId: "job"}
 	st, err := BuildJobRunStory(context.Background(), engine, jobKey, nil, nil)
 	if err != nil {
 		t.Fatalf("BuildJobRunStory: %v", err)
@@ -820,9 +821,9 @@ sequence:
           inputs: {}
 outputs: {}
 `
-	recipeArt := swf.NewArtifactFromBytes("test"+starter.RecipeArtifactSuffix, []byte(recipeYAML))
+	recipeArt := jobdb.NewArtifactFromBytes("test"+starter.RecipeArtifactSuffix, []byte(recipeYAML))
 	start := workflowctl.StartJob{RecipeName: "test", GitRef: "main", Inputs: map[string]any{}, JobContext: contextual.JobContext{}}
-	jobInput, err := swf.NewTaskData(start, recipeArt)
+	jobInput, err := jobdb.NewTaskData(start, recipeArt)
 	if err != nil {
 		t.Fatalf("NewTaskData(job start): %v", err)
 	}
@@ -836,17 +837,17 @@ outputs: {}
 		t.Fatalf("NewOutputEnvelope: %v", err)
 	}
 	raw, _ := json.Marshal(env)
-	taskOut := &swf.SimpleTaskData{Data: json.RawMessage(raw)}
+	taskOut := &jobdb.SimpleTaskData{Data: json.RawMessage(raw)}
 
 	engine := &fakeReplayEngine{
-		jobInput: swf.JobData(jobInput),
+		jobInput: jobdb.JobData(jobInput),
 		taskScripts: []fakeTaskScript{
 			{Attempts: []fakeTaskAttempt{{Attempt: 1, Output: taskOut, Err: nil}}},
 			{Attempts: []fakeTaskAttempt{{Attempt: 1, Output: taskOut, Err: nil}}},
 		},
 	}
 
-	jobKey := swf.JobKey{TenantId: "tenant", JobId: "job"}
+	jobKey := jobdb.JobKey{TenantId: "tenant", JobId: "job"}
 	st, err := BuildJobRunStory(context.Background(), engine, jobKey, nil, nil)
 	if err != nil {
 		t.Fatalf("BuildJobRunStory: %v", err)

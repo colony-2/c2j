@@ -4,18 +4,18 @@ import (
 	"fmt"
 
 	recipeartifacts "github.com/colony-2/c2j/pkg/artifacts"
-	"github.com/colony-2/swf-go/pkg/swf"
+	"github.com/colony-2/jobdb/pkg/jobdb"
 )
 
-func artifactKeyIdentity(key swf.ArtifactKey) string {
+func artifactKeyIdentity(key jobdb.ArtifactKey) string {
 	return fmt.Sprintf("%s:%d:%s", key.JobId, key.TaskOrdinal, key.Name)
 }
 
-func appendArtifactKeys(existing []swf.ArtifactKey, bindings map[string]recipeartifacts.Ref) []swf.ArtifactKey {
+func appendArtifactKeys(existing []jobdb.ArtifactKey, bindings map[string]recipeartifacts.Ref) []jobdb.ArtifactKey {
 	if len(bindings) == 0 {
 		return existing
 	}
-	seen := make(map[string]swf.ArtifactKey, len(existing)+len(bindings))
+	seen := make(map[string]jobdb.ArtifactKey, len(existing)+len(bindings))
 	for _, key := range existing {
 		seen[artifactKeyIdentity(key)] = key
 	}
@@ -26,7 +26,7 @@ func appendArtifactKeys(existing []swf.ArtifactKey, bindings map[string]recipear
 		}
 		seen[artifactKeyIdentity(key)] = key
 	}
-	out := make([]swf.ArtifactKey, 0, len(seen))
+	out := make([]jobdb.ArtifactKey, 0, len(seen))
 	for _, key := range seen {
 		out = append(out, key)
 	}

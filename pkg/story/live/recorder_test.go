@@ -6,20 +6,21 @@ import (
 	"time"
 
 	"github.com/colony-2/c2j/pkg/worker/compiler"
-	"github.com/colony-2/swf-go/pkg/swf"
+	"github.com/colony-2/jobdb/pkg/jobdb"
+	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
 )
 
 func TestRecorderSnapshot_DoesNotDuplicateSyntheticSourceResolutionNode(t *testing.T) {
-	jobKey := swf.JobKey{TenantId: "tenant", JobId: "job"}
+	jobKey := jobdb.JobKey{TenantId: "tenant", JobId: "job"}
 	rec := NewRecorder(Options{JobKey: jobKey})
 
-	rec.OnJobStart(swf.JobStartEvent{
+	rec.OnJobStart(jobworkflow.JobStartEvent{
 		JobKey:        jobKey,
 		AttemptNumber: 1,
 		At:            time.Unix(10, 0).UTC(),
 	})
 	rec.OnRecipeLoaded("story-ref")
-	rec.OnTaskStart(swf.TaskStartEvent{
+	rec.OnTaskStart(jobworkflow.TaskStartEvent{
 		JobKey:        jobKey,
 		TaskType:      compiler.RootSourceResolutionTaskType,
 		Ordinal:       1,
@@ -41,12 +42,12 @@ func TestRecorderSnapshot_DoesNotDuplicateSyntheticSourceResolutionNode(t *testi
 		t.Fatalf("marshal resolved source: %v", err)
 	}
 
-	rec.OnTaskEnd(swf.TaskEndEvent{
+	rec.OnTaskEnd(jobworkflow.TaskEndEvent{
 		JobKey:        jobKey,
 		TaskType:      compiler.RootSourceResolutionTaskType,
 		Ordinal:       1,
 		AttemptNumber: 1,
-		Output:        &swf.SimpleTaskData{Data: raw},
+		Output:        &jobdb.SimpleTaskData{Data: raw},
 		At:            time.Unix(12, 0).UTC(),
 	})
 

@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/colony-2/c2j/cmd/c2j/internal/defaults"
-	"github.com/colony-2/swf-go/pkg/swf"
+	"github.com/colony-2/jobdb/pkg/jobdb"
 )
 
 func TestOpenEmbedPersistsJobsAcrossReopen(t *testing.T) {
@@ -24,13 +24,13 @@ func TestOpenEmbedPersistsJobsAcrossReopen(t *testing.T) {
 		t.Fatalf("Open(embed): %v", err)
 	}
 
-	data := swf.NewTaskDataOrPanic(map[string]any{"job_id": "job-1"})
-	jobKey, err := handle.Engine.SubmitJob(ctx, swf.SubmitJob{
+	data := jobdb.NewTaskDataOrPanic(map[string]any{"job_id": "job-1"})
+	jobKey, err := handle.Engine.SubmitJob(ctx, jobdb.SubmitJob{
 		TenantId:  "tenant-embed-test",
 		JobID:     "job-1",
 		JobType:   "alpha",
 		Data:      data,
-		RunPolicy: swf.DefaultRunPolicy(),
+		RunPolicy: jobdb.DefaultRunPolicy(),
 	})
 	cleanupErr := handle.Cleanup()
 	if err != nil {
@@ -56,8 +56,8 @@ func TestOpenEmbedPersistsJobsAcrossReopen(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetJob(): %v", err)
 	}
-	if info.Status != swf.JobStatusReady {
-		t.Fatalf("job status = %s, want %s", info.Status, swf.JobStatusReady)
+	if info.Status != jobdb.JobStatusReady {
+		t.Fatalf("job status = %s, want %s", info.Status, jobdb.JobStatusReady)
 	}
 }
 
@@ -81,22 +81,22 @@ func TestOpenEmbedRejectsConcurrentOpenOnSameRoot(t *testing.T) {
 }
 
 func TestChapterVisibilityRuntimeWaitsUntilWrittenChapterCanBeRead(t *testing.T) {
-	ref := swf.ChapterRef{
-		JobKey:  swf.JobKey{TenantId: "tenant", JobId: "job"},
+	ref := jobdb.ChapterRef{
+		JobKey:  jobdb.JobKey{TenantId: "tenant", JobId: "job"},
 		Ordinal: 2,
 	}
-	chapter := swf.Chapter{
+	chapter := jobdb.Chapter{
 		Ordinal:  ref.Ordinal,
 		TaskType: "task",
-		Body: swf.TaskAttemptOutcomeChapter{
-			Outcome: swf.ApplicationOutputOutcome{
-				Output: swf.ApplicationOutputBytes{Data: []byte(`{"ok":true}`)},
+		Body: jobdb.TaskAttemptOutcomeChapter{
+			Outcome: jobdb.ApplicationOutputOutcome{
+				Output: jobdb.ApplicationOutputBytes{Data: []byte(`{"ok":true}`)},
 			},
 		},
 	}
 	underlying := &delayedChapterRuntime{
 		visibleAfterGetCalls: 3,
-		chapters:             map[swf.ChapterRef]swf.Chapter{},
+		chapters:             map[jobdb.ChapterRef]jobdb.Chapter{},
 	}
 	runtime := &chapterVisibilityRuntime{
 		WorkflowRuntime:        underlying,
@@ -104,7 +104,7 @@ func TestChapterVisibilityRuntimeWaitsUntilWrittenChapterCanBeRead(t *testing.T)
 		visibilityPollInterval: time.Millisecond,
 	}
 
-	err := runtime.PutChapter(context.Background(), swf.PutChapterRequest{
+	err := runtime.PutChapter(context.Background(), jobdb.PutChapterRequest{
 		Ref:     ref,
 		Chapter: chapter,
 	})
@@ -117,31 +117,31 @@ func TestChapterVisibilityRuntimeWaitsUntilWrittenChapterCanBeRead(t *testing.T)
 }
 
 type delayedChapterRuntime struct {
-	swf.WorkflowRuntime
+	jobdb.WorkflowRuntime
 
 	mu                   sync.Mutex
 	visibleAfterGetCalls int
 	getChapterCalls      int
-	chapters             map[swf.ChapterRef]swf.Chapter
+	chapters             map[jobdb.ChapterRef]jobdb.Chapter
 }
 
-func (r *delayedChapterRuntime) PutChapter(_ context.Context, req swf.PutChapterRequest) error {
+func (r *delayedChapterRuntime) PutChapter(_ context.Context, req jobdb.PutChapterRequest) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.chapters[req.Ref] = req.Chapter
 	return nil
 }
 
-func (r *delayedChapterRuntime) GetChapter(_ context.Context, ref swf.ChapterRef) (swf.Chapter, error) {
+func (r *delayedChapterRuntime) GetChapter(_ context.Context, ref jobdb.ChapterRef) (jobdb.Chapter, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.getChapterCalls++
 	if r.getChapterCalls < r.visibleAfterGetCalls {
-		return swf.Chapter{}, swf.ErrChapterNotFound
+		return jobdb.Chapter{}, jobdb.ErrChapterNotFound
 	}
 	chapter, ok := r.chapters[ref]
 	if !ok {
-		return swf.Chapter{}, swf.ErrChapterNotFound
+		return jobdb.Chapter{}, jobdb.ErrChapterNotFound
 	}
 	return chapter, nil
 }

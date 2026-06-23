@@ -16,7 +16,8 @@ import (
 	coretask "github.com/colony-2/c2j/pkg/task"
 	"github.com/colony-2/c2j/pkg/template"
 	workerops "github.com/colony-2/c2j/pkg/worker/ops"
-	"github.com/colony-2/swf-go/pkg/swf"
+	"github.com/colony-2/jobdb/pkg/jobdb"
+	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
 
 	"github.com/colony-2/c2j/pkg/workflow"
 )
@@ -24,7 +25,7 @@ import (
 // RecipeExecutor defines the surface area for executing recipes, states, and ops.
 // This enables decorator implementations (e.g., analysis) without changing call sites.
 type RecipeExecutor interface {
-	ExecuteRecipe(ctx workflow.Context, r recipe.Recipe, rawRecipeInputs map[string]interface{}, execCtx contextual.JobContext, commitContext contextual.GitCommitContext, opts ...ExecutionOptions) (map[string]interface{}, []swf.Artifact, error)
+	ExecuteRecipe(ctx workflow.Context, r recipe.Recipe, rawRecipeInputs map[string]interface{}, execCtx contextual.JobContext, commitContext contextual.GitCommitContext, opts ...ExecutionOptions) (map[string]interface{}, []jobdb.Artifact, error)
 	ExecuteNode(ctx workflow.Context, parentResCtx *template.ResolutionContext, n *recipe.Node) error
 	ExecuteStateMachine(ctx workflow.Context, parentContext *template.ResolutionContext, metadata recipe.NodeMetadata, outputTemplate map[string]interface{}, stateMap *recipe.StateMap, opts ...ExecutionOptions) error
 	ExecuteOp(ctx workflow.Context, parentResolutionContext *template.ResolutionContext, metadata recipe.NodeMetadata, op string) error
@@ -76,19 +77,19 @@ func (d DefaultRecipeExecutor) self() RecipeExecutor {
 }
 
 // ExecuteRecipe keeps the existing public entry point, delegating to the default executor.
-func ExecuteRecipe(ctx workflow.Context, r recipe.Recipe, rawRecipeInputs map[string]interface{}, execCtx contextual.JobContext, commitContext contextual.GitCommitContext, opts ...ExecutionOptions) (map[string]interface{}, []swf.Artifact, error) {
+func ExecuteRecipe(ctx workflow.Context, r recipe.Recipe, rawRecipeInputs map[string]interface{}, execCtx contextual.JobContext, commitContext contextual.GitCommitContext, opts ...ExecutionOptions) (map[string]interface{}, []jobdb.Artifact, error) {
 	return DefaultRecipeExecutor{}.ExecuteRecipe(ctx, r, rawRecipeInputs, execCtx, commitContext, opts...)
 }
 
 // ExecuteRecipeWithExecutor allows callers to run with a custom executor (e.g., decorator).
-func ExecuteRecipeWithExecutor(exec RecipeExecutor, ctx workflow.Context, r recipe.Recipe, rawRecipeInputs map[string]interface{}, execCtx contextual.JobContext, commitContext contextual.GitCommitContext, opts ...ExecutionOptions) (map[string]interface{}, []swf.Artifact, error) {
+func ExecuteRecipeWithExecutor(exec RecipeExecutor, ctx workflow.Context, r recipe.Recipe, rawRecipeInputs map[string]interface{}, execCtx contextual.JobContext, commitContext contextual.GitCommitContext, opts ...ExecutionOptions) (map[string]interface{}, []jobdb.Artifact, error) {
 	if exec == nil {
 		exec = DefaultRecipeExecutor{}
 	}
 	return exec.ExecuteRecipe(ctx, r, rawRecipeInputs, execCtx, commitContext, opts...)
 }
 
-func (d DefaultRecipeExecutor) ExecuteRecipe(ctx workflow.Context, r recipe.Recipe, rawRecipeInputs map[string]interface{}, execCtx contextual.JobContext, commitContext contextual.GitCommitContext, opts ...ExecutionOptions) (map[string]interface{}, []swf.Artifact, error) {
+func (d DefaultRecipeExecutor) ExecuteRecipe(ctx workflow.Context, r recipe.Recipe, rawRecipeInputs map[string]interface{}, execCtx contextual.JobContext, commitContext contextual.GitCommitContext, opts ...ExecutionOptions) (map[string]interface{}, []jobdb.Artifact, error) {
 
 	jobKey := ctx.GetJobKey()
 	execCtx.Workflow.JobID = jobKey.JobId
@@ -288,7 +289,7 @@ func (d DefaultRecipeExecutor) executeOp2(ctx workflow.Context, parentResolution
 
 		if attempt < attempts && shouldRetryFailure(err, failure, metadata.Retry) {
 			if delay := retryDelay(metadata.Retry, attempt); delay > 0 {
-				if awaitErr := ctx.JobContext.AwaitDuration(swf.Duration(delay)); awaitErr != nil {
+				if awaitErr := ctx.JobContext.AwaitDuration(jobdb.Duration(delay)); awaitErr != nil {
 					return awaitErr
 				}
 			}
@@ -373,7 +374,7 @@ func (d DefaultRecipeExecutor) executeOpAttempt(ctx workflow.Context, parentReso
 		return err
 	}
 
-	resolveNormalizedInputs := func() (map[string]interface{}, []swf.ArtifactKey, error) {
+	resolveNormalizedInputs := func() (map[string]interface{}, []jobdb.ArtifactKey, error) {
 		resolvedNodeInputs, err := resCtx.ResolveMap(metadata.Inputs)
 		if err != nil {
 			return nil, nil, fmt.Errorf("failed to resolve templates op inputs: %w", err)
@@ -422,12 +423,12 @@ func (d DefaultRecipeExecutor) executeOpAttempt(ctx workflow.Context, parentReso
 	}
 
 	// Execute the operation
-	retry := swf.RetryPolicy{}
+	retry := jobdb.RetryPolicy{}
 	if metadata.Retry != nil {
 		retry = *metadata.Retry
 	}
 
-	runPolicy := swf.RunPolicy{
+	runPolicy := jobdb.RunPolicy{
 		Retry: retry,
 	}
 	if opTimeout := effectiveOpTimeout(metadata, registeredOp); opTimeout > 0 {
@@ -435,14 +436,14 @@ func (d DefaultRecipeExecutor) executeOpAttempt(ctx workflow.Context, parentReso
 	}
 	taskExecutionTimeout := activeExecutionTimeoutLimit(ctx.JobContext)
 	if taskExecutionTimeout > 0 {
-		totalTimeout := swf.Duration(taskExecutionTimeout)
+		totalTimeout := jobdb.Duration(taskExecutionTimeout)
 		runPolicy.TotalTimeout = &totalTimeout
 	}
 
 	taskType := fmt.Sprintf("%s:%s", taskPrefix, chain[0].Name)
 
 	var stepArtifacts map[string]recipeartifacts.Ref
-	var stepOutputArtifacts []swf.Artifact
+	var stepOutputArtifacts []jobdb.Artifact
 	for i := 0; i < 64; i++ { // guard against accidental loops
 		done := false
 		for patchAttempts := 0; patchAttempts < 64; patchAttempts++ {
@@ -454,7 +455,7 @@ func (d DefaultRecipeExecutor) executeOpAttempt(ctx workflow.Context, parentReso
 				Artifacts:      resolvedArtifacts,
 			}
 
-			taskData, err := swf.NewTaskData(invocation)
+			taskData, err := jobdb.NewTaskData(invocation)
 			if err != nil {
 				return err
 			}
@@ -468,7 +469,7 @@ func (d DefaultRecipeExecutor) executeOpAttempt(ctx workflow.Context, parentReso
 			mismatchErr := err
 			hadMismatch := false
 			if err != nil {
-				if mismatch, ok := swf.UnexpectedChapter(err); ok {
+				if mismatch, ok := jobworkflow.UnexpectedChapter(err); ok {
 					if mismatch.CachedTaskDataErr() != nil {
 						return fmt.Errorf("rehydrate cached task output: %w", mismatch.CachedTaskDataErr())
 					}
@@ -504,7 +505,7 @@ func (d DefaultRecipeExecutor) executeOpAttempt(ctx workflow.Context, parentReso
 						return err
 					}
 					resCtx.RememberArtifacts(outputArtifacts)
-					stepOutputArtifacts = append([]swf.Artifact(nil), outputArtifacts...)
+					stepOutputArtifacts = append([]jobdb.Artifact(nil), outputArtifacts...)
 					stepArtifacts = mergeArtifactRefs(artifactsToMap(outputArtifacts), decoded.Activity.ArtifactRefs)
 					done = true
 				} else {
@@ -652,7 +653,7 @@ func executeCompositeInEnvelope(ctx workflow.Context, retry *recipe.RetryPolicy,
 		failure, _ := failureFromError(err)
 		if attempt < attempts && shouldRetryFailure(err, failure, retry) {
 			if delay := retryDelay(retry, attempt); delay > 0 {
-				if awaitErr := ctx.JobContext.AwaitDuration(swf.Duration(delay)); awaitErr != nil {
+				if awaitErr := ctx.JobContext.AwaitDuration(jobdb.Duration(delay)); awaitErr != nil {
 					return awaitErr
 				}
 			}

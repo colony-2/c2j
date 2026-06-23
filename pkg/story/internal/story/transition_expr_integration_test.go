@@ -13,7 +13,7 @@ import (
 	"github.com/colony-2/c2j/pkg/story/internal/model"
 	coretasks "github.com/colony-2/c2j/pkg/task"
 	"github.com/colony-2/c2j/pkg/workflowctl"
-	"github.com/colony-2/swf-go/pkg/swf"
+	"github.com/colony-2/jobdb/pkg/jobdb"
 )
 
 // This is an integration test to reproduce a production issue where transition evaluation
@@ -54,9 +54,9 @@ state:
 outputs: {}
 `
 
-	recipeArt := swf.NewArtifactFromBytes("test"+starter.RecipeArtifactSuffix, []byte(recipeYAML))
+	recipeArt := jobdb.NewArtifactFromBytes("test"+starter.RecipeArtifactSuffix, []byte(recipeYAML))
 	start := workflowctl.StartJob{RecipeName: "test", GitRef: "main", Inputs: map[string]any{}, JobContext: contextual.JobContext{}}
-	jobInput, err := swf.NewTaskData(start, recipeArt)
+	jobInput, err := jobdb.NewTaskData(start, recipeArt)
 	if err != nil {
 		t.Fatalf("NewTaskData(job start): %v", err)
 	}
@@ -70,17 +70,17 @@ outputs: {}
 		t.Fatalf("NewOutputEnvelope: %v", err)
 	}
 	raw, _ := json.Marshal(env)
-	taskOut := &swf.SimpleTaskData{Data: json.RawMessage(raw)}
+	taskOut := &jobdb.SimpleTaskData{Data: json.RawMessage(raw)}
 
 	engine := &fakeReplayEngine{
-		jobInput: swf.JobData(jobInput),
+		jobInput: jobdb.JobData(jobInput),
 		taskScripts: []fakeTaskScript{
 			{Attempts: []fakeTaskAttempt{{Attempt: 1, Output: taskOut, Err: nil}}},
 			{Attempts: []fakeTaskAttempt{{Attempt: 1, Output: taskOut, Err: nil}}},
 		},
 	}
 
-	jobKey := swf.JobKey{TenantId: "tenant", JobId: "job"}
+	jobKey := jobdb.JobKey{TenantId: "tenant", JobId: "job"}
 	st, err := BuildJobRunStory(context.Background(), engine, jobKey, nil, nil)
 	if err != nil {
 		t.Fatalf("BuildJobRunStory: %v", err)

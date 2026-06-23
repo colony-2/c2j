@@ -7,7 +7,7 @@ import (
 	"github.com/colony-2/c2j/pkg/contextual"
 	recipetemplate "github.com/colony-2/c2j/pkg/template"
 	"github.com/colony-2/c2j/pkg/template/colonycel"
-	"github.com/colony-2/swf-go/pkg/swf"
+	"github.com/colony-2/jobdb/pkg/jobdb"
 	"github.com/stretchr/testify/require"
 )
 
@@ -173,7 +173,7 @@ func artifactBindingResolutionContextWithOptions(t *testing.T, artifactRefs map[
 }
 
 func artifactRefForTest(name string) recipeartifacts.Ref {
-	return recipeartifacts.NewStoredRef(swf.ArtifactKey{
+	return recipeartifacts.NewStoredRef(jobdb.ArtifactKey{
 		JobId:       "job",
 		TaskOrdinal: 1,
 		Name:        name,

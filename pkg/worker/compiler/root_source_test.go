@@ -21,27 +21,28 @@ import (
 	"github.com/colony-2/c2j/pkg/swfutil"
 	workerops "github.com/colony-2/c2j/pkg/worker/ops"
 	"github.com/colony-2/c2j/pkg/workflowctl"
-	"github.com/colony-2/swf-go/pkg/swf"
+	"github.com/colony-2/jobdb/pkg/jobdb"
+	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
 )
 
 type renameAfterWithinResolutionContext struct {
-	jobKey  swf.JobKey
+	jobKey  jobdb.JobKey
 	repoDir string
 	moved   bool
 }
 
-func (c *renameAfterWithinResolutionContext) AwaitJobs(jobIds ...string) error { return nil }
-func (c *renameAfterWithinResolutionContext) GetJobKey() swf.JobKey            { return c.jobKey }
-func (c *renameAfterWithinResolutionContext) Logger() *slog.Logger             { return slog.Default() }
-func (c *renameAfterWithinResolutionContext) AwaitDuration(swf.Duration) error { return nil }
+func (c *renameAfterWithinResolutionContext) AwaitJobs(jobIds ...string) error   { return nil }
+func (c *renameAfterWithinResolutionContext) GetJobKey() jobdb.JobKey            { return c.jobKey }
+func (c *renameAfterWithinResolutionContext) Logger() *slog.Logger               { return slog.Default() }
+func (c *renameAfterWithinResolutionContext) AwaitDuration(jobdb.Duration) error { return nil }
 
-func (c *renameAfterWithinResolutionContext) DoTask(_ swf.RunPolicy, taskType string, data swf.TaskData) (swf.TaskData, error) {
+func (c *renameAfterWithinResolutionContext) DoTask(_ jobdb.RunPolicy, taskType string, data jobdb.TaskData) (jobdb.TaskData, error) {
 	if taskType != WithinRecipeResolutionTaskType {
 		return nil, fmt.Errorf("unexpected task %q before validation wrapper", taskType)
 	}
-	out, err := newWithinRecipeResolutionTaskWorker().Run(swf.TaskContext{}, data)
+	out, err := newWithinRecipeResolutionTaskWorker().Run(jobworkflow.TaskContext{}, data)
 	if err != nil {
 		return nil, err
 	}
@@ -251,7 +252,7 @@ outputs:
 
 	jobKey, err := starter.StartRecipeJob(context.Background(), job, engine)
 	require.NoError(t, err)
-	require.NoError(t, swf.WaitForJobToComplete(context.Background(), 30*time.Second, jobKey, engine))
+	require.NoError(t, jobworkflow.WaitForJobToComplete(context.Background(), 30*time.Second, jobKey, engine))
 
 	out, err := swfutil.JobResult(context.Background(), engine, jobKey)
 	require.NoError(t, err)
@@ -261,7 +262,7 @@ outputs:
 	require.NoError(t, json.Unmarshal(raw, &got))
 	require.Equal(t, "resolved-at-runtime", got["result"])
 
-	run, err := engine.GetJobRun(context.Background(), swf.GetJobRunRequest{
+	run, err := engine.GetJobRun(context.Background(), jobdb.GetJobRunRequest{
 		JobKey:         jobKey,
 		IncludeOutputs: true,
 	})
@@ -324,7 +325,7 @@ outputs:
 
 	jobKey, err := starter.StartRecipeJob(context.Background(), job, engine)
 	require.NoError(t, err)
-	require.NoError(t, swf.WaitForJobToComplete(context.Background(), 30*time.Second, jobKey, engine))
+	require.NoError(t, jobworkflow.WaitForJobToComplete(context.Background(), 30*time.Second, jobKey, engine))
 
 	out, err := swfutil.JobResult(context.Background(), engine, jobKey)
 	require.NoError(t, err)
@@ -334,7 +335,7 @@ outputs:
 	require.NoError(t, json.Unmarshal(raw, &got))
 	require.Equal(t, true, got["ok"])
 
-	run, err := engine.GetJobRun(context.Background(), swf.GetJobRunRequest{
+	run, err := engine.GetJobRun(context.Background(), jobdb.GetJobRunRequest{
 		JobKey:         jobKey,
 		IncludeOutputs: true,
 	})
@@ -370,7 +371,7 @@ func TestWithinRecipeResolutionTaskResolvesSelectors(t *testing.T) {
 	commit := strings.TrimSpace(string(output))
 	worker := newWithinRecipeResolutionTaskWorker()
 
-	input, err := swf.NewTaskData(withinRecipeResolutionTaskInput{
+	input, err := jobdb.NewTaskData(withinRecipeResolutionTaskInput{
 		Selectors: []string{
 			fmt.Sprintf("git+%s//tools/ops/echo@HEAD", repoURL),
 			fmt.Sprintf("git+%s//tools/cel/text-utils@HEAD", repoURL),
@@ -378,7 +379,7 @@ func TestWithinRecipeResolutionTaskResolvesSelectors(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	out, err := worker.Run(swf.TaskContext{}, input)
+	out, err := worker.Run(jobworkflow.TaskContext{}, input)
 	require.NoError(t, err)
 
 	resolved, err := ParseWithinRecipeResolutionTaskData(out)
@@ -468,7 +469,7 @@ outputs:
 
 	jobCtx, gitCtx := GenerateTestContext()
 	inner := &renameAfterWithinResolutionContext{
-		jobKey:  swf.JobKey{TenantId: "tenant", JobId: "job"},
+		jobKey:  jobdb.JobKey{TenantId: "tenant", JobId: "job"},
 		repoDir: repoDir,
 	}
 
@@ -525,7 +526,7 @@ outputs:
 
 	jobKey, err := starter.StartRecipeJob(context.Background(), job, engine, *rec)
 	require.NoError(t, err)
-	require.NoError(t, swf.WaitForJobToComplete(context.Background(), 30*time.Second, jobKey, engine))
+	require.NoError(t, jobworkflow.WaitForJobToComplete(context.Background(), 30*time.Second, jobKey, engine))
 
 	out, err := swfutil.JobResult(context.Background(), engine, jobKey)
 	require.NoError(t, err)
@@ -535,7 +536,7 @@ outputs:
 	require.NoError(t, json.Unmarshal(raw, &got))
 	require.Equal(t, "from-embedded", got["result"])
 
-	run, err := engine.GetJobRun(context.Background(), swf.GetJobRunRequest{
+	run, err := engine.GetJobRun(context.Background(), jobdb.GetJobRunRequest{
 		JobKey:         jobKey,
 		IncludeOutputs: true,
 	})
@@ -645,7 +646,7 @@ outputs:
 
 	jobKey, err := starter.StartRecipeJob(context.Background(), job, engine, *rec)
 	require.NoError(t, err)
-	require.NoError(t, swf.WaitForJobToComplete(context.Background(), 30*time.Second, jobKey, engine))
+	require.NoError(t, jobworkflow.WaitForJobToComplete(context.Background(), 30*time.Second, jobKey, engine))
 
 	out, err := swfutil.JobResult(context.Background(), engine, jobKey)
 	require.NoError(t, err)
@@ -655,7 +656,7 @@ outputs:
 	require.NoError(t, json.Unmarshal(raw, &got))
 	require.Equal(t, "hello-world", got["slug"])
 
-	run, err := engine.GetJobRun(context.Background(), swf.GetJobRunRequest{
+	run, err := engine.GetJobRun(context.Background(), jobdb.GetJobRunRequest{
 		JobKey:         jobKey,
 		IncludeOutputs: true,
 	})
@@ -764,7 +765,7 @@ outputs:
 
 	jobKey, err := starter.StartRecipeJob(context.Background(), job, engine, *rec)
 	require.NoError(t, err)
-	require.NoError(t, swf.WaitForJobToComplete(context.Background(), 30*time.Second, jobKey, engine))
+	require.NoError(t, jobworkflow.WaitForJobToComplete(context.Background(), 30*time.Second, jobKey, engine))
 
 	out, err := swfutil.JobResult(context.Background(), engine, jobKey)
 	require.NoError(t, err)
@@ -774,7 +775,7 @@ outputs:
 	require.NoError(t, json.Unmarshal(raw, &got))
 	require.Equal(t, "hello-world", got["slug"])
 
-	run, err := engine.GetJobRun(context.Background(), swf.GetJobRunRequest{
+	run, err := engine.GetJobRun(context.Background(), jobdb.GetJobRunRequest{
 		JobKey:         jobKey,
 		IncludeOutputs: true,
 	})
@@ -896,7 +897,7 @@ outputs:
 
 	jobKey, err := starter.StartRecipeJob(context.Background(), job, engine)
 	require.NoError(t, err)
-	require.NoError(t, swf.WaitForJobToComplete(context.Background(), 30*time.Second, jobKey, engine))
+	require.NoError(t, jobworkflow.WaitForJobToComplete(context.Background(), 30*time.Second, jobKey, engine))
 
 	out, err := swfutil.JobResult(context.Background(), engine, jobKey)
 	require.NoError(t, err)
@@ -906,7 +907,7 @@ outputs:
 	require.NoError(t, json.Unmarshal(raw, &got))
 	require.Equal(t, "hello-world", got["slug"])
 
-	run, err := engine.GetJobRun(context.Background(), swf.GetJobRunRequest{
+	run, err := engine.GetJobRun(context.Background(), jobdb.GetJobRunRequest{
 		JobKey:         jobKey,
 		IncludeOutputs: true,
 	})
@@ -1008,7 +1009,7 @@ outputs:
 
 	jobKey, err := starter.StartRecipeJob(context.Background(), job, engine)
 	require.NoError(t, err)
-	require.NoError(t, swf.WaitForJobToComplete(context.Background(), 30*time.Second, jobKey, engine))
+	require.NoError(t, jobworkflow.WaitForJobToComplete(context.Background(), 30*time.Second, jobKey, engine))
 	require.NotEqual(t, rootCommit, gitHead(t, repoDir))
 
 	out, err := swfutil.JobResult(context.Background(), engine, jobKey)
@@ -1019,7 +1020,7 @@ outputs:
 	require.NoError(t, json.Unmarshal(raw, &got))
 	require.Equal(t, "Hello World", got["echoed"])
 
-	run, err := engine.GetJobRun(context.Background(), swf.GetJobRunRequest{
+	run, err := engine.GetJobRun(context.Background(), jobdb.GetJobRunRequest{
 		JobKey:         jobKey,
 		IncludeOutputs: true,
 	})
@@ -1153,7 +1154,7 @@ outputs:
 
 	jobKey, err := starter.StartRecipeJob(context.Background(), job, engine)
 	require.NoError(t, err)
-	require.NoError(t, swf.WaitForJobToComplete(context.Background(), 30*time.Second, jobKey, engine))
+	require.NoError(t, jobworkflow.WaitForJobToComplete(context.Background(), 30*time.Second, jobKey, engine))
 
 	out, err := swfutil.JobResult(context.Background(), engine, jobKey)
 	require.NoError(t, err)
@@ -1163,7 +1164,7 @@ outputs:
 	require.NoError(t, json.Unmarshal(raw, &got))
 	require.Equal(t, "hello-world", got["slug"])
 
-	run, err := engine.GetJobRun(context.Background(), swf.GetJobRunRequest{
+	run, err := engine.GetJobRun(context.Background(), jobdb.GetJobRunRequest{
 		JobKey:         jobKey,
 		IncludeOutputs: true,
 	})
@@ -1326,7 +1327,7 @@ outputs:
 
 	jobKey, err := starter.StartRecipeJob(context.Background(), job, engine)
 	require.NoError(t, err)
-	require.NoError(t, swf.WaitForJobToComplete(context.Background(), 30*time.Second, jobKey, engine))
+	require.NoError(t, jobworkflow.WaitForJobToComplete(context.Background(), 30*time.Second, jobKey, engine))
 
 	out, err := swfutil.JobResult(context.Background(), engine, jobKey)
 	require.NoError(t, err)
@@ -1337,7 +1338,7 @@ outputs:
 	require.Equal(t, "local-hello-world", got["local_slug"])
 	require.Equal(t, "remote-hello-world", got["remote_slug"])
 
-	run, err := engine.GetJobRun(context.Background(), swf.GetJobRunRequest{
+	run, err := engine.GetJobRun(context.Background(), jobdb.GetJobRunRequest{
 		JobKey:         jobKey,
 		IncludeOutputs: true,
 	})

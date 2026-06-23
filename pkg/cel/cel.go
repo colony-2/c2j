@@ -8,7 +8,7 @@ import (
 
 	recipeartifacts "github.com/colony-2/c2j/pkg/artifacts"
 	"github.com/colony-2/c2j/pkg/contextual"
-	"github.com/colony-2/swf-go/pkg/swf"
+	"github.com/colony-2/jobdb/pkg/jobdb"
 	"github.com/google/cel-go/cel"
 	"github.com/google/cel-go/common/types"
 	"github.com/google/cel-go/common/types/ref"
@@ -181,7 +181,7 @@ func compile(expression string) (cel.Program, error) {
 			reflect.TypeOf(recipeartifacts.Ref{}),
 			reflect.TypeOf(recipeartifacts.StoredRef{}),
 			reflect.TypeOf(recipeartifacts.ExternalRef{}),
-			reflect.TypeOf(swf.ArtifactKey{}),
+			reflect.TypeOf(jobdb.ArtifactKey{}),
 			ext.ParseStructTag("json"),
 		),
 	)

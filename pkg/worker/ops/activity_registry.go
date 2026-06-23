@@ -11,7 +11,8 @@ import (
 	"github.com/colony-2/c2j/pkg/git/gitstate"
 	"github.com/colony-2/c2j/pkg/ops"
 	"github.com/colony-2/c2j/pkg/worker/activity"
-	"github.com/colony-2/swf-go/pkg/swf"
+	"github.com/colony-2/jobdb/pkg/jobdb"
+	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
 	"github.com/invopop/jsonschema"
 )
 
@@ -22,7 +23,7 @@ type ActivityInvocationRequest struct {
 	Input          map[string]interface{}         `json:"input"`
 	Const          bool                           `json:"const,omitempty"`
 	GitTaskContext gitstate.GlobalGitTaskContext  `json:"context"`
-	ArtifactKeys   []swf.ArtifactKey              `json:"artifact_keys,omitempty"`
+	ArtifactKeys   []jobdb.ArtifactKey            `json:"artifact_keys,omitempty"`
 	Artifacts      map[string]recipeartifacts.Ref `json:"artifacts,omitempty"`
 	Deps           ops.OpDependencies             `json:"-"`
 }
@@ -97,8 +98,8 @@ func (r *ActivityRegistry) Dependencies() ops.ServiceDependencies2 {
 	return r.deps
 }
 
-func (r *ActivityRegistry) GetTaskWorkers(deps ops.ServiceDependencies2) []swf.TaskWorker {
-	workers := make([]swf.TaskWorker, 0, len(r.activities))
+func (r *ActivityRegistry) GetTaskWorkers(deps ops.ServiceDependencies2) []jobworkflow.TaskWorker {
+	workers := make([]jobworkflow.TaskWorker, 0, len(r.activities))
 	for name, registration := range r.activities {
 		if registration.Step.DisallowAsTask {
 			continue

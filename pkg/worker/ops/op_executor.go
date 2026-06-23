@@ -24,7 +24,7 @@ import (
 	"github.com/colony-2/c2j/pkg/logutil"
 	"github.com/colony-2/c2j/pkg/ops"
 	"github.com/colony-2/c2j/pkg/ops/process"
-	"github.com/colony-2/swf-go/pkg/swf"
+	"github.com/colony-2/jobdb/pkg/jobdb"
 )
 
 type opExecutor struct {
@@ -61,7 +61,7 @@ func currentGitResult(task *gitstate.GitTaskContext) contextual.GitCommitContext
 	}
 }
 
-func (t opExecutor) do(ctx context.Context, jobTool ops.JobTool, req ActivityInvocationRequest, inputArtifacts []swf.Artifact) (output ActivityInvocationOutput, outputArtifacts []swf.Artifact, err error) {
+func (t opExecutor) do(ctx context.Context, jobTool ops.JobTool, req ActivityInvocationRequest, inputArtifacts []jobdb.Artifact) (output ActivityInvocationOutput, outputArtifacts []jobdb.Artifact, err error) {
 	deps := t.deps
 	controller := t.controller
 	reg := t.reg
@@ -162,7 +162,7 @@ func (t opExecutor) do(ctx context.Context, jobTool ops.JobTool, req ActivityInv
 		if ctl == nil {
 			return zero, nil, fmt.Errorf("workflow control is required for artifact resolution")
 		}
-		rehydrated := make([]swf.Artifact, 0, len(req.ArtifactKeys))
+		rehydrated := make([]jobdb.Artifact, 0, len(req.ArtifactKeys))
 		for _, key := range req.ArtifactKeys {
 			artifact := ctl.GetArtifactLazy(ctx, jobTool.GetJobKey().TenantId, key)
 			rehydrated = append(rehydrated, artifact)
@@ -178,8 +178,8 @@ func (t opExecutor) do(ctx context.Context, jobTool ops.JobTool, req ActivityInv
 	}
 
 	// Find and filter input thin pack artifact
-	var thinPackArtifact swf.Artifact
-	var nonThinPackArtifacts []swf.Artifact
+	var thinPackArtifact jobdb.Artifact
+	var nonThinPackArtifacts []jobdb.Artifact
 
 	for _, art := range inputArtifacts {
 		if art.Name() == gitstate.ThinPackArtifactName {
@@ -223,7 +223,7 @@ func (t opExecutor) do(ctx context.Context, jobTool ops.JobTool, req ActivityInv
 
 	// Build OpDependencies with WorktreePath and filtered artifacts (thin pack hidden from operation)
 	db := deps.Database()
-	if tx, ok := swf.TxFromCtx(ctx); ok && tx != nil {
+	if tx, ok := jobdb.TxFromCtx(ctx); ok && tx != nil {
 		db = tx
 	}
 	opDeps := ops.NewOpDependenciesBuilder().
@@ -276,7 +276,7 @@ func (t opExecutor) do(ctx context.Context, jobTool ops.JobTool, req ActivityInv
 		if err != nil {
 			return err
 		}
-		artifact, err := swf.NewArtifactFromFile(rel, path)
+		artifact, err := jobdb.NewArtifactFromFile(rel, path)
 		if err != nil {
 			return err
 		}
@@ -390,8 +390,8 @@ func replaceSentinelValue(value interface{}, replacements map[string]string) int
 	}
 }
 
-func indexArtifactsByKey(artifacts []swf.Artifact) map[string]swf.Artifact {
-	index := make(map[string]swf.Artifact, len(artifacts))
+func indexArtifactsByKey(artifacts []jobdb.Artifact) map[string]jobdb.Artifact {
+	index := make(map[string]jobdb.Artifact, len(artifacts))
 	for _, artifact := range artifacts {
 		key, err := artifact.ArtifactKey()
 		if err != nil {
@@ -402,7 +402,7 @@ func indexArtifactsByKey(artifacts []swf.Artifact) map[string]swf.Artifact {
 	return index
 }
 
-func materializeArtifactBindings(ctx context.Context, inbox string, bindings map[string]recipeartifacts.Ref, artifactsByKey map[string]swf.Artifact) error {
+func materializeArtifactBindings(ctx context.Context, inbox string, bindings map[string]recipeartifacts.Ref, artifactsByKey map[string]jobdb.Artifact) error {
 	for name, artifactRef := range bindings {
 		if err := validateBindingName(name); err != nil {
 			return fmt.Errorf("invalid artifact binding %q: %w", name, err)
@@ -431,7 +431,7 @@ func materializeArtifactBindings(ctx context.Context, inbox string, bindings map
 	return nil
 }
 
-func materializeStoredArtifactBinding(ctx context.Context, inbox string, name string, artifact swf.Artifact) error {
+func materializeStoredArtifactBinding(ctx context.Context, inbox string, name string, artifact jobdb.Artifact) error {
 	destPath, err := bindingDestination(inbox, name, artifact.Name())
 	if err != nil {
 		return fmt.Errorf("invalid destination: %w", err)
@@ -794,6 +794,6 @@ func hasTrailingSlash(name string) bool {
 	return strings.HasSuffix(name, "/") || strings.HasSuffix(name, "\\")
 }
 
-func artifactKeyIdentity(key swf.ArtifactKey) string {
+func artifactKeyIdentity(key jobdb.ArtifactKey) string {
 	return fmt.Sprintf("%s:%d:%s", key.JobId, key.TaskOrdinal, key.Name)
 }

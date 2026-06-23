@@ -16,9 +16,10 @@ import (
 	"github.com/colony-2/c2j/pkg/recipe"
 	"github.com/colony-2/c2j/pkg/starter"
 	"github.com/colony-2/c2j/pkg/workflowctl"
-	"github.com/colony-2/swf-go/pkg/swf"
-	remoteruntime "github.com/colony-2/swf-go/pkg/swf/runtime/remote"
-	toyruntime "github.com/colony-2/swf-go/pkg/swf/runtime/toy"
+	"github.com/colony-2/jobdb/pkg/jobdb"
+	remoteruntime "github.com/colony-2/jobdb/pkg/jobdb/runtime/remote"
+	toyruntime "github.com/colony-2/jobdb/pkg/jobdb/runtime/toy"
+	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
 )
 
 func TestRun_CompletesJobAndReplaysCachedHistory(t *testing.T) {
@@ -54,7 +55,7 @@ outputs:
 	}
 
 	underlying := toyruntime.New()
-	submitEngine, err := swf.NewEngineBuilder().WithRuntime(underlying).BuildEngine()
+	submitEngine, err := jobworkflow.NewEngineBuilder().WithRuntime(underlying).BuildEngine()
 	if err != nil {
 		t.Fatalf("build submit engine: %v", err)
 	}
@@ -100,11 +101,11 @@ outputs:
 		t.Fatalf("first run: %v\nstderr:\n%s", err, liveStderr.String())
 	}
 
-	if err := swf.WaitForJobToComplete(ctx, 5*time.Second, jobKey, submitEngine); err != nil {
+	if err := jobworkflow.WaitForJobToComplete(ctx, 5*time.Second, jobKey, submitEngine); err != nil {
 		t.Fatalf("wait for completion: %v", err)
 	}
 
-	run, err := submitEngine.GetJobRun(ctx, swf.GetJobRunRequest{
+	run, err := submitEngine.GetJobRun(ctx, jobdb.GetJobRunRequest{
 		JobKey:         jobKey,
 		IncludeOutputs: true,
 	})

@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"reflect"
 
-	"github.com/colony-2/swf-go/pkg/swf"
+	"github.com/colony-2/jobdb/pkg/jobdb"
 	yamlv3 "gopkg.in/yaml.v3"
 )
 
@@ -221,9 +221,9 @@ func (def InputSchema) validate(key string, value interface{}) error {
 
 func isArtifactValue(value interface{}) bool {
 	switch v := value.(type) {
-	case swf.ArtifactKey:
+	case jobdb.ArtifactKey:
 		return true
-	case *swf.ArtifactKey:
+	case *jobdb.ArtifactKey:
 		return v != nil
 	default:
 		return false
@@ -232,9 +232,9 @@ func isArtifactValue(value interface{}) bool {
 
 func isArtifactMapValue(value interface{}) bool {
 	switch v := value.(type) {
-	case map[string]swf.ArtifactKey:
+	case map[string]jobdb.ArtifactKey:
 		return true
-	case map[string]*swf.ArtifactKey:
+	case map[string]*jobdb.ArtifactKey:
 		return true
 	case map[string]interface{}:
 		if len(v) == 0 {

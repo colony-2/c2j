@@ -9,8 +9,8 @@ import (
 	"github.com/colony-2/c2j/pkg/story/internal/service"
 	"github.com/colony-2/c2j/pkg/template"
 	"github.com/colony-2/c2j/pkg/worker/compiler"
+	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
 	"github.com/colony-2/strata-go/pkg/client"
-	"github.com/colony-2/swf-go/pkg/swf"
 )
 
 type (
@@ -98,7 +98,7 @@ type Service interface {
 }
 
 type ServiceConfig struct {
-	Engine             swf.SWFEngine
+	Engine             jobworkflow.Engine
 	Strata             *client.Client
 	Cells              workflowapi.CellService
 	Projects           workflowapi.ProjectService

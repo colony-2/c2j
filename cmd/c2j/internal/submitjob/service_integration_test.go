@@ -15,9 +15,10 @@ import (
 	"github.com/colony-2/c2j/cmd/c2j/internal/runjob"
 	"github.com/colony-2/c2j/cmd/c2j/internal/swfruntime"
 	"github.com/colony-2/c2j/pkg/worker/compiler"
-	"github.com/colony-2/swf-go/pkg/swf"
-	remoteruntime "github.com/colony-2/swf-go/pkg/swf/runtime/remote"
-	toyruntime "github.com/colony-2/swf-go/pkg/swf/runtime/toy"
+	"github.com/colony-2/jobdb/pkg/jobdb"
+	remoteruntime "github.com/colony-2/jobdb/pkg/jobdb/runtime/remote"
+	toyruntime "github.com/colony-2/jobdb/pkg/jobdb/runtime/toy"
+	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
 	"net/http/httptest"
 )
 
@@ -96,13 +97,13 @@ outputs:
 	if err != nil {
 		t.Fatalf("create remote runtime: %v", err)
 	}
-	engine, err := swf.NewEngineBuilder().WithRuntime(runtime).BuildEngine()
+	engine, err := jobworkflow.NewEngineBuilder().WithRuntime(runtime).BuildEngine()
 	if err != nil {
 		t.Fatalf("build engine: %v", err)
 	}
 
-	run, err := engine.GetJobRun(ctx, swf.GetJobRunRequest{
-		JobKey:         swf.JobKey{TenantId: tenantID, JobId: submitted.JobID},
+	run, err := engine.GetJobRun(ctx, jobdb.GetJobRunRequest{
+		JobKey:         jobdb.JobKey{TenantId: tenantID, JobId: submitted.JobID},
 		IncludeOutputs: true,
 	})
 	if err != nil {
@@ -210,13 +211,13 @@ outputs:
 	if err != nil {
 		t.Fatalf("create remote runtime: %v", err)
 	}
-	engine, err := swf.NewEngineBuilder().WithRuntime(runtime).BuildEngine()
+	engine, err := jobworkflow.NewEngineBuilder().WithRuntime(runtime).BuildEngine()
 	if err != nil {
 		t.Fatalf("build engine: %v", err)
 	}
 
-	run, err := engine.GetJobRun(ctx, swf.GetJobRunRequest{
-		JobKey:         swf.JobKey{TenantId: tenantID, JobId: submitted.JobID},
+	run, err := engine.GetJobRun(ctx, jobdb.GetJobRunRequest{
+		JobKey:         jobdb.JobKey{TenantId: tenantID, JobId: submitted.JobID},
 		IncludeOutputs: true,
 	})
 	if err != nil {
@@ -368,12 +369,12 @@ outputs:
 	if err != nil {
 		t.Fatalf("create remote runtime: %v", err)
 	}
-	engine, err := swf.NewEngineBuilder().WithRuntime(runtime).BuildEngine()
+	engine, err := jobworkflow.NewEngineBuilder().WithRuntime(runtime).BuildEngine()
 	if err != nil {
 		t.Fatalf("build engine: %v", err)
 	}
-	run, err := engine.GetJobRun(ctx, swf.GetJobRunRequest{
-		JobKey:         swf.JobKey{TenantId: tenantID, JobId: submitted.JobID},
+	run, err := engine.GetJobRun(ctx, jobdb.GetJobRunRequest{
+		JobKey:         jobdb.JobKey{TenantId: tenantID, JobId: submitted.JobID},
 		IncludeOutputs: true,
 	})
 	if err != nil {
@@ -468,13 +469,13 @@ outputs:
 	if err != nil {
 		t.Fatalf("create remote runtime: %v", err)
 	}
-	engine, err := swf.NewEngineBuilder().WithRuntime(runtime).BuildEngine()
+	engine, err := jobworkflow.NewEngineBuilder().WithRuntime(runtime).BuildEngine()
 	if err != nil {
 		t.Fatalf("build engine: %v", err)
 	}
 
-	run, err := engine.GetJobRun(ctx, swf.GetJobRunRequest{
-		JobKey:         swf.JobKey{TenantId: tenantID, JobId: submitted.JobID},
+	run, err := engine.GetJobRun(ctx, jobdb.GetJobRunRequest{
+		JobKey:         jobdb.JobKey{TenantId: tenantID, JobId: submitted.JobID},
 		IncludeOutputs: true,
 	})
 	if err != nil {
@@ -557,12 +558,12 @@ outputs:
 	if err != nil {
 		t.Fatalf("create remote runtime: %v", err)
 	}
-	engine, err := swf.NewEngineBuilder().WithRuntime(runtime).BuildEngine()
+	engine, err := jobworkflow.NewEngineBuilder().WithRuntime(runtime).BuildEngine()
 	if err != nil {
 		t.Fatalf("build engine: %v", err)
 	}
-	run, err := engine.GetJobRun(ctx, swf.GetJobRunRequest{
-		JobKey:         swf.JobKey{TenantId: tenantID, JobId: submitted.JobID},
+	run, err := engine.GetJobRun(ctx, jobdb.GetJobRunRequest{
+		JobKey:         jobdb.JobKey{TenantId: tenantID, JobId: submitted.JobID},
 		IncludeOutputs: true,
 	})
 	if err != nil {
@@ -646,13 +647,13 @@ outputs:
 	if err != nil {
 		t.Fatalf("create remote runtime: %v", err)
 	}
-	engine, err := swf.NewEngineBuilder().WithRuntime(runtime).BuildEngine()
+	engine, err := jobworkflow.NewEngineBuilder().WithRuntime(runtime).BuildEngine()
 	if err != nil {
 		t.Fatalf("build engine: %v", err)
 	}
 
-	run, err := engine.GetJobRun(ctx, swf.GetJobRunRequest{
-		JobKey:         swf.JobKey{TenantId: tenantID, JobId: jobID},
+	run, err := engine.GetJobRun(ctx, jobdb.GetJobRunRequest{
+		JobKey:         jobdb.JobKey{TenantId: tenantID, JobId: jobID},
 		IncludeOutputs: true,
 	})
 	if err != nil {
@@ -750,8 +751,8 @@ outputs:
 	}
 	defer handle.Cleanup()
 
-	run, err := handle.Engine.GetJobRun(ctx, swf.GetJobRunRequest{
-		JobKey:         swf.JobKey{TenantId: tenantID, JobId: submitted.JobID},
+	run, err := handle.Engine.GetJobRun(ctx, jobdb.GetJobRunRequest{
+		JobKey:         jobdb.JobKey{TenantId: tenantID, JobId: submitted.JobID},
 		IncludeOutputs: true,
 	})
 	if err != nil {
@@ -846,16 +847,16 @@ output_schema:
 	}
 	defer handle.Cleanup()
 
-	jobKey := swf.JobKey{TenantId: tenantID, JobId: jobID}
+	jobKey := jobdb.JobKey{TenantId: tenantID, JobId: jobID}
 	info, err := handle.Engine.GetJob(ctx, jobKey)
 	if err != nil {
 		t.Fatalf("GetJob(): %v", err)
 	}
-	if info.Status != swf.JobStatusCompleted {
-		t.Fatalf("job status = %s, want %s", info.Status, swf.JobStatusCompleted)
+	if info.Status != jobdb.JobStatusCompleted {
+		t.Fatalf("job status = %s, want %s", info.Status, jobdb.JobStatusCompleted)
 	}
 
-	run, err := handle.Engine.GetJobRun(ctx, swf.GetJobRunRequest{
+	run, err := handle.Engine.GetJobRun(ctx, jobdb.GetJobRunRequest{
 		JobKey:         jobKey,
 		IncludeOutputs: true,
 	})

@@ -14,8 +14,8 @@ import (
 	"github.com/colony-2/c2j/pkg/worker/ops"
 	workflow "github.com/colony-2/c2j/pkg/worker/workflow"
 	"github.com/colony-2/c2j/pkg/workflowctl"
-	"github.com/colony-2/swf-go/pkg/swf"
-	toyruntime "github.com/colony-2/swf-go/pkg/swf/runtime/toy"
+	toyruntime "github.com/colony-2/jobdb/pkg/jobdb/runtime/toy"
+	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
 	"go.uber.org/zap"
 )
 
@@ -83,12 +83,12 @@ func (e *StandaloneExecutor) ExecuteWithRegistry(
 		return nil, err
 	}
 
-	taskWorkers := make([]swf.TaskWorker, 0, len(workset.TaskWorkers))
+	taskWorkers := make([]jobworkflow.TaskWorker, 0, len(workset.TaskWorkers))
 	for _, tw := range workset.TaskWorkers {
 		taskWorkers = append(taskWorkers, tw)
 	}
 	tenantID := "default"
-	eng, err := swf.NewEngineBuilder().
+	eng, err := jobworkflow.NewEngineBuilder().
 		WithRuntime(toyruntime.New()).
 		WithWorkerTenantId(tenantID).
 		PlusWorkers(workset.JobWorker, taskWorkers...).
@@ -111,7 +111,7 @@ func (e *StandaloneExecutor) ExecuteWithRegistry(
 	if err != nil {
 		return nil, err
 	}
-	if err := swf.WaitForJobToComplete(ctx, 30*time.Second, jobKey, eng); err != nil {
+	if err := jobworkflow.WaitForJobToComplete(ctx, 30*time.Second, jobKey, eng); err != nil {
 		return nil, err
 	}
 	out, err := swfutil.JobResult(ctx, eng, jobKey)

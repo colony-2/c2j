@@ -5,16 +5,16 @@ import (
 	"testing"
 
 	recipeartifacts "github.com/colony-2/c2j/pkg/artifacts"
-	"github.com/colony-2/swf-go/pkg/swf"
+	"github.com/colony-2/jobdb/pkg/jobdb"
 	"github.com/stretchr/testify/require"
 )
 
 func TestNormalizeOpInput_ConvertsStoredRefForArtifactKeyField(t *testing.T) {
 	type input struct {
-		Artifact swf.ArtifactKey `json:"artifact"`
+		Artifact jobdb.ArtifactKey `json:"artifact"`
 	}
 
-	key := swf.ArtifactKey{
+	key := jobdb.ArtifactKey{
 		JobId:       "job-1",
 		TaskOrdinal: 2,
 		Name:        "foo.txt",
@@ -26,12 +26,12 @@ func TestNormalizeOpInput_ConvertsStoredRefForArtifactKeyField(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.Equal(t, key, normalized.Data["artifact"])
-	require.Equal(t, []swf.ArtifactKey{key}, normalized.StoredArtifactKeys)
+	require.Equal(t, []jobdb.ArtifactKey{key}, normalized.StoredArtifactKeys)
 }
 
 func TestNormalizeOpInput_RejectsExternalRefForArtifactKeyField(t *testing.T) {
 	type input struct {
-		Artifact swf.ArtifactKey `json:"artifact"`
+		Artifact jobdb.ArtifactKey `json:"artifact"`
 	}
 
 	_, err := NormalizeOpInput(reflectTypeOf[input](), map[string]interface{}{
@@ -51,19 +51,19 @@ func TestNormalizeOpInput_CollectsStoredKeysFromTypedAndDynamicFields(t *testing
 		Extra    map[string]interface{} `json:"-" mapstructure:",remain"`
 	}
 
-	keyA := swf.ArtifactKey{
+	keyA := jobdb.ArtifactKey{
 		JobId:       "job-a",
 		TaskOrdinal: 1,
 		Name:        "a.txt",
 		SizeBytes:   10,
 	}
-	keyB := swf.ArtifactKey{
+	keyB := jobdb.ArtifactKey{
 		JobId:       "job-b",
 		TaskOrdinal: 2,
 		Name:        "b.txt",
 		SizeBytes:   20,
 	}
-	keyC := swf.ArtifactKey{
+	keyC := jobdb.ArtifactKey{
 		JobId:       "job-c",
 		TaskOrdinal: 3,
 		Name:        "c.txt",
@@ -83,7 +83,7 @@ func TestNormalizeOpInput_CollectsStoredKeysFromTypedAndDynamicFields(t *testing
 	})
 	require.NoError(t, err)
 	require.Equal(t, recipeartifacts.NewStoredRef(keyA), normalized.Data["artifact"])
-	require.ElementsMatch(t, []swf.ArtifactKey{keyA, keyB, keyC}, normalized.StoredArtifactKeys)
+	require.ElementsMatch(t, []jobdb.ArtifactKey{keyA, keyB, keyC}, normalized.StoredArtifactKeys)
 }
 
 func TestNormalizeOpInput_PreservesUnknownFieldsForValidation(t *testing.T) {

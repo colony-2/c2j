@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/colony-2/swf-go/pkg/swf"
+	"github.com/colony-2/jobdb/pkg/jobdb"
 )
 
 type commandExecutionEnvelope struct {
@@ -71,7 +71,7 @@ func commandOutboxPath(input map[string]interface{}) string {
 	return ""
 }
 
-func writeCommandArtifacts(artifacts []swf.Artifact, outbox string) {
+func writeCommandArtifacts(artifacts []jobdb.Artifact, outbox string) {
 	if len(artifacts) == 0 || strings.TrimSpace(outbox) == "" {
 		return
 	}

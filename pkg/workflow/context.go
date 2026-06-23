@@ -4,11 +4,11 @@ import (
 	"log/slog"
 
 	"github.com/colony-2/c2j/pkg/ops"
-	"github.com/colony-2/swf-go/pkg/swf"
+	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
 )
 
 type Context struct {
-	swf.JobContext
+	jobworkflow.JobContext
 	ops.ServiceDependencies2
 }
 

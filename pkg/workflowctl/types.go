@@ -6,30 +6,31 @@ import (
 
 	recipeartifacts "github.com/colony-2/c2j/pkg/artifacts"
 	"github.com/colony-2/c2j/pkg/contextual"
-	"github.com/colony-2/swf-go/pkg/swf"
+	"github.com/colony-2/jobdb/pkg/jobdb"
+	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
 )
 
 type WorkflowControl interface {
-	StartJob(ctx context.Context, req StartJob) (swf.JobKey, error)
-	Cancel(ctx context.Context, jobKey swf.JobKey) error
-	ListJobs(ctx context.Context, request swf.ListJobsRequest) (jobs []JobItem, nextPage string, err error)
-	CompleteTask(ctx context.Context, jobKey swf.JobKey, taskOrdinal int64, hash string, data any) error
-	GetWaitingTask(ctx context.Context, jobKey swf.JobKey) (TaskHandle, error)
-	GetArtifactLazy(ctx context.Context, tenantId string, key swf.ArtifactKey) swf.Artifact
-	JobResult(ctx context.Context, key swf.JobKey) (swf.JobData, error)
+	StartJob(ctx context.Context, req StartJob) (jobdb.JobKey, error)
+	Cancel(ctx context.Context, jobKey jobdb.JobKey) error
+	ListJobs(ctx context.Context, request jobdb.ListJobsRequest) (jobs []JobItem, nextPage string, err error)
+	CompleteTask(ctx context.Context, jobKey jobdb.JobKey, taskOrdinal int64, hash string, data any) error
+	GetWaitingTask(ctx context.Context, jobKey jobdb.JobKey) (TaskHandle, error)
+	GetArtifactLazy(ctx context.Context, tenantId string, key jobdb.ArtifactKey) jobdb.Artifact
+	JobResult(ctx context.Context, key jobdb.JobKey) (jobdb.JobData, error)
 }
 
 type JobInspector interface {
-	InspectJob(ctx context.Context, key swf.JobKey) (JobInspection, error)
+	InspectJob(ctx context.Context, key jobdb.JobKey) (JobInspection, error)
 }
 
 type JobInspection struct {
-	JobKey         swf.JobKey
+	JobKey         jobdb.JobKey
 	Terminal       bool
 	Status         string
 	FailureKind    string
 	FailureMessage string
-	Output         swf.JobData
+	Output         jobdb.JobData
 	StartedAt      time.Time
 	FinishedAt     time.Time
 }
@@ -39,7 +40,7 @@ type StartJob struct {
 	JobID        string                 `json:"job_id,omitempty"`
 	RecipeName   string                 `json:"recipe"`
 	Inputs       map[string]interface{} `json:"inputs,omitempty"`
-	Artifacts    []swf.Artifact         `json:"-"`
+	Artifacts    []jobdb.Artifact       `json:"-"`
 	ArtifactRefs []recipeartifacts.Ref  `json:"artifact_refs,omitempty"`
 	JobContext   contextual.JobContext  `json:"context,omitempty"`
 	GitRef       string                 `json:"git,omitempty"`
@@ -48,8 +49,8 @@ type StartJob struct {
 }
 
 type JobItem struct {
-	TaskData swf.TaskData
-	swf.JobSummary
+	TaskData jobdb.TaskData
+	jobdb.JobSummary
 }
 
-type TaskHandle = swf.TaskHandle
+type TaskHandle = jobworkflow.TaskHandle

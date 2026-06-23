@@ -10,7 +10,7 @@ import (
 	recipeartifacts "github.com/colony-2/c2j/pkg/artifacts"
 	"github.com/colony-2/c2j/pkg/ops"
 	"github.com/colony-2/c2j/pkg/workflowctl"
-	"github.com/colony-2/swf-go/pkg/swf"
+	"github.com/colony-2/jobdb/pkg/jobdb"
 )
 
 const (
@@ -69,7 +69,7 @@ func awaitResultSoft(deps ops.OpDependencies, ctx context.Context, input AwaitRe
 		}
 	}
 
-	key := swf.JobKey{TenantId: deps.JobTool().GetJobKey().TenantId, JobId: jobID}
+	key := jobdb.JobKey{TenantId: deps.JobTool().GetJobKey().TenantId, JobId: jobID}
 	if inspector, ok := deps.WorkflowControl().(workflowctl.JobInspector); ok {
 		inspection, err := inspector.InspectJob(ctx, key)
 		if err != nil {
@@ -85,7 +85,7 @@ func awaitResultSoft(deps ops.OpDependencies, ctx context.Context, input AwaitRe
 }
 
 func isSoftChildTerminalError(err error) bool {
-	return errors.Is(err, swf.ErrJobFailed) || errors.Is(err, swf.ErrJobCancelled)
+	return errors.Is(err, jobdb.ErrJobFailed) || errors.Is(err, jobdb.ErrJobCancelled)
 }
 
 func childStatusFromInspection(deps ops.OpDependencies, inspection workflowctl.JobInspection) (ChildStatusOutput, error) {
@@ -118,10 +118,10 @@ func childStatusFromInspection(deps ops.OpDependencies, inspection workflowctl.J
 	return out, nil
 }
 
-func childStatusFromJobResultFallback(deps ops.OpDependencies, ctx context.Context, key swf.JobKey) (ChildStatusOutput, error) {
+func childStatusFromJobResultFallback(deps ops.OpDependencies, ctx context.Context, key jobdb.JobKey) (ChildStatusOutput, error) {
 	data, err := deps.WorkflowControl().JobResult(ctx, key)
 	if err != nil {
-		if errors.Is(err, swf.ErrJobFailed) || errors.Is(err, swf.ErrJobCancelled) {
+		if errors.Is(err, jobdb.ErrJobFailed) || errors.Is(err, jobdb.ErrJobCancelled) {
 			return ChildStatusOutput{
 				JobID:          key.JobId,
 				Terminal:       true,
@@ -162,21 +162,21 @@ func normalizeChildStatus(status string, terminal bool) string {
 }
 
 func fallbackStatusFromJobResultError(err error) string {
-	if errors.Is(err, swf.ErrJobCancelled) {
+	if errors.Is(err, jobdb.ErrJobCancelled) {
 		return "cancelled"
 	}
 	return "failed"
 }
 
 func fallbackFailureKind(err error) string {
-	if errors.Is(err, swf.ErrJobCancelled) {
+	if errors.Is(err, jobdb.ErrJobCancelled) {
 		return "cancellation"
 	}
-	var timeoutErr *swf.TimeoutError
+	var timeoutErr *jobdb.TimeoutError
 	if errors.As(err, &timeoutErr) {
 		return "timeout"
 	}
-	if swf.IsSystemError(err) {
+	if jobdb.IsSystemError(err) {
 		return "system_error"
 	}
 	return "task_error"

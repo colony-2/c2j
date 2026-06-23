@@ -17,7 +17,8 @@ import (
 	workerops "github.com/colony-2/c2j/pkg/worker/ops"
 	"github.com/colony-2/c2j/pkg/workflow"
 	"github.com/colony-2/c2j/pkg/workflowctl"
-	"github.com/colony-2/swf-go/pkg/swf"
+	"github.com/colony-2/jobdb/pkg/jobdb"
+	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
 )
 
 type RecipeJobWorkerOptions struct {
@@ -46,7 +47,7 @@ type recipeJobWorker struct {
 	onSourceResolved func(RecipeSourceResolution)
 }
 
-func NewRecipeJobWorker(opts RecipeJobWorkerOptions) swf.JobWorker {
+func NewRecipeJobWorker(opts RecipeJobWorkerOptions) jobworkflow.JobWorker {
 	return &recipeJobWorker{
 		celProvider:      opts.CELOptionsProvider,
 		executor:         opts.Executor,
@@ -57,7 +58,7 @@ func NewRecipeJobWorker(opts RecipeJobWorkerOptions) swf.JobWorker {
 	}
 }
 
-func NewRecipeWorker(dependencies ops.ServiceDependencies2, activityRegistry *workerops.ActivityRegistry, provider ...template.CELOptionsProvider) (*swf.WorkSet, error) {
+func NewRecipeWorker(dependencies ops.ServiceDependencies2, activityRegistry *workerops.ActivityRegistry, provider ...template.CELOptionsProvider) (*jobworkflow.WorkSet, error) {
 	opts := RecipeJobWorkerOptions{}
 	if len(provider) > 0 {
 		opts.CELOptionsProvider = provider[0]
@@ -65,21 +66,21 @@ func NewRecipeWorker(dependencies ops.ServiceDependencies2, activityRegistry *wo
 	return NewRecipeWorkerWithOptions(dependencies, activityRegistry, opts)
 }
 
-func NewRecipeWorkerWithOptions(dependencies ops.ServiceDependencies2, activityRegistry *workerops.ActivityRegistry, opts RecipeJobWorkerOptions) (*swf.WorkSet, error) {
+func NewRecipeWorkerWithOptions(dependencies ops.ServiceDependencies2, activityRegistry *workerops.ActivityRegistry, opts RecipeJobWorkerOptions) (*jobworkflow.WorkSet, error) {
 	job := NewRecipeJobWorker(opts)
 	taskWorkers := activityRegistry.GetTaskWorkers(dependencies)
 	if resolutionWorker := newRootSourceResolutionTaskWorker(opts.RootSourceResolver); resolutionWorker != nil {
 		taskWorkers = append(taskWorkers, resolutionWorker)
 	}
 	taskWorkers = append(taskWorkers, newWithinRecipeResolutionTaskWorker())
-	return swf.AsWorkSet(job, taskWorkers...)
+	return jobworkflow.AsWorkSet(job, taskWorkers...)
 }
 
 func (j recipeJobWorker) Name() string {
 	return starter.RecipeJobType
 }
 
-func (j recipeJobWorker) Run(ctx swf.JobContext, jobData swf.JobData) (swf.JobData, error) {
+func (j recipeJobWorker) Run(ctx jobworkflow.JobContext, jobData jobdb.JobData) (jobdb.JobData, error) {
 	jobKey := ctx.GetJobKey()
 	logger := ctx.Logger()
 	if logger == nil {
@@ -153,7 +154,7 @@ func (j recipeJobWorker) Run(ctx swf.JobContext, jobData swf.JobData) (swf.JobDa
 			)
 			return nil, err
 		}
-		taskInput, err := swf.NewTaskData(rootSourceResolutionTaskInput{
+		taskInput, err := jobdb.NewTaskData(rootSourceResolutionTaskInput{
 			ProjectID:  strings.TrimSpace(input.TenantId),
 			Selector:   input.RecipeName,
 			LookupRepo: rootRecipeLookupRepo(input.JobContext),
@@ -168,7 +169,7 @@ func (j recipeJobWorker) Run(ctx swf.JobContext, jobData swf.JobData) (swf.JobDa
 			return nil, err
 		}
 
-		taskOutput, err := ctx.DoTask(swf.RunPolicy{}, RootSourceResolutionTaskType, taskInput)
+		taskOutput, err := ctx.DoTask(jobdb.RunPolicy{}, RootSourceResolutionTaskType, taskInput)
 		if err != nil {
 			if logReplayCacheMiss(logger, "recipe job: root recipe source resolution replay cache miss", err) {
 				return nil, err
@@ -265,7 +266,7 @@ func (j recipeJobWorker) Run(ctx swf.JobContext, jobData swf.JobData) (swf.JobDa
 	if err != nil {
 		return nil, err
 	}
-	taskData, err := swf.NewTaskData(out, artifacts...)
+	taskData, err := jobdb.NewTaskData(out, artifacts...)
 	if err != nil {
 		logger.Error("recipe job: failed to create task data",
 			"error", err,
@@ -275,11 +276,11 @@ func (j recipeJobWorker) Run(ctx swf.JobContext, jobData swf.JobData) (swf.JobDa
 		return nil, err
 	}
 	logger.Info("recipe execution completed successfully")
-	return swf.JobData(taskData), nil
+	return jobdb.JobData(taskData), nil
 
 }
 
-func submittedArtifactRefs(input workflowctl.StartJob, jobArtifacts []swf.Artifact, hasEmbeddedRecipeArtifact bool) (map[string]recipeartifacts.Ref, error) {
+func submittedArtifactRefs(input workflowctl.StartJob, jobArtifacts []jobdb.Artifact, hasEmbeddedRecipeArtifact bool) (map[string]recipeartifacts.Ref, error) {
 	out := make(map[string]recipeartifacts.Ref)
 	for _, artifactRef := range input.ArtifactRefs {
 		if artifactRef.IsZero() {
@@ -386,7 +387,7 @@ func ensureEnvironmentSentinels(env *contextual.EnvironmentContext) error {
 	return nil
 }
 
-var _ swf.JobWorker = &recipeJobWorker{}
+var _ jobworkflow.JobWorker = &recipeJobWorker{}
 
 func rootRecipeLookupRepo(jobContext contextual.JobContext) string {
 	return strings.TrimSpace(jobContext.RecipeSource.Repo)

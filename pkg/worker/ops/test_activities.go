@@ -6,7 +6,7 @@ import (
 	recipeops "github.com/colony-2/c2j/pkg/ops"
 	"github.com/colony-2/c2j/pkg/ops/sleepop"
 	"github.com/colony-2/c2j/pkg/worker/commandop"
-	"github.com/colony-2/swf-go/pkg/swf"
+	"github.com/colony-2/jobdb/pkg/jobdb"
 )
 
 // Test activity input/output types
@@ -57,7 +57,7 @@ type EmitArtifactOutput struct {
 }
 
 type ConsumeArtifactInput struct {
-	Artifact swf.ArtifactKey `json:"artifact" validate:"required"`
+	Artifact jobdb.ArtifactKey `json:"artifact" validate:"required"`
 }
 
 type ConsumeArtifactOutput struct {
@@ -106,7 +106,7 @@ func registerTestActivities() {
 	emitArtifact := recipeops.NewActivityMappedOpV2[struct{}, EmitArtifactOutput](
 		recipeops.OpMetadata{Type: "test_emit_artifact"},
 		func(deps recipeops.OpDependencies, ctx context.Context, _ struct{}) (EmitArtifactOutput, error) {
-			artifact := swf.NewArtifactFromBytes("foo", []byte("hello world"))
+			artifact := jobdb.NewArtifactFromBytes("foo", []byte("hello world"))
 			if err := deps.AddOutputArtifact(artifact); err != nil {
 				return EmitArtifactOutput{}, err
 			}

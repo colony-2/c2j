@@ -3,14 +3,14 @@ package compiler
 import (
 	"context"
 	"fmt"
+	"github.com/colony-2/jobdb/pkg/jobdb"
+	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
 	"log/slog"
 	"time"
-
-	"github.com/colony-2/swf-go/pkg/swf"
 )
 
 type timeoutJobContext struct {
-	inner           swf.JobContext
+	inner           jobworkflow.JobContext
 	deadline        time.Time
 	declaredTimeout time.Duration
 	limit           time.Duration
@@ -21,7 +21,7 @@ type executionTimeoutLimiter interface {
 	executionTimeoutLimit() time.Duration
 }
 
-func withExecutionTimeout(ctx swf.JobContext, timeout time.Duration, label string) swf.JobContext {
+func withExecutionTimeout(ctx jobworkflow.JobContext, timeout time.Duration, label string) jobworkflow.JobContext {
 	if timeout <= 0 || ctx == nil {
 		return ctx
 	}
@@ -38,7 +38,7 @@ func withExecutionTimeout(ctx swf.JobContext, timeout time.Duration, label strin
 	}
 }
 
-func activeExecutionTimeoutLimit(ctx swf.JobContext) time.Duration {
+func activeExecutionTimeoutLimit(ctx jobworkflow.JobContext) time.Duration {
 	if limiter, ok := ctx.(executionTimeoutLimiter); ok {
 		return limiter.executionTimeoutLimit()
 	}
@@ -55,7 +55,7 @@ func minPositiveDuration(a, b time.Duration) time.Duration {
 	return b
 }
 
-func (t *timeoutJobContext) GetJobKey() swf.JobKey {
+func (t *timeoutJobContext) GetJobKey() jobdb.JobKey {
 	return t.inner.GetJobKey()
 }
 
@@ -77,7 +77,7 @@ func (t *timeoutJobContext) AwaitJobs(jobIds ...string) error {
 	return t.checkDeadline()
 }
 
-func (t *timeoutJobContext) AwaitDuration(waitFor swf.Duration) error {
+func (t *timeoutJobContext) AwaitDuration(waitFor jobdb.Duration) error {
 	if err := t.checkDeadline(); err != nil {
 		return err
 	}
@@ -86,7 +86,7 @@ func (t *timeoutJobContext) AwaitDuration(waitFor swf.Duration) error {
 	if effectiveWait > remaining {
 		effectiveWait = remaining
 	}
-	err := t.inner.AwaitDuration(swf.Duration(effectiveWait))
+	err := t.inner.AwaitDuration(jobdb.Duration(effectiveWait))
 	if err != nil {
 		if time.Now().After(t.deadline) {
 			return t.wrapTimeout(err)
@@ -100,7 +100,7 @@ func (t *timeoutJobContext) executionTimeoutLimit() time.Duration {
 	return t.limit
 }
 
-func (t *timeoutJobContext) DoTask(policy swf.RunPolicy, taskType string, data swf.TaskData) (swf.TaskData, error) {
+func (t *timeoutJobContext) DoTask(policy jobdb.RunPolicy, taskType string, data jobdb.TaskData) (jobdb.TaskData, error) {
 	if err := t.checkDeadline(); err != nil {
 		return nil, err
 	}
@@ -144,7 +144,7 @@ func (t *timeoutJobContext) timeoutMessage() string {
 	return fmt.Sprintf("%s timed out", label)
 }
 
-func clampRunPolicyToDeadline(policy swf.RunPolicy, deadline time.Time) swf.RunPolicy {
+func clampRunPolicyToDeadline(policy jobdb.RunPolicy, deadline time.Time) jobdb.RunPolicy {
 	remaining := time.Until(deadline)
 	if remaining < 0 {
 		remaining = 0
@@ -155,9 +155,9 @@ func clampRunPolicyToDeadline(policy swf.RunPolicy, deadline time.Time) swf.RunP
 			return policy
 		}
 	}
-	timeout := swf.Duration(remaining)
+	timeout := jobdb.Duration(remaining)
 	policy.TotalTimeout = &timeout
 	return policy
 }
 
-var _ swf.JobContext = (*timeoutJobContext)(nil)
+var _ jobworkflow.JobContext = (*timeoutJobContext)(nil)

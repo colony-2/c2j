@@ -11,7 +11,7 @@ import (
 	"github.com/colony-2/c2j/cmd/c2j/internal/defaults"
 	"github.com/colony-2/c2j/cmd/c2j/internal/swfruntime"
 	"github.com/colony-2/c2j/pkg/starter"
-	"github.com/colony-2/swf-go/pkg/swf"
+	"github.com/colony-2/jobdb/pkg/jobdb"
 )
 
 type ReadyOptions struct {
@@ -126,13 +126,13 @@ func CountReady(ctx context.Context, opts ReadyOptions) (int, error) {
 	return count, nil
 }
 
-func readyListRequest(tenantID string, pageToken string) swf.ListJobsRequest {
-	return swf.ListJobsRequest{
+func readyListRequest(tenantID string, pageToken string) jobdb.ListJobsRequest {
+	return jobdb.ListJobsRequest{
 		TenantIds: []string{tenantID},
-		Statuses:  []swf.JobStatus{swf.JobStatusReady},
-		Stores:    []swf.JobStore{swf.JobStoreActive},
+		Statuses:  []jobdb.JobStatus{jobdb.JobStatusReady},
+		Stores:    []jobdb.JobStore{jobdb.JobStoreActive},
 		JobTypes:  []string{starter.RecipeJobType},
-		PageSize:  swf.MaxListJobsPageSize,
+		PageSize:  jobdb.MaxListJobsPageSize,
 		PageToken: pageToken,
 	}
 }

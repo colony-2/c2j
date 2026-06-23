@@ -11,7 +11,8 @@ import (
 	coretask "github.com/colony-2/c2j/pkg/task"
 	workerops "github.com/colony-2/c2j/pkg/worker/ops"
 	"github.com/colony-2/c2j/pkg/workflow"
-	"github.com/colony-2/swf-go/pkg/swf"
+	"github.com/colony-2/jobdb/pkg/jobdb"
+	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
 	"github.com/stretchr/testify/require"
 )
 
@@ -53,11 +54,11 @@ func TestExecuteRecipeSingleOpReturnsOutputs(t *testing.T) {
 	}
 	outEnv, err := coretask.NewOutputEnvelope(coretask.OutputKindActivityInvocationOutput, envelope)
 	require.NoError(t, err)
-	taskData := swf.NewTaskDataOrPanic(outEnv)
+	taskData := jobdb.NewTaskDataOrPanic(outEnv)
 
 	stub := &stubJobContext{
 		out:      taskData,
-		jobKey:   swf.JobKey{TenantId: "test-tenant", JobId: "stub-job"},
+		jobKey:   jobdb.JobKey{TenantId: "test-tenant", JobId: "stub-job"},
 		taskType: opType + ":" + opType,
 	}
 
@@ -87,8 +88,8 @@ func TestExecuteRecipeSingleOpReturnsOutputs(t *testing.T) {
 
 // Minimal JobContext stub to capture DoTask invocations.
 type stubJobContext struct {
-	jobKey       swf.JobKey
-	out          swf.TaskData
+	jobKey       jobdb.JobKey
+	out          jobdb.TaskData
 	calls        int
 	taskType     string
 	lastTaskType string
@@ -98,13 +99,13 @@ func (s *stubJobContext) AwaitJobs(jobIds ...string) error {
 	return nil
 }
 
-var _ swf.JobContext = &stubJobContext{}
+var _ jobworkflow.JobContext = &stubJobContext{}
 
-func (s *stubJobContext) GetJobKey() swf.JobKey            { return s.jobKey }
-func (s *stubJobContext) Logger() *slog.Logger             { return slog.Default() }
-func (s *stubJobContext) AwaitDuration(swf.Duration) error { return nil }
+func (s *stubJobContext) GetJobKey() jobdb.JobKey            { return s.jobKey }
+func (s *stubJobContext) Logger() *slog.Logger               { return slog.Default() }
+func (s *stubJobContext) AwaitDuration(jobdb.Duration) error { return nil }
 
-func (s *stubJobContext) DoTask(_ swf.RunPolicy, taskType string, data swf.TaskData) (swf.TaskData, error) {
+func (s *stubJobContext) DoTask(_ jobdb.RunPolicy, taskType string, data jobdb.TaskData) (jobdb.TaskData, error) {
 	s.calls++
 	s.lastTaskType = taskType
 	return s.out, nil

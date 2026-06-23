@@ -13,7 +13,7 @@ import (
 	configpkg "github.com/colony-2/c2j/pkg/config"
 	"github.com/colony-2/c2j/pkg/starter"
 	"github.com/colony-2/c2j/pkg/worker/compiler"
-	"github.com/colony-2/swf-go/pkg/swf"
+	"github.com/colony-2/jobdb/pkg/jobdb"
 )
 
 type jobRow struct {
@@ -119,36 +119,36 @@ func Run(ctx context.Context, opts Options) error {
 	return err
 }
 
-func buildRequest(ctx context.Context, opts Options) (swf.ListJobsRequest, error) {
+func buildRequest(ctx context.Context, opts Options) (jobdb.ListJobsRequest, error) {
 	statuses, err := parseJobStatuses(opts.Statuses)
 	if err != nil {
-		return swf.ListJobsRequest{}, err
+		return jobdb.ListJobsRequest{}, err
 	}
 	waitingFor, err := parseWaitingForFilters(opts.WaitingFor)
 	if err != nil {
-		return swf.ListJobsRequest{}, err
+		return jobdb.ListJobsRequest{}, err
 	}
 	createdAfter, err := parseOptionalTime(opts.CreatedAfter)
 	if err != nil {
-		return swf.ListJobsRequest{}, err
+		return jobdb.ListJobsRequest{}, err
 	}
 	createdBefore, err := parseOptionalTime(opts.CreatedBefore)
 	if err != nil {
-		return swf.ListJobsRequest{}, err
+		return jobdb.ListJobsRequest{}, err
 	}
 	cellName, err := resolveListCellName(ctx, opts)
 	if err != nil {
-		return swf.ListJobsRequest{}, err
+		return jobdb.ListJobsRequest{}, err
 	}
-	metadataFilter, err := swf.Metadata().EqualFilter(starter.MetaFieldCellName, cellName)
+	metadataFilter, err := jobdb.Metadata().EqualFilter(starter.MetaFieldCellName, cellName)
 	if err != nil {
-		return swf.ListJobsRequest{}, err
+		return jobdb.ListJobsRequest{}, err
 	}
 
-	jobIDs := make([]swf.JobKey, 0, len(opts.JobIDs))
+	jobIDs := make([]jobdb.JobKey, 0, len(opts.JobIDs))
 	for _, value := range opts.JobIDs {
 		for _, part := range splitCSV(value) {
-			jobIDs = append(jobIDs, swf.JobKey{
+			jobIDs = append(jobIDs, jobdb.JobKey{
 				TenantId: opts.TenantID,
 				JobId:    part,
 			})
@@ -160,7 +160,7 @@ func buildRequest(ctx context.Context, opts Options) (swf.ListJobsRequest, error
 		jobTypes = append(jobTypes, splitCSV(value)...)
 	}
 
-	return swf.ListJobsRequest{
+	return jobdb.ListJobsRequest{
 		TenantIds:      []string{opts.TenantID},
 		Statuses:       statuses,
 		Stores:         storesForStatuses(statuses),
@@ -175,7 +175,7 @@ func buildRequest(ctx context.Context, opts Options) (swf.ListJobsRequest, error
 	}, nil
 }
 
-func makeJobRow(job swf.JobSummary) jobRow {
+func makeJobRow(job jobdb.JobSummary) jobRow {
 	nextNeed := ""
 	if job.NextNeed != nil {
 		nextNeed = *job.NextNeed
@@ -205,11 +205,11 @@ func makeJobRow(job swf.JobSummary) jobRow {
 	}
 }
 
-func storeForJob(job swf.JobSummary) swf.JobStore {
+func storeForJob(job jobdb.JobSummary) jobdb.JobStore {
 	if job.ArchivedAt != nil {
-		return swf.JobStoreArchived
+		return jobdb.JobStoreArchived
 	}
-	return swf.JobStoreActive
+	return jobdb.JobStoreActive
 }
 
 func displayNext(row jobRow) string {

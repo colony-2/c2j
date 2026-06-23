@@ -13,7 +13,8 @@ import (
 	"github.com/colony-2/c2j/pkg/recipe"
 	workerops "github.com/colony-2/c2j/pkg/worker/ops"
 	"github.com/colony-2/c2j/pkg/workflow"
-	"github.com/colony-2/swf-go/pkg/swf"
+	"github.com/colony-2/jobdb/pkg/jobdb"
+	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
 )
 
 const WithinRecipeResolutionTaskType = "recipe_within_resolution"
@@ -32,7 +33,7 @@ type WithinRecipeResolutionResult struct {
 
 type withinRecipeResolutionTaskWorker struct{}
 
-func newWithinRecipeResolutionTaskWorker() swf.TaskWorker {
+func newWithinRecipeResolutionTaskWorker() jobworkflow.TaskWorker {
 	return withinRecipeResolutionTaskWorker{}
 }
 
@@ -40,7 +41,7 @@ func (w withinRecipeResolutionTaskWorker) Name() string {
 	return WithinRecipeResolutionTaskType
 }
 
-func (w withinRecipeResolutionTaskWorker) Run(taskCtx swf.TaskContext, input swf.TaskData) (swf.TaskData, error) {
+func (w withinRecipeResolutionTaskWorker) Run(taskCtx jobworkflow.TaskContext, input jobdb.TaskData) (jobdb.TaskData, error) {
 	req, err := parseWithinRecipeResolutionTaskInput(input)
 	if err != nil {
 		return nil, err
@@ -56,10 +57,10 @@ func (w withinRecipeResolutionTaskWorker) Run(taskCtx swf.TaskContext, input swf
 	if err != nil {
 		return nil, err
 	}
-	return swf.NewTaskData(resolved)
+	return jobdb.NewTaskData(resolved)
 }
 
-func ParseWithinRecipeResolutionTaskData(td swf.TaskData) (*WithinRecipeResolutionResult, error) {
+func ParseWithinRecipeResolutionTaskData(td jobdb.TaskData) (*WithinRecipeResolutionResult, error) {
 	if td == nil {
 		return nil, fmt.Errorf("within recipe resolution task data is required")
 	}
@@ -82,7 +83,7 @@ func ParseWithinRecipeResolutionJSON(raw []byte) (*WithinRecipeResolutionResult,
 	return &result, nil
 }
 
-func parseWithinRecipeResolutionTaskInput(input swf.TaskData) (*withinRecipeResolutionTaskInput, error) {
+func parseWithinRecipeResolutionTaskInput(input jobdb.TaskData) (*withinRecipeResolutionTaskInput, error) {
 	if input == nil {
 		return nil, fmt.Errorf("within recipe resolution input is required")
 	}
@@ -110,11 +111,11 @@ func resolveWithinRecipeSelectors(ctx workflow.Context, rec recipe.Recipe, execC
 		return WithinRecipeResolutionResult{ResolvedGitRefs: cloneResolvedGitRefs(execOpts.ResolvedGitRefs)}, nil
 	}
 
-	taskInput, err := swf.NewTaskData(req)
+	taskInput, err := jobdb.NewTaskData(req)
 	if err != nil {
 		return WithinRecipeResolutionResult{}, fmt.Errorf("encode within recipe resolution input: %w", err)
 	}
-	taskOutput, err := ctx.DoTask(swf.RunPolicy{}, WithinRecipeResolutionTaskType, taskInput)
+	taskOutput, err := ctx.DoTask(jobdb.RunPolicy{}, WithinRecipeResolutionTaskType, taskInput)
 	if err != nil {
 		return WithinRecipeResolutionResult{}, fmt.Errorf("within recipe resolution task failed: %w", err)
 	}

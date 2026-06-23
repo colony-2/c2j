@@ -7,31 +7,31 @@ import (
 	"strings"
 
 	recipeartifacts "github.com/colony-2/c2j/pkg/artifacts"
-	"github.com/colony-2/swf-go/pkg/swf"
+	"github.com/colony-2/jobdb/pkg/jobdb"
 	"github.com/mitchellh/mapstructure"
 )
 
 var (
-	artifactKeyType = reflect.TypeOf(swf.ArtifactKey{})
+	artifactKeyType = reflect.TypeOf(jobdb.ArtifactKey{})
 	artifactRefType = reflect.TypeOf(recipeartifacts.Ref{})
 )
 
 type NormalizedOpInput struct {
 	Data               map[string]interface{}
-	StoredArtifactKeys []swf.ArtifactKey
+	StoredArtifactKeys []jobdb.ArtifactKey
 }
 
 type artifactKeyAccumulator struct {
-	seen map[string]swf.ArtifactKey
+	seen map[string]jobdb.ArtifactKey
 }
 
 func newArtifactKeyAccumulator() *artifactKeyAccumulator {
 	return &artifactKeyAccumulator{
-		seen: make(map[string]swf.ArtifactKey),
+		seen: make(map[string]jobdb.ArtifactKey),
 	}
 }
 
-func (a *artifactKeyAccumulator) Add(key swf.ArtifactKey) error {
+func (a *artifactKeyAccumulator) Add(key jobdb.ArtifactKey) error {
 	if err := key.Validate(); err != nil {
 		return err
 	}
@@ -50,8 +50,8 @@ func (a *artifactKeyAccumulator) AddRef(ref recipeartifacts.Ref) error {
 	return a.Add(key)
 }
 
-func (a *artifactKeyAccumulator) Keys() []swf.ArtifactKey {
-	out := make([]swf.ArtifactKey, 0, len(a.seen))
+func (a *artifactKeyAccumulator) Keys() []jobdb.ArtifactKey {
+	out := make([]jobdb.ArtifactKey, 0, len(a.seen))
 	for _, key := range a.seen {
 		out = append(out, key)
 	}
@@ -305,13 +305,13 @@ func normalizeDynamicValue(value interface{}, acc *artifactKeyAccumulator, path 
 		}
 		return normalizeDynamicValue(*v, acc, path)
 
-	case swf.ArtifactKey:
+	case jobdb.ArtifactKey:
 		if err := acc.Add(v); err != nil {
 			return nil, fmt.Errorf("%s: %w", displayPath(path), err)
 		}
 		return v, nil
 
-	case *swf.ArtifactKey:
+	case *jobdb.ArtifactKey:
 		if v == nil {
 			return nil, nil
 		}
@@ -319,7 +319,7 @@ func normalizeDynamicValue(value interface{}, acc *artifactKeyAccumulator, path 
 	}
 
 	if keyer, ok := value.(interface {
-		ArtifactKey() (swf.ArtifactKey, error)
+		ArtifactKey() (jobdb.ArtifactKey, error)
 	}); ok {
 		key, err := keyer.ArtifactKey()
 		if err != nil {

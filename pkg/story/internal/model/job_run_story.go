@@ -5,7 +5,7 @@ import (
 
 	recipeartifacts "github.com/colony-2/c2j/pkg/artifacts"
 	"github.com/colony-2/c2j/pkg/contextual"
-	"github.com/colony-2/swf-go/pkg/swf"
+	"github.com/colony-2/jobdb/pkg/jobdb"
 )
 
 // GetJobRunStoryRequest requests a recipe-centric story for a workflow/job execution.
@@ -102,7 +102,7 @@ type JobRunStoryNode struct {
 	Input        any                    `json:"input"`
 	Output       any                    `json:"output"`
 	RenderedVars map[string]interface{} `json:"rendered_vars,omitempty"`
-	ArtifactKeys []swf.ArtifactKey      `json:"artifact_keys"`
+	ArtifactKeys []jobdb.ArtifactKey    `json:"artifact_keys"`
 	ArtifactRefs []recipeartifacts.Ref  `json:"artifact_refs,omitempty"`
 
 	// TaskOrdinal is the SWF chapter ordinal for this node's latest attempt (when applicable).

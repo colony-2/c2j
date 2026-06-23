@@ -9,7 +9,8 @@ import (
 	"github.com/colony-2/c2j/pkg/contextual"
 	"github.com/colony-2/c2j/pkg/ops"
 	coretask "github.com/colony-2/c2j/pkg/task"
-	"github.com/colony-2/swf-go/pkg/swf"
+	"github.com/colony-2/jobdb/pkg/jobdb"
+	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
 )
 
 type taskWorker struct {
@@ -22,7 +23,7 @@ func (t *taskWorker) Name() string {
 	return t.name
 }
 
-func (t *taskWorker) Run(ctx swf.TaskContext, input swf.TaskData) (swf.TaskData, error) {
+func (t *taskWorker) Run(ctx jobworkflow.TaskContext, input jobdb.TaskData) (jobdb.TaskData, error) {
 	d, err := input.GetData()
 	if err != nil {
 		return nil, err
@@ -53,10 +54,10 @@ func (t *taskWorker) Run(ctx swf.TaskContext, input swf.TaskData) (swf.TaskData,
 	if err != nil {
 		return nil, err
 	}
-	return swf.NewTaskData(env, outArt...)
+	return jobdb.NewTaskData(env, outArt...)
 }
 
-var _ swf.TaskWorker = &taskWorker{}
+var _ jobworkflow.TaskWorker = &taskWorker{}
 
 const (
 	taskDeadlinePollInterval = 250 * time.Millisecond
@@ -66,7 +67,7 @@ const (
 // NewTaskExecutionContext returns a context that is canceled when the SWF task context reports
 // its durable deadline has elapsed. The deadline source remains SWF chapter metadata, not c2j
 // wall-clock bookkeeping, so replay keeps the original task/job start time semantics.
-func NewTaskExecutionContext(taskCtx swf.TaskContext) (context.Context, context.CancelFunc) {
+func NewTaskExecutionContext(taskCtx jobworkflow.TaskContext) (context.Context, context.CancelFunc) {
 	ctx, cancelCause := context.WithCancelCause(context.Background())
 
 	go monitorTaskDeadline(ctx, cancelCause, taskCtx)
@@ -76,24 +77,24 @@ func NewTaskExecutionContext(taskCtx swf.TaskContext) (context.Context, context.
 	}
 }
 
-func monitorTaskDeadline(ctx context.Context, cancelCause context.CancelCauseFunc, taskCtx swf.TaskContext) {
+func monitorTaskDeadline(ctx context.Context, cancelCause context.CancelCauseFunc, taskCtx jobworkflow.TaskContext) {
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		default:
 		}
-		err := taskCtx.AwaitDuration(swf.Duration(taskDeadlinePollInterval))
+		err := taskCtx.AwaitDuration(jobdb.Duration(taskDeadlinePollInterval))
 		if err == nil {
 			continue
 		}
-		var cacheMiss swf.ReplayCacheMissError
+		var cacheMiss jobworkflow.ReplayCacheMissError
 		if errors.As(err, &cacheMiss) {
 			return
 		}
 
 		cause := err
-		var timeoutErr *swf.TimeoutError
+		var timeoutErr *jobdb.TimeoutError
 		if errors.As(err, &timeoutErr) {
 			cause = context.DeadlineExceeded
 		}
@@ -109,7 +110,7 @@ func monitorTaskDeadline(ctx context.Context, cancelCause context.CancelCauseFun
 	}
 }
 
-func failedTaskData(output ActivityInvocationOutput, artifacts []swf.Artifact) (swf.TaskData, error) {
+func failedTaskData(output ActivityInvocationOutput, artifacts []jobdb.Artifact) (jobdb.TaskData, error) {
 	if !hasFailedActivityPayload(output, artifacts) {
 		return nil, nil
 	}
@@ -117,10 +118,10 @@ func failedTaskData(output ActivityInvocationOutput, artifacts []swf.Artifact) (
 	if err != nil {
 		return nil, err
 	}
-	return swf.NewTaskData(env, artifacts...)
+	return jobdb.NewTaskData(env, artifacts...)
 }
 
-func hasFailedActivityPayload(output ActivityInvocationOutput, artifacts []swf.Artifact) bool {
+func hasFailedActivityPayload(output ActivityInvocationOutput, artifacts []jobdb.Artifact) bool {
 	if len(artifacts) > 0 {
 		return true
 	}

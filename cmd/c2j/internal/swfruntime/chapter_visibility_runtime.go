@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/colony-2/swf-go/pkg/swf"
+	"github.com/colony-2/jobdb/pkg/jobdb"
 )
 
 const (
@@ -15,27 +15,27 @@ const (
 )
 
 type chapterVisibilityRuntime struct {
-	swf.WorkflowRuntime
+	jobdb.WorkflowRuntime
 
 	visibilityTimeout      time.Duration
 	visibilityPollInterval time.Duration
 }
 
-func withChapterVisibility(runtime swf.WorkflowRuntime) swf.WorkflowRuntime {
+func withChapterVisibility(runtime jobdb.WorkflowRuntime) jobdb.WorkflowRuntime {
 	if runtime == nil {
 		return nil
 	}
 	return &chapterVisibilityRuntime{WorkflowRuntime: runtime}
 }
 
-func (r *chapterVisibilityRuntime) PutChapter(ctx context.Context, req swf.PutChapterRequest) error {
+func (r *chapterVisibilityRuntime) PutChapter(ctx context.Context, req jobdb.PutChapterRequest) error {
 	if err := r.WorkflowRuntime.PutChapter(ctx, req); err != nil {
 		return err
 	}
 	return r.awaitChapterVisible(ctx, req.Ref)
 }
 
-func (r *chapterVisibilityRuntime) awaitChapterVisible(ctx context.Context, ref swf.ChapterRef) error {
+func (r *chapterVisibilityRuntime) awaitChapterVisible(ctx context.Context, ref jobdb.ChapterRef) error {
 	waitCtx := ctx
 	if waitCtx == nil {
 		waitCtx = context.Background()
@@ -65,7 +65,7 @@ func (r *chapterVisibilityRuntime) awaitChapterVisible(ctx context.Context, ref 
 			}
 			return nil
 		}
-		if !errors.Is(err, swf.ErrChapterNotFound) {
+		if !errors.Is(err, jobdb.ErrChapterNotFound) {
 			return fmt.Errorf("confirm chapter %d visibility: %w", ref.Ordinal, err)
 		}
 

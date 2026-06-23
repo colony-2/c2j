@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/colony-2/c2j/cmd/c2j/internal/defaults"
-	"github.com/colony-2/swf-go/pkg/swf"
+	"github.com/colony-2/jobdb/pkg/jobdb"
 )
 
 type Options struct {
@@ -104,24 +104,24 @@ func (o Options) Validate() error {
 	return nil
 }
 
-func parseJobStatuses(values []string) ([]swf.JobStatus, error) {
+func parseJobStatuses(values []string) ([]jobdb.JobStatus, error) {
 	if len(values) == 0 {
 		return defaultVisibleStatuses(), nil
 	}
 
-	out := make([]swf.JobStatus, 0, len(values))
+	out := make([]jobdb.JobStatus, 0, len(values))
 	for _, value := range values {
 		for _, part := range splitCSV(value) {
-			status := swf.JobStatus(strings.ToUpper(strings.TrimSpace(part)))
+			status := jobdb.JobStatus(strings.ToUpper(strings.TrimSpace(part)))
 			switch status {
-			case swf.JobStatusReady,
-				swf.JobStatusExpired,
-				swf.JobStatusPendingJobs,
-				swf.JobStatusAwaitingFuture,
-				swf.JobStatusActive,
-				swf.JobStatusCrashConcern,
-				swf.JobStatusCancelled,
-				swf.JobStatusCompleted:
+			case jobdb.JobStatusReady,
+				jobdb.JobStatusExpired,
+				jobdb.JobStatusPendingJobs,
+				jobdb.JobStatusAwaitingFuture,
+				jobdb.JobStatusActive,
+				jobdb.JobStatusCrashConcern,
+				jobdb.JobStatusCancelled,
+				jobdb.JobStatusCompleted:
 				out = append(out, status)
 			default:
 				return nil, fmt.Errorf("unsupported --status %q", part)
@@ -131,23 +131,23 @@ func parseJobStatuses(values []string) ([]swf.JobStatus, error) {
 	return out, nil
 }
 
-func defaultVisibleStatuses() []swf.JobStatus {
-	return []swf.JobStatus{
-		swf.JobStatusReady,
-		swf.JobStatusExpired,
-		swf.JobStatusPendingJobs,
-		swf.JobStatusAwaitingFuture,
-		swf.JobStatusActive,
-		swf.JobStatusCrashConcern,
+func defaultVisibleStatuses() []jobdb.JobStatus {
+	return []jobdb.JobStatus{
+		jobdb.JobStatusReady,
+		jobdb.JobStatusExpired,
+		jobdb.JobStatusPendingJobs,
+		jobdb.JobStatusAwaitingFuture,
+		jobdb.JobStatusActive,
+		jobdb.JobStatusCrashConcern,
 	}
 }
 
-func storesForStatuses(statuses []swf.JobStatus) []swf.JobStore {
+func storesForStatuses(statuses []jobdb.JobStatus) []jobdb.JobStore {
 	hasActive := false
 	hasArchived := false
 	for _, status := range statuses {
 		switch status {
-		case swf.JobStatusCancelled, swf.JobStatusCompleted:
+		case jobdb.JobStatusCancelled, jobdb.JobStatusCompleted:
 			hasArchived = true
 		default:
 			hasActive = true
@@ -156,16 +156,16 @@ func storesForStatuses(statuses []swf.JobStatus) []swf.JobStore {
 
 	switch {
 	case hasActive && hasArchived:
-		return []swf.JobStore{swf.JobStoreActive, swf.JobStoreArchived}
+		return []jobdb.JobStore{jobdb.JobStoreActive, jobdb.JobStoreArchived}
 	case hasArchived:
-		return []swf.JobStore{swf.JobStoreArchived}
+		return []jobdb.JobStore{jobdb.JobStoreArchived}
 	default:
-		return []swf.JobStore{swf.JobStoreActive}
+		return []jobdb.JobStore{jobdb.JobStoreActive}
 	}
 }
 
-func parseWaitingForFilters(values []string) ([]swf.JobTaskFilter, error) {
-	out := make([]swf.JobTaskFilter, 0, len(values))
+func parseWaitingForFilters(values []string) ([]jobdb.JobTaskFilter, error) {
+	out := make([]jobdb.JobTaskFilter, 0, len(values))
 	for _, value := range values {
 		for _, part := range splitCSV(value) {
 			part = strings.TrimSpace(part)
@@ -176,7 +176,7 @@ func parseWaitingForFilters(values []string) ([]swf.JobTaskFilter, error) {
 			if !ok || strings.TrimSpace(jobType) == "" || strings.TrimSpace(taskType) == "" {
 				return nil, fmt.Errorf("--waiting-for must be in JOBTYPE:TASKTYPE form, got %q", part)
 			}
-			out = append(out, swf.JobTaskFilter{
+			out = append(out, jobdb.JobTaskFilter{
 				JobType:  strings.TrimSpace(jobType),
 				TaskType: strings.TrimSpace(taskType),
 			})

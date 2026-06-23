@@ -25,8 +25,9 @@ import (
 	testfixtures "github.com/colony-2/c2j/pkg/worker/test-fixtures"
 	workflow "github.com/colony-2/c2j/pkg/worker/workflow"
 	"github.com/colony-2/c2j/pkg/workflowctl"
-	"github.com/colony-2/swf-go/pkg/swf"
-	sqliteruntime "github.com/colony-2/swf-go/pkg/swf/runtime/sqlite"
+	"github.com/colony-2/jobdb/pkg/jobdb"
+	sqliteruntime "github.com/colony-2/jobdb/pkg/jobdb/runtime/sqlite"
+	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
@@ -68,13 +69,13 @@ func TestRecipeFixturesRealEngine(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(embedded.Shutdown)
 
-	taskWorkers := make([]swf.TaskWorker, 0, len(workSet.TaskWorkers))
+	taskWorkers := make([]jobworkflow.TaskWorker, 0, len(workSet.TaskWorkers))
 	for _, tw := range workSet.TaskWorkers {
 		taskWorkers = append(taskWorkers, tw)
 	}
 
 	tenantID := "test-tenant"
-	engine, err := swf.NewEngineBuilder().
+	engine, err := jobworkflow.NewEngineBuilder().
 		WithRuntime(embedded.Runtime).
 		WithWorkerTenantId(tenantID).
 		WithAwaitRecycleThreshold(5*time.Second).
@@ -134,7 +135,7 @@ func TestRecipeFixturesRealEngine(t *testing.T) {
 					jobKey, err := starter.StartRecipeJob(ctx, start, engine, *primary)
 					require.NoError(t, err)
 
-					require.NoError(t, swf.WaitForJobToComplete(ctx, 60*time.Second, jobKey, engine))
+					require.NoError(t, jobworkflow.WaitForJobToComplete(ctx, 60*time.Second, jobKey, engine))
 
 					data, err := wf.JobResult(ctx, jobKey)
 					if tc.WantErr {
@@ -167,7 +168,7 @@ func loadRecipeFromPath(path string) (*recipe.Recipe, error) {
 	return recipe.LoadRecipeFromReader(reader)
 }
 
-func readJobOutputAsMap(data swf.JobData) (map[string]interface{}, error) {
+func readJobOutputAsMap(data jobdb.JobData) (map[string]interface{}, error) {
 	rawBytes, err := data.GetData()
 	if err != nil {
 		return nil, err

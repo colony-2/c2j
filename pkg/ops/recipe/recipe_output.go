@@ -6,7 +6,7 @@ import (
 
 	recipeartifacts "github.com/colony-2/c2j/pkg/artifacts"
 	"github.com/colony-2/c2j/pkg/ops"
-	"github.com/colony-2/swf-go/pkg/swf"
+	"github.com/colony-2/jobdb/pkg/jobdb"
 )
 
 type recipeJobOutput struct {
@@ -16,7 +16,7 @@ type recipeJobOutput struct {
 	ArtifactsAvailable bool
 }
 
-func decodeRecipeJobOutput(deps ops.OpDependencies, data swf.JobData) (recipeJobOutput, error) {
+func decodeRecipeJobOutput(deps ops.OpDependencies, data jobdb.JobData) (recipeJobOutput, error) {
 	out := recipeJobOutput{
 		Outputs:   map[string]interface{}{},
 		Artifacts: map[string]recipeartifacts.Ref{},

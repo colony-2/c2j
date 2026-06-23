@@ -7,7 +7,7 @@ import (
 	recipeartifacts "github.com/colony-2/c2j/pkg/artifacts"
 	"github.com/colony-2/c2j/pkg/contextual"
 	"github.com/colony-2/c2j/pkg/template/funcregistry"
-	"github.com/colony-2/swf-go/pkg/swf"
+	"github.com/colony-2/jobdb/pkg/jobdb"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -40,8 +40,8 @@ func TestInterpolateString(t *testing.T) {
 	addOpOutput(t, ctx, "timer", map[string]interface{}{
 		"duration": 1500,
 	})
-	readme := swf.NewArtifactFromBytes("readme.md", []byte("data"))
-	swf.AssignArtifactKey(readme, swf.ArtifactKey{
+	readme := jobdb.NewArtifactFromBytes("readme.md", []byte("data"))
+	jobdb.AssignArtifactKey(readme, jobdb.ArtifactKey{
 		JobId:       "job",
 		TaskOrdinal: 1,
 		Name:        "readme.md",
@@ -224,8 +224,8 @@ func TestInterpolateString(t *testing.T) {
 
 func TestInterpolateString_Errors(t *testing.T) {
 	ctx := newSequenceCtx(t, newRecipeCtx(t, nil), "test", map[string]interface{}{})
-	readme := swf.NewArtifactFromBytes("readme.md", []byte("data"))
-	swf.AssignArtifactKey(readme, swf.ArtifactKey{
+	readme := jobdb.NewArtifactFromBytes("readme.md", []byte("data"))
+	jobdb.AssignArtifactKey(readme, jobdb.ArtifactKey{
 		JobId:       "job",
 		TaskOrdinal: 1,
 		Name:        "readme.md",

@@ -9,11 +9,11 @@ import (
 	"github.com/colony-2/c2j/pkg/contextual"
 	"github.com/colony-2/c2j/pkg/recipe"
 	"github.com/colony-2/c2j/pkg/workflowctl"
-	"github.com/colony-2/swf-go/pkg/swf"
+	"github.com/colony-2/jobdb/pkg/jobdb"
 )
 
 type captureSubmitter struct {
-	job swf.SubmitJob
+	job jobdb.SubmitJob
 }
 
 func TestStartRecipeJobUsesRecipeTimeoutAsDurableJobTotalTimeout(t *testing.T) {
@@ -45,9 +45,9 @@ func TestStartRecipeJobUsesRecipeTimeoutAsDurableJobTotalTimeout(t *testing.T) {
 	}
 }
 
-func (c *captureSubmitter) SubmitJob(_ context.Context, job swf.SubmitJob) (swf.JobKey, error) {
+func (c *captureSubmitter) SubmitJob(_ context.Context, job jobdb.SubmitJob) (jobdb.JobKey, error) {
 	c.job = job
-	return swf.JobKey{TenantId: job.TenantId, JobId: job.JobID}, nil
+	return jobdb.JobKey{TenantId: job.TenantId, JobId: job.JobID}, nil
 }
 
 func TestJobMetadataFromStartJob_JSONFields(t *testing.T) {
@@ -116,8 +116,8 @@ func TestStartRecipeJobAttachesArtifactsWithoutSerializingThemInPayload(t *testi
 	_, err := StartRecipeJobWithOptions(context.Background(), workflowctl.StartJob{
 		TenantId:   "tenant",
 		RecipeName: "recipe-name",
-		Artifacts: []swf.Artifact{
-			swf.NewArtifactFromBytes("brief.md", []byte("brief")),
+		Artifacts: []jobdb.Artifact{
+			jobdb.NewArtifactFromBytes("brief.md", []byte("brief")),
 		},
 	}, engine, StartRecipeJobOptions{})
 	if err != nil {

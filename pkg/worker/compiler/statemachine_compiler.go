@@ -8,7 +8,7 @@ import (
 	"github.com/colony-2/c2j/pkg/recipe"
 	"github.com/colony-2/c2j/pkg/template"
 	"github.com/colony-2/c2j/pkg/workflow"
-	"github.com/colony-2/swf-go/pkg/swf"
+	"github.com/colony-2/jobdb/pkg/jobdb"
 )
 
 // ExecuteStateMachine runs the state machine with the new StateMap format
@@ -146,7 +146,7 @@ stateMachineLoop:
 			if attempt < stateAttempts && shouldRetryFailure(err, failure, stateRetry) {
 				observer.StateExited(currentState)
 				if delay := retryDelay(stateRetry, attempt); delay > 0 {
-					if awaitErr := ctx.JobContext.AwaitDuration(swf.Duration(delay)); awaitErr != nil {
+					if awaitErr := ctx.JobContext.AwaitDuration(jobdb.Duration(delay)); awaitErr != nil {
 						return awaitErr
 					}
 				}

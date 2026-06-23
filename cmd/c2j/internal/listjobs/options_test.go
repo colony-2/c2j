@@ -8,7 +8,7 @@ import (
 	"testing"
 
 	"github.com/colony-2/c2j/cmd/c2j/internal/defaults"
-	"github.com/colony-2/swf-go/pkg/swf"
+	"github.com/colony-2/jobdb/pkg/jobdb"
 )
 
 func TestOptionsCompleteUsesProjectTenantDefault(t *testing.T) {
@@ -71,12 +71,12 @@ self:
 		t.Fatalf("Statuses = %#v, want %#v", req.Statuses, wantStatuses)
 	}
 
-	wantStores := []swf.JobStore{swf.JobStoreActive}
+	wantStores := []jobdb.JobStore{jobdb.JobStoreActive}
 	if !reflect.DeepEqual(req.Stores, wantStores) {
 		t.Fatalf("Stores = %#v, want %#v", req.Stores, wantStores)
 	}
 
-	predicates, err := swf.MetadataPredicates(req.MetadataFilter)
+	predicates, err := jobdb.MetadataPredicates(req.MetadataFilter)
 	if err != nil {
 		t.Fatalf("MetadataPredicates(): %v", err)
 	}
@@ -104,7 +104,7 @@ self:
 		t.Fatalf("buildRequest(): %v", err)
 	}
 
-	want := []swf.JobStore{swf.JobStoreArchived}
+	want := []jobdb.JobStore{jobdb.JobStoreArchived}
 	if !reflect.DeepEqual(req.Stores, want) {
 		t.Fatalf("Stores = %#v, want %#v", req.Stores, want)
 	}
@@ -129,7 +129,7 @@ self:
 		t.Fatalf("buildRequest(): %v", err)
 	}
 
-	predicates, err := swf.MetadataPredicates(req.MetadataFilter)
+	predicates, err := jobdb.MetadataPredicates(req.MetadataFilter)
 	if err != nil {
 		t.Fatalf("MetadataPredicates(): %v", err)
 	}
@@ -146,7 +146,7 @@ func TestParseWaitingForSupportsTaskTypesWithColons(t *testing.T) {
 		t.Fatalf("parseWaitingForFilters(): %v", err)
 	}
 
-	want := []swf.JobTaskFilter{{
+	want := []jobdb.JobTaskFilter{{
 		JobType:  "recipe",
 		TaskType: "input:collect_user_input",
 	}}

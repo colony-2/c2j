@@ -7,12 +7,12 @@ import (
 
 	recipeartifacts "github.com/colony-2/c2j/pkg/artifacts"
 	"github.com/colony-2/c2j/pkg/contextual"
-	"github.com/colony-2/swf-go/pkg/swf"
+	"github.com/colony-2/jobdb/pkg/jobdb"
 )
 
 func TestStartJobsEmpty(t *testing.T) {
 	ctl := &fakeWorkflowControl{}
-	_, err := startJobs(context.Background(), swf.JobKey{TenantId: "tenant", JobId: "parent-job"}, contextual.Invocation{}, ctl, "github.com/acme/demo", "main", nil, "")
+	_, err := startJobs(context.Background(), jobdb.JobKey{TenantId: "tenant", JobId: "parent-job"}, contextual.Invocation{}, ctl, "github.com/acme/demo", "main", nil, "")
 	if err == nil {
 		t.Fatal("expected error for empty recipes")
 	}
@@ -28,7 +28,7 @@ func TestStartJobsSingle(t *testing.T) {
 			BaseRef:  "main",
 		},
 	}}
-	keys, err := startJobs(context.Background(), swf.JobKey{TenantId: "tenant", JobId: "parent-job"}, contextual.Invocation{NodePath: "node", InvokeSeq: 1}, ctl, "github.com/acme/demo", "main", recipes, "git-ref")
+	keys, err := startJobs(context.Background(), jobdb.JobKey{TenantId: "tenant", JobId: "parent-job"}, contextual.Invocation{NodePath: "node", InvokeSeq: 1}, ctl, "github.com/acme/demo", "main", recipes, "git-ref")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -53,7 +53,7 @@ func TestStartJobsSingle(t *testing.T) {
 }
 
 func TestStartJobsPassesConfiguredArtifactsAsRefsOnly(t *testing.T) {
-	artifactRef := recipeartifacts.NewStoredRef(swf.ArtifactKey{
+	artifactRef := recipeartifacts.NewStoredRef(jobdb.ArtifactKey{
 		JobId:       "parent-job",
 		TaskOrdinal: 0,
 		Name:        "brief.md",
@@ -69,7 +69,7 @@ func TestStartJobsPassesConfiguredArtifactsAsRefsOnly(t *testing.T) {
 		},
 	}}
 
-	_, err := startJobs(context.Background(), swf.JobKey{TenantId: "tenant", JobId: "parent-job"}, contextual.Invocation{NodePath: "node", InvokeSeq: 1}, ctl, "github.com/acme/demo", "main", recipes, "git-ref")
+	_, err := startJobs(context.Background(), jobdb.JobKey{TenantId: "tenant", JobId: "parent-job"}, contextual.Invocation{NodePath: "node", InvokeSeq: 1}, ctl, "github.com/acme/demo", "main", recipes, "git-ref")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -110,7 +110,7 @@ func TestStartJobsMultipleRunsSequentially(t *testing.T) {
 			},
 		},
 	}
-	keys, err := startJobs(context.Background(), swf.JobKey{TenantId: "tenant", JobId: "parent-job"}, contextual.Invocation{NodePath: "node", InvokeSeq: 1}, ctl, "github.com/acme/demo", "main", recipes, "")
+	keys, err := startJobs(context.Background(), jobdb.JobKey{TenantId: "tenant", JobId: "parent-job"}, contextual.Invocation{NodePath: "node", InvokeSeq: 1}, ctl, "github.com/acme/demo", "main", recipes, "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -144,7 +144,7 @@ func TestStartJobsMultipleErrorReturnsNoKeys(t *testing.T) {
 			},
 		},
 	}
-	keys, err := startJobs(context.Background(), swf.JobKey{TenantId: "tenant", JobId: "parent-job"}, contextual.Invocation{NodePath: "node", InvokeSeq: 1}, ctl, "github.com/acme/demo", "main", recipes, "")
+	keys, err := startJobs(context.Background(), jobdb.JobKey{TenantId: "tenant", JobId: "parent-job"}, contextual.Invocation{NodePath: "node", InvokeSeq: 1}, ctl, "github.com/acme/demo", "main", recipes, "")
 	if err == nil {
 		t.Fatal("expected error")
 	}

@@ -21,7 +21,7 @@ import (
 	"github.com/colony-2/c2j/pkg/starter"
 	"github.com/colony-2/c2j/pkg/worker/compiler"
 	"github.com/colony-2/c2j/pkg/workflowctl"
-	"github.com/colony-2/swf-go/pkg/swf"
+	"github.com/colony-2/jobdb/pkg/jobdb"
 	"gopkg.in/yaml.v3"
 )
 
@@ -103,7 +103,7 @@ func Run(ctx context.Context, opts Options) error {
 			InputHash:   hashInputs(inputs),
 		}
 
-		var jobKey swf.JobKey
+		var jobKey jobdb.JobKey
 		if embeddedRecipe != nil {
 			jobKey, err = starter.StartRecipeJob(ctx, start, handle.Engine, *embeddedRecipe)
 		} else {

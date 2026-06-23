@@ -7,7 +7,7 @@ import (
 
 	"github.com/colony-2/c2j/pkg/contextual"
 	coreops "github.com/colony-2/c2j/pkg/ops"
-	"github.com/colony-2/swf-go/pkg/swf"
+	"github.com/colony-2/jobdb/pkg/jobdb"
 	"github.com/segmentio/ksuid"
 )
 
@@ -36,7 +36,7 @@ func TestStartSingleJobPassesDeterministicJobID(t *testing.T) {
 	ctl := &fakeWorkflowControl{}
 	deps := coreops.NewOpDependenciesBuilder().
 		WithWorkflowControl(ctl).
-		WithJobTool(&fakeJobTool{key: swf.JobKey{TenantId: "tenant", JobId: "parent-job"}}).
+		WithJobTool(&fakeJobTool{key: jobdb.JobKey{TenantId: "tenant", JobId: "parent-job"}}).
 		WithGitContext(coreops.GitExecutionContext{NodePath: "workflow/steps/start", InvokeSeq: 5}).
 		Build()
 
@@ -70,7 +70,7 @@ func TestStartMultipleJobsReusesSameIDsAcrossReruns(t *testing.T) {
 	ctl := &fakeWorkflowControl{}
 	deps := coreops.NewOpDependenciesBuilder().
 		WithWorkflowControl(ctl).
-		WithJobTool(&fakeJobTool{key: swf.JobKey{TenantId: "tenant", JobId: "parent-job"}}).
+		WithJobTool(&fakeJobTool{key: jobdb.JobKey{TenantId: "tenant", JobId: "parent-job"}}).
 		WithGitContext(coreops.GitExecutionContext{NodePath: "workflow/steps/fanout", InvokeSeq: 11}).
 		Build()
 
@@ -122,7 +122,7 @@ func TestStartSingleJobBareNameUsesRecipeSourceForLookup(t *testing.T) {
 	ctl := &fakeWorkflowControl{}
 	deps := coreops.NewOpDependenciesBuilder().
 		WithWorkflowControl(ctl).
-		WithJobTool(&fakeJobTool{key: swf.JobKey{TenantId: "tenant", JobId: "parent-job"}}).
+		WithJobTool(&fakeJobTool{key: jobdb.JobKey{TenantId: "tenant", JobId: "parent-job"}}).
 		WithGitContext(coreops.GitExecutionContext{
 			BaseRepo:         "https://github.com/acme/self.git",
 			BaseRef:          "main",

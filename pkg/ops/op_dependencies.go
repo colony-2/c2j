@@ -5,36 +5,37 @@ import (
 
 	recipeartifacts "github.com/colony-2/c2j/pkg/artifacts"
 	"github.com/colony-2/c2j/pkg/workflowctl"
-	"github.com/colony-2/swf-go/pkg/swf"
+	"github.com/colony-2/jobdb/pkg/jobdb"
+	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
 	"gorm.io/gorm"
 )
 
 type OpDependencies interface {
 	Database() *gorm.DB
 	WorkflowControl() workflowctl.WorkflowControl
-	GetInputArtifacts() []swf.Artifact
-	AddOutputArtifact(swf.Artifact) error
+	GetInputArtifacts() []jobdb.Artifact
+	AddOutputArtifact(jobdb.Artifact) error
 	AddExternalArtifact(name string, url string, expand bool) error
-	GetOutputArtifacts() []swf.Artifact
+	GetOutputArtifacts() []jobdb.Artifact
 	GetExternalArtifacts() map[string]recipeartifacts.Ref
 	WorktreePath() string
 	GitContext() GitExecutionContext
 	JobTool() JobTool
-	FindArtifact(key swf.ArtifactKey) (swf.Artifact, error)
+	FindArtifact(key jobdb.ArtifactKey) (jobdb.Artifact, error)
 	SetNextTaskType(taskType string)
 }
 
 // JobTool provides a way to influence the current jobs operation. It is separate from workflowcontrol, which is about running jobs independent of this jobs context.
 type JobTool interface {
-	GetJobKey() swf.JobKey
+	GetJobKey() jobdb.JobKey
 	AwaitJobs(jobIds ...string) error
 }
 
 type TaskBasedJobTool struct {
-	TaskContext swf.TaskContext
+	TaskContext jobworkflow.TaskContext
 }
 
-func (j *TaskBasedJobTool) GetJobKey() swf.JobKey {
+func (j *TaskBasedJobTool) GetJobKey() jobdb.JobKey {
 	return j.TaskContext.JobKey
 }
 
@@ -45,8 +46,8 @@ func (j *TaskBasedJobTool) AwaitJobs(jobIds ...string) error {
 // opDepImpl holds the actual dependencies.
 type opDepImpl struct {
 	db                *gorm.DB
-	inputArtifacts    []swf.Artifact
-	outputArtifacts   []swf.Artifact
+	inputArtifacts    []jobdb.Artifact
+	outputArtifacts   []jobdb.Artifact
 	externalArtifacts map[string]recipeartifacts.Ref
 	workflowControl   workflowctl.WorkflowControl
 	worktreePath      string
@@ -58,8 +59,8 @@ type opDepImpl struct {
 	nextTaskTypeSet   bool
 }
 
-func (c *opDepImpl) FindArtifact(key swf.ArtifactKey) (swf.Artifact, error) {
-	var found swf.Artifact
+func (c *opDepImpl) FindArtifact(key jobdb.ArtifactKey) (jobdb.Artifact, error) {
+	var found jobdb.Artifact
 	for _, artifact := range c.GetInputArtifacts() {
 		if artifact.Name() == key.Name {
 			if found != nil {
@@ -75,8 +76,8 @@ func (c *opDepImpl) FindArtifact(key swf.ArtifactKey) (swf.Artifact, error) {
 	return found, nil
 }
 
-func (c *opDepImpl) GetOutputArtifacts() []swf.Artifact {
-	out := make([]swf.Artifact, len(c.outputArtifacts))
+func (c *opDepImpl) GetOutputArtifacts() []jobdb.Artifact {
+	out := make([]jobdb.Artifact, len(c.outputArtifacts))
 	copy(out, c.outputArtifacts)
 	return out
 }
@@ -114,7 +115,7 @@ func (c *opDepImpl) Database() *gorm.DB {
 }
 
 // AddArtifact implements the OpDependencies interface.
-func (c *opDepImpl) AddOutputArtifact(a swf.Artifact) error {
+func (c *opDepImpl) AddOutputArtifact(a jobdb.Artifact) error {
 	if a == nil {
 		return errors.New("cannot add nil artifact")
 	}
@@ -124,7 +125,7 @@ func (c *opDepImpl) AddOutputArtifact(a swf.Artifact) error {
 }
 
 // GetInputArtifacts implements the OpDependencies interface.
-func (c *opDepImpl) GetInputArtifacts() []swf.Artifact {
+func (c *opDepImpl) GetInputArtifacts() []jobdb.Artifact {
 	return c.inputArtifacts
 }
 
@@ -161,7 +162,7 @@ func (c *opDepImpl) NextTaskType() (string, bool) {
 
 type OpDependenciesBuilder struct {
 	db              *gorm.DB
-	artifacts       []swf.Artifact
+	artifacts       []jobdb.Artifact
 	workflowControl workflowctl.WorkflowControl
 	worktreePath    string
 	operationPaths  OperationPaths
@@ -173,7 +174,7 @@ type OpDependenciesBuilder struct {
 // NewOpDependenciesBuilder creates a new, empty builder instance.
 func NewOpDependenciesBuilder() *OpDependenciesBuilder {
 	return &OpDependenciesBuilder{
-		artifacts: make([]swf.Artifact, 0), // Initialize inputArtifacts slice
+		artifacts: make([]jobdb.Artifact, 0), // Initialize inputArtifacts slice
 	}
 }
 
@@ -182,7 +183,7 @@ func (b *OpDependenciesBuilder) WithDatabase(db *gorm.DB) *OpDependenciesBuilder
 	return b
 }
 
-func (b *OpDependenciesBuilder) WithTaskContext(tc swf.TaskContext) *OpDependenciesBuilder {
+func (b *OpDependenciesBuilder) WithTaskContext(tc jobworkflow.TaskContext) *OpDependenciesBuilder {
 	b.jobTool = &TaskBasedJobTool{tc}
 	return b
 }
@@ -192,12 +193,12 @@ func (b *OpDependenciesBuilder) WithJobTool(jt JobTool) *OpDependenciesBuilder {
 	return b
 }
 
-func (b *OpDependenciesBuilder) WithArtifacts(initialArtifacts []swf.Artifact) *OpDependenciesBuilder {
+func (b *OpDependenciesBuilder) WithArtifacts(initialArtifacts []jobdb.Artifact) *OpDependenciesBuilder {
 	if initialArtifacts == nil {
-		b.artifacts = make([]swf.Artifact, 0)
+		b.artifacts = make([]jobdb.Artifact, 0)
 		return b
 	}
-	out := make([]swf.Artifact, len(initialArtifacts))
+	out := make([]jobdb.Artifact, len(initialArtifacts))
 	copy(out, initialArtifacts)
 	b.artifacts = out
 	return b
@@ -243,7 +244,7 @@ func (b *OpDependenciesBuilder) Build() OpDependencies {
 		operationPaths:    b.operationPaths,
 		pathRuntime:       b.pathRuntime,
 		gitContext:        b.gitContext,
-		outputArtifacts:   make([]swf.Artifact, 0),
+		outputArtifacts:   make([]jobdb.Artifact, 0),
 		externalArtifacts: make(map[string]recipeartifacts.Ref),
 		jobTool:           b.jobTool,
 	}

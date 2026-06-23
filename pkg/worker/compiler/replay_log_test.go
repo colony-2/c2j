@@ -7,17 +7,17 @@ import (
 	"log/slog"
 	"testing"
 
-	"github.com/colony-2/swf-go/pkg/swf"
+	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
 )
 
 func TestLogReplayCacheMissUsesDebug(t *testing.T) {
 	handler := &recordingSlogHandler{}
 	logger := slog.New(handler)
-	err := swf.ReplayCacheMissError{
+	err := jobworkflow.ReplayCacheMissError{
 		TaskType: "example_task",
 		Ordinal:  1,
 		Attempt:  1,
-		Reason:   swf.ReplayCacheMissTaskResultMissing,
+		Reason:   jobworkflow.ReplayCacheMissTaskResultMissing,
 	}
 
 	if !logReplayCacheMiss(logger, "cache miss", err, "op", "example") {
@@ -38,11 +38,11 @@ func TestLogReplayCacheMissUsesDebug(t *testing.T) {
 func TestLogReplayCacheMissHandlesWrappedError(t *testing.T) {
 	handler := &recordingSlogHandler{}
 	logger := slog.New(handler)
-	err := swf.ReplayCacheMissError{
+	err := jobworkflow.ReplayCacheMissError{
 		TaskType: "example_task",
 		Ordinal:  1,
 		Attempt:  1,
-		Reason:   swf.ReplayCacheMissTaskResultMissing,
+		Reason:   jobworkflow.ReplayCacheMissTaskResultMissing,
 	}
 
 	if !logReplayCacheMiss(logger, "cache miss", fmt.Errorf("outer: %w", err)) {

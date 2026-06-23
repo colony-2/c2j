@@ -4,7 +4,7 @@ import (
 	"errors"
 	"log/slog"
 
-	"github.com/colony-2/swf-go/pkg/swf"
+	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
 )
 
 func logReplayCacheMiss(logger *slog.Logger, message string, err error, attrs ...any) bool {
@@ -20,6 +20,6 @@ func logReplayCacheMiss(logger *slog.Logger, message string, err error, attrs ..
 }
 
 func isReplayCacheMiss(err error) bool {
-	var miss swf.ReplayCacheMissError
+	var miss jobworkflow.ReplayCacheMissError
 	return errors.As(err, &miss)
 }

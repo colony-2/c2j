@@ -6,7 +6,7 @@ import (
 	recipeartifacts "github.com/colony-2/c2j/pkg/artifacts"
 	"github.com/colony-2/c2j/pkg/contextual"
 	"github.com/colony-2/c2j/pkg/workflowctl"
-	"github.com/colony-2/swf-go/pkg/swf"
+	"github.com/colony-2/jobdb/pkg/jobdb"
 )
 
 func TestApplyRootRecipeSourceUsesResolvedGitSelector(t *testing.T) {
@@ -54,15 +54,15 @@ func TestRootRecipeLookupPrefersRecipeSourceContext(t *testing.T) {
 func TestSubmittedArtifactRefsExcludesEmbeddedRecipeArtifact(t *testing.T) {
 	t.Parallel()
 
-	recipeArtifact := swf.NewArtifactFromBytes("review_docs.recipe.yaml", []byte("id: review_docs\n"))
-	swf.AssignArtifactKey(recipeArtifact, swf.ArtifactKey{
+	recipeArtifact := jobdb.NewArtifactFromBytes("review_docs.recipe.yaml", []byte("id: review_docs\n"))
+	jobdb.AssignArtifactKey(recipeArtifact, jobdb.ArtifactKey{
 		JobId:       "job-1",
 		TaskOrdinal: 0,
 		Name:        "review_docs.recipe.yaml",
 		SizeBytes:   int64(len("id: review_docs\n")),
 	})
-	briefArtifact := swf.NewArtifactFromBytes("brief.md", []byte("brief"))
-	swf.AssignArtifactKey(briefArtifact, swf.ArtifactKey{
+	briefArtifact := jobdb.NewArtifactFromBytes("brief.md", []byte("brief"))
+	jobdb.AssignArtifactKey(briefArtifact, jobdb.ArtifactKey{
 		JobId:       "job-1",
 		TaskOrdinal: 0,
 		Name:        "brief.md",
@@ -71,7 +71,7 @@ func TestSubmittedArtifactRefsExcludesEmbeddedRecipeArtifact(t *testing.T) {
 
 	refs, err := submittedArtifactRefs(workflowctl.StartJob{
 		RecipeName: "review_docs",
-	}, []swf.Artifact{recipeArtifact, briefArtifact}, true)
+	}, []jobdb.Artifact{recipeArtifact, briefArtifact}, true)
 	if err != nil {
 		t.Fatalf("submittedArtifactRefs(): %v", err)
 	}
@@ -86,14 +86,14 @@ func TestSubmittedArtifactRefsExcludesEmbeddedRecipeArtifact(t *testing.T) {
 func TestSubmittedArtifactRefsRejectsDuplicateNames(t *testing.T) {
 	t.Parallel()
 
-	existing := recipeartifacts.NewStoredRef(swf.ArtifactKey{
+	existing := recipeartifacts.NewStoredRef(jobdb.ArtifactKey{
 		JobId:       "job-1",
 		TaskOrdinal: 0,
 		Name:        "brief.md",
 		SizeBytes:   1,
 	})
-	briefArtifact := swf.NewArtifactFromBytes("brief.md", []byte("new"))
-	swf.AssignArtifactKey(briefArtifact, swf.ArtifactKey{
+	briefArtifact := jobdb.NewArtifactFromBytes("brief.md", []byte("new"))
+	jobdb.AssignArtifactKey(briefArtifact, jobdb.ArtifactKey{
 		JobId:       "job-2",
 		TaskOrdinal: 0,
 		Name:        "brief.md",
@@ -103,7 +103,7 @@ func TestSubmittedArtifactRefsRejectsDuplicateNames(t *testing.T) {
 	_, err := submittedArtifactRefs(workflowctl.StartJob{
 		RecipeName:   "review_docs",
 		ArtifactRefs: []recipeartifacts.Ref{existing},
-	}, []swf.Artifact{briefArtifact}, false)
+	}, []jobdb.Artifact{briefArtifact}, false)
 	if err == nil {
 		t.Fatal("expected duplicate submitted artifact name to fail")
 	}

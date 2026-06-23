@@ -15,7 +15,7 @@ import (
 	coretask "github.com/colony-2/c2j/pkg/task"
 	ops2 "github.com/colony-2/c2j/pkg/worker/ops"
 	"github.com/colony-2/c2j/pkg/workflowctl"
-	"github.com/colony-2/swf-go/pkg/swf"
+	"github.com/colony-2/jobdb/pkg/jobdb"
 	"github.com/gorilla/mux"
 )
 
@@ -127,12 +127,12 @@ func (s *inputManagementService) GetDetails(w http.ResponseWriter, r *http.Reque
 
 }
 
-func (s *inputManagementService) getOutput(ctx context.Context, projectID string, jobId string) (workflowctl.TaskHandle, ops2.ActivityInvocationOutput, []swf.Artifact, error) {
+func (s *inputManagementService) getOutput(ctx context.Context, projectID string, jobId string) (workflowctl.TaskHandle, ops2.ActivityInvocationOutput, []jobdb.Artifact, error) {
 	if s.ctl == nil {
 		return nil, ops2.ActivityInvocationOutput{}, nil, errors.New("workflow control unavailable")
 	}
 
-	task, err := s.ctl.GetWaitingTask(ctx, swf.JobKey{
+	task, err := s.ctl.GetWaitingTask(ctx, jobdb.JobKey{
 		TenantId: projectID,
 		JobId:    jobId,
 	})
@@ -200,12 +200,12 @@ func (s *inputManagementService) findJob(ctx context.Context, projectID string, 
 	}
 
 	// Query with TenantId filter and specific JobKey, only for jobs waiting for input
-	jobs, _, err := s.ctl.ListJobs(ctx, swf.ListJobsRequest{
-		Stores:    []swf.JobStore{swf.JobStoreActive},
+	jobs, _, err := s.ctl.ListJobs(ctx, jobdb.ListJobsRequest{
+		Stores:    []jobdb.JobStore{jobdb.JobStoreActive},
 		TenantIds: []string{projectID},
-		JobKeys:   []swf.JobKey{{TenantId: projectID, JobId: jobId}},
-		Statuses:  []swf.JobStatus{swf.JobStatusReady},
-		JobTasks: []swf.JobTaskFilter{{
+		JobKeys:   []jobdb.JobKey{{TenantId: projectID, JobId: jobId}},
+		Statuses:  []jobdb.JobStatus{jobdb.JobStatusReady},
+		JobTasks: []jobdb.JobTaskFilter{{
 			JobType:  "recipe",
 			TaskType: "input:collect_user_input",
 		}},

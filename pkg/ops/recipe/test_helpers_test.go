@@ -6,16 +6,16 @@ import (
 	"fmt"
 
 	"github.com/colony-2/c2j/pkg/workflowctl"
-	"github.com/colony-2/swf-go/pkg/swf"
+	"github.com/colony-2/jobdb/pkg/jobdb"
 )
 
 type fakeJobTool struct {
-	key       swf.JobKey
+	key       jobdb.JobKey
 	awaitErr  error
 	awaitArgs []string
 }
 
-func (f *fakeJobTool) GetJobKey() swf.JobKey {
+func (f *fakeJobTool) GetJobKey() jobdb.JobKey {
 	return f.key
 }
 
@@ -25,60 +25,60 @@ func (f *fakeJobTool) AwaitJobs(jobIds ...string) error {
 }
 
 type fakeWorkflowControl struct {
-	startKeys        []swf.JobKey
+	startKeys        []jobdb.JobKey
 	startErrs        []error
 	startRequests    []workflowctl.StartJob
 	startSawTx       []bool
-	jobResultFunc    func(ctx context.Context, key swf.JobKey) (swf.JobData, error)
-	inspectFunc      func(ctx context.Context, key swf.JobKey) (workflowctl.JobInspection, error)
-	getArtifactFunc  func(ctx context.Context, tenantId string, key swf.ArtifactKey) swf.Artifact
+	jobResultFunc    func(ctx context.Context, key jobdb.JobKey) (jobdb.JobData, error)
+	inspectFunc      func(ctx context.Context, key jobdb.JobKey) (workflowctl.JobInspection, error)
+	getArtifactFunc  func(ctx context.Context, tenantId string, key jobdb.ArtifactKey) jobdb.Artifact
 	getArtifactCalls int
 	jobResultCalls   int
 	inspectCalls     int
 }
 
-func (f *fakeWorkflowControl) StartJob(ctx context.Context, req workflowctl.StartJob) (swf.JobKey, error) {
+func (f *fakeWorkflowControl) StartJob(ctx context.Context, req workflowctl.StartJob) (jobdb.JobKey, error) {
 	idx := len(f.startRequests)
 	f.startRequests = append(f.startRequests, req)
-	_, ok := swf.TxFromCtx(ctx)
+	_, ok := jobdb.TxFromCtx(ctx)
 	f.startSawTx = append(f.startSawTx, ok)
 	if idx < len(f.startErrs) && f.startErrs[idx] != nil {
-		return swf.JobKey{}, f.startErrs[idx]
+		return jobdb.JobKey{}, f.startErrs[idx]
 	}
 	if idx < len(f.startKeys) {
 		return f.startKeys[idx], nil
 	}
 	if req.JobID != "" {
-		return swf.JobKey{TenantId: req.TenantId, JobId: req.JobID}, nil
+		return jobdb.JobKey{TenantId: req.TenantId, JobId: req.JobID}, nil
 	}
-	return swf.JobKey{TenantId: req.TenantId, JobId: fmt.Sprintf("job-%d", idx)}, nil
+	return jobdb.JobKey{TenantId: req.TenantId, JobId: fmt.Sprintf("job-%d", idx)}, nil
 }
 
-func (f *fakeWorkflowControl) Cancel(ctx context.Context, jobKey swf.JobKey) error {
+func (f *fakeWorkflowControl) Cancel(ctx context.Context, jobKey jobdb.JobKey) error {
 	return errors.New("not implemented")
 }
 
-func (f *fakeWorkflowControl) ListJobs(ctx context.Context, request swf.ListJobsRequest) ([]workflowctl.JobItem, string, error) {
+func (f *fakeWorkflowControl) ListJobs(ctx context.Context, request jobdb.ListJobsRequest) ([]workflowctl.JobItem, string, error) {
 	return nil, "", errors.New("not implemented")
 }
 
-func (f *fakeWorkflowControl) CompleteTask(ctx context.Context, jobKey swf.JobKey, taskOrdinal int64, hash string, data any) error {
+func (f *fakeWorkflowControl) CompleteTask(ctx context.Context, jobKey jobdb.JobKey, taskOrdinal int64, hash string, data any) error {
 	return errors.New("not implemented")
 }
 
-func (f *fakeWorkflowControl) GetWaitingTask(ctx context.Context, jobKey swf.JobKey) (workflowctl.TaskHandle, error) {
+func (f *fakeWorkflowControl) GetWaitingTask(ctx context.Context, jobKey jobdb.JobKey) (workflowctl.TaskHandle, error) {
 	return nil, errors.New("not implemented")
 }
 
-func (f *fakeWorkflowControl) GetArtifactLazy(ctx context.Context, tenantId string, key swf.ArtifactKey) swf.Artifact {
+func (f *fakeWorkflowControl) GetArtifactLazy(ctx context.Context, tenantId string, key jobdb.ArtifactKey) jobdb.Artifact {
 	f.getArtifactCalls++
 	if f.getArtifactFunc != nil {
 		return f.getArtifactFunc(ctx, tenantId, key)
 	}
-	return swf.NewArtifactFromBytes(key.Name, []byte("artifact"))
+	return jobdb.NewArtifactFromBytes(key.Name, []byte("artifact"))
 }
 
-func (f *fakeWorkflowControl) JobResult(ctx context.Context, key swf.JobKey) (swf.JobData, error) {
+func (f *fakeWorkflowControl) JobResult(ctx context.Context, key jobdb.JobKey) (jobdb.JobData, error) {
 	f.jobResultCalls++
 	if f.jobResultFunc == nil {
 		return nil, errors.New("job result not configured")
@@ -86,7 +86,7 @@ func (f *fakeWorkflowControl) JobResult(ctx context.Context, key swf.JobKey) (sw
 	return f.jobResultFunc(ctx, key)
 }
 
-func (f *fakeWorkflowControl) InspectJob(ctx context.Context, key swf.JobKey) (workflowctl.JobInspection, error) {
+func (f *fakeWorkflowControl) InspectJob(ctx context.Context, key jobdb.JobKey) (workflowctl.JobInspection, error) {
 	f.inspectCalls++
 	if f.inspectFunc == nil {
 		return workflowctl.JobInspection{}, errors.New("inspect job not configured")
@@ -95,20 +95,20 @@ func (f *fakeWorkflowControl) InspectJob(ctx context.Context, key swf.JobKey) (w
 }
 
 type errorTaskData struct {
-	data         swf.Data
-	artifacts    []swf.Artifact
+	data         jobdb.Data
+	artifacts    []jobdb.Artifact
 	dataErr      error
 	artifactsErr error
 }
 
-func (e *errorTaskData) GetData() (swf.Data, error) {
+func (e *errorTaskData) GetData() (jobdb.Data, error) {
 	if e.dataErr != nil {
 		return nil, e.dataErr
 	}
 	return e.data, nil
 }
 
-func (e *errorTaskData) GetDataOrPanic() swf.Data {
+func (e *errorTaskData) GetDataOrPanic() jobdb.Data {
 	data, err := e.GetData()
 	if err != nil {
 		panic(err)
@@ -116,7 +116,7 @@ func (e *errorTaskData) GetDataOrPanic() swf.Data {
 	return data
 }
 
-func (e *errorTaskData) GetArtifacts() ([]swf.Artifact, error) {
+func (e *errorTaskData) GetArtifacts() ([]jobdb.Artifact, error) {
 	if e.artifactsErr != nil {
 		return nil, e.artifactsErr
 	}

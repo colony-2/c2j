@@ -9,7 +9,7 @@ import (
 	"strings"
 
 	recipeops "github.com/colony-2/c2j/pkg/ops"
-	"github.com/colony-2/swf-go/pkg/swf"
+	"github.com/colony-2/jobdb/pkg/jobdb"
 )
 
 type testWriteFileInput struct {
@@ -45,7 +45,7 @@ type testEmitArtifactOutput struct {
 }
 
 type testConsumeArtifactInput struct {
-	InputArtifact swf.ArtifactKey `json:"artifact" validate:"required"`
+	InputArtifact jobdb.ArtifactKey `json:"artifact" validate:"required"`
 }
 
 type testConsumeArtifactOutput struct {
@@ -162,7 +162,7 @@ func init() {
 				Version:     "1.0.0",
 			},
 			func(deps recipeops.OpDependencies, ctx context.Context, input testEmitArtifactInput) (testEmitArtifactOutput, error) {
-				artifact := swf.NewArtifactFromBytes("foo", []byte("hello world"))
+				artifact := jobdb.NewArtifactFromBytes("foo", []byte("hello world"))
 				if err := deps.AddOutputArtifact(artifact); err != nil {
 					return testEmitArtifactOutput{}, err
 				}

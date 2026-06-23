@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/colony-2/swf-go/pkg/swf"
+	"github.com/colony-2/jobdb/pkg/jobdb"
 	"github.com/invopop/jsonschema"
 )
 
@@ -51,4 +51,4 @@ func (d Duration) String() string {
 	return time.Duration(d).String()
 }
 
-type RetryPolicy = swf.RetryPolicy
+type RetryPolicy = jobdb.RetryPolicy

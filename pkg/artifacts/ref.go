@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/colony-2/swf-go/pkg/swf"
+	"github.com/colony-2/jobdb/pkg/jobdb"
 )
 
 type RefKind string
@@ -22,7 +22,7 @@ type Ref struct {
 }
 
 type StoredRef struct {
-	Key swf.ArtifactKey `json:"key"`
+	Key jobdb.ArtifactKey `json:"key"`
 }
 
 type ExternalRef struct {
@@ -30,7 +30,7 @@ type ExternalRef struct {
 	Expand bool   `json:"expand,omitempty"`
 }
 
-func NewStoredRef(key swf.ArtifactKey) Ref {
+func NewStoredRef(key jobdb.ArtifactKey) Ref {
 	return Ref{
 		Kind:   RefKindStored,
 		Name:   strings.TrimSpace(key.Name),
@@ -49,7 +49,7 @@ func NewExternalRef(name string, url string, expand bool) Ref {
 	}
 }
 
-func RefFromArtifact(artifact swf.Artifact) (Ref, error) {
+func RefFromArtifact(artifact jobdb.Artifact) (Ref, error) {
 	if artifact == nil {
 		return Ref{}, fmt.Errorf("artifact is nil")
 	}
@@ -109,9 +109,9 @@ func (r Ref) NameValue() string {
 	return ""
 }
 
-func (r Ref) StoredKey() (swf.ArtifactKey, bool) {
+func (r Ref) StoredKey() (jobdb.ArtifactKey, bool) {
 	if r.Kind != RefKindStored || r.Stored == nil {
-		return swf.ArtifactKey{}, false
+		return jobdb.ArtifactKey{}, false
 	}
 	return r.Stored.Key, true
 }

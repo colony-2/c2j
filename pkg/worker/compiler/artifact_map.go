@@ -4,10 +4,10 @@ import (
 	recipeartifacts "github.com/colony-2/c2j/pkg/artifacts"
 	"github.com/colony-2/c2j/pkg/recipe"
 	"github.com/colony-2/c2j/pkg/template"
-	"github.com/colony-2/swf-go/pkg/swf"
+	"github.com/colony-2/jobdb/pkg/jobdb"
 )
 
-func artifactsToMap(artifacts []swf.Artifact) map[string]recipeartifacts.Ref {
+func artifactsToMap(artifacts []jobdb.Artifact) map[string]recipeartifacts.Ref {
 	out := make(map[string]recipeartifacts.Ref, len(artifacts))
 	for _, artifact := range artifacts {
 		if artifact == nil {

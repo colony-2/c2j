@@ -2,11 +2,11 @@ package swfutil
 
 import (
 	"context"
-
-	"github.com/colony-2/swf-go/pkg/swf"
+	"github.com/colony-2/jobdb/pkg/jobdb"
+	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
 )
 
-func JobStatus(ctx context.Context, engine swf.SWFEngine, key swf.JobKey) (swf.JobStatus, error) {
+func JobStatus(ctx context.Context, engine jobworkflow.Engine, key jobdb.JobKey) (jobdb.JobStatus, error) {
 	job, err := engine.GetJob(ctx, key)
 	if err != nil {
 		return "", err
@@ -14,8 +14,8 @@ func JobStatus(ctx context.Context, engine swf.SWFEngine, key swf.JobKey) (swf.J
 	return job.Status, nil
 }
 
-func JobResult(ctx context.Context, engine swf.SWFEngine, key swf.JobKey) (swf.JobData, error) {
-	run, err := engine.GetJobRun(ctx, swf.GetJobRunRequest{
+func JobResult(ctx context.Context, engine jobworkflow.Engine, key jobdb.JobKey) (jobdb.JobData, error) {
+	run, err := engine.GetJobRun(ctx, jobdb.GetJobRunRequest{
 		JobKey:           key,
 		IncludeOutputs:   true,
 		IncludeArtifacts: true,

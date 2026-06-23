@@ -12,7 +12,8 @@ import (
 	coretask "github.com/colony-2/c2j/pkg/task"
 	workerops "github.com/colony-2/c2j/pkg/worker/ops"
 	"github.com/colony-2/c2j/pkg/workflow"
-	"github.com/colony-2/swf-go/pkg/swf"
+	"github.com/colony-2/jobdb/pkg/jobdb"
+	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
 	"github.com/stretchr/testify/require"
 )
 
@@ -47,7 +48,7 @@ func TestExecuteOp2_ContextPatchReplayReResolvesInputs(t *testing.T) {
 	}
 	patchEnv, err := coretask.NewOutputEnvelope(coretask.OutputKindContextPatch, patch)
 	require.NoError(t, err)
-	patchTaskData := swf.NewTaskDataOrPanic(patchEnv)
+	patchTaskData := jobdb.NewTaskDataOrPanic(patchEnv)
 
 	okOut := workerops.ActivityInvocationOutput{
 		OpOutput: map[string]interface{}{"ok": true},
@@ -60,10 +61,10 @@ func TestExecuteOp2_ContextPatchReplayReResolvesInputs(t *testing.T) {
 	}
 	okEnv, err := coretask.NewOutputEnvelope(coretask.OutputKindActivityInvocationOutput, okOut)
 	require.NoError(t, err)
-	okTaskData := swf.NewTaskDataOrPanic(okEnv)
+	okTaskData := jobdb.NewTaskDataOrPanic(okEnv)
 
 	stub := &patchingStubJobContext{
-		jobKey:        swf.JobKey{TenantId: "test-tenant", JobId: "stub-job"},
+		jobKey:        jobdb.JobKey{TenantId: "test-tenant", JobId: "stub-job"},
 		cachedPatch:   patchTaskData,
 		successOutput: okTaskData,
 	}
@@ -94,21 +95,21 @@ func TestExecuteOp2_ContextPatchReplayReResolvesInputs(t *testing.T) {
 }
 
 type patchingStubJobContext struct {
-	jobKey        swf.JobKey
+	jobKey        jobdb.JobKey
 	calls         int
 	seenAuthors   []string
-	cachedPatch   swf.TaskData
-	successOutput swf.TaskData
+	cachedPatch   jobdb.TaskData
+	successOutput jobdb.TaskData
 }
 
-var _ swf.JobContext = &patchingStubJobContext{}
+var _ jobworkflow.JobContext = &patchingStubJobContext{}
 
-func (p *patchingStubJobContext) GetJobKey() swf.JobKey            { return p.jobKey }
-func (p *patchingStubJobContext) Logger() *slog.Logger             { return slog.Default() }
-func (p *patchingStubJobContext) AwaitDuration(swf.Duration) error { return nil }
-func (p *patchingStubJobContext) AwaitJobs(jobIds ...string) error { return nil }
+func (p *patchingStubJobContext) GetJobKey() jobdb.JobKey            { return p.jobKey }
+func (p *patchingStubJobContext) Logger() *slog.Logger               { return slog.Default() }
+func (p *patchingStubJobContext) AwaitDuration(jobdb.Duration) error { return nil }
+func (p *patchingStubJobContext) AwaitJobs(jobIds ...string) error   { return nil }
 
-func (p *patchingStubJobContext) DoTask(_ swf.RunPolicy, _ string, data swf.TaskData) (swf.TaskData, error) {
+func (p *patchingStubJobContext) DoTask(_ jobdb.RunPolicy, _ string, data jobdb.TaskData) (jobdb.TaskData, error) {
 	p.calls++
 
 	raw, err := data.GetData()
@@ -122,7 +123,7 @@ func (p *patchingStubJobContext) DoTask(_ swf.RunPolicy, _ string, data swf.Task
 	}
 
 	if p.calls == 1 {
-		return nil, swf.TaskInputMismatchError{
+		return nil, jobworkflow.TaskInputMismatchError{
 			TaskType:        "stub",
 			Ordinal:         1,
 			CachedOutput:    p.cachedPatch,

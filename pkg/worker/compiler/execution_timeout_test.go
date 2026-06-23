@@ -11,27 +11,27 @@ import (
 	coreops "github.com/colony-2/c2j/pkg/ops"
 	"github.com/colony-2/c2j/pkg/recipe"
 	"github.com/colony-2/c2j/pkg/workflow"
-	"github.com/colony-2/swf-go/pkg/swf"
+	"github.com/colony-2/jobdb/pkg/jobdb"
 	"github.com/stretchr/testify/require"
 )
 
 type policyCaptureJobContext struct {
-	jobKey   swf.JobKey
-	out      swf.TaskData
+	jobKey   jobdb.JobKey
+	out      jobdb.TaskData
 	sleep    time.Duration
 	calls    int
-	policies []swf.RunPolicy
+	policies []jobdb.RunPolicy
 }
 
 func (c *policyCaptureJobContext) AwaitJobs(jobIds ...string) error {
 	return nil
 }
 
-func (c *policyCaptureJobContext) GetJobKey() swf.JobKey            { return c.jobKey }
-func (c *policyCaptureJobContext) Logger() *slog.Logger             { return slog.Default() }
-func (c *policyCaptureJobContext) AwaitDuration(swf.Duration) error { return nil }
+func (c *policyCaptureJobContext) GetJobKey() jobdb.JobKey            { return c.jobKey }
+func (c *policyCaptureJobContext) Logger() *slog.Logger               { return slog.Default() }
+func (c *policyCaptureJobContext) AwaitDuration(jobdb.Duration) error { return nil }
 
-func (c *policyCaptureJobContext) DoTask(policy swf.RunPolicy, taskType string, data swf.TaskData) (swf.TaskData, error) {
+func (c *policyCaptureJobContext) DoTask(policy jobdb.RunPolicy, taskType string, data jobdb.TaskData) (jobdb.TaskData, error) {
 	c.calls++
 	c.policies = append(c.policies, policy)
 	if c.sleep > 0 {
@@ -61,14 +61,14 @@ func newTimeoutTestOp(t *testing.T, opType string, defaultTimeout time.Duration)
 func newTimeoutWorkflow(t *testing.T, gitCtx contextual.GitCommitContext, sleep time.Duration) (*policyCaptureJobContext, workflow.Context) {
 	t.Helper()
 	stub := &policyCaptureJobContext{
-		jobKey: swf.JobKey{TenantId: "tenant", JobId: "timeout-test"},
+		jobKey: jobdb.JobKey{TenantId: "tenant", JobId: "timeout-test"},
 		out:    newActivityOutputTaskData(t, gitCtx),
 		sleep:  sleep,
 	}
 	return stub, newWorkflowContext(stub)
 }
 
-func requireCapturedTimeoutBetween(t *testing.T, policy swf.RunPolicy, min time.Duration, max time.Duration) {
+func requireCapturedTimeoutBetween(t *testing.T, policy jobdb.RunPolicy, min time.Duration, max time.Duration) {
 	t.Helper()
 	require.NotNil(t, policy.TotalTimeout)
 	got := time.Duration(*policy.TotalTimeout)

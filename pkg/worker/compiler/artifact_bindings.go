@@ -8,7 +8,7 @@ import (
 
 	recipeartifacts "github.com/colony-2/c2j/pkg/artifacts"
 	"github.com/colony-2/c2j/pkg/template"
-	"github.com/colony-2/swf-go/pkg/swf"
+	"github.com/colony-2/jobdb/pkg/jobdb"
 	"github.com/google/cel-go/common/types"
 	"github.com/google/cel-go/common/types/ref"
 	"github.com/google/cel-go/common/types/traits"
@@ -77,12 +77,12 @@ func coerceArtifactRef(value interface{}) (recipeartifacts.Ref, error) {
 			return recipeartifacts.Ref{}, err
 		}
 		return *v, nil
-	case swf.ArtifactKey:
+	case jobdb.ArtifactKey:
 		if err := v.Validate(); err != nil {
 			return recipeartifacts.Ref{}, err
 		}
 		return recipeartifacts.NewStoredRef(v), nil
-	case *swf.ArtifactKey:
+	case *jobdb.ArtifactKey:
 		if v == nil {
 			return recipeartifacts.Ref{}, fmt.Errorf("artifact key is nil")
 		}
@@ -119,7 +119,7 @@ func coerceArtifactRefFromMap(value map[string]interface{}) (recipeartifacts.Ref
 		}
 	}
 
-	var key swf.ArtifactKey
+	var key jobdb.ArtifactKey
 	if err := decodeJSONTaggedMap(value, &key); err == nil {
 		if key.JobId != "" || key.TaskOrdinal != 0 || key.Name != "" || key.SizeBytes != 0 {
 			if err := key.Validate(); err != nil {
@@ -159,7 +159,7 @@ func coerceArtifactSet(value interface{}) ([]recipeartifacts.Ref, error) {
 			out = append(out, *item)
 		}
 		return out, nil
-	case []swf.ArtifactKey:
+	case []jobdb.ArtifactKey:
 		out := make([]recipeartifacts.Ref, 0, len(v))
 		for _, item := range v {
 			if err := item.Validate(); err != nil {
@@ -168,7 +168,7 @@ func coerceArtifactSet(value interface{}) ([]recipeartifacts.Ref, error) {
 			out = append(out, recipeartifacts.NewStoredRef(item))
 		}
 		return out, nil
-	case []*swf.ArtifactKey:
+	case []*jobdb.ArtifactKey:
 		out := make([]recipeartifacts.Ref, 0, len(v))
 		for _, item := range v {
 			if item == nil {
@@ -213,7 +213,7 @@ func coerceArtifactSet(value interface{}) ([]recipeartifacts.Ref, error) {
 			out = append(out, *item)
 		}
 		return out, nil
-	case map[string]swf.ArtifactKey:
+	case map[string]jobdb.ArtifactKey:
 		out := make([]recipeartifacts.Ref, 0, len(v))
 		for _, key := range sortedArtifactKeyMapKeys(v) {
 			item := v[key]
@@ -223,7 +223,7 @@ func coerceArtifactSet(value interface{}) ([]recipeartifacts.Ref, error) {
 			out = append(out, recipeartifacts.NewStoredRef(item))
 		}
 		return out, nil
-	case map[string]*swf.ArtifactKey:
+	case map[string]*jobdb.ArtifactKey:
 		out := make([]recipeartifacts.Ref, 0, len(v))
 		for _, key := range sortedArtifactKeyPtrMapKeys(v) {
 			item := v[key]
@@ -475,7 +475,7 @@ func sortedRefPtrMapKeys(m map[string]*recipeartifacts.Ref) []string {
 	return keys
 }
 
-func sortedArtifactKeyMapKeys(m map[string]swf.ArtifactKey) []string {
+func sortedArtifactKeyMapKeys(m map[string]jobdb.ArtifactKey) []string {
 	keys := make([]string, 0, len(m))
 	for key := range m {
 		keys = append(keys, key)
@@ -484,7 +484,7 @@ func sortedArtifactKeyMapKeys(m map[string]swf.ArtifactKey) []string {
 	return keys
 }
 
-func sortedArtifactKeyPtrMapKeys(m map[string]*swf.ArtifactKey) []string {
+func sortedArtifactKeyPtrMapKeys(m map[string]*jobdb.ArtifactKey) []string {
 	keys := make([]string, 0, len(m))
 	for key := range m {
 		keys = append(keys, key)

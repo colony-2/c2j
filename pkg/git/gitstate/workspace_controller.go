@@ -12,7 +12,7 @@ import (
 	"github.com/colony-2/c2j/pkg/git/common"
 	"github.com/colony-2/c2j/pkg/git/gitcommit"
 	"github.com/colony-2/c2j/pkg/git/gitshallow"
-	"github.com/colony-2/swf-go/pkg/swf"
+	"github.com/colony-2/jobdb/pkg/jobdb"
 )
 
 const ThinPackArtifactName = "__git_state_thin_pack__"
@@ -66,7 +66,7 @@ func (c *Controller) prepareWorkspace(ctx context.Context, task *GitTaskContext)
 }
 
 // Restore replays thin packs when the target persist hash differs from the workspace state. It also prepares the workspace if it doesn't yet have a local copy of the repo.
-func (c *Controller) Restore(ctx context.Context, task *GitTaskContext, thinPack swf.Artifact) error {
+func (c *Controller) Restore(ctx context.Context, task *GitTaskContext, thinPack jobdb.Artifact) error {
 	err := c.prepareWorkspace(ctx, task)
 	if err != nil {
 		return err
@@ -161,7 +161,7 @@ func (c *Controller) Restore(ctx context.Context, task *GitTaskContext, thinPack
 }
 
 // Persist captures repository changes, writes thin packs, and returns the commit output and a thin pack artifact (or nil if no changes).
-func (c *Controller) Persist(ctx context.Context, task *GitTaskContext) (*gitcommit.PersistCommitOutput, swf.Artifact, error) {
+func (c *Controller) Persist(ctx context.Context, task *GitTaskContext) (*gitcommit.PersistCommitOutput, jobdb.Artifact, error) {
 	scopePath, err := c.prepareScopedWorkspace(ctx, task)
 	if err != nil {
 		return nil, nil, err
@@ -224,7 +224,7 @@ func (c *Controller) Persist(ctx context.Context, task *GitTaskContext) (*gitcom
 	// Create lazy artifact with cleanup callback
 	// The temp directory will be cleaned up by SWF after the artifact is consumed
 	thinPackPath := output.ThinPackPath
-	artifact := swf.NewArtifact(
+	artifact := jobdb.NewArtifact(
 		ThinPackArtifactName,
 		func() (io.ReadCloser, int64, error) {
 			f, err := os.Open(thinPackPath)
@@ -250,7 +250,7 @@ func (c *Controller) Persist(ctx context.Context, task *GitTaskContext) (*gitcom
 // 1. Thin pack artifact (like Persist)
 // 2. Diff from parent hash artifact
 // 3. Diff from base hash artifact
-func (c *Controller) PersistWithDiffs(ctx context.Context, task *GitTaskContext) (*gitcommit.PersistWithDiffsOutput, []swf.Artifact, error) {
+func (c *Controller) PersistWithDiffs(ctx context.Context, task *GitTaskContext) (*gitcommit.PersistWithDiffsOutput, []jobdb.Artifact, error) {
 	scopePath, err := c.prepareScopedWorkspace(ctx, task)
 	if err != nil {
 		return nil, nil, err
@@ -311,7 +311,7 @@ func (c *Controller) PersistWithDiffs(ctx context.Context, task *GitTaskContext)
 	}
 
 	// Create artifacts for thin pack and diffs
-	var artifacts []swf.Artifact
+	var artifacts []jobdb.Artifact
 
 	// Determine which artifacts we'll create
 	hasThinPack := output.ThinPackPath != ""
@@ -321,7 +321,7 @@ func (c *Controller) PersistWithDiffs(ctx context.Context, task *GitTaskContext)
 	// 1. Thin pack artifact (same as regular Persist)
 	if hasThinPack {
 		thinPackPath := output.ThinPackPath
-		thinPackArtifact := swf.NewArtifact(
+		thinPackArtifact := jobdb.NewArtifact(
 			ThinPackArtifactName,
 			func() (io.ReadCloser, int64, error) {
 				f, err := os.Open(thinPackPath)
@@ -348,7 +348,7 @@ func (c *Controller) PersistWithDiffs(ctx context.Context, task *GitTaskContext)
 		if !hasDiffBase {
 			cleanup = func() error { return os.RemoveAll(persistDir) }
 		}
-		diffFromParentArtifact := swf.NewArtifact(
+		diffFromParentArtifact := jobdb.NewArtifact(
 			"diff_from_parent.diff",
 			func() (io.ReadCloser, int64, error) {
 				f, err := os.Open(diffFromParentPath)
@@ -370,7 +370,7 @@ func (c *Controller) PersistWithDiffs(ctx context.Context, task *GitTaskContext)
 	// 3. Diff from base artifact (always last if present)
 	if hasDiffBase {
 		diffFromBasePath := output.DiffFromBasePath
-		diffFromBaseArtifact := swf.NewArtifact(
+		diffFromBaseArtifact := jobdb.NewArtifact(
 			"diff_from_base.diff",
 			func() (io.ReadCloser, int64, error) {
 				f, err := os.Open(diffFromBasePath)

@@ -4,7 +4,7 @@ import (
 	"reflect"
 
 	recipeartifacts "github.com/colony-2/c2j/pkg/artifacts"
-	"github.com/colony-2/swf-go/pkg/swf"
+	"github.com/colony-2/jobdb/pkg/jobdb"
 	"github.com/google/cel-go/common/types"
 	"github.com/google/cel-go/common/types/ref"
 	"github.com/google/cel-go/common/types/traits"
@@ -95,7 +95,7 @@ func (m *permissiveArtifactMap) placeholderFor(key ref.Val) ref.Val {
 	if name == "" {
 		name = validationArtifactPlaceholderName
 	}
-	placeholder := swf.ArtifactKey{
+	placeholder := jobdb.ArtifactKey{
 		JobId:       validationArtifactPlaceholderJobID,
 		TaskOrdinal: validationArtifactPlaceholderTaskOrdinal,
 		Name:        name,

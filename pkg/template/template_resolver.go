@@ -11,7 +11,7 @@ import (
 	"github.com/colony-2/c2j/pkg/contextual"
 	"github.com/colony-2/c2j/pkg/recipe"
 	"github.com/colony-2/c2j/pkg/template/funcregistry"
-	"github.com/colony-2/swf-go/pkg/swf"
+	"github.com/colony-2/jobdb/pkg/jobdb"
 	"github.com/google/cel-go/cel"
 	"github.com/google/cel-go/common/types"
 	"github.com/google/cel-go/common/types/ref"
@@ -83,9 +83,9 @@ type ResolutionContext struct {
 	tracker *invocationTracker
 
 	lastExecution    map[string]interface{}
-	lastArtifacts    []swf.Artifact
+	lastArtifacts    []jobdb.Artifact
 	lastArtifactRefs []recipeartifacts.Ref
-	artifactCache    map[string]swf.Artifact
+	artifactCache    map[string]jobdb.Artifact
 }
 
 func (rc *ResolutionContext) UpdateGitState(commit contextual.GitCommitContext) {
@@ -140,7 +140,7 @@ func newResolutionContext(commitContext *contextual.GitCommitContext, tracker *i
 			}),
 			Locals: make(map[string]interface{}),
 		},
-		artifactCache: make(map[string]swf.Artifact),
+		artifactCache: make(map[string]jobdb.Artifact),
 	}
 
 	// Initialize CEL environment
@@ -178,7 +178,7 @@ func newResolutionContext(commitContext *contextual.GitCommitContext, tracker *i
 			reflect.TypeOf(recipeartifacts.Ref{}),
 			reflect.TypeOf(recipeartifacts.StoredRef{}),
 			reflect.TypeOf(recipeartifacts.ExternalRef{}),
-			reflect.TypeOf(swf.ArtifactKey{}),
+			reflect.TypeOf(jobdb.ArtifactKey{}),
 			ext.ParseStructTag("json"),
 		),
 	}
@@ -536,7 +536,7 @@ func (rc *ResolutionContext) AddExecution(output map[string]interface{}) {
 	rc.AddExecutionWithArtifacts(output, nil)
 }
 
-func (rc *ResolutionContext) AddExecutionWithArtifactData(output map[string]interface{}, artifactRefs map[string]recipeartifacts.Ref, artifacts []swf.Artifact) {
+func (rc *ResolutionContext) AddExecutionWithArtifactData(output map[string]interface{}, artifactRefs map[string]recipeartifacts.Ref, artifacts []jobdb.Artifact) {
 	rc.lastExecution = output
 	if artifactRefs == nil {
 		artifactRefs = map[string]recipeartifacts.Ref{}
@@ -550,7 +550,7 @@ func (rc *ResolutionContext) AddExecutionWithArtifactData(output map[string]inte
 	if len(artifacts) > capHint {
 		capHint = len(artifacts)
 	}
-	artList := make([]swf.Artifact, 0, capHint)
+	artList := make([]jobdb.Artifact, 0, capHint)
 	for _, artifactRef := range artifactRefs {
 		refList = append(refList, artifactRef)
 	}
@@ -584,7 +584,7 @@ func (rc *ResolutionContext) AddExecutionWithArtifactData(output map[string]inte
 		}
 		rc.Parent.lastExecution = output
 		rc.Parent.lastArtifactRefs = append([]recipeartifacts.Ref(nil), refList...)
-		rc.Parent.lastArtifacts = append([]swf.Artifact(nil), artList...)
+		rc.Parent.lastArtifacts = append([]jobdb.Artifact(nil), artList...)
 		switch rc.Parent.ScopeType {
 		case ScopeRecipe:
 			return
@@ -610,19 +610,19 @@ func (rc *ResolutionContext) AddExecutionWithArtifactData(output map[string]inte
 			container = rc.TemplateData.Sequence
 			rc.Parent.lastExecution = output
 			rc.Parent.lastArtifactRefs = append([]recipeartifacts.Ref(nil), refList...)
-			rc.Parent.lastArtifacts = append([]swf.Artifact(nil), artList...)
+			rc.Parent.lastArtifacts = append([]jobdb.Artifact(nil), artList...)
 		case ScopeStateMachine, ScopeState:
 			container = rc.TemplateData.States
 			rc.Parent.lastExecution = output
 			rc.Parent.lastArtifactRefs = append([]recipeartifacts.Ref(nil), refList...)
-			rc.Parent.lastArtifacts = append([]swf.Artifact(nil), artList...)
+			rc.Parent.lastArtifacts = append([]jobdb.Artifact(nil), artList...)
 			if rc.Parent.ScopeType == ScopeState {
 				key = rc.Parent.scopeId
 			}
 		case ScopeRecipe:
 			rc.Parent.lastExecution = output
 			rc.Parent.lastArtifactRefs = append([]recipeartifacts.Ref(nil), refList...)
-			rc.Parent.lastArtifacts = append([]swf.Artifact(nil), artList...)
+			rc.Parent.lastArtifacts = append([]jobdb.Artifact(nil), artList...)
 			return
 		default:
 			panic(fmt.Sprintf("invalid parent scope type: %s", rc.Parent.ScopeType))
@@ -650,7 +650,7 @@ func (rc *ResolutionContext) AddExecutionWithArtifactData(output map[string]inte
 	}
 }
 
-func (rc *ResolutionContext) RememberArtifacts(artifacts []swf.Artifact) {
+func (rc *ResolutionContext) RememberArtifacts(artifacts []jobdb.Artifact) {
 	for _, artifact := range artifacts {
 		if artifact == nil {
 			continue
@@ -671,7 +671,7 @@ func (rc *ResolutionContext) GetLastExecution() map[string]interface{} {
 	return rc.lastExecution
 }
 
-func (rc *ResolutionContext) GetLastArtifacts() []swf.Artifact {
+func (rc *ResolutionContext) GetLastArtifacts() []jobdb.Artifact {
 	return rc.lastArtifacts
 }
 

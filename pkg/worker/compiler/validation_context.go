@@ -15,11 +15,12 @@ import (
 	coretask "github.com/colony-2/c2j/pkg/task"
 	workerops "github.com/colony-2/c2j/pkg/worker/ops"
 	"github.com/colony-2/c2j/pkg/workflow"
-	"github.com/colony-2/swf-go/pkg/swf"
+	"github.com/colony-2/jobdb/pkg/jobdb"
+	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
 )
 
 type validationJobContext struct {
-	inner              swf.JobContext
+	inner              jobworkflow.JobContext
 	gitContext         contextual.GitCommitContext
 	resolvedSelectors  map[string]string
 	resolvedGitRefs    map[string]string
@@ -27,7 +28,7 @@ type validationJobContext struct {
 }
 
 type validationTaskOverride interface {
-	DoValidationTask(swf.RunPolicy, string, swf.TaskData) (swf.TaskData, bool, error)
+	DoValidationTask(jobdb.RunPolicy, string, jobdb.TaskData) (jobdb.TaskData, bool, error)
 }
 
 func (v *validationJobContext) AwaitJobs(jobIds ...string) error {
@@ -53,9 +54,9 @@ func wrapValidationContext(ctx workflow.Context, commitContext contextual.GitCom
 	}
 }
 
-func (v *validationJobContext) GetJobKey() swf.JobKey {
+func (v *validationJobContext) GetJobKey() jobdb.JobKey {
 	if v.inner == nil {
-		return swf.JobKey{}
+		return jobdb.JobKey{}
 	}
 	return v.inner.GetJobKey()
 }
@@ -67,7 +68,7 @@ func (v *validationJobContext) Logger() *slog.Logger {
 	return v.inner.Logger()
 }
 
-func (v *validationJobContext) AwaitDuration(waitFor swf.Duration) error {
+func (v *validationJobContext) AwaitDuration(waitFor jobdb.Duration) error {
 	if v.inner == nil {
 		return nil
 	}
@@ -78,9 +79,9 @@ func (v *validationJobContext) executionTimeoutLimit() time.Duration {
 	return activeExecutionTimeoutLimit(v.inner)
 }
 
-func (v *validationJobContext) DoTask(runPolicy swf.RunPolicy, taskType string, data swf.TaskData) (swf.TaskData, error) {
+func (v *validationJobContext) DoTask(runPolicy jobdb.RunPolicy, taskType string, data jobdb.TaskData) (jobdb.TaskData, error) {
 	if taskType == WithinRecipeResolutionTaskType {
-		return newWithinRecipeResolutionTaskWorker().Run(swf.TaskContext{}, data)
+		return newWithinRecipeResolutionTaskWorker().Run(jobworkflow.TaskContext{}, data)
 	}
 
 	parts := strings.SplitN(taskType, ":", 2)
@@ -217,7 +218,7 @@ func (v *validationJobContext) DoTask(runPolicy swf.RunPolicy, taskType string, 
 	if err != nil {
 		return nil, err
 	}
-	return swf.NewTaskData(env)
+	return jobdb.NewTaskData(env)
 }
 
 func validationInputInvocationKey(invocation workerops.ActivityInvocationRequest) string {

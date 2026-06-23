@@ -14,7 +14,8 @@ import (
 	"github.com/colony-2/c2j/pkg/git/selectorcache"
 	"github.com/colony-2/c2j/pkg/recipe"
 	workerops "github.com/colony-2/c2j/pkg/worker/ops"
-	"github.com/colony-2/swf-go/pkg/swf"
+	"github.com/colony-2/jobdb/pkg/jobdb"
+	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
 	"gopkg.in/yaml.v3"
 )
 
@@ -84,7 +85,7 @@ func (r ResolvedRecipeSource) LoadRecipe() (recipe.Recipe, error) {
 	return rec, nil
 }
 
-func ParseResolvedRecipeSourceTaskData(td swf.TaskData) (*ResolvedRecipeSource, error) {
+func ParseResolvedRecipeSourceTaskData(td jobdb.TaskData) (*ResolvedRecipeSource, error) {
 	if td == nil {
 		return nil, fmt.Errorf("resolved recipe source task data is required")
 	}
@@ -332,7 +333,7 @@ type rootSourceResolutionTaskWorker struct {
 	resolver RecipeSourceResolver
 }
 
-func newRootSourceResolutionTaskWorker(resolver RecipeSourceResolver) swf.TaskWorker {
+func newRootSourceResolutionTaskWorker(resolver RecipeSourceResolver) jobworkflow.TaskWorker {
 	if resolver == nil {
 		return nil
 	}
@@ -343,7 +344,7 @@ func (w rootSourceResolutionTaskWorker) Name() string {
 	return RootSourceResolutionTaskType
 }
 
-func (w rootSourceResolutionTaskWorker) Run(taskCtx swf.TaskContext, input swf.TaskData) (swf.TaskData, error) {
+func (w rootSourceResolutionTaskWorker) Run(taskCtx jobworkflow.TaskContext, input jobdb.TaskData) (jobdb.TaskData, error) {
 	if input == nil {
 		return nil, fmt.Errorf("recipe source resolution input is required")
 	}
@@ -412,7 +413,7 @@ func (w rootSourceResolutionTaskWorker) Run(taskCtx swf.TaskContext, input swf.T
 		RecipeSourceResolution: resolution,
 		RecipeYAML:             string(yamlBytes),
 	}
-	return swf.NewTaskData(source)
+	return jobdb.NewTaskData(source)
 }
 
 func resolveRecipeSelectorForLookup(selector string, lookupRepo string, lookupRef string) (string, error) {

@@ -10,18 +10,19 @@ import (
 	coretask "github.com/colony-2/c2j/pkg/task"
 	"github.com/colony-2/c2j/pkg/worker/ops"
 	"github.com/colony-2/c2j/pkg/workflowctl"
-	"github.com/colony-2/swf-go/pkg/swf"
+	"github.com/colony-2/jobdb/pkg/jobdb"
+	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
 )
 
 type RecipeProjectProvider func(projectId string, recipeRef string) (*recipe.Recipe, error)
 
 type SWFWorkflowControl struct {
-	Engine                        swf.SWFEngine
+	Engine                        jobworkflow.Engine
 	Registry                      RecipeProjectProvider
 	PreferRuntimeRecipeResolution bool
 }
 
-func (s *SWFWorkflowControl) GetWaitingTask(ctx context.Context, jobKey swf.JobKey) (workflowctl.TaskHandle, error) {
+func (s *SWFWorkflowControl) GetWaitingTask(ctx context.Context, jobKey jobdb.JobKey) (workflowctl.TaskHandle, error) {
 	e, err := s.Engine.GetWaitingTask(ctx, jobKey)
 	if err != nil {
 		return nil, err
@@ -29,7 +30,7 @@ func (s *SWFWorkflowControl) GetWaitingTask(ctx context.Context, jobKey swf.JobK
 	return e, nil
 }
 
-func (s *SWFWorkflowControl) ListJobs(ctx context.Context, request swf.ListJobsRequest) (jobs []workflowctl.JobItem, nextPage string, err error) {
+func (s *SWFWorkflowControl) ListJobs(ctx context.Context, request jobdb.ListJobsRequest) (jobs []workflowctl.JobItem, nextPage string, err error) {
 	resp, err := s.Engine.ListJobs(ctx, request)
 	if err != nil {
 		return nil, "", err
@@ -50,10 +51,10 @@ func (s *SWFWorkflowControl) ListJobs(ctx context.Context, request swf.ListJobsR
 	return jobs, resp.NextPageToken, nil
 }
 
-func (s *SWFWorkflowControl) JobResult(ctx context.Context, key swf.JobKey) (swf.JobData, error) {
+func (s *SWFWorkflowControl) JobResult(ctx context.Context, key jobdb.JobKey) (jobdb.JobData, error) {
 	// Use the SWF helper to return standardized errors (not finished / cancelled / failed)
 	// and to construct a JobData with lazy artifacts.
-	run, err := s.Engine.GetJobRun(ctx, swf.GetJobRunRequest{
+	run, err := s.Engine.GetJobRun(ctx, jobdb.GetJobRunRequest{
 		JobKey:           key,
 		IncludeOutputs:   true,
 		IncludeArtifacts: true,
@@ -64,8 +65,8 @@ func (s *SWFWorkflowControl) JobResult(ctx context.Context, key swf.JobKey) (swf
 	return run.GetOutput(s.Engine, key.TenantId)
 }
 
-func (s *SWFWorkflowControl) InspectJob(ctx context.Context, key swf.JobKey) (workflowctl.JobInspection, error) {
-	run, err := s.Engine.GetJobRun(ctx, swf.GetJobRunRequest{
+func (s *SWFWorkflowControl) InspectJob(ctx context.Context, key jobdb.JobKey) (workflowctl.JobInspection, error) {
+	run, err := s.Engine.GetJobRun(ctx, jobdb.GetJobRunRequest{
 		JobKey:           key,
 		IncludeOutputs:   true,
 		IncludeArtifacts: true,
@@ -103,7 +104,7 @@ func (s *SWFWorkflowControl) InspectJob(ctx context.Context, key swf.JobKey) (wo
 		inspection.Output = output
 	}
 
-	if latest.Outcome.Status == swf.TaskOutcomeStatusFailed || latest.Outcome.Error != nil {
+	if latest.Outcome.Status == jobdb.TaskOutcomeStatusFailed || latest.Outcome.Error != nil {
 		inspection.Terminal = true
 		inspection.Status = "failed"
 		inspection.FailureKind = failureKindFromTaskError(latest.Outcome.Error)
@@ -114,7 +115,7 @@ func (s *SWFWorkflowControl) InspectJob(ctx context.Context, key swf.JobKey) (wo
 		return inspection, nil
 	}
 
-	if run.Job.Status == swf.JobStatusCompleted {
+	if run.Job.Status == jobdb.JobStatusCompleted {
 		inspection.Terminal = true
 		inspection.Status = "completed"
 		inspection.FailureKind = "none"
@@ -122,7 +123,7 @@ func (s *SWFWorkflowControl) InspectJob(ctx context.Context, key swf.JobKey) (wo
 	return inspection, nil
 }
 
-func (s *SWFWorkflowControl) CompleteTask(ctx context.Context, jobKey swf.JobKey, taskOrdinal int64, hash string, outType any) error {
+func (s *SWFWorkflowControl) CompleteTask(ctx context.Context, jobKey jobdb.JobKey, taskOrdinal int64, hash string, outType any) error {
 	handle, err := s.Engine.GetWaitingTask(ctx, jobKey)
 	if err != nil {
 		return err
@@ -143,14 +144,14 @@ func (s *SWFWorkflowControl) CompleteTask(ctx context.Context, jobKey swf.JobKey
 	if err != nil {
 		return err
 	}
-	outData, err := swf.NewTaskData(env)
+	outData, err := jobdb.NewTaskData(env)
 	if err != nil {
 		return err
 	}
 	return handle.Finish(ctx, outData)
 }
 
-func (s *SWFWorkflowControl) StartJob(ctx context.Context, req workflowctl.StartJob) (swf.JobKey, error) {
+func (s *SWFWorkflowControl) StartJob(ctx context.Context, req workflowctl.StartJob) (jobdb.JobKey, error) {
 	if s.PreferRuntimeRecipeResolution || s.Registry == nil {
 		return starter.StartRecipeJobWithOptions(ctx, req, s.Engine, starter.StartRecipeJobOptions{
 			JobID: req.JobID,
@@ -159,7 +160,7 @@ func (s *SWFWorkflowControl) StartJob(ctx context.Context, req workflowctl.Start
 
 	r, err := s.Registry(req.TenantId, req.RecipeName)
 	if err != nil {
-		return swf.JobKey{}, err
+		return jobdb.JobKey{}, err
 	}
 
 	return starter.StartRecipeJobWithOptions(ctx, req, s.Engine, starter.StartRecipeJobOptions{
@@ -167,20 +168,20 @@ func (s *SWFWorkflowControl) StartJob(ctx context.Context, req workflowctl.Start
 	}, *r)
 }
 
-func (s *SWFWorkflowControl) Cancel(ctx context.Context, jobKey swf.JobKey) error {
-	return s.Engine.CancelJob(ctx, swf.CancelJob{JobKey: jobKey})
+func (s *SWFWorkflowControl) Cancel(ctx context.Context, jobKey jobdb.JobKey) error {
+	return s.Engine.CancelJob(ctx, jobdb.CancelJob{JobKey: jobKey})
 }
 
-func (s *SWFWorkflowControl) GetArtifactLazy(ctx context.Context, tenantId string, key swf.ArtifactKey) swf.Artifact {
+func (s *SWFWorkflowControl) GetArtifactLazy(ctx context.Context, tenantId string, key jobdb.ArtifactKey) jobdb.Artifact {
 	return key.ToLazyArtifact(s.Engine, tenantId)
 }
 
 type taskDataGetter struct {
 	loaded  bool
-	engine  swf.SWFEngine
-	jobKey  swf.JobKey
+	engine  jobworkflow.Engine
+	jobKey  jobdb.JobKey
 	ordinal *int64
-	data    swf.TaskData
+	data    jobdb.TaskData
 }
 
 func (t *taskDataGetter) checkLoad() error {
@@ -209,14 +210,14 @@ func (t *taskDataGetter) checkLoad() error {
 	return nil
 }
 
-func (t *taskDataGetter) GetData() (swf.Data, error) {
+func (t *taskDataGetter) GetData() (jobdb.Data, error) {
 	if err := t.checkLoad(); err != nil {
 		return nil, err
 	}
 	return t.data.GetData()
 }
 
-func (t *taskDataGetter) GetDataOrPanic() swf.Data {
+func (t *taskDataGetter) GetDataOrPanic() jobdb.Data {
 	d, err := t.GetData()
 	if err != nil {
 		panic(err)
@@ -224,43 +225,43 @@ func (t *taskDataGetter) GetDataOrPanic() swf.Data {
 	return d
 }
 
-func (t *taskDataGetter) GetArtifacts() ([]swf.Artifact, error) {
+func (t *taskDataGetter) GetArtifacts() ([]jobdb.Artifact, error) {
 	if err := t.checkLoad(); err != nil {
 		return nil, err
 	}
 	return t.data.GetArtifacts()
 }
 
-var _ swf.TaskData = &taskDataGetter{}
+var _ jobdb.TaskData = &taskDataGetter{}
 
 var _ workflowctl.WorkflowControl = &SWFWorkflowControl{}
 var _ workflowctl.JobInspector = &SWFWorkflowControl{}
 
-func normalizeInspectionStatus(status swf.JobStatus) string {
+func normalizeInspectionStatus(status jobdb.JobStatus) string {
 	switch status {
-	case swf.JobStatusCompleted:
+	case jobdb.JobStatusCompleted:
 		return "completed"
-	case swf.JobStatusCancelled:
+	case jobdb.JobStatusCancelled:
 		return "cancelled"
-	case swf.JobStatusExpired:
+	case jobdb.JobStatusExpired:
 		return "timed_out"
-	case swf.JobStatusReady, swf.JobStatusPendingJobs, swf.JobStatusAwaitingFuture, swf.JobStatusActive, swf.JobStatusCrashConcern:
+	case jobdb.JobStatusReady, jobdb.JobStatusPendingJobs, jobdb.JobStatusAwaitingFuture, jobdb.JobStatusActive, jobdb.JobStatusCrashConcern:
 		return "running"
 	default:
 		return "unknown"
 	}
 }
 
-func isTerminalInspectionStatus(status swf.JobStatus) bool {
+func isTerminalInspectionStatus(status jobdb.JobStatus) bool {
 	switch status {
-	case swf.JobStatusCompleted, swf.JobStatusCancelled, swf.JobStatusExpired:
+	case jobdb.JobStatusCompleted, jobdb.JobStatusCancelled, jobdb.JobStatusExpired:
 		return true
 	default:
 		return false
 	}
 }
 
-func latestInspectionAttempt(attempts []swf.JobAttempt) swf.JobAttempt {
+func latestInspectionAttempt(attempts []jobdb.JobAttempt) jobdb.JobAttempt {
 	best := attempts[0]
 	for i := 1; i < len(attempts); i++ {
 		attempt := attempts[i]
@@ -271,13 +272,13 @@ func latestInspectionAttempt(attempts []swf.JobAttempt) swf.JobAttempt {
 	return best
 }
 
-func taskIOToJobData(io *swf.TaskIO, engine swf.SWFEngine, tenantID string, jobKey swf.JobKey, ordinal int64) (swf.JobData, error) {
+func taskIOToJobData(io *jobdb.TaskIO, engine jobworkflow.Engine, tenantID string, jobKey jobdb.JobKey, ordinal int64) (jobdb.JobData, error) {
 	if io == nil {
 		return nil, nil
 	}
-	artifacts := make([]swf.Artifact, 0, len(io.Artifacts))
+	artifacts := make([]jobdb.Artifact, 0, len(io.Artifacts))
 	for _, info := range io.Artifacts {
-		key := swf.ArtifactKey{
+		key := jobdb.ArtifactKey{
 			JobId:       jobKey.JobId,
 			TaskOrdinal: ordinal,
 			Name:        info.Name,
@@ -291,29 +292,29 @@ func taskIOToJobData(io *swf.TaskIO, engine swf.SWFEngine, tenantID string, jobK
 		}
 		artifacts = append(artifacts, key.ToLazyArtifact(engine, tenantID))
 	}
-	return &swf.SimpleTaskData{
+	return &jobdb.SimpleTaskData{
 		Data:      append([]byte(nil), io.Data...),
 		Artifacts: artifacts,
 	}, nil
 }
 
-func failureKindFromTaskError(taskErr *swf.TaskError) string {
+func failureKindFromTaskError(taskErr *jobdb.TaskError) string {
 	if taskErr == nil {
 		return "unknown"
 	}
 	switch taskErr.Kind {
-	case swf.TaskErrorKindApp:
+	case jobdb.TaskErrorKindApp:
 		return "task_error"
-	case swf.TaskErrorKindSystem:
+	case jobdb.TaskErrorKindSystem:
 		return "system_error"
-	case swf.TaskErrorKindTimeout:
+	case jobdb.TaskErrorKindTimeout:
 		return "timeout"
 	default:
 		return "unknown"
 	}
 }
 
-func failureMessageFromTaskError(taskErr *swf.TaskError) string {
+func failureMessageFromTaskError(taskErr *jobdb.TaskError) string {
 	if taskErr == nil {
 		return ""
 	}

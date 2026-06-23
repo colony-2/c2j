@@ -6,21 +6,21 @@ import (
 	"testing"
 
 	"github.com/colony-2/c2j/pkg/task"
-	"github.com/colony-2/swf-go/pkg/swf"
+	"github.com/colony-2/jobdb/pkg/jobdb"
 )
 
 type captureEngine struct {
-	last *swf.SubmitRestartJob
+	last *jobdb.SubmitRestartJob
 }
 
-func (c *captureEngine) SubmitRestartJob(_ context.Context, req swf.SubmitRestartJob) (swf.JobKey, error) {
+func (c *captureEngine) SubmitRestartJob(_ context.Context, req jobdb.SubmitRestartJob) (jobdb.JobKey, error) {
 	c.last = &req
-	return swf.JobKey{TenantId: req.PriorJobKey.TenantId, JobId: "restarted"}, nil
+	return jobdb.JobKey{TenantId: req.PriorJobKey.TenantId, JobId: "restarted"}, nil
 }
 
 func TestRestartRecipeJob_NoPatch(t *testing.T) {
 	engine := &captureEngine{}
-	prior := swf.JobKey{TenantId: "t1", JobId: "j1"}
+	prior := jobdb.JobKey{TenantId: "t1", JobId: "j1"}
 
 	_, err := RestartRecipeJob(context.Background(), engine, prior, 3, nil)
 	if err != nil {
@@ -42,7 +42,7 @@ func TestRestartRecipeJob_NoPatch(t *testing.T) {
 
 func TestRestartRecipeJob_WithPatch_InjectsEnvelope(t *testing.T) {
 	engine := &captureEngine{}
-	prior := swf.JobKey{TenantId: "t1", JobId: "j1"}
+	prior := jobdb.JobKey{TenantId: "t1", JobId: "j1"}
 	patch := &task.ContextPatch{
 		Job: map[string]any{"git": map[string]any{"author": "new-author"}},
 	}

@@ -12,9 +12,10 @@ import (
 	"time"
 
 	"github.com/colony-2/c2j/cmd/c2j/internal/defaults"
-	"github.com/colony-2/swf-go/pkg/swf"
-	remoteruntime "github.com/colony-2/swf-go/pkg/swf/runtime/remote"
-	sqliteruntime "github.com/colony-2/swf-go/pkg/swf/runtime/sqlite"
+	"github.com/colony-2/jobdb/pkg/jobdb"
+	remoteruntime "github.com/colony-2/jobdb/pkg/jobdb/runtime/remote"
+	sqliteruntime "github.com/colony-2/jobdb/pkg/jobdb/runtime/sqlite"
+	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
 	"golang.org/x/sys/unix"
 )
 
@@ -26,8 +27,8 @@ const (
 )
 
 type Handle struct {
-	Runtime swf.WorkflowRuntime
-	Engine  swf.SWFEngine
+	Runtime jobdb.WorkflowRuntime
+	Engine  jobworkflow.Engine
 	cleanup func() error
 }
 
@@ -78,7 +79,7 @@ func openRemote(swfURL string, workerTenantID string) (*Handle, error) {
 	}
 	runtime := withChapterVisibility(baseRuntime)
 
-	builder := swf.NewEngineBuilder().WithRuntime(runtime)
+	builder := jobworkflow.NewEngineBuilder().WithRuntime(runtime)
 	if workerTenantID != "" {
 		builder = builder.WithWorkerTenantId(workerTenantID)
 	}
@@ -134,7 +135,7 @@ func openEmbed(ctx context.Context, parsed *url.URL, rawURL string, workerTenant
 	}
 	runtime := withChapterVisibility(baseRuntime)
 
-	builder := swf.NewEngineBuilder().WithRuntime(runtime)
+	builder := jobworkflow.NewEngineBuilder().WithRuntime(runtime)
 	if workerTenantID != "" {
 		builder = builder.WithWorkerTenantId(workerTenantID)
 	}

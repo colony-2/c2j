@@ -7,7 +7,7 @@ import (
 
 	"github.com/colony-2/c2j/pkg/recipe"
 	"github.com/colony-2/c2j/pkg/workflow"
-	"github.com/colony-2/swf-go/pkg/swf"
+	"github.com/colony-2/jobdb/pkg/jobdb"
 	"github.com/stretchr/testify/require"
 )
 
@@ -90,7 +90,7 @@ outputs:
 	jobCtx.Environment.WorktreePath = worktree
 
 	ctx := workflow.Context{
-		JobContext:           &countingJobContext{jobKey: swf.JobKey{TenantId: "tenant", JobId: "job"}},
+		JobContext:           &countingJobContext{jobKey: jobdb.JobKey{TenantId: "tenant", JobId: "job"}},
 		ServiceDependencies2: newWorkflowContext(&countingJobContext{}).ServiceDependencies2,
 	}
 
@@ -148,7 +148,7 @@ outputs:
 	jobCtx, gitCtx := GenerateTestContext()
 	jobCtx.Environment.WorktreePath = worktree
 
-	ctx := newWorkflowContext(&countingJobContext{jobKey: swf.JobKey{TenantId: "tenant", JobId: "job"}})
+	ctx := newWorkflowContext(&countingJobContext{jobKey: jobdb.JobKey{TenantId: "tenant", JobId: "job"}})
 	result, _, err := ExecuteRecipe(ctx, rec, map[string]interface{}{
 		"title": "Hello World",
 	}, jobCtx, gitCtx, ExecutionOptions{Mode: ExecutionModeValidate})

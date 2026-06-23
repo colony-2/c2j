@@ -14,7 +14,8 @@ import (
 	"github.com/colony-2/c2j/pkg/worker/compiler"
 	workerops "github.com/colony-2/c2j/pkg/worker/ops"
 	workerworkflow "github.com/colony-2/c2j/pkg/worker/workflow"
-	"github.com/colony-2/swf-go/pkg/swf"
+	"github.com/colony-2/jobdb/pkg/jobdb"
+	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
 )
 
 const (
@@ -51,7 +52,7 @@ func Run(ctx context.Context, opts Options) error {
 }
 
 type workerDeps struct {
-	engine       swf.SWFEngine
+	engine       jobworkflow.Engine
 	stopRegistry func()
 	stopRuntime  func() error
 }
@@ -70,7 +71,7 @@ type workerBuildOptions struct {
 	SWFURL         string
 	Concurrency    int
 	AwaitThreshold time.Duration
-	WrapRuntime    func(swf.WorkflowRuntime) swf.WorkflowRuntime
+	WrapRuntime    func(jobdb.WorkflowRuntime) jobdb.WorkflowRuntime
 }
 
 func buildWorkerDeps(ctx context.Context, opts workerBuildOptions) (*workerDeps, func(), error) {
@@ -119,7 +120,7 @@ func buildWorkerDeps(ctx context.Context, opts workerBuildOptions) (*workerDeps,
 		return cleanupOnErr(fmt.Errorf("create recipe worker: %w", err), stopRegistry)
 	}
 
-	builder := swf.NewEngineBuilder().
+	builder := jobworkflow.NewEngineBuilder().
 		WithRuntime(runtime).
 		WithWorkerTenantId(opts.TenantID).
 		WithMaxActive(opts.Concurrency)
@@ -148,7 +149,7 @@ func buildWorkerDeps(ctx context.Context, opts workerBuildOptions) (*workerDeps,
 	}, nil
 }
 
-func taskWorkersFromWorkSet(workset *swf.WorkSet) []swf.TaskWorker {
+func taskWorkersFromWorkSet(workset *jobworkflow.WorkSet) []jobworkflow.TaskWorker {
 	if workset == nil || len(workset.TaskWorkers) == 0 {
 		return nil
 	}
@@ -157,7 +158,7 @@ func taskWorkersFromWorkSet(workset *swf.WorkSet) []swf.TaskWorker {
 		taskTypes = append(taskTypes, taskType)
 	}
 	sort.Strings(taskTypes)
-	taskWorkers := make([]swf.TaskWorker, 0, len(taskTypes))
+	taskWorkers := make([]jobworkflow.TaskWorker, 0, len(taskTypes))
 	for _, taskType := range taskTypes {
 		taskWorkers = append(taskWorkers, workset.TaskWorkers[taskType])
 	}

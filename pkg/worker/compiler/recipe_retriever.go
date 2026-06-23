@@ -8,13 +8,13 @@ import (
 
 	"github.com/colony-2/c2j/pkg/recipe"
 	"github.com/colony-2/c2j/pkg/starter"
-	"github.com/colony-2/swf-go/pkg/swf"
+	"github.com/colony-2/jobdb/pkg/jobdb"
 )
 
 // Concrete implementation of the recipeRetriever
 type recipeRetriever struct {
 	// A map to quickly look up artifacts by name for initial loading
-	artifactMap map[string]swf.Artifact
+	artifactMap map[string]jobdb.Artifact
 
 	// The cache for already-deserialized recipes
 	recipeCache map[string]recipe.Recipe
@@ -93,8 +93,8 @@ func (r *recipeRetriever) GetRecipeYAML(name string) ([]byte, error) {
 	return yamlBytes, nil
 }
 
-func newRetriever(artifacts []swf.Artifact) *recipeRetriever {
-	artifactMap := make(map[string]swf.Artifact)
+func newRetriever(artifacts []jobdb.Artifact) *recipeRetriever {
+	artifactMap := make(map[string]jobdb.Artifact)
 
 	for _, art := range artifacts {
 		fullArtifactName := art.Name()

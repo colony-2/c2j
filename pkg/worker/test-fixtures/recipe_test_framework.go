@@ -23,8 +23,9 @@ import (
 	workerops "github.com/colony-2/c2j/pkg/worker/ops"
 	workflow "github.com/colony-2/c2j/pkg/worker/workflow"
 	"github.com/colony-2/c2j/pkg/workflowctl"
-	"github.com/colony-2/swf-go/pkg/swf"
-	toyruntime "github.com/colony-2/swf-go/pkg/swf/runtime/toy"
+	"github.com/colony-2/jobdb/pkg/jobdb"
+	toyruntime "github.com/colony-2/jobdb/pkg/jobdb/runtime/toy"
+	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap/zaptest"
@@ -605,7 +606,7 @@ func newArtifactCapture() *artifactCapture {
 	return &artifactCapture{names: make(map[string]bool)}
 }
 
-func (c *artifactCapture) add(artifacts []swf.Artifact) {
+func (c *artifactCapture) add(artifacts []jobdb.Artifact) {
 	if len(artifacts) == 0 {
 		return
 	}
@@ -627,7 +628,7 @@ func (c *artifactCapture) list() []string {
 }
 
 type capturingTaskWorker struct {
-	inner   swf.TaskWorker
+	inner   jobworkflow.TaskWorker
 	capture *artifactCapture
 }
 
@@ -635,7 +636,7 @@ func (c *capturingTaskWorker) Name() string {
 	return c.inner.Name()
 }
 
-func (c *capturingTaskWorker) Run(ctx swf.TaskContext, input swf.TaskData) (swf.TaskData, error) {
+func (c *capturingTaskWorker) Run(ctx jobworkflow.TaskContext, input jobdb.TaskData) (jobdb.TaskData, error) {
 	output, err := c.inner.Run(ctx, input)
 	if output != nil {
 		if artifacts, artErr := output.GetArtifacts(); artErr == nil {
@@ -645,8 +646,8 @@ func (c *capturingTaskWorker) Run(ctx swf.TaskContext, input swf.TaskData) (swf.
 	return output, err
 }
 
-func wrapTaskWorkers(workers map[string]swf.TaskWorker, capture *artifactCapture) map[string]swf.TaskWorker {
-	wrapped := make(map[string]swf.TaskWorker, len(workers))
+func wrapTaskWorkers(workers map[string]jobworkflow.TaskWorker, capture *artifactCapture) map[string]jobworkflow.TaskWorker {
+	wrapped := make(map[string]jobworkflow.TaskWorker, len(workers))
 	for name, worker := range workers {
 		wrapped[name] = &capturingTaskWorker{inner: worker, capture: capture}
 	}
@@ -695,12 +696,12 @@ func executeRecipeWithArtifacts(
 	capture := newArtifactCapture()
 	workset.TaskWorkers = wrapTaskWorkers(workset.TaskWorkers, capture)
 
-	taskWorkers := make([]swf.TaskWorker, 0, len(workset.TaskWorkers))
+	taskWorkers := make([]jobworkflow.TaskWorker, 0, len(workset.TaskWorkers))
 	for _, tw := range workset.TaskWorkers {
 		taskWorkers = append(taskWorkers, tw)
 	}
 	tenantID := "default"
-	engine, err := swf.NewEngineBuilder().
+	engine, err := jobworkflow.NewEngineBuilder().
 		WithRuntime(toyruntime.New()).
 		WithWorkerTenantId(tenantID).
 		PlusWorkers(workset.JobWorker, taskWorkers...).
@@ -722,7 +723,7 @@ func executeRecipeWithArtifacts(
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	if err := swf.WaitForJobToComplete(ctx, 30*time.Second, jobKey, engine); err != nil {
+	if err := jobworkflow.WaitForJobToComplete(ctx, 30*time.Second, jobKey, engine); err != nil {
 		return nil, nil, nil, err
 	}
 	out, err := swfutil.JobResult(ctx, engine, jobKey)

@@ -10,7 +10,7 @@ import (
 	coretask "github.com/colony-2/c2j/pkg/task"
 	workerops "github.com/colony-2/c2j/pkg/worker/ops"
 	"github.com/colony-2/c2j/pkg/workflowctl"
-	"github.com/colony-2/swf-go/pkg/swf"
+	"github.com/colony-2/jobdb/pkg/jobdb"
 	"github.com/fatih/structs"
 )
 
@@ -43,11 +43,11 @@ func (r *Runtime) SSEManager() ops.SSEManager {
 }
 
 func (r *Runtime) ListPendingInputs(ctx context.Context, projectID string) ([]PendingInput, error) {
-	jobs, _, err := r.ctl.ListJobs(ctx, swf.ListJobsRequest{
-		Stores:    []swf.JobStore{swf.JobStoreActive},
+	jobs, _, err := r.ctl.ListJobs(ctx, jobdb.ListJobsRequest{
+		Stores:    []jobdb.JobStore{jobdb.JobStoreActive},
 		TenantIds: []string{projectID},
-		Statuses:  []swf.JobStatus{swf.JobStatusReady},
-		JobTasks: []swf.JobTaskFilter{{
+		Statuses:  []jobdb.JobStatus{jobdb.JobStatusReady},
+		JobTasks: []jobdb.JobTaskFilter{{
 			JobType:  "recipe",
 			TaskType: "input:collect_user_input",
 		}},
@@ -125,7 +125,7 @@ func (r *Runtime) SubmitResponse(ctx context.Context, projectID string, jobID st
 	if err != nil {
 		return err
 	}
-	outData, err := swf.NewTaskData(env, artifacts...)
+	outData, err := jobdb.NewTaskData(env, artifacts...)
 	if err != nil {
 		return err
 	}
@@ -143,7 +143,7 @@ func (r *Runtime) SubmitResponse(ctx context.Context, projectID string, jobID st
 }
 
 func (r *Runtime) Cancel(ctx context.Context, projectID string, jobID string, reason string) error {
-	if err := r.ctl.Cancel(ctx, swf.JobKey{TenantId: projectID, JobId: jobID}); err != nil {
+	if err := r.ctl.Cancel(ctx, jobdb.JobKey{TenantId: projectID, JobId: jobID}); err != nil {
 		return err
 	}
 	if r.sse != nil {
@@ -159,12 +159,12 @@ func (r *Runtime) Cancel(ctx context.Context, projectID string, jobID string, re
 }
 
 func (r *Runtime) findJob(ctx context.Context, projectID string, jobID string) (*workflowctl.JobItem, error) {
-	jobs, _, err := r.ctl.ListJobs(ctx, swf.ListJobsRequest{
-		Stores:    []swf.JobStore{swf.JobStoreActive},
+	jobs, _, err := r.ctl.ListJobs(ctx, jobdb.ListJobsRequest{
+		Stores:    []jobdb.JobStore{jobdb.JobStoreActive},
 		TenantIds: []string{projectID},
-		JobKeys:   []swf.JobKey{{TenantId: projectID, JobId: jobID}},
-		Statuses:  []swf.JobStatus{swf.JobStatusReady},
-		JobTasks: []swf.JobTaskFilter{{
+		JobKeys:   []jobdb.JobKey{{TenantId: projectID, JobId: jobID}},
+		Statuses:  []jobdb.JobStatus{jobdb.JobStatusReady},
+		JobTasks: []jobdb.JobTaskFilter{{
 			JobType:  "recipe",
 			TaskType: "input:collect_user_input",
 		}},
@@ -182,8 +182,8 @@ func (r *Runtime) findJob(ctx context.Context, projectID string, jobID string) (
 	return &job, nil
 }
 
-func (r *Runtime) getOutput(ctx context.Context, projectID string, jobID string) (workflowctl.TaskHandle, workerops.ActivityInvocationOutput, []swf.Artifact, error) {
-	task, err := r.ctl.GetWaitingTask(ctx, swf.JobKey{
+func (r *Runtime) getOutput(ctx context.Context, projectID string, jobID string) (workflowctl.TaskHandle, workerops.ActivityInvocationOutput, []jobdb.Artifact, error) {
+	task, err := r.ctl.GetWaitingTask(ctx, jobdb.JobKey{
 		TenantId: projectID,
 		JobId:    jobID,
 	})

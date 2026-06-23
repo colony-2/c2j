@@ -9,24 +9,24 @@ import (
 
 	"github.com/colony-2/c2j/pkg/starter"
 	"github.com/colony-2/c2j/pkg/story/internal/model"
+	"github.com/colony-2/jobdb/pkg/jobdb"
 	"github.com/colony-2/strata-go/pkg/client/story"
-	"github.com/colony-2/swf-go/pkg/swf"
 )
 
 func TestMapWorkflowStatus(t *testing.T) {
-	if got := mapWorkflowStatus(swf.JobStatusActive); got != "running" {
+	if got := mapWorkflowStatus(jobdb.JobStatusActive); got != "running" {
 		t.Fatalf("expected running, got %q", got)
 	}
-	if got := mapWorkflowStatus(swf.JobStatusCompleted); got != "completed" {
+	if got := mapWorkflowStatus(jobdb.JobStatusCompleted); got != "completed" {
 		t.Fatalf("expected completed, got %q", got)
 	}
-	if got := mapWorkflowStatus(swf.JobStatusExpired); got != "timed_out" {
+	if got := mapWorkflowStatus(jobdb.JobStatusExpired); got != "timed_out" {
 		t.Fatalf("expected timed_out, got %q", got)
 	}
-	if got := mapWorkflowStatus(swf.JobStatusCrashConcern); got != "failed" {
+	if got := mapWorkflowStatus(jobdb.JobStatusCrashConcern); got != "failed" {
 		t.Fatalf("expected failed, got %q", got)
 	}
-	if got := mapWorkflowStatus(swf.JobStatus("UNKNOWN")); got != "unknown" {
+	if got := mapWorkflowStatus(jobdb.JobStatus("UNKNOWN")); got != "unknown" {
 		t.Fatalf("expected unknown, got %q", got)
 	}
 }
@@ -116,7 +116,7 @@ func TestWorkflowStatusesToJobStatuses_SpecificStatus(t *testing.T) {
 		t.Fatalf("expected 1 job status for 'completed', got %d", len(result))
 	}
 
-	if result[0] != swf.JobStatusCompleted {
+	if result[0] != jobdb.JobStatusCompleted {
 		t.Errorf("expected JobStatusCompleted, got %q", result[0])
 	}
 }
@@ -137,9 +137,9 @@ func TestBuildSummary_UsesJobMetadata(t *testing.T) {
 	}
 
 	svc := &Service{logger: slog.Default()}
-	job := swf.JobSummary{
-		JobKey:    swf.JobKey{TenantId: "proj-1", JobId: "job-1"},
-		Status:    swf.JobStatusActive,
+	job := jobdb.JobSummary{
+		JobKey:    jobdb.JobKey{TenantId: "proj-1", JobId: "job-1"},
+		Status:    jobdb.JobStatusActive,
 		CreatedAt: created,
 		Metadata:  metaRaw,
 	}

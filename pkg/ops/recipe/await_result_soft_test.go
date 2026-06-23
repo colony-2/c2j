@@ -8,7 +8,7 @@ import (
 	"github.com/colony-2/c2j/pkg/ops"
 	workerops "github.com/colony-2/c2j/pkg/worker/ops"
 	"github.com/colony-2/c2j/pkg/workflowctl"
-	"github.com/colony-2/swf-go/pkg/swf"
+	"github.com/colony-2/jobdb/pkg/jobdb"
 )
 
 func TestGetOpsIncludesAwaitResultSoft(t *testing.T) {
@@ -21,15 +21,15 @@ func TestGetOpsIncludesAwaitResultSoft(t *testing.T) {
 }
 
 func TestAwaitResultSoftCompletedChildReturnsOutput(t *testing.T) {
-	artifact := swf.NewArtifactFromBytes("child-art", []byte("data"))
-	swf.AssignArtifactKey(artifact, swf.ArtifactKey{JobId: "child-1", TaskOrdinal: 7, Name: "child-art", SizeBytes: 4})
+	artifact := jobdb.NewArtifactFromBytes("child-art", []byte("data"))
+	jobdb.AssignArtifactKey(artifact, jobdb.ArtifactKey{JobId: "child-1", TaskOrdinal: 7, Name: "child-art", SizeBytes: 4})
 	payload := workerops.ActivityInvocationOutput{OpOutput: map[string]interface{}{"value": "ok"}}
-	jobData, err := swf.NewTaskData(payload, artifact)
+	jobData, err := jobdb.NewTaskData(payload, artifact)
 	if err != nil {
 		t.Fatalf("failed to build task data: %v", err)
 	}
 	ctl := &fakeWorkflowControl{
-		inspectFunc: func(ctx context.Context, key swf.JobKey) (workflowctl.JobInspection, error) {
+		inspectFunc: func(ctx context.Context, key jobdb.JobKey) (workflowctl.JobInspection, error) {
 			return workflowctl.JobInspection{
 				JobKey:      key,
 				Terminal:    true,
@@ -41,7 +41,7 @@ func TestAwaitResultSoftCompletedChildReturnsOutput(t *testing.T) {
 	}
 	deps := ops.NewOpDependenciesBuilder().
 		WithWorkflowControl(ctl).
-		WithJobTool(&fakeJobTool{key: swf.JobKey{TenantId: "tenant"}}).
+		WithJobTool(&fakeJobTool{key: jobdb.JobKey{TenantId: "tenant"}}).
 		Build()
 
 	out, err := awaitResultSoft(deps, context.Background(), AwaitResultSoftInput{JobID: "child-1"})
@@ -63,19 +63,19 @@ func TestAwaitResultSoftCompletedChildReturnsOutput(t *testing.T) {
 }
 
 func TestAwaitResultSoftFailedChildReturnsDataNotError(t *testing.T) {
-	artifact := swf.NewArtifactFromBytes("failure-log", []byte("data"))
-	swf.AssignArtifactKey(artifact, swf.ArtifactKey{JobId: "child-1", TaskOrdinal: 7, Name: "failure-log", SizeBytes: 4})
+	artifact := jobdb.NewArtifactFromBytes("failure-log", []byte("data"))
+	jobdb.AssignArtifactKey(artifact, jobdb.ArtifactKey{JobId: "child-1", TaskOrdinal: 7, Name: "failure-log", SizeBytes: 4})
 	payload := workerops.ActivityInvocationOutput{OpOutput: map[string]interface{}{"ok": false, "reason": "bad"}}
-	jobData, err := swf.NewTaskData(payload, artifact)
+	jobData, err := jobdb.NewTaskData(payload, artifact)
 	if err != nil {
 		t.Fatalf("failed to build task data: %v", err)
 	}
 	jobTool := &fakeJobTool{
-		key:      swf.JobKey{TenantId: "tenant"},
-		awaitErr: &swf.JobFailedError{Cause: swf.AppError{Payload: swf.AppErrorPayload{Message: "child failed"}}},
+		key:      jobdb.JobKey{TenantId: "tenant"},
+		awaitErr: &jobdb.JobFailedError{Cause: jobdb.AppError{Payload: jobdb.AppErrorPayload{Message: "child failed"}}},
 	}
 	ctl := &fakeWorkflowControl{
-		inspectFunc: func(ctx context.Context, key swf.JobKey) (workflowctl.JobInspection, error) {
+		inspectFunc: func(ctx context.Context, key jobdb.JobKey) (workflowctl.JobInspection, error) {
 			return workflowctl.JobInspection{
 				JobKey:         key,
 				Terminal:       true,
@@ -110,9 +110,9 @@ func TestAwaitResultSoftFailedChildReturnsDataNotError(t *testing.T) {
 }
 
 func TestAwaitResultSoftCurrentStatusDoesNotAwait(t *testing.T) {
-	jobTool := &fakeJobTool{key: swf.JobKey{TenantId: "tenant"}}
+	jobTool := &fakeJobTool{key: jobdb.JobKey{TenantId: "tenant"}}
 	ctl := &fakeWorkflowControl{
-		inspectFunc: func(ctx context.Context, key swf.JobKey) (workflowctl.JobInspection, error) {
+		inspectFunc: func(ctx context.Context, key jobdb.JobKey) (workflowctl.JobInspection, error) {
 			return workflowctl.JobInspection{JobKey: key, Terminal: false, Status: "running"}, nil
 		},
 	}
@@ -138,13 +138,13 @@ func TestAwaitResultSoftCurrentStatusDoesNotAwait(t *testing.T) {
 
 func TestAwaitResultSoftInspectErrorFailsOp(t *testing.T) {
 	ctl := &fakeWorkflowControl{
-		inspectFunc: func(ctx context.Context, key swf.JobKey) (workflowctl.JobInspection, error) {
+		inspectFunc: func(ctx context.Context, key jobdb.JobKey) (workflowctl.JobInspection, error) {
 			return workflowctl.JobInspection{}, errors.New("inspect failed")
 		},
 	}
 	deps := ops.NewOpDependenciesBuilder().
 		WithWorkflowControl(ctl).
-		WithJobTool(&fakeJobTool{key: swf.JobKey{TenantId: "tenant"}}).
+		WithJobTool(&fakeJobTool{key: jobdb.JobKey{TenantId: "tenant"}}).
 		Build()
 
 	_, err := awaitResultSoft(deps, context.Background(), AwaitResultSoftInput{JobID: "child-1"})
@@ -155,13 +155,13 @@ func TestAwaitResultSoftInspectErrorFailsOp(t *testing.T) {
 
 func TestAwaitResultSoftFallbackSoftensJobFailed(t *testing.T) {
 	ctl := &jobResultOnlyWorkflowControl{
-		jobResultFunc: func(ctx context.Context, key swf.JobKey) (swf.JobData, error) {
-			return nil, &swf.JobFailedError{Cause: swf.AppError{Payload: swf.AppErrorPayload{Message: "child failed"}}}
+		jobResultFunc: func(ctx context.Context, key jobdb.JobKey) (jobdb.JobData, error) {
+			return nil, &jobdb.JobFailedError{Cause: jobdb.AppError{Payload: jobdb.AppErrorPayload{Message: "child failed"}}}
 		},
 	}
 	deps := ops.NewOpDependenciesBuilder().
 		WithWorkflowControl(ctl).
-		WithJobTool(&fakeJobTool{key: swf.JobKey{TenantId: "tenant"}}).
+		WithJobTool(&fakeJobTool{key: jobdb.JobKey{TenantId: "tenant"}}).
 		Build()
 
 	out, err := awaitResultSoft(deps, context.Background(), AwaitResultSoftInput{JobID: "child-1"})
@@ -174,34 +174,34 @@ func TestAwaitResultSoftFallbackSoftensJobFailed(t *testing.T) {
 }
 
 type jobResultOnlyWorkflowControl struct {
-	jobResultFunc func(ctx context.Context, key swf.JobKey) (swf.JobData, error)
+	jobResultFunc func(ctx context.Context, key jobdb.JobKey) (jobdb.JobData, error)
 }
 
-func (j *jobResultOnlyWorkflowControl) StartJob(ctx context.Context, req workflowctl.StartJob) (swf.JobKey, error) {
-	return swf.JobKey{}, errors.New("not implemented")
+func (j *jobResultOnlyWorkflowControl) StartJob(ctx context.Context, req workflowctl.StartJob) (jobdb.JobKey, error) {
+	return jobdb.JobKey{}, errors.New("not implemented")
 }
 
-func (j *jobResultOnlyWorkflowControl) Cancel(ctx context.Context, jobKey swf.JobKey) error {
+func (j *jobResultOnlyWorkflowControl) Cancel(ctx context.Context, jobKey jobdb.JobKey) error {
 	return errors.New("not implemented")
 }
 
-func (j *jobResultOnlyWorkflowControl) ListJobs(ctx context.Context, request swf.ListJobsRequest) ([]workflowctl.JobItem, string, error) {
+func (j *jobResultOnlyWorkflowControl) ListJobs(ctx context.Context, request jobdb.ListJobsRequest) ([]workflowctl.JobItem, string, error) {
 	return nil, "", errors.New("not implemented")
 }
 
-func (j *jobResultOnlyWorkflowControl) CompleteTask(ctx context.Context, jobKey swf.JobKey, taskOrdinal int64, hash string, data any) error {
+func (j *jobResultOnlyWorkflowControl) CompleteTask(ctx context.Context, jobKey jobdb.JobKey, taskOrdinal int64, hash string, data any) error {
 	return errors.New("not implemented")
 }
 
-func (j *jobResultOnlyWorkflowControl) GetWaitingTask(ctx context.Context, jobKey swf.JobKey) (workflowctl.TaskHandle, error) {
+func (j *jobResultOnlyWorkflowControl) GetWaitingTask(ctx context.Context, jobKey jobdb.JobKey) (workflowctl.TaskHandle, error) {
 	return nil, errors.New("not implemented")
 }
 
-func (j *jobResultOnlyWorkflowControl) GetArtifactLazy(ctx context.Context, tenantId string, key swf.ArtifactKey) swf.Artifact {
+func (j *jobResultOnlyWorkflowControl) GetArtifactLazy(ctx context.Context, tenantId string, key jobdb.ArtifactKey) jobdb.Artifact {
 	return key.ToLazyArtifact(nil, tenantId)
 }
 
-func (j *jobResultOnlyWorkflowControl) JobResult(ctx context.Context, key swf.JobKey) (swf.JobData, error) {
+func (j *jobResultOnlyWorkflowControl) JobResult(ctx context.Context, key jobdb.JobKey) (jobdb.JobData, error) {
 	if j.jobResultFunc == nil {
 		return nil, errors.New("job result not configured")
 	}

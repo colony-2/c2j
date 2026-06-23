@@ -7,7 +7,7 @@ import (
 	recipeartifacts "github.com/colony-2/c2j/pkg/artifacts"
 	"github.com/colony-2/c2j/pkg/contextual"
 	"github.com/colony-2/c2j/pkg/ops"
-	"github.com/colony-2/swf-go/pkg/swf"
+	"github.com/colony-2/jobdb/pkg/jobdb"
 )
 
 // RecipeInput defines the input for recipe activities
@@ -114,7 +114,7 @@ func waitAndGetRecipeOutput(deps ops.OpDependencies, ctx context.Context, input 
 
 func getRecipeOutput(deps ops.OpDependencies, ctx context.Context, input StartedJob) (SingleRecipeOutput, error) {
 	var zero SingleRecipeOutput
-	data, err := deps.WorkflowControl().JobResult(ctx, swf.JobKey{deps.JobTool().GetJobKey().TenantId, input.JobId})
+	data, err := deps.WorkflowControl().JobResult(ctx, jobdb.JobKey{deps.JobTool().GetJobKey().TenantId, input.JobId})
 	if err != nil {
 		return zero, err
 	}

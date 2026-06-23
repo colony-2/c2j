@@ -14,32 +14,33 @@ import (
 	coretask "github.com/colony-2/c2j/pkg/task"
 	workerops "github.com/colony-2/c2j/pkg/worker/ops"
 	"github.com/colony-2/c2j/pkg/workflow"
-	"github.com/colony-2/swf-go/pkg/swf"
+	"github.com/colony-2/jobdb/pkg/jobdb"
+	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
 	"github.com/stretchr/testify/require"
 )
 
 type catchScriptedJobContext struct {
-	jobKey   swf.JobKey
+	jobKey   jobdb.JobKey
 	results  []catchTaskResult
 	calls    int
-	waits    []swf.Duration
-	policies []swf.RunPolicy
+	waits    []jobdb.Duration
+	policies []jobdb.RunPolicy
 }
 
 type catchTaskResult struct {
-	out swf.TaskData
+	out jobdb.TaskData
 	err error
 }
 
 func (c *catchScriptedJobContext) AwaitJobs(jobIds ...string) error { return nil }
-func (c *catchScriptedJobContext) GetJobKey() swf.JobKey            { return c.jobKey }
+func (c *catchScriptedJobContext) GetJobKey() jobdb.JobKey          { return c.jobKey }
 func (c *catchScriptedJobContext) Logger() *slog.Logger             { return slog.Default() }
-func (c *catchScriptedJobContext) AwaitDuration(d swf.Duration) error {
+func (c *catchScriptedJobContext) AwaitDuration(d jobdb.Duration) error {
 	c.waits = append(c.waits, d)
 	return nil
 }
 
-func (c *catchScriptedJobContext) DoTask(policy swf.RunPolicy, _ string, _ swf.TaskData) (swf.TaskData, error) {
+func (c *catchScriptedJobContext) DoTask(policy jobdb.RunPolicy, _ string, _ jobdb.TaskData) (jobdb.TaskData, error) {
 	c.policies = append(c.policies, policy)
 	idx := c.calls
 	c.calls++
@@ -76,7 +77,7 @@ func catchExpr(t *testing.T, expr string) recipecel.CELExpr {
 	return out
 }
 
-func catchOutput(t *testing.T, gitCtx contextual.GitCommitContext, output map[string]interface{}) swf.TaskData {
+func catchOutput(t *testing.T, gitCtx contextual.GitCommitContext, output map[string]interface{}) jobdb.TaskData {
 	t.Helper()
 	envelope := workerops.ActivityInvocationOutput{
 		OpOutput:  output,
@@ -84,17 +85,17 @@ func catchOutput(t *testing.T, gitCtx contextual.GitCommitContext, output map[st
 	}
 	outEnv, err := coretask.NewOutputEnvelope(coretask.OutputKindActivityInvocationOutput, envelope)
 	require.NoError(t, err)
-	return swf.NewTaskDataOrPanic(outEnv)
+	return jobdb.NewTaskDataOrPanic(outEnv)
 }
 
 func appFailure(message string, code string) error {
-	return &swf.AppError{Payload: swf.AppErrorPayload{
+	return &jobdb.AppError{Payload: jobdb.AppErrorPayload{
 		Message: message,
 		Attrs:   map[string]interface{}{"code": code},
 	}}
 }
 
-func catchWorkflowContext(job swf.JobContext) workflow.Context {
+func catchWorkflowContext(job jobworkflow.JobContext) workflow.Context {
 	return workflow.Context{
 		JobContext:           job,
 		ServiceDependencies2: coreops.NewServiceDepsBuilder().Build(),
@@ -106,7 +107,7 @@ func TestStateCatchRoutesTaskErrorWithFailureTransition(t *testing.T) {
 	registerCatchOp(t, opName)
 	jobCtx, gitCtx := GenerateTestContext()
 	script := &catchScriptedJobContext{
-		jobKey: swf.JobKey{TenantId: "tenant", JobId: "catch-route"},
+		jobKey: jobdb.JobKey{TenantId: "tenant", JobId: "catch-route"},
 		results: []catchTaskResult{
 			{err: appFailure("compile failed", "E_BAD")},
 			{out: catchOutput(t, gitCtx, map[string]interface{}{"ok": true, "seen": "review"})},
@@ -162,7 +163,7 @@ func TestStateMachineFallbackCatchHandlesUnmatchedStateCatch(t *testing.T) {
 	registerCatchOp(t, opName)
 	jobCtx, gitCtx := GenerateTestContext()
 	script := &catchScriptedJobContext{
-		jobKey: swf.JobKey{TenantId: "tenant", JobId: "catch-fallback"},
+		jobKey: jobdb.JobKey{TenantId: "tenant", JobId: "catch-fallback"},
 		results: []catchTaskResult{
 			{err: appFailure("runtime failed", "E_OTHER")},
 			{out: catchOutput(t, gitCtx, map[string]interface{}{"ok": true})},
@@ -223,7 +224,7 @@ func TestStateCatchContinueOutputsDriveNormalTransition(t *testing.T) {
 	registerCatchOp(t, opName)
 	jobCtx, gitCtx := GenerateTestContext()
 	script := &catchScriptedJobContext{
-		jobKey: swf.JobKey{TenantId: "tenant", JobId: "catch-continue"},
+		jobKey: jobdb.JobKey{TenantId: "tenant", JobId: "catch-continue"},
 		results: []catchTaskResult{
 			{err: appFailure("known failure", "E_BAD")},
 			{out: catchOutput(t, gitCtx, map[string]interface{}{"ok": true})},
@@ -277,7 +278,7 @@ func TestCatchFailRewritesFailureForParentCatch(t *testing.T) {
 	registerCatchOp(t, opName)
 	jobCtx, gitCtx := GenerateTestContext()
 	script := &catchScriptedJobContext{
-		jobKey: swf.JobKey{TenantId: "tenant", JobId: "catch-fail"},
+		jobKey: jobdb.JobKey{TenantId: "tenant", JobId: "catch-fail"},
 		results: []catchTaskResult{
 			{err: appFailure("low level", "E_BAD")},
 			{out: catchOutput(t, gitCtx, map[string]interface{}{"ok": true})},
@@ -335,10 +336,10 @@ func TestRootOpCatchContinueSuppressesRetry(t *testing.T) {
 	registerCatchOp(t, opName)
 	jobCtx, gitCtx := GenerateTestContext()
 	script := &catchScriptedJobContext{
-		jobKey:  swf.JobKey{TenantId: "tenant", JobId: "catch-root"},
+		jobKey:  jobdb.JobKey{TenantId: "tenant", JobId: "catch-root"},
 		results: []catchTaskResult{{err: appFailure("known", "E_BAD")}},
 	}
-	retry := recipe.RetryPolicy{MaximumAttempts: 3, InitialInterval: swf.Duration(10 * time.Millisecond)}
+	retry := recipe.RetryPolicy{MaximumAttempts: 3, InitialInterval: jobdb.Duration(10 * time.Millisecond)}
 	rec := recipe.Recipe{RecipeImpl: &recipe.RecipeOp{
 		RecipeMetadata: recipe.RecipeMetadata{NodeMetadata: recipe.NodeMetadata{
 			Inputs: map[string]interface{}{},
@@ -367,14 +368,14 @@ func TestUnhandledLocalCatchRetriesAccordingToPolicy(t *testing.T) {
 	registerCatchOp(t, opName)
 	jobCtx, gitCtx := GenerateTestContext()
 	script := &catchScriptedJobContext{
-		jobKey: swf.JobKey{TenantId: "tenant", JobId: "catch-retry"},
+		jobKey: jobdb.JobKey{TenantId: "tenant", JobId: "catch-retry"},
 		results: []catchTaskResult{
 			{err: appFailure("first", "E_OTHER")},
 			{err: appFailure("second", "E_OTHER")},
 			{out: catchOutput(t, gitCtx, map[string]interface{}{"ok": true})},
 		},
 	}
-	retry := recipe.RetryPolicy{MaximumAttempts: 3, InitialInterval: swf.Duration(5 * time.Millisecond)}
+	retry := recipe.RetryPolicy{MaximumAttempts: 3, InitialInterval: jobdb.Duration(5 * time.Millisecond)}
 	rec := recipe.Recipe{RecipeImpl: &recipe.RecipeOp{
 		RecipeMetadata: recipe.RecipeMetadata{NodeMetadata: recipe.NodeMetadata{
 			Inputs: map[string]interface{}{},
@@ -401,13 +402,13 @@ func TestStateCatchNoMatchRetriesStateOpBeforeFailing(t *testing.T) {
 	registerCatchOp(t, opName)
 	jobCtx, gitCtx := GenerateTestContext()
 	script := &catchScriptedJobContext{
-		jobKey: swf.JobKey{TenantId: "tenant", JobId: "catch-state-retry"},
+		jobKey: jobdb.JobKey{TenantId: "tenant", JobId: "catch-state-retry"},
 		results: []catchTaskResult{
 			{err: appFailure("first", "E_OTHER")},
 			{out: catchOutput(t, gitCtx, map[string]interface{}{"ok": true})},
 		},
 	}
-	retry := recipe.RetryPolicy{MaximumAttempts: 2, InitialInterval: swf.Duration(5 * time.Millisecond)}
+	retry := recipe.RetryPolicy{MaximumAttempts: 2, InitialInterval: jobdb.Duration(5 * time.Millisecond)}
 	rec := recipe.Recipe{RecipeImpl: &recipe.RecipeState{
 		RecipeMetadata: recipe.RecipeMetadata{NodeMetadata: recipe.NodeMetadata{Inputs: map[string]interface{}{}}},
 		StateMachineData: recipe.StateMachineData{
@@ -449,13 +450,13 @@ func TestStateMachineCatchNoMatchRetriesStateOpBeforeFailing(t *testing.T) {
 	registerCatchOp(t, opName)
 	jobCtx, gitCtx := GenerateTestContext()
 	script := &catchScriptedJobContext{
-		jobKey: swf.JobKey{TenantId: "tenant", JobId: "catch-machine-retry"},
+		jobKey: jobdb.JobKey{TenantId: "tenant", JobId: "catch-machine-retry"},
 		results: []catchTaskResult{
 			{err: appFailure("first", "E_OTHER")},
 			{out: catchOutput(t, gitCtx, map[string]interface{}{"ok": true})},
 		},
 	}
-	retry := recipe.RetryPolicy{MaximumAttempts: 2, InitialInterval: swf.Duration(5 * time.Millisecond)}
+	retry := recipe.RetryPolicy{MaximumAttempts: 2, InitialInterval: jobdb.Duration(5 * time.Millisecond)}
 	rec := recipe.Recipe{RecipeImpl: &recipe.RecipeState{
 		RecipeMetadata: recipe.RecipeMetadata{NodeMetadata: recipe.NodeMetadata{
 			Inputs: map[string]interface{}{},
@@ -503,7 +504,7 @@ func TestSequenceChildCatchContinueFeedsLaterSibling(t *testing.T) {
 	registerCatchOp(t, opName)
 	jobCtx, gitCtx := GenerateTestContext()
 	script := &catchScriptedJobContext{
-		jobKey: swf.JobKey{TenantId: "tenant", JobId: "catch-sequence"},
+		jobKey: jobdb.JobKey{TenantId: "tenant", JobId: "catch-sequence"},
 		results: []catchTaskResult{
 			{err: appFailure("child failed", "E_BAD")},
 			{out: catchOutput(t, gitCtx, map[string]interface{}{"ok": true})},

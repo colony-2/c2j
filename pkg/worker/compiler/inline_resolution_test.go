@@ -12,7 +12,7 @@ import (
 	"github.com/colony-2/c2j/pkg/contextual"
 	"github.com/colony-2/c2j/pkg/recipe"
 	"github.com/colony-2/c2j/pkg/template"
-	"github.com/colony-2/swf-go/pkg/swf"
+	"github.com/colony-2/jobdb/pkg/jobdb"
 	"github.com/stretchr/testify/require"
 )
 
@@ -79,7 +79,7 @@ outputs:
 	require.Contains(t, wrapper.Internal.CompositeInputSchema, "model")
 
 	jobCtx, gitCtx := GenerateTestContext()
-	wfCtx := newWorkflowContext(&countingJobContext{jobKey: swf.JobKey{TenantId: "tenant", JobId: "inline-local"}})
+	wfCtx := newWorkflowContext(&countingJobContext{jobKey: jobdb.JobKey{TenantId: "tenant", JobId: "inline-local"}})
 	out, _, err := ExecuteRecipe(wfCtx, expanded.Recipe, map[string]interface{}{"prompt": "hello"}, jobCtx, gitCtx)
 	require.NoError(t, err)
 	require.Equal(t, map[string]interface{}{

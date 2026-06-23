@@ -22,7 +22,8 @@ import (
 	coretask "github.com/colony-2/c2j/pkg/task"
 	workerops "github.com/colony-2/c2j/pkg/worker/ops"
 	"github.com/colony-2/c2j/pkg/workflowctl"
-	"github.com/colony-2/swf-go/pkg/swf"
+	"github.com/colony-2/jobdb/pkg/jobdb"
+	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
 	"github.com/stretchr/testify/require"
 )
 
@@ -159,7 +160,7 @@ func TestMultiStepWithCapabilityClaim(t *testing.T) {
 	}
 
 	type jobResult struct {
-		key swf.JobKey
+		key jobdb.JobKey
 		err error
 	}
 	jobCh := make(chan jobResult, 1)
@@ -169,7 +170,7 @@ func TestMultiStepWithCapabilityClaim(t *testing.T) {
 	}()
 
 	// Wait for the second step to become pending (disallowed as task).
-	var handles []swf.TaskHandle
+	var handles []jobworkflow.TaskHandle
 	for i := 0; i < 20; i++ {
 		handles, err = engine.FindTasksWaitingForCapability(context.Background(), starter.RecipeJobType, opType+":second", []string{"test-tenant"})
 		require.NoError(t, err)
@@ -179,7 +180,7 @@ func TestMultiStepWithCapabilityClaim(t *testing.T) {
 		time.Sleep(50 * time.Millisecond)
 	}
 	if len(handles) == 0 {
-		var status swf.JobStatus
+		var status jobdb.JobStatus
 		var outputs map[string]interface{}
 		var env workerops.ActivityInvocationOutput
 		var regNext string
@@ -234,10 +235,10 @@ func TestMultiStepWithCapabilityClaim(t *testing.T) {
 	}
 	outEnv, err := coretask.NewOutputEnvelope(coretask.OutputKindActivityInvocationOutput, envelope)
 	require.NoError(t, err)
-	err = handles[0].Finish(context.Background(), swf.NewTaskDataOrPanic(outEnv))
+	err = handles[0].Finish(context.Background(), jobdb.NewTaskDataOrPanic(outEnv))
 	require.NoError(t, err)
 
-	require.NoError(t, swf.WaitForJobToComplete(context.Background(), 5*time.Second, jobKey, engine))
+	require.NoError(t, jobworkflow.WaitForJobToComplete(context.Background(), 5*time.Second, jobKey, engine))
 	jobRes := <-jobCh
 	require.NoError(t, jobRes.err)
 	require.Equal(t, jobKey, jobRes.key)
@@ -315,12 +316,12 @@ func writeFile(t *testing.T, dir, name, content string) {
 }
 
 type loggingTaskWorker struct {
-	inner   swf.TaskWorker
+	inner   jobworkflow.TaskWorker
 	capture func(workerops.ActivityInvocationOutput, workerDebug)
 }
 
 type loggingJobWorker struct {
-	inner swf.JobWorker
+	inner jobworkflow.JobWorker
 	after func(error)
 }
 
@@ -328,9 +329,9 @@ func (l loggingJobWorker) Name() string {
 	return l.inner.Name()
 }
 
-func (l loggingJobWorker) Run(ctx swf.JobContext, data swf.JobData) (swf.JobData, error) {
+func (l loggingJobWorker) Run(ctx jobworkflow.JobContext, data jobdb.JobData) (jobdb.JobData, error) {
 	var (
-		out swf.JobData
+		out jobdb.JobData
 		err error
 	)
 	func() {
@@ -351,7 +352,7 @@ func (l loggingTaskWorker) Name() string {
 	return l.inner.Name()
 }
 
-func (l loggingTaskWorker) Run(ctx swf.TaskContext, input swf.TaskData) (swf.TaskData, error) {
+func (l loggingTaskWorker) Run(ctx jobworkflow.TaskContext, input jobdb.TaskData) (jobdb.TaskData, error) {
 	dbg := extractWorkerDebug(l.inner)
 	out, err := l.inner.Run(ctx, input)
 	if err != nil {
@@ -376,7 +377,7 @@ type workerDebug struct {
 	canInterface bool
 }
 
-func extractWorkerDebug(tw swf.TaskWorker) workerDebug {
+func extractWorkerDebug(tw jobworkflow.TaskWorker) workerDebug {
 	dbg := workerDebug{workerType: fmt.Sprintf("%T", tw)}
 	rv := reflect.ValueOf(tw)
 	if rv.Kind() == reflect.Ptr {
