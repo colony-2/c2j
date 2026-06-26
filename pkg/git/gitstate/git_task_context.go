@@ -5,19 +5,19 @@ import "github.com/colony-2/c2j/pkg/contextual"
 // GlobalGitTaskContext contains machine-independent git context (serializable)
 // This can be safely serialized and sent between machines
 type GlobalGitTaskContext struct {
-	BaseRepo         string
-	BaseRef          string
-	ResolvedBaseHash string
-	RecipeSourceRepo string
-	RecipeSourceRef  string
-	PersistHash      string
-	ParentHash       string
-	CellName         string
-	GitAuthor        string
-	NodePath         string
-	InvokeSeq        int64
-	InvokeHash       string
-	InlineStack      []contextual.InlineBoundaryFrame
+	BaseRepo         string                           `json:"base_repo,omitempty"`
+	BaseRef          string                           `json:"base_ref,omitempty"`
+	ResolvedBaseHash string                           `json:"resolved_base_hash,omitempty"`
+	RecipeSourceRepo string                           `json:"recipe_source_repo,omitempty"`
+	RecipeSourceRef  string                           `json:"recipe_source_ref,omitempty"`
+	PersistHash      string                           `json:"persist_hash,omitempty"`
+	ParentHash       string                           `json:"parent_hash,omitempty"`
+	CellName         string                           `json:"cell_name,omitempty"`
+	GitAuthor        string                           `json:"git_author,omitempty"`
+	NodePath         string                           `json:"node_path,omitempty"`
+	InvokeSeq        int64                            `json:"invoke_seq"`
+	InvokeHash       string                           `json:"invoke_hash,omitempty"`
+	InlineStack      []contextual.InlineBoundaryFrame `json:"inline_stack,omitempty"`
 }
 
 // NewGlobalGitTaskContext creates a GlobalGitTaskContext from TaskExecutionContext
@@ -42,8 +42,8 @@ func NewGlobalGitTaskContext(tec contextual.TaskExecutionContext) *GlobalGitTask
 // GitTaskContext is used internally by workspace_controller
 // Uses POINTER embedding to share the global context
 type GitTaskContext struct {
-	*GlobalGitTaskContext // Pointer embedding - shares data with global context
-	WorktreePath          string
+	*GlobalGitTaskContext        // Pointer embedding - shares data with global context
+	WorktreePath          string `json:"worktree_path,omitempty"`
 }
 
 // NewGitTaskContext creates a GitTaskContext from TaskExecutionContext

@@ -2,6 +2,7 @@ package gitstate
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -32,6 +33,45 @@ func newTaskContext(baseRepo, baseRef, worktree, cell string) *GitTaskContext {
 		},
 		WorktreePath: worktree,
 	}
+}
+
+func TestGlobalGitTaskContextJSONTags(t *testing.T) {
+	t.Parallel()
+
+	ctx := GlobalGitTaskContext{
+		BaseRepo:         "https://github.com/acme/repo.git",
+		BaseRef:          "main",
+		ResolvedBaseHash: "abc123",
+		RecipeSourceRepo: "https://github.com/acme/recipes.git",
+		RecipeSourceRef:  "recipes-main",
+		PersistHash:      "def456",
+		ParentHash:       "abc123",
+		CellName:         "alpha",
+		GitAuthor:        "C2J",
+		NodePath:         "sequence/build",
+		InvokeSeq:        7,
+		InvokeHash:       "deadbeef",
+	}
+
+	raw, err := json.Marshal(ctx)
+	require.NoError(t, err)
+
+	var encoded map[string]any
+	require.NoError(t, json.Unmarshal(raw, &encoded))
+	require.Equal(t, "https://github.com/acme/repo.git", encoded["base_repo"])
+	require.Equal(t, "abc123", encoded["resolved_base_hash"])
+	require.Equal(t, "https://github.com/acme/recipes.git", encoded["recipe_source_repo"])
+	require.Equal(t, float64(7), encoded["invoke_seq"])
+	require.Equal(t, "deadbeef", encoded["invoke_hash"])
+	require.NotContains(t, encoded, "BaseRepo")
+	require.NotContains(t, encoded, "InvokeSeq")
+
+	var decoded GlobalGitTaskContext
+	require.NoError(t, json.Unmarshal(raw, &decoded))
+	require.Equal(t, ctx.BaseRepo, decoded.BaseRepo)
+	require.Equal(t, ctx.RecipeSourceRepo, decoded.RecipeSourceRepo)
+	require.Equal(t, ctx.InvokeSeq, decoded.InvokeSeq)
+	require.Equal(t, ctx.InvokeHash, decoded.InvokeHash)
 }
 
 func TestControllerLifecycle(t *testing.T) {
