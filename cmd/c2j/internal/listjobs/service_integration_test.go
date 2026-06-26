@@ -251,17 +251,18 @@ func startListTestRuntime(ctx context.Context) (*httptest.Server, string, jobdb.
 		id       string
 		jobType  string
 		cellName string
+		repo     string
 	}{
-		{id: "job-alpha-1", jobType: "alpha", cellName: "alpha"},
-		{id: "job-alpha-2", jobType: "alpha", cellName: "alpha"},
-		{id: "job-beta-1", jobType: "beta", cellName: "beta"},
+		{id: "job-alpha-1", jobType: "alpha", cellName: "alpha", repo: "https://github.com/acme/boo-alpha.git"},
+		{id: "job-alpha-2", jobType: "alpha", cellName: "alpha", repo: "https://github.com/acme/boo-alpha.git"},
+		{id: "job-beta-1", jobType: "beta", cellName: "beta", repo: "https://github.com/acme/boo-beta.git"},
 	} {
 		data, err := jobdb.NewTaskData(map[string]any{"job_id": job.id})
 		if err != nil {
 			server.Close()
 			return nil, "", "", err
 		}
-		metadata, err := json.Marshal(map[string]any{"cell_name": job.cellName})
+		metadata, err := json.Marshal(map[string]any{"cell_name": job.cellName, "repo": job.repo})
 		if err != nil {
 			server.Close()
 			return nil, "", "", err

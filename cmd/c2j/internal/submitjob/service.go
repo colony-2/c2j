@@ -2,8 +2,6 @@ package submitjob
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -15,12 +13,10 @@ import (
 	"github.com/colony-2/c2j/cmd/c2j/internal/c2jops"
 	"github.com/colony-2/c2j/cmd/c2j/internal/runjob"
 	"github.com/colony-2/c2j/cmd/c2j/internal/swfruntime"
-	configpkg "github.com/colony-2/c2j/pkg/config"
-	"github.com/colony-2/c2j/pkg/contextual"
 	"github.com/colony-2/c2j/pkg/recipe"
+	"github.com/colony-2/c2j/pkg/recipejob"
 	"github.com/colony-2/c2j/pkg/starter"
 	"github.com/colony-2/c2j/pkg/worker/compiler"
-	"github.com/colony-2/c2j/pkg/workflowctl"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	"gopkg.in/yaml.v3"
 )
@@ -31,11 +27,7 @@ type submitResult struct {
 	Recipe   string `json:"recipe"`
 }
 
-type targetCell struct {
-	RepositorySource string
-	DefaultRef       string
-	CellName         string
-}
+type targetCell = recipejob.ResolvedTarget
 
 func Run(ctx context.Context, opts Options) error {
 	if err := opts.Complete(ctx); err != nil {
@@ -79,28 +71,16 @@ func Run(ctx context.Context, opts Options) error {
 		}
 
 		submittedAt := time.Now().UTC()
-		start := workflowctl.StartJob{
-			TenantId:   opts.TenantID,
-			RecipeName: recipeName,
-			Inputs:     inputs,
-			Artifacts:  submitArtifacts,
-			JobContext: contextual.JobContext{
-				Workflow: contextual.WorkflowContext{
-					CellName:  target.CellName,
-					ProjectId: opts.TenantID,
-				},
-				GitBase: contextual.GitBaseContext{
-					BaseRepo: target.RepositorySource,
-					BaseRef:  target.DefaultRef,
-				},
-				RecipeSource: contextual.RecipeSourceContext{
-					Repo: target.RepositorySource,
-					Ref:  target.DefaultRef,
-				},
-			},
-			GitRef:      target.DefaultRef,
+		start, err := recipejob.BuildStartJob(recipejob.BuildStartJobRequest{
+			TenantID:    opts.TenantID,
+			Target:      target,
+			Recipe:      recipeName,
+			Inputs:      inputs,
+			Artifacts:   submitArtifacts,
 			SubmittedAt: &submittedAt,
-			InputHash:   hashInputs(inputs),
+		})
+		if err != nil {
+			return closeHandle(err)
 		}
 
 		var jobKey jobdb.JobKey
@@ -228,127 +208,6 @@ mergePrompt:
 	return inputs, nil
 }
 
-func hashInputs(inputs map[string]interface{}) string {
-	if len(inputs) == 0 {
-		return ""
-	}
-	raw, err := json.Marshal(inputs)
-	if err != nil {
-		return ""
-	}
-	sum := sha256.Sum256(raw)
-	return hex.EncodeToString(sum[:])
-}
-
-func resolveTargetCell(ctx context.Context, opts Options) (targetCell, error) {
-	if opts.Self || strings.TrimSpace(opts.Cell) == "" {
-		return resolveSelfTarget(ctx, opts.WorkingDir)
-	}
-	return resolveExplicitTarget(ctx, opts.WorkingDir, opts.Cell)
-}
-
-func resolveSelfTarget(ctx context.Context, workingDir string) (targetCell, error) {
-	cfg, err := configpkg.LoadProjectConfig(workingDir)
-	if err != nil {
-		if err == configpkg.ErrConfigNotFound {
-			return targetCell{}, fmt.Errorf("current cell requires %s/%s or a supported auto-detected base", ".c2j", "config.yaml")
-		}
-		return targetCell{}, err
-	}
-
-	selfRepo, err := cfg.SelfRepo(ctx)
-	if err != nil {
-		return targetCell{}, err
-	}
-	selfRepo = strings.TrimSpace(selfRepo)
-	if selfRepo == "" {
-		if path := strings.TrimSpace(cfg.Path()); path != "" {
-			return targetCell{}, fmt.Errorf("current cell requires self.repo to resolve from %s", path)
-		}
-		return targetCell{}, fmt.Errorf("current cell requires self.repo to resolve")
-	}
-
-	defaultRef, err := cfg.SelfRef(ctx)
-	if err != nil {
-		return targetCell{}, err
-	}
-	defaultRef = strings.TrimSpace(defaultRef)
-	if defaultRef == "" {
-		defaultRef = compiler.DefaultRecipeRef
-	}
-
-	repositorySource, err := compiler.NormalizeGitRepositorySource(selfRepo)
-	if err != nil {
-		return targetCell{}, err
-	}
-
-	cellName, ok := cfg.CellNameFromRepo(ctx, selfRepo)
-	if !ok || strings.TrimSpace(cellName) == "" {
-		cellName = compiler.RepositoryNameFromSource(selfRepo)
-	}
-	if cellName == "" {
-		cellName = compiler.RepositoryNameFromSource(repositorySource)
-	}
-
-	return targetCell{
-		RepositorySource: repositorySource,
-		DefaultRef:       defaultRef,
-		CellName:         cellName,
-	}, nil
-}
-
-func resolveExplicitTarget(ctx context.Context, workingDir string, cell string) (targetCell, error) {
-	cell = strings.TrimSpace(cell)
-	if cell == "" {
-		return targetCell{}, fmt.Errorf("--cell is required")
-	}
-
-	cfg, cfgErr := configpkg.LoadProjectConfig(workingDir)
-	if cfgErr != nil && cfgErr != configpkg.ErrConfigNotFound {
-		return targetCell{}, cfgErr
-	}
-
-	resolvedRepo, err := resolveCellInput(ctx, cfg, workingDir, cell)
-	if err != nil {
-		return targetCell{}, err
-	}
-
-	repositorySource, err := compiler.NormalizeGitRepositorySource(resolvedRepo)
-	if err != nil {
-		return targetCell{}, err
-	}
-
-	defaultRef := compiler.DefaultRecipeRef
-	if cfg != nil {
-		defaultRef, err = defaultRefForRepo(ctx, cfg, resolvedRepo)
-		if err != nil {
-			return targetCell{}, err
-		}
-	}
-
-	cellName := ""
-	if cfg != nil {
-		if name, ok := cfg.CellNameFromRepo(ctx, resolvedRepo); ok {
-			cellName = name
-		}
-	}
-	if cellName == "" && cfg != nil && isConfiguredShortName(cell) {
-		cellName = cell
-	}
-	if cellName == "" {
-		cellName = compiler.RepositoryNameFromSource(resolvedRepo)
-	}
-	if cellName == "" {
-		cellName = compiler.RepositoryNameFromSource(repositorySource)
-	}
-
-	return targetCell{
-		RepositorySource: repositorySource,
-		DefaultRef:       defaultRef,
-		CellName:         cellName,
-	}, nil
-}
-
 func absPathFromWorkingDir(workingDir string, value string) (string, error) {
 	value = strings.TrimSpace(value)
 	if value == "" {
@@ -360,78 +219,25 @@ func absPathFromWorkingDir(workingDir string, value string) (string, error) {
 	return filepath.Abs(filepath.Join(workingDir, value))
 }
 
-func resolveRepositoryInput(workingDir string, value string) (string, error) {
-	value = strings.TrimSpace(value)
-	if value == "" {
-		return "", fmt.Errorf("repository source is required")
-	}
-	if compiler.IsGitRecipeSelector(value) {
-		return "", fmt.Errorf("repository source %q must be a git repository, not a recipe selector", value)
-	}
-	if strings.Contains(value, "://") || strings.HasPrefix(value, "git@") {
-		return value, nil
-	}
-	if filepath.IsAbs(value) || strings.HasPrefix(value, "./") || strings.HasPrefix(value, "../") {
-		return absPathFromWorkingDir(workingDir, value)
-	}
-	if strings.Contains(value, "/") || strings.Contains(value, ":") {
-		return value, nil
-	}
-	return "", fmt.Errorf("cell %q looks like a short name; define pattern in .c2j/config.yaml or use an explicit repo/path", value)
+func resolveTargetCell(ctx context.Context, opts Options) (targetCell, error) {
+	return recipejob.ResolveTarget(ctx, recipejob.ResolveTargetRequest{
+		WorkingDir: opts.WorkingDir,
+		Cell:       opts.Cell,
+		Self:       opts.Self,
+		TenantID:   opts.TenantID,
+	})
 }
 
-func resolveCellInput(ctx context.Context, cfg *configpkg.ProjectConfig, workingDir string, value string) (string, error) {
-	if cfg != nil {
-		return cfg.ExpandCellName(ctx, value)
-	}
-	return resolveRepositoryInput(workingDir, value)
+func resolveSelfTarget(ctx context.Context, workingDir string) (targetCell, error) {
+	return recipejob.ResolveTarget(ctx, recipejob.ResolveTargetRequest{
+		WorkingDir: workingDir,
+		Self:       true,
+	})
 }
 
-func defaultRefForRepo(ctx context.Context, cfg *configpkg.ProjectConfig, repo string) (string, error) {
-	rootRepo, err := cfg.RootRepo(ctx)
-	if err != nil {
-		return "", err
-	}
-	if strings.TrimSpace(rootRepo) != "" {
-		rootSource, rootNormErr := compiler.NormalizeGitRepositorySource(rootRepo)
-		repoSource, repoNormErr := compiler.NormalizeGitRepositorySource(repo)
-		if rootNormErr == nil && repoNormErr == nil && rootSource == repoSource {
-			return cfg.RootRef(ctx)
-		}
-	}
-
-	selfRepo, err := cfg.SelfRepo(ctx)
-	if err != nil {
-		return "", err
-	}
-	if strings.TrimSpace(selfRepo) != "" {
-		selfSource, selfNormErr := compiler.NormalizeGitRepositorySource(selfRepo)
-		repoSource, repoNormErr := compiler.NormalizeGitRepositorySource(repo)
-		if selfNormErr == nil && repoNormErr == nil && selfSource == repoSource {
-			return cfg.SelfRef(ctx)
-		}
-	}
-
-	return compiler.DefaultRecipeRef, nil
-}
-
-func isConfiguredShortName(value string) bool {
-	value = strings.TrimSpace(value)
-	if value == "" {
-		return false
-	}
-	if strings.Contains(value, "/") || strings.Contains(value, ":") {
-		return false
-	}
-	for _, ch := range value {
-		switch {
-		case ch >= 'a' && ch <= 'z':
-		case ch >= 'A' && ch <= 'Z':
-		case ch >= '0' && ch <= '9':
-		case ch == '_' || ch == '-' || ch == '.':
-		default:
-			return false
-		}
-	}
-	return true
+func resolveExplicitTarget(ctx context.Context, workingDir string, cell string) (targetCell, error) {
+	return recipejob.ResolveTarget(ctx, recipejob.ResolveTargetRequest{
+		WorkingDir: workingDir,
+		Cell:       cell,
+	})
 }

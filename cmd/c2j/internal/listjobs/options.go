@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/colony-2/c2j/cmd/c2j/internal/defaults"
+	"github.com/colony-2/c2j/pkg/recipejob"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 )
 
@@ -132,36 +133,11 @@ func parseJobStatuses(values []string) ([]jobdb.JobStatus, error) {
 }
 
 func defaultVisibleStatuses() []jobdb.JobStatus {
-	return []jobdb.JobStatus{
-		jobdb.JobStatusReady,
-		jobdb.JobStatusExpired,
-		jobdb.JobStatusPendingJobs,
-		jobdb.JobStatusAwaitingFuture,
-		jobdb.JobStatusActive,
-		jobdb.JobStatusCrashConcern,
-	}
+	return recipejob.DefaultVisibleStatuses()
 }
 
 func storesForStatuses(statuses []jobdb.JobStatus) []jobdb.JobStore {
-	hasActive := false
-	hasArchived := false
-	for _, status := range statuses {
-		switch status {
-		case jobdb.JobStatusCancelled, jobdb.JobStatusCompleted:
-			hasArchived = true
-		default:
-			hasActive = true
-		}
-	}
-
-	switch {
-	case hasActive && hasArchived:
-		return []jobdb.JobStore{jobdb.JobStoreActive, jobdb.JobStoreArchived}
-	case hasArchived:
-		return []jobdb.JobStore{jobdb.JobStoreArchived}
-	default:
-		return []jobdb.JobStore{jobdb.JobStoreActive}
-	}
+	return recipejob.StoresForStatuses(statuses)
 }
 
 func parseWaitingForFilters(values []string) ([]jobdb.JobTaskFilter, error) {

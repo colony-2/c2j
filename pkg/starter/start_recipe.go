@@ -33,24 +33,31 @@ const (
 	MetaFieldRecipe   jobdb.FieldName = "recipe"
 	MetaFieldCellID   jobdb.FieldName = "cell_id"
 	MetaFieldCellName jobdb.FieldName = "cell_name"
+	MetaFieldRepo     jobdb.FieldName = "repo"
 	MetaFieldGitRef   jobdb.FieldName = "git_ref"
 )
 
 type JobMetadata struct {
-	Version    int    `json:"v"`
-	RecipeName string `json:"recipe,omitempty"`
-	CellID     string `json:"cell_id,omitempty"`
-	CellName   string `json:"cell_name,omitempty"`
-	GitRef     string `json:"git_ref,omitempty"`
+	Version          int    `json:"v"`
+	RecipeName       string `json:"recipe,omitempty"`
+	CellID           string `json:"cell_id,omitempty"`
+	CellName         string `json:"cell_name,omitempty"`
+	RepositorySource string `json:"repo,omitempty"`
+	GitRef           string `json:"git_ref,omitempty"`
 }
 
 func JobMetadataFromStartJob(startJob workflowctl.StartJob) JobMetadata {
+	repo := startJob.JobContext.GitBase.BaseRepo
+	if repo == "" {
+		repo = startJob.JobContext.RecipeSource.Repo
+	}
 	return JobMetadata{
-		Version:    JobMetadataVersion,
-		RecipeName: startJob.RecipeName,
-		CellID:     startJob.JobContext.Workflow.CellID,
-		CellName:   startJob.JobContext.Workflow.CellName,
-		GitRef:     startJob.GitRef,
+		Version:          JobMetadataVersion,
+		RecipeName:       startJob.RecipeName,
+		CellID:           startJob.JobContext.Workflow.CellID,
+		CellName:         startJob.JobContext.Workflow.CellName,
+		RepositorySource: repo,
+		GitRef:           startJob.GitRef,
 	}
 }
 
@@ -94,10 +101,15 @@ func StartRecipeJobWithOptions(ctx context.Context, startJob workflowctl.StartJo
 	}
 
 	runPolicy := recipeRunPolicy(startJob, recipes)
+	jobID := opts.JobID
+	if jobID == "" {
+		jobID = startJob.JobID
+	}
+
 	job := jobdb.SubmitJob{
 		TenantId:      startJob.TenantId,
 		JobType:       RecipeJobType,
-		JobID:         opts.JobID,
+		JobID:         jobID,
 		Data:          inputData,
 		RunPolicy:     runPolicy,
 		Metadata:      metaRaw,

@@ -60,6 +60,9 @@ func TestJobMetadataFromStartJob_JSONFields(t *testing.T) {
 				CellID:   "cell-1",
 				CellName: "alpha",
 			},
+			GitBase: contextual.GitBaseContext{
+				BaseRepo: "https://github.com/acme/alpha.git",
+			},
 		},
 	}
 
@@ -86,6 +89,9 @@ func TestJobMetadataFromStartJob_JSONFields(t *testing.T) {
 	if got, _ := m[string(MetaFieldCellName)].(string); got != "alpha" {
 		t.Fatalf("expected %q=%q, got %#v", MetaFieldCellName, "alpha", m[string(MetaFieldCellName)])
 	}
+	if got, _ := m[string(MetaFieldRepo)].(string); got != "https://github.com/acme/alpha.git" {
+		t.Fatalf("expected %q=%q, got %#v", MetaFieldRepo, "https://github.com/acme/alpha.git", m[string(MetaFieldRepo)])
+	}
 	if got, _ := m[string(MetaFieldGitRef)].(string); got != "main" {
 		t.Fatalf("expected %q=%q, got %#v", MetaFieldGitRef, "main", m[string(MetaFieldGitRef)])
 	}
@@ -107,6 +113,23 @@ func TestStartRecipeJobWithOptions_ForwardsExplicitJobID(t *testing.T) {
 
 	if engine.job.JobID != "child-job-id" {
 		t.Fatalf("expected explicit job id to be forwarded, got %q", engine.job.JobID)
+	}
+}
+
+func TestStartRecipeJobUsesStartJobIDWhenOptionsJobIDEmpty(t *testing.T) {
+	engine := &captureSubmitter{}
+
+	_, err := StartRecipeJob(context.Background(), workflowctl.StartJob{
+		TenantId:   "tenant",
+		JobID:      "assembled-job-id",
+		RecipeName: "recipe-name",
+	}, engine)
+	if err != nil {
+		t.Fatalf("StartRecipeJob: %v", err)
+	}
+
+	if engine.job.JobID != "assembled-job-id" {
+		t.Fatalf("expected start job id to be forwarded, got %q", engine.job.JobID)
 	}
 }
 

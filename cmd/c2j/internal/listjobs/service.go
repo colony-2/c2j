@@ -4,15 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"path/filepath"
 	"strings"
 	"text/tabwriter"
 	"time"
 
 	"github.com/colony-2/c2j/cmd/c2j/internal/swfruntime"
-	configpkg "github.com/colony-2/c2j/pkg/config"
+	"github.com/colony-2/c2j/pkg/recipejob"
 	"github.com/colony-2/c2j/pkg/starter"
-	"github.com/colony-2/c2j/pkg/worker/compiler"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 )
 
@@ -136,11 +134,16 @@ func buildRequest(ctx context.Context, opts Options) (jobdb.ListJobsRequest, err
 	if err != nil {
 		return jobdb.ListJobsRequest{}, err
 	}
-	cellName, err := resolveListCellName(ctx, opts)
+	target, err := recipejob.ResolveTarget(ctx, recipejob.ResolveTargetRequest{
+		WorkingDir: opts.WorkingDir,
+		Cell:       opts.Cell,
+		Self:       opts.Self,
+		TenantID:   opts.TenantID,
+	})
 	if err != nil {
 		return jobdb.ListJobsRequest{}, err
 	}
-	metadataFilter, err := jobdb.Metadata().EqualFilter(starter.MetaFieldCellName, cellName)
+	metadataFilter, err := jobdb.Metadata().EqualFilter(starter.MetaFieldRepo, target.RepositorySource)
 	if err != nil {
 		return jobdb.ListJobsRequest{}, err
 	}
@@ -206,10 +209,7 @@ func makeJobRow(job jobdb.JobSummary) jobRow {
 }
 
 func storeForJob(job jobdb.JobSummary) jobdb.JobStore {
-	if job.ArchivedAt != nil {
-		return jobdb.JobStoreArchived
-	}
-	return jobdb.JobStoreActive
+	return recipejob.StoreForJob(job)
 }
 
 func displayNext(row jobRow) string {
@@ -223,104 +223,4 @@ func displayNext(row jobRow) string {
 	default:
 		return ""
 	}
-}
-
-func resolveListCellName(ctx context.Context, opts Options) (string, error) {
-	if strings.TrimSpace(opts.Cell) == "" || opts.Self {
-		return resolveSelfCellName(ctx, opts.WorkingDir)
-	}
-	return resolveExplicitCellName(ctx, opts.WorkingDir, opts.Cell)
-}
-
-func resolveSelfCellName(ctx context.Context, workingDir string) (string, error) {
-	cfg, err := configpkg.LoadProjectConfig(workingDir)
-	if err != nil {
-		return "", fmt.Errorf("resolve current cell: %w", err)
-	}
-
-	selfRepo, err := cfg.SelfRepo(ctx)
-	if err != nil {
-		return "", err
-	}
-	selfRepo = strings.TrimSpace(selfRepo)
-	if selfRepo == "" {
-		return "", fmt.Errorf("resolve current cell: self.repo is empty")
-	}
-	return cellNameFromRepo(ctx, cfg, selfRepo)
-}
-
-func resolveExplicitCellName(ctx context.Context, workingDir string, cell string) (string, error) {
-	cfg, cfgErr := configpkg.LoadProjectConfig(workingDir)
-	if cfgErr != nil && cfgErr != configpkg.ErrConfigNotFound {
-		return "", cfgErr
-	}
-
-	resolvedRepo, err := resolveCellInput(ctx, cfg, workingDir, cell)
-	if err != nil {
-		return "", err
-	}
-
-	return cellNameFromRepo(ctx, cfg, resolvedRepo)
-}
-
-func cellNameFromRepo(ctx context.Context, cfg *configpkg.ProjectConfig, repo string) (string, error) {
-	repo = strings.TrimSpace(repo)
-	if repo == "" {
-		return "", fmt.Errorf("cell repo is empty")
-	}
-
-	if cfg != nil {
-		if name, ok := cfg.CellNameFromRepo(ctx, repo); ok && strings.TrimSpace(name) != "" {
-			return name, nil
-		}
-	}
-
-	name := compiler.RepositoryNameFromSource(repo)
-	if name == "" {
-		if normalized, err := compiler.NormalizeGitRepositorySource(repo); err == nil {
-			name = compiler.RepositoryNameFromSource(normalized)
-		}
-	}
-	if strings.TrimSpace(name) == "" {
-		return "", fmt.Errorf("could not derive a cell name from %q", repo)
-	}
-	return name, nil
-}
-
-func resolveCellInput(ctx context.Context, cfg *configpkg.ProjectConfig, workingDir string, value string) (string, error) {
-	if cfg != nil {
-		return cfg.ExpandCellName(ctx, value)
-	}
-	return resolveRepositoryInput(workingDir, value)
-}
-
-func resolveRepositoryInput(workingDir string, value string) (string, error) {
-	value = strings.TrimSpace(value)
-	if value == "" {
-		return "", fmt.Errorf("cell value is required")
-	}
-	if compiler.IsGitRecipeSelector(value) {
-		return "", fmt.Errorf("cell %q must be a git repository, not a recipe selector", value)
-	}
-	if strings.Contains(value, "://") || strings.HasPrefix(value, "git@") {
-		return value, nil
-	}
-	if filepath.IsAbs(value) || strings.HasPrefix(value, "./") || strings.HasPrefix(value, "../") {
-		return absPathFromWorkingDir(workingDir, value)
-	}
-	if strings.Contains(value, "/") || strings.Contains(value, ":") {
-		return value, nil
-	}
-	return "", fmt.Errorf("cell %q looks like a short name; define pattern in .c2j/config.yaml or use an explicit repo/path", value)
-}
-
-func absPathFromWorkingDir(workingDir string, value string) (string, error) {
-	value = strings.TrimSpace(value)
-	if value == "" {
-		return "", fmt.Errorf("path is required")
-	}
-	if filepath.IsAbs(value) {
-		return value, nil
-	}
-	return filepath.Abs(filepath.Join(workingDir, value))
 }

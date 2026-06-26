@@ -80,7 +80,7 @@ self:
 	if err != nil {
 		t.Fatalf("MetadataPredicates(): %v", err)
 	}
-	if len(predicates) != 1 || len(predicates[0].Path) != 1 || predicates[0].Path[0] != "cell_name" || len(predicates[0].Values) != 1 || predicates[0].Values[0] != "alpha" {
+	if len(predicates) != 1 || len(predicates[0].Path) != 1 || predicates[0].Path[0] != "repo" || len(predicates[0].Values) != 1 || predicates[0].Values[0] != "https://github.com/acme/boo-alpha.git" {
 		t.Fatalf("unexpected metadata predicates: %#v", predicates)
 	}
 }
@@ -133,7 +133,7 @@ self:
 	if err != nil {
 		t.Fatalf("MetadataPredicates(): %v", err)
 	}
-	if len(predicates) != 1 || len(predicates[0].Values) != 1 || predicates[0].Values[0] != "beta" {
+	if len(predicates) != 1 || len(predicates[0].Values) != 1 || predicates[0].Values[0] != "https://github.com/acme/boo-beta.git" {
 		t.Fatalf("unexpected metadata predicates: %#v", predicates)
 	}
 }
