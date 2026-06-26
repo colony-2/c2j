@@ -25,9 +25,6 @@ resources:
       - source: ${{ env.HOME }}/.cache/go-mod
         target: /home/shai/go/mod
         mode: rw
-      - source: /src/colony2/.moon/lcache
-        target: /src/.moon/cache
-        mode: rw
     root-commands:
       - |
         socket="/var/run/docker.sock"
