@@ -9,6 +9,7 @@ import (
 	"github.com/colony-2/c2j/pkg/story/internal/service"
 	"github.com/colony-2/c2j/pkg/template"
 	"github.com/colony-2/c2j/pkg/worker/compiler"
+	"github.com/colony-2/jobdb/pkg/jobdb"
 	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
 	"github.com/colony-2/strata-go/pkg/client"
 )
@@ -99,6 +100,7 @@ type Service interface {
 
 type ServiceConfig struct {
 	Engine             jobworkflow.Engine
+	SchemaRegistry     jobdb.JobSchemaRegistry
 	Strata             *client.Client
 	Cells              workflowapi.CellService
 	Projects           workflowapi.ProjectService
@@ -110,6 +112,7 @@ type ServiceConfig struct {
 func New(config ServiceConfig) (Service, error) {
 	return service.New(service.Config{
 		Engine:             config.Engine,
+		SchemaRegistry:     config.SchemaRegistry,
 		Strata:             config.Strata,
 		Cells:              config.Cells,
 		Projects:           config.Projects,

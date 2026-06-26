@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/colony-2/c2j/pkg/contextual"
+	"github.com/colony-2/c2j/pkg/jobdbschema"
 	"github.com/colony-2/c2j/pkg/recipe"
 	"github.com/colony-2/c2j/pkg/starter"
 	"github.com/colony-2/c2j/pkg/workflowctl"
@@ -59,6 +60,7 @@ outputs:
 	if err != nil {
 		t.Fatalf("build submit engine: %v", err)
 	}
+	submitEngine = jobdbschema.WorkflowEngine{Engine: submitEngine, Registry: underlying}
 
 	baseRepo, baseHash := createGitRepo(t)
 

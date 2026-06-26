@@ -8,6 +8,7 @@ import (
 
 	recipecel "github.com/colony-2/c2j/pkg/cel"
 	"github.com/colony-2/c2j/pkg/contextual"
+	"github.com/colony-2/c2j/pkg/jobdbschema"
 	ops2 "github.com/colony-2/c2j/pkg/ops"
 	"github.com/colony-2/c2j/pkg/recipe"
 	"github.com/colony-2/c2j/pkg/starter"
@@ -38,12 +39,14 @@ func newToyEngine(t *testing.T, workerTenantID string, gen func(string) (jobdb.J
 	if gen != nil {
 		opts = append(opts, toyruntime.WithJobIDGenerator(gen))
 	}
-	builder := jobworkflow.NewEngineBuilder().WithRuntime(toyruntime.New(opts...))
+	runtime := toyruntime.New(opts...)
+	builder := jobworkflow.NewEngineBuilder().WithRuntime(runtime)
 	if workerTenantID != "" {
 		builder = builder.WithWorkerTenantId(workerTenantID)
 	}
 	engine, err := builder.BuildEngine()
 	require.NoError(t, err)
+	engine = jobdbschema.WorkflowEngine{Engine: engine, Registry: runtime}
 	go engine.Run(ctx)
 	return engine
 }
@@ -56,7 +59,8 @@ func newToyEngineWithWorkSet(t *testing.T, workerTenantID string, ws *jobworkflo
 	if gen != nil {
 		opts = append(opts, toyruntime.WithJobIDGenerator(gen))
 	}
-	builder := jobworkflow.NewEngineBuilder().WithRuntime(toyruntime.New(opts...))
+	runtime := toyruntime.New(opts...)
+	builder := jobworkflow.NewEngineBuilder().WithRuntime(runtime)
 	if workerTenantID != "" {
 		builder = builder.WithWorkerTenantId(workerTenantID)
 	}
@@ -69,6 +73,7 @@ func newToyEngineWithWorkSet(t *testing.T, workerTenantID string, ws *jobworkflo
 	}
 	engine, err := builder.BuildEngine()
 	require.NoError(t, err)
+	engine = jobdbschema.WorkflowEngine{Engine: engine, Registry: runtime}
 	go engine.Run(ctx)
 	return engine
 }

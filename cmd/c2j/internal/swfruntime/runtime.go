@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/colony-2/c2j/cmd/c2j/internal/defaults"
+	"github.com/colony-2/c2j/pkg/jobdbschema"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	remoteruntime "github.com/colony-2/jobdb/pkg/jobdb/runtime/remote"
 	sqliteruntime "github.com/colony-2/jobdb/pkg/jobdb/runtime/sqlite"
@@ -87,6 +88,10 @@ func openRemote(swfURL string, workerTenantID string) (*Handle, error) {
 	if err != nil {
 		return nil, fmt.Errorf("build engine: %w", err)
 	}
+	engine, err = schemaAwareEngine(engine, runtime)
+	if err != nil {
+		return nil, err
+	}
 
 	return &Handle{
 		Runtime: runtime,
@@ -149,6 +154,16 @@ func openEmbed(ctx context.Context, parsed *url.URL, rawURL string, workerTenant
 			lock.close(),
 		)
 	}
+	engine, err = schemaAwareEngine(engine, runtime)
+	if err != nil {
+		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), defaultShutdownTimeout)
+		defer shutdownCancel()
+		return nil, errors.Join(
+			err,
+			baseRuntime.Close(shutdownCtx),
+			lock.close(),
+		)
+	}
 
 	return &Handle{
 		Runtime: runtime,
@@ -161,6 +176,17 @@ func openEmbed(ctx context.Context, parsed *url.URL, rawURL string, workerTenant
 				lock.close(),
 			)
 		},
+	}, nil
+}
+
+func schemaAwareEngine(engine jobworkflow.Engine, runtime jobdb.WorkflowRuntime) (jobworkflow.Engine, error) {
+	registry, ok := runtime.(jobdb.JobSchemaRegistry)
+	if !ok {
+		return nil, fmt.Errorf("jobdb schema registry is unavailable")
+	}
+	return jobdbschema.WorkflowEngine{
+		Engine:   engine,
+		Registry: registry,
 	}, nil
 }
 

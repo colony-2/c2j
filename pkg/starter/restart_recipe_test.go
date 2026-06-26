@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"testing"
 
+	"github.com/colony-2/c2j/pkg/jobdbschema"
 	"github.com/colony-2/c2j/pkg/task"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 )
@@ -38,6 +39,7 @@ func TestRestartRecipeJob_NoPatch(t *testing.T) {
 	if engine.last.ExtraTaskOutput != nil {
 		t.Fatalf("expected no ExtraTaskOutput")
 	}
+	assertHashOnlySchemaSelector(t, engine.last.Schema)
 }
 
 func TestRestartRecipeJob_WithPatch_InjectsEnvelope(t *testing.T) {
@@ -81,5 +83,23 @@ func TestRestartRecipeJob_WithPatch_InjectsEnvelope(t *testing.T) {
 	}
 	if decoded.Job["git"] == nil {
 		t.Fatalf("expected decoded job patch")
+	}
+	assertHashOnlySchemaSelector(t, engine.last.Schema)
+}
+
+func assertHashOnlySchemaSelector(t *testing.T, selector *jobdb.JobSchemaSelector) {
+	t.Helper()
+	wantSchemaHash, err := jobdbschema.Hash()
+	if err != nil {
+		t.Fatalf("schema hash: %v", err)
+	}
+	if selector == nil {
+		t.Fatalf("expected schema selector")
+	}
+	if selector.Hash != wantSchemaHash {
+		t.Fatalf("schema hash = %q, want %q", selector.Hash, wantSchemaHash)
+	}
+	if len(selector.Schema) != 0 {
+		t.Fatalf("expected hash-only schema selector")
 	}
 }

@@ -35,6 +35,46 @@ func (r *chapterVisibilityRuntime) PutChapter(ctx context.Context, req jobdb.Put
 	return r.awaitChapterVisible(ctx, req.Ref)
 }
 
+func (r *chapterVisibilityRuntime) RegisterJobSchema(ctx context.Context, req jobdb.RegisterJobSchemaRequest) (jobdb.JobSchemaInfo, error) {
+	registry, err := r.schemaRegistry()
+	if err != nil {
+		return jobdb.JobSchemaInfo{}, err
+	}
+	return registry.RegisterJobSchema(ctx, req)
+}
+
+func (r *chapterVisibilityRuntime) GetJobSchema(ctx context.Context, key jobdb.JobSchemaKey) (jobdb.JobSchemaInfo, error) {
+	registry, err := r.schemaRegistry()
+	if err != nil {
+		return jobdb.JobSchemaInfo{}, err
+	}
+	return registry.GetJobSchema(ctx, key)
+}
+
+func (r *chapterVisibilityRuntime) ListJobSchemas(ctx context.Context, req jobdb.ListJobSchemasRequest) (jobdb.ListJobSchemasResponse, error) {
+	registry, err := r.schemaRegistry()
+	if err != nil {
+		return jobdb.ListJobSchemasResponse{}, err
+	}
+	return registry.ListJobSchemas(ctx, req)
+}
+
+func (r *chapterVisibilityRuntime) ArchiveJobSchema(ctx context.Context, key jobdb.JobSchemaKey) (jobdb.JobSchemaInfo, error) {
+	registry, err := r.schemaRegistry()
+	if err != nil {
+		return jobdb.JobSchemaInfo{}, err
+	}
+	return registry.ArchiveJobSchema(ctx, key)
+}
+
+func (r *chapterVisibilityRuntime) schemaRegistry() (jobdb.JobSchemaRegistry, error) {
+	registry, ok := r.WorkflowRuntime.(jobdb.JobSchemaRegistry)
+	if !ok {
+		return nil, errors.New("jobdb schema registry is unavailable")
+	}
+	return registry, nil
+}
+
 func (r *chapterVisibilityRuntime) awaitChapterVisible(ctx context.Context, ref jobdb.ChapterRef) error {
 	waitCtx := ctx
 	if waitCtx == nil {

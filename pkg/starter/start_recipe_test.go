@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/colony-2/c2j/pkg/contextual"
+	"github.com/colony-2/c2j/pkg/jobdbschema"
 	"github.com/colony-2/c2j/pkg/recipe"
 	"github.com/colony-2/c2j/pkg/workflowctl"
 	"github.com/colony-2/jobdb/pkg/jobdb"
@@ -42,6 +43,19 @@ func TestStartRecipeJobUsesRecipeTimeoutAsDurableJobTotalTimeout(t *testing.T) {
 	}
 	if got := time.Duration(*engine.job.RunPolicy.TotalTimeout); got != 2*time.Minute {
 		t.Fatalf("expected total timeout %s, got %s", 2*time.Minute, got)
+	}
+	wantSchemaHash, err := jobdbschema.Hash()
+	if err != nil {
+		t.Fatalf("schema hash: %v", err)
+	}
+	if engine.job.Schema == nil {
+		t.Fatalf("expected schema selector")
+	}
+	if engine.job.Schema.Hash != wantSchemaHash {
+		t.Fatalf("schema hash = %q, want %q", engine.job.Schema.Hash, wantSchemaHash)
+	}
+	if len(engine.job.Schema.Schema) != 0 {
+		t.Fatalf("expected hash-only schema selector")
 	}
 }
 

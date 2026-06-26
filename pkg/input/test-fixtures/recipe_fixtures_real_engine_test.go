@@ -17,6 +17,7 @@ import (
 
 	"github.com/colony-2/c2j/pkg/contextual"
 	"github.com/colony-2/c2j/pkg/input"
+	"github.com/colony-2/c2j/pkg/jobdbschema"
 	coreops "github.com/colony-2/c2j/pkg/ops"
 	"github.com/colony-2/c2j/pkg/recipe"
 	"github.com/colony-2/c2j/pkg/starter"
@@ -85,6 +86,7 @@ func TestRecipeFixturesRealEngine(t *testing.T) {
 		BuildEngine()
 	require.NoError(t, err)
 
+	engine = jobdbschema.WorkflowEngine{Engine: engine, Registry: embedded.Runtime}
 	wf.Engine = engine
 	go engine.Run(ctx)
 

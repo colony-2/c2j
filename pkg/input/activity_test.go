@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/colony-2/c2j/pkg/jobdbschema"
 	coreops "github.com/colony-2/c2j/pkg/ops"
 	"github.com/colony-2/c2j/pkg/recipe"
 	"github.com/colony-2/c2j/pkg/starter"
@@ -44,12 +45,17 @@ func newToyEngine(t *testing.T, workerTenantID string, gen func(string) (jobdb.J
 	if gen != nil {
 		opts = append(opts, toyruntime.WithJobIDGenerator(gen))
 	}
-	builder := jobworkflow.NewEngineBuilder().WithRuntime(toyruntime.New(opts...))
+	runtime := toyruntime.New(opts...)
+	if workerTenantID != "" {
+		require.NoError(t, jobdbschema.Register(context.Background(), runtime, workerTenantID))
+	}
+	builder := jobworkflow.NewEngineBuilder().WithRuntime(runtime)
 	if workerTenantID != "" {
 		builder = builder.WithWorkerTenantId(workerTenantID)
 	}
 	eng, err := builder.BuildEngine()
 	require.NoError(t, err)
+	eng = jobdbschema.WorkflowEngine{Engine: eng, Registry: runtime}
 	go eng.Run(ctx)
 	return eng
 }
@@ -234,6 +240,7 @@ inputs:
 		PlusWorkers(workSet.JobWorker, taskWorkers...).
 		BuildEngine()
 	require.NoError(t, err)
+	engine = jobdbschema.WorkflowEngine{Engine: engine, Registry: embedded.Runtime}
 	go engine.Run(ctx)
 
 	wf := workflow.SWFWorkflowControl{

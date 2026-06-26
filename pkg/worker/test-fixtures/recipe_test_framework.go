@@ -15,6 +15,7 @@ import (
 
 	"github.com/colony-2/c2j/pkg/contextual"
 	gitexport "github.com/colony-2/c2j/pkg/git/export"
+	"github.com/colony-2/c2j/pkg/jobdbschema"
 	coreops "github.com/colony-2/c2j/pkg/ops"
 	"github.com/colony-2/c2j/pkg/recipe"
 	"github.com/colony-2/c2j/pkg/swfutil"
@@ -701,14 +702,16 @@ func executeRecipeWithArtifacts(
 		taskWorkers = append(taskWorkers, tw)
 	}
 	tenantID := "default"
+	runtime := toyruntime.New()
 	engine, err := jobworkflow.NewEngineBuilder().
-		WithRuntime(toyruntime.New()).
+		WithRuntime(runtime).
 		WithWorkerTenantId(tenantID).
 		PlusWorkers(workset.JobWorker, taskWorkers...).
 		BuildEngine()
 	if err != nil {
 		return nil, nil, nil, err
 	}
+	engine = jobdbschema.WorkflowEngine{Engine: engine, Registry: runtime}
 	go engine.Run(ctx)
 	control.Engine = engine
 	job := workflowctl.StartJob{

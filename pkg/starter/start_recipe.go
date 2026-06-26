@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/colony-2/c2j/pkg/jobdbschema"
 	"github.com/colony-2/c2j/pkg/recipe"
 	"github.com/colony-2/c2j/pkg/task"
 	"github.com/colony-2/c2j/pkg/workflowctl"
@@ -115,6 +116,9 @@ func StartRecipeJobWithOptions(ctx context.Context, startJob workflowctl.StartJo
 		Metadata:      metaRaw,
 		Prerequisites: opts.Prerequisites,
 	}
+	if err := jobdbschema.SetSubmitJobSchema(&job); err != nil {
+		return jobdb.JobKey{}, err
+	}
 	return engine.SubmitJob(ctx, job)
 }
 
@@ -150,6 +154,9 @@ func RestartRecipeJob(ctx context.Context, engine recipeJobRestartSubmitter, pri
 	req := jobdb.SubmitRestartJob{
 		PriorJobKey:    prior,
 		LastStepToKeep: lastToKeep,
+	}
+	if err := jobdbschema.SetSubmitRestartJobSchema(&req); err != nil {
+		return jobdb.JobKey{}, err
 	}
 
 	if patch != nil {

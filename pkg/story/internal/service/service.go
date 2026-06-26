@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/colony-2/c2j/pkg/contextual"
+	"github.com/colony-2/c2j/pkg/jobdbschema"
 	"github.com/colony-2/c2j/pkg/recipe"
 	"github.com/colony-2/c2j/pkg/starter"
 	workflowapi "github.com/colony-2/c2j/pkg/story/api"
@@ -43,6 +44,7 @@ var (
 
 type Config struct {
 	Engine             jobworkflow.Engine
+	SchemaRegistry     jobdb.JobSchemaRegistry
 	Strata             *client.Client
 	Cells              workflowapi.CellService
 	Projects           workflowapi.ProjectService
@@ -54,6 +56,7 @@ type Config struct {
 
 type Service struct {
 	engine       jobworkflow.Engine
+	registry     jobdb.JobSchemaRegistry
 	strata       *client.Client
 	cells        workflowapi.CellService
 	projects     workflowapi.ProjectService
@@ -65,9 +68,19 @@ type Service struct {
 
 type RecipeProvider func(projectID string, recipeRef string) (*recipe.Recipe, error)
 
+type recipeRestartSubmitter interface {
+	SubmitRestartJob(context.Context, jobdb.SubmitRestartJob) (jobdb.JobKey, error)
+}
+
 func New(cfg Config) (*Service, error) {
 	if cfg.Engine == nil {
 		return nil, errors.New("workflow service: engine is required")
+	}
+	registry := cfg.SchemaRegistry
+	if registry == nil {
+		if engineRegistry, ok := cfg.Engine.(jobdb.JobSchemaRegistry); ok {
+			registry = engineRegistry
+		}
 	}
 	logger := cfg.Logger
 	if logger == nil {
@@ -75,6 +88,7 @@ func New(cfg Config) (*Service, error) {
 	}
 	return &Service{
 		engine:       cfg.Engine,
+		registry:     registry,
 		strata:       cfg.Strata,
 		cells:        cfg.Cells,
 		projects:     cfg.Projects,
@@ -1016,7 +1030,15 @@ func (s *Service) RestartRecipeJob(ctx context.Context, req model.RestartRecipeJ
 		return nil, ErrNotFound
 	}
 
-	newKey, err := starter.RestartRecipeJob(ctx, s.engine, jobdb.JobKey{TenantId: projectID, JobId: jobID}, req.StepOffset, req.Patch)
+	var restartSubmitter recipeRestartSubmitter = s.engine
+	if s.registry != nil {
+		restartSubmitter = jobdbschema.Submitter{
+			RestartSubmitter: s.engine,
+			Registry:         s.registry,
+		}
+	}
+
+	newKey, err := starter.RestartRecipeJob(ctx, restartSubmitter, jobdb.JobKey{TenantId: projectID, JobId: jobID}, req.StepOffset, req.Patch)
 	if err != nil {
 		if errors.Is(err, jobdb.ErrJobNotFound) {
 			return nil, ErrNotFound

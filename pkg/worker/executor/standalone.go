@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/colony-2/c2j/pkg/contextual"
+	"github.com/colony-2/c2j/pkg/jobdbschema"
 	ops2 "github.com/colony-2/c2j/pkg/ops"
 	"github.com/colony-2/c2j/pkg/recipe"
 	"github.com/colony-2/c2j/pkg/swfutil"
@@ -88,14 +89,16 @@ func (e *StandaloneExecutor) ExecuteWithRegistry(
 		taskWorkers = append(taskWorkers, tw)
 	}
 	tenantID := "default"
+	runtime := toyruntime.New()
 	eng, err := jobworkflow.NewEngineBuilder().
-		WithRuntime(toyruntime.New()).
+		WithRuntime(runtime).
 		WithWorkerTenantId(tenantID).
 		PlusWorkers(workset.JobWorker, taskWorkers...).
 		BuildEngine()
 	if err != nil {
 		return nil, err
 	}
+	eng = jobdbschema.WorkflowEngine{Engine: eng, Registry: runtime}
 	go eng.Run(ctx)
 	control.Engine = eng
 

@@ -9,6 +9,7 @@ import (
 	"github.com/colony-2/c2j/cmd/c2j/internal/c2jops"
 	"github.com/colony-2/c2j/cmd/c2j/internal/jobutil"
 	"github.com/colony-2/c2j/cmd/c2j/internal/swfruntime"
+	"github.com/colony-2/c2j/pkg/jobdbschema"
 	coreops "github.com/colony-2/c2j/pkg/ops"
 	"github.com/colony-2/c2j/pkg/template/colonycel"
 	"github.com/colony-2/c2j/pkg/worker/compiler"
@@ -131,6 +132,14 @@ func buildWorkerDeps(ctx context.Context, opts workerBuildOptions) (*workerDeps,
 	engine, err := builder.BuildEngine()
 	if err != nil {
 		return cleanupOnErr(fmt.Errorf("build worker engine: %w", err), stopRegistry)
+	}
+	schemaRegistry, ok := runtime.(jobdb.JobSchemaRegistry)
+	if !ok {
+		return cleanupOnErr(fmt.Errorf("jobdb schema registry is unavailable"), stopRegistry)
+	}
+	engine = jobdbschema.WorkflowEngine{
+		Engine:   engine,
+		Registry: schemaRegistry,
 	}
 	ctl.Engine = engine
 

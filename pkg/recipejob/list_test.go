@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/colony-2/c2j/pkg/jobdbschema"
 	"github.com/colony-2/c2j/pkg/starter"
 	toyruntime "github.com/colony-2/jobdb/pkg/jobdb/runtime/toy"
 	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
@@ -121,11 +122,12 @@ func TestGetRecipeJobReadsOneJob(t *testing.T) {
 func newListTestEngine(t *testing.T) jobworkflow.Engine {
 	t.Helper()
 
-	engine, err := jobworkflow.NewEngineBuilder().WithRuntime(toyruntime.New()).BuildEngine()
+	runtime := toyruntime.New()
+	engine, err := jobworkflow.NewEngineBuilder().WithRuntime(runtime).BuildEngine()
 	if err != nil {
 		t.Fatalf("BuildEngine(): %v", err)
 	}
-	return engine
+	return jobdbschema.WorkflowEngine{Engine: engine, Registry: runtime}
 }
 
 func submitRecipeJob(t *testing.T, ctx context.Context, engine jobworkflow.Engine, tenantID string, jobID string, repo string, cellName string, submittedAt time.Time) {

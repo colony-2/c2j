@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/colony-2/c2j/pkg/contextual"
+	"github.com/colony-2/c2j/pkg/jobdbschema"
 	"github.com/colony-2/c2j/pkg/recipe"
 	"github.com/colony-2/c2j/pkg/starter"
 	"github.com/colony-2/c2j/pkg/workflowctl"
@@ -25,16 +26,26 @@ import (
 	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
 )
 
+func newSchemaAwareSubmitEngine(t *testing.T, runtime jobdb.WorkflowRuntime) jobworkflow.Engine {
+	t.Helper()
+	engine, err := jobworkflow.NewEngineBuilder().WithRuntime(runtime).BuildEngine()
+	if err != nil {
+		t.Fatalf("build submit engine: %v", err)
+	}
+	registry, ok := runtime.(jobdb.JobSchemaRegistry)
+	if !ok {
+		t.Fatalf("runtime does not implement job schema registry")
+	}
+	return jobdbschema.WorkflowEngine{Engine: engine, Registry: registry}
+}
+
 func TestRunProcessesSubmittedJobsWithConcurrencyLimit(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 
 	tenantID := "tenant-work-concurrency"
 	underlying := toyruntime.New()
-	submitEngine, err := jobworkflow.NewEngineBuilder().WithRuntime(underlying).BuildEngine()
-	if err != nil {
-		t.Fatalf("build submit engine: %v", err)
-	}
+	submitEngine := newSchemaAwareSubmitEngine(t, underlying)
 	server := httptest.NewServer(remoteruntime.NewServer(underlying))
 	defer server.Close()
 
@@ -110,10 +121,7 @@ func TestRunOnlyPollsConfiguredTenant(t *testing.T) {
 	tenantID := "tenant-work-selected"
 	otherTenantID := "tenant-work-other"
 	underlying := toyruntime.New()
-	submitEngine, err := jobworkflow.NewEngineBuilder().WithRuntime(underlying).BuildEngine()
-	if err != nil {
-		t.Fatalf("build submit engine: %v", err)
-	}
+	submitEngine := newSchemaAwareSubmitEngine(t, underlying)
 	server := httptest.NewServer(remoteruntime.NewServer(underlying))
 	defer server.Close()
 
@@ -173,10 +181,7 @@ func TestReadyCountsAvailableJobsByTenant(t *testing.T) {
 	tenantID := "tenant-ready-count"
 	otherTenantID := "tenant-ready-other"
 	underlying := toyruntime.New()
-	submitEngine, err := jobworkflow.NewEngineBuilder().WithRuntime(underlying).BuildEngine()
-	if err != nil {
-		t.Fatalf("build submit engine: %v", err)
-	}
+	submitEngine := newSchemaAwareSubmitEngine(t, underlying)
 	server := httptest.NewServer(remoteruntime.NewServer(underlying))
 	defer server.Close()
 
@@ -244,10 +249,7 @@ func TestRunOneProcessesExactlyOneAvailableJob(t *testing.T) {
 
 	tenantID := "tenant-runone-single"
 	underlying := toyruntime.New()
-	submitEngine, err := jobworkflow.NewEngineBuilder().WithRuntime(underlying).BuildEngine()
-	if err != nil {
-		t.Fatalf("build submit engine: %v", err)
-	}
+	submitEngine := newSchemaAwareSubmitEngine(t, underlying)
 	server := httptest.NewServer(remoteruntime.NewServer(underlying))
 	defer server.Close()
 
@@ -291,10 +293,7 @@ func TestRunOneConcurrentCopiesClaimDistinctJobs(t *testing.T) {
 
 	tenantID := "tenant-runone-concurrent"
 	underlying := toyruntime.New()
-	submitEngine, err := jobworkflow.NewEngineBuilder().WithRuntime(underlying).BuildEngine()
-	if err != nil {
-		t.Fatalf("build submit engine: %v", err)
-	}
+	submitEngine := newSchemaAwareSubmitEngine(t, underlying)
 	server := httptest.NewServer(remoteruntime.NewServer(underlying))
 	defer server.Close()
 
@@ -350,10 +349,7 @@ func TestRunContinuesAfterCommandErrorWhenRecipeContinues(t *testing.T) {
 
 	tenantID := "tenant-work-failure"
 	underlying := toyruntime.New()
-	submitEngine, err := jobworkflow.NewEngineBuilder().WithRuntime(underlying).BuildEngine()
-	if err != nil {
-		t.Fatalf("build submit engine: %v", err)
-	}
+	submitEngine := newSchemaAwareSubmitEngine(t, underlying)
 	server := httptest.NewServer(remoteruntime.NewServer(underlying))
 	defer server.Close()
 

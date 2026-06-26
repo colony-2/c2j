@@ -193,6 +193,46 @@ func (r *runOneRuntime) setCancel(cancel context.CancelFunc) {
 	r.cancel = cancel
 }
 
+func (r *runOneRuntime) RegisterJobSchema(ctx context.Context, req jobdb.RegisterJobSchemaRequest) (jobdb.JobSchemaInfo, error) {
+	registry, err := r.schemaRegistry()
+	if err != nil {
+		return jobdb.JobSchemaInfo{}, err
+	}
+	return registry.RegisterJobSchema(ctx, req)
+}
+
+func (r *runOneRuntime) GetJobSchema(ctx context.Context, key jobdb.JobSchemaKey) (jobdb.JobSchemaInfo, error) {
+	registry, err := r.schemaRegistry()
+	if err != nil {
+		return jobdb.JobSchemaInfo{}, err
+	}
+	return registry.GetJobSchema(ctx, key)
+}
+
+func (r *runOneRuntime) ListJobSchemas(ctx context.Context, req jobdb.ListJobSchemasRequest) (jobdb.ListJobSchemasResponse, error) {
+	registry, err := r.schemaRegistry()
+	if err != nil {
+		return jobdb.ListJobSchemasResponse{}, err
+	}
+	return registry.ListJobSchemas(ctx, req)
+}
+
+func (r *runOneRuntime) ArchiveJobSchema(ctx context.Context, key jobdb.JobSchemaKey) (jobdb.JobSchemaInfo, error) {
+	registry, err := r.schemaRegistry()
+	if err != nil {
+		return jobdb.JobSchemaInfo{}, err
+	}
+	return registry.ArchiveJobSchema(ctx, key)
+}
+
+func (r *runOneRuntime) schemaRegistry() (jobdb.JobSchemaRegistry, error) {
+	registry, ok := r.WorkflowRuntime.(jobdb.JobSchemaRegistry)
+	if !ok {
+		return nil, fmt.Errorf("jobdb schema registry is unavailable")
+	}
+	return registry, nil
+}
+
 func (r *runOneRuntime) PollWork(ctx context.Context, req jobdb.PollWorkRequest) ([]jobdb.ExecutionLease, error) {
 	r.mu.Lock()
 	if r.polled {
