@@ -159,8 +159,16 @@ func requireDockerImage(t *testing.T, image string) {
 	if out, err := exec.CommandContext(ctx, "docker", "info").CombinedOutput(); err != nil {
 		t.Fatalf("docker info failed: %v\n%s", err, string(out))
 	}
-	if out, err := exec.CommandContext(ctx, "docker", "image", "inspect", image).CombinedOutput(); err != nil {
-		t.Fatalf("docker image %s is not available; run `docker pull %s`: %v\n%s", image, image, err, string(out))
+	if out, err := exec.CommandContext(ctx, "docker", "image", "inspect", image).CombinedOutput(); err == nil {
+		return
+	} else {
+		t.Logf("docker image %s is not available locally; pulling it now: %v\n%s", image, err, string(out))
+	}
+
+	pullCtx, pullCancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer pullCancel()
+	if out, err := exec.CommandContext(pullCtx, "docker", "pull", image).CombinedOutput(); err != nil {
+		t.Fatalf("docker pull %s failed: %v\n%s", image, err, string(out))
 	}
 }
 
