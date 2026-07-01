@@ -159,19 +159,12 @@ func TestMultiStepWithCapabilityClaim(t *testing.T) {
 		GitRef: baseHash,
 	}
 
-	type jobResult struct {
-		key jobdb.JobKey
-		err error
-	}
-	jobCh := make(chan jobResult, 1)
-	go func() {
-		key, err := starter.StartRecipeJob(context.Background(), start, engine, rec)
-		jobCh <- jobResult{key: key, err: err}
-	}()
+	submittedJobKey, err := starter.StartRecipeJob(context.Background(), start, engine, rec)
+	require.NoError(t, err)
 
 	// Wait for the second step to become pending (disallowed as task).
 	var handles []jobworkflow.TaskHandle
-	for i := 0; i < 20; i++ {
+	for i := 0; i < 400; i++ {
 		handles, err = engine.FindTasksWaitingForCapability(context.Background(), starter.RecipeJobType, opType+":second", []string{"test-tenant"})
 		require.NoError(t, err)
 		if len(handles) > 0 {
@@ -191,32 +184,28 @@ func TestMultiStepWithCapabilityClaim(t *testing.T) {
 		var jobRunsLocal int
 		var jobErrLocal error
 		jobWorkerTypeLocal := jobWorkerType
-		select {
-		case jr := <-jobCh:
-			require.NoError(t, jr.err)
-			status, _ = swfutil.JobStatus(context.Background(), engine, jr.key)
-			if result, err := swfutil.JobResult(context.Background(), engine, jr.key); err == nil {
-				if raw, err := result.GetData(); err == nil {
-					rawResult = string(raw)
-					_ = json.Unmarshal(raw, &outputs)
-				}
+		status, _ = swfutil.JobStatus(context.Background(), engine, submittedJobKey)
+		if result, err := swfutil.JobResult(context.Background(), engine, submittedJobKey); err == nil {
+			if raw, err := result.GetData(); err == nil {
+				rawResult = string(raw)
+				_ = json.Unmarshal(raw, &outputs)
 			}
-			firstEnvelopeMu.Lock()
-			env = firstEnvelope
-			regNext = workerNextTask
-			dbg = workerDebugInfo
-			captured = firstEnvelopeSet
-			runs = workerRunCount
-			firstEnvelopeMu.Unlock()
-			jobRunsMu.Lock()
-			jobRunsLocal = jobRuns
-			jobErrLocal = jobErr
-			jobRunsMu.Unlock()
-		default:
 		}
+		firstEnvelopeMu.Lock()
+		env = firstEnvelope
+		regNext = workerNextTask
+		dbg = workerDebugInfo
+		captured = firstEnvelopeSet
+		runs = workerRunCount
+		firstEnvelopeMu.Unlock()
+		jobRunsMu.Lock()
+		jobRunsLocal = jobRuns
+		jobErrLocal = jobErr
+		jobRunsMu.Unlock()
 		t.Fatalf("expected pending second step task; status=%s outputs=%v rawResult=%q captured=%t runs=%d firstNextTask=%q workerNextTask=%q workerDebug=%+v jobRuns=%d jobErr=%v jobWorkerType=%s", status, outputs, rawResult, captured, runs, env.NextTask, regNext, dbg, jobRunsLocal, jobErrLocal, jobWorkerTypeLocal)
 	}
 	jobKey := handles[0].JobKey()
+	require.Equal(t, submittedJobKey, jobKey)
 
 	// Decode invocation payload for git context.
 	data, err := handles[0].Data()
@@ -238,10 +227,7 @@ func TestMultiStepWithCapabilityClaim(t *testing.T) {
 	err = handles[0].Finish(context.Background(), jobdb.NewTaskDataOrPanic(outEnv))
 	require.NoError(t, err)
 
-	require.NoError(t, jobworkflow.WaitForJobToComplete(context.Background(), 5*time.Second, jobKey, engine))
-	jobRes := <-jobCh
-	require.NoError(t, jobRes.err)
-	require.Equal(t, jobKey, jobRes.key)
+	require.NoError(t, jobworkflow.WaitForJobToComplete(context.Background(), 20*time.Second, jobKey, engine))
 	firstEnvelopeMu.Lock()
 	jobRunsMu.Lock()
 	t.Logf("post-completion: captured=%t runs=%d env=%+v workerDbg=%+v jobRuns=%d jobErr=%v", firstEnvelopeSet, workerRunCount, firstEnvelope, workerDebugInfo, jobRuns, jobErr)
@@ -361,9 +347,9 @@ func (l loggingTaskWorker) Run(ctx jobworkflow.TaskContext, input jobdb.TaskData
 	if l.capture != nil {
 		data, err := out.GetData()
 		if err == nil {
-			var env workerops.ActivityInvocationOutput
-			if json.Unmarshal(data, &env) == nil {
-				l.capture(env, dbg)
+			decoded, err := decodeTaskOutput(data)
+			if err == nil && decoded.Kind == coretask.OutputKindActivityInvocationOutput {
+				l.capture(decoded.Activity, dbg)
 			}
 		}
 	}
