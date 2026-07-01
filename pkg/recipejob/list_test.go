@@ -8,6 +8,7 @@ import (
 	"github.com/colony-2/c2j/pkg/jobcontext"
 	"github.com/colony-2/c2j/pkg/jobdbschema"
 	"github.com/colony-2/c2j/pkg/starter"
+	"github.com/colony-2/jobdb/pkg/jobdb"
 	toyruntime "github.com/colony-2/jobdb/pkg/jobdb/runtime/toy"
 	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
 )
@@ -126,8 +127,37 @@ func TestListChildRecipeJobsFiltersByParentInvocation(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	engine := newListTestEngine(t)
+	runtime := toyruntime.New()
+	engine, err := jobworkflow.NewEngineBuilder().WithRuntime(runtime).BuildEngine()
+	if err != nil {
+		t.Fatalf("BuildEngine(): %v", err)
+	}
+	engine = jobdbschema.WorkflowEngine{Engine: engine, Registry: runtime}
 	tenantID := "tenant-recipejob-children"
+	if err := jobdbschema.Register(ctx, runtime, tenantID); err != nil {
+		t.Fatalf("Register schema: %v", err)
+	}
+	parentHandle, err := runtime.SubmitJob(ctx, jobdb.SubmitJobRequest{
+		Job: jobdb.SubmitJob{
+			TenantId: tenantID,
+			JobID:    "parent-job",
+			JobType:  "parent-type",
+			Data:     jobdb.NewTaskDataOrPanic(map[string]interface{}{"parent": true}),
+		},
+		RequestTime: time.Now().UTC(),
+	})
+	if err != nil {
+		t.Fatalf("submit parent: %v", err)
+	}
+	lease, err := runtime.GetJobLease(ctx, jobdb.GetJobLeaseRequest{
+		JobKey:        parentHandle.JobKey,
+		WorkerID:      "child-list-test-worker",
+		Capabilities:  []string{"parent-type"},
+		LeaseDuration: time.Minute,
+	})
+	if err != nil {
+		t.Fatalf("get parent lease: %v", err)
+	}
 	parent := jobcontext.Parent{
 		TenantID:       tenantID,
 		JobID:          "parent-job",
@@ -137,9 +167,9 @@ func TestListChildRecipeJobsFiltersByParentInvocation(t *testing.T) {
 		InvocationHash: "hash-one",
 	}
 	submittedAt := time.Date(2026, 6, 25, 12, 0, 0, 0, time.UTC)
-	submitRecipeJobWithParent(t, ctx, engine, tenantID, "child-one", "https://github.com/acme/boo-alpha.git", "alpha", submittedAt, parent)
+	submitRecipeJobWithParent(t, ctx, leaseSubmitter{lease: lease}, tenantID, "child-one", "https://github.com/acme/boo-alpha.git", "alpha", submittedAt, parent)
 	parent.InvocationHash = "hash-two"
-	submitRecipeJobWithParent(t, ctx, engine, tenantID, "child-two", "https://github.com/acme/boo-alpha.git", "alpha", submittedAt, parent)
+	submitRecipeJobWithParent(t, ctx, leaseSubmitter{lease: lease}, tenantID, "child-two", "https://github.com/acme/boo-alpha.git", "alpha", submittedAt, parent)
 
 	resp, err := ListChildRecipeJobs(ctx, engine, ListChildRecipeJobsRequest{
 		TenantID:             tenantID,
@@ -187,7 +217,11 @@ func submitRecipeJob(t *testing.T, ctx context.Context, engine jobworkflow.Engin
 	submitRecipeJobWithParent(t, ctx, engine, tenantID, jobID, repo, cellName, submittedAt, jobcontext.Parent{})
 }
 
-func submitRecipeJobWithParent(t *testing.T, ctx context.Context, engine jobworkflow.Engine, tenantID string, jobID string, repo string, cellName string, submittedAt time.Time, parent jobcontext.Parent) {
+type testRecipeSubmitter interface {
+	SubmitJob(context.Context, jobdb.SubmitJob) (jobdb.JobKey, error)
+}
+
+func submitRecipeJobWithParent(t *testing.T, ctx context.Context, engine testRecipeSubmitter, tenantID string, jobID string, repo string, cellName string, submittedAt time.Time, parent jobcontext.Parent) {
 	t.Helper()
 
 	start, err := BuildStartJob(BuildStartJobRequest{
@@ -210,4 +244,19 @@ func submitRecipeJobWithParent(t *testing.T, ctx context.Context, engine jobwork
 	if _, err := starter.StartRecipeJobWithOptions(ctx, start, engine, starter.StartRecipeJobOptions{JobID: jobID}); err != nil {
 		t.Fatalf("StartRecipeJobWithOptions(): %v", err)
 	}
+}
+
+type leaseSubmitter struct {
+	lease jobdb.ExecutionLease
+}
+
+func (s leaseSubmitter) SubmitJob(ctx context.Context, job jobdb.SubmitJob) (jobdb.JobKey, error) {
+	handle, err := s.lease.SubmitJob(ctx, jobdb.SubmitJobRequest{
+		Job:         job,
+		RequestTime: time.Now().UTC(),
+	})
+	if err != nil {
+		return jobdb.JobKey{}, err
+	}
+	return handle.JobKey, nil
 }

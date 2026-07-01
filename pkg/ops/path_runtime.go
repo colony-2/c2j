@@ -25,9 +25,16 @@ type RequiredMount struct {
 	Mode   string
 }
 
+type RequiredPort struct {
+	Host string
+	Port int
+}
+
 type OperationPathRuntime struct {
-	Views  OperationPathViews
-	Mounts []RequiredMount
+	Views       OperationPathViews
+	Mounts      []RequiredMount
+	Ports       []RequiredPort
+	SandboxType string
 }
 
 type OperationPathTransformRequest struct {

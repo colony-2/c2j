@@ -1,6 +1,7 @@
 package ops
 
 import (
+	"context"
 	"errors"
 
 	recipeartifacts "github.com/colony-2/c2j/pkg/artifacts"
@@ -22,6 +23,7 @@ type OpDependencies interface {
 	WorktreePath() string
 	GitContext() GitExecutionContext
 	CurrentJobContext() jobcontext.Current
+	ProtectedEnv() map[string]string
 	JobTool() JobTool
 	FindArtifact(key jobdb.ArtifactKey) (jobdb.Artifact, error)
 	SetNextTaskType(taskType string)
@@ -45,6 +47,10 @@ func (j *TaskBasedJobTool) AwaitJobs(jobIds ...string) error {
 	return j.TaskContext.AwaitJobs(jobIds...)
 }
 
+func (j *TaskBasedJobTool) SubmitJob(ctx context.Context, job jobdb.SubmitJob) (jobdb.JobKey, error) {
+	return j.TaskContext.SubmitJob(ctx, job)
+}
+
 // opDepImpl holds the actual dependencies.
 type opDepImpl struct {
 	db                *gorm.DB
@@ -57,6 +63,7 @@ type opDepImpl struct {
 	pathRuntime       OperationPathRuntime
 	gitContext        GitExecutionContext
 	currentJobContext jobcontext.Current
+	protectedEnv      map[string]string
 	jobTool           JobTool
 	nextTaskType      string
 	nextTaskTypeSet   bool
@@ -158,6 +165,17 @@ func (c *opDepImpl) CurrentJobContext() jobcontext.Current {
 	return c.currentJobContext
 }
 
+func (c *opDepImpl) ProtectedEnv() map[string]string {
+	if len(c.protectedEnv) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(c.protectedEnv))
+	for key, value := range c.protectedEnv {
+		out[key] = value
+	}
+	return out
+}
+
 func (c *opDepImpl) SetNextTaskType(taskType string) {
 	c.nextTaskType = taskType
 	c.nextTaskTypeSet = true
@@ -176,6 +194,7 @@ type OpDependenciesBuilder struct {
 	pathRuntime       OperationPathRuntime
 	gitContext        GitExecutionContext
 	currentJobContext jobcontext.Current
+	protectedEnv      map[string]string
 	jobTool           JobTool
 }
 
@@ -248,7 +267,27 @@ func (b *OpDependenciesBuilder) WithCurrentJobContext(ctx jobcontext.Current) *O
 	return b
 }
 
+func (b *OpDependenciesBuilder) WithProtectedEnv(env map[string]string) *OpDependenciesBuilder {
+	if len(env) == 0 {
+		b.protectedEnv = nil
+		return b
+	}
+	b.protectedEnv = make(map[string]string, len(env))
+	for key, value := range env {
+		b.protectedEnv[key] = value
+	}
+	return b
+}
+
 func (b *OpDependenciesBuilder) Build() OpDependencies {
+	protectedEnv := b.protectedEnv
+	if protectedEnv == nil {
+		protectedEnv = jobcontext.EnvForCurrent(b.currentJobContext)
+	}
+	protectedEnvCopy := make(map[string]string, len(protectedEnv))
+	for key, value := range protectedEnv {
+		protectedEnvCopy[key] = value
+	}
 	deps := &opDepImpl{
 		db:                b.db,
 		inputArtifacts:    b.artifacts,
@@ -258,6 +297,7 @@ func (b *OpDependenciesBuilder) Build() OpDependencies {
 		pathRuntime:       b.pathRuntime,
 		gitContext:        b.gitContext,
 		currentJobContext: b.currentJobContext,
+		protectedEnv:      protectedEnvCopy,
 		outputArtifacts:   make([]jobdb.Artifact, 0),
 		externalArtifacts: make(map[string]recipeartifacts.Ref),
 		jobTool:           b.jobTool,

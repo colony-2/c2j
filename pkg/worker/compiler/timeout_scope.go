@@ -77,6 +77,34 @@ func (t *timeoutJobContext) AwaitJobs(jobIds ...string) error {
 	return t.checkDeadline()
 }
 
+func (t *timeoutJobContext) SubmitJob(ctx context.Context, submit jobdb.SubmitJob) (jobdb.JobKey, error) {
+	if err := t.checkDeadline(); err != nil {
+		return jobdb.JobKey{}, err
+	}
+	key, err := t.inner.SubmitJob(ctx, submit)
+	if err != nil {
+		if time.Now().After(t.deadline) {
+			return key, t.wrapTimeout(err)
+		}
+		return key, err
+	}
+	return key, t.checkDeadline()
+}
+
+func (t *timeoutJobContext) SubmitRestartJob(ctx context.Context, restart jobdb.SubmitRestartJob) (jobdb.JobKey, error) {
+	if err := t.checkDeadline(); err != nil {
+		return jobdb.JobKey{}, err
+	}
+	key, err := t.inner.SubmitRestartJob(ctx, restart)
+	if err != nil {
+		if time.Now().After(t.deadline) {
+			return key, t.wrapTimeout(err)
+		}
+		return key, err
+	}
+	return key, t.checkDeadline()
+}
+
 func (t *timeoutJobContext) AwaitDuration(waitFor jobdb.Duration) error {
 	if err := t.checkDeadline(); err != nil {
 		return err

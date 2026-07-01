@@ -197,7 +197,7 @@ func startChildGroup(deps ops.OpDependencies, ctx context.Context, input ChildGr
 			state.Children = append(state.Children, record)
 			continue
 		}
-		key, err := deps.WorkflowControl().StartJob(ctx, job)
+		key, err := startRecipeChildJob(ctx, deps, deps.WorkflowControl(), job)
 		if err != nil {
 			record.Status = "start_failed"
 			record.Error = err.Error()

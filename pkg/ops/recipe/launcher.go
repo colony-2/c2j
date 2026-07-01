@@ -10,6 +10,8 @@ import (
 	recipeartifacts "github.com/colony-2/c2j/pkg/artifacts"
 	"github.com/colony-2/c2j/pkg/contextual"
 	"github.com/colony-2/c2j/pkg/jobcontext"
+	"github.com/colony-2/c2j/pkg/ops"
+	"github.com/colony-2/c2j/pkg/starter"
 	"github.com/colony-2/c2j/pkg/workflowctl"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	"github.com/segmentio/ksuid"
@@ -87,7 +89,11 @@ func recipeToStart(tenantId string, recipe SingleRecipe, recipeSourceRepo string
 
 // func(deps OpDependencies, ctx context.Context, in In)
 // Execute runs the activity with provided configuration and inputs
-func startJobs(ctx context.Context, parentJobKey jobdb.JobKey, invocation contextual.Invocation, ctl workflowctl.WorkflowControl, recipeSourceRepo string, recipeSourceRef string, recipes []SingleRecipe, gitRef string, parent jobcontext.Parent) ([]jobdb.JobKey, error) {
+type childJobSubmitter interface {
+	SubmitJob(context.Context, jobdb.SubmitJob) (jobdb.JobKey, error)
+}
+
+func startJobs(ctx context.Context, deps ops.OpDependencies, parentJobKey jobdb.JobKey, invocation contextual.Invocation, ctl workflowctl.WorkflowControl, recipeSourceRepo string, recipeSourceRef string, recipes []SingleRecipe, gitRef string, parent jobcontext.Parent) ([]jobdb.JobKey, error) {
 	if len(recipes) == 0 {
 		return nil, fmt.Errorf("no jobs to start")
 	}
@@ -102,7 +108,7 @@ func startJobs(ctx context.Context, parentJobKey jobdb.JobKey, invocation contex
 	}
 
 	if len(jobs) == 1 {
-		key, err := ctl.StartJob(ctx, jobs[0])
+		key, err := startRecipeChildJob(ctx, deps, ctl, jobs[0])
 		if err != nil {
 			return nil, err
 		}
@@ -111,11 +117,22 @@ func startJobs(ctx context.Context, parentJobKey jobdb.JobKey, invocation contex
 
 	keys := make([]jobdb.JobKey, len(jobs))
 	for i, job := range jobs {
-		key, err := ctl.StartJob(ctx, job)
+		key, err := startRecipeChildJob(ctx, deps, ctl, job)
 		if err != nil {
 			return nil, err
 		}
 		keys[i] = key
 	}
 	return keys, nil
+}
+
+func startRecipeChildJob(ctx context.Context, deps ops.OpDependencies, ctl workflowctl.WorkflowControl, start workflowctl.StartJob) (jobdb.JobKey, error) {
+	if deps != nil {
+		if jobTool := deps.JobTool(); jobTool != nil {
+			if submitter, ok := jobTool.(childJobSubmitter); ok {
+				return starter.StartRecipeJob(ctx, start, submitter)
+			}
+		}
+	}
+	return ctl.StartJob(ctx, start)
 }

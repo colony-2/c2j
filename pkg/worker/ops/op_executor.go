@@ -20,6 +20,7 @@ import (
 	"time"
 
 	recipeartifacts "github.com/colony-2/c2j/pkg/artifacts"
+	"github.com/colony-2/c2j/pkg/childbroker"
 	"github.com/colony-2/c2j/pkg/contextual"
 	"github.com/colony-2/c2j/pkg/git/gitstate"
 	"github.com/colony-2/c2j/pkg/jobcontext"
@@ -90,6 +91,10 @@ func currentJobContext(jobKey jobdb.JobKey, reg ActivityRegistration, task gitst
 	}
 }
 
+type leaseChildJobSubmitter interface {
+	SubmitJob(context.Context, jobdb.SubmitJob) (jobdb.JobKey, error)
+}
+
 type childJobLister interface {
 	ListJobs(ctx context.Context, request jobdb.ListJobsRequest) (jobs []workflowctl.JobItem, nextPage string, err error)
 }
@@ -98,7 +103,7 @@ func collectStartedJobs(ctx context.Context, lister childJobLister, current jobc
 	if lister == nil || !current.HasJob() || strings.TrimSpace(current.InvocationHash) == "" {
 		return jobcontext.StartedJobsContext{}, nil
 	}
-	metadataFilter, err := childJobMetadataFilter(current)
+	metadataFilter, err := jobdb.Metadata().EqualFilter(starter.MetaFieldParentInvocationHash, current.InvocationHash)
 	if err != nil {
 		return jobcontext.StartedJobsContext{}, err
 	}
@@ -106,6 +111,7 @@ func collectStartedJobs(ctx context.Context, lister childJobLister, current jobc
 		TenantIds:      []string{current.TenantID},
 		Stores:         []jobdb.JobStore{jobdb.JobStoreActive, jobdb.JobStoreArchived},
 		JobTypes:       []string{starter.RecipeJobType},
+		ParentJobIDs:   []string{current.JobID},
 		MetadataFilter: metadataFilter,
 	}
 	out := jobcontext.StartedJobsContext{
@@ -140,26 +146,6 @@ func collectStartedJobs(ctx context.Context, lister childJobLister, current jobc
 	return out, nil
 }
 
-func childJobMetadataFilter(current jobcontext.Current) (jobdb.MetadataFilter, error) {
-	metadataFilter, err := jobdb.Metadata().EqualFilter(starter.MetaFieldParentTenantID, current.TenantID)
-	if err != nil {
-		return nil, err
-	}
-	parentJobFilter, err := jobdb.Metadata().EqualFilter(starter.MetaFieldParentJobID, current.JobID)
-	if err != nil {
-		return nil, err
-	}
-	metadataFilter, err = metadataFilter.AndFilter(parentJobFilter)
-	if err != nil {
-		return nil, err
-	}
-	invocationFilter, err := jobdb.Metadata().EqualFilter(starter.MetaFieldParentInvocationHash, current.InvocationHash)
-	if err != nil {
-		return nil, err
-	}
-	return metadataFilter.AndFilter(invocationFilter)
-}
-
 func recipeNameFromMetadata(raw json.RawMessage) string {
 	if len(raw) == 0 {
 		return ""
@@ -169,6 +155,39 @@ func recipeNameFromMetadata(raw json.RawMessage) string {
 		return ""
 	}
 	return meta.RecipeName
+}
+
+func mergeStartedJobs(primary jobcontext.StartedJobsContext, secondary jobcontext.StartedJobsContext) jobcontext.StartedJobsContext {
+	out := jobcontext.StartedJobsContext{
+		JobIDs: make([]string, 0, len(primary.JobIDs)+len(secondary.JobIDs)),
+		Items:  make([]jobcontext.StartedJobContext, 0, len(primary.Items)+len(secondary.Items)),
+	}
+	seen := map[string]struct{}{}
+	add := func(item jobcontext.StartedJobContext) {
+		jobID := strings.TrimSpace(item.JobID)
+		if jobID == "" {
+			return
+		}
+		if _, exists := seen[jobID]; exists {
+			return
+		}
+		seen[jobID] = struct{}{}
+		out.JobIDs = append(out.JobIDs, jobID)
+		out.Items = append(out.Items, item)
+	}
+	for _, item := range primary.Items {
+		add(item)
+	}
+	for _, jobID := range primary.JobIDs {
+		add(jobcontext.StartedJobContext{JobID: jobID})
+	}
+	for _, item := range secondary.Items {
+		add(item)
+	}
+	for _, jobID := range secondary.JobIDs {
+		add(jobcontext.StartedJobContext{JobID: jobID})
+	}
+	return out
 }
 
 func (t opExecutor) do(ctx context.Context, jobTool ops.JobTool, req ActivityInvocationRequest, inputArtifacts []jobdb.Artifact) (output ActivityInvocationOutput, outputArtifacts []jobdb.Artifact, err error) {
@@ -332,6 +351,31 @@ func (t opExecutor) do(ctx context.Context, jobTool ops.JobTool, req ActivityInv
 		return zero, nil, fmt.Errorf("op-visible path resolution failed: operation %q does not support context.environment.op.*", reg.Metadata.Type)
 	}
 
+	protectedEnv := jobcontext.EnvForCurrent(currentJob)
+	var broker *childbroker.Server
+	if submitter, ok := jobTool.(leaseChildJobSubmitter); ok {
+		broker, err = childbroker.Start(ctx, childbroker.Options{
+			Current:            currentJob,
+			Submitter:          submitter,
+			ContainerReachable: pathRuntime.SandboxType == process.SandboxTypeShai,
+		})
+		if err != nil {
+			return zero, nil, fmt.Errorf("start child job broker: %w", err)
+		}
+		defer broker.Close()
+		protectedEnv = jobcontext.MergeProtectedEnv(protectedEnv, broker.Env())
+		if pathRuntime.SandboxType == process.SandboxTypeShai && broker.Port() > 0 {
+			host := broker.Host()
+			if strings.TrimSpace(host) == "" {
+				host = "host.docker.internal"
+			}
+			pathRuntime.Ports = append(pathRuntime.Ports, ops.RequiredPort{
+				Host: host,
+				Port: broker.Port(),
+			})
+		}
+	}
+
 	// Build OpDependencies with WorktreePath and filtered artifacts (thin pack hidden from operation)
 	db := deps.Database()
 	if tx, ok := jobdb.TxFromCtx(ctx); ok && tx != nil {
@@ -360,6 +404,7 @@ func (t opExecutor) do(ctx context.Context, jobTool ops.JobTool, req ActivityInv
 			WorktreePath:     fullContext.WorktreePath,
 		}).
 		WithCurrentJobContext(currentJob).
+		WithProtectedEnv(protectedEnv).
 		WithWorktreePath(fullContext.WorktreePath).
 		Build()
 
@@ -377,9 +422,15 @@ func (t opExecutor) do(ctx context.Context, jobTool ops.JobTool, req ActivityInv
 			nextTask = overrideValue
 		}
 	}
-	startedJobs, collectErr := collectStartedJobs(ctx, deps.WorkflowControl(), currentJob)
+	startedJobs := jobcontext.StartedJobsContext{}
+	if broker != nil {
+		startedJobs = broker.StartedJobs()
+	}
+	listedJobs, collectErr := collectStartedJobs(ctx, deps.WorkflowControl(), currentJob)
 	if collectErr != nil {
 		stepErr = errors.Join(stepErr, fmt.Errorf("collect started jobs: %w", collectErr))
+	} else {
+		startedJobs = mergeStartedJobs(startedJobs, listedJobs)
 	}
 	if err := filepath.WalkDir(outbox, func(path string, d fs.DirEntry, walkErr error) error {
 		if walkErr != nil {

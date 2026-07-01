@@ -21,6 +21,10 @@ const (
 	CurrentInvocationSequenceEnv = "C2J_CURRENT_INVOCATION_SEQUENCE"
 	CurrentInvocationHashEnv     = "C2J_CURRENT_INVOCATION_HASH"
 
+	ChildJobEndpointEnv  = "C2J_CHILD_JOB_ENDPOINT"
+	ChildJobTokenEnv     = "C2J_CHILD_JOB_TOKEN"
+	ChildJobSessionIDEnv = "C2J_CHILD_JOB_SESSION_ID"
+
 	// TenantIDEnv is kept as a convenience for child tools that still consume a
 	// tenant-only environment default. The current c2j CLI resolves through
 	// C2J_JOBDB instead.
@@ -70,6 +74,12 @@ type StartedJobContext struct {
 type StartedJobsContext struct {
 	JobIDs []string            `json:"job_ids,omitempty"`
 	Items  []StartedJobContext `json:"items,omitempty"`
+}
+
+type ChildJobBroker struct {
+	Endpoint  string `json:"endpoint,omitempty"`
+	Token     string `json:"token,omitempty"`
+	SessionID string `json:"session_id,omitempty"`
 }
 
 func EmptyStartedJobsContext() StartedJobsContext {
@@ -126,6 +136,14 @@ func EnvForCurrent(c Current) map[string]string {
 	return env
 }
 
+func EnvForChildJobBroker(b ChildJobBroker) map[string]string {
+	env := map[string]string{}
+	setIfNotEmpty(env, ChildJobEndpointEnv, b.Endpoint)
+	setIfNotEmpty(env, ChildJobTokenEnv, b.Token)
+	setIfNotEmpty(env, ChildJobSessionIDEnv, b.SessionID)
+	return env
+}
+
 func MergeProtectedEnv(base map[string]string, protected map[string]string) map[string]string {
 	out := map[string]string{}
 	for k, v := range base {
@@ -171,6 +189,24 @@ func CurrentFromEnv(getenv func(string) string) (Current, bool, error) {
 		return Current{}, true, fmt.Errorf("%s and %s are required when c2j current job context is present", CurrentTenantIDEnv, CurrentJobIDEnv)
 	}
 	return current, true, nil
+}
+
+func ChildJobBrokerFromEnv(getenv func(string) string) (ChildJobBroker, bool, error) {
+	if getenv == nil {
+		return ChildJobBroker{}, false, nil
+	}
+	broker := ChildJobBroker{
+		Endpoint:  strings.TrimSpace(getenv(ChildJobEndpointEnv)),
+		Token:     strings.TrimSpace(getenv(ChildJobTokenEnv)),
+		SessionID: strings.TrimSpace(getenv(ChildJobSessionIDEnv)),
+	}
+	if broker.Endpoint == "" && broker.Token == "" && broker.SessionID == "" {
+		return ChildJobBroker{}, false, nil
+	}
+	if broker.Endpoint == "" || broker.Token == "" || broker.SessionID == "" {
+		return ChildJobBroker{}, true, fmt.Errorf("%s, %s, and %s are required when child job broker context is present", ChildJobEndpointEnv, ChildJobTokenEnv, ChildJobSessionIDEnv)
+	}
+	return broker, true, nil
 }
 
 func ParentFromEnv(getenv func(string) string) (Parent, bool, error) {

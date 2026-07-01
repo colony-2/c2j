@@ -120,9 +120,10 @@ func execute(deps ops.OpDependencies, ctx context.Context, input CommandExecutio
 	for k, v := range input.Env {
 		env[k] = v
 	}
-	env = jobcontext.MergeProtectedEnv(env, jobcontext.EnvForCurrent(deps.CurrentJobContext()))
+	env = jobcontext.MergeProtectedEnv(env, deps.ProtectedEnv())
 	workspaceRoot := workingDir
 	var mounts []ops.RequiredMount
+	var ports []ops.RequiredPort
 	if runtimeProvider, ok := deps.(ops.OperationPathRuntimeProvider); ok {
 		pathRuntime := runtimeProvider.OperationPathRuntime()
 		if process.SandboxType(input.Sandbox) == process.SandboxTypeShai {
@@ -134,6 +135,7 @@ func execute(deps ops.OpDependencies, ctx context.Context, input CommandExecutio
 			}
 		}
 		mounts = pathRuntime.Mounts
+		ports = pathRuntime.Ports
 	}
 	stdoutBytes, stderrBytes, err := process.ExecuteProcess(ctx, process.RunRequest{
 		WorkspaceRoot:  workspaceRoot,
@@ -143,6 +145,7 @@ func execute(deps ops.OpDependencies, ctx context.Context, input CommandExecutio
 		Env:            env,
 		Sandbox:        input.Sandbox,
 		RequiredMounts: mounts,
+		RequiredPorts:  ports,
 	})
 
 	// Prepare output

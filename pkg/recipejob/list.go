@@ -157,6 +157,9 @@ func BuildListChildJobsRequest(req ListChildRecipeJobsRequest) (jobdb.ListJobsRe
 	if parentTenantID == "" {
 		return jobdb.ListJobsRequest{}, fmt.Errorf("parent tenant ID is required")
 	}
+	if parentTenantID != tenantID {
+		return jobdb.ListJobsRequest{}, fmt.Errorf("child job listing is limited to the selected tenant %q; parent tenant is %q", tenantID, parentTenantID)
+	}
 	parentJobID := strings.TrimSpace(req.ParentJobID)
 	if parentJobID == "" {
 		return jobdb.ListJobsRequest{}, fmt.Errorf("parent job ID is required")
@@ -166,27 +169,14 @@ func BuildListChildJobsRequest(req ListChildRecipeJobsRequest) (jobdb.ListJobsRe
 		return jobdb.ListJobsRequest{}, fmt.Errorf("parent invocation hash is required unless all parent invocations are requested")
 	}
 
-	metadataFilter, err := jobdb.Metadata().EqualFilter(starter.MetaFieldParentTenantID, parentTenantID)
-	if err != nil {
-		return jobdb.ListJobsRequest{}, err
-	}
-	parentJobFilter, err := jobdb.Metadata().EqualFilter(starter.MetaFieldParentJobID, parentJobID)
-	if err != nil {
-		return jobdb.ListJobsRequest{}, err
-	}
-	metadataFilter, err = metadataFilter.AndFilter(parentJobFilter)
-	if err != nil {
-		return jobdb.ListJobsRequest{}, err
-	}
+	var metadataFilter jobdb.MetadataFilter
 	if !req.AllParentInvocations {
+		var err error
 		invocationFilter, err := jobdb.Metadata().EqualFilter(starter.MetaFieldParentInvocationHash, parentInvocationHash)
 		if err != nil {
 			return jobdb.ListJobsRequest{}, err
 		}
-		metadataFilter, err = metadataFilter.AndFilter(invocationFilter)
-		if err != nil {
-			return jobdb.ListJobsRequest{}, err
-		}
+		metadataFilter = invocationFilter
 	}
 
 	return jobdb.ListJobsRequest{
@@ -194,6 +184,7 @@ func BuildListChildJobsRequest(req ListChildRecipeJobsRequest) (jobdb.ListJobsRe
 		Statuses:       append([]jobdb.JobStatus(nil), req.Statuses...),
 		Stores:         append([]jobdb.JobStore(nil), req.Stores...),
 		JobTypes:       []string{starter.RecipeJobType},
+		ParentJobIDs:   []string{parentJobID},
 		MetadataFilter: metadataFilter,
 		CreatedAfter:   req.CreatedAfter,
 		CreatedBefore:  req.CreatedBefore,
@@ -391,6 +382,12 @@ func RecipeJobFromSummary(summary jobdb.JobSummary) (RecipeJob, bool, error) {
 		job.GitRef = meta.GitRef
 		if parent := parentFromMetadata(meta); parent.HasJob() {
 			job.Parent = &parent
+		}
+	}
+	if job.Parent == nil && strings.TrimSpace(summary.ParentJobID) != "" {
+		job.Parent = &jobcontext.Parent{
+			TenantID: strings.TrimSpace(summary.JobKey.TenantId),
+			JobID:    strings.TrimSpace(summary.ParentJobID),
 		}
 	}
 	if start != nil {

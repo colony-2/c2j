@@ -99,7 +99,7 @@ func executeExtension(deps ops.OpDependencies, ctx context.Context, input Execut
 		return nil, fmt.Errorf("marshal extension input: %w", err)
 	}
 	env := buildExecutionEnv(resolved)
-	env = jobcontext.MergeProtectedEnv(env, jobcontext.EnvForCurrent(deps.CurrentJobContext()))
+	env = jobcontext.MergeProtectedEnv(env, deps.ProtectedEnv())
 
 	var cancel context.CancelFunc
 	if d, err := parseDurationOrZero(resolved.Spec.Timeout); err == nil && d > 0 {
@@ -166,6 +166,7 @@ func extensionRunRequest(deps ops.OpDependencies, resolved *ResolvedOp, sandbox 
 	req.WorkspaceRoot = pathRuntime.Views.Host.Workdir
 	req.WorkingDir = extensionWorkingDir
 	req.RequiredMounts = append([]ops.RequiredMount{}, pathRuntime.Mounts...)
+	req.RequiredPorts = append([]ops.RequiredPort{}, pathRuntime.Ports...)
 	req.RequiredMounts = append(req.RequiredMounts, ops.RequiredMount{
 		Source: resolved.ProjectRoot,
 		Target: extensionSandboxMount,

@@ -58,3 +58,37 @@ func TestMergeProtectedEnvWins(t *testing.T) {
 		t.Fatalf("unexpected merged env: %#v", got)
 	}
 }
+
+func TestChildJobBrokerEnvRoundTrip(t *testing.T) {
+	env := EnvForChildJobBroker(ChildJobBroker{
+		Endpoint:  " http://127.0.0.1:1234/v1/child-jobs ",
+		Token:     " token ",
+		SessionID: " session ",
+	})
+
+	got, ok, err := ChildJobBrokerFromEnv(func(key string) string { return env[key] })
+	if err != nil {
+		t.Fatalf("ChildJobBrokerFromEnv(): %v", err)
+	}
+	if !ok {
+		t.Fatal("ChildJobBrokerFromEnv() ok = false")
+	}
+	if got.Endpoint != "http://127.0.0.1:1234/v1/child-jobs" || got.Token != "token" || got.SessionID != "session" {
+		t.Fatalf("unexpected broker env: %#v", got)
+	}
+}
+
+func TestChildJobBrokerFromEnvRejectsPartialContext(t *testing.T) {
+	_, ok, err := ChildJobBrokerFromEnv(func(key string) string {
+		if key == ChildJobEndpointEnv {
+			return "http://127.0.0.1:1234/v1/child-jobs"
+		}
+		return ""
+	})
+	if !ok {
+		t.Fatal("ChildJobBrokerFromEnv() ok = false")
+	}
+	if err == nil {
+		t.Fatal("expected partial broker context error")
+	}
+}

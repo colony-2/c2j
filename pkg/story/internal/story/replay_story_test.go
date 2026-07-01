@@ -73,6 +73,12 @@ func (c *fakeReplayJobContext) Logger() *slog.Logger    { return nil }
 
 func (c *fakeReplayJobContext) AwaitDuration(_ jobdb.Duration) error { return nil }
 func (c *fakeReplayJobContext) AwaitJobs(_ ...string) error          { return nil }
+func (c *fakeReplayJobContext) SubmitJob(context.Context, jobdb.SubmitJob) (jobdb.JobKey, error) {
+	return jobdb.JobKey{}, errors.New("submitting jobs is not supported by replay test context")
+}
+func (c *fakeReplayJobContext) SubmitRestartJob(context.Context, jobdb.SubmitRestartJob) (jobdb.JobKey, error) {
+	return jobdb.JobKey{}, errors.New("submitting restart jobs is not supported by replay test context")
+}
 
 type fakeTaskAttempt struct {
 	Attempt    int

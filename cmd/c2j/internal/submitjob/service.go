@@ -13,6 +13,7 @@ import (
 	"github.com/colony-2/c2j/cmd/c2j/internal/c2jops"
 	"github.com/colony-2/c2j/cmd/c2j/internal/runjob"
 	"github.com/colony-2/c2j/cmd/c2j/internal/swfruntime"
+	"github.com/colony-2/c2j/pkg/childbroker"
 	"github.com/colony-2/c2j/pkg/jobcontext"
 	"github.com/colony-2/c2j/pkg/recipe"
 	"github.com/colony-2/c2j/pkg/recipejob"
@@ -61,38 +62,61 @@ func Run(ctx context.Context, opts Options) error {
 		return err
 	}
 
-	var parentContext *jobcontext.Parent
-	if parent, ok, err := jobcontext.ParentFromEnv(os.Getenv); err != nil {
+	parentContext, err := parentContextFromEnv(opts.TenantID)
+	if err != nil {
 		return err
-	} else if ok {
-		if strings.TrimSpace(parent.TenantID) != strings.TrimSpace(opts.TenantID) {
-			return fmt.Errorf("child job submission must use the current tenant %q; got %q", parent.TenantID, opts.TenantID)
-		}
-		parentContext = &parent
+	}
+	broker, hasBroker, err := jobcontext.ChildJobBrokerFromEnv(os.Getenv)
+	if err != nil {
+		return err
+	}
+	if hasBroker && parentContext == nil {
+		return fmt.Errorf("child job broker context requires current job context env")
+	}
+
+	submittedAt := time.Now().UTC()
+	start, err := recipejob.BuildStartJob(recipejob.BuildStartJobRequest{
+		TenantID:    opts.TenantID,
+		Target:      target,
+		Recipe:      recipeName,
+		Inputs:      inputs,
+		Artifacts:   submitArtifacts,
+		Parent:      parentContext,
+		SubmittedAt: &submittedAt,
+	})
+	if err != nil {
+		return err
 	}
 
 	var result submitResult
-	if err := func() error {
+	if hasBroker {
+		var recipes []recipe.Recipe
+		if embeddedRecipe != nil {
+			recipes = append(recipes, *embeddedRecipe)
+		}
+		req, err := childbroker.NewSubmitRequest(ctx, start, submitArtifacts, recipes...)
+		if err != nil {
+			return err
+		}
+		resp, err := childbroker.Submit(ctx, broker, req)
+		if err != nil {
+			return err
+		}
+		result = submitResult{
+			TenantID: resp.TenantID,
+			JobID:    resp.JobID,
+			Recipe:   resp.Recipe,
+		}
+		if err := writeSubmitResult(opts, result); err != nil {
+			return err
+		}
+	} else if err := func() error {
 		handle, err := swfruntime.Open(ctx, opts.SWFURL)
 		if err != nil {
 			return fmt.Errorf("open JobDB runtime: %w", err)
 		}
 		closeHandle := func(err error) error {
 			return errors.Join(err, handle.Cleanup())
-		}
-
-		submittedAt := time.Now().UTC()
-		start, err := recipejob.BuildStartJob(recipejob.BuildStartJobRequest{
-			TenantID:    opts.TenantID,
-			Target:      target,
-			Recipe:      recipeName,
-			Inputs:      inputs,
-			Artifacts:   submitArtifacts,
-			Parent:      parentContext,
-			SubmittedAt: &submittedAt,
-		})
-		if err != nil {
-			return closeHandle(err)
 		}
 
 		var jobKey jobdb.JobKey
@@ -126,6 +150,18 @@ func Run(ctx context.Context, opts Options) error {
 		Stdout:   opts.Stdout,
 		Stderr:   opts.Stderr,
 	})
+}
+
+func parentContextFromEnv(tenantID string) (*jobcontext.Parent, error) {
+	if parent, ok, err := jobcontext.ParentFromEnv(os.Getenv); err != nil {
+		return nil, err
+	} else if ok {
+		if strings.TrimSpace(parent.TenantID) != strings.TrimSpace(tenantID) {
+			return nil, fmt.Errorf("child job submission must use the current tenant %q; got %q", parent.TenantID, tenantID)
+		}
+		return &parent, nil
+	}
+	return nil, nil
 }
 
 func writeSubmitResult(opts Options, result submitResult) error {

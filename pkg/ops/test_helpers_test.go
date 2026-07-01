@@ -55,6 +55,8 @@ func (d *testDeps) GitContext() GitExecutionContext { return GitExecutionContext
 
 func (d *testDeps) CurrentJobContext() jobcontext.Current { return jobcontext.Current{} }
 
+func (d *testDeps) ProtectedEnv() map[string]string { return nil }
+
 func (d *testDeps) SetNextTaskType(taskType string) {
 	_ = taskType
 }

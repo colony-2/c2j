@@ -59,6 +59,7 @@ type RunRequest struct {
 	Stdin          []byte
 	Sandbox        *SandboxInput
 	RequiredMounts []ops.RequiredMount
+	RequiredPorts  []ops.RequiredPort
 }
 
 func ParseSandboxInput(raw interface{}) (*SandboxInput, error) {
@@ -133,7 +134,8 @@ func TransformOperationPaths(_ context.Context, rawSandbox interface{}, host ops
 
 	result := ops.OperationPathTransformResult{
 		Runtime: ops.OperationPathRuntime{
-			Views: views,
+			Views:       views,
+			SandboxType: sandboxType,
 		},
 		Replacements: map[string]string{
 			contextual.OpWorkdirPathSentinel:    views.Op.Workdir,
@@ -357,7 +359,7 @@ func executeInShai(ctx context.Context, req RunRequest, workspaceRoot string, wo
 		argv = wrapArgvWithWorkdir(argv, sandboxWorkingDir)
 	}
 
-	appendSet, err := shaiAppendResourceSet(req.RequiredMounts, workspaceRoot, DefaultShaiWorkdir)
+	appendSet, err := shaiAppendResourceSet(req.RequiredMounts, req.RequiredPorts, workspaceRoot, DefaultShaiWorkdir)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -496,7 +498,7 @@ func sandboxWorkingDir(workspaceRoot string, workingDir string) string {
 	return path.Join(DefaultShaiWorkdir, filepath.ToSlash(workingDir))
 }
 
-func shaiAppendResourceSet(mounts []ops.RequiredMount, workspaceRoot string, workspaceTarget string) (*shai.ResourceSet, error) {
+func shaiAppendResourceSet(mounts []ops.RequiredMount, ports []ops.RequiredPort, workspaceRoot string, workspaceTarget string) (*shai.ResourceSet, error) {
 	filtered, err := filterWorkspaceCoveredMounts(mounts, workspaceRoot, workspaceTarget)
 	if err != nil {
 		return nil, err
@@ -505,15 +507,25 @@ func shaiAppendResourceSet(mounts []ops.RequiredMount, workspaceRoot string, wor
 	if err != nil {
 		return nil, err
 	}
-	if len(filtered) == 0 {
+	ports = dedupePorts(ports)
+	if len(filtered) == 0 && len(ports) == 0 {
 		return nil, nil
 	}
-	out := &shai.ResourceSet{Mounts: make([]shai.Mount, 0, len(filtered))}
+	out := &shai.ResourceSet{
+		Mounts: make([]shai.Mount, 0, len(filtered)),
+		Ports:  make([]shai.Port, 0, len(ports)),
+	}
 	for _, mount := range filtered {
 		out.Mounts = append(out.Mounts, shai.Mount{
 			Source: mount.Source,
 			Target: mount.Target,
 			Mode:   mount.Mode,
+		})
+	}
+	for _, port := range ports {
+		out.Ports = append(out.Ports, shai.Port{
+			Host: port.Host,
+			Port: port.Port,
 		})
 	}
 	return out, nil
@@ -577,6 +589,30 @@ func dedupeMounts(mounts []ops.RequiredMount) ([]ops.RequiredMount, error) {
 		out = append(out, byTarget[target])
 	}
 	return out, nil
+}
+
+func dedupePorts(ports []ops.RequiredPort) []ops.RequiredPort {
+	seen := map[string]struct{}{}
+	out := make([]ops.RequiredPort, 0, len(ports))
+	for _, port := range ports {
+		port.Host = strings.TrimSpace(port.Host)
+		if port.Host == "" || port.Port <= 0 {
+			continue
+		}
+		key := fmt.Sprintf("%s:%d", port.Host, port.Port)
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		out = append(out, port)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Host == out[j].Host {
+			return out[i].Port < out[j].Port
+		}
+		return out[i].Host < out[j].Host
+	})
+	return out
 }
 
 func normalizeMountMode(mode string) string {

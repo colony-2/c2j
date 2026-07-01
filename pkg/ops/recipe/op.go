@@ -132,7 +132,7 @@ func getRecipeOutput(deps ops.OpDependencies, ctx context.Context, input Started
 func startSingleJob(deps ops.OpDependencies, ctx context.Context, input SingleRecipeWithRef) (StartedJob, error) {
 	parentJobKey := deps.JobTool().GetJobKey()
 	recipeSourceRepo, recipeSourceRef := currentRecipeSource(deps)
-	keys, err := startJobs(ctx, parentJobKey, currentInvocation(deps), deps.WorkflowControl(), recipeSourceRepo, recipeSourceRef, []SingleRecipe{input.SingleRecipe}, input.GitRef, parentContextFromDeps(deps))
+	keys, err := startJobs(ctx, deps, parentJobKey, currentInvocation(deps), deps.WorkflowControl(), recipeSourceRepo, recipeSourceRef, []SingleRecipe{input.SingleRecipe}, input.GitRef, parentContextFromDeps(deps))
 	if err != nil {
 		return StartedJob{}, err
 	}
@@ -145,7 +145,7 @@ func startMultipleJobs(deps ops.OpDependencies, ctx context.Context, input Multi
 		resolved[i] = recipe
 	}
 	recipeSourceRepo, recipeSourceRef := currentRecipeSource(deps)
-	keys, err := startJobs(ctx, deps.JobTool().GetJobKey(), currentInvocation(deps), deps.WorkflowControl(), recipeSourceRepo, recipeSourceRef, resolved, input.GitRef, parentContextFromDeps(deps))
+	keys, err := startJobs(ctx, deps, deps.JobTool().GetJobKey(), currentInvocation(deps), deps.WorkflowControl(), recipeSourceRepo, recipeSourceRef, resolved, input.GitRef, parentContextFromDeps(deps))
 	if err != nil {
 		return StartedJobs{}, err
 	}

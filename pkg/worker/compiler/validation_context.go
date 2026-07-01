@@ -1,6 +1,7 @@
 package compiler
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -37,6 +38,14 @@ func (v *validationJobContext) AwaitJobs(jobIds ...string) error {
 		return nil
 	}
 	return v.inner.AwaitJobs(jobIds...)
+}
+
+func (v *validationJobContext) SubmitJob(context.Context, jobdb.SubmitJob) (jobdb.JobKey, error) {
+	return jobdb.JobKey{}, fmt.Errorf("submitting jobs is not supported during validation")
+}
+
+func (v *validationJobContext) SubmitRestartJob(context.Context, jobdb.SubmitRestartJob) (jobdb.JobKey, error) {
+	return jobdb.JobKey{}, fmt.Errorf("submitting restart jobs is not supported during validation")
 }
 
 func wrapValidationContext(ctx workflow.Context, commitContext contextual.GitCommitContext, resolvedSelectors map[string]string, resolvedGitRefs map[string]string) workflow.Context {

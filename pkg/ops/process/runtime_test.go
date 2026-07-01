@@ -79,7 +79,7 @@ func TestShaiAppendResourceSetSkipsMountsCoveredByWorkspaceRoot(t *testing.T) {
 	result, err := TransformOperationPaths(context.Background(), map[string]interface{}{"type": "shai"}, host)
 	require.NoError(t, err)
 
-	appendSet, err := shaiAppendResourceSet(result.Runtime.Mounts, host.Workdir, DefaultShaiWorkdir)
+	appendSet, err := shaiAppendResourceSet(result.Runtime.Mounts, nil, host.Workdir, DefaultShaiWorkdir)
 	require.NoError(t, err)
 	require.NotNil(t, appendSet)
 	require.Len(t, appendSet.Mounts, 1)
@@ -93,9 +93,24 @@ func TestShaiAppendResourceSetRejectsConflictingDuplicateTargets(t *testing.T) {
 	_, err := shaiAppendResourceSet([]ops.RequiredMount{
 		{Source: filepath.Join(root, "a"), Target: "/src/inbox", Mode: ops.MountModeReadWrite},
 		{Source: filepath.Join(root, "b"), Target: "/src/inbox", Mode: ops.MountModeReadWrite},
-	}, root, DefaultShaiWorkdir)
+	}, nil, root, DefaultShaiWorkdir)
 	require.Error(t, err)
 	require.True(t, strings.Contains(err.Error(), "duplicate mount target"), err.Error())
+}
+
+func TestShaiAppendResourceSetIncludesPorts(t *testing.T) {
+	root := t.TempDir()
+	appendSet, err := shaiAppendResourceSet(nil, []ops.RequiredPort{
+		{Host: "host.docker.internal", Port: 34567},
+		{Host: "host.docker.internal", Port: 34567},
+		{Host: "", Port: 2222},
+	}, root, DefaultShaiWorkdir)
+	require.NoError(t, err)
+	require.NotNil(t, appendSet)
+	require.Empty(t, appendSet.Mounts)
+	require.Len(t, appendSet.Ports, 1)
+	require.Equal(t, "host.docker.internal", appendSet.Ports[0].Host)
+	require.Equal(t, 34567, appendSet.Ports[0].Port)
 }
 
 func TestExecuteProcessTimeoutKillsHostProcessTree(t *testing.T) {

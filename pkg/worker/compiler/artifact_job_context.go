@@ -1,6 +1,7 @@
 package compiler
 
 import (
+	"context"
 	"log/slog"
 	"time"
 
@@ -16,6 +17,14 @@ type thinpackForwarder struct {
 
 func (a *thinpackForwarder) AwaitJobs(jobIds ...string) error {
 	return a.inner.AwaitJobs(jobIds...)
+}
+
+func (a *thinpackForwarder) SubmitJob(ctx context.Context, submit jobdb.SubmitJob) (jobdb.JobKey, error) {
+	return a.inner.SubmitJob(ctx, submit)
+}
+
+func (a *thinpackForwarder) SubmitRestartJob(ctx context.Context, restart jobdb.SubmitRestartJob) (jobdb.JobKey, error) {
+	return a.inner.SubmitRestartJob(ctx, restart)
 }
 
 func newThinPackForwardingJobContext(inner jobworkflow.JobContext) *thinpackForwarder {

@@ -866,6 +866,12 @@ func (j *testJobContext) AwaitJobs(_ ...string) error          { return nil }
 func (j *testJobContext) GetJobKey() jobdb.JobKey              { return j.jobKey }
 func (j *testJobContext) Logger() *slog.Logger                 { return nil }
 func (j *testJobContext) AwaitDuration(_ jobdb.Duration) error { return nil }
+func (j *testJobContext) SubmitJob(context.Context, jobdb.SubmitJob) (jobdb.JobKey, error) {
+	return jobdb.JobKey{}, fmt.Errorf("submitting jobs is not supported by recipe test context")
+}
+func (j *testJobContext) SubmitRestartJob(context.Context, jobdb.SubmitRestartJob) (jobdb.JobKey, error) {
+	return jobdb.JobKey{}, fmt.Errorf("submitting restart jobs is not supported by recipe test context")
+}
 
 func (j *testJobContext) VarsResolved(scope template.ScopeType, nodePath string, vars map[string]interface{}) {
 	j.vars = append(j.vars, RenderedVarsDiagnostic{

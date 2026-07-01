@@ -1,12 +1,20 @@
 package submitjob
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/colony-2/c2j/pkg/childbroker"
+	"github.com/colony-2/c2j/pkg/jobcontext"
+	"github.com/colony-2/c2j/pkg/starter"
+	"github.com/colony-2/jobdb/pkg/jobdb"
 )
 
 func TestResolveSelfTargetRejectsEmptySelfRepo(t *testing.T) {
@@ -229,6 +237,108 @@ func TestLoadRecipeStartPassesThroughGitSelector(t *testing.T) {
 	if name != selector {
 		t.Fatalf("recipe name = %q, want %q", name, selector)
 	}
+}
+
+func TestRunSubmitsThroughChildJobBrokerWhenPresent(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	root := t.TempDir()
+	recipePath := filepath.Join(root, "child.yaml")
+	recipeYAML := `
+id: child_from_submitjob
+version: "1.0.0"
+sequence:
+  - id: noop
+    op: command_execution
+    inputs:
+      run: "echo child"
+outputs:
+  child: "{{ sequence.noop.outputs.stdout }}"
+`
+	if err := os.WriteFile(recipePath, []byte(strings.TrimSpace(recipeYAML)+"\n"), 0o644); err != nil {
+		t.Fatalf("write recipe: %v", err)
+	}
+
+	current := jobcontext.Current{
+		TenantID:           "0",
+		JobID:              "parent-submitjob",
+		JobType:            starter.RecipeJobType,
+		OpType:             "command_execution",
+		OpStep:             "submit-child",
+		OpTaskType:         "activity:command_execution",
+		InvocationPath:     "sequence.submit-child",
+		InvocationSequence: 4,
+		InvocationHash:     "submitjob-hash",
+	}
+	submitter := &submitjobCaptureSubmitter{}
+	broker, err := childbroker.Start(ctx, childbroker.Options{
+		Current:   current,
+		Submitter: submitter,
+	})
+	if err != nil {
+		t.Fatalf("Start(): %v", err)
+	}
+	defer broker.Close()
+
+	for key, value := range jobcontext.EnvForCurrent(current) {
+		t.Setenv(key, value)
+	}
+	for key, value := range broker.Env() {
+		t.Setenv(key, value)
+	}
+
+	var stdout bytes.Buffer
+	if err := Run(ctx, Options{
+		JobDBURI:   "embed:///",
+		Cell:       root,
+		RecipeFile: recipePath,
+		WorkingDir: root,
+		JSONOutput: true,
+		Stdout:     &stdout,
+	}); err != nil {
+		t.Fatalf("Run(): %v", err)
+	}
+
+	var submitted struct {
+		TenantID string `json:"tenant_id"`
+		JobID    string `json:"job_id"`
+		Recipe   string `json:"recipe"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &submitted); err != nil {
+		t.Fatalf("decode submit output %q: %v", stdout.String(), err)
+	}
+	if submitted.TenantID != "0" || submitted.JobID == "" || submitted.Recipe != "child_from_submitjob" {
+		t.Fatalf("unexpected submit output: %#v", submitted)
+	}
+	if submitter.calls != 1 {
+		t.Fatalf("submit calls = %d, want 1", submitter.calls)
+	}
+	if submitter.last.TenantId != "0" || submitter.last.JobID != submitted.JobID {
+		t.Fatalf("unexpected submitted job: %#v", submitter.last)
+	}
+
+	var meta starter.JobMetadata
+	if err := json.Unmarshal(submitter.last.Metadata, &meta); err != nil {
+		t.Fatalf("decode metadata: %v", err)
+	}
+	if meta.ParentJobID != "parent-submitjob" || meta.ParentInvocationHash != "submitjob-hash" {
+		t.Fatalf("broker did not attach current job metadata: %#v", meta)
+	}
+}
+
+type submitjobCaptureSubmitter struct {
+	calls int
+	last  jobdb.SubmitJob
+}
+
+func (s *submitjobCaptureSubmitter) SubmitJob(_ context.Context, job jobdb.SubmitJob) (jobdb.JobKey, error) {
+	s.calls++
+	s.last = job
+	if s.last.JobID == "" {
+		s.last.JobID = "captured-child"
+	}
+	return jobdb.JobKey{TenantId: job.TenantId, JobId: s.last.JobID}, nil
 }
 
 func TestLoadInputsAddsPromptField(t *testing.T) {
