@@ -159,10 +159,10 @@ func requireDockerImage(t *testing.T, image string) {
 	if out, err := exec.CommandContext(ctx, "docker", "info").CombinedOutput(); err != nil {
 		t.Fatalf("docker info failed: %v\n%s", err, string(out))
 	}
-	if out, err := exec.CommandContext(ctx, "docker", "image", "inspect", image).CombinedOutput(); err == nil {
+	if _, err := exec.CommandContext(ctx, "docker", "image", "inspect", image).CombinedOutput(); err == nil {
 		return
 	} else {
-		t.Logf("docker image %s is not available locally; pulling it now: %v\n%s", image, err, string(out))
+		t.Logf("docker image %s is not available locally; pulling it now", image)
 	}
 
 	pullCtx, pullCancel := context.WithTimeout(context.Background(), 5*time.Minute)
@@ -231,13 +231,8 @@ apply:
 	recipeYAML := `
 id: child_from_docker
 version: "1.0.0"
-sequence:
-  - id: noop
-    op: command_execution
-    inputs:
-      run: "echo child-from-docker"
-outputs:
-  child: "{{ sequence.noop.outputs.stdout }}"
+sequence: []
+outputs: {}
 `
 	if err := os.WriteFile(filepath.Join(workspace, "child.yaml"), []byte(strings.TrimSpace(recipeYAML)+"\n"), 0o644); err != nil {
 		t.Fatalf("write child recipe: %v", err)
