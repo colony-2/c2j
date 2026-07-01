@@ -17,6 +17,7 @@ import (
 	"github.com/colony-2/c2j/pkg/worker/workflow"
 	"github.com/colony-2/c2j/pkg/workflowctl"
 	"github.com/gorilla/mux"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -65,24 +66,17 @@ inputs:
 		GitRef:     gitCtx.ParentRef,
 	}
 
-	// Start the job in background
-	errCh := make(chan error)
-	go func() {
-		_, err := starter.StartRecipeJob(context.Background(), job, eng, *testRecipe)
-		errCh <- err
-	}()
+	_, err = starter.StartRecipeJob(context.Background(), job, eng, *testRecipe)
+	require.NoError(t, err)
 
 	// Wait for job to reach Ready status
 	var inputs []PendingInput
-	for i := 0; i < 20; i++ {
-		time.Sleep(100 * time.Millisecond)
+	require.EventuallyWithT(t, func(c *assert.CollectT) {
 		inputs, err = mgmtService.collectPendingInputs(context.Background(), "test-project")
-		require.NoError(t, err)
-		if len(inputs) > 0 {
-			break
-		}
-	}
-	require.Equal(t, 1, len(inputs), "Expected 1 pending input after waiting")
+		assert.NoError(c, err)
+		assert.Len(c, inputs, 1)
+	}, 20*time.Second, 100*time.Millisecond, "Expected 1 pending input after waiting")
+	require.Len(t, inputs, 1)
 
 	// Setup router (simulating how the API server does it)
 	router := mux.NewRouter()
@@ -160,9 +154,6 @@ inputs:
 		require.Equal(t, "text/event-stream", w.Header().Get("Content-Type"))
 	})
 
-	// Wait for job completion
-	err = <-errCh
-	require.NoError(t, err)
 }
 
 // TestMissingProjectIdParameter verifies that missing projectId returns 400

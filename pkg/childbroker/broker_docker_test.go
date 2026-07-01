@@ -187,6 +187,10 @@ func TestBrokerSubmitFromMountedC2JInShai(t *testing.T) {
 
 func requireDockerImage(t *testing.T, image string) {
 	t.Helper()
+	if _, err := exec.LookPath("docker"); err != nil {
+		t.Skipf("skipping Docker/Shai child broker integration test because docker is not installed: %v", err)
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
