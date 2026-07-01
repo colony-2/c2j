@@ -111,6 +111,46 @@ func TestBrokerRejectsCrossTenantSubmit(t *testing.T) {
 	}
 }
 
+func TestBrokerSubmitReturnsAssignedJobIDWhenStartOmitsJobID(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	submitter := &captureSubmitter{}
+	broker, err := Start(ctx, Options{
+		Current: jobcontext.Current{
+			TenantID:       "tenant",
+			JobID:          "parent",
+			InvocationHash: "hash-1",
+		},
+		Submitter: submitter,
+	})
+	if err != nil {
+		t.Fatalf("Start(): %v", err)
+	}
+	defer broker.Close()
+
+	resp, err := Submit(ctx, brokerConfig(t, broker), SubmitRequest{
+		Start: workflowctl.StartJob{
+			TenantId:   "tenant",
+			RecipeName: "deploy",
+		},
+	})
+	if err != nil {
+		t.Fatalf("Submit(): %v", err)
+	}
+	if resp.JobID != "captured-child" {
+		t.Fatalf("response job id = %q, want assigned id", resp.JobID)
+	}
+	if submitter.last.JobID != "" {
+		t.Fatalf("submitted request job id = %q, want empty request id", submitter.last.JobID)
+	}
+
+	started := broker.StartedJobs()
+	if len(started.JobIDs) != 1 || started.JobIDs[0] != "captured-child" {
+		t.Fatalf("unexpected started jobs: %#v", started)
+	}
+}
+
 func brokerConfig(t *testing.T, broker *Server) jobcontext.ChildJobBroker {
 	t.Helper()
 	cfg, ok, err := jobcontext.ChildJobBrokerFromEnv(func(key string) string { return broker.Env()[key] })
@@ -124,12 +164,18 @@ func brokerConfig(t *testing.T, broker *Server) jobcontext.ChildJobBroker {
 }
 
 type captureSubmitter struct {
-	calls int
-	last  jobdb.SubmitJob
+	calls   int
+	last    jobdb.SubmitJob
+	lastKey jobdb.JobKey
 }
 
 func (s *captureSubmitter) SubmitJob(_ context.Context, job jobdb.SubmitJob) (jobdb.JobKey, error) {
 	s.calls++
 	s.last = job
-	return jobdb.JobKey{TenantId: job.TenantId, JobId: job.JobID}, nil
+	jobID := job.JobID
+	if jobID == "" {
+		jobID = "captured-child"
+	}
+	s.lastKey = jobdb.JobKey{TenantId: job.TenantId, JobId: jobID}
+	return s.lastKey, nil
 }

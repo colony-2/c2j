@@ -156,7 +156,7 @@ func TestBrokerSubmitFromMountedC2JInShai(t *testing.T) {
 	if submitter.calls != 1 {
 		t.Fatalf("submit calls = %d, want 1", submitter.calls)
 	}
-	if submitter.last.TenantId != "0" || submitter.last.JobID != submitted.JobID {
+	if submitter.last.TenantId != "0" || submitter.lastKey.JobId != submitted.JobID {
 		t.Fatalf("unexpected submitted job: %#v", submitter.last)
 	}
 
