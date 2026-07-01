@@ -25,6 +25,7 @@ jobs:
           ref: ${{ github.sha }}
           check-name: 'test-summary'
           repo-token: ${{ secrets.GITHUB_TOKEN }}
+          allowed-conclusions: success
           wait-interval: 10
 
   # Step 2: Create tag (only when triggered by main push, after tests pass)
@@ -55,7 +56,10 @@ jobs:
     needs: [ create-tag ]
     if: |
       always() &&
-      (needs.create-tag.result == 'success' || needs.create-tag.result == 'skipped')
+      (
+        (github.ref_type == 'branch' && github.ref_name == 'main' && needs.create-tag.result == 'success') ||
+        (github.ref_type == 'tag' && startsWith(github.ref_name, 'v'))
+      )
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
