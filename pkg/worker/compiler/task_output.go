@@ -69,6 +69,7 @@ func decodeActivityInvocationOutput(payload []byte) (workerops.ActivityInvocatio
 		NextTask:     raw.NextTask,
 		OpOutput:     coerced,
 		ArtifactRefs: raw.ArtifactRefs,
+		Jobs:         raw.Jobs,
 	}, nil
 }
 

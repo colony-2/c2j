@@ -1,4 +1,4 @@
-package listjobs
+package childjobs
 
 import (
 	"context"
@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/colony-2/c2j/cmd/c2j/internal/defaults"
+	"github.com/colony-2/c2j/pkg/jobcontext"
 	"github.com/colony-2/c2j/pkg/recipejob"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 )
@@ -19,18 +20,18 @@ type Options struct {
 	TenantID string
 	SWFURL   string
 
+	ParentTenantID       string
+	ParentJobID          string
+	ParentInvocationHash string
+	AllParentInvocations bool
+
 	Statuses      []string
-	JobTypes      []string
-	JobIDs        []string
-	WaitingFor    []string
 	CreatedAfter  string
 	CreatedBefore string
 	PageSize      int
 	PageToken     string
 	All           bool
 	JSONOutput    bool
-	Self          bool
-	Cell          string
 	WorkingDir    string
 
 	Stdout io.Writer
@@ -61,6 +62,22 @@ func (o *Options) Complete(ctx context.Context) error {
 	o.JobDBURI = target.URI
 	o.SWFURL = target.RuntimeURL
 	o.TenantID = target.TenantID
+
+	current, ok, err := jobcontext.CurrentFromEnv(os.Getenv)
+	if err != nil {
+		return err
+	}
+	if ok {
+		if strings.TrimSpace(o.ParentTenantID) == "" {
+			o.ParentTenantID = current.TenantID
+		}
+		if strings.TrimSpace(o.ParentJobID) == "" {
+			o.ParentJobID = current.JobID
+		}
+		if strings.TrimSpace(o.ParentInvocationHash) == "" {
+			o.ParentInvocationHash = current.InvocationHash
+		}
+	}
 	return nil
 }
 
@@ -71,16 +88,22 @@ func (o Options) Validate() error {
 	if strings.TrimSpace(o.SWFURL) == "" {
 		return fmt.Errorf("--jobdb is required (or %s, or project jobdb)", defaults.JobDBEnv)
 	}
+	if strings.TrimSpace(o.ParentTenantID) == "" {
+		return fmt.Errorf("parent tenant ID is required; run inside an op or pass --parent-tenant-id")
+	}
+	if strings.TrimSpace(o.ParentJobID) == "" {
+		return fmt.Errorf("parent job ID is required; run inside an op or pass --parent-job-id")
+	}
+	if strings.TrimSpace(o.ParentTenantID) != strings.TrimSpace(o.TenantID) {
+		return fmt.Errorf("child job listing is limited to the selected tenant %q; parent tenant is %q", o.TenantID, o.ParentTenantID)
+	}
+	if !o.AllParentInvocations && strings.TrimSpace(o.ParentInvocationHash) == "" {
+		return fmt.Errorf("parent invocation hash is required; run inside an op, pass --parent-invocation-hash, or use --all-ops")
+	}
 	if o.PageSize < 0 {
 		return fmt.Errorf("--page-size must be >= 0")
 	}
-	if o.Self && strings.TrimSpace(o.Cell) != "" {
-		return fmt.Errorf("--self and --cell are mutually exclusive")
-	}
 	if _, err := parseJobStatuses(o.Statuses); err != nil {
-		return err
-	}
-	if _, err := parseWaitingForFilters(o.WaitingFor); err != nil {
 		return err
 	}
 	if _, err := parseOptionalTime(o.CreatedAfter); err != nil {
@@ -99,7 +122,7 @@ func (o Options) Validate() error {
 
 func parseJobStatuses(values []string) ([]jobdb.JobStatus, error) {
 	if len(values) == 0 {
-		return defaultVisibleStatuses(), nil
+		return recipejob.DefaultVisibleStatuses(), nil
 	}
 
 	out := make([]jobdb.JobStatus, 0, len(values))
@@ -124,41 +147,11 @@ func parseJobStatuses(values []string) ([]jobdb.JobStatus, error) {
 	return out, nil
 }
 
-func defaultVisibleStatuses() []jobdb.JobStatus {
-	return recipejob.DefaultVisibleStatuses()
-}
-
-func storesForStatuses(statuses []jobdb.JobStatus) []jobdb.JobStore {
-	return recipejob.StoresForStatuses(statuses)
-}
-
-func parseWaitingForFilters(values []string) ([]jobdb.JobTaskFilter, error) {
-	out := make([]jobdb.JobTaskFilter, 0, len(values))
-	for _, value := range values {
-		for _, part := range splitCSV(value) {
-			part = strings.TrimSpace(part)
-			if part == "" {
-				continue
-			}
-			jobType, taskType, ok := strings.Cut(part, ":")
-			if !ok || strings.TrimSpace(jobType) == "" || strings.TrimSpace(taskType) == "" {
-				return nil, fmt.Errorf("--waiting-for must be in JOBTYPE:TASKTYPE form, got %q", part)
-			}
-			out = append(out, jobdb.JobTaskFilter{
-				JobType:  strings.TrimSpace(jobType),
-				TaskType: strings.TrimSpace(taskType),
-			})
-		}
-	}
-	return out, nil
-}
-
 func parseOptionalTime(value string) (*time.Time, error) {
 	value = strings.TrimSpace(value)
 	if value == "" {
 		return nil, nil
 	}
-
 	for _, layout := range []string{time.RFC3339Nano, time.RFC3339} {
 		if parsed, err := time.Parse(layout, value); err == nil {
 			return &parsed, nil

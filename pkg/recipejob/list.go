@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/colony-2/c2j/pkg/jobcontext"
 	"github.com/colony-2/c2j/pkg/starter"
 	"github.com/colony-2/c2j/pkg/worker/compiler"
 	"github.com/colony-2/c2j/pkg/workflowctl"
@@ -40,35 +41,54 @@ type ListRecipeJobsResponse struct {
 	NextPageToken string      `json:"next_page_token,omitempty"`
 }
 
+type ListChildRecipeJobsRequest struct {
+	TenantID             string
+	ParentTenantID       string
+	ParentJobID          string
+	ParentInvocationHash string
+	AllParentInvocations bool
+	Statuses             []jobdb.JobStatus
+	Stores               []jobdb.JobStore
+	CreatedAfter         *time.Time
+	CreatedBefore        *time.Time
+	PageSize             int
+	PageToken            string
+}
+
 type GetRecipeJobRequest struct {
 	TenantID string
 	JobID    string
 }
 
 type RecipeJob struct {
-	TenantID         string          `json:"tenant_id"`
-	JobID            string          `json:"job_id"`
-	Status           jobdb.JobStatus `json:"status"`
-	Store            jobdb.JobStore  `json:"store"`
-	JobType          string          `json:"job_type"`
-	RecipeName       string          `json:"recipe"`
-	RepositorySource string          `json:"repo,omitempty"`
-	CellID           string          `json:"cell_id,omitempty"`
-	CellName         string          `json:"cell_name,omitempty"`
-	GitRef           string          `json:"git_ref,omitempty"`
-	InputHash        string          `json:"input_hash,omitempty"`
-	SubmittedAt      *time.Time      `json:"submitted_at,omitempty"`
-	CreatedAt        time.Time       `json:"created_at"`
-	AvailableAt      time.Time       `json:"available_at"`
-	ArchivedAt       *time.Time      `json:"archived_at,omitempty"`
-	LeaseExpiresAt   *time.Time      `json:"lease_expires_at,omitempty"`
-	ExpiresAt        *time.Time      `json:"expires_at,omitempty"`
-	NextNeed         string          `json:"next_need,omitempty"`
-	TaskWaitNext     string          `json:"task_wait_next,omitempty"`
-	TaskWaitInput    *int64          `json:"task_wait_input,omitempty"`
-	TaskWaitOutput   *int64          `json:"task_wait_output,omitempty"`
-	WaitFor          []string        `json:"wait_for,omitempty"`
-	CancelRequested  bool            `json:"cancel_requested,omitempty"`
+	TenantID         string             `json:"tenant_id"`
+	JobID            string             `json:"job_id"`
+	Status           jobdb.JobStatus    `json:"status"`
+	Store            jobdb.JobStore     `json:"store"`
+	JobType          string             `json:"job_type"`
+	RecipeName       string             `json:"recipe"`
+	RepositorySource string             `json:"repo,omitempty"`
+	CellID           string             `json:"cell_id,omitempty"`
+	CellName         string             `json:"cell_name,omitempty"`
+	GitRef           string             `json:"git_ref,omitempty"`
+	InputHash        string             `json:"input_hash,omitempty"`
+	Parent           *jobcontext.Parent `json:"parent,omitempty"`
+	SubmittedAt      *time.Time         `json:"submitted_at,omitempty"`
+	CreatedAt        time.Time          `json:"created_at"`
+	AvailableAt      time.Time          `json:"available_at"`
+	ArchivedAt       *time.Time         `json:"archived_at,omitempty"`
+	LeaseExpiresAt   *time.Time         `json:"lease_expires_at,omitempty"`
+	ExpiresAt        *time.Time         `json:"expires_at,omitempty"`
+	NextNeed         string             `json:"next_need,omitempty"`
+	TaskWaitNext     string             `json:"task_wait_next,omitempty"`
+	TaskWaitInput    *int64             `json:"task_wait_input,omitempty"`
+	TaskWaitOutput   *int64             `json:"task_wait_output,omitempty"`
+	WaitFor          []string           `json:"wait_for,omitempty"`
+	CancelRequested  bool               `json:"cancel_requested,omitempty"`
+}
+
+type workflowLister interface {
+	ListJobs(ctx context.Context, request jobdb.ListJobsRequest) (jobs []workflowctl.JobItem, nextPage string, err error)
 }
 
 func BuildListJobsRequest(req ListRecipeJobsRequest) (jobdb.ListJobsRequest, error) {
@@ -128,6 +148,60 @@ func BuildListJobsRequest(req ListRecipeJobsRequest) (jobdb.ListJobsRequest, err
 	}, nil
 }
 
+func BuildListChildJobsRequest(req ListChildRecipeJobsRequest) (jobdb.ListJobsRequest, error) {
+	tenantID := strings.TrimSpace(req.TenantID)
+	if tenantID == "" {
+		return jobdb.ListJobsRequest{}, fmt.Errorf("tenant ID is required")
+	}
+	parentTenantID := strings.TrimSpace(req.ParentTenantID)
+	if parentTenantID == "" {
+		return jobdb.ListJobsRequest{}, fmt.Errorf("parent tenant ID is required")
+	}
+	parentJobID := strings.TrimSpace(req.ParentJobID)
+	if parentJobID == "" {
+		return jobdb.ListJobsRequest{}, fmt.Errorf("parent job ID is required")
+	}
+	parentInvocationHash := strings.TrimSpace(req.ParentInvocationHash)
+	if !req.AllParentInvocations && parentInvocationHash == "" {
+		return jobdb.ListJobsRequest{}, fmt.Errorf("parent invocation hash is required unless all parent invocations are requested")
+	}
+
+	metadataFilter, err := jobdb.Metadata().EqualFilter(starter.MetaFieldParentTenantID, parentTenantID)
+	if err != nil {
+		return jobdb.ListJobsRequest{}, err
+	}
+	parentJobFilter, err := jobdb.Metadata().EqualFilter(starter.MetaFieldParentJobID, parentJobID)
+	if err != nil {
+		return jobdb.ListJobsRequest{}, err
+	}
+	metadataFilter, err = metadataFilter.AndFilter(parentJobFilter)
+	if err != nil {
+		return jobdb.ListJobsRequest{}, err
+	}
+	if !req.AllParentInvocations {
+		invocationFilter, err := jobdb.Metadata().EqualFilter(starter.MetaFieldParentInvocationHash, parentInvocationHash)
+		if err != nil {
+			return jobdb.ListJobsRequest{}, err
+		}
+		metadataFilter, err = metadataFilter.AndFilter(invocationFilter)
+		if err != nil {
+			return jobdb.ListJobsRequest{}, err
+		}
+	}
+
+	return jobdb.ListJobsRequest{
+		TenantIds:      []string{tenantID},
+		Statuses:       append([]jobdb.JobStatus(nil), req.Statuses...),
+		Stores:         append([]jobdb.JobStore(nil), req.Stores...),
+		JobTypes:       []string{starter.RecipeJobType},
+		MetadataFilter: metadataFilter,
+		CreatedAfter:   req.CreatedAfter,
+		CreatedBefore:  req.CreatedBefore,
+		PageSize:       req.PageSize,
+		PageToken:      strings.TrimSpace(req.PageToken),
+	}, nil
+}
+
 func ListRecipeJobs(ctx context.Context, lister Lister, req ListRecipeJobsRequest) (ListRecipeJobsResponse, error) {
 	if lister == nil {
 		return ListRecipeJobsResponse{}, fmt.Errorf("job lister is required")
@@ -157,6 +231,91 @@ func ListRecipeJobs(ctx context.Context, lister Lister, req ListRecipeJobsReques
 		Jobs:          jobs,
 		NextPageToken: resp.NextPageToken,
 	}, nil
+}
+
+func ListChildRecipeJobs(ctx context.Context, lister Lister, req ListChildRecipeJobsRequest) (ListRecipeJobsResponse, error) {
+	if lister == nil {
+		return ListRecipeJobsResponse{}, fmt.Errorf("job lister is required")
+	}
+	listReq, err := BuildListChildJobsRequest(req)
+	if err != nil {
+		return ListRecipeJobsResponse{}, err
+	}
+	resp, err := lister.ListJobs(ctx, listReq)
+	if err != nil {
+		return ListRecipeJobsResponse{}, err
+	}
+	return recipeJobsFromSummaries(resp.Jobs, resp.NextPageToken)
+}
+
+func ListChildRecipeJobsFromWorkflow(ctx context.Context, lister workflowLister, req ListChildRecipeJobsRequest) (ListRecipeJobsResponse, error) {
+	if lister == nil {
+		return ListRecipeJobsResponse{}, fmt.Errorf("job lister is required")
+	}
+	listReq, err := BuildListChildJobsRequest(req)
+	if err != nil {
+		return ListRecipeJobsResponse{}, err
+	}
+	items, nextPageToken, err := lister.ListJobs(ctx, listReq)
+	if err != nil {
+		return ListRecipeJobsResponse{}, err
+	}
+	summaries := make([]jobdb.JobSummary, 0, len(items))
+	for _, item := range items {
+		summaries = append(summaries, item.JobSummary)
+	}
+	return recipeJobsFromSummaries(summaries, nextPageToken)
+}
+
+func CollectStartedJobs(ctx context.Context, lister workflowLister, current jobcontext.Current) (jobcontext.StartedJobsContext, error) {
+	if lister == nil || !current.HasJob() || strings.TrimSpace(current.InvocationHash) == "" {
+		return jobcontext.StartedJobsContext{}, nil
+	}
+	req := ListChildRecipeJobsRequest{
+		TenantID:             current.TenantID,
+		ParentTenantID:       current.TenantID,
+		ParentJobID:          current.JobID,
+		ParentInvocationHash: current.InvocationHash,
+		Stores:               []jobdb.JobStore{jobdb.JobStoreActive, jobdb.JobStoreArchived},
+	}
+	var all []RecipeJob
+	for {
+		resp, err := ListChildRecipeJobsFromWorkflow(ctx, lister, req)
+		if err != nil {
+			return jobcontext.StartedJobsContext{}, err
+		}
+		all = append(all, resp.Jobs...)
+		if strings.TrimSpace(resp.NextPageToken) == "" {
+			break
+		}
+		req.PageToken = resp.NextPageToken
+	}
+	return StartedJobsContextFromRecipeJobs(all), nil
+}
+
+func StartedJobsContextFromRecipeJobs(jobs []RecipeJob) jobcontext.StartedJobsContext {
+	out := jobcontext.StartedJobsContext{
+		JobIDs: make([]string, 0, len(jobs)),
+		Items:  make([]jobcontext.StartedJobContext, 0, len(jobs)),
+	}
+	for _, job := range jobs {
+		if strings.TrimSpace(job.JobID) == "" {
+			continue
+		}
+		out.JobIDs = append(out.JobIDs, job.JobID)
+		parentInvocationHash := ""
+		if job.Parent != nil {
+			parentInvocationHash = job.Parent.InvocationHash
+		}
+		out.Items = append(out.Items, jobcontext.StartedJobContext{
+			TenantID:             job.TenantID,
+			JobID:                job.JobID,
+			RecipeName:           job.RecipeName,
+			Status:               string(job.Status),
+			ParentInvocationHash: parentInvocationHash,
+		})
+	}
+	return out
 }
 
 func GetRecipeJob(ctx context.Context, lister Lister, req GetRecipeJobRequest) (RecipeJob, error) {
@@ -230,6 +389,9 @@ func RecipeJobFromSummary(summary jobdb.JobSummary) (RecipeJob, bool, error) {
 		job.CellName = meta.CellName
 		job.RepositorySource = meta.RepositorySource
 		job.GitRef = meta.GitRef
+		if parent := parentFromMetadata(meta); parent.HasJob() {
+			job.Parent = &parent
+		}
 	}
 	if start != nil {
 		if strings.TrimSpace(job.RecipeName) == "" {
@@ -258,12 +420,53 @@ func RecipeJobFromSummary(summary jobdb.JobSummary) (RecipeJob, bool, error) {
 		}
 		job.InputHash = start.InputHash
 		job.SubmittedAt = start.SubmittedAt
+		if job.Parent == nil && start.Parent != nil && start.Parent.HasJob() {
+			parent := *start.Parent
+			job.Parent = &parent
+		}
 	}
 	if normalized, err := compiler.NormalizeGitRepositorySource(job.RepositorySource); err == nil {
 		job.RepositorySource = normalized
 	}
 
 	return job, true, nil
+}
+
+func recipeJobsFromSummaries(summaries []jobdb.JobSummary, nextPageToken string) (ListRecipeJobsResponse, error) {
+	jobs := make([]RecipeJob, 0, len(summaries))
+	for _, summary := range summaries {
+		job, ok, err := RecipeJobFromSummary(summary)
+		if err != nil {
+			return ListRecipeJobsResponse{}, err
+		}
+		if ok {
+			jobs = append(jobs, job)
+		}
+	}
+	return ListRecipeJobsResponse{
+		Jobs:          jobs,
+		NextPageToken: nextPageToken,
+	}, nil
+}
+
+func parentFromMetadata(meta *starter.JobMetadata) jobcontext.Parent {
+	if meta == nil {
+		return jobcontext.Parent{}
+	}
+	return jobcontext.Parent{
+		TenantID:           meta.ParentTenantID,
+		JobID:              meta.ParentJobID,
+		JobType:            meta.ParentJobType,
+		OpType:             meta.ParentOpType,
+		OpStep:             meta.ParentOpStep,
+		OpTaskType:         meta.ParentOpTaskType,
+		CellName:           meta.ParentCellName,
+		RepositorySource:   meta.ParentRepositorySource,
+		GitRef:             meta.ParentGitRef,
+		InvocationPath:     meta.ParentInvocationPath,
+		InvocationSequence: meta.ParentInvocationSequence,
+		InvocationHash:     meta.ParentInvocationHash,
+	}
 }
 
 func JobMetadataFromRaw(raw json.RawMessage) (*starter.JobMetadata, error) {

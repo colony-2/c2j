@@ -19,14 +19,14 @@ func newSubmitCmd() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "submit [prompt]",
-		Short: "Submit a new recipe job through the SWF runtime",
+		Short: "Submit a new recipe job through JobDB",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			runOpts := opts
 			runOpts.Prompt = ""
 			runOpts.PromptSet = false
 			if useEmbed {
-				runOpts.SWFURL = defaults.EmbedURL
+				runOpts.JobDBURI = defaults.EmbedURL
 			}
 			if len(args) == 1 {
 				runOpts.Prompt = args[0]
@@ -37,8 +37,7 @@ func newSubmitCmd() *cobra.Command {
 	}
 
 	flags := cmd.Flags()
-	flags.StringVar(&opts.TenantID, "tenant-id", "", "Tenant/project ID for the job (defaults to project self.tenant_id or derived self.repo hash when available)")
-	flags.StringVar(&opts.SWFURL, "swf-url", "", "SWF runtime URL (http(s)://... or embed:///; defaults to "+defaults.SWFURL+")")
+	flags.StringVar(&opts.JobDBURI, "jobdb", "", "JobDB URI (http(s)://host/tenant or embed:///)")
 	flags.StringVar(&opts.Recipe, "recipe", "", "Recipe name or git selector to submit (defaults to default)")
 	flags.StringVar(&opts.RecipeFile, "recipe-file", "", "Path to a recipe YAML file to submit")
 	flags.StringVar(&opts.InputsJSON, "inputs-json", "", "Inline JSON object for recipe inputs")
@@ -47,7 +46,7 @@ func newSubmitCmd() *cobra.Command {
 	flags.BoolVar(&opts.Self, "self", false, "Target the current cell explicitly (also the default when --cell is omitted)")
 	flags.StringVar(&opts.Cell, "cell", "", "Target cell git repository (canonical repo, clone URL, or local path)")
 	flags.BoolVarP(&opts.RunAfterSubmit, "run", "r", false, "Run the submitted job immediately after submission")
-	flags.BoolVar(&useEmbed, "embed", false, "Use the embedded SWF runtime (equivalent to --swf-url "+defaults.EmbedURL+")")
+	flags.BoolVar(&useEmbed, "embed", false, "Use embedded JobDB (equivalent to --jobdb "+defaults.EmbedURL+")")
 	flags.BoolVar(&opts.JSONOutput, "json", false, "Emit the submitted job identity as JSON")
 
 	return cmd

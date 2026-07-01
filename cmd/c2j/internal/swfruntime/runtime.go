@@ -11,7 +11,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/colony-2/c2j/cmd/c2j/internal/defaults"
 	"github.com/colony-2/c2j/pkg/jobdbschema"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	remoteruntime "github.com/colony-2/jobdb/pkg/jobdb/runtime/remote"
@@ -55,12 +54,12 @@ func OpenWorker(ctx context.Context, swfURL string, workerTenantID string) (*Han
 func open(ctx context.Context, swfURL string, workerTenantID string) (*Handle, error) {
 	swfURL = strings.TrimSpace(swfURL)
 	if swfURL == "" {
-		return nil, fmt.Errorf("SWF runtime URL is required")
+		return nil, fmt.Errorf("JobDB runtime URL is required")
 	}
 
 	parsed, err := url.Parse(swfURL)
 	if err != nil {
-		return nil, fmt.Errorf("parse SWF runtime URL: %w", err)
+		return nil, fmt.Errorf("parse JobDB runtime URL: %w", err)
 	}
 
 	switch parsed.Scheme {
@@ -69,7 +68,7 @@ func open(ctx context.Context, swfURL string, workerTenantID string) (*Handle, e
 	case "http", "https":
 		return openRemote(swfURL, workerTenantID)
 	default:
-		return nil, fmt.Errorf("unsupported SWF runtime URL %q", swfURL)
+		return nil, fmt.Errorf("unsupported JobDB runtime URL %q", swfURL)
 	}
 }
 
@@ -102,10 +101,10 @@ func openRemote(swfURL string, workerTenantID string) (*Handle, error) {
 
 func openEmbed(ctx context.Context, parsed *url.URL, rawURL string, workerTenantID string) (*Handle, error) {
 	if parsed == nil {
-		return nil, fmt.Errorf("parse SWF runtime URL: missing parsed URL")
+		return nil, fmt.Errorf("parse JobDB runtime URL: missing parsed URL")
 	}
 	if parsed.Host != "" || parsed.RawQuery != "" || parsed.Fragment != "" || (parsed.Path != "" && parsed.Path != "/") {
-		return nil, fmt.Errorf("unsupported SWF runtime URL %q: only embed:/// is supported", rawURL)
+		return nil, fmt.Errorf("unsupported JobDB runtime URL %q: only embed:/// is supported", rawURL)
 	}
 
 	root, err := resolveEmbedRoot()
@@ -191,16 +190,9 @@ func schemaAwareEngine(engine jobworkflow.Engine, runtime jobdb.WorkflowRuntime)
 }
 
 func resolveEmbedRoot() (string, error) {
-	if root := strings.TrimSpace(os.Getenv(defaults.EmbedRootEnv)); root != "" {
-		if !filepath.IsAbs(root) {
-			return "", fmt.Errorf("%s must be an absolute path", defaults.EmbedRootEnv)
-		}
-		return filepath.Clean(root), nil
-	}
-
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return "", fmt.Errorf("resolve home directory for embedded SWF runtime: %w", err)
+		return "", fmt.Errorf("resolve home directory for embedded JobDB runtime: %w", err)
 	}
 	return filepath.Join(home, ".c2j", "embed", "default"), nil
 }
@@ -218,7 +210,7 @@ func acquireEmbedLock(root string) (*embedLock, error) {
 	if err := unix.Flock(int(file.Fd()), unix.LOCK_EX|unix.LOCK_NB); err != nil {
 		_ = file.Close()
 		if errors.Is(err, unix.EWOULDBLOCK) || errors.Is(err, unix.EAGAIN) {
-			return nil, fmt.Errorf("embedded SWF runtime at %s is already in use", root)
+			return nil, fmt.Errorf("embedded JobDB runtime at %s is already in use", root)
 		}
 		return nil, fmt.Errorf("lock runtime file %s: %w", lockPath, err)
 	}

@@ -22,6 +22,10 @@ import (
 	"net/http/httptest"
 )
 
+func testJobDBURI(serverURL string, tenantID string) string {
+	return strings.TrimRight(serverURL, "/") + "/" + tenantID
+}
+
 func TestRun_SubmitsJobThatCanBeRun(t *testing.T) {
 	t.Parallel()
 
@@ -56,8 +60,7 @@ outputs:
 
 	var submitStdout bytes.Buffer
 	if err := Run(ctx, Options{
-		TenantID:   tenantID,
-		SWFURL:     server.URL,
+		JobDBURI:   testJobDBURI(server.URL, tenantID),
 		RecipeFile: recipePath,
 		Cell:       baseRepo,
 		JSONOutput: true,
@@ -82,8 +85,7 @@ outputs:
 	var runStderr bytes.Buffer
 	if err := runjob.Run(ctx, runjob.Options{
 		JobID:        submitted.JobID,
-		TenantID:     tenantID,
-		SWFURL:       server.URL,
+		JobDBURI:     testJobDBURI(server.URL, tenantID),
 		WaitTimeout:  5 * time.Second,
 		PollInterval: 10 * time.Millisecond,
 		InputMode:    "fail",
@@ -171,8 +173,7 @@ outputs:
 
 	var submitStdout bytes.Buffer
 	if err := Run(ctx, Options{
-		TenantID:      tenantID,
-		SWFURL:        server.URL,
+		JobDBURI:      testJobDBURI(server.URL, tenantID),
 		RecipeFile:    recipePath,
 		Cell:          baseRepo,
 		WorkingDir:    root,
@@ -196,8 +197,7 @@ outputs:
 	var runStderr bytes.Buffer
 	if err := runjob.Run(ctx, runjob.Options{
 		JobID:        submitted.JobID,
-		TenantID:     tenantID,
-		SWFURL:       server.URL,
+		JobDBURI:     testJobDBURI(server.URL, tenantID),
 		WaitTimeout:  5 * time.Second,
 		PollInterval: 10 * time.Millisecond,
 		InputMode:    "fail",
@@ -296,8 +296,7 @@ outputs:
 
 	var submitStdout bytes.Buffer
 	if err := Run(ctx, Options{
-		TenantID:      tenantID,
-		SWFURL:        server.URL,
+		JobDBURI:      testJobDBURI(server.URL, tenantID),
 		Recipe:        "parent-artifact-forwarding",
 		Cell:          baseRepo,
 		WorkingDir:    baseRepo,
@@ -321,8 +320,7 @@ outputs:
 	var firstParentStderr bytes.Buffer
 	err := runjob.Run(ctx, runjob.Options{
 		JobID:        submitted.JobID,
-		TenantID:     tenantID,
-		SWFURL:       server.URL,
+		JobDBURI:     testJobDBURI(server.URL, tenantID),
 		OnNotReady:   "fail-on-pending-jobs",
 		WaitTimeout:  5 * time.Second,
 		PollInterval: 10 * time.Millisecond,
@@ -339,8 +337,7 @@ outputs:
 	var childStderr bytes.Buffer
 	if err := runjob.Run(ctx, runjob.Options{
 		JobID:        childJobID,
-		TenantID:     tenantID,
-		SWFURL:       server.URL,
+		JobDBURI:     testJobDBURI(server.URL, tenantID),
 		WaitTimeout:  5 * time.Second,
 		PollInterval: 10 * time.Millisecond,
 		InputMode:    "fail",
@@ -354,8 +351,7 @@ outputs:
 	var finalParentStderr bytes.Buffer
 	if err := runjob.Run(ctx, runjob.Options{
 		JobID:        submitted.JobID,
-		TenantID:     tenantID,
-		SWFURL:       server.URL,
+		JobDBURI:     testJobDBURI(server.URL, tenantID),
 		WaitTimeout:  5 * time.Second,
 		PollInterval: 10 * time.Millisecond,
 		InputMode:    "fail",
@@ -428,8 +424,7 @@ outputs:
 
 	var submitStdout bytes.Buffer
 	if err := Run(ctx, Options{
-		TenantID:   tenantID,
-		SWFURL:     server.URL,
+		JobDBURI:   testJobDBURI(server.URL, tenantID),
 		Recipe:     "nucleus_submit_ref_recipe",
 		Cell:       baseRepo,
 		JSONOutput: true,
@@ -454,8 +449,7 @@ outputs:
 	var runStderr bytes.Buffer
 	if err := runjob.Run(ctx, runjob.Options{
 		JobID:        submitted.JobID,
-		TenantID:     tenantID,
-		SWFURL:       server.URL,
+		JobDBURI:     testJobDBURI(server.URL, tenantID),
 		WaitTimeout:  5 * time.Second,
 		PollInterval: 10 * time.Millisecond,
 		InputMode:    "fail",
@@ -521,8 +515,7 @@ outputs:
 
 	var submitStdout bytes.Buffer
 	if err := Run(ctx, Options{
-		TenantID:   tenantID,
-		SWFURL:     server.URL,
+		JobDBURI:   testJobDBURI(server.URL, tenantID),
 		WorkingDir: baseRepo,
 		JSONOutput: true,
 		Stdout:     &submitStdout,
@@ -543,8 +536,7 @@ outputs:
 	var runStderr bytes.Buffer
 	if err := runjob.Run(ctx, runjob.Options{
 		JobID:        submitted.JobID,
-		TenantID:     tenantID,
-		SWFURL:       server.URL,
+		JobDBURI:     testJobDBURI(server.URL, tenantID),
 		WaitTimeout:  5 * time.Second,
 		PollInterval: 10 * time.Millisecond,
 		InputMode:    "fail",
@@ -623,8 +615,7 @@ outputs:
 	var submitStdout bytes.Buffer
 	var submitStderr bytes.Buffer
 	if err := Run(ctx, Options{
-		TenantID:       tenantID,
-		SWFURL:         server.URL,
+		JobDBURI:       testJobDBURI(server.URL, tenantID),
 		RecipeFile:     recipePath,
 		Cell:           baseRepo,
 		Prompt:         "hello from positional prompt",
@@ -681,9 +672,8 @@ func TestRun_SubmitsAndExecutesWithEmbeddedRuntime(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
 
-	t.Setenv(defaults.EmbedRootEnv, t.TempDir())
+	t.Setenv("HOME", t.TempDir())
 
-	tenantID := "tenant-submit-embed-test"
 	recipeYAML := strings.TrimSpace(`
 id: embed_submit_recipe
 desc: simple recipe used to verify c2j embedded execution
@@ -707,8 +697,7 @@ outputs:
 
 	var submitStdout bytes.Buffer
 	if err := Run(ctx, Options{
-		TenantID:   tenantID,
-		SWFURL:     "embed:///",
+		JobDBURI:   "embed:///",
 		RecipeFile: recipePath,
 		Cell:       baseRepo,
 		JSONOutput: true,
@@ -729,13 +718,15 @@ outputs:
 	if submitted.JobID == "" {
 		t.Fatalf("expected job id in submit output: %s", submitStdout.String())
 	}
+	if submitted.TenantID != defaults.EmbeddedTenantID {
+		t.Fatalf("submitted tenant = %q, want embedded tenant %q", submitted.TenantID, defaults.EmbeddedTenantID)
+	}
 
 	var runStdout bytes.Buffer
 	var runStderr bytes.Buffer
 	if err := runjob.Run(ctx, runjob.Options{
 		JobID:        submitted.JobID,
-		TenantID:     tenantID,
-		SWFURL:       "embed:///",
+		JobDBURI:     "embed:///",
 		WaitTimeout:  15 * time.Second,
 		PollInterval: 10 * time.Millisecond,
 		InputMode:    "fail",
@@ -752,13 +743,13 @@ outputs:
 	defer handle.Cleanup()
 
 	run, err := handle.Engine.GetJobRun(ctx, jobdb.GetJobRunRequest{
-		JobKey:         jobdb.JobKey{TenantId: tenantID, JobId: submitted.JobID},
+		JobKey:         jobdb.JobKey{TenantId: defaults.EmbeddedTenantID, JobId: submitted.JobID},
 		IncludeOutputs: true,
 	})
 	if err != nil {
 		t.Fatalf("get job run: %v", err)
 	}
-	output, err := run.GetOutput(handle.Engine, tenantID)
+	output, err := run.GetOutput(handle.Engine, defaults.EmbeddedTenantID)
 	if err != nil {
 		t.Fatalf("get output: %v", err)
 	}
@@ -780,9 +771,8 @@ func TestRun_EmbedExtensionFailureCompletesWithOriginalError(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
 
-	t.Setenv(defaults.EmbedRootEnv, t.TempDir())
+	t.Setenv("HOME", t.TempDir())
 
-	tenantID := "tenant-submit-embed-extension-failure-test"
 	baseRepo, _ := createGitRepo(t)
 	mustWriteRepoFile(t, baseRepo, ".c2j/recipes/failing_extension_recipe.yaml", strings.TrimSpace(`
 id: failing_extension_recipe
@@ -815,8 +805,7 @@ output_schema:
 	var submitStdout bytes.Buffer
 	var submitStderr bytes.Buffer
 	err := Run(ctx, Options{
-		TenantID:       tenantID,
-		SWFURL:         "embed:///",
+		JobDBURI:       "embed:///",
 		Recipe:         "failing_extension_recipe",
 		Cell:           baseRepo,
 		RunAfterSubmit: true,
@@ -847,7 +836,7 @@ output_schema:
 	}
 	defer handle.Cleanup()
 
-	jobKey := jobdb.JobKey{TenantId: tenantID, JobId: jobID}
+	jobKey := jobdb.JobKey{TenantId: defaults.EmbeddedTenantID, JobId: jobID}
 	info, err := handle.Engine.GetJob(ctx, jobKey)
 	if err != nil {
 		t.Fatalf("GetJob(): %v", err)
@@ -863,7 +852,7 @@ output_schema:
 	if err != nil {
 		t.Fatalf("get job run: %v", err)
 	}
-	if _, err := run.GetOutput(handle.Engine, tenantID); err == nil {
+	if _, err := run.GetOutput(handle.Engine, defaults.EmbeddedTenantID); err == nil {
 		t.Fatal("expected failed job output")
 	} else if !strings.Contains(err.Error(), "extension failure") {
 		t.Fatalf("expected job output error to preserve extension failure, got %v", err)

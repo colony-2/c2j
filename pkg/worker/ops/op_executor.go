@@ -5,6 +5,7 @@ import (
 	"archive/zip"
 	"compress/gzip"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -21,9 +22,12 @@ import (
 	recipeartifacts "github.com/colony-2/c2j/pkg/artifacts"
 	"github.com/colony-2/c2j/pkg/contextual"
 	"github.com/colony-2/c2j/pkg/git/gitstate"
+	"github.com/colony-2/c2j/pkg/jobcontext"
 	"github.com/colony-2/c2j/pkg/logutil"
 	"github.com/colony-2/c2j/pkg/ops"
 	"github.com/colony-2/c2j/pkg/ops/process"
+	"github.com/colony-2/c2j/pkg/starter"
+	"github.com/colony-2/c2j/pkg/workflowctl"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 )
 
@@ -59,6 +63,112 @@ func currentGitResult(task *gitstate.GitTaskContext) contextual.GitCommitContext
 		ParentHash:  task.ParentHash,
 		ParentRef:   parentRef,
 	}
+}
+
+func currentJobContext(jobKey jobdb.JobKey, reg ActivityRegistration, task gitstate.GlobalGitTaskContext) jobcontext.Current {
+	repo := strings.TrimSpace(task.RecipeSourceRepo)
+	if repo == "" {
+		repo = strings.TrimSpace(task.BaseRepo)
+	}
+	gitRef := strings.TrimSpace(task.RecipeSourceRef)
+	if gitRef == "" {
+		gitRef = strings.TrimSpace(task.BaseRef)
+	}
+	return jobcontext.Current{
+		TenantID:           strings.TrimSpace(jobKey.TenantId),
+		JobID:              strings.TrimSpace(jobKey.JobId),
+		JobType:            starter.RecipeJobType,
+		OpType:             strings.TrimSpace(reg.Metadata.Type),
+		OpStep:             strings.TrimSpace(reg.Step.Name),
+		OpTaskType:         strings.TrimSpace(reg.TaskType),
+		CellName:           strings.TrimSpace(task.CellName),
+		RepositorySource:   repo,
+		GitRef:             gitRef,
+		InvocationPath:     strings.TrimSpace(task.NodePath),
+		InvocationSequence: task.InvokeSeq,
+		InvocationHash:     strings.TrimSpace(task.InvokeHash),
+	}
+}
+
+type childJobLister interface {
+	ListJobs(ctx context.Context, request jobdb.ListJobsRequest) (jobs []workflowctl.JobItem, nextPage string, err error)
+}
+
+func collectStartedJobs(ctx context.Context, lister childJobLister, current jobcontext.Current) (jobcontext.StartedJobsContext, error) {
+	if lister == nil || !current.HasJob() || strings.TrimSpace(current.InvocationHash) == "" {
+		return jobcontext.StartedJobsContext{}, nil
+	}
+	metadataFilter, err := childJobMetadataFilter(current)
+	if err != nil {
+		return jobcontext.StartedJobsContext{}, err
+	}
+	req := jobdb.ListJobsRequest{
+		TenantIds:      []string{current.TenantID},
+		Stores:         []jobdb.JobStore{jobdb.JobStoreActive, jobdb.JobStoreArchived},
+		JobTypes:       []string{starter.RecipeJobType},
+		MetadataFilter: metadataFilter,
+	}
+	out := jobcontext.StartedJobsContext{
+		JobIDs: []string{},
+		Items:  []jobcontext.StartedJobContext{},
+	}
+	for {
+		items, nextPage, err := lister.ListJobs(ctx, req)
+		if err != nil {
+			return jobcontext.StartedJobsContext{}, err
+		}
+		for _, item := range items {
+			summary := item.JobSummary
+			jobID := strings.TrimSpace(summary.JobKey.JobId)
+			if jobID == "" {
+				continue
+			}
+			out.JobIDs = append(out.JobIDs, jobID)
+			out.Items = append(out.Items, jobcontext.StartedJobContext{
+				TenantID:             summary.JobKey.TenantId,
+				JobID:                jobID,
+				RecipeName:           recipeNameFromMetadata(summary.Metadata),
+				Status:               string(summary.Status),
+				ParentInvocationHash: current.InvocationHash,
+			})
+		}
+		if strings.TrimSpace(nextPage) == "" {
+			break
+		}
+		req.PageToken = nextPage
+	}
+	return out, nil
+}
+
+func childJobMetadataFilter(current jobcontext.Current) (jobdb.MetadataFilter, error) {
+	metadataFilter, err := jobdb.Metadata().EqualFilter(starter.MetaFieldParentTenantID, current.TenantID)
+	if err != nil {
+		return nil, err
+	}
+	parentJobFilter, err := jobdb.Metadata().EqualFilter(starter.MetaFieldParentJobID, current.JobID)
+	if err != nil {
+		return nil, err
+	}
+	metadataFilter, err = metadataFilter.AndFilter(parentJobFilter)
+	if err != nil {
+		return nil, err
+	}
+	invocationFilter, err := jobdb.Metadata().EqualFilter(starter.MetaFieldParentInvocationHash, current.InvocationHash)
+	if err != nil {
+		return nil, err
+	}
+	return metadataFilter.AndFilter(invocationFilter)
+}
+
+func recipeNameFromMetadata(raw json.RawMessage) string {
+	if len(raw) == 0 {
+		return ""
+	}
+	var meta starter.JobMetadata
+	if err := json.Unmarshal(raw, &meta); err != nil {
+		return ""
+	}
+	return meta.RecipeName
 }
 
 func (t opExecutor) do(ctx context.Context, jobTool ops.JobTool, req ActivityInvocationRequest, inputArtifacts []jobdb.Artifact) (output ActivityInvocationOutput, outputArtifacts []jobdb.Artifact, err error) {
@@ -128,6 +238,7 @@ func (t opExecutor) do(ctx context.Context, jobTool ops.JobTool, req ActivityInv
 	if jobTool == nil {
 		return zero, nil, fmt.Errorf("job tool is required")
 	}
+	currentJob := currentJobContext(jobTool.GetJobKey(), reg, req.GitTaskContext)
 	replacements := map[string]string{
 		contextual.WorktreePathSentinel:   worktreePath,
 		contextual.WorkdirPathSentinel:    workDir,
@@ -248,6 +359,7 @@ func (t opExecutor) do(ctx context.Context, jobTool ops.JobTool, req ActivityInv
 			InvokeHash:       req.GitTaskContext.InvokeHash,
 			WorktreePath:     fullContext.WorktreePath,
 		}).
+		WithCurrentJobContext(currentJob).
 		WithWorktreePath(fullContext.WorktreePath).
 		Build()
 
@@ -264,6 +376,10 @@ func (t opExecutor) do(ctx context.Context, jobTool ops.JobTool, req ActivityInv
 		if overrideValue, set := override.NextTaskType(); set {
 			nextTask = overrideValue
 		}
+	}
+	startedJobs, collectErr := collectStartedJobs(ctx, deps.WorkflowControl(), currentJob)
+	if collectErr != nil {
+		stepErr = errors.Join(stepErr, fmt.Errorf("collect started jobs: %w", collectErr))
 	}
 	if err := filepath.WalkDir(outbox, func(path string, d fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
@@ -288,6 +404,7 @@ func (t opExecutor) do(ctx context.Context, jobTool ops.JobTool, req ActivityInv
 				OpOutput:     outputData,
 				NextTask:     nextTask,
 				ArtifactRefs: opDeps.GetExternalArtifacts(),
+				Jobs:         startedJobs,
 			}, outputArtifacts, errors.Join(stepErr, fmt.Errorf("collect outbox artifacts: %w", err))
 		}
 		return zero, outputArtifacts, err
@@ -302,6 +419,7 @@ func (t opExecutor) do(ctx context.Context, jobTool ops.JobTool, req ActivityInv
 			GitResult:    unchangedGitResult(incomingGitContext),
 			NextTask:     nextTask,
 			ArtifactRefs: opDeps.GetExternalArtifacts(),
+			Jobs:         startedJobs,
 		}
 		if stepErr != nil {
 			return output, outputArtifacts, stepErr
@@ -317,6 +435,7 @@ func (t opExecutor) do(ctx context.Context, jobTool ops.JobTool, req ActivityInv
 				OpOutput:     outputData,
 				NextTask:     nextTask,
 				ArtifactRefs: opDeps.GetExternalArtifacts(),
+				Jobs:         startedJobs,
 			}, outputArtifacts, errors.Join(stepErr, fmt.Errorf("persist workspace changes: %w", err))
 		}
 		return zero, outputArtifacts, err
@@ -344,6 +463,7 @@ func (t opExecutor) do(ctx context.Context, jobTool ops.JobTool, req ActivityInv
 		GitResult:    gitResult,
 		NextTask:     nextTask,
 		ArtifactRefs: opDeps.GetExternalArtifacts(),
+		Jobs:         startedJobs,
 	}
 	if stepErr != nil {
 		return output, outputArtifacts, stepErr

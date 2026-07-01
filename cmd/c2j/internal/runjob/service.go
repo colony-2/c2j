@@ -119,7 +119,7 @@ type runnerDeps struct {
 func buildDeps(ctx context.Context, opts Options) (*runnerDeps, func(), error) {
 	handle, err := swfruntime.OpenWorker(ctx, opts.SWFURL, opts.TenantID)
 	if err != nil {
-		return nil, nil, fmt.Errorf("open SWF runtime: %w", err)
+		return nil, nil, fmt.Errorf("open JobDB runtime: %w", err)
 	}
 
 	c2jops.Register()

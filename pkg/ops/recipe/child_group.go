@@ -135,6 +135,7 @@ func startChildGroup(deps ops.OpDependencies, ctx context.Context, input ChildGr
 
 	parentJobKey := deps.JobTool().GetJobKey()
 	invocation := currentInvocation(deps)
+	parentContext := parentContextFromDeps(deps)
 	recipeSourceRepo, recipeSourceRef := currentRecipeSource(deps)
 	gitContext := deps.GitContext()
 
@@ -189,7 +190,7 @@ func startChildGroup(deps ops.OpDependencies, ctx context.Context, input ChildGr
 				BaseHash: gitContext.ResolvedBaseHash,
 				Author:   gitContext.GitAuthor,
 			},
-		}, recipeSourceRepo, recipeSourceRef, gitRef, jobID)
+		}, recipeSourceRepo, recipeSourceRef, gitRef, jobID, parentContext)
 		if err != nil {
 			record.Status = "start_failed"
 			record.Error = err.Error()

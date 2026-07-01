@@ -6,6 +6,7 @@ import (
 
 	recipeartifacts "github.com/colony-2/c2j/pkg/artifacts"
 	"github.com/colony-2/c2j/pkg/contextual"
+	"github.com/colony-2/c2j/pkg/jobcontext"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
 )
@@ -43,6 +44,7 @@ type StartJob struct {
 	Artifacts    []jobdb.Artifact       `json:"-"`
 	ArtifactRefs []recipeartifacts.Ref  `json:"artifact_refs,omitempty"`
 	JobContext   contextual.JobContext  `json:"context,omitempty"`
+	Parent       *jobcontext.Parent     `json:"parent,omitempty"`
 	GitRef       string                 `json:"git,omitempty"`
 	SubmittedAt  *time.Time             `json:"submitted_at,omitempty"`
 	InputHash    string                 `json:"input_hash,omitempty"`

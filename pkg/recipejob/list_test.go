@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/colony-2/c2j/pkg/jobcontext"
 	"github.com/colony-2/c2j/pkg/jobdbschema"
 	"github.com/colony-2/c2j/pkg/starter"
 	toyruntime "github.com/colony-2/jobdb/pkg/jobdb/runtime/toy"
@@ -119,6 +120,57 @@ func TestGetRecipeJobReadsOneJob(t *testing.T) {
 	}
 }
 
+func TestListChildRecipeJobsFiltersByParentInvocation(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	engine := newListTestEngine(t)
+	tenantID := "tenant-recipejob-children"
+	parent := jobcontext.Parent{
+		TenantID:       tenantID,
+		JobID:          "parent-job",
+		JobType:        starter.RecipeJobType,
+		OpType:         "command_execution",
+		OpStep:         "command_execution",
+		InvocationHash: "hash-one",
+	}
+	submittedAt := time.Date(2026, 6, 25, 12, 0, 0, 0, time.UTC)
+	submitRecipeJobWithParent(t, ctx, engine, tenantID, "child-one", "https://github.com/acme/boo-alpha.git", "alpha", submittedAt, parent)
+	parent.InvocationHash = "hash-two"
+	submitRecipeJobWithParent(t, ctx, engine, tenantID, "child-two", "https://github.com/acme/boo-alpha.git", "alpha", submittedAt, parent)
+
+	resp, err := ListChildRecipeJobs(ctx, engine, ListChildRecipeJobsRequest{
+		TenantID:             tenantID,
+		ParentTenantID:       tenantID,
+		ParentJobID:          "parent-job",
+		ParentInvocationHash: "hash-one",
+	})
+	if err != nil {
+		t.Fatalf("ListChildRecipeJobs(): %v", err)
+	}
+	if len(resp.Jobs) != 1 || resp.Jobs[0].JobID != "child-one" {
+		t.Fatalf("unexpected scoped children: %#v", resp.Jobs)
+	}
+	if resp.Jobs[0].Parent == nil || resp.Jobs[0].Parent.InvocationHash != "hash-one" {
+		t.Fatalf("parent context not decoded: %#v", resp.Jobs[0].Parent)
+	}
+
+	resp, err = ListChildRecipeJobs(ctx, engine, ListChildRecipeJobsRequest{
+		TenantID:             tenantID,
+		ParentTenantID:       tenantID,
+		ParentJobID:          "parent-job",
+		AllParentInvocations: true,
+	})
+	if err != nil {
+		t.Fatalf("ListChildRecipeJobs(all ops): %v", err)
+	}
+	if len(resp.Jobs) != 2 {
+		t.Fatalf("len(all ops children) = %d, jobs = %#v", len(resp.Jobs), resp.Jobs)
+	}
+}
+
 func newListTestEngine(t *testing.T) jobworkflow.Engine {
 	t.Helper()
 
@@ -131,6 +183,11 @@ func newListTestEngine(t *testing.T) jobworkflow.Engine {
 }
 
 func submitRecipeJob(t *testing.T, ctx context.Context, engine jobworkflow.Engine, tenantID string, jobID string, repo string, cellName string, submittedAt time.Time) {
+	t.Helper()
+	submitRecipeJobWithParent(t, ctx, engine, tenantID, jobID, repo, cellName, submittedAt, jobcontext.Parent{})
+}
+
+func submitRecipeJobWithParent(t *testing.T, ctx context.Context, engine jobworkflow.Engine, tenantID string, jobID string, repo string, cellName string, submittedAt time.Time, parent jobcontext.Parent) {
 	t.Helper()
 
 	start, err := BuildStartJob(BuildStartJobRequest{
@@ -146,6 +203,9 @@ func submitRecipeJob(t *testing.T, ctx context.Context, engine jobworkflow.Engin
 	})
 	if err != nil {
 		t.Fatalf("BuildStartJob(): %v", err)
+	}
+	if parent.HasJob() {
+		start.Parent = &parent
 	}
 	if _, err := starter.StartRecipeJobWithOptions(ctx, start, engine, starter.StartRecipeJobOptions{JobID: jobID}); err != nil {
 		t.Fatalf("StartRecipeJobWithOptions(): %v", err)

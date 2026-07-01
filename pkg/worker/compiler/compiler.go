@@ -11,6 +11,7 @@ import (
 	"github.com/colony-2/c2j/pkg/contextual"
 	"github.com/colony-2/c2j/pkg/git/gitstate"
 	"github.com/colony-2/c2j/pkg/input/formdefaults"
+	"github.com/colony-2/c2j/pkg/jobcontext"
 	"github.com/colony-2/c2j/pkg/ops"
 	"github.com/colony-2/c2j/pkg/recipe"
 	coretask "github.com/colony-2/c2j/pkg/task"
@@ -444,6 +445,7 @@ func (d DefaultRecipeExecutor) executeOpAttempt(ctx workflow.Context, parentReso
 
 	var stepArtifacts map[string]recipeartifacts.Ref
 	var stepOutputArtifacts []jobdb.Artifact
+	var stepJobs jobcontext.StartedJobsContext
 	for i := 0; i < 64; i++ { // guard against accidental loops
 		done := false
 		for patchAttempts := 0; patchAttempts < 64; patchAttempts++ {
@@ -499,6 +501,7 @@ func (d DefaultRecipeExecutor) executeOpAttempt(ctx workflow.Context, parentReso
 				}
 				resCtx.UpdateGitState(decoded.Activity.GitResult)
 				stepInput = normalizeOpOutput(chain[i].OutputType, decoded.Activity.OpOutput)
+				stepJobs = decoded.Activity.Jobs
 				if decoded.Activity.NextTask == "" {
 					outputArtifacts, err := out.GetArtifacts()
 					if err != nil {
@@ -553,7 +556,7 @@ func (d DefaultRecipeExecutor) executeOpAttempt(ctx workflow.Context, parentReso
 		}
 		stepInput = normalizedOutput
 	}
-	resCtx.AddExecutionWithArtifactData(stepInput, stepArtifacts, stepOutputArtifacts)
+	resCtx.AddExecutionWithContextData(stepInput, stepArtifacts, stepOutputArtifacts, stepJobs)
 	return nil
 }
 

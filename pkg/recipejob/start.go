@@ -11,6 +11,7 @@ import (
 
 	recipeartifacts "github.com/colony-2/c2j/pkg/artifacts"
 	"github.com/colony-2/c2j/pkg/contextual"
+	"github.com/colony-2/c2j/pkg/jobcontext"
 	"github.com/colony-2/c2j/pkg/recipe"
 	"github.com/colony-2/c2j/pkg/starter"
 	"github.com/colony-2/c2j/pkg/worker/compiler"
@@ -26,6 +27,7 @@ type BuildStartJobRequest struct {
 	Inputs       map[string]interface{}
 	Artifacts    []jobdb.Artifact
 	ArtifactRefs []recipeartifacts.Ref
+	Parent       *jobcontext.Parent
 	SubmittedAt  *time.Time
 }
 
@@ -79,6 +81,7 @@ func BuildStartJob(req BuildStartJobRequest) (workflowctl.StartJob, error) {
 		Inputs:       req.Inputs,
 		Artifacts:    append([]jobdb.Artifact(nil), req.Artifacts...),
 		ArtifactRefs: append([]recipeartifacts.Ref(nil), req.ArtifactRefs...),
+		Parent:       cloneParent(req.Parent),
 		JobContext: contextual.JobContext{
 			Workflow: contextual.WorkflowContext{
 				CellName:  cellName,
@@ -97,6 +100,14 @@ func BuildStartJob(req BuildStartJobRequest) (workflowctl.StartJob, error) {
 		SubmittedAt: &submittedAt,
 		InputHash:   InputHash(req.Inputs),
 	}, nil
+}
+
+func cloneParent(parent *jobcontext.Parent) *jobcontext.Parent {
+	if parent == nil {
+		return nil
+	}
+	out := *parent
+	return &out
 }
 
 func SubmitRecipeJob(ctx context.Context, req BuildStartJobRequest, submitter Submitter, recipes ...recipe.Recipe) (jobdb.JobKey, error) {

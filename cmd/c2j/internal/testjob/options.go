@@ -2,7 +2,6 @@ package testjob
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -11,7 +10,6 @@ import (
 	"time"
 
 	"github.com/colony-2/c2j/cmd/c2j/internal/defaults"
-	configpkg "github.com/colony-2/c2j/pkg/config"
 	"github.com/colony-2/c2j/pkg/worker/compiler"
 )
 
@@ -46,9 +44,6 @@ type Options struct {
 	OutDir      string
 	JSONLEvents string
 	JSONOutput  bool
-
-	RuntimeRoot string
-	KeepRuntime bool
 
 	TenantID   string
 	WorkingDir string
@@ -99,19 +94,7 @@ func (o *Options) Complete(ctx context.Context) error {
 	if strings.TrimSpace(o.Execution.EvaluationMode) == "" {
 		o.Execution.EvaluationMode = "enforce"
 	}
-	if strings.TrimSpace(o.TenantID) == "" {
-		o.TenantID = strings.TrimSpace(os.Getenv(defaults.TenantEnv))
-	}
-	if strings.TrimSpace(o.TenantID) == "" {
-		tenantID, err := resolveTenantID(ctx, o.WorkingDir)
-		if err != nil {
-			return err
-		}
-		o.TenantID = strings.TrimSpace(tenantID)
-	}
-	if strings.TrimSpace(o.TenantID) == "" {
-		o.TenantID = "recipe-tests"
-	}
+	o.TenantID = defaults.EmbeddedTenantID
 	return nil
 }
 
@@ -129,21 +112,6 @@ func (o Options) ValidateSuiteInput() error {
 		return fmt.Errorf("one of --file or --stdin is required")
 	}
 	return nil
-}
-
-func resolveTenantID(ctx context.Context, workingDir string) (string, error) {
-	cfg, err := configpkg.LoadProjectConfig(workingDir)
-	if err != nil {
-		if errors.Is(err, configpkg.ErrConfigNotFound) {
-			return "", nil
-		}
-		return "", err
-	}
-	tenantID, err := cfg.SelfTenantID(ctx)
-	if err != nil {
-		return "", err
-	}
-	return strings.TrimSpace(tenantID), nil
 }
 
 func defaultOutDir() string {

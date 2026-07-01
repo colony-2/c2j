@@ -9,6 +9,7 @@ import (
 	recipeartifacts "github.com/colony-2/c2j/pkg/artifacts"
 	"github.com/colony-2/c2j/pkg/contextual"
 	"github.com/colony-2/c2j/pkg/git/gitstate"
+	"github.com/colony-2/c2j/pkg/jobcontext"
 	"github.com/colony-2/c2j/pkg/ops"
 	"github.com/colony-2/c2j/pkg/worker/activity"
 	"github.com/colony-2/jobdb/pkg/jobdb"
@@ -34,6 +35,7 @@ type ActivityInvocationOutput struct {
 	NextTask     string                         `json:"nextTaskType,omitempty"`
 	OpOutput     map[string]interface{}         `json:"output"`
 	ArtifactRefs map[string]recipeartifacts.Ref `json:"artifact_refs,omitempty"`
+	Jobs         jobcontext.StartedJobsContext  `json:"jobs,omitempty"`
 }
 
 // variation of ActivityInvocationOutput that allows arbitrary output types to avoid double serialization
@@ -42,6 +44,7 @@ type ActivityInvocationOutputRaw struct {
 	NextTask     string                         `json:"nextTaskType,omitempty"`
 	Output       any                            `json:"output"`
 	ArtifactRefs map[string]recipeartifacts.Ref `json:"artifact_refs,omitempty"`
+	Jobs         jobcontext.StartedJobsContext  `json:"jobs,omitempty"`
 }
 
 // ActivityRegistration holds the activity step and its generated schemas.

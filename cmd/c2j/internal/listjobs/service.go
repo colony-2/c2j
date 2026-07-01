@@ -53,7 +53,7 @@ func Run(ctx context.Context, opts Options) error {
 
 	handle, err := swfruntime.Open(ctx, opts.SWFURL)
 	if err != nil {
-		return fmt.Errorf("open SWF runtime: %w", err)
+		return fmt.Errorf("open JobDB runtime: %w", err)
 	}
 	defer handle.Cleanup()
 

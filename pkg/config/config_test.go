@@ -43,17 +43,9 @@ func TestLoadProjectConfigDiscoversNearestConfig(t *testing.T) {
 	if repo != "github.com/acme/self" {
 		t.Fatalf("SelfRepo() = %q", repo)
 	}
-
-	tenantID, err := cfg.SelfTenantID(context.Background())
-	if err != nil {
-		t.Fatalf("SelfTenantID(): %v", err)
-	}
-	if tenantID != deriveTenantIDFromRepo("github.com/acme/self") {
-		t.Fatalf("SelfTenantID() = %q", tenantID)
-	}
 }
 
-func TestProjectConfig_SelfTenantIDAllowsOverride(t *testing.T) {
+func TestProjectConfig_JobDBURI(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
@@ -61,7 +53,7 @@ func TestProjectConfig_SelfTenantIDAllowsOverride(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
 		t.Fatalf("mkdir config dir: %v", err)
 	}
-	if err := os.WriteFile(configPath, []byte("self:\n  repo: github.com/acme/self\n  tenant_id: custom-tenant\n"), 0o644); err != nil {
+	if err := os.WriteFile(configPath, []byte("jobdb: https://jobdb.example.com/acme-prod\n"), 0o644); err != nil {
 		t.Fatalf("write config: %v", err)
 	}
 
@@ -69,13 +61,37 @@ func TestProjectConfig_SelfTenantIDAllowsOverride(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load project config: %v", err)
 	}
-
-	tenantID, err := cfg.SelfTenantID(context.Background())
+	uri, err := cfg.JobDBURI(context.Background())
 	if err != nil {
-		t.Fatalf("SelfTenantID(): %v", err)
+		t.Fatalf("JobDBURI(): %v", err)
 	}
-	if tenantID != "custom-tenant" {
-		t.Fatalf("SelfTenantID() = %q", tenantID)
+	if uri != "https://jobdb.example.com/acme-prod" {
+		t.Fatalf("JobDBURI() = %q", uri)
+	}
+}
+
+func TestProjectConfig_EmbeddedJobDBURI(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	configPath := filepath.Join(root, ".c2j", "config.yaml")
+	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
+		t.Fatalf("mkdir config dir: %v", err)
+	}
+	if err := os.WriteFile(configPath, []byte("jobdb: embed:///\n"), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	cfg, err := LoadProjectConfig(root)
+	if err != nil {
+		t.Fatalf("load project config: %v", err)
+	}
+	uri, err := cfg.JobDBURI(context.Background())
+	if err != nil {
+		t.Fatalf("JobDBURI(): %v", err)
+	}
+	if uri != "embed:///" {
+		t.Fatalf("JobDBURI() = %q", uri)
 	}
 }
 

@@ -50,6 +50,8 @@ func renderGenericInitTemplate() string {
 #
 # base: go
 #
+# jobdb: https://jobdb.example.com/your-tenant-id
+#
 # pattern: 'github.com/acme/boo-${{ cell }}'
 #
 # dependents:
@@ -66,8 +68,6 @@ func renderGenericInitTemplate() string {
 #
 # self:
 #   repo: github.com/acme/boo-self
-#   # Optional override. By default tenant_id is derived from self.repo.
-#   tenant_id: your-tenant-id
 #   ref: main
 #
 # root:
@@ -84,6 +84,8 @@ func renderGoInitTemplate(data initTemplateData) string {
 	b.WriteString("# - self.repo via: go list -m -f '{{.Path}}'\n")
 	b.WriteString("# - dependents via: go list -m -f '{{if not .Main}}{{.Path}}{{end}}' all\n")
 	b.WriteString("base: go\n\n")
+	b.WriteString("# JobDB URI: https://<jobdb-host>/<tenant-id> or embed:///\n")
+	b.WriteString("# jobdb: https://jobdb.example.com/your-tenant-id\n\n")
 
 	b.WriteString(fmt.Sprintf("# Derived current repo: %s\n", data.Repo))
 	if data.PatternKnown {
@@ -100,8 +102,6 @@ func renderGoInitTemplate(data initTemplateData) string {
 			b.WriteString(fmt.Sprintf("#   repo: %s\n", data.Repo))
 		}
 		b.WriteString("#   ref: main\n")
-		b.WriteString("#   # Optional override. By default tenant_id is derived from self.repo.\n")
-		b.WriteString("#   tenant_id: your-tenant-id\n")
 		b.WriteString("# root:\n")
 		b.WriteString("#   repo: root\n")
 		b.WriteString("#   ref: main\n")
@@ -117,8 +117,6 @@ func renderGoInitTemplate(data initTemplateData) string {
 	b.WriteString("# pattern: 'github.com/acme/boo-${{ cell }}'\n")
 	b.WriteString("# self:\n")
 	b.WriteString(fmt.Sprintf("#   repo: %s\n", data.Repo))
-	b.WriteString("#   # Optional override. By default tenant_id is derived from self.repo.\n")
-	b.WriteString("#   tenant_id: your-tenant-id\n")
 	b.WriteString("#   ref: main\n")
 	b.WriteString("# root:\n")
 	b.WriteString("#   repo: github.com/acme/boo-root\n")

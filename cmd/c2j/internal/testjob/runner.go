@@ -329,7 +329,7 @@ func buildHarnessOptions(ctx context.Context, opts Options, ir CompiledIR) (reci
 	cleanups := []func(){func() { _ = os.RemoveAll(workRoot) }}
 
 	if suiteUsesPassthrough(ir.Cases) {
-		handle, root, err := openDisposableEmbedRuntime(ctx, opts)
+		handle, root, err := openDisposableEmbedRuntime(ctx)
 		if err != nil {
 			for _, cleanup := range cleanups {
 				cleanup()
@@ -343,7 +343,7 @@ func buildHarnessOptions(ctx context.Context, opts Options, ir CompiledIR) (reci
 		deps = coreops.NewServiceDepsBuilder().WithWorkflowControl(ctl).Build()
 		cleanups = append(cleanups, func() {
 			_ = handle.Cleanup()
-			if !opts.KeepRuntime && root != "" && strings.TrimSpace(opts.RuntimeRoot) == "" {
+			if root != "" {
 				_ = os.RemoveAll(root)
 			}
 		})
@@ -372,48 +372,35 @@ func suiteUsesPassthrough(cases []recipetest.Case) bool {
 	return false
 }
 
-func openDisposableEmbedRuntime(ctx context.Context, opts Options) (*swfruntime.Handle, string, error) {
-	root := strings.TrimSpace(opts.RuntimeRoot)
-	var err error
-	if root == "" {
-		root, err = os.MkdirTemp("", "c2j-test-embed-*")
-		if err != nil {
-			return nil, "", err
-		}
-	} else if !filepath.IsAbs(root) {
-		root, err = absPathFromWorkingDir(opts.WorkingDir, root)
-		if err != nil {
-			return nil, "", err
-		}
+func openDisposableEmbedRuntime(ctx context.Context) (*swfruntime.Handle, string, error) {
+	home, err := os.MkdirTemp("", "c2j-test-home-*")
+	if err != nil {
+		return nil, "", err
 	}
 
 	embedEnvMu.Lock()
 	defer embedEnvMu.Unlock()
 
-	prior, hadPrior := os.LookupEnv(defaults.EmbedRootEnv)
-	if err := os.Setenv(defaults.EmbedRootEnv, root); err != nil {
-		if strings.TrimSpace(opts.RuntimeRoot) == "" {
-			_ = os.RemoveAll(root)
-		}
+	prior, hadPrior := os.LookupEnv("HOME")
+	if err := os.Setenv("HOME", home); err != nil {
+		_ = os.RemoveAll(home)
 		return nil, "", err
 	}
 	restore := func() {
 		if hadPrior {
-			_ = os.Setenv(defaults.EmbedRootEnv, prior)
+			_ = os.Setenv("HOME", prior)
 		} else {
-			_ = os.Unsetenv(defaults.EmbedRootEnv)
+			_ = os.Unsetenv("HOME")
 		}
 	}
 
 	handle, err := swfruntime.Open(ctx, defaults.EmbedURL)
 	restore()
 	if err != nil {
-		if strings.TrimSpace(opts.RuntimeRoot) == "" {
-			_ = os.RemoveAll(root)
-		}
+		_ = os.RemoveAll(home)
 		return nil, "", err
 	}
-	return handle, root, nil
+	return handle, home, nil
 }
 
 func buildTargetRecipe(ctx context.Context, opts Options) (recipetest.TargetRecipe, error) {

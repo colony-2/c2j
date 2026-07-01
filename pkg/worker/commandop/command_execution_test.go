@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/colony-2/c2j/pkg/jobcontext"
 	ops "github.com/colony-2/c2j/pkg/ops"
 )
 
@@ -74,6 +75,38 @@ func TestCommandExecutionActivity_Execute_WithEnvironmentVariables(t *testing.T)
 	expectedOutput := "config_value input_value"
 	if !strings.Contains(output.Stdout, expectedOutput) {
 		t.Errorf("Expected stdout to contain '%s', got '%s'", expectedOutput, output.Stdout)
+	}
+}
+
+func TestCommandExecutionActivity_Execute_InjectsProtectedCurrentJobEnv(t *testing.T) {
+	ctx := context.Background()
+	deps := ops.NewOpDependenciesBuilder().
+		WithCurrentJobContext(jobcontext.Current{
+			TenantID:           "tenant",
+			JobID:              "job-1",
+			InvocationSequence: 0,
+			InvocationHash:     "hash-1",
+		}).
+		Build()
+
+	input := CommandExecutionInput{
+		Run:   "printf '%s' \"$C2J_CURRENT_TENANT_ID:$C2J_CURRENT_JOB_ID:$C2J_CURRENT_INVOCATION_SEQUENCE:$C2J_CURRENT_INVOCATION_HASH\"",
+		Shell: "sh",
+		Env: map[string]string{
+			"C2J_CURRENT_TENANT_ID":           "spoofed",
+			"C2J_CURRENT_JOB_ID":              "spoofed",
+			"C2J_CURRENT_INVOCATION_HASH":     "spoofed",
+			"C2J_CURRENT_CONTEXT_VERSION":     "spoofed",
+			"C2J_CURRENT_INVOCATION_SEQUENCE": "999",
+		},
+	}
+
+	output, err := execute(deps, ctx, input)
+	if err != nil {
+		t.Fatalf("execute(): %v", err)
+	}
+	if output.Stdout != "tenant:job-1:0:hash-1" {
+		t.Fatalf("stdout = %q", output.Stdout)
 	}
 }
 

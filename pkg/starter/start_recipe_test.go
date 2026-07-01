@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/colony-2/c2j/pkg/contextual"
+	"github.com/colony-2/c2j/pkg/jobcontext"
 	"github.com/colony-2/c2j/pkg/jobdbschema"
 	"github.com/colony-2/c2j/pkg/recipe"
 	"github.com/colony-2/c2j/pkg/workflowctl"
@@ -108,6 +109,35 @@ func TestJobMetadataFromStartJob_JSONFields(t *testing.T) {
 	}
 	if got, _ := m[string(MetaFieldGitRef)].(string); got != "main" {
 		t.Fatalf("expected %q=%q, got %#v", MetaFieldGitRef, "main", m[string(MetaFieldGitRef)])
+	}
+}
+
+func TestJobMetadataFromStartJobIncludesParent(t *testing.T) {
+	start := workflowctl.StartJob{
+		TenantId:   "tenant",
+		RecipeName: "child",
+		Parent: &jobcontext.Parent{
+			TenantID:           "tenant",
+			JobID:              "parent-job",
+			JobType:            RecipeJobType,
+			OpType:             "command_execution",
+			OpStep:             "command_execution",
+			OpTaskType:         "command_execution:command_execution",
+			CellName:           "alpha",
+			RepositorySource:   "github.com/acme/alpha",
+			GitRef:             "main",
+			InvocationPath:     "root/step",
+			InvocationSequence: 3,
+			InvocationHash:     "abc123",
+		},
+	}
+
+	meta := JobMetadataFromStartJob(start)
+	if meta.ParentTenantID != "tenant" || meta.ParentJobID != "parent-job" || meta.ParentInvocationHash != "abc123" {
+		t.Fatalf("unexpected parent metadata: %#v", meta)
+	}
+	if meta.ParentInvocationSequence != 3 {
+		t.Fatalf("ParentInvocationSequence = %d", meta.ParentInvocationSequence)
 	}
 }
 

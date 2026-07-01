@@ -41,7 +41,7 @@ func Run(ctx context.Context, opts Options) error {
 	}
 	defer cleanup()
 
-	if _, err := fmt.Fprintf(opts.Stdout, "working tenant=%s swf_url=%s concurrency=%d\n", opts.TenantID, opts.SWFURL, opts.Concurrency); err != nil {
+	if _, err := fmt.Fprintf(opts.Stdout, "working tenant=%s jobdb=%s concurrency=%d\n", opts.TenantID, opts.JobDBURI, opts.Concurrency); err != nil {
 		return exitError{code: exitCodeFailure, err: err}
 	}
 
@@ -78,7 +78,7 @@ type workerBuildOptions struct {
 func buildWorkerDeps(ctx context.Context, opts workerBuildOptions) (*workerDeps, func(), error) {
 	handle, err := swfruntime.Open(ctx, opts.SWFURL)
 	if err != nil {
-		return nil, nil, fmt.Errorf("open SWF runtime: %w", err)
+		return nil, nil, fmt.Errorf("open JobDB runtime: %w", err)
 	}
 	runtime := handle.Runtime
 	if opts.WrapRuntime != nil {

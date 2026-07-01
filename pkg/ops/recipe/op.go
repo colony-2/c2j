@@ -6,7 +6,9 @@ import (
 
 	recipeartifacts "github.com/colony-2/c2j/pkg/artifacts"
 	"github.com/colony-2/c2j/pkg/contextual"
+	"github.com/colony-2/c2j/pkg/jobcontext"
 	"github.com/colony-2/c2j/pkg/ops"
+	"github.com/colony-2/c2j/pkg/starter"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 )
 
@@ -130,7 +132,7 @@ func getRecipeOutput(deps ops.OpDependencies, ctx context.Context, input Started
 func startSingleJob(deps ops.OpDependencies, ctx context.Context, input SingleRecipeWithRef) (StartedJob, error) {
 	parentJobKey := deps.JobTool().GetJobKey()
 	recipeSourceRepo, recipeSourceRef := currentRecipeSource(deps)
-	keys, err := startJobs(ctx, parentJobKey, currentInvocation(deps), deps.WorkflowControl(), recipeSourceRepo, recipeSourceRef, []SingleRecipe{input.SingleRecipe}, input.GitRef)
+	keys, err := startJobs(ctx, parentJobKey, currentInvocation(deps), deps.WorkflowControl(), recipeSourceRepo, recipeSourceRef, []SingleRecipe{input.SingleRecipe}, input.GitRef, parentContextFromDeps(deps))
 	if err != nil {
 		return StartedJob{}, err
 	}
@@ -143,7 +145,7 @@ func startMultipleJobs(deps ops.OpDependencies, ctx context.Context, input Multi
 		resolved[i] = recipe
 	}
 	recipeSourceRepo, recipeSourceRef := currentRecipeSource(deps)
-	keys, err := startJobs(ctx, deps.JobTool().GetJobKey(), currentInvocation(deps), deps.WorkflowControl(), recipeSourceRepo, recipeSourceRef, resolved, input.GitRef)
+	keys, err := startJobs(ctx, deps.JobTool().GetJobKey(), currentInvocation(deps), deps.WorkflowControl(), recipeSourceRepo, recipeSourceRef, resolved, input.GitRef, parentContextFromDeps(deps))
 	if err != nil {
 		return StartedJobs{}, err
 	}
@@ -177,4 +179,30 @@ func currentRecipeSource(deps ops.OpDependencies) (string, string) {
 	}
 
 	return repo, ref
+}
+
+func parentContextFromDeps(deps ops.OpDependencies) jobcontext.Parent {
+	if deps == nil {
+		return jobcontext.Parent{}
+	}
+	if current := deps.CurrentJobContext(); current.HasJob() {
+		return jobcontext.ParentFromCurrent(current)
+	}
+	parent := jobcontext.Parent{}
+	if jobTool := deps.JobTool(); jobTool != nil {
+		key := jobTool.GetJobKey()
+		parent.TenantID = strings.TrimSpace(key.TenantId)
+		parent.JobID = strings.TrimSpace(key.JobId)
+		parent.JobType = starter.RecipeJobType
+	}
+	gitContext := deps.GitContext()
+	parent.CellName = strings.TrimSpace(gitContext.CellName)
+	parent.RepositorySource, parent.GitRef = currentRecipeSource(deps)
+	parent.InvocationPath = strings.TrimSpace(gitContext.NodePath)
+	parent.InvocationSequence = gitContext.InvokeSeq
+	parent.InvocationHash = strings.TrimSpace(gitContext.InvokeHash)
+	if parent.HasJob() {
+		return parent
+	}
+	return jobcontext.Parent{}
 }

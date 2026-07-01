@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/colony-2/c2j/pkg/jobcontext"
 	"github.com/colony-2/c2j/pkg/ops"
 	"github.com/colony-2/c2j/pkg/ops/process"
 	"github.com/colony-2/c2j/pkg/shellcmd"
@@ -119,6 +120,7 @@ func execute(deps ops.OpDependencies, ctx context.Context, input CommandExecutio
 	for k, v := range input.Env {
 		env[k] = v
 	}
+	env = jobcontext.MergeProtectedEnv(env, jobcontext.EnvForCurrent(deps.CurrentJobContext()))
 	workspaceRoot := workingDir
 	var mounts []ops.RequiredMount
 	if runtimeProvider, ok := deps.(ops.OperationPathRuntimeProvider); ok {

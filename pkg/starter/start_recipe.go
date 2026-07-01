@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/colony-2/c2j/pkg/jobcontext"
 	"github.com/colony-2/c2j/pkg/jobdbschema"
 	"github.com/colony-2/c2j/pkg/recipe"
 	"github.com/colony-2/c2j/pkg/task"
@@ -36,6 +37,19 @@ const (
 	MetaFieldCellName jobdb.FieldName = "cell_name"
 	MetaFieldRepo     jobdb.FieldName = "repo"
 	MetaFieldGitRef   jobdb.FieldName = "git_ref"
+
+	MetaFieldParentTenantID       jobdb.FieldName = "parent_tenant_id"
+	MetaFieldParentJobID          jobdb.FieldName = "parent_job_id"
+	MetaFieldParentJobType        jobdb.FieldName = "parent_job_type"
+	MetaFieldParentOpType         jobdb.FieldName = "parent_op_type"
+	MetaFieldParentOpStep         jobdb.FieldName = "parent_op_step"
+	MetaFieldParentOpTaskType     jobdb.FieldName = "parent_op_task_type"
+	MetaFieldParentCellName       jobdb.FieldName = "parent_cell_name"
+	MetaFieldParentRepo           jobdb.FieldName = "parent_repo"
+	MetaFieldParentGitRef         jobdb.FieldName = "parent_git_ref"
+	MetaFieldParentInvocationPath jobdb.FieldName = "parent_invocation_path"
+	MetaFieldParentInvocationSeq  jobdb.FieldName = "parent_invocation_seq"
+	MetaFieldParentInvocationHash jobdb.FieldName = "parent_invocation_hash"
 )
 
 type JobMetadata struct {
@@ -45,6 +59,19 @@ type JobMetadata struct {
 	CellName         string `json:"cell_name,omitempty"`
 	RepositorySource string `json:"repo,omitempty"`
 	GitRef           string `json:"git_ref,omitempty"`
+
+	ParentTenantID           string `json:"parent_tenant_id,omitempty"`
+	ParentJobID              string `json:"parent_job_id,omitempty"`
+	ParentJobType            string `json:"parent_job_type,omitempty"`
+	ParentOpType             string `json:"parent_op_type,omitempty"`
+	ParentOpStep             string `json:"parent_op_step,omitempty"`
+	ParentOpTaskType         string `json:"parent_op_task_type,omitempty"`
+	ParentCellName           string `json:"parent_cell_name,omitempty"`
+	ParentRepositorySource   string `json:"parent_repo,omitempty"`
+	ParentGitRef             string `json:"parent_git_ref,omitempty"`
+	ParentInvocationPath     string `json:"parent_invocation_path,omitempty"`
+	ParentInvocationSequence int64  `json:"parent_invocation_seq,omitempty"`
+	ParentInvocationHash     string `json:"parent_invocation_hash,omitempty"`
 }
 
 func JobMetadataFromStartJob(startJob workflowctl.StartJob) JobMetadata {
@@ -52,7 +79,7 @@ func JobMetadataFromStartJob(startJob workflowctl.StartJob) JobMetadata {
 	if repo == "" {
 		repo = startJob.JobContext.RecipeSource.Repo
 	}
-	return JobMetadata{
+	meta := JobMetadata{
 		Version:          JobMetadataVersion,
 		RecipeName:       startJob.RecipeName,
 		CellID:           startJob.JobContext.Workflow.CellID,
@@ -60,6 +87,25 @@ func JobMetadataFromStartJob(startJob workflowctl.StartJob) JobMetadata {
 		RepositorySource: repo,
 		GitRef:           startJob.GitRef,
 	}
+	if startJob.Parent != nil {
+		applyParentMetadata(&meta, *startJob.Parent)
+	}
+	return meta
+}
+
+func applyParentMetadata(meta *JobMetadata, parent jobcontext.Parent) {
+	meta.ParentTenantID = parent.TenantID
+	meta.ParentJobID = parent.JobID
+	meta.ParentJobType = parent.JobType
+	meta.ParentOpType = parent.OpType
+	meta.ParentOpStep = parent.OpStep
+	meta.ParentOpTaskType = parent.OpTaskType
+	meta.ParentCellName = parent.CellName
+	meta.ParentRepositorySource = parent.RepositorySource
+	meta.ParentGitRef = parent.GitRef
+	meta.ParentInvocationPath = parent.InvocationPath
+	meta.ParentInvocationSequence = parent.InvocationSequence
+	meta.ParentInvocationHash = parent.InvocationHash
 }
 
 func StartRecipeJob(ctx context.Context, startJob workflowctl.StartJob, engine recipeJobSubmitter, recipes ...recipe.Recipe) (jobdb.JobKey, error) {

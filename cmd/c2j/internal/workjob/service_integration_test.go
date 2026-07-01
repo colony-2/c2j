@@ -26,6 +26,10 @@ import (
 	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
 )
 
+func testJobDBURI(serverURL string, tenantID string) string {
+	return strings.TrimRight(serverURL, "/") + "/" + tenantID
+}
+
 func newSchemaAwareSubmitEngine(t *testing.T, runtime jobdb.WorkflowRuntime) jobworkflow.Engine {
 	t.Helper()
 	engine, err := jobworkflow.NewEngineBuilder().WithRuntime(runtime).BuildEngine()
@@ -78,8 +82,7 @@ outputs:
 	errCh := make(chan error, 1)
 	go func() {
 		errCh <- Run(workerCtx, Options{
-			TenantID:       tenantID,
-			SWFURL:         server.URL,
+			JobDBURI:       testJobDBURI(server.URL, tenantID),
 			Concurrency:    2,
 			AwaitThreshold: 30 * time.Second,
 			WorkingDir:     t.TempDir(),
@@ -147,8 +150,7 @@ outputs:
 	errCh := make(chan error, 1)
 	go func() {
 		errCh <- Run(workerCtx, Options{
-			TenantID:       tenantID,
-			SWFURL:         server.URL,
+			JobDBURI:       testJobDBURI(server.URL, tenantID),
 			Concurrency:    1,
 			AwaitThreshold: 30 * time.Second,
 			WorkingDir:     t.TempDir(),
@@ -193,8 +195,7 @@ func TestReadyCountsAvailableJobsByTenant(t *testing.T) {
 
 	var stdout, stderr bytes.Buffer
 	if err := Ready(ctx, ReadyOptions{
-		TenantID:   tenantID,
-		SWFURL:     server.URL,
+		JobDBURI:   testJobDBURI(server.URL, tenantID),
 		WorkingDir: t.TempDir(),
 		Stdout:     &stdout,
 		Stderr:     &stderr,
@@ -206,8 +207,7 @@ func TestReadyCountsAvailableJobsByTenant(t *testing.T) {
 	}
 
 	count, err := CountReady(ctx, ReadyOptions{
-		TenantID:   otherTenantID,
-		SWFURL:     server.URL,
+		JobDBURI:   testJobDBURI(server.URL, otherTenantID),
 		WorkingDir: t.TempDir(),
 	})
 	if err != nil {
@@ -228,8 +228,7 @@ func TestRunOneReportsNoJobsWhenPollFindsNoLease(t *testing.T) {
 
 	var stdout, stderr bytes.Buffer
 	if err := RunOne(ctx, RunOneOptions{
-		TenantID:       "tenant-runone-empty",
-		SWFURL:         server.URL,
+		JobDBURI:       testJobDBURI(server.URL, "tenant-runone-empty"),
 		LeaseDuration:  time.Minute,
 		AwaitThreshold: 30 * time.Second,
 		WorkingDir:     t.TempDir(),
@@ -258,14 +257,13 @@ func TestRunOneProcessesExactlyOneAvailableJob(t *testing.T) {
 		submitRecipeJob(t, ctx, submitEngine, tenantID, simpleSuccessRecipe("runone_single_b", "runone-b")),
 	}
 
-	if count, err := CountReady(ctx, ReadyOptions{TenantID: tenantID, SWFURL: server.URL, WorkingDir: t.TempDir()}); err != nil || count != 2 {
+	if count, err := CountReady(ctx, ReadyOptions{JobDBURI: testJobDBURI(server.URL, tenantID), WorkingDir: t.TempDir()}); err != nil || count != 2 {
 		t.Fatalf("initial ready count = %d, err=%v; want 2", count, err)
 	}
 
 	var stdout, stderr bytes.Buffer
 	if err := RunOne(ctx, RunOneOptions{
-		TenantID:       tenantID,
-		SWFURL:         server.URL,
+		JobDBURI:       testJobDBURI(server.URL, tenantID),
 		LeaseDuration:  time.Minute,
 		AwaitThreshold: 30 * time.Second,
 		WorkingDir:     t.TempDir(),
@@ -282,7 +280,7 @@ func TestRunOneProcessesExactlyOneAvailableJob(t *testing.T) {
 	if completed != 1 || ready != 1 {
 		t.Fatalf("after one RunOne completed=%d ready=%d, want completed=1 ready=1", completed, ready)
 	}
-	if count, err := CountReady(ctx, ReadyOptions{TenantID: tenantID, SWFURL: server.URL, WorkingDir: t.TempDir()}); err != nil || count != 1 {
+	if count, err := CountReady(ctx, ReadyOptions{JobDBURI: testJobDBURI(server.URL, tenantID), WorkingDir: t.TempDir()}); err != nil || count != 1 {
 		t.Fatalf("ready count after one RunOne = %d, err=%v; want 1", count, err)
 	}
 }
@@ -310,8 +308,7 @@ func TestRunOneConcurrentCopiesClaimDistinctJobs(t *testing.T) {
 			<-start
 			var stdout, stderr bytes.Buffer
 			err := RunOne(ctx, RunOneOptions{
-				TenantID:       tenantID,
-				SWFURL:         server.URL,
+				JobDBURI:       testJobDBURI(server.URL, tenantID),
 				LeaseDuration:  time.Minute,
 				AwaitThreshold: 30 * time.Second,
 				WorkingDir:     t.TempDir(),
@@ -390,8 +387,7 @@ outputs:
 	errCh := make(chan error, 1)
 	go func() {
 		errCh <- Run(workerCtx, Options{
-			TenantID:       tenantID,
-			SWFURL:         server.URL,
+			JobDBURI:       testJobDBURI(server.URL, tenantID),
 			Concurrency:    1,
 			AwaitThreshold: 30 * time.Second,
 			WorkingDir:     t.TempDir(),
@@ -439,8 +435,7 @@ func TestRunReturnsAfterContextCancellation(t *testing.T) {
 	stopWorker()
 	var stdout, stderr bytes.Buffer
 	if err := Run(workerCtx, Options{
-		TenantID:    tenantID,
-		SWFURL:      server.URL,
+		JobDBURI:    testJobDBURI(server.URL, tenantID),
 		Concurrency: 1,
 		WorkingDir:  t.TempDir(),
 		Stdout:      &stdout,

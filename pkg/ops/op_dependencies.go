@@ -4,6 +4,7 @@ import (
 	"errors"
 
 	recipeartifacts "github.com/colony-2/c2j/pkg/artifacts"
+	"github.com/colony-2/c2j/pkg/jobcontext"
 	"github.com/colony-2/c2j/pkg/workflowctl"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
@@ -20,6 +21,7 @@ type OpDependencies interface {
 	GetExternalArtifacts() map[string]recipeartifacts.Ref
 	WorktreePath() string
 	GitContext() GitExecutionContext
+	CurrentJobContext() jobcontext.Current
 	JobTool() JobTool
 	FindArtifact(key jobdb.ArtifactKey) (jobdb.Artifact, error)
 	SetNextTaskType(taskType string)
@@ -54,6 +56,7 @@ type opDepImpl struct {
 	operationPaths    OperationPaths
 	pathRuntime       OperationPathRuntime
 	gitContext        GitExecutionContext
+	currentJobContext jobcontext.Current
 	jobTool           JobTool
 	nextTaskType      string
 	nextTaskTypeSet   bool
@@ -151,6 +154,10 @@ func (c *opDepImpl) GitContext() GitExecutionContext {
 	return c.gitContext
 }
 
+func (c *opDepImpl) CurrentJobContext() jobcontext.Current {
+	return c.currentJobContext
+}
+
 func (c *opDepImpl) SetNextTaskType(taskType string) {
 	c.nextTaskType = taskType
 	c.nextTaskTypeSet = true
@@ -161,14 +168,15 @@ func (c *opDepImpl) NextTaskType() (string, bool) {
 }
 
 type OpDependenciesBuilder struct {
-	db              *gorm.DB
-	artifacts       []jobdb.Artifact
-	workflowControl workflowctl.WorkflowControl
-	worktreePath    string
-	operationPaths  OperationPaths
-	pathRuntime     OperationPathRuntime
-	gitContext      GitExecutionContext
-	jobTool         JobTool
+	db                *gorm.DB
+	artifacts         []jobdb.Artifact
+	workflowControl   workflowctl.WorkflowControl
+	worktreePath      string
+	operationPaths    OperationPaths
+	pathRuntime       OperationPathRuntime
+	gitContext        GitExecutionContext
+	currentJobContext jobcontext.Current
+	jobTool           JobTool
 }
 
 // NewOpDependenciesBuilder creates a new, empty builder instance.
@@ -235,6 +243,11 @@ func (b *OpDependenciesBuilder) WithGitContext(ctx GitExecutionContext) *OpDepen
 	return b
 }
 
+func (b *OpDependenciesBuilder) WithCurrentJobContext(ctx jobcontext.Current) *OpDependenciesBuilder {
+	b.currentJobContext = ctx
+	return b
+}
+
 func (b *OpDependenciesBuilder) Build() OpDependencies {
 	deps := &opDepImpl{
 		db:                b.db,
@@ -244,6 +257,7 @@ func (b *OpDependenciesBuilder) Build() OpDependencies {
 		operationPaths:    b.operationPaths,
 		pathRuntime:       b.pathRuntime,
 		gitContext:        b.gitContext,
+		currentJobContext: b.currentJobContext,
 		outputArtifacts:   make([]jobdb.Artifact, 0),
 		externalArtifacts: make(map[string]recipeartifacts.Ref),
 		jobTool:           b.jobTool,

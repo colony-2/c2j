@@ -11,16 +11,15 @@ import (
 	"github.com/colony-2/jobdb/pkg/jobdb"
 )
 
-func TestOptionsCompleteUsesProjectTenantDefault(t *testing.T) {
-	t.Setenv(defaults.SWFEnv, "")
-	t.Setenv(defaults.TenantEnv, "")
+func TestOptionsCompleteUsesProjectJobDB(t *testing.T) {
+	t.Setenv(defaults.JobDBEnv, "")
 
 	root := t.TempDir()
 	configPath := filepath.Join(root, ".c2j", "config.yaml")
 	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
 		t.Fatalf("mkdir config dir: %v", err)
 	}
-	if err := os.WriteFile(configPath, []byte("self:\n  repo: github.com/acme/self\n"), 0o644); err != nil {
+	if err := os.WriteFile(configPath, []byte("jobdb: https://jobdb.example.invalid/configured\n"), 0o644); err != nil {
 		t.Fatalf("write config: %v", err)
 	}
 
@@ -29,22 +28,45 @@ func TestOptionsCompleteUsesProjectTenantDefault(t *testing.T) {
 		t.Fatalf("Complete(): %v", err)
 	}
 
-	if opts.TenantID == "" {
-		t.Fatalf("TenantID = %q, want project-derived tenant ID", opts.TenantID)
+	if opts.SWFURL != "https://jobdb.example.invalid" || opts.TenantID != "configured" {
+		t.Fatalf("resolved target = swf %q tenant %q", opts.SWFURL, opts.TenantID)
 	}
 }
 
-func TestOptionsCompleteLeavesTenantEmptyWhenUnknown(t *testing.T) {
-	t.Setenv(defaults.SWFEnv, "")
-	t.Setenv(defaults.TenantEnv, "")
+func TestOptionsCompleteUsesTenantZeroInEmbeddedMode(t *testing.T) {
+	opts := Options{WorkingDir: t.TempDir(), JobDBURI: defaults.EmbedURL}
+	if err := opts.Complete(context.Background()); err != nil {
+		t.Fatalf("Complete(): %v", err)
+	}
+
+	if opts.TenantID != defaults.EmbeddedTenantID {
+		t.Fatalf("TenantID = %q, want embedded tenant ID %q", opts.TenantID, defaults.EmbeddedTenantID)
+	}
+}
+
+func TestOptionsCompleteUsesJobDBEnvironment(t *testing.T) {
+	t.Setenv(defaults.JobDBEnv, "http://localhost:9047/dev")
 
 	opts := Options{WorkingDir: t.TempDir()}
 	if err := opts.Complete(context.Background()); err != nil {
 		t.Fatalf("Complete(): %v", err)
 	}
 
-	if opts.TenantID != "" {
-		t.Fatalf("TenantID = %q, want empty when no tenant can be derived", opts.TenantID)
+	if opts.SWFURL != "http://localhost:9047" || opts.TenantID != "dev" {
+		t.Fatalf("resolved target = swf %q tenant %q", opts.SWFURL, opts.TenantID)
+	}
+}
+
+func TestOptionsCompleteLeavesJobDBEmptyWhenUnknown(t *testing.T) {
+	t.Setenv(defaults.JobDBEnv, "")
+
+	opts := Options{WorkingDir: t.TempDir()}
+	if err := opts.Complete(context.Background()); err != nil {
+		t.Fatalf("Complete(): %v", err)
+	}
+
+	if opts.TenantID != "" || opts.SWFURL != "" {
+		t.Fatalf("resolved target = swf %q tenant %q, want empty", opts.SWFURL, opts.TenantID)
 	}
 }
 

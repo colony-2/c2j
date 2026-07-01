@@ -9,6 +9,7 @@ import (
 
 	recipeartifacts "github.com/colony-2/c2j/pkg/artifacts"
 	"github.com/colony-2/c2j/pkg/contextual"
+	"github.com/colony-2/c2j/pkg/jobcontext"
 	"github.com/colony-2/c2j/pkg/workflowctl"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	"github.com/segmentio/ksuid"
@@ -37,7 +38,7 @@ func deterministicChildJobID(parentJobID string, invocation contextual.Invocatio
 	return jobID.String()
 }
 
-func recipeToStart(tenantId string, recipe SingleRecipe, recipeSourceRepo string, recipeSourceRef string, gitRef string, jobID string) (workflowctl.StartJob, error) {
+func recipeToStart(tenantId string, recipe SingleRecipe, recipeSourceRepo string, recipeSourceRef string, gitRef string, jobID string, parent jobcontext.Parent) (workflowctl.StartJob, error) {
 	recipeName := strings.TrimSpace(recipe.Name)
 	if recipeName == "" {
 		return workflowctl.StartJob{}, fmt.Errorf("recipe name is required")
@@ -50,6 +51,12 @@ func recipeToStart(tenantId string, recipe SingleRecipe, recipeSourceRepo string
 	lookupRef := strings.TrimSpace(recipeSourceRef)
 	if lookupRef == "" {
 		lookupRef = strings.TrimSpace(recipe.Git.BaseRef)
+	}
+
+	var parentPtr *jobcontext.Parent
+	if parent.HasJob() {
+		cloned := parent
+		parentPtr = &cloned
 	}
 
 	return workflowctl.StartJob{
@@ -73,20 +80,21 @@ func recipeToStart(tenantId string, recipe SingleRecipe, recipeSourceRepo string
 				Ref:  lookupRef,
 			},
 		},
+		Parent: parentPtr,
 		GitRef: gitRef,
 	}, nil
 }
 
 // func(deps OpDependencies, ctx context.Context, in In)
 // Execute runs the activity with provided configuration and inputs
-func startJobs(ctx context.Context, parentJobKey jobdb.JobKey, invocation contextual.Invocation, ctl workflowctl.WorkflowControl, recipeSourceRepo string, recipeSourceRef string, recipes []SingleRecipe, gitRef string) ([]jobdb.JobKey, error) {
+func startJobs(ctx context.Context, parentJobKey jobdb.JobKey, invocation contextual.Invocation, ctl workflowctl.WorkflowControl, recipeSourceRepo string, recipeSourceRef string, recipes []SingleRecipe, gitRef string, parent jobcontext.Parent) ([]jobdb.JobKey, error) {
 	if len(recipes) == 0 {
 		return nil, fmt.Errorf("no jobs to start")
 	}
 
 	jobs := make([]workflowctl.StartJob, len(recipes))
 	for i, recipe := range recipes {
-		job, err := recipeToStart(parentJobKey.TenantId, recipe, recipeSourceRepo, recipeSourceRef, gitRef, deterministicChildJobID(parentJobKey.JobId, invocation, i))
+		job, err := recipeToStart(parentJobKey.TenantId, recipe, recipeSourceRepo, recipeSourceRef, gitRef, deterministicChildJobID(parentJobKey.JobId, invocation, i), parent)
 		if err != nil {
 			return nil, err
 		}

@@ -16,6 +16,10 @@ import (
 	"time"
 )
 
+func testJobDBURI(serverURL string, tenantID string) string {
+	return strings.TrimRight(serverURL, "/") + "/" + tenantID
+}
+
 func TestRunDefaultsToCurrentCell(t *testing.T) {
 	t.Parallel()
 
@@ -37,8 +41,7 @@ self:
 
 	var stdout bytes.Buffer
 	if err := Run(ctx, Options{
-		TenantID:   tenantID,
-		SWFURL:     server.URL,
+		JobDBURI:   testJobDBURI(server.URL, tenantID),
 		WorkingDir: root,
 		Stdout:     &stdout,
 		Stderr:     &bytes.Buffer{},
@@ -79,8 +82,7 @@ self:
 
 	var stdout bytes.Buffer
 	if err := Run(ctx, Options{
-		TenantID:   tenantID,
-		SWFURL:     server.URL,
+		JobDBURI:   testJobDBURI(server.URL, tenantID),
 		WorkingDir: root,
 		PageSize:   1,
 		JSONOutput: true,
@@ -123,8 +125,7 @@ self:
 
 	var stdout bytes.Buffer
 	if err := Run(ctx, Options{
-		TenantID:   tenantID,
-		SWFURL:     server.URL,
+		JobDBURI:   testJobDBURI(server.URL, tenantID),
 		WorkingDir: root,
 		PageSize:   1,
 		All:        true,
@@ -169,8 +170,7 @@ self:
 
 	var stdout bytes.Buffer
 	if err := Run(ctx, Options{
-		TenantID:   tenantID,
-		SWFURL:     server.URL,
+		JobDBURI:   testJobDBURI(server.URL, tenantID),
 		WorkingDir: root,
 		Cell:       "github.com/acme/boo-beta",
 		JSONOutput: true,
@@ -210,8 +210,7 @@ self:
 
 	var stdout bytes.Buffer
 	if err := Run(ctx, Options{
-		TenantID:   tenantID,
-		SWFURL:     server.URL,
+		JobDBURI:   testJobDBURI(server.URL, tenantID),
 		WorkingDir: root,
 		Cell:       "beta",
 		JSONOutput: true,

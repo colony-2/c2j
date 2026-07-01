@@ -19,6 +19,7 @@ const (
 )
 
 type Options struct {
+	JobDBURI       string
 	TenantID       string
 	SWFURL         string
 	Concurrency    int
@@ -29,12 +30,6 @@ type Options struct {
 }
 
 func (o *Options) Complete(ctx context.Context) error {
-	if strings.TrimSpace(o.SWFURL) == "" {
-		o.SWFURL = strings.TrimSpace(os.Getenv(defaults.SWFEnv))
-	}
-	if strings.TrimSpace(o.SWFURL) == "" {
-		o.SWFURL = defaults.SWFURL
-	}
 	if o.Concurrency == 0 {
 		o.Concurrency = defaultConcurrency
 	}
@@ -57,27 +52,24 @@ func (o *Options) Complete(ctx context.Context) error {
 			o.WorkingDir = absPath
 		}
 	}
-	if strings.TrimSpace(o.TenantID) == "" {
-		o.TenantID = strings.TrimSpace(os.Getenv(defaults.TenantEnv))
+	target, err := defaults.ResolveJobDBTarget(ctx, o.WorkingDir, o.JobDBURI)
+	if err != nil {
+		return err
 	}
-	if strings.TrimSpace(o.TenantID) == "" {
-		tenantID, err := defaults.ResolveTenantID(ctx, o.WorkingDir)
-		if err != nil {
-			return err
-		}
-		o.TenantID = tenantID
-	}
+	o.JobDBURI = target.URI
+	o.SWFURL = target.RuntimeURL
+	o.TenantID = target.TenantID
 	return nil
 }
 
 func (o Options) Validate() error {
 	if strings.TrimSpace(o.TenantID) == "" {
-		return fmt.Errorf("--tenant-id is required (or %s, or project self.tenant_id/self.repo)", defaults.TenantEnv)
+		return fmt.Errorf("--jobdb is required (or %s, or project jobdb)", defaults.JobDBEnv)
 	}
 	if strings.TrimSpace(o.SWFURL) == "" {
-		return fmt.Errorf("--swf-url is required (or %s)", defaults.SWFEnv)
+		return fmt.Errorf("--jobdb is required (or %s, or project jobdb)", defaults.JobDBEnv)
 	}
-	if err := validateWorkSWFURL(o.SWFURL); err != nil {
+	if err := validateWorkerJobDB(o.JobDBURI); err != nil {
 		return err
 	}
 	if o.Concurrency <= 0 {
@@ -89,31 +81,31 @@ func (o Options) Validate() error {
 	return nil
 }
 
-func validateWorkSWFURL(raw string) error {
+func validateWorkerJobDB(raw string) error {
 	parsed, err := url.Parse(strings.TrimSpace(raw))
 	if err != nil {
-		return fmt.Errorf("parse --swf-url: %w", err)
+		return fmt.Errorf("parse --jobdb: %w", err)
 	}
 	switch parsed.Scheme {
 	case "http", "https":
 		return nil
 	case "embed":
-		return fmt.Errorf("c2j run loop requires an external SWF runtime; %s is not supported", defaults.EmbedURL)
+		return fmt.Errorf("c2j run loop requires a remote JobDB URI; %s is not supported", defaults.EmbedURL)
 	default:
-		return fmt.Errorf("c2j run loop requires an external SWF runtime URL (http(s)://...), got %q", raw)
+		return fmt.Errorf("c2j run loop requires a remote JobDB URI (http(s)://host/tenant), got %q", raw)
 	}
 }
 
-func validateSWFURL(raw string) error {
+func validateJobDBRuntimeURL(raw string) error {
 	parsed, err := url.Parse(strings.TrimSpace(raw))
 	if err != nil {
-		return fmt.Errorf("parse --swf-url: %w", err)
+		return fmt.Errorf("parse JobDB runtime URL: %w", err)
 	}
 	switch parsed.Scheme {
 	case "http", "https", "embed":
 		return nil
 	default:
-		return fmt.Errorf("unsupported SWF runtime URL %q", raw)
+		return fmt.Errorf("unsupported JobDB runtime URL %q", raw)
 	}
 }
 

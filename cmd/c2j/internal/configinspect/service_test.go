@@ -3,8 +3,6 @@ package configinspect
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/base64"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -94,6 +92,7 @@ pattern: 'github.com/acme/boo-${{ cell }}'
 self:
   repo: cheetah
   ref: release
+jobdb: https://jobdb.example.com/acme-prod
 root:
   repo: root
 `)
@@ -107,7 +106,7 @@ root:
 	}
 
 	out := stdout.String()
-	for _, want := range []string{"short_name", "cheetah", "repo", "github.com/acme/boo-cheetah", "tenant_id", tenantIDFromRepo("github.com/acme/boo-cheetah"), "root_repo", "github.com/acme/boo-root", "pattern"} {
+	for _, want := range []string{"short_name", "cheetah", "repo", "github.com/acme/boo-cheetah", "jobdb", "https://jobdb.example.com/acme-prod", "root_repo", "github.com/acme/boo-root", "pattern"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("expected %q in output, got:\n%s", want, out)
 		}
@@ -122,6 +121,7 @@ func TestRunSelfJSON(t *testing.T) {
 self:
   repo: github.com/acme/self
   ref: main
+jobdb: https://jobdb.example.com/acme-prod
 root:
   repo: github.com/acme/root
   ref: release
@@ -140,7 +140,7 @@ root:
 	if err := json.Unmarshal(stdout.Bytes(), &info); err != nil {
 		t.Fatalf("decode json: %v", err)
 	}
-	if info.Repo != "github.com/acme/self" || info.TenantID != tenantIDFromRepo("github.com/acme/self") || info.RootRepo != "github.com/acme/root" || info.RootRef != "release" {
+	if info.Repo != "github.com/acme/self" || info.JobDB != "https://jobdb.example.com/acme-prod" || info.RootRepo != "github.com/acme/root" || info.RootRef != "release" {
 		t.Fatalf("unexpected self info: %#v", info)
 	}
 }
@@ -166,7 +166,7 @@ func TestRunSelfAutoDetectsGoBaseWithoutConfig(t *testing.T) {
 	if err := json.Unmarshal(stdout.Bytes(), &info); err != nil {
 		t.Fatalf("decode json: %v", err)
 	}
-	if info.Repo != "github.com/acme/boo-cheetah" || info.TenantID != tenantIDFromRepo("github.com/acme/boo-cheetah") || info.ShortName != "cheetah" || info.RootRepo != "github.com/acme/boo-root" {
+	if info.Repo != "github.com/acme/boo-cheetah" || info.JobDB != "" || info.ShortName != "cheetah" || info.RootRepo != "github.com/acme/boo-root" {
 		t.Fatalf("unexpected autodetected self info: %#v", info)
 	}
 }
@@ -181,9 +181,4 @@ func writeConfig(t *testing.T, root string, raw string) {
 	if err := os.WriteFile(configPath, []byte(strings.TrimSpace(raw)+"\n"), 0o644); err != nil {
 		t.Fatalf("write config: %v", err)
 	}
-}
-
-func tenantIDFromRepo(repo string) string {
-	sum := sha256.Sum256([]byte(strings.TrimSpace(repo)))
-	return base64.RawURLEncoding.EncodeToString(sum[:])
 }

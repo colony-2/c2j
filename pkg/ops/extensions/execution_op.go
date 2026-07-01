@@ -11,6 +11,7 @@ import (
 	"time"
 
 	recipeartifacts "github.com/colony-2/c2j/pkg/artifacts"
+	"github.com/colony-2/c2j/pkg/jobcontext"
 	"github.com/colony-2/c2j/pkg/ops"
 	"github.com/colony-2/c2j/pkg/ops/process"
 )
@@ -98,6 +99,7 @@ func executeExtension(deps ops.OpDependencies, ctx context.Context, input Execut
 		return nil, fmt.Errorf("marshal extension input: %w", err)
 	}
 	env := buildExecutionEnv(resolved)
+	env = jobcontext.MergeProtectedEnv(env, jobcontext.EnvForCurrent(deps.CurrentJobContext()))
 
 	var cancel context.CancelFunc
 	if d, err := parseDurationOrZero(resolved.Spec.Timeout); err == nil && d > 0 {

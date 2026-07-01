@@ -16,8 +16,9 @@ func TestOpenEmbedPersistsJobsAcrossReopen(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
 
-	root := t.TempDir()
-	t.Setenv(defaults.EmbedRootEnv, root)
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	root := filepath.Join(home, ".c2j", "embed", "default")
 
 	handle, err := Open(ctx, "embed:///")
 	if err != nil {
@@ -65,7 +66,7 @@ func TestOpenEmbedRejectsConcurrentOpenOnSameRoot(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
 
-	t.Setenv(defaults.EmbedRootEnv, t.TempDir())
+	t.Setenv("HOME", t.TempDir())
 
 	handle, err := Open(ctx, defaults.EmbedURL)
 	if err != nil {

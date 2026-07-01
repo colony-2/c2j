@@ -10,6 +10,7 @@ import (
 
 	"github.com/colony-2/c2j/pkg/contextual"
 	"github.com/colony-2/c2j/pkg/input/formdefaults"
+	"github.com/colony-2/c2j/pkg/jobcontext"
 	"github.com/colony-2/c2j/pkg/ops"
 	extops "github.com/colony-2/c2j/pkg/ops/extensions"
 	coretask "github.com/colony-2/c2j/pkg/task"
@@ -212,6 +213,7 @@ func (v *validationJobContext) DoTask(runPolicy jobdb.RunPolicy, taskType string
 		OpOutput:  zeroOutput,
 		GitResult: gitResult,
 		NextTask:  nextTask,
+		Jobs:      jobcontext.EmptyStartedJobsContext(),
 	}
 
 	env, err := coretask.NewOutputEnvelope(coretask.OutputKindActivityInvocationOutput, envelope)

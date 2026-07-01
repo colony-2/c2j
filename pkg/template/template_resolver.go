@@ -9,6 +9,7 @@ import (
 
 	recipeartifacts "github.com/colony-2/c2j/pkg/artifacts"
 	"github.com/colony-2/c2j/pkg/contextual"
+	"github.com/colony-2/c2j/pkg/jobcontext"
 	"github.com/colony-2/c2j/pkg/recipe"
 	"github.com/colony-2/c2j/pkg/template/funcregistry"
 	"github.com/colony-2/jobdb/pkg/jobdb"
@@ -85,6 +86,7 @@ type ResolutionContext struct {
 	lastExecution    map[string]interface{}
 	lastArtifacts    []jobdb.Artifact
 	lastArtifactRefs []recipeartifacts.Ref
+	lastJobs         jobcontext.StartedJobsContext
 	artifactCache    map[string]jobdb.Artifact
 }
 
@@ -537,6 +539,10 @@ func (rc *ResolutionContext) AddExecution(output map[string]interface{}) {
 }
 
 func (rc *ResolutionContext) AddExecutionWithArtifactData(output map[string]interface{}, artifactRefs map[string]recipeartifacts.Ref, artifacts []jobdb.Artifact) {
+	rc.AddExecutionWithContextData(output, artifactRefs, artifacts, jobcontext.StartedJobsContext{})
+}
+
+func (rc *ResolutionContext) AddExecutionWithContextData(output map[string]interface{}, artifactRefs map[string]recipeartifacts.Ref, artifacts []jobdb.Artifact, jobs jobcontext.StartedJobsContext) {
 	rc.lastExecution = output
 	if artifactRefs == nil {
 		artifactRefs = map[string]recipeartifacts.Ref{}
@@ -567,6 +573,7 @@ func (rc *ResolutionContext) AddExecutionWithArtifactData(output map[string]inte
 	}
 	rc.lastArtifactRefs = refList
 	rc.lastArtifacts = artList
+	rc.lastJobs = jobs
 
 	var container map[string]StepOutput
 	key := rc.scopeId
@@ -585,6 +592,7 @@ func (rc *ResolutionContext) AddExecutionWithArtifactData(output map[string]inte
 		rc.Parent.lastExecution = output
 		rc.Parent.lastArtifactRefs = append([]recipeartifacts.Ref(nil), refList...)
 		rc.Parent.lastArtifacts = append([]jobdb.Artifact(nil), artList...)
+		rc.Parent.lastJobs = jobs
 		switch rc.Parent.ScopeType {
 		case ScopeRecipe:
 			return
@@ -611,11 +619,13 @@ func (rc *ResolutionContext) AddExecutionWithArtifactData(output map[string]inte
 			rc.Parent.lastExecution = output
 			rc.Parent.lastArtifactRefs = append([]recipeartifacts.Ref(nil), refList...)
 			rc.Parent.lastArtifacts = append([]jobdb.Artifact(nil), artList...)
+			rc.Parent.lastJobs = jobs
 		case ScopeStateMachine, ScopeState:
 			container = rc.TemplateData.States
 			rc.Parent.lastExecution = output
 			rc.Parent.lastArtifactRefs = append([]recipeartifacts.Ref(nil), refList...)
 			rc.Parent.lastArtifacts = append([]jobdb.Artifact(nil), artList...)
+			rc.Parent.lastJobs = jobs
 			if rc.Parent.ScopeType == ScopeState {
 				key = rc.Parent.scopeId
 			}
@@ -623,6 +633,7 @@ func (rc *ResolutionContext) AddExecutionWithArtifactData(output map[string]inte
 			rc.Parent.lastExecution = output
 			rc.Parent.lastArtifactRefs = append([]recipeartifacts.Ref(nil), refList...)
 			rc.Parent.lastArtifacts = append([]jobdb.Artifact(nil), artList...)
+			rc.Parent.lastJobs = jobs
 			return
 		default:
 			panic(fmt.Sprintf("invalid parent scope type: %s", rc.Parent.ScopeType))
@@ -635,16 +646,19 @@ func (rc *ResolutionContext) AddExecutionWithArtifactData(output map[string]inte
 		existing.Runs = append(existing.Runs, RunOutput{
 			Outputs:   existing.Outputs,
 			Artifacts: existing.Artifacts,
+			Jobs:      existing.Jobs,
 			RunID:     generateRunID(),
 			Timestamp: time.Now(),
 		})
 		existing.Outputs = output
 		existing.Artifacts = artifactRefs
+		existing.Jobs = jobs
 		container[key] = existing
 	} else {
 		container[key] = StepOutput{
 			Outputs:   output,
 			Artifacts: artifactRefs,
+			Jobs:      jobs,
 			Runs:      []RunOutput{},
 		}
 	}
@@ -677,6 +691,10 @@ func (rc *ResolutionContext) GetLastArtifacts() []jobdb.Artifact {
 
 func (rc *ResolutionContext) GetLastArtifactRefs() []recipeartifacts.Ref {
 	return rc.lastArtifactRefs
+}
+
+func (rc *ResolutionContext) GetLastJobs() jobcontext.StartedJobsContext {
+	return rc.lastJobs
 }
 
 // validateTemplateReferences validates all template references before execution

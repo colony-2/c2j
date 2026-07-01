@@ -36,11 +36,14 @@ func TestReadyCommandExposesTenantAndRuntimeFlags(t *testing.T) {
 	if flag := cmd.Flags().Lookup("embed"); flag != nil {
 		t.Fatal("ready command should not expose --embed")
 	}
-	if flag := cmd.Flags().Lookup("tenant-id"); flag == nil {
-		t.Fatal("ready command should expose --tenant-id")
+	if flag := cmd.Flags().Lookup("jobdb"); flag == nil {
+		t.Fatal("ready command should expose --jobdb")
 	}
-	if flag := cmd.Flags().Lookup("swf-url"); flag == nil {
-		t.Fatal("ready command should expose --swf-url")
+	if flag := cmd.Flags().Lookup("tenant-id"); flag != nil {
+		t.Fatal("ready command should not expose --tenant-id")
+	}
+	if flag := cmd.Flags().Lookup("swf-url"); flag != nil {
+		t.Fatal("ready command should not expose --swf-url")
 	}
 }
 

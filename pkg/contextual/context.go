@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"github.com/colony-2/c2j/pkg/artifacts"
+	"github.com/colony-2/c2j/pkg/jobcontext"
 )
 
 // WorktreePathSentinel is a placeholder value used during template resolution
@@ -170,15 +171,17 @@ type GitCommitContext struct {
 }
 
 type StepOutput struct {
-	Outputs   map[string]interface{}   `json:"outputs"`
-	Artifacts map[string]artifacts.Ref `json:"artifacts"`
-	Runs      []RunOutput              `json:"runs"` // Previous runs (state loops)
+	Outputs   map[string]interface{}        `json:"outputs"`
+	Artifacts map[string]artifacts.Ref      `json:"artifacts"`
+	Jobs      jobcontext.StartedJobsContext `json:"jobs,omitempty"`
+	Runs      []RunOutput                   `json:"runs"` // Previous runs (state loops)
 }
 
 // RunOutput represents a single execution run
 type RunOutput struct {
-	Outputs   map[string]interface{}   `json:"outputs"`
-	Artifacts map[string]artifacts.Ref `json:"artifacts"`
-	RunID     string                   `json:"run_id"`
-	Timestamp time.Time                `json:"timestamp"`
+	Outputs   map[string]interface{}        `json:"outputs"`
+	Artifacts map[string]artifacts.Ref      `json:"artifacts"`
+	Jobs      jobcontext.StartedJobsContext `json:"jobs,omitempty"`
+	RunID     string                        `json:"run_id"`
+	Timestamp time.Time                     `json:"timestamp"`
 }

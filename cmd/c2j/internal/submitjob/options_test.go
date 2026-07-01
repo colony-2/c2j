@@ -4,58 +4,54 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/colony-2/c2j/cmd/c2j/internal/defaults"
 )
 
-func TestOptionsCompleteLeavesTenantEmptyWhenUnknown(t *testing.T) {
-	t.Setenv(defaults.SWFEnv, "")
-	t.Setenv(defaults.TenantEnv, "")
-
-	opts := Options{WorkingDir: t.TempDir()}
+func TestOptionsCompleteUsesExplicitJobDBURI(t *testing.T) {
+	opts := Options{JobDBURI: "http://localhost:9047/dev"}
 	if err := opts.Complete(context.Background()); err != nil {
 		t.Fatalf("Complete(): %v", err)
 	}
 
-	if opts.SWFURL != defaults.SWFURL {
-		t.Fatalf("SWFURL = %q, want %q", opts.SWFURL, defaults.SWFURL)
+	if opts.SWFURL != "http://localhost:9047" {
+		t.Fatalf("SWFURL = %q", opts.SWFURL)
 	}
-	if opts.TenantID != "" {
-		t.Fatalf("TenantID = %q, want empty when no tenant can be derived", opts.TenantID)
+	if opts.TenantID != "dev" {
+		t.Fatalf("TenantID = %q", opts.TenantID)
 	}
 	if opts.Recipe != "default" {
 		t.Fatalf("Recipe = %q, want default", opts.Recipe)
 	}
 }
 
-func TestOptionsCompletePrefersEnvironmentOverHardcodedDefaults(t *testing.T) {
-	t.Setenv(defaults.SWFEnv, "http://example.invalid:1234")
-	t.Setenv(defaults.TenantEnv, "42")
+func TestOptionsCompleteUsesJobDBEnvironment(t *testing.T) {
+	t.Setenv(defaults.JobDBEnv, "https://jobdb.example.invalid/prod")
 
 	opts := Options{}
 	if err := opts.Complete(context.Background()); err != nil {
 		t.Fatalf("Complete(): %v", err)
 	}
 
-	if opts.SWFURL != "http://example.invalid:1234" {
-		t.Fatalf("SWFURL = %q, want environment value", opts.SWFURL)
+	if opts.SWFURL != "https://jobdb.example.invalid" {
+		t.Fatalf("SWFURL = %q", opts.SWFURL)
 	}
-	if opts.TenantID != "42" {
-		t.Fatalf("TenantID = %q, want environment value", opts.TenantID)
+	if opts.TenantID != "prod" {
+		t.Fatalf("TenantID = %q", opts.TenantID)
 	}
 }
 
-func TestOptionsCompleteUsesProjectTenantDefault(t *testing.T) {
-	t.Setenv(defaults.SWFEnv, "")
-	t.Setenv(defaults.TenantEnv, "")
+func TestOptionsCompleteUsesProjectJobDB(t *testing.T) {
+	t.Setenv(defaults.JobDBEnv, "")
 
 	root := t.TempDir()
 	configPath := filepath.Join(root, ".c2j", "config.yaml")
 	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
 		t.Fatalf("mkdir config dir: %v", err)
 	}
-	if err := os.WriteFile(configPath, []byte("self:\n  repo: github.com/acme/self\n"), 0o644); err != nil {
+	if err := os.WriteFile(configPath, []byte("jobdb: https://jobdb.example.invalid/configured\n"), 0o644); err != nil {
 		t.Fatalf("write config: %v", err)
 	}
 
@@ -64,13 +60,35 @@ func TestOptionsCompleteUsesProjectTenantDefault(t *testing.T) {
 		t.Fatalf("Complete(): %v", err)
 	}
 
-	if opts.TenantID == "" {
-		t.Fatalf("TenantID = %q, want project-derived tenant ID", opts.TenantID)
+	if opts.SWFURL != "https://jobdb.example.invalid" || opts.TenantID != "configured" {
+		t.Fatalf("resolved target = swf %q tenant %q", opts.SWFURL, opts.TenantID)
+	}
+}
+
+func TestOptionsCompleteUsesTenantZeroInEmbeddedMode(t *testing.T) {
+	opts := Options{JobDBURI: defaults.EmbedURL}
+	if err := opts.Complete(context.Background()); err != nil {
+		t.Fatalf("Complete(): %v", err)
+	}
+
+	if opts.SWFURL != defaults.EmbedURL {
+		t.Fatalf("SWFURL = %q", opts.SWFURL)
+	}
+	if opts.TenantID != defaults.EmbeddedTenantID {
+		t.Fatalf("TenantID = %q, want embedded tenant ID %q", opts.TenantID, defaults.EmbeddedTenantID)
+	}
+}
+
+func TestOptionsValidateRequiresJobDB(t *testing.T) {
+	opts := Options{Recipe: "default"}
+	if err := opts.Validate(); err == nil || !strings.Contains(err.Error(), "--jobdb is required") {
+		t.Fatalf("Validate() = %v, want --jobdb required", err)
 	}
 }
 
 func TestOptionsValidateAllowsDefaultSelfTarget(t *testing.T) {
 	opts := Options{
+		JobDBURI: "http://example.invalid/tenant",
 		TenantID: "tenant",
 		SWFURL:   "http://example.invalid",
 		Recipe:   "default",
@@ -88,6 +106,7 @@ func TestOptionsValidateAllowsDefaultSelfTarget(t *testing.T) {
 
 func TestOptionsValidateRejectsJSONOutputWithRun(t *testing.T) {
 	opts := Options{
+		JobDBURI:       "http://example.invalid/tenant",
 		TenantID:       "tenant",
 		SWFURL:         "http://example.invalid",
 		Recipe:         "default",

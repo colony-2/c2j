@@ -23,6 +23,10 @@ import (
 	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
 )
 
+func testJobDBURI(serverURL string, tenantID string) string {
+	return strings.TrimRight(serverURL, "/") + "/" + tenantID
+}
+
 func TestRun_CompletesJobAndReplaysCachedHistory(t *testing.T) {
 	t.Parallel()
 
@@ -92,8 +96,7 @@ outputs:
 	var liveStderr bytes.Buffer
 	if err := Run(ctx, Options{
 		JobID:        jobKey.JobId,
-		TenantID:     tenantID,
-		SWFURL:       server.URL,
+		JobDBURI:     testJobDBURI(server.URL, tenantID),
 		WaitTimeout:  5 * time.Second,
 		PollInterval: 10 * time.Millisecond,
 		InputMode:    "fail",
@@ -139,8 +142,7 @@ outputs:
 	var cachedStderr bytes.Buffer
 	if err := Run(ctx, Options{
 		JobID:        jobKey.JobId,
-		TenantID:     tenantID,
-		SWFURL:       server.URL,
+		JobDBURI:     testJobDBURI(server.URL, tenantID),
 		WaitTimeout:  5 * time.Second,
 		PollInterval: 10 * time.Millisecond,
 		InputMode:    "fail",

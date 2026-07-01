@@ -142,6 +142,24 @@ var c2jJobSchema = json.RawMessage(`{
         },
         "additionalProperties": false
       },
+      "parentJobContext": {
+        "type": "object",
+        "properties": {
+          "tenant_id": { "type": "string" },
+          "job_id": { "type": "string" },
+          "job_type": { "type": "string" },
+          "op_type": { "type": "string" },
+          "op_step": { "type": "string" },
+          "op_task_type": { "type": "string" },
+          "cell_name": { "type": "string" },
+          "repo": { "type": "string" },
+          "git_ref": { "type": "string" },
+          "invocation_path": { "type": "string" },
+          "invocation_seq": { "type": "integer" },
+          "invocation_hash": { "type": "string" }
+        },
+        "additionalProperties": false
+      },
       "startJob": {
         "type": "object",
         "required": ["tenantId", "recipe", "context"],
@@ -155,6 +173,7 @@ var c2jJobSchema = json.RawMessage(`{
             "items": { "$ref": "#/$defs/artifactRef" }
           },
           "context": { "$ref": "#/$defs/jobContext" },
+          "parent": { "$ref": "#/$defs/parentJobContext" },
           "git": { "type": "string" },
           "submitted_at": { "type": "string", "format": "date-time" },
           "input_hash": { "type": "string" }
@@ -281,6 +300,31 @@ var c2jJobSchema = json.RawMessage(`{
         },
         "additionalProperties": false
       },
+      "startedJobContext": {
+        "type": "object",
+        "properties": {
+          "tenant_id": { "type": "string" },
+          "job_id": { "type": "string" },
+          "recipe": { "type": "string" },
+          "status": { "type": "string" },
+          "parent_invocation_hash": { "type": "string" }
+        },
+        "additionalProperties": false
+      },
+      "startedJobsContext": {
+        "type": "object",
+        "properties": {
+          "job_ids": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "items": {
+            "type": "array",
+            "items": { "$ref": "#/$defs/startedJobContext" }
+          }
+        },
+        "additionalProperties": false
+      },
       "rootSourceResolutionInput": {
         "type": "object",
         "required": ["project_id", "selector"],
@@ -381,7 +425,8 @@ var c2jJobSchema = json.RawMessage(`{
           "artifact_refs": {
             "type": "object",
             "additionalProperties": { "$ref": "#/$defs/artifactRef" }
-          }
+          },
+          "jobs": { "$ref": "#/$defs/startedJobsContext" }
         },
         "additionalProperties": false
       },

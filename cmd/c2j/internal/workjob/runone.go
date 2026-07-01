@@ -17,6 +17,7 @@ import (
 const defaultLeaseDuration = 60 * time.Second
 
 type RunOneOptions struct {
+	JobDBURI       string
 	TenantID       string
 	SWFURL         string
 	LeaseDuration  time.Duration
@@ -27,12 +28,6 @@ type RunOneOptions struct {
 }
 
 func (o *RunOneOptions) Complete(ctx context.Context) error {
-	if strings.TrimSpace(o.SWFURL) == "" {
-		o.SWFURL = strings.TrimSpace(os.Getenv(defaults.SWFEnv))
-	}
-	if strings.TrimSpace(o.SWFURL) == "" {
-		o.SWFURL = defaults.SWFURL
-	}
 	if o.LeaseDuration == 0 {
 		o.LeaseDuration = defaultLeaseDuration
 	}
@@ -55,27 +50,24 @@ func (o *RunOneOptions) Complete(ctx context.Context) error {
 			o.WorkingDir = absPath
 		}
 	}
-	if strings.TrimSpace(o.TenantID) == "" {
-		o.TenantID = strings.TrimSpace(os.Getenv(defaults.TenantEnv))
+	target, err := defaults.ResolveJobDBTarget(ctx, o.WorkingDir, o.JobDBURI)
+	if err != nil {
+		return err
 	}
-	if strings.TrimSpace(o.TenantID) == "" {
-		tenantID, err := defaults.ResolveTenantID(ctx, o.WorkingDir)
-		if err != nil {
-			return err
-		}
-		o.TenantID = tenantID
-	}
+	o.JobDBURI = target.URI
+	o.SWFURL = target.RuntimeURL
+	o.TenantID = target.TenantID
 	return nil
 }
 
 func (o RunOneOptions) Validate() error {
 	if strings.TrimSpace(o.TenantID) == "" {
-		return fmt.Errorf("--tenant-id is required (or %s, or project self.tenant_id/self.repo)", defaults.TenantEnv)
+		return fmt.Errorf("--jobdb is required (or %s, or project jobdb)", defaults.JobDBEnv)
 	}
 	if strings.TrimSpace(o.SWFURL) == "" {
-		return fmt.Errorf("--swf-url is required (or %s)", defaults.SWFEnv)
+		return fmt.Errorf("--jobdb is required (or %s, or project jobdb)", defaults.JobDBEnv)
 	}
-	if err := validateSWFURL(o.SWFURL); err != nil {
+	if err := validateJobDBRuntimeURL(o.SWFURL); err != nil {
 		return err
 	}
 	if o.LeaseDuration <= 0 {

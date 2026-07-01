@@ -12,16 +12,15 @@ import (
 	"github.com/colony-2/c2j/cmd/c2j/internal/defaults"
 )
 
-func TestOptionsCompleteDefaults(t *testing.T) {
-	t.Setenv(defaults.SWFEnv, "")
-	t.Setenv(defaults.TenantEnv, "")
+func TestOptionsCompleteUsesProjectJobDB(t *testing.T) {
+	t.Setenv(defaults.JobDBEnv, "")
 
 	root := t.TempDir()
 	configPath := filepath.Join(root, ".c2j", "config.yaml")
 	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
 		t.Fatalf("mkdir config dir: %v", err)
 	}
-	if err := os.WriteFile(configPath, []byte("self:\n  repo: github.com/acme/self\n"), 0o644); err != nil {
+	if err := os.WriteFile(configPath, []byte("jobdb: https://jobdb.example.invalid/configured\n"), 0o644); err != nil {
 		t.Fatalf("write config: %v", err)
 	}
 
@@ -30,11 +29,8 @@ func TestOptionsCompleteDefaults(t *testing.T) {
 		t.Fatalf("Complete(): %v", err)
 	}
 
-	if opts.SWFURL != defaults.SWFURL {
-		t.Fatalf("SWFURL = %q, want %q", opts.SWFURL, defaults.SWFURL)
-	}
-	if opts.TenantID == "" {
-		t.Fatalf("TenantID = %q, want project-derived tenant ID", opts.TenantID)
+	if opts.SWFURL != "https://jobdb.example.invalid" || opts.TenantID != "configured" {
+		t.Fatalf("resolved target = swf %q tenant %q", opts.SWFURL, opts.TenantID)
 	}
 	if opts.Concurrency != defaultConcurrency {
 		t.Fatalf("Concurrency = %d, want %d", opts.Concurrency, defaultConcurrency)
@@ -50,20 +46,40 @@ func TestOptionsCompleteDefaults(t *testing.T) {
 	}
 }
 
-func TestOptionsCompletePrefersEnvironment(t *testing.T) {
-	t.Setenv(defaults.SWFEnv, "https://swf.example.invalid")
-	t.Setenv(defaults.TenantEnv, "tenant-env")
+func TestOptionsCompleteUsesJobDBEnvironment(t *testing.T) {
+	t.Setenv(defaults.JobDBEnv, "https://jobdb.example.invalid/env-tenant")
 
 	opts := Options{WorkingDir: t.TempDir()}
 	if err := opts.Complete(context.Background()); err != nil {
 		t.Fatalf("Complete(): %v", err)
 	}
 
-	if opts.SWFURL != "https://swf.example.invalid" {
-		t.Fatalf("SWFURL = %q, want environment value", opts.SWFURL)
+	if opts.SWFURL != "https://jobdb.example.invalid" || opts.TenantID != "env-tenant" {
+		t.Fatalf("resolved target = swf %q tenant %q", opts.SWFURL, opts.TenantID)
 	}
-	if opts.TenantID != "tenant-env" {
-		t.Fatalf("TenantID = %q, want environment value", opts.TenantID)
+}
+
+func TestRunOneOptionsCompleteUsesTenantZeroInEmbeddedMode(t *testing.T) {
+	opts := RunOneOptions{WorkingDir: t.TempDir(), JobDBURI: defaults.EmbedURL}
+	if err := opts.Complete(context.Background()); err != nil {
+		t.Fatalf("Complete(): %v", err)
+	}
+
+	if opts.SWFURL != defaults.EmbedURL || opts.TenantID != defaults.EmbeddedTenantID {
+		t.Fatalf("resolved target = swf %q tenant %q", opts.SWFURL, opts.TenantID)
+	}
+}
+
+func TestReadyOptionsCompleteLeavesJobDBEmptyWhenUnknown(t *testing.T) {
+	t.Setenv(defaults.JobDBEnv, "")
+
+	opts := ReadyOptions{WorkingDir: t.TempDir()}
+	if err := opts.Complete(context.Background()); err != nil {
+		t.Fatalf("Complete(): %v", err)
+	}
+
+	if opts.TenantID != "" || opts.SWFURL != "" {
+		t.Fatalf("resolved target = swf %q tenant %q, want empty", opts.SWFURL, opts.TenantID)
 	}
 }
 
@@ -75,45 +91,40 @@ func TestOptionsValidate(t *testing.T) {
 	}{
 		{
 			name: "valid http",
-			opts: Options{TenantID: "tenant", SWFURL: "http://localhost:9047", Concurrency: 1},
+			opts: Options{JobDBURI: "http://localhost:9047/tenant", TenantID: "tenant", SWFURL: "http://localhost:9047", Concurrency: 1},
 		},
 		{
 			name: "valid https",
-			opts: Options{TenantID: "tenant", SWFURL: "https://swf.example.invalid", Concurrency: 2, AwaitThreshold: time.Second},
+			opts: Options{JobDBURI: "https://swf.example.invalid/tenant", TenantID: "tenant", SWFURL: "https://swf.example.invalid", Concurrency: 2, AwaitThreshold: time.Second},
 		},
 		{
-			name:    "missing tenant",
-			opts:    Options{SWFURL: "http://localhost:9047", Concurrency: 1},
-			wantErr: "--tenant-id is required",
-		},
-		{
-			name:    "missing swf url",
-			opts:    Options{TenantID: "tenant", Concurrency: 1},
-			wantErr: "--swf-url is required",
+			name:    "missing jobdb",
+			opts:    Options{Concurrency: 1},
+			wantErr: "--jobdb is required",
 		},
 		{
 			name:    "reject embed",
-			opts:    Options{TenantID: "tenant", SWFURL: defaults.EmbedURL, Concurrency: 1},
+			opts:    Options{JobDBURI: defaults.EmbedURL, TenantID: defaults.EmbeddedTenantID, SWFURL: defaults.EmbedURL, Concurrency: 1},
 			wantErr: "embed:/// is not supported",
 		},
 		{
 			name:    "reject unsupported scheme",
-			opts:    Options{TenantID: "tenant", SWFURL: "ftp://example.invalid", Concurrency: 1},
-			wantErr: "external SWF runtime URL",
+			opts:    Options{JobDBURI: "ftp://example.invalid/tenant", TenantID: "tenant", SWFURL: "ftp://example.invalid", Concurrency: 1},
+			wantErr: "remote JobDB URI",
 		},
 		{
 			name:    "reject zero concurrency",
-			opts:    Options{TenantID: "tenant", SWFURL: "http://localhost:9047"},
+			opts:    Options{JobDBURI: "http://localhost:9047/tenant", TenantID: "tenant", SWFURL: "http://localhost:9047"},
 			wantErr: "--concurrency must be > 0",
 		},
 		{
 			name:    "reject negative concurrency",
-			opts:    Options{TenantID: "tenant", SWFURL: "http://localhost:9047", Concurrency: -1},
+			opts:    Options{JobDBURI: "http://localhost:9047/tenant", TenantID: "tenant", SWFURL: "http://localhost:9047", Concurrency: -1},
 			wantErr: "--concurrency must be > 0",
 		},
 		{
 			name:    "reject negative await threshold",
-			opts:    Options{TenantID: "tenant", SWFURL: "http://localhost:9047", Concurrency: 1, AwaitThreshold: -time.Second},
+			opts:    Options{JobDBURI: "http://localhost:9047/tenant", TenantID: "tenant", SWFURL: "http://localhost:9047", Concurrency: 1, AwaitThreshold: -time.Second},
 			wantErr: "--await-threshold must be >= 0",
 		},
 	}
@@ -139,8 +150,7 @@ func TestOptionsValidate(t *testing.T) {
 
 func TestRunReturnsInvalidOptionExitCode(t *testing.T) {
 	err := Run(context.Background(), Options{
-		TenantID:    "tenant",
-		SWFURL:      defaults.EmbedURL,
+		JobDBURI:    defaults.EmbedURL,
 		Concurrency: 1,
 	})
 	if err == nil {
@@ -155,9 +165,8 @@ func TestRunReturnsInvalidOptionExitCode(t *testing.T) {
 	}
 }
 
-func TestRunRejectsEmbeddedSWFURLFromEnvironment(t *testing.T) {
-	t.Setenv(defaults.SWFEnv, defaults.EmbedURL)
-	t.Setenv(defaults.TenantEnv, "tenant-env")
+func TestRunRejectsEmbeddedJobDBFromEnvironment(t *testing.T) {
+	t.Setenv(defaults.JobDBEnv, defaults.EmbedURL)
 
 	var stdout, stderr bytes.Buffer
 	err := Run(context.Background(), Options{
@@ -166,7 +175,7 @@ func TestRunRejectsEmbeddedSWFURLFromEnvironment(t *testing.T) {
 		Stderr:     &stderr,
 	})
 	if err == nil {
-		t.Fatal("Run() succeeded, want embedded SWF URL validation error")
+		t.Fatal("Run() succeeded, want embedded JobDB validation error")
 	}
 	coded, ok := err.(interface{ ExitCode() int })
 	if !ok {
@@ -194,21 +203,21 @@ func TestReadyOptionsValidate(t *testing.T) {
 	}{
 		{
 			name: "valid http",
-			opts: ReadyOptions{TenantID: "tenant", SWFURL: "http://localhost:9047"},
+			opts: ReadyOptions{JobDBURI: "http://localhost:9047/tenant", TenantID: "tenant", SWFURL: "http://localhost:9047"},
 		},
 		{
 			name: "valid embed",
-			opts: ReadyOptions{TenantID: "tenant", SWFURL: defaults.EmbedURL},
+			opts: ReadyOptions{JobDBURI: defaults.EmbedURL, TenantID: defaults.EmbeddedTenantID, SWFURL: defaults.EmbedURL},
 		},
 		{
-			name:    "missing tenant",
-			opts:    ReadyOptions{SWFURL: "http://localhost:9047"},
-			wantErr: "--tenant-id is required",
+			name:    "missing jobdb",
+			opts:    ReadyOptions{},
+			wantErr: "--jobdb is required",
 		},
 		{
 			name:    "unsupported scheme",
-			opts:    ReadyOptions{TenantID: "tenant", SWFURL: "ftp://example.invalid"},
-			wantErr: "unsupported SWF runtime URL",
+			opts:    ReadyOptions{JobDBURI: "ftp://example.invalid/tenant", TenantID: "tenant", SWFURL: "ftp://example.invalid"},
+			wantErr: "unsupported JobDB runtime URL",
 		},
 	}
 
@@ -239,21 +248,21 @@ func TestRunOneOptionsValidate(t *testing.T) {
 	}{
 		{
 			name: "valid",
-			opts: RunOneOptions{TenantID: "tenant", SWFURL: "http://localhost:9047", LeaseDuration: time.Minute},
+			opts: RunOneOptions{JobDBURI: "http://localhost:9047/tenant", TenantID: "tenant", SWFURL: "http://localhost:9047", LeaseDuration: time.Minute},
 		},
 		{
-			name:    "missing tenant",
-			opts:    RunOneOptions{SWFURL: "http://localhost:9047", LeaseDuration: time.Minute},
-			wantErr: "--tenant-id is required",
+			name:    "missing jobdb",
+			opts:    RunOneOptions{LeaseDuration: time.Minute},
+			wantErr: "--jobdb is required",
 		},
 		{
 			name:    "reject zero lease duration",
-			opts:    RunOneOptions{TenantID: "tenant", SWFURL: "http://localhost:9047"},
+			opts:    RunOneOptions{JobDBURI: "http://localhost:9047/tenant", TenantID: "tenant", SWFURL: "http://localhost:9047"},
 			wantErr: "--lease-duration must be > 0",
 		},
 		{
 			name:    "reject negative await threshold",
-			opts:    RunOneOptions{TenantID: "tenant", SWFURL: "http://localhost:9047", LeaseDuration: time.Minute, AwaitThreshold: -time.Second},
+			opts:    RunOneOptions{JobDBURI: "http://localhost:9047/tenant", TenantID: "tenant", SWFURL: "http://localhost:9047", LeaseDuration: time.Minute, AwaitThreshold: -time.Second},
 			wantErr: "--await-threshold must be >= 0",
 		},
 	}

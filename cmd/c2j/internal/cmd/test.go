@@ -117,7 +117,6 @@ func newBaseTestOptions() testjob.Options {
 
 func bindTestCommonFlags(cmd *cobra.Command, opts *testjob.Options) {
 	flags := cmd.Flags()
-	flags.StringVar(&opts.TenantID, "tenant-id", "", "Tenant/project ID for the test run (defaults to project self.tenant_id, derived self.repo hash, or recipe-tests)")
 	flags.StringVar(&opts.Recipe, "recipe", "", "Recipe name or git selector to test (defaults to default)")
 	flags.StringVar(&opts.RecipeFile, "recipe-file", "", "Path to a local recipe YAML file")
 	flags.StringVar(&opts.FilePath, "file", "", "Suite file path")
@@ -139,6 +138,4 @@ func bindTestRunFlags(cmd *cobra.Command, opts *testjob.Options) {
 	flags.StringVar(&opts.Execution.EvaluationMode, "evaluation-mode", "enforce", "Evaluation mode: enforce|report_only")
 	flags.StringVar(&opts.OutDir, "out-dir", "", "Output directory for local test artifacts")
 	flags.StringVar(&opts.JSONLEvents, "jsonl-events", "", "Optional JSONL event output path")
-	flags.StringVar(&opts.RuntimeRoot, "runtime-root", "", "Embedded runtime root for passthrough cases (defaults to a disposable temp dir)")
-	flags.BoolVar(&opts.KeepRuntime, "keep-runtime", false, "Keep the temporary embedded runtime root after the test run")
 }

@@ -128,5 +128,8 @@ func hasFailedActivityPayload(output ActivityInvocationOutput, artifacts []jobdb
 	if len(output.OpOutput) > 0 || output.NextTask != "" || len(output.ArtifactRefs) > 0 {
 		return true
 	}
+	if len(output.Jobs.JobIDs) > 0 || len(output.Jobs.Items) > 0 {
+		return true
+	}
 	return output.GitResult != (contextual.GitCommitContext{})
 }

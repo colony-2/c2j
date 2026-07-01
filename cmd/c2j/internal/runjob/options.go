@@ -14,6 +14,7 @@ import (
 
 type Options struct {
 	JobID          string
+	JobDBURI       string
 	TenantID       string
 	SWFURL         string
 	WorkerID       string
@@ -31,12 +32,6 @@ type Options struct {
 }
 
 func (o *Options) Complete(ctx context.Context) error {
-	if o.SWFURL == "" {
-		o.SWFURL = strings.TrimSpace(os.Getenv(defaults.SWFEnv))
-	}
-	if o.SWFURL == "" {
-		o.SWFURL = defaults.SWFURL
-	}
 	if o.WaitTimeout == 0 {
 		o.WaitTimeout = 15 * time.Minute
 	}
@@ -78,16 +73,13 @@ func (o *Options) Complete(ctx context.Context) error {
 			o.InputMode = "prompt"
 		}
 	}
-	if o.TenantID == "" {
-		o.TenantID = strings.TrimSpace(os.Getenv(defaults.TenantEnv))
+	target, err := defaults.ResolveJobDBTarget(ctx, o.WorkingDir, o.JobDBURI)
+	if err != nil {
+		return err
 	}
-	if o.TenantID == "" {
-		tenantID, err := defaults.ResolveTenantID(ctx, o.WorkingDir)
-		if err != nil {
-			return err
-		}
-		o.TenantID = tenantID
-	}
+	o.JobDBURI = target.URI
+	o.SWFURL = target.RuntimeURL
+	o.TenantID = target.TenantID
 	return nil
 }
 
@@ -96,10 +88,10 @@ func (o Options) Validate() error {
 		return fmt.Errorf("--job-id is required")
 	}
 	if strings.TrimSpace(o.TenantID) == "" {
-		return fmt.Errorf("--tenant-id is required (or %s, or project self.tenant_id/self.repo)", defaults.TenantEnv)
+		return fmt.Errorf("--jobdb is required (or %s, or project jobdb)", defaults.JobDBEnv)
 	}
 	if strings.TrimSpace(o.SWFURL) == "" {
-		return fmt.Errorf("--swf-url is required (or %s)", defaults.SWFEnv)
+		return fmt.Errorf("--jobdb is required (or %s, or project jobdb)", defaults.JobDBEnv)
 	}
 	switch o.InputMode {
 	case "prompt", "ops", "fail":

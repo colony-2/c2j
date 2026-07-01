@@ -13,6 +13,7 @@ import (
 	"github.com/colony-2/c2j/cmd/c2j/internal/c2jops"
 	"github.com/colony-2/c2j/cmd/c2j/internal/runjob"
 	"github.com/colony-2/c2j/cmd/c2j/internal/swfruntime"
+	"github.com/colony-2/c2j/pkg/jobcontext"
 	"github.com/colony-2/c2j/pkg/recipe"
 	"github.com/colony-2/c2j/pkg/recipejob"
 	"github.com/colony-2/c2j/pkg/starter"
@@ -60,11 +61,21 @@ func Run(ctx context.Context, opts Options) error {
 		return err
 	}
 
+	var parentContext *jobcontext.Parent
+	if parent, ok, err := jobcontext.ParentFromEnv(os.Getenv); err != nil {
+		return err
+	} else if ok {
+		if strings.TrimSpace(parent.TenantID) != strings.TrimSpace(opts.TenantID) {
+			return fmt.Errorf("child job submission must use the current tenant %q; got %q", parent.TenantID, opts.TenantID)
+		}
+		parentContext = &parent
+	}
+
 	var result submitResult
 	if err := func() error {
 		handle, err := swfruntime.Open(ctx, opts.SWFURL)
 		if err != nil {
-			return fmt.Errorf("open SWF runtime: %w", err)
+			return fmt.Errorf("open JobDB runtime: %w", err)
 		}
 		closeHandle := func(err error) error {
 			return errors.Join(err, handle.Cleanup())
@@ -77,6 +88,7 @@ func Run(ctx context.Context, opts Options) error {
 			Recipe:      recipeName,
 			Inputs:      inputs,
 			Artifacts:   submitArtifacts,
+			Parent:      parentContext,
 			SubmittedAt: &submittedAt,
 		})
 		if err != nil {
@@ -109,8 +121,7 @@ func Run(ctx context.Context, opts Options) error {
 
 	return runjob.Run(ctx, runjob.Options{
 		JobID:    result.JobID,
-		TenantID: opts.TenantID,
-		SWFURL:   opts.SWFURL,
+		JobDBURI: opts.JobDBURI,
 		Stdin:    opts.Stdin,
 		Stdout:   opts.Stdout,
 		Stderr:   opts.Stderr,

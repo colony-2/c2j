@@ -1,6 +1,7 @@
 package template
 
 import (
+	"github.com/colony-2/c2j/pkg/jobcontext"
 	"github.com/google/cel-go/common/types"
 	"github.com/google/cel-go/common/types/traits"
 )
@@ -33,6 +34,7 @@ func clampStepOutputs(stepOutputs map[string]StepOutput, adapter types.Adapter) 
 		out[key] = map[string]interface{}{
 			"outputs":   outputsVal,
 			"artifacts": artifactsVal,
+			"jobs":      jobsContextValue(step.Jobs),
 			"runs":      clampRuns(step.Runs, adapter),
 		}
 	}
@@ -53,6 +55,7 @@ func clampRuns(runs []RunOutput, adapter types.Adapter) traits.Lister {
 		runMaps = append(runMaps, map[string]interface{}{
 			"outputs":   newPermissiveMap(outputs, adapter),
 			"artifacts": newPermissiveArtifactMap(artifactRefs, adapter),
+			"jobs":      jobsContextValue(run.Jobs),
 			"run_id":    run.RunID,
 			"timestamp": run.Timestamp,
 		})
@@ -62,4 +65,27 @@ func clampRuns(runs []RunOutput, adapter types.Adapter) traits.Lister {
 		return lister
 	}
 	return types.NewDynamicList(adapter, runMaps)
+}
+
+func jobsContextValue(jobs jobcontext.StartedJobsContext) map[string]interface{} {
+	jobIDs := make([]interface{}, 0, len(jobs.JobIDs))
+	for _, jobID := range jobs.JobIDs {
+		jobIDs = append(jobIDs, jobID)
+	}
+
+	items := make([]interface{}, 0, len(jobs.Items))
+	for _, item := range jobs.Items {
+		items = append(items, map[string]interface{}{
+			"tenant_id":              item.TenantID,
+			"job_id":                 item.JobID,
+			"recipe":                 item.RecipeName,
+			"status":                 item.Status,
+			"parent_invocation_hash": item.ParentInvocationHash,
+		})
+	}
+
+	return map[string]interface{}{
+		"job_ids": jobIDs,
+		"items":   items,
+	}
 }
