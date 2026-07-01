@@ -1,6 +1,7 @@
 package childbroker
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"os"
@@ -15,10 +16,43 @@ import (
 	"github.com/colony-2/c2j/pkg/jobcontext"
 	"github.com/colony-2/c2j/pkg/ops"
 	"github.com/colony-2/c2j/pkg/ops/process"
+	"github.com/colony-2/c2j/pkg/recipe"
 	"github.com/colony-2/c2j/pkg/starter"
+	"github.com/colony-2/c2j/pkg/workflowctl"
 )
 
 const shaiBaseTestImage = "ghcr.io/colony-2/shai-base:latest"
+
+const dockerBrokerChildRecipeYAML = `
+id: child_from_docker
+version: "1.0.0"
+sequence:
+  - id: child_group_marker
+    child_group:
+      mode: start
+      children: []
+outputs: {}
+`
+
+func TestDockerBrokerChildRecipeFixtureRoundTripsThroughSubmitRequest(t *testing.T) {
+	rec, err := recipe.LoadRecipeFromReader(strings.NewReader(dockerBrokerChildRecipeYAML))
+	if err != nil {
+		t.Fatalf("load fixture recipe: %v", err)
+	}
+	req, err := NewSubmitRequest(context.Background(), workflowctl.StartJob{
+		TenantId:   "0",
+		RecipeName: "child_from_docker",
+	}, nil, *rec)
+	if err != nil {
+		t.Fatalf("NewSubmitRequest(): %v", err)
+	}
+	if len(req.EmbeddedRecipes) != 1 {
+		t.Fatalf("embedded recipes = %d, want 1", len(req.EmbeddedRecipes))
+	}
+	if _, err := recipe.LoadRecipeFromReader(bytes.NewReader(req.EmbeddedRecipes[0].YAML)); err != nil {
+		t.Fatalf("broker decode of embedded fixture recipe failed after submit-request marshal:\n%s\nerror: %v", string(req.EmbeddedRecipes[0].YAML), err)
+	}
+}
 
 func TestBrokerSubmitFromMountedC2JInShai(t *testing.T) {
 	if runningInContainer() {
@@ -228,13 +262,7 @@ apply:
 		t.Fatalf("write shai config: %v", err)
 	}
 
-	recipeYAML := `
-id: child_from_docker
-version: "1.0.0"
-sequence: []
-outputs: {}
-`
-	if err := os.WriteFile(filepath.Join(workspace, "child.yaml"), []byte(strings.TrimSpace(recipeYAML)+"\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(workspace, "child.yaml"), []byte(strings.TrimSpace(dockerBrokerChildRecipeYAML)+"\n"), 0o644); err != nil {
 		t.Fatalf("write child recipe: %v", err)
 	}
 }
