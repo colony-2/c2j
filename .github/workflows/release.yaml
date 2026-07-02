@@ -16,7 +16,7 @@ permissions:
 jobs:
   # Step 1: Wait for tests (only when triggered by main push)
   wait-for-tests:
-    if: github.ref_type == 'branch' && github.ref_name == 'main'
+    if: github.event_name == 'push' && github.ref_type == 'branch' && github.ref_name == 'main'
     runs-on: ubuntu-latest
     steps:
       - name: Wait for test workflow to complete
@@ -31,7 +31,7 @@ jobs:
   # Step 2: Create tag (only when triggered by main push, after tests pass)
   create-tag:
     needs: wait-for-tests
-    if: github.ref_type == 'branch' && github.ref_name == 'main'
+    if: github.event_name == 'push' && github.ref_type == 'branch' && github.ref_name == 'main'
     runs-on: ubuntu-latest
     outputs:
       tag: ${{ steps.tag_version.outputs.new_tag }}
@@ -51,14 +51,14 @@ jobs:
           PRERELEASE: false
           RELEASE_BRANCHES: main
 
-  # Step 3: Run GoReleaser (for both main push after tag creation, and manual tag pushes)
+  # Step 3: Run GoReleaser (for main push after tag creation, and manual tag pushes)
   goreleaser:
     needs: [ create-tag ]
     if: |
       always() &&
       (
-        (github.ref_type == 'branch' && github.ref_name == 'main' && needs.create-tag.result == 'success') ||
-        (github.ref_type == 'tag' && startsWith(github.ref_name, 'v'))
+        (github.event_name == 'push' && github.ref_type == 'branch' && github.ref_name == 'main' && needs.create-tag.result == 'success') ||
+        (github.event_name == 'push' && github.ref_type == 'tag' && startsWith(github.ref_name, 'v'))
       )
     runs-on: ubuntu-latest
     steps:
@@ -86,6 +86,7 @@ jobs:
           chmod 600 ~/.netrc
 
       - name: Run tests
+        if: github.event_name == 'push' && github.ref_type == 'tag' && startsWith(github.ref_name, 'v')
         # Custom HOME ONLY for this step, and outside the workspace
         env:
           HOME: ${{ runner.temp }}/test-home
