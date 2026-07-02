@@ -25,6 +25,8 @@ resources:
       - source: ${{ env.HOME }}/.cache/go-mod
         target: /home/shai/go/mod
         mode: rw
+      - source: /src/recipes
+        target: /recipes
     root-commands:
       - |
         socket="/var/run/docker.sock"

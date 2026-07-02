@@ -1,6 +1,6 @@
 # c2j
 
-`c2j` is the local job-oriented CLI for submitting and running recipe jobs through an SWF runtime.
+`c2j` is the local job-oriented CLI for submitting and running recipe jobs through JobDB.
 
 Use it when you want to:
 
@@ -91,7 +91,7 @@ That does all of the following:
 
 - loads the local YAML file
 - embeds that recipe into the submitted job
-- starts an embedded SWF runtime
+- starts an embedded JobDB runtime
 - submits the job
 - immediately executes it
 
@@ -333,7 +333,7 @@ Useful flags:
 - `--case <id>` filters suite mode to selected cases
 - `--parallelism <n>` controls local case concurrency
 - `--out-dir <dir>` defaults to `.c2j/test-results/<timestamp>/`
-- passthrough cases use a disposable embedded runtime root automatically; use `--runtime-root` and `--keep-runtime` only for debugging
+- passthrough cases use a disposable embedded runtime automatically
 
 ## Running Jobs
 
@@ -403,21 +403,20 @@ the job becomes runnable or the wait timeout is reached.
 ## Worker Modes
 
 `c2j run loop` runs a long-lived worker for one tenant. It leases available jobs
-from an external SWF runtime and executes up to the configured local concurrency.
+from a remote JobDB runtime and executes up to the configured local concurrency.
 
 Basic usage:
 
 ```bash
-c2j run loop --tenant-id <tenant-id> --swf-url http://localhost:9047 --concurrency 4
+c2j run loop --jobdb http://localhost:9047/<tenant-id> --concurrency 4
 ```
 
 Important behavior:
 
 - `--concurrency <n>` controls how many jobs this process can run at once
-- `--tenant-id` defaults the same way as `submit`, `run`, and `list`
-- `--swf-url` must be an external `http://` or `https://` runtime
+- `--jobdb` must be a remote `http://host/tenant` or `https://host/tenant` URI
 - `--embed` is not available for `run loop`
-- `--swf-url embed:///` is rejected for `run loop`
+- `--jobdb embed:///` is rejected for `run loop`
 - `run loop` is non-interactive; use `run` or an ops surface for jobs that need input
 
 ### Loose scheduling with `ready` and `run any`
@@ -425,7 +424,7 @@ Important behavior:
 `c2j ready` prints the number of currently ready recipe jobs for one tenant:
 
 ```bash
-c2j ready --tenant-id <tenant-id> --swf-url http://localhost:9047
+c2j ready --jobdb http://localhost:9047/<tenant-id>
 ```
 
 `c2j run any` atomically polls for one available item of recipe work, leases it,
@@ -433,23 +432,23 @@ runs it, and exits. If no lease is available, it exits successfully after
 printing `no jobs found`.
 
 ```bash
-c2j run any --tenant-id <tenant-id> --swf-url http://localhost:9047
+c2j run any --jobdb http://localhost:9047/<tenant-id>
 ```
 
 These can be composed by an external scheduler:
 
 ```bash
-count=$(c2j ready --tenant-id <tenant-id> --swf-url http://localhost:9047)
+count=$(c2j ready --jobdb http://localhost:9047/<tenant-id>)
 if [ "$count" -gt 0 ]; then
   for _ in $(seq 1 "$count"); do
-    c2j run any --tenant-id <tenant-id> --swf-url http://localhost:9047 &
+    c2j run any --jobdb http://localhost:9047/<tenant-id> &
   done
   wait
 fi
 ```
 
 `ready` is only a non-mutating snapshot and can become stale under competing
-workers. `run any` uses SWF polling so finding available work and acquiring the
+workers. `run any` uses JobDB polling so finding available work and acquiring the
 lease happen in one runtime operation.
 
 ## Listing Jobs
@@ -495,15 +494,16 @@ Useful filters:
 `--embed` is shorthand for:
 
 ```bash
---swf-url embed:///
+--jobdb embed:///
 ```
 
-Use it when you want a local self-contained runtime instead of an external SWF server.
+Use it when you want a local self-contained runtime instead of a remote JobDB server.
 
 Behavior:
 
 - starts embedded Postgres and Strata as needed
 - uses a persistent runtime root on disk
+- always uses tenant `0`
 - works well for local recipe authoring and debugging
 
 Defaults:
@@ -511,41 +511,39 @@ Defaults:
 - runtime URL: `embed:///`
 - runtime root: `~/.c2j/embed/default`
 
-You can override the root with:
-
-```bash
-export C2J_EMBED_ROOT=/absolute/path/to/embed-root
-```
-
 Notes:
 
-- `C2J_EMBED_ROOT` must be an absolute path
 - only one `c2j` process can own a given embedded runtime root at a time
-- if you need parallel embedded runtimes, give each process a different `C2J_EMBED_ROOT`
 
-## Runtime and Tenant Defaults
+## JobDB Configuration
 
 `c2j` reads these environment variables:
 
-- `C2J_SWF_URL`
-- `C2J_TENANT_ID`
-- `C2J_EMBED_ROOT`
+- `C2J_JOBDB`
 
-Built-in defaults:
+JobDB URI forms:
 
-- `C2J_SWF_URL`: `http://localhost:9047`
-- `C2J_TENANT_ID`: `0`
+- `https://jobdb.example.com/<tenant-id>`
+- `http://localhost:9047/<tenant-id>`
+- `embed:///`
 
 Examples:
 
 ```bash
-export C2J_SWF_URL=http://localhost:9047
-export C2J_TENANT_ID=123
+export C2J_JOBDB=http://localhost:9047/my-tenant
 ```
 
-When `--embed` is present, it overrides `C2J_SWF_URL` for that command.
-`c2j run loop` is the exception: it does not support `--embed` and rejects
-`C2J_SWF_URL=embed:///`.
+`--jobdb` overrides `C2J_JOBDB` for that command. Project config may also define:
+
+```yaml
+jobdb: https://jobdb.example.com/my-tenant
+```
+
+For local embedded mode in project config:
+
+```yaml
+jobdb: embed:///
+```
 
 ## Common Workflows
 
@@ -568,7 +566,7 @@ c2j run --job-id <job-id> --embed
 ```bash
 c2j submit \
   --recipe-file ./recipes/my-recipe.yaml \
-  --swf-url http://localhost:9047 \
+  --jobdb http://localhost:9047/my-tenant \
   --run
 ```
 
