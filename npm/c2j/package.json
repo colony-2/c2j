@@ -1,0 +1,50 @@
+{
+  "name": "@colony2/c2j",
+  "version": "0.0.0-development",
+  "description": "c2j job system",
+  "license": "Apache-2.0",
+  "homepage": "https://github.com/colony-2/c2j",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/colony-2/c2j.git"
+  },
+  "bugs": {
+    "url": "https://github.com/colony-2/c2j/issues"
+  },
+  "author": {
+    "name": "Colony 2",
+    "email": "noreply@colony2.com"
+  },
+  "keywords": [
+    "sandbox",
+    "docker",
+    "ai",
+    "agent",
+    "cli",
+    "security"
+  ],
+  "bin": {
+    "c2j": "bin/cli.js"
+  },
+  "scripts": {
+    "postinstall": "node scripts/postinstall.js"
+  },
+  "os": [
+    "darwin",
+    "linux"
+  ],
+  "cpu": [
+    "x64",
+    "arm64"
+  ],
+  "engines": {
+    "node": ">=14.0.0"
+  },
+  "files": [
+    "bin/",
+    "scripts/",
+    "vendor/",
+    "README.md",
+    "LICENSE"
+  ]
+}
