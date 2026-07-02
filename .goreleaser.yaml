@@ -119,20 +119,3 @@ npms:
         url: https://github.com/colony-2/c2j/issues
       engines:
         node: ">=14.0.0"
-
-# Homebrew tap publishing
-homebrew_casks:
-  - name: c2j
-    url:
-      template: "https://github.com/colony-2/c2j/releases/download/{{ .Tag }}/{{ .ArtifactName }}"
-    repository:
-      owner: colony-2
-      name: homebrew-tap
-      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
-    commit_author:
-      name: colony2-bot
-      email: bot@colony2.com
-    commit_msg_template: "Cask update for {{ .ProjectName }} version {{ .Tag }}"
-    homepage: "https://github.com/colony-2/c2j"
-    description: "c2j job system"
-    license: "Apache-2.0"
