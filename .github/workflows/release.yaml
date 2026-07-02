@@ -4,34 +4,23 @@ on:
   push:
     branches:
       - main
-    tags:
-      - 'v*'
 
 permissions:
   contents: write
   packages: write
   id-token: write # for npm oidc trusted packages
-  checks: read
 
 jobs:
-  # Step 1: Wait for tests (only when triggered by main push)
-  wait-for-tests:
-    if: github.event_name == 'push' && github.ref_type == 'branch' && github.ref_name == 'main'
-    runs-on: ubuntu-latest
-    steps:
-      - name: Wait for test workflow to complete
-        uses: lewagon/wait-on-check-action@v1.6.1
-        with:
-          ref: ${{ github.sha }}
-          check-name: 'test-summary'
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
-          allowed-conclusions: success
-          wait-interval: 10
+  test:
+    if: github.repository_owner == 'colony-2'
+    permissions:
+      contents: read
+    uses: ./.github/workflows/test.yaml
+    secrets: inherit
 
-  # Step 2: Create tag (only when triggered by main push, after tests pass)
   create-tag:
-    needs: wait-for-tests
-    if: github.event_name == 'push' && github.ref_type == 'branch' && github.ref_name == 'main'
+    needs: test
+    if: github.repository_owner == 'colony-2'
     runs-on: ubuntu-latest
     outputs:
       tag: ${{ steps.tag_version.outputs.new_tag }}
@@ -51,15 +40,9 @@ jobs:
           PRERELEASE: false
           RELEASE_BRANCHES: main
 
-  # Step 3: Run GoReleaser (for main push after tag creation, and manual tag pushes)
   goreleaser:
-    needs: [ create-tag ]
-    if: |
-      always() &&
-      (
-        (github.event_name == 'push' && github.ref_type == 'branch' && github.ref_name == 'main' && needs.create-tag.result == 'success') ||
-        (github.event_name == 'push' && github.ref_type == 'tag' && startsWith(github.ref_name, 'v'))
-      )
+    needs: create-tag
+    if: github.repository_owner == 'colony-2'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -84,19 +67,6 @@ jobs:
           go env -w GOPRIVATE=github.com/colony-2/*
           echo "machine github.com login x-access-token password ${{ secrets.READ_ALL_C2_REPOS }}" > ~/.netrc
           chmod 600 ~/.netrc
-
-      - name: Run tests
-        if: github.event_name == 'push' && github.ref_type == 'tag' && startsWith(github.ref_name, 'v')
-        # Custom HOME ONLY for this step, and outside the workspace
-        env:
-          HOME: ${{ runner.temp }}/test-home
-        run: |
-          mkdir -p "$HOME"
-          # Re-create .netrc in the test HOME if your tests need it for go module fetches
-          echo "machine github.com login x-access-token password ${{ secrets.READ_ALL_C2_REPOS }}" > "$HOME/.netrc"
-          chmod 600 "$HOME/.netrc"
-          go env -w GOPRIVATE=github.com/colony-2/*
-          go test -v -tags=integration ./...
 
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v6
