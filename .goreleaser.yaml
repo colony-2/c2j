@@ -66,7 +66,7 @@ changelog:
 release:
   github:
     owner: colony-2
-    name: c2j-release
+    name: c2j
   draft: false
   prerelease: auto
   mode: replace
@@ -98,7 +98,7 @@ notarize:
 # npm publishing - GoReleaser Pro feature
 npms:
   - name: "@colony2/c2j"
-    url_template: "https://github.com/colony-2/c2j-release/releases/download/{{ .Tag }}/{{ .ArtifactName }}"
+    url_template: "https://github.com/colony-2/c2j/releases/download/{{ .Tag }}/{{ .ArtifactName }}"
     homepage: https://github.com/colony-2/c2j
     description: c2j job system
     license: Apache-2.0
@@ -125,7 +125,7 @@ npms:
 homebrew_casks:
   - name: c2j
     url:
-      template: "https://github.com/colony-2/c2j-release/releases/download/{{ .Tag }}/{{ .ArtifactName }}"
+      template: "https://github.com/colony-2/c2j/releases/download/{{ .Tag }}/{{ .ArtifactName }}"
     repository:
       owner: colony-2
       name: homebrew-tap
