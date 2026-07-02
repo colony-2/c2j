@@ -73,7 +73,7 @@ Validated locally on 2026-07-02:
 
 Validated against primary action/tool metadata:
 
-- `step-security/github-tag-action@v6` supports the planned `default_bump`, `tag_prefix`, `release_branches`, `fetch_all_tags`, `dry_run`, `commit_sha`, and `create_annotated_tag` inputs.
+- The existing `anothrNick/github-tag-action@1.75.0` tag-creation behavior is intentionally preserved in the implemented workflow. Changing version calculation is a separate release-metadata/versioning decision.
 - `softprops/action-gh-release@v3` supports the planned `tag_name`, `name`, `files`, `generate_release_notes`, `overwrite_files`, `fail_on_unmatched_files`, `previous_tag`, and `body_path` inputs.
 - `actions/upload-artifact` and `actions/download-artifact` support the planned artifact handoff. Current major tags are newer than the old v4-era examples, so pin deliberately during implementation.
 - npm trusted publishing supports GitHub Actions hosted runners, requires `permissions.id-token: write`, and requires Node `>=22.14.0` plus npm CLI `>=11.5.1`. `actions/setup-node` with Node `24` satisfies this.
@@ -98,9 +98,9 @@ Not fully validated without repository secrets or external service state:
 
 Recommended default actions:
 
-- `step-security/github-tag-action@v6`
-  - Replacement for the current tag action.
-  - Computes semver tags, supports `default_bump: patch`, `tag_prefix: v`, dry runs, changelog output, release branch filtering, and annotated tags if desired.
+- Existing `anothrNick/github-tag-action@1.75.0`
+  - Kept in place to avoid changing release triggers, version bump behavior, or the recent test gating around releases.
+  - A future metadata/versioning pass can evaluate Python Semantic Release or another semantic-release implementation.
 - `wangyoucao577/go-release-action@v1`
   - Candidate only if we decide a build action is more valuable than a single native Go build step.
   - Its docs make `goos` and `goarch` mandatory and describe multi-platform builds through a GitHub Actions matrix, so it should not be the default for this repo.
@@ -124,6 +124,9 @@ Recommended default actions:
   - Keep as a native macOS fallback only. It imports certificates into a macOS keychain, which is useful for `codesign`/`xcrun` workflows but not needed for the default Ubuntu binary-signing path.
 - `actions/setup-node`
   - Use npm's own trusted publishing flow. Third-party npm publish actions are less useful here because npm's trusted publishing docs and npm-publish action docs both point tag-based releases at `setup-node` plus `npm publish`.
+- `python-semantic-release`
+  - Candidate for a future release metadata/version calculation pass.
+  - It can determine versions and generate changelogs/releases from commit conventions, but adopting it would replace more than the GoReleaser publishing job.
 
 Avoid by default:
 
@@ -136,11 +139,11 @@ Avoid by default:
 
 Prefer checked-in configuration and package templates over generated shell output:
 
-- `.github/workflows/release-tag.yaml`
-  - Runs tests and creates the next semver tag on `main`.
 - `.github/workflows/release.yaml`
-  - Runs on `push.tags: ["v*"]` and `workflow_dispatch`.
-  - Builds archives, publishes the GitHub release, and publishes npm.
+  - Preserves the previous `push.branches: [main]` trigger.
+  - Preserves the owner-gated reusable test job.
+  - Preserves the existing create-tag job.
+  - Replaces only the old GoReleaser job with explicit build, GitHub release, and npm publishing jobs.
 - `.github/release.yml`
   - Configures GitHub-generated release note categories and exclusions.
 - `npm/c2j/package.json`
@@ -156,22 +159,17 @@ Do not add `scripts/release/*.sh` unless an action cannot express a required beh
 
 ### 1. Tag Creation
 
-Replace `anothrNick/github-tag-action` with `step-security/github-tag-action`.
+Keep the existing tag creation behavior.
 
 Workflow behavior:
 
 - Trigger on pushes to `main`.
 - Keep the current owner guard: only run in `colony-2/c2j`.
 - Run `.github/workflows/test.yaml`.
-- Use:
-  - `default_bump: patch`
-  - `tag_prefix: v`
-  - `release_branches: main`
-  - `fetch_all_tags: true`
-- Keep lightweight tags unless there is a specific need for annotated tags. Lightweight tags avoid the common `GITHUB_SHA` ambiguity in tag-triggered workflows.
-- Add `concurrency: release-tag-main`.
+- Keep `anothrNick/github-tag-action@1.75.0` with the existing `DEFAULT_BUMP=patch`, `WITH_V=true`, `PRERELEASE=false`, and `RELEASE_BRANCHES=main` settings.
+- Feed the created tag into the replacement build/release/npm jobs.
 
-The action also has a dry-run mode, so the first migration step can compare the calculated next tag to the current release workflow without pushing a tag.
+Do not change tag/version semantics as part of the GoReleaser removal.
 
 ### 2. Release Metadata
 
@@ -187,7 +185,7 @@ Recommended settings:
 
 Use `.github/release.yml` for categories and exclusions. This means release notes become GitHub-native PR-label release notes rather than GoReleaser's commit-regex grouping.
 
-If exact GoReleaser changelog grouping is required, use `step-security/github-tag-action`'s changelog output as the release body before building assets. That still avoids a custom changelog script.
+If better release metadata is required, evaluate Python Semantic Release as a separate change. It is designed to determine SemVer versions and generate release notes/changelogs from commit conventions, but adopting it would also affect tag creation.
 
 ### 3. Go Build, Archive, and Asset Naming
 
@@ -331,22 +329,14 @@ Native macOS runner fallback:
 
 ## Migration Sequence
 
-### Phase 1: Action Dry Run
+### Phase 1: Replace GoReleaser Job
 
-- Add the new workflows disabled for automatic publishing.
-- Use `workflow_dispatch` inputs:
-  - `publish_github_release: false`
-  - `publish_npm: false`
-  - `sign_macos: false`
-- Run `step-security/github-tag-action` in dry-run mode.
-- Run the single-runner Go cross-build job.
-- Upload build outputs only as workflow artifacts.
-- Compare artifact names, archive contents, version output, and checksum output to a GoReleaser run.
+- Preserve the existing release workflow trigger, test job, and create-tag job.
+- Replace the GoReleaser job with explicit build, checksum, smoke-test, GitHub release, and npm publishing jobs.
+- Keep all package-specific input values in top-level workflow `env`.
 
 ### Phase 2: GitHub Release Assets
 
-- Enable release creation/upload from tag pushes.
-- Keep npm publishing on the old path for one release if needed.
 - Use `softprops/action-gh-release` to own release metadata and final asset upload.
 
 ### Phase 3: npm Package
@@ -383,11 +373,11 @@ Native macOS runner fallback:
 - Is exact `checksums.txt` parity needed, or can we move to GitHub release asset digests?
 - Is macOS notarization release-critical for this CLI, or best-effort as it is today?
 - Should we use `anchore/quill` directly for closest GoReleaser parity, or `indygreg/apple-code-sign-action` for an action-wrapped `rcodesign` workflow?
-- Should releases continue to happen on every `main` push, or should tag creation become manual once the release flow is clearer?
+- Should release metadata/versioning later move to Python Semantic Release or another semantic-release tool?
 
 ## References
 
-- `step-security/github-tag-action`: https://github.com/step-security/github-tag-action
+- `python-semantic-release`: https://python-semantic-release.readthedocs.io/
 - `wangyoucao577/go-release-action`: https://github.com/wangyoucao577/go-release-action
 - `chihqiang/gobuild-action`: https://github.com/marketplace/actions/go-multi-platform-build
 - `crazy-max/ghaction-xgo`: https://github.com/crazy-max/ghaction-xgo
