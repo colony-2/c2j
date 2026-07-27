@@ -1,0 +1,4 @@
+interface:
+  display_name: "c2j Operations"
+  short_description: "Operate c2j jobs, cells, and local runs"
+  default_prompt: "Use $c2j-operations to inspect and run c2j jobs."

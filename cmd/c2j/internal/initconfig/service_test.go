@@ -82,6 +82,27 @@ func TestRunRejectsExistingConfigWithoutForce(t *testing.T) {
 	}
 }
 
+func TestRunExistingConfigDoesNotInstallSkills(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	configPath := filepath.Join(root, ".c2j", "config.yaml")
+	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
+		t.Fatalf("mkdir config dir: %v", err)
+	}
+	if err := os.WriteFile(configPath, []byte("base: go\n"), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	err := Run(context.Background(), Options{WorkingDir: root, InstallSkills: true})
+	if err == nil {
+		t.Fatal("expected Run() to reject an existing config")
+	}
+	if _, statErr := os.Stat(filepath.Join(root, ".agents", "skills")); !os.IsNotExist(statErr) {
+		t.Fatalf("expected no skill install after config failure, stat err=%v", statErr)
+	}
+}
+
 func TestRunStdoutDoesNotWriteConfig(t *testing.T) {
 	t.Parallel()
 
@@ -100,5 +121,51 @@ func TestRunStdoutDoesNotWriteConfig(t *testing.T) {
 	}
 	if !strings.Contains(stdout.String(), "# c2j project config") {
 		t.Fatalf("expected stdout-only output to contain the template header, got:\n%s", stdout.String())
+	}
+}
+
+func TestRunStdoutDoesNotInstallSkills(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	var stdout bytes.Buffer
+	if err := Run(context.Background(), Options{
+		WorkingDir:    root,
+		StdoutOnly:    true,
+		InstallSkills: true,
+		Stdout:        &stdout,
+	}); err != nil {
+		t.Fatalf("Run(): %v", err)
+	}
+
+	if _, err := os.Stat(filepath.Join(root, ".agents", "skills")); !os.IsNotExist(err) {
+		t.Fatalf("expected stdout-only mode to avoid installing skills, stat err=%v", err)
+	}
+	if _, err := os.Stat(filepath.Join(root, ".c2j", "skills-lock.yaml")); !os.IsNotExist(err) {
+		t.Fatalf("expected stdout-only mode to avoid writing skills lock, stat err=%v", err)
+	}
+}
+
+func TestRunInstallsSkillsWhenEnabled(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	var stdout bytes.Buffer
+	if err := Run(context.Background(), Options{
+		WorkingDir:    root,
+		InstallSkills: true,
+		Stdout:        &stdout,
+	}); err != nil {
+		t.Fatalf("Run(): %v", err)
+	}
+
+	if _, err := os.Stat(filepath.Join(root, ".agents", "skills", "c2j-recipes", "SKILL.md")); err != nil {
+		t.Fatalf("expected c2j-recipes install: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(root, ".c2j", "skills-lock.yaml")); err != nil {
+		t.Fatalf("expected skills lock: %v", err)
+	}
+	if !strings.Contains(stdout.String(), "installed skills:") {
+		t.Fatalf("expected stdout to mention installed skills, got %q", stdout.String())
 	}
 }

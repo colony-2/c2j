@@ -1,0 +1,26 @@
+version: 1
+sources:
+  c2j:
+    type: github
+    owner: colony-2
+    repo: c2j
+    allowed_refs:
+      - main
+      - "v*"
+    allowed_paths:
+      - "skills/*"
+    install_by_default: true
+    allow_scripts: false
+  c2ops:
+    type: github
+    owner: colony-2
+    repo: c2ops
+    allowed_refs:
+      - main
+      - "v*"
+    allowed_paths:
+      - "skills/*"
+    selector_prefixes:
+      - "git+https://github.com/colony-2/c2ops.git//"
+    install_by_default: false
+    allow_scripts: false

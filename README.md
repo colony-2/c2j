@@ -142,15 +142,34 @@ This is mainly useful when you want to target another cell by short name and nee
 
 ### `c2j init`
 
-Writes a commented `.c2j/config.yaml` template.
+Writes a commented `.c2j/config.yaml` template and installs bundled c2j skills for Codex-compatible agents.
 
 ```bash
 c2j init
 c2j init --stdout
 c2j init --force
+c2j init --no-skills
+c2j init --with-op-skills
 ```
 
-The generated template can derive values from the Go module in the current repo when `base: go` is appropriate.
+The generated template can derive values from the Go module in the current repo when `base: go` is appropriate. `--stdout` prints only the config and does not install skills.
+
+Bundled skill install controls:
+
+```bash
+c2j init --skills-scope auto
+c2j init --skills-scope project
+c2j init --skills-scope user
+c2j init --skills-force
+```
+
+`auto` currently installs to the project-local `.agents/skills` directory. `user` installs to `${CODEX_HOME:-$HOME/.codex}/skills`. Install metadata is recorded in `.c2j/skills-lock.yaml`.
+
+You can also install the repo skills directly with the public `skills` tool:
+
+```bash
+npx skills add colony-2/c2j
+```
 
 ## Submitting Jobs
 

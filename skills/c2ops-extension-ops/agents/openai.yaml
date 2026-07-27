@@ -1,0 +1,4 @@
+interface:
+  display_name: "c2ops Extension Ops"
+  short_description: "Use trusted c2ops selector-backed ops"
+  default_prompt: "Use $c2ops-extension-ops to choose and call c2ops selectors."
