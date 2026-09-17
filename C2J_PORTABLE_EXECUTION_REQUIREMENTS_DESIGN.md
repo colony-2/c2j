@@ -7,6 +7,8 @@ Implementation in progress for the requirements in `C2J_FEATURE_REQUESTS.md`.
 Implemented so far: `pkg/execution` provides shared requirement/allocation
 types, canonical validation, field-wise overlays, and compatibility diagnostics.
 See [the package guide](pkg/execution/README.md) for the implemented API.
+`cmd/c2j/internal/executionflags` provides shared per-field argument/environment
+parsing and explicit list-filter opt-in validation, with precedence tests.
 Recipe declarations, CLI wiring, and durable environment handoff are not yet
 enabled; the remainder of this document describes the target behavior.
 
@@ -15,6 +17,8 @@ v0.0.17/main lack generic workflow-context payload access and suspension, and
 do not preserve arbitrary payload fields through all task completion paths.
 Integrating the handoff requires a JobDB source/release decision. Do not enable
 constrained execution until those generic guarantees are available and tested.
+The outstanding upstream contract is recorded in
+[JobDB workflow payload requirements](JOBDB_WORKFLOW_PAYLOAD_REQUIREMENTS.md).
 
 This document treats the request's example YAML, command names, and suggested
 storage choices as illustrative. It preserves the underlying behavior while
