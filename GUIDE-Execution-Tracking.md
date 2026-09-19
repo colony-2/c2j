@@ -10,7 +10,9 @@ resource requirements, or filter jobs by environment compatibility. Those
 features remain in the
 [execution-requirements design](C2J_PORTABLE_EXECUTION_REQUIREMENTS_DESIGN.md).
 The existing allocation parser is a library component, not an available CLI
-feature.
+feature. The remaining publication dependency is documented in
+[this JobDB follow-up request](JOBDB_CLIENT_PAYLOAD_PUBLICATION_REQUEST.md);
+the overall feature is not complete.
 
 ## Choose the runtime and job
 
