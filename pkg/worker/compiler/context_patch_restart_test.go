@@ -95,6 +95,7 @@ func TestExecuteOp2_ContextPatchReplayReResolvesInputs(t *testing.T) {
 }
 
 type patchingStubJobContext struct {
+	noLeaseClientContext
 	jobKey        jobdb.JobKey
 	calls         int
 	seenAuthors   []string

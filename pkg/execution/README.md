@@ -2,9 +2,12 @@
 
 This package implements the shared value model for portable execution
 requirements. It does not provision environments, change JobDB lease matching,
-or enable recipe execution handoff by itself. Runtime integration is pending
-the generic JobDB payload/suspension contract described in the
-[design](../../C2J_PORTABLE_EXECUTION_REQUIREMENTS_DESIGN.md).
+or enable recipe execution handoff by itself. JobDB now provides independent
+client payload and explicit workflow yield, and c2j's context wrappers support
+them; the execution-requirements feature itself remains unintegrated. See the
+[upgrade notes](../../JOBDB_UPGRADE_NOTES.md) for the current contract and known
+task-route incompatibility, and the
+[design](../../C2J_PORTABLE_EXECUTION_REQUIREMENTS_DESIGN.md) for feature intent.
 
 `Requirements` uses optional string pointers for image, platform, CPU, memory,
 and ephemeral storage. `Normalize` validates and canonicalizes supplied values.

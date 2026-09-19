@@ -88,6 +88,7 @@ func TestExecuteRecipeSingleOpReturnsOutputs(t *testing.T) {
 
 // Minimal JobContext stub to capture DoTask invocations.
 type stubJobContext struct {
+	noLeaseClientContext
 	jobKey       jobdb.JobKey
 	out          jobdb.TaskData
 	calls        int

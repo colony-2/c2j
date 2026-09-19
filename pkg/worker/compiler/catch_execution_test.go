@@ -20,6 +20,7 @@ import (
 )
 
 type catchScriptedJobContext struct {
+	noLeaseClientContext
 	jobKey   jobdb.JobKey
 	results  []catchTaskResult
 	calls    int

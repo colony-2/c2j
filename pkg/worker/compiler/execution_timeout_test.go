@@ -16,6 +16,7 @@ import (
 )
 
 type policyCaptureJobContext struct {
+	noLeaseClientContext
 	jobKey   jobdb.JobKey
 	out      jobdb.TaskData
 	sleep    time.Duration

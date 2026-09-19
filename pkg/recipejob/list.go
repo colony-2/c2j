@@ -61,30 +61,32 @@ type GetRecipeJobRequest struct {
 }
 
 type RecipeJob struct {
-	TenantID         string             `json:"tenant_id"`
-	JobID            string             `json:"job_id"`
-	Status           jobdb.JobStatus    `json:"status"`
-	Store            jobdb.JobStore     `json:"store"`
-	JobType          string             `json:"job_type"`
-	RecipeName       string             `json:"recipe"`
-	RepositorySource string             `json:"repo,omitempty"`
-	CellID           string             `json:"cell_id,omitempty"`
-	CellName         string             `json:"cell_name,omitempty"`
-	GitRef           string             `json:"git_ref,omitempty"`
-	InputHash        string             `json:"input_hash,omitempty"`
-	Parent           *jobcontext.Parent `json:"parent,omitempty"`
-	SubmittedAt      *time.Time         `json:"submitted_at,omitempty"`
-	CreatedAt        time.Time          `json:"created_at"`
-	AvailableAt      time.Time          `json:"available_at"`
-	ArchivedAt       *time.Time         `json:"archived_at,omitempty"`
-	LeaseExpiresAt   *time.Time         `json:"lease_expires_at,omitempty"`
-	ExpiresAt        *time.Time         `json:"expires_at,omitempty"`
-	NextNeed         string             `json:"next_need,omitempty"`
-	TaskWaitNext     string             `json:"task_wait_next,omitempty"`
-	TaskWaitInput    *int64             `json:"task_wait_input,omitempty"`
-	TaskWaitOutput   *int64             `json:"task_wait_output,omitempty"`
-	WaitFor          []string           `json:"wait_for,omitempty"`
-	CancelRequested  bool               `json:"cancel_requested,omitempty"`
+	ClientPayload         json.RawMessage    `json:"client_payload,omitempty"`
+	ClientPayloadRevision int64              `json:"client_payload_revision"`
+	TenantID              string             `json:"tenant_id"`
+	JobID                 string             `json:"job_id"`
+	Status                jobdb.JobStatus    `json:"status"`
+	Store                 jobdb.JobStore     `json:"store"`
+	JobType               string             `json:"job_type"`
+	RecipeName            string             `json:"recipe"`
+	RepositorySource      string             `json:"repo,omitempty"`
+	CellID                string             `json:"cell_id,omitempty"`
+	CellName              string             `json:"cell_name,omitempty"`
+	GitRef                string             `json:"git_ref,omitempty"`
+	InputHash             string             `json:"input_hash,omitempty"`
+	Parent                *jobcontext.Parent `json:"parent,omitempty"`
+	SubmittedAt           *time.Time         `json:"submitted_at,omitempty"`
+	CreatedAt             time.Time          `json:"created_at"`
+	AvailableAt           time.Time          `json:"available_at"`
+	ArchivedAt            *time.Time         `json:"archived_at,omitempty"`
+	LeaseExpiresAt        *time.Time         `json:"lease_expires_at,omitempty"`
+	ExpiresAt             *time.Time         `json:"expires_at,omitempty"`
+	NextNeed              string             `json:"next_need,omitempty"`
+	TaskWaitNext          string             `json:"task_wait_next,omitempty"`
+	TaskWaitInput         *int64             `json:"task_wait_input,omitempty"`
+	TaskWaitOutput        *int64             `json:"task_wait_output,omitempty"`
+	WaitFor               []string           `json:"wait_for,omitempty"`
+	CancelRequested       bool               `json:"cancel_requested,omitempty"`
 }
 
 type workflowLister interface {
@@ -338,10 +340,6 @@ func RecipeJobFromSummary(summary jobdb.JobSummary) (RecipeJob, bool, error) {
 	if err != nil {
 		return RecipeJob{}, false, err
 	}
-	start, err := startJobFromRaw(summary.Payload)
-	if err != nil {
-		return RecipeJob{}, false, err
-	}
 
 	nextNeed := ""
 	if summary.NextNeed != nil {
@@ -353,28 +351,32 @@ func RecipeJobFromSummary(summary jobdb.JobSummary) (RecipeJob, bool, error) {
 	}
 
 	job := RecipeJob{
-		TenantID:        summary.JobKey.TenantId,
-		JobID:           summary.JobKey.JobId,
-		Status:          summary.Status,
-		Store:           StoreForJob(summary),
-		JobType:         summary.JobType,
-		CreatedAt:       summary.CreatedAt,
-		AvailableAt:     summary.AvailableAt,
-		ArchivedAt:      summary.ArchivedAt,
-		LeaseExpiresAt:  summary.LeaseExpiresAt,
-		ExpiresAt:       summary.ExpiresAt,
-		NextNeed:        nextNeed,
-		TaskWaitNext:    taskWaitNext,
-		TaskWaitInput:   summary.TaskWaitInput,
-		TaskWaitOutput:  summary.TaskWaitOutput,
-		WaitFor:         append([]string(nil), summary.WaitFor...),
-		CancelRequested: summary.CancelRequested,
+		ClientPayload:         append(json.RawMessage(nil), summary.ClientPayload...),
+		ClientPayloadRevision: summary.ClientPayloadRevision,
+		TenantID:              summary.JobKey.TenantId,
+		JobID:                 summary.JobKey.JobId,
+		Status:                summary.Status,
+		Store:                 StoreForJob(summary),
+		JobType:               summary.JobType,
+		CreatedAt:             summary.CreatedAt,
+		AvailableAt:           summary.AvailableAt,
+		ArchivedAt:            summary.ArchivedAt,
+		LeaseExpiresAt:        summary.LeaseExpiresAt,
+		ExpiresAt:             summary.ExpiresAt,
+		NextNeed:              nextNeed,
+		TaskWaitNext:          taskWaitNext,
+		TaskWaitInput:         summary.TaskWaitInput,
+		TaskWaitOutput:        summary.TaskWaitOutput,
+		WaitFor:               append([]string(nil), summary.WaitFor...),
+		CancelRequested:       summary.CancelRequested,
 	}
 	if job.JobType == "" {
 		job.JobType = starter.RecipeJobType
 	}
 
 	if meta != nil {
+		job.InputHash = meta.InputHash
+		job.SubmittedAt = meta.SubmittedAt
 		job.RecipeName = meta.RecipeName
 		job.CellID = meta.CellID
 		job.CellName = meta.CellName
@@ -388,38 +390,6 @@ func RecipeJobFromSummary(summary jobdb.JobSummary) (RecipeJob, bool, error) {
 		job.Parent = &jobcontext.Parent{
 			TenantID: strings.TrimSpace(summary.JobKey.TenantId),
 			JobID:    strings.TrimSpace(summary.ParentJobID),
-		}
-	}
-	if start != nil {
-		if strings.TrimSpace(job.RecipeName) == "" {
-			job.RecipeName = start.RecipeName
-		}
-		if strings.TrimSpace(job.CellID) == "" {
-			job.CellID = start.JobContext.Workflow.CellID
-		}
-		if strings.TrimSpace(job.CellName) == "" {
-			job.CellName = start.JobContext.Workflow.CellName
-		}
-		if strings.TrimSpace(job.RepositorySource) == "" {
-			job.RepositorySource = start.JobContext.GitBase.BaseRepo
-		}
-		if strings.TrimSpace(job.RepositorySource) == "" {
-			job.RepositorySource = start.JobContext.RecipeSource.Repo
-		}
-		if strings.TrimSpace(job.GitRef) == "" {
-			job.GitRef = start.GitRef
-		}
-		if strings.TrimSpace(job.GitRef) == "" {
-			job.GitRef = start.JobContext.GitBase.BaseRef
-		}
-		if strings.TrimSpace(job.GitRef) == "" {
-			job.GitRef = start.JobContext.RecipeSource.Ref
-		}
-		job.InputHash = start.InputHash
-		job.SubmittedAt = start.SubmittedAt
-		if job.Parent == nil && start.Parent != nil && start.Parent.HasJob() {
-			parent := *start.Parent
-			job.Parent = &parent
 		}
 	}
 	if normalized, err := compiler.NormalizeGitRepositorySource(job.RepositorySource); err == nil {
@@ -518,15 +488,4 @@ func StoreForJob(job jobdb.JobSummary) jobdb.JobStore {
 		return jobdb.JobStoreArchived
 	}
 	return jobdb.JobStoreActive
-}
-
-func startJobFromRaw(raw json.RawMessage) (*workflowctl.StartJob, error) {
-	if len(raw) == 0 {
-		return nil, nil
-	}
-	var start workflowctl.StartJob
-	if err := json.Unmarshal(raw, &start); err != nil {
-		return nil, err
-	}
-	return &start, nil
 }

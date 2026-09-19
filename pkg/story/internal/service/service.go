@@ -452,8 +452,13 @@ func (s *Service) GetWorkflow(ctx context.Context, req model.GetWorkflowRequest)
 	}
 
 	if req.IncludeRawJobData {
-		if raw := mapFromRaw(job.Payload); raw != nil {
-			detail.RawJobData = raw
+		// Job input is distinct from mutable client payload and framework state.
+		run, err := s.engine.GetJobRun(ctx, jobdb.GetJobRunRequest{JobKey: job.JobKey, IncludeInputs: true})
+		if err != nil {
+			return nil, fmt.Errorf("load job input: %w", err)
+		}
+		if run.Start.Input != nil {
+			detail.RawJobData = mapFromRaw(run.Start.Input.Data)
 		}
 	}
 

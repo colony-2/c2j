@@ -17,6 +17,7 @@ import (
 )
 
 type capturingInvocationJobContext struct {
+	noLeaseClientContext
 	jobKey         jobdb.JobKey
 	out            jobdb.TaskData
 	calls          int

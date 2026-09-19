@@ -53,12 +53,14 @@ const (
 )
 
 type JobMetadata struct {
-	Version          int    `json:"v"`
-	RecipeName       string `json:"recipe,omitempty"`
-	CellID           string `json:"cell_id,omitempty"`
-	CellName         string `json:"cell_name,omitempty"`
-	RepositorySource string `json:"repo,omitempty"`
-	GitRef           string `json:"git_ref,omitempty"`
+	InputHash        string     `json:"input_hash,omitempty"`
+	SubmittedAt      *time.Time `json:"submitted_at,omitempty"`
+	Version          int        `json:"v"`
+	RecipeName       string     `json:"recipe,omitempty"`
+	CellID           string     `json:"cell_id,omitempty"`
+	CellName         string     `json:"cell_name,omitempty"`
+	RepositorySource string     `json:"repo,omitempty"`
+	GitRef           string     `json:"git_ref,omitempty"`
 
 	ParentTenantID           string `json:"parent_tenant_id,omitempty"`
 	ParentJobID              string `json:"parent_job_id,omitempty"`
@@ -80,6 +82,8 @@ func JobMetadataFromStartJob(startJob workflowctl.StartJob) JobMetadata {
 		repo = startJob.JobContext.RecipeSource.Repo
 	}
 	meta := JobMetadata{
+		InputHash:        startJob.InputHash,
+		SubmittedAt:      startJob.SubmittedAt,
 		Version:          JobMetadataVersion,
 		RecipeName:       startJob.RecipeName,
 		CellID:           startJob.JobContext.Workflow.CellID,

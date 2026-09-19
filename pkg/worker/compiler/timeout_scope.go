@@ -2,11 +2,13 @@ package compiler
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
-	"github.com/colony-2/jobdb/pkg/jobdb"
-	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
 	"log/slog"
 	"time"
+
+	"github.com/colony-2/jobdb/pkg/jobdb"
+	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
 )
 
 type timeoutJobContext struct {
@@ -19,6 +21,21 @@ type timeoutJobContext struct {
 
 type executionTimeoutLimiter interface {
 	executionTimeoutLimit() time.Duration
+}
+
+func (t *timeoutJobContext) ClientPayload() json.RawMessage {
+	return t.inner.ClientPayload()
+}
+
+func (t *timeoutJobContext) ClientPayloadRevision() int64 {
+	return t.inner.ClientPayloadRevision()
+}
+
+func (t *timeoutJobContext) Yield(ctx context.Context, req jobdb.RescheduleExecutionRequest) error {
+	if err := t.checkDeadline(); err != nil {
+		return err
+	}
+	return t.inner.Yield(ctx, req)
 }
 
 func withExecutionTimeout(ctx jobworkflow.JobContext, timeout time.Duration, label string) jobworkflow.JobContext {

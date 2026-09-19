@@ -15,22 +15,24 @@ import (
 )
 
 type jobRow struct {
-	TenantID        string     `json:"tenant_id"`
-	JobID           string     `json:"job_id"`
-	Status          string     `json:"status"`
-	Store           string     `json:"store"`
-	JobType         string     `json:"job_type"`
-	CreatedAt       time.Time  `json:"created_at"`
-	AvailableAt     time.Time  `json:"available_at"`
-	ArchivedAt      *time.Time `json:"archived_at,omitempty"`
-	LeaseExpiresAt  *time.Time `json:"lease_expires_at,omitempty"`
-	ExpiresAt       *time.Time `json:"expires_at,omitempty"`
-	NextNeed        string     `json:"next_need,omitempty"`
-	TaskWaitNext    string     `json:"task_wait_next,omitempty"`
-	TaskWaitInput   *int64     `json:"task_wait_input,omitempty"`
-	TaskWaitOutput  *int64     `json:"task_wait_output,omitempty"`
-	WaitFor         []string   `json:"wait_for,omitempty"`
-	CancelRequested bool       `json:"cancel_requested,omitempty"`
+	ClientPayload         json.RawMessage `json:"client_payload,omitempty"`
+	ClientPayloadRevision int64           `json:"client_payload_revision"`
+	TenantID              string          `json:"tenant_id"`
+	JobID                 string          `json:"job_id"`
+	Status                string          `json:"status"`
+	Store                 string          `json:"store"`
+	JobType               string          `json:"job_type"`
+	CreatedAt             time.Time       `json:"created_at"`
+	AvailableAt           time.Time       `json:"available_at"`
+	ArchivedAt            *time.Time      `json:"archived_at,omitempty"`
+	LeaseExpiresAt        *time.Time      `json:"lease_expires_at,omitempty"`
+	ExpiresAt             *time.Time      `json:"expires_at,omitempty"`
+	NextNeed              string          `json:"next_need,omitempty"`
+	TaskWaitNext          string          `json:"task_wait_next,omitempty"`
+	TaskWaitInput         *int64          `json:"task_wait_input,omitempty"`
+	TaskWaitOutput        *int64          `json:"task_wait_output,omitempty"`
+	WaitFor               []string        `json:"wait_for,omitempty"`
+	CancelRequested       bool            `json:"cancel_requested,omitempty"`
 }
 
 type listResult struct {
@@ -189,22 +191,24 @@ func makeJobRow(job jobdb.JobSummary) jobRow {
 	}
 
 	return jobRow{
-		TenantID:        job.JobKey.TenantId,
-		JobID:           job.JobKey.JobId,
-		Status:          string(job.Status),
-		Store:           string(storeForJob(job)),
-		JobType:         job.JobType,
-		CreatedAt:       job.CreatedAt,
-		AvailableAt:     job.AvailableAt,
-		ArchivedAt:      job.ArchivedAt,
-		LeaseExpiresAt:  job.LeaseExpiresAt,
-		ExpiresAt:       job.ExpiresAt,
-		NextNeed:        nextNeed,
-		TaskWaitNext:    taskWaitNext,
-		TaskWaitInput:   job.TaskWaitInput,
-		TaskWaitOutput:  job.TaskWaitOutput,
-		WaitFor:         append([]string(nil), job.WaitFor...),
-		CancelRequested: job.CancelRequested,
+		ClientPayload:         append(json.RawMessage(nil), job.ClientPayload...),
+		ClientPayloadRevision: job.ClientPayloadRevision,
+		TenantID:              job.JobKey.TenantId,
+		JobID:                 job.JobKey.JobId,
+		Status:                string(job.Status),
+		Store:                 string(storeForJob(job)),
+		JobType:               job.JobType,
+		CreatedAt:             job.CreatedAt,
+		AvailableAt:           job.AvailableAt,
+		ArchivedAt:            job.ArchivedAt,
+		LeaseExpiresAt:        job.LeaseExpiresAt,
+		ExpiresAt:             job.ExpiresAt,
+		NextNeed:              nextNeed,
+		TaskWaitNext:          taskWaitNext,
+		TaskWaitInput:         job.TaskWaitInput,
+		TaskWaitOutput:        job.TaskWaitOutput,
+		WaitFor:               append([]string(nil), job.WaitFor...),
+		CancelRequested:       job.CancelRequested,
 	}
 }
 

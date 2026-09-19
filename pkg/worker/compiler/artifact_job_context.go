@@ -2,6 +2,7 @@ package compiler
 
 import (
 	"context"
+	"encoding/json"
 	"log/slog"
 	"time"
 
@@ -13,6 +14,18 @@ import (
 type thinpackForwarder struct {
 	inner        jobworkflow.JobContext
 	lastThinpack jobdb.Artifact
+}
+
+func (a *thinpackForwarder) ClientPayload() json.RawMessage {
+	return a.inner.ClientPayload()
+}
+
+func (a *thinpackForwarder) ClientPayloadRevision() int64 {
+	return a.inner.ClientPayloadRevision()
+}
+
+func (a *thinpackForwarder) Yield(ctx context.Context, req jobdb.RescheduleExecutionRequest) error {
+	return a.inner.Yield(ctx, req)
 }
 
 func (a *thinpackForwarder) AwaitJobs(jobIds ...string) error {

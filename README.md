@@ -14,6 +14,14 @@ Use it when you want to:
 
 Examples below assume you are running from the repo root.
 
+## JobDB upgrade compatibility
+
+The client-payload JobDB update requires fresh databases/artifact storage and
+matching server/worker versions; existing jobs are not migrated. The current
+pin also has a known incompatibility with c2j task-handoff route names. Read
+[the upgrade notes](JOBDB_UPGRADE_NOTES.md) before deploying it. No existing data
+is automatically reset.
+
 ## Command Summary
 
 ```bash

@@ -12,13 +12,20 @@ parsing and explicit list-filter opt-in validation, with precedence tests.
 Recipe declarations, CLI wiring, and durable environment handoff are not yet
 enabled; the remainder of this document describes the target behavior.
 
-Dependency checkpoint: the pinned JobDB v0.0.13 and the currently available
-v0.0.17/main lack generic workflow-context payload access and suspension, and
-do not preserve arbitrary payload fields through all task completion paths.
-Integrating the handoff requires a JobDB source/release decision. Do not enable
-constrained execution until those generic guarantees are available and tested.
-The outstanding upstream contract is recorded in
-[JobDB workflow payload requirements](JOBDB_WORKFLOW_PAYLOAD_REQUIREMENTS.md).
+Dependency update (2026-09-19): JobDB is now pinned to
+`v0.0.18-0.20260919024231-85cc496c0f52`. Compiler contexts support its separate
+`ClientPayload`, revision, and explicit `Yield` API. JobDB preserves client state
+when updates are omitted, including external task completion. See
+[the upgrade notes](JOBDB_UPGRADE_NOTES.md) for deployment requirements and a
+known task-route incompatibility.
+
+The shared-payload API sketches below predate that migration and are not the
+current integration contract: future feature work must use
+`ClientPayloadUpdate` with an expected revision, not merge framework fields into
+a replacement `Payload`. Same-job yield supplies typed routing/wait fields.
+Ordinary task/chapter writes do not publish client state, and the proposed
+non-suspending read projection still needs a design decision. Recipe execution
+requirements and their command flags remain disabled pending that feature work.
 
 This document treats the request's example YAML, command names, and suggested
 storage choices as illustrative. It preserves the underlying behavior while

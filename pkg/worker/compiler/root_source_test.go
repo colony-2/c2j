@@ -28,6 +28,7 @@ import (
 )
 
 type renameAfterWithinResolutionContext struct {
+	noLeaseClientContext
 	jobKey  jobdb.JobKey
 	repoDir string
 	moved   bool

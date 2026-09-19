@@ -862,7 +862,12 @@ func newTestJobContext(projectID string, caseDef Case, policy TestPolicy, deps c
 	}
 }
 
-func (j *testJobContext) AwaitJobs(_ ...string) error          { return nil }
+func (j *testJobContext) AwaitJobs(_ ...string) error    { return nil }
+func (j *testJobContext) ClientPayload() json.RawMessage { return nil }
+func (j *testJobContext) ClientPayloadRevision() int64   { return 0 }
+func (j *testJobContext) Yield(context.Context, jobdb.RescheduleExecutionRequest) error {
+	return fmt.Errorf("yielding is not supported by recipe test context")
+}
 func (j *testJobContext) GetJobKey() jobdb.JobKey              { return j.jobKey }
 func (j *testJobContext) Logger() *slog.Logger                 { return nil }
 func (j *testJobContext) AwaitDuration(_ jobdb.Duration) error { return nil }

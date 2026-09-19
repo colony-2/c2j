@@ -68,8 +68,13 @@ type fakeReplayJobContext struct {
 	skipTaskStartOnMiss bool
 }
 
-func (c *fakeReplayJobContext) GetJobKey() jobdb.JobKey { return c.jobKey }
-func (c *fakeReplayJobContext) Logger() *slog.Logger    { return nil }
+func (c *fakeReplayJobContext) GetJobKey() jobdb.JobKey        { return c.jobKey }
+func (c *fakeReplayJobContext) ClientPayload() json.RawMessage { return nil }
+func (c *fakeReplayJobContext) ClientPayloadRevision() int64   { return 0 }
+func (c *fakeReplayJobContext) Yield(context.Context, jobdb.RescheduleExecutionRequest) error {
+	return errors.New("yielding is not supported by replay test context")
+}
+func (c *fakeReplayJobContext) Logger() *slog.Logger { return nil }
 
 func (c *fakeReplayJobContext) AwaitDuration(_ jobdb.Duration) error { return nil }
 func (c *fakeReplayJobContext) AwaitJobs(_ ...string) error          { return nil }

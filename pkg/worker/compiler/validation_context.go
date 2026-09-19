@@ -33,6 +33,13 @@ type validationTaskOverride interface {
 	DoValidationTask(jobdb.RunPolicy, string, jobdb.TaskData) (jobdb.TaskData, bool, error)
 }
 
+// Validation has no live execution snapshot and must not publish client state.
+func (v *validationJobContext) ClientPayload() json.RawMessage { return nil }
+func (v *validationJobContext) ClientPayloadRevision() int64   { return 0 }
+func (v *validationJobContext) Yield(context.Context, jobdb.RescheduleExecutionRequest) error {
+	return fmt.Errorf("yielding is not supported during validation")
+}
+
 func (v *validationJobContext) AwaitJobs(jobIds ...string) error {
 	if v.inner == nil {
 		return nil

@@ -116,7 +116,7 @@ func waitAndGetRecipeOutput(deps ops.OpDependencies, ctx context.Context, input 
 
 func getRecipeOutput(deps ops.OpDependencies, ctx context.Context, input StartedJob) (SingleRecipeOutput, error) {
 	var zero SingleRecipeOutput
-	data, err := deps.WorkflowControl().JobResult(ctx, jobdb.JobKey{deps.JobTool().GetJobKey().TenantId, input.JobId})
+	data, err := deps.WorkflowControl().JobResult(ctx, jobdb.JobKey{TenantId: deps.JobTool().GetJobKey().TenantId, JobId: input.JobId})
 	if err != nil {
 		return zero, err
 	}

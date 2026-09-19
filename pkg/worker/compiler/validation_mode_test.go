@@ -16,6 +16,7 @@ import (
 )
 
 type countingJobContext struct {
+	noLeaseClientContext
 	jobKey jobdb.JobKey
 	calls  int
 }

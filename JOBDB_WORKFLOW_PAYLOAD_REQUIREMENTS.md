@@ -1,5 +1,12 @@
 # Requirements: durable workflow payloads and explicit suspension
 
+Status: historical requirements proposal. JobDB commit
+`85cc496c0f5280210b02821bfb3a6eaa07ed9a76` now provides separate client payload,
+revision-checked patch/reset updates, preservation across task transitions, and
+explicit workflow yield. Its implemented contract differs from this proposal:
+ordinary chapter writes do not publish payload changes, and publication during
+execution requires yield. See `MIGRATION-CLIENT-PAYLOAD.md` for the actual API.
+
 ## Scope
 
 Applications need to publish evolving continuation information for external
@@ -65,7 +72,8 @@ The same tests must pass for direct, SQLite, toy, and remote runtimes:
 
 ## Dependency status
 
-Inspection of v0.0.13 and v0.0.17/main found no generic workflow-context payload
-access/suspension API and payload replacement during task handoff/completion.
-Runtime integration must wait for a source change and a reproducible dependency
-reference implementing the contract above. No resource-specific API is needed.
+The original inspection of v0.0.13 and v0.0.17 found no generic workflow-context
+payload access/suspension API and payload replacement during task
+handoff/completion. The client-payload release addresses those ownership and
+suspension gaps. No resource-specific API was introduced. Not all requirements
+in this earlier proposal, notably non-suspending publication, were adopted.
