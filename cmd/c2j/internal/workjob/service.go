@@ -2,8 +2,12 @@ package workjob
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"github.com/colony-2/c2j/pkg/execution"
+	"github.com/colony-2/c2j/pkg/executionruntime"
 	"sort"
+	"sync"
 	"time"
 
 	"github.com/colony-2/c2j/cmd/c2j/internal/c2jops"
@@ -35,7 +39,19 @@ func Run(ctx context.Context, opts Options) error {
 		return exitError{code: exitCodeInvalidOptions, err: err}
 	}
 
-	deps, cleanup, err := buildDeps(ctx, opts)
+	runCtx, stop := context.WithCancel(ctx)
+	defer stop()
+	var outputMu sync.Mutex
+	var outputErr error
+	deps, cleanup, err := buildWorkerDeps(runCtx, workerBuildOptions{
+		TenantID: opts.TenantID, SWFURL: opts.SWFURL, Concurrency: opts.Concurrency, AwaitThreshold: opts.AwaitThreshold, Allocation: opts.Allocation,
+		OnHandoff: func(event compiler.ExecutionHandoff) {
+			outputMu.Lock()
+			defer outputMu.Unlock()
+			outputErr = json.NewEncoder(opts.Stdout).Encode(event)
+			stop()
+		},
+	})
 	if err != nil {
 		return exitError{code: exitCodeFailure, err: err}
 	}
@@ -45,7 +61,13 @@ func Run(ctx context.Context, opts Options) error {
 		return exitError{code: exitCodeFailure, err: err}
 	}
 
-	deps.engine.Run(ctx)
+	deps.engine.Run(runCtx)
+	outputMu.Lock()
+	eventErr := outputErr
+	outputMu.Unlock()
+	if eventErr != nil {
+		return eventErr
+	}
 	if err := ctx.Err(); err != nil && err != context.Canceled {
 		return exitError{code: exitCodeFailure, err: err}
 	}
@@ -60,6 +82,7 @@ type workerDeps struct {
 
 func buildDeps(ctx context.Context, opts Options) (*workerDeps, func(), error) {
 	return buildWorkerDeps(ctx, workerBuildOptions{
+		Allocation:     opts.Allocation,
 		TenantID:       opts.TenantID,
 		SWFURL:         opts.SWFURL,
 		Concurrency:    opts.Concurrency,
@@ -68,6 +91,8 @@ func buildDeps(ctx context.Context, opts Options) (*workerDeps, func(), error) {
 }
 
 type workerBuildOptions struct {
+	Allocation     execution.Allocation
+	OnHandoff      func(compiler.ExecutionHandoff)
 	TenantID       string
 	SWFURL         string
 	Concurrency    int
@@ -81,6 +106,11 @@ func buildWorkerDeps(ctx context.Context, opts workerBuildOptions) (*workerDeps,
 		return nil, nil, fmt.Errorf("open JobDB runtime: %w", err)
 	}
 	runtime := handle.Runtime
+	if opts.Allocation.SchemaVersion == 0 {
+		opts.Allocation.SchemaVersion = execution.SchemaVersion
+	}
+	executionRuntime := executionruntime.New(runtime, opts.Allocation, opts.OnHandoff)
+	runtime = executionRuntime
 	if opts.WrapRuntime != nil {
 		runtime = opts.WrapRuntime(runtime)
 	}
@@ -114,6 +144,9 @@ func buildWorkerDeps(ctx context.Context, opts workerBuildOptions) (*workerDeps,
 
 	celProvider := colonycel.NewBuilder(colonycel.Options{})
 	workset, err := compiler.NewRecipeWorkerWithOptions(serviceDeps, activityRegistry, compiler.RecipeJobWorkerOptions{
+		Allocation:         opts.Allocation,
+		StageExecution:     executionRuntime.Stage,
+		OnExecutionHandoff: opts.OnHandoff,
 		CELOptionsProvider: celProvider,
 		RootSourceResolver: recipeSourceResolver,
 	})
@@ -133,7 +166,7 @@ func buildWorkerDeps(ctx context.Context, opts workerBuildOptions) (*workerDeps,
 	if err != nil {
 		return cleanupOnErr(fmt.Errorf("build worker engine: %w", err), stopRegistry)
 	}
-	schemaRegistry, ok := runtime.(jobdb.JobSchemaRegistry)
+	schemaRegistry, ok := handle.Runtime.(jobdb.JobSchemaRegistry)
 	if !ok {
 		return cleanupOnErr(fmt.Errorf("jobdb schema registry is unavailable"), stopRegistry)
 	}

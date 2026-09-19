@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"github.com/colony-2/c2j/cmd/c2j/internal/executionflags"
 	"os"
 
 	"github.com/colony-2/c2j/cmd/c2j/internal/defaults"
@@ -37,6 +38,8 @@ func newSubmitCmd() *cobra.Command {
 	}
 
 	flags := cmd.Flags()
+	executionflags.AddRequirementFlags(flags, &opts.ExecutionRequirements)
+	opts.ExecutionFlags.AddFlags(flags)
 	flags.StringVar(&opts.JobDBURI, "jobdb", "", "JobDB URI (http(s)://host/tenant or embed:///)")
 	flags.StringVar(&opts.Recipe, "recipe", "", "Recipe name or git selector to submit (defaults to default)")
 	flags.StringVar(&opts.RecipeFile, "recipe-file", "", "Path to a recipe YAML file to submit")

@@ -24,6 +24,7 @@ func newRunLoopCmd() *cobra.Command {
 	}
 
 	flags := cmd.Flags()
+	opts.ExecutionFlags.AddFlags(flags)
 	flags.StringVar(&opts.JobDBURI, "jobdb", "", "Remote JobDB URI (http(s)://host/tenant; embed:/// is not supported)")
 	flags.IntVar(&opts.Concurrency, "concurrency", 1, "Maximum number of jobs to run concurrently")
 	flags.DurationVar(&opts.AwaitThreshold, "await-threshold", 30*time.Second, "Await threshold before JobDB reschedules instead of sleeping inline")

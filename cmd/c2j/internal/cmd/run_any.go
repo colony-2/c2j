@@ -24,6 +24,7 @@ func newRunAnyCmd() *cobra.Command {
 	}
 
 	flags := cmd.Flags()
+	opts.ExecutionFlags.AddFlags(flags)
 	flags.StringVar(&opts.JobDBURI, "jobdb", "", "JobDB URI (http(s)://host/tenant or embed:///)")
 	flags.DurationVar(&opts.LeaseDuration, "lease-duration", 60*time.Second, "Lease duration requested from JobDB")
 	flags.DurationVar(&opts.AwaitThreshold, "await-threshold", 30*time.Second, "Await threshold before JobDB reschedules instead of sleeping inline")

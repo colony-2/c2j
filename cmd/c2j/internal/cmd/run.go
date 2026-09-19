@@ -40,6 +40,7 @@ func newRunOneSpecificCmd(use string) *cobra.Command {
 	}
 
 	flags := cmd.Flags()
+	opts.ExecutionFlags.AddFlags(flags)
 	flags.StringVar(&opts.JobID, "job-id", "", "Job ID to execute")
 	flags.StringVar(&opts.JobDBURI, "jobdb", "", "JobDB URI (http(s)://host/tenant or embed:///)")
 	flags.DurationVar(&opts.WaitTimeout, "wait-timeout", 15*time.Minute, "How long to wait on external blocking work before exiting")

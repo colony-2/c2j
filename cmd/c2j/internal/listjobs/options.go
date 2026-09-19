@@ -11,14 +11,19 @@ import (
 	"time"
 
 	"github.com/colony-2/c2j/cmd/c2j/internal/defaults"
+	"github.com/colony-2/c2j/cmd/c2j/internal/executionflags"
 	"github.com/colony-2/c2j/pkg/recipejob"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 )
 
 type Options struct {
-	JobDBURI string
-	TenantID string
-	SWFURL   string
+	ExecutionFlags          executionflags.Options
+	CompatibleWithExecution bool
+	IncludeUnresolved       bool
+	ExecutionFilter         *executionflags.Filter
+	JobDBURI                string
+	TenantID                string
+	SWFURL                  string
 
 	Statuses      []string
 	JobTypes      []string
@@ -39,6 +44,11 @@ type Options struct {
 }
 
 func (o *Options) Complete(ctx context.Context) error {
+	filter, err := o.ExecutionFlags.ParseFilter(o.CompatibleWithExecution, o.IncludeUnresolved, os.LookupEnv)
+	if err != nil {
+		return err
+	}
+	o.ExecutionFilter = filter
 	if strings.TrimSpace(o.WorkingDir) == "" {
 		if cwd, err := os.Getwd(); err == nil {
 			o.WorkingDir = cwd

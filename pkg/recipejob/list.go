@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/colony-2/c2j/pkg/execution"
 	"strings"
 	"time"
 
@@ -22,6 +23,7 @@ type Lister interface {
 }
 
 type ListRecipeJobsRequest struct {
+	ExecutionFilter  *execution.Filter
 	TenantID         string
 	RepositorySource string
 	Statuses         []jobdb.JobStatus
@@ -42,6 +44,7 @@ type ListRecipeJobsResponse struct {
 }
 
 type ListChildRecipeJobsRequest struct {
+	ExecutionFilter      *execution.Filter
 	TenantID             string
 	ParentTenantID       string
 	ParentJobID          string
@@ -61,6 +64,7 @@ type GetRecipeJobRequest struct {
 }
 
 type RecipeJob struct {
+	Execution             execution.View     `json:"execution"`
 	ClientPayload         json.RawMessage    `json:"client_payload,omitempty"`
 	ClientPayloadRevision int64              `json:"client_payload_revision"`
 	TenantID              string             `json:"tenant_id"`
@@ -202,7 +206,7 @@ func ListRecipeJobs(ctx context.Context, lister Lister, req ListRecipeJobsReques
 	if err != nil {
 		return ListRecipeJobsResponse{}, err
 	}
-	resp, err := lister.ListJobs(ctx, listReq)
+	resp, err := ListExecutionJobs(ctx, lister, listReq, req.ExecutionFilter)
 	if err != nil {
 		return ListRecipeJobsResponse{}, err
 	}
@@ -232,7 +236,7 @@ func ListChildRecipeJobs(ctx context.Context, lister Lister, req ListChildRecipe
 	if err != nil {
 		return ListRecipeJobsResponse{}, err
 	}
-	resp, err := lister.ListJobs(ctx, listReq)
+	resp, err := ListExecutionJobs(ctx, lister, listReq, req.ExecutionFilter)
 	if err != nil {
 		return ListRecipeJobsResponse{}, err
 	}
@@ -247,15 +251,11 @@ func ListChildRecipeJobsFromWorkflow(ctx context.Context, lister workflowLister,
 	if err != nil {
 		return ListRecipeJobsResponse{}, err
 	}
-	items, nextPageToken, err := lister.ListJobs(ctx, listReq)
+	resp, err := ListExecutionJobs(ctx, workflowListAdapter{lister}, listReq, req.ExecutionFilter)
 	if err != nil {
 		return ListRecipeJobsResponse{}, err
 	}
-	summaries := make([]jobdb.JobSummary, 0, len(items))
-	for _, item := range items {
-		summaries = append(summaries, item.JobSummary)
-	}
-	return recipeJobsFromSummaries(summaries, nextPageToken)
+	return recipeJobsFromSummaries(resp.Jobs, resp.NextPageToken)
 }
 
 func CollectStartedJobs(ctx context.Context, lister workflowLister, current jobcontext.Current) (jobcontext.StartedJobsContext, error) {
@@ -340,6 +340,7 @@ func RecipeJobFromSummary(summary jobdb.JobSummary) (RecipeJob, bool, error) {
 	}
 
 	job := RecipeJob{
+		Execution:             execution.Inspect(summary.Metadata, summary.ClientPayload),
 		ClientPayload:         append(json.RawMessage(nil), summary.ClientPayload...),
 		ClientPayloadRevision: summary.ClientPayloadRevision,
 		TenantID:              summary.JobKey.TenantId,

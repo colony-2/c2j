@@ -76,13 +76,14 @@ func Run(ctx context.Context, opts Options) error {
 
 	submittedAt := time.Now().UTC()
 	start, err := recipejob.BuildStartJob(recipejob.BuildStartJobRequest{
-		TenantID:    opts.TenantID,
-		Target:      target,
-		Recipe:      recipeName,
-		Inputs:      inputs,
-		Artifacts:   submitArtifacts,
-		Parent:      parentContext,
-		SubmittedAt: &submittedAt,
+		ExecutionRequirements: opts.ExecutionRequirements,
+		TenantID:              opts.TenantID,
+		Target:                target,
+		Recipe:                recipeName,
+		Inputs:                inputs,
+		Artifacts:             submitArtifacts,
+		Parent:                parentContext,
+		SubmittedAt:           &submittedAt,
 	})
 	if err != nil {
 		return err
@@ -144,11 +145,12 @@ func Run(ctx context.Context, opts Options) error {
 	}
 
 	return runjob.Run(ctx, runjob.Options{
-		JobID:    result.JobID,
-		JobDBURI: opts.JobDBURI,
-		Stdin:    opts.Stdin,
-		Stdout:   opts.Stdout,
-		Stderr:   opts.Stderr,
+		ExecutionFlags: opts.ExecutionFlags,
+		JobID:          result.JobID,
+		JobDBURI:       opts.JobDBURI,
+		Stdin:          opts.Stdin,
+		Stdout:         opts.Stdout,
+		Stderr:         opts.Stderr,
 	})
 }
 

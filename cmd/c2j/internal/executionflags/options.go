@@ -44,6 +44,17 @@ func (o *Options) AddFlags(flags *pflag.FlagSet) {
 	}
 }
 
+// HasArguments reports explicit allocation arguments, without inspecting the
+// environment. Submission uses this to reject allocation-only flags without run.
+func (o Options) HasArguments() bool {
+	for _, b := range o.bindings() {
+		if *b.target != nil {
+			return true
+		}
+	}
+	return false
+}
+
 // Parse resolves each argument independently ahead of its corresponding
 // environment variable. No host detection, deployment defaults, or requested
 // requirements are used as evidence of actual capacity. Pass os.LookupEnv in
@@ -84,10 +95,7 @@ func (o Options) Parse(lookupEnv func(string) (string, bool)) (execution.Allocat
 
 // Filter is a candidate descriptor, not a lease request. An unresolved job can
 // be included as a bootstrap candidate, but must never be labeled compatible.
-type Filter struct {
-	Allocation        execution.Allocation
-	IncludeUnresolved bool
-}
+type Filter = execution.Filter
 
 // ParseFilter does not inspect inherited allocation variables without explicit
 // opt-in. In particular, listing children inside a worker must not silently

@@ -5,9 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/colony-2/c2j/pkg/executionruntime"
 	"io"
 	"log/slog"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/colony-2/c2j/cmd/c2j/internal/c2jops"
@@ -78,6 +80,9 @@ func Run(ctx context.Context, opts Options) error {
 		}
 
 		if outcome, ok := runnable.Outcome(); ok {
+			if event := deps.handoff(); event != nil {
+				return json.NewEncoder(opts.Stdout).Encode(event)
+			}
 			wait, err := handleOutcome(ctx, opts, deps, jobKey, outcome, deadline)
 			if err != nil {
 				return err
@@ -89,6 +94,9 @@ func Run(ctx context.Context, opts Options) error {
 		}
 
 		outcome, err := runnable.Run(liveRecorder.Observer())
+		if event := deps.handoff(); event != nil {
+			return json.NewEncoder(opts.Stdout).Encode(event)
+		}
 		renderer.Render(liveRecorder.Finalize(err))
 		renderer.Flush()
 		if err != nil {
@@ -106,14 +114,28 @@ func Run(ctx context.Context, opts Options) error {
 }
 
 type runnerDeps struct {
-	runtime      jobdb.WorkflowRuntime
-	engine       jobworkflow.Engine
-	taskWorkers  []jobworkflow.TaskWorker
-	celProvider  template.CELOptionsProvider
-	rootResolver compiler.RecipeSourceResolver
-	inputRuntime *input.Runtime
-	stopRegistry func()
-	stopRuntime  func() error
+	executionRuntime *executionruntime.Runtime
+	handoffMu        sync.Mutex
+	handoffEvent     *compiler.ExecutionHandoff
+	runtime          jobdb.WorkflowRuntime
+	engine           jobworkflow.Engine
+	taskWorkers      []jobworkflow.TaskWorker
+	celProvider      template.CELOptionsProvider
+	rootResolver     compiler.RecipeSourceResolver
+	inputRuntime     *input.Runtime
+	stopRegistry     func()
+	stopRuntime      func() error
+}
+
+func (d *runnerDeps) recordHandoff(e compiler.ExecutionHandoff) {
+	d.handoffMu.Lock()
+	defer d.handoffMu.Unlock()
+	d.handoffEvent = &e
+}
+func (d *runnerDeps) handoff() *compiler.ExecutionHandoff {
+	d.handoffMu.Lock()
+	defer d.handoffMu.Unlock()
+	return d.handoffEvent
 }
 
 func buildDeps(ctx context.Context, opts Options) (*runnerDeps, func(), error) {
@@ -180,6 +202,8 @@ func buildDeps(ctx context.Context, opts Options) (*runnerDeps, func(), error) {
 		stopRegistry: stopRegistry,
 		stopRuntime:  handle.Cleanup,
 	}
+	deps.executionRuntime = executionruntime.New(handle.Runtime, opts.Allocation, deps.recordHandoff)
+	deps.runtime = deps.executionRuntime
 	return deps, func() {
 		if deps.stopRuntime != nil {
 			_ = deps.stopRuntime()
@@ -201,8 +225,12 @@ func taskWorkersFromWorkSet(workset *jobworkflow.WorkSet) []jobworkflow.TaskWork
 	return taskWorkers
 }
 
-func newStoryJobWorker(deps *runnerDeps, recorder *storylive.Recorder) jobworkflow.JobWorker {
+func newStoryJobWorker(deps *runnerDeps, recorder *storylive.Recorder, replay ...bool) jobworkflow.JobWorker {
 	return compiler.NewRecipeJobWorker(compiler.RecipeJobWorkerOptions{
+		Allocation:             deps.executionRuntime.Allocation,
+		StageExecution:         deps.executionRuntime.Stage,
+		OnExecutionHandoff:     deps.recordHandoff,
+		ReadOnlyReplay:         len(replay) > 0 && replay[0],
 		CELOptionsProvider:     deps.celProvider,
 		RootSourceResolver:     deps.rootResolver,
 		OnRecipeLoaded:         recorder.OnRecipeLoaded,
@@ -228,7 +256,7 @@ func replayCachedHistory(ctx context.Context, deps *runnerDeps, jobKey jobdb.Job
 		JobKey:   jobKey,
 		OnChange: renderer.Render,
 	})
-	replayWorker := newStoryJobWorker(deps, cachedRecorder)
+	replayWorker := newStoryJobWorker(deps, cachedRecorder, true)
 
 	_, err = deps.engine.ReplayJobRun(ctx, jobworkflow.ReplayRunRequest{
 		JobKey:    jobKey,

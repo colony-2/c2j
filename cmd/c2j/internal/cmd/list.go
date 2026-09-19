@@ -29,6 +29,9 @@ func newListCmd() *cobra.Command {
 	}
 
 	flags := cmd.Flags()
+	opts.ExecutionFlags.AddFlags(flags)
+	flags.BoolVar(&opts.CompatibleWithExecution, "compatible-with-execution", false, "Filter by the supplied actual execution allocation")
+	flags.BoolVar(&opts.IncludeUnresolved, "include-unresolved", false, "Also include unresolved bootstrap candidates (requires --compatible-with-execution)")
 	flags.StringVar(&opts.JobDBURI, "jobdb", "", "JobDB URI (http(s)://host/tenant or embed:///)")
 	flags.BoolVar(&opts.Self, "self", false, "List jobs for the current cell")
 	flags.StringVar(&opts.Cell, "cell", "", "List jobs for a specific cell (short name or repo/path)")

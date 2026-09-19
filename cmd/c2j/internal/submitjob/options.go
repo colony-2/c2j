@@ -9,15 +9,19 @@ import (
 	"strings"
 
 	"github.com/colony-2/c2j/cmd/c2j/internal/defaults"
+	"github.com/colony-2/c2j/cmd/c2j/internal/executionflags"
+	"github.com/colony-2/c2j/pkg/execution"
 	"github.com/colony-2/c2j/pkg/worker/compiler"
 )
 
 type Options struct {
-	JobDBURI   string
-	TenantID   string
-	SWFURL     string
-	Recipe     string
-	RecipeFile string
+	ExecutionRequirements execution.Requirements
+	ExecutionFlags        executionflags.Options
+	JobDBURI              string
+	TenantID              string
+	SWFURL                string
+	Recipe                string
+	RecipeFile            string
 
 	Prompt    string
 	PromptSet bool
@@ -39,6 +43,16 @@ type Options struct {
 }
 
 func (o *Options) Complete(ctx context.Context) error {
+	r, err := o.ExecutionRequirements.Normalize()
+	if err != nil {
+		return err
+	}
+	o.ExecutionRequirements = r
+	if o.RunAfterSubmit {
+		if _, err := o.ExecutionFlags.Parse(os.LookupEnv); err != nil {
+			return err
+		}
+	}
 	if strings.TrimSpace(o.Recipe) == "" && strings.TrimSpace(o.RecipeFile) == "" {
 		o.Recipe = compiler.DefaultRecipeName
 	}
@@ -72,6 +86,9 @@ func (o *Options) Complete(ctx context.Context) error {
 }
 
 func (o Options) Validate() error {
+	if !o.RunAfterSubmit && o.ExecutionFlags.HasArguments() {
+		return fmt.Errorf("allocation flags require --run on submit; use --require-* to override job requirements")
+	}
 	if strings.TrimSpace(o.TenantID) == "" {
 		return fmt.Errorf("--jobdb is required (or %s, or project jobdb)", defaults.JobDBEnv)
 	}

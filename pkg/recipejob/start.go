@@ -11,6 +11,7 @@ import (
 
 	recipeartifacts "github.com/colony-2/c2j/pkg/artifacts"
 	"github.com/colony-2/c2j/pkg/contextual"
+	"github.com/colony-2/c2j/pkg/execution"
 	"github.com/colony-2/c2j/pkg/jobcontext"
 	"github.com/colony-2/c2j/pkg/recipe"
 	"github.com/colony-2/c2j/pkg/starter"
@@ -20,15 +21,16 @@ import (
 )
 
 type BuildStartJobRequest struct {
-	TenantID     string
-	JobID        string
-	Target       ResolvedTarget
-	Recipe       string
-	Inputs       map[string]interface{}
-	Artifacts    []jobdb.Artifact
-	ArtifactRefs []recipeartifacts.Ref
-	Parent       *jobcontext.Parent
-	SubmittedAt  *time.Time
+	ExecutionRequirements execution.Requirements
+	TenantID              string
+	JobID                 string
+	Target                ResolvedTarget
+	Recipe                string
+	Inputs                map[string]interface{}
+	Artifacts             []jobdb.Artifact
+	ArtifactRefs          []recipeartifacts.Ref
+	Parent                *jobcontext.Parent
+	SubmittedAt           *time.Time
 }
 
 type Submitter interface {
@@ -74,7 +76,12 @@ func BuildStartJob(req BuildStartJobRequest) (workflowctl.StartJob, error) {
 		submittedAt = req.SubmittedAt.UTC()
 	}
 
+	initial, err := execution.Initial(nil, "", req.ExecutionRequirements)
+	if err != nil {
+		return workflowctl.StartJob{}, err
+	}
 	return workflowctl.StartJob{
+		Execution:    &initial,
 		TenantId:     tenantID,
 		JobID:        strings.TrimSpace(req.JobID),
 		RecipeName:   recipeName,

@@ -40,6 +40,7 @@ func Run(ctx context.Context, opts Options) error {
 	defer handle.Cleanup()
 
 	request := recipejob.ListChildRecipeJobsRequest{
+		ExecutionFilter:      opts.ExecutionFilter,
 		TenantID:             opts.TenantID,
 		ParentTenantID:       opts.ParentTenantID,
 		ParentJobID:          opts.ParentJobID,

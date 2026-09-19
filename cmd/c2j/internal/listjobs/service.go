@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/colony-2/c2j/pkg/execution"
 	"strings"
 	"text/tabwriter"
 	"time"
@@ -16,6 +17,7 @@ import (
 )
 
 type jobRow struct {
+	Execution             execution.View  `json:"execution"`
 	ClientPayload         json.RawMessage `json:"client_payload,omitempty"`
 	ClientPayloadRevision int64           `json:"client_payload_revision"`
 	TenantID              string          `json:"tenant_id"`
@@ -61,7 +63,7 @@ func Run(ctx context.Context, opts Options) error {
 	rows := make([]jobRow, 0)
 	nextPageToken := ""
 	for {
-		resp, err := handle.Engine.ListJobs(ctx, request)
+		resp, err := recipejob.ListExecutionJobs(ctx, handle.Engine, request, opts.ExecutionFilter)
 		if err != nil {
 			return fmt.Errorf("list jobs: %w", err)
 		}
@@ -178,6 +180,7 @@ func buildRequest(ctx context.Context, opts Options) (jobdb.ListJobsRequest, err
 
 func makeJobRow(job jobdb.JobSummary) jobRow {
 	return jobRow{
+		Execution:             execution.Inspect(job.Metadata, job.ClientPayload),
 		ClientPayload:         append(json.RawMessage(nil), job.ClientPayload...),
 		ClientPayloadRevision: job.ClientPayloadRevision,
 		TenantID:              job.JobKey.TenantId,

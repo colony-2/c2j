@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"github.com/colony-2/c2j/cmd/c2j/internal/defaults"
+	"github.com/colony-2/c2j/cmd/c2j/internal/executionflags"
+	"github.com/colony-2/c2j/pkg/execution"
 )
 
 const (
@@ -19,6 +21,8 @@ const (
 )
 
 type Options struct {
+	ExecutionFlags executionflags.Options
+	Allocation     execution.Allocation
 	JobDBURI       string
 	TenantID       string
 	SWFURL         string
@@ -30,6 +34,19 @@ type Options struct {
 }
 
 func (o *Options) Complete(ctx context.Context) error {
+	if o.Allocation.SchemaVersion == 0 {
+		allocation, err := o.ExecutionFlags.Parse(os.LookupEnv)
+		if err != nil {
+			return err
+		}
+		o.Allocation = allocation
+	} else {
+		allocation, err := o.Allocation.Normalize()
+		if err != nil {
+			return err
+		}
+		o.Allocation = allocation
+	}
 	if o.Concurrency == 0 {
 		o.Concurrency = defaultConcurrency
 	}

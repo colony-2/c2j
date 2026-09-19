@@ -10,9 +10,13 @@ import (
 	"time"
 
 	"github.com/colony-2/c2j/cmd/c2j/internal/defaults"
+	"github.com/colony-2/c2j/cmd/c2j/internal/executionflags"
+	"github.com/colony-2/c2j/pkg/execution"
 )
 
 type Options struct {
+	ExecutionFlags executionflags.Options
+	Allocation     execution.Allocation
 	JobID          string
 	JobDBURI       string
 	TenantID       string
@@ -32,6 +36,19 @@ type Options struct {
 }
 
 func (o *Options) Complete(ctx context.Context) error {
+	if o.Allocation.SchemaVersion == 0 {
+		allocation, err := o.ExecutionFlags.Parse(os.LookupEnv)
+		if err != nil {
+			return err
+		}
+		o.Allocation = allocation
+	} else {
+		allocation, err := o.Allocation.Normalize()
+		if err != nil {
+			return err
+		}
+		o.Allocation = allocation
+	}
 	if o.WaitTimeout == 0 {
 		o.WaitTimeout = 15 * time.Minute
 	}

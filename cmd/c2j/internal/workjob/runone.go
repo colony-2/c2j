@@ -10,14 +10,20 @@ import (
 	"sync"
 	"time"
 
+	"encoding/json"
 	"github.com/colony-2/c2j/cmd/c2j/internal/defaults"
+	"github.com/colony-2/c2j/cmd/c2j/internal/executionflags"
 	"github.com/colony-2/c2j/cmd/c2j/internal/jobutil"
+	"github.com/colony-2/c2j/pkg/execution"
+	"github.com/colony-2/c2j/pkg/worker/compiler"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 )
 
 const defaultLeaseDuration = 60 * time.Second
 
 type RunOneOptions struct {
+	ExecutionFlags executionflags.Options
+	Allocation     execution.Allocation
 	JobDBURI       string
 	TenantID       string
 	SWFURL         string
@@ -29,6 +35,19 @@ type RunOneOptions struct {
 }
 
 func (o *RunOneOptions) Complete(ctx context.Context) error {
+	if o.Allocation.SchemaVersion == 0 {
+		allocation, err := o.ExecutionFlags.Parse(os.LookupEnv)
+		if err != nil {
+			return err
+		}
+		o.Allocation = allocation
+	} else {
+		allocation, err := o.Allocation.Normalize()
+		if err != nil {
+			return err
+		}
+		o.Allocation = allocation
+	}
 	if o.LeaseDuration == 0 {
 		o.LeaseDuration = defaultLeaseDuration
 	}
@@ -92,7 +111,11 @@ func RunOne(ctx context.Context, opts RunOneOptions) error {
 	}
 
 	var once *runOneRuntime
+	var eventMu sync.Mutex
+	var handoff *compiler.ExecutionHandoff
 	deps, cleanup, err := buildWorkerDeps(ctx, workerBuildOptions{
+		Allocation:     opts.Allocation,
+		OnHandoff:      func(e compiler.ExecutionHandoff) { eventMu.Lock(); defer eventMu.Unlock(); handoff = &e },
 		TenantID:       opts.TenantID,
 		SWFURL:         opts.SWFURL,
 		Concurrency:    1,
@@ -116,6 +139,12 @@ func RunOne(ctx context.Context, opts RunOneOptions) error {
 	stop()
 
 	state := once.state()
+	eventMu.Lock()
+	event := handoff
+	eventMu.Unlock()
+	if event != nil {
+		return json.NewEncoder(opts.Stdout).Encode(event)
+	}
 	if state.err != nil {
 		return exitError{code: exitCodeFailure, err: state.err}
 	}

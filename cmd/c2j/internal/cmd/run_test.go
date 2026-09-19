@@ -1,6 +1,33 @@
 package cmd
 
-import "testing"
+import (
+	"github.com/spf13/cobra"
+	"testing"
+)
+
+func TestExecutionFlagsAreRegisteredOnEveryEntryPoint(t *testing.T) {
+	for _, cmd := range []*cobra.Command{newRunCmd(), newRunOneSpecificCmd("one"), newRunAnyCmd(), newRunLoopCmd(), newSubmitCmd(), newListCmd(), newListChildrenCmd()} {
+		t.Run(cmd.Use, func(t *testing.T) {
+			for _, field := range []string{"cpu", "memory", "ephemeral-storage", "platform", "image", "image-digest", "image-id"} {
+				if cmd.Flags().Lookup("execution-"+field) == nil {
+					t.Errorf("missing --execution-%s", field)
+				}
+			}
+		})
+	}
+	for _, cmd := range []*cobra.Command{newListCmd(), newListChildrenCmd()} {
+		for _, name := range []string{"compatible-with-execution", "include-unresolved"} {
+			if cmd.Flags().Lookup(name) == nil {
+				t.Errorf("%s missing --%s", cmd.Use, name)
+			}
+		}
+	}
+	for _, field := range []string{"cpu", "memory", "ephemeral-storage", "platform", "image"} {
+		if newSubmitCmd().Flags().Lookup("require-"+field) == nil {
+			t.Errorf("submit missing --require-%s", field)
+		}
+	}
+}
 
 func TestRunCommandHasOneAnyAndLoopForms(t *testing.T) {
 	cmd := newRunCmd()

@@ -29,6 +29,9 @@ func newListChildrenCmd() *cobra.Command {
 	}
 
 	flags := cmd.Flags()
+	opts.ExecutionFlags.AddFlags(flags)
+	flags.BoolVar(&opts.CompatibleWithExecution, "compatible-with-execution", false, "Filter by the supplied actual execution allocation")
+	flags.BoolVar(&opts.IncludeUnresolved, "include-unresolved", false, "Also include unresolved bootstrap candidates (requires --compatible-with-execution)")
 	flags.StringVar(&opts.JobDBURI, "jobdb", "", "JobDB URI (http(s)://host/tenant or embed:///)")
 	flags.StringVar(&opts.ParentTenantID, "parent-tenant-id", "", "Parent tenant ID (defaults from current op env)")
 	flags.StringVar(&opts.ParentJobID, "parent-job-id", "", "Parent job ID (defaults from current op env)")
