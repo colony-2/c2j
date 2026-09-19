@@ -8,6 +8,7 @@ import (
 	"text/tabwriter"
 	"time"
 
+	"github.com/colony-2/c2j/cmd/c2j/internal/jobutil"
 	"github.com/colony-2/c2j/cmd/c2j/internal/swfruntime"
 	"github.com/colony-2/c2j/pkg/recipejob"
 	"github.com/colony-2/c2j/pkg/starter"
@@ -27,10 +28,8 @@ type jobRow struct {
 	ArchivedAt            *time.Time      `json:"archived_at,omitempty"`
 	LeaseExpiresAt        *time.Time      `json:"lease_expires_at,omitempty"`
 	ExpiresAt             *time.Time      `json:"expires_at,omitempty"`
-	NextNeed              string          `json:"next_need,omitempty"`
-	TaskWaitNext          string          `json:"task_wait_next,omitempty"`
-	TaskWaitInput         *int64          `json:"task_wait_input,omitempty"`
-	TaskWaitOutput        *int64          `json:"task_wait_output,omitempty"`
+	NextRoute             *jobdb.Route    `json:"next_route,omitempty"`
+	TaskWait              *jobdb.TaskWait `json:"task_wait,omitempty"`
 	WaitFor               []string        `json:"wait_for,omitempty"`
 	CancelRequested       bool            `json:"cancel_requested,omitempty"`
 }
@@ -160,10 +159,7 @@ func buildRequest(ctx context.Context, opts Options) (jobdb.ListJobsRequest, err
 		}
 	}
 
-	jobTypes := make([]string, 0, len(opts.JobTypes))
-	for _, value := range opts.JobTypes {
-		jobTypes = append(jobTypes, splitCSV(value)...)
-	}
+	jobTypes := append([]string(nil), opts.JobTypes...)
 
 	return jobdb.ListJobsRequest{
 		TenantIds:      []string{opts.TenantID},
@@ -181,15 +177,6 @@ func buildRequest(ctx context.Context, opts Options) (jobdb.ListJobsRequest, err
 }
 
 func makeJobRow(job jobdb.JobSummary) jobRow {
-	nextNeed := ""
-	if job.NextNeed != nil {
-		nextNeed = *job.NextNeed
-	}
-	taskWaitNext := ""
-	if job.TaskWaitNext != nil {
-		taskWaitNext = *job.TaskWaitNext
-	}
-
 	return jobRow{
 		ClientPayload:         append(json.RawMessage(nil), job.ClientPayload...),
 		ClientPayloadRevision: job.ClientPayloadRevision,
@@ -203,10 +190,8 @@ func makeJobRow(job jobdb.JobSummary) jobRow {
 		ArchivedAt:            job.ArchivedAt,
 		LeaseExpiresAt:        job.LeaseExpiresAt,
 		ExpiresAt:             job.ExpiresAt,
-		NextNeed:              nextNeed,
-		TaskWaitNext:          taskWaitNext,
-		TaskWaitInput:         job.TaskWaitInput,
-		TaskWaitOutput:        job.TaskWaitOutput,
+		NextRoute:             jobdb.CloneRoute(job.NextRoute),
+		TaskWait:              jobdb.CloneExecutionState(job.ExecutionState).TaskWait,
 		WaitFor:               append([]string(nil), job.WaitFor...),
 		CancelRequested:       job.CancelRequested,
 	}
@@ -218,10 +203,8 @@ func storeForJob(job jobdb.JobSummary) jobdb.JobStore {
 
 func displayNext(row jobRow) string {
 	switch {
-	case strings.TrimSpace(row.TaskWaitNext) != "":
-		return row.TaskWaitNext
-	case strings.TrimSpace(row.NextNeed) != "":
-		return row.NextNeed
+	case row.NextRoute != nil:
+		return jobutil.FormatRoute(*row.NextRoute)
 	case len(row.WaitFor) > 0:
 		return strings.Join(row.WaitFor, ",")
 	default:

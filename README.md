@@ -16,9 +16,9 @@ Examples below assume you are running from the repo root.
 
 ## JobDB upgrade compatibility
 
-The client-payload JobDB update requires fresh databases/artifact storage and
-matching server/worker versions; existing jobs are not migrated. The current
-pin also has a known incompatibility with c2j task-handoff route names. Read
+The typed-route JobDB update requires fresh format-3 databases/artifact storage
+and matching server/worker versions; existing jobs are not migrated. Job and
+task types now travel separately, preserving existing task names. Read
 [the upgrade notes](JOBDB_UPGRADE_NOTES.md) before deploying it. No existing data
 is automatically reset.
 
@@ -515,6 +515,20 @@ Useful filters:
 - `--page-size`
 - `--page-token`
 - `--all`
+
+Filter by a pending task using a JSON route:
+
+```bash
+c2j list --self --waiting-for '{"jobType":"recipe","taskType":"input:collect_user_input"}' --embed
+```
+
+Repeat `--waiting-for` for multiple routes and `--job-type` for multiple job
+types. These flags accept literal identifiers, not comma-separated lists;
+`--waiting-for JOBTYPE:TASKTYPE` is no longer supported because either type may
+contain colons. Identifiers are case-sensitive and are not trimmed or encoded.
+List JSON exposes `next_route` (`jobType`, optional `taskType`) and `task_wait`
+instead of the old `next_need` and flat `task_wait_*` fields. The human-readable
+`NEXT` column also shows the route as JSON.
 
 ## Embedded Runtime
 

@@ -163,7 +163,7 @@ self:
 func TestParseWaitingForSupportsTaskTypesWithColons(t *testing.T) {
 	t.Parallel()
 
-	got, err := parseWaitingForFilters([]string{"recipe:input:collect_user_input"})
+	got, err := parseWaitingForFilters([]string{`{"jobType":"recipe","taskType":"input:collect_user_input"}`})
 	if err != nil {
 		t.Fatalf("parseWaitingForFilters(): %v", err)
 	}
@@ -174,5 +174,18 @@ func TestParseWaitingForSupportsTaskTypesWithColons(t *testing.T) {
 	}}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("parseWaitingForFilters() = %#v, want %#v", got, want)
+	}
+}
+
+func TestBuildRequestKeepsJobTypeIdentifiersIntact(t *testing.T) {
+	root := t.TempDir()
+	writeListConfig(t, root, "pattern: 'github.com/acme/boo-${{ cell }}'\nself:\n  repo: alpha\n")
+	names := []string{" recipe:Kind,Ω ", "Other"}
+	req, err := buildRequest(context.Background(), Options{TenantID: "tenant", WorkingDir: root, JobTypes: names})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(req.JobTypes, names) {
+		t.Fatalf("job types changed: got %#v, want %#v", req.JobTypes, names)
 	}
 }

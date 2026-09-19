@@ -13,11 +13,12 @@ Recipe declarations, CLI wiring, and durable environment handoff are not yet
 enabled; the remainder of this document describes the target behavior.
 
 Dependency update (2026-09-19): JobDB is now pinned to
-`v0.0.18-0.20260919024231-85cc496c0f52`. Compiler contexts support its separate
+`v0.0.19-0.20260919034646-71b6668a65db`. Compiler contexts support its separate
 `ClientPayload`, revision, and explicit `Yield` API. JobDB preserves client state
 when updates are omitted, including external task completion. See
-[the upgrade notes](JOBDB_UPGRADE_NOTES.md) for deployment requirements and a
-known task-route incompatibility.
+[the upgrade notes](JOBDB_UPGRADE_NOTES.md) for deployment requirements. Typed
+routes now carry job and task types separately, resolving the task-route
+incompatibility without renaming existing identifiers.
 
 The shared-payload API sketches below predate that migration and are not the
 current integration contract: future feature work must use

@@ -38,12 +38,17 @@ func (s *SWFWorkflowControl) ListJobs(ctx context.Context, request jobdb.ListJob
 
 	jobs = make([]workflowctl.JobItem, len(resp.Jobs))
 	for i, j := range resp.Jobs {
+		var outputOrdinal *int64
+		if wait := j.ExecutionState.TaskWait; wait != nil {
+			ordinal := wait.OutputOrdinal
+			outputOrdinal = &ordinal
+		}
 		jobs[i] = workflowctl.JobItem{
 			JobSummary: j,
 			TaskData: &taskDataGetter{
-				engine:  s.Engine,
-				jobKey:  j.JobKey,
-				ordinal: j.TaskWaitInput,
+				engine:        s.Engine,
+				jobKey:        j.JobKey,
+				outputOrdinal: outputOrdinal,
 			},
 		}
 	}
@@ -177,18 +182,18 @@ func (s *SWFWorkflowControl) GetArtifactLazy(ctx context.Context, tenantId strin
 }
 
 type taskDataGetter struct {
-	loaded  bool
-	engine  jobworkflow.Engine
-	jobKey  jobdb.JobKey
-	ordinal *int64
-	data    jobdb.TaskData
+	loaded        bool
+	engine        jobworkflow.Engine
+	jobKey        jobdb.JobKey
+	outputOrdinal *int64
+	data          jobdb.TaskData
 }
 
 func (t *taskDataGetter) checkLoad() error {
 	if t.loaded {
 		return nil
 	}
-	if t.ordinal == nil {
+	if t.outputOrdinal == nil {
 		return fmt.Errorf("ordinal is required")
 	}
 	handle, err := t.engine.GetWaitingTask(context.Background(), t.jobKey)
@@ -196,7 +201,7 @@ func (t *taskDataGetter) checkLoad() error {
 		return err
 	}
 
-	targetCompletion := *t.ordinal + 1
+	targetCompletion := *t.outputOrdinal
 	if handle.TaskOrdinalToComplete() != targetCompletion {
 		return fmt.Errorf("unexpected task ordinal: %d (actual pending: %d)", targetCompletion, handle.TaskOrdinalToComplete())
 	}

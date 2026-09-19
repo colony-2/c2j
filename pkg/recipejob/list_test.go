@@ -152,7 +152,7 @@ func TestListChildRecipeJobsFiltersByParentInvocation(t *testing.T) {
 	lease, err := runtime.GetJobLease(ctx, jobdb.GetJobLeaseRequest{
 		JobKey:        parentHandle.JobKey,
 		WorkerID:      "child-list-test-worker",
-		Capabilities:  []string{"parent-type"},
+		Routes:        []jobdb.Route{{JobType: "parent-type"}},
 		LeaseDuration: time.Minute,
 	})
 	if err != nil {

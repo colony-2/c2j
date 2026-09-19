@@ -337,7 +337,7 @@ func shouldFailNotReady(policy string, outcome jobworkflow.JobRunOutcome) bool {
 	case "fail-on-future":
 		return outcome.JobStatus != nil && *outcome.JobStatus == jobdb.JobStatusAwaitingFuture
 	case "fail-on-missing-capability":
-		return outcome.MissingCapability != nil && strings.TrimSpace(*outcome.MissingCapability) != ""
+		return outcome.MissingRoute != nil
 	default:
 		return false
 	}
@@ -348,14 +348,14 @@ func describeBlocking(outcome jobworkflow.JobRunOutcome) string {
 	if outcome.JobStatus != nil {
 		parts = append(parts, "status="+string(*outcome.JobStatus))
 	}
-	if outcome.MissingCapability != nil && strings.TrimSpace(*outcome.MissingCapability) != "" {
-		parts = append(parts, "missing_capability="+*outcome.MissingCapability)
+	if outcome.MissingRoute != nil {
+		parts = append(parts, "missing_route="+jobutil.FormatRoute(*outcome.MissingRoute))
 	}
 	if len(outcome.WaitForJobIDs) > 0 {
 		parts = append(parts, "wait_for="+strings.Join(outcome.WaitForJobIDs, ","))
 	}
-	if outcome.NextNeed != nil && strings.TrimSpace(*outcome.NextNeed) != "" {
-		parts = append(parts, "next_need="+*outcome.NextNeed)
+	if outcome.NextRoute != nil {
+		parts = append(parts, "next_route="+jobutil.FormatRoute(*outcome.NextRoute))
 	}
 	if len(parts) == 0 {
 		return string(outcome.Status)

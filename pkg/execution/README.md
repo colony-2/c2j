@@ -5,8 +5,8 @@ requirements. It does not provision environments, change JobDB lease matching,
 or enable recipe execution handoff by itself. JobDB now provides independent
 client payload and explicit workflow yield, and c2j's context wrappers support
 them; the execution-requirements feature itself remains unintegrated. See the
-[upgrade notes](../../JOBDB_UPGRADE_NOTES.md) for the current contract and known
-task-route incompatibility, and the
+[upgrade notes](../../JOBDB_UPGRADE_NOTES.md) for the current client-payload and
+typed-route contract, and the
 [design](../../C2J_PORTABLE_EXECUTION_REQUIREMENTS_DESIGN.md) for feature intent.
 
 `Requirements` uses optional string pointers for image, platform, CPU, memory,

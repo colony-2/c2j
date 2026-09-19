@@ -35,7 +35,7 @@ type secondStepOutput struct {
 	Second bool `json:"second"`
 }
 
-// Integration: step1 runs as a task, step2 is disallowed and must be claimed via FindTasksWaitingForCapability.
+// Integration: step1 runs as a task, step2 is disallowed and must be claimed via FindTasksWaitingForRoute.
 func TestMultiStepWithCapabilityClaim(t *testing.T) {
 	originalOps := coreops.List()
 	t.Cleanup(func() {
@@ -165,7 +165,7 @@ func TestMultiStepWithCapabilityClaim(t *testing.T) {
 	// Wait for the second step to become pending (disallowed as task).
 	var handles []jobworkflow.TaskHandle
 	for i := 0; i < 400; i++ {
-		handles, err = engine.FindTasksWaitingForCapability(context.Background(), starter.RecipeJobType, opType+":second", []string{"test-tenant"})
+		handles, err = engine.FindTasksWaitingForRoute(context.Background(), starter.RecipeJobType, opType+":second", []string{"test-tenant"})
 		require.NoError(t, err)
 		if len(handles) > 0 {
 			break

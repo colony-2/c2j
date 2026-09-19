@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/colony-2/c2j/cmd/c2j/internal/defaults"
+	"github.com/colony-2/c2j/cmd/c2j/internal/jobutil"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 )
 
@@ -139,7 +140,11 @@ func RunOne(ctx context.Context, opts RunOneOptions) error {
 	if status == "" {
 		status = "unknown"
 	}
-	if _, err := fmt.Fprintf(opts.Stdout, "%s job=%s status=%s\n", action, state.jobKey, status); err != nil {
+	routeDetail := ""
+	if state.nextRoute != nil {
+		routeDetail = " next_route=" + jobutil.FormatRoute(*state.nextRoute)
+	}
+	if _, err := fmt.Fprintf(opts.Stdout, "%s job=%s status=%s%s\n", action, state.jobKey, status, routeDetail); err != nil {
 		return exitError{code: exitCodeFailure, err: err}
 	}
 	return nil
@@ -159,6 +164,7 @@ type runOneRuntime struct {
 	jobKey    jobdb.JobKey
 	action    string
 	status    string
+	nextRoute *jobdb.Route
 	err       error
 }
 
@@ -169,6 +175,7 @@ type runOneState struct {
 	jobKey    jobdb.JobKey
 	action    string
 	status    string
+	nextRoute *jobdb.Route
 	err       error
 }
 
@@ -267,7 +274,7 @@ func (r *runOneRuntime) PollWork(ctx context.Context, req jobdb.PollWorkRequest)
 	return []jobdb.ExecutionLease{&runOneLease{ExecutionLease: lease, runtime: r}}, nil
 }
 
-func (r *runOneRuntime) markFinalized(action string, status string, err error) {
+func (r *runOneRuntime) markFinalized(action string, status string, route *jobdb.Route, err error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.finalized {
@@ -276,6 +283,7 @@ func (r *runOneRuntime) markFinalized(action string, status string, err error) {
 	r.finalized = true
 	r.action = action
 	r.status = status
+	r.nextRoute = jobdb.CloneRoute(route)
 	if err != nil {
 		r.err = err
 	}
@@ -299,6 +307,7 @@ func (r *runOneRuntime) state() runOneState {
 		jobKey:    r.jobKey,
 		action:    r.action,
 		status:    r.status,
+		nextRoute: jobdb.CloneRoute(r.nextRoute),
 		err:       r.err,
 	}
 }
@@ -324,16 +333,12 @@ func (l *runOneLease) LeaseWorkerID() string {
 
 func (l *runOneLease) Complete(ctx context.Context, req jobdb.CompleteExecutionRequest) error {
 	err := l.ExecutionLease.Complete(ctx, req)
-	l.runtime.markFinalized("completed", req.Status, err)
+	l.runtime.markFinalized("completed", req.Status, nil, err)
 	return err
 }
 
 func (l *runOneLease) Reschedule(ctx context.Context, req jobdb.RescheduleExecutionRequest) error {
 	err := l.ExecutionLease.Reschedule(ctx, req)
-	status := "rescheduled"
-	if req.NextNeed != "" {
-		status = req.NextNeed
-	}
-	l.runtime.markFinalized("rescheduled", status, err)
+	l.runtime.markFinalized("rescheduled", "rescheduled", &req.NextRoute, err)
 	return err
 }

@@ -2,6 +2,7 @@ package listjobs
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -83,6 +84,11 @@ func (o Options) Validate() error {
 	if _, err := parseWaitingForFilters(o.WaitingFor); err != nil {
 		return err
 	}
+	for _, jobType := range o.JobTypes {
+		if err := jobdb.ValidateIdentifier(jobType); err != nil {
+			return fmt.Errorf("--job-type: %w", err)
+		}
+	}
 	if _, err := parseOptionalTime(o.CreatedAfter); err != nil {
 		return fmt.Errorf("--created-after: %w", err)
 	}
@@ -135,20 +141,23 @@ func storesForStatuses(statuses []jobdb.JobStatus) []jobdb.JobStore {
 func parseWaitingForFilters(values []string) ([]jobdb.JobTaskFilter, error) {
 	out := make([]jobdb.JobTaskFilter, 0, len(values))
 	for _, value := range values {
-		for _, part := range splitCSV(value) {
-			part = strings.TrimSpace(part)
-			if part == "" {
-				continue
-			}
-			jobType, taskType, ok := strings.Cut(part, ":")
-			if !ok || strings.TrimSpace(jobType) == "" || strings.TrimSpace(taskType) == "" {
-				return nil, fmt.Errorf("--waiting-for must be in JOBTYPE:TASKTYPE form, got %q", part)
-			}
-			out = append(out, jobdb.JobTaskFilter{
-				JobType:  strings.TrimSpace(jobType),
-				TaskType: strings.TrimSpace(taskType),
-			})
+		var route jobdb.Route
+		decoder := json.NewDecoder(strings.NewReader(value))
+		decoder.DisallowUnknownFields()
+		if err := decoder.Decode(&route); err != nil {
+			return nil, fmt.Errorf("--waiting-for requires a JSON object with jobType and taskType: %w", err)
 		}
+		var trailing any
+		if err := decoder.Decode(&trailing); err != io.EOF {
+			return nil, fmt.Errorf("--waiting-for requires exactly one JSON object")
+		}
+		if err := route.Validate(); err != nil {
+			return nil, fmt.Errorf("--waiting-for: %w", err)
+		}
+		if err := jobdb.ValidateIdentifier(route.TaskType); err != nil {
+			return nil, fmt.Errorf("--waiting-for taskType: %w", err)
+		}
+		out = append(out, jobdb.JobTaskFilter{JobType: route.JobType, TaskType: route.TaskType})
 	}
 	return out, nil
 }

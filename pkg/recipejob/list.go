@@ -81,10 +81,8 @@ type RecipeJob struct {
 	ArchivedAt            *time.Time         `json:"archived_at,omitempty"`
 	LeaseExpiresAt        *time.Time         `json:"lease_expires_at,omitempty"`
 	ExpiresAt             *time.Time         `json:"expires_at,omitempty"`
-	NextNeed              string             `json:"next_need,omitempty"`
-	TaskWaitNext          string             `json:"task_wait_next,omitempty"`
-	TaskWaitInput         *int64             `json:"task_wait_input,omitempty"`
-	TaskWaitOutput        *int64             `json:"task_wait_output,omitempty"`
+	NextRoute             *jobdb.Route       `json:"next_route,omitempty"`
+	TaskWait              *jobdb.TaskWait    `json:"task_wait,omitempty"`
 	WaitFor               []string           `json:"wait_for,omitempty"`
 	CancelRequested       bool               `json:"cancel_requested,omitempty"`
 }
@@ -341,15 +339,6 @@ func RecipeJobFromSummary(summary jobdb.JobSummary) (RecipeJob, bool, error) {
 		return RecipeJob{}, false, err
 	}
 
-	nextNeed := ""
-	if summary.NextNeed != nil {
-		nextNeed = *summary.NextNeed
-	}
-	taskWaitNext := ""
-	if summary.TaskWaitNext != nil {
-		taskWaitNext = *summary.TaskWaitNext
-	}
-
 	job := RecipeJob{
 		ClientPayload:         append(json.RawMessage(nil), summary.ClientPayload...),
 		ClientPayloadRevision: summary.ClientPayloadRevision,
@@ -363,10 +352,8 @@ func RecipeJobFromSummary(summary jobdb.JobSummary) (RecipeJob, bool, error) {
 		ArchivedAt:            summary.ArchivedAt,
 		LeaseExpiresAt:        summary.LeaseExpiresAt,
 		ExpiresAt:             summary.ExpiresAt,
-		NextNeed:              nextNeed,
-		TaskWaitNext:          taskWaitNext,
-		TaskWaitInput:         summary.TaskWaitInput,
-		TaskWaitOutput:        summary.TaskWaitOutput,
+		NextRoute:             jobdb.CloneRoute(summary.NextRoute),
+		TaskWait:              jobdb.CloneExecutionState(summary.ExecutionState).TaskWait,
 		WaitFor:               append([]string(nil), summary.WaitFor...),
 		CancelRequested:       summary.CancelRequested,
 	}

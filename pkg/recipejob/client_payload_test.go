@@ -37,3 +37,26 @@ func TestRecipeJobSummarySeparatesClientPayloadFromSubmission(t *testing.T) {
 		})
 	}
 }
+
+func TestRecipeJobSummaryPreservesTypedRoute(t *testing.T) {
+	summary := jobdb.JobSummary{
+		JobType:   starter.RecipeJobType,
+		NextRoute: &jobdb.Route{JobType: "recipe:kind", TaskType: "input:collect_user_input"},
+		ExecutionState: jobdb.ExecutionState{TaskWait: &jobdb.TaskWait{
+			InputOrdinal: 0, OutputOrdinal: 2, InputHash: "hash", ResumeJobType: "recipe:kind",
+		}},
+	}
+	job, ok, err := RecipeJobFromSummary(summary)
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Equal(t, summary.NextRoute, job.NextRoute)
+	require.Equal(t, summary.ExecutionState.TaskWait, job.TaskWait)
+	raw, err := json.Marshal(job)
+	require.NoError(t, err)
+	require.Contains(t, string(raw), `"next_route":{"jobType":"recipe:kind","taskType":"input:collect_user_input"}`)
+	require.NotContains(t, string(raw), `"next_need"`)
+	job.NextRoute.TaskType = "changed"
+	job.TaskWait.ResumeJobType = "changed"
+	require.Equal(t, "input:collect_user_input", summary.NextRoute.TaskType)
+	require.Equal(t, "recipe:kind", summary.ExecutionState.TaskWait.ResumeJobType)
+}

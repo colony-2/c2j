@@ -1,5 +1,14 @@
 # Guidance request: Task identifiers containing colons after the client-payload migration
 
+## Resolution
+
+Resolved by JobDB commit `71b6668a65dbcc08ae46119412c559f54d8a4b32` and its
+[typed-route migration guide](MIGRATION-TYPED-ROUTES.md). Routes now carry job and
+task identifiers separately; existing identifiers remain unchanged, including
+colons in either field. c2j has adopted this API. The request below is retained
+as historical context; see [upgrade notes](JOBDB_UPGRADE_NOTES.md) for the current
+integration and deployment requirements.
+
 ## Request
 
 Please advise on the supported way to represent and route task identifiers that

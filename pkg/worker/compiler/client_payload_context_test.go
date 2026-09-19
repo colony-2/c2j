@@ -59,7 +59,7 @@ func TestClientPayloadContextForwarding(t *testing.T) {
 			require.EqualValues(t, 7, wrapped.ClientPayloadRevision())
 			revision := int64(7)
 			req := jobdb.RescheduleExecutionRequest{
-				NextNeed: "recipe", WaitForJobIDs: []string{"child"},
+				NextRoute: jobdb.Route{JobType: "recipe"}, WaitForJobIDs: []string{"child"},
 				ClientPayloadUpdate: &jobdb.ClientPayloadUpdate{Mode: "reset", ExpectedRevision: &revision, Value: json.RawMessage(`{"cursor":"two"}`)},
 			}
 			require.NoError(t, wrapped.Yield(context.Background(), req))
@@ -73,7 +73,7 @@ func TestClientPayloadContextForwarding(t *testing.T) {
 func TestExpiredTimeoutDoesNotYield(t *testing.T) {
 	inner := &payloadJobContext{}
 	wrapped := &timeoutJobContext{inner: inner, deadline: time.Now().Add(-time.Second)}
-	require.ErrorIs(t, wrapped.Yield(context.Background(), jobdb.RescheduleExecutionRequest{NextNeed: "recipe"}), context.DeadlineExceeded)
+	require.ErrorIs(t, wrapped.Yield(context.Background(), jobdb.RescheduleExecutionRequest{NextRoute: jobdb.Route{JobType: "recipe"}}), context.DeadlineExceeded)
 	require.Empty(t, inner.yields)
 }
 
@@ -82,7 +82,7 @@ func TestValidationDoesNotExposeOrPublishLiveClientPayload(t *testing.T) {
 	for _, wrapped := range []*validationJobContext{{inner: inner}, {}} {
 		require.Nil(t, wrapped.ClientPayload())
 		require.Zero(t, wrapped.ClientPayloadRevision())
-		require.ErrorContains(t, wrapped.Yield(context.Background(), jobdb.RescheduleExecutionRequest{NextNeed: "recipe"}), "not supported during validation")
+		require.ErrorContains(t, wrapped.Yield(context.Background(), jobdb.RescheduleExecutionRequest{NextRoute: jobdb.Route{JobType: "recipe"}}), "not supported during validation")
 	}
 	require.Empty(t, inner.yields)
 }
