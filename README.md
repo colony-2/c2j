@@ -14,6 +14,9 @@ Use it when you want to:
 
 Examples below assume you are running from the repo root.
 
+For job status, execution progress, handoffs, and child-job lineage, see the
+[execution tracking user guide](GUIDE-Execution-Tracking.md).
+
 ## JobDB upgrade compatibility
 
 The typed-route JobDB update requires fresh format-3 databases/artifact storage
