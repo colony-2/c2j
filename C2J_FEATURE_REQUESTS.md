@@ -1,6 +1,6 @@
 # c2j feature request: portable execution requirements and environment changes
 
-Status: proposed requirements for c2j. Command names, recipe syntax, storage layout, and the implementation split with jobdb remain open.
+Status: implemented in the [execution-requirements design](C2J_PORTABLE_EXECUTION_REQUIREMENTS_DESIGN.md) and [user guide](GUIDE-Execution-Tracking.md). The final contract requires an explicit yield for any runtime requirement change, including when the current allocation is sufficient. JobDB's existing client-payload reschedule API is sufficient.
 
 ## Problem
 
@@ -97,7 +97,7 @@ A recipe can optionally declare initial execution requirements. c2j associates t
 
 ### Required behavior
 
-Executing recipe work can request changed execution requirements based on information discovered at runtime. c2j determines whether execution can continue in the allocated environment or needs to yield for another environment. Changing requirements is a normal continuation of the same job.
+Executing recipe work can request changed execution requirements based on information discovered at runtime. The executor yields with the new requirements before dependent work. Changing requirements is a normal continuation of the same job.
 
 Example:
 
@@ -105,7 +105,7 @@ Example:
 2. It determines that the next operation needs 16 GiB and requests that capacity.
 3. The current environment is insufficient, so the job yields before starting the dependent operation. Its current requirements now show 16 GiB.
 4. A compatible execution attempt resumes the same job, uses the recorded manifest, and continues the operation.
-5. If the original environment already had sufficient resources, execution could have continued without moving, while retaining the updated requirements for later recovery.
+5. If the original environment already had sufficient resources, it still yields to publish the change. The next invocation can use that same environment.
 
 ### Acceptance criteria
 

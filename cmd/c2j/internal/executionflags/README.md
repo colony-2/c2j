@@ -1,9 +1,8 @@
 # Execution allocation inputs
 
-This is the shared input parser for the pending execution-requirements
-integration. It is tested independently but **not yet registered on run or list
-commands**. Wiring depends on runtime support; no command currently promises
-enforcement of these new inputs.
+This is the shared input parser used by `run`, `run one`, `run any`, `run loop`,
+`submit --run`, `list`, and `list children`. Run paths inject the actual
+allocation into both recipe preflight and pending-task lease checks.
 
 Bind `Options.AddFlags` to a command's local flag set. At execution time, pass
 `os.LookupEnv` to `Options.Parse`, then inject the resulting versioned allocation
@@ -22,7 +21,7 @@ host capacity or use recipe requests as evidence of allocation.
 | `--execution-image-digest` | `C2J_EXECUTION_IMAGE_DIGEST` | Actual manifest digest |
 | `--execution-image-id` | `C2J_EXECUTION_IMAGE_ID` | Runtime/config identity, diagnostic only |
 
-List commands should call `ParseFilter` with their explicit
+List commands call `ParseFilter` with their explicit
 `--compatible-with-execution` and `--include-unresolved` choices. Without
 compatibility opt-in, environment variables are not read and allocation flags
 are rejected. With opt-in, at least one compatibility-relevant allocation fact

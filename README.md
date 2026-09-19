@@ -14,8 +14,17 @@ Use it when you want to:
 
 Examples below assume you are running from the repo root.
 
-For job status, execution progress, handoffs, and child-job lineage, see the
+For execution requirements, actual allocation inputs, compatibility filtering,
+job status, progress, handoffs, and child-job lineage, see the
 [execution tracking user guide](GUIDE-Execution-Tracking.md).
+
+Recipes can declare an `execution` block for CPU, memory, scratch, platform,
+and image. Pass actual executor facts using individual `--execution-*` flags
+or `C2J_EXECUTION_*` variables. If requirements change or the environment is
+insufficient, execution yields the same job and reports `environment_required`.
+A provisioner can then resume it in a compatible environment; c2j does not
+provision resources itself. Listings show submission/latest-yield snapshots,
+not live resource usage.
 
 ## JobDB upgrade compatibility
 

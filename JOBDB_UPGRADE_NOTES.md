@@ -56,8 +56,12 @@ procedure. This code update does not reset any database or artifact storage.
 - Child and restart jobs start without client payload unless initialized
   explicitly. Task inputs/results and job metadata remain separate concepts.
 
-This upgrade adapts the dependency integration; it does not enable recipe
-execution requirements or register the staged execution-allocation CLI flags.
+Recipe execution requirements are now integrated using this existing contract.
+Initial hints live in submission metadata; subsequent full snapshots are
+published in `client_payload.c2j.execution` only when rescheduling. No
+non-suspending publication API is needed. Run commands accept actual allocation
+arguments/environment variables, and listings support opt-in compatibility
+filtering. See the [user guide](GUIDE-Execution-Tracking.md).
 
 ## Typed routes resolve the task-handoff blocker
 
@@ -91,6 +95,13 @@ identifier migration or downstream JobDB patch is needed.
 Focused client-payload, typed-route, and run-one tests also pass with the race
 detector. Verification uses toy/SQLite runtimes and test fixtures; deployment
 against a separately provisioned native PostgreSQL server was not exercised.
+
+Execution-requirements regressions also cover real remote-runtime handoffs,
+durable activity reuse, repeated incompatible attempts, deferred recipe pinning,
+inline boundaries, successive requirement increases/decreases, lost handoff
+responses, timeout scopes, all run entry points, and filtered pagination.
+Focused execution-runtime, compiler, real-operation, CLI, and listing tests
+pass with the race detector.
 
 The previously failing route regressions are passing:
 `TestMultiStepWithCapabilityClaim`, `TestSimpleInput`,

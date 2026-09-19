@@ -4,15 +4,166 @@ This guide covers the currently available c2j commands for inspecting job state,
 following recipe progress, understanding handoffs, and finding child jobs. It
 uses the typed-route JobDB API.
 
-Execution-environment tracking is not yet enabled: the CLI does not currently
-record allocated CPU, memory, platform, or image identities, enforce recipe
-resource requirements, or filter jobs by environment compatibility. Those
-features remain in the
-[execution-requirements design](C2J_PORTABLE_EXECUTION_REQUIREMENTS_DESIGN.md).
-The existing allocation parser is a library component, not an available CLI
-feature. The remaining publication dependency is documented in
-[this JobDB follow-up request](JOBDB_CLIENT_PAYLOAD_PUBLICATION_REQUEST.md);
-the overall feature is not complete.
+Execution requirements are enforced at execution boundaries. A job that needs
+a different environment yields, keeping its identity, recipe, recorded results,
+and artifacts. A provisioner supplies a compatible environment and resumes that
+same job. c2j does not provision machines or containers itself.
+
+## Declare requirements
+
+Every recipe root form can declare optional requirements:
+
+```yaml
+id: process
+execution:
+  resources:
+    cpu: "2"
+    memory: 4Gi
+    ephemeral-storage: 10Gi
+  platform: linux/amd64
+  image: registry.example/runner:1.2
+sequence: []
+```
+
+The resources are minimum usable capacities. CPU accepts cores or millicores
+(`2` or `2000m`); memory and storage require SI/IEC units (`4G` or `4Gi`).
+Values must be positive. Omitted fields are unspecified, not zero.
+
+Submission overrides replace individual recipe fields for that job:
+
+```bash
+c2j submit --recipe-file ./recipes/process.yaml --require-memory 16Gi --json --embed
+```
+
+Available overrides are `--require-cpu`, `--require-memory`,
+`--require-ephemeral-storage`, `--require-platform`, and `--require-image`.
+These request capacity; they do not prove what the executor actually has.
+Later changes also replace fields individually, and can lower a previous
+minimum. There is no explicit clearing operation.
+
+## Describe the actual executor
+
+Pass actual allocation to `run`, `run one`, `run any`, `run loop`, or
+`submit --run`. Each argument also has an environment-variable equivalent:
+
+| Argument | Environment variable | Meaning |
+| --- | --- | --- |
+| `--execution-cpu` | `C2J_EXECUTION_CPU` | Usable cores/millicores |
+| `--execution-memory` | `C2J_EXECUTION_MEMORY` | Usable memory |
+| `--execution-ephemeral-storage` | `C2J_EXECUTION_EPHEMERAL_STORAGE` | Usable scratch capacity |
+| `--execution-platform` | `C2J_EXECUTION_PLATFORM` | OS/architecture/optional variant |
+| `--execution-image` | `C2J_EXECUTION_IMAGE` | Launch image reference/tag |
+| `--execution-image-digest` | `C2J_EXECUTION_IMAGE_DIGEST` | Actual resolved OCI manifest digest |
+| `--execution-image-id` | `C2J_EXECUTION_IMAGE_ID` | Runtime/config ID, diagnostic only |
+
+An explicit argument overrides only its corresponding environment variable.
+Empty supplied values are errors. Omitted facts stay unknown: c2j does not
+infer capacity from the host, recipe, or a prior attempt. Unknown facts cannot
+satisfy explicit requirements. Report simultaneously usable resources, including
+any memory consumed by memory-backed scratch storage.
+
+For a recipe requiring only memory:
+
+```bash
+c2j run --job-id JOB_ID --execution-memory 16Gi --embed
+```
+
+For the fuller declaration above, also supply sufficient CPU and scratch,
+the matching platform, and the launch image reference. Additional image digest
+and ID facts can be supplied together; they are not alternative spellings of
+one identity. A digest-pinned requirement needs the actual manifest digest.
+An image/config ID or an unverified launch reference cannot prove that match.
+
+## Yield and resume
+
+If the environment is insufficient, c2j yields before dependent recipe work
+and emits an `environment_required` JSON event. It includes `job`, `demand`,
+`allocation`, `mismatches`, and `published`. The demand contains effective
+requirements and the actual allocation reported for that handoff. No replacement
+recipe or job is created.
+
+Targeted runs and `run any` return promptly. `run loop` emits the event and
+stops its loop, so a supervisor can select another environment without a tight
+reclaim/yield cycle. A successful handoff exits successfully; it does **not**
+mean the job completed. Run output may also contain non-JSON progress lines.
+
+Resume by running the same job ID with sufficient actual allocation. Repeated
+attempts with insufficient allocation yield again without rewriting an
+already-published snapshot (`published: false`). An explicit new requirement
+change always yields, even if the current allocation is large enough; the next
+invocation may use the same environment.
+
+For deferred recipes, the provisioner need not resolve or advance the recipe.
+It can start a default environment when metadata is unresolved, honoring any
+known overrides. c2j resolves and pins the recipe during execution, then either
+continues if compatible or yields the newly discovered requirements. Later
+source edits do not change an already-pinned job.
+
+### Request a change from an operation
+
+In a Go operation, attach a directive and return a successful durable result:
+
+```go
+memory := "16Gi"
+if err := ops.SuspendExecution(deps, execution.Requirements{
+    Resources: execution.Resources{Memory: &memory},
+}); err != nil {
+    return nil, err
+}
+return manifest, nil
+```
+
+The helper is from `github.com/colony-2/c2j/pkg/ops`; the value types are from
+`github.com/colony-2/c2j/pkg/execution`. Use it with operation dependencies
+supplied by c2j. It records a directive, not an immediate Go-function suspension:
+return without doing work that needs the new environment. Put that work in
+the next durable operation step. c2j records the result, then yields before
+executing that step. If the operation fails, its directive is not accepted as
+a successful continuation.
+
+Replay reuses the recorded result and skips already-accepted directives without
+restoring stale requirements. Inline recipe declarations apply to the same job
+at the inclusion boundary and remain in effect afterward; there is no automatic
+restore on exit. Separately submitted child jobs have independent requirements.
+Explicit restarts preserve the execution snapshot and accepted checkpoints.
+
+### Read and filter requirements
+
+Ordinary and child-job JSON listings include an `execution` view with `status`,
+`source`, `published`, `demand`, and the initial snapshot when available.
+`demand.effective` is the current known requirement overlay. Sources distinguish
+`submission`, `yield`, and `absent`. Status distinguishes `specified`,
+`unspecified`, `unresolved`, `malformed`, and `unsupported`.
+
+These are submission/latest-handoff snapshots, not live telemetry. A deferred
+recipe that finishes without yielding can still appear `unresolved`. A saved
+`last_handoff_allocation` is historical, not evidence of a current executor.
+
+Filter explicitly against a candidate environment:
+
+```bash
+c2j list --self --compatible-with-execution \
+  --execution-memory 16Gi --json --all --embed
+c2j list children --compatible-with-execution \
+  --execution-memory 16Gi --include-unresolved --json --embed
+```
+
+The child example runs inside a recipe operation; see parent-selection options
+below for use outside one. Supply every fact needed by a job: memory alone will
+not match a job also requiring an unknown image or CPU allocation.
+
+Filtering is opt-in. Without `--compatible-with-execution`, inherited
+`C2J_EXECUTION_*` variables do not hide jobs, and explicit allocation arguments
+are rejected. At least one compatibility fact is required; image ID alone does
+not count. `--include-unresolved` includes default-environment bootstrap
+candidates, still checking known overrides, not proven compatible jobs.
+
+Malformed/unsupported demand is shown diagnostically in ordinary JSON and
+causes a filtered-list error instead of silently treating it as unconstrained.
+Filtering fills logical pages across underlying pages (default size 100), and
+works with existing cell, status, parent, and route filters. Pass continuation
+tokens back with the same filters. Matching does not reserve a job or imply
+that it is ready; execution checks again under a lease.
 
 ## Choose the runtime and job
 
@@ -217,7 +368,8 @@ The JSON event includes `kind`, `tenant_id`, `job_id`, `form`, and `blocking`.
 Run stdout can also contain story and waiting lines: `--ci` does not turn the
 entire stream into JSON. Use `list --json` for a structured status snapshot.
 
-For `run` / `run one`, exit codes are `0` for success, `1` for execution/general
+For `run` / `run one`, exit codes are `0` for success (including an environment
+handoff), `1` for execution/general
 failure, `2` for wait timeout, `3` for required input, `4` for a not-ready policy
 failure, and `5` for run-option/identity validation failure. These meanings
 should not be generalized to every c2j command.
@@ -278,9 +430,12 @@ inspection and targeted `run` or an input-handling service for human input.
   different task worker or human input rather than ordinary recipe execution.
 - **A job appears stuck:** inspect `wait_for`, `available_at`, and lease expiry
   before attempting another execution.
-- **An execution flag is unknown:** `--execution-*` allocation inputs and
-  `--compatible-with-execution` are not registered on commands yet. Setting the
-  corresponding environment variables does not enable resource enforcement.
+- **The executor repeatedly yields:** inspect `execution.demand.effective` and
+  the event's `mismatches`. Supply all required actual facts and verify the
+  replacement really has them; don't copy requested values as assumed facts.
+- **A compatibility-filtered list is empty:** check missing candidate facts,
+  unresolved status, and ordinary cell/status filters. Use unfiltered JSON to
+  inspect diagnostics before changing the filter.
 - **An old database is rejected:** follow the format-3 deployment requirements;
   this release does not translate old routes or migrate stored jobs.
 

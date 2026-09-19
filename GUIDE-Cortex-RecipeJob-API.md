@@ -174,10 +174,38 @@ if errors.Is(err, recipejob.ErrJobNotFound) {
 }
 ```
 
+## Execution Requirements
+
+Set `BuildStartJobRequest.ExecutionRequirements` to a partial
+`execution.Requirements` value for explicit submission overrides. It does not
+describe the actual executor. The starter records resolved initial requirements
+when supplied the root recipe; deferred submissions remain explicitly unresolved.
+
+`RecipeJob.Execution` exposes the submission/latest-yield view without resolving
+recipes or reading history. `ClientPayload` and `ClientPayloadRevision` remain
+separate from submission metadata. The current execution namespace takes
+precedence over the initial hint; the historical handoff allocation is not a
+live usage record.
+
+Set `ListRecipeJobsRequest.ExecutionFilter` or
+`ListChildRecipeJobsRequest.ExecutionFilter` to `*execution.Filter` to opt into
+compatibility filtering. Supply a version-1 `Allocation` containing actual
+candidate facts. Unknown facts cannot satisfy explicit requirements.
+`IncludeUnresolved` admits bootstrap candidates while checking known overrides.
+A nil filter leaves the list unfiltered, including jobs with diagnostic state.
+
+Filtered pages scan underlying pages to fill the requested number of matches.
+Reuse the returned token with the same filters. Malformed/unsupported execution
+state produces `*recipejob.ExecutionDemandError`, not an unconstrained match.
+Filtering is advisory and does not reserve or acquire work.
+
+To execute jobs, use the separate
+[`executionruntime` adapter](pkg/executionruntime/README.md) and compiler options.
+See the [execution guide](GUIDE-Execution-Tracking.md) for the lifecycle.
+
 ## Compatibility Note
 
-Repo metadata is persisted for jobs submitted after this change. Jobs submitted
-before the `repo` metadata field existed may not be filterable by repo URL at
-the JobDB metadata layer. `recipejob.RecipeJobFromSummary` can still populate
-repo fields from a listed job payload when that payload is available, but JobDB
-cannot metadata-filter rows that do not contain the `repo` field.
+Current jobs use metadata for repository and submission identity, typed routes
+for scheduling, and separate opaque client payload. No legacy-payload fallback
+or stored-job migration is provided. Deploy with matching versions and fresh
+format-3 storage as described in the [upgrade notes](JOBDB_UPGRADE_NOTES.md).

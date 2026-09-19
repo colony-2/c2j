@@ -9,9 +9,9 @@ published only with a JobDB yield; there is no live read-projection service.
 
 This package implements the shared value model for portable execution
 requirements. It does not provision environments, change JobDB lease matching,
-or enable recipe execution handoff by itself. JobDB now provides independent
-client payload and explicit workflow yield, and c2j's context wrappers support
-them; the execution-requirements feature itself remains unintegrated. See the
+or enable recipe execution handoff by itself. The compiler and
+[`executionruntime`](../executionruntime/README.md) wire this model to JobDB's
+independent client payload and explicit workflow yield. See the
 [upgrade notes](../../JOBDB_UPGRADE_NOTES.md) for the current client-payload and
 typed-route contract, and the
 [design](../../C2J_PORTABLE_EXECUTION_REQUIREMENTS_DESIGN.md) for feature intent.
