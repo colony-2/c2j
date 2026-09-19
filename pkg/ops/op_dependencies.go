@@ -3,6 +3,8 @@ package ops
 import (
 	"context"
 	"errors"
+	"fmt"
+	"github.com/colony-2/c2j/pkg/execution"
 
 	recipeartifacts "github.com/colony-2/c2j/pkg/artifacts"
 	"github.com/colony-2/c2j/pkg/jobcontext"
@@ -53,20 +55,21 @@ func (j *TaskBasedJobTool) SubmitJob(ctx context.Context, job jobdb.SubmitJob) (
 
 // opDepImpl holds the actual dependencies.
 type opDepImpl struct {
-	db                *gorm.DB
-	inputArtifacts    []jobdb.Artifact
-	outputArtifacts   []jobdb.Artifact
-	externalArtifacts map[string]recipeartifacts.Ref
-	workflowControl   workflowctl.WorkflowControl
-	worktreePath      string
-	operationPaths    OperationPaths
-	pathRuntime       OperationPathRuntime
-	gitContext        GitExecutionContext
-	currentJobContext jobcontext.Current
-	protectedEnv      map[string]string
-	jobTool           JobTool
-	nextTaskType      string
-	nextTaskTypeSet   bool
+	executionRequirements *execution.Requirements
+	db                    *gorm.DB
+	inputArtifacts        []jobdb.Artifact
+	outputArtifacts       []jobdb.Artifact
+	externalArtifacts     map[string]recipeartifacts.Ref
+	workflowControl       workflowctl.WorkflowControl
+	worktreePath          string
+	operationPaths        OperationPaths
+	pathRuntime           OperationPathRuntime
+	gitContext            GitExecutionContext
+	currentJobContext     jobcontext.Current
+	protectedEnv          map[string]string
+	jobTool               JobTool
+	nextTaskType          string
+	nextTaskTypeSet       bool
 }
 
 func (c *opDepImpl) FindArtifact(key jobdb.ArtifactKey) (jobdb.Artifact, error) {
@@ -184,6 +187,36 @@ func (c *opDepImpl) SetNextTaskType(taskType string) {
 func (c *opDepImpl) NextTaskType() (string, bool) {
 	return c.nextTaskType, c.nextTaskTypeSet
 }
+
+// SuspendExecution attaches a continuation directive to the durable activity
+// result. Return normally after requesting it; dependent recipe work resumes
+// only after a new execution invocation. It does not migrate in-memory work.
+func SuspendExecution(deps OpDependencies, patch execution.Requirements) error {
+	setter, ok := deps.(interface {
+		SetExecutionRequirements(execution.Requirements) error
+	})
+	if !ok {
+		return fmt.Errorf("execution suspension is not supported by these operation dependencies")
+	}
+	return setter.SetExecutionRequirements(patch)
+}
+
+func (c *opDepImpl) SetExecutionRequirements(patch execution.Requirements) error {
+	p, err := patch.Normalize()
+	if err != nil {
+		return err
+	}
+	if p.Empty() {
+		return fmt.Errorf("execution suspension requires a nonempty patch")
+	}
+	if c.executionRequirements != nil {
+		p = execution.Overlay(*c.executionRequirements, p)
+	}
+	c.executionRequirements = &p
+	return nil
+}
+
+func (c *opDepImpl) ExecutionRequirements() *execution.Requirements { return c.executionRequirements }
 
 type OpDependenciesBuilder struct {
 	db                *gorm.DB

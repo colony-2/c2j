@@ -22,6 +22,7 @@ import (
 	recipeartifacts "github.com/colony-2/c2j/pkg/artifacts"
 	"github.com/colony-2/c2j/pkg/childbroker"
 	"github.com/colony-2/c2j/pkg/contextual"
+	"github.com/colony-2/c2j/pkg/execution"
 	"github.com/colony-2/c2j/pkg/git/gitstate"
 	"github.com/colony-2/c2j/pkg/jobcontext"
 	"github.com/colony-2/c2j/pkg/logutil"
@@ -416,6 +417,13 @@ func (t opExecutor) do(ctx context.Context, jobTool ops.JobTool, req ActivityInv
 
 	// Execute operation with HYDRATED input (sentinels replaced)
 	outputData, stepErr := reg.Step.Invoke(opDeps, ctx, hydratedInput)
+	defer func() {
+		if source, ok := opDeps.(interface {
+			ExecutionRequirements() *execution.Requirements
+		}); ok {
+			output.Execution = source.ExecutionRequirements()
+		}
+	}()
 	nextTask := reg.NextTaskType
 	if override, ok := opDeps.(nextTaskOverride); ok {
 		if overrideValue, set := override.NextTaskType(); set {

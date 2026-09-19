@@ -212,6 +212,11 @@ func normalizeOpPathAlias(op *string, host string, hostSentinel string, opSentin
 // ExecuteWorkflow implements the WorkflowExecutor interface for unified recipes
 func (d DefaultRecipeExecutor) ExecuteNode(ctx workflow.Context, parentResCtx *template.ResolutionContext, n *recipe.Node) error {
 	metadata := n.GetMetadata()
+	if metadata.Internal != nil && metadata.Internal.Inline != nil && metadata.Internal.Inline.Execution != nil && !metadata.Internal.Inline.Execution.Empty() && ctx.SuspendExecution != nil {
+		if err := ctx.SuspendExecution(ctx.JobContext, "inline:"+metadata.Internal.Inline.CallsitePath, *metadata.Internal.Inline.Execution); err != nil {
+			return err
+		}
+	}
 	switch t := n.NodeImpl.(type) {
 	case *recipe.NodeState:
 		return d.self().ExecuteStateMachine(ctx, parentResCtx, metadata, t.Outputs, t.StateMachineData.States)
@@ -264,6 +269,9 @@ func (d DefaultRecipeExecutor) executeOp2(ctx workflow.Context, parentResolution
 	}
 	for attempt := 1; attempt <= attempts; attempt++ {
 		err := d.executeOpAttempt(ctx, parentResolutionContext, attemptMetadata, op)
+		if isExecutionControlError(err) {
+			return err
+		}
 		if err == nil {
 			return nil
 		}
@@ -500,6 +508,11 @@ func (d DefaultRecipeExecutor) executeOpAttempt(ctx workflow.Context, parentReso
 					return mismatchErr
 				}
 				resCtx.UpdateGitState(decoded.Activity.GitResult)
+				if decoded.Activity.Execution != nil && ctx.SuspendExecution != nil {
+					if err := ctx.SuspendExecution(ctx.JobContext, "activity:"+taskType, *decoded.Activity.Execution); err != nil {
+						return err
+					}
+				}
 				stepInput = normalizeOpOutput(chain[i].OutputType, decoded.Activity.OpOutput)
 				stepJobs = decoded.Activity.Jobs
 				if decoded.Activity.NextTask == "" {
@@ -588,6 +601,9 @@ func (d DefaultRecipeExecutor) innerSequence(ctx workflow.Context, parentCtx *te
 	for i, node := range sequence {
 		// Execute the node
 		err := d.self().ExecuteNode(ctx, resCtx, &node)
+		if isExecutionControlError(err) {
+			return err
+		}
 		if err != nil {
 			var routeErr *catchRouteError
 			if errors.As(err, &routeErr) {
@@ -646,6 +662,9 @@ func executeCompositeInEnvelope(ctx workflow.Context, retry *recipe.RetryPolicy,
 	attempts := retryPolicyAttempts(retry)
 	for attempt := 1; attempt <= attempts; attempt++ {
 		err := fn(ctx)
+		if isExecutionControlError(err) {
+			return err
+		}
 		if err == nil {
 			return nil
 		}

@@ -1,6 +1,7 @@
 package workflow
 
 import (
+	"github.com/colony-2/c2j/pkg/execution"
 	"log/slog"
 
 	"github.com/colony-2/c2j/pkg/ops"
@@ -8,6 +9,7 @@ import (
 )
 
 type Context struct {
+	SuspendExecution func(jobworkflow.JobContext, string, execution.Requirements) error
 	jobworkflow.JobContext
 	ops.ServiceDependencies2
 }

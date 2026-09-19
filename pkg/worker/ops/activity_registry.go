@@ -3,6 +3,7 @@ package ops
 import (
 	"context"
 	"fmt"
+	"github.com/colony-2/c2j/pkg/execution"
 	"os"
 	"reflect"
 
@@ -31,6 +32,7 @@ type ActivityInvocationRequest struct {
 
 // ActivityInvocationOutput wraps the raw op output alongside workspace results.
 type ActivityInvocationOutput struct {
+	Execution    *execution.Requirements        `json:"execution,omitempty"`
 	GitResult    contextual.GitCommitContext    `json:"git,omitempty"`
 	NextTask     string                         `json:"nextTaskType,omitempty"`
 	OpOutput     map[string]interface{}         `json:"output"`
@@ -40,6 +42,7 @@ type ActivityInvocationOutput struct {
 
 // variation of ActivityInvocationOutput that allows arbitrary output types to avoid double serialization
 type ActivityInvocationOutputRaw struct {
+	Execution    *execution.Requirements        `json:"execution,omitempty"`
 	GitResult    contextual.GitCommitContext    `json:"git,omitempty"`
 	NextTask     string                         `json:"nextTaskType,omitempty"`
 	Output       any                            `json:"output"`

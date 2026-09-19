@@ -119,6 +119,9 @@ stateMachineLoop:
 			if !ok {
 				failure = normalizeRuntimeFailure(err, resCtx, metadata, recipe.FailureNodeStateMachine, "")
 			}
+			if isExecutionControlError(err) {
+				return err
+			}
 			if len(metadata.Catch) > 0 {
 				decision, catchErr := evaluateCatchClauses(metadata.Catch, failure, resCtx, currentState, true)
 				if catchErr != nil {
@@ -377,6 +380,9 @@ func (d DefaultRecipeExecutor) runState(ctx workflow.Context, resCtx *template.R
 
 	stateNode := nodeWithoutVars(node.Node)
 	err = d.self().ExecuteNode(ctx, stateResCtx, &stateNode)
+	if isExecutionControlError(err) {
+		return stateRunResult{}, err
+	}
 	if err == nil {
 		return stateRunResult{}, nil
 	}

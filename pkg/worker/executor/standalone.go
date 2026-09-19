@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"github.com/colony-2/c2j/pkg/contextual"
+	"github.com/colony-2/c2j/pkg/execution"
+	"github.com/colony-2/c2j/pkg/executionruntime"
 	"github.com/colony-2/c2j/pkg/jobdbschema"
 	ops2 "github.com/colony-2/c2j/pkg/ops"
 	"github.com/colony-2/c2j/pkg/recipe"
@@ -21,17 +23,27 @@ import (
 )
 
 type StandaloneExecutor struct {
-	registry *ops.ActivityRegistry
-	logger   *zap.Logger
-	deps     ops2.ServiceDependencies2
+	allocation execution.Allocation
+	registry   *ops.ActivityRegistry
+	logger     *zap.Logger
+	deps       ops2.ServiceDependencies2
 }
 
 // NewStandaloneExecutor creates a new standalone recipe executor
-func NewStandaloneExecutor(deps ops2.ServiceDependencies2, registry *ops.ActivityRegistry, logger *zap.Logger) (*StandaloneExecutor, error) {
+func NewStandaloneExecutor(deps ops2.ServiceDependencies2, registry *ops.ActivityRegistry, logger *zap.Logger, allocations ...execution.Allocation) (*StandaloneExecutor, error) {
+	allocation := execution.Allocation{SchemaVersion: execution.SchemaVersion}
+	if len(allocations) > 0 {
+		allocation = allocations[0]
+	}
+	allocation, err := allocation.Normalize()
+	if err != nil {
+		return nil, err
+	}
 	return &StandaloneExecutor{
-		registry: registry,
-		logger:   logger,
-		deps:     deps,
+		allocation: allocation,
+		registry:   registry,
+		logger:     logger,
+		deps:       deps,
 	}, nil
 }
 
@@ -77,7 +89,20 @@ func (e *StandaloneExecutor) ExecuteWithRegistry(
 		WithSSEManager(e.deps.SSEManager()).
 		Build()
 
+	runCtx, stop := context.WithCancel(ctx)
+	defer stop()
+	runtime := toyruntime.New()
+	events := make(chan compiler.ExecutionHandoff, 1)
+	onHandoff := func(event compiler.ExecutionHandoff) {
+		select {
+		case events <- event:
+		default:
+		}
+		stop()
+	}
+	executionRuntime := executionruntime.New(runtime, e.allocation, onHandoff)
 	workset, err := compiler.NewRecipeWorkerWithOptions(deps, e.registry, compiler.RecipeJobWorkerOptions{
+		Allocation: e.allocation, StageExecution: executionRuntime.Stage, OnExecutionHandoff: onHandoff,
 		RootSourceResolver: rootResolver,
 	})
 	if err != nil {
@@ -89,9 +114,8 @@ func (e *StandaloneExecutor) ExecuteWithRegistry(
 		taskWorkers = append(taskWorkers, tw)
 	}
 	tenantID := "default"
-	runtime := toyruntime.New()
 	eng, err := jobworkflow.NewEngineBuilder().
-		WithRuntime(runtime).
+		WithRuntime(executionRuntime).
 		WithWorkerTenantId(tenantID).
 		PlusWorkers(workset.JobWorker, taskWorkers...).
 		BuildEngine()
@@ -99,7 +123,7 @@ func (e *StandaloneExecutor) ExecuteWithRegistry(
 		return nil, err
 	}
 	eng = jobdbschema.WorkflowEngine{Engine: eng, Registry: runtime}
-	go eng.Run(ctx)
+	go eng.Run(runCtx)
 	control.Engine = eng
 
 	job := workflowctl.StartJob{
@@ -114,7 +138,12 @@ func (e *StandaloneExecutor) ExecuteWithRegistry(
 	if err != nil {
 		return nil, err
 	}
-	if err := jobworkflow.WaitForJobToComplete(ctx, 30*time.Second, jobKey, eng); err != nil {
+	if err := jobworkflow.WaitForJobToComplete(runCtx, 30*time.Second, jobKey, eng); err != nil {
+		select {
+		case event := <-events:
+			return nil, &EnvironmentRequiredError{Handoff: event}
+		default:
+		}
 		return nil, err
 	}
 	out, err := swfutil.JobResult(ctx, eng, jobKey)
@@ -128,6 +157,14 @@ func (e *StandaloneExecutor) ExecuteWithRegistry(
 	outMap := make(map[string]interface{})
 	err = json.Unmarshal(d, &outMap)
 	return outMap, err
+}
+
+// EnvironmentRequiredError reports that a disposable standalone runtime cannot
+// migrate itself. Durable production execution should use a persistent runtime.
+type EnvironmentRequiredError struct{ Handoff compiler.ExecutionHandoff }
+
+func (e *EnvironmentRequiredError) Error() string {
+	return "execution environment required; standalone executor cannot provision a replacement"
 }
 
 // GetActivityRegistry returns the activity registry

@@ -7,6 +7,23 @@ import (
 	"testing"
 )
 
+func TestExecutionDigestCanonicalizesProgrammaticRequirements(t *testing.T) {
+	r, err := LoadRecipeFromString([]byte("id: test\nexecution:\n  resources:\n    memory: 1Gi\nsequence: []\n"))
+	require.NoError(t, err)
+	memory := "1024Mi"
+	r.GetMetdata().Execution.Resources.Memory = &memory
+	digest, err := ExecutionDigest(*r)
+	require.NoError(t, err)
+	raw, err := yaml.Marshal(r)
+	require.NoError(t, err)
+	again, err := LoadRecipeFromString(raw)
+	require.NoError(t, err)
+	require.Equal(t, "1Gi", *again.GetMetdata().Execution.Resources.Memory)
+	loadedDigest, err := ExecutionDigest(*again)
+	require.NoError(t, err)
+	require.Equal(t, digest, loadedDigest)
+}
+
 func TestExecutionDeclarationParsingAndSchema(t *testing.T) {
 	registerTestOp()
 	for _, body := range []string{"op: echo\ninputs: {message: hi}", "sequence: []", "state:\n  initial: done\n  states:\n    done:\n      sequence: []", "child_group:\n  children: []"} {

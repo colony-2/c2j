@@ -9,6 +9,7 @@ import (
 
 	recipeartifacts "github.com/colony-2/c2j/pkg/artifacts"
 	"github.com/colony-2/c2j/pkg/contextual"
+	"github.com/colony-2/c2j/pkg/execution"
 	"github.com/colony-2/c2j/pkg/logutil"
 	"github.com/colony-2/c2j/pkg/ops"
 	"github.com/colony-2/c2j/pkg/recipe"
@@ -22,6 +23,10 @@ import (
 )
 
 type RecipeJobWorkerOptions struct {
+	Allocation         execution.Allocation
+	ReadOnlyReplay     bool
+	OnExecutionHandoff func(ExecutionHandoff)
+	StageExecution     func(jobdb.JobKey, execution.Demand)
 	CELOptionsProvider template.CELOptionsProvider
 
 	// Executor overrides recipe execution for instrumentation. When nil, DefaultRecipeExecutor is used.
@@ -39,16 +44,22 @@ type RecipeJobWorkerOptions struct {
 }
 
 type recipeJobWorker struct {
-	celProvider      template.CELOptionsProvider
-	executor         RecipeExecutor
-	executorFactory  func() RecipeExecutor
-	rootResolver     RecipeSourceResolver
-	onRecipeLoadedFn func(recipeName string)
-	onSourceResolved func(RecipeSourceResolution)
+	allocation         execution.Allocation
+	readOnlyReplay     bool
+	onExecutionHandoff func(ExecutionHandoff)
+	stageExecution     func(jobdb.JobKey, execution.Demand)
+	celProvider        template.CELOptionsProvider
+	executor           RecipeExecutor
+	executorFactory    func() RecipeExecutor
+	rootResolver       RecipeSourceResolver
+	onRecipeLoadedFn   func(recipeName string)
+	onSourceResolved   func(RecipeSourceResolution)
 }
 
 func NewRecipeJobWorker(opts RecipeJobWorkerOptions) jobworkflow.JobWorker {
 	return &recipeJobWorker{
+		allocation: opts.Allocation, readOnlyReplay: opts.ReadOnlyReplay,
+		onExecutionHandoff: opts.OnExecutionHandoff, stageExecution: opts.StageExecution,
 		celProvider:      opts.CELOptionsProvider,
 		executor:         opts.Executor,
 		executorFactory:  opts.ExecutorFactory,
@@ -248,6 +259,13 @@ func (j recipeJobWorker) Run(ctx jobworkflow.JobContext, jobData jobdb.JobData) 
 	}
 
 	wCtx := workflow.Context{JobContext: ctx}
+	if !j.readOnlyReplay {
+		session, err := j.executionSession(ctx, r, input.Execution)
+		if err != nil {
+			return nil, err
+		}
+		wCtx.SuspendExecution = session.suspend
+	}
 	opts := ExecutionOptions{}
 	if j.celProvider != nil {
 		opts.CELOptionsProvider = j.celProvider

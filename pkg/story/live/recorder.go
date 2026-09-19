@@ -161,6 +161,7 @@ func BuildJobRunStory(ctx context.Context, engine replayJobRunner, jobKey jobdb.
 
 	rec := NewRecorder(Options{JobKey: jobKey, Logger: logger})
 	jobWorker := compiler.NewRecipeJobWorker(compiler.RecipeJobWorkerOptions{
+		ReadOnlyReplay:         true,
 		CELOptionsProvider:     celProvider,
 		OnRecipeLoaded:         rec.OnRecipeLoaded,
 		OnRecipeSourceResolved: rec.OnRecipeSourceResolved,

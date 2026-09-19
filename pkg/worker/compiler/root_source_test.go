@@ -1372,7 +1372,7 @@ outputs:
 	}, resolved.ResolvedSelectors)
 }
 
-func TestResolvedRecipeSourceLoadRecipeSupportsInternalEmptySequenceShape(t *testing.T) {
+func TestResolvedRecipeSourceLoadRecipePreservesEmptySequenceShape(t *testing.T) {
 	t.Parallel()
 
 	rec := recipe.Recipe{
@@ -1394,7 +1394,7 @@ func TestResolvedRecipeSourceLoadRecipeSupportsInternalEmptySequenceShape(t *tes
 
 	raw, err := yaml.Marshal(&rec)
 	require.NoError(t, err)
-	require.NotContains(t, string(raw), "sequence:")
+	require.Contains(t, string(raw), "sequence: []")
 
 	resolved := ResolvedRecipeSource{
 		RecipeSourceResolution: RecipeSourceResolution{

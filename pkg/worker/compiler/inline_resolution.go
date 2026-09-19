@@ -424,6 +424,7 @@ func inlineWrapperNode(include *recipe.NodeInclude, rec recipe.Recipe, loaded lo
 	wrapperMeta.ID = wrapperID
 	wrapperMeta.Internal = &recipe.NodeInternalMetadata{
 		Inline: &recipe.InlineInclusionMetadata{
+			Execution:         meta.Execution,
 			CallsitePath:      callsitePath,
 			RecipeID:          meta.ID,
 			RecipeVersion:     meta.Version,

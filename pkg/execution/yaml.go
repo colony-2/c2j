@@ -2,8 +2,20 @@ package execution
 
 import (
 	"fmt"
+
 	"gopkg.in/yaml.v3"
 )
+
+// MarshalYAML makes programmatically constructed and parsed declarations share
+// the same representation, including when hashing a pinned recipe.
+func (r Requirements) MarshalYAML() (any, error) {
+	normalized, err := r.Normalize()
+	if err != nil {
+		return nil, err
+	}
+	type plain Requirements
+	return plain(normalized), nil
+}
 
 func (r *Requirements) UnmarshalYAML(node *yaml.Node) error {
 	if node.Kind != yaml.MappingNode {
