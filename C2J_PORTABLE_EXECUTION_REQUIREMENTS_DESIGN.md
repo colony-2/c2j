@@ -3,13 +3,13 @@
 ## Status
 
 Implementation incomplete for the requirements in `C2J_FEATURE_REQUESTS.md`.
-Integration is paused on the
-[non-suspending client-state publication request](JOBDB_CLIENT_PAYLOAD_PUBLICATION_REQUEST.md).
-The current JobDB contract supports same-job handoff, but not publication of
-newly resolved requirements to listings while a compatible executor continues
-without yielding. This was part of the original client-payload request and is
-not supplied by the typed-route fix. A separate shared projection service would
-require an additional storage/consistency design; it has not been introduced.
+Integration uses the existing JobDB client-payload and typed-route APIs. The
+non-suspending publication request is withdrawn: publishing changed execution
+requirements always yields. Compatible initial execution need not publish a
+live projection. Listings expose initial hints or the latest yielded snapshot,
+and explicitly retain unresolved/unpublished states. No additional JobDB API or
+shared projection store is required. This decision supersedes the live-projection
+proposals in the historical sections below.
 
 Implemented so far: `pkg/execution` provides shared requirement/allocation
 types, canonical validation, field-wise overlays, and compatibility diagnostics.

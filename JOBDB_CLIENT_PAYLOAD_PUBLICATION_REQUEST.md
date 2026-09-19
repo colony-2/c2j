@@ -1,5 +1,11 @@
 # Follow-up request: publish client state without ending execution ownership
 
+Status: withdrawn. Non-suspending publication is not required. Executors publish
+changed requirements by yielding through the existing JobDB API. Compatible
+initial execution can continue without a live listing projection; listings use
+submission hints or the most recent yielded snapshot. The proposal below is
+retained only as historical context and is not an upstream dependency.
+
 ## Request
 
 Please provide or identify a supported way for an execution owner to durably
