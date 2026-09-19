@@ -2,6 +2,7 @@ package recipe
 
 import (
 	"fmt"
+	"github.com/colony-2/c2j/pkg/execution"
 	"reflect"
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
@@ -79,7 +80,8 @@ func (n *Recipe) UnmarshalYAML(node *yamlv3.Node) error {
 }
 
 type RecipeMetadata struct {
-	Version      string `yaml:"version"`
+	Execution    *execution.Requirements `yaml:"execution,omitempty" json:"execution,omitempty"`
+	Version      string                  `yaml:"version"`
 	NodeMetadata `yaml:",inline"`
 	Defs         map[string]Node        `yaml:"defs,omitempty"`         // Shared node definitions
 	InputSchema  map[string]InputSchema `yaml:"input_schema,omitempty"` // Optional schema for inputs

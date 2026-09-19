@@ -164,6 +164,7 @@ var c2jJobSchema = json.RawMessage(`{
         "type": "object",
         "required": ["tenantId", "recipe", "context"],
         "properties": {
+		  "execution": { "type": "object" },
           "tenantId": { "type": "string", "minLength": 1 },
           "job_id": { "type": "string" },
           "recipe": { "type": "string", "minLength": 1 },
@@ -421,6 +422,7 @@ var c2jJobSchema = json.RawMessage(`{
         "properties": {
           "git": { "$ref": "#/$defs/gitCommitContext" },
           "nextTaskType": { "type": "string" },
+		  "execution": { "type": "object" },
           "output": true,
           "artifact_refs": {
             "type": "object",
@@ -747,6 +749,16 @@ type JobSubmitter interface {
 
 type RestartSubmitter interface {
 	SubmitRestartJob(context.Context, jobdb.SubmitRestartJob) (jobdb.JobKey, error)
+}
+
+func (s Submitter) GetJob(ctx context.Context, key jobdb.JobKey) (jobdb.JobInfo, error) {
+	reader, ok := s.RestartSubmitter.(interface {
+		GetJob(context.Context, jobdb.JobKey) (jobdb.JobInfo, error)
+	})
+	if !ok {
+		return jobdb.JobInfo{}, errors.New("restart submitter does not support reading prior execution state")
+	}
+	return reader.GetJob(ctx, key)
 }
 
 type Submitter struct {

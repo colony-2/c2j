@@ -1,5 +1,12 @@
 # Portable execution model
 
+`Demand` is the versioned full requirement snapshot used in submission metadata
+and the client-owned `c2j.execution` payload namespace. `Inspect` selects the
+latest yielded snapshot over the submission hint and labels unresolved,
+specified, unspecified, malformed, and unsupported state. Snapshot changes are
+published only with a JobDB yield; there is no live read-projection service.
+`LastAllocation` describes the publishing handoff, not a currently running lease.
+
 This package implements the shared value model for portable execution
 requirements. It does not provision environments, change JobDB lease matching,
 or enable recipe execution handoff by itself. JobDB now provides independent

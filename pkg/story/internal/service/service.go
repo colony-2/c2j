@@ -70,6 +70,7 @@ type RecipeProvider func(projectID string, recipeRef string) (*recipe.Recipe, er
 
 type recipeRestartSubmitter interface {
 	SubmitRestartJob(context.Context, jobdb.SubmitRestartJob) (jobdb.JobKey, error)
+	GetJob(context.Context, jobdb.JobKey) (jobdb.JobInfo, error)
 }
 
 func New(cfg Config) (*Service, error) {

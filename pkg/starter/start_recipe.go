@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/colony-2/c2j/pkg/execution"
 	"time"
 
 	"github.com/colony-2/c2j/pkg/jobcontext"
@@ -21,6 +22,7 @@ type recipeJobSubmitter interface {
 
 type recipeJobRestartSubmitter interface {
 	SubmitRestartJob(ctx context.Context, req jobdb.SubmitRestartJob) (jobdb.JobKey, error)
+	GetJob(context.Context, jobdb.JobKey) (jobdb.JobInfo, error)
 }
 
 const (
@@ -53,14 +55,15 @@ const (
 )
 
 type JobMetadata struct {
-	InputHash        string     `json:"input_hash,omitempty"`
-	SubmittedAt      *time.Time `json:"submitted_at,omitempty"`
-	Version          int        `json:"v"`
-	RecipeName       string     `json:"recipe,omitempty"`
-	CellID           string     `json:"cell_id,omitempty"`
-	CellName         string     `json:"cell_name,omitempty"`
-	RepositorySource string     `json:"repo,omitempty"`
-	GitRef           string     `json:"git_ref,omitempty"`
+	Execution        *execution.Demand `json:"execution,omitempty"`
+	InputHash        string            `json:"input_hash,omitempty"`
+	SubmittedAt      *time.Time        `json:"submitted_at,omitempty"`
+	Version          int               `json:"v"`
+	RecipeName       string            `json:"recipe,omitempty"`
+	CellID           string            `json:"cell_id,omitempty"`
+	CellName         string            `json:"cell_name,omitempty"`
+	RepositorySource string            `json:"repo,omitempty"`
+	GitRef           string            `json:"git_ref,omitempty"`
 
 	ParentTenantID           string `json:"parent_tenant_id,omitempty"`
 	ParentJobID              string `json:"parent_job_id,omitempty"`
@@ -82,6 +85,7 @@ func JobMetadataFromStartJob(startJob workflowctl.StartJob) JobMetadata {
 		repo = startJob.JobContext.RecipeSource.Repo
 	}
 	meta := JobMetadata{
+		Execution:        startJob.Execution,
 		InputHash:        startJob.InputHash,
 		SubmittedAt:      startJob.SubmittedAt,
 		Version:          JobMetadataVersion,
@@ -117,11 +121,39 @@ func StartRecipeJob(ctx context.Context, startJob workflowctl.StartJob, engine r
 }
 
 type StartRecipeJobOptions struct {
-	JobID         string
-	Prerequisites []jobdb.JobPrerequisite
+	ExecutionRequirements execution.Requirements
+	JobID                 string
+	Prerequisites         []jobdb.JobPrerequisite
 }
 
 func StartRecipeJobWithOptions(ctx context.Context, startJob workflowctl.StartJob, engine recipeJobSubmitter, opts StartRecipeJobOptions, recipes ...recipe.Recipe) (jobdb.JobKey, error) {
+	initial, err := execution.Initial(nil, "", opts.ExecutionRequirements)
+	if err != nil {
+		return jobdb.JobKey{}, err
+	}
+	if startJob.Execution != nil {
+		if err := startJob.Execution.Validate(); err != nil {
+			return jobdb.JobKey{}, err
+		}
+		initial = *startJob.Execution
+	}
+	initial, err = execution.Initial(initial.RecipeBase, initial.RecipeDigest, execution.Overlay(initial.JobRequirements, opts.ExecutionRequirements))
+	if err != nil {
+		return jobdb.JobKey{}, err
+	}
+	for _, r := range recipes {
+		if r.GetMetdata().ID == startJob.RecipeName {
+			digest, digestErr := recipe.ExecutionDigest(r)
+			if digestErr != nil {
+				return jobdb.JobKey{}, digestErr
+			}
+			initial, err = execution.Initial(r.GetMetdata().Execution, digest, execution.Overlay(initial.JobRequirements, opts.ExecutionRequirements))
+			if err != nil {
+				return jobdb.JobKey{}, err
+			}
+		}
+	}
+	startJob.Execution = &initial
 	recipeCount := len(recipes)
 	artifacts := make([]jobdb.Artifact, recipeCount+len(startJob.Artifacts))
 	for i, r := range recipes {
@@ -204,6 +236,21 @@ func RestartRecipeJob(ctx context.Context, engine recipeJobRestartSubmitter, pri
 	req := jobdb.SubmitRestartJob{
 		PriorJobKey:    prior,
 		LastStepToKeep: lastToKeep,
+	}
+	priorInfo, err := engine.GetJob(ctx, prior)
+	if err != nil {
+		return jobdb.JobKey{}, err
+	}
+	if demand, err := execution.PayloadDemand(priorInfo.ClientPayload); err != nil {
+		return jobdb.JobKey{}, err
+	} else if demand != nil {
+		// Only this client's execution namespace is inherited; unrelated client
+		// data follows JobDB's explicit-initialization restart policy.
+		raw, err := execution.PayloadWithDemand(nil, *demand)
+		if err != nil {
+			return jobdb.JobKey{}, err
+		}
+		req.ClientPayloadUpdate = &jobdb.ClientPayloadUpdate{Mode: "reset", Value: raw}
 	}
 	if err := jobdbschema.SetSubmitRestartJobSchema(&req); err != nil {
 		return jobdb.JobKey{}, err

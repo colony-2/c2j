@@ -2,6 +2,7 @@ package workflowctl
 
 import (
 	"context"
+	"github.com/colony-2/c2j/pkg/execution"
 	"time"
 
 	recipeartifacts "github.com/colony-2/c2j/pkg/artifacts"
@@ -37,6 +38,7 @@ type JobInspection struct {
 }
 
 type StartJob struct {
+	Execution    *execution.Demand      `json:"execution,omitempty"`
 	TenantId     string                 `json:"tenantId"`
 	JobID        string                 `json:"job_id,omitempty"`
 	RecipeName   string                 `json:"recipe"`

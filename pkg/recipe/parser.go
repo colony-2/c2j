@@ -40,6 +40,13 @@ func resolve(recipe *Recipe, err error, allowInternalMetadata bool) (*Recipe, er
 		// Return decode errors as-is to preserve exact validation messages
 		return nil, err
 	}
+	if requirements := recipe.GetMetdata().Execution; requirements != nil {
+		normalized, err := requirements.Normalize()
+		if err != nil {
+			return nil, err
+		}
+		*requirements = normalized
+	}
 	resolver := NewSharedNodeResolver(recipe.GetMetdata().Defs)
 	walker := NewNodeWalker(resolver)
 	result, err := walker.Walk(*recipe)

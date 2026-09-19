@@ -3,6 +3,8 @@ package starter
 import (
 	"context"
 	"encoding/json"
+	"github.com/colony-2/c2j/pkg/execution"
+	"github.com/stretchr/testify/require"
 	"testing"
 
 	"github.com/colony-2/c2j/pkg/jobdbschema"
@@ -12,6 +14,29 @@ import (
 
 type captureEngine struct {
 	last *jobdb.SubmitRestartJob
+	info jobdb.JobInfo
+}
+
+func (c *captureEngine) GetJob(context.Context, jobdb.JobKey) (jobdb.JobInfo, error) {
+	return c.info, nil
+}
+
+func TestRestartPreservesPublishedExecutionRequirements(t *testing.T) {
+	memory := "16Gi"
+	d, err := execution.Initial(nil, "recipe-digest", execution.Requirements{Resources: execution.Resources{Memory: &memory}})
+	require.NoError(t, err)
+	d.Revision = 2
+	d.Checkpoints = map[string]string{"1:activity:inspect": "hash"}
+	raw, err := execution.PayloadWithDemand(json.RawMessage(`{"unrelated":"not inherited"}`), d)
+	require.NoError(t, err)
+	engine := &captureEngine{info: jobdb.JobInfo{ClientPayload: raw}}
+	_, err = RestartRecipeJob(context.Background(), engine, jobdb.JobKey{TenantId: "t", JobId: "prior"}, 2, nil)
+	require.NoError(t, err)
+	require.NotNil(t, engine.last.ClientPayloadUpdate)
+	got, err := execution.PayloadDemand(engine.last.ClientPayloadUpdate.Value)
+	require.NoError(t, err)
+	require.Equal(t, &d, got)
+	require.NotContains(t, string(engine.last.ClientPayloadUpdate.Value), "unrelated")
 }
 
 func (c *captureEngine) SubmitRestartJob(_ context.Context, req jobdb.SubmitRestartJob) (jobdb.JobKey, error) {

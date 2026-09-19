@@ -2,6 +2,7 @@ package recipe
 
 import (
 	"fmt"
+	"github.com/colony-2/c2j/pkg/execution"
 	"reflect"
 	"strings"
 
@@ -286,12 +287,13 @@ type NodeInternalMetadata struct {
 }
 
 type InlineInclusionMetadata struct {
-	CallsitePath      string               `yaml:"callsite_path,omitempty" json:"callsite_path,omitempty"`
-	RecipeID          string               `yaml:"recipe_id,omitempty" json:"recipe_id,omitempty"`
-	RecipeVersion     string               `yaml:"recipe_version,omitempty" json:"recipe_version,omitempty"`
-	Source            RecipeSourceSnapshot `yaml:"source,omitempty" json:"source,omitempty"`
-	ContentSHA256     string               `yaml:"content_sha256,omitempty" json:"content_sha256,omitempty"`
-	ResolvedSelectors map[string]string    `yaml:"resolved_selectors,omitempty" json:"resolved_selectors,omitempty"`
+	Execution         *execution.Requirements `yaml:"execution,omitempty" json:"execution,omitempty"`
+	CallsitePath      string                  `yaml:"callsite_path,omitempty" json:"callsite_path,omitempty"`
+	RecipeID          string                  `yaml:"recipe_id,omitempty" json:"recipe_id,omitempty"`
+	RecipeVersion     string                  `yaml:"recipe_version,omitempty" json:"recipe_version,omitempty"`
+	Source            RecipeSourceSnapshot    `yaml:"source,omitempty" json:"source,omitempty"`
+	ContentSHA256     string                  `yaml:"content_sha256,omitempty" json:"content_sha256,omitempty"`
+	ResolvedSelectors map[string]string       `yaml:"resolved_selectors,omitempty" json:"resolved_selectors,omitempty"`
 }
 
 type RecipeSourceSnapshot struct {
