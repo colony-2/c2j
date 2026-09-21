@@ -268,17 +268,18 @@ func (NodeOp) JSONSchema() *jsonschema.Schema {
 func (n *NodeOp) isNode() {}
 
 type NodeMetadata struct {
-	ID        string                 `yaml:"id,omitempty"`
-	Desc      string                 `yaml:"desc,omitempty"`
-	Const     bool                   `yaml:"const,omitempty"`
-	Timeout   Duration               `yaml:"timeout,omitempty"`
-	Retry     *RetryPolicy           `yaml:"retry,omitempty"`
-	Inputs    map[string]interface{} `yaml:"inputs,omitempty"`
-	Vars      map[string]interface{} `yaml:"vars,omitempty"`
-	Artifacts map[string]interface{} `yaml:"artifacts,omitempty"`
-	When      cel.CELExpr            `yaml:"when,omitempty"` // Conditional execution
-	Catch     []CatchClause          `yaml:"catch,omitempty" json:"catch,omitempty"`
-	Internal  *NodeInternalMetadata  `yaml:"__c2j_internal,omitempty" json:"__c2j_internal,omitempty" jsonschema:"-"`
+	ExecutionNeeds *ExecutionNeeds        `yaml:"execution_needs,omitempty" json:"execution_needs,omitempty"`
+	ID             string                 `yaml:"id,omitempty"`
+	Desc           string                 `yaml:"desc,omitempty"`
+	Const          bool                   `yaml:"const,omitempty"`
+	Timeout        Duration               `yaml:"timeout,omitempty"`
+	Retry          *RetryPolicy           `yaml:"retry,omitempty"`
+	Inputs         map[string]interface{} `yaml:"inputs,omitempty"`
+	Vars           map[string]interface{} `yaml:"vars,omitempty"`
+	Artifacts      map[string]interface{} `yaml:"artifacts,omitempty"`
+	When           cel.CELExpr            `yaml:"when,omitempty"` // Conditional execution
+	Catch          []CatchClause          `yaml:"catch,omitempty" json:"catch,omitempty"`
+	Internal       *NodeInternalMetadata  `yaml:"__c2j_internal,omitempty" json:"__c2j_internal,omitempty" jsonschema:"-"`
 }
 
 type NodeInternalMetadata struct {

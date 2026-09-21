@@ -9,6 +9,7 @@ import (
 
 	recipeartifacts "github.com/colony-2/c2j/pkg/artifacts"
 	"github.com/colony-2/c2j/pkg/contextual"
+	"github.com/colony-2/c2j/pkg/execution"
 	"github.com/colony-2/c2j/pkg/jobcontext"
 	"github.com/colony-2/c2j/pkg/recipe"
 	"github.com/colony-2/c2j/pkg/template/funcregistry"
@@ -60,7 +61,9 @@ type ScopeMetadata struct {
 
 // ResolutionContext represents template resolution context
 type ResolutionContext struct {
-	commitContext *contextual.GitCommitContext
+	// ExecutionNeeds is lexical same-job state, never a persistent job override.
+	ExecutionNeeds execution.Requirements
+	commitContext  *contextual.GitCommitContext
 
 	// Scope type: "root", "sequence", "state_machine", "state"
 	ScopeType ScopeType
@@ -325,6 +328,7 @@ func (rc *ResolutionContext) NewChildContext(scopeType ScopeType, metadata recip
 		return nil, err
 	}
 	child.EffectiveConst = rc.EffectiveConst || metadata.Const
+	child.ExecutionNeeds = execution.Overlay(rc.ExecutionNeeds, execution.Requirements{})
 	child.TemplateData.Vars = cloneTemplateVars(rc.TemplateData.Vars)
 	child.TemplateData.Transition = rc.TemplateData.Transition.Clone()
 	child.TemplateData.Failure = rc.TemplateData.Failure.Clone()
