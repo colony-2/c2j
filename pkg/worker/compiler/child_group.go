@@ -24,6 +24,9 @@ func (d DefaultRecipeExecutor) ExecuteChildGroup(ctx workflow.Context, parent *t
 	if err := renderCtx.ResolveVars(metadata.Vars); err != nil {
 		return fmt.Errorf("failed to resolve child_group vars: %w", err)
 	}
+	if err := renderCtx.ResolveExecutionNeeds(metadata.ExecutionNeeds); err != nil {
+		return err
+	}
 
 	input, err := renderChildGroupInput(renderCtx, group)
 	if err != nil {
@@ -39,6 +42,19 @@ func (d DefaultRecipeExecutor) ExecuteChildGroup(ctx workflow.Context, parent *t
 	internalMetadata.Inputs = childGroupInputMap(input)
 	internalMetadata.Vars = nil
 	internalMetadata.Artifacts = nil
+	// Pass resolved lexical values through the existing op scope, including vars
+	// that were resolved on the child-group invocation above.
+	value := func(p *string) any {
+		if p == nil {
+			return nil
+		}
+		return *p
+	}
+	needs := renderCtx.ExecutionNeeds
+	internalMetadata.ExecutionNeeds = &recipe.ExecutionNeeds{
+		Image: value(needs.Image), Platform: value(needs.Platform),
+		Resources: recipe.ExecutionNeedResources{CPU: value(needs.Resources.CPU), Memory: value(needs.Resources.Memory), EphemeralStorage: value(needs.Resources.EphemeralStorage)},
+	}
 	return d.self().ExecuteOp(ctx, parent, internalMetadata, opType)
 }
 

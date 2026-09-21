@@ -103,6 +103,7 @@ func (e *StandaloneExecutor) ExecuteWithRegistry(
 	executionRuntime := executionruntime.New(runtime, e.allocation, onHandoff)
 	workset, err := compiler.NewRecipeWorkerWithOptions(deps, e.registry, compiler.RecipeJobWorkerOptions{
 		Allocation: e.allocation, StageExecution: executionRuntime.Stage, OnExecutionHandoff: onHandoff,
+		WrapTaskWorker:     executionRuntime.WrapTaskWorker,
 		RootSourceResolver: rootResolver,
 	})
 	if err != nil {

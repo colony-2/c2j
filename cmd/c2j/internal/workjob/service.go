@@ -146,6 +146,7 @@ func buildWorkerDeps(ctx context.Context, opts workerBuildOptions) (*workerDeps,
 	workset, err := compiler.NewRecipeWorkerWithOptions(serviceDeps, activityRegistry, compiler.RecipeJobWorkerOptions{
 		Allocation:         opts.Allocation,
 		StageExecution:     executionRuntime.Stage,
+		WrapTaskWorker:     executionRuntime.WrapTaskWorker,
 		OnExecutionHandoff: opts.OnHandoff,
 		CELOptionsProvider: celProvider,
 		RootSourceResolver: recipeSourceResolver,

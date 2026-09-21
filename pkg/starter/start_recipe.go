@@ -148,6 +148,11 @@ func StartRecipeJobWithOptions(ctx context.Context, startJob workflowctl.StartJo
 				return jobdb.JobKey{}, digestErr
 			}
 			initial, err = execution.Initial(r.GetMetdata().Execution, digest, execution.Overlay(initial.JobRequirements, opts.ExecutionRequirements))
+			if recipe.HasExecutionNeeds(r) {
+				// The next task's scope can override the root and depend on prior
+				// outputs. Do not advertise a guessed frontier at submission.
+				initial, err = execution.Initial(nil, "", execution.Overlay(initial.JobRequirements, opts.ExecutionRequirements))
+			}
 			if err != nil {
 				return jobdb.JobKey{}, err
 			}

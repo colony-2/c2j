@@ -10,10 +10,13 @@ import (
 
 // Demand is a complete snapshot. Only a yield publishes a runtime change.
 type Demand struct {
-	SchemaVersion    int               `json:"schema_version"`
-	RecipeResolution string            `json:"recipe_resolution"`
-	RecipeDigest     string            `json:"recipe_digest,omitempty"`
-	RecipeBase       *Requirements     `json:"recipe_base,omitempty"`
+	SchemaVersion    int           `json:"schema_version"`
+	RecipeResolution string        `json:"recipe_resolution"`
+	RecipeDigest     string        `json:"recipe_digest,omitempty"`
+	RecipeBase       *Requirements `json:"recipe_base,omitempty"`
+	// NodeRequirements is the lexical overlay at the last scheduling boundary.
+	// Non-nil (even empty) enables task-frontier checks instead of root preflight.
+	NodeRequirements *Requirements     `json:"node_requirements,omitempty"`
 	JobRequirements  Requirements      `json:"job_requirements"`
 	Effective        Requirements      `json:"effective"`
 	Revision         uint64            `json:"revision"`
@@ -65,6 +68,20 @@ func (d Demand) Validate() error {
 	want, err := Initial(d.RecipeBase, d.RecipeDigest, d.JobRequirements)
 	if err != nil {
 		return err
+	}
+	if d.NodeRequirements != nil {
+		if d.RecipeResolution != "resolved" {
+			return fmt.Errorf("unresolved execution demand has node requirements")
+		}
+		scope, err := d.NodeRequirements.Normalize()
+		if err != nil {
+			return err
+		}
+		base := Requirements{}
+		if want.RecipeBase != nil {
+			base = *want.RecipeBase
+		}
+		want.Effective = Overlay(Overlay(base, scope), want.JobRequirements)
 	}
 	effective, err := d.Effective.Normalize()
 	if err != nil {
@@ -208,6 +225,9 @@ type Filter struct {
 }
 
 func (f Filter) Match(v View) (bool, error) {
+	if v.Status == "in_flight" || v.Status == "not_waiting" {
+		return false, nil
+	}
 	if v.Diagnostic != "" {
 		return false, fmt.Errorf("invalid execution demand: %s", v.Diagnostic)
 	}

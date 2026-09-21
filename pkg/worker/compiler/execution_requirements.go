@@ -71,6 +71,14 @@ func (j recipeJobWorker) executionSession(ctx jobworkflow.JobContext, r recipe.R
 		d = *current
 	}
 	s := &executionSession{ctx: ctx, demand: d, allocation: a, onHandoff: j.onExecutionHandoff, stage: j.stageExecution}
+	if recipe.HasExecutionNeeds(r) {
+		if j.stageExecution == nil || !j.taskGuardConfigured {
+			return nil, fmt.Errorf("execution_needs requires an execution-aware runtime and guarded task workers")
+		}
+		// The recipe must replay before selecting the next live task's scope.
+		// The last published scope may belong to already-completed work.
+		return s, nil
+	}
 	s.stageCurrent()
 	m, err := execution.Compare(d.Effective, a)
 	if err != nil {
@@ -86,6 +94,24 @@ func (s *executionSession) stageCurrent() {
 	if s.stage != nil {
 		s.stage(s.ctx.GetJobKey(), s.demand)
 	}
+}
+
+func (s *executionSession) stageNode(needs execution.Requirements) {
+	copy := execution.Overlay(needs, execution.Requirements{})
+	s.demand.NodeRequirements = &copy
+	s.recomputeEffective()
+	s.stageCurrent()
+}
+
+func (s *executionSession) recomputeEffective() {
+	base := execution.Requirements{}
+	if s.demand.RecipeBase != nil {
+		base = *s.demand.RecipeBase
+	}
+	if s.demand.NodeRequirements != nil {
+		base = execution.Overlay(base, *s.demand.NodeRequirements)
+	}
+	s.demand.Effective = execution.Overlay(base, s.demand.JobRequirements)
 }
 
 type executionControlError struct{ error }
@@ -128,11 +154,7 @@ func (s *executionSession) suspend(ctx jobworkflow.JobContext, site string, patc
 	}
 	s.demand.Checkpoints[key] = hash
 	s.demand.JobRequirements = execution.Overlay(s.demand.JobRequirements, p)
-	b := execution.Requirements{}
-	if s.demand.RecipeBase != nil {
-		b = *s.demand.RecipeBase
-	}
-	s.demand.Effective = execution.Overlay(b, s.demand.JobRequirements)
+	s.recomputeEffective()
 	s.demand.Revision++
 	m, err := execution.Compare(s.demand.Effective, s.allocation)
 	if err != nil {

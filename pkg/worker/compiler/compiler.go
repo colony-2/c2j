@@ -326,6 +326,9 @@ func (d DefaultRecipeExecutor) executeOpAttempt(ctx workflow.Context, parentReso
 	if err := resCtx.ResolveVars(metadata.Vars); err != nil {
 		return fmt.Errorf("failed to resolve op vars: %w", err)
 	}
+	if err := resCtx.ResolveExecutionNeeds(metadata.ExecutionNeeds); err != nil {
+		return err
+	}
 
 	var (
 		registeredOp ops.RegisterableOp
@@ -470,6 +473,9 @@ func (d DefaultRecipeExecutor) executeOpAttempt(ctx workflow.Context, parentReso
 				return err
 			}
 
+			if ctx.StageNodeExecution != nil {
+				ctx.StageNodeExecution(resCtx.ExecutionNeeds)
+			}
 			out, err := ctx.DoTask(
 				runPolicy,
 				taskType,
@@ -590,6 +596,9 @@ func (d DefaultRecipeExecutor) innerSequence(ctx workflow.Context, parentCtx *te
 	}
 	if err := resCtx.ResolveVars(metadata.Vars); err != nil {
 		return fmt.Errorf("failed to resolve sequence vars: %w", err)
+	}
+	if err := resCtx.ResolveExecutionNeeds(metadata.ExecutionNeeds); err != nil {
+		return err
 	}
 	if len(metadata.Catch) > 0 {
 		resCtx.Options.CatchBeforeRetry = true

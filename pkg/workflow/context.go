@@ -9,7 +9,8 @@ import (
 )
 
 type Context struct {
-	SuspendExecution func(jobworkflow.JobContext, string, execution.Requirements) error
+	SuspendExecution   func(jobworkflow.JobContext, string, execution.Requirements) error
+	StageNodeExecution func(execution.Requirements)
 	jobworkflow.JobContext
 	ops.ServiceDependencies2
 }

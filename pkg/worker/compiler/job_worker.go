@@ -27,6 +27,7 @@ type RecipeJobWorkerOptions struct {
 	ReadOnlyReplay     bool
 	OnExecutionHandoff func(ExecutionHandoff)
 	StageExecution     func(jobdb.JobKey, execution.Demand)
+	WrapTaskWorker     func(jobworkflow.TaskWorker) jobworkflow.TaskWorker
 	CELOptionsProvider template.CELOptionsProvider
 
 	// Executor overrides recipe execution for instrumentation. When nil, DefaultRecipeExecutor is used.
@@ -44,21 +45,23 @@ type RecipeJobWorkerOptions struct {
 }
 
 type recipeJobWorker struct {
-	allocation         execution.Allocation
-	readOnlyReplay     bool
-	onExecutionHandoff func(ExecutionHandoff)
-	stageExecution     func(jobdb.JobKey, execution.Demand)
-	celProvider        template.CELOptionsProvider
-	executor           RecipeExecutor
-	executorFactory    func() RecipeExecutor
-	rootResolver       RecipeSourceResolver
-	onRecipeLoadedFn   func(recipeName string)
-	onSourceResolved   func(RecipeSourceResolution)
+	taskGuardConfigured bool
+	allocation          execution.Allocation
+	readOnlyReplay      bool
+	onExecutionHandoff  func(ExecutionHandoff)
+	stageExecution      func(jobdb.JobKey, execution.Demand)
+	celProvider         template.CELOptionsProvider
+	executor            RecipeExecutor
+	executorFactory     func() RecipeExecutor
+	rootResolver        RecipeSourceResolver
+	onRecipeLoadedFn    func(recipeName string)
+	onSourceResolved    func(RecipeSourceResolution)
 }
 
 func NewRecipeJobWorker(opts RecipeJobWorkerOptions) jobworkflow.JobWorker {
 	return &recipeJobWorker{
-		allocation: opts.Allocation, readOnlyReplay: opts.ReadOnlyReplay,
+		taskGuardConfigured: opts.WrapTaskWorker != nil,
+		allocation:          opts.Allocation, readOnlyReplay: opts.ReadOnlyReplay,
 		onExecutionHandoff: opts.OnExecutionHandoff, stageExecution: opts.StageExecution,
 		celProvider:      opts.CELOptionsProvider,
 		executor:         opts.Executor,
@@ -84,6 +87,11 @@ func NewRecipeWorkerWithOptions(dependencies ops.ServiceDependencies2, activityR
 		taskWorkers = append(taskWorkers, resolutionWorker)
 	}
 	taskWorkers = append(taskWorkers, newWithinRecipeResolutionTaskWorker())
+	if opts.WrapTaskWorker != nil {
+		for i, worker := range taskWorkers {
+			taskWorkers[i] = opts.WrapTaskWorker(worker)
+		}
+	}
 	return jobworkflow.AsWorkSet(job, taskWorkers...)
 }
 
@@ -265,6 +273,9 @@ func (j recipeJobWorker) Run(ctx jobworkflow.JobContext, jobData jobdb.JobData) 
 			return nil, err
 		}
 		wCtx.SuspendExecution = session.suspend
+		if recipe.HasExecutionNeeds(r) {
+			wCtx.StageNodeExecution = session.stageNode
+		}
 	}
 	opts := ExecutionOptions{}
 	if j.celProvider != nil {

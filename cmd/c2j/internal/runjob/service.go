@@ -203,6 +203,9 @@ func buildDeps(ctx context.Context, opts Options) (*runnerDeps, func(), error) {
 		stopRuntime:  handle.Cleanup,
 	}
 	deps.executionRuntime = executionruntime.New(handle.Runtime, opts.Allocation, deps.recordHandoff)
+	for i, worker := range deps.taskWorkers {
+		deps.taskWorkers[i] = deps.executionRuntime.WrapTaskWorker(worker)
+	}
 	deps.runtime = deps.executionRuntime
 	return deps, func() {
 		if deps.stopRuntime != nil {
@@ -229,6 +232,7 @@ func newStoryJobWorker(deps *runnerDeps, recorder *storylive.Recorder, replay ..
 	return compiler.NewRecipeJobWorker(compiler.RecipeJobWorkerOptions{
 		Allocation:             deps.executionRuntime.Allocation,
 		StageExecution:         deps.executionRuntime.Stage,
+		WrapTaskWorker:         deps.executionRuntime.WrapTaskWorker,
 		OnExecutionHandoff:     deps.recordHandoff,
 		ReadOnlyReplay:         len(replay) > 0 && replay[0],
 		CELOptionsProvider:     deps.celProvider,

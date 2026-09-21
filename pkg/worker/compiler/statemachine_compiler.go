@@ -34,6 +34,9 @@ func (d DefaultRecipeExecutor) ExecuteStateMachine(ctx workflow.Context, parentC
 	if err := resCtx.ResolveVars(metadata.Vars); err != nil {
 		return fmt.Errorf("failed to resolve state machine vars: %w", err)
 	}
+	if err := resCtx.ResolveExecutionNeeds(metadata.ExecutionNeeds); err != nil {
+		return err
+	}
 	if len(metadata.Catch) > 0 {
 		resCtx.Options.CatchBeforeRetry = true
 	}
