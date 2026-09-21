@@ -340,7 +340,7 @@ func RecipeJobFromSummary(summary jobdb.JobSummary) (RecipeJob, bool, error) {
 	}
 
 	job := RecipeJob{
-		Execution:             execution.Inspect(summary.Metadata, summary.ClientPayload),
+		Execution:             ExecutionView(summary),
 		ClientPayload:         append(json.RawMessage(nil), summary.ClientPayload...),
 		ClientPayloadRevision: summary.ClientPayloadRevision,
 		TenantID:              summary.JobKey.TenantId,

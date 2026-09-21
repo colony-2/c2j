@@ -182,7 +182,10 @@ describe the actual executor. The starter records resolved initial requirements
 when supplied the root recipe; deferred submissions remain explicitly unresolved.
 
 `RecipeJob.Execution` exposes the submission/latest-yield view without resolving
-recipes or reading history. `ClientPayload` and `ClientPayloadRevision` remain
+recipes or reading history for waiting jobs only. Active jobs report `in_flight`
+without requirements; terminal/unknown states report `not_waiting`. Neither
+state matches compatibility filters, including `IncludeUnresolved`.
+`ClientPayload` and `ClientPayloadRevision` remain
 separate from submission metadata. The current execution namespace takes
 precedence over the initial hint; the historical handoff allocation is not a
 live usage record.

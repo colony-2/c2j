@@ -41,6 +41,67 @@ These request capacity; they do not prove what the executor actually has.
 Later changes also replace fields individually, and can lower a previous
 minimum. There is no explicit clearing operation.
 
+## Scoped needs on recipe nodes
+
+Use `execution_needs` when requirements belong to a particular part of a
+recipe. It is supported on roots, sequences, state bodies, operations, inline
+inclusions, and child groups. Every value supports the existing template rules:
+
+```yaml
+id: scoped-work
+vars:
+  large_memory: 16Gi
+execution_needs:
+  resources:
+    cpu: 4
+    memory: '${{ vars.large_memory }}'
+sequence:
+  - id: small-phase
+    execution_needs:
+      resources:
+        memory: 8Gi
+    sequence:
+      - id: inspect
+        op: command_execution
+        inputs: {run: 'true'}
+  - id: large-phase
+    op: command_execution
+    inputs: {run: 'true'}
+```
+
+`inspect` needs CPU 4 and memory 8 GiB; `large-phase` needs CPU 4 and memory
+16 GiB. The nearest explicit property wins, not the largest numeric value.
+Leaving the inner sequence drops its override. A 16 GiB executor can run both
+without yielding; an 8 GiB executor can run `inspect`, then yields before
+`large-phase`. The same rules apply to image and platform overrides, including
+moving to arm64 for an inner scope and back to amd64 for a later sibling.
+
+For a later operation whose preceding `probe` operation returns a `memory`
+output, the normal expression is also supported:
+
+```yaml
+execution_needs:
+  resources:
+    memory: '${{ sequence.probe.outputs.memory }}'
+```
+
+Scopes inherit only within one job, including inline recipes. Separately
+submitted child jobs do not inherit these settings. Existing `execution`
+declarations remain the job's recipe base; explicit submission overrides and
+`ops.SuspendExecution` changes remain job-wide overrides and take precedence
+over node declarations. Node needs do not permanently modify those overrides.
+
+On recovery, the recipe reruns using cached task results. c2j checks allocation
+only immediately before an unfinished task actually runs—not when replaying
+its parents or completed steps. Scope changes can stay in memory while the
+executor is sufficient. An environment mismatch yields the same job through
+the existing handoff mechanism; no automatic downsizing is performed.
+
+Initial submission of a scoped recipe reports unresolved execution demand
+until a handoff records its pending needs. This avoids claiming that a root
+default is the requirement of the next task, which may override it. Explicit
+submission overrides remain visible as known hints.
+
 ## Describe the actual executor
 
 Pass actual allocation to `run`, `run one`, `run any`, `run loop`, or
@@ -122,22 +183,31 @@ executing that step. If the operation fails, its directive is not accepted as
 a successful continuation.
 
 Replay reuses the recorded result and skips already-accepted directives without
-restoring stale requirements. Inline recipe declarations apply to the same job
-at the inclusion boundary and remain in effect afterward; there is no automatic
-restore on exit. Separately submitted child jobs have independent requirements.
+restoring stale requirements. Legacy inline `execution` declarations apply to
+the same job at the inclusion boundary and remain in effect afterward. Scoped
+`execution_needs` instead restores the enclosing needs on exit. Separately
+submitted child jobs have independent requirements.
 Explicit restarts preserve the execution snapshot and accepted checkpoints.
 
 ### Read and filter requirements
 
-Ordinary and child-job JSON listings include an `execution` view with `status`,
+For waiting jobs, ordinary and child-job JSON listings include an `execution` view with `status`,
 `source`, `published`, `demand`, and the initial snapshot when available.
 `demand.effective` is the current known requirement overlay. Sources distinguish
 `submission`, `yield`, and `absent`. Status distinguishes `specified`,
 `unspecified`, `unresolved`, `malformed`, and `unsupported`.
 
-These are submission/latest-handoff snapshots, not live telemetry. A deferred
-recipe that finishes without yielding can still appear `unresolved`. A saved
-`last_handoff_allocation` is historical, not evidence of a current executor.
+These are submission/latest-handoff snapshots, not live telemetry. Waiting
+statuses are `READY`, `PENDING_JOBS`, `AWAITING_FUTURE`, `EXPIRED`, and
+`CRASH_CONCERN`. A saved `last_handoff_allocation` is historical, not evidence
+of a current executor; recovery still reconstructs the unfinished task.
+
+Running jobs report `execution.status: in_flight` without a demand or initial
+snapshot, because their scope needs may have changed without publication.
+Completed, cancelled, or unrecognized states report `not_waiting`. Neither
+means unconstrained. Compatibility filtering excludes these jobs, even with
+`--include-unresolved`. Raw `client_payload` remains available as historical
+client state, but must not be treated as a running job's current requirements.
 
 Filter explicitly against a candidate environment:
 

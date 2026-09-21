@@ -1,5 +1,8 @@
 # c2j: execution needs on recipe nodes
 
+Implemented in the recipe/compiler/runtime and listing APIs. See
+[the execution guide](GUIDE-Execution-Tracking.md) for syntax and usage.
+
 Enhance existing recipe nodes in `github.com/colony-2/c2j` to use c2j's existing
 execution-control capabilities. Inspect the existing node, template, execution,
 and task-replay machinery before choosing implementation details.

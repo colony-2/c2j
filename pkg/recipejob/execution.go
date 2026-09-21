@@ -15,6 +15,20 @@ type ExecutionDemandError struct {
 func (e *ExecutionDemandError) Error() string { return fmt.Sprintf("job %s: %v", e.JobKey, e.Err) }
 func (e *ExecutionDemandError) Unwrap() error { return e.Err }
 
+// ExecutionView exposes scheduling requirements only while a job is waiting.
+// Active jobs can change lexical needs without publishing a scheduler snapshot.
+func ExecutionView(job jobdb.JobSummary) execution.View {
+	switch job.Status {
+	case jobdb.JobStatusReady, jobdb.JobStatusPendingJobs, jobdb.JobStatusAwaitingFuture,
+		jobdb.JobStatusExpired, jobdb.JobStatusCrashConcern:
+		return execution.Inspect(job.Metadata, job.ClientPayload)
+	case jobdb.JobStatusActive:
+		return execution.View{Status: "in_flight", Source: "unavailable"}
+	default:
+		return execution.View{Status: "not_waiting", Source: "unavailable"}
+	}
+}
+
 // ListExecutionJobs fills a logical page with matching jobs, scanning further
 // underlying pages as needed. Each fetch is bounded by the remaining capacity,
 // so the backend cursor always resumes after the last examined job without a
@@ -47,7 +61,7 @@ func ListExecutionJobs(ctx context.Context, lister Lister, req jobdb.ListJobsReq
 			return jobdb.ListJobsResponse{}, err
 		}
 		for _, job := range page.Jobs {
-			match, err := f.Match(execution.Inspect(job.Metadata, job.ClientPayload))
+			match, err := f.Match(ExecutionView(job))
 			if err != nil {
 				return jobdb.ListJobsResponse{}, &ExecutionDemandError{JobKey: job.JobKey, Err: err}
 			}

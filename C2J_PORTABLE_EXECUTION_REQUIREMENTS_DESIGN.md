@@ -4,10 +4,11 @@
 
 A job keeps its identity, pinned recipe, durable results, and artifacts when
 execution requirements change. An executor makes progress while it supports
-the pending task and environment. A change of requirements yields the job with
-a new client-payload snapshot; another invocation resumes the same job.
+the pending task and environment. An explicit job-wide requirement change, or
+an unmet scoped task need, yields a client-payload snapshot; another invocation
+resumes the same job. Satisfied node-scope changes can remain ephemeral.
 
-An explicit change always yields, even when the current allocation is already
+An explicit `ops.SuspendExecution` change always yields, even when the current allocation is already
 sufficient. There is no non-suspending publication requirement, projection
 store, or new JobDB API. The existing revision-checked client-payload update on
 reschedule is sufficient. The earlier publication feature request is withdrawn.
@@ -107,6 +108,35 @@ constraints. This remains publication on reschedule, not an independent write.
 
 ## Dynamic requirements and replay
 
+### Scoped recipe-node needs
+
+`execution_needs` is additive node metadata. Its literal/templated properties
+resolve through the existing template engine in each node's normal context.
+Same-job contexts inherit a copy and overlay explicit fields; leaving a context
+restores its parent. Child jobs have independent contexts. Full effective needs
+are recipe base, then the lexical node overlay, then explicit job-wide overrides.
+
+The compiler stages each task's effective needs ephemerally. Guarded task
+workers compare actual allocation only after JobDB's completed-result lookup.
+No task-input format or cache key changes are needed. Cached tasks therefore
+replay without requiring their old environment, including partial operations,
+repeated state occurrences, and recovery through a stale task route.
+
+Scoped recipes skip the job-wide root/lease preflight: a saved snapshot may
+describe completed work, and a child's override may replace a root default.
+The next live task is authoritative. Metadata marks scoped submission demand
+unresolved, retaining explicit submission overrides, rather than guessing a
+pending scope.
+
+At a yield, `Demand.NodeRequirements` records the lexical overlay separately
+from permanent job overrides. Ordinary task/time handoffs also publish the
+staged scope when it changes. Active scope changes do not write scheduler rows;
+an oversized allocation does not trigger a shrink handoff. An incompatible
+live task resumes via the recipe route so completed task coordinates on the
+original lease cannot pin recovery to an obsolete task.
+
+### Explicit job-wide changes
+
 An operation calls `ops.SuspendExecution(deps, patch)` and returns its successful
 result. The helper attaches a continuation directive to the durable activity
 output. It does not interrupt the function or migrate a Go stack.
@@ -125,7 +155,7 @@ at the same checkpoint is an error. Successive increases and decreases
 therefore survive replay without endless yields. Changes to source recipes do
 not alter an already-pinned job.
 
-Inline recipe declarations become boundary directives in the containing job.
+Legacy inline `execution` declarations become boundary directives in the containing job.
 A nonempty declaration overlays job requirements before entering the included
 body; it does not allocate another executor or automatically restore old
 requirements on exit. Empty declarations are no-ops. Separately submitted
@@ -165,18 +195,21 @@ runtime.
 
 Embedders wrap JobDB with `pkg/executionruntime`, pass the same allocation to
 `RecipeJobWorkerOptions`, and connect `StageExecution` and
-`OnExecutionHandoff`. This also applies to task-only executors. Schema
+`OnExecutionHandoff`, with `WrapTaskWorker: runtime.WrapTaskWorker` for every
+task worker. This also applies to task-route executors. Schema
 registration uses the underlying runtime. Read-only story replay disables
 execution checks/publication: it reconstructs history rather than executing.
 
 ## Listings
 
-Ordinary and child-job JSON listings expose an `execution` view derived only
+For waiting jobs, ordinary and child-job JSON listings expose an `execution` view derived only
 from metadata and current payload, without recipe resolution or history
 replay. Status distinguishes `specified`, `unspecified`, `unresolved`,
-`malformed`, and `unsupported`, with source/publication information. A
-deferred job completing without yielding may remain `unresolved` in listings;
-this accurately reflects the available snapshots.
+`malformed`, and `unsupported`, with source/publication information. Waiting
+states include ready, dependency/time waits, expiry, and crash recovery.
+Running jobs expose `in_flight` without requirements; terminal/unknown states
+expose `not_waiting`. Neither is compatible with an allocation filter, including
+when unresolved jobs are allowed. Raw historical client payload is unchanged.
 
 `--compatible-with-execution` opts into filtering using the same allocation
 fields. Without opt-in, inherited environment variables do not filter jobs and

@@ -33,7 +33,7 @@ func summaryWithMemory(t *testing.T, id, memory string) jobdb.JobSummary {
 	require.NoError(t, err)
 	meta, err := json.Marshal(map[string]any{"v": 1, "recipe": "test", "execution": d})
 	require.NoError(t, err)
-	return jobdb.JobSummary{JobKey: jobdb.JobKey{TenantId: "tenant", JobId: id}, JobType: "recipe", Metadata: meta}
+	return jobdb.JobSummary{JobKey: jobdb.JobKey{TenantId: "tenant", JobId: id}, Status: jobdb.JobStatusReady, JobType: "recipe", Metadata: meta}
 }
 func TestExecutionFilteringFillsPagesWithoutSkippingMatches(t *testing.T) {
 	l := &pagedExecutionLister{jobs: []jobdb.JobSummary{summaryWithMemory(t, "1", "8Gi"), summaryWithMemory(t, "2", "2Gi"), summaryWithMemory(t, "3", "8Gi"), summaryWithMemory(t, "4", "2Gi"), summaryWithMemory(t, "5", "2Gi")}}
@@ -52,10 +52,48 @@ func TestExecutionFilteringFillsPagesWithoutSkippingMatches(t *testing.T) {
 	require.Len(t, second.Jobs, 1)
 	require.Equal(t, "5", second.Jobs[0].JobKey.JobId)
 	require.Empty(t, second.NextPageToken)
-	l.jobs = []jobdb.JobSummary{{JobKey: jobdb.JobKey{TenantId: "tenant", JobId: "bad"}, ClientPayload: json.RawMessage(`{"c2j":{"execution":{"schema_version":99}}}`)}}
+	l.jobs = []jobdb.JobSummary{{JobKey: jobdb.JobKey{TenantId: "tenant", JobId: "bad"}, Status: jobdb.JobStatusReady, ClientPayload: json.RawMessage(`{"c2j":{"execution":{"schema_version":99}}}`)}}
 	req.PageToken = ""
 	_, err = ListExecutionJobs(context.Background(), l, req, filter)
 	var demandErr *ExecutionDemandError
 	require.ErrorAs(t, err, &demandErr)
 	require.Equal(t, "bad", demandErr.JobKey.JobId)
+}
+
+func TestExecutionVisibilityAndFilteringOnlyForWaitingJobs(t *testing.T) {
+	job := summaryWithMemory(t, "job", "2Gi")
+	memory := "16Gi"
+	f := execution.Filter{Allocation: execution.Allocation{SchemaVersion: 1, Resources: execution.Resources{Memory: &memory}}, IncludeUnresolved: true}
+	for _, status := range []jobdb.JobStatus{jobdb.JobStatusReady, jobdb.JobStatusPendingJobs, jobdb.JobStatusAwaitingFuture, jobdb.JobStatusExpired, jobdb.JobStatusCrashConcern} {
+		job.Status = status
+		view := ExecutionView(job)
+		require.Equal(t, "specified", view.Status)
+		require.NotNil(t, view.Demand)
+		match, err := f.Match(view)
+		require.NoError(t, err)
+		require.True(t, match)
+	}
+	for _, status := range []jobdb.JobStatus{jobdb.JobStatusActive, jobdb.JobStatusCompleted, jobdb.JobStatusCancelled} {
+		job.Status = status
+		view := ExecutionView(job)
+		require.Nil(t, view.Demand)
+		require.Nil(t, view.Initial)
+		require.NotEqual(t, "unspecified", view.Status)
+		match, err := f.Match(view)
+		require.NoError(t, err)
+		require.False(t, match, "include-unresolved must not admit active/terminal jobs")
+		dto, ok, err := RecipeJobFromSummary(job)
+		require.NoError(t, err)
+		require.True(t, ok)
+		require.Nil(t, dto.Execution.Demand)
+	}
+	active := job
+	active.Status = jobdb.JobStatusActive
+	waiting := summaryWithMemory(t, "waiting", "2Gi")
+	l := &pagedExecutionLister{jobs: []jobdb.JobSummary{active, waiting}}
+	page, err := ListExecutionJobs(context.Background(), l, jobdb.ListJobsRequest{PageSize: 1}, &f)
+	require.NoError(t, err)
+	require.Len(t, page.Jobs, 1)
+	require.Equal(t, "waiting", page.Jobs[0].JobKey.JobId)
+	require.Equal(t, 2, l.calls)
 }

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"testing"
 
+	"github.com/colony-2/c2j/pkg/execution"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	"github.com/stretchr/testify/require"
 )
@@ -58,4 +59,22 @@ func TestJobRowUsesTypedRouteAndTaskCoordinates(t *testing.T) {
 	row.TaskWait.ResumeJobType = "changed"
 	require.Equal(t, "input:collect", summary.NextRoute.TaskType)
 	require.Equal(t, "recipe:kind", summary.ExecutionState.TaskWait.ResumeJobType)
+}
+
+func TestExecutionRowDoesNotExposeInFlightNeeds(t *testing.T) {
+	memory := "16Gi"
+	demand, err := execution.Initial(nil, "pinned", execution.Requirements{Resources: execution.Resources{Memory: &memory}})
+	require.NoError(t, err)
+	payload, err := execution.PayloadWithDemand(nil, demand)
+	require.NoError(t, err)
+	job := jobdb.JobSummary{Status: jobdb.JobStatusReady, ClientPayload: payload}
+	row := makeJobRow(job)
+	require.Equal(t, "specified", row.Execution.Status)
+	require.NotNil(t, row.Execution.Demand)
+	job.Status = jobdb.JobStatusActive
+	row = makeJobRow(job)
+	require.Equal(t, "in_flight", row.Execution.Status)
+	require.Nil(t, row.Execution.Demand)
+	require.Nil(t, row.Execution.Initial)
+	require.JSONEq(t, string(payload), string(row.ClientPayload), "raw historical client state remains opaque")
 }

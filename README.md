@@ -19,12 +19,14 @@ job status, progress, handoffs, and child-job lineage, see the
 [execution tracking user guide](GUIDE-Execution-Tracking.md).
 
 Recipes can declare an `execution` block for CPU, memory, scratch, platform,
-and image. Pass actual executor facts using individual `--execution-*` flags
+and image. Node-level `execution_needs` adds templatable, scoped overrides that
+inherit within a job and restore the parent on exit. Completed tasks replay
+without requesting their historical environments. Pass actual executor facts using individual `--execution-*` flags
 or `C2J_EXECUTION_*` variables. If requirements change or the environment is
 insufficient, execution yields the same job and reports `environment_required`.
 A provisioner can then resume it in a compatible environment; c2j does not
-provision resources itself. Listings show submission/latest-yield snapshots,
-not live resource usage.
+provision resources itself. Listings show submission/latest-yield requirements
+only for waiting jobs; in-flight needs are not presented as current snapshots.
 
 ## JobDB upgrade compatibility
 

@@ -180,7 +180,7 @@ func buildRequest(ctx context.Context, opts Options) (jobdb.ListJobsRequest, err
 
 func makeJobRow(job jobdb.JobSummary) jobRow {
 	return jobRow{
-		Execution:             execution.Inspect(job.Metadata, job.ClientPayload),
+		Execution:             recipejob.ExecutionView(job),
 		ClientPayload:         append(json.RawMessage(nil), job.ClientPayload...),
 		ClientPayloadRevision: job.ClientPayloadRevision,
 		TenantID:              job.JobKey.TenantId,
