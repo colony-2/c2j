@@ -4,42 +4,19 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/colony-2/c2j/pkg/execution"
 	"strings"
 	"text/tabwriter"
 	"time"
 
 	"github.com/colony-2/c2j/cmd/c2j/internal/jobutil"
 	"github.com/colony-2/c2j/cmd/c2j/internal/swfruntime"
+	"github.com/colony-2/c2j/pkg/joblist"
 	"github.com/colony-2/c2j/pkg/recipejob"
-	"github.com/colony-2/c2j/pkg/starter"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 )
 
-type jobRow struct {
-	Execution             execution.View  `json:"execution"`
-	ClientPayload         json.RawMessage `json:"client_payload,omitempty"`
-	ClientPayloadRevision int64           `json:"client_payload_revision"`
-	TenantID              string          `json:"tenant_id"`
-	JobID                 string          `json:"job_id"`
-	Status                string          `json:"status"`
-	Store                 string          `json:"store"`
-	JobType               string          `json:"job_type"`
-	CreatedAt             time.Time       `json:"created_at"`
-	AvailableAt           time.Time       `json:"available_at"`
-	ArchivedAt            *time.Time      `json:"archived_at,omitempty"`
-	LeaseExpiresAt        *time.Time      `json:"lease_expires_at,omitempty"`
-	ExpiresAt             *time.Time      `json:"expires_at,omitempty"`
-	NextRoute             *jobdb.Route    `json:"next_route,omitempty"`
-	TaskWait              *jobdb.TaskWait `json:"task_wait,omitempty"`
-	WaitFor               []string        `json:"wait_for,omitempty"`
-	CancelRequested       bool            `json:"cancel_requested,omitempty"`
-}
-
-type listResult struct {
-	Jobs          []jobRow `json:"jobs"`
-	NextPageToken string   `json:"next_page_token,omitempty"`
-}
+type jobRow = joblist.Job
+type listResult = joblist.Page
 
 func Run(ctx context.Context, opts Options) error {
 	if err := opts.Complete(ctx); err != nil {
@@ -63,7 +40,7 @@ func Run(ctx context.Context, opts Options) error {
 	rows := make([]jobRow, 0)
 	nextPageToken := ""
 	for {
-		resp, err := recipejob.ListExecutionJobs(ctx, handle.Engine, request, opts.ExecutionFilter)
+		resp, err := joblist.ListExecutionJobs(ctx, handle.Engine, request, opts.ExecutionFilter)
 		if err != nil {
 			return fmt.Errorf("list jobs: %w", err)
 		}
@@ -146,59 +123,18 @@ func buildRequest(ctx context.Context, opts Options) (jobdb.ListJobsRequest, err
 	if err != nil {
 		return jobdb.ListJobsRequest{}, err
 	}
-	metadataFilter, err := jobdb.Metadata().EqualFilter(starter.MetaFieldRepo, target.RepositorySource)
-	if err != nil {
-		return jobdb.ListJobsRequest{}, err
-	}
-
-	jobIDs := make([]jobdb.JobKey, 0, len(opts.JobIDs))
+	var jobIDs []string
 	for _, value := range opts.JobIDs {
-		for _, part := range splitCSV(value) {
-			jobIDs = append(jobIDs, jobdb.JobKey{
-				TenantId: opts.TenantID,
-				JobId:    part,
-			})
-		}
+		jobIDs = append(jobIDs, splitCSV(value)...)
 	}
-
-	jobTypes := append([]string(nil), opts.JobTypes...)
-
-	return jobdb.ListJobsRequest{
-		TenantIds:      []string{opts.TenantID},
-		Statuses:       statuses,
-		Stores:         storesForStatuses(statuses),
-		JobTypes:       jobTypes,
-		JobTasks:       waitingFor,
-		JobKeys:        jobIDs,
-		MetadataFilter: metadataFilter,
-		CreatedAfter:   createdAfter,
-		CreatedBefore:  createdBefore,
-		PageSize:       opts.PageSize,
-		PageToken:      strings.TrimSpace(opts.PageToken),
-	}, nil
+	return joblist.BuildRequest(opts.TenantID, joblist.Query{
+		Repository: target.RepositorySource, Statuses: statuses, JobTypes: opts.JobTypes,
+		JobTasks: waitingFor, JobIDs: jobIDs, CreatedAfter: createdAfter, CreatedBefore: createdBefore,
+		PageSize: opts.PageSize, PageToken: opts.PageToken, ExecutionFilter: opts.ExecutionFilter,
+	})
 }
 
-func makeJobRow(job jobdb.JobSummary) jobRow {
-	return jobRow{
-		Execution:             recipejob.ExecutionView(job),
-		ClientPayload:         append(json.RawMessage(nil), job.ClientPayload...),
-		ClientPayloadRevision: job.ClientPayloadRevision,
-		TenantID:              job.JobKey.TenantId,
-		JobID:                 job.JobKey.JobId,
-		Status:                string(job.Status),
-		Store:                 string(storeForJob(job)),
-		JobType:               job.JobType,
-		CreatedAt:             job.CreatedAt,
-		AvailableAt:           job.AvailableAt,
-		ArchivedAt:            job.ArchivedAt,
-		LeaseExpiresAt:        job.LeaseExpiresAt,
-		ExpiresAt:             job.ExpiresAt,
-		NextRoute:             jobdb.CloneRoute(job.NextRoute),
-		TaskWait:              jobdb.CloneExecutionState(job.ExecutionState).TaskWait,
-		WaitFor:               append([]string(nil), job.WaitFor...),
-		CancelRequested:       job.CancelRequested,
-	}
-}
+func makeJobRow(job jobdb.JobSummary) jobRow { return joblist.JobFromSummary(job) }
 
 func storeForJob(job jobdb.JobSummary) jobdb.JobStore {
 	return recipejob.StoreForJob(job)

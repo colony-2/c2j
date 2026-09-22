@@ -5,11 +5,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/colony-2/c2j/pkg/execution"
 	"strings"
 	"time"
 
+	"github.com/colony-2/c2j/pkg/execution"
 	"github.com/colony-2/c2j/pkg/jobcontext"
+	"github.com/colony-2/c2j/pkg/joblist"
 	"github.com/colony-2/c2j/pkg/starter"
 	"github.com/colony-2/c2j/pkg/worker/compiler"
 	"github.com/colony-2/c2j/pkg/workflowctl"
@@ -435,45 +436,10 @@ func JobMetadataFromRaw(raw json.RawMessage) (*starter.JobMetadata, error) {
 	return &meta, nil
 }
 
-func DefaultVisibleStatuses() []jobdb.JobStatus {
-	return []jobdb.JobStatus{
-		jobdb.JobStatusReady,
-		jobdb.JobStatusExpired,
-		jobdb.JobStatusPendingJobs,
-		jobdb.JobStatusAwaitingFuture,
-		jobdb.JobStatusActive,
-		jobdb.JobStatusCrashConcern,
-	}
-}
+func DefaultVisibleStatuses() []jobdb.JobStatus { return joblist.DefaultVisibleStatuses() }
 
 func StoresForStatuses(statuses []jobdb.JobStatus) []jobdb.JobStore {
-	if len(statuses) == 0 {
-		return nil
-	}
-	hasActive := false
-	hasArchived := false
-	for _, status := range statuses {
-		switch status {
-		case jobdb.JobStatusCancelled, jobdb.JobStatusCompleted:
-			hasArchived = true
-		default:
-			hasActive = true
-		}
-	}
-
-	switch {
-	case hasActive && hasArchived:
-		return []jobdb.JobStore{jobdb.JobStoreActive, jobdb.JobStoreArchived}
-	case hasArchived:
-		return []jobdb.JobStore{jobdb.JobStoreArchived}
-	default:
-		return []jobdb.JobStore{jobdb.JobStoreActive}
-	}
+	return joblist.StoresForStatuses(statuses)
 }
 
-func StoreForJob(job jobdb.JobSummary) jobdb.JobStore {
-	if job.ArchivedAt != nil {
-		return jobdb.JobStoreArchived
-	}
-	return jobdb.JobStoreActive
-}
+func StoreForJob(job jobdb.JobSummary) jobdb.JobStore { return joblist.StoreForJob(job) }
