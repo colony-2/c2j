@@ -494,6 +494,11 @@ lease happen in one runtime operation.
 
 ## Listing Jobs
 
+Go applications can list remote jobs without invoking the CLI using the
+supported [`pkg/joblist` API](pkg/joblist/README.md). See the
+[standalone example](examples/listjobs/main.go) and
+[implementation response](C2J_FEATURE_REQUESTS_RESPONSE.md).
+
 List jobs for the current cell:
 
 ```bash

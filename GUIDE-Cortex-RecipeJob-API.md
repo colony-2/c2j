@@ -30,6 +30,12 @@ The public `pkg/recipejob` package exposes:
 It does not open a JobDB runtime, start workers, execute recipes, or register
 ops.
 
+For read-only remote listing from explicit connection and repository inputs,
+use the supported [`pkg/joblist` API](pkg/joblist/README.md). It opens its own
+remote listing connection and returns typed job/execution views without local
+configuration discovery or worker initialization. The recipe-specific helpers
+in this guide remain available for broader host integrations.
+
 ## Resolve A Target
 
 Use `ResolveTarget` anywhere Cortex accepts the same target values as c2j:
