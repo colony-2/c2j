@@ -1,5 +1,9 @@
 # Plan: Job Context Env Propagation And Child Job Listing
 
+> Historical implementation plan. For current usage and the distinction between
+> attribution metadata and formal JobDB parentage, see the
+> [parent and child jobs guide](C2J_CHILD_JOBS_GUIDE.md).
+
 ## Status
 
 Implemented in this workspace. Verification: `go test ./...` passes.

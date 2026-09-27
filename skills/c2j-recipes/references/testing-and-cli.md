@@ -91,7 +91,7 @@ c2j run --job-id <job-id> --embed
 List child jobs when the command is available:
 
 ```bash
-c2j list children --job-id <job-id> --embed
+c2j list children --jobdb https://jobdb.example.com/dev --parent-tenant-id dev --parent-job-id <job-id> --all-ops
 ```
 
 ## Targeting

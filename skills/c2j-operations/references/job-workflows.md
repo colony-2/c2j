@@ -57,7 +57,9 @@ Command services return non-zero exit codes for usage errors, compile/test failu
 Use child listing commands to inspect jobs started by a parent:
 
 ```bash
-c2j list children --job-id <job-id> --embed
+c2j list children --jobdb https://jobdb.example.com/dev --parent-tenant-id dev --parent-job-id <job-id> --all-ops
 ```
 
 In recipes, child jobs started through recipe ops and child groups are also exposed in runtime context where supported by the worker.
+
+Inside an op, `c2j list children` uses the injected parent and invocation context. Use `--all-ops` to include other invocations and `--all` to fetch all pages. Terminal jobs are excluded by default; select `--status COMPLETED,CANCELLED` to find finished children. Current-job environment alone supplies attribution metadata; the `C2J_CHILD_JOB_*` broker environment provides formal lease-scoped parentage. See `C2J_CHILD_JOBS_GUIDE.md` in the c2j repository for the complete guide.

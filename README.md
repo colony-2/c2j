@@ -606,6 +606,13 @@ List JSON exposes `next_route` (`jobType`, optional `taskType`) and `task_wait`
 instead of the old `next_need` and flat `task_wait_*` fields. The human-readable
 `NEXT` column also shows the route as JSON.
 
+## Parent and child jobs
+
+Commands and extensions can run nested `c2j submit` calls that automatically
+record parentage through the current job's child-submission broker. See the
+[parent and child jobs guide](C2J_CHILD_JOBS_GUIDE.md) for setup, complete recipe
+examples, child listing, result handling, environment variables, and limits.
+
 ## Embedded Runtime
 
 `--embed` is shorthand for:
