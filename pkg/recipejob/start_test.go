@@ -73,7 +73,7 @@ func TestBuildStartJobDefaultsRecipeAndRef(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BuildStartJob(): %v", err)
 	}
-	if start.RecipeName != "default" {
+	if start.RecipeName != "build" {
 		t.Fatalf("RecipeName = %q", start.RecipeName)
 	}
 	if start.GitRef != "main" {

@@ -98,24 +98,23 @@ If the current directory does not resolve as a cell, either:
 - create `.c2j/config.yaml`, or
 - pass `--cell <repo-or-path>` explicitly to `submit` or `list`
 
-### 2. Submit and run a local recipe file
+### 2. Submit and run a build or evolve job
 
-For local authoring, this is the default loop:
+Build is the default. Add `--evolve` to select the evolve recipe:
 
 ```bash
-c2j submit \
-  --recipe-file ./recipes/my-recipe.yaml \
-  --run \
-  --embed
+c2j submit "Implement the new endpoint" --run --embed
+c2j submit "Improve retry behavior" --evolve --run --embed
 ```
 
 That does all of the following:
 
-- loads the local YAML file
-- embeds that recipe into the submitted job
 - starts an embedded JobDB runtime
 - submits the job
-- immediately executes it
+- resolves the named recipe in the target cell, falling back to the shared recipe if absent
+- immediately executes it against the target cell
+
+See [submitting jobs](#submitting-jobs) for the hosted recipe names and [advanced recipe selection](#advanced-recipe-selection) for custom local files.
 
 ### 3. Continue or inspect a job later
 
@@ -197,35 +196,95 @@ npx skills add colony-2/c2j
 
 ### Basic forms
 
-Submit a named recipe:
+Submit a build job (the default), or choose evolve:
 
 ```bash
-c2j submit --recipe default --embed
+c2j submit "Implement the new endpoint" --embed
+c2j submit "Implement the new endpoint" --build --embed
+c2j submit "Improve the retry behavior" --evolve --embed
 ```
 
-`--recipe` accepts a recipe name or git selector. For local files, prefer `--recipe-file`.
+These submit the names `build` and `evolve` through the existing recipe resolution system. At execution time, c2j first looks for `.c2j/recipes/build.yaml` or `.c2j/recipes/evolve.yaml` in the **target cell's repository**, at its configured ref. This also applies to `--cell`; the submitting project's recipes do not override another target cell's recipes. As with other named recipes, uncommitted files are not used.
 
-Submit a local recipe file:
+If that recipe file is absent, c2j resolves one of these shared recipes instead:
+
+- `git+https://github.com/colony-2/recipes.git//build.yaml@main`
+- `git+https://github.com/colony-2/recipes.git//evolve.yaml@main`
+
+The shared repository must provide `build.yaml` and `evolve.yaml` at its root on `main`. These recipes are not bundled with c2j; until published, jobs needing the fallback cannot execute. Missing refs, authentication/network failures, and invalid recipes remain errors rather than triggering fallback. Resolution is pinned and cached by the existing job execution machinery. A shared recipe still operates on the target cell's worktree.
+
+Every submission requires a non-empty prompt, passed as `inputs.prompt`. Omit the argument in a terminal to enter it interactively:
 
 ```bash
-c2j submit --recipe-file ./recipes/my-recipe.yaml --embed
+c2j submit --evolve --embed
+```
+
+For automation, provide the positional prompt or a string `prompt` in `--inputs-json`/`--inputs-file`; missing prompts with non-terminal stdin fail immediately. Interactive prompts go to stderr, so `--json` stdout stays machine-readable.
+
+### Build/evolve input contract
+
+c2j automatically includes the selected type alongside the prompt:
+
+```json
+{"prompt": "Implement the new endpoint", "type": "build"}
+```
+
+```json
+{"prompt": "Improve retry behavior", "type": "evolve"}
+```
+
+`type` is derived from the selected recipe, not used to select it: use `--evolve` to submit an evolve job. A matching `type` in `--inputs-json` or `--inputs-file` is accepted; a conflicting or non-string value is rejected before submission. The same contract applies to target-cell recipes and shared fallbacks, including explicit selection of the names `build` and `evolve`.
+
+Both conventional recipes must declare these inputs and bind them for recipe logic:
+
+```yaml
+input_schema:
+  prompt:
+    type: string
+    required: true
+  type:
+    type: string
+    required: true
+inputs:
+  prompt: "{{ inputs.prompt }}"
+  type: "{{ inputs.type }}"
+```
+
+Custom recipe names, explicit Git selectors, and local recipe files do not receive an automatic `type`; their own input contracts apply and any supplied `type` is preserved.
+
+### Advanced recipe selection
+
+For a custom recipe, explicitly opt into advanced selection:
+
+```bash
+c2j submit "Review the changes" --advanced-recipe review --embed
+c2j submit "Review the changes" --advanced-recipe-file ./recipes/review.yaml --embed
 ```
 
 Submit and run immediately:
 
 ```bash
-c2j submit --recipe-file ./recipes/my-recipe.yaml --run --embed
+c2j submit "Review the changes" --advanced-recipe-file ./recipes/review.yaml --run --embed
 ```
 
-By default, if neither `--recipe` nor `--recipe-file` is set, `c2j` submits the recipe named `default`.
+`--advanced-recipe` accepts a target-cell recipe name or explicit git selector. `--advanced-recipe-file` embeds a local YAML file, including uncommitted changes. These flags are mutually exclusive with each other and with `--build`/`--evolve`. The old `--recipe`/`--recipe-file` flags remain hidden, deprecated aliases on `submit`; `c2j test` retains its existing flag names. Custom names and explicit selectors do not get a hosted fallback; the conventional names `build` and `evolve` do.
+
+Custom recipes submitted through the CLI must also declare the prompt in their input schema:
+
+```yaml
+input_schema:
+  prompt:
+    type: string
+    required: true
+```
 
 ### Passing inputs
 
 Inline JSON:
 
 ```bash
-c2j submit \
-  --recipe-file ./recipes/my-recipe.yaml \
+c2j submit "Run the requested task" \
+  --advanced-recipe-file ./recipes/my-recipe.yaml \
   --inputs-json '{"message":"hello"}' \
   --run \
   --embed
@@ -234,8 +293,8 @@ c2j submit \
 Inputs file in JSON or YAML:
 
 ```bash
-c2j submit \
-  --recipe-file ./recipes/my-recipe.yaml \
+c2j submit "Run the requested task" \
+  --advanced-recipe-file ./recipes/my-recipe.yaml \
   --inputs-file ./recipes/test-inputs.yaml \
   --run \
   --embed
@@ -244,7 +303,7 @@ c2j submit \
 Positional prompt shortcut:
 
 ```bash
-c2j submit "Summarize the repo" --recipe my-prompt-recipe --embed
+c2j submit "Summarize the repo" --advanced-recipe my-prompt-recipe --embed
 ```
 
 The positional argument is merged as `inputs.prompt`.
@@ -259,8 +318,8 @@ Rules:
 Attach local files as job artifacts with repeatable `--artifact` flags:
 
 ```bash
-c2j submit \
-  --recipe-file ./recipes/review-docs.yaml \
+c2j submit "Run the requested task" \
+  --advanced-recipe-file ./recipes/review-docs.yaml \
   --artifact ./docs/brief.md \
   --artifact requirements=./docs/requirements.md \
   --run \
@@ -287,14 +346,13 @@ sequence:
 Use the current cell:
 
 ```bash
-c2j submit --recipe-file ./recipes/my-recipe.yaml --self --embed
+c2j submit "Implement the new endpoint" --self --embed
 ```
 
 Use another cell explicitly:
 
 ```bash
-c2j submit \
-  --recipe-file ./recipes/my-recipe.yaml \
+c2j submit "Improve retry behavior" --evolve \
   --cell github.com/colony-2/root \
   --embed
 ```
@@ -316,8 +374,7 @@ Rules:
 If you only want the submitted job identity:
 
 ```bash
-c2j submit \
-  --recipe-file ./recipes/my-recipe.yaml \
+c2j submit "Implement the new endpoint" \
   --json \
   --embed
 ```
@@ -328,7 +385,7 @@ This emits:
 {
   "tenant_id": "0",
   "job_id": "job-...",
-  "recipe": "my_recipe_id"
+  "recipe": "build"
 }
 ```
 
@@ -611,21 +668,21 @@ jobdb: embed:///
 
 ```bash
 c2j self
-c2j submit --recipe-file ./recipes/my-recipe.yaml --run --embed
+c2j submit "Run the requested task" --advanced-recipe-file ./recipes/my-recipe.yaml --run --embed
 ```
 
 ### Detached submit, then later run
 
 ```bash
-c2j submit --recipe-file ./recipes/my-recipe.yaml --json --embed
+c2j submit "Implement the new endpoint" --json --embed
 c2j run --job-id <job-id> --embed
 ```
 
 ### Run against a remote runtime instead of embed
 
 ```bash
-c2j submit \
-  --recipe-file ./recipes/my-recipe.yaml \
+c2j submit "Run the requested task" \
+  --advanced-recipe-file ./recipes/my-recipe.yaml \
   --jobdb http://localhost:9047/my-tenant \
   --run
 ```
@@ -633,8 +690,8 @@ c2j submit \
 ### Target another cell explicitly
 
 ```bash
-c2j submit \
-  --recipe-file ./recipes/my-recipe.yaml \
+c2j submit "Run the requested task" \
+  --advanced-recipe-file ./recipes/my-recipe.yaml \
   --cell github.com/colony-2/root \
   --run \
   --embed
@@ -642,14 +699,14 @@ c2j submit \
 
 ## Gotchas
 
-- `--recipe` and `--recipe-file` are mutually exclusive
+- `--build`, `--evolve`, `--advanced-recipe`, and `--advanced-recipe-file` are mutually exclusive on `submit`
 - `--json` and `--run` are mutually exclusive on `submit`
 - `--inputs-json` and `--inputs-file` are mutually exclusive
 - `--self` and `--cell` are mutually exclusive
 - `--artifact` names must be unique relative paths; directories are not supported yet
 - `self`, `cells`, and implicit current-cell submission depend on config or supported auto-detection succeeding
 - short cell names require a config pattern; without config, use an explicit repo or path
-- `--recipe-file` is clearer than passing a local file path through `--recipe`
+- `submit --advanced-recipe-file` is clearer than passing a local file path through `--advanced-recipe`
 
 ## Related Files
 

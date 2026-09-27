@@ -11,7 +11,6 @@ import (
 	"github.com/colony-2/c2j/cmd/c2j/internal/defaults"
 	"github.com/colony-2/c2j/cmd/c2j/internal/executionflags"
 	"github.com/colony-2/c2j/pkg/execution"
-	"github.com/colony-2/c2j/pkg/worker/compiler"
 )
 
 type Options struct {
@@ -22,6 +21,8 @@ type Options struct {
 	SWFURL                string
 	Recipe                string
 	RecipeFile            string
+	Build                 bool
+	Evolve                bool
 
 	Prompt    string
 	PromptSet bool
@@ -53,9 +54,6 @@ func (o *Options) Complete(ctx context.Context) error {
 			return err
 		}
 	}
-	if strings.TrimSpace(o.Recipe) == "" && strings.TrimSpace(o.RecipeFile) == "" {
-		o.Recipe = compiler.DefaultRecipeName
-	}
 	if o.Stdout == nil {
 		o.Stdout = os.Stdout
 	}
@@ -86,6 +84,12 @@ func (o *Options) Complete(ctx context.Context) error {
 }
 
 func (o Options) Validate() error {
+	if o.Build && o.Evolve {
+		return fmt.Errorf("--build and --evolve are mutually exclusive")
+	}
+	if (o.Build || o.Evolve) && (strings.TrimSpace(o.Recipe) != "" || strings.TrimSpace(o.RecipeFile) != "") {
+		return fmt.Errorf("--build/--evolve cannot be combined with advanced recipe selection")
+	}
 	if !o.RunAfterSubmit && o.ExecutionFlags.HasArguments() {
 		return fmt.Errorf("allocation flags require --run on submit; use --require-* to override job requirements")
 	}
@@ -96,7 +100,7 @@ func (o Options) Validate() error {
 		return fmt.Errorf("--jobdb is required (or %s, or project jobdb)", defaults.JobDBEnv)
 	}
 	if strings.TrimSpace(o.Recipe) != "" && strings.TrimSpace(o.RecipeFile) != "" {
-		return fmt.Errorf("--recipe and --recipe-file are mutually exclusive")
+		return fmt.Errorf("--advanced-recipe and --advanced-recipe-file are mutually exclusive")
 	}
 	if o.Self && strings.TrimSpace(o.Cell) != "" {
 		return fmt.Errorf("--self and --cell are mutually exclusive")

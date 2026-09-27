@@ -38,6 +38,13 @@ func Run(ctx context.Context, opts Options) error {
 	if err := opts.Validate(); err != nil {
 		return err
 	}
+	inputs, err := loadInputs(opts)
+	if err != nil {
+		return err
+	}
+	if err := requirePrompt(&opts, inputs); err != nil {
+		return err
+	}
 
 	c2jops.Register()
 
@@ -53,11 +60,6 @@ func Run(ctx context.Context, opts Options) error {
 	defer cleanup()
 
 	submitArtifacts, err := loadSubmitArtifacts(opts, recipeName, embeddedRecipe != nil)
-	if err != nil {
-		return err
-	}
-
-	inputs, err := loadInputs(opts)
 	if err != nil {
 		return err
 	}
@@ -212,11 +214,21 @@ func loadRecipeStartContext(ctx context.Context, opts Options) (string, *recipe.
 		return rec.GetMetdata().ID, rec, func() {}, nil
 	}
 
-	selector := strings.TrimSpace(opts.Recipe)
+	selector := selectedRecipeName(opts)
 	if err := compiler.ValidateRecipeSelector(selector); err != nil {
 		return "", nil, nil, err
 	}
 	return selector, nil, func() {}, nil
+}
+
+func selectedRecipeName(opts Options) string {
+	if name := strings.TrimSpace(opts.Recipe); name != "" {
+		return name
+	}
+	if opts.Evolve {
+		return compiler.EvolveRecipeName
+	}
+	return compiler.DefaultRecipeName
 }
 
 func loadInputs(opts Options) (map[string]interface{}, error) {
@@ -248,11 +260,25 @@ func loadInputs(opts Options) (map[string]interface{}, error) {
 	}
 
 mergePrompt:
+	if inputs == nil {
+		return nil, fmt.Errorf("decode inputs: expected a JSON or YAML object, not null")
+	}
 	if opts.PromptSet || opts.Prompt != "" {
 		if _, exists := inputs["prompt"]; exists {
 			return nil, fmt.Errorf("prompt was provided both positionally and in recipe inputs")
 		}
 		inputs["prompt"] = opts.Prompt
+	}
+	if strings.TrimSpace(opts.RecipeFile) == "" {
+		name := selectedRecipeName(opts)
+		if name == compiler.DefaultRecipeName || name == compiler.EvolveRecipeName {
+			if value, exists := inputs["type"]; exists {
+				if supplied, ok := value.(string); !ok || supplied != name {
+					return nil, fmt.Errorf("inputs.type must be %q for this submission", name)
+				}
+			}
+			inputs["type"] = name
+		}
 	}
 	return inputs, nil
 }

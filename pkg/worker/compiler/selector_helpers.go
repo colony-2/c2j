@@ -12,9 +12,21 @@ import (
 
 const (
 	CellRecipeDirectory = ".c2j/recipes"
-	DefaultRecipeName   = "default"
+	DefaultRecipeName   = "build"
+	EvolveRecipeName    = "evolve"
 	DefaultRecipeRef    = "main"
 )
+
+// Conventional recipes use the normal target-cell lookup first. Explicit git
+// selectors and other names never fall back to the shared recipe repository.
+func conventionalRecipeFallback(name string) string {
+	switch name {
+	case DefaultRecipeName, EvolveRecipeName:
+		return "git+https://github.com/colony-2/recipes.git//" + name + ".yaml@main"
+	default:
+		return ""
+	}
+}
 
 func IsGitRecipeSelector(selector string) bool {
 	return isGitRecipeSelector(selector)

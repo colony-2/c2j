@@ -3,6 +3,7 @@ package compiler
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/url"
 	"os"
@@ -373,27 +374,21 @@ func (w rootSourceResolutionTaskWorker) Run(taskCtx jobworkflow.TaskContext, inp
 	if err != nil {
 		return nil, err
 	}
+	rec, err := loadRootRecipe(ctx, w.resolver, strings.TrimSpace(req.ProjectID), resolution)
+	if fallback := conventionalRecipeFallback(submittedSelector); fallback != "" && isGitRecipeSelector(effectiveSelector) && errors.Is(err, os.ErrNotExist) {
+		// Only an absent root recipe triggers fallback. Resolve failures (bad
+		// refs, authentication, network) and invalid recipes remain errors.
+		resolution, err = w.resolver.Resolve(ctx, strings.TrimSpace(req.ProjectID), fallback)
+		if err != nil {
+			return nil, err
+		}
+		rec, err = loadRootRecipe(ctx, w.resolver, strings.TrimSpace(req.ProjectID), resolution)
+	}
+	if err != nil {
+		return nil, err
+	}
 	if submittedSelector != "" {
 		resolution.SubmittedSelector = submittedSelector
-	}
-
-	var rec recipe.Recipe
-	if loader, ok := w.resolver.(RecipeSourceYAMLLoader); ok {
-		yamlBytes, err := loader.LoadYAML(ctx, strings.TrimSpace(req.ProjectID), resolution)
-		if err != nil {
-			return nil, err
-		}
-		parsed, err := recipe.LoadRecipeFromString(yamlBytes)
-		if err != nil {
-			return nil, err
-		}
-		rec = *parsed
-	} else {
-		loaded, err := w.resolver.Load(ctx, strings.TrimSpace(req.ProjectID), resolution)
-		if err != nil {
-			return nil, err
-		}
-		rec = loaded
 	}
 
 	expanded, err := ResolveInlineRecipes(ctx, rec, InlineResolutionOptions{
@@ -414,6 +409,21 @@ func (w rootSourceResolutionTaskWorker) Run(taskCtx jobworkflow.TaskContext, inp
 		RecipeYAML:             string(yamlBytes),
 	}
 	return jobdb.NewTaskData(source)
+}
+
+func loadRootRecipe(ctx context.Context, resolver RecipeSourceResolver, projectID string, resolution RecipeSourceResolution) (recipe.Recipe, error) {
+	if loader, ok := resolver.(RecipeSourceYAMLLoader); ok {
+		raw, err := loader.LoadYAML(ctx, projectID, resolution)
+		if err != nil {
+			return recipe.Recipe{}, err
+		}
+		parsed, err := recipe.LoadRecipeFromString(raw)
+		if err != nil {
+			return recipe.Recipe{}, err
+		}
+		return *parsed, nil
+	}
+	return resolver.Load(ctx, projectID, resolution)
 }
 
 func resolveRecipeSelectorForLookup(selector string, lookupRepo string, lookupRef string) (string, error) {

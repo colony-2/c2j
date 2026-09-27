@@ -9,6 +9,9 @@ id: echo-example
 version: "1.0.0"
 desc: Echo a submitted message
 input_schema:
+  prompt:
+    type: string
+    required: true
   message:
     type: string
     default_value: hello
@@ -24,7 +27,7 @@ outputs:
 Run:
 
 ```bash
-c2j submit --recipe-file ./echo.yaml --inputs-json '{"message":"hi"}' --run --embed
+c2j submit "Run the requested task" --advanced-recipe-file ./echo.yaml --inputs-json '{"message":"hi"}' --run --embed
 ```
 
 ## Artifact Flow

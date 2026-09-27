@@ -1,29 +1,32 @@
 package cmd
 
 import (
-	"context"
-	"github.com/colony-2/c2j/cmd/c2j/internal/executionflags"
-	"os"
-
 	"github.com/colony-2/c2j/cmd/c2j/internal/defaults"
+	"github.com/colony-2/c2j/cmd/c2j/internal/executionflags"
 	"github.com/colony-2/c2j/cmd/c2j/internal/submitjob"
 	"github.com/spf13/cobra"
 )
 
 func newSubmitCmd() *cobra.Command {
 	var useEmbed bool
-	opts := submitjob.Options{
-		Stdin:  os.Stdin,
-		Stdout: os.Stdout,
-		Stderr: os.Stderr,
-	}
+	opts := submitjob.Options{}
 
 	cmd := &cobra.Command{
 		Use:   "submit [prompt]",
-		Short: "Submit a new recipe job through JobDB",
-		Args:  cobra.MaximumNArgs(1),
+		Short: "Submit a build (default) or evolve job",
+		Long: `Submit a build (default) or evolve job for the target cell.
+
+Uses the target cell's .c2j/recipes/build.yaml or evolve.yaml, falling back
+to build.yaml or evolve.yaml on main in github.com/colony-2/recipes.
+The prompt becomes inputs.prompt; if omitted, it is requested interactively.
+Build/evolve submissions also set inputs.type to the selected mode.
+Custom recipes are an advanced use case: use --advanced-recipe[-file].`,
+		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			runOpts := opts
+			runOpts.Stdin = cmd.InOrStdin()
+			runOpts.Stdout = cmd.OutOrStdout()
+			runOpts.Stderr = cmd.ErrOrStderr()
 			runOpts.Prompt = ""
 			runOpts.PromptSet = false
 			if useEmbed {
@@ -33,7 +36,7 @@ func newSubmitCmd() *cobra.Command {
 				runOpts.Prompt = args[0]
 				runOpts.PromptSet = true
 			}
-			return submitjob.Run(context.Background(), runOpts)
+			return submitjob.Run(cmd.Context(), runOpts)
 		},
 	}
 
@@ -41,8 +44,15 @@ func newSubmitCmd() *cobra.Command {
 	executionflags.AddRequirementFlags(flags, &opts.ExecutionRequirements)
 	opts.ExecutionFlags.AddFlags(flags)
 	flags.StringVar(&opts.JobDBURI, "jobdb", "", "JobDB URI (http(s)://host/tenant or embed:///)")
-	flags.StringVar(&opts.Recipe, "recipe", "", "Recipe name or git selector to submit (defaults to default)")
-	flags.StringVar(&opts.RecipeFile, "recipe-file", "", "Path to a recipe YAML file to submit")
+	flags.BoolVar(&opts.Build, "build", false, "Submit a build job (default)")
+	flags.BoolVar(&opts.Evolve, "evolve", false, "Submit an evolve job")
+	flags.StringVar(&opts.Recipe, "advanced-recipe", "", "Advanced: custom recipe name or git selector")
+	flags.StringVar(&opts.RecipeFile, "advanced-recipe-file", "", "Advanced: custom local recipe YAML file")
+	flags.StringVar(&opts.Recipe, "recipe", "", "Deprecated alias for --advanced-recipe")
+	flags.StringVar(&opts.RecipeFile, "recipe-file", "", "Deprecated alias for --advanced-recipe-file")
+	_ = flags.MarkDeprecated("recipe", "use --advanced-recipe")
+	_ = flags.MarkDeprecated("recipe-file", "use --advanced-recipe-file")
+	cmd.MarkFlagsMutuallyExclusive("build", "evolve", "advanced-recipe", "advanced-recipe-file", "recipe", "recipe-file")
 	flags.StringVar(&opts.InputsJSON, "inputs-json", "", "Inline JSON object for recipe inputs")
 	flags.StringVar(&opts.InputsFile, "inputs-file", "", "Path to a JSON or YAML file containing recipe inputs")
 	flags.StringArrayVar(&opts.ArtifactSpecs, "artifact", nil, "Attach a local file as a job artifact; repeatable, accepts PATH or NAME=PATH")

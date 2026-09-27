@@ -5,15 +5,16 @@
 ## Local Submit And Run
 
 ```bash
-c2j submit --recipe-file ./recipes/my-recipe.yaml --run --embed
+c2j submit "Implement the endpoint" --run --embed
+c2j submit "Improve retry behavior" --evolve --run --embed
 ```
 
-This is the default local authoring workflow. It avoids a remote JobDB by using the embedded runtime.
+These resolve `build` (default) or `evolve` in the target cell, falling back to the shared recipes when absent. Embedded runtime avoids a remote JobDB. For custom local recipe authoring, use `--advanced-recipe-file ./recipes/my-recipe.yaml` instead of a mode flag and declare `prompt` in the recipe's input schema.
 
 ## Submit Then Continue Later
 
 ```bash
-c2j submit --recipe-file ./recipes/my-recipe.yaml --embed --json
+c2j submit "Implement the endpoint" --embed --json
 c2j run --job-id <job-id> --embed
 ```
 

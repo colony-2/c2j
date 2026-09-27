@@ -294,6 +294,7 @@ outputs:
 		Cell:       root,
 		RecipeFile: recipePath,
 		WorkingDir: root,
+		Prompt:     "run the child recipe",
 		JSONOutput: true,
 		Stdout:     &stdout,
 	}); err != nil {
@@ -352,7 +353,7 @@ func TestLoadInputsAddsPromptField(t *testing.T) {
 		t.Fatalf("loadInputs(): %v", err)
 	}
 
-	want := map[string]interface{}{"prompt": "ship it"}
+	want := map[string]interface{}{"prompt": "ship it", "type": "build"}
 	if !reflect.DeepEqual(inputs, want) {
 		t.Fatalf("loadInputs() = %#v, want %#v", inputs, want)
 	}
@@ -373,6 +374,7 @@ func TestLoadInputsMergesPromptWithExistingObject(t *testing.T) {
 	want := map[string]interface{}{
 		"topic":  "infra",
 		"prompt": "ship it",
+		"type":   "build",
 	}
 	if !reflect.DeepEqual(inputs, want) {
 		t.Fatalf("loadInputs() = %#v, want %#v", inputs, want)

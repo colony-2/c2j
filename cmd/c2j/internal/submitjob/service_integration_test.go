@@ -35,6 +35,9 @@ func TestRun_SubmitsJobThatCanBeRun(t *testing.T) {
 	tenantID := "tenant-submit-test"
 	recipeYAML := strings.TrimSpace(`
 id: nucleus_submit_recipe
+input_schema:
+  prompt:
+    type: string
 desc: simple recipe used to verify c2j submission
 version: "1.0"
 sequence:
@@ -64,6 +67,7 @@ outputs:
 		RecipeFile: recipePath,
 		Cell:       baseRepo,
 		JSONOutput: true,
+		Prompt:     "run the test recipe",
 		Stdout:     &submitStdout,
 	}); err != nil {
 		t.Fatalf("submit job: %v", err)
@@ -141,6 +145,9 @@ func TestRun_SubmitsAttachedArtifactAndRecipeReadsInboxFile(t *testing.T) {
 	tenantID := "tenant-submit-artifact-test"
 	recipeYAML := strings.TrimSpace(`
 id: submit_artifact_recipe
+input_schema:
+  prompt:
+    type: string
 desc: verifies submit-time file artifacts are visible to recipe ops
 version: "1.0"
 sequence:
@@ -178,6 +185,7 @@ outputs:
 		Cell:          baseRepo,
 		WorkingDir:    root,
 		ArtifactSpecs: []string{"brief.md"},
+		Prompt:        "read the attached brief",
 		JSONOutput:    true,
 		Stdout:        &submitStdout,
 	}); err != nil {
@@ -250,6 +258,9 @@ func TestRun_ForwardsSubmittedArtifactToChildRecipe(t *testing.T) {
 	tenantID := "tenant-child-artifact-forwarding-test"
 	parentYAML := strings.TrimSpace(`
 id: parent-artifact-forwarding
+input_schema:
+  prompt:
+    type: string
 version: "1.0"
 sequence:
   - id: child
@@ -298,6 +309,7 @@ outputs:
 	if err := Run(ctx, Options{
 		JobDBURI:      testJobDBURI(server.URL, tenantID),
 		Recipe:        "parent-artifact-forwarding",
+		Prompt:        "forward the attached brief",
 		Cell:          baseRepo,
 		WorkingDir:    baseRepo,
 		ArtifactSpecs: []string{"brief.md=" + briefPath},
@@ -402,6 +414,9 @@ func TestRun_SubmitsRecipeReferenceThatResolvesAtExecution(t *testing.T) {
 	tenantID := "tenant-submit-ref-test"
 	recipeYAML := strings.TrimSpace(`
 id: nucleus_submit_ref_recipe
+input_schema:
+  prompt:
+    type: string
 desc: simple recipe used to verify c2j reference submission
 version: "1.0"
 sequence:
@@ -426,6 +441,7 @@ outputs:
 	if err := Run(ctx, Options{
 		JobDBURI:   testJobDBURI(server.URL, tenantID),
 		Recipe:     "nucleus_submit_ref_recipe",
+		Prompt:     "run the referenced recipe",
 		Cell:       baseRepo,
 		JSONOutput: true,
 		Stdout:     &submitStdout,
@@ -483,7 +499,7 @@ outputs:
 	}
 }
 
-func TestRun_SubmitsCurrentCellByDefaultUsingConfigDefaultRecipe(t *testing.T) {
+func TestRun_SubmitsCurrentCellByDefaultUsingBuildRecipe(t *testing.T) {
 	t.Parallel()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
@@ -491,7 +507,13 @@ func TestRun_SubmitsCurrentCellByDefaultUsingConfigDefaultRecipe(t *testing.T) {
 
 	tenantID := "tenant-submit-self-test"
 	recipeYAML := strings.TrimSpace(`
-id: default_recipe
+id: build_recipe
+input_schema:
+  prompt:
+    type: string
+  type:
+    type: string
+    required: true
 desc: simple recipe used to verify c2j self submission
 version: "1.0"
 sequence:
@@ -505,7 +527,7 @@ outputs:
 `) + "\n"
 
 	baseRepo, _ := createGitRepo(t)
-	mustWriteRepoFile(t, baseRepo, ".c2j/recipes/default.yaml", recipeYAML)
+	mustWriteRepoFile(t, baseRepo, ".c2j/recipes/build.yaml", recipeYAML)
 	mustWriteRepoFile(t, baseRepo, ".c2j/config.yaml", "self:\n  repo: "+baseRepo+"\n  ref: main\n")
 	commitRepo(t, baseRepo, "add self config and default recipe")
 
@@ -518,6 +540,7 @@ outputs:
 		JobDBURI:   testJobDBURI(server.URL, tenantID),
 		WorkingDir: baseRepo,
 		JSONOutput: true,
+		Prompt:     "build the current cell",
 		Stdout:     &submitStdout,
 	}); err != nil {
 		t.Fatalf("submit job: %v", err)
@@ -576,6 +599,90 @@ outputs:
 	}
 	if got["result"] != "hello-from-self" {
 		t.Fatalf("unexpected output: %#v", got)
+	}
+}
+
+func TestRun_ConventionsUseTargetCellNotSubmittingCell(t *testing.T) {
+	t.Parallel()
+	for _, kind := range []string{"build", "evolve"} {
+		t.Run(kind, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+			defer cancel()
+			targetRepo, _ := createGitRepo(t)
+			submittingRepo, _ := createGitRepo(t)
+			mustWriteRepoFile(t, targetRepo, ".c2j/recipes/"+kind+".yaml", `
+id: target_recipe
+version: "1.0"
+input_schema:
+  prompt:
+    type: string
+    required: true
+  type:
+    type: string
+    required: true
+inputs:
+  prompt: "{{ inputs.prompt }}"
+  type: "{{ inputs.type }}"
+sequence: []
+outputs:
+  prompt: "{{ inputs.prompt }}"
+  type: "{{ inputs.type }}"
+  source: target
+`)
+			commitRepo(t, targetRepo, "target recipe")
+			mustWriteRepoFile(t, submittingRepo, ".c2j/recipes/"+kind+".yaml", "invalid: [")
+			mustWriteRepoFile(t, submittingRepo, ".c2j/config.yaml", "self:\n  repo: "+submittingRepo+"\n  ref: main\n")
+			commitRepo(t, submittingRepo, "unrelated submitting cell")
+			underlying := toyruntime.New()
+			server := httptest.NewServer(remoteruntime.NewServer(underlying))
+			defer server.Close()
+			var stdout, stderr bytes.Buffer
+			err := Run(ctx, Options{
+				JobDBURI:   testJobDBURI(server.URL, "target-conventions"),
+				WorkingDir: submittingRepo, Cell: targetRepo, Evolve: kind == "evolve",
+				RunAfterSubmit: true, Stdin: strings.NewReader("interactive prompt\n"),
+				Stdout: &stdout, Stderr: &stderr,
+			})
+			if err != nil {
+				t.Fatalf("submit and run: %v\n%s", err, &stderr)
+			}
+			if !strings.Contains(stderr.String(), "Prompt: ") {
+				t.Fatalf("missing interactive prompt: %s", &stderr)
+			}
+			firstLine, _, _ := strings.Cut(stdout.String(), "\n")
+			if !strings.Contains(firstLine, "recipe="+kind) {
+				t.Fatalf("unexpected submission: %s", firstLine)
+			}
+			runtime, err := remoteruntime.New(server.URL, server.Client())
+			if err != nil {
+				t.Fatal(err)
+			}
+			engine, err := jobworkflow.NewEngineBuilder().WithRuntime(runtime).BuildEngine()
+			if err != nil {
+				t.Fatal(err)
+			}
+			run, err := engine.GetJobRun(ctx, jobdb.GetJobRunRequest{
+				JobKey: jobdb.JobKey{TenantId: "target-conventions", JobId: extractSubmittedJobID(firstLine)}, IncludeOutputs: true,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			output, err := run.GetOutput(engine, "target-conventions")
+			if err != nil {
+				t.Fatal(err)
+			}
+			raw, err := output.GetData()
+			if err != nil {
+				t.Fatal(err)
+			}
+			var got map[string]any
+			if err := json.Unmarshal(raw, &got); err != nil {
+				t.Fatal(err)
+			}
+			if got["source"] != "target" || got["prompt"] != "interactive prompt" || got["type"] != kind {
+				t.Fatalf("wrong target/inputs: %#v", got)
+			}
+		})
 	}
 }
 
@@ -676,6 +783,9 @@ func TestRun_SubmitsAndExecutesWithEmbeddedRuntime(t *testing.T) {
 
 	recipeYAML := strings.TrimSpace(`
 id: embed_submit_recipe
+input_schema:
+  prompt:
+    type: string
 desc: simple recipe used to verify c2j embedded execution
 version: "1.0"
 sequence:
@@ -699,6 +809,7 @@ outputs:
 	if err := Run(ctx, Options{
 		JobDBURI:   "embed:///",
 		RecipeFile: recipePath,
+		Prompt:     "run the embedded test recipe",
 		Cell:       baseRepo,
 		JSONOutput: true,
 		Stdout:     &submitStdout,
@@ -776,6 +887,9 @@ func TestRun_EmbedExtensionFailureCompletesWithOriginalError(t *testing.T) {
 	baseRepo, _ := createGitRepo(t)
 	mustWriteRepoFile(t, baseRepo, ".c2j/recipes/failing_extension_recipe.yaml", strings.TrimSpace(`
 id: failing_extension_recipe
+input_schema:
+  prompt:
+    type: string
 desc: verifies extension failures become terminal recipe failures
 version: "1.0"
 sequence:
@@ -807,6 +921,7 @@ output_schema:
 	err := Run(ctx, Options{
 		JobDBURI:       "embed:///",
 		Recipe:         "failing_extension_recipe",
+		Prompt:         "exercise the failing extension",
 		Cell:           baseRepo,
 		RunAfterSubmit: true,
 		Stdin:          bytes.NewBuffer(nil),

@@ -22,8 +22,8 @@ func TestOptionsCompleteUsesExplicitJobDBURI(t *testing.T) {
 	if opts.TenantID != "dev" {
 		t.Fatalf("TenantID = %q", opts.TenantID)
 	}
-	if opts.Recipe != "default" {
-		t.Fatalf("Recipe = %q, want default", opts.Recipe)
+	if opts.Recipe != "" {
+		t.Fatalf("Recipe = %q, want convention selected at load time", opts.Recipe)
 	}
 }
 
