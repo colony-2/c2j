@@ -62,8 +62,11 @@ type ScopeMetadata struct {
 // ResolutionContext represents template resolution context
 type ResolutionContext struct {
 	// ExecutionNeeds is lexical same-job state, never a persistent job override.
-	ExecutionNeeds execution.Requirements
-	commitContext  *contextual.GitCommitContext
+	ExecutionNeeds    execution.Requirements
+	commitContext     *contextual.GitCommitContext
+	workspaceBase     *contextual.GitBaseContext
+	workspaceCounters map[string]int64
+	workspaceCaller   *ResolutionContext
 
 	// Scope type: "root", "sequence", "state_machine", "state"
 	ScopeType ScopeType
@@ -106,6 +109,9 @@ func (rc *ResolutionContext) GetGitCommitContext() contextual.GitCommitContext {
 // NewRecipeResolutionContext creates a new resolution context for a recipe
 func NewRecipeResolutionContext(commitContext *contextual.GitCommitContext, recipeInputs map[string]interface{}, execCtx contextual.JobContext, opts ...ResolutionOptions) (*ResolutionContext, error) {
 	tracker := newInvocationTracker()
+	if execCtx.Workspace == nil {
+		execCtx.Workspace = &contextual.WorkspaceContext{Cell: execCtx.Workflow.CellName}
+	}
 
 	options := DefaultResolutionOptions()
 	if len(opts) > 0 {
@@ -145,9 +151,20 @@ func newResolutionContext(commitContext *contextual.GitCommitContext, tracker *i
 			}),
 			Locals: make(map[string]interface{}),
 		},
-		artifactCache: make(map[string]jobdb.Artifact),
+		artifactCache:     make(map[string]jobdb.Artifact),
+		workspaceCounters: make(map[string]int64),
 	}
 
+	if execCtx.Workspace != nil && execCtx.Workspace.ScopeID != "" {
+		base := execCtx.GitBase
+		rc.workspaceBase = &base
+	}
+
+	return rc.initializeCEL()
+}
+
+func (rc *ResolutionContext) initializeCEL() (*ResolutionContext, error) {
+	options := rc.Options
 	// Initialize CEL environment
 	// Note: We use a custom type adapter to properly handle Go struct embedding
 	// CEL doesn't natively understand Go's anonymous struct fields, so we need to
@@ -174,6 +191,7 @@ func newResolutionContext(commitContext *contextual.GitCommitContext, tracker *i
 			reflect.TypeOf(contextual.EnvironmentContext{}),
 			reflect.TypeOf(contextual.WorkflowContext{}),
 			reflect.TypeOf(contextual.GitBaseContext{}),
+			reflect.TypeOf(contextual.WorkspaceContext{}),
 			reflect.TypeOf(contextual.GitCommitContext{}),
 			reflect.TypeOf(contextual.Invocation{}),
 			reflect.TypeOf(recipe.RuntimeFailure{}),
@@ -212,7 +230,7 @@ func newResolutionContext(commitContext *contextual.GitCommitContext, tracker *i
 			FunctionOptionsWithContext(types.Adapter, funcregistry.ContextProvider) ([]cel.EnvOption, error)
 		}
 		ctxProvider := func() contextual.TaskExecutionContext {
-			return rc.TemplateData.Context
+			return rc.TaskExecutionContext()
 		}
 		if cp, ok := options.CELOptionsProvider.(contextualProvider); ok {
 			extraOpts, err = cp.FunctionOptionsWithContext(adapter, ctxProvider)
@@ -237,6 +255,7 @@ func newResolutionContext(commitContext *contextual.GitCommitContext, tracker *i
 }
 
 func (rc *ResolutionContext) TaskExecutionContext() contextual.TaskExecutionContext {
+	rc.syncWorkspace()
 	return rc.TemplateData.Context
 }
 
@@ -360,6 +379,8 @@ func (rc *ResolutionContext) NewChildContext(scopeType ScopeType, metadata recip
 	}
 
 	child.Parent = rc
+	child.workspaceBase = rc.workspaceBase
+	child.workspaceCounters = rc.workspaceCounters
 	rc.ensureContextBackfill()
 	return child, nil
 }
@@ -511,7 +532,7 @@ func (rc *ResolutionContext) evaluateCELExpression(expr string) (interface{}, er
 		"transition": rc.TemplateData.Transition.AsMap(),
 		"failure":    rc.TemplateData.Failure,
 		"scope":      rc.TemplateData.Scope,
-		"context":    rc.TemplateData.Context,
+		"context":    rc.TaskExecutionContext(),
 		"item":       rc.localValue("item"),
 		"index":      rc.localValue("index"),
 	})

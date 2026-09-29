@@ -69,3 +69,9 @@ Remote JobDB values normally include enough information to resolve tenant/runtim
 When a command targets the wrong cell, run `c2j self --json` and verify `short_name`, `repo`, `ref`, `root_repo`, `root_ref`, and `pattern`.
 
 When no jobs are visible, compare the target tenant/cell, stores/status filters, and whether the command is pointed at embedded or remote JobDB.
+
+## Recipe Node Workspaces
+
+`workspace: {cell: cellB}` on a recipe node changes its working data, while the submitted job stays in its original cell. `c2j list` and job provenance continue to use that owner. Inside commands, `C2J_WORKSPACE_CELL_NAME` identifies the active workspace and `C2J_WORKSPACE_SCOPE_ID` identifies an overridden scope; `C2J_CURRENT_*` remains job provenance.
+
+Submission captures effective cell naming settings for node selectors. Workers do not consult their own current directory's config. Short names require that captured pattern; explicit repository locations also work. Upgrade recipe compilers and task workers together before submitting recipes with workspace declarations. Custom hosts registering workers individually must add `compiler.NewWorkspaceResolutionTaskWorker()` and use the updated JobDB schema.

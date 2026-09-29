@@ -17,6 +17,11 @@ import (
 )
 
 func (d DefaultRecipeExecutor) ExecuteChildGroup(ctx workflow.Context, parent *template.ResolutionContext, metadata recipe.NodeMetadata, group recipe.ChildGroupData) error {
+	if metadata.Workspace != nil {
+		return withNodeWorkspace(ctx, parent, metadata, func(inner workflow.Context, scoped *template.ResolutionContext, meta recipe.NodeMetadata) error {
+			return d.ExecuteChildGroup(inner, scoped, meta, group)
+		})
+	}
 	renderCtx, err := parent.NewChildContext(template.ScopeOp, metadata, "child_group", nil)
 	if err != nil {
 		return fmt.Errorf("failed to create child_group resolution context: %w", err)

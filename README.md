@@ -393,6 +393,22 @@ Note:
 
 - `--json` and `--run` are mutually exclusive
 
+## Node workspaces
+
+Use `workspace: {cell: cellB}` on a recipe node to run against another cell's data. Every explicit declaration starts a fresh workspace; descendants share its durable Git snapshots. Cell and optional `ref` values accept runtime templates. When the node exits, execution resumes in the enclosing workspace without adopting its changes or publishing to the target cell.
+
+```yaml
+sequence:
+  - id: inspect
+    workspace: {cell: cellB, ref: main}
+    op: command_execution
+    inputs:
+      working_directory: "{{ context.environment.op.worktree_path }}"
+      run: "cat README.md"
+```
+
+`context.workflow.cell` remains the owning job's cell; `context.workspace.cell` and `context.git.*` describe the active workspace. See [Run a recipe node in another cell](GUIDE-Node-Workspaces.md) for scope, replay, child-job, and deployment details.
+
 ## Testing Recipes
 
 `c2j test` compiles, validates, and runs recipe test suites locally. It does not call the old Colony2 API.

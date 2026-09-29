@@ -1,10 +1,15 @@
 package gitstate
 
-import "github.com/colony-2/c2j/pkg/contextual"
+import (
+	"github.com/colony-2/c2j/pkg/cellref"
+	"github.com/colony-2/c2j/pkg/contextual"
+)
 
 // GlobalGitTaskContext contains machine-independent git context (serializable)
 // This can be safely serialized and sent between machines
 type GlobalGitTaskContext struct {
+	Workspace        *contextual.WorkspaceContext     `json:"workspace,omitempty"`
+	CellResolution   *cellref.Context                 `json:"cell_resolution,omitempty"`
 	BaseRepo         string                           `json:"base_repo,omitempty"`
 	BaseRef          string                           `json:"base_ref,omitempty"`
 	ResolvedBaseHash string                           `json:"resolved_base_hash,omitempty"`
@@ -22,7 +27,14 @@ type GlobalGitTaskContext struct {
 
 // NewGlobalGitTaskContext creates a GlobalGitTaskContext from TaskExecutionContext
 func NewGlobalGitTaskContext(tec contextual.TaskExecutionContext) *GlobalGitTaskContext {
+	var ws *contextual.WorkspaceContext
+	if tec.Workspace != nil && tec.Workspace.ScopeID != "" {
+		copy := *tec.Workspace
+		ws = &copy
+	}
+	resolution := tec.CellResolution
 	return &GlobalGitTaskContext{
+		Workspace: ws, CellResolution: resolution,
 		BaseRepo:         tec.GitTask.BaseRepo,
 		BaseRef:          tec.GitTask.BaseRef,
 		ResolvedBaseHash: tec.GitTask.ResolvedBaseHash,
@@ -76,4 +88,11 @@ func cloneInlineStack(in []contextual.InlineBoundaryFrame) []contextual.InlineBo
 	out := make([]contextual.InlineBoundaryFrame, len(in))
 	copy(out, in)
 	return out
+}
+
+func (c *GlobalGitTaskContext) GetWorkspaceCellName() string {
+	if c.Workspace != nil && c.Workspace.Cell != "" {
+		return c.Workspace.Cell
+	}
+	return c.CellName
 }

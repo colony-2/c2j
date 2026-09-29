@@ -39,6 +39,24 @@ var c2jJobSchema = json.RawMessage(`{
     },
     "additionalProperties": true,
     "$defs": {
+      "workspaceContext": {
+        "type": "object",
+        "properties": {
+          "cell": { "type": "string" },
+          "scope_id": { "type": "string" },
+          "parent_scope_id": { "type": "string" },
+          "initial_hash": { "type": "string" }
+        }, "additionalProperties": false
+      },
+      "cellResolutionContext": {
+        "type": "object",
+        "properties": {
+          "pattern": { "type": "string" },
+          "self_repo": { "type": "string" }, "self_ref": { "type": "string" },
+          "root_repo": { "type": "string" }, "root_ref": { "type": "string" },
+          "base_dir": { "type": "string" }
+        }, "additionalProperties": false
+      },
       "artifactKey": {
         "type": "object",
         "required": ["jobId", "taskOrdinal", "name", "sizeBytes"],
@@ -131,6 +149,10 @@ var c2jJobSchema = json.RawMessage(`{
       "jobContext": {
         "type": "object",
         "properties": {
+          "workspace": { "$ref": "#/$defs/workspaceContext" },
+          "cell_resolution": { "$ref": "#/$defs/cellResolutionContext" },
+          "initial_commit": { "type": "object", "properties": { "hash": {"type":"string"}, "parent_hash": {"type":"string"}, "parent_ref": {"type":"string"} }, "additionalProperties": false },
+          "restore_artifact": { "$ref": "#/$defs/artifactKey" },
           "environment": { "$ref": "#/$defs/environmentContext" },
           "artifacts": {
             "type": "object",
@@ -211,12 +233,31 @@ var c2jJobSchema = json.RawMessage(`{
     "anyOf": [
       { "$ref": "#/$defs/rootResolveChapter" },
       { "$ref": "#/$defs/withinResolveChapter" },
+      { "$ref": "#/$defs/workspaceResolveChapter" },
       { "$ref": "#/$defs/activityInvocationChapter" },
       { "$ref": "#/$defs/restartExtraChapter" },
       { "$ref": "#/$defs/jobAttemptOutcomeChapter" }
     ],
     "additionalProperties": true,
     "$defs": {
+      "workspaceContext": {
+        "type": "object",
+        "properties": {
+          "cell": { "type": "string" },
+          "scope_id": { "type": "string" },
+          "parent_scope_id": { "type": "string" },
+          "initial_hash": { "type": "string" }
+        }, "additionalProperties": false
+      },
+      "cellResolutionContext": {
+        "type": "object",
+        "properties": {
+          "pattern": { "type": "string" },
+          "self_repo": { "type": "string" }, "self_ref": { "type": "string" },
+          "root_repo": { "type": "string" }, "root_ref": { "type": "string" },
+          "base_dir": { "type": "string" }
+        }, "additionalProperties": false
+      },
       "artifactKey": {
         "type": "object",
         "required": ["jobId", "taskOrdinal", "name", "sizeBytes"],
@@ -273,6 +314,8 @@ var c2jJobSchema = json.RawMessage(`{
         "type": "object",
         "required": ["invoke_seq"],
         "properties": {
+          "workspace": { "$ref": "#/$defs/workspaceContext" },
+          "cell_resolution": { "$ref": "#/$defs/cellResolutionContext" },
           "base_repo": { "type": "string" },
           "base_ref": { "type": "string" },
           "resolved_base_hash": { "type": "string" },
@@ -395,6 +438,23 @@ var c2jJobSchema = json.RawMessage(`{
         },
         "additionalProperties": false
       },
+      "workspaceResolutionInput": {
+        "type":"object", "required":["cell","scope_id","resolution"],
+        "properties": {
+          "cell":{"type":"string","minLength":1}, "ref":{"type":"string"},
+          "scope_id":{"type":"string","minLength":1}, "parent_scope_id":{"type":"string"},
+          "resolution":{"$ref":"#/$defs/cellResolutionContext"}
+        }, "additionalProperties":false
+      },
+      "workspaceResolutionOutput": {
+        "type":"object", "required":["workspace","git"],
+        "properties": {
+          "workspace":{"$ref":"#/$defs/workspaceContext"},
+          "git":{"type":"object", "properties":{
+            "repo":{"type":"string"},"ref":{"type":"string"},"resolved_hash":{"type":"string"},"author":{"type":"string"}
+          },"additionalProperties":false}
+        }, "additionalProperties":false
+      },
       "activityInvocationRequest": {
         "type": "object",
         "required": ["input", "context"],
@@ -403,6 +463,8 @@ var c2jJobSchema = json.RawMessage(`{
             "type": "object",
             "additionalProperties": true
           },
+          "workspace_managed": { "type": "boolean" },
+          "restore_artifact": { "$ref": "#/$defs/artifactKey" },
           "const": { "type": "boolean" },
           "context": { "$ref": "#/$defs/globalGitTaskContext" },
           "artifact_keys": {
@@ -421,6 +483,7 @@ var c2jJobSchema = json.RawMessage(`{
         "required": ["output"],
         "properties": {
           "git": { "$ref": "#/$defs/gitCommitContext" },
+          "workspace_scope_id": { "type": "string" },
           "nextTaskType": { "type": "string" },
 		  "execution": { "type": "object" },
           "output": true,
@@ -567,13 +630,44 @@ var c2jJobSchema = json.RawMessage(`{
           }
         }
       },
+      "workspaceResolveChapter": {
+        "type": "object",
+        "required": ["taskType", "input", "body"],
+        "properties": {
+          "taskType": { "const": "recipe_workspace_resolve" },
+          "input": { "$ref": "#/$defs/workspaceResolutionInput" },
+          "body": {
+            "allOf": [
+              { "$ref": "#/$defs/taskAttemptBody" },
+              {
+                "properties": {
+                  "outcome": {
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "required": ["kind", "output"],
+                        "properties": {
+                          "kind": { "const": "success" },
+                          "output": { "$ref": "#/$defs/workspaceResolutionOutput" }
+                        },
+                        "additionalProperties": false
+                      },
+                      { "$ref": "#/$defs/failureOutcome" }
+                    ]
+                  }
+                }
+              }
+            ]
+          }
+        }
+      },
       "activityInvocationChapter": {
         "type": "object",
         "required": ["taskType", "body"],
         "properties": {
           "taskType": {
             "type": "string",
-            "not": { "enum": ["recipe_root_source_resolve", "recipe_within_resolution", "__restart_extra__"] }
+            "not": { "enum": ["recipe_root_source_resolve", "recipe_within_resolution", "recipe_workspace_resolve", "__restart_extra__"] }
           },
           "input": { "$ref": "#/$defs/activityInvocationRequest" },
           "body": {

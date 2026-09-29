@@ -22,32 +22,36 @@ const thinPackSentinel = gitstate.ThinPackArtifactName
 
 // ActivityInvocationRequest wraps the invocation metadata and original input payload.
 type ActivityInvocationRequest struct {
-	Input          map[string]interface{}         `json:"input"`
-	Const          bool                           `json:"const,omitempty"`
-	GitTaskContext gitstate.GlobalGitTaskContext  `json:"context"`
-	ArtifactKeys   []jobdb.ArtifactKey            `json:"artifact_keys,omitempty"`
-	Artifacts      map[string]recipeartifacts.Ref `json:"artifacts,omitempty"`
-	Deps           ops.OpDependencies             `json:"-"`
+	WorkspaceManaged bool                           `json:"workspace_managed,omitempty"`
+	RestoreArtifact  *jobdb.ArtifactKey             `json:"restore_artifact,omitempty"`
+	Input            map[string]interface{}         `json:"input"`
+	Const            bool                           `json:"const,omitempty"`
+	GitTaskContext   gitstate.GlobalGitTaskContext  `json:"context"`
+	ArtifactKeys     []jobdb.ArtifactKey            `json:"artifact_keys,omitempty"`
+	Artifacts        map[string]recipeartifacts.Ref `json:"artifacts,omitempty"`
+	Deps             ops.OpDependencies             `json:"-"`
 }
 
 // ActivityInvocationOutput wraps the raw op output alongside workspace results.
 type ActivityInvocationOutput struct {
-	Execution    *execution.Requirements        `json:"execution,omitempty"`
-	GitResult    contextual.GitCommitContext    `json:"git,omitempty"`
-	NextTask     string                         `json:"nextTaskType,omitempty"`
-	OpOutput     map[string]interface{}         `json:"output"`
-	ArtifactRefs map[string]recipeartifacts.Ref `json:"artifact_refs,omitempty"`
-	Jobs         jobcontext.StartedJobsContext  `json:"jobs,omitempty"`
+	WorkspaceScopeID string                         `json:"workspace_scope_id,omitempty"`
+	Execution        *execution.Requirements        `json:"execution,omitempty"`
+	GitResult        contextual.GitCommitContext    `json:"git,omitempty"`
+	NextTask         string                         `json:"nextTaskType,omitempty"`
+	OpOutput         map[string]interface{}         `json:"output"`
+	ArtifactRefs     map[string]recipeartifacts.Ref `json:"artifact_refs,omitempty"`
+	Jobs             jobcontext.StartedJobsContext  `json:"jobs,omitempty"`
 }
 
 // variation of ActivityInvocationOutput that allows arbitrary output types to avoid double serialization
 type ActivityInvocationOutputRaw struct {
-	Execution    *execution.Requirements        `json:"execution,omitempty"`
-	GitResult    contextual.GitCommitContext    `json:"git,omitempty"`
-	NextTask     string                         `json:"nextTaskType,omitempty"`
-	Output       any                            `json:"output"`
-	ArtifactRefs map[string]recipeartifacts.Ref `json:"artifact_refs,omitempty"`
-	Jobs         jobcontext.StartedJobsContext  `json:"jobs,omitempty"`
+	WorkspaceScopeID string                         `json:"workspace_scope_id,omitempty"`
+	Execution        *execution.Requirements        `json:"execution,omitempty"`
+	GitResult        contextual.GitCommitContext    `json:"git,omitempty"`
+	NextTask         string                         `json:"nextTaskType,omitempty"`
+	Output           any                            `json:"output"`
+	ArtifactRefs     map[string]recipeartifacts.Ref `json:"artifact_refs,omitempty"`
+	Jobs             jobcontext.StartedJobsContext  `json:"jobs,omitempty"`
 }
 
 // ActivityRegistration holds the activity step and its generated schemas.

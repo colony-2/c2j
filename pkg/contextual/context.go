@@ -4,7 +4,9 @@ import (
 	"time"
 
 	"github.com/colony-2/c2j/pkg/artifacts"
+	"github.com/colony-2/c2j/pkg/cellref"
 	"github.com/colony-2/c2j/pkg/jobcontext"
+	"github.com/colony-2/jobdb/pkg/jobdb"
 )
 
 // WorktreePathSentinel is a placeholder value used during template resolution
@@ -62,11 +64,15 @@ type WorkflowContext struct {
 
 // ExecutionContext holds typed workflow context available to templates. It is created per task.
 type JobContext struct {
-	Environment  EnvironmentContext       `json:"environment,omitempty"`
-	Artifacts    map[string]artifacts.Ref `json:"artifacts,omitempty"`
-	Workflow     WorkflowContext          `json:"workflow,omitempty"`
-	GitBase      GitBaseContext           `json:"git,omitempty"`
-	RecipeSource RecipeSourceContext      `json:"recipe_source,omitempty"`
+	InitialCommit   *GitCommitContext        `json:"initial_commit,omitempty"`
+	RestoreArtifact *jobdb.ArtifactKey       `json:"restore_artifact,omitempty"`
+	Workspace       *WorkspaceContext        `json:"workspace,omitempty"`
+	CellResolution  *cellref.Context         `json:"cell_resolution,omitempty"`
+	Environment     EnvironmentContext       `json:"environment,omitempty"`
+	Artifacts       map[string]artifacts.Ref `json:"artifacts,omitempty"`
+	Workflow        WorkflowContext          `json:"workflow,omitempty"`
+	GitBase         GitBaseContext           `json:"git,omitempty"`
+	RecipeSource    RecipeSourceContext      `json:"recipe_source,omitempty"`
 }
 
 type TaskContext struct {
@@ -77,6 +83,7 @@ type TaskContext struct {
 
 func NewTaskExecutionContext(ctx JobContext, ctx2 TaskContext) TaskExecutionContext {
 	return TaskExecutionContext{
+		Workspace: ctx.Workspace, CellResolution: ctx.CellResolution,
 		Environment:  ctx.Environment,
 		Artifacts:    cloneArtifactRefs(ctx.Artifacts),
 		Workflow:     ctx.Workflow,
@@ -99,6 +106,8 @@ func NewTaskExecutionContext(ctx JobContext, ctx2 TaskContext) TaskExecutionCont
 }
 
 type TaskExecutionContext struct {
+	Workspace      *WorkspaceContext `json:"workspace,omitempty"`
+	CellResolution *cellref.Context  `json:"cell_resolution,omitempty"`
 	// embed these directly from task and job contexts for easier resolution.
 	Environment  EnvironmentContext       `json:"environment,omitempty"`
 	Artifacts    map[string]artifacts.Ref `json:"artifacts,omitempty"`
@@ -139,6 +148,7 @@ type InvocationCtx struct {
 
 func (t TaskExecutionContext) JobContext() JobContext {
 	return JobContext{
+		Workspace: t.Workspace, CellResolution: t.CellResolution,
 		Environment: t.Environment,
 		Artifacts:   cloneArtifactRefs(t.Artifacts),
 		Workflow:    t.Workflow,

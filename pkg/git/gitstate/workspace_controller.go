@@ -77,6 +77,12 @@ func (c *Controller) Restore(ctx context.Context, task *GitTaskContext, thinPack
 	}
 
 	targetRef := strings.TrimSpace(task.GetBaseRef())
+	if task.Workspace != nil && task.Workspace.InitialHash != "" {
+		targetRef = strings.TrimSpace(task.ResolvedBaseHash)
+		if targetRef == "" {
+			targetRef = task.Workspace.InitialHash
+		}
+	}
 	targetHash := strings.TrimSpace(task.GetPersistHash())
 
 	if !dirExists(filepath.Join(task.GetWorktreePath(), ".git")) {
@@ -517,7 +523,7 @@ func persistAuthor(task *GitTaskContext) string {
 	if author := strings.TrimSpace(task.GetGitAuthor()); author != "" {
 		return author
 	}
-	if cell := strings.TrimSpace(task.GetCellName()); cell != "" {
+	if cell := strings.TrimSpace(task.GetWorkspaceCellName()); cell != "" {
 		return fmt.Sprintf("%s <%s@colony2>", cell, cell)
 	}
 	return defaultGitAuthor
@@ -541,10 +547,17 @@ func (c *Controller) cloneIfNeeded(ctx context.Context, task *GitTaskContext) er
 		return fmt.Errorf("prepare worktree dir: %w", err)
 	}
 
+	cloneRef := task.GetBaseRef()
+	if task.Workspace != nil && task.Workspace.InitialHash != "" {
+		cloneRef = task.ResolvedBaseHash
+		if cloneRef == "" {
+			cloneRef = task.Workspace.InitialHash
+		}
+	}
 	input := gitshallow.GitShallowCloneInput{
 		SourceDir:  source,
 		TargetDir:  task.GetWorktreePath(),
-		CommitHash: task.GetBaseRef(),
+		CommitHash: cloneRef,
 	}
 	if _, err := gitshallow.GitShallowClone(ctx, input); err != nil {
 		return fmt.Errorf("clone workspace: %w", err)

@@ -90,6 +90,7 @@ func BuildStartJob(req BuildStartJobRequest) (workflowctl.StartJob, error) {
 		ArtifactRefs: append([]recipeartifacts.Ref(nil), req.ArtifactRefs...),
 		Parent:       cloneParent(req.Parent),
 		JobContext: contextual.JobContext{
+			CellResolution: req.Target.CellResolution,
 			Workflow: contextual.WorkflowContext{
 				CellName:  cellName,
 				ProjectId: tenantID,

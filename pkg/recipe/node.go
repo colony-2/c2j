@@ -33,6 +33,9 @@ func (Node) JSONSchema() *jsonschema.Schema {
 }
 
 func (n *Node) UnmarshalYAML(node *yamlv3.Node) error {
+	if err := validateWorkspaceField(node); err != nil {
+		return err
+	}
 	var raw map[string]interface{}
 	if err := node.Decode(&raw); err != nil {
 		return err
@@ -268,6 +271,7 @@ func (NodeOp) JSONSchema() *jsonschema.Schema {
 func (n *NodeOp) isNode() {}
 
 type NodeMetadata struct {
+	Workspace      *WorkspaceSpec         `yaml:"workspace,omitempty" json:"workspace,omitempty"`
 	ExecutionNeeds *ExecutionNeeds        `yaml:"execution_needs,omitempty" json:"execution_needs,omitempty"`
 	ID             string                 `yaml:"id,omitempty"`
 	Desc           string                 `yaml:"desc,omitempty"`

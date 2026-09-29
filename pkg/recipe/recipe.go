@@ -42,6 +42,9 @@ func (n *Recipe) MarshalYAML() (interface{}, error) {
 }
 
 func (n *Recipe) UnmarshalYAML(node *yamlv3.Node) error {
+	if err := validateWorkspaceField(node); err != nil {
+		return err
+	}
 	var raw map[string]interface{}
 	if err := node.Decode(&raw); err != nil {
 		return err

@@ -1141,6 +1141,7 @@ func (j *testJobContext) runPassthroughTask(ctx context.Context, taskType string
 		WithOperationPaths(operationPaths).
 		WithOperationPathRuntime(pathRuntime).
 		WithGitContext(coreops.GitExecutionContext{
+			Workspace: inv.GitTaskContext.Workspace, CellResolution: inv.GitTaskContext.CellResolution,
 			BaseRepo:         inv.GitTaskContext.BaseRepo,
 			BaseRef:          inv.GitTaskContext.BaseRef,
 			ResolvedBaseHash: inv.GitTaskContext.ResolvedBaseHash,

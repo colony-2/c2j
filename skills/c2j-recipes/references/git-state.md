@@ -12,6 +12,10 @@ Common git context fields:
 - `context.git.resolved_hash`
 - `context.git.author`
 
+## Scoped Workspaces
+
+A node with `workspace` has an independent Git snapshot lineage; descendants inherit it, and the enclosing workspace resumes on exit. `context.git.*` always describes the active workspace. See [workspaces.md](workspaces.md) before passing hashes or thin packs across cell boundaries.
+
 ## Persisted Worktree Changes
 
 Commands can write into the worktree and into the op outbox. The worker collects outbox files as artifacts. Git state-aware ops can persist or transform commit state.

@@ -20,12 +20,25 @@ func (rc *ResolutionContext) ApplyContextPatch(p coretask.ContextPatch) error {
 
 	// 1) Job-level patch: apply to this context and ancestors so outer scopes observe changes.
 	if len(p.Job) > 0 {
-		job, err := applyJobMergePatch(rc.TaskExecutionContext().JobContext(), p.Job)
-		if err != nil {
-			return err
+		if _, ok := p.Job["workspace"]; ok {
+			return fmt.Errorf("workspace identity cannot be patched")
+		}
+		if _, ok := p.Job["cell_resolution"]; ok {
+			return fmt.Errorf("cell resolution cannot be patched")
 		}
 		for cur := rc; cur != nil; cur = cur.Parent {
+			patch := cloneAnyMap(p.Job)
+			if cur.commitContext != rc.commitContext {
+				delete(patch, "git")
+			}
+			job, err := applyJobMergePatch(cur.TaskExecutionContext().JobContext(), patch)
+			if err != nil {
+				return err
+			}
 			applyJobContextToTaskExecutionContext(&cur.TemplateData.Context, job)
+			if cur.workspaceBase != nil && cur.commitContext == rc.commitContext {
+				*cur.workspaceBase = job.GitBase
+			}
 		}
 	}
 

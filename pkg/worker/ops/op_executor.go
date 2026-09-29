@@ -16,6 +16,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"time"
 
@@ -215,6 +216,9 @@ func (t opExecutor) do(ctx context.Context, jobTool ops.JobTool, req ActivityInv
 		key := jobTool.GetJobKey()
 		logger = logger.With("tenant_id", key.TenantId, "job_id", key.JobId)
 	}
+	if ws := req.GitTaskContext.Workspace; ws != nil {
+		logger = logger.With("workspace_cell", ws.Cell, "workspace_scope_id", ws.ScopeID, "workspace_initial_hash", ws.InitialHash, "workspace_repo", req.GitTaskContext.BaseRepo, "workspace_ref", req.GitTaskContext.BaseRef)
+	}
 	start := time.Now()
 
 	// Create temporary worktree directory for this invocation
@@ -276,6 +280,9 @@ func (t opExecutor) do(ctx context.Context, jobTool ops.JobTool, req ActivityInv
 	defer removeWorkDir(worktreePath)
 
 	incomingGitContext := req.GitTaskContext
+	if req.GitTaskContext.Workspace != nil {
+		defer func() { output.WorkspaceScopeID = req.GitTaskContext.Workspace.ScopeID }()
+	}
 
 	// Build full GitTaskContext for controller from global context + local worktree path
 	fullContext := &gitstate.GitTaskContext{
@@ -301,6 +308,23 @@ func (t opExecutor) do(ctx context.Context, jobTool ops.JobTool, req ActivityInv
 		inputArtifacts = append(inputArtifacts, rehydrated...)
 	}
 
+	if req.WorkspaceManaged && req.RestoreArtifact != nil {
+		found := false
+		for _, art := range inputArtifacts {
+			key, e := art.ArtifactKey()
+			if e == nil && reflect.DeepEqual(key, *req.RestoreArtifact) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			ctl := deps.WorkflowControl()
+			if ctl == nil {
+				return zero, nil, fmt.Errorf("workflow control required for workspace snapshot")
+			}
+			inputArtifacts = append(inputArtifacts, ctl.GetArtifactLazy(ctx, jobTool.GetJobKey().TenantId, *req.RestoreArtifact))
+		}
+	}
 	artifactByKey := indexArtifactsByKey(inputArtifacts)
 	if len(req.Artifacts) > 0 {
 		if err := materializeArtifactBindings(ctx, inbox, req.Artifacts, artifactByKey); err != nil {
@@ -313,13 +337,24 @@ func (t opExecutor) do(ctx context.Context, jobTool ops.JobTool, req ActivityInv
 	var nonThinPackArtifacts []jobdb.Artifact
 
 	for _, art := range inputArtifacts {
-		if art.Name() == gitstate.ThinPackArtifactName {
+		isRestore := art.Name() == gitstate.ThinPackArtifactName
+		if req.WorkspaceManaged {
+			key, keyErr := art.ArtifactKey()
+			isRestore = req.RestoreArtifact != nil && keyErr == nil && reflect.DeepEqual(key, *req.RestoreArtifact)
+		}
+		if isRestore {
+			if thinPackArtifact != nil && req.WorkspaceManaged {
+				return zero, nil, fmt.Errorf("multiple workspace restore artifacts")
+			}
 			thinPackArtifact = art
 		} else {
 			nonThinPackArtifacts = append(nonThinPackArtifacts, art)
 		}
 	}
 
+	if req.WorkspaceManaged && req.RestoreArtifact != nil && thinPackArtifact == nil {
+		return zero, nil, fmt.Errorf("workspace restore artifact missing")
+	}
 	// Call Restore with full context (includes WorktreePath)
 	if err := controller.Restore(ctx, fullContext, thinPackArtifact); err != nil {
 		return zero, nil, err
@@ -353,6 +388,10 @@ func (t opExecutor) do(ctx context.Context, jobTool ops.JobTool, req ActivityInv
 	}
 
 	protectedEnv := jobcontext.EnvForCurrent(currentJob)
+	protectedEnv["C2J_WORKSPACE_CELL_NAME"] = req.GitTaskContext.GetWorkspaceCellName()
+	if req.GitTaskContext.Workspace != nil {
+		protectedEnv["C2J_WORKSPACE_SCOPE_ID"] = req.GitTaskContext.Workspace.ScopeID
+	}
 	var broker *childbroker.Server
 	if submitter, ok := jobTool.(leaseChildJobSubmitter); ok {
 		broker, err = childbroker.Start(ctx, childbroker.Options{
@@ -390,6 +429,7 @@ func (t opExecutor) do(ctx context.Context, jobTool ops.JobTool, req ActivityInv
 		WithOperationPaths(operationPaths).
 		WithOperationPathRuntime(pathRuntime).
 		WithGitContext(ops.GitExecutionContext{
+			Workspace: fullContext.Workspace, CellResolution: fullContext.CellResolution, RestoreArtifact: req.RestoreArtifact,
 			BaseRepo:         fullContext.GetBaseRepo(),
 			BaseRef:          fullContext.GetBaseRef(),
 			ResolvedBaseHash: fullContext.GetResolvedBaseHash(),
@@ -450,6 +490,9 @@ func (t opExecutor) do(ctx context.Context, jobTool ops.JobTool, req ActivityInv
 		rel, err := filepath.Rel(outbox, path)
 		if err != nil {
 			return err
+		}
+		if req.WorkspaceManaged && (rel == gitstate.ThinPackArtifactName || rel == "diff_from_parent.diff" || rel == "diff_from_base.diff") {
+			return fmt.Errorf("outbox name %q is reserved for workspace snapshots", rel)
 		}
 		artifact, err := jobdb.NewArtifactFromFile(rel, path)
 		if err != nil {

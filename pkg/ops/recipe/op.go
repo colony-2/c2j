@@ -15,7 +15,7 @@ import (
 // RecipeInput defines the input for recipe activities
 type SingleRecipe struct {
 	Name      string                 `json:"name" validate:"required"`
-	CellName  string                 `json:"cell_name,omitempty" default:"{{ context.workflow.cell }}"`
+	CellName  string                 `json:"cell_name,omitempty" default:"{{ context.workspace.cell }}"`
 	Inputs    map[string]interface{} `json:"inputs"`
 	Artifacts []recipeartifacts.Ref  `json:"artifacts"`
 	Git       SingleRecipeGit        `json:"git"`

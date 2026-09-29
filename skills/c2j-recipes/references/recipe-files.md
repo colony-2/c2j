@@ -67,6 +67,10 @@ outputs:
   count: "{{ sequence.collect.outputs.file_count }}"
 ```
 
+## Workspace Selection
+
+All executable node shapes accept `workspace: {cell: cellB, ref: main}`. The ref is optional; both values can be templates. See [workspaces.md](workspaces.md) for inheritance, fresh-workspace boundaries, and input evaluation.
+
 ## Shared Nodes And Includes
 
 Use `defs` for local reusable nodes and reference them with `shared`. Use `include` for recipe references discovered by the recipe provider.

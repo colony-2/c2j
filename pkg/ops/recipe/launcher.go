@@ -128,6 +128,11 @@ func startJobs(ctx context.Context, deps ops.OpDependencies, parentJobKey jobdb.
 
 func startRecipeChildJob(ctx context.Context, deps ops.OpDependencies, ctl workflowctl.WorkflowControl, start workflowctl.StartJob) (jobdb.JobKey, error) {
 	if deps != nil {
+		var err error
+		start, err = inheritWorkspace(start, deps.GitContext())
+		if err != nil {
+			return jobdb.JobKey{}, err
+		}
 		if jobTool := deps.JobTool(); jobTool != nil {
 			if submitter, ok := jobTool.(childJobSubmitter); ok {
 				return starter.StartRecipeJob(ctx, start, submitter)

@@ -60,6 +60,7 @@ func wrapValidationContext(ctx workflow.Context, commitContext contextual.GitCom
 		return ctx
 	}
 	return workflow.Context{
+		WorkspaceSnapshots: ctx.WorkspaceSnapshots,
 		JobContext: &validationJobContext{
 			inner:              ctx.JobContext,
 			gitContext:         commitContext,

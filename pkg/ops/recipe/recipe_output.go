@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	recipeartifacts "github.com/colony-2/c2j/pkg/artifacts"
+	"github.com/colony-2/c2j/pkg/git/gitstate"
 	"github.com/colony-2/c2j/pkg/ops"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 )
@@ -64,7 +65,7 @@ func decodeRecipeJobOutput(deps ops.OpDependencies, data jobdb.JobData) (recipeJ
 		out.ArtifactsAvailable = true
 	}
 	for _, artifact := range artifacts {
-		if deps != nil {
+		if deps != nil && !(deps.GitContext().Workspace != nil && (artifact.Name() == gitstate.ThinPackArtifactName || artifact.Name() == "diff_from_parent.diff" || artifact.Name() == "diff_from_base.diff")) {
 			if err := deps.AddOutputArtifact(artifact); err != nil {
 				return recipeJobOutput{}, err
 			}

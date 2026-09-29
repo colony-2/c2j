@@ -31,7 +31,8 @@ Common references:
 - `states.<state>.artifacts`: completed state artifacts.
 - `transition.from`, `transition.failure`, `transition.payload`: state transition data.
 - `context.git.repo`, `context.git.ref`, `context.git.resolved_hash`, `context.git.author`: git context.
-- `context.workflow.cell`, `context.workflow.job_id`: workflow context.
+- `context.workflow.cell`, `context.workflow.job_id`: owning job context.
+- `context.workspace.cell`, `context.workspace.scope_id`: active workspace identity; the cell defaults to the owning cell outside overrides. See [workspaces.md](workspaces.md).
 - `context.environment.worktree_path`, `context.environment.inbox`, `context.environment.outbox`: host-visible paths.
 - `context.environment.op.worktree_path`, `context.environment.op.inbox`, `context.environment.op.outbox`: op-visible paths for supported ops.
 

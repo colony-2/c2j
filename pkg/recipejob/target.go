@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/colony-2/c2j/pkg/cellref"
 	configpkg "github.com/colony-2/c2j/pkg/config"
 	"github.com/colony-2/c2j/pkg/worker/compiler"
 )
@@ -28,13 +29,14 @@ type ResolveTargetRequest struct {
 }
 
 type ResolvedTarget struct {
-	OriginalInput    string       `json:"original_input,omitempty"`
-	ResolvedRepo     string       `json:"resolved_repo,omitempty"`
-	RepositorySource string       `json:"repository_source"`
-	DefaultRef       string       `json:"default_ref"`
-	CellName         string       `json:"cell_name,omitempty"`
-	TenantID         string       `json:"tenant_id,omitempty"`
-	Source           TargetSource `json:"source"`
+	CellResolution   *cellref.Context `json:"cell_resolution,omitempty"`
+	OriginalInput    string           `json:"original_input,omitempty"`
+	ResolvedRepo     string           `json:"resolved_repo,omitempty"`
+	RepositorySource string           `json:"repository_source"`
+	DefaultRef       string           `json:"default_ref"`
+	CellName         string           `json:"cell_name,omitempty"`
+	TenantID         string           `json:"tenant_id,omitempty"`
+	Source           TargetSource     `json:"source"`
 }
 
 func ResolveTarget(ctx context.Context, req ResolveTargetRequest) (ResolvedTarget, error) {
@@ -47,10 +49,19 @@ func ResolveTarget(ctx context.Context, req ResolveTargetRequest) (ResolvedTarge
 		return ResolvedTarget{}, err
 	}
 
+	var target ResolvedTarget
 	if req.Self || strings.TrimSpace(req.Cell) == "" {
-		return resolveSelfTarget(ctx, workingDir, strings.TrimSpace(req.TenantID))
+		target, err = resolveSelfTarget(ctx, workingDir, strings.TrimSpace(req.TenantID))
+	} else {
+		target, err = resolveExplicitTarget(ctx, workingDir, strings.TrimSpace(req.Cell), strings.TrimSpace(req.TenantID))
 	}
-	return resolveExplicitTarget(ctx, workingDir, strings.TrimSpace(req.Cell), strings.TrimSpace(req.TenantID))
+	if err != nil {
+		return target, err
+	}
+	if cfg, e := configpkg.LoadProjectConfig(workingDir); e == nil {
+		target.CellResolution, err = cfg.CellResolution(ctx)
+	}
+	return target, err
 }
 
 func NormalizeRepositorySource(source string) (string, error) {

@@ -11,8 +11,9 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/colony-2/c2j/internal/repository"
+	"github.com/colony-2/c2j/pkg/cellref"
 	"github.com/colony-2/c2j/pkg/shellcmd"
-	"github.com/colony-2/c2j/pkg/worker/compiler"
 	"gopkg.in/yaml.v3"
 )
 
@@ -192,7 +193,7 @@ func (c *ProjectConfig) SelfRef(ctx context.Context) (string, error) {
 		return "", fmt.Errorf("self.ref: %w", err)
 	}
 	if strings.TrimSpace(ref) == "" {
-		return compiler.DefaultRecipeRef, nil
+		return cellref.DefaultRef, nil
 	}
 	return ref, nil
 }
@@ -669,7 +670,7 @@ func (p *cellPattern) Match(repo string) (string, bool) {
 	}
 
 	if p.normalizedRegex != nil {
-		normalizedRepo, err := compiler.NormalizeGitRepositorySource(repo)
+		normalizedRepo, err := repository.Normalize(repo)
 		if err == nil {
 			if matches := p.normalizedRegex.FindStringSubmatch(normalizedRepo); len(matches) == 2 {
 				return matches[1], true
@@ -688,7 +689,7 @@ func buildNormalizedPatternRegex(raw string) *regexp.Regexp {
 	const token = "c2jcelltoken"
 
 	withToken := strings.Replace(raw, cellPlaceholder, token, 1)
-	normalized, err := compiler.NormalizeGitRepositorySource(withToken)
+	normalized, err := repository.Normalize(withToken)
 	if err != nil {
 		return nil
 	}
@@ -706,7 +707,7 @@ func derivePatternFromRepo(repo string) (string, bool) {
 		return "", false
 	}
 
-	name := compiler.RepositoryNameFromSource(repo)
+	name := repository.Name(repo)
 	if strings.TrimSpace(name) == "" {
 		return "", false
 	}
@@ -834,8 +835,8 @@ func repoValuesEqual(left string, right string) bool {
 		return true
 	}
 
-	leftNormalized, leftErr := compiler.NormalizeGitRepositorySource(left)
-	rightNormalized, rightErr := compiler.NormalizeGitRepositorySource(right)
+	leftNormalized, leftErr := repository.Normalize(left)
+	rightNormalized, rightErr := repository.Normalize(right)
 	return leftErr == nil && rightErr == nil && leftNormalized == rightNormalized
 }
 

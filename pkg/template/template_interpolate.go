@@ -245,7 +245,7 @@ func (rc *ResolutionContext) goTemplateFuncMap() texttemplate.FuncMap {
 }
 
 func (rc *ResolutionContext) goTemplateContextMap() map[string]interface{} {
-	ctx := rc.TemplateData.Context
+	ctx := rc.TaskExecutionContext()
 
 	return map[string]interface{}{
 		"environment": map[string]interface{}{
@@ -267,6 +267,7 @@ func (rc *ResolutionContext) goTemplateContextMap() map[string]interface{} {
 			},
 		},
 		"artifacts": ctx.Artifacts,
+		"workspace": flattenTemplateValue(ctx.Workspace),
 		"workflow": map[string]interface{}{
 			"cell_id":    ctx.Workflow.CellID,
 			"cell":       ctx.Workflow.CellName,

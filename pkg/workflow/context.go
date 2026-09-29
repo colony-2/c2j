@@ -9,6 +9,7 @@ import (
 )
 
 type Context struct {
+	WorkspaceSnapshots bool
 	SuspendExecution   func(jobworkflow.JobContext, string, execution.Requirements) error
 	StageNodeExecution func(execution.Requirements)
 	jobworkflow.JobContext

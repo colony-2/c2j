@@ -98,7 +98,20 @@ func (d DefaultRecipeExecutor) ExecuteRecipe(ctx workflow.Context, r recipe.Reci
 	normalizeEnvironmentPathContext(&execCtx.Environment)
 
 	// we forward thin packs from one task to the next to maintain state.
-	ctx.JobContext = newThinPackForwardingJobContext(ctx.JobContext)
+	forwarder := newThinPackForwardingJobContext(ctx.JobContext)
+	forwarder.scopedMode = recipe.HasWorkspaces(r) || execCtx.Workspace != nil
+	if execCtx.InitialCommit != nil {
+		commitContext = *execCtx.InitialCommit
+	}
+	if execCtx.Workspace != nil {
+		forwarder.rootScopeID = execCtx.Workspace.ScopeID
+	}
+	if execCtx.RestoreArtifact != nil {
+		forwarder.initialRestore = map[string]*jobdb.ArtifactKey{forwarder.rootScopeID: execCtx.RestoreArtifact}
+	}
+
+	ctx.JobContext = forwarder
+	ctx.WorkspaceSnapshots = true
 
 	execOpts := normalizeExecutionOptions(opts)
 	var err error
@@ -135,34 +148,38 @@ func (d DefaultRecipeExecutor) ExecuteRecipe(ctx workflow.Context, r recipe.Reci
 	}
 
 	metadata := r.GetMetadata().NodeMetadata
-	if err := rCtx.ResolveVars(metadata.Vars); err != nil {
-		return nil, nil, fmt.Errorf("failed to resolve recipe vars: %w", err)
-	}
-	if execOpts.Mode == ExecutionModeValidate {
-		if err := validateCatchSemantics(r, rCtx); err != nil {
-			return nil, nil, err
+	body := func(inner workflow.Context, scoped *template.ResolutionContext, meta recipe.NodeMetadata) error {
+		if err := scoped.ResolveVars(meta.Vars); err != nil {
+			return fmt.Errorf("failed to resolve recipe vars: %w", err)
+		}
+		if execOpts.Mode == ExecutionModeValidate {
+			if err := validateCatchSemantics(r, scoped); err != nil {
+				return err
+			}
+		}
+		meta.Vars = nil
+		switch t := r.RecipeImpl.(type) {
+		case *recipe.RecipeState:
+			return d.self().ExecuteStateMachine(inner, scoped, meta, t.Outputs, t.StateMachineData.States, execOpts)
+		case *recipe.RecipeOp:
+			return d.self().ExecuteOp(inner, scoped, meta, t.OpData.Op)
+		case *recipe.RecipeSequence:
+			return d.self().ExecuteSequence(inner, scoped, meta, t.Outputs, t.SequenceData.Sequence)
+		case *recipe.RecipeChildGroup:
+			return d.self().ExecuteChildGroup(inner, scoped, meta, t.ChildGroup)
+		default:
+			return fmt.Errorf("unsupported recipe type: %T", t)
 		}
 	}
-	rootMetadata := metadata
-	rootMetadata.Vars = nil
-
-	switch t := r.RecipeImpl.(type) {
-	case *recipe.RecipeState:
-		err = d.self().ExecuteStateMachine(ctx, rCtx, rootMetadata, t.Outputs, t.StateMachineData.States, execOpts)
-	case *recipe.RecipeOp:
-		err = d.self().ExecuteOp(ctx, rCtx, rootMetadata, t.OpData.Op)
-	case *recipe.RecipeSequence:
-		err = d.self().ExecuteSequence(ctx, rCtx, rootMetadata, t.Outputs, t.SequenceData.Sequence)
-	case *recipe.RecipeChildGroup:
-		err = d.self().ExecuteChildGroup(ctx, rCtx, rootMetadata, t.ChildGroup)
-	default:
-		return nil, nil, fmt.Errorf("unsupported recipe type: %T", t)
+	if metadata.Workspace != nil {
+		err = withNodeWorkspace(ctx, rCtx, metadata, body)
+	} else {
+		err = body(ctx, rCtx, metadata)
 	}
-
 	if err != nil {
 		return nil, nil, err
 	}
-	return rCtx.GetLastExecution(), rCtx.GetLastArtifacts(), nil
+	return rCtx.GetLastExecution(), forwarder.resultArtifacts(rCtx.GetLastArtifacts()), nil
 }
 
 func normalizeEnvironmentPathContext(env *contextual.EnvironmentContext) {
@@ -239,6 +256,11 @@ type StepResult struct {
 }
 
 func (d DefaultRecipeExecutor) ExecuteOp(ctx workflow.Context, parentResolutionContext *template.ResolutionContext, metadata recipe.NodeMetadata, op string) error {
+	if metadata.Workspace != nil {
+		return withNodeWorkspace(ctx, parentResolutionContext, metadata, func(inner workflow.Context, scoped *template.ResolutionContext, meta recipe.NodeMetadata) error {
+			return d.ExecuteOp(inner, scoped, meta, op)
+		})
+	}
 	l := slog.Default()
 	l.Info("executing op", "op", op)
 	err := d.executeOp2(ctx, parentResolutionContext, metadata, op)
@@ -513,6 +535,9 @@ func (d DefaultRecipeExecutor) executeOpAttempt(ctx workflow.Context, parentReso
 					// A mismatch that still produced an activity output indicates real non-determinism.
 					return mismatchErr
 				}
+				if ws := resCtx.TaskExecutionContext().Workspace; ws != nil && ws.ScopeID != "" && resCtx.Options.Mode != template.ModeValidate && decoded.Activity.WorkspaceScopeID != ws.ScopeID {
+					return fmt.Errorf("activity result belongs to workspace %q, expected %q", decoded.Activity.WorkspaceScopeID, ws.ScopeID)
+				}
 				resCtx.UpdateGitState(decoded.Activity.GitResult)
 				if decoded.Activity.Execution != nil && ctx.SuspendExecution != nil {
 					if err := ctx.SuspendExecution(ctx.JobContext, "activity:"+taskType, *decoded.Activity.Execution); err != nil {
@@ -581,7 +606,7 @@ func (d DefaultRecipeExecutor) executeOpAttempt(ctx workflow.Context, parentReso
 
 func (d DefaultRecipeExecutor) innerSequence(ctx workflow.Context, parentCtx *template.ResolutionContext, metadata recipe.NodeMetadata, outputTemplate map[string]interface{}, sequence []recipe.Node) error {
 	// Create resolution context for this sequence
-	resolvedInputs, err := parentCtx.ResolveMap(metadata.Inputs)
+	resolvedInputs, err := parentCtx.ResolveCompositeInputs(metadata.Inputs)
 	if err != nil {
 		return fmt.Errorf("failed to resolve sequence inputs: %w", err)
 	}
@@ -653,6 +678,11 @@ func (d DefaultRecipeExecutor) innerSequence(ctx workflow.Context, parentCtx *te
 }
 
 func (d DefaultRecipeExecutor) ExecuteSequence(ctx workflow.Context, rCtx *template.ResolutionContext, metadata recipe.NodeMetadata, outputTemplate map[string]interface{}, sequence []recipe.Node) error {
+	if metadata.Workspace != nil {
+		return withNodeWorkspace(ctx, rCtx, metadata, func(inner workflow.Context, scoped *template.ResolutionContext, meta recipe.NodeMetadata) error {
+			return d.ExecuteSequence(inner, scoped, meta, outputTemplate, sequence)
+		})
+	}
 	timeout := time.Duration(metadata.Timeout)
 	fn := func(inner workflow.Context) error {
 		e := d.innerSequence(inner, rCtx, metadata, outputTemplate, sequence)

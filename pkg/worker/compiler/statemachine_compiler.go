@@ -13,12 +13,17 @@ import (
 
 // ExecuteStateMachine runs the state machine with the new StateMap format
 func (d DefaultRecipeExecutor) ExecuteStateMachine(ctx workflow.Context, parentContext *template.ResolutionContext, metadata recipe.NodeMetadata, outputTemplate map[string]interface{}, stateMap *recipe.StateMap, opts ...ExecutionOptions) error {
+	if metadata.Workspace != nil {
+		return withNodeWorkspace(ctx, parentContext, metadata, func(inner workflow.Context, scoped *template.ResolutionContext, meta recipe.NodeMetadata) error {
+			return d.ExecuteStateMachine(inner, scoped, meta, outputTemplate, stateMap, opts...)
+		})
+	}
 	if timeout := time.Duration(metadata.Timeout); timeout > 0 {
 		ctx.JobContext = withExecutionTimeout(ctx.JobContext, timeout, fmt.Sprintf("state machine %q", template.ScopeID(metadata, "", template.ScopeStateMachine)))
 	}
 
 	// Create resolution context for the state machine
-	resolvedInputs, err := parentContext.ResolveMap(metadata.Inputs)
+	resolvedInputs, err := parentContext.ResolveCompositeInputs(metadata.Inputs)
 	if err != nil {
 		return fmt.Errorf("failed to resolve state machine inputs: %w", err)
 	}
@@ -348,6 +353,7 @@ func transitionSourceContext(resCtx *template.ResolutionContext, stateName strin
 		TemplateData: resCtx.TemplateData,
 		CELEnv:       resCtx.CELEnv,
 	}
+	evalCtx.TemplateData.Context = resCtx.TaskExecutionContext()
 	evalCtx.TemplateData.Outputs = sourceStateOutputs(resCtx, stateName)
 	evalCtx.TemplateData.Transition = template.NewTransitionData(stateName, to, nil)
 	return evalCtx
@@ -374,6 +380,23 @@ func (d DefaultRecipeExecutor) runState(ctx workflow.Context, resCtx *template.R
 		return stateRunResult{}, fmt.Errorf("failed to create state context: %w", err)
 	}
 	stateResCtx.TemplateData.Transition = transition.Clone()
+	if node.GetMetadata().Workspace != nil {
+		var result stateRunResult
+		err := withNodeWorkspace(ctx, stateResCtx, node.GetMetadata(), func(inner workflow.Context, scoped *template.ResolutionContext, _ recipe.NodeMetadata) error {
+			var e error
+			result, e = d.runStateBody(inner, scoped, stateName, node)
+			return e
+		})
+		var route *catchRouteError
+		if errors.As(err, &route) {
+			transition := route.Transition.Clone()
+			return stateRunResult{Route: &transition}, nil
+		}
+		return result, err
+	}
+	return d.runStateBody(ctx, stateResCtx, stateName, node)
+}
+func (d DefaultRecipeExecutor) runStateBody(ctx workflow.Context, stateResCtx *template.ResolutionContext, stateName string, node recipe.State) (stateRunResult, error) {
 	if err := stateResCtx.ResolveVars(node.GetMetadata().Vars); err != nil {
 		return stateRunResult{}, fmt.Errorf("failed to resolve state vars: %w", err)
 	}
@@ -382,7 +405,7 @@ func (d DefaultRecipeExecutor) runState(ctx workflow.Context, resCtx *template.R
 	}
 
 	stateNode := nodeWithoutVars(node.Node)
-	err = d.self().ExecuteNode(ctx, stateResCtx, &stateNode)
+	err := d.self().ExecuteNode(ctx, stateResCtx, &stateNode)
 	if isExecutionControlError(err) {
 		return stateRunResult{}, err
 	}
@@ -426,21 +449,25 @@ func nodeWithoutVars(node recipe.Node) recipe.Node {
 	switch n := node.NodeImpl.(type) {
 	case *recipe.NodeOp:
 		clone := *n
+		clone.NodeMetadata.Workspace = nil
 		clone.NodeMetadata.Vars = nil
 		clone.NodeMetadata.Catch = nil
 		return recipe.Node{NodeImpl: &clone}
 	case *recipe.NodeSequence:
 		clone := *n
+		clone.NodeMetadata.Workspace = nil
 		clone.NodeMetadata.Vars = nil
 		clone.NodeMetadata.Catch = nil
 		return recipe.Node{NodeImpl: &clone}
 	case *recipe.NodeState:
 		clone := *n
+		clone.NodeMetadata.Workspace = nil
 		clone.NodeMetadata.Vars = nil
 		clone.NodeMetadata.Catch = nil
 		return recipe.Node{NodeImpl: &clone}
 	case *recipe.NodeChildGroup:
 		clone := *n
+		clone.NodeMetadata.Workspace = nil
 		clone.NodeMetadata.Vars = nil
 		clone.NodeMetadata.Catch = nil
 		return recipe.Node{NodeImpl: &clone}

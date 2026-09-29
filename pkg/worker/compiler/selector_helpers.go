@@ -2,7 +2,6 @@ package compiler
 
 import (
 	"fmt"
-	"net/url"
 	"path"
 	"path/filepath"
 	"strings"
@@ -89,24 +88,7 @@ func BuildCellRecipeSelector(repositorySource string, recipeName string, ref str
 	return fmt.Sprintf("git+%s//%s@%s", repoSource, recipePath, ref), nil
 }
 
-func RepositoryNameFromSource(source string) string {
-	source = strings.TrimSpace(source)
-	if source == "" {
-		return ""
-	}
-
-	if strings.HasPrefix(source, "git@") {
-		if idx := strings.Index(source, ":"); idx >= 0 && idx < len(source)-1 {
-			return trimGitRepositorySuffix(path.Base(source[idx+1:]))
-		}
-	}
-
-	if parsed, err := url.Parse(source); err == nil && parsed.Scheme != "" {
-		return trimGitRepositorySuffix(path.Base(strings.TrimSuffix(parsed.Path, "/")))
-	}
-
-	return trimGitRepositorySuffix(path.Base(source))
-}
+func RepositoryNameFromSource(source string) string { return repository.Name(source) }
 
 func validateCellRecipeName(recipeName string) (string, error) {
 	recipeName = strings.TrimSpace(recipeName)

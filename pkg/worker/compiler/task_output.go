@@ -65,12 +65,13 @@ func decodeActivityInvocationOutput(payload []byte) (workerops.ActivityInvocatio
 		coerced = m
 	}
 	return workerops.ActivityInvocationOutput{
-		Execution:    raw.Execution,
-		GitResult:    raw.GitResult,
-		NextTask:     raw.NextTask,
-		OpOutput:     coerced,
-		ArtifactRefs: raw.ArtifactRefs,
-		Jobs:         raw.Jobs,
+		WorkspaceScopeID: raw.WorkspaceScopeID,
+		Execution:        raw.Execution,
+		GitResult:        raw.GitResult,
+		NextTask:         raw.NextTask,
+		OpOutput:         coerced,
+		ArtifactRefs:     raw.ArtifactRefs,
+		Jobs:             raw.Jobs,
 	}, nil
 }
 

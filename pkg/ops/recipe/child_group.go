@@ -173,6 +173,9 @@ func startChildGroup(deps ops.OpDependencies, ctx context.Context, input ChildGr
 		cellName := record.CellName
 		if cellName == "" {
 			cellName = gitContext.CellName
+			if gitContext.Workspace != nil {
+				cellName = gitContext.Workspace.Cell
+			}
 		}
 		gitRef := strings.TrimSpace(child.GitRef)
 		if gitRef == "" {
