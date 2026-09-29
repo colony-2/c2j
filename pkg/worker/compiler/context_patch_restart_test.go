@@ -133,3 +133,17 @@ func (p *patchingStubJobContext) DoTask(_ jobdb.RunPolicy, _ string, data jobdb.
 	}
 	return p.successOutput, nil
 }
+
+func TestTaskInputMismatchWithoutCachedOutputDoesNotPanic(t *testing.T) {
+	workspaceTestWorker(t)
+	rec, err := recipe.LoadRecipeFromString([]byte("id: mismatch\nop: workspace_probe\n"))
+	require.NoError(t, err)
+	job, git := GenerateTestContext()
+	stub := &patchingStubJobContext{jobKey: jobdb.JobKey{TenantId: "test", JobId: "mismatch"}}
+	require.NotPanics(t, func() {
+		_, _, err = ExecuteRecipe(workflow.Context{JobContext: stub, ServiceDependencies2: coreops.NewServiceDepsBuilder().Build()}, *rec, nil, job, git)
+	})
+	require.ErrorIs(t, err, jobworkflow.ErrWorkflowNotDeterministic)
+	require.ErrorContains(t, err, "input hash mismatch")
+	require.Equal(t, 1, stub.calls)
+}

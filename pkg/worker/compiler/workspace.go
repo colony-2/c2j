@@ -144,6 +144,7 @@ type workspaceBody func(workflow.Context, *template.ResolutionContext, recipe.No
 func withNodeWorkspace(ctx workflow.Context, parent *template.ResolutionContext, meta recipe.NodeMetadata, body workspaceBody) error {
 	if !ctx.WorkspaceSnapshots {
 		forwarding := newThinPackForwardingJobContext(ctx.JobContext)
+		configureArtifactReplay(forwarding, ctx)
 		forwarding.scopedMode = true
 		ctx.JobContext = forwarding
 		ctx.WorkspaceSnapshots = true

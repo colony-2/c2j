@@ -230,6 +230,7 @@ func taskWorkersFromWorkSet(workset *jobworkflow.WorkSet) []jobworkflow.TaskWork
 
 func newStoryJobWorker(deps *runnerDeps, recorder *storylive.Recorder, replay ...bool) jobworkflow.JobWorker {
 	return compiler.NewRecipeJobWorker(compiler.RecipeJobWorkerOptions{
+		TaskHistory:            &workerworkflow.SWFWorkflowControl{Engine: deps.engine},
 		Allocation:             deps.executionRuntime.Allocation,
 		StageExecution:         deps.executionRuntime.Stage,
 		WrapTaskWorker:         deps.executionRuntime.WrapTaskWorker,

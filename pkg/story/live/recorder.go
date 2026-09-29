@@ -21,6 +21,7 @@ import (
 	"github.com/colony-2/c2j/pkg/template"
 	"github.com/colony-2/c2j/pkg/worker/compiler"
 	"github.com/colony-2/c2j/pkg/worker/ops"
+	workerworkflow "github.com/colony-2/c2j/pkg/worker/workflow"
 	coreworkflow "github.com/colony-2/c2j/pkg/workflow"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
@@ -160,7 +161,12 @@ func BuildJobRunStory(ctx context.Context, engine replayJobRunner, jobKey jobdb.
 	}
 
 	rec := NewRecorder(Options{JobKey: jobKey, Logger: logger})
+	var history coreworkflow.TaskHistoryReader
+	if full, ok := engine.(jobworkflow.Engine); ok {
+		history = &workerworkflow.SWFWorkflowControl{Engine: full}
+	}
 	jobWorker := compiler.NewRecipeJobWorker(compiler.RecipeJobWorkerOptions{
+		TaskHistory:            history,
 		ReadOnlyReplay:         true,
 		CELOptionsProvider:     celProvider,
 		OnRecipeLoaded:         rec.OnRecipeLoaded,

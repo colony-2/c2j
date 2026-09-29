@@ -112,3 +112,7 @@ Repository access failures fail the node and can use normal catch handling. Ther
 Recipe validation and isolated recipe-test mocks do not fetch workspace repositories. Use an embedded or deployed runtime for tests that need real checkout, snapshot, and restore behavior.
 
 Upgrade recipe compilers and task workers together before submitting recipes that use `workspace`. Hosts registering task workers individually must register `compiler.NewWorkspaceResolutionTaskWorker()` and use the updated c2j JobDB schema. Older compilers can ignore unknown YAML fields; mixed old/new worker fleets must not admit these recipes until upgraded. Recipes without the field retain their existing task history and snapshot behavior.
+
+Brokered child submissions preserve compiled include metadata, including workspace-bearing includes. Update the submitting CLI and the parent broker worker together when using this support. Authored recipes still cannot supply `__c2j_internal` metadata.
+
+Artifact dependencies have a stable order for replay. The standard runtime can also recover successful tasks recorded by older compilers with a different dependency order, after verifying the original input hash and restore-pack contents. It reads the recorded result without rerunning the task. Other input changes remain determinism errors. Hosts constructing recipe job workers directly can provide `RecipeJobWorkerOptions.TaskHistory`; `NewRecipeWorkerWithOptions` obtains it from a compatible workflow controller automatically.

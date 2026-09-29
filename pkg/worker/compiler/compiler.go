@@ -99,6 +99,7 @@ func (d DefaultRecipeExecutor) ExecuteRecipe(ctx workflow.Context, r recipe.Reci
 
 	// we forward thin packs from one task to the next to maintain state.
 	forwarder := newThinPackForwardingJobContext(ctx.JobContext)
+	configureArtifactReplay(forwarder, ctx)
 	forwarder.scopedMode = recipe.HasWorkspaces(r) || execCtx.Workspace != nil
 	if execCtx.InitialCommit != nil {
 		commitContext = *execCtx.InitialCommit
@@ -512,6 +513,11 @@ func (d DefaultRecipeExecutor) executeOpAttempt(ctx workflow.Context, parentReso
 						return fmt.Errorf("rehydrate cached task output: %w", mismatch.CachedTaskDataErr())
 					}
 					out = mismatch.CachedTaskData()
+					if out == nil {
+						// Some JobDB versions expose the mismatch without its cached output.
+						// Preserve the determinism error instead of dereferencing nil.
+						return mismatchErr
+					}
 					hadMismatch = true
 				} else {
 					failure := normalizeRuntimeFailure(err, resCtx, metadata, recipe.FailureNodeOp, op)

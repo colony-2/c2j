@@ -15,6 +15,7 @@ import (
 )
 
 type thinpackForwarder struct {
+	history        taskHistoryReader
 	inner          jobworkflow.JobContext
 	lastThinpack   jobdb.Artifact
 	workspaces     map[string]jobdb.Artifact
@@ -145,7 +146,14 @@ func (a *thinpackForwarder) doTask(policy jobdb.RunPolicy, taskType string, data
 
 	out, err := invoke(data)
 	if err != nil {
-		return out, err
+		recovered, ok, recoveryErr := a.recoverArtifactOrder(taskType, data, err)
+		if recoveryErr != nil {
+			return nil, fmt.Errorf("restore cached task after artifact-order mismatch: %v: %w", recoveryErr, err)
+		}
+		if !ok {
+			return out, err
+		}
+		out = recovered
 	}
 	if out == nil {
 		return nil, nil

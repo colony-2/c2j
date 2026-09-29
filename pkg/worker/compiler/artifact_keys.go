@@ -2,6 +2,7 @@ package compiler
 
 import (
 	"fmt"
+	"sort"
 
 	recipeartifacts "github.com/colony-2/c2j/pkg/artifacts"
 	"github.com/colony-2/jobdb/pkg/jobdb"
@@ -30,5 +31,7 @@ func appendArtifactKeys(existing []jobdb.ArtifactKey, bindings map[string]recipe
 	for _, key := range seen {
 		out = append(out, key)
 	}
+	// Artifact dependencies are a set; map iteration order must not enter task hashes.
+	sort.Slice(out, func(i, j int) bool { return artifactKeyIdentity(out[i]) < artifactKeyIdentity(out[j]) })
 	return out
 }

@@ -23,6 +23,8 @@ import (
 )
 
 type RecipeJobWorkerOptions struct {
+	// TaskHistory supplies read-only recovery for legacy artifact dependency order.
+	TaskHistory        workflow.TaskHistoryReader
 	Allocation         execution.Allocation
 	ReadOnlyReplay     bool
 	OnExecutionHandoff func(ExecutionHandoff)
@@ -45,6 +47,7 @@ type RecipeJobWorkerOptions struct {
 }
 
 type recipeJobWorker struct {
+	taskHistory         workflow.TaskHistoryReader
 	taskGuardConfigured bool
 	allocation          execution.Allocation
 	readOnlyReplay      bool
@@ -60,6 +63,7 @@ type recipeJobWorker struct {
 
 func NewRecipeJobWorker(opts RecipeJobWorkerOptions) jobworkflow.JobWorker {
 	return &recipeJobWorker{
+		taskHistory:         opts.TaskHistory,
 		taskGuardConfigured: opts.WrapTaskWorker != nil,
 		allocation:          opts.Allocation, readOnlyReplay: opts.ReadOnlyReplay,
 		onExecutionHandoff: opts.OnExecutionHandoff, stageExecution: opts.StageExecution,
@@ -81,6 +85,9 @@ func NewRecipeWorker(dependencies ops.ServiceDependencies2, activityRegistry *wo
 }
 
 func NewRecipeWorkerWithOptions(dependencies ops.ServiceDependencies2, activityRegistry *workerops.ActivityRegistry, opts RecipeJobWorkerOptions) (*jobworkflow.WorkSet, error) {
+	if opts.TaskHistory == nil && dependencies != nil {
+		opts.TaskHistory, _ = dependencies.WorkflowControl().(workflow.TaskHistoryReader)
+	}
 	job := NewRecipeJobWorker(opts)
 	taskWorkers := activityRegistry.GetTaskWorkers(dependencies)
 	if resolutionWorker := newRootSourceResolutionTaskWorker(opts.RootSourceResolver); resolutionWorker != nil {
@@ -266,7 +273,7 @@ func (j recipeJobWorker) Run(ctx jobworkflow.JobContext, jobData jobdb.JobData) 
 		return nil, err
 	}
 
-	wCtx := workflow.Context{JobContext: ctx}
+	wCtx := workflow.Context{JobContext: ctx, TaskHistory: j.taskHistory}
 	if !j.readOnlyReplay {
 		session, err := j.executionSession(ctx, r, input.Execution)
 		if err != nil {
