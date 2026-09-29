@@ -3,6 +3,7 @@ package ops
 import (
 	recipeartifacts "github.com/colony-2/c2j/pkg/artifacts"
 	"github.com/colony-2/c2j/pkg/jobcontext"
+	"github.com/colony-2/c2j/pkg/objects"
 	"github.com/colony-2/c2j/pkg/workflowctl"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	"gorm.io/gorm"
@@ -62,3 +63,5 @@ func (d *testDeps) SetNextTaskType(taskType string) {
 }
 
 var _ OpDependencies = &testDeps{}
+
+func (d *testDeps) Objects() *objects.Store { return nil }

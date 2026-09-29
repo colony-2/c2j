@@ -11,7 +11,7 @@ Use this skill as the main router for c2j recipe authoring work.
 
 1. Read [references/recipe-files.md](references/recipe-files.md) and [references/examples.md](references/examples.md) before creating or changing recipe YAML.
 2. Read [references/control-flow.md](references/control-flow.md) for sequences, state machines, child groups, child recipe ops, failure handling, retries, timeouts, and orchestration patterns.
-3. Read [references/data-context-artifacts.md](references/data-context-artifacts.md) for inputs, defaults, templates, CEL, jq/JSON helpers, task context, op-visible paths, artifacts, inbox/outbox binding, and invalid data-reference fixes.
+3. Read [references/data-context-artifacts.md](references/data-context-artifacts.md) for inputs, defaults, templates, CEL, jq/JSON helpers, task context, op-visible paths, immutable object checkpoints, artifacts, inbox/outbox binding, and invalid data-reference fixes.
 4. Read [references/ops-catalog.md](references/ops-catalog.md) before choosing ops, including command execution, sleep, extension selectors, child recipe ops, git ops, human input patterns, or test mocks.
 5. Read [references/c2ops.md](references/c2ops.md) when a recipe uses `git+https://github.com/colony-2/c2ops.git//...` selectors. Use `$c2ops-extension-ops` for deeper c2ops selector work.
 6. Read [references/workspaces.md](references/workspaces.md) when a node runs in another cell, or when reasoning about workspace identity, snapshot isolation, dynamic cell selection, or returning to the enclosing workspace. Read [references/git-state.md](references/git-state.md) for durable worktree behavior, persisted git state, `thinpackrebase`, `squashrebasemerge`, and git context propagation.

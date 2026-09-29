@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/colony-2/c2j/pkg/objects"
 	invschema "github.com/invopop/jsonschema"
 	jsonschemav6 "github.com/santhosh-tekuri/jsonschema/v6"
 	yaml "gopkg.in/yaml.v3"
@@ -50,7 +51,11 @@ func parseDurationOrZero(s string) (time.Duration, error) {
 // parseSchema converts a YAML-parsed schema (map[string]any) into both an
 // invopop schema (for documentation) and a compiled jsonschema/v6 validator.
 func parseSchema(m map[string]any) (*invschema.Schema, *jsonschemav6.Schema, error) {
-	b, err := json.Marshal(m)
+	expanded, err := objects.ExpandSchema(m)
+	if err != nil {
+		return nil, nil, err
+	}
+	b, err := json.Marshal(expanded)
 	if err != nil {
 		return nil, nil, fmt.Errorf("marshal schema: %w", err)
 	}

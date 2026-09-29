@@ -2,9 +2,10 @@ package recipe
 
 import (
 	"fmt"
-	"github.com/colony-2/c2j/pkg/execution"
 	"reflect"
 
+	"github.com/colony-2/c2j/pkg/execution"
+	"github.com/colony-2/c2j/pkg/objects"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	yamlv3 "gopkg.in/yaml.v3"
 )
@@ -175,6 +176,7 @@ func (r *RecipeOp) isRecipe() {}
 
 // InputSchema defines the schema for an input parameter
 type InputSchema struct {
+	ObjectType  string      `yaml:"object_type,omitempty"`
 	Type        string      `yaml:"type,omitempty"`                                                // Type of the input (string, number, boolean, etc.)
 	Description string      `yaml:"description,omitempty"`                                         // Description of the input
 	Required    bool        `yaml:"required,omitempty"`                                            // Whether the input is required
@@ -203,6 +205,18 @@ func (def InputSchema) validate(key string, value interface{}) error {
 		expectedGoType = "number (float64, int, or int64)"
 	case "boolean":
 		expectedGoType = "bool"
+	case "object":
+		ref, ok, err := objects.Parse(value)
+		if err != nil {
+			return fmt.Errorf("field %q: %w", key, err)
+		}
+		if !ok {
+			return fmt.Errorf("field %q requires an object checkpoint", key)
+		}
+		if def.ObjectType != "" && ref.Type != def.ObjectType {
+			return fmt.Errorf("field %q expects object type %q, got %q", key, def.ObjectType, ref.Type)
+		}
+		return nil
 	case "artifact":
 		if isArtifactValue(value) {
 			return nil

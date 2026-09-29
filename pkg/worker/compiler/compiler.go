@@ -12,6 +12,7 @@ import (
 	"github.com/colony-2/c2j/pkg/git/gitstate"
 	"github.com/colony-2/c2j/pkg/input/formdefaults"
 	"github.com/colony-2/c2j/pkg/jobcontext"
+	"github.com/colony-2/c2j/pkg/objects"
 	"github.com/colony-2/c2j/pkg/ops"
 	"github.com/colony-2/c2j/pkg/recipe"
 	coretask "github.com/colony-2/c2j/pkg/task"
@@ -19,7 +20,6 @@ import (
 	workerops "github.com/colony-2/c2j/pkg/worker/ops"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
-
 	"github.com/colony-2/c2j/pkg/workflow"
 )
 
@@ -483,11 +483,32 @@ func (d DefaultRecipeExecutor) executeOpAttempt(ctx workflow.Context, parentReso
 	for i := 0; i < 64; i++ { // guard against accidental loops
 		done := false
 		for patchAttempts := 0; patchAttempts < 64; patchAttempts++ {
+			// Later steps can introduce references that were not in the original op
+			// inputs (for example, a child-result checkpoint in an await chain).
+			invocationKeys := artifactKeys
+			refs, err := objects.Collect(stepInput)
+			if err != nil {
+				return fmt.Errorf("object input: %w", err)
+			}
+			if len(refs) > 0 {
+				acc := newArtifactKeyAccumulator()
+				for _, key := range artifactKeys {
+					if err := acc.Add(key); err != nil {
+						return err
+					}
+				}
+				for _, ref := range refs {
+					if err := acc.Add(ref.Artifact); err != nil {
+						return err
+					}
+				}
+				invocationKeys = acc.Keys()
+			}
 			invocation := workerops.ActivityInvocationRequest{
 				Input:          stepInput,
 				Const:          resCtx.EffectiveConst,
 				GitTaskContext: *gitstate.NewGlobalGitTaskContext(resCtx.TaskExecutionContext()),
-				ArtifactKeys:   artifactKeys,
+				ArtifactKeys:   invocationKeys,
 				Artifacts:      resolvedArtifacts,
 			}
 

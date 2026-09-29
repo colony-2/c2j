@@ -736,3 +736,7 @@ c2j submit "Run the requested task" \
 - command entrypoint: [main.go](main.go)
 - embedded runtime notes: [embed-swf-mode-spec.md](embed-swf-mode-spec.md)
 - recipe authoring docs: [RECIPE_AUTHORING_GUIDE.md](../../recipes/guides/RECIPE_AUTHORING_GUIDE.md)
+
+## Op object checkpoints
+
+Ops can publish immutable typed objects containing metadata and files, then accept an explicit reference to any earlier checkpoint. Each consumer receives a fresh writable copy. See [the API and Codex migration guide](GUIDE-Op-Object-Checkpoints.md) for recipe routing, extension manifests, native APIs, and compatibility details.

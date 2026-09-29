@@ -33,6 +33,7 @@ Declare submitted inputs with `input_schema`. Supported schema types in this che
 - `boolean`
 - `artifact`
 - `artifact_map`
+- `object` (an immutable checkpoint; optional `object_type` constrains its versioned contract)
 
 Use `required: true` for required values and `default_value` for defaults:
 

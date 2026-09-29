@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	recipeartifacts "github.com/colony-2/c2j/pkg/artifacts"
+	"github.com/colony-2/c2j/pkg/objects"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	"github.com/mitchellh/mapstructure"
 )
@@ -67,6 +68,15 @@ func NormalizeOpInput(inputType reflect.Type, raw map[string]interface{}) (Norma
 	}
 
 	acc := newArtifactKeyAccumulator()
+	refs, err := objects.Collect(raw)
+	if err != nil {
+		return NormalizedOpInput{}, err
+	}
+	for _, ref := range refs {
+		if err := acc.Add(ref.Artifact); err != nil {
+			return NormalizedOpInput{}, err
+		}
+	}
 	targetType := derefType(inputType)
 	if targetType == nil || targetType.Kind() != reflect.Struct {
 		normalized, err := normalizeDynamicMap(raw, acc, "")
@@ -161,6 +171,12 @@ func normalizeStructFields(targetType reflect.Type, raw map[string]interface{}, 
 }
 
 func normalizeValueForType(targetType reflect.Type, value interface{}, acc *artifactKeyAccumulator, path string) (interface{}, error) {
+	if _, ok, err := objects.Parse(value); ok {
+		if err != nil {
+			return nil, err
+		}
+		return objects.JSONValue(value)
+	}
 	if value == nil || isNullValue(value) {
 		return value, nil
 	}
@@ -288,6 +304,12 @@ func normalizeDynamicMap(raw map[string]interface{}, acc *artifactKeyAccumulator
 }
 
 func normalizeDynamicValue(value interface{}, acc *artifactKeyAccumulator, path string) (interface{}, error) {
+	if _, ok, err := objects.Parse(value); ok {
+		if err != nil {
+			return nil, err
+		}
+		return objects.JSONValue(value)
+	}
 	if value == nil || isNullValue(value) {
 		return value, nil
 	}

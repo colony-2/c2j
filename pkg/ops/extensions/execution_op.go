@@ -94,12 +94,19 @@ func executeExtension(deps ops.OpDependencies, ctx context.Context, input Execut
 		return nil, fmt.Errorf("extension input validation failed: %w", err)
 	}
 
+	payload, err = hydrateObjects(ctx, deps, payload)
+	if err != nil {
+		return nil, fmt.Errorf("restore extension objects: %w", err)
+	}
 	inJSON, err := json.Marshal(payload)
 	if err != nil {
 		return nil, fmt.Errorf("marshal extension input: %w", err)
 	}
 	env := buildExecutionEnv(resolved)
 	env = jobcontext.MergeProtectedEnv(env, deps.ProtectedEnv())
+	if err := prepareObjectOutbox(deps, env); err != nil {
+		return nil, err
+	}
 
 	var cancel context.CancelFunc
 	if d, err := parseDurationOrZero(resolved.Spec.Timeout); err == nil && d > 0 {
@@ -119,6 +126,12 @@ func executeExtension(deps ops.OpDependencies, ctx context.Context, input Execut
 	outputs, artifactRefs, err := decodeExecutionEnvelope(stdout)
 	if err != nil {
 		return nil, fmt.Errorf("extension op %q produced invalid JSON on stdout: %w; raw: %s", input.Selector, err, strings.TrimSpace(string(stdout)))
+	}
+	if len(bytes.TrimSpace(stdout)) > 0 {
+		outputs, err = publishExtensionObjects(ctx, deps, stdout, outputs)
+		if err != nil {
+			return nil, fmt.Errorf("extension object output: %w", err)
+		}
 	}
 	if resolved.compiledOutput != nil {
 		if err := resolved.compiledOutput.Validate(outputs); err != nil {

@@ -116,3 +116,13 @@ inputs:
     sandbox:
       type: shai
 ```
+
+## Immutable Session Objects
+
+For an op version that implements objects, route `session: "${{ sequence.previous.outputs.session }}"` as an ordinary input. Confirm the selected manifest actually declares `x-c2j-object-type`; older Codex ops still expose `sessionId` and legacy artifact state.
+
+Extension manifests annotate checkpoint fields with `type: object` and `x-c2j-object-type: c2ops.codex.session/v1`. Before invoking the process, c2j replaces each reference with `{ref, metadata, files}`. File paths are private writable copies in the op's filesystem view. An explicit object must be the complete source of resume state; do not overlay a shared session-ID cache or an implicit latest checkpoint.
+
+To publish, write export parts beneath `C2J_OBJECT_OUTBOX` and emit `{"output":{"session":{"$object":"next"}},"objects":{"next":{"type":"c2ops.codex.session/v1","metadata":{"session_id":"..."},"files":{"home":"<absolute staging path>"}}}}`. c2j seals the files and replaces the marker with the durable reference. Returning the input descriptor's `ref` preserves the original checkpoint. Keep ordinary user deliverables in the regular artifact outbox.
+
+Both later consumers may select the same earlier object; each starts with its exact state. Session IDs may match while checkpoint contents differ. A Codex export must preserve all supported resumable assets, including required database/rollout state, and omit credentials and transient files. Resolve relocated paths inside the adapter. Test branching, retries and worker restart without shared caches before changing recipe routing.

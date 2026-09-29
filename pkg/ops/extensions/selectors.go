@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/colony-2/c2j/pkg/git/selectorcache"
+	"github.com/colony-2/c2j/pkg/objects"
 	invschema "github.com/invopop/jsonschema"
 	jsonschemav6 "github.com/santhosh-tekuri/jsonschema/v6"
 	yaml "gopkg.in/yaml.v3"
@@ -102,7 +103,14 @@ func (r *ResolvedOp) ValidateInvocationInputs(raw map[string]interface{}) error 
 		return err
 	}
 	if r.compiledInput != nil {
-		if err := r.compiledInput.Validate(payload); err != nil {
+		value, err := objects.JSONValue(payload)
+		if err != nil {
+			return err
+		}
+		if _, err := objects.Collect(value); err != nil {
+			return err
+		}
+		if err := r.compiledInput.Validate(value); err != nil {
 			return err
 		}
 		return nil
@@ -353,6 +361,9 @@ func loadResolvedOp(submittedSelector string, resolvedSelector string, resolvedC
 }
 
 func zeroObjectFromSchema(schema map[string]any) map[string]interface{} {
+	return zeroObjectFromSchemaRoot(schema, schema)
+}
+func zeroObjectFromSchemaRoot(schema, root map[string]any) map[string]interface{} {
 	if len(schema) == 0 {
 		return map[string]interface{}{}
 	}
@@ -363,12 +374,18 @@ func zeroObjectFromSchema(schema map[string]any) map[string]interface{} {
 	out := make(map[string]interface{}, len(propsRaw))
 	for key, raw := range propsRaw {
 		fieldSchema, _ := raw.(map[string]any)
-		out[key] = zeroValueFromSchema(fieldSchema)
+		out[key] = zeroValueFromSchemaRoot(fieldSchema, root)
 	}
 	return out
 }
 
 func zeroValueFromSchema(schema map[string]any) interface{} {
+	return zeroValueFromSchemaRoot(schema, schema)
+}
+func zeroValueFromSchemaRoot(schema, root map[string]any) interface{} {
+	if typ := validationObjectType(schema, root, map[string]bool{}); typ != "" {
+		return objects.ValidationRef(typ)
+	}
 	if len(schema) == 0 {
 		return nil
 	}
@@ -376,7 +393,7 @@ func zeroValueFromSchema(schema map[string]any) interface{} {
 	case string:
 		switch schemaType {
 		case "object":
-			return zeroObjectFromSchema(schema)
+			return zeroObjectFromSchemaRoot(schema, root)
 		case "array":
 			return []interface{}{}
 		case "string":
@@ -391,12 +408,12 @@ func zeroValueFromSchema(schema map[string]any) interface{} {
 	case []interface{}:
 		for _, item := range schemaType {
 			if s, ok := item.(string); ok && s != "null" {
-				return zeroValueFromSchema(map[string]any{"type": s, "properties": schema["properties"]})
+				return zeroValueFromSchemaRoot(map[string]any{"type": s, "properties": schema["properties"]}, root)
 			}
 		}
 	}
 	if propsRaw, ok := schema["properties"].(map[string]any); ok && len(propsRaw) > 0 {
-		return zeroObjectFromSchema(schema)
+		return zeroObjectFromSchemaRoot(schema, root)
 	}
 	return nil
 }
@@ -561,4 +578,36 @@ func parseGitOpSelector(selector string) (gitOpSelector, error) {
 		OpPath:        normalizedPath,
 		Ref:           ref,
 	}, nil
+}
+
+// Resolve object contracts used by dry-run output placeholders, including reusable
+// local definitions. A visited set keeps recursive schema references finite.
+func validationObjectType(schema, root map[string]any, seen map[string]bool) string {
+	if typ, ok := schema["x-c2j-object-type"].(string); ok {
+		return typ
+	}
+	if ref, ok := schema["$ref"].(string); ok && strings.HasPrefix(ref, "#/") && !seen[ref] {
+		seen[ref] = true
+		pointer, err := url.PathUnescape(strings.TrimPrefix(ref, "#/"))
+		if err == nil {
+			target := root
+			for _, part := range strings.Split(pointer, "/") {
+				part = strings.ReplaceAll(strings.ReplaceAll(part, "~1", "/"), "~0", "~")
+				target, _ = target[part].(map[string]any)
+			}
+			if typ := validationObjectType(target, root, seen); typ != "" {
+				return typ
+			}
+		}
+	}
+	for _, key := range []string{"allOf", "anyOf", "oneOf"} {
+		branches, _ := schema[key].([]any)
+		for _, branch := range branches {
+			sub, _ := branch.(map[string]any)
+			if typ := validationObjectType(sub, root, seen); typ != "" {
+				return typ
+			}
+		}
+	}
+	return ""
 }

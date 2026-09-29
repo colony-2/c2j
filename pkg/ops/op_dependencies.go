@@ -4,10 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/colony-2/c2j/pkg/execution"
 
 	recipeartifacts "github.com/colony-2/c2j/pkg/artifacts"
+	"github.com/colony-2/c2j/pkg/execution"
 	"github.com/colony-2/c2j/pkg/jobcontext"
+	"github.com/colony-2/c2j/pkg/objects"
 	"github.com/colony-2/c2j/pkg/workflowctl"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
@@ -15,6 +16,7 @@ import (
 )
 
 type OpDependencies interface {
+	Objects() *objects.Store
 	Database() *gorm.DB
 	WorkflowControl() workflowctl.WorkflowControl
 	GetInputArtifacts() []jobdb.Artifact
@@ -41,6 +43,8 @@ type TaskBasedJobTool struct {
 	TaskContext jobworkflow.TaskContext
 }
 
+func (j *TaskBasedJobTool) TaskOrdinal() int64 { return j.TaskContext.Step }
+
 func (j *TaskBasedJobTool) GetJobKey() jobdb.JobKey {
 	return j.TaskContext.JobKey
 }
@@ -55,6 +59,7 @@ func (j *TaskBasedJobTool) SubmitJob(ctx context.Context, job jobdb.SubmitJob) (
 
 // opDepImpl holds the actual dependencies.
 type opDepImpl struct {
+	objects               *objects.Store
 	executionRequirements *execution.Requirements
 	db                    *gorm.DB
 	inputArtifacts        []jobdb.Artifact
@@ -218,7 +223,10 @@ func (c *opDepImpl) SetExecutionRequirements(patch execution.Requirements) error
 
 func (c *opDepImpl) ExecutionRequirements() *execution.Requirements { return c.executionRequirements }
 
+func (c *opDepImpl) Objects() *objects.Store { return c.objects }
+
 type OpDependenciesBuilder struct {
+	objects           *objects.Store
 	db                *gorm.DB
 	artifacts         []jobdb.Artifact
 	workflowControl   workflowctl.WorkflowControl
@@ -312,6 +320,11 @@ func (b *OpDependenciesBuilder) WithProtectedEnv(env map[string]string) *OpDepen
 	return b
 }
 
+func (b *OpDependenciesBuilder) WithObjects(store *objects.Store) *OpDependenciesBuilder {
+	b.objects = store
+	return b
+}
+
 func (b *OpDependenciesBuilder) Build() OpDependencies {
 	protectedEnv := b.protectedEnv
 	if protectedEnv == nil {
@@ -322,6 +335,7 @@ func (b *OpDependenciesBuilder) Build() OpDependencies {
 		protectedEnvCopy[key] = value
 	}
 	deps := &opDepImpl{
+		objects:           b.objects,
 		db:                b.db,
 		inputArtifacts:    b.artifacts,
 		workflowControl:   b.workflowControl,

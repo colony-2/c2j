@@ -8,6 +8,7 @@ import (
 
 	recipeartifacts "github.com/colony-2/c2j/pkg/artifacts"
 	"github.com/colony-2/c2j/pkg/jobcontext"
+	"github.com/colony-2/c2j/pkg/objects"
 	"github.com/colony-2/c2j/pkg/ops"
 	extops "github.com/colony-2/c2j/pkg/ops/extensions"
 	recipeops "github.com/colony-2/c2j/pkg/ops/recipe"
@@ -44,10 +45,7 @@ func normalizeOpOutput(outputType reflect.Type, output map[string]interface{}) m
 	if outputType.Kind() != reflect.Struct {
 		return output
 	}
-	base, err := zeroOutputFromType(outputType)
-	if err != nil {
-		return output
-	}
+	base := zeroStructMap(outputType, false)
 	if output == nil {
 		return base
 	}
@@ -67,7 +65,7 @@ func zeroOutputFromType(outputType reflect.Type) (map[string]interface{}, error)
 
 	switch outputType.Kind() {
 	case reflect.Struct:
-		return zeroStructMap(outputType), nil
+		return zeroStructMap(outputType, true), nil
 	case reflect.Map:
 		return map[string]interface{}{}, nil
 	default:
@@ -117,7 +115,7 @@ func zeroValueFromTemplate(value interface{}) interface{} {
 	}
 }
 
-func zeroStructMap(outputType reflect.Type) map[string]interface{} {
+func zeroStructMap(outputType reflect.Type, validation bool) map[string]interface{} {
 	out := make(map[string]interface{}, outputType.NumField())
 	for i := 0; i < outputType.NumField(); i++ {
 		field := outputType.Field(i)
@@ -136,14 +134,24 @@ func zeroStructMap(outputType reflect.Type) map[string]interface{} {
 		if name == "" {
 			name = field.Name
 		}
-		out[name] = zeroValueForType(field.Type)
+		if derefType(field.Type) == reflect.TypeOf(objects.Ref{}) {
+			if validation {
+				typ := field.Tag.Get("object_type")
+				if typ == "" {
+					typ = "c2j.validation/v1"
+				}
+				out[name] = objects.ValidationRef(typ)
+			}
+			continue
+		}
+		out[name] = zeroValueForType(field.Type, validation)
 	}
 	return out
 }
 
-func zeroValueForType(t reflect.Type) interface{} {
+func zeroValueForType(t reflect.Type, validation bool) interface{} {
 	if t.Kind() == reflect.Pointer {
-		return zeroValueForType(t.Elem())
+		return zeroValueForType(t.Elem(), validation)
 	}
 	switch t.Kind() {
 	case reflect.String:
@@ -161,7 +169,7 @@ func zeroValueForType(t reflect.Type) interface{} {
 	case reflect.Slice, reflect.Array:
 		return []interface{}{}
 	case reflect.Struct:
-		return zeroStructMap(t)
+		return zeroStructMap(t, validation)
 	case reflect.Interface:
 		return nil
 	default:

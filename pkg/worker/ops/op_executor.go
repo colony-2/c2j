@@ -18,6 +18,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"strings"
+	"sync"
 	"time"
 
 	recipeartifacts "github.com/colony-2/c2j/pkg/artifacts"
@@ -27,6 +28,7 @@ import (
 	"github.com/colony-2/c2j/pkg/git/gitstate"
 	"github.com/colony-2/c2j/pkg/jobcontext"
 	"github.com/colony-2/c2j/pkg/logutil"
+	"github.com/colony-2/c2j/pkg/objects"
 	"github.com/colony-2/c2j/pkg/ops"
 	"github.com/colony-2/c2j/pkg/ops/process"
 	"github.com/colony-2/c2j/pkg/starter"
@@ -326,6 +328,62 @@ func (t opExecutor) do(ctx context.Context, jobTool ops.JobTool, req ActivityInv
 		}
 	}
 	artifactByKey := indexArtifactsByKey(inputArtifacts)
+	objectRefs, objectErr := objects.Collect(req.Input)
+	if objectErr != nil {
+		return zero, nil, objectErr
+	}
+	for _, ref := range objectRefs {
+		if jobTool == nil || ref.TenantID != jobTool.GetJobKey().TenantId {
+			return zero, nil, fmt.Errorf("object belongs to another tenant")
+		}
+	}
+	var objectArtifacts []jobdb.Artifact
+	var objectMu sync.Mutex
+	var objectJob jobdb.JobKey
+	var objectOrdinal int64
+	if jobTool != nil {
+		objectJob = jobTool.GetJobKey()
+	}
+	if task, ok := jobTool.(interface{ TaskOrdinal() int64 }); ok {
+		objectOrdinal = task.TaskOrdinal()
+	}
+	objectConfig := objects.Config{Workdir: workDir, JobKey: objectJob, TaskOrdinal: objectOrdinal,
+		GetArtifact: func(key jobdb.ArtifactKey) (jobdb.Artifact, error) {
+			// Publications in this invocation have not reached JobDB yet, but are
+			// already sealed and can be opened without exposing their source files.
+			if key.JobId == objectJob.JobId && key.TaskOrdinal == objectOrdinal {
+				objectMu.Lock()
+				var pending jobdb.Artifact
+				for _, art := range objectArtifacts {
+					if art.Name() == key.Name {
+						pending = art
+						break
+					}
+				}
+				objectMu.Unlock()
+				if pending != nil {
+					return pending, nil
+				}
+			}
+			if art := artifactByKey[artifactKeyIdentity(key)]; art != nil {
+				return art, nil
+			}
+			if deps.WorkflowControl() == nil || jobTool == nil {
+				return nil, fmt.Errorf("object artifact resolver unavailable")
+			}
+			return deps.WorkflowControl().GetArtifactLazy(ctx, jobTool.GetJobKey().TenantId, key), nil
+		},
+		AddArtifact: func(art jobdb.Artifact) error {
+			objectMu.Lock()
+			defer objectMu.Unlock()
+			objectArtifacts = append(objectArtifacts, art)
+			return nil
+		},
+	}
+	objectStore := objects.NewStore(objectConfig)
+	defer func() { outputArtifacts = append(outputArtifacts, objectArtifacts...) }()
+	defer os.RemoveAll(filepath.Join(workDir, "objects"))
+	defer os.RemoveAll(filepath.Join(workDir, "objects-out"))
 	if len(req.Artifacts) > 0 {
 		if err := materializeArtifactBindings(ctx, inbox, req.Artifacts, artifactByKey); err != nil {
 			return zero, nil, err
@@ -337,6 +395,9 @@ func (t opExecutor) do(ctx context.Context, jobTool ops.JobTool, req ActivityInv
 	var nonThinPackArtifacts []jobdb.Artifact
 
 	for _, art := range inputArtifacts {
+		if objects.IsInternalArtifact(art.Name()) {
+			continue
+		}
 		isRestore := art.Name() == gitstate.ThinPackArtifactName
 		if req.WorkspaceManaged {
 			key, keyErr := art.ArtifactKey()
@@ -422,6 +483,7 @@ func (t opExecutor) do(ctx context.Context, jobTool ops.JobTool, req ActivityInv
 		db = tx
 	}
 	opDeps := ops.NewOpDependenciesBuilder().
+		WithObjects(objectStore).
 		WithArtifacts(nonThinPackArtifacts).
 		WithJobTool(jobTool).
 		WithDatabase(db).
@@ -457,6 +519,19 @@ func (t opExecutor) do(ctx context.Context, jobTool ops.JobTool, req ActivityInv
 
 	// Execute operation with HYDRATED input (sentinels replaced)
 	outputData, stepErr := reg.Step.Invoke(opDeps, ctx, hydratedInput)
+	outputRefs, objectErr := objects.Collect(outputData)
+	if objectErr == nil {
+		for _, ref := range outputRefs {
+			if jobTool == nil || ref.TenantID != jobTool.GetJobKey().TenantId {
+				objectErr = fmt.Errorf("output object belongs to another tenant")
+				break
+			}
+		}
+	}
+	if objectErr != nil {
+		stepErr = errors.Join(stepErr, fmt.Errorf("invalid object output: %w", objectErr))
+	}
+
 	defer func() {
 		if source, ok := opDeps.(interface {
 			ExecutionRequirements() *execution.Requirements

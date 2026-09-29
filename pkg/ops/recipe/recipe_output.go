@@ -6,6 +6,7 @@ import (
 
 	recipeartifacts "github.com/colony-2/c2j/pkg/artifacts"
 	"github.com/colony-2/c2j/pkg/git/gitstate"
+	"github.com/colony-2/c2j/pkg/objects"
 	"github.com/colony-2/c2j/pkg/ops"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 )
@@ -65,6 +66,9 @@ func decodeRecipeJobOutput(deps ops.OpDependencies, data jobdb.JobData) (recipeJ
 		out.ArtifactsAvailable = true
 	}
 	for _, artifact := range artifacts {
+		if artifact != nil && objects.IsInternalArtifact(artifact.Name()) {
+			continue
+		}
 		// A child's snapshot belongs to that child, even when the awaiting
 		// node uses the implicit root workspace. Preserve its reference below,
 		// but never offer it as the awaiting task's automatic Git state.

@@ -1,0 +1,13 @@
+name: session
+command: [python3, run.py]
+input_schema:
+ type: object
+ properties:
+  session: {type: object, x-c2j-object-type: test.session/v1}
+  expected: {type: string}
+  text: {type: string}
+output_schema:
+ type: object
+ required: [session]
+ properties:
+  session: {type: object, x-c2j-object-type: test.session/v1}

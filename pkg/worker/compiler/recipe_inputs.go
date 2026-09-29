@@ -3,6 +3,7 @@ package compiler
 import (
 	"fmt"
 
+	"github.com/colony-2/c2j/pkg/objects"
 	"github.com/colony-2/c2j/pkg/recipe"
 )
 
@@ -22,6 +23,12 @@ func validationDefaultsFromSchema(schema map[string]recipe.InputSchema) (map[str
 		}
 
 		switch def.Type {
+		case "object":
+			typ := def.ObjectType
+			if typ == "" {
+				typ = "c2j.validation/v1"
+			}
+			inputs[key] = objects.ValidationRef(typ)
 		case "string":
 			inputs[key] = ""
 		case "number":

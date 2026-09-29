@@ -103,3 +103,20 @@ inputs:
 ```
 
 Avoid hard-coding host paths inside sandboxed ops. Use the context path visible to the op.
+
+## Object Checkpoints
+
+Route an object's complete value with `${{ ... }}`:
+
+```yaml
+inputs:
+  session: "${{ sequence.previous.outputs.session }}"
+```
+
+An object bundles op-owned metadata and files behind a typed immutable reference. Every consumer restores a fresh writable copy. Multiple nodes may reference the same earlier checkpoint without impacting each other; no special fork declaration or `object_bindings` is needed. To continue a branch, explicitly select that branch's output. There is no automatic latest-session slot.
+
+Objects can travel through outputs, nested maps/lists, states, includes, child jobs and later jobs in the same tenant. A recipe accepting a checkpoint declares `type: object` and optionally `object_type: c2ops.codex.session/v1` in its `input_schema`, then binds the submitted input into root `inputs` as usual. Use `${{ ... }}` for the complete value; `{{ ... }}` string rendering is unsuitable for object maps.
+
+Checkpoint backing files are excluded from recipe artifact maps. Do not manually route the object archive, session ID or rollout as separate artifacts. The originating JobDB task artifacts must remain retained while references are needed. Existing Git snapshot forwarding is unchanged.
+
+An op must implement the object protocol before using this input. In particular, existing c2ops Codex versions do not gain a `session` input just because the c2j runtime supports objects.
