@@ -125,7 +125,7 @@ func TestBrokerSubmitFromMountedC2JInShai(t *testing.T) {
 		WorkspaceRoot: workspace,
 		WorkingDir:    workspace,
 		Shell:         "sh",
-		Run:           "/c2j-bin/c2j submit --embed --cell /src --recipe-file child.yaml --json",
+		Run:           "/c2j-bin/c2j submit 'Run the child broker fixture' --embed --cell /src --advanced-recipe-file child.yaml --json",
 		Env:           env,
 		Sandbox:       &process.SandboxInput{Type: process.SandboxTypeShai},
 		RequiredMounts: []ops.RequiredMount{{
