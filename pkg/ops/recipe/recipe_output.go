@@ -65,7 +65,11 @@ func decodeRecipeJobOutput(deps ops.OpDependencies, data jobdb.JobData) (recipeJ
 		out.ArtifactsAvailable = true
 	}
 	for _, artifact := range artifacts {
-		if deps != nil && !(deps.GitContext().Workspace != nil && (artifact.Name() == gitstate.ThinPackArtifactName || artifact.Name() == "diff_from_parent.diff" || artifact.Name() == "diff_from_base.diff")) {
+		// A child's snapshot belongs to that child, even when the awaiting
+		// node uses the implicit root workspace. Preserve its reference below,
+		// but never offer it as the awaiting task's automatic Git state.
+		internalGit := artifact.Name() == gitstate.ThinPackArtifactName || artifact.Name() == "diff_from_parent.diff" || artifact.Name() == "diff_from_base.diff"
+		if deps != nil && !internalGit {
 			if err := deps.AddOutputArtifact(artifact); err != nil {
 				return recipeJobOutput{}, err
 			}

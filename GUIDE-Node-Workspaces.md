@@ -103,6 +103,8 @@ A workspace selection does not change the job's tenant, ownership, execution ima
 
 Explicit child recipe operations and child groups default to the active workspace's cell and Git data. They receive the matching snapshot when inheriting unmerged changes, while maintaining an independent child lineage. Awaiting their result does not adopt child changes. An explicit child cell override must have a matching Git repository; changing the label alone cannot retarget inherited working data.
 
+This isolation also applies at the implicit root, before or after a consultation, and to `const` await nodes. Child thin packs and diffs remain available through the result's `outputs.artifacts` references with their original child job/task keys; they are not attached as the awaiting task's automatic snapshot. Child user artifacts continue to propagate normally. For child groups, use each child's artifact map to distinguish evidence with the same filename.
+
 ## Persistence and deployment
 
 “Ephemeral” means there is no automatic merge or push to the target cell. Snapshotting still preserves work for retries and replay. Explicit Git publishing operations remain subject to existing runtime credentials and external controls; this feature adds no read-only restriction or approval flow.
@@ -116,3 +118,16 @@ Upgrade recipe compilers and task workers together before submitting recipes tha
 Brokered child submissions preserve compiled include metadata, including workspace-bearing includes. Update the submitting CLI and the parent broker worker together when using this support. Authored recipes still cannot supply `__c2j_internal` metadata.
 
 Artifact dependencies have a stable order for replay. The standard runtime can also recover successful tasks recorded by older compilers with a different dependency order, after verifying the original input hash and restore-pack contents. It reads the recorded result without rerunning the task. Other input changes remain determinism errors. Hosts constructing recipe job workers directly can provide `RecipeJobWorkerOptions.TaskHistory`; `NewRecipeWorkerWithOptions` obtains it from a compatible workflow controller automatically.
+
+## Regression coverage
+
+The Go suite exercises root and explicit-workspace child result readers, failed-child evidence, and real merged children with parent candidate snapshots, both with and without consultation and `const` awaits. The default-recipe compatibility CI job also runs the recipes repository's complete `recipe-tests/run-defaults.sh` suite against the built CLI. Its build/evolve lifecycles include broker submission, worker replacement at the child wait, real verification, and both cells' squash merges. The pinned recipe fixtures require the [companion evidence-export patch](testdata/recipe-compatibility/README.md).
+
+Run that suite locally with disposable test cells and a local c2ops checkout:
+
+```sh
+C2J_BINARY=/absolute/path/to/c2j \
+C2OPS_REPOSITORY=/absolute/path/to/c2ops \
+C2J_TEST_LOG_DIR=/tmp/c2j-recipe-regression-logs \
+  /absolute/path/to/recipes/recipe-tests/run-defaults.sh
+```

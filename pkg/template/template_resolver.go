@@ -19,7 +19,6 @@ import (
 	"github.com/google/cel-go/common/types/ref"
 	"github.com/google/cel-go/ext"
 	exprpb "google.golang.org/genproto/googleapis/api/expr/v1alpha1"
-	"google.golang.org/protobuf/types/known/structpb"
 )
 
 // ScopeType defines resolver scope kinds.
@@ -540,11 +539,7 @@ func (rc *ResolutionContext) evaluateCELExpression(expr string) (interface{}, er
 		return nil, fmt.Errorf("failed to evaluate CEL expression: %w", err)
 	}
 
-	value := result.Value()
-	if _, ok := value.(structpb.NullValue); ok {
-		return nil, nil
-	}
-	return value, nil
+	return nativeTemplateResult(result), nil
 }
 
 // resolveValue recursively resolves templates in a value (uses interpolation mode by default)

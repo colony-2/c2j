@@ -1,0 +1,2 @@
+# Mail patches contain blank context lines and a signature separator.
+*.patch -whitespace

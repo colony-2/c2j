@@ -43,8 +43,9 @@ type StartedJob struct {
 }
 
 type SingleRecipeOutput struct {
-	Outputs   map[string]interface{}      `json:"outputs"`
-	GitResult contextual.GitCommitContext `json:"git,omitempty"`
+	Outputs   map[string]interface{}         `json:"outputs"`
+	Artifacts map[string]recipeartifacts.Ref `json:"artifacts,omitempty"`
+	GitResult contextual.GitCommitContext    `json:"git,omitempty"`
 }
 
 type MultipleRecipeOutput struct {
@@ -126,7 +127,7 @@ func getRecipeOutput(deps ops.OpDependencies, ctx context.Context, input Started
 		return zero, err
 	}
 
-	return SingleRecipeOutput{Outputs: decoded.Outputs}, nil
+	return SingleRecipeOutput{Outputs: decoded.Outputs, Artifacts: decoded.Artifacts}, nil
 }
 
 func startSingleJob(deps ops.OpDependencies, ctx context.Context, input SingleRecipeWithRef) (StartedJob, error) {

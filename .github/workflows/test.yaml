@@ -43,16 +43,65 @@ jobs:
       - name: Check bundled skill discovery
         run: npx -y skills add . --list --full-depth
 
-  # Summary job that depends on all matrix jobs completing
+  default-recipes:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout c2j
+        uses: actions/checkout@v4
+      - name: Checkout recipe compatibility fixtures
+        uses: actions/checkout@v4
+        with:
+          repository: colony-2/recipes
+          # Includes full build/evolve lifecycles with consultation and child merges.
+          ref: 84de797f8080442dadbfce4340ac57d5200cc657
+          token: ${{ secrets.READ_ALL_C2_REPOS }}
+          path: test-repos/recipes
+      - name: Checkout extension ops
+        uses: actions/checkout@v4
+        with:
+          repository: colony-2/c2ops
+          ref: 73165cf9d001fac194da6e88d7419a3aeb04ded9
+          token: ${{ secrets.READ_ALL_C2_REPOS }}
+          path: test-repos/c2ops
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.1'
+      - name: Configure private modules
+        env:
+          C2_READ_TOKEN: ${{ secrets.READ_ALL_C2_REPOS }}
+        run: |
+          go env -w GOPRIVATE=github.com/colony-2/*
+          git config --global url."https://x-access-token:${C2_READ_TOKEN}@github.com/".insteadOf "https://github.com/"
+      - name: Install test runner and build CLI
+        run: |
+          python3 -m pip install uv==0.12.12
+          go build -o "$RUNNER_TEMP/c2j" ./cmd/c2j
+      - name: Run all default recipe suites
+        env:
+          C2J_BINARY: ${{ runner.temp }}/c2j
+          C2OPS_REPOSITORY: ${{ github.workspace }}/test-repos/c2ops
+          C2J_TEST_LOG_DIR: ${{ runner.temp }}/recipe-regression-logs
+        run: |
+          git -C test-repos/recipes apply "$GITHUB_WORKSPACE/testdata/recipe-compatibility/recipes-verification-export.patch"
+          ./test-repos/recipes/recipe-tests/run-defaults.sh
+      - name: Retain failure logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: recipe-regression-logs
+          path: ${{ runner.temp }}/recipe-regression-logs
+
+  # Summary job that depends on all matrix jobs and recipe compatibility.
   test-summary:
-    needs: test
+    needs: [test, default-recipes]
     if: always()
     runs-on: ubuntu-latest
     steps:
       - name: Check test matrix result
         run: |
-          if [ "${{ needs.test.result }}" != "success" ]; then
-            echo "Test matrix result: ${{ needs.test.result }}"
+          if [ "${{ needs.test.result }}" != "success" ] || [ "${{ needs.default-recipes.result }}" != "success" ]; then
+            echo "Test matrix: ${{ needs.test.result }}; default recipes: ${{ needs.default-recipes.result }}"
             exit 1
           fi
           echo "All test matrix jobs completed successfully"

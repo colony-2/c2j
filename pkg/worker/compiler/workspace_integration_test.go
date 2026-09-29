@@ -57,7 +57,7 @@ func workspaceRepo(t *testing.T, dir, cell string) string {
 	require.NoError(t, err)
 	return hash
 }
-func workspaceTestWorker(t *testing.T) *jobworkflow.WorkSet {
+func workspaceTestWorker(t *testing.T, extraOps ...coreops.RegisterableOp) *jobworkflow.WorkSet {
 	t.Helper()
 	op := coreops.NewActivityMappedOpV2[workspaceProbeInput, workspaceProbeOutput](coreops.OpMetadata{Type: "workspace_probe"}, func(deps coreops.OpDependencies, ctx context.Context, in workspaceProbeInput) (workspaceProbeOutput, error) {
 		out := workspaceProbeOutput{Cell: in.Cell, Owner: in.Owner, Dir: deps.WorktreePath()}
@@ -105,7 +105,7 @@ func workspaceTestWorker(t *testing.T) *jobworkflow.WorkSet {
 		}
 		return out, nil
 	})
-	withRegisteredOps(t, append([]coreops.RegisterableOp{op}, recipeops.GetOps()...)...)
+	withRegisteredOps(t, append(append([]coreops.RegisterableOp{op}, recipeops.GetOps()...), extraOps...)...)
 	registry, err := workerops.NewActivityRegistry()
 	require.NoError(t, err)
 	ws, err := NewRecipeWorker(coreops.NewServiceDepsBuilder().Build(), registry)
