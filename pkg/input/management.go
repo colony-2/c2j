@@ -585,6 +585,17 @@ func (s *inputManagementService) collectPendingInputs(ctx context.Context, proje
 
 func toOpenAPIInputFormConfig(form InputForm) openapi.InputFormConfig {
 	out := openapi.InputFormConfig{}
+	if form.ResponseSchema != nil {
+		out.RequestId = &form.RequestID
+		out.Request = &form.Request
+		out.ResponseSchema = &form.ResponseSchema
+		if form.RequestSchema != nil {
+			out.RequestSchema = &form.RequestSchema
+		}
+		if form.Presentation != nil {
+			out.Presentation = &form.Presentation
+		}
+	}
 
 	if form.Question != "" {
 		out.Question = &form.Question

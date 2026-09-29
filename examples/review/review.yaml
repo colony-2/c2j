@@ -1,0 +1,37 @@
+id: structured-document-review
+version: "1.0.0"
+desc: Review stored documents using an extension-generated input contract
+input_schema:
+  spec_json:
+    type: string
+    required: true
+  documents:
+    type: artifact_map
+    required: true
+  prepare_selector:
+    type: string
+    default_value: ./extensions/review
+inputs:
+  spec_json: "${{ inputs.spec_json }}"
+  documents: "${{ inputs.documents }}"
+  prepare_selector: "${{ inputs.prepare_selector }}"
+sequence:
+  - id: prepare
+    op: extension_execution
+    artifacts:
+      documents/: "${{ inputs.documents }}"
+    inputs:
+      selector: "${{ inputs.prepare_selector }}"
+      inputs:
+        spec: "${{ jq(inputs.spec_json, 'fromjson') }}"
+        documents: "${{ inputs.documents }}"
+        inbox: "${{ context.environment.op.inbox }}"
+  - id: collect
+    op: input
+    inputs:
+      form: "${{ sequence.prepare.outputs.form }}"
+outputs:
+  request: "${{ sequence.prepare.outputs.form.request }}"
+  response: "${{ sequence.collect.outputs.response }}"
+  receipt: "${{ sequence.collect.outputs.receipt }}"
+  artifact_refs: "${{ sequence.collect.outputs.artifact_refs }}"

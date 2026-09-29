@@ -1,0 +1,6 @@
+tests:
+  - name: structured autofill uses the shared acceptance path
+    inputs: {}
+    want:
+      decision: approve
+      actor: automation

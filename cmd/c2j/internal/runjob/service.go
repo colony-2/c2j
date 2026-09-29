@@ -347,6 +347,9 @@ func handlePendingInput(ctx context.Context, opts Options, runtime *input.Runtim
 		}
 		return false, exitError{code: exitCodeInputRequired, err: fmt.Errorf("input required for job %s", jobKey.JobId)}
 	default:
+		if details.Form.RequestId != nil && *details.Form.RequestId != "" {
+			return false, exitError{code: exitCodeInputRequired, err: fmt.Errorf("structured input required for job %s; use --input-mode ops to read the request and a structured-input client to respond", jobKey.JobId)}
+		}
 		resp, err := promptForInput(opts.Stdin, opts.Stdout, details)
 		if err != nil {
 			return false, exitError{code: exitCodeFailure, err: err}

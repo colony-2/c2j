@@ -3,13 +3,20 @@ package input
 import (
 	"context"
 
+	recipeartifacts "github.com/colony-2/c2j/pkg/artifacts"
 	"github.com/colony-2/c2j/pkg/ops"
 )
 
 // Config represents the configuration for the input activity
 type Config struct {
+	// Structured mode. Schemas and request are frozen in the generate_form outcome.
+	Request        any            `json:"request,omitempty"`
+	RequestSchema  map[string]any `json:"request_schema,omitempty"`
+	ResponseSchema map[string]any `json:"response_schema,omitempty"`
+	Presentation   map[string]any `json:"presentation,omitempty"`
+
 	// Single question format
-	Question string       `json:"question,omitempty" validate:"required_without=Fields" jsonschema:"description=Question to ask the user"`
+	Question string       `json:"question,omitempty" jsonschema:"description=Question to ask the user"`
 	Type     FieldType    `json:"type,omitempty" validate:"omitempty,oneof=short_answer paragraph_text multiple_choice checkboxes dropdown linear_scale boolean date time" jsonschema:"enum=short_answer|paragraph_text|multiple_choice|checkboxes|dropdown|linear_scale|boolean|date|time,description=Input field type"`
 	Options  []Option     `json:"options,omitempty" validate:"omitempty,min=1,dive" jsonschema:"description=Options for choice fields"`
 	Scale    *LinearScale `json:"scale,omitempty" validate:"required_if=Type linear_scale" jsonschema:"description=Configuration for linear scale fields"`
@@ -31,15 +38,18 @@ type Input struct {
 
 // Output represents the output from the input activity
 type Output struct {
-	Response interface{}            `json:"response,omitempty" jsonschema:"description=User response for single question"`
-	Fields   map[string]interface{} `json:"fields,omitempty" jsonschema:"description=User responses for multi-field form"`
-	UserID   string                 `json:"user_id,omitempty" jsonschema:"description=ID of user who responded"`
-	Metadata map[string]interface{} `json:"metadata,omitempty" jsonschema:"description=Additional metadata"`
+	ArtifactRefs map[string]recipeartifacts.Ref `json:"artifact_refs"`
+	Receipt      *Receipt                       `json:"receipt,omitempty"`
+	Response     interface{}                    `json:"response" jsonschema:"description=User response for an ordinary or structured input"`
+	Fields       map[string]interface{}         `json:"fields,omitempty" jsonschema:"description=User responses for multi-field form"`
+	UserID       string                         `json:"user_id,omitempty" jsonschema:"description=ID of user who responded"`
+	Metadata     map[string]interface{}         `json:"metadata,omitempty" jsonschema:"description=Additional metadata"`
 }
 
 func GetOp() ops.RegisterableOp {
 	op, err := ops.NewOp().
 		WithType("input").
+		WithAcceptsArtifacts(true).
 		WithManagementService(newInputManagementService()).
 		AddStep("generate_form", ops.NewStepWithDeps(buildForm)).
 		AddStep("collect_user_input", ops.NewNoTaskStep[InputForm, Output]()).
@@ -53,6 +63,12 @@ func GetOp() ops.RegisterableOp {
 // buildForm constructs the InputForm from config and input
 func buildForm(deps ops.OpDependencies, ctx context.Context, in Input) (InputForm, error) {
 	config := in.Form
+	if err := config.ValidateOpInput(); err != nil {
+		return InputForm{}, err
+	}
+	if config.ResponseSchema != nil {
+		return buildStructuredForm(deps, ctx, config)
+	}
 	form := InputForm{}
 
 	// Check if it's a single question or multi-field form

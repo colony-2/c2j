@@ -289,8 +289,21 @@ components:
 
     InputFormConfig:
       type: object
-      description: Configuration for a single- or multi-question input form.
+      description: Configuration for an ordinary form or schema-driven structured input.
       properties:
+        request_id:
+          type: string
+        request:
+          description: Frozen structured request data
+        request_schema:
+          type: object
+          additionalProperties: {}
+        response_schema:
+          type: object
+          additionalProperties: {}
+        presentation:
+          type: object
+          additionalProperties: {}
         question:
           type: string
         type:

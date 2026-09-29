@@ -26,6 +26,18 @@ func (in Input) ValidateOpInput() error {
 }
 
 func (c Config) ValidateOpInput() error {
+	if c.ResponseSchema != nil {
+		if c.Question != "" || c.Type != "" || len(c.Fields) > 0 || len(c.Options) > 0 || c.Scale != nil || c.Default != nil || c.Context.ArtifactsFromOutput != "" || len(c.Context.Artifacts) > 0 || len(c.Context.ArtifactsGlob) > 0 {
+			return ValidationError{Field: "form", Message: "structured input cannot be mixed with ordinary form controls"}
+		}
+		return nil
+	}
+	if c.Request != nil || c.RequestSchema != nil || c.Presentation != nil {
+		return ValidationError{Field: "form.response_schema", Message: "required for structured input", Required: true}
+	}
+	if c.Question == "" && len(c.Fields) == 0 {
+		return ValidationError{Field: "form.question", Message: "question, fields, or response_schema is required", Required: true}
+	}
 	if choiceOptionsRequired(c.Type) && len(c.Options) == 0 {
 		return ValidationError{
 			Field:    "form.options",

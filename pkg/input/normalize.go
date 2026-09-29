@@ -6,6 +6,12 @@ import "github.com/colony-2/c2j/pkg/input/formdefaults"
 // schema. Required fields without submitted values or explicit defaults fail
 // instead of receiving invented values.
 func NormalizeOutput(form Config, out Output) (Output, error) {
+	if form.ResponseSchema != nil {
+		if err := validateSchema(form.ResponseSchema, out.Response); err != nil {
+			return Output{}, err
+		}
+		return out, nil
+	}
 	normalized, err := formdefaults.NormalizeOutput(defaultConfigFromConfig(form), formdefaults.Output{
 		Response:        out.Response,
 		ResponsePresent: out.Response != nil,

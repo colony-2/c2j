@@ -207,6 +207,9 @@ func configFromInputMap(opInput map[string]interface{}) (Config, bool) {
 	if !ok {
 		return Config{}, false
 	}
+	if schema, structured := rawForm["response_schema"]; structured && schema != nil {
+		return Config{}, false
+	}
 	return configFromFormMap(rawForm), true
 }
 

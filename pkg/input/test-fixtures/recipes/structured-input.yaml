@@ -1,0 +1,22 @@
+id: structured-input
+version: "1.0"
+input_schema: {}
+sequence:
+  - id: collect
+    op: input
+    inputs:
+      form:
+        request:
+          title: Choose a direction
+        response_schema:
+          type: object
+          required: [decision]
+          additionalProperties: false
+          properties:
+            decision: {enum: [approve, revise]}
+        autofill:
+          response:
+            decision: approve
+outputs:
+  decision: "{{ sequence.collect.outputs.response.decision }}"
+  actor: "{{ sequence.collect.outputs.receipt.actor.kind }}"

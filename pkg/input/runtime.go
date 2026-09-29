@@ -95,6 +95,14 @@ func (r *Runtime) SubmitResponse(ctx context.Context, projectID string, jobID st
 		return err
 	}
 
+	var form InputForm
+	if err := ops.DecodeWithJsonTags(req.OpOutput, &form); err != nil {
+		return err
+	}
+	if form.ResponseSchema != nil {
+		return ValidationError{Field: "response", Message: "structured input requires SubmitStructuredResponse and its request identity"}
+	}
+
 	userID := ""
 	if output.UserId != nil {
 		userID = *output.UserId
@@ -118,8 +126,12 @@ func (r *Runtime) SubmitResponse(ctx context.Context, projectID string, jobID st
 	opOutMap := sConv.Map()
 
 	out := workerops.ActivityInvocationOutput{
-		GitResult: req.GitResult,
-		OpOutput:  opOutMap,
+		GitResult:        req.GitResult,
+		WorkspaceScopeID: req.WorkspaceScopeID,
+		Execution:        req.Execution,
+		ArtifactRefs:     req.ArtifactRefs,
+		Jobs:             req.Jobs,
+		OpOutput:         opOutMap,
 	}
 	env, err := coretask.NewOutputEnvelope(coretask.OutputKindActivityInvocationOutput, out)
 	if err != nil {
@@ -191,6 +203,9 @@ func (r *Runtime) getOutput(ctx context.Context, projectID string, jobID string)
 		return nil, workerops.ActivityInvocationOutput{}, nil, fmt.Errorf("failed to find job: %w", err)
 	}
 
+	if task.TaskType() != "input:collect_user_input" {
+		return nil, workerops.ActivityInvocationOutput{}, nil, ErrInputNotPending
+	}
 	td, err := task.Data()
 	if err != nil {
 		return nil, workerops.ActivityInvocationOutput{}, nil, fmt.Errorf("failed to get task data: %w", err)

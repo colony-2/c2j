@@ -1,8 +1,11 @@
 package recipe
 
 import (
+	"encoding/json"
 	"fmt"
 	"reflect"
+
+	recipeartifacts "github.com/colony-2/c2j/pkg/artifacts"
 
 	"github.com/colony-2/c2j/pkg/execution"
 	"github.com/colony-2/c2j/pkg/objects"
@@ -238,36 +241,52 @@ func (def InputSchema) validate(key string, value interface{}) error {
 		key, def.Type, expectedGoType, value, valueType)
 }
 
+// Artifact inputs cross a JSON boundary when a job is persisted. Accept both
+// native values and their serialized references without changing producer keys.
 func isArtifactValue(value interface{}) bool {
 	switch v := value.(type) {
 	case jobdb.ArtifactKey:
-		return true
+		return v.Validate() == nil
 	case *jobdb.ArtifactKey:
-		return v != nil
+		return v != nil && v.Validate() == nil
+	case recipeartifacts.Ref:
+		return v.Validate() == nil
+	case *recipeartifacts.Ref:
+		return v != nil && v.Validate() == nil
+	case map[string]interface{}:
+		raw, err := json.Marshal(v)
+		if err != nil {
+			return false
+		}
+		if _, ok := v["kind"]; ok {
+			var ref recipeartifacts.Ref
+			return json.Unmarshal(raw, &ref) == nil && ref.Validate() == nil
+		}
+		if _, ok := v["taskOrdinal"]; !ok {
+			return false
+		}
+		var key jobdb.ArtifactKey
+		return json.Unmarshal(raw, &key) == nil && key.Validate() == nil
 	default:
 		return false
 	}
 }
 
 func isArtifactMapValue(value interface{}) bool {
-	switch v := value.(type) {
-	case map[string]jobdb.ArtifactKey:
-		return true
-	case map[string]*jobdb.ArtifactKey:
-		return true
-	case map[string]interface{}:
-		if len(v) == 0 {
-			return true
-		}
-		for _, entry := range v {
-			if !isArtifactValue(entry) {
-				return false
-			}
-		}
-		return true
-	default:
+	if value == nil {
 		return false
 	}
+	v := reflect.ValueOf(value)
+	if v.Kind() != reflect.Map || v.Type().Key().Kind() != reflect.String {
+		return false
+	}
+	iter := v.MapRange()
+	for iter.Next() {
+		if !isArtifactValue(iter.Value().Interface()) {
+			return false
+		}
+	}
+	return true
 }
 
 func (def InputSchema) validateMissing(key string) error {

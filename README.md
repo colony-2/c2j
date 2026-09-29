@@ -18,6 +18,11 @@ For execution requirements, actual allocation inputs, compatibility filtering,
 job status, progress, handoffs, and child-job lineage, see the
 [execution tracking user guide](GUIDE-Execution-Tracking.md).
 
+For schema-driven human input and document review using existing artifact
+attachments, see [Structured input and review](GUIDE-Structured-Input-And-Review.md).
+Review policy lives in a selector extension and reusable recipe; the input op
+handles the generic request, validation, and response contract.
+
 Recipes can declare an `execution` block for CPU, memory, scratch, platform,
 and image. Node-level `execution_needs` adds templatable, scoped overrides that
 inherit within a job and restore the parent on exit. Completed tasks replay

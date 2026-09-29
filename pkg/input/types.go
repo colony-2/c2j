@@ -79,6 +79,11 @@ type GlobPattern struct {
 
 // InputForm represents the complete form structure
 type InputForm struct {
+	RequestID      string         `json:"request_id,omitempty"`
+	Request        any            `json:"request,omitempty"`
+	RequestSchema  map[string]any `json:"request_schema,omitempty"`
+	ResponseSchema map[string]any `json:"response_schema"`
+	Presentation   map[string]any `json:"presentation,omitempty"`
 	// Single question fields
 	Question string       `json:"question,omitempty" jsonschema:"description=Single question text"`
 	Type     FieldType    `json:"type,omitempty" jsonschema:"enum=short_answer|paragraph_text|multiple_choice|checkboxes|dropdown|linear_scale|boolean|date|time,description=Field type for single question"`
