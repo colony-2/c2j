@@ -65,9 +65,14 @@ type ArtifactPayload struct {
 	Data []byte `json:"data"`
 }
 
+// compiledRecipeFormat identifies the compiler snapshot transported by the
+// authenticated submit RPC. An absent format remains authored YAML for older clients.
+const compiledRecipeFormat = "c2j.recipe-snapshot/v1"
+
 type EmbeddedRecipePayload struct {
-	Name string `json:"name,omitempty"`
-	YAML []byte `json:"yaml"`
+	Format string `json:"format,omitempty"`
+	Name   string `json:"name,omitempty"`
+	YAML   []byte `json:"yaml"`
 }
 
 type SubmitRequest struct {
@@ -263,7 +268,16 @@ func (s *Server) submit(ctx context.Context, req SubmitRequest) (SubmitResponse,
 		if len(payload.YAML) == 0 {
 			return SubmitResponse{}, fmt.Errorf("embedded recipe %q is empty", payload.Name)
 		}
-		rec, err := recipe.LoadRecipeFromReader(bytes.NewReader(payload.YAML))
+		var rec *recipe.Recipe
+		var err error
+		switch payload.Format {
+		case "":
+			rec, err = recipe.LoadRecipeFromReader(bytes.NewReader(payload.YAML))
+		case compiledRecipeFormat:
+			rec, err = recipe.LoadInternalRecipeFromReader(bytes.NewReader(payload.YAML))
+		default:
+			return SubmitResponse{}, fmt.Errorf("unsupported embedded recipe format %q", payload.Format)
+		}
 		if err != nil {
 			return SubmitResponse{}, fmt.Errorf("decode embedded recipe %q: %w", payload.Name, err)
 		}
@@ -369,8 +383,9 @@ func NewSubmitRequest(ctx context.Context, start workflowctl.StartJob, artifacts
 			return SubmitRequest{}, fmt.Errorf("encode embedded recipe %q: %w", rec.GetMetdata().ID, err)
 		}
 		req.EmbeddedRecipes = append(req.EmbeddedRecipes, EmbeddedRecipePayload{
-			Name: rec.GetMetdata().ID,
-			YAML: raw,
+			Format: compiledRecipeFormat,
+			Name:   rec.GetMetdata().ID,
+			YAML:   raw,
 		})
 	}
 	return req, nil
