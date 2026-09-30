@@ -38,6 +38,31 @@ c2j run loop --embed
 
 Prefer bounded local concurrency and explicit tenant/cell targeting in automation.
 
+## Execute a supplied lease
+
+Use this mode when a dispatcher already owns the lease and has handed execution
+to this worker. The dispatcher uses JobDB `remote.ExportLease` and `Encode` to
+produce the capability, then stops executing/renewing before the receiver starts.
+
+```bash
+c2j run with-lease --jobdb https://jobdb.example.com/tenant --job-id JOB_ID --lease-file /run/secrets/job-lease.json
+```
+
+Use an owner-only regular file (mode `0600` or `0400`) or protected stdin with
+`--lease-file -`. Do not inspect/print the credential in logs or pass its value
+as a command-line argument. The CLI validates the configured tenant/job match,
+and JobDB validates and renews the lease before work and throughout execution.
+
+The invocation exits on completion, ordinary rescheduling, environment handoff,
+input wait, or lease failure. It never polls for or acquires a replacement lease.
+Suspension/environment handoff exits 0, input-required exits 3, and invalid/lost
+leases or transport failures exit nonzero. Answer input separately and let the
+dispatcher supply the next lease; do not automatically switch to `c2j run`.
+
+Upgrade the JobDB service/backend to support v0.0.22 authoritative renewal before
+using the updated remote worker. Unsupported renewal is an error, not a reason
+to bypass validation. c2j's Go library also accepts already-held embedded leases.
+
 ## Input Modes
 
 `c2j run` supports:

@@ -12,6 +12,7 @@ c2j version
 c2j submit
 c2j run
 c2j run one
+c2j run with-lease
 c2j run any
 c2j run loop
 c2j ready
@@ -86,6 +87,25 @@ Useful flags include `--on-not-ready`, `--input-mode`, `--wait-timeout`, `--poll
 Supported `--input-mode` values are `prompt`, `ops`, and `fail`.
 
 Supported `--on-not-ready` values include `wait`, `fail`, `fail-on-lease`, `fail-on-pending-jobs`, `fail-on-future`, and `fail-on-missing-capability`.
+
+## `c2j run with-lease`
+
+Execute a lease already claimed by a dispatcher:
+
+```bash
+c2j run with-lease --jobdb https://jobdb.example.com/tenant --job-id JOB_ID --lease-file /run/secrets/job-lease.json
+```
+
+Use `--lease-file -` for protected redirected stdin. Named files must be regular,
+not symlinks, owned by the current user, and have no group/other permissions.
+Both the job ID and configured tenant must match the capability. JobDB v0.0.22
+server renewal support is required.
+
+This command never claims work. It has allocation flags and `--await-threshold`,
+but no `--worker-id`, `--lease-duration`, wait/poll controls, or `--embed`.
+`--input-mode` supports `ops` (default) or `fail`; both exit 3 when input is
+pending. Successful rescheduling exits 0 with a handoff/suspension event, which
+does not mean the whole job completed. See [job workflows](job-workflows.md).
 
 ## `c2j list`
 

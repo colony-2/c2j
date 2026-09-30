@@ -52,6 +52,7 @@ c2j version
 c2j submit
 c2j run
 c2j run one
+c2j run with-lease
 c2j run any
 c2j run loop
 c2j ready
@@ -482,6 +483,21 @@ Important behavior:
 - suspended jobs may wait, prompt, or fail depending on flags
 - when input is pending, interactive terminals default to prompting
 - in CI or non-terminal mode, input handling defaults to `ops`
+
+### Execute a dispatched lease
+
+When a dispatcher has already claimed work, use its protected capability file:
+
+```bash
+c2j run with-lease --jobdb https://jobdb.example.com/tenant --job-id JOB_ID --lease-file /run/secrets/job-lease.json
+```
+
+Use `--lease-file -` for redirected stdin. The command validates and renews the
+supplied lease, runs the usual execution lifecycle, and exits on completion,
+rescheduling, or lease loss without claiming another lease. The file must be
+owned by the worker user with no group/other permissions. See the
+[supplied-lease guide](GUIDE-Run-With-Lease.md) for dispatcher/library integration,
+exit behavior, and the JobDB v0.0.22 server requirement.
 
 ### Input handling
 

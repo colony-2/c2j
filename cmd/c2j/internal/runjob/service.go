@@ -24,6 +24,7 @@ import (
 	workerops "github.com/colony-2/c2j/pkg/worker/ops"
 	workerworkflow "github.com/colony-2/c2j/pkg/worker/workflow"
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	remoteruntime "github.com/colony-2/jobdb/pkg/jobdb/runtime/remote"
 	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
 )
 
@@ -114,6 +115,7 @@ func Run(ctx context.Context, opts Options) error {
 }
 
 type runnerDeps struct {
+	importLease      func(context.Context, remoteruntime.LeaseCapability) (jobdb.RenewableExecutionLease, error)
 	executionRuntime *executionruntime.Runtime
 	handoffMu        sync.Mutex
 	handoffEvent     *compiler.ExecutionHandoff
@@ -143,6 +145,12 @@ func buildDeps(ctx context.Context, opts Options) (*runnerDeps, func(), error) {
 	if err != nil {
 		return nil, nil, fmt.Errorf("open JobDB runtime: %w", err)
 	}
+	ready := false
+	defer func() {
+		if !ready {
+			_ = handle.Cleanup()
+		}
+	}()
 
 	c2jops.Register()
 
@@ -193,6 +201,7 @@ func buildDeps(ctx context.Context, opts Options) (*runnerDeps, func(), error) {
 	}
 
 	deps := &runnerDeps{
+		importLease:  handle.ImportLease,
 		runtime:      handle.Runtime,
 		engine:       handle.Engine,
 		taskWorkers:  taskWorkersFromWorkSet(workset),
@@ -207,6 +216,7 @@ func buildDeps(ctx context.Context, opts Options) (*runnerDeps, func(), error) {
 		deps.taskWorkers[i] = deps.executionRuntime.WrapTaskWorker(worker)
 	}
 	deps.runtime = deps.executionRuntime
+	ready = true
 	return deps, func() {
 		if deps.stopRuntime != nil {
 			_ = deps.stopRuntime()

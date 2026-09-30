@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"reflect"
 	"sync"
+	"time"
 
 	"github.com/colony-2/c2j/pkg/execution"
 	"github.com/colony-2/c2j/pkg/worker/compiler"
@@ -78,40 +79,84 @@ func (r *Runtime) accept(ctx context.Context, l jobdb.ExecutionLease) (jobdb.Exe
 			l.StopKeepAlive()
 		}
 	}()
+	accepted, err := r.checkAdmission(ctx, l)
+	if err != nil || !accepted {
+		return nil, err
+	}
+	wrapped := r.wrapLease(l, &leaseState{})
+	admitted = true
+	return wrapped, nil
+}
+
+func (r *Runtime) checkAdmission(ctx context.Context, l jobdb.ExecutionLease) (bool, error) {
 	d, err := execution.PayloadDemand(l.ClientPayload())
 	if err != nil {
-		return nil, fmt.Errorf("job %s execution state: %w", l.Job().JobKey, err)
+		return false, fmt.Errorf("job %s execution state: %w", l.Job().JobKey, err)
 	}
 	if d != nil && d.NodeRequirements == nil {
 		m, err := execution.Compare(d.Effective, r.Allocation)
 		if err != nil {
-			return nil, err
+			return false, err
 		}
 		if len(m) > 0 {
 			// Retain the exact pending task coordinates and route. No payload
 			// rewrite/revision bump is needed for an already-published demand.
 			if err := l.Reschedule(ctx, jobdb.RescheduleExecutionRequest{NextRoute: l.Route(), TaskWait: l.ExecutionState().TaskWait}); err != nil {
-				return nil, err
+				return false, err
 			}
 			if r.OnHandoff != nil {
 				r.OnHandoff(compiler.ExecutionHandoff{Kind: "environment_required", JobKey: l.Job().JobKey, Demand: *d, Allocation: r.Allocation, Mismatches: m})
 			}
-			return nil, nil
+			return false, nil
 		}
 	}
-	wrapped := &lease{ExecutionLease: l, runtime: r}
+	return true, nil
+}
+
+func (r *Runtime) wrapLease(l jobdb.ExecutionLease, state *leaseState) jobdb.ExecutionLease {
+	wrapped := &lease{ExecutionLease: l, runtime: r, leaseState: state}
 	r.mu.Lock()
 	r.leases[l.Job().JobKey] = wrapped
 	r.mu.Unlock()
-	admitted = true
-	return wrapped, nil
+	if _, ok := l.(jobdb.RenewableExecutionLease); ok {
+		return &renewableLease{wrapped}
+	}
+	return wrapped
 }
 
 type lease struct {
 	jobdb.ExecutionLease
 	runtime *Runtime
+	*leaseState
+}
+
+// All refreshed snapshots share invocation state. Renewal must not lose staged
+// execution demand or a failure that has already blocked subsequent tasks.
+type leaseState struct {
 	demand  *execution.Demand
 	blocked error
+}
+
+func (l *lease) LeaseSchemaHash() string {
+	if v, ok := l.ExecutionLease.(interface{ LeaseSchemaHash() string }); ok {
+		return v.LeaseSchemaHash()
+	}
+	return ""
+}
+
+type renewableLease struct{ *lease }
+
+func (l *renewableLease) LeaseExpiry() time.Time {
+	return l.ExecutionLease.(jobdb.RenewableExecutionLease).LeaseExpiry()
+}
+
+func (l *renewableLease) Renew(ctx context.Context) (jobdb.RenewableExecutionLease, error) {
+	next, err := l.ExecutionLease.(jobdb.RenewableExecutionLease).Renew(ctx)
+	if err != nil {
+		l.forget()
+		return nil, err
+	}
+	return l.runtime.wrapLease(next, l.leaseState).(jobdb.RenewableExecutionLease), nil
 }
 
 func (l *lease) LeaseToken() string {
@@ -130,7 +175,7 @@ func (l *lease) LeaseWorkerID() string {
 func (l *lease) forget() {
 	l.runtime.mu.Lock()
 	defer l.runtime.mu.Unlock()
-	if l.runtime.leases[l.Job().JobKey] == l {
+	if current := l.runtime.leases[l.Job().JobKey]; current != nil && current.leaseState == l.leaseState {
 		delete(l.runtime.leases, l.Job().JobKey)
 	}
 }

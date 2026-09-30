@@ -300,7 +300,7 @@ func (r *runOneRuntime) PollWork(ctx context.Context, req jobdb.PollWorkRequest)
 	r.jobKey = jobKey
 	r.mu.Unlock()
 
-	return []jobdb.ExecutionLease{&runOneLease{ExecutionLease: lease, runtime: r}}, nil
+	return []jobdb.ExecutionLease{wrapRunOneLease(lease, r)}, nil
 }
 
 func (r *runOneRuntime) markFinalized(action string, status string, route *jobdb.Route, err error) {
@@ -344,6 +344,35 @@ func (r *runOneRuntime) state() runOneState {
 type runOneLease struct {
 	jobdb.ExecutionLease
 	runtime *runOneRuntime
+}
+
+func wrapRunOneLease(lease jobdb.ExecutionLease, runtime *runOneRuntime) jobdb.ExecutionLease {
+	wrapped := &runOneLease{ExecutionLease: lease, runtime: runtime}
+	if _, ok := lease.(jobdb.RenewableExecutionLease); ok {
+		return &runOneRenewableLease{wrapped}
+	}
+	return wrapped
+}
+
+type runOneRenewableLease struct{ *runOneLease }
+
+func (l *runOneRenewableLease) Renew(ctx context.Context) (jobdb.RenewableExecutionLease, error) {
+	next, err := l.ExecutionLease.(jobdb.RenewableExecutionLease).Renew(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return wrapRunOneLease(next, l.runtime).(jobdb.RenewableExecutionLease), nil
+}
+
+func (l *runOneRenewableLease) LeaseExpiry() time.Time {
+	return l.ExecutionLease.(jobdb.RenewableExecutionLease).LeaseExpiry()
+}
+
+func (l *runOneLease) LeaseSchemaHash() string {
+	if lease, ok := l.ExecutionLease.(interface{ LeaseSchemaHash() string }); ok {
+		return lease.LeaseSchemaHash()
+	}
+	return ""
 }
 
 func (l *runOneLease) LeaseToken() string {

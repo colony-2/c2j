@@ -29,7 +29,9 @@ const (
 type Handle struct {
 	Runtime jobdb.WorkflowRuntime
 	Engine  jobworkflow.Engine
-	cleanup func() error
+	// ImportLease is available for remote runtimes. It never claims work.
+	ImportLease func(context.Context, remoteruntime.LeaseCapability) (jobdb.RenewableExecutionLease, error)
+	cleanup     func() error
 }
 
 func (h *Handle) Cleanup() error {
@@ -93,9 +95,10 @@ func openRemote(swfURL string, workerTenantID string) (*Handle, error) {
 	}
 
 	return &Handle{
-		Runtime: runtime,
-		Engine:  engine,
-		cleanup: func() error { return nil },
+		Runtime:     runtime,
+		Engine:      engine,
+		ImportLease: baseRuntime.ImportLease,
+		cleanup:     func() error { return nil },
 	}, nil
 }
 

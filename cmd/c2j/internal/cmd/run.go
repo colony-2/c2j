@@ -16,6 +16,30 @@ func newRunCmd() *cobra.Command {
 	cmd.AddCommand(newRunOneSpecificCmd("one"))
 	cmd.AddCommand(newRunAnyCmd())
 	cmd.AddCommand(newRunLoopCmd())
+	cmd.AddCommand(newRunWithLeaseCmd())
+	return cmd
+}
+
+func newRunWithLeaseCmd() *cobra.Command {
+	var leaseFile string
+	opts := runjob.Options{}
+	cmd := &cobra.Command{
+		Use:   "with-lease",
+		Short: "Execute an existing lease from a protected file or stdin without claiming work",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			opts.Stdin, opts.Stdout, opts.Stderr = cmd.InOrStdin(), cmd.OutOrStdout(), cmd.ErrOrStderr()
+			return runjob.RunWithLease(cmd.Context(), opts, leaseFile)
+		},
+	}
+	flags := cmd.Flags()
+	opts.ExecutionFlags.AddFlags(flags)
+	flags.StringVar(&leaseFile, "lease-file", "", "Owner-only lease capability file; - reads redirected stdin")
+	flags.StringVar(&opts.JobID, "job-id", "", "Expected job ID (must match the supplied lease)")
+	flags.StringVar(&opts.JobDBURI, "jobdb", "", "Remote JobDB URI (http(s)://host/tenant; tenant must match the lease)")
+	flags.DurationVar(&opts.AwaitThreshold, "await-threshold", 30*time.Second, "Await threshold before JobDB reschedules instead of sleeping inline")
+	flags.BoolVar(&opts.CI, "ci", false, "Emit progress suitable for unattended execution")
+	flags.StringVar(&opts.InputMode, "input-mode", "ops", "Pending input reporting: ops|fail (exits without prompting or reclaiming)")
 	return cmd
 }
 

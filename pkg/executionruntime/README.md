@@ -42,3 +42,16 @@ Use `ops.SuspendExecution` at a successful durable activity boundary to request
 a change. Read-only replay must use `ReadOnlyReplay: true` and must not publish.
 See the [design](../../C2J_PORTABLE_EXECUTION_REQUIREMENTS_DESIGN.md) and
 [user guide](../../GUIDE-Execution-Tracking.md) for lifecycle and failure semantics.
+
+## Supplied leases
+
+`Runtime.RunWithLease(ctx, lease, request, listener)` uses JobDB's supplied-lease
+runner and performs allocation admission after authoritative validation/renewal.
+It never calls acquisition APIs. Keep the same `StageExecution`,
+`WrapTaskWorker`, allocation, and callback wiring described above. The method
+returns after one lease lifecycle, including a normal reschedule or handoff.
+
+Renewable lease wrappers retain shared invocation state across refreshed snapshots,
+so a heartbeat cannot drop staged requirements before rescheduling. They forward
+current token, owner, expiry, and schema metadata. See the
+[run-with-lease guide](../../GUIDE-Run-With-Lease.md) for usage and deployment details.
