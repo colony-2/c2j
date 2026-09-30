@@ -24,23 +24,9 @@ func nativeTemplateResult(value any) any {
 		}
 		return out
 	case map[ref.Val]ref.Val:
-		if v == nil {
-			return v
-		}
-		out := make(map[any]any, len(v))
-		for key, item := range v {
-			out[nativeTemplateResult(key)] = nativeTemplateResult(item)
-		}
-		return out
+		return nativeTemplateMap(v)
 	case map[any]any:
-		if v == nil {
-			return v
-		}
-		out := make(map[any]any, len(v))
-		for key, item := range v {
-			out[nativeTemplateResult(key)] = nativeTemplateResult(item)
-		}
-		return out
+		return nativeTemplateMap(v)
 	case []any:
 		if v == nil {
 			return v
@@ -62,4 +48,31 @@ func nativeTemplateResult(value any) any {
 	default:
 		return value
 	}
+}
+
+// CEL literals and dynamic maps expose interface-typed keys even for JSON
+// objects. Normalize string-keyed maps (including empty maps) to JSON-compatible
+// objects. Keep actual non-string keys intact rather than stringify and risk
+// collisions, e.g. CEL keys 1 and "1".
+func nativeTemplateMap[K comparable, V any](value map[K]V) any {
+	if value == nil {
+		return map[string]any(nil)
+	}
+	converted := make(map[any]any, len(value))
+	stringsOnly := true
+	for key, item := range value {
+		nativeKey := nativeTemplateResult(key)
+		if _, ok := nativeKey.(string); !ok {
+			stringsOnly = false
+		}
+		converted[nativeKey] = nativeTemplateResult(item)
+	}
+	if !stringsOnly {
+		return converted
+	}
+	result := make(map[string]any, len(converted))
+	for key, item := range converted {
+		result[key.(string)] = item
+	}
+	return result
 }

@@ -6,6 +6,8 @@ import (
 
 	recipeartifacts "github.com/colony-2/c2j/pkg/artifacts"
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	"github.com/google/cel-go/common/types"
+	"github.com/google/cel-go/common/types/ref"
 	"github.com/stretchr/testify/require"
 )
 
@@ -34,4 +36,41 @@ func TestNativeTemplateResultPreservesNativeArtifactsAndNullContainers(t *testin
 		"empty_map": map[string]any(nil), "empty_list": []any(nil),
 	}
 	require.Equal(t, value, nativeTemplateResult(value))
+}
+
+func TestNativeTemplateResultSerializesCELAndInterfaceMaps(t *testing.T) {
+	evidence := recipeartifacts.NewStoredRef(jobdb.ArtifactKey{JobId: "child", TaskOrdinal: 7, Name: "verification.json", SizeBytes: 42})
+	for name, value := range map[string]any{
+		"CEL map": map[ref.Val]ref.Val{
+			types.String("large"):  types.Int(9007199254740993),
+			types.String("nested"): types.NewRefValMap(types.DefaultTypeAdapter, map[ref.Val]ref.Val{types.String("ok"): types.True}),
+			types.String("empty"):  types.NewRefValMap(types.DefaultTypeAdapter, map[ref.Val]ref.Val{}),
+		},
+		"interface map": map[any]any{
+			"large":  int64(9007199254740993),
+			"nested": map[any]any{types.String("ok"): types.True},
+			"empty":  map[any]any{},
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			// Exercise the same nested-map/list shapes persisted by recipe outputs.
+			result := nativeTemplateResult(map[string]any{"history": []any{value}, "artifact": evidence})
+			history := result.(map[string]any)["history"].([]any)
+			require.IsType(t, map[string]any{}, history[0], "string-keyed results must be portable JSON objects")
+			raw, err := json.Marshal(result)
+			require.NoError(t, err)
+			require.Contains(t, string(raw), "9007199254740993")
+			var decoded map[string]any
+			require.NoError(t, json.Unmarshal(raw, &decoded))
+			item := decoded["history"].([]any)[0].(map[string]any)
+			require.Equal(t, map[string]any{"ok": true}, item["nested"])
+			require.Equal(t, map[string]any{}, item["empty"])
+			require.Equal(t, evidence, result.(map[string]any)["artifact"])
+		})
+	}
+}
+
+func TestNativeTemplateResultPreservesNonStringMapKeys(t *testing.T) {
+	value := map[ref.Val]ref.Val{types.Int(1): types.String("integer"), types.String("1"): types.String("string")}
+	require.Equal(t, map[any]any{int64(1): "integer", "1": "string"}, nativeTemplateResult(value))
 }
