@@ -84,6 +84,7 @@ func (a *thinpackForwarder) DoValidationTask(policy jobdb.RunPolicy, taskType st
 }
 
 func (a *thinpackForwarder) doTask(policy jobdb.RunPolicy, taskType string, data jobdb.TaskData, invoke func(jobdb.TaskData) (jobdb.TaskData, error)) (jobdb.TaskData, error) {
+	options := jobworkflow.TaskOptionsFor(data)
 	_ = policy
 	if !strings.Contains(taskType, ":") {
 		return invoke(data)
@@ -144,6 +145,9 @@ func (a *thinpackForwarder) doTask(policy jobdb.RunPolicy, taskType string, data
 		}
 	}
 
+	if options.Alternate != nil {
+		data = jobworkflow.WithTaskOptions(data, options)
+	}
 	out, err := invoke(data)
 	if err != nil {
 		recovered, ok, recoveryErr := a.recoverArtifactOrder(taskType, data, err)

@@ -585,6 +585,9 @@ func (s *inputManagementService) collectPendingInputs(ctx context.Context, proje
 
 func toOpenAPIInputFormConfig(form InputForm) openapi.InputFormConfig {
 	out := openapi.InputFormConfig{}
+	if value, err := time.Parse(time.RFC3339Nano, form.FallbackAt); err == nil {
+		out.FallbackAt = &value
+	}
 	if form.Kind != "" {
 		out.Kind = &form.Kind
 	}

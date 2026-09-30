@@ -485,6 +485,15 @@ var c2jJobSchema = json.RawMessage(`{
           "git": { "$ref": "#/$defs/gitCommitContext" },
           "workspace_scope_id": { "type": "string" },
           "nextTaskType": { "type": "string" },
+          "next_task_alternate": {
+            "type": "object",
+            "required": ["taskType", "at"],
+            "properties": {
+              "taskType": { "type": "string", "minLength": 1 },
+              "at": { "type": "string", "format": "date-time" }
+            },
+            "additionalProperties": false
+          },
 		  "execution": { "type": "object" },
           "output": true,
           "artifact_refs": {

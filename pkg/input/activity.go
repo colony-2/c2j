@@ -35,7 +35,8 @@ type Config struct {
 
 // Input represents the inputs passed to the input activity
 type Input struct {
-	Form Config `json:"form,omitempty" validate:"required" jsonschema:"description=Form formuration"`
+	IfUnanswered *UnansweredPolicy `json:"if_unanswered,omitempty"`
+	Form         Config            `json:"form,omitempty" validate:"required" jsonschema:"description=Form formuration"`
 }
 
 // Output represents the output from the input activity
@@ -64,6 +65,17 @@ func GetOp() ops.RegisterableOp {
 
 // buildForm constructs the InputForm from config and input
 func buildForm(deps ops.OpDependencies, ctx context.Context, in Input) (InputForm, error) {
+	if err := in.ValidateOpInput(); err != nil {
+		return InputForm{}, err
+	}
+	form, err := buildBaseForm(deps, ctx, in)
+	if err != nil || in.IfUnanswered == nil {
+		return form, err
+	}
+	return prepareUnanswered(deps, ctx, form, *in.IfUnanswered)
+}
+
+func buildBaseForm(deps ops.OpDependencies, ctx context.Context, in Input) (InputForm, error) {
 	config := in.Form
 	if err := config.ValidateOpInput(); err != nil {
 		return InputForm{}, err

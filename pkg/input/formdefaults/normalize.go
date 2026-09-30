@@ -67,7 +67,7 @@ func NormalizeOutputMap(opInput map[string]interface{}, opOutput map[string]inte
 	}
 	result := outputAsMap(normalized)
 	rawForm, _ := asStringInterfaceMap(opInput["form"])
-	if rawForm["kind"] == "review" {
+	if rawForm["kind"] == "review" || opInput["if_unanswered"] != nil {
 		for _, key := range []string{"artifact_refs", "receipt"} {
 			if value, ok := opOutput[key]; ok {
 				result[key] = cloneValue(value)

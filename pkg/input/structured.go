@@ -176,6 +176,7 @@ func (r *Runtime) submitInput(ctx context.Context, projectID, jobID string, acce
 	// Retain the workspace, git snapshot, execution requirements and job context.
 	req.OpOutput = value.(map[string]any)
 	req.NextTask = ""
+	req.NextTaskAlternate = nil
 	if req.ArtifactRefs == nil {
 		req.ArtifactRefs = map[string]recipeartifacts.Ref{}
 	}

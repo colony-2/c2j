@@ -37,7 +37,7 @@ func autoFillInputWithDeps(deps ops.OpDependencies, ctx context.Context, form In
 	if form.Kind == "review" {
 		return autoFillReview(deps, ctx, form)
 	}
-	if form.RequestID == "" {
+	if form.ResponseSchema == nil {
 		return autoFillInput(ctx, form)
 	}
 	if form.Output == nil {

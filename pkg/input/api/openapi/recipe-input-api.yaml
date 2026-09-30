@@ -298,6 +298,10 @@ components:
           type: object
           description: Review document IDs mapped to existing stored artifact references.
           additionalProperties: {}
+        fallback_at:
+          type: string
+          format: date-time
+          description: When automatic answers become eligible; human responses may still be accepted until a worker acquires the input.
         request_id:
           type: string
         request:

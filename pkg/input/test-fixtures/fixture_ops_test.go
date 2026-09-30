@@ -26,6 +26,7 @@ func ensureFixtureOps() fixtureOps {
 		fixtureOpsInst.inputOp = input.GetOp()
 		coreops.Register(fixtureOpsInst.inputOp)
 		coreops.Register(input.GetAutoFillOp())
+		coreops.Register(input.GetAlternateOp())
 		coreops.Register(commandop.GetOp())
 
 		coreops.Register(coreops.NewActivityMappedOpV2[echoInput, echoOutput](

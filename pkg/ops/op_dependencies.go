@@ -73,6 +73,7 @@ type opDepImpl struct {
 	currentJobContext     jobcontext.Current
 	protectedEnv          map[string]string
 	jobTool               JobTool
+	nextTaskAlternate     *jobworkflow.TaskAlternate
 	nextTaskType          string
 	nextTaskTypeSet       bool
 }
@@ -352,3 +353,20 @@ func (b *OpDependenciesBuilder) Build() OpDependencies {
 
 	return deps
 }
+
+// SetNextTaskAlternate declares another handler for the next logical substep.
+// The absolute eligibility time is persisted with the current activity outcome.
+func SetNextTaskAlternate(deps OpDependencies, alternate jobworkflow.TaskAlternate) error {
+	setter, ok := deps.(interface {
+		SetNextTaskAlternate(jobworkflow.TaskAlternate)
+	})
+	if !ok {
+		return fmt.Errorf("alternate task dispatch is not supported by these operation dependencies")
+	}
+	setter.SetNextTaskAlternate(alternate)
+	return nil
+}
+func (c *opDepImpl) SetNextTaskAlternate(alternate jobworkflow.TaskAlternate) {
+	c.nextTaskAlternate = &alternate
+}
+func (c *opDepImpl) NextTaskAlternate() *jobworkflow.TaskAlternate { return c.nextTaskAlternate }

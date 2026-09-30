@@ -34,6 +34,7 @@ import (
 	"github.com/colony-2/c2j/pkg/starter"
 	"github.com/colony-2/c2j/pkg/workflowctl"
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
 )
 
 type opExecutor struct {
@@ -533,6 +534,11 @@ func (t opExecutor) do(ctx context.Context, jobTool ops.JobTool, req ActivityInv
 	}
 
 	defer func() {
+		if source, ok := opDeps.(interface {
+			NextTaskAlternate() *jobworkflow.TaskAlternate
+		}); ok {
+			output.NextTaskAlternate = source.NextTaskAlternate()
+		}
 		if source, ok := opDeps.(interface {
 			ExecutionRequirements() *execution.Requirements
 		}); ok {

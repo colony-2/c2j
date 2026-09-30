@@ -18,9 +18,9 @@ import (
 	coretask "github.com/colony-2/c2j/pkg/task"
 	"github.com/colony-2/c2j/pkg/template"
 	workerops "github.com/colony-2/c2j/pkg/worker/ops"
+	"github.com/colony-2/c2j/pkg/workflow"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
-	"github.com/colony-2/c2j/pkg/workflow"
 )
 
 // RecipeExecutor defines the surface area for executing recipes, states, and ops.
@@ -476,6 +476,7 @@ func (d DefaultRecipeExecutor) executeOpAttempt(ctx workflow.Context, parentReso
 	}
 
 	taskType := fmt.Sprintf("%s:%s", taskPrefix, chain[0].Name)
+	var taskAlternate *jobworkflow.TaskAlternate
 
 	var stepArtifacts map[string]recipeartifacts.Ref
 	var stepOutputArtifacts []jobdb.Artifact
@@ -517,6 +518,9 @@ func (d DefaultRecipeExecutor) executeOpAttempt(ctx workflow.Context, parentReso
 				return err
 			}
 
+			if taskAlternate != nil {
+				taskData = jobworkflow.WithTaskOptions(taskData, jobworkflow.TaskOptions{Alternate: taskAlternate})
+			}
 			if ctx.StageNodeExecution != nil {
 				ctx.StageNodeExecution(resCtx.ExecutionNeeds)
 			}
@@ -584,6 +588,7 @@ func (d DefaultRecipeExecutor) executeOpAttempt(ctx workflow.Context, parentReso
 					done = true
 				} else {
 					taskType = decoded.Activity.NextTask
+					taskAlternate = decoded.Activity.NextTaskAlternate
 				}
 				break
 

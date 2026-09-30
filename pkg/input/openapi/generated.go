@@ -111,7 +111,10 @@ type InputFormConfig struct {
 
 	// Documents Review document IDs mapped to existing stored artifact references.
 	Documents *map[string]interface{} `json:"documents,omitempty"`
-	Fields    *[]FormField            `json:"fields,omitempty"`
+
+	// FallbackAt When automatic answers become eligible; human responses may still be accepted until a worker acquires the input.
+	FallbackAt *time.Time   `json:"fallback_at,omitempty"`
+	Fields     *[]FormField `json:"fields,omitempty"`
 
 	// Kind Review marker; questions use the ordinary form fields.
 	Kind         *string                 `json:"kind,omitempty"`

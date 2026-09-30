@@ -34,24 +34,26 @@ type ActivityInvocationRequest struct {
 
 // ActivityInvocationOutput wraps the raw op output alongside workspace results.
 type ActivityInvocationOutput struct {
-	WorkspaceScopeID string                         `json:"workspace_scope_id,omitempty"`
-	Execution        *execution.Requirements        `json:"execution,omitempty"`
-	GitResult        contextual.GitCommitContext    `json:"git,omitempty"`
-	NextTask         string                         `json:"nextTaskType,omitempty"`
-	OpOutput         map[string]interface{}         `json:"output"`
-	ArtifactRefs     map[string]recipeartifacts.Ref `json:"artifact_refs,omitempty"`
-	Jobs             jobcontext.StartedJobsContext  `json:"jobs,omitempty"`
+	WorkspaceScopeID  string                         `json:"workspace_scope_id,omitempty"`
+	Execution         *execution.Requirements        `json:"execution,omitempty"`
+	GitResult         contextual.GitCommitContext    `json:"git,omitempty"`
+	NextTaskAlternate *jobworkflow.TaskAlternate     `json:"next_task_alternate,omitempty"`
+	NextTask          string                         `json:"nextTaskType,omitempty"`
+	OpOutput          map[string]interface{}         `json:"output"`
+	ArtifactRefs      map[string]recipeartifacts.Ref `json:"artifact_refs,omitempty"`
+	Jobs              jobcontext.StartedJobsContext  `json:"jobs,omitempty"`
 }
 
 // variation of ActivityInvocationOutput that allows arbitrary output types to avoid double serialization
 type ActivityInvocationOutputRaw struct {
-	WorkspaceScopeID string                         `json:"workspace_scope_id,omitempty"`
-	Execution        *execution.Requirements        `json:"execution,omitempty"`
-	GitResult        contextual.GitCommitContext    `json:"git,omitempty"`
-	NextTask         string                         `json:"nextTaskType,omitempty"`
-	Output           any                            `json:"output"`
-	ArtifactRefs     map[string]recipeartifacts.Ref `json:"artifact_refs,omitempty"`
-	Jobs             jobcontext.StartedJobsContext  `json:"jobs,omitempty"`
+	WorkspaceScopeID  string                         `json:"workspace_scope_id,omitempty"`
+	Execution         *execution.Requirements        `json:"execution,omitempty"`
+	GitResult         contextual.GitCommitContext    `json:"git,omitempty"`
+	NextTaskAlternate *jobworkflow.TaskAlternate     `json:"next_task_alternate,omitempty"`
+	NextTask          string                         `json:"nextTaskType,omitempty"`
+	Output            any                            `json:"output"`
+	ArtifactRefs      map[string]recipeartifacts.Ref `json:"artifact_refs,omitempty"`
+	Jobs              jobcontext.StartedJobsContext  `json:"jobs,omitempty"`
 }
 
 // ActivityRegistration holds the activity step and its generated schemas.

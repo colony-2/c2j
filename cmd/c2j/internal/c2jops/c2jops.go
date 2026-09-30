@@ -21,7 +21,7 @@ func Ops() []coreops.RegisterableOp {
 	impls := []coreops.RegisterableOp{extensions.GetExecutionOp()}
 	impls = append(impls, workerexport.GetAll()...)
 	impls = append(impls, input.GetOp())
-	impls = append(impls, input.GetAutoFillOp())
+	impls = append(impls, input.GetAutoFillOp(), input.GetAlternateOp())
 	impls = append(impls, recipe.GetOps()...)
 	impls = append(impls, gitexport.GetAll()...)
 	return impls

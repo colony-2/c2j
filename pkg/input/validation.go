@@ -22,7 +22,13 @@ func (e ValidationError) RequiredValidationError() bool {
 }
 
 func (in Input) ValidateOpInput() error {
-	return in.Form.ValidateOpInput()
+	if err := in.Form.ValidateOpInput(); err != nil {
+		return err
+	}
+	if in.IfUnanswered != nil {
+		return in.IfUnanswered.validate(in.Form)
+	}
+	return nil
 }
 
 func (c Config) ValidateOpInput() error {

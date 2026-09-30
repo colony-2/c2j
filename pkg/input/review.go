@@ -97,6 +97,11 @@ func acceptReview(form InputForm, sub FormSubmission, actor Actor, b *artifactBi
 	if form.RequestID == "" || sub.RequestID != form.RequestID {
 		return Output{}, fmt.Errorf("request_id: does not match the pending input")
 	}
+	return acceptForm(form, sub, actor, b)
+}
+
+// acceptForm is shared by review submissions and automatic answers to ordinary forms.
+func acceptForm(form InputForm, sub FormSubmission, actor Actor, b *artifactBinder) (Output, error) {
 	if strings.TrimSpace(sub.SubmissionID) == "" {
 		return Output{}, fmt.Errorf("submission_id: is required")
 	}

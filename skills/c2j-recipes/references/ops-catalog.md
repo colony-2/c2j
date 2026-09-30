@@ -128,3 +128,14 @@ Do not mix review forms with generic `request` / `response_schema` configuration
 A consuming client must use `SubmitFormResponse` with the pending request ID;
 the ordinary CLI prompt does not render document reviews. `--input-mode ops`
 exposes their forms. See [the author guide](../../../GUIDE-Review-Recipe-Authors.md).
+
+## Unanswered input
+
+Set `inputs.if_unanswered: {after: 30m, fields: {decision: defer}}` beside `form`
+to provide automatic answers after a delay. Use `response` instead of `fields`
+for a single question or structured response. This also works with review forms;
+documents use existing stored artifact refs. Do not combine it with `form.autofill`.
+Templates and answers freeze during preparation, and retries do not reset the
+clock. Becoming due does not reject a human answer: the first completion to obtain
+authority wins. A worker must be available; hard job/op timeouts still apply.
+See [the guide](../../../GUIDE-Input-Fallback-Answers.md) for output and worker details.
