@@ -289,8 +289,15 @@ components:
 
     InputFormConfig:
       type: object
-      description: Configuration for an ordinary form or schema-driven structured input.
+      description: Configuration for an ordinary form, document review, or schema-driven structured input.
       properties:
+        kind:
+          type: string
+          description: Review marker; questions use the ordinary form fields.
+        documents:
+          type: object
+          description: Review document IDs mapped to existing stored artifact references.
+          additionalProperties: {}
         request_id:
           type: string
         request:

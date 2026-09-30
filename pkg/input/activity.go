@@ -9,6 +9,8 @@ import (
 
 // Config represents the configuration for the input activity
 type Config struct {
+	Kind      string         `json:"kind,omitempty" jsonschema:"enum=review,description=Optional review marker"`
+	Documents map[string]any `json:"documents,omitempty"`
 	// Structured mode. Schemas and request are frozen in the generate_form outcome.
 	Request        any            `json:"request,omitempty"`
 	RequestSchema  map[string]any `json:"request_schema,omitempty"`
@@ -65,6 +67,9 @@ func buildForm(deps ops.OpDependencies, ctx context.Context, in Input) (InputFor
 	config := in.Form
 	if err := config.ValidateOpInput(); err != nil {
 		return InputForm{}, err
+	}
+	if config.Kind == "review" {
+		return buildReviewForm(deps, ctx, config)
 	}
 	if config.ResponseSchema != nil {
 		return buildStructuredForm(deps, ctx, config)

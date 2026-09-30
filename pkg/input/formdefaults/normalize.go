@@ -65,7 +65,16 @@ func NormalizeOutputMap(opInput map[string]interface{}, opOutput map[string]inte
 	if err != nil {
 		return nil, err
 	}
-	return outputAsMap(normalized), nil
+	result := outputAsMap(normalized)
+	rawForm, _ := asStringInterfaceMap(opInput["form"])
+	if rawForm["kind"] == "review" {
+		for _, key := range []string{"artifact_refs", "receipt"} {
+			if value, ok := opOutput[key]; ok {
+				result[key] = cloneValue(value)
+			}
+		}
+	}
+	return result, nil
 }
 
 // ValidationOutputMap synthesizes an input output for semantic validation. It

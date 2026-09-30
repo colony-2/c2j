@@ -1,8 +1,11 @@
 # Structured input and document review
 
-`input` can publish structured JSON and wait for a response conforming to a
-request-specific JSON Schema. Documents and annotations use existing JobDB
-artifacts. c2j validates the contract; an extension or recipe defines its meaning.
+`input` supports ordinary forms, document reviews, and generic schema-driven
+requests. Reviews add a recognizable marker and stored documents to ordinary
+questions and answers. Generic JSON Schema remains available separately.
+
+For installation, complete recipe examples, decision routing, and annotation
+handoff, start with the [recipe author's guide](GUIDE-Review-Recipe-Authors.md).
 
 ## Recipe contract
 
@@ -55,14 +58,6 @@ result, err := runtime.SubmitStructuredResponse(ctx, tenantID, jobID,
         SubmissionID: submissionID,
         Response: map[string]any{
             "decision": "revise",
-            "feedback": "Explain recovery behavior.",
-            "annotations": map[string]any{
-                "design": map[string]any{
-                    "base_sha256": originalHash,
-                    "format":      "criticmarkup",
-                    "artifact":    jobdb.NewArtifactFromBytes("design-annotated.md", annotatedBytes),
-                },
-            },
         },
     }, input.Actor{ID: authenticatedUserID, Kind: "human"})
 ```
@@ -72,7 +67,7 @@ from the response. c2j records it; c2j does not authenticate that identity itsel
 
 Response data accepts JSON values and existing stored artifact references. Go
 callers can place `jobdb.Artifact` values in JSON-style `map[string]any` / `[]any`
-containers as shown above. The runtime snapshots new attachments to temporary
+containers when permitted by the response schema. The runtime snapshots new attachments to temporary
 files, replaces their values with stored references, validates the resolved
 response, and persists the attachments with the task outcome. Source files are
 not modified. Artifact bytes are never encoded into the JSON response.
@@ -102,50 +97,51 @@ historical receipt lookup or promise successful retries after acceptance. The
 separate [JobDB completion investigation](JOBDB_EXTERNAL_TASK_COMPLETION_DISCUSSION.md)
 remains deferred.
 
-## Review extension and reusable recipe
+## Document reviews
 
-[extensions/review](extensions/review/op.yaml) is a normal Python 3 selector
-extension. It reads bound originals, hashes exact bytes, and generates the review
-request and response schema. Review concepts are not built into `input`.
+Reviews use the ordinary form model with `kind: review` and `documents`, a map
+of document IDs to stored artifact references. Questions use `fields` (or a
+single `question`), and answers use the existing `fields`/`response` output.
+There is no preparation extension, wrapper recipe, document hashing, or required
+annotation format. Do not mix review forms with structured schemas.
 
-[examples/review/review.yaml](examples/review/review.yaml) composes preparation and
-input. Its inputs are:
+`GetForm` exposes `Kind`, `Documents`, `Fields`, and `RequestID`; `GetDetails`
+exposes the same information in its form model. The documents retain their
+producer references and are checked for availability when the form is prepared.
+Applications can recognize a review without inspecting its questions or recipe.
 
-- `spec_json`: JSON text containing a title, decisions, optional summary/subject,
-  and optional per-document display/annotation settings. Recipe input schemas
-  currently use a string here; the extension itself accepts structured JSON.
-- `documents`: an artifact map keyed by review document ID.
-- `prepare_selector`: the extension selector, defaulting to `./extensions/review`.
+Submit a review through the transport-independent library API:
 
-Keep the extension at that path in the recipe repository, or provide a pinned Git
-selector when distributing it separately. It requires Python 3.9 or newer.
-
-Example specification:
-
-```json
-{
-  "title": "Review the design",
-  "decisions": {
-    "approve": {"label": "Approve", "accepts_reviewed_content": true},
-    "revise": {"label": "Request changes", "feedback_required": true}
-  },
-  "document_options": {
-    "evidence": {"media_type": "text/plain", "annotation_policy": "none"}
-  }
-}
+```go
+form, err := runtime.GetForm(ctx, tenantID, jobID)
+// Handle err; render form.Fields and form.Documents when form.Kind == "review".
+result, err := runtime.SubmitFormResponse(ctx, tenantID, jobID,
+    input.FormSubmission{
+        RequestID:    form.RequestID,
+        SubmissionID: submissionID,
+        Fields: map[string]any{
+            "decision": "revise",
+            "feedback": "Explain the recovery behavior.",
+            "annotated_design": jobdb.NewArtifactFromBytes("annotated.md", editedBytes),
+        },
+    }, input.Actor{ID: authenticatedUserID, Kind: "human"})
 ```
 
-Markdown defaults to CriticMarkup annotations; plain text defaults to read-only.
-The generated schema rejects unknown decisions/documents, incorrect baseline
-hashes, annotations on read-only documents, annotations accompanying acceptance,
-and revision responses without nonblank feedback or an annotation attachment.
-An attachment's existence does not establish the usefulness of its contents.
+File-upload fields accept existing stored refs, bare JobDB artifact keys, or
+`jobdb.Artifact` values. New artifacts are persisted with the response; the
+accepted field value becomes a stored ref. `FormSubmission.ArtifactRefs` accepts
+additional named, already-stored documents without a file-upload question.
+The result contains ordinary answers, `artifact_refs`, and a receipt. Optional
+file questions may be omitted. No decision has intrinsic approval/revision
+semantics, and files are not parsed or applied.
 
-The recipe exports the original request, response, receipt, and artifact refs.
-Later ops can bind those artifacts normally. A separate packaging extension may
-bundle them into an immutable feedback object; packaging is optional and is not
-needed to retain the files. Recipes control session continuation, revisions, and
-verification/merge gates. Annotation text is feedback, never automatically applied.
+Review submissions check request identity, required answers, question IDs, basic
+answer types/choices, and attachment availability before finishing the wait.
+They reuse ordinary form defaults. This is not an arbitrary response-schema or
+review-policy mechanism. The legacy `SubmitResponse` method rejects reviews so
+it cannot bypass their request identity and attachment handling.
+
+For recipe examples, see the [author guide](GUIDE-Review-Recipe-Authors.md).
 
 ## Autofill and tests
 
@@ -155,6 +151,6 @@ runtime supplies the generated request identity. Do not supply human identity,
 legacy fields, metadata, or a receipt in structured autofill.
 
 Run the input and review tests with `go test ./pkg/input/... ./pkg/recipe`.
-They cover schema rules, ordinary forms, autofill, artifact round trips, stale
-responses, SQLite reopen, and the extension/recipe/worker path with a separate
-producer's artifacts and a contextualized cell workspace.
+They cover ordinary forms, generic schemas, reviews, autofill, artifact round
+trips, stale responses, SQLite reopen, and a review recipe using another
+producer's artifacts in a contextualized cell workspace.

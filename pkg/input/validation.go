@@ -26,6 +26,27 @@ func (in Input) ValidateOpInput() error {
 }
 
 func (c Config) ValidateOpInput() error {
+	if c.Kind != "" && c.Kind != "review" {
+		return ValidationError{Field: "form.kind", Message: "must be review when supplied"}
+	}
+	if c.Kind == "review" {
+		if c.Question != "" && len(c.Fields) > 0 {
+			return ValidationError{Field: "form", Message: "use question or fields, not both"}
+		}
+		seen := map[string]bool{}
+		for _, field := range c.Fields {
+			if field.ID == "" || seen[field.ID] {
+				return ValidationError{Field: "form.fields", Message: "question IDs must be nonempty and unique"}
+			}
+			seen[field.ID] = true
+		}
+		if c.ResponseSchema != nil || c.Request != nil || c.RequestSchema != nil || c.Presentation != nil {
+			return ValidationError{Field: "form", Message: "review uses ordinary questions and fields, not structured schemas"}
+		}
+	} else if len(c.Documents) > 0 {
+		return ValidationError{Field: "form.documents", Message: "requires kind: review"}
+	}
+
 	if c.ResponseSchema != nil {
 		if c.Question != "" || c.Type != "" || len(c.Fields) > 0 || len(c.Options) > 0 || c.Scale != nil || c.Default != nil || c.Context.ArtifactsFromOutput != "" || len(c.Context.Artifacts) > 0 || len(c.Context.ArtifactsGlob) > 0 {
 			return ValidationError{Field: "form", Message: "structured input cannot be mixed with ordinary form controls"}

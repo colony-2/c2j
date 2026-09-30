@@ -1,37 +1,34 @@
-id: structured-document-review
+id: document-review
 version: "1.0.0"
-desc: Review stored documents using an extension-generated input contract
+desc: Ask questions about a stored document
 input_schema:
-  spec_json:
+  prompt:
     type: string
     required: true
-  documents:
-    type: artifact_map
-    required: true
-  prepare_selector:
-    type: string
-    default_value: ./extensions/review
-inputs:
-  spec_json: "${{ inputs.spec_json }}"
-  documents: "${{ inputs.documents }}"
-  prepare_selector: "${{ inputs.prepare_selector }}"
 sequence:
-  - id: prepare
-    op: extension_execution
-    artifacts:
-      documents/: "${{ inputs.documents }}"
-    inputs:
-      selector: "${{ inputs.prepare_selector }}"
-      inputs:
-        spec: "${{ jq(inputs.spec_json, 'fromjson') }}"
-        documents: "${{ inputs.documents }}"
-        inbox: "${{ context.environment.op.inbox }}"
-  - id: collect
+  - id: review
     op: input
     inputs:
-      form: "${{ sequence.prepare.outputs.form }}"
+      form:
+        kind: review
+        title: Review the design
+        documents:
+          design: '${{ context.artifacts["design.md"] }}'
+        fields:
+          - id: decision
+            type: multiple_choice
+            question: How should we proceed?
+            required: true
+            options:
+              - {value: approve, label: Approve}
+              - {value: revise, label: Request changes}
+          - id: feedback
+            type: paragraph_text
+            question: What should change?
+          - id: annotated_design
+            type: file_upload
+            question: Optionally attach an annotated design
 outputs:
-  request: "${{ sequence.prepare.outputs.form.request }}"
-  response: "${{ sequence.collect.outputs.response }}"
-  receipt: "${{ sequence.collect.outputs.receipt }}"
-  artifact_refs: "${{ sequence.collect.outputs.artifact_refs }}"
+  answers: "${{ sequence.review.outputs.fields }}"
+  receipt: "${{ sequence.review.outputs.receipt }}"
+  artifact_refs: "${{ sequence.review.outputs.artifact_refs }}"

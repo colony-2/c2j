@@ -1,0 +1,27 @@
+id: review-input
+version: "1.0"
+input_schema: {}
+sequence:
+  - id: collect
+    op: input
+    inputs:
+      form:
+        kind: review
+        title: Review the proposal
+        fields:
+          - id: decision
+            type: multiple_choice
+            question: Proceed?
+            required: true
+            options:
+              - {value: approve, label: Approve}
+              - {value: revise, label: Revise}
+          - id: document
+            type: file_upload
+            question: Optional response document
+        autofill:
+          fields:
+            decision: approve
+outputs:
+  decision: "${{ sequence.collect.outputs.fields.decision }}"
+  actor: "${{ sequence.collect.outputs.receipt.actor.kind }}"

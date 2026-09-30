@@ -1,0 +1,6 @@
+tests:
+  - name: review uses ordinary fields and automation receipt
+    inputs: {}
+    want:
+      decision: approve
+      actor: automation

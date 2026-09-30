@@ -17,7 +17,7 @@ const (
 func GetAutoFillOp() ops.RegisterableOp {
 	op, err := ops.NewOp().
 		WithType(autoFillOpType).
-		AddStep(autoFillStepName, ops.NewStepWithDeps(autoFillInputWithDeps)).
+		AddStep(autoFillStepName, ops.NewStepWithDeps(autoFillOutputMap)).
 		Build()
 	if err != nil {
 		panic(err)
@@ -34,6 +34,9 @@ func autoFillInput(_ context.Context, form InputForm) (Output, error) {
 
 // Structured autofill uses the same schema and attachment validation as external input.
 func autoFillInputWithDeps(deps ops.OpDependencies, ctx context.Context, form InputForm) (Output, error) {
+	if form.Kind == "review" {
+		return autoFillReview(deps, ctx, form)
+	}
 	if form.RequestID == "" {
 		return autoFillInput(ctx, form)
 	}
@@ -61,4 +64,17 @@ func autoFillInputWithDeps(deps ops.OpDependencies, ctx context.Context, form In
 	}
 	transferred = true
 	return out, nil
+}
+
+// Use JSON mapping so receipts retain their timestamp representation.
+func autoFillOutputMap(deps ops.OpDependencies, ctx context.Context, form InputForm) (map[string]any, error) {
+	out, err := autoFillInputWithDeps(deps, ctx, form)
+	if err != nil {
+		return nil, err
+	}
+	value, err := jsonValue(out)
+	if err != nil {
+		return nil, err
+	}
+	return value.(map[string]any), nil
 }

@@ -11,7 +11,6 @@ import (
 	workerops "github.com/colony-2/c2j/pkg/worker/ops"
 	"github.com/colony-2/c2j/pkg/workflowctl"
 	"github.com/colony-2/jobdb/pkg/jobdb"
-	"github.com/fatih/structs"
 )
 
 var ErrInputNotPending = errors.New("input is not pending for job")
@@ -99,6 +98,9 @@ func (r *Runtime) SubmitResponse(ctx context.Context, projectID string, jobID st
 	if err := ops.DecodeWithJsonTags(req.OpOutput, &form); err != nil {
 		return err
 	}
+	if form.Kind == "review" {
+		return ValidationError{Field: "response", Message: "review requires SubmitFormResponse and its request identity"}
+	}
 	if form.ResponseSchema != nil {
 		return ValidationError{Field: "response", Message: "structured input requires SubmitStructuredResponse and its request identity"}
 	}
@@ -121,9 +123,11 @@ func (r *Runtime) SubmitResponse(ctx context.Context, projectID string, jobID st
 		Fields:   output.Fields,
 		UserID:   userID,
 	}
-	sConv := structs.New(opOut)
-	sConv.TagName = "json"
-	opOutMap := sConv.Map()
+	value, err := jsonValue(opOut)
+	if err != nil {
+		return err
+	}
+	opOutMap := value.(map[string]any)
 
 	out := workerops.ActivityInvocationOutput{
 		GitResult:        req.GitResult,

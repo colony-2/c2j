@@ -109,3 +109,22 @@ Fixture recipes use test-only ops such as `echo_activity`, `error-activity`, `te
 ## Selector Ops
 
 Unknown `op` names that look like selectors are allowed through parser validation and resolved as extension ops later. Prefer explicit `extension_execution` snippets for clarity unless the surrounding docs or examples already use selector shorthand.
+
+## Document Review (`input`)
+
+Use one `op: input` with `inputs.form.kind: review`, ordinary `fields`, and
+`form.documents: {document_id: <stored artifact reference>}`. Use `${{ ... }}`
+for document values, including producer artifacts or submitted
+`context.artifacts["name"]`. No preparation extension, hashes, or wrapper recipe
+is required. `form.kind` lets applications recognize reviews.
+
+Read answers from `outputs.fields`; an optional `file_upload` field returns a
+stored artifact ref when answered and may be absent otherwise. Bind it through
+ordinary downstream `artifacts` after checking presence. `outputs.artifact_refs`
+contains returned documents; `outputs.receipt` records acceptance. Decisions
+have no built-in workflow meaning. Test reviews may use `form.autofill.fields`.
+Do not mix review forms with generic `request` / `response_schema` configuration.
+
+A consuming client must use `SubmitFormResponse` with the pending request ID;
+the ordinary CLI prompt does not render document reviews. `--input-mode ops`
+exposes their forms. See [the author guide](../../../GUIDE-Review-Recipe-Authors.md).

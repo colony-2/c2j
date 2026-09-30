@@ -23,10 +23,12 @@ func NormalizeOutput(form Config, out Output) (Output, error) {
 		return Output{}, err
 	}
 	return Output{
-		Response: normalized.Response,
-		Fields:   normalized.Fields,
-		UserID:   normalized.UserID,
-		Metadata: normalized.Metadata,
+		ArtifactRefs: out.ArtifactRefs,
+		Receipt:      out.Receipt,
+		Response:     normalized.Response,
+		Fields:       normalized.Fields,
+		UserID:       normalized.UserID,
+		Metadata:     normalized.Metadata,
 	}, nil
 }
 

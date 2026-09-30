@@ -99,7 +99,7 @@ type GlobPattern struct {
 	Pattern string `json:"pattern"`
 }
 
-// InputFormConfig Configuration for an ordinary form or schema-driven structured input.
+// InputFormConfig Configuration for an ordinary form, document review, or schema-driven structured input.
 type InputFormConfig struct {
 	Context *FormContext `json:"context,omitempty"`
 
@@ -107,11 +107,17 @@ type InputFormConfig struct {
 	Default *interface{} `json:"default,omitempty"`
 
 	// DefaultOnTimeout Default value to return if input times out
-	DefaultOnTimeout *interface{}            `json:"default_on_timeout,omitempty"`
-	Fields           *[]FormField            `json:"fields,omitempty"`
-	Options          *[]Option               `json:"options,omitempty"`
-	Presentation     *map[string]interface{} `json:"presentation,omitempty"`
-	Question         *string                 `json:"question,omitempty"`
+	DefaultOnTimeout *interface{} `json:"default_on_timeout,omitempty"`
+
+	// Documents Review document IDs mapped to existing stored artifact references.
+	Documents *map[string]interface{} `json:"documents,omitempty"`
+	Fields    *[]FormField            `json:"fields,omitempty"`
+
+	// Kind Review marker; questions use the ordinary form fields.
+	Kind         *string                 `json:"kind,omitempty"`
+	Options      *[]Option               `json:"options,omitempty"`
+	Presentation *map[string]interface{} `json:"presentation,omitempty"`
+	Question     *string                 `json:"question,omitempty"`
 
 	// Request Frozen structured request data
 	Request        *interface{}            `json:"request,omitempty"`
@@ -196,7 +202,7 @@ type PendingInput struct {
 
 // UserInputDetails defines model for UserInputDetails.
 type UserInputDetails struct {
-	// Form Configuration for an ordinary form or schema-driven structured input.
+	// Form Configuration for an ordinary form, document review, or schema-driven structured input.
 	Form      InputFormConfig `json:"form"`
 	Hash      *string         `json:"hash,omitempty"`
 	JobId     string          `json:"jobId"`

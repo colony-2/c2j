@@ -142,6 +142,13 @@ func (r *Runtime) GetForm(ctx context.Context, projectID, jobID string) (InputFo
 // the exact waiting task. Successful return is the same output recorded for the op.
 // Recovery of ambiguous completion failures remains JobDB's responsibility.
 func (r *Runtime) SubmitStructuredResponse(ctx context.Context, projectID, jobID string, submission StructuredSubmission, actor Actor) (Output, error) {
+	return r.submitInput(ctx, projectID, jobID, func(form InputForm, b *artifactBinder) (Output, error) {
+		return acceptStructured(form, submission, actor, b)
+	})
+}
+
+// submitInput preserves the captured waiting task and its execution context.
+func (r *Runtime) submitInput(ctx context.Context, projectID, jobID string, accept func(InputForm, *artifactBinder) (Output, error)) (Output, error) {
 	task, req, artifacts, err := r.getOutput(ctx, projectID, jobID)
 	if err != nil {
 		return Output{}, err
@@ -158,7 +165,7 @@ func (r *Runtime) SubmitStructuredResponse(ctx context.Context, projectID, jobID
 	for _, a := range artifacts {
 		b.reserved[a.Name()] = true
 	}
-	out, err := acceptStructured(form, submission, actor, b)
+	out, err := accept(form, b)
 	if err != nil {
 		return Output{}, err
 	}

@@ -19,9 +19,10 @@ job status, progress, handoffs, and child-job lineage, see the
 [execution tracking user guide](GUIDE-Execution-Tracking.md).
 
 For schema-driven human input and document review using existing artifact
-attachments, see [Structured input and review](GUIDE-Structured-Input-And-Review.md).
-Review policy lives in a selector extension and reusable recipe; the input op
-handles the generic request, validation, and response contract.
+attachments, see the [recipe author's guide](GUIDE-Review-Recipe-Authors.md)
+and [application integration guide](GUIDE-Structured-Input-And-Review.md).
+Reviews use one `input` op with `form.kind: review`, ordinary questions, and
+stored document references. No review extension or preparation recipe is needed.
 
 Recipes can declare an `execution` block for CPU, memory, scratch, platform,
 and image. Node-level `execution_needs` adds templatable, scoped overrides that
