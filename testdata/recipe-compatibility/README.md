@@ -37,3 +37,22 @@ git -C /path/to/recipes am /path/to/c2j/testdata/recipe-compatibility/recipes-ve
 The c2j fixes and this recipe change are both required for the complete
 consultation → child merge → parent resume/merge lifecycle. No fixture assertion
 is disabled to accommodate the older recipes revision.
+
+
+## Native suite handoff
+
+Companion recipes commit `01054fb0fc5c0ff168d69f102ed9775382381364` removes the external harnesses.
+Its 220 deterministic cases passed through native directory discovery; three live
+suites are explicitly excluded. It requires c2j `9e34b70` or later.
+
+Publish that recipes commit before updating the required CI checkout. Then apply
+`native-ci-after-publication.patch` from this directory: it advances both pins,
+runs native suites, and removes legacy Python/server/recipe-patch preparation.
+The pinned c2ops local `main` still resolves authored `@main` selectors reproducibly.
+
+```sh
+git apply testdata/recipe-compatibility/native-ci-after-publication.patch
+```
+
+The patch is deliberately not applied until its recipes SHA is fetchable. The
+current workflow continues to use the published legacy pin in the meantime.
