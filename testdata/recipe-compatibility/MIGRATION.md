@@ -93,3 +93,27 @@ All 12 consultation cases also passed with an exact dependency-context assertion
 A mutation that removed history from the delivered prompt passed the earlier
 checks and failed that new assertion. Final directory validation passed including
 live declarations; it does not substitute for live execution.
+
+## CI broker interface regression
+
+The initial native child fixture rewrote the broker's advertised host to
+`127.0.0.1`, preserving its dynamic port. That worked with a wildcard listener
+inside the local container but failed on Linux CI when the broker listened only
+on the Docker bridge interface. The resulting submission failure sent the
+lifecycle into a recovery review with no scripted response.
+
+Host-side fixtures now use an invocation-scoped local broker client. It derives
+the address from the actual listener, uses the same authenticated submit handler,
+and avoids ambient proxies. Container-facing endpoints remain unchanged. Broker
+listeners explicitly use IPv4, matching the interface discovery they already use.
+`TestLocalSubmitUsesBoundInterfaceAndDynamicPort` covers loopback, another bound
+address, wildcard binding, and broker closure; it reproduces the refused
+connection produced by the old rewrite. The native submit/await integration
+regression verifies the worker supplies the active broker context.
+
+Verification: a disposable build forced container-facing listeners onto
+`127.0.0.2`. The original runner reproduced both connection refusals and exactly
+`no input response fixture for build/develop/root/approve_plan/input`; the fixed
+runner passed the same lifecycle with that binding. The normal compatibility
+run passed all 222 cases in 51 suites. The full integration-tagged Go suite,
+focused race tests, and ten repeated binding-regression runs also passed.

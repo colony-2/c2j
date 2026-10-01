@@ -465,6 +465,7 @@ func (t opExecutor) do(ctx context.Context, jobTool ops.JobTool, req ActivityInv
 			return zero, nil, fmt.Errorf("start child job broker: %w", err)
 		}
 		defer broker.Close()
+		ctx = childbroker.WithLocalSubmitter(ctx, broker)
 		protectedEnv = jobcontext.MergeProtectedEnv(protectedEnv, broker.Env())
 		if pathRuntime.SandboxType == process.SandboxTypeShai && broker.Port() > 0 {
 			host := broker.Host()

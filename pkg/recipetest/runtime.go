@@ -6,8 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/fs"
-	"net"
-	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -20,7 +18,6 @@ import (
 	"github.com/colony-2/c2j/pkg/childbroker"
 	"github.com/colony-2/c2j/pkg/contextual"
 	inputop "github.com/colony-2/c2j/pkg/input"
-	"github.com/colony-2/c2j/pkg/jobcontext"
 	"github.com/colony-2/c2j/pkg/jobdbschema"
 	coreops "github.com/colony-2/c2j/pkg/ops"
 	"github.com/colony-2/c2j/pkg/ops/process"
@@ -478,24 +475,7 @@ func (f *runtimeFixture) invoke(deps coreops.OpDependencies, ctx context.Context
 			if err != nil {
 				return nil, err
 			}
-			env := deps.ProtectedEnv()
-			broker, ok, err := jobcontext.ChildJobBrokerFromEnv(func(name string) string { return env[name] })
-			if err != nil {
-				return nil, err
-			}
-			if !ok {
-				return nil, fmt.Errorf("child fixture requires a lease-scoped broker")
-			}
-			// Fixture effects execute in this process even when the mocked op
-			// advertises a container-reachable broker address. Use its loopback
-			// listener; do not route local fixture traffic through host proxies.
-			endpoint, err := url.Parse(broker.Endpoint)
-			if err != nil {
-				return nil, err
-			}
-			endpoint.Host = net.JoinHostPort("127.0.0.1", endpoint.Port())
-			broker.Endpoint = endpoint.String()
-			_, err = childbroker.Submit(ctx, broker, request)
+			_, err = childbroker.SubmitLocal(ctx, request)
 			if err != nil {
 				return nil, err
 			}

@@ -47,11 +47,12 @@ type Server struct {
 	current   jobcontext.Current
 	submitter Submitter
 
-	endpoint  string
-	token     string
-	sessionID string
-	host      string
-	port      int
+	localEndpoint string
+	endpoint      string
+	token         string
+	sessionID     string
+	host          string
+	port          int
 
 	server *http.Server
 	once   sync.Once
@@ -88,6 +89,10 @@ type SubmitResponse struct {
 }
 
 func Start(ctx context.Context, opts Options) (*Server, error) {
+	return start(ctx, opts, listen)
+}
+
+func start(ctx context.Context, opts Options, openListener func(bool) (net.Listener, string, error)) (*Server, error) {
 	if opts.Submitter == nil {
 		return nil, fmt.Errorf("child job broker submitter is required")
 	}
@@ -104,7 +109,7 @@ func Start(ctx context.Context, opts Options) (*Server, error) {
 		return nil, err
 	}
 
-	listener, advertiseHost, err := listen(opts.ContainerReachable)
+	listener, advertiseHost, err := openListener(opts.ContainerReachable)
 	if err != nil {
 		return nil, err
 	}
@@ -114,14 +119,20 @@ func Start(ctx context.Context, opts Options) (*Server, error) {
 		return nil, fmt.Errorf("child job broker listener address has unexpected type %T", listener.Addr())
 	}
 
+	localIP := tcpAddr.IP
+	if localIP.IsUnspecified() {
+		// Broker listeners are IPv4, including container bridge bindings.
+		localIP = net.IPv4(127, 0, 0, 1)
+	}
 	broker := &Server{
-		current:   opts.Current,
-		submitter: opts.Submitter,
-		endpoint:  fmt.Sprintf("http://%s:%d%s", advertiseHost, tcpAddr.Port, submitPath),
-		token:     token,
-		sessionID: sessionID,
-		host:      advertiseHost,
-		port:      tcpAddr.Port,
+		localEndpoint: "http://" + net.JoinHostPort(localIP.String(), fmt.Sprint(tcpAddr.Port)) + submitPath,
+		current:       opts.Current,
+		submitter:     opts.Submitter,
+		endpoint:      fmt.Sprintf("http://%s:%d%s", advertiseHost, tcpAddr.Port, submitPath),
+		token:         token,
+		sessionID:     sessionID,
+		host:          advertiseHost,
+		port:          tcpAddr.Port,
 	}
 
 	mux := http.NewServeMux()
@@ -308,7 +319,32 @@ func (s *Server) record(key jobdb.JobKey, start workflowctl.StartJob) {
 	})
 }
 
+// WithLocalSubmitter scopes host-side child submission to this invocation's
+// broker. It is not serialized into recipe data or exported to subprocesses.
+func WithLocalSubmitter(ctx context.Context, broker *Server) context.Context {
+	return context.WithValue(ctx, localSubmitterKey{}, broker)
+}
+
+type localSubmitterKey struct{}
+
+// SubmitLocal uses the running broker's bound address, not its container-facing
+// advertised hostname. Local RPC must not go through an ambient HTTP proxy.
+func SubmitLocal(ctx context.Context, req SubmitRequest) (SubmitResponse, error) {
+	broker, _ := ctx.Value(localSubmitterKey{}).(*Server)
+	if broker == nil {
+		return SubmitResponse{}, fmt.Errorf("local child job broker is not available for this invocation")
+	}
+	transport := &http.Transport{Proxy: nil}
+	defer transport.CloseIdleConnections()
+	client := &http.Client{Timeout: defaultClientTimeout, Transport: transport}
+	return submit(ctx, jobcontext.ChildJobBroker{Endpoint: broker.localEndpoint, Token: broker.token, SessionID: broker.sessionID}, req, client)
+}
+
 func Submit(ctx context.Context, broker jobcontext.ChildJobBroker, req SubmitRequest) (SubmitResponse, error) {
+	return submit(ctx, broker, req, &http.Client{Timeout: defaultClientTimeout})
+}
+
+func submit(ctx context.Context, broker jobcontext.ChildJobBroker, req SubmitRequest, client *http.Client) (SubmitResponse, error) {
 	endpoint := strings.TrimSpace(broker.Endpoint)
 	if endpoint == "" {
 		return SubmitResponse{}, fmt.Errorf("child job broker endpoint is required")
@@ -336,7 +372,6 @@ func Submit(ctx context.Context, broker jobcontext.ChildJobBroker, req SubmitReq
 	httpReq.Header.Set("Authorization", "Bearer "+broker.Token)
 	httpReq.Header.Set(sessionHeader, broker.SessionID)
 
-	client := &http.Client{Timeout: defaultClientTimeout}
 	resp, err := client.Do(httpReq)
 	if err != nil {
 		return SubmitResponse{}, fmt.Errorf("call child job broker: %w", err)
@@ -393,13 +428,13 @@ func NewSubmitRequest(ctx context.Context, start workflowctl.StartJob, artifacts
 
 func listen(containerReachable bool) (net.Listener, string, error) {
 	if !containerReachable {
-		listener, err := net.Listen("tcp", "127.0.0.1:0")
+		listener, err := net.Listen("tcp4", "127.0.0.1:0")
 		return listener, "127.0.0.1", err
 	}
 	bindAddress, advertiseHost := containerListenAddress()
-	listener, err := net.Listen("tcp", bindAddress)
+	listener, err := net.Listen("tcp4", bindAddress)
 	if err != nil && bindAddress != "0.0.0.0:0" {
-		listener, err = net.Listen("tcp", "0.0.0.0:0")
+		listener, err = net.Listen("tcp4", "0.0.0.0:0")
 	}
 	return listener, advertiseHost, err
 }
