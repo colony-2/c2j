@@ -290,9 +290,12 @@ func ValidateCase(ctx context.Context, opts HarnessOptions, tenantID string, tar
 	opts = opts.withDefaults()
 	input := caseInput{TargetRecipe: target, Case: c}
 	prepared := prepareCase(ctx, opts, tenantID, input)
-	if c.Runtime == nil && c.ExpectError == "" && prepared.Recipe != nil && len(prepared.Validation.Errors) == 0 {
+	if c.Runtime == nil && c.ExpectError == "" && c.Options["validation_mode"] != "structure_only" && prepared.Recipe != nil && len(prepared.Validation.Errors) == 0 {
 		prepared.Validation.Errors = append(prepared.Validation.Errors, validateRecipeExecutionSemantics(ctx, opts, tenantID, input, prepared.Recipe, prepared.ResolvedHash)...)
 		prepared.Validation.Valid = len(prepared.Validation.Errors) == 0
+	}
+	if c.Runtime != nil || c.Options["validation_mode"] == "structure_only" || c.ExpectError != "" {
+		prepared.Validation.Warnings = append(prepared.Validation.Warnings, Issue{Code: "execution_validation_deferred", Message: "structure validated; run the case to validate runtime inputs and assertions"})
 	}
 	return prepared.Validation
 }
@@ -384,6 +387,9 @@ func validateRecipeSemantics(req caseInput) []Issue {
 		}
 	}
 	if req.Case.Options != nil {
+		if mode, ok := req.Case.Options["validation_mode"]; ok && mode != "all" && mode != "path_only" && mode != "structure_only" {
+			issues = append(issues, Issue{Code: "invalid_option", Field: "case.options.validation_mode", Message: "validation_mode must be all, path_only, or structure_only"})
+		}
 		policyOpts := getMap(req.Case.Options, "policy")
 		for _, dep := range stringSlice(policyOpts["required_dependencies"]) {
 			if !isSupportedDependencyName(dep) {
@@ -424,10 +430,14 @@ func validateRecipeExecutionSemantics(ctx context.Context, opts HarnessOptions, 
 		GitBase:     contextual.GitBaseContext{BaseRepo: "recipe-tests", BaseRef: recipeHash, ResolvedBaseHash: recipeHash},
 	}
 	gitCtx := contextual.GitCommitContext{ParentRef: recipeHash}
+	mode := compiler.ValidateAll
+	if req.Case.Options["validation_mode"] == "path_only" {
+		mode = compiler.ValidatePathOnly
+	}
 	_ = ctx
 	_, _, err := compiler.ExecuteRecipe(wfCtx, *recipeDef, rawInputs, runCtx, gitCtx, compiler.ExecutionOptions{
 		Mode:                compiler.ExecutionModeValidate,
-		Validation:          compiler.ValidationOptions{Mode: compiler.ValidateAll, CollectAll: true},
+		Validation:          compiler.ValidationOptions{Mode: mode, CollectAll: true},
 		CELOptionsProvider:  opts.CELOptions,
 		StateObserver:       jobCtx,
 		DiagnosticsObserver: jobCtx,
@@ -1808,7 +1818,7 @@ func failureCategoryFromError(err error) string {
 
 // evaluateAssertion evaluates a read-only declaration against observed behavior.
 func evaluateAssertion(expr string, outputs map[string]any, artifacts map[string][]byte, status string, report *RuntimeReport) (bool, string) {
-	env, err := cel.NewEnv(cel.Variable("outputs", cel.DynType), cel.Variable("artifacts", cel.DynType), cel.Variable("status", cel.StringType), cel.Variable("calls", cel.ListType(cel.DynType)), cel.Variable("reviews", cel.ListType(cel.DynType)))
+	env, err := cel.NewEnv(cel.Variable("outputs", cel.DynType), cel.Variable("artifacts", cel.DynType), cel.Variable("status", cel.StringType), cel.Variable("calls", cel.ListType(cel.DynType)), cel.Variable("reviews", cel.ListType(cel.DynType)), cel.Variable("repositories", cel.DynType))
 	if err != nil {
 		return false, err.Error()
 	}
@@ -1841,7 +1851,11 @@ func evaluateAssertion(expr string, outputs map[string]any, artifacts map[string
 	for name, b := range artifacts {
 		texts[name] = string(b)
 	}
-	value, _, err := program.Eval(map[string]any{"outputs": outputs, "artifacts": texts, "status": status, "calls": calls, "reviews": reviews})
+	repositories := data["repositories"]
+	if repositories == nil {
+		repositories = map[string]any{}
+	}
+	value, _, err := program.Eval(map[string]any{"outputs": outputs, "artifacts": texts, "status": status, "calls": calls, "reviews": reviews, "repositories": repositories})
 	if err != nil {
 		return false, err.Error()
 	}

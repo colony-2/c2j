@@ -48,9 +48,18 @@ type ChildFixture struct {
 	Inputs map[string]any `json:"inputs,omitempty"`
 }
 
+type RepositoryReport struct {
+	Head         string            `json:"head"`
+	NewCommits   int               `json:"new_commits"`
+	Clean        bool              `json:"clean"`
+	ChangedFiles []string          `json:"changed_files"`
+	Files        map[string]string `json:"files"`
+}
+
 type RuntimeReport struct {
-	Calls   []OpCall     `json:"calls"`
-	Reviews []ReviewCall `json:"reviews,omitempty"`
+	Repositories map[string]RepositoryReport `json:"repositories,omitempty"`
+	Calls        []OpCall                    `json:"calls"`
+	Reviews      []ReviewCall                `json:"reviews,omitempty"`
 }
 
 type OpCall struct {

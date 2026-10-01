@@ -25,3 +25,20 @@ empty selection and retained failure reports.
 Stage 2 must map individual recipe case IDs and test statements before removing
 their Python assertions. Presence of an equivalent runtime test does not replace
 a recipe-specific decision, prompt or document-routing assertion.
+
+
+Stage 2 now has 50 deterministic suites (220 passing cases) and three explicitly
+excluded live suites. The full per-family ownership map is in the companion
+recipes commit at `guides/NATIVE_TEST_MIGRATION.md`. The real build/evolve
+lifecycles, review revisions, multi-cell consultations, dependency recovery and
+verification hooks run through native c2j declarations. The recipe-side Go
+server/client, Python drivers/model fixtures and shell suite runners are removed.
+
+Codex adapter replacement coverage was verified by running
+`go test ./pkg/codex ./internal/extensioncmd` in c2ops
+`ded76dfbd877d3d0749e509844ecdbc57197b572`. No c2ops code was changed.
+
+The CI pin remains at the published legacy revision until the companion recipes
+commit is published. Then switch to native directory execution and remove the
+transitional server-module alignment and verification-export patch. Never pin
+required CI to an unpublished local commit.

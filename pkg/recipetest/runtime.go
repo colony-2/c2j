@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -185,6 +186,9 @@ func runRuntimeCase(parent context.Context, opts HarnessOptions, tenant string, 
 			result.Status = "failed"
 			result.FailureReason = fmt.Sprintf("expected error containing %q; got %s", expected, result.FailureReason)
 		}
+	}
+	if err := f.captureRepositories(parent); err != nil {
+		markFailure(&result, "fixture_inspection", err.Error())
 	}
 	executed := map[string]bool{}
 	for _, call := range f.report.Calls {
@@ -615,4 +619,69 @@ func copyFixtureSource(root, name, source string) error {
 		}
 		return copyFixtureSource(root, filepath.Join(name, rel), path)
 	})
+}
+
+func (f *runtimeFixture) captureRepositories(ctx context.Context) error {
+	f.report.Repositories = map[string]RepositoryReport{}
+	for cell, repo := range f.cells {
+		git := func(args ...string) (string, error) {
+			b, err := exec.CommandContext(ctx, "git", append([]string{"-C", repo}, args...)...).CombinedOutput()
+			if err != nil {
+				return "", fmt.Errorf("inspect fixture cell %s: %w: %s", cell, err, b)
+			}
+			return strings.TrimSpace(string(b)), nil
+		}
+		head, err := git("rev-parse", "HEAD")
+		if err != nil {
+			return err
+		}
+		base, err := git("rev-list", "--max-parents=0", "HEAD")
+		if err != nil {
+			return err
+		}
+		count, err := git("rev-list", "--count", base+"..HEAD")
+		if err != nil {
+			return err
+		}
+		commits, err := strconv.Atoi(count)
+		if err != nil {
+			return err
+		}
+		status, err := git("status", "--porcelain")
+		if err != nil {
+			return err
+		}
+		changed, err := git("diff", "--name-only", "-z", base, "HEAD")
+		if err != nil {
+			return err
+		}
+		r := RepositoryReport{Head: head, NewCommits: commits, Clean: status == "", ChangedFiles: []string{}, Files: map[string]string{}}
+		for _, name := range strings.Split(changed, "\x00") {
+			if name == "" {
+				continue
+			}
+			r.ChangedFiles = append(r.ChangedFiles, name)
+			path, err := fixturePath(repo, name)
+			if err != nil {
+				return err
+			}
+			info, err := os.Lstat(path)
+			if os.IsNotExist(err) {
+				continue
+			}
+			if err != nil {
+				return err
+			}
+			if !info.Mode().IsRegular() || info.Size() > 65536 {
+				continue
+			}
+			b, err := os.ReadFile(path)
+			if err != nil {
+				return err
+			}
+			r.Files[name] = string(b)
+		}
+		f.report.Repositories[cell] = r
+	}
+	return nil
 }

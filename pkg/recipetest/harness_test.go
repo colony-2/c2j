@@ -901,3 +901,56 @@ func mustLoadRecipe(t *testing.T, raw string) *recipecore.Recipe {
 	}
 	return rec
 }
+
+func TestCasePathValidationDoesNotVisitUnselectedSessionBranch(t *testing.T) {
+	target := TargetRecipe{Mode: "inline_recipe", Format: "yaml", Content: `
+id: branches
+version: "1"
+input_schema:
+  session: {type: any}
+inputs:
+  session: ${{ inputs.?session.orValue(null) }}
+state:
+  initial:
+  - {to: resume, when: "inputs.session != null"}
+  - {to: fresh, when: "true"}
+  states:
+    fresh:
+      op: command_execution
+      inputs: {run: "echo fresh"}
+    resume:
+      op: command_execution
+      inputs: {run: "${{ inputs.session.command }}"}
+`}
+	for _, tc := range []struct {
+		name    string
+		inputs  map[string]any
+		options map[string]any
+		valid   bool
+	}{
+		{"all retains existing checks", nil, nil, false},
+		{"fresh path", nil, map[string]any{"validation_mode": "path_only"}, true},
+		{"invalid selected path", map[string]any{"session": map[string]any{}}, map[string]any{"validation_mode": "path_only"}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := ValidateCase(context.Background(), HarnessOptions{}, "test", target, Case{ID: "path", Type: "recipe_case", Inputs: tc.inputs, Options: tc.options})
+			if got.Valid != tc.valid {
+				t.Fatalf("validation=%+v, want valid=%v", got, tc.valid)
+			}
+		})
+	}
+}
+
+func TestStructuralValidationStillRejectsInvalidDeclarations(t *testing.T) {
+	target := inlineInputTarget()
+	c := Case{ID: "structural", Type: "recipe_case", Options: map[string]any{"validation_mode": "structure_only"}}
+	got := ValidateCase(context.Background(), HarnessOptions{}, "test", target, c)
+	if !got.Valid || len(got.Warnings) == 0 {
+		t.Fatalf("%+v", got)
+	}
+	c.Mocks.Ops = []OpMock{{Behavior: MockBehavior{Mode: "invalid"}}}
+	got = ValidateCase(context.Background(), HarnessOptions{}, "test", target, c)
+	if got.Valid {
+		t.Fatal("structural validation accepted an invalid declaration")
+	}
+}

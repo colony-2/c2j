@@ -162,3 +162,21 @@ A case-level `expect_error: "substring"` expresses an expected execution failure
 in either executor. Unexpected success, unrelated failures, validation failures,
 and case timeouts still fail the test. Prefer this to a shell wrapper that
 accepts any nonzero exit code. `runtime.expect_error` remains supported.
+
+Runtime CEL assertions also receive `repositories`, keyed by fixture cell. Each
+entry contains `head`, `new_commits` since the seeded commit, `clean`,
+`changed_files`, and `files` (contents of changed regular files up to 64 KiB).
+This checks what a recipe actually merged, including that consultation-only
+cells remain unchanged, without inspecting temporary directories in a script.
+
+For branch-specific mock cases, `options.validation_mode: path_only` validates
+the path selected by that case's inputs and replies. The default `all` retains
+whole-graph validation. Use `path_only` when an unselected branch requires data
+that is intentionally absent (for example, a resumed session in a fresh-session
+case). `run` still executes the complete selected scenario and its assertions.
+
+`options.validation_mode: structure_only` checks declaration structure and source
+resolution, as runtime cases do. It emits an `execution_validation_deferred`
+warning. Use it for data-dependent mock suites whose artifact/history expressions
+cannot evaluate against static placeholders. Their behavior must be checked with
+`run`; this option does not bypass any run-time validation or assertion.

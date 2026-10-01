@@ -50,7 +50,7 @@ cases:
   - {type: output_equals, path: text, value: persisted}
   - {type: output_equals, path: session.type, value: fixture.session/v1}
   - {type: op_call_count, node_path: native/write, value: 1}
-  - {type: cel_true, expr: "size(outputs.merged_hash) == 40"}
+  - {type: cel_true, expr: "size(outputs.merged_hash) == 40 && repositories.root.head == outputs.merged_hash && repositories.root.new_commits == 1 && repositories.root.files['checkpoint.txt'] == 'persisted' && repositories.root.clean"}
 `)
 	var output bytes.Buffer
 	err := Run(context.Background(), Options{FilePath: filepath.Join(root, "native.test.yaml"), OutDir: filepath.Join(root, "results"), Stdout: &output, Execution: ExecutionOptions{Timeout: "10s"}})

@@ -147,3 +147,8 @@ host worktrees without editing the recipe. File sources may be directories.
 Use case-level `expect_error` for an expected execution error; never turn every
 CLI failure into a passing negative test. CEL `calls[].artifacts` exposes small
 fixture document contents for routing assertions.
+
+Use `options.validation_mode: path_only` on mock cases whose unselected branches
+require absent runtime data. The default remains whole-graph validation. Runtime
+CEL assertions expose `repositories.<cell>` with the final head, added commit
+count, cleanliness, changed filenames, and small changed file contents.
