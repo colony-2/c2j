@@ -76,7 +76,7 @@ with `input.GetOp()` and their existing autofill handler. The compiler persists
 JobDB task options. Completion uses the original logical
 `input:collect_user_input` task, preserving workspace state and ordinary artifacts.
 
-The implementation requires JobDB's delayed task-alternate dispatch support.
+The implementation requires JobDB v0.0.23 or later for delayed task-alternate dispatch.
 Scheduler adapters must keep the original pending route available for external
 completion until an alternate is actually acquired. Tests exercise persistent
 SQLite and remote SQLite; an independently implemented scheduler adapter needs the

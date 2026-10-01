@@ -3,7 +3,7 @@ module github.com/colony-2/c2j
 go 1.26
 
 require (
-	github.com/colony-2/jobdb v0.0.23-0.20260930230839-6da2fab0502e
+	github.com/colony-2/jobdb v0.0.23
 	github.com/colony-2/shai v0.0.8
 	github.com/colony-2/strata-go v0.0.0-20260621025934-747fa0c819c0
 	github.com/distribution/reference v0.6.0
