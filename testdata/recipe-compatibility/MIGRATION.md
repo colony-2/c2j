@@ -88,3 +88,8 @@ passed three repetitions under the race detector. The fresh-checkout native
 command passed **222 cases in 51 suites**, with three live suites excluded.
 The later strengthened build/evolve lifecycle assertions passed targeted runs.
 Pinned c2ops `go test ./pkg/codex ./internal/extensioncmd` also passed.
+
+All 12 consultation cases also passed with an exact dependency-context assertion.
+A mutation that removed history from the delivered prompt passed the earlier
+checks and failed that new assertion. Final directory validation passed including
+live declarations; it does not substitute for live execution.

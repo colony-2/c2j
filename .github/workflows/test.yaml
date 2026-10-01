@@ -53,7 +53,7 @@ jobs:
         with:
           repository: colony-2/recipes
           # Native declarations, including audited lifecycle and dependency coverage.
-          ref: 653e8f23df78044c02e55b574b8ae5f505936727
+          ref: 29b096115f3f4a0c154e1d29dc8fe208ebf9585a
           path: test-repos/recipes
       - name: Checkout extension ops
         uses: actions/checkout@v4
