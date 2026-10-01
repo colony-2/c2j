@@ -69,14 +69,24 @@ jobs:
         run: |
           python3 -m pip install uv==0.12.12
           go build -o "$RUNNER_TEMP/c2j" ./cmd/c2j
+      - name: Prepare pinned recipe fixtures
+        run: |
+          # SHA checkouts are detached. The recipes select c2ops @main, and
+          # run-defaults.sh redirects that repository to this local checkout.
+          git -C test-repos/c2ops branch --force main HEAD
+          git -C test-repos/recipes apply "$GITHUB_WORKSPACE/testdata/recipe-compatibility/recipes-verification-export.patch"
+          # Exercise the same JobDB protocol on both sides of the HTTP tests.
+          jobdb_version=$(go list -m -f '{{.Version}}' github.com/colony-2/jobdb)
+          (cd test-repos/recipes/recipe-tests/jobdb-service && go get "github.com/colony-2/jobdb@$jobdb_version")
       - name: Run all default recipe suites
+        shell: bash
         env:
           C2J_BINARY: ${{ runner.temp }}/c2j
           C2OPS_REPOSITORY: ${{ github.workspace }}/test-repos/c2ops
           C2J_TEST_LOG_DIR: ${{ runner.temp }}/recipe-regression-logs
         run: |
-          git -C test-repos/recipes apply "$GITHUB_WORKSPACE/testdata/recipe-compatibility/recipes-verification-export.patch"
-          ./test-repos/recipes/recipe-tests/run-defaults.sh
+          mkdir -p "$C2J_TEST_LOG_DIR"
+          ./test-repos/recipes/recipe-tests/run-defaults.sh 2>&1 | tee "$C2J_TEST_LOG_DIR/suites.log"
       - name: Retain failure logs
         if: failure()
         uses: actions/upload-artifact@v4

@@ -2,9 +2,22 @@
 
 CI runs the complete recipes test suite against the newly built c2j binary.
 Recipe and c2ops revisions are pinned in `.github/workflows/test.yaml`.
-The recipes fixture commit `84de797` must be pushed to `colony-2/recipes` before
-the new CI job can fetch it; it was present only in the local checkout during
-this validation.
+Both pinned revisions are publicly fetchable; no custom checkout token is needed.
+
+The c2ops checkout is detached because CI pins a commit SHA. Fixture preparation
+creates a local `main` branch at that exact commit: the recipes use c2ops `@main`
+selectors, and `run-defaults.sh` redirects their Git requests to this checkout.
+This keeps selector resolution pinned without fetching the latest upstream main.
+
+The fixture's in-memory HTTP server is built with the same JobDB version as c2j,
+read from c2j's module graph during preparation. Its original older dependency
+does not support the lease renewal protocol used by the current client. This
+updates only the disposable fixture checkout, not the upstream recipes repo.
+
+All five suites must pass. Their combined output is retained as `suites.log`
+alongside available worker logs in the `recipe-regression-logs` failure artifact.
+The `test-summary` job only aggregates results; investigate the failed step in
+`default-recipes` for the underlying error.
 
 The pinned recipes revision does not export earlier verification artifacts in
 its final build/evolve job results. `recipes-verification-export.patch` is the
