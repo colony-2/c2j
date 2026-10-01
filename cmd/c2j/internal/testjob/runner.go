@@ -32,7 +32,9 @@ import (
 var embedEnvMu sync.Mutex
 
 type suiteEnvelope struct {
-	Cases []map[string]interface{} `json:"cases" yaml:"cases"`
+	Recipe string                   `json:"recipe" yaml:"recipe"`
+	Live   bool                     `json:"live,omitempty" yaml:"live,omitempty"`
+	Cases  []map[string]interface{} `json:"cases" yaml:"cases"`
 }
 
 type CompiledIR struct {
@@ -76,11 +78,32 @@ func completeOptions(ctx context.Context, opts Options) (Options, error) {
 
 func compileCompleted(ctx context.Context, opts Options) (CompiledIR, error) {
 	c2jops.Register()
-	target, err := buildTargetRecipe(ctx, opts)
+	raw, format, err := loadSuiteBytes(opts)
 	if err != nil {
 		return CompiledIR{}, exitError{code: exitCodeCompile, err: err}
 	}
-	raw, format, err := loadSuiteBytes(opts)
+	suite, err := parseSuiteEnvelope(raw, format)
+	if err != nil {
+		return CompiledIR{}, err
+	}
+	if suite.Live && !opts.IncludeLive {
+		return CompiledIR{}, fmt.Errorf("live suite requires --include-live")
+	}
+	if opts.Recipe == "" && opts.RecipeFile == "" && suite.Recipe != "" {
+		if opts.UseStdin {
+			return CompiledIR{}, fmt.Errorf("suite recipe paths require a suite file, or an explicit --recipe/--recipe-file")
+		}
+		if compiler.IsGitRecipeSelector(suite.Recipe) {
+			opts.Recipe = suite.Recipe
+		} else {
+			file, err := absPathFromWorkingDir(opts.WorkingDir, opts.FilePath)
+			if err != nil {
+				return CompiledIR{}, err
+			}
+			opts.RecipeFile = filepath.Join(filepath.Dir(file), suite.Recipe)
+		}
+	}
+	target, err := buildTargetRecipe(ctx, opts)
 	if err != nil {
 		return CompiledIR{}, exitError{code: exitCodeCompile, err: err}
 	}
@@ -96,6 +119,9 @@ func compileCompleted(ctx context.Context, opts Options) (CompiledIR, error) {
 }
 
 func CompileAndWrite(ctx context.Context, opts Options) error {
+	if opts.Directory != "" {
+		return fmt.Errorf("compile accepts one suite; use validate or run with --directory")
+	}
 	var err error
 	opts, err = completeOptions(ctx, opts)
 	if err != nil {
@@ -130,6 +156,9 @@ func CompileAndWrite(ctx context.Context, opts Options) error {
 }
 
 func Validate(ctx context.Context, opts Options) error {
+	if opts.Directory != "" {
+		return runDirectory(ctx, opts, false)
+	}
 	var err error
 	opts, err = completeOptions(ctx, opts)
 	if err != nil {
@@ -154,6 +183,9 @@ func Validate(ctx context.Context, opts Options) error {
 }
 
 func Run(ctx context.Context, opts Options) error {
+	if opts.Directory != "" {
+		return runDirectory(ctx, opts, true)
+	}
 	var err error
 	opts, err = completeOptions(ctx, opts)
 	if err != nil {
@@ -350,14 +382,14 @@ func buildHarnessOptions(ctx context.Context, opts Options, ir CompiledIR) (reci
 	}
 
 	return recipetest.HarnessOptions{
-			Resolver: defaultTargetResolver{},
-			Deps:     deps,
-			WorkRoot: workRoot,
-		}, func() {
-			for i := len(cleanups) - 1; i >= 0; i-- {
-				cleanups[i]()
-			}
-		}, nil
+		Resolver: defaultTargetResolver{},
+		Deps:     deps,
+		WorkRoot: workRoot,
+	}, func() {
+		for i := len(cleanups) - 1; i >= 0; i-- {
+			cleanups[i]()
+		}
+	}, nil
 }
 
 func suiteUsesPassthrough(cases []recipetest.Case) bool {
@@ -484,32 +516,12 @@ func resolveSuiteFormat(explicit string, filePath string) string {
 }
 
 func parseSuiteCases(raw []byte, format string) ([]recipetest.Case, error) {
-	var suite suiteEnvelope
-	switch format {
-	case "canonical_json":
-		if err := json.Unmarshal(raw, &suite); err != nil {
-			return nil, err
-		}
-	case "canonical_yaml", "compact_yaml":
-		if err := yaml.Unmarshal(raw, &suite); err != nil {
-			return nil, err
-		}
-	case "scenario_md":
-		block := extractFencedBlock(string(raw))
-		if block == "" {
-			return nil, fmt.Errorf("scenario markdown must include a fenced yaml/json block")
-		}
-		if strings.HasPrefix(strings.TrimSpace(block), "{") {
-			if err := json.Unmarshal([]byte(block), &suite); err != nil {
-				return nil, err
-			}
-		} else if err := yaml.Unmarshal([]byte(block), &suite); err != nil {
-			return nil, err
-		}
-	default:
-		return nil, fmt.Errorf("unsupported format %q", format)
+	suite, err := parseSuiteEnvelope(raw, format)
+	if err != nil {
+		return nil, err
 	}
 	cases := make([]recipetest.Case, 0, len(suite.Cases))
+	seen := map[string]bool{}
 	for _, rawCase := range suite.Cases {
 		b, err := json.Marshal(rawCase)
 		if err != nil {
@@ -519,9 +531,42 @@ func parseSuiteCases(raw []byte, format string) ([]recipetest.Case, error) {
 		if err := json.Unmarshal(b, &c); err != nil {
 			return nil, err
 		}
+		if c.ID == "" || seen[c.ID] {
+			return nil, fmt.Errorf("empty or duplicate case ID %q", c.ID)
+		}
+		seen[c.ID] = true
 		cases = append(cases, c)
 	}
 	return cases, nil
+}
+
+func parseSuiteEnvelope(raw []byte, format string) (suiteEnvelope, error) {
+	var suite suiteEnvelope
+	switch format {
+	case "canonical_json":
+		if err := json.Unmarshal(raw, &suite); err != nil {
+			return suite, err
+		}
+	case "canonical_yaml", "compact_yaml":
+		if err := yaml.Unmarshal(raw, &suite); err != nil {
+			return suite, err
+		}
+	case "scenario_md":
+		block := extractFencedBlock(string(raw))
+		if block == "" {
+			return suite, fmt.Errorf("scenario markdown must include a fenced yaml/json block")
+		}
+		if strings.HasPrefix(strings.TrimSpace(block), "{") {
+			if err := json.Unmarshal([]byte(block), &suite); err != nil {
+				return suite, err
+			}
+		} else if err := yaml.Unmarshal([]byte(block), &suite); err != nil {
+			return suite, err
+		}
+	default:
+		return suite, fmt.Errorf("unsupported format %q", format)
+	}
+	return suite, nil
 }
 
 func extractFencedBlock(md string) string {

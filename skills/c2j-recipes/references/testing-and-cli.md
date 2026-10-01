@@ -54,6 +54,14 @@ c2j submit "Run the requested task" --advanced-recipe-file ./recipes/review.yaml
 
 Use `c2j test` for scenario suites and fixture-style validation.
 
+Prefer self-contained suites with a top-level `recipe` path relative to the
+suite file. Run a repository with `c2j test run --directory recipe-tests`;
+validate it with the same `--directory` flag. No manifest or shell runner is
+needed. Discovery recognizes `*.test.yaml`, `*.test.yml`, `*.test.json`, and
+`*.scenario.md`; every discovered suite must contain executable cases. Declare
+`live: true` for live integrations and select them explicitly with
+`--include-live`. See `GUIDE-Native-Recipe-Testing.md` for reports and selection.
+
 Common flags from this checkout:
 
 - `--recipe` or `--recipe-file`

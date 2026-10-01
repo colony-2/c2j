@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/colony-2/c2j/cmd/c2j/internal/defaults"
-	"github.com/colony-2/c2j/pkg/worker/compiler"
 )
 
 const (
@@ -25,11 +24,13 @@ type Options struct {
 	Recipe     string
 	RecipeFile string
 
-	FilePath string
-	UseStdin bool
-	Format   string
-	CaseIDs  []string
-	Strict   bool
+	FilePath    string
+	Directory   string
+	IncludeLive bool
+	UseStdin    bool
+	Format      string
+	CaseIDs     []string
+	Strict      bool
 
 	Self bool
 	Cell string
@@ -79,9 +80,6 @@ func (o *Options) Complete(ctx context.Context) error {
 			o.WorkingDir = absPath
 		}
 	}
-	if strings.TrimSpace(o.Recipe) == "" && strings.TrimSpace(o.RecipeFile) == "" {
-		o.Recipe = compiler.DefaultRecipeName
-	}
 	if o.Parallelism <= 0 {
 		o.Parallelism = 4
 	}
@@ -99,6 +97,13 @@ func (o *Options) Complete(ctx context.Context) error {
 }
 
 func (o Options) ValidateSuiteInput() error {
+	if o.Directory != "" {
+		if o.FilePath != "" || o.UseStdin || o.Recipe != "" || o.RecipeFile != "" || o.Format != "" {
+			return fmt.Errorf("--directory cannot be combined with --file, --stdin, --recipe, --recipe-file, or --format")
+		}
+		return nil
+	}
+
 	if strings.TrimSpace(o.Recipe) != "" && strings.TrimSpace(o.RecipeFile) != "" {
 		return fmt.Errorf("--recipe and --recipe-file are mutually exclusive")
 	}

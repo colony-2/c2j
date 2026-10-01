@@ -120,6 +120,8 @@ func bindTestCommonFlags(cmd *cobra.Command, opts *testjob.Options) {
 	flags.StringVar(&opts.Recipe, "recipe", "", "Recipe name or git selector to test (defaults to default)")
 	flags.StringVar(&opts.RecipeFile, "recipe-file", "", "Path to a local recipe YAML file")
 	flags.StringVar(&opts.FilePath, "file", "", "Suite file path")
+	flags.StringVar(&opts.Directory, "directory", "", "Recursively discover self-contained test suites")
+	flags.BoolVar(&opts.IncludeLive, "include-live", false, "Include suites declaring live service requirements")
 	flags.BoolVar(&opts.UseStdin, "stdin", false, "Read suite from stdin")
 	flags.StringVar(&opts.Format, "format", "", "Suite format: canonical_yaml|canonical_json|compact_yaml|scenario_md")
 	flags.StringSliceVar(&opts.CaseIDs, "case", nil, "Only include selected case IDs (repeatable)")
