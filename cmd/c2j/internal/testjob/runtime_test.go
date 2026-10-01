@@ -33,7 +33,8 @@ outputs:
 cases:
 - id: durable
   type: integration_case
-  runtime: {}
+  runtime:
+    observe_files: [checkpoint.txt, absent.txt]
   mocks:
     ops:
     - match: {node_path: native/write, op: command_execution}
@@ -47,6 +48,8 @@ cases:
     - match: {node_path: native/read, op: command_execution}
       behavior: {mode: passthrough}
   assertions:
+  - {type: cel_true, expr: "calls[0].worktree == {} && calls[1].worktree == {'checkpoint.txt': 'persisted'}"}
+  - {type: cel_true, expr: "calls[0].outputs.session == outputs.session"}
   - {type: output_equals, path: text, value: persisted}
   - {type: output_equals, path: session.type, value: fixture.session/v1}
   - {type: op_call_count, node_path: native/write, value: 1}

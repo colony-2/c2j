@@ -36,16 +36,17 @@ import (
 )
 
 type runtimeFixture struct {
-	mu        sync.Mutex
-	opts      HarnessOptions
-	c         Case
-	root      string
-	cells     map[string]string
-	selected  map[string]int
-	used      map[int]struct{}
-	responses map[int]bool
-	report    RuntimeReport
-	ctl       *workerworkflow.SWFWorkflowControl
+	mu          sync.Mutex
+	opts        HarnessOptions
+	c           Case
+	root        string
+	cells       map[string]string
+	selected    map[string]int
+	callIndexes map[string]int
+	used        map[int]struct{}
+	responses   map[int]bool
+	report      RuntimeReport
+	ctl         *workerworkflow.SWFWorkflowControl
 }
 
 func runRuntimeCase(parent context.Context, opts HarnessOptions, tenant string, req caseInput, prepared preparedCase) (result CaseRunResult) {
@@ -60,7 +61,7 @@ func runRuntimeCase(parent context.Context, opts HarnessOptions, tenant string, 
 		return
 	}
 	defer os.RemoveAll(root)
-	f := &runtimeFixture{opts: opts, c: req.Case, root: root, cells: map[string]string{}, selected: map[string]int{}, used: map[int]struct{}{}, responses: map[int]bool{}}
+	f := &runtimeFixture{opts: opts, c: req.Case, root: root, cells: map[string]string{}, selected: map[string]int{}, callIndexes: map[string]int{}, used: map[int]struct{}{}, responses: map[int]bool{}}
 	defer func() { f.mu.Lock(); defer f.mu.Unlock(); result.Runtime = &f.report }()
 	cell := req.Case.Runtime.Cell
 	if cell == "" {
@@ -287,7 +288,7 @@ func writeFixture(root, name string, content []byte) error {
 	return os.WriteFile(dest, content, 0644)
 }
 
-func (f *runtimeFixture) invoke(deps coreops.OpDependencies, ctx context.Context, op string, real func(coreops.OpDependencies, context.Context, map[string]any) (map[string]any, error), in map[string]any) (map[string]any, error) {
+func (f *runtimeFixture) invoke(deps coreops.OpDependencies, ctx context.Context, op string, real func(coreops.OpDependencies, context.Context, map[string]any) (map[string]any, error), in map[string]any) (opOutput map[string]any, invokeErr error) {
 	g := deps.GitContext()
 	cell := g.CellName
 	if g.Workspace != nil {
@@ -366,9 +367,52 @@ func (f *runtimeFixture) invoke(deps coreops.OpDependencies, ctx context.Context
 				return nil, err
 			}
 		}
-		f.report.Calls = append(f.report.Calls, OpCall{JobID: key.JobId, Cell: cell, NodePath: g.NodePath, Op: op, Inputs: in, Artifacts: artifacts})
+		worktree := map[string]string{}
+		for _, name := range f.c.Runtime.ObserveFiles {
+			path, err := fixturePath(deps.WorktreePath(), name)
+			if err == nil {
+				var resolved string
+				resolved, err = filepath.EvalSymlinks(path)
+				if err == nil {
+					rel, relErr := filepath.Rel(deps.WorktreePath(), resolved)
+					if relErr != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+						err = fmt.Errorf("observed file escapes worktree: %s", name)
+					} else {
+						var info os.FileInfo
+						info, err = os.Stat(resolved)
+						if err == nil && info.Mode().IsRegular() && info.Size() <= 65536 {
+							var data []byte
+							data, err = os.ReadFile(resolved)
+							worktree[name] = string(data)
+						}
+					}
+				}
+			}
+			if err != nil && !os.IsNotExist(err) {
+				f.mu.Unlock()
+				return nil, err
+			}
+		}
+		f.callIndexes[identity] = len(f.report.Calls)
+		f.report.Calls = append(f.report.Calls, OpCall{Worktree: worktree, JobID: key.JobId, Cell: cell, NodePath: g.NodePath, Op: op, Inputs: in, Artifacts: artifacts})
 	}
+	callIndex := f.callIndexes[identity]
 	f.mu.Unlock()
+	defer func() {
+		if invokeErr == nil {
+			// Detach report values from mutable op inputs/outputs and normalize
+			// typed object references for the JSON/CEL report interface.
+			data, err := json.Marshal(opOutput)
+			if err == nil {
+				var out map[string]any
+				if json.Unmarshal(data, &out) == nil {
+					f.mu.Lock()
+					f.report.Calls[callIndex].Outputs = out
+					f.mu.Unlock()
+				}
+			}
+		}
+	}()
 	if op == "squashrebasemerge" {
 		// Git config is not copied when cloning a fixture repository. Set the
 		// committer on this disposable worktree, never in global configuration.

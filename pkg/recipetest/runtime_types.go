@@ -9,6 +9,7 @@ import (
 // RuntimeCase opts a case into real JobDB and worker execution. Legacy cases
 // (including integration_case) retain their existing executor when omitted.
 type RuntimeCase struct {
+	ObserveFiles   []string               `json:"observe_files,omitempty"`
 	CommandSandbox string                 `json:"command_sandbox,omitempty"`
 	ExpectError    string                 `json:"expect_error,omitempty"`
 	Cell           string                 `json:"cell,omitempty"`
@@ -63,6 +64,8 @@ type RuntimeReport struct {
 }
 
 type OpCall struct {
+	Worktree  map[string]string `json:"worktree"`
+	Outputs   map[string]any    `json:"outputs,omitempty"`
 	Artifacts map[string]string `json:"artifacts,omitempty"`
 	JobID     string            `json:"job_id"`
 	Cell      string            `json:"cell"`
@@ -100,6 +103,10 @@ func validateRuntimeCase(opts HarnessOptions, c Case) []Issue {
 	}
 	if c.ExpectError != "" && c.Runtime.ExpectError != "" {
 		add(fmt.Errorf("set expect_error at the case or runtime level, not both"))
+	}
+	for _, name := range c.Runtime.ObserveFiles {
+		_, err := fixturePath("", name)
+		add(err)
 	}
 	if c.Runtime.CommandSandbox != "" && c.Runtime.CommandSandbox != "none" {
 		add(fmt.Errorf("command_sandbox supports only none (or omit to keep the recipe sandbox)"))

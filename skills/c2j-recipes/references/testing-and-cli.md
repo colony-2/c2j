@@ -152,3 +152,9 @@ Use `options.validation_mode: path_only` on mock cases whose unselected branches
 require absent runtime data. The default remains whole-graph validation. Runtime
 CEL assertions expose `repositories.<cell>` with the final head, added commit
 count, cleanliness, changed filenames, and small changed file contents.
+
+Use `runtime.observe_files: [candidate.txt, experiment.txt]` to inspect selected
+cell-relative files in `calls[].worktree` before each invocation. Absent files
+are absent map keys; regular files up to 64 KiB are included. Compare a resumed
+session input with `calls[].outputs.session` from the intended earlier call;
+checking only the object type does not establish correct checkpoint routing.

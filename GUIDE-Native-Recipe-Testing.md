@@ -180,3 +180,20 @@ resolution, as runtime cases do. It emits an `execution_validation_deferred`
 warning. Use it for data-dependent mock suites whose artifact/history expressions
 cannot evaluate against static placeholders. Their behavior must be checked with
 `run`; this option does not bypass any run-time validation or assertion.
+
+For assertions about state at an invocation, declare `runtime.observe_files`
+with cell-relative file paths. `calls[].worktree` records those regular files
+before each op; missing files are absent from the map. Observations are limited
+to 64 KiB per file and cannot follow symlinks outside the disposable worktree.
+Use this to check that a candidate survives a consultation and foreign edits do
+not enter the next workspace. `calls[].outputs` records successful op outputs,
+including opaque checkpoint references, so a test can compare the next input
+session to the exact previous output instead of checking only its type.
+
+```yaml
+runtime:
+  observe_files: [candidate.txt, experiment.txt]
+assertions:
+- type: cel_true
+  expr: 'calls.filter(c, c.op == "extension_execution")[1].inputs.inputs.session == calls.filter(c, c.op == "extension_execution")[0].outputs.session'
+```
