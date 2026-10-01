@@ -367,31 +367,10 @@ func (f *runtimeFixture) invoke(deps coreops.OpDependencies, ctx context.Context
 				return nil, err
 			}
 		}
-		worktree := map[string]string{}
-		for _, name := range f.c.Runtime.ObserveFiles {
-			path, err := fixturePath(deps.WorktreePath(), name)
-			if err == nil {
-				var resolved string
-				resolved, err = filepath.EvalSymlinks(path)
-				if err == nil {
-					rel, relErr := filepath.Rel(deps.WorktreePath(), resolved)
-					if relErr != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-						err = fmt.Errorf("observed file escapes worktree: %s", name)
-					} else {
-						var info os.FileInfo
-						info, err = os.Stat(resolved)
-						if err == nil && info.Mode().IsRegular() && info.Size() <= 65536 {
-							var data []byte
-							data, err = os.ReadFile(resolved)
-							worktree[name] = string(data)
-						}
-					}
-				}
-			}
-			if err != nil && !os.IsNotExist(err) {
-				f.mu.Unlock()
-				return nil, err
-			}
+		worktree, err := observeWorktree(deps.WorktreePath(), f.c.Runtime.ObserveFiles)
+		if err != nil {
+			f.mu.Unlock()
+			return nil, err
 		}
 		f.callIndexes[identity] = len(f.report.Calls)
 		f.report.Calls = append(f.report.Calls, OpCall{Worktree: worktree, JobID: key.JobId, Cell: cell, NodePath: g.NodePath, Op: op, Inputs: in, Artifacts: artifacts})
@@ -728,4 +707,50 @@ func (f *runtimeFixture) captureRepositories(ctx context.Context) error {
 		f.report.Repositories[cell] = r
 	}
 	return nil
+}
+
+// Canonicalize the root as well as each file: macOS temporary roots can contain
+// symlinks even when the fixture file itself is a normal, confined file.
+func observeWorktree(root string, names []string) (map[string]string, error) {
+	files := map[string]string{}
+	if len(names) == 0 {
+		return files, nil
+	}
+	canonical, err := filepath.EvalSymlinks(root)
+	if os.IsNotExist(err) {
+		return files, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	for _, name := range names {
+		path, err := fixturePath(canonical, name)
+		if err != nil {
+			return nil, err
+		}
+		resolved, err := filepath.EvalSymlinks(path)
+		if os.IsNotExist(err) {
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		rel, err := filepath.Rel(canonical, resolved)
+		if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			return nil, fmt.Errorf("observed file escapes worktree: %s", name)
+		}
+		info, err := os.Stat(resolved)
+		if err != nil {
+			return nil, err
+		}
+		if !info.Mode().IsRegular() || info.Size() > 65536 {
+			continue
+		}
+		data, err := os.ReadFile(resolved)
+		if err != nil {
+			return nil, err
+		}
+		files[name] = string(data)
+	}
+	return files, nil
 }
