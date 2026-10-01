@@ -52,41 +52,35 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: colony-2/recipes
-          # Includes full build/evolve lifecycles with consultation and child merges.
-          ref: 84de797f8080442dadbfce4340ac57d5200cc657
+          # Native declarations, including audited lifecycle and dependency coverage.
+          ref: 653e8f23df78044c02e55b574b8ae5f505936727
           path: test-repos/recipes
       - name: Checkout extension ops
         uses: actions/checkout@v4
         with:
           repository: colony-2/c2ops
-          ref: 73165cf9d001fac194da6e88d7419a3aeb04ded9
+          ref: ded76dfbd877d3d0749e509844ecdbc57197b572
           path: test-repos/c2ops
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
           go-version: '1.26.1'
-      - name: Install test runner and build CLI
+      - name: Build CLI
         run: |
-          python3 -m pip install uv==0.12.12
           go build -o "$RUNNER_TEMP/c2j" ./cmd/c2j
-      - name: Prepare pinned recipe fixtures
-        run: |
-          # SHA checkouts are detached. The recipes select c2ops @main, and
-          # run-defaults.sh redirects that repository to this local checkout.
-          git -C test-repos/c2ops branch --force main HEAD
-          git -C test-repos/recipes apply "$GITHUB_WORKSPACE/testdata/recipe-compatibility/recipes-verification-export.patch"
-          # Exercise the same JobDB protocol on both sides of the HTTP tests.
-          jobdb_version=$(go list -m -f '{{.Version}}' github.com/colony-2/jobdb)
-          (cd test-repos/recipes/recipe-tests/jobdb-service && go get "github.com/colony-2/jobdb@$jobdb_version")
-      - name: Run all default recipe suites
+      - name: Pin extension selector main to the checked-out commit
+        run: git -C test-repos/c2ops branch --force main HEAD
+      - name: Run native recipe compatibility suites
         shell: bash
         env:
-          C2J_BINARY: ${{ runner.temp }}/c2j
-          C2OPS_REPOSITORY: ${{ github.workspace }}/test-repos/c2ops
+          GIT_CONFIG_COUNT: '1'
+          GIT_CONFIG_KEY_0: url.file://${{ github.workspace }}/test-repos/c2ops.insteadOf
+          GIT_CONFIG_VALUE_0: https://github.com/colony-2/c2ops.git
           C2J_TEST_LOG_DIR: ${{ runner.temp }}/recipe-regression-logs
         run: |
           mkdir -p "$C2J_TEST_LOG_DIR"
-          ./test-repos/recipes/recipe-tests/run-defaults.sh 2>&1 | tee "$C2J_TEST_LOG_DIR/suites.log"
+          "$RUNNER_TEMP/c2j" test run --directory test-repos/recipes --case-timeout 5m \
+            --out-dir "$C2J_TEST_LOG_DIR/results" 2>&1 | tee "$C2J_TEST_LOG_DIR/suites.log"
       - name: Retain failure logs
         if: failure()
         uses: actions/upload-artifact@v4

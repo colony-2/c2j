@@ -1,44 +1,90 @@
-# Native test migration inventory
+# Native test coverage audit
 
-This inventory separates assertions in the recipes repository from execution
-guarantees. Existing coverage stays until the replacement is runnable. The
-recipes source examined for this migration is `3d3f24e`.
+Baseline: recipes `3d3f24e`, before removal of the external harnesses. This is a
+requirements mapping, not a comparison of test counts. Generic runtime tests
+must not stand in for assertions about a production recipe's prompts or routing.
 
-| Source family | Runtime guarantee covered in c2j | Recipe assertions to retain |
-| --- | --- | --- |
-| CLI framework and inline/include scripts | `cmd/c2j/internal/testjob/runner_test.go`; broker compiled-include regression in `pkg/childbroker/compiled_recipe_test.go` | Each published recipe validates and its declared cases pass. |
-| Dependencies | `pkg/ops/recipe/child_job_id_test.go`, `await_result_soft_test.go`, `child_group_test.go`; native runner submits/awaits through the broker in `cmd/c2j/internal/testjob/runtime_test.go` | Successful/failed/cancelled/unmerged dependency decisions, multiple rounds and history retention. |
-| Consultation workspaces | `pkg/worker/compiler/workspace_integration_test.go`, `workspace_replay_test.go`, `child_snapshot_integration_test.go` | Consultation selection, scoped prompts, session routing, agreed handoffs and retained feedback. |
-| Full development lifecycle | `TestAwaitMergedChildPreservesParentSnapshotAndChildEvidence`, `TestReplayLegacyArtifactOrderWithRealJobDB` | Approval before work/merge, verification evidence, dependency results and final exports. |
-| Native reviews | `pkg/input/review_test.go`, `pkg/input/test-fixtures/review_test.go`; runtime suite exercises two documents and an uploaded annotation | Design/test-plan and implementation/verification document selection, revisions and acceptance. |
-| Generic session objects | `pkg/objects/store_test.go`, `pkg/worker/compiler/objects_integration_test.go`, `objects_input_test.go` | A recipe forwards the intended session checkpoint to each phase. |
-| Codex adapter/session import-export | c2ops-owned behavior; retain existing coverage until a c2ops handoff has a runnable replacement | Do not mistake an adapter emulator for recipe correctness. |
-| Template history/JSON | `pkg/template/native_result_test.go`, including `TestJSONHelpersNormalizeCELHistoryValues` | Correct histories and evidence appear in prompts and outputs. |
+## Recipe requirements
 
-The new native runner itself has regressions for Git state persistence, object
-publication, broker child submission, document reviews and attachment responses,
-unused fixtures, missing fixtures, execution failure, timeout and parallel case
-isolation. CEL assertion tests reject false/invalid expressions. Directory tests
-cover nested discovery, relative paths, invalid declarations, live selection,
-empty selection and retained failure reports.
+Paths in this table are relative to the recipes repository.
 
-Stage 2 must map individual recipe case IDs and test statements before removing
-their Python assertions. Presence of an equivalent runtime test does not replace
-a recipe-specific decision, prompt or document-routing assertion.
+| Former assertions | Replacement and checks |
+| --- | --- |
+| `verify-default-recipes.py`: 26 routing cases for each entrypoint | `recipe-tests/{build,evolve}.scenario.md`: phase order, target scope, invalid outcomes, direct feedback, repeated feedback summaries, redesign/reapproval, exact resumed checkpoint, merge gating. |
+| Real schema gates, including malformed/missing result fields and sessions | `agent-gates.test.yaml` (26 cases), `consultation-gates.test.yaml` (8 cases); normal rule_gate runs. |
+| Maintained test plan publication; verification pass/fail/timeout/missing hook and exact exported artifact names | `test-plan.test.yaml`, `verification.test.yaml`; actual commands and file publication. |
+| `verify-dependencies.py`: decisions for empty/duplicate/prior dependencies, failures, cancellation and unmerged results | `dependencies.test.yaml` (10 cases). |
+| Submitted children, scoped agent, repeated rounds, failed children/recovery, unmerged results, missing session, invalid result | `dependency-runtime.test.yaml`: actual broker submission/await, exact checkpoint routing, all dependency IDs and artifact paths in resumed input, mixed and all-failed recovery, failure messages. |
+| Retained history after later feedback; no new children | `dependency-feedback.test.yaml`: a second invocation of the production agent receives the earlier checkpoint, identical dependency history and evidence; only two child evidence calls occur. Cross-job transport is separately tested in c2j. |
+| `verify-implementation-consultations.py`: advice, bug/evolve redesign, repeated B/C/B consultations, missing mandate, outside ownership, failed history, invalid/missing foreign result/checkpoint, illegal children, unavailable cell | `implementation-consultations.test.yaml`: exact cell order and checkpoints, prompt routing, preserved candidate, foreign experiment absence, returned history and unchanged upstream repositories. |
+| Design dialogue, reuse in implementation, later feedback | `consultation-{design,reuse,feedback}.test.yaml`: actual production includes, exact checkpoint continuation and cell order. |
+| `verify-development-lifecycle.py`: full build/evolve consultation → redesign → approval → child → recovery → merge | `{build,evolve}-lifecycle.test.yaml`: actual child workflows and merges, review order, verification failure/recovery, evidence provenance, one squash per cell, exact final changed files. |
+| `verify-native-reviews.py`: two/four documents, text/file revisions, redesign, approval with edits | `{build,evolve}-reviews.test.yaml`: eight actual reviews, current documents/receipts, annotation routing and clearing, implementation checkpoint continuity, fresh design sessions, one final merge. |
+| Existing examples/jobs/new-ticket/Superpowers cases; real rule_gate schema checks | Self-contained scenario files remain discovered and executed. Invalid-rule-input case requires its specific error. |
+| Superpowers inline primary missing-reproduction behavior | `recipes/superpowers/tests/superpowers-inline.test.yaml`. |
 
+The audit found missing assertion strength after the first conversion: dependency
+history/evidence delivery, all-failed recovery, consultation workspace contents
+and exact checkpoint routing, and absence of stale review annotations. These
+checks are now explicit. A passing count of 220 alone did not prove equivalence.
 
-Stage 2 now has 50 deterministic suites (220 passing cases) and three explicitly
-excluded live suites. The full per-family ownership map is in the companion
-recipes commit at `guides/NATIVE_TEST_MIGRATION.md`. The real build/evolve
-lifecycles, review revisions, multi-cell consultations, dependency recovery and
-verification hooks run through native c2j declarations. The recipe-side Go
-server/client, Python drivers/model fixtures and shell suite runners are removed.
+## Runtime requirements
 
-Codex adapter replacement coverage was verified by running
-`go test ./pkg/codex ./internal/extensioncmd` in c2ops
-`ded76dfbd877d3d0749e509844ecdbc57197b572`. No c2ops code was changed.
+Paths and test names below are in c2j and run independently of recipes.
 
-The CI pin remains at the published legacy revision until the companion recipes
-commit is published. Then switch to native directory execution and remove the
-transitional server-module alignment and verification-export patch. Never pin
-required CI to an unpublished local commit.
+| Former external harness guarantee | Concrete c2j coverage |
+| --- | --- |
+| Parent blocks for pending child; worker replacement; cancellation unblocks; no duplicate submission | `TestChildWaitSurvivesWorkerReplacementAndCancellation` in `child_wait_restart_test.go`: durable SQLite close/reopen, real pending status, cancellation, exact child listing and probe counts. |
+| Already-finished child can be consumed after restart | `TestAwaitAlreadyFinishedChildAfterWorkerReplacement` in the same file. |
+| A fresh consultation sees upstream movement, discards prior experiments, preserves parent candidate | `TestFreshConsultationSeesAdvancedUpstreamWithoutLosingCandidate` in `workspace_fresh_upstream_test.go`; explicit scopes and nested snapshots also in `workspace_integration_test.go`. |
+| Child merge does not collide with parent snapshot or change child evidence keys | `TestAwaitMergedChildPreservesParentSnapshotAndChildEvidence`; replay compatibility in `TestReplayLegacyArtifactOrderWithRealJobDB`. |
+| Compiled child includes and broker lineage | `pkg/childbroker/compiled_recipe_test.go` and broker tests. |
+| Required/optional child failures and review-pack artifacts | `TestRecipeChildFixtures` in `pkg/child/test-fixtures`, `pkg/ops/recipe/child_group_test.go`, `pkg/worker/compiler/child_group_test.go`. |
+| Child attachment forwarding | `TestRun_ForwardsSubmittedArtifactToChildRecipe` in CLI submit integration tests and child fixtures. |
+| Build/evolve target-cell defaults, fallback, local wrappers, remote includes | `TestRun_ConventionsUseTargetCellNotSubmittingCell`, `root_source_conventions_test.go`, `root_source_test.go`, `inline_resolution_test.go`. |
+| Invalid/stale review answers, scoped attachments, original document refs, replay across database reopen | `TestReviewSQLiteAttachmentsReplayAndStaleSubmission`, `TestReviewRecipeWithAttachmentsAndWorkspace`. |
+| Object checkpoint branches, failed attempt isolation, cross-job continuation, hidden state, extension envelope | `TestObjectCheckpointRecipeBranchesAndReplay`, `TestObjectCheckpointsAcrossParallelChildJobsAndLaterJob`, `TestExtensionObjectCheckpointThroughIncludedStateRecipe`; invalid refs in `pkg/objects/store_test.go`. |
+| CEL histories survive JSON/jq serialization | `pkg/template/native_result_test.go`. |
+| Real merge and non-fast-forward rejection with unchanged upstream | `pkg/git/squashrebasemerge/operation_test.go`, especially `TestRunSquashRebaseMerge_FastForwardFailsWhenRemoteAdvanced`. |
+| CLI compile/validate/run, discovery, empty/invalid selection, failure reports | `cmd/c2j/internal/testjob/{runner,discovery,runtime}_test.go`. |
+
+Worker replacement and moving-upstream tests above were added during this audit;
+the earlier migration map cited broader tests without covering those exact
+transitions. Native report observations now have their own persistence test.
+
+## Adapter and retired coverage
+
+Codex's private session home, rollout/SQLite import/export, WAL state, legacy
+input rejection and corrupt checkpoint detection belong to c2ops. At pinned
+revision `ded76dfbd877d3d0749e509844ecdbc57197b572`, runnable replacements include
+`TestSessionBranchesRestoreExactCheckpoint`,
+`TestSessionExportIncludesWALAndRejectsIncompleteState`,
+`TestSessionRejectsLegacyInputsAndInvalidState`, `TestRunFailureDoesNotPublish`,
+`TestSessionRejectsUnsupportedMetadataAndCorruptDatabase`, skill continuation,
+and extension command tests. Generic c2j object transport is exercised separately
+through an actual extension process. The former combined Codex emulator is not
+retained as an additional end-to-end test.
+
+`verify-review-contract.py` checked the abandoned hash/download-URL proposal.
+Its TS-152–156 assertions are intentionally retired, not counted as preserved.
+The implemented questions/documents review behavior is covered above.
+
+## Verification and limits
+
+The native compatibility job is implemented directly in `.github/workflows/test.yaml`.
+There is no CI migration patch or external fixture server. Local verification
+uses a clean c2j source tree to exclude unrelated uncommitted work, detached
+companion checkouts, the workflow's URL rewrite, and an empty selector cache.
+
+Live model/skill suites remain explicitly opt-in; structural validation is not
+execution coverage. Local Linux ARM64 results do not claim that hosted GitHub CI,
+Linux AMD64, macOS, Docker/Shai, or live model work ran. Environment-dependent Go
+tests may skip when their dependency is unavailable. The three live suites are
+reported as excluded, never as passed.
+
+Audit verification (2026-10-01): clean Go 1.26.1 `go test -tags=integration ./...`
+passed. Runner/fixture race tests passed, and the three new compiler regressions
+passed three repetitions under the race detector. The fresh-checkout native
+command passed **222 cases in 51 suites**, with three live suites excluded.
+The later strengthened build/evolve lifecycle assertions passed targeted runs.
+Pinned c2ops `go test ./pkg/codex ./internal/extensioncmd` also passed.

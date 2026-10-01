@@ -3,8 +3,9 @@
 Status: implemented locally, 2026-10-01. Directory discovery and native runtime
 fixtures are implemented in c2j. Recipe behavior suites have moved to declarations;
 the separate fixture server, client, Python drivers and shell runners are removed.
-The final compatibility-pin handoff requires publishing the companion recipes
-commit first; the current pinned legacy compatibility job remains enabled.
+Compatibility CI now runs native directory discovery against the companion
+recipes commit. The legacy runner preparation and migration patches are removed.
+Publish the referenced recipes commit before running the coupled c2j CI revision.
 
 ## Goal and ownership
 
