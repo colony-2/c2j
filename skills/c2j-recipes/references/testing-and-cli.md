@@ -62,6 +62,17 @@ needed. Discovery recognizes `*.test.yaml`, `*.test.yml`, `*.test.json`, and
 `live: true` for live integrations and select them explicitly with
 `--include-live`. See `GUIDE-Native-Recipe-Testing.md` for reports and selection.
 
+Use `runtime: {}` on a case when testing real child jobs, durable artifacts,
+workspace changes, objects or input/review responses. c2j owns the disposable
+runtime and workers. Declare model responses with existing op mocks; runtime
+fixture effects can publish objects/artifacts, edit worktree files and submit
+fixture children through the broker. Answer real input ops with
+`runtime.responses`, including ordinary attachment fields. Use `cel_true` over
+`outputs`, `calls`, `reviews`, `artifacts`, and `status` to assert recipe behavior
+without modifying production recipe graphs. Runtime guarantees such as restart
+replay and lease handling belong in c2j's own tests, not recipe-specific servers
+or Python/shell orchestration.
+
 Common flags from this checkout:
 
 - `--recipe` or `--recipe-file`

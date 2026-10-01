@@ -29,6 +29,8 @@ import (
 	"github.com/colony-2/c2j/pkg/workflow"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	"github.com/go-playground/validator/v10"
+	"github.com/google/cel-go/cel"
+	"github.com/google/cel-go/common/types"
 	"gopkg.in/yaml.v3"
 )
 
@@ -49,6 +51,7 @@ type TargetRecipe struct {
 }
 
 type Case struct {
+	Runtime     *RuntimeCase           `json:"runtime,omitempty"`
 	ID          string                 `json:"id" validate:"required"`
 	Type        string                 `json:"type" validate:"required,oneof=op_case recipe_case integration_case"`
 	Target      map[string]interface{} `json:"target,omitempty"`
@@ -69,11 +72,13 @@ type OpMock struct {
 }
 
 type OpMockMatch struct {
+	Cell     string `json:"cell,omitempty"`
 	NodePath string `json:"node_path,omitempty"`
 	Op       string `json:"op,omitempty"`
 }
 
 type MockBehavior struct {
+	Effects     *FixtureEffects   `json:"effects,omitempty"`
 	Mode        string            `json:"mode" validate:"required,oneof=return fail passthrough record_passthrough replay"`
 	Outputs     map[string]any    `json:"outputs,omitempty"`
 	Artifacts   map[string]string `json:"artifacts,omitempty"`
@@ -87,7 +92,7 @@ type TestError struct {
 }
 
 type Assertion struct {
-	Type      string      `json:"type" validate:"required,oneof=output_equals output_matches artifact_exists artifact_json_equals node_executed node_not_executed status_is cel_true var_equals transition_payload_equals"`
+	Type      string      `json:"type" validate:"required,oneof=output_equals output_matches artifact_exists artifact_json_equals node_executed node_not_executed status_is cel_true var_equals transition_payload_equals op_input_equals op_call_count review_document_exists"`
 	Path      string      `json:"path,omitempty"`
 	Value     interface{} `json:"value,omitempty"`
 	Regex     string      `json:"regex,omitempty"`
@@ -139,6 +144,7 @@ type Issue struct {
 }
 
 type CaseRunResult struct {
+	Runtime         *RuntimeReport            `json:"runtime,omitempty"`
 	CaseId          string                    `json:"case_id"`
 	Status          string                    `json:"status"`
 	CaseHash        string                    `json:"case_hash"`
@@ -177,6 +183,7 @@ type InlineArtifact struct {
 }
 
 type Diagnostics struct {
+	Calls       []OpCall                 `json:"calls,omitempty"`
 	MockHits    []MockHit                `json:"mock_hits,omitempty"`
 	MockMisses  []MockMiss               `json:"mock_misses,omitempty"`
 	Vars        []RenderedVarsDiagnostic `json:"vars,omitempty"`
@@ -211,10 +218,11 @@ type MockMiss struct {
 }
 
 type HarnessOptions struct {
-	Resolver   TargetResolver
-	Deps       coreops.ServiceDependencies2
-	CELOptions template.CELOptionsProvider
-	WorkRoot   string
+	FixtureRoot string
+	Resolver    TargetResolver
+	Deps        coreops.ServiceDependencies2
+	CELOptions  template.CELOptionsProvider
+	WorkRoot    string
 }
 
 type InlineTargetExpansionOptions struct {
@@ -279,7 +287,7 @@ func ValidateCase(ctx context.Context, opts HarnessOptions, tenantID string, tar
 	opts = opts.withDefaults()
 	input := caseInput{TargetRecipe: target, Case: c}
 	prepared := prepareCase(ctx, opts, tenantID, input)
-	if prepared.Recipe != nil && len(prepared.Validation.Errors) == 0 {
+	if c.Runtime == nil && prepared.Recipe != nil && len(prepared.Validation.Errors) == 0 {
 		prepared.Validation.Errors = append(prepared.Validation.Errors, validateRecipeExecutionSemantics(ctx, opts, tenantID, input, prepared.Recipe, prepared.ResolvedHash)...)
 		prepared.Validation.Valid = len(prepared.Validation.Errors) == 0
 	}
@@ -298,6 +306,9 @@ func RunCase(ctx context.Context, opts HarnessOptions, tenantID string, target T
 			FailureCategory: "validation_error",
 			FailureReason:   issueSummary(prepared.Validation.Errors),
 		}
+	}
+	if c.Runtime != nil {
+		return runRuntimeCase(ctx, opts, tenantID, input, prepared)
 	}
 	return runPreparedCase(ctx, opts, tenantID, input, prepared)
 }
@@ -388,8 +399,10 @@ func prepareCase(ctx context.Context, opts HarnessOptions, tenantID string, req 
 	recipeDef, recipeHash, errs, warns := resolveRecipeTestTarget(ctx, opts, tenantID, req.TargetRecipe)
 	caseHash := computeCaseHash(recipeHash, req.Case)
 	validate.CaseHash = caseHash
-	validate.Errors = append(errs, validateRecipeSemantics(req)...)
+	validate.Errors = append(validate.Errors, errs...)
+	validate.Errors = append(validate.Errors, validateRecipeSemantics(req)...)
 	validate.Errors = append(validate.Errors, validateDependencyAvailability(opts, req)...)
+	validate.Errors = append(validate.Errors, validateRuntimeCase(opts, req.Case)...)
 	validate.Warnings = warns
 	validate.Valid = len(validate.Errors) == 0
 	return preparedCase{Recipe: recipeDef, ResolvedHash: recipeHash, Validation: validate}
@@ -557,7 +570,7 @@ func runPreparedCase(ctx context.Context, opts HarnessOptions, tenantID string, 
 	}
 
 	artifactBytes := collectArtifactBytes(ctx, jobCtx, artifacts)
-	assertionResults, assertionFailed := runRecipeTestAssertions(req.Case.Assertions, execResp.Outputs, artifactBytes, jobCtx.executedNodes, execResp.Status, jobCtx.vars, jobCtx.transitions)
+	assertionResults, assertionFailed := runRecipeTestAssertions(req.Case.Assertions, execResp.Outputs, artifactBytes, jobCtx.executedNodes, execResp.Status, jobCtx.vars, jobCtx.transitions, &RuntimeReport{Calls: jobCtx.calls})
 	execResp.Assertions = assertionResults
 	if assertionFailed {
 		markFailure(&execResp, "assertion_failure", "one or more assertions failed")
@@ -569,7 +582,7 @@ func runPreparedCase(ctx context.Context, opts HarnessOptions, tenantID string, 
 		markFailure(&execResp, "evaluation_failure", "one or more enforced evaluations failed")
 	}
 
-	execResp.Diagnostics = Diagnostics{MockHits: jobCtx.mockHits, MockMisses: jobCtx.mockMisses, Vars: redactVarsDiagnostics(jobCtx.vars), Transitions: redactTransitionDiagnostics(jobCtx.transitions)}
+	execResp.Diagnostics = Diagnostics{Calls: jobCtx.calls, MockHits: jobCtx.mockHits, MockMisses: jobCtx.mockMisses, Vars: redactVarsDiagnostics(jobCtx.vars), Transitions: redactTransitionDiagnostics(jobCtx.transitions)}
 	if execCfg.ArtifactMode == "inline" {
 		execResp.Artifacts = inlineArtifacts(artifactBytes, execCfg.ArtifactMaxBytes)
 	}
@@ -821,6 +834,7 @@ func normalizedExecutionConfig(req caseInput) RuntimeConfig {
 }
 
 type testJobContext struct {
+	calls            []OpCall
 	jobKey           jobdb.JobKey
 	caseDef          Case
 	policy           TestPolicy
@@ -948,6 +962,9 @@ func (j *testJobContext) doMockedTask(runPolicy jobdb.RunPolicy, taskType string
 		opName = opName[:idx]
 	}
 	nodePath := strings.TrimSpace(inv.GitTaskContext.NodePath)
+	if requireMock {
+		j.calls = append(j.calls, OpCall{NodePath: nodePath, Op: opName, Inputs: inv.Input})
+	}
 	j.executedNodes[nodePath] = true
 
 	if j.policy.AllowedOnlyNodePath != "" && nodePath != j.policy.AllowedOnlyNodePath {
@@ -1343,7 +1360,7 @@ func parseTimeout(raw string, fallback time.Duration) time.Duration {
 	return d
 }
 
-func runRecipeTestAssertions(assertions []Assertion, outputs map[string]interface{}, artifacts map[string][]byte, executedNodes map[string]bool, status string, vars []RenderedVarsDiagnostic, transitions []TransitionDiagnostic) ([]AssertionResult, bool) {
+func runRecipeTestAssertions(assertions []Assertion, outputs map[string]interface{}, artifacts map[string][]byte, executedNodes map[string]bool, status string, vars []RenderedVarsDiagnostic, transitions []TransitionDiagnostic, reports ...*RuntimeReport) ([]AssertionResult, bool) {
 	results := make([]AssertionResult, 0, len(assertions))
 	failed := false
 	for _, a := range assertions {
@@ -1416,12 +1433,23 @@ func runRecipeTestAssertions(assertions []Assertion, outputs map[string]interfac
 			if !res.Passed {
 				res.Message = "transition payload value mismatch"
 			}
-		case "cel_true":
-			expr := strings.TrimSpace(a.Expr)
-			res.Passed = expr == "" || strings.EqualFold(expr, "true")
-			if !res.Passed {
-				res.Message = "cel_true currently supports only expression true"
+		case "op_input_equals", "op_call_count", "review_document_exists":
+			if len(reports) == 0 {
+				res.Passed = false
+				res.Message = "call diagnostics unavailable"
+			} else {
+				res = (&runtimeFixture{report: *reports[0]}).assert(a)
 			}
+		case "cel_true":
+			report := &RuntimeReport{}
+			if len(reports) > 0 {
+				report = reports[0]
+			}
+			res.Passed, res.Message = evaluateAssertion(a.Expr, outputs, artifacts, status, report)
+
+		default:
+			res.Passed = false
+			res.Message = "unsupported assertion type"
 		}
 		if !res.Passed {
 			failed = true
@@ -1770,4 +1798,49 @@ func failureCategoryFromError(err error) string {
 	default:
 		return "runtime_error"
 	}
+}
+
+// evaluateAssertion evaluates a read-only declaration against observed behavior.
+func evaluateAssertion(expr string, outputs map[string]any, artifacts map[string][]byte, status string, report *RuntimeReport) (bool, string) {
+	env, err := cel.NewEnv(cel.Variable("outputs", cel.DynType), cel.Variable("artifacts", cel.DynType), cel.Variable("status", cel.StringType), cel.Variable("calls", cel.ListType(cel.DynType)), cel.Variable("reviews", cel.ListType(cel.DynType)))
+	if err != nil {
+		return false, err.Error()
+	}
+	ast, issues := env.Compile(expr)
+	if issues.Err() != nil {
+		return false, issues.Err().Error()
+	}
+	program, err := env.Program(ast, cel.CostLimit(100000))
+	if err != nil {
+		return false, err.Error()
+	}
+	// Normalize structs to their published JSON form without changing fixture inputs.
+	raw, err := json.Marshal(report)
+	if err != nil {
+		return false, err.Error()
+	}
+	data := map[string]any{}
+	if err = json.Unmarshal(raw, &data); err != nil {
+		return false, err.Error()
+	}
+	calls := data["calls"]
+	if calls == nil {
+		calls = []any{}
+	}
+	reviews := data["reviews"]
+	if reviews == nil {
+		reviews = []any{}
+	}
+	texts := map[string]string{}
+	for name, b := range artifacts {
+		texts[name] = string(b)
+	}
+	value, _, err := program.Eval(map[string]any{"outputs": outputs, "artifacts": texts, "status": status, "calls": calls, "reviews": reviews})
+	if err != nil {
+		return false, err.Error()
+	}
+	if value != types.True {
+		return false, "assertion did not evaluate to true"
+	}
+	return true, ""
 }

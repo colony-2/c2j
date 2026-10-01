@@ -295,6 +295,9 @@ func writeCaseResultDiagnostics(w io.Writer, r CaseResult) {
 	if strings.TrimSpace(r.Error) != "" {
 		fmt.Fprintf(w, "  - error: %s\n", r.Error)
 	}
+	if r.Run != nil && r.Run.FailureReason != "" {
+		fmt.Fprintf(w, "  - %s\n", r.Run.FailureReason)
+	}
 	if r.Validation == nil {
 		return
 	}
@@ -356,7 +359,13 @@ func buildHarnessOptions(ctx context.Context, opts Options, ir CompiledIR) (reci
 	deps := coreops.NewServiceDepsBuilder().Build()
 	workRoot, err := os.MkdirTemp("", "c2j-test-work-*")
 	if err != nil {
-		return recipetest.HarnessOptions{}, nil, err
+		fixtureRoot := opts.WorkingDir
+		if opts.FilePath != "" {
+			file, _ := absPathFromWorkingDir(opts.WorkingDir, opts.FilePath)
+			fixtureRoot = filepath.Dir(file)
+		}
+		return recipetest.HarnessOptions{
+			FixtureRoot: fixtureRoot}, nil, err
 	}
 	cleanups := []func(){func() { _ = os.RemoveAll(workRoot) }}
 
@@ -366,7 +375,13 @@ func buildHarnessOptions(ctx context.Context, opts Options, ir CompiledIR) (reci
 			for _, cleanup := range cleanups {
 				cleanup()
 			}
-			return recipetest.HarnessOptions{}, nil, err
+			fixtureRoot := opts.WorkingDir
+			if opts.FilePath != "" {
+				file, _ := absPathFromWorkingDir(opts.WorkingDir, opts.FilePath)
+				fixtureRoot = filepath.Dir(file)
+			}
+			return recipetest.HarnessOptions{
+				FixtureRoot: fixtureRoot}, nil, err
 		}
 		ctl := &workerworkflow.SWFWorkflowControl{
 			Engine:                        handle.Engine,
@@ -381,10 +396,16 @@ func buildHarnessOptions(ctx context.Context, opts Options, ir CompiledIR) (reci
 		})
 	}
 
+	fixtureRoot := opts.WorkingDir
+	if opts.FilePath != "" {
+		file, _ := absPathFromWorkingDir(opts.WorkingDir, opts.FilePath)
+		fixtureRoot = filepath.Dir(file)
+	}
 	return recipetest.HarnessOptions{
-		Resolver: defaultTargetResolver{},
-		Deps:     deps,
-		WorkRoot: workRoot,
+		FixtureRoot: fixtureRoot,
+		Resolver:    defaultTargetResolver{},
+		Deps:        deps,
+		WorkRoot:    workRoot,
 	}, func() {
 		for i := len(cleanups) - 1; i >= 0; i-- {
 			cleanups[i]()

@@ -1,0 +1,130 @@
+package recipetest
+
+import (
+	"fmt"
+	"path/filepath"
+	"strings"
+)
+
+// RuntimeCase opts a case into real JobDB and worker execution. Legacy cases
+// (including integration_case) retain their existing executor when omitted.
+type RuntimeCase struct {
+	ExpectError string                 `json:"expect_error,omitempty"`
+	Cell        string                 `json:"cell,omitempty"`
+	Cells       map[string]CellFixture `json:"cells,omitempty"`
+	Responses   []InputFixture         `json:"responses,omitempty"`
+}
+
+type CellFixture struct {
+	Files       map[string]string `json:"files,omitempty"`
+	FileSources map[string]string `json:"file_sources,omitempty"`
+}
+
+type InputFixture struct {
+	NodePath    string            `json:"node_path"`
+	Cell        string            `json:"cell,omitempty"`
+	Fields      map[string]any    `json:"fields,omitempty"`
+	Response    any               `json:"response,omitempty"`
+	Attachments map[string]string `json:"attachments,omitempty"`
+}
+
+type FixtureEffects struct {
+	Worktree      map[string]string        `json:"worktree,omitempty"`
+	ArtifactFiles map[string]string        `json:"artifact_files,omitempty"`
+	Objects       map[string]ObjectFixture `json:"objects,omitempty"`
+	Children      []ChildFixture           `json:"children,omitempty"`
+}
+
+type ObjectFixture struct {
+	Type     string            `json:"type"`
+	Metadata map[string]any    `json:"metadata,omitempty"`
+	Files    map[string]string `json:"files,omitempty"`
+}
+
+type ChildFixture struct {
+	Recipe string         `json:"recipe"`
+	Cell   string         `json:"cell"`
+	Inputs map[string]any `json:"inputs,omitempty"`
+}
+
+type RuntimeReport struct {
+	Calls   []OpCall     `json:"calls"`
+	Reviews []ReviewCall `json:"reviews,omitempty"`
+}
+
+type OpCall struct {
+	JobID    string         `json:"job_id"`
+	Cell     string         `json:"cell"`
+	NodePath string         `json:"node_path"`
+	Op       string         `json:"op"`
+	Inputs   map[string]any `json:"inputs"`
+}
+
+type ReviewCall struct {
+	NodePath string `json:"node_path"`
+	Form     any    `json:"form"`
+}
+
+func fixturePath(root, name string) (string, error) {
+	if name == "" || filepath.IsAbs(name) || filepath.Clean(name) == ".." || strings.HasPrefix(filepath.Clean(name), ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("fixture output path must remain within its directory: %q", name)
+	}
+	return filepath.Join(root, name), nil
+}
+
+func validateRuntimeCase(opts HarnessOptions, c Case) []Issue {
+	var issues []Issue
+	add := func(err error) {
+		if err != nil {
+			issues = append(issues, Issue{Code: "invalid_runtime_fixture", Message: err.Error()})
+		}
+	}
+	if c.Runtime == nil {
+		for _, m := range c.Mocks.Ops {
+			if m.Behavior.Effects != nil || m.Match.Cell != "" {
+				add(fmt.Errorf("fixture effects and cell matchers require runtime: {}"))
+			}
+		}
+		return issues
+	}
+	if c.Runtime.Cell != "" {
+		if _, ok := c.Runtime.Cells[c.Runtime.Cell]; !ok {
+			add(fmt.Errorf("unknown primary fixture cell %q", c.Runtime.Cell))
+		}
+	}
+	for cell, fixture := range c.Runtime.Cells {
+		if strings.ContainsAny(cell, "/\\") || cell == "." || cell == ".." || cell == "" {
+			add(fmt.Errorf("invalid fixture cell %q", cell))
+		}
+		for name := range fixture.Files {
+			_, err := fixturePath("", name)
+			add(err)
+		}
+		for name := range fixture.FileSources {
+			_, err := fixturePath("", name)
+			add(err)
+		}
+	}
+	for _, m := range c.Mocks.Ops {
+		if m.Behavior.Mode == "record_passthrough" || m.Behavior.Mode == "replay" {
+			add(fmt.Errorf("runtime cases support return, fail, and passthrough mocks"))
+		}
+		if e := m.Behavior.Effects; e != nil {
+			for name := range e.Worktree {
+				_, err := fixturePath("", name)
+				add(err)
+			}
+			for _, child := range e.Children {
+				if _, ok := c.Runtime.Cells[child.Cell]; !ok {
+					add(fmt.Errorf("child fixture references unknown cell %q", child.Cell))
+				}
+			}
+		}
+	}
+	for _, response := range c.Runtime.Responses {
+		if response.NodePath == "" {
+			add(fmt.Errorf("input fixture requires node_path"))
+		}
+	}
+	return issues
+}
