@@ -21,9 +21,13 @@ sequence:
 - id: read
   op: command_execution
   inputs: {run: "cat checkpoint.txt"}
+- id: merge
+  op: squashrebasemerge
+  inputs: {commit_message: Fixture merge}
 outputs:
   text: ${{ sequence.read.outputs.stdout }}
   session: ${{ sequence.write.outputs.session }}
+  merged_hash: ${{ sequence.merge.outputs.merged_hash }}
 `)
 	writeDiscoveryFile(t, root, "native.test.yaml", `recipe: recipe.yaml
 cases:
@@ -46,6 +50,7 @@ cases:
   - {type: output_equals, path: text, value: persisted}
   - {type: output_equals, path: session.type, value: fixture.session/v1}
   - {type: op_call_count, node_path: native/write, value: 1}
+  - {type: cel_true, expr: "size(outputs.merged_hash) == 40"}
 `)
 	var output bytes.Buffer
 	err := Run(context.Background(), Options{FilePath: filepath.Join(root, "native.test.yaml"), OutDir: filepath.Join(root, "results"), Stdout: &output, Execution: ExecutionOptions{Timeout: "10s"}})
@@ -64,8 +69,10 @@ outputs: {accepted: true}
 version: "1"
 sequence:
 - id: submit
-  op: command_execution
-  inputs: {run: unused}
+  op: extension_execution
+  inputs:
+    selector: fixture-model
+    inputs: {sandbox: {type: shai}}
 - id: await
   op: recipe.await_result_soft
   inputs: {job_id: "${{ sequence.submit.jobs.job_ids[0] }}"}
@@ -80,7 +87,7 @@ cases:
     cells: {root: {}, service: {}}
   mocks:
     ops:
-    - match: {node_path: parent/submit}
+    - match: {node_path: parent/submit, selector: fixture-model}
       behavior:
         mode: return
         outputs: {success: true}
@@ -185,4 +192,47 @@ cases:
 `)
 	var output bytes.Buffer
 	require.NoError(t, Run(context.Background(), Options{FilePath: filepath.Join(root, "suite.test.yaml"), OutDir: filepath.Join(root, "results"), Parallelism: 2, Stdout: &output}), output.String())
+}
+
+func TestNativeRuntimeHostCommandsAndRepeatedFixtures(t *testing.T) {
+	root := t.TempDir()
+	writeDiscoveryFile(t, root, "files/seed.txt", "fixture tree")
+	writeDiscoveryFile(t, root, "recipe.yaml", `id: commands
+version: "1"
+sequence:
+- id: one
+  op: command_execution
+  inputs:
+    sandbox: {type: shai}
+    env: {SOURCE: "{{ context.environment.op.worktree_path }}/seed.txt"}
+    run: 'cat "$SOURCE"'
+- id: two
+  op: command_execution
+  inputs: {run: "cat seed.txt"}
+outputs:
+  one: ${{ sequence.one.outputs.stdout }}
+  two: ${{ sequence.two.outputs.stdout }}
+`)
+	writeDiscoveryFile(t, root, "suite.test.yaml", `recipe: recipe.yaml
+cases:
+- id: host
+  type: integration_case
+  runtime:
+    command_sandbox: none
+    cells:
+      root:
+        file_sources: {".": files}
+  mocks:
+    ops:
+    - repeat: true
+      match: {op: command_execution}
+      behavior: {mode: passthrough}
+  assertions:
+  - {type: output_equals, path: one, value: fixture tree}
+  - {type: output_equals, path: two, value: fixture tree}
+`)
+	var output bytes.Buffer
+	err := Run(context.Background(), Options{FilePath: filepath.Join(root, "suite.test.yaml"), OutDir: filepath.Join(root, "results"), Stdout: &output})
+	data, _ := os.ReadFile(filepath.Join(root, "results/summary.json"))
+	require.NoError(t, err, "%s\n%s", output.String(), data)
 }

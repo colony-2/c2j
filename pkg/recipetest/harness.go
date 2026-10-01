@@ -51,6 +51,7 @@ type TargetRecipe struct {
 }
 
 type Case struct {
+	ExpectError string                 `json:"expect_error,omitempty"`
 	Runtime     *RuntimeCase           `json:"runtime,omitempty"`
 	ID          string                 `json:"id" validate:"required"`
 	Type        string                 `json:"type" validate:"required,oneof=op_case recipe_case integration_case"`
@@ -67,11 +68,13 @@ type Mocks struct {
 }
 
 type OpMock struct {
+	Repeat   bool         `json:"repeat,omitempty"`
 	Match    OpMockMatch  `json:"match" validate:"required"`
 	Behavior MockBehavior `json:"behavior" validate:"required"`
 }
 
 type OpMockMatch struct {
+	Selector string `json:"selector,omitempty"`
 	Cell     string `json:"cell,omitempty"`
 	NodePath string `json:"node_path,omitempty"`
 	Op       string `json:"op,omitempty"`
@@ -287,7 +290,7 @@ func ValidateCase(ctx context.Context, opts HarnessOptions, tenantID string, tar
 	opts = opts.withDefaults()
 	input := caseInput{TargetRecipe: target, Case: c}
 	prepared := prepareCase(ctx, opts, tenantID, input)
-	if c.Runtime == nil && prepared.Recipe != nil && len(prepared.Validation.Errors) == 0 {
+	if c.Runtime == nil && c.ExpectError == "" && prepared.Recipe != nil && len(prepared.Validation.Errors) == 0 {
 		prepared.Validation.Errors = append(prepared.Validation.Errors, validateRecipeExecutionSemantics(ctx, opts, tenantID, input, prepared.Recipe, prepared.ResolvedHash)...)
 		prepared.Validation.Valid = len(prepared.Validation.Errors) == 0
 	}
@@ -368,7 +371,7 @@ func validateRecipeSemantics(req caseInput) []Issue {
 		}
 	}
 	for i, m := range req.Case.Mocks.Ops {
-		if strings.TrimSpace(m.Match.NodePath) == "" && strings.TrimSpace(m.Match.Op) == "" {
+		if strings.TrimSpace(m.Match.NodePath) == "" && strings.TrimSpace(m.Match.Op) == "" && strings.TrimSpace(m.Match.Selector) == "" {
 			issues = append(issues, Issue{Code: "invalid_mock", Field: fmt.Sprintf("case.mocks.ops[%d].match", i), Message: "at least one matcher field is required"})
 		}
 		if m.Behavior.Mode == "replay" && strings.TrimSpace(m.Behavior.CassetteKey) == "" {
@@ -569,6 +572,7 @@ func runPreparedCase(ctx context.Context, opts HarnessOptions, tenantID string, 
 		execResp.Outputs = outputs
 	}
 
+	applyExpectedError(&execResp, req.Case.ExpectError)
 	artifactBytes := collectArtifactBytes(ctx, jobCtx, artifacts)
 	assertionResults, assertionFailed := runRecipeTestAssertions(req.Case.Assertions, execResp.Outputs, artifactBytes, jobCtx.executedNodes, execResp.Status, jobCtx.vars, jobCtx.transitions, &RuntimeReport{Calls: jobCtx.calls})
 	execResp.Assertions = assertionResults
@@ -1345,7 +1349,9 @@ func markFailure(resp *CaseRunResult, category string, reason string) {
 	resp.Status = "failed"
 	if resp.FailureCategory == "" {
 		resp.FailureCategory = category
-		resp.FailureReason = reason
+		if resp.FailureReason == "" {
+			resp.FailureReason = reason
+		}
 	}
 }
 

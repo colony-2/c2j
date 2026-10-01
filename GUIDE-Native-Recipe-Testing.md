@@ -144,3 +144,21 @@ and evaluation errors fail. Op-call assertions also work in the fast executor.
 
 Worker restart, lease fault injection, snapshot encoding and wire protocol tests
 belong in c2j's Go regressions, not recipe suite declarations.
+
+Runtime mocks may match `selector` (the authored selector or resolved revision)
+plus `cell` and `node_path`. Set `repeat: true` on a mock to reuse it, for example
+a real schema gate. Ordered one-shot mocks remain the default; a required mock
+that is never used fails the case. Calls record small input artifact contents
+in `calls[].artifacts` for feedback/document-routing assertions.
+
+`runtime.command_sandbox: none` explicitly runs passthrough commands on the host,
+inside disposable test worktrees. It overrides only the test execution
+environment; the authored command and normal snapshots still execute. Omit it
+to use the sandbox declared by the recipe. Use this only for trusted recipes.
+`cells.<cell>.file_sources` accepts file or directory sources relative to the
+suite. Directory trees exclude `.git` and reject symlinks.
+
+A case-level `expect_error: "substring"` expresses an expected execution failure
+in either executor. Unexpected success, unrelated failures, validation failures,
+and case timeouts still fail the test. Prefer this to a shell wrapper that
+accepts any nonzero exit code. `runtime.expect_error` remains supported.

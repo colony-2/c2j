@@ -5,6 +5,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io/fs"
+	"net"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -19,6 +22,7 @@ import (
 	"github.com/colony-2/c2j/pkg/jobcontext"
 	"github.com/colony-2/c2j/pkg/jobdbschema"
 	coreops "github.com/colony-2/c2j/pkg/ops"
+	"github.com/colony-2/c2j/pkg/ops/process"
 	"github.com/colony-2/c2j/pkg/recipe"
 	"github.com/colony-2/c2j/pkg/starter"
 	"github.com/colony-2/c2j/pkg/worker/compiler"
@@ -81,6 +85,9 @@ func runRuntimeCase(parent context.Context, opts HarnessOptions, tenant string, 
 	}
 	for name, registration := range registry.GetAll() {
 		reg := registration
+		if reg.Metadata.Type == "command_execution" && req.Case.Runtime.CommandSandbox == "none" {
+			reg.Activity = hostCommandOp{reg.Activity}
+		}
 		invoke := reg.Step.Invoke
 		reg.Step.Invoke = func(deps coreops.OpDependencies, ctx context.Context, in map[string]any) (map[string]any, error) {
 			return f.invoke(deps, ctx, reg.Metadata.Type, invoke, in)
@@ -169,6 +176,7 @@ func runRuntimeCase(parent context.Context, opts HarnessOptions, tenant string, 
 			}
 		}
 	}
+	applyExpectedError(&result, req.Case.ExpectError)
 	if expected := req.Case.Runtime.ExpectError; expected != "" {
 		if result.Status == "failed" && strings.Contains(result.FailureReason, expected) {
 			result.Status = "passed"
@@ -243,11 +251,7 @@ func (f *runtimeFixture) seedCells(ctx context.Context, primary string) error {
 			}
 		}
 		for file, source := range fixture.FileSources {
-			data, err := os.ReadFile(filepath.Join(f.opts.FixtureRoot, source))
-			if err != nil {
-				return err
-			}
-			if err := writeFixture(dir, file, data); err != nil {
+			if err := copyFixtureSource(dir, file, filepath.Join(f.opts.FixtureRoot, source)); err != nil {
 				return err
 			}
 		}
@@ -288,8 +292,9 @@ func (f *runtimeFixture) invoke(deps coreops.OpDependencies, ctx context.Context
 	key := deps.JobTool().GetJobKey()
 	identity := key.JobId + "/" + g.InvokeHash + "/" + op
 	f.mu.Lock()
-	idx, exists := f.selected[identity]
-	if !exists {
+	idx, seen := f.selected[identity]
+	exists := seen && idx >= 0
+	if !seen {
 		eligible := append([]OpMock(nil), f.c.Mocks.Ops...)
 		for i := range eligible {
 			if eligible[i].Match.Cell != "" && eligible[i].Match.Cell != cell {
@@ -297,14 +302,79 @@ func (f *runtimeFixture) invoke(deps coreops.OpDependencies, ctx context.Context
 				eligible[i].Match.NodePath = "__unmatched__"
 			}
 		}
-		idx, exists = selectOpMock(eligible, g.NodePath, op, f.used)
+		used := make(map[int]struct{}, len(f.used))
+		for i := range f.used {
+			if !eligible[i].Repeat {
+				used[i] = struct{}{}
+			}
+		}
+		selector, _ := in["selector"].(string)
+		for i := range eligible {
+			if sel := eligible[i].Match.Selector; sel != "" {
+				if sel != selector && !strings.HasSuffix(g.NodePath, "/"+sel) {
+					used[i] = struct{}{}
+				} else if eligible[i].Match.Op == "" {
+					eligible[i].Match.Op = "extension_execution"
+				}
+			}
+		}
+		idx, exists = selectOpMock(eligible, g.NodePath, op, used)
+		f.selected[identity] = idx
 		if exists {
-			f.selected[identity] = idx
 			f.used[idx] = struct{}{}
 		}
-		f.report.Calls = append(f.report.Calls, OpCall{JobID: key.JobId, Cell: cell, NodePath: g.NodePath, Op: op, Inputs: in})
+		artifacts := map[string]string{}
+		if paths, ok := deps.(coreops.OperationPathProvider); ok {
+			inbox := paths.OperationPaths().Inbox
+			err := filepath.WalkDir(inbox, func(path string, entry fs.DirEntry, err error) error {
+				if os.IsNotExist(err) {
+					return nil
+				}
+				if err != nil {
+					return err
+				}
+				if entry.IsDir() {
+					return nil
+				}
+				info, err := entry.Info()
+				if err != nil {
+					return err
+				}
+				if !info.Mode().IsRegular() || info.Size() > 65536 {
+					return nil
+				}
+				rel, err := filepath.Rel(inbox, path)
+				if err != nil {
+					return err
+				}
+				if strings.HasPrefix(rel, "__") {
+					return nil
+				}
+				data, err := os.ReadFile(path)
+				if err != nil {
+					return err
+				}
+				artifacts[filepath.ToSlash(rel)] = string(data)
+				return nil
+			})
+			if err != nil {
+				f.mu.Unlock()
+				return nil, err
+			}
+		}
+		f.report.Calls = append(f.report.Calls, OpCall{JobID: key.JobId, Cell: cell, NodePath: g.NodePath, Op: op, Inputs: in, Artifacts: artifacts})
 	}
 	f.mu.Unlock()
+	if op == "squashrebasemerge" {
+		// Git config is not copied when cloning a fixture repository. Set the
+		// committer on this disposable worktree, never in global configuration.
+		for name, value := range map[string]string{"user.name": "Recipe Test", "user.email": "recipe-test@example.com"} {
+			cmd := exec.CommandContext(ctx, "git", "-C", deps.WorktreePath(), "config", name, value)
+			if output, err := cmd.CombinedOutput(); err != nil {
+				return nil, fmt.Errorf("configure fixture committer: %w: %s", err, output)
+			}
+		}
+	}
 	if !exists {
 		// Built-in orchestration runs normally; external work requires an explicit
 		// fixture or passthrough declaration so offline suites cannot call models.
@@ -315,6 +385,10 @@ func (f *runtimeFixture) invoke(deps coreops.OpDependencies, ctx context.Context
 	}
 	mock := f.c.Mocks.Ops[idx]
 	if mock.Behavior.Mode == "passthrough" {
+		if op == "command_execution" && f.c.Runtime.CommandSandbox == "none" {
+			in = cloneStringMap(in)
+			in["sandbox"] = map[string]any{"type": "none"}
+		}
 		return real(deps, ctx, in)
 	}
 	if mock.Behavior.Mode == "fail" {
@@ -385,6 +459,15 @@ func (f *runtimeFixture) invoke(deps coreops.OpDependencies, ctx context.Context
 			if !ok {
 				return nil, fmt.Errorf("child fixture requires a lease-scoped broker")
 			}
+			// Fixture effects execute in this process even when the mocked op
+			// advertises a container-reachable broker address. Use its loopback
+			// listener; do not route local fixture traffic through host proxies.
+			endpoint, err := url.Parse(broker.Endpoint)
+			if err != nil {
+				return nil, err
+			}
+			endpoint.Host = net.JoinHostPort("127.0.0.1", endpoint.Port())
+			broker.Endpoint = endpoint.String()
 			_, err = childbroker.Submit(ctx, broker, request)
 			if err != nil {
 				return nil, err
@@ -491,4 +574,45 @@ func (f *runtimeFixture) assert(a Assertion) AssertionResult {
 	checks, _ := runRecipeTestAssertions([]Assertion{{Type: "output_equals", Path: path, Value: a.Value}}, map[string]any{"value": value}, nil, nil, "passed", nil, nil)
 	checks[0].Type = a.Type
 	return checks[0]
+}
+
+// A test environment override, applied before resolving op-visible paths. The
+// authored command and all task persistence still use the production executor.
+type hostCommandOp struct{ coreops.RegisterableOp }
+
+func (o hostCommandOp) TransformOperationPaths(ctx context.Context, req coreops.OperationPathTransformRequest) (coreops.OperationPathTransformResult, error) {
+	return process.TransformOperationPaths(ctx, map[string]any{"type": "none"}, req.Host)
+}
+
+func copyFixtureSource(root, name, source string) error {
+	info, err := os.Lstat(source)
+	if err != nil {
+		return err
+	}
+	if !info.IsDir() {
+		if !info.Mode().IsRegular() {
+			return fmt.Errorf("fixture source must be a regular file: %s", source)
+		}
+		data, err := os.ReadFile(source)
+		if err != nil {
+			return err
+		}
+		return writeFixture(root, name, data)
+	}
+	return filepath.WalkDir(source, func(path string, entry fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if entry.IsDir() {
+			if entry.Name() == ".git" {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		rel, err := filepath.Rel(source, path)
+		if err != nil {
+			return err
+		}
+		return copyFixtureSource(root, filepath.Join(name, rel), path)
+	})
 }

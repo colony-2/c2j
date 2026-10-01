@@ -34,3 +34,18 @@ func TestRuntimeFixturesRejectUnscopedEffectsAndUnsafePaths(t *testing.T) {
 		require.NotEmpty(t, validateRuntimeCase(HarnessOptions{}, c))
 	}
 }
+
+func TestExpectedErrorRequiresMatchingExecutionFailure(t *testing.T) {
+	for _, tc := range []struct{ status, reason, expected, want string }{
+		{"failed", "schema rejected input", "rejected", "passed"},
+		{"passed", "", "rejected", "failed"},
+		{"failed", "unrelated error", "rejected", "failed"},
+		{"timed_out", "rejected", "rejected", "failed"},
+	} {
+		result := CaseRunResult{Status: tc.status, FailureReason: tc.reason}
+		applyExpectedError(&result, tc.expected)
+		if result.Status != tc.want {
+			t.Fatalf("%+v: %+v", tc, result)
+		}
+	}
+}

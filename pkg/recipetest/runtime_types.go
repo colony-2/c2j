@@ -9,10 +9,11 @@ import (
 // RuntimeCase opts a case into real JobDB and worker execution. Legacy cases
 // (including integration_case) retain their existing executor when omitted.
 type RuntimeCase struct {
-	ExpectError string                 `json:"expect_error,omitempty"`
-	Cell        string                 `json:"cell,omitempty"`
-	Cells       map[string]CellFixture `json:"cells,omitempty"`
-	Responses   []InputFixture         `json:"responses,omitempty"`
+	CommandSandbox string                 `json:"command_sandbox,omitempty"`
+	ExpectError    string                 `json:"expect_error,omitempty"`
+	Cell           string                 `json:"cell,omitempty"`
+	Cells          map[string]CellFixture `json:"cells,omitempty"`
+	Responses      []InputFixture         `json:"responses,omitempty"`
 }
 
 type CellFixture struct {
@@ -53,11 +54,12 @@ type RuntimeReport struct {
 }
 
 type OpCall struct {
-	JobID    string         `json:"job_id"`
-	Cell     string         `json:"cell"`
-	NodePath string         `json:"node_path"`
-	Op       string         `json:"op"`
-	Inputs   map[string]any `json:"inputs"`
+	Artifacts map[string]string `json:"artifacts,omitempty"`
+	JobID     string            `json:"job_id"`
+	Cell      string            `json:"cell"`
+	NodePath  string            `json:"node_path"`
+	Op        string            `json:"op"`
+	Inputs    map[string]any    `json:"inputs"`
 }
 
 type ReviewCall struct {
@@ -81,11 +83,17 @@ func validateRuntimeCase(opts HarnessOptions, c Case) []Issue {
 	}
 	if c.Runtime == nil {
 		for _, m := range c.Mocks.Ops {
-			if m.Behavior.Effects != nil || m.Match.Cell != "" {
-				add(fmt.Errorf("fixture effects and cell matchers require runtime: {}"))
+			if m.Behavior.Effects != nil || m.Match.Cell != "" || m.Match.Selector != "" || m.Repeat {
+				add(fmt.Errorf("fixture effects, selector/cell matchers and repeat require runtime: {}"))
 			}
 		}
 		return issues
+	}
+	if c.ExpectError != "" && c.Runtime.ExpectError != "" {
+		add(fmt.Errorf("set expect_error at the case or runtime level, not both"))
+	}
+	if c.Runtime.CommandSandbox != "" && c.Runtime.CommandSandbox != "none" {
+		add(fmt.Errorf("command_sandbox supports only none (or omit to keep the recipe sandbox)"))
 	}
 	if c.Runtime.Cell != "" {
 		if _, ok := c.Runtime.Cells[c.Runtime.Cell]; !ok {
@@ -127,4 +135,19 @@ func validateRuntimeCase(opts HarnessOptions, c Case) []Issue {
 		}
 	}
 	return issues
+}
+
+// Expected errors never accept a timeout or a validation error.
+func applyExpectedError(result *CaseRunResult, expected string) {
+	if expected == "" {
+		return
+	}
+	if result.Status == "failed" && strings.Contains(result.FailureReason, expected) {
+		result.Status = "passed"
+		result.FailureCategory = ""
+		result.FailureReason = ""
+	} else {
+		result.Status = "failed"
+		result.FailureReason = fmt.Sprintf("expected error containing %q; got %s", expected, result.FailureReason)
+	}
 }
