@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/colony-2/c2j/pkg/recipe"
+	"github.com/colony-2/c2j/pkg/template/internal/celnative"
 	"github.com/google/cel-go/cel"
 	"github.com/google/cel-go/common/types"
 	"github.com/google/cel-go/common/types/ref"
@@ -484,12 +485,7 @@ func jqBinding(adapter types.Adapter) func(ref.Val, ref.Val) ref.Val {
 	}
 }
 
-func normalizeJQInput(val ref.Val) interface{} {
-	if val == nil {
-		return nil
-	}
-	return val.Value()
-}
+func normalizeJQInput(val ref.Val) interface{} { return celnative.Value(val) }
 
 func drainIter(iter gojq.Iter) ([]interface{}, error) {
 	results := []interface{}{}

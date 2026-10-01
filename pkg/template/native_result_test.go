@@ -74,3 +74,21 @@ func TestNativeTemplateResultPreservesNonStringMapKeys(t *testing.T) {
 	value := map[ref.Val]ref.Val{types.Int(1): types.String("integer"), types.String("1"): types.String("string")}
 	require.Equal(t, map[any]any{int64(1): "integer", "1": "string"}, nativeTemplateResult(value))
 }
+
+func TestJSONHelpersNormalizeCELHistoryValues(t *testing.T) {
+	ctx := newStateMachineCtx(t, newRecipeCtx(t, nil), "workflow", map[string]any{})
+	for _, function := range []string{"json_stringify", "string"} {
+		t.Run(function, func(t *testing.T) {
+			value, err := ctx.resolveTemplate(`${{ ` + function + `(state_output("missing", "consultations", {})) }}`)
+			require.NoError(t, err)
+			require.Equal(t, "{}", value)
+
+			value, err = ctx.resolveTemplate(`${{ ` + function + `({"history": [{"large": 9007199254740993, "missing": state_output("missing", "consultations", {}), "value": null}]}) }}`)
+			require.NoError(t, err)
+			require.Equal(t, `{"history":[{"large":9007199254740993,"missing":{},"value":null}]}`, value)
+		})
+	}
+	value, err := ctx.resolveTemplate(`${{ jq({"history": [{"large": 9007199254740993}]}, ".history[0].large") }}`)
+	require.NoError(t, err)
+	require.EqualValues(t, int64(9007199254740993), value)
+}
