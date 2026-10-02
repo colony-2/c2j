@@ -99,6 +99,9 @@ func (v *validationJobContext) executionTimeoutLimit() time.Duration {
 }
 
 func (v *validationJobContext) DoTask(runPolicy jobdb.RunPolicy, taskType string, data jobdb.TaskData) (jobdb.TaskData, error) {
+	if taskType == TimeoutCheckpointTaskType {
+		return (timeoutCheckpointWorker{}).Run(jobworkflow.TaskContext{}, data)
+	}
 	if taskType == WithinRecipeResolutionTaskType {
 		return newWithinRecipeResolutionTaskWorker().Run(jobworkflow.TaskContext{}, data)
 	}

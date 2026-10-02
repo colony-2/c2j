@@ -499,6 +499,14 @@ owned by the worker user with no group/other permissions. See the
 [supplied-lease guide](GUIDE-Run-With-Lease.md) for dispatcher/library integration,
 exit behavior, and the JobDB v0.0.22 server requirement.
 
+### Recipe timeouts and recovery
+
+Recipe and nested execution timeouts retain their original scope budget across
+worker recovery. Cached completed tasks remain replayable; new work does not
+receive a fresh budget merely because execution resumed. See
+[timeout recovery](TIMEOUT_RECOVERY.md) for timing semantics, deployment
+compatibility, and the remaining upstream JobDB timeout limitations.
+
 ### Input handling
 
 `--input-mode` controls what happens when a job is blocked on user input:

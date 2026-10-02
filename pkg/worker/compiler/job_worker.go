@@ -99,6 +99,9 @@ func NewRecipeWorkerWithOptions(dependencies ops.ServiceDependencies2, activityR
 			taskWorkers[i] = opts.WrapTaskWorker(worker)
 		}
 	}
+	// Deadline bookkeeping is control work, independent of the task's required
+	// execution environment. Do not apply resource-admission guards to it.
+	taskWorkers = append(taskWorkers, timeoutCheckpointWorker{})
 	return jobworkflow.AsWorkSet(job, taskWorkers...)
 }
 

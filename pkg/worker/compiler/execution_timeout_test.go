@@ -12,6 +12,7 @@ import (
 	"github.com/colony-2/c2j/pkg/recipe"
 	"github.com/colony-2/c2j/pkg/workflow"
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
 	"github.com/stretchr/testify/require"
 )
 
@@ -33,10 +34,16 @@ func (c *policyCaptureJobContext) Logger() *slog.Logger               { return s
 func (c *policyCaptureJobContext) AwaitDuration(jobdb.Duration) error { return nil }
 
 func (c *policyCaptureJobContext) DoTask(policy jobdb.RunPolicy, taskType string, data jobdb.TaskData) (jobdb.TaskData, error) {
+	if taskType == TimeoutCheckpointTaskType {
+		return (timeoutCheckpointWorker{}).Run(jobworkflow.TaskContext{}, data)
+	}
 	c.calls++
 	c.policies = append(c.policies, policy)
 	if c.sleep > 0 {
 		time.Sleep(c.sleep)
+		if policy.TotalTimeout != nil && c.sleep >= time.Duration(*policy.TotalTimeout) {
+			return nil, context.DeadlineExceeded
+		}
 	}
 	return c.out, nil
 }

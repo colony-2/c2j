@@ -467,7 +467,10 @@ func (d DefaultRecipeExecutor) executeOpAttempt(ctx workflow.Context, parentReso
 		Retry: retry,
 	}
 	if opTimeout := effectiveOpTimeout(metadata, registeredOp); opTimeout > 0 {
-		ctx.JobContext = withExecutionTimeout(ctx.JobContext, opTimeout, fmt.Sprintf("op %q", op))
+		ctx.JobContext, err = withDurableExecutionTimeout(ctx.JobContext, opTimeout, fmt.Sprintf("op %q", op))
+		if err != nil {
+			return err
+		}
 	}
 	taskExecutionTimeout := activeExecutionTimeoutLimit(ctx.JobContext)
 	if taskExecutionTimeout > 0 {
@@ -728,7 +731,11 @@ func (d DefaultRecipeExecutor) ExecuteSequence(ctx workflow.Context, rCtx *templ
 // executeCompositeInEnvelope executes a composite nodes in a retry/timeout envelope
 func executeCompositeInEnvelope(ctx workflow.Context, retry *recipe.RetryPolicy, timeoutDuration time.Duration, label string, fn func(inner workflow.Context) error) error {
 	if timeoutDuration > 0 {
-		ctx.JobContext = withExecutionTimeout(ctx.JobContext, timeoutDuration, label)
+		var err error
+		ctx.JobContext, err = withDurableExecutionTimeout(ctx.JobContext, timeoutDuration, label)
+		if err != nil {
+			return err
+		}
 	}
 	attempts := retryPolicyAttempts(retry)
 	for attempt := 1; attempt <= attempts; attempt++ {

@@ -62,10 +62,19 @@ func (a *thinpackForwarder) Logger() *slog.Logger {
 }
 
 func (a *thinpackForwarder) DoTask(policy jobdb.RunPolicy, taskType string, data jobdb.TaskData) (jobdb.TaskData, error) {
+	if taskType == TimeoutCheckpointTaskType {
+		return a.inner.DoTask(policy, taskType, data)
+	}
 	out, err := a.doTask(policy, taskType, data, func(data jobdb.TaskData) (jobdb.TaskData, error) {
 		return a.inner.DoTask(policy, taskType, data)
 	})
 	return out, err
+}
+
+func (a *thinpackForwarder) doTaskAt(policy jobdb.RunPolicy, taskType string, data jobdb.TaskData, at time.Time) (jobdb.TaskData, error) {
+	return a.doTask(policy, taskType, data, func(data jobdb.TaskData) (jobdb.TaskData, error) {
+		return doTaskAt(a.inner, policy, taskType, data, at)
+	})
 }
 
 func (a *thinpackForwarder) DoValidationTask(policy jobdb.RunPolicy, taskType string, data jobdb.TaskData) (jobdb.TaskData, bool, error) {

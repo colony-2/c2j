@@ -19,7 +19,11 @@ func (d DefaultRecipeExecutor) ExecuteStateMachine(ctx workflow.Context, parentC
 		})
 	}
 	if timeout := time.Duration(metadata.Timeout); timeout > 0 {
-		ctx.JobContext = withExecutionTimeout(ctx.JobContext, timeout, fmt.Sprintf("state machine %q", template.ScopeID(metadata, "", template.ScopeStateMachine)))
+		var err error
+		ctx.JobContext, err = withDurableExecutionTimeout(ctx.JobContext, timeout, fmt.Sprintf("state machine %q", template.ScopeID(metadata, "", template.ScopeStateMachine)))
+		if err != nil {
+			return err
+		}
 	}
 
 	// Create resolution context for the state machine

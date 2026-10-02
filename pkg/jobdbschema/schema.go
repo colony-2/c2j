@@ -234,6 +234,7 @@ var c2jJobSchema = json.RawMessage(`{
       { "$ref": "#/$defs/rootResolveChapter" },
       { "$ref": "#/$defs/withinResolveChapter" },
       { "$ref": "#/$defs/workspaceResolveChapter" },
+      { "$ref": "#/$defs/timeoutCheckpointChapter" },
       { "$ref": "#/$defs/activityInvocationChapter" },
       { "$ref": "#/$defs/restartExtraChapter" },
       { "$ref": "#/$defs/jobAttemptOutcomeChapter" }
@@ -573,7 +574,21 @@ var c2jJobSchema = json.RawMessage(`{
             },
             "additionalProperties": true
           },
-          "timeout": { "type": "string" }
+          "timeout": {
+            "type": "object",
+            "required": ["scope", "after", "retryable"],
+            "properties": {
+              "scope": { "enum": ["invocation", "total"] },
+              "after": { "type": "string" },
+              "retryable": { "type": "boolean" },
+              "input_ref": { "type": "object" },
+              "kind": { "type": "string" },
+              "component": { "type": "string" },
+              "code": { "type": "string" },
+              "message": { "type": "string" }
+            },
+            "additionalProperties": true
+          }
         },
         "additionalProperties": true
       },
@@ -670,13 +685,58 @@ var c2jJobSchema = json.RawMessage(`{
           }
         }
       },
+      "timeoutCheckpointChapter": {
+        "type": "object",
+        "required": ["taskType", "input", "body"],
+        "properties": {
+          "taskType": { "const": "recipe_timeout_checkpoint" },
+          "input": {
+            "type": "object",
+            "required": ["kind", "label", "timeout"],
+            "properties": {
+              "kind": { "enum": ["scope", "task"] },
+              "label": { "type": "string" },
+              "timeout": { "type": "integer", "minimum": 1 }
+            },
+            "additionalProperties": false
+          },
+          "body": {
+            "allOf": [
+              { "$ref": "#/$defs/taskAttemptBody" },
+              {
+                "properties": {
+                  "outcome": {
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "required": ["kind", "output"],
+                        "properties": {
+                          "kind": { "const": "success" },
+                          "output": {
+                            "type": "object",
+                            "required": ["at"],
+                            "properties": { "at": { "type": "string", "format": "date-time" } },
+                            "additionalProperties": false
+                          }
+                        },
+                        "additionalProperties": false
+                      },
+                      { "$ref": "#/$defs/failureOutcome" }
+                    ]
+                  }
+                }
+              }
+            ]
+          }
+        }
+      },
       "activityInvocationChapter": {
         "type": "object",
         "required": ["taskType", "body"],
         "properties": {
           "taskType": {
             "type": "string",
-            "not": { "enum": ["recipe_root_source_resolve", "recipe_within_resolution", "recipe_workspace_resolve", "__restart_extra__"] }
+            "not": { "enum": ["recipe_root_source_resolve", "recipe_within_resolution", "recipe_workspace_resolve", "recipe_timeout_checkpoint", "__restart_extra__"] }
           },
           "input": { "$ref": "#/$defs/activityInvocationRequest" },
           "body": {
@@ -814,7 +874,21 @@ var c2jJobSchema = json.RawMessage(`{
                     },
                     "additionalProperties": true
                   },
-                  "timeout": { "type": "string" }
+                  "timeout": {
+                    "type": "object",
+                    "required": ["scope", "after", "retryable"],
+                    "properties": {
+                      "scope": { "enum": ["invocation", "total"] },
+                      "after": { "type": "string" },
+                      "retryable": { "type": "boolean" },
+                      "input_ref": { "type": "object" },
+                      "kind": { "type": "string" },
+                      "component": { "type": "string" },
+                      "code": { "type": "string" },
+                      "message": { "type": "string" }
+                    },
+                    "additionalProperties": true
+                  }
                 },
                 "additionalProperties": true
               }

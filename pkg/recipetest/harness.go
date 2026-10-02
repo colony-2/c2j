@@ -28,6 +28,7 @@ import (
 	workerops "github.com/colony-2/c2j/pkg/worker/ops"
 	"github.com/colony-2/c2j/pkg/workflow"
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
 	"github.com/go-playground/validator/v10"
 	"github.com/google/cel-go/cel"
 	"github.com/google/cel-go/common/types"
@@ -949,6 +950,9 @@ func (j *testJobContext) TransitionSelected(fromState string, toState string, pa
 }
 
 func (j *testJobContext) DoTask(runPolicy jobdb.RunPolicy, taskType string, data jobdb.TaskData) (jobdb.TaskData, error) {
+	if taskType == compiler.TimeoutCheckpointTaskType {
+		return compiler.NewTimeoutCheckpointTaskWorker().Run(jobworkflow.TaskContext{}, data)
+	}
 	out, _, err := j.doMockedTask(runPolicy, taskType, data, true)
 	return out, err
 }

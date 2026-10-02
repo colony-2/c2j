@@ -17,6 +17,7 @@ type timeoutJobContext struct {
 	declaredTimeout time.Duration
 	limit           time.Duration
 	label           string
+	durable         bool
 }
 
 type executionTimeoutLimiter interface {
@@ -146,6 +147,20 @@ func (t *timeoutJobContext) executionTimeoutLimit() time.Duration {
 }
 
 func (t *timeoutJobContext) DoTask(policy jobdb.RunPolicy, taskType string, data jobdb.TaskData) (jobdb.TaskData, error) {
+	// Control checkpoints must replay even after an enclosing scope expires.
+	if taskType == TimeoutCheckpointTaskType {
+		return t.inner.DoTask(policy, taskType, data)
+	}
+	if t.durable {
+		at, err := timeoutCheckpoint(t.inner, "task", t.label, t.declaredTimeout)
+		if err != nil {
+			return nil, err
+		}
+		// A cached admission allows the corresponding cached task to replay.
+		// JobDB checks the total limit before executing an uncached local task.
+		// Do not reject cached output merely because recovery happened later.
+		return t.doTaskAt(policy, taskType, data, at)
+	}
 	if err := t.checkDeadline(); err != nil {
 		return nil, err
 	}
@@ -163,6 +178,25 @@ func (t *timeoutJobContext) DoTask(policy jobdb.RunPolicy, taskType string, data
 	return out, nil
 }
 
+// All enclosing scopes share one durable admission timestamp. Inserting a
+// separate checkpoint per parent would move the task's input-chapter clock and
+// could extend a child's budget by the time spent recording parent checkpoints.
+func (t *timeoutJobContext) doTaskAt(policy jobdb.RunPolicy, taskType string, data jobdb.TaskData, at time.Time) (jobdb.TaskData, error) {
+	if !at.Before(t.deadline) {
+		return nil, t.timeoutError()
+	}
+	return doTaskAt(t.inner, clampRunPolicyToDeadlineAt(policy, t.deadline, at), taskType, data, at)
+}
+
+func doTaskAt(ctx jobworkflow.JobContext, policy jobdb.RunPolicy, taskType string, data jobdb.TaskData, at time.Time) (jobdb.TaskData, error) {
+	if scoped, ok := ctx.(interface {
+		doTaskAt(jobdb.RunPolicy, string, jobdb.TaskData, time.Time) (jobdb.TaskData, error)
+	}); ok {
+		return scoped.doTaskAt(policy, taskType, data, at)
+	}
+	return ctx.DoTask(policy, taskType, data)
+}
+
 func (t *timeoutJobContext) checkDeadline() error {
 	if time.Now().Before(t.deadline) {
 		return nil
@@ -171,11 +205,12 @@ func (t *timeoutJobContext) checkDeadline() error {
 }
 
 func (t *timeoutJobContext) wrapTimeout(err error) error {
-	return fmt.Errorf("%s: %w: %v", t.timeoutMessage(), context.DeadlineExceeded, err)
+	return fmt.Errorf("%w: %v", t.timeoutError(), err)
 }
 
 func (t *timeoutJobContext) timeoutError() error {
-	return fmt.Errorf("%s: %w", t.timeoutMessage(), context.DeadlineExceeded)
+	return fmt.Errorf("%s: %w: %w", t.timeoutMessage(), context.DeadlineExceeded,
+		jobdb.NewTimeoutError("job", t.declaredTimeout, jobdb.TimeoutScopeTotal, nil, false))
 }
 
 func (t *timeoutJobContext) timeoutMessage() string {
@@ -190,13 +225,18 @@ func (t *timeoutJobContext) timeoutMessage() string {
 }
 
 func clampRunPolicyToDeadline(policy jobdb.RunPolicy, deadline time.Time) jobdb.RunPolicy {
-	remaining := time.Until(deadline)
-	if remaining < 0 {
-		remaining = 0
+	return clampRunPolicyToDeadlineAt(policy, deadline, time.Now())
+}
+
+func clampRunPolicyToDeadlineAt(policy jobdb.RunPolicy, deadline, startedAt time.Time) jobdb.RunPolicy {
+	remaining := deadline.Sub(startedAt)
+	if remaining <= 0 {
+		// JobDB interprets zero as an unlimited timeout, not an expired one.
+		remaining = time.Nanosecond
 	}
 	if policy.TotalTimeout != nil {
 		existing := time.Duration(*policy.TotalTimeout)
-		if existing >= 0 && existing < remaining {
+		if existing > 0 && existing < remaining {
 			return policy
 		}
 	}
