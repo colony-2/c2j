@@ -55,7 +55,7 @@ transitions. Native report observations now have their own persistence test.
 ## Adapter and retired coverage
 
 Codex's private session home, rollout/SQLite import/export, WAL state, legacy
-input rejection and corrupt checkpoint detection belong to c2ops. At pinned
+input rejection and corrupt checkpoint detection belong to c2ops. At the audited
 revision `ded76dfbd877d3d0749e509844ecdbc57197b572`, runnable replacements include
 `TestSessionBranchesRestoreExactCheckpoint`,
 `TestSessionExportIncludesWALAndRejectsIncompleteState`,
@@ -72,9 +72,12 @@ The implemented questions/documents review behavior is covered above.
 ## Verification and limits
 
 The native compatibility job is implemented directly in `.github/workflows/test.yaml`.
-There is no CI migration patch or external fixture server. Local verification
-uses a clean c2j source tree to exclude unrelated uncommitted work, detached
-companion checkouts, the workflow's URL rewrite, and an empty selector cache.
+There is no CI migration patch or external fixture server. The original migration
+audit used clean c2j source, detached companion checkouts, a Git URL rewrite, and an
+empty selector cache. As of 2026-10-02, CI checks out the recipes default branch
+and resolves authored op selectors normally, without a c2ops checkout or rewrite.
+It records the selected recipes commit for diagnosing failures. The original
+audit results below describe the revisions and environment tested at that time.
 
 Live model/skill suites remain explicitly opt-in; structural validation is not
 execution coverage. Local Linux ARM64 results do not claim that hosted GitHub CI,
@@ -117,3 +120,11 @@ Verification: a disposable build forced container-facing listeners onto
 runner passed the same lifecycle with that binding. The normal compatibility
 run passed all 222 cases in 51 suites. The full integration-tagged Go suite,
 focused race tests, and ten repeated binding-regression runs also passed.
+
+## Normal-resolution CI verification (2026-10-02)
+
+After removing the recipes pin and c2ops source override, a fresh clone of the
+recipes default branch resolved to `29b096115f3f4a0c154e1d29dc8fe208ebf9585a`.
+The candidate CLI built with Go 1.26.1 passed all **222 cases in 51 suites** using
+normal op selector resolution. Three live suites were excluded. The recorded
+revision describes this verification run; it is not a CI pin.

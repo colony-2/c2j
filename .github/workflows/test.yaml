@@ -52,15 +52,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: colony-2/recipes
-          # Native declarations, including audited lifecycle and dependency coverage.
-          ref: 29b096115f3f4a0c154e1d29dc8fe208ebf9585a
           path: test-repos/recipes
-      - name: Checkout extension ops
-        uses: actions/checkout@v4
-        with:
-          repository: colony-2/c2ops
-          ref: ded76dfbd877d3d0749e509844ecdbc57197b572
-          path: test-repos/c2ops
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
@@ -68,17 +60,13 @@ jobs:
       - name: Build CLI
         run: |
           go build -o "$RUNNER_TEMP/c2j" ./cmd/c2j
-      - name: Pin extension selector main to the checked-out commit
-        run: git -C test-repos/c2ops branch --force main HEAD
       - name: Run native recipe compatibility suites
         shell: bash
         env:
-          GIT_CONFIG_COUNT: '1'
-          GIT_CONFIG_KEY_0: url.file://${{ github.workspace }}/test-repos/c2ops.insteadOf
-          GIT_CONFIG_VALUE_0: https://github.com/colony-2/c2ops.git
           C2J_TEST_LOG_DIR: ${{ runner.temp }}/recipe-regression-logs
         run: |
           mkdir -p "$C2J_TEST_LOG_DIR"
+          git -C test-repos/recipes rev-parse HEAD | tee "$C2J_TEST_LOG_DIR/recipes-commit.txt"
           "$RUNNER_TEMP/c2j" test run --directory test-repos/recipes --case-timeout 5m \
             --out-dir "$C2J_TEST_LOG_DIR/results" 2>&1 | tee "$C2J_TEST_LOG_DIR/suites.log"
       - name: Retain failure logs

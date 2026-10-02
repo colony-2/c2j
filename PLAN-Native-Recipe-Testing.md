@@ -17,7 +17,7 @@ server, client program, Python generator, or shell test runner.
 | --- | --- |
 | c2j | All c2j correctness tests: compilation, CLI behavior, execution, child submission, scheduling integration, replay, workspaces, snapshots, objects, input/review APIs, and the test runner itself. |
 | recipes | Declarative tests of the actual recipes: decisions, approval requirements, feedback loops, dependency handling, document/session routing, verification requirements, and merge policy. |
-| c2j compatibility CI | Run pinned recipes suites with the candidate c2j binary to detect consumer breakage. This supplements c2j's own regression coverage. |
+| c2j compatibility CI | Run suites from the recipes repository's default branch with the candidate c2j binary to detect consumer breakage. This supplements c2j's own regression coverage. |
 | c2ops | Operation implementation correctness, such as Codex session import/export and CLI invocation. Recipe tests cover how recipes use those contracts. |
 
 A scenario may currently mix these responsibilities. Split its assertions by
@@ -137,8 +137,8 @@ The runtime-backed runner must:
    a binary, URL, module version, or startup command.
 5. Keep runtime/configuration scoped to the case. Do not inherit a live parent
    broker or use a user's persistent database. Avoid process-global environment
-   rewrites shared by concurrent cases. Pin selector sources and report resolved
-   revisions; the local source mapping must resolve authored refs reliably.
+   rewrites shared by concurrent cases. Resolve authored op selectors normally;
+   CI must not replace branch refs or override their source repositories.
 6. Cancel workers, stop services and retain diagnostics on every exit path,
    including a timeout. Apply a deadline to the whole case and its children.
 
@@ -264,14 +264,12 @@ does not claim that all recipe execution becomes dependency-free.
   YAML, shell runner or Python orchestration. Static fixture data remains.
 - All recipe-owned assertions are mapped and passing; c2j correctness coverage
   remains in c2j. c2ops handoffs are resolved before their old tests are removed.
-- Point c2j compatibility CI at a published recipes commit containing the
-  self-contained declarations. Pin extension sources as needed and run the newly
+- Point c2j compatibility CI at the recipes default branch and run the newly
   built c2j with directory discovery; use public checkout authentication defaults.
-- Remove the temporary server dependency adjustment, fixture runner setup and
-  `recipes-verification-export.patch` once the pinned recipes commit contains
-  the required exports. Remove its local branch workaround only when native
-  selector pinning has replaced it. Do not patch production recipes in the
-  steady-state compatibility job.
+  Record the selected recipes SHA and use normal op resolution.
+- Remove the temporary server dependency adjustment, fixture runner setup,
+  `recipes-verification-export.patch`, and c2ops checkout/branch/URL overrides.
+  Recipes own their op versions; CI must not patch their dependency selection.
 - Keep compatibility a required CI check and retain complete failure output.
   The summary job aggregates results; the native report identifies the failed
   case and its reason.
@@ -286,8 +284,8 @@ does not claim that all recipe execution becomes dependency-free.
    documentation and a release passing the stage 1 gate.
 4. **recipes:** migrate declarations family by family, update test statements,
    remove equivalent infrastructure and publish the new suite revision.
-5. **c2j:** advance the compatibility pin and remove transitional setup.
+5. **c2j:** enable default-branch compatibility checks and remove transitional setup.
 
 Keep changes and commits separate by repository. Stage 2 starts after stage 1's
-capabilities are available; the final compatibility-pin update is a consumer
+capabilities are available; the final compatibility workflow update is a consumer
 update, not a second implementation of the testing framework.
