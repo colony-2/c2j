@@ -123,9 +123,12 @@ type InputFormConfig struct {
 	Question     *string                 `json:"question,omitempty"`
 
 	// Request Frozen structured request data
-	Request        *interface{}            `json:"request,omitempty"`
-	RequestId      *string                 `json:"request_id,omitempty"`
-	RequestSchema  *map[string]interface{} `json:"request_schema,omitempty"`
+	Request       *interface{}            `json:"request,omitempty"`
+	RequestId     *string                 `json:"request_id,omitempty"`
+	RequestSchema *map[string]interface{} `json:"request_schema,omitempty"`
+
+	// RequestedAt Time this form was prepared; absent for legacy occurrences.
+	RequestedAt    *time.Time              `json:"requested_at,omitempty"`
 	ResponseSchema *map[string]interface{} `json:"response_schema,omitempty"`
 	Scale          *LinearScale            `json:"scale,omitempty"`
 

@@ -80,8 +80,10 @@ type GlobPattern struct {
 
 // InputForm represents the complete form structure
 type InputForm struct {
-	FallbackAt     string                         `json:"fallback_at,omitempty"`
-	Fallback       *FallbackAnswers               `json:"fallback,omitempty"`
+	FallbackAt string           `json:"fallback_at,omitempty"`
+	Fallback   *FallbackAnswers `json:"fallback,omitempty"`
+	// RequestedAt is recorded when the form is prepared, not when its job starts.
+	RequestedAt    string                         `json:"requested_at,omitempty"`
 	Kind           string                         `json:"kind,omitempty"`
 	Documents      map[string]recipeartifacts.Ref `json:"documents,omitempty"`
 	RequestID      string                         `json:"request_id,omitempty"`

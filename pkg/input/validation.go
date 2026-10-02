@@ -6,6 +6,8 @@ import "fmt"
 // with field tags.
 type ValidationError struct {
 	Field    string
+	FieldID  string
+	Cause    error
 	Message  string
 	Required bool
 }
@@ -16,6 +18,9 @@ func (e ValidationError) Error() string {
 	}
 	return e.Field + ": " + e.Message
 }
+
+func (e ValidationError) Is(target error) bool { return target == ErrValidation }
+func (e ValidationError) Unwrap() error        { return e.Cause }
 
 func (e ValidationError) RequiredValidationError() bool {
 	return e.Required

@@ -42,25 +42,23 @@ func (r *Runtime) SSEManager() ops.SSEManager {
 }
 
 func (r *Runtime) ListPendingInputs(ctx context.Context, projectID string) ([]PendingInput, error) {
-	jobs, _, err := r.ctl.ListJobs(ctx, jobdb.ListJobsRequest{
-		Stores:    []jobdb.JobStore{jobdb.JobStoreActive},
-		TenantIds: []string{projectID},
-		Statuses:  []jobdb.JobStatus{jobdb.JobStatusReady},
-		JobTasks: []jobdb.JobTaskFilter{{
-			JobType:  "recipe",
-			TaskType: "input:collect_user_input",
-		}},
-		PageSize: 1000,
-	})
-	if err != nil {
-		return nil, err
+	out := []PendingInput{}
+	token := ""
+	for {
+		jobs, next, err := r.pendingJobs(ctx, projectID, PendingInputOptions{PageToken: token})
+		if err != nil {
+			return nil, err
+		}
+		for _, job := range jobs {
+			if job.JobKey.TenantId == projectID {
+				out = append(out, PendingInput{Id: job.JobKey.JobId})
+			}
+		}
+		if next == "" {
+			return out, nil
+		}
+		token = next
 	}
-
-	out := make([]PendingInput, len(jobs))
-	for i, job := range jobs {
-		out[i] = PendingInput{Id: job.JobKey.JobId}
-	}
-	return out, nil
 }
 
 func (r *Runtime) GetDetails(ctx context.Context, projectID string, jobID string) (*UserInputDetails, error) {
@@ -145,7 +143,7 @@ func (r *Runtime) SubmitResponse(ctx context.Context, projectID string, jobID st
 	if err != nil {
 		return err
 	}
-	if err := task.Finish(ctx, outData); err != nil {
+	if err := r.finishInput(ctx, task, outData); err != nil {
 		return err
 	}
 
@@ -186,7 +184,7 @@ func (r *Runtime) findJob(ctx context.Context, projectID string, jobID string) (
 		}},
 	})
 	if err != nil {
-		return nil, fmt.Errorf("failed to query workflow: %w", err)
+		return nil, runtimeError(ErrStorage, "query input", err)
 	}
 	if len(jobs) == 0 {
 		return nil, ErrInputNotPending
@@ -204,41 +202,41 @@ func (r *Runtime) getOutput(ctx context.Context, projectID string, jobID string)
 		JobId:    jobID,
 	})
 	if err != nil {
-		return nil, workerops.ActivityInvocationOutput{}, nil, fmt.Errorf("failed to find job: %w", err)
+		return nil, workerops.ActivityInvocationOutput{}, nil, readInputError("find pending input", err)
 	}
 
-	if task.TaskType() != "input:collect_user_input" {
+	if task == nil || task.JobKey() != (jobdb.JobKey{TenantId: projectID, JobId: jobID}) || task.TaskType() != "input:collect_user_input" {
 		return nil, workerops.ActivityInvocationOutput{}, nil, ErrInputNotPending
 	}
 	td, err := task.Data()
 	if err != nil {
-		return nil, workerops.ActivityInvocationOutput{}, nil, fmt.Errorf("failed to get task data: %w", err)
+		return nil, workerops.ActivityInvocationOutput{}, nil, runtimeError(ErrStorage, "failed to get task data", err)
 	}
 
 	data, err := td.GetData()
 	if err != nil {
-		return nil, workerops.ActivityInvocationOutput{}, nil, fmt.Errorf("failed to get task data: %w", err)
+		return nil, workerops.ActivityInvocationOutput{}, nil, runtimeError(ErrStorage, "failed to get task data", err)
 	}
 
 	artifacts, err := td.GetArtifacts()
 	if err != nil {
-		return nil, workerops.ActivityInvocationOutput{}, nil, fmt.Errorf("failed to get task artifacts: %w", err)
+		return nil, workerops.ActivityInvocationOutput{}, nil, runtimeError(ErrStorage, "failed to get task artifacts", err)
 	}
 
 	var env coretask.OutputEnvelope
 	if err := json.Unmarshal(data, &env); err != nil {
-		return nil, workerops.ActivityInvocationOutput{}, nil, fmt.Errorf("failed to unmarshal task output envelope: %w", err)
+		return nil, workerops.ActivityInvocationOutput{}, nil, runtimeError(ErrStorage, "failed to unmarshal task output envelope", err)
 	}
 	if env.Version != coretask.OutputEnvelopeVersion {
-		return nil, workerops.ActivityInvocationOutput{}, nil, fmt.Errorf("unsupported task output envelope version %d", env.Version)
+		return nil, workerops.ActivityInvocationOutput{}, nil, invalidFormError(fmt.Errorf("unsupported task output envelope version %d", env.Version))
 	}
 	if env.Kind != coretask.OutputKindActivityInvocationOutput {
-		return nil, workerops.ActivityInvocationOutput{}, nil, fmt.Errorf("unexpected task output kind %q", env.Kind)
+		return nil, workerops.ActivityInvocationOutput{}, nil, invalidFormError(fmt.Errorf("unexpected task output kind %q", env.Kind))
 	}
 
 	var out workerops.ActivityInvocationOutput
 	if err := env.DecodePayload(&out); err != nil {
-		return nil, workerops.ActivityInvocationOutput{}, nil, fmt.Errorf("failed to decode activity output payload: %w", err)
+		return nil, workerops.ActivityInvocationOutput{}, nil, runtimeError(ErrStorage, "failed to decode activity output payload", err)
 	}
 	return task, out, artifacts, nil
 }

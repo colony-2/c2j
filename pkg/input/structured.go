@@ -103,7 +103,7 @@ func buildStructuredForm(deps ops.OpDependencies, ctx context.Context, config Co
 			return InputForm{}, ValidationError{Field: "form.request", Message: err.Error()}
 		}
 	}
-	form := InputForm{RequestID: uuid.NewString(), Request: request, RequestSchema: config.RequestSchema,
+	form := InputForm{RequestedAt: time.Now().UTC().Format(time.RFC3339Nano), RequestID: uuid.NewString(), Request: request, RequestSchema: config.RequestSchema,
 		ResponseSchema: config.ResponseSchema, Presentation: config.Presentation, Title: config.Title}
 	// Snapshot mutable caller-owned maps along with the request.
 	raw, err := json.Marshal(form)
@@ -135,7 +135,10 @@ func (r *Runtime) GetForm(ctx context.Context, projectID, jobID string) (InputFo
 	}
 	var form InputForm
 	err = ops.DecodeWithJsonTags(req.OpOutput, &form)
-	return form, err
+	if err != nil {
+		return InputForm{}, invalidFormError(err)
+	}
+	return form, nil
 }
 
 // SubmitStructuredResponse validates against the recorded request before finishing
@@ -155,7 +158,7 @@ func (r *Runtime) submitInput(ctx context.Context, projectID, jobID string, acce
 	}
 	var form InputForm
 	if err := ops.DecodeWithJsonTags(req.OpOutput, &form); err != nil {
-		return Output{}, err
+		return Output{}, invalidFormError(err)
 	}
 	b := &artifactBinder{ctx: ctx, job: jobdb.JobKey{TenantId: projectID, JobId: jobID}, ordinal: task.TaskOrdinalToComplete(),
 		refs: map[string]recipeartifacts.Ref{}, reserved: map[string]bool{}, resolve: func(key jobdb.ArtifactKey) jobdb.Artifact {
@@ -171,7 +174,7 @@ func (r *Runtime) submitInput(ctx context.Context, projectID, jobID string, acce
 	}
 	value, err := jsonValue(out)
 	if err != nil {
-		return Output{}, err
+		return Output{}, runtimeError(ErrStorage, "encode input outcome", err)
 	}
 	// Retain the workspace, git snapshot, execution requirements and job context.
 	req.OpOutput = value.(map[string]any)
@@ -185,13 +188,13 @@ func (r *Runtime) submitInput(ctx context.Context, projectID, jobID string, acce
 	}
 	env, err := coretask.NewOutputEnvelope(coretask.OutputKindActivityInvocationOutput, req)
 	if err != nil {
-		return Output{}, err
+		return Output{}, runtimeError(ErrStorage, "encode input outcome", err)
 	}
 	data, err := jobdb.NewTaskData(env, append(artifacts, b.artifacts...)...)
 	if err != nil {
-		return Output{}, err
+		return Output{}, runtimeError(ErrStorage, "prepare input outcome", err)
 	}
-	if err := task.Finish(ctx, data); err != nil {
+	if err := r.finishInput(ctx, task, data); err != nil {
 		return Output{}, err
 	}
 	if r.sse != nil {
@@ -208,7 +211,7 @@ func acceptStructured(form InputForm, submission StructuredSubmission, actor Act
 		return bad("response_schema", "input is not structured")
 	}
 	if form.RequestID == "" || submission.RequestID != form.RequestID {
-		return bad("request_id", "does not match the pending input")
+		return Output{}, runtimeError(ErrStaleRequest, "submit structured input", nil)
 	}
 	if strings.TrimSpace(submission.SubmissionID) == "" {
 		return bad("submission_id", "is required")
@@ -218,15 +221,15 @@ func acceptStructured(form InputForm, submission StructuredSubmission, actor Act
 	}
 	for name, ref := range submission.ArtifactRefs {
 		if err := b.checkRef(ref); err != nil {
-			return bad("artifact_refs."+name, err.Error())
+			return Output{}, inputFieldError("artifact_refs."+name, err)
 		}
 		if err := b.addRef(name, ref); err != nil {
-			return bad("artifact_refs."+name, err.Error())
+			return Output{}, inputFieldError("artifact_refs."+name, err)
 		}
 	}
 	response, err := b.bind(submission.Response)
 	if err != nil {
-		return bad("response", err.Error())
+		return Output{}, inputFieldError("response", err)
 	}
 	if err := validateSchema(form.ResponseSchema, response); err != nil {
 		return bad("response", err.Error())

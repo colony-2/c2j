@@ -134,7 +134,9 @@ text-only responses. Keep production human reviews free of autofill.
 
 ## Library integration and limits
 
-Use `GetForm` or `GetDetails` to discover the marker, questions, and documents.
+Use `ListPendingInputsPage` for paginated occurrence IDs and preparation times,
+then `GetForm` or `GetDetails` for the marker, questions, and documents.
+`OpenReviewDocument` streams an original from the exact pending review.
 Use `SubmitFormResponse` with the form's `request_id`, a submission ID, answers,
 and an actor supplied by the application. The
 [application guide](GUIDE-Structured-Input-And-Review.md) includes a Go example.

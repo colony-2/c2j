@@ -143,6 +143,84 @@ it cannot bypass their request identity and attachment handling.
 
 For recipe examples, see the [author guide](GUIDE-Review-Recipe-Authors.md).
 
+## Paginated pending inputs
+
+Use `ListPendingInputsPage` for a live listing of ordinary, review, and structured
+input occurrences:
+
+```go
+page, err := runtime.ListPendingInputsPage(ctx, tenantID, input.PendingInputOptions{
+    PageSize:  50,
+    PageToken: nextPageToken, // empty for the first page
+})
+// Handle err. Render page.Inputs and retain page.NextPageToken for the next call.
+```
+
+Each entry contains `job_id`, `task_ordinal`, optional `request_id`, and optional
+`requested_at`. The last field is an RFC 3339 UTC string recorded when the form
+is prepared and persisted with that occurrence. It remains stable on replay;
+it is not the job creation time or a claim about the exact scheduler transition.
+Older forms omit it. Ordinary forms may also omit `request_id`; tenant/job/task
+ordinal still identifies their occurrence. `GetDetails().Form.RequestedAt`
+exposes the same timestamp; the existing `StartTime` retains its job-time meaning.
+
+Page size defaults to JobDB's default (100) and is capped by JobDB at 200. Follow
+`next_page_token` until empty, including after an empty page. Entries completed or
+replaced during reading are skipped. The listing is not a historical snapshot;
+refresh to discover new occurrences, including another review in the same job.
+Do not deduplicate occurrences by job ID alone.
+
+This method reads form data for the requested page to obtain occurrence IDs and
+times; it never loads document bytes. It returns no titles, form kinds, document
+counts, summaries, or kind filters. Fetch `GetForm` when you need those details.
+The legacy `ListPendingInputs` keeps its ID-only response and now follows all
+backend pages rather than silently truncating the list.
+
+## Open an original review document
+
+```go
+doc, err := runtime.OpenReviewDocument(ctx, tenantID, jobID, requestID, "design")
+if err != nil {
+    return err
+}
+defer doc.Close()
+_, err = io.Copy(destination, doc)
+return err
+```
+
+`ReviewDocument` is an open stream with `ID`, `Name`, `SizeBytes`, and `Ref`.
+A size of -1 means unknown. The reference retains the original producer job and
+task ordinal, including child-produced documents. The library checks the pending
+review identity and document membership and resolves the artifact in the current
+tenant. Callers provide a document ID, never a path, URL, or arbitrary artifact
+key. Already-open streams remain readable if the review subsequently completes;
+new opens require the exact current pending occurrence. Keep the context alive
+while reading and always close the stream.
+
+## Handle errors by type
+
+Use `errors.Is` instead of matching messages:
+
+| Error | Meaning |
+|---|---|
+| `input.ErrValidation` | Invalid fields, answer values, submission metadata, or attachment references |
+| `input.ErrStaleRequest` | The supplied occurrence is no longer the current one |
+| `input.ErrInputNotPending` | No accessible pending input exists for the job |
+| `input.ErrDocumentNotFound` | The requested document ID is absent from that review |
+| `input.ErrArtifactUnavailable` | A document or stored attachment cannot be opened/read; the cause describes the read failure |
+| `input.ErrStorage` | Input lookup, persistence, or completion failed |
+
+Use `errors.As` with `input.ValidationError` for `Field`, `FieldID`, and `Required`,
+or with `*input.RuntimeError` for `Operation`, `Field`, `FieldID`, and `DocumentID`.
+Both preserve wrapped causes. Context cancellation and deadline errors remain
+recognizable. Transport status codes and authentication belong to the application.
+
+A completion conflict is classified as no-longer-pending or stale only when the
+library can observe that the pending task ended or advanced. Otherwise it remains
+a storage error. A storage failure during completion can have an ambiguous
+outcome; these errors do not add idempotent retry guarantees or resolve the
+separate JobDB completion investigation. Historical lookup remains deferred.
+
 ## Autofill and tests
 
 Structured `form.autofill` accepts `response` and `artifact_refs` and runs the same

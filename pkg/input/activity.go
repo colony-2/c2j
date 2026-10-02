@@ -2,6 +2,7 @@ package input
 
 import (
 	"context"
+	"time"
 
 	recipeartifacts "github.com/colony-2/c2j/pkg/artifacts"
 	"github.com/colony-2/c2j/pkg/ops"
@@ -86,7 +87,7 @@ func buildBaseForm(deps ops.OpDependencies, ctx context.Context, in Input) (Inpu
 	if config.ResponseSchema != nil {
 		return buildStructuredForm(deps, ctx, config)
 	}
-	form := InputForm{}
+	form := InputForm{RequestedAt: time.Now().UTC().Format(time.RFC3339Nano)}
 
 	// Check if it's a single question or multi-field form
 	if config.Question != "" {

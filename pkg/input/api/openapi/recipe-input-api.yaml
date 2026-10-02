@@ -302,6 +302,10 @@ components:
           type: string
           format: date-time
           description: When automatic answers become eligible; human responses may still be accepted until a worker acquires the input.
+        requested_at:
+          type: string
+          format: date-time
+          description: Time this form was prepared; absent for legacy occurrences.
         request_id:
           type: string
         request:

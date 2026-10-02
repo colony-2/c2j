@@ -3,11 +3,13 @@ package input
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
 
 	"github.com/colony-2/c2j/pkg/artifacts"
+	"github.com/colony-2/c2j/pkg/input/formdefaults"
 	"github.com/colony-2/c2j/pkg/ops"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	"github.com/google/uuid"
@@ -91,11 +93,11 @@ func (r *Runtime) SubmitFormResponse(ctx context.Context, tenantID, jobID string
 }
 
 func acceptReview(form InputForm, sub FormSubmission, actor Actor, b *artifactBinder) (Output, error) {
-	if form.Kind != "review" {
-		return Output{}, fmt.Errorf("input is not a review")
-	}
 	if form.RequestID == "" || sub.RequestID != form.RequestID {
-		return Output{}, fmt.Errorf("request_id: does not match the pending input")
+		return Output{}, runtimeError(ErrStaleRequest, "submit review", nil)
+	}
+	if form.Kind != "review" {
+		return Output{}, validationError("form.kind", "input is not a review")
 	}
 	return acceptForm(form, sub, actor, b)
 }
@@ -103,18 +105,22 @@ func acceptReview(form InputForm, sub FormSubmission, actor Actor, b *artifactBi
 // acceptForm is shared by review submissions and automatic answers to ordinary forms.
 func acceptForm(form InputForm, sub FormSubmission, actor Actor, b *artifactBinder) (Output, error) {
 	if strings.TrimSpace(sub.SubmissionID) == "" {
-		return Output{}, fmt.Errorf("submission_id: is required")
+		return Output{}, validationError("submission_id", "is required")
 	}
 	if strings.TrimSpace(actor.ID) == "" || strings.TrimSpace(actor.Kind) == "" {
-		return Output{}, fmt.Errorf("actor: id and kind are required")
+		return Output{}, validationError("actor", "id and kind are required")
 	}
 	if len(form.Fields) > 0 && sub.Response != nil {
-		return Output{}, fmt.Errorf("response: use fields to answer a multi-question review")
+		return Output{}, validationError("response", "use fields to answer a multi-question review")
 	}
 	cfg := Config{Question: form.Question, Type: form.Type, Options: form.Options, Scale: form.Scale, Default: form.Default, Fields: form.Fields}
 	out, err := NormalizeOutput(cfg, Output{Response: sub.Response, Fields: sub.Fields, UserID: actor.ID})
 	if err != nil {
-		return Output{}, err
+		var missing *formdefaults.MissingRequiredFieldError
+		if errors.As(err, &missing) {
+			return Output{}, ValidationError{Field: "fields." + missing.FieldID, FieldID: missing.FieldID, Message: err.Error(), Required: true, Cause: err}
+		}
+		return Output{}, validationError("fields", err.Error())
 	}
 	fields := form.Fields
 	if form.Question != "" {
@@ -128,18 +134,18 @@ func acceptForm(form InputForm, sub FormSubmission, actor Actor, b *artifactBind
 			continue
 		}
 		if value == nil {
-			return Output{}, fmt.Errorf("fields.%s: answer cannot be null", field.ID)
+			return Output{}, fieldError(field.ID, errors.New("answer cannot be null"))
 		}
 		if field.Type == FieldTypeFileUpload {
 			if _, ok := value.(jobdb.Artifact); !ok {
 				value, err = storedDocument(value)
 				if err != nil {
-					return Output{}, fmt.Errorf("fields.%s: %w", field.ID, err)
+					return Output{}, fieldError(field.ID, err)
 				}
 			}
 			value, err = b.bind(value)
 			if err != nil {
-				return Output{}, fmt.Errorf("fields.%s: %w", field.ID, err)
+				return Output{}, fieldError(field.ID, err)
 			}
 			out.Fields[field.ID] = value
 		} else if err := validateAnswer(field, value); err != nil {
@@ -148,7 +154,7 @@ func acceptForm(form InputForm, sub FormSubmission, actor Actor, b *artifactBind
 	}
 	for id := range out.Fields {
 		if !known[id] {
-			return Output{}, fmt.Errorf("fields.%s: unknown question", id)
+			return Output{}, fieldError(id, errors.New("unknown question"))
 		}
 	}
 	for name, ref := range sub.ArtifactRefs {
@@ -165,7 +171,7 @@ func acceptForm(form InputForm, sub FormSubmission, actor Actor, b *artifactBind
 }
 
 func validateAnswer(field FormField, value any) error {
-	invalid := func() error { return fmt.Errorf("fields.%s: invalid %s answer", field.ID, field.Type) }
+	invalid := func() error { return fieldError(field.ID, fmt.Errorf("invalid %s answer", field.Type)) }
 	switch field.Type {
 	case FieldTypeShortAnswer, FieldTypeParagraphText, FieldTypeDate, FieldTypeTime:
 		if _, ok := value.(string); !ok {

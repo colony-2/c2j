@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"os/exec"
@@ -107,6 +108,13 @@ outputs:
 	require.Equal(t, "review", form.Kind)
 	require.Nil(t, form.ResponseSchema)
 	doc := form.Documents["design"]
+	opened, err := runtime.OpenReviewDocument(ctx, jobKey.TenantId, jobKey.JobId, form.RequestID, "design")
+	require.NoError(t, err)
+	require.Equal(t, doc, opened.Ref)
+	originalBytes, err := io.ReadAll(opened)
+	require.NoError(t, err)
+	require.NoError(t, opened.Close())
+	require.Equal(t, "# Design\nRecovery is explicit.\n", string(originalBytes))
 	details, err := runtime.GetDetails(ctx, jobKey.TenantId, jobKey.JobId)
 	require.NoError(t, err)
 	require.Equal(t, "review", *details.Form.Kind)

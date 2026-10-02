@@ -7,6 +7,13 @@ import (
 
 const singleQuestionFieldID = "response"
 
+// MissingRequiredFieldError identifies an unanswered required question.
+type MissingRequiredFieldError struct{ FieldID string }
+
+func (e *MissingRequiredFieldError) Error() string {
+	return fmt.Sprintf("required input field %q missing from output", e.FieldID)
+}
+
 type Config struct {
 	Question   string
 	Type       string
@@ -129,7 +136,7 @@ func normalizeOutputParts(form Config, parts *Output) error {
 				continue
 			}
 			if field.Required {
-				return fmt.Errorf("required input field %q missing from output", field.ID)
+				return &MissingRequiredFieldError{FieldID: field.ID}
 			}
 		}
 		return nil

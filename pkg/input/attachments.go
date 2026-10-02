@@ -56,10 +56,10 @@ func (b *artifactBinder) cleanup() {
 
 func (b *artifactBinder) addRef(name string, ref recipeartifacts.Ref) error {
 	if strings.TrimSpace(name) == "" {
-		return fmt.Errorf("attachment name is required")
+		return validationError("artifact_refs", "attachment name is required")
 	}
 	if old, ok := b.refs[name]; ok && old.Identity() != ref.Identity() {
-		return fmt.Errorf("attachment name %q refers to different artifacts; use distinct binding names", name)
+		return validationError("artifact_refs."+name, "attachment name refers to different artifacts; use distinct binding names")
 	}
 	b.refs[name] = ref
 	return nil
@@ -67,11 +67,11 @@ func (b *artifactBinder) addRef(name string, ref recipeartifacts.Ref) error {
 
 func (b *artifactBinder) checkRef(ref recipeartifacts.Ref) error {
 	if err := ref.Validate(); err != nil {
-		return err
+		return validationError("artifact", err.Error())
 	}
 	key, ok := ref.StoredKey()
 	if !ok {
-		return fmt.Errorf("structured input requires stored artifacts; snapshot external resources first")
+		return validationError("artifact", "input requires stored artifacts; snapshot external resources first")
 	}
 	if b.checked == nil {
 		b.checked = map[string]bool{}
@@ -80,19 +80,19 @@ func (b *artifactBinder) checkRef(ref recipeartifacts.Ref) error {
 		return nil
 	}
 	if key.JobId == b.job.JobId && key.TaskOrdinal == b.ordinal {
-		return fmt.Errorf("attachment %q has not been bound to this outcome", key.Name)
+		return validationError("artifact", fmt.Sprintf("attachment %q has not been bound to this outcome", key.Name))
 	}
 	a := b.resolve(key)
 	if a == nil {
-		return fmt.Errorf("attachment %q is unavailable", key.Name)
+		return runtimeError(ErrArtifactUnavailable, key.Name, nil)
 	}
 	r, err := a.Open()
 	if err != nil {
-		return fmt.Errorf("attachment %q: %w", key.Name, err)
+		return runtimeError(ErrArtifactUnavailable, key.Name, err)
 	}
 	defer r.Close()
 	if _, err := io.Copy(io.Discard, r); err != nil {
-		return fmt.Errorf("attachment %q: %w", key.Name, err)
+		return runtimeError(ErrArtifactUnavailable, key.Name, err)
 	}
 	b.checked[ref.Identity()] = true
 	return nil
@@ -104,35 +104,35 @@ func (b *artifactBinder) bind(value any) (any, error) {
 	}
 	if a, ok := value.(jobdb.Artifact); ok {
 		if reflect.ValueOf(a).Kind() == reflect.Ptr && reflect.ValueOf(a).IsNil() {
-			return nil, fmt.Errorf("nil attachment")
+			return nil, validationError("artifact", "nil attachment")
 		}
 		if key, err := a.ArtifactKey(); err == nil {
 			return b.bind(recipeartifacts.NewStoredRef(key))
 		}
 		if b.job.TenantId == "" || b.job.JobId == "" || b.ordinal <= 0 {
-			return nil, fmt.Errorf("new attachment requires a durable task identity")
+			return nil, runtimeError(ErrStorage, "bind attachment", fmt.Errorf("new attachment requires a durable task identity"))
 		}
 		if b.reserved[a.Name()] {
-			return nil, fmt.Errorf("duplicate attachment name %q", a.Name())
+			return nil, validationError("artifact", fmt.Sprintf("duplicate attachment name %q", a.Name()))
 		}
 		f, err := os.CreateTemp("", "c2j-input-attachment-*")
 		if err != nil {
-			return nil, err
+			return nil, runtimeError(ErrStorage, "snapshot attachment", err)
 		}
 		name := f.Name()
 		if err := a.WriteTo(b.ctx, f); err != nil {
 			_ = f.Close()
 			_ = os.Remove(name)
-			return nil, err
+			return nil, runtimeError(ErrStorage, "snapshot attachment", err)
 		}
 		if err := f.Close(); err != nil {
 			_ = os.Remove(name)
-			return nil, err
+			return nil, runtimeError(ErrStorage, "snapshot attachment", err)
 		}
 		frozen, err := jobdb.NewArtifactFromFile(a.Name(), name)
 		if err != nil {
 			_ = os.Remove(name)
-			return nil, err
+			return nil, runtimeError(ErrStorage, "snapshot attachment", err)
 		}
 		b.artifacts = append(b.artifacts, frozen)
 		key := jobdb.ArtifactKey{JobId: b.job.JobId, TaskOrdinal: b.ordinal, Name: a.Name(), SizeBytes: frozen.Size()}

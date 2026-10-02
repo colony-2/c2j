@@ -588,6 +588,9 @@ func toOpenAPIInputFormConfig(form InputForm) openapi.InputFormConfig {
 	if value, err := time.Parse(time.RFC3339Nano, form.FallbackAt); err == nil {
 		out.FallbackAt = &value
 	}
+	if value, err := time.Parse(time.RFC3339Nano, form.RequestedAt); err == nil {
+		out.RequestedAt = &value
+	}
 	if form.Kind != "" {
 		out.Kind = &form.Kind
 	}
