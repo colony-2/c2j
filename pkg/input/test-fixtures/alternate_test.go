@@ -30,7 +30,7 @@ import (
 func TestUnansweredRecipeLifecycle(t *testing.T) {
 	ensureFixtureOps()
 	for _, backend := range []string{"sqlite", "remote"} {
-		for _, mode := range []string{"fallback", "human-late", "review", "structured"} {
+		for _, mode := range []string{"before-fallback", "fallback", "human-late", "review", "structured"} {
 			t.Run(backend+"/"+mode, func(t *testing.T) {
 				ctx := context.Background()
 				source := `id: unanswered
@@ -136,7 +136,14 @@ outputs:
 				engine = jobdbschema.WorkflowEngine{Engine: engine, Registry: rt.(jobdb.JobSchemaRegistry)}
 				ctl.Engine = engine
 				jobCtx, gitCtx := generateTestContext(repo, hash, nil, nil)
-				key, err := starter.StartRecipeJob(ctx, workflowctl.StartJob{TenantId: "alternate", RecipeName: rec.GetMetadata().ID, Inputs: map[string]any{"fallback": "defer", "delay": "600ms"}, JobContext: jobCtx, GitRef: gitCtx.ParentRef}, engine, *rec)
+				delay := "600ms"
+				if mode == "before-fallback" {
+					// Give the early-acquisition check its own long-lived wait. A
+					// probe in the short-delay cases can legitimately acquire and
+					// complete the fallback when CI takes longer than 600ms.
+					delay = "1h"
+				}
+				key, err := starter.StartRecipeJob(ctx, workflowctl.StartJob{TenantId: "alternate", RecipeName: rec.GetMetadata().ID, Inputs: map[string]any{"fallback": "defer", "delay": delay}, JobContext: jobCtx, GitRef: gitCtx.ParentRef}, engine, *rec)
 				require.NoError(t, err)
 				run := func() jobworkflow.JobRunOutcome {
 					runnable, err := jobworkflow.GetJobForRun(ctx, rt, jobworkflow.GetJobForRunRequest{JobKey: key, JobWorker: workers.JobWorker, TaskWorkers: tasks, WorkerID: "recipe-worker", LeaseDuration: time.Minute})
@@ -153,7 +160,13 @@ outputs:
 				require.NoError(t, err)
 				at, err := time.Parse(time.RFC3339Nano, form.FallbackAt)
 				require.NoError(t, err)
-				require.False(t, run().LeaseAcquired, "alternate worker must not execute early")
+				if mode == "before-fallback" {
+					require.False(t, run().LeaseAcquired, "alternate worker must not execute early")
+					stillPending, err := client.GetForm(ctx, key.TenantId, key.JobId)
+					require.NoError(t, err)
+					require.Equal(t, form, stillPending)
+					return
+				}
 				details, err := client.GetDetails(ctx, key.TenantId, key.JobId)
 				require.NoError(t, err)
 				require.NotNil(t, details.Form.FallbackAt)
