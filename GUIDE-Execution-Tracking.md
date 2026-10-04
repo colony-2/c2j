@@ -317,6 +317,26 @@ cancellation and expiry retain `canceled` and `timed_out`. A job still active,
 waiting, or scheduled to retry returns `ErrOutcomePending`, even if an earlier
 attempt failed. A failed attempt alone is not a terminal workflow failure.
 
+For a recipe-shaped history, use `story.Service.GetJobRunStory`. A failed job
+can return a complete story without an API error: the failure belongs to the
+recorded execution. A storage, recipe-loading, or reconstruction error is returned
+to the caller and must not be presented as a successfully loaded story.
+
+Check errors with `errors.Is`. `story.ErrJobRunStoryIncomplete` means replay
+omitted persisted task or job-attempt events; a returned partial tree is only
+useful for diagnostics. `story.ErrJobRunStoryMismatch` identifies a determinism
+mismatch. Errors preserve underlying causes and may match both sentinels. A
+normal replay cache miss at unfinished work remains a running story, provided
+all previously recorded outcomes were replayed. Reading a story never runs task
+workers or writes execution history.
+
+Library hosts such as Cortex must register the ops referenced by stored recipes,
+including ops in branches that have not executed. Replay still parses the whole
+recipe and needs the op definitions and schemas. Missing registrations now
+return a recipe-loading error instead of continuing with an empty recipe.
+Render `root.past_attempts` for previous job attempts and `prior_attempts` where
+present for task retries; node IDs must be scoped by job attempt in a UI.
+
 `--all` fetches all matching pages, not all statuses. Without it, inspect
 `next_page_token` in JSON or the token printed below the table. Pass the token
 back with the same filters:

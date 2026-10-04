@@ -160,12 +160,22 @@ func BuildJobRunStory(ctx context.Context, engine replayJobRunner, jobKey jobdb.
 		rootResolver = replayRootSourceResolver{}
 	}
 
+	// Capture the history before replay: completed chapters are immutable.
+	var recorded *jobdb.GetJobRunResponse
+	if reader, ok := engine.(jobRunReader); ok {
+		run, err := reader.GetJobRun(ctx, jobdb.GetJobRunRequest{JobKey: jobKey})
+		if err != nil {
+			return nil, fmt.Errorf("read job story history: %w", err)
+		}
+		recorded = &run
+	}
 	rec := NewRecorder(Options{JobKey: jobKey, Logger: logger})
+	events := newReplayEvents(rec.Observer())
 	var history coreworkflow.TaskHistoryReader
 	if full, ok := engine.(jobworkflow.Engine); ok {
 		history = &workerworkflow.SWFWorkflowControl{Engine: full}
 	}
-	jobWorker := compiler.NewRecipeJobWorker(compiler.RecipeJobWorkerOptions{
+	jobWorker := &replayRecipeWorker{JobWorker: compiler.NewRecipeJobWorker(compiler.RecipeJobWorkerOptions{
 		TaskHistory:            history,
 		ReadOnlyReplay:         true,
 		CELOptionsProvider:     celProvider,
@@ -173,31 +183,40 @@ func BuildJobRunStory(ctx context.Context, engine replayJobRunner, jobKey jobdb.
 		OnRecipeSourceResolved: rec.OnRecipeSourceResolved,
 		RootSourceResolver:     rootResolver,
 		ExecutorFactory:        rec.ExecutorFactory(),
-	})
+	})}
 
 	_, replayErr := engine.ReplayJobRun(ctx, jobworkflow.ReplayRunRequest{
 		JobKey:    jobKey,
-		Observer:  rec.Observer(),
+		Observer:  events,
 		JobWorker: jobWorker,
 	})
 
 	story := rec.Finalize(replayErr)
-	if replayErr == nil {
+	if errors.Is(replayErr, context.Canceled) || errors.Is(replayErr, context.DeadlineExceeded) || errors.Is(replayErr, jobdb.ErrJobNotFound) {
+		return nil, replayErr
+	}
+	if recorded != nil {
+		if err := events.validate(*recorded); err != nil {
+			return story, jobWorker.withCause(errors.Join(err, replayErr))
+		}
+	}
+	if replayErr == nil || isReplayCacheMissErr(replayErr) {
 		return story, nil
-	}
-	if errors.Is(replayErr, context.Canceled) || errors.Is(replayErr, context.DeadlineExceeded) {
-		return nil, replayErr
-	}
-	if errors.Is(replayErr, jobdb.ErrJobNotFound) {
-		return nil, replayErr
 	}
 	if errors.Is(replayErr, jobdb.ErrWorkflowNotDeterministic) {
-		return story, replayErr
+		return story, jobWorker.withCause(replayErr)
 	}
-	if isReplayCacheMissErr(replayErr) {
+	// A recorded job failure is data, not a failure to reconstruct its story.
+	// Only accept it after verifying the history was replayed completely.
+	if recorded != nil && len(recorded.Attempts) > 0 {
+		last := recorded.Attempts[len(recorded.Attempts)-1]
+		if last.Outcome.Error != nil && last.Outcome.Error.Message == replayErr.Error() && events.endedWith(replayErr) {
+			return story, nil
+		}
+	} else if story.Root != nil && story.Root.Status == model.JobRunStoryNodeStatusFailed && events.endedWith(replayErr) {
 		return story, nil
 	}
-	return story, nil
+	return story, jobWorker.withCause(fmt.Errorf("reconstruct job story: %w", replayErr))
 }
 
 func (r *Recorder) Observer() jobworkflow.ReplayObserver {

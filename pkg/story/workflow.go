@@ -7,6 +7,7 @@ import (
 	workflowapi "github.com/colony-2/c2j/pkg/story/api"
 	"github.com/colony-2/c2j/pkg/story/internal/model"
 	"github.com/colony-2/c2j/pkg/story/internal/service"
+	storylive "github.com/colony-2/c2j/pkg/story/live"
 	"github.com/colony-2/c2j/pkg/template"
 	"github.com/colony-2/c2j/pkg/worker/compiler"
 	"github.com/colony-2/jobdb/pkg/jobdb"
@@ -77,14 +78,15 @@ const (
 )
 
 var (
-	ErrNotFound             = service.ErrNotFound
-	ErrWorkflowNotInProject = service.ErrWorkflowNotInProject
-	ErrInvalidProject       = service.ErrInvalidProject
-	ErrInvalidCell          = service.ErrInvalidCell
-	ErrRecipeNotFound       = service.ErrRecipeNotFound
-	ErrEngineUnavailable    = service.ErrEngineUnavailable
-	ErrOutcomePending       = service.ErrOutcomePending
-	ErrJobRunStoryMismatch  = service.ErrJobRunStoryMismatch
+	ErrNotFound              = service.ErrNotFound
+	ErrWorkflowNotInProject  = service.ErrWorkflowNotInProject
+	ErrInvalidProject        = service.ErrInvalidProject
+	ErrInvalidCell           = service.ErrInvalidCell
+	ErrRecipeNotFound        = service.ErrRecipeNotFound
+	ErrEngineUnavailable     = service.ErrEngineUnavailable
+	ErrOutcomePending        = service.ErrOutcomePending
+	ErrJobRunStoryMismatch   = service.ErrJobRunStoryMismatch
+	ErrJobRunStoryIncomplete = storylive.ErrIncompleteReplay
 )
 
 type Service interface {

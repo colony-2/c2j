@@ -171,8 +171,10 @@ func (j recipeJobWorker) Run(ctx jobworkflow.JobContext, jobData jobdb.JobData) 
 		WasAlreadyPinned:  true,
 	}
 	var r recipe.Recipe
+	// Keep the load error separate from errors scoped to source resolution.
+	var loadErr error
 	if hasEmbeddedRecipeArtifact {
-		r, err = recipes.GetRecipe(input.RecipeName)
+		r, loadErr = recipes.GetRecipe(input.RecipeName)
 	} else {
 		if j.rootResolver == nil {
 			err = fmt.Errorf("recipe source resolver not configured to load non-artifact selector %q", input.RecipeName)
@@ -223,18 +225,21 @@ func (j recipeJobWorker) Run(ctx jobworkflow.JobContext, jobData jobdb.JobData) 
 		resolution = resolvedSource.RecipeSourceResolution
 
 		if strings.TrimSpace(resolvedSource.RecipeYAML) != "" {
-			r, err = resolvedSource.LoadRecipe()
+			r, loadErr = resolvedSource.LoadRecipe()
 		} else {
-			r, err = j.rootResolver.Load(context.Background(), strings.TrimSpace(input.TenantId), resolution)
+			r, loadErr = j.rootResolver.Load(context.Background(), strings.TrimSpace(input.TenantId), resolution)
 		}
 	}
-	if err != nil {
+	if loadErr == nil && r.RecipeImpl == nil {
+		loadErr = fmt.Errorf("recipe source returned an empty recipe")
+	}
+	if loadErr != nil {
 		logger.Error("recipe job: failed to load recipe",
-			"error", err,
-			"error_chain", logutil.ErrorChain(err),
+			"error", loadErr,
+			"error_chain", logutil.ErrorChain(loadErr),
 			"stacktrace", logutil.Stacktrace(5),
 		)
-		return nil, err
+		return nil, fmt.Errorf("load recipe %q: %w", input.RecipeName, loadErr)
 	}
 
 	if j.onSourceResolved != nil {

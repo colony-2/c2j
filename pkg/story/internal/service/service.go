@@ -589,7 +589,7 @@ func (s *Service) GetJobRunStory(ctx context.Context, req model.GetJobRunStoryRe
 			return nil, ErrNotFound
 		}
 		if errors.Is(err, jobdb.ErrWorkflowNotDeterministic) {
-			return st, ErrJobRunStoryMismatch
+			return st, fmt.Errorf("%w: %w", ErrJobRunStoryMismatch, err)
 		}
 		return st, err
 	}
