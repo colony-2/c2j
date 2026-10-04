@@ -2,7 +2,6 @@ package story_test
 
 import (
 	"context"
-	"errors"
 	"net/http/httptest"
 	"path/filepath"
 	"sync/atomic"
@@ -60,7 +59,7 @@ func (r historicalStoryRuntime) GetChapter(ctx context.Context, ref jobdb.Chapte
 	return c, err
 }
 
-func TestStoryAPIReplaysPersistedAttemptsOrReportsIncompleteHistory(t *testing.T) {
+func TestStoryAPIReplaysAllPersistedAttemptsAfterDeadlines(t *testing.T) {
 	coreops.Register(coreops.NewActivityMappedOpV2[struct{}, map[string]any](coreops.OpMetadata{Type: replayTestOp}, func(coreops.OpDependencies, context.Context, struct{}) (map[string]any, error) {
 		panic("replay must not execute ops")
 	}))
@@ -117,39 +116,32 @@ func TestStoryAPIReplaysPersistedAttemptsOrReportsIncompleteHistory(t *testing.T
 					svc, err := story.New(story.ServiceConfig{Engine: replayEngine})
 					require.NoError(t, err)
 					st, err := svc.GetJobRunStory(ctx, story.GetJobRunStoryRequest{ProjectID: key.TenantId, JobID: key.JobId})
-					// JobDB v0.0.23 omits historical task events after expiry and the final
-					// job-end event on exhausted retries. Until upstream fixes those paths,
-					// the API must explicitly reject the partial reconstruction. When replay
-					// succeeds, require every attempt and recorded failure in the tree.
-					if errors.Is(err, story.ErrJobRunStoryIncomplete) {
-						require.True(t, historical != "current" || mode.name == "exhausted retries", "healthy replay unexpectedly incomplete: %v", err)
-					} else {
-						require.NoError(t, err)
-						require.NotNil(t, st.Root)
-						require.Len(t, st.Root.PastAttempts, mode.attempts-1)
-						want := story.WorkflowStatusCompleted
-						if mode.name == "exhausted retries" {
-							want = story.WorkflowStatusFailed
-						}
-						require.Equal(t, want, st.Status)
-						failures := map[int64]bool{}
-						var visit func(*story.JobRunStoryNode)
-						visit = func(n *story.JobRunStoryNode) {
-							if n == nil {
-								return
-							}
-							if n.TaskOrdinal != nil && string(n.Status) == "failed" {
-								failures[*n.TaskOrdinal] = true
-							}
-							for _, list := range [][]*story.JobRunStoryNode{n.Children, n.PastAttempts, n.PriorAttempts} {
-								for _, child := range list {
-									visit(child)
-								}
-							}
-						}
-						visit(st.Root)
-						require.Len(t, failures, mode.failed)
+					// Completed history must replay fully regardless of today's deadlines.
+					require.NoError(t, err, "replay with %s", historical)
+					require.NotNil(t, st.Root)
+					require.Len(t, st.Root.PastAttempts, mode.attempts-1)
+					want := story.WorkflowStatusCompleted
+					if mode.name == "exhausted retries" {
+						want = story.WorkflowStatusFailed
 					}
+					require.Equal(t, want, st.Status)
+					failures := map[int64]bool{}
+					var visit func(*story.JobRunStoryNode)
+					visit = func(n *story.JobRunStoryNode) {
+						if n == nil {
+							return
+						}
+						if n.TaskOrdinal != nil && string(n.Status) == "failed" {
+							failures[*n.TaskOrdinal] = true
+						}
+						for _, list := range [][]*story.JobRunStoryNode{n.Children, n.PastAttempts, n.PriorAttempts} {
+							for _, child := range list {
+								visit(child)
+							}
+						}
+					}
+					visit(st.Root)
+					require.Len(t, failures, mode.failed)
 					require.Equal(t, executions, task.calls.Load(), "story reads must not re-execute tasks")
 					after, err := rt.ListChapters(ctx, jobdb.ListChaptersRequest{JobKey: key})
 					require.NoError(t, err)

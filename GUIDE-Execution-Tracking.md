@@ -328,7 +328,9 @@ useful for diagnostics. `story.ErrJobRunStoryMismatch` identifies a determinism
 mismatch. Errors preserve underlying causes and may match both sentinels. A
 normal replay cache miss at unfinished work remains a running story, provided
 all previously recorded outcomes were replayed. Reading a story never runs task
-workers or writes execution history.
+workers or writes execution history. Completed attempts retain their recorded
+outcomes even after their original job or task deadlines have passed. The
+caller's context can still cancel or bound the story read.
 
 Library hosts such as Cortex must register the ops referenced by stored recipes,
 including ops in branches that have not executed. Replay still parses the whole
