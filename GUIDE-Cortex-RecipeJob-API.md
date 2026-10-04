@@ -152,8 +152,9 @@ resp, err := recipejob.ListRecipeJobs(ctx, engine, recipejob.ListRecipeJobsReque
 })
 ```
 
-`resp.Jobs` contains job ID, status, store, recipe name, repository source, cell
-name, git ref, JobDB timestamps, wait state, and cancellation state.
+`resp.Jobs` contains job ID, scheduler status, completion status/detail, store,
+recipe name, repository source, cell name, git ref, JobDB timestamps, wait state,
+and cancellation state.
 `resp.NextPageToken` is the JobDB cursor for the next request.
 
 To match c2j CLI's default visible list:
@@ -179,6 +180,42 @@ if errors.Is(err, recipejob.ErrJobNotFound) {
     return nil
 }
 ```
+
+## Completion Results
+
+`RecipeJob.CompletionStatus` and `CompletionDetail` copy JobDB's persisted final
+result. They are available through ordinary listings, `GetRecipeJob`, child
+listings (including `ListChildRecipeJobsFromWorkflow`), and CLI JSON. For example,
+a failed job can have these fields:
+
+```json
+{
+  "job_id": "example-job",
+  "status": "COMPLETED",
+  "store": "ARCHIVED",
+  "completion_status": "failed_system",
+  "completion_detail": "container exited with status 1",
+  "execution": {"status": "not_waiting", "source": "unavailable"}
+}
+```
+
+| Field | Meaning |
+| --- | --- |
+| `status` | Scheduler state; `COMPLETED` alone does not establish success. |
+| `completion_status` | Persisted terminal result: `success`, `failed_app`, `failed_system`, `failed_timeout`, or `cancelled`. Unknown future values pass through unchanged. |
+| `completion_detail` | Original detail text, preserved verbatim; an empty detail is valid. |
+| `execution.status` | Execution-requirement availability, such as `in_flight` or `not_waiting`; independent of completion. |
+
+An empty completion status means unavailable, including when an older server or
+record lacks it. Empty completion fields are omitted from JSON. Do not interpret
+missing status as success, a failed earlier attempt as terminal failure, or
+`cancel_requested` as completed cancellation. The projection never loads a recipe
+or reads history/story data to infer missing completion fields.
+
+Existing status filters, pagination, and active/archive selection are unchanged.
+Select `jobdb.JobStatusCompleted` to include completed jobs; the default visible
+statuses exclude them. The standalone [job listing API](pkg/joblist/README.md)
+exposes the same fields.
 
 ## Execution Requirements
 

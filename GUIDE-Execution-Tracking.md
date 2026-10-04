@@ -306,9 +306,20 @@ recipe-step outcomes:
 | `COMPLETED` | Execution has been finalized; this alone does not establish recipe success. |
 | `CANCELLED` | The runtime reports cancellation. |
 
-There is no `--status failed` filter. Use recipe execution history/outcomes to
-distinguish success from failure. A pending human-input task can be `READY`
-for that task route; it does not have a separate human-input status.
+There is no `--status failed` filter. JSON listings expose JobDB's persisted
+`completion_status` and `completion_detail` separately from scheduler `status`:
+
+```bash
+c2j list --self --status completed --json --embed
+```
+
+Completion categories are `success`, `failed_app`, `failed_system`,
+`failed_timeout`, and `cancelled`; unknown future categories pass through.
+Missing completion status means unavailable, not success. Empty detail is valid,
+and any supplied detail is preserved verbatim. Listings never read history or
+replay a story to infer missing fields. `execution.status` still describes the
+execution-requirement view, not completion. A pending human-input task can be
+`READY` for that task route; it does not have a separate human-input status.
 
 For library consumers, `story.Service.GetWorkflowOutcome` reconciles a terminal
 `COMPLETED` job with its final attempt: success returns `completed`; application

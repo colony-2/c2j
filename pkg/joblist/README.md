@@ -34,8 +34,8 @@ if err != nil {
 }
 for _, job := range page.Jobs {
     // TenantID, JobID, RepositorySource, Status, AvailableAt, CancelRequested,
-    // NextRoute, and Execution are typed fields. No CLI JSON parsing is needed.
-    fmt.Println(job.JobID, job.Status, job.Execution.Status)
+    // NextRoute, CompletionStatus, CompletionDetail, and Execution are typed fields.
+    fmt.Println(job.JobID, job.Status, job.CompletionStatus, job.CompletionDetail)
 }
 ```
 
@@ -118,6 +118,34 @@ helper rejects a non-advancing backend cursor.
 Pagination does not create a transactional snapshot. Job states and demands
 can change between calls. A listing is discovery information, not a lease or
 a promise that a job remains runnable.
+
+## Completion information
+
+`Job.Status` is the scheduler state. For terminal results, read
+`Job.CompletionStatus` and `Job.CompletionDetail`, copied directly from JobDB's
+persisted summary. Query completed jobs explicitly:
+
+```go
+query.Statuses = []jobdb.JobStatus{jobdb.JobStatusCompleted}
+page, err = client.List(ctx, query)
+```
+
+A job can have scheduler status `COMPLETED` and completion status `failed_system`.
+Other known completion categories are `success`, `failed_app`, `failed_timeout`,
+and `cancelled`. Unknown categories and detail text are preserved verbatim.
+An empty status means unavailable, not success; an empty detail is valid. Empty
+fields are omitted from JSON as `completion_status` and `completion_detail`.
+Older servers and records without completion information remain usable.
+
+Failed tasks or attempts do not imply final failure while a job is retrying.
+Likewise, `CancelRequested` is independent of terminal cancellation.
+`Job.Execution.Status` continues to describe the execution-requirement view;
+for a completed job it is `not_waiting`, regardless of the completion category.
+No history, story, or recipe reads are made to infer a missing result.
+
+These fields also appear in ordinary and child CLI JSON listings and the
+[`recipejob` APIs](../../GUIDE-Cortex-RecipeJob-API.md#completion-results).
+Filters, pagination, and store selection keep their existing behavior.
 
 ## Execution information
 

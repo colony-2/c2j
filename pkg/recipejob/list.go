@@ -65,6 +65,10 @@ type GetRecipeJobRequest struct {
 }
 
 type RecipeJob struct {
+	// Completion fields are persisted terminal results, separate from scheduler Status.
+	// Empty status means unavailable; empty detail is valid. Both are preserved verbatim.
+	CompletionStatus      string             `json:"completion_status,omitempty"`
+	CompletionDetail      string             `json:"completion_detail,omitempty"`
 	Execution             execution.View     `json:"execution"`
 	ClientPayload         json.RawMessage    `json:"client_payload,omitempty"`
 	ClientPayloadRevision int64              `json:"client_payload_revision"`
@@ -341,6 +345,8 @@ func RecipeJobFromSummary(summary jobdb.JobSummary) (RecipeJob, bool, error) {
 	}
 
 	job := RecipeJob{
+		CompletionStatus:      summary.CompletionStatus,
+		CompletionDetail:      summary.CompletionDetail,
 		Execution:             ExecutionView(summary),
 		ClientPayload:         append(json.RawMessage(nil), summary.ClientPayload...),
 		ClientPayloadRevision: summary.ClientPayloadRevision,
