@@ -53,6 +53,16 @@ checkpoints and jobs pinned to the previous schema are not migrated by this
 change. Do not resume those histories under the new worker expecting transparent
 compatibility. No existing data is deleted or rewritten automatically.
 
+Timed input retrieval supports the checkpoint format introduced in v0.0.58.
+The c2j workflow adapter follows the admission checkpoint's recorded input
+reference to the exact successful `input:generate_form` result, preserving its
+form, artifacts, Git snapshot, and workspace context. It rejects invalid
+references and unrelated task outputs instead of searching for an older form.
+The original JobDB task handle still completes the wait with its original
+ordinal and input hash. This retrieval fix does not change checkpoint inputs,
+outputs, schema, or deadline calculations; existing checkpoint histories remain
+readable. It does not migrate histories from before checkpoints were introduced.
+
 The schema also now accepts JobDB's structured timeout payload for both task
 and final outcomes. Previously it incorrectly required a string, preventing
 typed timeout completion.

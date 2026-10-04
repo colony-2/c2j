@@ -5,13 +5,14 @@ import (
 	"fmt"
 	"time"
 
+	coretask "github.com/colony-2/c2j/pkg/task"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
 )
 
 // TimeoutCheckpointTaskType records scope entry and task admission times in
 // the ordinary replay log. It performs no application work.
-const TimeoutCheckpointTaskType = "recipe_timeout_checkpoint"
+const TimeoutCheckpointTaskType = coretask.TimeoutCheckpointTaskType
 
 type timeoutCheckpointInput struct {
 	Kind    string        `json:"kind"`

@@ -176,6 +176,14 @@ counts, summaries, or kind filters. Fetch `GetForm` when you need those details.
 The legacy `ListPendingInputs` keeps its ID-only response and now follows all
 backend pages rather than silently truncating the list.
 
+Forms under recipe or op timeouts use these same APIs. With
+`workflow.SWFWorkflowControl`, c2j resolves the prepared form through its recorded
+timeout admission checkpoint while retaining the original task's completion
+guards. This also supports v0.0.58 histories without rewriting them. After a
+worker records terminal timeout, discovery omits the input and submissions
+return `ErrInputNotPending`. Passing the deadline alone does not add a new API
+rejection rule; an enclosing job deadline may still fail the job when it resumes.
+
 ## Open an original review document
 
 ```go

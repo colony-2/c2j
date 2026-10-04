@@ -28,6 +28,7 @@ type waitingTaskHandle struct {
 }
 
 func (h waitingTaskHandle) TaskOrdinalToComplete() int64 { return h.ordinal }
+func (h waitingTaskHandle) TaskType() string             { return "input:collect" }
 func (h waitingTaskHandle) Data() (jobdb.TaskData, error) {
 	return jobdb.NewTaskDataOrPanic(map[string]bool{"prompt": true}), nil
 }

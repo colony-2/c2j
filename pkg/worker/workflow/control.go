@@ -27,6 +27,9 @@ func (s *SWFWorkflowControl) GetWaitingTask(ctx context.Context, jobKey jobdb.Jo
 	if err != nil {
 		return nil, err
 	}
+	if e != nil && e.TaskType() == "input:collect_user_input" {
+		return &preparedInputTaskHandle{TaskHandle: e, engine: s.Engine, ctx: ctx}, nil
+	}
 	return e, nil
 }
 
@@ -196,7 +199,7 @@ func (t *taskDataGetter) checkLoad() error {
 	if t.outputOrdinal == nil {
 		return fmt.Errorf("ordinal is required")
 	}
-	handle, err := t.engine.GetWaitingTask(context.Background(), t.jobKey)
+	handle, err := (&SWFWorkflowControl{Engine: t.engine}).GetWaitingTask(context.Background(), t.jobKey)
 	if err != nil {
 		return err
 	}
