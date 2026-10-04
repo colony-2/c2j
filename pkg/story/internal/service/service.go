@@ -516,6 +516,11 @@ func (s *Service) GetWorkflowOutcome(ctx context.Context, req model.GetWorkflowO
 	}
 
 	status := mapWorkflowStatus(run.Job.Status)
+	// An unsuccessful attempt is not a terminal outcome while the job is
+	// active, waiting, or scheduled to retry.
+	if status == model.WorkflowStatusRunning {
+		return nil, ErrOutcomePending
+	}
 
 	var attemptOrdinal *int64
 	var output map[string]interface{}
@@ -531,14 +536,7 @@ func (s *Service) GetWorkflowOutcome(ctx context.Context, req model.GetWorkflowO
 		hasOutput := latest.Output != nil && len(latest.Output.Data) > 0
 		hasError := latest.Outcome.Error != nil || latest.Outcome.Status == jobdb.TaskOutcomeStatusFailed
 
-		if !hasOutput && !hasError && status == model.WorkflowStatusRunning {
-			return nil, ErrOutcomePending
-		}
-
-		// Preserve existing surface: only set AttemptOrdinal when we have a terminal-ish signal.
-		if hasOutput || hasError || status != model.WorkflowStatusRunning {
-			attemptOrdinal = &latest.Ordinal
-		}
+		attemptOrdinal = &latest.Ordinal
 		if hasOutput {
 			if m := mapFromRaw(latest.Output.Data); m != nil {
 				output = *m
@@ -551,12 +549,11 @@ func (s *Service) GetWorkflowOutcome(ctx context.Context, req model.GetWorkflowO
 			msg := "task failed"
 			errMsg = &msg
 		}
-		// If job status is still running but the current attempt is failed, surface failed status.
-		if status == model.WorkflowStatusRunning && latest.Outcome.Status == jobdb.TaskOutcomeStatusFailed {
+		// COMPLETED is JobDB's terminal lifecycle state for both success and
+		// failure. Preserve cancellation/expiry statuses while reconciling it.
+		if run.Job.Status == jobdb.JobStatusCompleted && hasError {
 			status = model.WorkflowStatusFailed
 		}
-	} else if status == model.WorkflowStatusRunning {
-		return nil, ErrOutcomePending
 	}
 
 	artifacts := aggregateArtifacts(run.Attempts, projectID, jobID)

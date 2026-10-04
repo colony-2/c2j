@@ -310,6 +310,13 @@ There is no `--status failed` filter. Use recipe execution history/outcomes to
 distinguish success from failure. A pending human-input task can be `READY`
 for that task route; it does not have a separate human-input status.
 
+For library consumers, `story.Service.GetWorkflowOutcome` reconciles a terminal
+`COMPLETED` job with its final attempt: success returns `completed`; application
+errors and execution timeouts return `failed` with the recorded error. Scheduler
+cancellation and expiry retain `canceled` and `timed_out`. A job still active,
+waiting, or scheduled to retry returns `ErrOutcomePending`, even if an earlier
+attempt failed. A failed attempt alone is not a terminal workflow failure.
+
 `--all` fetches all matching pages, not all statuses. Without it, inspect
 `next_page_token` in JSON or the token printed below the table. Pass the token
 back with the same filters:
