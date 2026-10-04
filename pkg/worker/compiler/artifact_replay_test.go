@@ -57,7 +57,12 @@ func (j artifactOrderJob) Run(ctx jobworkflow.JobContext, _ jobdb.JobData) (jobd
 	req := workerops.ActivityInvocationRequest{Input: map[string]any{"text": j.input}, ArtifactKeys: keys}
 	td := jobdb.NewTaskDataOrPanic(req, jobdb.NewArtifactFromBytes("input-pack", []byte(j.pack)))
 	if j.legacy {
-		return ctx.DoTask(jobdb.RunPolicy{}, "probe:run", td)
+		out, err := ctx.DoTask(jobdb.RunPolicy{}, "probe:run", td)
+		if err != nil {
+			return nil, err
+		}
+		_, err = ctx.DoTask(jobdb.RunPolicy{}, "probe:run", jobdb.NewTaskDataOrPanic("following task"))
+		return out, err
 	}
 	forwarder := newThinPackForwardingJobContext(ctx)
 	forwarder.history = j.history
@@ -68,7 +73,9 @@ func (j artifactOrderJob) Run(ctx jobworkflow.JobContext, _ jobdb.JobData) (jobd
 	if err != nil {
 		return nil, err
 	}
-	return out, nil
+	// A second task proves recovery advanced the cursor exactly once.
+	_, err = ctx.DoTask(jobdb.RunPolicy{}, "probe:run", jobdb.NewTaskDataOrPanic("following task"))
+	return out, err
 }
 
 type artifactOrderTask struct{ calls atomic.Int32 }
@@ -91,7 +98,7 @@ func TestReplayLegacyArtifactOrderWithRealJobDB(t *testing.T) {
 	key, err := engine.SubmitJob(ctx, jobdb.SubmitJob{TenantId: "tenant", JobType: old.Name(), Data: jobdb.NewTaskDataOrPanic(map[string]any{}), RunPolicy: jobdb.DefaultRunPolicy()})
 	require.NoError(t, err)
 	require.NoError(t, jobworkflow.WaitForJobToComplete(ctx, 5*time.Second, key, engine))
-	require.EqualValues(t, 1, task.calls.Load())
+	require.EqualValues(t, 2, task.calls.Load())
 	observedSuccess := errors.New("replay did not execute the job worker")
 	fixed := artifactOrderJob{observed: &observedSuccess, history: &workerworkflow.SWFWorkflowControl{Engine: engine}, pack: "original", input: "original"}
 	out, err := engine.ReplayJobRun(ctx, jobworkflow.ReplayRunRequest{JobKey: key, JobWorker: fixed})
@@ -115,10 +122,9 @@ func TestReplayLegacyArtifactOrderWithRealJobDB(t *testing.T) {
 		}
 		var observed error
 		altered.observed = &observed
-		// JobDB may return the cached job result after an earlier task error;
-		// assert the compiler rejects the changed task before that outer layer.
-		_, _ = engine.ReplayJobRun(ctx, jobworkflow.ReplayRunRequest{JobKey: key, JobWorker: altered})
+		_, replayErr := engine.ReplayJobRun(ctx, jobworkflow.ReplayRunRequest{JobKey: key, JobWorker: altered})
+		require.ErrorIs(t, replayErr, jobworkflow.ErrWorkflowNotDeterministic, change)
 		require.ErrorIs(t, observed, jobworkflow.ErrWorkflowNotDeterministic, change)
 	}
-	require.EqualValues(t, 1, task.calls.Load(), "replay must never re-execute the task")
+	require.EqualValues(t, 2, task.calls.Load(), "replay must never re-execute the task")
 }

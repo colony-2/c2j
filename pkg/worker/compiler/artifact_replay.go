@@ -15,8 +15,8 @@ import (
 )
 
 // Older compilers serialized artifact dependency sets in map iteration order.
-// Recover only this permutation, using the recorded outcome at the consumed
-// ordinal. Never execute a task again to repair a replay mismatch.
+// Recover only this permutation at the unchanged replay ordinal. Verify the
+// recorded outcome before letting JobDB consume it with the original input.
 type taskHistoryReader = workflow.TaskHistoryReader
 
 func configureArtifactReplay(a *thinpackForwarder, ctx workflow.Context) {
@@ -26,7 +26,7 @@ func configureArtifactReplay(a *thinpackForwarder, ctx workflow.Context) {
 	}
 }
 
-func (a *thinpackForwarder) recoverArtifactOrder(taskType string, data jobdb.TaskData, err error) (jobdb.TaskData, bool, error) {
+func (a *thinpackForwarder) recoverArtifactOrder(taskType string, data jobdb.TaskData, err error, invoke func(jobdb.TaskData) (jobdb.TaskData, error)) (jobdb.TaskData, bool, error) {
 	mismatch, ok := jobworkflow.UnexpectedChapter(err)
 	if !ok || a.history == nil || mismatch.TaskType != taskType || len(mismatch.CachedInput) == 0 {
 		return nil, false, nil
@@ -69,7 +69,14 @@ func (a *thinpackForwarder) recoverArtifactOrder(taskType string, data jobdb.Tas
 	if out == nil {
 		return nil, false, fmt.Errorf("cached task %s ordinal %d has no output", taskType, mismatch.Ordinal)
 	}
-	return out, true, nil
+	// A mismatch no longer advances JobDB's cursor. Replaying the verified
+	// original input lets JobDB consume the cached task and emit its events;
+	// returning the cached output directly would leave the cursor behind.
+	recorded := jobworkflow.WithTaskOptions(&jobdb.SimpleTaskData{
+		Data: original, Artifacts: artifacts,
+	}, jobworkflow.TaskOptionsFor(data))
+	out, e = invoke(recorded)
+	return out, true, e
 }
 
 func canonicalArtifactOrder(raw []byte) ([]byte, error) {
