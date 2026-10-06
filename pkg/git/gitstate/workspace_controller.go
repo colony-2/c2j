@@ -17,8 +17,6 @@ import (
 
 const ThinPackArtifactName = "__git_state_thin_pack__"
 
-const defaultGitAuthor = "c2j <c2j@colony2>"
-
 // Controller orchestrates cloning, restoring, and persisting git state per activity invocation.
 type Controller struct {
 	adapters map[string]StorageAdapter
@@ -518,15 +516,12 @@ func checkoutAndTrackRef(ctx context.Context, repoPath, ref string) (string, err
 
 func persistAuthor(task *GitTaskContext) string {
 	if task == nil {
-		return defaultGitAuthor
+		return common.DefaultGitAuthor
 	}
 	if author := strings.TrimSpace(task.GetGitAuthor()); author != "" {
 		return author
 	}
-	if cell := strings.TrimSpace(task.GetWorkspaceCellName()); cell != "" {
-		return fmt.Sprintf("%s <%s@colony2>", cell, cell)
-	}
-	return defaultGitAuthor
+	return common.GitAuthorForCell(task.GetWorkspaceCellName())
 }
 
 func (c *Controller) cloneIfNeeded(ctx context.Context, task *GitTaskContext) error {

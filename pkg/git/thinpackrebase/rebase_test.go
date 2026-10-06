@@ -64,44 +64,52 @@ func TestRunThinpackRebase_ReplaysCommits(t *testing.T) {
 func TestRunThinpackRebase_ResetAuthor(t *testing.T) {
 	t.Parallel()
 
-	tempDir := t.TempDir()
-	remotePath := filepath.Join(tempDir, "remote")
-	initRepo(t, remotePath)
-	baseHash := gitRevParse(t, remotePath, "HEAD")
+	for _, tc := range []struct{ name, cell, author, want string }{
+		{"explicit", ".", "Workflow Bot <workflow@example.com>", "Workflow Bot <workflow@example.com>"},
+		{"root fallback", ".", "", "c2j <c2j@colony2>"},
+		{"named fallback", "workflow", "", "workflow <workflow@colony2>"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			tempDir := t.TempDir()
+			remotePath := filepath.Join(tempDir, "remote")
+			initRepo(t, remotePath)
+			baseHash := gitRevParse(t, remotePath, "HEAD")
 
-	workspacePath := filepath.Join(tempDir, "workspace")
-	runGit(t, tempDir, "git", "clone", remotePath, workspacePath)
-	configureAuthor(t, workspacePath, "Feature Dev", "feature@example.com")
+			workspacePath := filepath.Join(tempDir, "workspace")
+			runGit(t, tempDir, "git", "clone", remotePath, workspacePath)
+			configureAuthor(t, workspacePath, "Feature Dev", "feature@example.com")
 
-	appendToFile(t, workspacePath, "feature.txt", "change\n")
-	runGit(t, workspacePath, "git", "add", "feature.txt")
-	runGit(t, workspacePath, "git", "commit", "-m", "feature work")
-	originalPersist := gitRevParse(t, workspacePath, "HEAD")
+			appendToFile(t, workspacePath, "feature.txt", "change\n")
+			runGit(t, workspacePath, "git", "add", "feature.txt")
+			runGit(t, workspacePath, "git", "commit", "-m", "feature work")
+			originalPersist := gitRevParse(t, workspacePath, "HEAD")
 
-	appendToFile(t, remotePath, "README.md", "upstream\n")
-	runGit(t, remotePath, "git", "add", "README.md")
-	runGit(t, remotePath, "git", "commit", "-m", "upstream change")
-	targetBase := gitRevParse(t, remotePath, "HEAD")
+			appendToFile(t, remotePath, "README.md", "upstream\n")
+			runGit(t, remotePath, "git", "add", "README.md")
+			runGit(t, remotePath, "git", "commit", "-m", "upstream change")
+			targetBase := gitRevParse(t, remotePath, "HEAD")
 
-	preserve := false
-	input := ThinpackRebaseInput{
-		RepoPath:       workspacePath,
-		TargetBaseHash: targetBase,
-		UpstreamRemote: "origin",
-		PreserveAuthor: &preserve,
-		BaseHash:       baseHash,
-		PersistHash:    originalPersist,
-		BaseRepo:       remotePath,
-		GitAuthor:      "Workflow Bot <workflow@example.com>",
-		CellName:       "workflow",
+			preserve := false
+			input := ThinpackRebaseInput{
+				RepoPath:       workspacePath,
+				TargetBaseHash: targetBase,
+				UpstreamRemote: "origin",
+				PreserveAuthor: &preserve,
+				BaseHash:       baseHash,
+				PersistHash:    originalPersist,
+				BaseRepo:       remotePath,
+				GitAuthor:      tc.author,
+				CellName:       tc.cell,
+			}
+
+			output, err := Run(context.Background(), input)
+			require.NoError(t, err)
+			require.NotNil(t, output)
+
+			author := strings.TrimSpace(runGitOutput(t, workspacePath, "git", "log", "-1", "--format=%an <%ae>"))
+			require.Equal(t, tc.want, author)
+		})
 	}
-
-	output, err := Run(context.Background(), input)
-	require.NoError(t, err)
-	require.NotNil(t, output)
-
-	author := strings.TrimSpace(runGitOutput(t, workspacePath, "git", "log", "-1", "--format=%an <%ae>"))
-	require.Equal(t, "Workflow Bot <workflow@example.com>", author)
 }
 
 func TestRunThinpackRebase_FastForwardWhenNoLocalCommits(t *testing.T) {

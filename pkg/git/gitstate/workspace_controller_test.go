@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/colony-2/c2j/pkg/git/common"
 	"github.com/stretchr/testify/require"
 )
 
@@ -435,29 +436,33 @@ func TestControllerPersistWithDiffs_WithChanges(t *testing.T) {
 func TestControllerPersistWithDiffsUsesDefaultAuthorWhenUnset(t *testing.T) {
 	t.Parallel()
 
-	baseRepo, baseHash, cleanup := setupGitRepo(t)
-	defer cleanup()
+	for _, cell := range []string{"", ".", "./"} {
+		t.Run("cell="+cell, func(t *testing.T) {
+			baseRepo, baseHash, cleanup := setupGitRepo(t)
+			defer cleanup()
 
-	worktree := filepath.Join(t.TempDir(), "worktree")
+			worktree := filepath.Join(t.TempDir(), "worktree")
 
-	ctx := newTaskContext(baseRepo, baseHash, worktree, "")
-	ctx.GitAuthor = ""
+			ctx := newTaskContext(baseRepo, baseHash, worktree, cell)
+			ctx.GitAuthor = ""
 
-	controller := NewController(nil)
-	require.NoError(t, controller.prepareWorkspace(context.Background(), ctx))
-	require.NoError(t, controller.Restore(context.Background(), ctx, nil))
-	removeGitAuthorConfig(t, worktree)
+			controller := NewController(nil)
+			require.NoError(t, controller.prepareWorkspace(context.Background(), ctx))
+			require.NoError(t, controller.Restore(context.Background(), ctx, nil))
+			removeGitAuthorConfig(t, worktree)
 
-	file := filepath.Join(worktree, "default-author.txt")
-	require.NoError(t, os.WriteFile(file, []byte("changed\n"), 0o644))
+			file := filepath.Join(worktree, "default-author.txt")
+			require.NoError(t, os.WriteFile(file, []byte("changed\n"), 0o644))
 
-	output, artifacts, err := controller.PersistWithDiffs(context.Background(), ctx)
-	require.NoError(t, err)
-	require.True(t, output.HasChanges)
-	require.NotEmpty(t, artifacts)
+			output, artifacts, err := controller.PersistWithDiffs(context.Background(), ctx)
+			require.NoError(t, err)
+			require.True(t, output.HasChanges)
+			require.NotEmpty(t, artifacts)
 
-	author := runGitOutput(t, worktree, "git", "log", "-1", "--pretty=format:%an <%ae>")
-	require.Equal(t, defaultGitAuthor, author)
+			author := runGitOutput(t, worktree, "git", "log", "-1", "--pretty=format:%an <%ae>")
+			require.Equal(t, common.DefaultGitAuthor, author)
+		})
+	}
 }
 
 func TestControllerPersistWithDiffs_NoChanges(t *testing.T) {

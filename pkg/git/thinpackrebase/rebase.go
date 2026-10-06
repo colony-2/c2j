@@ -136,7 +136,7 @@ func resolveWorkspaceSnapshot(input ThinpackRebaseInput) (workspaceSnapshot, err
 	snapshot.CellName = strings.TrimSpace(input.CellName)
 
 	if snapshot.GitAuthor == "" && snapshot.CellName != "" {
-		snapshot.GitAuthor = fmt.Sprintf("%s <%s@colony2>", snapshot.CellName, snapshot.CellName)
+		snapshot.GitAuthor = common.GitAuthorForCell(snapshot.CellName)
 	}
 
 	return snapshot, nil
