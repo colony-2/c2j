@@ -1,3 +1,6 @@
+> Historical design: operation-level Shai execution has been removed. See
+> [breaking release notes](RELEASE-NOTES-Remove-Op-Sandboxing.md) for current behavior.
+
 # Plan: Job Context Env Propagation And Child Job Listing
 
 > Historical implementation plan. For current usage and the distinction between

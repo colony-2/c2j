@@ -75,7 +75,7 @@ sequence:
   op: extension_execution
   inputs:
     selector: fixture-model
-    inputs: {sandbox: {type: shai}}
+    inputs: {}
 - id: await
   op: recipe.await_result_soft
   inputs: {job_id: "${{ sequence.submit.jobs.job_ids[0] }}"}
@@ -206,7 +206,6 @@ sequence:
 - id: one
   op: command_execution
   inputs:
-    sandbox: {type: shai}
     env: {SOURCE: "{{ context.environment.op.worktree_path }}/seed.txt"}
     run: 'cat "$SOURCE"'
 - id: two
@@ -221,7 +220,6 @@ cases:
 - id: host
   type: integration_case
   runtime:
-    command_sandbox: none
     cells:
       root:
         file_sources: {".": files}

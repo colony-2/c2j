@@ -37,7 +37,7 @@ depends on their results.
 
 - Run the parent through a c2j worker connected to your JobDB service.
 - Make the `c2j` executable available on `PATH` in the command or extension's
-  execution environment, including any sandbox image.
+  execution environment, including any externally provisioned worker image.
 - Preserve the injected `C2J_CURRENT_*` and `C2J_CHILD_JOB_*` variables when
   launching subprocesses.
 - Configure the nested CLI's JobDB target and use the same tenant as the
@@ -431,7 +431,7 @@ authentication mechanism. `c2j submit` has no parent-ID flag or explicit
 detached-submission flag; use a clean, independent environment when you
 intentionally want an unrelated top-level job.
 
-## 9. Extension tools, sandboxes, and security
+## 9. Extension tools and worker environment
 
 Command execution and selector-backed extensions receive the same protected
 context. Runtime values override conflicting entries in the command's `env`
@@ -450,13 +450,12 @@ For wrapper scripts and tools:
 - Treat the session token as permission to submit through that parent. It is
   not the JobDB lease token; raw lease credentials remain in the parent worker.
 
-For the supported Shai execution path, c2j injects the same environment and
-adds the broker's network access requirements. You still need the CLI and its
-runtime dependencies installed or mounted, plus access to required recipe and
-artifact files. Do not hard-code localhost as the broker address or rewrite
-the injected endpoint. Independently launched containers or remote tools need
-their own deliberate environment/network setup; inheritance alone does not
-make an endpoint reachable.
+Operations and their child CLI processes run in the worker environment. The
+broker listens on loopback with a fresh dynamic port for each invocation; this
+also works when the entire worker runs in an externally provisioned container.
+Install the CLI and its runtime dependencies in that environment. Preserve the
+injected endpoint, token, and session ID. c2j does not expose the broker through
+a container gateway or grant extra network access to independently launched tools.
 
 ## 10. Retries and failure handling
 
@@ -482,7 +481,7 @@ explicitly.
 | `--jobdb is required` | Configure `--jobdb`, `C2J_JOBDB`, or project `jobdb`; current tenant variables do not provide a URL. |
 | Current tenant/job variables required | Preserve the complete current-job context; do not forward only selected op fields. |
 | Child broker variables required | Forward endpoint, token, and session ID together. |
-| Broker connection refused or authorization rejected | Check session lifetime and sandbox reachability; do not reuse credentials from another invocation. |
+| Broker connection refused or authorization rejected | Check session lifetime and worker-local reachability; do not reuse credentials from another invocation. |
 | Tenant mismatch | Parent-linked submission and listing must use the parent's tenant. |
 | Missing prompt or unknown `prompt`/`type` input | Pass a prompt explicitly and declare the relevant input schema; build/evolve recipes receive both fields. |
 | No child jobs listed | Check runtime/tenant, parent ID, invocation scope, status filters, pagination, and whether submission used the broker rather than metadata alone. |

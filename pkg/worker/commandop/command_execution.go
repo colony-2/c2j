@@ -27,13 +27,12 @@ type CommandExecutionConfig struct {
 
 // CommandExecutionInput defines the input for command execution activities - ALL fields MUST have json tags
 type CommandExecutionInput struct {
-	Run              string                `json:"run" validate:"required"`                                                // Required: command to execute
-	WorkingDirectory string                `json:"working_directory" default:"{{ context.environment.op.worktree_path }}"` // Optional: override working directory
-	Shell            string                `json:"shell" validate:"omitempty,oneof=bash sh powershell cmd"`                // Optional: override shell
-	Env              map[string]string     `json:"env"`                                                                    // Optional: additional env vars
-	Sandbox          *process.SandboxInput `json:"sandbox,omitempty"`                                                      // Optional: sandbox execution mode
-	ContinueOnError  bool                  `json:"continue_on_error"`                                                      // Optional: don't fail on non-zero exit
-	Timeout          string                `json:"timeout"`                                                                // Optional: timeout duration (e.g., "30s")
+	Run              string            `json:"run" validate:"required"`                                                // Required: command to execute
+	WorkingDirectory string            `json:"working_directory" default:"{{ context.environment.op.worktree_path }}"` // Optional: override working directory
+	Shell            string            `json:"shell" validate:"omitempty,oneof=bash sh powershell cmd"`                // Optional: override shell
+	Env              map[string]string `json:"env"`                                                                    // Optional: additional env vars
+	ContinueOnError  bool              `json:"continue_on_error"`                                                      // Optional: don't fail on non-zero exit
+	Timeout          string            `json:"timeout"`                                                                // Optional: timeout duration (e.g., "30s")
 }
 
 // CommandExecutionOutput defines the output from command execution activities - ALL fields MUST have json tags
@@ -54,7 +53,7 @@ func newCommandExecutionActivity() ops.RegisterableOp {
 
 // NewCommandExecutionActivity creates a new command execution activity that implements RegisterableOp
 func GetOp() ops.RegisterableOp {
-	base := ops.NewActivityMappedOpV2[CommandExecutionInput, CommandExecutionOutput](
+	return ops.NewActivityMappedOpV2[CommandExecutionInput, CommandExecutionOutput](
 		ops.OpMetadata{
 			Type:             "command_execution",
 			Description:      "Executes arbitrary shell commands with GitHub Actions-style configuration",
@@ -62,15 +61,6 @@ func GetOp() ops.RegisterableOp {
 			DefaultTimeout:   5 * time.Minute,
 			AcceptsArtifacts: true,
 		}, execute)
-	return commandExecutionOp{RegisterableOp: base}
-}
-
-type commandExecutionOp struct {
-	ops.RegisterableOp
-}
-
-func (o commandExecutionOp) TransformOperationPaths(ctx context.Context, req ops.OperationPathTransformRequest) (ops.OperationPathTransformResult, error) {
-	return process.TransformOperationPaths(ctx, req.Input["sandbox"], req.Host)
 }
 
 // Execute runs the activity with provided configuration and inputs
@@ -121,31 +111,11 @@ func execute(deps ops.OpDependencies, ctx context.Context, input CommandExecutio
 		env[k] = v
 	}
 	env = jobcontext.MergeProtectedEnv(env, deps.ProtectedEnv())
-	workspaceRoot := workingDir
-	var mounts []ops.RequiredMount
-	var ports []ops.RequiredPort
-	if runtimeProvider, ok := deps.(ops.OperationPathRuntimeProvider); ok {
-		pathRuntime := runtimeProvider.OperationPathRuntime()
-		if process.SandboxType(input.Sandbox) == process.SandboxTypeShai {
-			if strings.TrimSpace(pathRuntime.Views.Host.Workdir) != "" {
-				workspaceRoot = pathRuntime.Views.Host.Workdir
-			}
-			if strings.TrimSpace(workingDir) == "" && strings.TrimSpace(pathRuntime.Views.Op.WorktreePath) != "" {
-				workingDir = pathRuntime.Views.Op.WorktreePath
-			}
-		}
-		mounts = pathRuntime.Mounts
-		ports = pathRuntime.Ports
-	}
 	stdoutBytes, stderrBytes, err := process.ExecuteProcess(ctx, process.RunRequest{
-		WorkspaceRoot:  workspaceRoot,
-		WorkingDir:     workingDir,
-		Shell:          shell,
-		Run:            input.Run,
-		Env:            env,
-		Sandbox:        input.Sandbox,
-		RequiredMounts: mounts,
-		RequiredPorts:  ports,
+		WorkingDir: workingDir,
+		Shell:      shell,
+		Run:        input.Run,
+		Env:        env,
 	})
 
 	// Prepare output

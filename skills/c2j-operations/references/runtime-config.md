@@ -75,3 +75,14 @@ When no jobs are visible, compare the target tenant/cell, stores/status filters,
 `workspace: {cell: cellB}` on a recipe node changes its working data, while the submitted job stays in its original cell. `c2j list` and job provenance continue to use that owner. Inside commands, `C2J_WORKSPACE_CELL_NAME` identifies the active workspace and `C2J_WORKSPACE_SCOPE_ID` identifies an overridden scope; `C2J_CURRENT_*` remains job provenance.
 
 Submission captures effective cell naming settings for node selectors. Workers do not consult their own current directory's config. Short names require that captured pattern; explicit repository locations also work. Upgrade recipe compilers and task workers together before submitting recipes with workspace declarations. Custom hosts registering workers individually must add `compiler.NewWorkspaceResolutionTaskWorker()` and use the updated JobDB schema.
+
+## Operation Execution Environment
+
+Commands and extensions run directly in the worker environment. c2j does not
+read `.shai/config.yaml` or create a container per operation. Provision required
+images, tools, mounts, environment variables, and isolation externally before
+starting the worker. Remove former generic `sandbox` inputs and forwarding
+parameters when migrating recipes; see [breaking release notes](../../../RELEASE-NOTES-Remove-Op-Sandboxing.md).
+
+Stored recipes and history are not rewritten. Finish jobs requiring the old
+runtime with a pinned older release, or resubmit deliberately migrated recipes.

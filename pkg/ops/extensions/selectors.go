@@ -79,29 +79,8 @@ func ResolvePath(ctx context.Context, selector string, opts ResolveOptions) (*Re
 	}
 }
 
-func (r *ResolvedOp) SanitizeInvocationInputs(raw map[string]interface{}) (map[string]interface{}, *SandboxInput, error) {
-	payload := map[string]interface{}{}
-	for key, value := range raw {
-		payload[key] = value
-	}
-
-	var sandbox *SandboxInput
-	if rawSandbox, ok := payload["sandbox"]; ok {
-		parsed, err := ParseSandboxInput(rawSandbox)
-		if err != nil {
-			return nil, nil, err
-		}
-		sandbox = parsed
-		delete(payload, "sandbox")
-	}
-	return payload, sandbox, nil
-}
-
 func (r *ResolvedOp) ValidateInvocationInputs(raw map[string]interface{}) error {
-	payload, _, err := r.SanitizeInvocationInputs(raw)
-	if err != nil {
-		return err
-	}
+	payload := raw
 	if r.compiledInput != nil {
 		value, err := objects.JSONValue(payload)
 		if err != nil {
@@ -129,9 +108,9 @@ func (r *ResolvedOp) ApplyInvocationDefaults(raw map[string]interface{}) (bool, 
 	if r == nil || r.inputDefaults == nil {
 		return false, nil
 	}
-	payload, _, err := r.SanitizeInvocationInputs(raw)
-	if err != nil {
-		return false, err
+	payload := make(map[string]interface{}, len(raw))
+	for key, value := range raw {
+		payload[key] = value
 	}
 	changed, err := r.inputDefaults.Apply(payload)
 	if err != nil {

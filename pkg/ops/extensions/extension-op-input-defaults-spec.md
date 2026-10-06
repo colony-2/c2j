@@ -192,7 +192,7 @@ Failing fast is better than silently ignoring a default the author expected to r
 
 ### Reserved Fields
 
-Selector-backed extension execution reserves out-of-band fields such as `sandbox`. Those are not part of the extension `input_schema` defaulting contract and should remain excluded from payload defaulting.
+Selector-backed extension inputs are validated and defaulted using the extension manifest. There are no generic sandbox inputs or out-of-band fields stripped from the payload.
 
 ## Execution Order
 

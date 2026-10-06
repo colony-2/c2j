@@ -426,25 +426,7 @@ func (t opExecutor) do(ctx context.Context, jobTool ops.JobTool, req ActivityInv
 	// Templates like {{ environment.worktree_path }} resolved to sentinel at compile time
 	// Now replace with real local path
 	hydratedInput := replaceSentinels(req.Input, replacements)
-	pathRuntime := ops.OperationPathRuntime{
-		Views: ops.OperationPathViews{
-			Host: operationPaths,
-			Op:   operationPaths,
-		},
-	}
-	if transformer, ok := reg.Activity.(ops.OperationPathTransformer); ok {
-		transformed, err := transformer.TransformOperationPaths(ctx, ops.OperationPathTransformRequest{
-			Input: hydratedInput,
-			Host:  operationPaths,
-		})
-		if err != nil {
-			return zero, nil, err
-		}
-		pathRuntime = transformed.Runtime
-		hydratedInput = replaceSentinels(hydratedInput, transformed.Replacements)
-	} else {
-		hydratedInput = replaceSentinels(hydratedInput, defaultOpReplacements)
-	}
+	hydratedInput = replaceSentinels(hydratedInput, defaultOpReplacements)
 	if process.ContainsOpVisibleSentinel(hydratedInput) {
 		return zero, nil, fmt.Errorf("op-visible path resolution failed: operation %q does not support context.environment.op.*", reg.Metadata.Type)
 	}
@@ -457,9 +439,8 @@ func (t opExecutor) do(ctx context.Context, jobTool ops.JobTool, req ActivityInv
 	var broker *childbroker.Server
 	if submitter, ok := jobTool.(leaseChildJobSubmitter); ok {
 		broker, err = childbroker.Start(ctx, childbroker.Options{
-			Current:            currentJob,
-			Submitter:          submitter,
-			ContainerReachable: pathRuntime.SandboxType == process.SandboxTypeShai,
+			Current:   currentJob,
+			Submitter: submitter,
 		})
 		if err != nil {
 			return zero, nil, fmt.Errorf("start child job broker: %w", err)
@@ -467,16 +448,6 @@ func (t opExecutor) do(ctx context.Context, jobTool ops.JobTool, req ActivityInv
 		defer broker.Close()
 		ctx = childbroker.WithLocalSubmitter(ctx, broker)
 		protectedEnv = jobcontext.MergeProtectedEnv(protectedEnv, broker.Env())
-		if pathRuntime.SandboxType == process.SandboxTypeShai && broker.Port() > 0 {
-			host := broker.Host()
-			if strings.TrimSpace(host) == "" {
-				host = "host.docker.internal"
-			}
-			pathRuntime.Ports = append(pathRuntime.Ports, ops.RequiredPort{
-				Host: host,
-				Port: broker.Port(),
-			})
-		}
 	}
 
 	// Build OpDependencies with WorktreePath and filtered artifacts (thin pack hidden from operation)
@@ -491,7 +462,6 @@ func (t opExecutor) do(ctx context.Context, jobTool ops.JobTool, req ActivityInv
 		WithDatabase(db).
 		WithWorkflowControl(deps.WorkflowControl()).
 		WithOperationPaths(operationPaths).
-		WithOperationPathRuntime(pathRuntime).
 		WithGitContext(ops.GitExecutionContext{
 			Workspace: fullContext.Workspace, CellResolution: fullContext.CellResolution, RestoreArtifact: req.RestoreArtifact,
 			BaseRepo:         fullContext.GetBaseRepo(),

@@ -21,32 +21,22 @@ type objectDraft struct {
 	Files    map[string]string `json:"files"`
 }
 
-func objectPaths(deps ops.OpDependencies) ops.OperationPathViews {
-	if p, ok := deps.(ops.OperationPathRuntimeProvider); ok {
-		views := p.OperationPathRuntime().Views
-		if views.Host.Workdir != "" {
-			if views.Op.Workdir == "" {
-				views.Op = views.Host
-			}
-			return views
-		}
-	}
+func objectPaths(deps ops.OpDependencies) ops.OperationPaths {
 	if p, ok := deps.(ops.OperationPathProvider); ok {
-		paths := p.OperationPaths()
-		return ops.OperationPathViews{Host: paths, Op: paths}
+		return p.OperationPaths()
 	}
-	return ops.OperationPathViews{}
+	return ops.OperationPaths{}
 }
 
-func relocateObjectPath(file, from, to string) (string, error) {
-	if from == "" || to == "" || !filepath.IsAbs(file) {
+func validateObjectPath(file, root string) (string, error) {
+	if root == "" || !filepath.IsAbs(file) {
 		return "", fmt.Errorf("object path must be absolute and within the invocation directory")
 	}
-	rel, err := filepath.Rel(from, file)
+	rel, err := filepath.Rel(root, file)
 	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 		return "", fmt.Errorf("object path %q escapes staging directory", file)
 	}
-	return filepath.Join(to, rel), nil
+	return filepath.Join(root, rel), nil
 }
 
 func hydrateObjects(ctx context.Context, deps ops.OpDependencies, payload map[string]any) (map[string]any, error) {
@@ -60,13 +50,13 @@ func hydrateObjects(ctx context.Context, deps ops.OpDependencies, payload map[st
 			return nil, err
 		}
 		for name, file := range snapshot.Files {
-			mapped, err := relocateObjectPath(file, views.Host.Workdir, views.Op.Workdir)
+			mapped, err := validateObjectPath(file, views.Workdir)
 			if err != nil {
 				return nil, err
 			}
 			snapshot.Files[name] = mapped
 		}
-		// Directory stays private to the host; the subprocess sees only named parts.
+		// The subprocess sees only named parts, not the internal staging directory.
 		return snapshot, nil
 	})
 	if err != nil {
@@ -80,14 +70,14 @@ func prepareObjectOutbox(deps ops.OpDependencies, env map[string]string) error {
 		return nil
 	}
 	views := objectPaths(deps)
-	if views.Host.Workdir == "" {
+	if views.Workdir == "" {
 		return fmt.Errorf("object storage requires invocation paths")
 	}
-	host := filepath.Join(views.Host.Workdir, "objects-out")
+	host := filepath.Join(views.Workdir, "objects-out")
 	if err := os.MkdirAll(host, 0700); err != nil {
 		return err
 	}
-	env[objectOutboxEnv] = filepath.Join(views.Op.Workdir, "objects-out")
+	env[objectOutboxEnv] = filepath.Join(views.Workdir, "objects-out")
 	return nil
 }
 
@@ -136,7 +126,7 @@ func publishExtensionObjects(ctx context.Context, deps ops.OpDependencies, stdou
 	for _, name := range names {
 		draft := drafts[name]
 		for part, file := range draft.Files {
-			host, err := relocateObjectPath(file, filepath.Join(views.Op.Workdir, "objects-out"), filepath.Join(views.Host.Workdir, "objects-out"))
+			host, err := validateObjectPath(file, filepath.Join(views.Workdir, "objects-out"))
 			if err != nil {
 				return nil, err
 			}
@@ -144,7 +134,7 @@ func publishExtensionObjects(ctx context.Context, deps ops.OpDependencies, stdou
 			if err != nil {
 				return nil, err
 			}
-			staging := filepath.Join(views.Host.Workdir, "objects-out")
+			staging := filepath.Join(views.Workdir, "objects-out")
 			info, err := os.Lstat(staging)
 			if err != nil {
 				return nil, err
@@ -160,7 +150,7 @@ func publishExtensionObjects(ctx context.Context, deps ops.OpDependencies, stdou
 			if err != nil {
 				return nil, err
 			}
-			if _, err := relocateObjectPath(real, root, root); err != nil {
+			if _, err := validateObjectPath(real, root); err != nil {
 				return nil, err
 			}
 			if filepath.Clean(real) != filepath.Join(root, relative) {

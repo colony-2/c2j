@@ -1736,15 +1736,15 @@ func TestOpExecutorResolvesOpVisibleSentinelsToHostPathsByDefault(t *testing.T) 
 	defer cleanup()
 
 	var capturedInput map[string]interface{}
-	var capturedRuntime recipeops.OperationPathRuntime
+	var capturedPaths recipeops.OperationPaths
 	reg := ActivityRegistration{
 		Metadata: recipeops.OpMetadata{Type: "test_op_visible_default"},
 		Step: recipeops.TaskStep{
 			Invoke: func(deps recipeops.OpDependencies, ctx context.Context, input map[string]interface{}) (map[string]interface{}, error) {
 				capturedInput = input
-				runtimeProvider, ok := deps.(recipeops.OperationPathRuntimeProvider)
+				runtimeProvider, ok := deps.(recipeops.OperationPathProvider)
 				require.True(t, ok)
-				capturedRuntime = runtimeProvider.OperationPathRuntime()
+				capturedPaths = runtimeProvider.OperationPaths()
 				return map[string]interface{}{
 					"repo_path":  input["repo_path"],
 					"inbox_file": input["inbox_file"],
@@ -1774,8 +1774,7 @@ func TestOpExecutorResolvesOpVisibleSentinelsToHostPathsByDefault(t *testing.T) 
 	output, _, err := wrapped(context.Background(), &jt{jobdb.JobKey{TenantId: "test", JobId: "job-op-visible-default"}}, req, nil)
 	require.NoError(t, err)
 
-	require.Equal(t, capturedRuntime.Views.Host, capturedRuntime.Views.Op)
-	require.Equal(t, capturedRuntime.Views.Host.WorktreePath, capturedInput["repo_path"])
-	require.Equal(t, capturedRuntime.Views.Host.Inbox+"/item.txt", capturedInput["inbox_file"])
+	require.Equal(t, capturedPaths.WorktreePath, capturedInput["repo_path"])
+	require.Equal(t, capturedPaths.Inbox+"/item.txt", capturedInput["inbox_file"])
 	require.Equal(t, capturedInput["repo_path"], output.OpOutput["repo_path"])
 }

@@ -151,10 +151,9 @@ a real schema gate. Ordered one-shot mocks remain the default; a required mock
 that is never used fails the case. Calls record small input artifact contents
 in `calls[].artifacts` for feedback/document-routing assertions.
 
-`runtime.command_sandbox: none` explicitly runs passthrough commands on the host,
-inside disposable test worktrees. It overrides only the test execution
-environment; the authored command and normal snapshots still execute. Omit it
-to use the sandbox declared by the recipe. Use this only for trusted recipes.
+Passthrough commands run in the worker environment inside disposable test
+worktrees, with normal snapshots. The former `runtime.command_sandbox` override
+has been removed. Provision any isolation around the worker externally.
 `cells.<cell>.file_sources` accepts file or directory sources relative to the
 suite. Directory trees exclude `.git` and reject symlinks.
 

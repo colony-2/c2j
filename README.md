@@ -34,6 +34,10 @@ A provisioner can then resume it in a compatible environment; c2j does not
 provision resources itself. Listings show submission/latest-yield requirements
 only for waiting jobs; in-flight needs are not presented as current snapshots.
 
+Commands and extensions execute directly in the worker environment. Provision
+any container isolation externally. Operation-level Shai execution has been
+removed; see the [breaking release notes and migration](RELEASE-NOTES-Remove-Op-Sandboxing.md).
+
 ## JobDB upgrade compatibility
 
 The typed-route JobDB update requires fresh format-3 databases/artifact storage

@@ -72,18 +72,18 @@ func TestObjectSchemaAnnotationsValidateNestedReferences(t *testing.T) {
 	require.Error(t, err)
 }
 
-func TestExtensionObjectPathTranslationAndInvalidDrafts(t *testing.T) {
+func TestExtensionObjectPathsAndInvalidDrafts(t *testing.T) {
 	host := t.TempDir()
 	store := objects.NewStore(objects.Config{Workdir: host})
-	deps := ops.NewOpDependenciesBuilder().WithObjects(store).WithOperationPathRuntime(ops.OperationPathRuntime{Views: ops.OperationPathViews{Host: ops.OperationPaths{Workdir: host}, Op: ops.OperationPaths{Workdir: "/op"}}}).Build()
+	deps := ops.NewOpDependenciesBuilder().WithObjects(store).WithOperationPaths(ops.OperationPaths{Workdir: host}).Build()
 	env := map[string]string{objectOutboxEnv: "wrong"}
 	require.NoError(t, prepareObjectOutbox(deps, env))
-	require.Equal(t, "/op/objects-out", env[objectOutboxEnv])
-	translated, err := relocateObjectPath("/op/objects/checkpoint/files/home", "/op", host)
+	require.Equal(t, filepath.Join(host, "objects-out"), env[objectOutboxEnv])
+	translated, err := validateObjectPath(filepath.Join(host, "objects/checkpoint/files/home"), host)
 	require.NoError(t, err)
 	require.Equal(t, filepath.Join(host, "objects/checkpoint/files/home"), translated)
-	for _, path := range []string{"/elsewhere/home", "/op/../escape", "relative"} {
-		_, err := relocateObjectPath(path, "/op", host)
+	for _, path := range []string{filepath.Join(t.TempDir(), "home"), filepath.Join(host, "..", "escape"), "relative"} {
+		_, err := validateObjectPath(path, host)
 		require.Error(t, err)
 	}
 	outside := filepath.Join(t.TempDir(), "file")
@@ -96,7 +96,7 @@ func TestExtensionObjectPathTranslationAndInvalidDrafts(t *testing.T) {
 	}{
 		{map[string]any{"session": map[string]any{"$object": "missing"}}, nil, "unknown draft"},
 		{map[string]any{}, map[string]objectDraft{"unused": {Type: "test/v1"}}, "unreferenced"},
-		{map[string]any{"session": map[string]any{"$object": "next"}}, map[string]objectDraft{"next": {Type: "test/v1", Files: map[string]string{"home": "/op/objects-out/link"}}}, "escapes staging"},
+		{map[string]any{"session": map[string]any{"$object": "next"}}, map[string]objectDraft{"next": {Type: "test/v1", Files: map[string]string{"home": filepath.Join(host, "objects-out", "link")}}}, "escapes staging"},
 	}
 	for _, tc := range cases {
 		raw, err := json.Marshal(map[string]any{"output": tc.output, "objects": tc.drafts})

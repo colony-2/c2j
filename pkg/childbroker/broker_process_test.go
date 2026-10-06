@@ -8,23 +8,19 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/colony-2/c2j/pkg/jobcontext"
-	"github.com/colony-2/c2j/pkg/ops"
 	"github.com/colony-2/c2j/pkg/ops/process"
 	"github.com/colony-2/c2j/pkg/recipe"
 	"github.com/colony-2/c2j/pkg/starter"
 	"github.com/colony-2/c2j/pkg/workflowctl"
 )
 
-const shaiBaseTestImage = "ghcr.io/colony-2/shai-base:latest"
-
-const dockerBrokerChildRecipeYAML = `
-id: child_from_docker
+const workerBrokerChildRecipeYAML = `
+id: child_from_worker
 version: "1.0.0"
 sequence:
   - id: child_group_marker
@@ -34,14 +30,14 @@ sequence:
 outputs: {}
 `
 
-func TestDockerBrokerChildRecipeFixtureRoundTripsThroughSubmitRequest(t *testing.T) {
-	rec, err := recipe.LoadRecipeFromReader(strings.NewReader(dockerBrokerChildRecipeYAML))
+func TestWorkerBrokerChildRecipeFixtureRoundTripsThroughSubmitRequest(t *testing.T) {
+	rec, err := recipe.LoadRecipeFromReader(strings.NewReader(workerBrokerChildRecipeYAML))
 	if err != nil {
 		t.Fatalf("load fixture recipe: %v", err)
 	}
 	req, err := NewSubmitRequest(context.Background(), workflowctl.StartJob{
 		TenantId:   "0",
-		RecipeName: "child_from_docker",
+		RecipeName: "child_from_worker",
 	}, nil, *rec)
 	if err != nil {
 		t.Fatalf("NewSubmitRequest(): %v", err)
@@ -54,24 +50,20 @@ func TestDockerBrokerChildRecipeFixtureRoundTripsThroughSubmitRequest(t *testing
 	}
 }
 
-func TestBrokerSubmitFromMountedC2JInShai(t *testing.T) {
-	if runningInContainer() {
-		t.Skip("skipping Docker/Shai child broker integration test because the test process is already running inside a container")
-	}
-	if runtime.GOOS == "windows" {
-		t.Skip("Shai sandbox execution is not supported on Windows hosts")
-	}
-	requireDockerImage(t, shaiBaseTestImage)
-
+func TestBrokerSubmitFromC2JInWorkerEnvironment(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()
 
 	repoRoot := testRepoRoot(t)
 	binDir := t.TempDir()
-	c2jPath := filepath.Join(binDir, "c2j")
+	binaryName := "c2j"
+	if runtime.GOOS == "windows" {
+		binaryName += ".exe"
+	}
+	c2jPath := filepath.Join(binDir, binaryName)
 	build := exec.CommandContext(ctx, "go", "build", "-o", c2jPath, "./cmd/c2j")
 	build.Dir = repoRoot
-	build.Env = append(os.Environ(), "CGO_ENABLED=0", "GOOS=linux", "GOARCH="+runtime.GOARCH)
+	build.Env = append(os.Environ(), "CGO_ENABLED=0")
 	if out, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("build c2j: %v\n%s", err, string(out))
 	}
@@ -80,11 +72,11 @@ func TestBrokerSubmitFromMountedC2JInShai(t *testing.T) {
 	}
 
 	workspace := t.TempDir()
-	writeDockerBrokerWorkspace(t, workspace)
+	writeWorkerBrokerWorkspace(t, workspace)
 
 	current := jobcontext.Current{
 		TenantID:           "0",
-		JobID:              "parent-docker",
+		JobID:              "parent-worker",
 		JobType:            starter.RecipeJobType,
 		OpType:             "command_execution",
 		OpStep:             "submit-child",
@@ -94,52 +86,31 @@ func TestBrokerSubmitFromMountedC2JInShai(t *testing.T) {
 		GitRef:             "main",
 		InvocationPath:     "sequence.submit-child",
 		InvocationSequence: 7,
-		InvocationHash:     "invoke-docker",
+		InvocationHash:     "invoke-worker",
 	}
 	submitter := &captureSubmitter{}
 	broker, err := Start(ctx, Options{
-		Current:            current,
-		Submitter:          submitter,
-		ContainerReachable: true,
+		Current:   current,
+		Submitter: submitter,
 	})
 	if err != nil {
 		t.Fatalf("Start(): %v", err)
 	}
 	defer broker.Close()
-	if !dockerCanReach(t, broker.Host(), broker.Port()) {
-		t.Fatalf("Docker containers cannot reach parent child-job broker at %s:%d", broker.Host(), broker.Port())
-	}
 
 	env := jobcontext.EnvForCurrent(current)
 	for key, value := range broker.Env() {
 		env[key] = value
 	}
-	noProxy := "host.docker.internal,localhost,127.0.0.1"
-	if host := strings.TrimSpace(broker.Host()); host != "" {
-		noProxy += "," + host
-	}
-	env["NO_PROXY"] = noProxy
-	env["no_proxy"] = env["NO_PROXY"]
 
 	stdout, stderr, err := process.ExecuteProcess(ctx, process.RunRequest{
 		WorkspaceRoot: workspace,
 		WorkingDir:    workspace,
-		Shell:         "sh",
-		Run:           "/c2j-bin/c2j submit 'Run the child broker fixture' --embed --cell /src --advanced-recipe-file child.yaml --json",
+		Command:       []string{c2jPath, "submit", "Run the child broker fixture", "--embed", "--cell", workspace, "--advanced-recipe-file", "child.yaml", "--json"},
 		Env:           env,
-		Sandbox:       &process.SandboxInput{Type: process.SandboxTypeShai},
-		RequiredMounts: []ops.RequiredMount{{
-			Source: binDir,
-			Target: "/c2j-bin",
-			Mode:   ops.MountModeReadOnly,
-		}},
-		RequiredPorts: []ops.RequiredPort{{
-			Host: broker.Host(),
-			Port: broker.Port(),
-		}},
 	})
 	if err != nil {
-		t.Fatalf("run c2j submit in Shai: %v\nstdout:\n%s\nstderr:\n%s", err, string(stdout), string(stderr))
+		t.Fatalf("run c2j submit in worker environment: %v\nstdout:\n%s\nstderr:\n%s", err, string(stdout), string(stderr))
 	}
 
 	var submitted struct {
@@ -150,7 +121,7 @@ func TestBrokerSubmitFromMountedC2JInShai(t *testing.T) {
 	if err := json.Unmarshal([]byte(strings.TrimSpace(string(stdout))), &submitted); err != nil {
 		t.Fatalf("decode c2j submit output %q: %v\nstderr:\n%s", string(stdout), err, string(stderr))
 	}
-	if submitted.TenantID != "0" || submitted.JobID == "" || submitted.Recipe != "child_from_docker" {
+	if submitted.TenantID != "0" || submitted.JobID == "" || submitted.Recipe != "child_from_worker" {
 		t.Fatalf("unexpected c2j submit output: %#v", submitted)
 	}
 	if submitter.calls != 1 {
@@ -164,7 +135,7 @@ func TestBrokerSubmitFromMountedC2JInShai(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetArtifacts(): %v", err)
 	}
-	if len(artifacts) != 1 || artifacts[0].Name() != "child_from_docker.recipe.yaml" {
+	if len(artifacts) != 1 || artifacts[0].Name() != "child_from_worker.recipe.yaml" {
 		t.Fatalf("unexpected submitted artifacts: %#v", artifacts)
 	}
 
@@ -172,7 +143,7 @@ func TestBrokerSubmitFromMountedC2JInShai(t *testing.T) {
 	if err := json.Unmarshal(submitter.last.Metadata, &meta); err != nil {
 		t.Fatalf("metadata decode: %v", err)
 	}
-	if meta.ParentTenantID != "0" || meta.ParentJobID != "parent-docker" || meta.ParentInvocationHash != "invoke-docker" {
+	if meta.ParentTenantID != "0" || meta.ParentJobID != "parent-worker" || meta.ParentInvocationHash != "invoke-worker" {
 		t.Fatalf("broker did not attach parent metadata: %#v", meta)
 	}
 	if meta.ParentOpStep != "submit-child" || meta.ParentOpType != "command_execution" {
@@ -183,54 +154,6 @@ func TestBrokerSubmitFromMountedC2JInShai(t *testing.T) {
 	if len(started.JobIDs) != 1 || started.JobIDs[0] != submitted.JobID {
 		t.Fatalf("unexpected broker started jobs: %#v", started)
 	}
-}
-
-func requireDockerImage(t *testing.T, image string) {
-	t.Helper()
-	if _, err := exec.LookPath("docker"); err != nil {
-		t.Skipf("skipping Docker/Shai child broker integration test because docker is not installed: %v", err)
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
-	if out, err := exec.CommandContext(ctx, "docker", "info").CombinedOutput(); err != nil {
-		t.Fatalf("docker info failed: %v\n%s", err, string(out))
-	}
-	if _, err := exec.CommandContext(ctx, "docker", "image", "inspect", image).CombinedOutput(); err == nil {
-		return
-	} else {
-		t.Logf("docker image %s is not available locally; pulling it now", image)
-	}
-
-	pullCtx, pullCancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	defer pullCancel()
-	if out, err := exec.CommandContext(pullCtx, "docker", "pull", image).CombinedOutput(); err != nil {
-		t.Fatalf("docker pull %s failed: %v\n%s", image, err, string(out))
-	}
-}
-
-func dockerCanReach(t *testing.T, host string, port int) bool {
-	t.Helper()
-	host = strings.TrimSpace(host)
-	if host == "" || port <= 0 {
-		return false
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	cmd := exec.CommandContext(ctx,
-		"docker", "run", "--rm",
-		"--add-host", "host.docker.internal:host-gateway",
-		"-e", "C2J_BROKER_HOST="+host,
-		"-e", "C2J_BROKER_PORT="+strconv.Itoa(port),
-		shaiBaseTestImage,
-		"bash", "-lc", `timeout 3 bash -c ': >/dev/tcp/${C2J_BROKER_HOST}/${C2J_BROKER_PORT}'`,
-	)
-	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Logf("Docker broker reachability probe failed: %v\n%s", err, string(out))
-		return false
-	}
-	return true
 }
 
 func testRepoRoot(t *testing.T) string {
@@ -246,27 +169,18 @@ func testRepoRoot(t *testing.T) string {
 	return root
 }
 
-func writeDockerBrokerWorkspace(t *testing.T, workspace string) {
+func writeWorkerBrokerWorkspace(t *testing.T, workspace string) {
 	t.Helper()
 	configPath := filepath.Join(workspace, ".shai", "config.yaml")
 	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
 		t.Fatalf("mkdir .shai: %v", err)
 	}
-	config := `
-type: shai-sandbox
-version: 1
-image: ghcr.io/colony-2/shai-base:latest
-resources:
-  child-broker-test: {}
-apply:
-  - path: ./
-    resources: [child-broker-test]
-`
+	config := `[invalid: yaml`
 	if err := os.WriteFile(configPath, []byte(strings.TrimSpace(config)+"\n"), 0o644); err != nil {
 		t.Fatalf("write shai config: %v", err)
 	}
 
-	if err := os.WriteFile(filepath.Join(workspace, "child.yaml"), []byte(strings.TrimSpace(dockerBrokerChildRecipeYAML)+"\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(workspace, "child.yaml"), []byte(strings.TrimSpace(workerBrokerChildRecipeYAML)+"\n"), 0o644); err != nil {
 		t.Fatalf("write child recipe: %v", err)
 	}
 }

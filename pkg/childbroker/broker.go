@@ -12,8 +12,6 @@ import (
 	"net"
 	"net/http"
 	"net/url"
-	"os"
-	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -38,9 +36,8 @@ type Submitter interface {
 }
 
 type Options struct {
-	Current            jobcontext.Current
-	Submitter          Submitter
-	ContainerReachable bool
+	Current   jobcontext.Current
+	Submitter Submitter
 }
 
 type Server struct {
@@ -92,7 +89,7 @@ func Start(ctx context.Context, opts Options) (*Server, error) {
 	return start(ctx, opts, listen)
 }
 
-func start(ctx context.Context, opts Options, openListener func(bool) (net.Listener, string, error)) (*Server, error) {
+func start(ctx context.Context, opts Options, openListener func() (net.Listener, string, error)) (*Server, error) {
 	if opts.Submitter == nil {
 		return nil, fmt.Errorf("child job broker submitter is required")
 	}
@@ -109,7 +106,7 @@ func start(ctx context.Context, opts Options, openListener func(bool) (net.Liste
 		return nil, err
 	}
 
-	listener, advertiseHost, err := openListener(opts.ContainerReachable)
+	listener, advertiseHost, err := openListener()
 	if err != nil {
 		return nil, err
 	}
@@ -121,7 +118,7 @@ func start(ctx context.Context, opts Options, openListener func(bool) (net.Liste
 
 	localIP := tcpAddr.IP
 	if localIP.IsUnspecified() {
-		// Broker listeners are IPv4, including container bridge bindings.
+		// Broker listeners are IPv4.
 		localIP = net.IPv4(127, 0, 0, 1)
 	}
 	broker := &Server{
@@ -426,92 +423,9 @@ func NewSubmitRequest(ctx context.Context, start workflowctl.StartJob, artifacts
 	return req, nil
 }
 
-func listen(containerReachable bool) (net.Listener, string, error) {
-	if !containerReachable {
-		listener, err := net.Listen("tcp4", "127.0.0.1:0")
-		return listener, "127.0.0.1", err
-	}
-	bindAddress, advertiseHost := containerListenAddress()
-	listener, err := net.Listen("tcp4", bindAddress)
-	if err != nil && bindAddress != "0.0.0.0:0" {
-		listener, err = net.Listen("tcp4", "0.0.0.0:0")
-	}
-	return listener, advertiseHost, err
-}
-
-func containerListenAddress() (string, string) {
-	if runtime.GOOS == "darwin" || runtime.GOOS == "windows" {
-		return "127.0.0.1:0", "host.docker.internal"
-	}
-	if runningInContainer() {
-		if ip := defaultRouteIPv4(); ip != "" {
-			return "0.0.0.0:0", ip
-		}
-		if ip := interfaceIPv4("eth0"); ip != "" {
-			return "0.0.0.0:0", ip
-		}
-	}
-	if ip := interfaceIPv4("docker0"); ip != "" {
-		return ip + ":0", "host.docker.internal"
-	}
-	return "0.0.0.0:0", "host.docker.internal"
-}
-
-func runningInContainer() bool {
-	if _, err := os.Stat("/.dockerenv"); err == nil {
-		return true
-	}
-	data, err := os.ReadFile("/proc/1/cgroup")
-	if err != nil {
-		return false
-	}
-	text := string(data)
-	return strings.Contains(text, "docker") ||
-		strings.Contains(text, "kubepods") ||
-		strings.Contains(text, "containerd")
-}
-
-func defaultRouteIPv4() string {
-	conn, err := net.DialTimeout("udp", "8.8.8.8:80", 100*time.Millisecond)
-	if err != nil {
-		return ""
-	}
-	defer conn.Close()
-	addr, ok := conn.LocalAddr().(*net.UDPAddr)
-	if !ok || addr.IP == nil {
-		return ""
-	}
-	if ipv4 := addr.IP.To4(); ipv4 != nil {
-		return ipv4.String()
-	}
-	return ""
-}
-
-func interfaceIPv4(name string) string {
-	iface, err := net.InterfaceByName(name)
-	if err != nil {
-		return ""
-	}
-	addrs, err := iface.Addrs()
-	if err != nil {
-		return ""
-	}
-	for _, addr := range addrs {
-		var ip net.IP
-		switch value := addr.(type) {
-		case *net.IPNet:
-			ip = value.IP
-		case *net.IPAddr:
-			ip = value.IP
-		}
-		if ip == nil {
-			continue
-		}
-		if ipv4 := ip.To4(); ipv4 != nil {
-			return ipv4.String()
-		}
-	}
-	return ""
+func listen() (net.Listener, string, error) {
+	listener, err := net.Listen("tcp4", "127.0.0.1:0")
+	return listener, "127.0.0.1", err
 }
 
 func randomHex(bytesLen int) (string, error) {

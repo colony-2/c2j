@@ -6,7 +6,7 @@
 
 ### `command_execution`
 
-Run a shell command.
+Run a shell command directly in the c2j worker environment.
 
 Inputs:
 
@@ -14,7 +14,6 @@ Inputs:
 - `working_directory`, defaulting to the worktree path.
 - `shell`: `bash`, `sh`, `powershell`, or `cmd`.
 - `env`: map of strings.
-- `sandbox`: optional sandbox config.
 - `continue_on_error`: keep output instead of failing on non-zero exit.
 - `timeout`: Go duration string.
 

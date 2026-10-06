@@ -27,7 +27,7 @@ env:
   NPM_DESCRIPTION: c2j job system
   NPM_AUTHOR_NAME: Colony 2
   NPM_AUTHOR_EMAIL: noreply@colony2.com
-  NPM_KEYWORDS_JSON: '["sandbox","docker","ai","agent","cli","security"]'
+  NPM_KEYWORDS_JSON: '["workflow","jobs","ai","agent","cli","automation"]'
   NPM_NODE_ENGINE: '>=14.0.0'
   PROJECT_LICENSE: Apache-2.0
 

@@ -25,7 +25,7 @@ func TestLocalSubmitUsesBoundInterfaceAndDynamicPort(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
 			submitter := &captureSubmitter{}
-			broker, err := start(ctx, Options{Current: jobcontext.Current{TenantID: "tenant", JobID: "parent", InvocationHash: "current-attempt"}, Submitter: submitter, ContainerReachable: true}, func(bool) (net.Listener, string, error) { return listener, "container-host.invalid", nil })
+			broker, err := start(ctx, Options{Current: jobcontext.Current{TenantID: "tenant", JobID: "parent", InvocationHash: "current-attempt"}, Submitter: submitter}, func() (net.Listener, string, error) { return listener, "container-host.invalid", nil })
 			require.NoError(t, err)
 			defer broker.Close()
 			require.Equal(t, "container-host.invalid", broker.Host())

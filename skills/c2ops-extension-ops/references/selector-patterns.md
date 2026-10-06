@@ -104,18 +104,14 @@ Bind artifacts at the recipe node level, then pass op-visible inbox paths in nes
       prompt: 'Review "${{ context.environment.op.inbox }}/report.md".'
 ```
 
-## Sandbox
+## Worker Environment
 
-If the extension supports a `sandbox` input, include it under nested `inputs`. c2j strips the sandbox field from the extension JSON payload and uses it to configure execution.
-
-```yaml
-inputs:
-  selector: git+https://github.com/colony-2/c2ops.git//aider@main
-  inputs:
-    prompt: "{{ inputs.prompt }}"
-    sandbox:
-      type: shai
-```
+Extensions execute directly in the c2j worker environment. Provision tools,
+credentials, mounts, and any container isolation before starting the worker.
+Remove former generic `sandbox` inputs, including `type: none`, and parameters
+used only to forward them. c2j no longer strips this field from extension inputs;
+input validation follows the extension's schema, and permissive schemas can pass
+it through as ordinary data. It never configures c2j isolation.
 
 ## Immutable Session Objects
 

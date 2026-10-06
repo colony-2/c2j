@@ -68,7 +68,6 @@ type opDepImpl struct {
 	workflowControl       workflowctl.WorkflowControl
 	worktreePath          string
 	operationPaths        OperationPaths
-	pathRuntime           OperationPathRuntime
 	gitContext            GitExecutionContext
 	currentJobContext     jobcontext.Current
 	protectedEnv          map[string]string
@@ -162,10 +161,6 @@ func (c *opDepImpl) OperationPaths() OperationPaths {
 	return c.operationPaths
 }
 
-func (c *opDepImpl) OperationPathRuntime() OperationPathRuntime {
-	return c.pathRuntime
-}
-
 func (c *opDepImpl) GitContext() GitExecutionContext {
 	return c.gitContext
 }
@@ -233,7 +228,6 @@ type OpDependenciesBuilder struct {
 	workflowControl   workflowctl.WorkflowControl
 	worktreePath      string
 	operationPaths    OperationPaths
-	pathRuntime       OperationPathRuntime
 	gitContext        GitExecutionContext
 	currentJobContext jobcontext.Current
 	protectedEnv      map[string]string
@@ -291,11 +285,6 @@ func (b *OpDependenciesBuilder) WithOperationPaths(paths OperationPaths) *OpDepe
 	return b
 }
 
-func (b *OpDependenciesBuilder) WithOperationPathRuntime(runtime OperationPathRuntime) *OpDependenciesBuilder {
-	b.pathRuntime = runtime
-	return b
-}
-
 func (b *OpDependenciesBuilder) WithGitContext(ctx GitExecutionContext) *OpDependenciesBuilder {
 	b.gitContext = ctx
 	if b.worktreePath == "" {
@@ -342,7 +331,6 @@ func (b *OpDependenciesBuilder) Build() OpDependencies {
 		workflowControl:   b.workflowControl,
 		worktreePath:      b.worktreePath,
 		operationPaths:    b.operationPaths,
-		pathRuntime:       b.pathRuntime,
 		gitContext:        b.gitContext,
 		currentJobContext: b.currentJobContext,
 		protectedEnv:      protectedEnvCopy,

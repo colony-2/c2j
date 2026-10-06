@@ -102,7 +102,7 @@ inputs:
     printf 'result' > "${{ context.environment.op.outbox }}/result.txt"
 ```
 
-Avoid hard-coding host paths inside sandboxed ops. Use the context path visible to the op.
+Use context paths visible to the op instead of hard-coded paths. Operations share the worker environment; c2j does not translate paths into nested containers.
 
 ## Object Checkpoints
 

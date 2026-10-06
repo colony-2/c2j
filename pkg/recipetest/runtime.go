@@ -20,7 +20,6 @@ import (
 	inputop "github.com/colony-2/c2j/pkg/input"
 	"github.com/colony-2/c2j/pkg/jobdbschema"
 	coreops "github.com/colony-2/c2j/pkg/ops"
-	"github.com/colony-2/c2j/pkg/ops/process"
 	"github.com/colony-2/c2j/pkg/recipe"
 	"github.com/colony-2/c2j/pkg/starter"
 	"github.com/colony-2/c2j/pkg/worker/compiler"
@@ -84,9 +83,6 @@ func runRuntimeCase(parent context.Context, opts HarnessOptions, tenant string, 
 	}
 	for name, registration := range registry.GetAll() {
 		reg := registration
-		if reg.Metadata.Type == "command_execution" && req.Case.Runtime.CommandSandbox == "none" {
-			reg.Activity = hostCommandOp{reg.Activity}
-		}
 		invoke := reg.Step.Invoke
 		reg.Step.Invoke = func(deps coreops.OpDependencies, ctx context.Context, in map[string]any) (map[string]any, error) {
 			return f.invoke(deps, ctx, reg.Metadata.Type, invoke, in)
@@ -409,10 +405,6 @@ func (f *runtimeFixture) invoke(deps coreops.OpDependencies, ctx context.Context
 	}
 	mock := f.c.Mocks.Ops[idx]
 	if mock.Behavior.Mode == "passthrough" {
-		if op == "command_execution" && f.c.Runtime.CommandSandbox == "none" {
-			in = cloneStringMap(in)
-			in["sandbox"] = map[string]any{"type": "none"}
-		}
 		return real(deps, ctx, in)
 	}
 	if mock.Behavior.Mode == "fail" {
@@ -581,14 +573,6 @@ func (f *runtimeFixture) assert(a Assertion) AssertionResult {
 	checks, _ := runRecipeTestAssertions([]Assertion{{Type: "output_equals", Path: path, Value: a.Value}}, map[string]any{"value": value}, nil, nil, "passed", nil, nil)
 	checks[0].Type = a.Type
 	return checks[0]
-}
-
-// A test environment override, applied before resolving op-visible paths. The
-// authored command and all task persistence still use the production executor.
-type hostCommandOp struct{ coreops.RegisterableOp }
-
-func (o hostCommandOp) TransformOperationPaths(ctx context.Context, req coreops.OperationPathTransformRequest) (coreops.OperationPathTransformResult, error) {
-	return process.TransformOperationPaths(ctx, map[string]any{"type": "none"}, req.Host)
 }
 
 func copyFixtureSource(root, name, source string) error {

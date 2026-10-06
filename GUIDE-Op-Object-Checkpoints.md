@@ -84,7 +84,7 @@ The process receives hydrated input JSON on stdin:
 }
 ```
 
-The abbreviated `ref` above represents a complete framework reference. Pass it through unchanged when returning an existing checkpoint. `metadata` is the op's JSON contract. Every named `files` path is local to this invocation, writable, and mapped to the op's filesystem view in a sandbox. c2j hydrates references recursively, including references nested in arrays and maps. Non-object inputs retain their existing format.
+The abbreviated `ref` above represents a complete framework reference. Pass it through unchanged when returning an existing checkpoint. `metadata` is the op's JSON contract. Every named `files` path is local to this invocation, writable, and visible in the worker environment. c2j hydrates references recursively, including references nested in arrays and maps. Non-object inputs retain their existing format.
 
 For a new checkpoint, prepare export files beneath the framework-provided `C2J_OBJECT_OUTBOX`. Emit an envelope on stdout:
 
@@ -187,5 +187,5 @@ Use a deterministic fake Codex process in ordinary CI, plus a version-pinned rea
 - Stop/reopen the runtime between publication and consumption; remove invocation directories and any old session cache.
 - Fail after changing a restored home, then retry from A; verify the retry sees A. Replay completed tasks and verify they are not invoked again.
 - Include database-backed resume state and relocated rollout paths. Verify resumability, not merely that a session ID was returned.
-- Exercise sandbox path mapping, child round trips, root output forwarding, nested object values, incorrect types, missing artifacts, corrupted archives and unsupported contract versions.
+- Exercise invocation-local object paths, child round trips, root output forwarding, nested object values, incorrect types, missing artifacts, corrupted archives and unsupported contract versions.
 - Confirm ordinary recipe artifact lists contain user deliverables and do not expose checkpoint packs.

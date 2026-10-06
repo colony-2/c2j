@@ -1161,12 +1161,6 @@ func (j *testJobContext) runPassthroughTask(ctx context.Context, taskType string
 	if err := j.materializePassthroughArtifacts(operationPaths, inv); err != nil {
 		return passthroughRecord{}, err
 	}
-	pathRuntime := coreops.OperationPathRuntime{
-		Views: coreops.OperationPathViews{
-			Host: operationPaths,
-			Op:   operationPaths,
-		},
-	}
 
 	deps := coreops.NewOpDependenciesBuilder().
 		WithDatabase(j.deps.Database()).
@@ -1174,7 +1168,6 @@ func (j *testJobContext) runPassthroughTask(ctx context.Context, taskType string
 		WithArtifacts(inputArtifacts).
 		WithJobTool(j).
 		WithOperationPaths(operationPaths).
-		WithOperationPathRuntime(pathRuntime).
 		WithGitContext(coreops.GitExecutionContext{
 			Workspace: inv.GitTaskContext.Workspace, CellResolution: inv.GitTaskContext.CellResolution,
 			BaseRepo:         inv.GitTaskContext.BaseRepo,
