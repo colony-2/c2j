@@ -15,6 +15,8 @@ type Target struct {
 }
 
 func Parse(raw string) (Target, error) {
+	// Rejected URIs may contain credentials, including in malformed URL text.
+	// Describe the violated rule without echoing raw input or URL parser errors.
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
 		return Target{}, nil
@@ -22,15 +24,15 @@ func Parse(raw string) (Target, error) {
 
 	parsed, err := url.Parse(raw)
 	if err != nil {
-		return Target{}, fmt.Errorf("parse JobDB URI: %w", err)
+		return Target{}, fmt.Errorf("parse JobDB URI: invalid URL")
 	}
 	switch parsed.Scheme {
 	case "embed":
-		return parseEmbeddedJobDBURI(parsed, raw)
+		return parseEmbeddedJobDBURI(parsed)
 	case "http", "https":
-		return parseRemoteJobDBURI(parsed, raw)
+		return parseRemoteJobDBURI(parsed)
 	default:
-		return Target{}, fmt.Errorf("unsupported JobDB URI scheme %q", parsed.Scheme)
+		return Target{}, fmt.Errorf("unsupported JobDB URI scheme: use http, https, or embed")
 	}
 }
 
@@ -39,9 +41,9 @@ func IsEmbeddedJobDBURI(raw string) bool {
 	return err == nil && target.Embedded
 }
 
-func parseEmbeddedJobDBURI(parsed *url.URL, raw string) (Target, error) {
+func parseEmbeddedJobDBURI(parsed *url.URL) (Target, error) {
 	if parsed.Host != "" || parsed.RawQuery != "" || parsed.Fragment != "" || (parsed.Path != "" && parsed.Path != "/") {
-		return Target{}, fmt.Errorf("unsupported embedded JobDB URI %q: only %s is supported", raw, "embed:///")
+		return Target{}, fmt.Errorf("unsupported embedded JobDB URI: only embed:/// is supported")
 	}
 	return Target{
 		URI:        "embed:///",
@@ -51,24 +53,24 @@ func parseEmbeddedJobDBURI(parsed *url.URL, raw string) (Target, error) {
 	}, nil
 }
 
-func parseRemoteJobDBURI(parsed *url.URL, raw string) (Target, error) {
+func parseRemoteJobDBURI(parsed *url.URL) (Target, error) {
 	if parsed.Host == "" {
-		return Target{}, fmt.Errorf("remote JobDB URI %q requires a host", raw)
+		return Target{}, fmt.Errorf("remote JobDB URI requires a host")
 	}
 	if parsed.User != nil {
-		return Target{}, fmt.Errorf("remote JobDB URI %q must not include user info", raw)
+		return Target{}, fmt.Errorf("remote JobDB URI must not include user info")
 	}
 	if parsed.RawQuery != "" || parsed.Fragment != "" {
-		return Target{}, fmt.Errorf("remote JobDB URI %q must not include query or fragment", raw)
+		return Target{}, fmt.Errorf("remote JobDB URI must not include query or fragment")
 	}
 
 	escapedPath := parsed.EscapedPath()
 	tenantPath := strings.TrimPrefix(escapedPath, "/")
 	if tenantPath == "" {
-		return Target{}, fmt.Errorf("remote JobDB URI %q requires tenant path /<tenant-id>", raw)
+		return Target{}, fmt.Errorf("remote JobDB URI requires tenant path /<tenant-id>")
 	}
 	if strings.Contains(tenantPath, "/") {
-		return Target{}, fmt.Errorf("remote JobDB URI %q must use exactly one tenant path segment", raw)
+		return Target{}, fmt.Errorf("remote JobDB URI must use exactly one tenant path segment")
 	}
 	tenantID, err := url.PathUnescape(tenantPath)
 	if err != nil {
@@ -76,10 +78,10 @@ func parseRemoteJobDBURI(parsed *url.URL, raw string) (Target, error) {
 	}
 	tenantID = strings.TrimSpace(tenantID)
 	if tenantID == "" {
-		return Target{}, fmt.Errorf("remote JobDB URI %q requires a non-empty tenant ID", raw)
+		return Target{}, fmt.Errorf("remote JobDB URI requires a non-empty tenant ID")
 	}
 	if strings.Contains(tenantID, "/") {
-		return Target{}, fmt.Errorf("remote JobDB URI %q must use exactly one tenant path segment", raw)
+		return Target{}, fmt.Errorf("remote JobDB URI must use exactly one tenant path segment")
 	}
 
 	runtimeURL := (&url.URL{Scheme: parsed.Scheme, Host: parsed.Host}).String()

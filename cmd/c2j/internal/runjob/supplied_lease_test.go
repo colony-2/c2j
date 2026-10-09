@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -56,7 +57,7 @@ func newSuppliedCLI(t *testing.T, yaml string, duration time.Duration) *supplied
 		if strings.HasSuffix(r.URL.Path, "/keepalive") {
 			n := f.renewals.Add(1)
 			if limit := f.failRenewAfter.Load(); limit > 0 && n > limit {
-				http.Error(w, "renewal unavailable", http.StatusServiceUnavailable)
+				http.Error(w, "secret-response: "+r.Header.Get("X-JobDB-Lease-Token"), http.StatusServiceUnavailable)
 				return
 			}
 		}
@@ -205,6 +206,9 @@ func TestRunWithLeaseRejectsInvalidAuthorityAndTarget(t *testing.T) {
 			err := f.run(t, false)
 			require.Error(t, err)
 			require.NotContains(t, err.Error(), "do-not-print-this")
+			if test == "initial-renewal" {
+				assertRenewalDiagnostic(t, f, err)
+			}
 			require.NotContains(t, f.stdout.String()+f.stderr.String(), "do-not-print-this")
 			chapters, listErr := f.backend.ListChapters(context.Background(), jobdb.ListChaptersRequest{JobKey: f.key})
 			require.NoError(t, listErr)
@@ -230,9 +234,84 @@ sequence:
 	require.ErrorAs(t, err, &renewal)
 	var transport *remote.LeaseTransportError
 	require.ErrorAs(t, err, &transport)
+	assertRenewalDiagnostic(t, f, err)
 	require.Less(t, time.Since(started), 3*time.Second)
 	require.NotContains(t, f.stdout.String(), "must-not-run")
 	info, readErr := f.backend.GetJob(context.Background(), f.key)
 	require.NoError(t, readErr)
 	require.NotEqual(t, jobdb.JobStatusCompleted, info.Status)
+}
+
+func TestRunWithLeaseImportFailureDiagnostic(t *testing.T) {
+	for _, kind := range []string{"refused", "invalid-response"} {
+		t.Run(kind, func(t *testing.T) {
+			f := newSuppliedCLI(t, "id: supplied\nsequence: []\n", time.Minute)
+			var requests atomic.Int32
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				requests.Add(1)
+				require.True(t, strings.HasSuffix(r.URL.Path, "/keepalive"), "only lease validation should reach the server")
+				w.Header().Set("Content-Type", "application/json")
+				// Reflect the credential in a malformed response to guard against
+				// printing untrusted response content in the CLI diagnostic.
+				require.NotEmpty(t, r.Header.Get("X-JobDB-Lease-Token"))
+				fmt.Fprintf(w, `{"lease": %q}`, r.Header.Get("X-JobDB-Lease-Token"))
+			}))
+			t.Cleanup(server.Close)
+			f.opts.JobDBURI = server.URL + "/tenant"
+			if kind == "refused" {
+				server.Close()
+			}
+			err := f.run(t, false)
+			require.Error(t, err)
+			require.Contains(t, err.Error(), f.opts.JobDBURI)
+			require.Contains(t, err.Error(), "cannot validate supplied lease")
+			require.Contains(t, err.Error(), "job execution has not started")
+			require.NotContains(t, err.Error(), "HTTP status 0")
+			var transport *remote.LeaseTransportError
+			require.ErrorAs(t, err, &transport)
+			var exit exitError
+			require.ErrorAs(t, err, &exit)
+			require.Equal(t, exitCodeFailure, exit.ExitCode())
+			if kind == "refused" {
+				require.Contains(t, err.Error(), "connection refused")
+				require.Contains(t, err.Error(), "If running inside Docker")
+				require.Zero(t, requests.Load())
+			} else {
+				require.Contains(t, err.Error(), "invalid renewal response")
+				require.NotContains(t, err.Error(), "Docker")
+				require.Equal(t, int32(1), requests.Load())
+			}
+			var wire map[string]any
+			require.NoError(t, json.Unmarshal(f.encoded, &wire))
+			require.NotContains(t, err.Error()+f.stdout.String()+f.stderr.String(), wire["leaseToken"].(string))
+			require.Empty(t, f.stdout.String())
+			chapters, listErr := f.backend.ListChapters(context.Background(), jobdb.ListChaptersRequest{JobKey: f.key})
+			require.NoError(t, listErr)
+			require.Len(t, chapters, 1, "recipe execution must not append any chapters")
+		})
+	}
+}
+
+// Both initial runner validation and heartbeat must retain the remote diagnostic
+// through LeaseRenewalError, c2j's exit error, and story rendering.
+func assertRenewalDiagnostic(t *testing.T, f *suppliedCLI, err error) {
+	t.Helper()
+	var renewal *jobdb.LeaseRenewalError
+	require.ErrorAs(t, err, &renewal)
+	var transport *remote.LeaseTransportError
+	require.ErrorAs(t, err, &transport)
+	require.Equal(t, remote.LeaseFailureHTTP, transport.Category)
+	require.Equal(t, remote.LeasePhaseExchange, transport.Phase)
+	require.True(t, transport.ResponseReceived)
+	require.Equal(t, 503, transport.StatusCode)
+	require.Contains(t, err.Error(), "HTTP request rejected")
+	require.Contains(t, err.Error(), "HTTP status 503")
+	require.Contains(t, err.Error(), transport.Destination)
+	require.NotContains(t, err.Error(), "job execution has not started")
+	var wire map[string]any
+	require.NoError(t, json.Unmarshal(f.encoded, &wire))
+	output := err.Error() + f.stdout.String() + f.stderr.String()
+	require.NotContains(t, output, wire["leaseToken"].(string))
+	require.NotContains(t, output, "secret-response")
+	require.NotContains(t, output, "HTTP status 0")
 }

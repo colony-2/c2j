@@ -50,7 +50,7 @@ func RunWithLease(ctx context.Context, opts Options, leaseFile string) error {
 	}
 	lease, err := deps.importLease(ctx, capability)
 	if err != nil {
-		return exitError{code: exitCodeFailure, err: fmt.Errorf("import supplied lease: %w", err)}
+		return exitError{code: exitCodeFailure, err: newSuppliedLeaseValidationError(opts.JobDBURI, err)}
 	}
 	jobKey := jobdb.JobKey{TenantId: opts.TenantID, JobId: opts.JobID}
 	if lease.Job().JobKey != jobKey {
