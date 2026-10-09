@@ -38,6 +38,12 @@ func (c *capturingInvocationJobContext) DoTask(_ jobdb.RunPolicy, taskType strin
 	if taskType == TimeoutCheckpointTaskType {
 		return (timeoutCheckpointWorker{}).Run(jobworkflow.TaskContext{}, data)
 	}
+	switch taskType {
+	case workerops.ExtensionResolutionTaskType:
+		return workerops.NewExtensionResolutionWorker().Run(jobworkflow.TaskContext{}, data)
+	case workerops.ToolSetupTaskType:
+		return workerops.NewToolSetupWorker().Run(jobworkflow.TaskContext{}, data)
+	}
 	c.calls++
 	c.lastTaskType = taskType
 

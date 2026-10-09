@@ -14,9 +14,11 @@ import (
 	"github.com/colony-2/c2j/pkg/jobcontext"
 	"github.com/colony-2/c2j/pkg/objects"
 	"github.com/colony-2/c2j/pkg/ops"
+	extops "github.com/colony-2/c2j/pkg/ops/extensions"
 	"github.com/colony-2/c2j/pkg/recipe"
 	coretask "github.com/colony-2/c2j/pkg/task"
 	"github.com/colony-2/c2j/pkg/template"
+	"github.com/colony-2/c2j/pkg/toolenv"
 	workerops "github.com/colony-2/c2j/pkg/worker/ops"
 	"github.com/colony-2/c2j/pkg/workflow"
 	"github.com/colony-2/jobdb/pkg/jobdb"
@@ -148,6 +150,13 @@ func (d DefaultRecipeExecutor) ExecuteRecipe(ctx workflow.Context, r recipe.Reci
 		ctx = wrapValidationContext(ctx, commitContext, rCtx.Options.ResolvedSelectors, rCtx.Options.ResolvedGitRefs)
 	}
 
+	if base := r.GetMetdata().Execution; base != nil && len(base.Packages) > 0 {
+		rCtx.ToolScopes = append(rCtx.ToolScopes, toolenv.Scope{ID: "recipe", Packages: base.Packages})
+	}
+	if len(ctx.JobPackages) > 0 {
+		rCtx.ToolScopes = append(rCtx.ToolScopes, toolenv.Scope{ID: "job", Packages: ctx.JobPackages})
+	}
+
 	metadata := r.GetMetadata().NodeMetadata
 	body := func(inner workflow.Context, scoped *template.ResolutionContext, meta recipe.NodeMetadata) error {
 		if err := scoped.ResolveVars(meta.Vars); err != nil {
@@ -231,8 +240,12 @@ func normalizeOpPathAlias(op *string, host string, hostSentinel string, opSentin
 func (d DefaultRecipeExecutor) ExecuteNode(ctx workflow.Context, parentResCtx *template.ResolutionContext, n *recipe.Node) error {
 	metadata := n.GetMetadata()
 	if metadata.Internal != nil && metadata.Internal.Inline != nil && metadata.Internal.Inline.Execution != nil && !metadata.Internal.Inline.Execution.Empty() && ctx.SuspendExecution != nil {
-		if err := ctx.SuspendExecution(ctx.JobContext, "inline:"+metadata.Internal.Inline.CallsitePath, *metadata.Internal.Inline.Execution); err != nil {
-			return err
+		patch := *metadata.Internal.Inline.Execution
+		patch.Packages = nil
+		if !patch.Empty() {
+			if err := ctx.SuspendExecution(ctx.JobContext, "inline:"+metadata.Internal.Inline.CallsitePath, patch); err != nil {
+				return err
+			}
 		}
 	}
 	switch t := n.NodeImpl.(type) {
@@ -353,6 +366,8 @@ func (d DefaultRecipeExecutor) executeOpAttempt(ctx workflow.Context, parentReso
 		return err
 	}
 
+	var preparedExtension *extops.ResolvedOp
+	var resolutionMS int64
 	var (
 		registeredOp ops.RegisterableOp
 		chain        []ops.TaskStep
@@ -369,7 +384,7 @@ func (d DefaultRecipeExecutor) executeOpAttempt(ctx workflow.Context, parentReso
 			resCtx.Options.ResolvedGitRefs = map[string]string{}
 		}
 		resolveOpts.ResolvedRefs = resCtx.Options.ResolvedGitRefs
-		resolvedSelectorOp, selectorRegisteredOp, err := loadSelectorOp(pinnedSelector, resolveOpts)
+		resolvedSelectorOp, selectorRegisteredOp, elapsed, err := resolveInvocationExtension(ctx, resCtx, pinnedSelector, resolveOpts)
 		if err != nil {
 			return err
 		}
@@ -379,6 +394,10 @@ func (d DefaultRecipeExecutor) executeOpAttempt(ctx workflow.Context, parentReso
 			}
 			resCtx.Options.ResolvedSelectors[op] = pinned
 		}
+		if !resCtx.Options.LegacyExtensionResolution {
+			preparedExtension = resolvedSelectorOp
+		}
+		resolutionMS = elapsed
 		registeredOp = selectorRegisteredOp
 		chain = registeredOp.TaskChain()
 		taskPrefix = registeredOp.GetMetadata().Type
@@ -457,6 +476,24 @@ func (d DefaultRecipeExecutor) executeOpAttempt(ctx workflow.Context, parentReso
 		artifactKeys = appendArtifactKeys(artifactKeys, resolvedArtifacts)
 	}
 
+	setupCtx := ctx
+	var setupRequest workerops.ToolSetupRequest
+	var setup *workerops.ToolSetupResult
+	setupRecoveries := 0
+	if resCtx.Options.Mode != template.ModeValidate && (len(resCtx.ToolScopes) > 0 || preparedExtension != nil) {
+		scopes := append([]toolenv.Scope(nil), resCtx.ToolScopes...)
+		if preparedExtension != nil && len(preparedExtension.Spec.Dependencies) > 0 {
+			scopes = append(scopes, toolenv.Scope{ID: "op:" + op, Packages: preparedExtension.Spec.Dependencies})
+		}
+		if ctx.StageNodeExecution != nil {
+			ctx.StageNodeExecution(resCtx.ExecutionNeeds)
+		}
+		setupRequest = workerops.ToolSetupRequest{Scopes: scopes, Extension: preparedExtension, ResolutionMS: resolutionMS}
+		setup, err = prepareInvocationTools(ctx, setupRequest)
+		if err != nil {
+			return err
+		}
+	}
 	// Execute the operation
 	retry := jobdb.RetryPolicy{}
 	if metadata.Retry != nil {
@@ -466,7 +503,8 @@ func (d DefaultRecipeExecutor) executeOpAttempt(ctx workflow.Context, parentReso
 	runPolicy := jobdb.RunPolicy{
 		Retry: retry,
 	}
-	if opTimeout := effectiveOpTimeout(metadata, registeredOp); opTimeout > 0 {
+	opTimeout := effectiveOpTimeout(metadata, registeredOp)
+	if opTimeout > 0 {
 		ctx.JobContext, err = withDurableExecutionTimeout(ctx.JobContext, opTimeout, fmt.Sprintf("op %q", op))
 		if err != nil {
 			return err
@@ -509,6 +547,7 @@ func (d DefaultRecipeExecutor) executeOpAttempt(ctx workflow.Context, parentReso
 				invocationKeys = acc.Keys()
 			}
 			invocation := workerops.ActivityInvocationRequest{
+				Setup:          setup,
 				Input:          stepInput,
 				Const:          resCtx.EffectiveConst,
 				GitTaskContext: *gitstate.NewGlobalGitTaskContext(resCtx.TaskExecutionContext()),
@@ -565,6 +604,28 @@ func (d DefaultRecipeExecutor) executeOpAttempt(ctx workflow.Context, parentReso
 
 			switch decoded.Kind {
 			case coretask.OutputKindActivityInvocationOutput:
+				if decoded.Activity.SetupRequired {
+					if hadMismatch {
+						return mismatchErr
+					}
+					setupRecoveries++
+					if setupRecoveries > 8 {
+						return fmt.Errorf("tool setup repeatedly lost before execution")
+					}
+					setupRequest.ResolutionMS = 0
+					setup, err = prepareInvocationTools(setupCtx, setupRequest)
+					if err != nil {
+						return err
+					}
+					// Resume this exact step, preserving completed steps and their outputs.
+					// Only the op's own budget excludes setup; enclosing deadlines still apply.
+					if opTimeout > 0 {
+						timed := *ctx.JobContext.(*timeoutJobContext)
+						timed.deadline = timed.deadline.Add(setup.Duration)
+						ctx.JobContext = &timed
+					}
+					continue
+				}
 				if hadMismatch {
 					// A mismatch that still produced an activity output indicates real non-determinism.
 					return mismatchErr

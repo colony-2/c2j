@@ -9,6 +9,7 @@ import (
 // ExecutionNeeds contains literal or templated node properties. Validation of
 // resolved values uses the existing execution.Requirements model.
 type ExecutionNeeds struct {
+	Packages  []string               `yaml:"packages,omitempty" json:"packages,omitempty"`
 	Resources ExecutionNeedResources `yaml:"resources,omitempty" json:"resources,omitempty"`
 	Image     any                    `yaml:"image,omitempty" json:"image,omitempty"`
 	Platform  any                    `yaml:"platform,omitempty" json:"platform,omitempty"`
@@ -27,7 +28,7 @@ func (n *ExecutionNeeds) UnmarshalYAML(node *yaml.Node) error {
 	for i := 0; i < len(node.Content); i += 2 {
 		key := node.Content[i].Value
 		switch key {
-		case "image", "platform":
+		case "image", "platform", "packages":
 		case "resources":
 			r := node.Content[i+1]
 			if r.Kind != yaml.MappingNode {
@@ -50,7 +51,18 @@ func (n *ExecutionNeeds) UnmarshalYAML(node *yaml.Node) error {
 // HasExecutionNeeds includes inline-expanded nodes and state bodies. It does
 // not inspect separately submitted child recipes.
 func HasExecutionNeeds(r Recipe) bool {
-	if r.GetMetadata().ExecutionNeeds != nil {
+	return hasExecutionNeeds(r, func(n *ExecutionNeeds) bool { return n != nil })
+}
+
+// HasExecutionConstraints excludes packages: local setup does not require a
+// resource-admission runtime when there are no image/capacity declarations.
+func HasExecutionConstraints(r Recipe) bool {
+	return hasExecutionNeeds(r, func(n *ExecutionNeeds) bool {
+		return n != nil && (n.Image != nil || n.Platform != nil || n.Resources.CPU != nil || n.Resources.Memory != nil || n.Resources.EphemeralStorage != nil)
+	})
+}
+func hasExecutionNeeds(r Recipe, matches func(*ExecutionNeeds) bool) bool {
+	if matches(r.GetMetadata().ExecutionNeeds) {
 		return true
 	}
 	var nodeHas func(Node) bool
@@ -58,7 +70,7 @@ func HasExecutionNeeds(r Recipe) bool {
 		if _, shared := n.NodeImpl.(*NodeShared); shared {
 			return false
 		}
-		if n.GetMetadata().ExecutionNeeds != nil {
+		if matches(n.GetMetadata().ExecutionNeeds) {
 			return true
 		}
 		switch v := n.NodeImpl.(type) {

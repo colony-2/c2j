@@ -6,6 +6,7 @@ import (
 
 	"github.com/colony-2/c2j/pkg/execution"
 	"github.com/colony-2/c2j/pkg/recipe"
+	"github.com/colony-2/c2j/pkg/toolenv"
 )
 
 // ResolveExecutionNeeds uses the same resolver as node inputs, after local vars
@@ -14,7 +15,7 @@ func (rc *ResolutionContext) ResolveExecutionNeeds(needs *recipe.ExecutionNeeds)
 	if needs == nil {
 		return nil
 	}
-	patch := execution.Requirements{}
+	patch := execution.Requirements{Packages: needs.Packages}
 	for _, field := range []struct {
 		name   string
 		value  any
@@ -58,5 +59,8 @@ func (rc *ResolutionContext) ResolveExecutionNeeds(needs *recipe.ExecutionNeeds)
 		return fmt.Errorf("node %q execution_needs: %w", rc.scopeId, err)
 	}
 	rc.ExecutionNeeds = execution.Overlay(rc.ExecutionNeeds, patch)
+	if len(needs.Packages) > 0 {
+		rc.ToolScopes = append(rc.ToolScopes, toolenv.Scope{ID: rc.TaskExecutionContext().Invocation.NodePath, Packages: append([]string(nil), needs.Packages...)})
+	}
 	return nil
 }

@@ -184,7 +184,10 @@ func TestNewNoTaskStepIsDisallowedAndNotRegisteredAsWorker(t *testing.T) {
 	require.True(t, entry.Step.DisallowAsTask, "NoTaskStep should be marked disallowed")
 
 	workers := registry.GetTaskWorkers(recipeops.NewServiceDepsBuilder().Build())
-	require.Empty(t, workers, "disallowed steps should not be exposed as task workers")
+	for _, worker := range workers {
+		require.NotEqual(t, "no-task-op:collect", worker.Name(), "disallowed steps should not be exposed as task workers")
+	}
+	require.Len(t, workers, 2, "only setup control workers remain")
 }
 
 func TestWithGitWorkspaceAppliesContextPatch(t *testing.T) {

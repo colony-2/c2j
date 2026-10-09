@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/colony-2/c2j/pkg/execution"
 	"github.com/colony-2/c2j/pkg/git/selectorcache"
 	"github.com/colony-2/c2j/pkg/objects"
 	invschema "github.com/invopop/jsonschema"
@@ -318,6 +319,18 @@ func loadResolvedOp(submittedSelector string, resolvedSelector string, resolvedC
 	}
 	if strings.TrimSpace(resolved.Spec.Name) == "" {
 		resolved.Spec.Name = filepath.Base(opDir)
+	}
+	return RestoreResolvedOp(resolved)
+}
+
+// RestoreResolvedOp reconstructs validators from a durable manifest without source I/O.
+func RestoreResolvedOp(resolved *ResolvedOp) (*ResolvedOp, error) {
+	spec := resolved.Spec
+	submittedSelector := resolved.Selector
+	for _, ref := range spec.Dependencies {
+		if _, _, err := execution.ParsePackage(ref); err != nil {
+			return nil, err
+		}
 	}
 	if doc, compiled, err := parseSchema(spec.InputSchema); err == nil {
 		resolved.inputSchemaDoc = doc

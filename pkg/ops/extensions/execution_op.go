@@ -51,11 +51,13 @@ func executeExtension(deps ops.OpDependencies, ctx context.Context, input Execut
 	if repoRef == "" {
 		repoRef = strings.TrimSpace(gitCtx.RecipeSourceRef)
 	}
-	resolved, err := Resolve(ctx, input.Selector, ResolveOptions{
-		BaseDir:          deps.WorktreePath(),
-		RepositorySource: repoSource,
-		RepositoryRef:    repoRef,
-	})
+	resolved, _ := ctx.Value(preparedOpKey{}).(*ResolvedOp)
+	var err error
+	if resolved == nil {
+		resolved, err = Resolve(ctx, input.Selector, ResolveOptions{BaseDir: deps.WorktreePath(), RepositorySource: repoSource, RepositoryRef: repoRef})
+	} else {
+		resolved, err = RestoreResolvedOp(resolved)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -166,4 +168,11 @@ func decodeExecutionEnvelope(stdout []byte) (map[string]interface{}, map[string]
 		}
 	}
 	return outputs, artifactRefs, nil
+}
+
+type preparedOpKey struct{}
+
+// WithPreparedOp supplies a manifest/source prepared before the task deadline.
+func WithPreparedOp(ctx context.Context, op *ResolvedOp) context.Context {
+	return context.WithValue(ctx, preparedOpKey{}, op)
 }

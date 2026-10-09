@@ -13,6 +13,7 @@ import (
 	"github.com/colony-2/c2j/pkg/jobcontext"
 	"github.com/colony-2/c2j/pkg/recipe"
 	"github.com/colony-2/c2j/pkg/template/funcregistry"
+	"github.com/colony-2/c2j/pkg/toolenv"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	"github.com/google/cel-go/cel"
 	"github.com/google/cel-go/common/types"
@@ -60,6 +61,7 @@ type ScopeMetadata struct {
 
 // ResolutionContext represents template resolution context
 type ResolutionContext struct {
+	ToolScopes []toolenv.Scope
 	// ExecutionNeeds is lexical same-job state, never a persistent job override.
 	ExecutionNeeds    execution.Requirements
 	commitContext     *contextual.GitCommitContext
@@ -347,6 +349,12 @@ func (rc *ResolutionContext) NewChildContext(scopeType ScopeType, metadata recip
 	}
 	child.EffectiveConst = rc.EffectiveConst || metadata.Const
 	child.ExecutionNeeds = execution.Overlay(rc.ExecutionNeeds, execution.Requirements{})
+	child.ToolScopes = append([]toolenv.Scope(nil), rc.ToolScopes...)
+	if metadata.Internal != nil && metadata.Internal.Inline != nil && metadata.Internal.Inline.Execution != nil {
+		if packages := metadata.Internal.Inline.Execution.Packages; len(packages) > 0 {
+			child.ToolScopes = append(child.ToolScopes, toolenv.Scope{ID: "include:" + metadata.Internal.Inline.CallsitePath, Packages: packages})
+		}
+	}
 	child.TemplateData.Vars = cloneTemplateVars(rc.TemplateData.Vars)
 	child.TemplateData.Transition = rc.TemplateData.Transition.Clone()
 	child.TemplateData.Failure = rc.TemplateData.Failure.Clone()

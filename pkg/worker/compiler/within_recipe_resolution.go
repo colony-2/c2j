@@ -135,6 +135,17 @@ func buildWithinRecipeResolutionTaskInput(rec *recipe.Recipe, execCtx contextual
 	}
 
 	selectors := collectSelectorsNeedingResolution(rec)
+	if !execOpts.LegacyExtensionResolution && execOpts.Mode != ExecutionModeValidate {
+		selectors = nil
+		// CEL imports are required to evaluate control flow; op sources are resolved
+		// only when their invocation is reached.
+		for _, f := range rec.GetMetdata().Extensions.Functions {
+			if selectorNeedsResolution(f.Selector) {
+				selectors = append(selectors, f.Selector)
+			}
+		}
+		sort.Strings(selectors)
+	}
 	if len(selectors) == 0 {
 		return nil
 	}

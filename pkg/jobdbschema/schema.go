@@ -187,6 +187,7 @@ var c2jJobSchema = json.RawMessage(`{
         "required": ["tenantId", "recipe", "context"],
         "properties": {
 		  "execution": { "type": "object" },
+          "tool_setup_version": { "type": "integer", "minimum": 0, "maximum": 1 },
           "tenantId": { "type": "string", "minLength": 1 },
           "job_id": { "type": "string" },
           "recipe": { "type": "string", "minLength": 1 },
@@ -235,6 +236,7 @@ var c2jJobSchema = json.RawMessage(`{
       { "$ref": "#/$defs/withinResolveChapter" },
       { "$ref": "#/$defs/workspaceResolveChapter" },
       { "$ref": "#/$defs/timeoutCheckpointChapter" },
+      { "$ref": "#/$defs/toolSetupChapter" },
       { "$ref": "#/$defs/activityInvocationChapter" },
       { "$ref": "#/$defs/restartExtraChapter" },
       { "$ref": "#/$defs/jobAttemptOutcomeChapter" }
@@ -464,6 +466,7 @@ var c2jJobSchema = json.RawMessage(`{
             "type": "object",
             "additionalProperties": true
           },
+          "setup": { "type": "object" },
           "workspace_managed": { "type": "boolean" },
           "restore_artifact": { "$ref": "#/$defs/artifactKey" },
           "const": { "type": "boolean" },
@@ -483,6 +486,8 @@ var c2jJobSchema = json.RawMessage(`{
         "type": "object",
         "required": ["output"],
         "properties": {
+          "setup": { "type": "object" },
+          "setup_required": { "type": "boolean" },
           "git": { "$ref": "#/$defs/gitCommitContext" },
           "workspace_scope_id": { "type": "string" },
           "nextTaskType": { "type": "string" },
@@ -730,13 +735,21 @@ var c2jJobSchema = json.RawMessage(`{
           }
         }
       },
+      "toolSetupChapter": {
+        "type":"object", "required":["taskType","input","body"],
+        "properties": {
+          "taskType":{"enum":["tool_setup","extension_resolution"]},
+          "input":{"type":"object"},
+          "body":{"$ref":"#/$defs/taskAttemptBody"}
+        }
+      },
       "activityInvocationChapter": {
         "type": "object",
         "required": ["taskType", "body"],
         "properties": {
           "taskType": {
             "type": "string",
-            "not": { "enum": ["recipe_root_source_resolve", "recipe_within_resolution", "recipe_workspace_resolve", "recipe_timeout_checkpoint", "__restart_extra__"] }
+            "not": { "enum": ["recipe_root_source_resolve", "recipe_within_resolution", "recipe_workspace_resolve", "recipe_timeout_checkpoint", "tool_setup", "extension_resolution", "__restart_extra__"] }
           },
           "input": { "$ref": "#/$defs/activityInvocationRequest" },
           "body": {

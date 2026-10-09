@@ -175,6 +175,7 @@ func StartRecipeJobWithOptions(ctx context.Context, startJob workflowctl.StartJo
 	}
 
 	payload := startJob
+	payload.ToolSetupVersion = 1
 	payload.Artifacts = nil
 	inputData, err := jobdb.NewTaskData(payload, artifacts...)
 

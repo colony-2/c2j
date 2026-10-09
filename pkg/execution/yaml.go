@@ -24,7 +24,7 @@ func (r *Requirements) UnmarshalYAML(node *yaml.Node) error {
 	for i := 0; i < len(node.Content); i += 2 {
 		name := node.Content[i].Value
 		switch name {
-		case "image", "platform":
+		case "image", "platform", "packages":
 		case "resources":
 			resources := node.Content[i+1]
 			if resources.Kind != yaml.MappingNode {

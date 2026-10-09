@@ -80,6 +80,8 @@ metadata, so untagged builds include the current git revision when it is
 available. Dirty suffixes are only included when Go reports that the worktree was
 modified at build time.
 
+See [Execution tools](EXECUTION_TOOLS.md) for lazy pnpm, Nix, and uv tool dependencies and provider-owned cache storage.
+
 ## Quick Start
 
 ### 1. Check current-cell resolution

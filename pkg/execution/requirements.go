@@ -18,6 +18,7 @@ const SchemaVersion = 1
 // Requirements is also the partial override format: nil preserves the base
 // property. Explicit empty values are invalid; version 1 does not support clear.
 type Requirements struct {
+	Packages  []string  `json:"packages,omitempty" yaml:"packages,omitempty"`
 	Image     *string   `json:"image,omitempty" yaml:"image,omitempty"`
 	Platform  *string   `json:"platform,omitempty" yaml:"platform,omitempty"`
 	Resources Resources `json:"resources,omitempty" yaml:"resources,omitempty"`
@@ -48,6 +49,7 @@ type Allocation struct {
 // the returned pointers. Validate patches before overlaying them.
 func Overlay(base, override Requirements) Requirements {
 	return Requirements{
+		Packages: mergePackages(base.Packages, override.Packages),
 		Image:    choose(base.Image, override.Image),
 		Platform: choose(base.Platform, override.Platform),
 		Resources: Resources{
@@ -70,12 +72,17 @@ func choose(base, override *string) *string {
 }
 
 func (r Requirements) Empty() bool {
-	return r.Image == nil && r.Platform == nil && r.Resources == (Resources{})
+	return r.Image == nil && r.Platform == nil && r.Resources == (Resources{}) && len(r.Packages) == 0
 }
 
 // Normalize validates all supplied fields and returns canonical values.
 func (r Requirements) Normalize() (Requirements, error) {
 	out := Overlay(r, Requirements{})
+	for _, ref := range out.Packages {
+		if _, _, err := ParsePackage(ref); err != nil {
+			return Requirements{}, err
+		}
+	}
 	for _, field := range []struct {
 		name      string
 		value     **string

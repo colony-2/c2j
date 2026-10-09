@@ -15,11 +15,12 @@ type CELOptionsProvider interface {
 type ResolutionMode string
 
 type ResolutionOptions struct {
-	Mode                ResolutionMode
-	ValidationMode      string
-	ClampSliceIndex     bool
-	AllowFutureStepRefs bool
-	CatchBeforeRetry    bool
+	LegacyExtensionResolution bool
+	Mode                      ResolutionMode
+	ValidationMode            string
+	ClampSliceIndex           bool
+	AllowFutureStepRefs       bool
+	CatchBeforeRetry          bool
 	// ResolvedSelectors carries compiler-internal selector pins for the current run.
 	ResolvedSelectors map[string]string
 	// ResolvedGitRefs carries compiler-internal repo/ref pins for the current run.

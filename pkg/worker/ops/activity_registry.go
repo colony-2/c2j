@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/colony-2/c2j/pkg/execution"
+	"github.com/colony-2/c2j/pkg/toolenv"
 	"os"
 	"reflect"
 
@@ -22,6 +23,7 @@ const thinPackSentinel = gitstate.ThinPackArtifactName
 
 // ActivityInvocationRequest wraps the invocation metadata and original input payload.
 type ActivityInvocationRequest struct {
+	Setup            *ToolSetupResult               `json:"setup,omitempty"`
 	WorkspaceManaged bool                           `json:"workspace_managed,omitempty"`
 	RestoreArtifact  *jobdb.ArtifactKey             `json:"restore_artifact,omitempty"`
 	Input            map[string]interface{}         `json:"input"`
@@ -34,6 +36,8 @@ type ActivityInvocationRequest struct {
 
 // ActivityInvocationOutput wraps the raw op output alongside workspace results.
 type ActivityInvocationOutput struct {
+	Setup             *toolenv.Diagnostics           `json:"setup,omitempty"`
+	SetupRequired     bool                           `json:"setup_required,omitempty"`
 	WorkspaceScopeID  string                         `json:"workspace_scope_id,omitempty"`
 	Execution         *execution.Requirements        `json:"execution,omitempty"`
 	GitResult         contextual.GitCommitContext    `json:"git,omitempty"`
@@ -123,6 +127,7 @@ func (r *ActivityRegistry) GetTaskWorkers(deps ops.ServiceDependencies2) []jobwo
 		doer := &opExecutor{deps: deps, reg: registration, controller: controller}
 		workers = append(workers, &taskWorker{name: name, reg: registration, doer: doer})
 	}
+	workers = append(workers, NewToolSetupWorker(), NewExtensionResolutionWorker())
 	return workers
 }
 

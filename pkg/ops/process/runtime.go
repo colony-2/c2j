@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -46,6 +47,7 @@ func ExecuteProcess(ctx context.Context, req RunRequest) ([]byte, []byte, error)
 }
 
 func executeOnHost(ctx context.Context, req RunRequest, workingDir string) ([]byte, []byte, error) {
+	req.Env = withContextEnv(ctx, req.Env)
 	cmd, err := buildExecCommand(req)
 	if err != nil {
 		return nil, nil, err
@@ -121,6 +123,18 @@ func buildExecCommand(req RunRequest) (*exec.Cmd, error) {
 	if err != nil {
 		return nil, err
 	}
+	if !strings.ContainsRune(argv[0], os.PathSeparator) && req.Env["PATH"] != "" {
+		for _, dir := range filepath.SplitList(req.Env["PATH"]) {
+			if dir == "" {
+				continue
+			}
+			p := filepath.Join(dir, argv[0])
+			if info, err := os.Stat(p); err == nil && !info.IsDir() && info.Mode()&0111 != 0 {
+				argv[0] = p
+				break
+			}
+		}
+	}
 	return exec.Command(argv[0], argv[1:]...), nil
 }
 
@@ -158,4 +172,21 @@ func ContainsOpVisibleSentinel(value interface{}) bool {
 		}
 	}
 	return false
+}
+
+// WithToolPath binds tools to one invocation, without mutating os.Environ.
+func WithToolPath(ctx context.Context, path string) context.Context {
+	return context.WithValue(ctx, toolPathKey{}, path)
+}
+
+type toolPathKey struct{}
+
+func withContextEnv(ctx context.Context, env map[string]string) map[string]string {
+	path, _ := ctx.Value(toolPathKey{}).(string)
+	if path == "" {
+		return env
+	}
+	out := BuildProcessEnvMap(env)
+	out["PATH"] = path + string(os.PathListSeparator) + out["PATH"]
+	return out
 }

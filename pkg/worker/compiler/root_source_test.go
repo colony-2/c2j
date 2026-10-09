@@ -796,7 +796,7 @@ outputs:
 
 	resolved, err := ParseWithinRecipeResolutionJSON(resolutionOutput)
 	require.NoError(t, err)
-	require.Equal(t, fmt.Sprintf("git+%s//tools/ops/echo@%s", repoURL, commit), resolved.ResolvedSelectors[fmt.Sprintf("git+%s//tools/ops/echo@HEAD", repoURL)])
+	requireResolvedInvocation(t, run, fmt.Sprintf("git+%s//tools/ops/echo@%s", repoURL, commit))
 	require.Equal(t, fmt.Sprintf("git+%s//tools/cel/text-utils@%s", repoURL, commit), resolved.ResolvedSelectors[fmt.Sprintf("git+%s//tools/cel/text-utils@HEAD", repoURL)])
 }
 
@@ -1026,22 +1026,11 @@ outputs:
 		IncludeOutputs: true,
 	})
 	require.NoError(t, err)
-	var withinOutput []byte
-	for i := range run.Attempts[0].Tasks {
-		task := &run.Attempts[0].Tasks[i]
-		if task.TaskType == WithinRecipeResolutionTaskType {
-			require.NotEmpty(t, task.Attempts)
-			require.NotNil(t, task.Attempts[0].Output)
-			withinOutput = task.Attempts[0].Output.Data
-		}
+	requireResolvedInvocation(t, run, fmt.Sprintf("git+%s//tools/ops/echo@%s", repoURL, rootCommit))
+	for _, task := range run.Attempts[0].Tasks {
+		require.NotEqual(t, WithinRecipeResolutionTaskType, task.TaskType, "ops resolve at invocation, not upfront")
 	}
-	require.NotEmpty(t, withinOutput)
 
-	resolved, err := ParseWithinRecipeResolutionJSON(withinOutput)
-	require.NoError(t, err)
-	opSelector := fmt.Sprintf("git+%s//tools/ops/echo@HEAD", repoURL)
-	require.Equal(t, fmt.Sprintf("git+%s//tools/ops/echo@%s", repoURL, rootCommit), resolved.ResolvedSelectors[opSelector])
-	require.Equal(t, rootCommit, resolved.ResolvedGitRefs[selectorcache.RepoRefKey(repoURL, "HEAD")])
 }
 
 func TestRecipeJobWorker_RemoteGitRecipeExplicitRemoteRefsUseWithinRecipeResolution(t *testing.T) {
@@ -1191,7 +1180,7 @@ outputs:
 
 	resolved, err := ParseWithinRecipeResolutionJSON(withinOutput)
 	require.NoError(t, err)
-	require.Equal(t, fmt.Sprintf("git+%s//tools/ops/echo@%s", depRepoURL, depCommit), resolved.ResolvedSelectors[fmt.Sprintf("git+%s//tools/ops/echo@HEAD", depRepoURL)])
+	requireResolvedInvocation(t, run, fmt.Sprintf("git+%s//tools/ops/echo@%s", depRepoURL, depCommit))
 	require.Equal(t, fmt.Sprintf("git+%s//tools/cel/text-utils@%s", depRepoURL, depCommit), resolved.ResolvedSelectors[fmt.Sprintf("git+%s//tools/cel/text-utils@HEAD", depRepoURL)])
 }
 
@@ -1453,4 +1442,26 @@ func cachedCommitDirs(t *testing.T, cacheRoot string) []string {
 		}
 	}
 	return commits
+}
+
+func requireResolvedInvocation(t *testing.T, run jobdb.GetJobRunResponse, selector string) {
+	t.Helper()
+	for _, attempt := range run.Attempts {
+		for _, task := range attempt.Tasks {
+			if task.TaskType != workerops.ExtensionResolutionTaskType {
+				continue
+			}
+			for _, call := range task.Attempts {
+				if call.Output == nil {
+					continue
+				}
+				var result workerops.ExtensionResolutionResult
+				require.NoError(t, json.Unmarshal(call.Output.Data, &result))
+				if result.Op != nil && result.Op.ResolvedSelector == selector {
+					return
+				}
+			}
+		}
+	}
+	t.Fatalf("no lazy extension resolution for %s", selector)
 }

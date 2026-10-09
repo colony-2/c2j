@@ -38,18 +38,19 @@ type JobInspection struct {
 }
 
 type StartJob struct {
-	Execution    *execution.Demand      `json:"execution,omitempty"`
-	TenantId     string                 `json:"tenantId"`
-	JobID        string                 `json:"job_id,omitempty"`
-	RecipeName   string                 `json:"recipe"`
-	Inputs       map[string]interface{} `json:"inputs,omitempty"`
-	Artifacts    []jobdb.Artifact       `json:"-"`
-	ArtifactRefs []recipeartifacts.Ref  `json:"artifact_refs,omitempty"`
-	JobContext   contextual.JobContext  `json:"context,omitempty"`
-	Parent       *jobcontext.Parent     `json:"parent,omitempty"`
-	GitRef       string                 `json:"git,omitempty"`
-	SubmittedAt  *time.Time             `json:"submitted_at,omitempty"`
-	InputHash    string                 `json:"input_hash,omitempty"`
+	ToolSetupVersion int                    `json:"tool_setup_version,omitempty"`
+	Execution        *execution.Demand      `json:"execution,omitempty"`
+	TenantId         string                 `json:"tenantId"`
+	JobID            string                 `json:"job_id,omitempty"`
+	RecipeName       string                 `json:"recipe"`
+	Inputs           map[string]interface{} `json:"inputs,omitempty"`
+	Artifacts        []jobdb.Artifact       `json:"-"`
+	ArtifactRefs     []recipeartifacts.Ref  `json:"artifact_refs,omitempty"`
+	JobContext       contextual.JobContext  `json:"context,omitempty"`
+	Parent           *jobcontext.Parent     `json:"parent,omitempty"`
+	GitRef           string                 `json:"git,omitempty"`
+	SubmittedAt      *time.Time             `json:"submitted_at,omitempty"`
+	InputHash        string                 `json:"input_hash,omitempty"`
 }
 
 type JobItem struct {

@@ -8,6 +8,8 @@ import (
 
 	"github.com/colony-2/c2j/pkg/contextual"
 	"github.com/colony-2/c2j/pkg/ops"
+	extops "github.com/colony-2/c2j/pkg/ops/extensions"
+	"github.com/colony-2/c2j/pkg/ops/process"
 	coretask "github.com/colony-2/c2j/pkg/task"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
@@ -36,10 +38,30 @@ func (t *taskWorker) Run(ctx jobworkflow.TaskContext, input jobdb.TaskData) (job
 	if err != nil {
 		return nil, err
 	}
+	// This worker is called only on a task-result miss. A lost prepared
+	// environment records a control result; the compiler returns to setup.
+	if !air.Setup.Ready() {
+		env, err := coretask.NewOutputEnvelope(coretask.OutputKindActivityInvocationOutput, ActivityInvocationOutput{SetupRequired: true})
+		if err != nil {
+			return nil, err
+		}
+		return jobdb.NewTaskData(env)
+	}
 	opCtx, cancel := NewTaskExecutionContext(ctx)
 	defer cancel()
+	if air.Setup != nil {
+		if air.Setup.Environment != nil {
+			opCtx = process.WithToolPath(opCtx, air.Setup.Environment.Path)
+		}
+		if air.Setup.Extension != nil {
+			opCtx = extops.WithPreparedOp(opCtx, air.Setup.Extension)
+		}
+	}
 	jobTool := &ops.TaskBasedJobTool{TaskContext: ctx}
 	out, outArt, err := t.doer.do(opCtx, jobTool, air, inArt)
+	if air.Setup != nil {
+		out.Setup = &air.Setup.Diagnostics
+	}
 	if err != nil {
 		td, tdErr := failedTaskData(out, outArt)
 		if tdErr != nil {
@@ -122,6 +144,9 @@ func failedTaskData(output ActivityInvocationOutput, artifacts []jobdb.Artifact)
 }
 
 func hasFailedActivityPayload(output ActivityInvocationOutput, artifacts []jobdb.Artifact) bool {
+	if output.Setup != nil || output.SetupRequired {
+		return true
+	}
 	if len(artifacts) > 0 {
 		return true
 	}

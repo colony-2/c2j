@@ -950,6 +950,12 @@ func (j *testJobContext) TransitionSelected(fromState string, toState string, pa
 }
 
 func (j *testJobContext) DoTask(runPolicy jobdb.RunPolicy, taskType string, data jobdb.TaskData) (jobdb.TaskData, error) {
+	switch taskType {
+	case workerops.ToolSetupTaskType:
+		return jobdb.NewTaskData(workerops.ToolSetupResult{})
+	case workerops.ExtensionResolutionTaskType:
+		return workerops.NewExtensionResolutionWorker().Run(jobworkflow.TaskContext{}, data)
+	}
 	if taskType == compiler.TimeoutCheckpointTaskType {
 		return compiler.NewTimeoutCheckpointTaskWorker().Run(jobworkflow.TaskContext{}, data)
 	}

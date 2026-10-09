@@ -71,7 +71,7 @@ func (j recipeJobWorker) executionSession(ctx jobworkflow.JobContext, r recipe.R
 		d = *current
 	}
 	s := &executionSession{ctx: ctx, demand: d, allocation: a, onHandoff: j.onExecutionHandoff, stage: j.stageExecution}
-	if recipe.HasExecutionNeeds(r) {
+	if recipe.HasExecutionConstraints(r) {
 		if j.stageExecution == nil || !j.taskGuardConfigured {
 			return nil, fmt.Errorf("execution_needs requires an execution-aware runtime and guarded task workers")
 		}

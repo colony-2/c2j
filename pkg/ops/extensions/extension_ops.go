@@ -14,6 +14,7 @@ import (
 
 // ExtensionOpSpec models the op.yaml configuration for a selector-resolved extension op.
 type ExtensionOpSpec struct {
+	Dependencies []string          `yaml:"dependencies,omitempty" json:"dependencies,omitempty"`
 	Name         string            `yaml:"name"`
 	Description  string            `yaml:"description"`
 	Version      string            `yaml:"version"`

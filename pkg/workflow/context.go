@@ -16,6 +16,7 @@ type TaskHistoryReader interface {
 }
 
 type Context struct {
+	JobPackages        []string
 	TaskHistory        TaskHistoryReader
 	WorkspaceSnapshots bool
 	SuspendExecution   func(jobworkflow.JobContext, string, execution.Requirements) error
