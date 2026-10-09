@@ -84,15 +84,8 @@ to enable the new extension dependency lifecycle.
 
 ## Nix integration test
 
-Run the real installer in the official Nix image (Docker must match the host
-architecture). This checks binary-cache installation, qualified execution, warm
-reuse without manager access, and rejection of uncached derivations, including
-those with `preferLocalBuild = true`.
-
-```sh
-CGO_ENABLED=0 go test -c -o /tmp/c2j-toolenv.test ./pkg/toolenv
-docker run --rm -e C2J_TEST_REAL_NIX=1 \
-  -v /tmp/c2j-toolenv.test:/tmp/toolenv.test:ro \
-  --entrypoint /tmp/toolenv.test nixos/nix:2.35.1 \
-  -test.run '^TestRealNix$' -test.v -test.timeout 6m
-```
+`go test ./...` automatically tests the real installer in a disposable
+`nixos/nix:2.35.1` container when Docker is available. It checks binary-cache
+installation, qualified execution, warm reuse, and rejection of source builds.
+The test needs network access and skips when Docker is unavailable or `-short`
+is set. To run it alone: `go test ./pkg/toolenv -run TestRealNix -v`.
