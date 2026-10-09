@@ -81,3 +81,18 @@ New submissions record `tool_setup_version: 1` in their internal job input. Olde
 jobs retain their original extension-resolution history for replay compatibility.
 Direct JobDB integrations that construct `StartJob` themselves must set this field
 to enable the new extension dependency lifecycle.
+
+## Nix integration test
+
+Run the real installer in the official Nix image (Docker must match the host
+architecture). This checks binary-cache installation, qualified execution, warm
+reuse without manager access, and rejection of uncached derivations, including
+those with `preferLocalBuild = true`.
+
+```sh
+CGO_ENABLED=0 go test -c -o /tmp/c2j-toolenv.test ./pkg/toolenv
+docker run --rm -e C2J_TEST_REAL_NIX=1 \
+  -v /tmp/c2j-toolenv.test:/tmp/toolenv.test:ro \
+  --entrypoint /tmp/toolenv.test nixos/nix:2.35.1 \
+  -test.run '^TestRealNix$' -test.v -test.timeout 6m
+```
