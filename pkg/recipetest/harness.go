@@ -20,6 +20,8 @@ import (
 
 	"github.com/colony-2/c2j/pkg/contextual"
 	coreops "github.com/colony-2/c2j/pkg/ops"
+	extops "github.com/colony-2/c2j/pkg/ops/extensions"
+	"github.com/colony-2/c2j/pkg/ops/process"
 	recipecore "github.com/colony-2/c2j/pkg/recipe"
 	"github.com/colony-2/c2j/pkg/redact"
 	coretask "github.com/colony-2/c2j/pkg/task"
@@ -865,6 +867,8 @@ type testJobContext struct {
 	recordings       map[string]passthroughRecord
 	vars             []RenderedVarsDiagnostic
 	transitions      []TransitionDiagnostic
+	setupRequested   bool
+	prepareTools     func(context.Context, workerops.ToolSetupRequest) workerops.ToolSetupResult
 }
 
 type passthroughRecord struct {
@@ -888,6 +892,7 @@ func newTestJobContext(projectID string, caseDef Case, policy TestPolicy, deps c
 		executedNodes:    map[string]bool{},
 		artifactContents: map[string][]byte{},
 		recordings:       map[string]passthroughRecord{},
+		prepareTools:     workerops.PrepareTools,
 	}
 }
 
@@ -952,7 +957,26 @@ func (j *testJobContext) TransitionSelected(fromState string, toState string, pa
 func (j *testJobContext) DoTask(runPolicy jobdb.RunPolicy, taskType string, data jobdb.TaskData) (jobdb.TaskData, error) {
 	switch taskType {
 	case workerops.ToolSetupTaskType:
-		return jobdb.NewTaskData(workerops.ToolSetupResult{})
+		var req workerops.ToolSetupRequest
+		raw, err := data.GetData()
+		if err != nil {
+			return nil, err
+		}
+		if err := json.Unmarshal(raw, &req); err != nil {
+			return nil, err
+		}
+		if !j.setupRequested {
+			// Select the mock before installing anything. A passthrough miss
+			// will ask the compiler to repeat setup outside the op's timeout.
+			return jobdb.NewTaskData(workerops.ToolSetupResult{Pending: true, Extension: req.Extension})
+		}
+		j.setupRequested = false
+		ctx, cancel := contextForRunPolicy(runPolicy)
+		defer cancel()
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		return jobdb.NewTaskData(j.prepareTools(ctx, req))
 	case workerops.ExtensionResolutionTaskType:
 		return workerops.NewExtensionResolutionWorker().Run(jobworkflow.TaskContext{}, data)
 	}
@@ -986,6 +1010,22 @@ func (j *testJobContext) doMockedTask(runPolicy jobdb.RunPolicy, taskType string
 		opName = opName[:idx]
 	}
 	nodePath := strings.TrimSpace(inv.GitTaskContext.NodePath)
+	invocationKey := fmt.Sprintf("%s::%s::%d", nodePath, opName, inv.GitTaskContext.InvokeSeq)
+	idx, matched := j.selectOpMockIndexForInvocation(invocationKey, nodePath, opName)
+	if requireMock && matched && (j.policy.AllowedOnlyNodePath == "" || nodePath == j.policy.AllowedOnlyNodePath) {
+		mode := j.caseDef.Mocks.Ops[idx].Behavior.Mode
+		if (mode == "passthrough" || mode == "record_passthrough") && !inv.Setup.Ready() {
+			// This is control flow, not an op call or a consumed mock. Retrying
+			// the same step after setup must leave call counts and cassettes intact.
+			j.setupRequested = true
+			env, err := coretask.NewOutputEnvelope(coretask.OutputKindActivityInvocationOutput, workerops.ActivityInvocationOutput{SetupRequired: true})
+			if err != nil {
+				return nil, true, err
+			}
+			out, err := jobdb.NewTaskData(env)
+			return out, true, err
+		}
+	}
 	if requireMock {
 		j.calls = append(j.calls, OpCall{NodePath: nodePath, Op: opName, Inputs: inv.Input})
 	}
@@ -997,8 +1037,6 @@ func (j *testJobContext) doMockedTask(runPolicy jobdb.RunPolicy, taskType string
 		return nil, true, fmt.Errorf("%s: %s", opName, reason)
 	}
 
-	invocationKey := fmt.Sprintf("%s::%s::%d", nodePath, opName, inv.GitTaskContext.InvokeSeq)
-	idx, matched := j.selectOpMockIndexForInvocation(invocationKey, nodePath, opName)
 	if !matched {
 		if !requireMock {
 			return nil, false, nil
@@ -1057,10 +1095,12 @@ func (j *testJobContext) doMockedTask(runPolicy jobdb.RunPolicy, taskType string
 }
 
 func contextForRunPolicy(runPolicy jobdb.RunPolicy) (context.Context, context.CancelFunc) {
-	if runPolicy.TotalTimeout == nil {
-		return context.WithCancel(context.Background())
+	var timeout time.Duration
+	for _, limit := range []*jobdb.Duration{runPolicy.TotalTimeout, runPolicy.InvocationTimeout} {
+		if limit != nil && *limit > 0 && (timeout == 0 || time.Duration(*limit) < timeout) {
+			timeout = time.Duration(*limit)
+		}
 	}
-	timeout := time.Duration(*runPolicy.TotalTimeout)
 	if timeout <= 0 {
 		return context.WithCancel(context.Background())
 	}
@@ -1193,6 +1233,14 @@ func (j *testJobContext) runPassthroughTask(ctx context.Context, taskType string
 		WithWorktreePath(operationPaths.WorktreePath).
 		Build()
 
+	if inv.Setup != nil {
+		if inv.Setup.Environment != nil {
+			ctx = process.WithToolPath(ctx, inv.Setup.Environment.Path)
+		}
+		if inv.Setup.Extension != nil {
+			ctx = extops.WithPreparedOp(ctx, inv.Setup.Extension)
+		}
+	}
 	out, err := chain[idx].Invoke(deps, ctx, inv.Input)
 	if err != nil {
 		return passthroughRecord{}, fmt.Errorf("passthrough invoke failed for %s: %w", taskType, err)

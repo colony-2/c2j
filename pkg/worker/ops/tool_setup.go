@@ -1,6 +1,7 @@
 package ops
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"time"
@@ -68,6 +69,15 @@ func (toolSetupWorker) Run(tc jobworkflow.TaskContext, input jobdb.TaskData) (jo
 	}
 	ctx, cancel := NewTaskExecutionContext(tc)
 	defer cancel()
+	result := PrepareTools(ctx, req)
+	result.Diagnostics.TaskOrdinal = &tc.Step
+	// Setup failures are durable diagnostics, distinct from task execution errors.
+	return jobdb.NewTaskData(result)
+}
+
+// PrepareTools is shared by task workers and native recipe-test passthrough.
+// Callers supply the setup context, separate from the op execution timeout.
+func PrepareTools(ctx context.Context, req ToolSetupRequest) ToolSetupResult {
 	start := time.Now()
 	result := ToolSetupResult{Extension: req.Extension}
 	// If source storage was lost after manifest resolution, restore only the
@@ -122,9 +132,7 @@ func (toolSetupWorker) Run(tc jobworkflow.TaskContext, input jobdb.TaskData) (jo
 	}
 	result.Duration = time.Since(start)
 	result.Diagnostics.WallMS = result.Duration.Milliseconds() + req.ResolutionMS
-	result.Diagnostics.TaskOrdinal = &tc.Step
-	// Setup failures are durable diagnostics, distinct from task execution errors.
-	return jobdb.NewTaskData(result)
+	return result
 }
 
 type extensionResolutionWorker struct{}
