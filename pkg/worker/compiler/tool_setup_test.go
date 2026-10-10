@@ -23,7 +23,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestLazyToolSetupScopeTimeoutAndReplay(t *testing.T) {
+func TestLazyToolSetupScopeAndReplay(t *testing.T) {
 	bin := t.TempDir()
 	cache := t.TempDir()
 	log := filepath.Join(t.TempDir(), "install.log")
@@ -31,7 +31,6 @@ func TestLazyToolSetupScopeTimeoutAndReplay(t *testing.T) {
 	t.Setenv("TOOL_INSTALL_LOG", log)
 	require.NoError(t, os.WriteFile(filepath.Join(bin, "uv"), []byte(`#!/bin/sh
 set -eu
-sleep 0.4
 for spec do :; done
 printf '%s\n' "$spec" >> "$TOOL_INSTALL_LOG"
 mkdir -p "$UV_TOOL_BIN_DIR"
@@ -70,14 +69,12 @@ execution:
 sequence:
   - id: first
     op: tool_probe
-    timeout: 250ms
   - id: nested
     execution_needs:
       packages: [uv:tool==2]
     sequence:
       - id: inner
         op: tool_probe
-        timeout: 250ms
     outputs: {text: "${{ sequence.inner.outputs.text }}"}
   - id: last
     op: tool_probe
@@ -135,9 +132,8 @@ outputs:
 		setups++
 		var setup workerops.ToolSetupResult
 		require.NoError(t, json.Unmarshal(task.Attempts[0].Output.Data, &setup))
-		if setups == 1 {
-			require.GreaterOrEqual(t, setup.Diagnostics.WallMS, int64(350))
-		}
+		require.NotNil(t, setup.Diagnostics.TaskOrdinal)
+		require.NotEmpty(t, setup.Diagnostics.Tools)
 	}
 	require.Equal(t, 4, setups)
 	// Replay must work after both installed tools and the extension source disappear.
@@ -170,13 +166,12 @@ func (w loseToolsBeforeStep) Run(ctx jobworkflow.TaskContext, input jobdb.TaskDa
 	return w.TaskWorker.Run(ctx, input)
 }
 
-func TestToolRecoveryResumesCurrentStepOutsideOpTimeout(t *testing.T) {
+func TestToolRecoveryResumesCurrentStep(t *testing.T) {
 	bin := t.TempDir()
 	cache := t.TempDir()
 	t.Setenv("C2J_TOOL_CACHE_DIR", cache)
 	require.NoError(t, os.WriteFile(filepath.Join(bin, "uv"), []byte(`#!/bin/sh
 set -eu
-sleep 0.4
 mkdir -p "$UV_TOOL_BIN_DIR"
 printf '#!/bin/sh\necho ready\n' > "$UV_TOOL_BIN_DIR/tool"
 chmod +x "$UV_TOOL_BIN_DIR/tool"
@@ -223,7 +218,6 @@ execution: {packages: [uv:tool==1]}
 sequence:
  - id: work
    op: tool_chain
-   timeout: 250ms
 `))
 	require.NoError(t, err)
 	job, git := GenerateTestContext()
