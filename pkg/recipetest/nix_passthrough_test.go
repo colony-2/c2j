@@ -165,23 +165,28 @@ func (f *nixPassthroughFixture) prepare(t *testing.T, ctx context.Context, req w
 	require.Equal(t, "/nix/store/00000000000000000000000000000000-probe", req.Extension.Nix.StorePath)
 	// Model realization in a temp directory so fast tests need neither a writable
 	// /nix/store nor Docker. Keep actual manifest execution and tool preparation.
+	// Nix store paths are canonical. Match that here even when the temporary
+	// directory has a symlinked parent (for example, /var on macOS).
+	packageDir, err := filepath.EvalSymlinks(f.packageDir)
+	require.NoError(t, err)
 	prepared := *req.Extension
 	nix := *prepared.Nix
-	nix.StorePath = f.packageDir
+	nix.StorePath = packageDir
 	prepared.Nix = &nix
-	prepared.ProjectRoot, prepared.OpDir = f.packageDir, f.packageDir
-	prepared.SpecPath = filepath.Join(f.packageDir, "share/c2j/op.json")
+	prepared.ProjectRoot, prepared.OpDir = packageDir, packageDir
+	prepared.SpecPath = filepath.Join(packageDir, "share/c2j/op.json")
 	prepared.NixRoot = filepath.Join(f.root, "result")
 	require.NoError(t, os.MkdirAll(filepath.Dir(prepared.SpecPath), 0700))
 	require.NoError(t, os.WriteFile(prepared.SpecPath, f.manifest, 0600))
-	require.NoError(t, os.MkdirAll(filepath.Join(f.packageDir, "bin"), 0700))
+	require.NoError(t, os.MkdirAll(filepath.Join(packageDir, "bin"), 0700))
 	binary, err := os.Executable()
 	require.NoError(t, err)
 	script := "#!/bin/sh\nexec '" + strings.ReplaceAll(binary, "'", "'\\''") + "' -test.run '^TestNixPassthroughFixtureProcess$'\n"
-	require.NoError(t, os.WriteFile(filepath.Join(f.packageDir, "bin/probe"), []byte(script), 0700))
-	require.NoError(t, os.Symlink(f.packageDir, prepared.NixRoot))
+	require.NoError(t, os.WriteFile(filepath.Join(packageDir, "bin/probe"), []byte(script), 0700))
+	require.NoError(t, os.Symlink(packageDir, prepared.NixRoot))
 	result := workerops.PrepareTools(ctx, workerops.ToolSetupRequest{Scopes: req.Scopes})
 	result.Extension = &prepared
+	require.True(t, result.Ready(), "fixture setup must be ready before returning to the op")
 	return result
 }
 
@@ -218,9 +223,11 @@ func TestNixPassthroughLifecycle(t *testing.T) {
 	for _, tc := range []struct {
 		name, mode, artifact, wantError           string
 		invalidInput, invalidOutput, setupFailure bool
+		symlinkPackageDir                         bool
 		wantSetup, wantRuns, wantCalls            int
 	}{
 		{name: "passthrough", mode: "passthrough", artifact: `{"ok":true}`, wantSetup: 1, wantRuns: 1, wantCalls: 2},
+		{name: "symlinked package directory", mode: "passthrough", artifact: `{"ok":true}`, symlinkPackageDir: true, wantSetup: 1, wantRuns: 1, wantCalls: 2},
 		{name: "record passthrough", mode: "record_passthrough", artifact: `{"ok":true}`, wantSetup: 1, wantRuns: 1, wantCalls: 2},
 		{name: "invalid input", mode: "passthrough", artifact: `{"ok":true}`, invalidInput: true, wantError: "failed to validate selector inputs", wantCalls: 1},
 		{name: "rejected result artifact", mode: "passthrough", artifact: `{"ok":false}`, wantError: "result artifact failed schema validation", wantSetup: 1, wantRuns: 1, wantCalls: 2},
@@ -230,6 +237,11 @@ func TestNixPassthroughLifecycle(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			f := newNixPassthroughFixture(t)
+			if tc.symlinkPackageDir {
+				alias := filepath.Join(f.root, "package-alias")
+				require.NoError(t, os.Symlink(f.packageDir, alias))
+				f.packageDir = alias
+			}
 			c := nixPassthroughCase(tc.mode, tc.artifact)
 			deps := coreops.NewServiceDepsBuilder().Build()
 			j := newTestJobContext("test", c, TestPolicy{}, deps)
