@@ -54,6 +54,9 @@ func executeExtension(deps ops.OpDependencies, ctx context.Context, input Execut
 	resolved, _ := ctx.Value(preparedOpKey{}).(*ResolvedOp)
 	var err error
 	if resolved == nil {
+		if IsNixSelector(input.Selector) {
+			return nil, fmt.Errorf("invoke a Nix extension directly with op: %s so c2j can prepare it before execution", input.Selector)
+		}
 		resolved, err = Resolve(ctx, input.Selector, ResolveOptions{BaseDir: deps.WorktreePath(), RepositorySource: repoSource, RepositoryRef: repoRef})
 	} else {
 		resolved, err = RestoreResolvedOp(resolved)

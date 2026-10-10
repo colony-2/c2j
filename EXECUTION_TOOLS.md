@@ -23,6 +23,10 @@ An extension's `op.yaml` uses the same references:
 dependencies: [uv:ruff==0.11.2]
 ```
 
+Ops can also be distributed as prebuilt Nix packages, with metadata inspection
+through `passthru.c2j` and payload retrieval only after an activity-result miss.
+See the [extension op guide](EXTENSION_OPS.md) for the package and manifest contract.
+
 References are literal strings, split at the first colon. Package syntax belongs
 to the selected manager; use explicit versions or Nix revisions for repeatable
 resolution. These declarations install CLI applications, not dependencies into

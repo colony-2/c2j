@@ -81,6 +81,7 @@ available. Dirty suffixes are only included when Go reports that the worktree wa
 modified at build time.
 
 See [Execution tools](EXECUTION_TOOLS.md) for lazy pnpm, Nix, and uv tool dependencies and provider-owned cache storage.
+See [Extension ops](EXTENSION_OPS.md) for authoring, publishing, and invoking prebuilt Nix ops.
 
 ## Quick Start
 

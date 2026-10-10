@@ -489,9 +489,15 @@ func (d DefaultRecipeExecutor) executeOpAttempt(ctx workflow.Context, parentReso
 			ctx.StageNodeExecution(resCtx.ExecutionNeeds)
 		}
 		setupRequest = workerops.ToolSetupRequest{Scopes: scopes, Extension: preparedExtension, ResolutionMS: resolutionMS}
-		setup, err = prepareInvocationTools(ctx, setupRequest)
-		if err != nil {
-			return err
+		if preparedExtension != nil && preparedExtension.Nix != nil {
+			// A cached activity result needs no payload. Only a live worker can
+			// request materialization, using the existing setup-recovery boundary.
+			setup = &workerops.ToolSetupResult{Pending: true, Extension: preparedExtension}
+		} else {
+			setup, err = prepareInvocationTools(ctx, setupRequest)
+			if err != nil {
+				return err
+			}
 		}
 	}
 	// Execute the operation
@@ -612,7 +618,9 @@ func (d DefaultRecipeExecutor) executeOpAttempt(ctx workflow.Context, parentReso
 					if setupRecoveries > 8 {
 						return fmt.Errorf("tool setup repeatedly lost before execution")
 					}
-					setupRequest.ResolutionMS = 0
+					if setup == nil || !setup.Pending {
+						setupRequest.ResolutionMS = 0
+					}
 					setup, err = prepareInvocationTools(setupCtx, setupRequest)
 					if err != nil {
 						return err

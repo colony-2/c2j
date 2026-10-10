@@ -30,6 +30,7 @@ type ToolSetupRequest struct {
 	ResolutionMS int64              `json:"resolution_ms,omitempty"`
 }
 type ToolSetupResult struct {
+	Pending     bool                 `json:"pending,omitempty"`
 	Duration    time.Duration        `json:"duration_ns"`
 	Environment *toolenv.Environment `json:"environment,omitempty"`
 	Extension   *extops.ResolvedOp   `json:"extension,omitempty"`
@@ -40,13 +41,14 @@ func (r *ToolSetupResult) Ready() bool {
 	if r == nil {
 		return true
 	}
+	if r.Pending {
+		return false
+	}
 	if r.Environment != nil && !r.Environment.Ready() {
 		return false
 	}
-	if r.Extension != nil {
-		if _, err := os.Stat(r.Extension.SpecPath); err != nil {
-			return false
-		}
+	if r.Extension != nil && !r.Extension.Ready() {
+		return false
 	}
 	return true
 }
@@ -70,7 +72,23 @@ func (toolSetupWorker) Run(tc jobworkflow.TaskContext, input jobdb.TaskData) (jo
 	result := ToolSetupResult{Extension: req.Extension}
 	// If source storage was lost after manifest resolution, restore only the
 	// already-pinned selector. The durable manifest remains authoritative.
-	if req.Extension != nil {
+	if req.Extension != nil && req.Extension.Nix != nil {
+		prepared, reused, e := extops.PrepareNixOp(ctx, req.Extension)
+		outcome := "prepared"
+		if reused {
+			outcome = "reused"
+		}
+		if e != nil {
+			outcome = "failed"
+			result.Diagnostics.Error = e.Error()
+		} else {
+			result.Extension = prepared
+		}
+		result.Diagnostics.Tools = append(result.Diagnostics.Tools, toolenv.ToolDiagnostic{
+			Reference: req.Extension.Selector, Identity: req.Extension.Nix.StorePath,
+			Scope: "op", WallMS: time.Since(start).Milliseconds(), Outcome: outcome,
+		})
+	} else if req.Extension != nil {
 		if _, e := os.Stat(req.Extension.SpecPath); e != nil {
 			selector := req.Extension.ResolvedSelector
 			if selector == "" {
@@ -98,7 +116,8 @@ func (toolSetupWorker) Run(tc jobworkflow.TaskContext, input jobdb.TaskData) (jo
 		} else {
 			env, diag, _ := manager.Prepare(ctx, req.Scopes)
 			result.Environment = &env
-			result.Diagnostics = diag
+			result.Diagnostics.Tools = append(result.Diagnostics.Tools, diag.Tools...)
+			result.Diagnostics.Error = diag.Error
 		}
 	}
 	result.Duration = time.Since(start)

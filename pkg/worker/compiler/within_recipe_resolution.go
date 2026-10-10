@@ -236,7 +236,7 @@ func selectorNeedsResolution(selector string) bool {
 	if selector == "" || !extops.IsSelector(selector) {
 		return false
 	}
-	if extops.IsLocalSelector(selector) {
+	if extops.IsLocalSelector(selector) || extops.IsNixSelector(selector) {
 		return false
 	}
 	return !selectorUsesPinnedGitRef(selector)

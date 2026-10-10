@@ -12,6 +12,7 @@ import (
 	"github.com/colony-2/c2j/pkg/execution"
 	"github.com/colony-2/c2j/pkg/git/selectorcache"
 	"github.com/colony-2/c2j/pkg/objects"
+	"github.com/colony-2/c2j/pkg/toolenv"
 	invschema "github.com/invopop/jsonschema"
 	jsonschemav6 "github.com/santhosh-tekuri/jsonschema/v6"
 	yaml "gopkg.in/yaml.v3"
@@ -33,6 +34,8 @@ type ResolvedSelectorPath struct {
 }
 
 type ResolvedOp struct {
+	Nix              *toolenv.NixPackage `json:",omitempty"`
+	NixRoot          string              `json:",omitempty"`
 	Selector         string
 	ResolvedSelector string
 	ResolvedCommit   string
@@ -49,7 +52,11 @@ type ResolvedOp struct {
 }
 
 func IsSelector(selector string) bool {
-	return IsLocalSelector(selector) || isGitOpSelector(selector)
+	return IsLocalSelector(selector) || isGitOpSelector(selector) || IsNixSelector(selector)
+}
+
+func IsNixSelector(selector string) bool {
+	return strings.HasPrefix(strings.TrimSpace(selector), "nix:")
 }
 
 func IsLocalSelector(selector string) bool {
@@ -58,6 +65,9 @@ func IsLocalSelector(selector string) bool {
 }
 
 func Resolve(ctx context.Context, selector string, opts ResolveOptions) (*ResolvedOp, error) {
+	if IsNixSelector(selector) {
+		return describeNixOp(ctx, strings.TrimSpace(selector), opts)
+	}
 	resolvedPath, err := ResolvePath(ctx, selector, opts)
 	if err != nil {
 		return nil, err
@@ -325,6 +335,11 @@ func loadResolvedOp(submittedSelector string, resolvedSelector string, resolvedC
 
 // RestoreResolvedOp reconstructs validators from a durable manifest without source I/O.
 func RestoreResolvedOp(resolved *ResolvedOp) (*ResolvedOp, error) {
+	if resolved.Nix != nil {
+		if err := validateNixManifest(resolved); err != nil {
+			return nil, err
+		}
+	}
 	spec := resolved.Spec
 	submittedSelector := resolved.Selector
 	for _, ref := range spec.Dependencies {
