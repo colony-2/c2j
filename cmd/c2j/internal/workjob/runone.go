@@ -316,7 +316,10 @@ func (r *runOneRuntime) markFinalized(action string, status string, route *jobdb
 	if err != nil {
 		r.err = err
 	}
-	r.stopLocked()
+	// The worker may still be unwinding Yield and reporting its handoff.
+	// Canceling here lets the engine return before those deferred callbacks.
+	// With one active worker, the next PollWork happens after it finishes;
+	// that poll stops the engine without claiming another job.
 }
 
 func (r *runOneRuntime) stopLocked() {
