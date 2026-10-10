@@ -44,8 +44,6 @@ github.com/cockroachdb/swiss v0.0.0-20260820225851-333444432258 h1:IJ+uNItEm0qx9
 github.com/cockroachdb/swiss v0.0.0-20260820225851-333444432258/go.mod h1:yBRu/cnL4ks9bgy4vAASdjIW+/xMlFwuHKqtmh3GZQg=
 github.com/cockroachdb/tokenbucket v0.0.0-20230807174530-cc333fc44b06 h1:zuQyyAKVxetITBuuhv3BI9cMrmStnpT18zmgmTxunpo=
 github.com/cockroachdb/tokenbucket v0.0.0-20230807174530-cc333fc44b06/go.mod h1:7nc4anLGjupUW/PeY5qiNYsdNXj7zopG+eqsS7To5IQ=
-github.com/colony-2/jobdb v0.0.26-0.20261004234514-ffe70ccf111c h1:zhVwWoAlssW5N4gQSFotjSzkBCD7oxEZQ37/woUOgEs=
-github.com/colony-2/jobdb v0.0.26-0.20261004234514-ffe70ccf111c/go.mod h1:p2FeWO2+PRfngsjJPKFn8puFa2QxmCQZ7KElqXP+s4E=
 github.com/colony-2/jobdb v0.0.28 h1:EPXbJ33D2q5MFgctzz4oZF6uoDvc+tq/z0jygNsslM0=
 github.com/colony-2/jobdb v0.0.28/go.mod h1:p2FeWO2+PRfngsjJPKFn8puFa2QxmCQZ7KElqXP+s4E=
 github.com/colony-2/strata-go v0.0.0-20260621025934-747fa0c819c0 h1:F1hn6GpewkXWOSkFurnN82j0nAwvCMRf5c16n5mE/iA=
