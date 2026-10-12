@@ -15,6 +15,7 @@ type CELOptionsProvider interface {
 type ResolutionMode string
 
 type ResolutionOptions struct {
+	SecretCandidates          []string
 	LegacyExtensionResolution bool
 	Mode                      ResolutionMode
 	ValidationMode            string

@@ -926,3 +926,7 @@ func findStateByID(nodes []*model.JobRunStoryNode, stateID string) *model.JobRun
 	}
 	return nil
 }
+
+func (*fakeReplayJobContext) ResolveSecrets(context.Context, []string) (jobdb.SecretResolveResult, error) {
+	return jobdb.SecretResolveResult{}, jobdb.ErrNoSecretProvider
+}

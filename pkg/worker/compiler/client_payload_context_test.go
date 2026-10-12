@@ -86,3 +86,7 @@ func TestValidationDoesNotExposeOrPublishLiveClientPayload(t *testing.T) {
 	}
 	require.Empty(t, inner.yields)
 }
+
+func (noLeaseClientContext) ResolveSecrets(context.Context, []string) (jobdb.SecretResolveResult, error) {
+	return jobdb.SecretResolveResult{}, jobdb.ErrNoSecretProvider
+}

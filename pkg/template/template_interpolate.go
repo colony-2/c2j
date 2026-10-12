@@ -10,6 +10,7 @@ import (
 
 	recipeartifacts "github.com/colony-2/c2j/pkg/artifacts"
 	"github.com/colony-2/c2j/pkg/contextual"
+	"github.com/colony-2/c2j/pkg/secrets"
 	"github.com/colony-2/c2j/pkg/template/funcregistry"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 )
@@ -22,6 +23,10 @@ func (rc *ResolutionContext) interpolateString(template string, mode RenderMode)
 	if mode == ModePureCEL {
 		// This should be a pure CEL expression, no {{ }} markers
 		return rc.EvaluateCEL(template)
+	}
+
+	if v, ok, err := rc.secretScalar(template); ok || err != nil {
+		return v, err
 	}
 
 	// Parse the template into segments
@@ -173,6 +178,9 @@ func (rc *ResolutionContext) renderGoTemplateSegment(input string) (string, erro
 }
 
 func (rc *ResolutionContext) renderGoTemplate(input string) (string, error) {
+	if secrets.Contains(rc.TemplateData.ContainerInputs) && strings.Contains(input, "inputs") {
+		return "", fmt.Errorf("secret inputs cannot be used in Go template expressions")
+	}
 	tmpl, err := texttemplate.New("string").
 		Option("missingkey=error").
 		Funcs(rc.goTemplateFuncMap()).
@@ -368,10 +376,23 @@ func (rc *ResolutionContext) ResolveTemplateWithMode(expr string, mode RenderMod
 
 // ResolveValueWithMode recursively resolves templates in a value with a specific mode
 func (rc *ResolutionContext) ResolveValueWithMode(value interface{}, mode RenderMode) (interface{}, error) {
+	if _, ok, err := secrets.Parse(value); ok || err != nil {
+		if err != nil {
+			return nil, err
+		}
+		if !rc.allowSecrets {
+			return nil, fmt.Errorf("secret references are only allowed in secret-enabled inputs")
+		}
+		return value, nil
+	}
 	switch v := value.(type) {
 	case string:
 		// Resolve string templates with the given mode
-		return rc.ResolveTemplateWithMode(v, mode)
+		value, err := rc.ResolveTemplateWithMode(v, mode)
+		if err == nil && !rc.allowSecrets && secrets.Contains(value) {
+			return nil, fmt.Errorf("secret references are only allowed in secret-enabled inputs")
+		}
+		return value, err
 	case map[string]interface{}:
 		// Recursively resolve map values
 		result := make(map[string]interface{})

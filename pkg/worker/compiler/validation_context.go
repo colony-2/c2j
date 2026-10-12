@@ -273,3 +273,7 @@ func cloneValidationValue(value interface{}) interface{} {
 		return typed
 	}
 }
+
+func (c *validationJobContext) ResolveSecrets(context.Context, []string) (jobdb.SecretResolveResult, error) {
+	return jobdb.SecretResolveResult{}, jobdb.ErrNoSecretProvider
+}

@@ -31,6 +31,7 @@ import (
 	"github.com/colony-2/c2j/pkg/objects"
 	"github.com/colony-2/c2j/pkg/ops"
 	"github.com/colony-2/c2j/pkg/ops/process"
+	"github.com/colony-2/c2j/pkg/secrets"
 	"github.com/colony-2/c2j/pkg/starter"
 	"github.com/colony-2/c2j/pkg/workflowctl"
 	"github.com/colony-2/jobdb/pkg/jobdb"
@@ -235,6 +236,7 @@ func (t opExecutor) do(ctx context.Context, jobTool ops.JobTool, req ActivityInv
 		if err == nil {
 			return
 		}
+		err = secrets.FromContext(ctx).Error(err)
 		logger.Error("opExecutor.do failed",
 			"duration_ms", time.Since(start).Milliseconds(),
 			"work_dir", workDir,
@@ -489,8 +491,19 @@ func (t opExecutor) do(ctx context.Context, jobTool ops.JobTool, req ActivityInv
 		outputArtifacts = append(outputArtifacts, artifacts...)
 	}()
 
+	// Materialize only the transient invocation, after all durable input handling.
+	session := secrets.FromContext(ctx)
+	transient, secretErr := secrets.MaterializeInput(session, reg.Step.InputType, hydratedInput)
+	if secretErr != nil {
+		return zero, nil, secretErr
+	}
+	hydratedInput, _ = transient.(map[string]interface{})
 	// Execute operation with HYDRATED input (sentinels replaced)
 	outputData, stepErr := reg.Step.Invoke(opDeps, ctx, hydratedInput)
+	stepErr = session.Error(stepErr)
+	if err := session.CheckOutput(outputData); err != nil {
+		return zero, nil, err
+	}
 	outputRefs, objectErr := objects.Collect(outputData)
 	if objectErr == nil {
 		for _, ref := range outputRefs {

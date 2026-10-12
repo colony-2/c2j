@@ -9,6 +9,7 @@ import (
 
 	"github.com/colony-2/c2j/pkg/execution"
 	"github.com/colony-2/c2j/pkg/objects"
+	"github.com/colony-2/c2j/pkg/secrets"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	yamlv3 "gopkg.in/yaml.v3"
 )
@@ -83,6 +84,11 @@ func (n *Recipe) UnmarshalYAML(node *yamlv3.Node) error {
 	}
 
 	n.RecipeImpl = impl
+	for name, def := range n.GetMetdata().InputSchema {
+		if def.Secret && (def.Type != "string" || def.Default != nil) {
+			return fmt.Errorf("secret input %q requires string type and no default", name)
+		}
+	}
 	return nil
 }
 
@@ -111,6 +117,9 @@ func (n RecipeMetadata) ValidateInputShapeAndFillDefaults(data map[string]interf
 
 	// 1. Check for missing required fields and apply defaults
 	for key, def := range n.InputSchema {
+		if def.Secret && (def.Type != "string" || def.Default != nil) {
+			return nil, fmt.Errorf("secret input %q requires type string and no default", key)
+		}
 		_, exists := data[key]
 
 		if !exists {
@@ -128,8 +137,15 @@ func (n RecipeMetadata) ValidateInputShapeAndFillDefaults(data map[string]interf
 
 	// 2. Check types and handle fields present in data but not in schema
 	for key, value := range data {
-		resolved[key] = value
 		def, schemaExists := n.InputSchema[key]
+		if def.Secret {
+			if text, ok := value.(string); ok {
+				if ref, ok := secrets.Template(text); ok {
+					value = ref
+				}
+			}
+		}
+		resolved[key] = value
 
 		if !schemaExists {
 			return nil, fmt.Errorf("field '%s' is present in data but not defined in schema", key)
@@ -179,6 +195,7 @@ func (r *RecipeOp) isRecipe() {}
 
 // InputSchema defines the schema for an input parameter
 type InputSchema struct {
+	Secret      bool        `yaml:"secret,omitempty"`
 	ObjectType  string      `yaml:"object_type,omitempty"`
 	Type        string      `yaml:"type,omitempty"`                                                // Type of the input (string, number, boolean, etc.)
 	Description string      `yaml:"description,omitempty"`                                         // Description of the input
@@ -187,6 +204,15 @@ type InputSchema struct {
 }
 
 func (def InputSchema) validate(key string, value interface{}) error {
+	if def.Secret {
+		if _, ok, err := secrets.Parse(value); ok || err != nil {
+			return err
+		}
+		return fmt.Errorf("secret input %q requires a reference, not plaintext", key)
+	}
+	if secrets.Contains(value) {
+		return fmt.Errorf("input %q is not marked secret", key)
+	}
 
 	if value == nil {
 		return fmt.Errorf("field '%s' is nil", key)

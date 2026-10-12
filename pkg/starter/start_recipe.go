@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/colony-2/c2j/pkg/execution"
+	"github.com/colony-2/c2j/pkg/secrets"
 	"time"
 
 	"github.com/colony-2/c2j/pkg/jobcontext"
@@ -143,6 +144,37 @@ func StartRecipeJobWithOptions(ctx context.Context, startJob workflowctl.StartJo
 	}
 	for _, r := range recipes {
 		if r.GetMetdata().ID == startJob.RecipeName {
+			// Validate marked fields before persisting embedded recipe inputs.
+			var inputs map[string]interface{}
+			if startJob.Inputs != nil {
+				inputs = make(map[string]interface{}, len(startJob.Inputs))
+				for k, v := range startJob.Inputs {
+					inputs[k] = v
+				}
+			}
+			for k, def := range r.GetMetdata().InputSchema {
+				if !def.Secret {
+					continue
+				}
+				if def.Type != "string" || def.Default != nil {
+					return jobdb.JobKey{}, fmt.Errorf("secret input %q requires string type and no default", k)
+				}
+				v, exists := inputs[k]
+				if !exists {
+					continue
+				}
+				if text, ok := v.(string); ok {
+					if ref, ok := secrets.Template(text); ok {
+						v = ref
+						inputs[k] = v
+					}
+				}
+				if _, ok, err := secrets.Parse(v); err != nil || !ok {
+					return jobdb.JobKey{}, fmt.Errorf("secret input %q requires a reference, not plaintext", k)
+				}
+			}
+			startJob.Inputs = inputs
+
 			digest, digestErr := recipe.ExecutionDigest(r)
 			if digestErr != nil {
 				return jobdb.JobKey{}, digestErr

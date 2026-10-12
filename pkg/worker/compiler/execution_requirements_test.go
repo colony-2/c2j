@@ -54,3 +54,7 @@ func TestExecutionSuspensionUsesActiveTimeoutScope(t *testing.T) {
 	require.True(t, isExecutionControlError(err))
 	require.Zero(t, ctx.yields)
 }
+
+func (*failingExecutionContext) ResolveSecrets(context.Context, []string) (jobdb.SecretResolveResult, error) {
+	return jobdb.SecretResolveResult{}, jobdb.ErrNoSecretProvider
+}

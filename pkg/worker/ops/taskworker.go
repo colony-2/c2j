@@ -10,15 +10,17 @@ import (
 	"github.com/colony-2/c2j/pkg/ops"
 	extops "github.com/colony-2/c2j/pkg/ops/extensions"
 	"github.com/colony-2/c2j/pkg/ops/process"
+	"github.com/colony-2/c2j/pkg/secrets"
 	coretask "github.com/colony-2/c2j/pkg/task"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
 )
 
 type taskWorker struct {
-	name string
-	reg  ActivityRegistration
-	doer *opExecutor
+	sessions *secrets.Sessions
+	name     string
+	reg      ActivityRegistration
+	doer     *opExecutor
 }
 
 func (t *taskWorker) Name() string {
@@ -47,8 +49,35 @@ func (t *taskWorker) Run(ctx jobworkflow.TaskContext, input jobdb.TaskData) (job
 		}
 		return jobdb.NewTaskData(env)
 	}
+	if err := secrets.ValidateType(t.reg.Step.InputType, air.Input); err != nil {
+		return nil, err
+	}
+	if t.reg.Metadata.Type == extops.ExecutionOpType && secrets.Contains(air.Input["inputs"]) {
+		if air.Setup == nil || air.Setup.Extension == nil {
+			return nil, errors.New("secret extension inputs require a prepared manifest")
+		}
+		raw, _ := air.Input["inputs"].(map[string]any)
+		if err := air.Setup.Extension.ValidateInvocationInputs(raw); err != nil {
+			return nil, err
+		}
+	}
+	names, err := secrets.InvocationNames(t.reg.Step.InputType, air.Input)
+	if err != nil {
+		return nil, err
+	}
+	session := t.sessions.Get(ctx.JobKey)
+	if !session.Ready(names) {
+		env, err := coretask.NewOutputEnvelope(coretask.OutputKindActivityInvocationOutput, ActivityInvocationOutput{SecretSetupRequired: true})
+		if err != nil {
+			return nil, err
+		}
+		return jobdb.NewTaskData(env)
+	}
 	opCtx, cancel := NewTaskExecutionContext(ctx)
 	defer cancel()
+	if session != nil {
+		opCtx = secrets.WithSession(opCtx, session)
+	}
 	if air.Setup != nil {
 		if air.Setup.Environment != nil {
 			opCtx = process.WithToolPath(opCtx, air.Setup.Environment.Path)
@@ -59,6 +88,13 @@ func (t *taskWorker) Run(ctx jobworkflow.TaskContext, input jobdb.TaskData) (job
 	}
 	jobTool := &ops.TaskBasedJobTool{TaskContext: ctx}
 	out, outArt, err := t.doer.do(opCtx, jobTool, air, inArt)
+	out.SecretSetupMS = air.SecretSetupMS
+	if session != nil {
+		err = session.Error(err)
+		if e := session.CheckOutput(out); e != nil {
+			return nil, e
+		}
+	}
 	if air.Setup != nil {
 		out.Setup = &air.Setup.Diagnostics
 	}
@@ -144,7 +180,7 @@ func failedTaskData(output ActivityInvocationOutput, artifacts []jobdb.Artifact)
 }
 
 func hasFailedActivityPayload(output ActivityInvocationOutput, artifacts []jobdb.Artifact) bool {
-	if output.Setup != nil || output.SetupRequired {
+	if output.Setup != nil || output.SetupRequired || output.SecretSetupRequired || output.SecretSetupMS != 0 {
 		return true
 	}
 	if len(artifacts) > 0 {

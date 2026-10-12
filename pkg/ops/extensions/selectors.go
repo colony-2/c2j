@@ -12,6 +12,7 @@ import (
 	"github.com/colony-2/c2j/pkg/execution"
 	"github.com/colony-2/c2j/pkg/git/selectorcache"
 	"github.com/colony-2/c2j/pkg/objects"
+	"github.com/colony-2/c2j/pkg/secrets"
 	"github.com/colony-2/c2j/pkg/toolenv"
 	invschema "github.com/invopop/jsonschema"
 	jsonschemav6 "github.com/santhosh-tekuri/jsonschema/v6"
@@ -91,6 +92,18 @@ func ResolvePath(ctx context.Context, selector string, opts ResolveOptions) (*Re
 }
 
 func (r *ResolvedOp) ValidateInvocationInputs(raw map[string]interface{}) error {
+	if err := secrets.ValidateSchema(r.Spec.InputSchema, raw, false); err != nil {
+		return err
+	}
+	return r.validateInputSchema(raw)
+}
+func (r *ResolvedOp) ValidateMaterializedInputs(raw map[string]interface{}) error {
+	if err := secrets.ValidateSchema(r.Spec.InputSchema, raw, true); err != nil {
+		return err
+	}
+	return r.validateInputSchema(raw)
+}
+func (r *ResolvedOp) validateInputSchema(raw map[string]interface{}) error {
 	payload := raw
 	if r.compiledInput != nil {
 		value, err := objects.JSONValue(payload)
@@ -342,6 +355,9 @@ func RestoreResolvedOp(resolved *ResolvedOp) (*ResolvedOp, error) {
 	}
 	spec := resolved.Spec
 	submittedSelector := resolved.Selector
+	if secrets.HasAnnotation(spec.OutputSchema) {
+		return nil, fmt.Errorf("extension selector %q: secret output annotations are not supported", submittedSelector)
+	}
 	for _, ref := range spec.Dependencies {
 		if _, _, err := execution.ParsePackage(ref); err != nil {
 			return nil, err

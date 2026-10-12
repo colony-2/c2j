@@ -13,6 +13,7 @@ import (
 	"github.com/colony-2/c2j/pkg/logutil"
 	"github.com/colony-2/c2j/pkg/ops"
 	"github.com/colony-2/c2j/pkg/recipe"
+	"github.com/colony-2/c2j/pkg/secrets"
 	"github.com/colony-2/c2j/pkg/starter"
 	"github.com/colony-2/c2j/pkg/template"
 	workerops "github.com/colony-2/c2j/pkg/worker/ops"
@@ -23,6 +24,8 @@ import (
 )
 
 type RecipeJobWorkerOptions struct {
+	// SecretSessions is shared with the activity registry when registering workers individually.
+	SecretSessions *secrets.Sessions
 	// TaskHistory supplies read-only recovery for legacy artifact dependency order.
 	TaskHistory        workflow.TaskHistoryReader
 	Allocation         execution.Allocation
@@ -47,6 +50,7 @@ type RecipeJobWorkerOptions struct {
 }
 
 type recipeJobWorker struct {
+	secretSessions      *secrets.Sessions
 	taskHistory         workflow.TaskHistoryReader
 	taskGuardConfigured bool
 	allocation          execution.Allocation
@@ -63,6 +67,7 @@ type recipeJobWorker struct {
 
 func NewRecipeJobWorker(opts RecipeJobWorkerOptions) jobworkflow.JobWorker {
 	return &recipeJobWorker{
+		secretSessions:      opts.SecretSessions,
 		taskHistory:         opts.TaskHistory,
 		taskGuardConfigured: opts.WrapTaskWorker != nil,
 		allocation:          opts.Allocation, readOnlyReplay: opts.ReadOnlyReplay,
@@ -88,6 +93,7 @@ func NewRecipeWorkerWithOptions(dependencies ops.ServiceDependencies2, activityR
 	if opts.TaskHistory == nil && dependencies != nil {
 		opts.TaskHistory, _ = dependencies.WorkflowControl().(workflow.TaskHistoryReader)
 	}
+	opts.SecretSessions = activityRegistry.SecretSessions
 	job := NewRecipeJobWorker(opts)
 	taskWorkers := activityRegistry.GetTaskWorkers(dependencies)
 	if resolutionWorker := newRootSourceResolutionTaskWorker(opts.RootSourceResolver); resolutionWorker != nil {
@@ -111,6 +117,12 @@ func (j recipeJobWorker) Name() string {
 
 func (j recipeJobWorker) Run(ctx jobworkflow.JobContext, jobData jobdb.JobData) (jobdb.JobData, error) {
 	jobKey := ctx.GetJobKey()
+	if j.secretSessions != nil && !j.readOnlyReplay {
+		if _, err := j.secretSessions.Open(jobKey); err != nil {
+			return nil, err
+		}
+		defer j.secretSessions.Close(jobKey)
+	}
 	logger := ctx.Logger()
 	if logger == nil {
 		logger = slog.Default()

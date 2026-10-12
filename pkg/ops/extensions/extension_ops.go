@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/colony-2/c2j/pkg/objects"
+	"github.com/colony-2/c2j/pkg/secrets"
 	invschema "github.com/invopop/jsonschema"
 	jsonschemav6 "github.com/santhosh-tekuri/jsonschema/v6"
 	yaml "gopkg.in/yaml.v3"
@@ -53,6 +54,10 @@ func parseDurationOrZero(s string) (time.Duration, error) {
 // invopop schema (for documentation) and a compiled jsonschema/v6 validator.
 func parseSchema(m map[string]any) (*invschema.Schema, *jsonschemav6.Schema, error) {
 	expanded, err := objects.ExpandSchema(m)
+	if err != nil {
+		return nil, nil, err
+	}
+	expanded, err = secrets.ExpandSchema(expanded)
 	if err != nil {
 		return nil, nil, err
 	}

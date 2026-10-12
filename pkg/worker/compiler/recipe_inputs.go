@@ -5,6 +5,7 @@ import (
 
 	"github.com/colony-2/c2j/pkg/objects"
 	"github.com/colony-2/c2j/pkg/recipe"
+	"github.com/colony-2/c2j/pkg/secrets"
 )
 
 func prepareRecipeInputs(meta recipe.RecipeMetadata, raw map[string]interface{}, opts ExecutionOptions) (map[string]interface{}, error) {
@@ -17,6 +18,13 @@ func prepareRecipeInputs(meta recipe.RecipeMetadata, raw map[string]interface{},
 func validationDefaultsFromSchema(schema map[string]recipe.InputSchema) (map[string]interface{}, error) {
 	inputs := make(map[string]interface{}, len(schema))
 	for key, def := range schema {
+		if def.Secret {
+			if def.Type != "string" || def.Default != nil {
+				return nil, fmt.Errorf("secret input requires string type and no default")
+			}
+			inputs[key] = secrets.Reference{Name: key}
+			continue
+		}
 		if def.Default != nil {
 			inputs[key] = def.Default
 			continue

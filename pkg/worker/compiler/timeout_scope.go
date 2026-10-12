@@ -246,3 +246,7 @@ func clampRunPolicyToDeadlineAt(policy jobdb.RunPolicy, deadline, startedAt time
 }
 
 var _ jobworkflow.JobContext = (*timeoutJobContext)(nil)
+
+func (c *timeoutJobContext) ResolveSecrets(ctx context.Context, names []string) (jobdb.SecretResolveResult, error) {
+	return c.inner.ResolveSecrets(ctx, names)
+}

@@ -3,6 +3,7 @@ package compiler
 import (
 	"encoding/json"
 	"fmt"
+	"time"
 
 	coreops "github.com/colony-2/c2j/pkg/ops"
 	extops "github.com/colony-2/c2j/pkg/ops/extensions"
@@ -81,4 +82,28 @@ func resolveInvocationExtension(ctx workflow.Context, resCtx *template.Resolutio
 		return nil, nil, 0, fmt.Errorf("extension execution op not registered")
 	}
 	return resolved, op, result.WallMS, nil
+}
+
+func prepareInvocationSecrets(ctx workflow.Context, names, candidates []string) (time.Duration, error) {
+	input, err := jobdb.NewTaskData(workerops.SecretSetupRequest{Required: names, Candidates: candidates})
+	if err != nil {
+		return 0, err
+	}
+	d := jobdb.Duration(30 * time.Second)
+	output, err := ctx.DoTask(jobdb.RunPolicy{InvocationTimeout: &d}, workerops.SecretSetupTaskType, input)
+	if err != nil {
+		return 0, fmt.Errorf("secret setup: %w", err)
+	}
+	b, err := output.GetData()
+	if err != nil {
+		return 0, err
+	}
+	var result workerops.SecretSetupResult
+	if err = json.Unmarshal(b, &result); err != nil {
+		return 0, err
+	}
+	if result.Error != "" {
+		return 0, fmt.Errorf("secret setup: %s", result.Error)
+	}
+	return result.Duration, nil
 }

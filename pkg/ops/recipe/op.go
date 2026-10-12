@@ -16,7 +16,7 @@ import (
 type SingleRecipe struct {
 	Name      string                 `json:"name" validate:"required"`
 	CellName  string                 `json:"cell_name,omitempty" default:"{{ context.workspace.cell }}"`
-	Inputs    map[string]interface{} `json:"inputs"`
+	Inputs    map[string]interface{} `json:"inputs" secret:"forward"`
 	Artifacts []recipeartifacts.Ref  `json:"artifacts"`
 	Git       SingleRecipeGit        `json:"git"`
 }

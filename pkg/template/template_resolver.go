@@ -61,7 +61,8 @@ type ScopeMetadata struct {
 
 // ResolutionContext represents template resolution context
 type ResolutionContext struct {
-	ToolScopes []toolenv.Scope
+	allowSecrets bool
+	ToolScopes   []toolenv.Scope
 	// ExecutionNeeds is lexical same-job state, never a persistent job override.
 	ExecutionNeeds    execution.Requirements
 	commitContext     *contextual.GitCommitContext
@@ -517,6 +518,10 @@ func (rc *ResolutionContext) evaluateCELExpression(expr string) (interface{}, er
 	ast, issues := rc.CELEnv.Compile(expr)
 	if issues != nil && issues.Err() != nil {
 		return nil, fmt.Errorf("failed to compile CEL expression: %w", issues.Err())
+	}
+
+	if err := rc.rejectSecretCEL(ast.Expr()); err != nil {
+		return nil, err
 	}
 
 	// In validate mode avoid executing user functions; if any are present, return a placeholder.

@@ -73,5 +73,5 @@ func (rc *ResolutionContext) ResolveCompositeInputs(input map[string]interface{}
 	if rc.workspaceCaller != nil {
 		caller = rc.workspaceCaller
 	}
-	return caller.ResolveMap(input)
+	return caller.ResolveInputs(input)
 }

@@ -24,6 +24,7 @@ import (
 	"github.com/colony-2/c2j/pkg/ops/process"
 	recipecore "github.com/colony-2/c2j/pkg/recipe"
 	"github.com/colony-2/c2j/pkg/redact"
+	"github.com/colony-2/c2j/pkg/secrets"
 	coretask "github.com/colony-2/c2j/pkg/task"
 	"github.com/colony-2/c2j/pkg/template"
 	"github.com/colony-2/c2j/pkg/worker/compiler"
@@ -1241,6 +1242,13 @@ func (j *testJobContext) runPassthroughTask(ctx context.Context, taskType string
 			ctx = extops.WithPreparedOp(ctx, inv.Setup.Extension)
 		}
 	}
+	names, err := secrets.InvocationNames(chain[idx].InputType, inv.Input)
+	if err != nil {
+		return passthroughRecord{}, err
+	}
+	if len(names) > 0 {
+		return passthroughRecord{}, fmt.Errorf("secret inputs require a lease-backed job execution; use a mocked return for this recipe test")
+	}
 	out, err := chain[idx].Invoke(deps, ctx, inv.Input)
 	if err != nil {
 		return passthroughRecord{}, fmt.Errorf("passthrough invoke failed for %s: %w", taskType, err)
@@ -1914,4 +1922,8 @@ func evaluateAssertion(expr string, outputs map[string]any, artifacts map[string
 		return false, "assertion did not evaluate to true"
 	}
 	return true, ""
+}
+
+func (j *testJobContext) ResolveSecrets(context.Context, []string) (jobdb.SecretResolveResult, error) {
+	return jobdb.SecretResolveResult{}, jobdb.ErrNoSecretProvider
 }

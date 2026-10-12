@@ -39,7 +39,7 @@ type ChildGroupChildSpec struct {
 	Skipped    bool                   `json:"skipped,omitempty"`
 	SkipReason string                 `json:"skip_reason,omitempty"`
 	GitRef     string                 `json:"git_ref,omitempty"`
-	Inputs     map[string]interface{} `json:"inputs,omitempty"`
+	Inputs     map[string]interface{} `json:"inputs,omitempty" secret:"forward"`
 	Artifacts  []recipeartifacts.Ref  `json:"artifacts,omitempty"`
 }
 

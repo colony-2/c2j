@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/colony-2/c2j/pkg/execution"
+	"github.com/colony-2/c2j/pkg/secrets"
 	"github.com/colony-2/c2j/pkg/toolenv"
 	"os"
 	"reflect"
@@ -23,29 +24,33 @@ const thinPackSentinel = gitstate.ThinPackArtifactName
 
 // ActivityInvocationRequest wraps the invocation metadata and original input payload.
 type ActivityInvocationRequest struct {
-	Setup            *ToolSetupResult               `json:"setup,omitempty"`
-	WorkspaceManaged bool                           `json:"workspace_managed,omitempty"`
-	RestoreArtifact  *jobdb.ArtifactKey             `json:"restore_artifact,omitempty"`
-	Input            map[string]interface{}         `json:"input"`
-	Const            bool                           `json:"const,omitempty"`
-	GitTaskContext   gitstate.GlobalGitTaskContext  `json:"context"`
-	ArtifactKeys     []jobdb.ArtifactKey            `json:"artifact_keys,omitempty"`
-	Artifacts        map[string]recipeartifacts.Ref `json:"artifacts,omitempty"`
-	Deps             ops.OpDependencies             `json:"-"`
+	SecretSetupMS    int64                         `json:"secret_setup_ms,omitempty"`
+	Setup            *ToolSetupResult              `json:"setup,omitempty"`
+	WorkspaceManaged bool                          `json:"workspace_managed,omitempty"`
+	RestoreArtifact  *jobdb.ArtifactKey            `json:"restore_artifact,omitempty"`
+	Input            map[string]interface{}        `json:"input"`
+	Const            bool                          `json:"const,omitempty"`
+	GitTaskContext   gitstate.GlobalGitTaskContext `json:"context"
+ "github.com/colony-2/c2j/pkg/secrets"`
+	ArtifactKeys []jobdb.ArtifactKey            `json:"artifact_keys,omitempty"`
+	Artifacts    map[string]recipeartifacts.Ref `json:"artifacts,omitempty"`
+	Deps         ops.OpDependencies             `json:"-"`
 }
 
 // ActivityInvocationOutput wraps the raw op output alongside workspace results.
 type ActivityInvocationOutput struct {
-	Setup             *toolenv.Diagnostics           `json:"setup,omitempty"`
-	SetupRequired     bool                           `json:"setup_required,omitempty"`
-	WorkspaceScopeID  string                         `json:"workspace_scope_id,omitempty"`
-	Execution         *execution.Requirements        `json:"execution,omitempty"`
-	GitResult         contextual.GitCommitContext    `json:"git,omitempty"`
-	NextTaskAlternate *jobworkflow.TaskAlternate     `json:"next_task_alternate,omitempty"`
-	NextTask          string                         `json:"nextTaskType,omitempty"`
-	OpOutput          map[string]interface{}         `json:"output"`
-	ArtifactRefs      map[string]recipeartifacts.Ref `json:"artifact_refs,omitempty"`
-	Jobs              jobcontext.StartedJobsContext  `json:"jobs,omitempty"`
+	SecretSetupRequired bool                           `json:"secret_setup_required,omitempty"`
+	SecretSetupMS       int64                          `json:"secret_setup_ms,omitempty"`
+	Setup               *toolenv.Diagnostics           `json:"setup,omitempty"`
+	SetupRequired       bool                           `json:"setup_required,omitempty"`
+	WorkspaceScopeID    string                         `json:"workspace_scope_id,omitempty"`
+	Execution           *execution.Requirements        `json:"execution,omitempty"`
+	GitResult           contextual.GitCommitContext    `json:"git,omitempty"`
+	NextTaskAlternate   *jobworkflow.TaskAlternate     `json:"next_task_alternate,omitempty"`
+	NextTask            string                         `json:"nextTaskType,omitempty"`
+	OpOutput            map[string]interface{}         `json:"output"`
+	ArtifactRefs        map[string]recipeartifacts.Ref `json:"artifact_refs,omitempty"`
+	Jobs                jobcontext.StartedJobsContext  `json:"jobs,omitempty"`
 }
 
 // variation of ActivityInvocationOutput that allows arbitrary output types to avoid double serialization
@@ -74,10 +79,11 @@ type ActivityRegistration struct {
 
 // ActivityRegistry manages all registered activities
 type ActivityRegistry struct {
-	activities    map[string]ActivityRegistration
-	generator     SchemaGenerator
-	gitController *gitstate.Controller
-	deps          ops.ServiceDependencies2
+	SecretSessions *secrets.Sessions
+	activities     map[string]ActivityRegistration
+	generator      SchemaGenerator
+	gitController  *gitstate.Controller
+	deps           ops.ServiceDependencies2
 }
 
 // SchemaGenerator validates struct tags and generates JSON schemas
@@ -90,10 +96,11 @@ type SchemaGenerator interface {
 // NewActivityRegistry creates a new activity registry
 func NewActivityRegistry() (*ActivityRegistry, error) {
 	a := &ActivityRegistry{
-		activities:    make(map[string]ActivityRegistration),
-		generator:     NewDefaultSchemaGenerator(),
-		gitController: gitstate.NewController(nil),
-		deps:          ops.NewServiceDepsBuilder().Build(),
+		SecretSessions: secrets.NewSessions(),
+		activities:     make(map[string]ActivityRegistration),
+		generator:      NewDefaultSchemaGenerator(),
+		gitController:  gitstate.NewController(nil),
+		deps:           ops.NewServiceDepsBuilder().Build(),
 	}
 	opsList := ops.List()
 	for _, op := range opsList {
@@ -125,9 +132,9 @@ func (r *ActivityRegistry) GetTaskWorkers(deps ops.ServiceDependencies2) []jobwo
 			gitstate.NewController(nil)
 		}
 		doer := &opExecutor{deps: deps, reg: registration, controller: controller}
-		workers = append(workers, &taskWorker{name: name, reg: registration, doer: doer})
+		workers = append(workers, &taskWorker{name: name, reg: registration, doer: doer, sessions: r.SecretSessions})
 	}
-	workers = append(workers, NewToolSetupWorker(), NewExtensionResolutionWorker())
+	workers = append(workers, secretSetupWorker{r.SecretSessions}, NewToolSetupWorker(), NewExtensionResolutionWorker())
 	return workers
 }
 

@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	coreops "github.com/colony-2/c2j/pkg/ops"
+	"github.com/colony-2/c2j/pkg/secrets"
 	"github.com/go-playground/validator/v10"
 	"github.com/mitchellh/mapstructure"
 	"google.golang.org/protobuf/types/known/structpb"
@@ -53,6 +54,14 @@ type requiredOpInputValidationError interface {
 }
 
 func validateOpInputType(inputType reflect.Type, input map[string]interface{}, allowNulls bool) error {
+	if err := secrets.ValidateType(inputType, input); err != nil {
+		return err
+	}
+	safe, err := secrets.Placeholder(input)
+	if err != nil {
+		return err
+	}
+	input, _ = safe.(map[string]any)
 	if inputType == nil {
 		return nil
 	}

@@ -222,15 +222,7 @@ func renderChildInputs(resCtx *template.ResolutionContext, input map[string]inte
 	if input == nil {
 		return nil, nil
 	}
-	resolved, err := resCtx.ResolveValueWithLocals(input, locals)
-	if err != nil {
-		return nil, err
-	}
-	out, ok := resolved.(map[string]interface{})
-	if !ok {
-		return nil, fmt.Errorf("resolved inputs must be an object")
-	}
-	return out, nil
+	return resCtx.WithLocals(locals).ResolveInputs(input)
 }
 
 func renderChildWhen(resCtx *template.ResolutionContext, value interface{}, locals map[string]interface{}) (bool, error) {

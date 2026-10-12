@@ -16,6 +16,7 @@ import (
 	"github.com/colony-2/c2j/pkg/ops"
 	extops "github.com/colony-2/c2j/pkg/ops/extensions"
 	"github.com/colony-2/c2j/pkg/recipe"
+	"github.com/colony-2/c2j/pkg/secrets"
 	coretask "github.com/colony-2/c2j/pkg/task"
 	"github.com/colony-2/c2j/pkg/template"
 	"github.com/colony-2/c2j/pkg/toolenv"
@@ -140,6 +141,8 @@ func (d DefaultRecipeExecutor) ExecuteRecipe(ctx workflow.Context, r recipe.Reci
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to create resolution context: %w", err)
 	}
+	rCtx.Options.SecretCandidates = secrets.Candidates(r)
+	rCtx.Options.SecretCandidates = append(rCtx.Options.SecretCandidates, secrets.Candidates(recipeInputs)...)
 	if execOpts.Mode == ExecutionModeValidate {
 		if rCtx.Options.ResolvedGitRefs == nil {
 			rCtx.Options.ResolvedGitRefs = map[string]string{}
@@ -429,7 +432,7 @@ func (d DefaultRecipeExecutor) executeOpAttempt(ctx workflow.Context, parentReso
 	}
 
 	resolveNormalizedInputs := func() (map[string]interface{}, []jobdb.ArtifactKey, error) {
-		resolvedNodeInputs, err := resCtx.ResolveMap(metadata.Inputs)
+		resolvedNodeInputs, err := resCtx.ResolveInputs(metadata.Inputs)
 		if err != nil {
 			return nil, nil, fmt.Errorf("failed to resolve templates op inputs: %w", err)
 		}
@@ -480,6 +483,8 @@ func (d DefaultRecipeExecutor) executeOpAttempt(ctx workflow.Context, parentReso
 	var setupRequest workerops.ToolSetupRequest
 	var setup *workerops.ToolSetupResult
 	setupRecoveries := 0
+	secretRecoveries := 0
+	var secretSetupMS int64
 	if resCtx.Options.Mode != template.ModeValidate && (len(resCtx.ToolScopes) > 0 || preparedExtension != nil) {
 		scopes := append([]toolenv.Scope(nil), resCtx.ToolScopes...)
 		if preparedExtension != nil && len(preparedExtension.Spec.Dependencies) > 0 {
@@ -554,6 +559,7 @@ func (d DefaultRecipeExecutor) executeOpAttempt(ctx workflow.Context, parentReso
 			}
 			invocation := workerops.ActivityInvocationRequest{
 				Setup:          setup,
+				SecretSetupMS:  secretSetupMS,
 				Input:          stepInput,
 				Const:          resCtx.EffectiveConst,
 				GitTaskContext: *gitstate.NewGlobalGitTaskContext(resCtx.TaskExecutionContext()),
@@ -610,6 +616,30 @@ func (d DefaultRecipeExecutor) executeOpAttempt(ctx workflow.Context, parentReso
 
 			switch decoded.Kind {
 			case coretask.OutputKindActivityInvocationOutput:
+				if decoded.Activity.SecretSetupRequired {
+					if hadMismatch {
+						return mismatchErr
+					}
+					secretRecoveries++
+					if secretRecoveries > 8 {
+						return fmt.Errorf("secret setup repeatedly lost before execution")
+					}
+					names, e := secrets.InvocationNames(chain[i].InputType, stepInput)
+					if e != nil {
+						return e
+					}
+					duration, e := prepareInvocationSecrets(setupCtx, names, resCtx.Options.SecretCandidates)
+					if e != nil {
+						return e
+					}
+					secretSetupMS += duration.Milliseconds()
+					if opTimeout > 0 {
+						timed := *ctx.JobContext.(*timeoutJobContext)
+						timed.deadline = timed.deadline.Add(duration)
+						ctx.JobContext = &timed
+					}
+					continue
+				}
 				if decoded.Activity.SetupRequired {
 					if hadMismatch {
 						return mismatchErr
@@ -732,6 +762,8 @@ func (d DefaultRecipeExecutor) innerSequence(ctx workflow.Context, parentCtx *te
 	if len(metadata.Catch) > 0 {
 		resCtx.Options.CatchBeforeRetry = true
 	}
+	resCtx.Options.SecretCandidates = append(append([]string(nil), resCtx.Options.SecretCandidates...), secrets.Candidates(sequence)...)
+	resCtx.Options.SecretCandidates = append(resCtx.Options.SecretCandidates, secrets.Candidates(resolvedInputs)...)
 	if err := seedSequencePlaceholders(resCtx, sequence); err != nil {
 		return err
 	}

@@ -12,13 +12,15 @@ import (
 	"github.com/colony-2/c2j/pkg/jobcontext"
 	"github.com/colony-2/c2j/pkg/ops"
 	"github.com/colony-2/c2j/pkg/ops/process"
+	"github.com/colony-2/c2j/pkg/secrets"
 )
 
 const ExecutionOpType = "extension_execution"
 
 type ExecutionInput struct {
+	Env              map[string]string      `json:"env,omitempty" secret:"env"`
 	Selector         string                 `json:"selector" validate:"required"`
-	Inputs           map[string]interface{} `json:"inputs,omitempty"`
+	Inputs           map[string]interface{} `json:"inputs,omitempty" secret:"schema"`
 	RepositorySource string                 `json:"repository_source,omitempty"`
 	RepositoryRef    string                 `json:"repository_ref,omitempty"`
 }
@@ -71,6 +73,14 @@ func executeExtension(deps ops.OpDependencies, ctx context.Context, input Execut
 		return nil, fmt.Errorf("extension input validation failed: %w", err)
 	}
 
+	materialized, err := secrets.FromContext(ctx).Materialize(input.Inputs)
+	if err != nil {
+		return nil, err
+	}
+	input.Inputs, _ = materialized.(map[string]interface{})
+	if err := resolved.ValidateMaterializedInputs(input.Inputs); err != nil {
+		return nil, fmt.Errorf("extension input validation failed: %w", err)
+	}
 	payload, err := hydrateObjects(ctx, deps, input.Inputs)
 	if err != nil {
 		return nil, fmt.Errorf("restore extension objects: %w", err)
@@ -80,6 +90,9 @@ func executeExtension(deps ops.OpDependencies, ctx context.Context, input Execut
 		return nil, fmt.Errorf("marshal extension input: %w", err)
 	}
 	env := buildExecutionEnv(resolved)
+	for k, v := range input.Env {
+		env[k] = v
+	}
 	env = jobcontext.MergeProtectedEnv(env, deps.ProtectedEnv())
 	if err := prepareObjectOutbox(deps, env); err != nil {
 		return nil, err

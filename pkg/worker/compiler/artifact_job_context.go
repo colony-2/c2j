@@ -248,3 +248,7 @@ func (a *thinpackForwarder) resultArtifacts(in []jobdb.Artifact) []jobdb.Artifac
 func workspaceInternalArtifact(name string) bool {
 	return name == gitstate.ThinPackArtifactName || name == "diff_from_parent.diff" || name == "diff_from_base.diff"
 }
+
+func (c *thinpackForwarder) ResolveSecrets(ctx context.Context, names []string) (jobdb.SecretResolveResult, error) {
+	return c.inner.ResolveSecrets(ctx, names)
+}

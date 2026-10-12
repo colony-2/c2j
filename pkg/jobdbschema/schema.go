@@ -467,6 +467,7 @@ var c2jJobSchema = json.RawMessage(`{
             "additionalProperties": true
           },
           "setup": { "type": "object" },
+          "secret_setup_ms": { "type": "integer", "minimum": 0 },
           "workspace_managed": { "type": "boolean" },
           "restore_artifact": { "$ref": "#/$defs/artifactKey" },
           "const": { "type": "boolean" },
@@ -487,7 +488,9 @@ var c2jJobSchema = json.RawMessage(`{
         "required": ["output"],
         "properties": {
           "setup": { "type": "object" },
+          "secret_setup_ms": { "type": "integer", "minimum": 0 },
           "setup_required": { "type": "boolean" },
+          "secret_setup_required": { "type": "boolean" },
           "git": { "$ref": "#/$defs/gitCommitContext" },
           "workspace_scope_id": { "type": "string" },
           "nextTaskType": { "type": "string" },
@@ -738,7 +741,7 @@ var c2jJobSchema = json.RawMessage(`{
       "toolSetupChapter": {
         "type":"object", "required":["taskType","input","body"],
         "properties": {
-          "taskType":{"enum":["tool_setup","extension_resolution"]},
+          "taskType":{"enum":["tool_setup","extension_resolution","secret_setup"]},
           "input":{"type":"object"},
           "body":{"$ref":"#/$defs/taskAttemptBody"}
         }
@@ -749,7 +752,7 @@ var c2jJobSchema = json.RawMessage(`{
         "properties": {
           "taskType": {
             "type": "string",
-            "not": { "enum": ["recipe_root_source_resolve", "recipe_within_resolution", "recipe_workspace_resolve", "recipe_timeout_checkpoint", "tool_setup", "extension_resolution", "__restart_extra__"] }
+            "not": { "enum": ["recipe_root_source_resolve", "recipe_within_resolution", "recipe_workspace_resolve", "recipe_timeout_checkpoint", "tool_setup", "extension_resolution", "secret_setup", "__restart_extra__"] }
           },
           "input": { "$ref": "#/$defs/activityInvocationRequest" },
           "body": {
