@@ -930,3 +930,7 @@ func findStateByID(nodes []*model.JobRunStoryNode, stateID string) *model.JobRun
 func (*fakeReplayJobContext) ResolveSecrets(context.Context, []string) (jobdb.SecretResolveResult, error) {
 	return jobdb.SecretResolveResult{}, jobdb.ErrNoSecretProvider
 }
+
+func (*fakeReplayJobContext) GetConfiguration(context.Context) (jobdb.ConfigurationSnapshot, error) {
+	return jobdb.ConfigurationSnapshot{}, jobdb.ErrConfigurationUnavailable
+}

@@ -27,6 +27,7 @@ import (
 // register schemas, claim work, or initialize any execution machinery.
 type readOnlyRuntime struct {
 	jobdb.WorkflowRuntime
+	jobdb.ConfigurationAdmin
 	list func(context.Context, jobdb.ListJobsRequest) (jobdb.ListJobsResponse, error)
 }
 

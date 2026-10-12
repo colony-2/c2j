@@ -6,7 +6,7 @@ import (
 	"reflect"
 
 	recipeartifacts "github.com/colony-2/c2j/pkg/artifacts"
-
+	"github.com/colony-2/c2j/pkg/configuration"
 	"github.com/colony-2/c2j/pkg/execution"
 	"github.com/colony-2/c2j/pkg/objects"
 	"github.com/colony-2/c2j/pkg/secrets"
@@ -114,6 +114,9 @@ type ExtensionFunctionImport struct {
 func (n RecipeMetadata) ValidateInputShapeAndFillDefaults(data map[string]interface{}) (map[string]interface{}, error) {
 
 	resolved := make(map[string]interface{})
+	for key, value := range data {
+		resolved[key] = value
+	}
 
 	// 1. Check for missing required fields and apply defaults
 	for key, def := range n.InputSchema {
@@ -136,13 +139,33 @@ func (n RecipeMetadata) ValidateInputShapeAndFillDefaults(data map[string]interf
 	}
 
 	// 2. Check types and handle fields present in data but not in schema
-	for key, value := range data {
+	for key, value := range resolved {
 		def, schemaExists := n.InputSchema[key]
 		if def.Secret {
 			if text, ok := value.(string); ok {
 				if ref, ok := secrets.Template(text); ok {
 					value = ref
 				}
+			}
+		}
+		if !def.Secret {
+			if text, ok := value.(string); ok {
+				if ref, ok := configuration.Template(text); ok {
+					value = ref
+				}
+			}
+			if ref, ok, err := configuration.Parse(value); ok || err != nil {
+				if err != nil {
+					return nil, err
+				}
+				if def.Type != "string" && def.Type != "number" && def.Type != "boolean" {
+					return nil, fmt.Errorf("config input %q requires a simple value schema", key)
+				}
+				if ref.ExpectedType != "" && ref.ExpectedType != def.Type {
+					return nil, fmt.Errorf("conflicting config type for input %q", key)
+				}
+				ref.ExpectedType = def.Type
+				value = ref
 			}
 		}
 		resolved[key] = value
@@ -209,6 +232,9 @@ func (def InputSchema) validate(key string, value interface{}) error {
 			return err
 		}
 		return fmt.Errorf("secret input %q requires a reference, not plaintext", key)
+	}
+	if _, ok, err := configuration.Parse(value); ok || err != nil {
+		return err
 	}
 	if secrets.Contains(value) {
 		return fmt.Errorf("input %q is not marked secret", key)

@@ -60,7 +60,7 @@ orchestration independent of plaintext.
 Missing/denied names required by the current op produce a sanitized setup failure;
 an empty returned value is valid and must not be mistaken for an absent name.
 Preserve exact value bytes, including trailing newlines. Provider errors are
-already sanitized by JobDB. A live miss requests a `secret_setup` task using the existing setup-recovery handshake. It fills the local session and returns only duration/error diagnostics, never plaintext. This keeps retrieval outside the op timeout while replay skips the provider.
+already sanitized by JobDB. A live miss resolves secrets inside the consuming task wrapper. It fills the local session and records only duration/error diagnostics, never plaintext. Preparation currently shares the op timeout; replay skips the provider.
 
 ## Job-local batching and memory cache
 
@@ -99,7 +99,7 @@ Submission, replay, and cached tasks trigger no fetches; an entirely replayed jo
 needs no secrets. Prefetch starts only when live execution needs a secret.
 Reference names participate in task identity; secret bytes and their hashes do
 not. Rotation does not invalidate recorded task outcomes. Retrieval follows
-setup-time accounting and is excluded from the op's timeout, while remaining
+setup-time accounting and shares the op's timeout, while remaining
 bounded by the provider and enclosing execution context.
 
 ## Pulse and provider responsibilities

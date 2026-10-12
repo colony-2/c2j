@@ -252,3 +252,7 @@ func workspaceInternalArtifact(name string) bool {
 func (c *thinpackForwarder) ResolveSecrets(ctx context.Context, names []string) (jobdb.SecretResolveResult, error) {
 	return c.inner.ResolveSecrets(ctx, names)
 }
+
+func (c *thinpackForwarder) GetConfiguration(ctx context.Context) (jobdb.ConfigurationSnapshot, error) {
+	return c.inner.GetConfiguration(ctx)
+}

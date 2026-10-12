@@ -1,5 +1,9 @@
 # Proposal: versioned tools with just-in-time setup
 
+Updated execution lifecycle: see [CONFIGURATION.md](CONFIGURATION.md). Preparation
+now runs inside the consuming task and shares its timeout; the separate setup
+tasks and timeout exclusion described below are superseded.
+
 Status: local worker implementation is described in [Execution tools](EXECUTION_TOOLS.md).
 Pulse provider orchestration remains a proposal.
 

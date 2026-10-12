@@ -126,14 +126,16 @@ outputs:
 	require.NoError(t, err)
 	setups := 0
 	for _, task := range run.Attempts[0].Tasks {
-		if task.TaskType != workerops.ToolSetupTaskType {
+		require.NotContains(t, []string{"tool_setup", "extension_resolution", "secret_setup"}, task.TaskType)
+		if task.TaskType == TimeoutCheckpointTaskType {
 			continue
 		}
+		decoded, err := decodeTaskOutput(task.Attempts[0].Output.Data)
+		require.NoError(t, err)
+		require.NotNil(t, decoded.Activity.Setup)
+		require.NotNil(t, decoded.Activity.Setup.TaskOrdinal)
+		require.NotEmpty(t, decoded.Activity.Setup.Tools)
 		setups++
-		var setup workerops.ToolSetupResult
-		require.NoError(t, json.Unmarshal(task.Attempts[0].Output.Data, &setup))
-		require.NotNil(t, setup.Diagnostics.TaskOrdinal)
-		require.NotEmpty(t, setup.Diagnostics.Tools)
 	}
 	require.Equal(t, 4, setups)
 	// Replay must work after both installed tools and the extension source disappear.

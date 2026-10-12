@@ -90,3 +90,7 @@ func TestValidationDoesNotExposeOrPublishLiveClientPayload(t *testing.T) {
 func (noLeaseClientContext) ResolveSecrets(context.Context, []string) (jobdb.SecretResolveResult, error) {
 	return jobdb.SecretResolveResult{}, jobdb.ErrNoSecretProvider
 }
+
+func (noLeaseClientContext) GetConfiguration(context.Context) (jobdb.ConfigurationSnapshot, error) {
+	return jobdb.ConfigurationSnapshot{}, jobdb.ErrConfigurationUnavailable
+}

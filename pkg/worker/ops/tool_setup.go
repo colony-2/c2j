@@ -8,22 +8,13 @@ import (
 
 	extops "github.com/colony-2/c2j/pkg/ops/extensions"
 	"github.com/colony-2/c2j/pkg/toolenv"
-	"github.com/colony-2/jobdb/pkg/jobdb"
-	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
 )
 
-const ToolSetupTaskType = "tool_setup"
-const ExtensionResolutionTaskType = "extension_resolution"
-const SetupTimeout = 30 * time.Minute
-
 type ExtensionResolutionRequest struct {
-	Selector string                `json:"selector"`
-	Options  extops.ResolveOptions `json:"options"`
-}
-type ExtensionResolutionResult struct {
-	Error  string             `json:"error,omitempty"`
-	Op     *extops.ResolvedOp `json:"op"`
-	WallMS int64              `json:"wall_ms"`
+	TemplateContext json.RawMessage       `json:"template_context,omitempty"`
+	RawInputs       map[string]any        `json:"raw_inputs,omitempty"`
+	Selector        string                `json:"selector"`
+	Options         extops.ResolveOptions `json:"options"`
 }
 type ToolSetupRequest struct {
 	Scopes       []toolenv.Scope    `json:"scopes,omitempty"`
@@ -31,52 +22,14 @@ type ToolSetupRequest struct {
 	ResolutionMS int64              `json:"resolution_ms,omitempty"`
 }
 type ToolSetupResult struct {
-	Pending     bool                 `json:"pending,omitempty"`
 	Duration    time.Duration        `json:"duration_ns"`
 	Environment *toolenv.Environment `json:"environment,omitempty"`
 	Extension   *extops.ResolvedOp   `json:"extension,omitempty"`
 	Diagnostics toolenv.Diagnostics  `json:"diagnostics"`
 }
 
-func (r *ToolSetupResult) Ready() bool {
-	if r == nil {
-		return true
-	}
-	if r.Pending {
-		return false
-	}
-	if r.Environment != nil && !r.Environment.Ready() {
-		return false
-	}
-	if r.Extension != nil && !r.Extension.Ready() {
-		return false
-	}
-	return true
-}
-
-type toolSetupWorker struct{}
-
-func NewToolSetupWorker() jobworkflow.TaskWorker { return toolSetupWorker{} }
-func (toolSetupWorker) Name() string             { return ToolSetupTaskType }
-func (toolSetupWorker) Run(tc jobworkflow.TaskContext, input jobdb.TaskData) (jobdb.TaskData, error) {
-	var req ToolSetupRequest
-	b, err := input.GetData()
-	if err != nil {
-		return nil, err
-	}
-	if err = json.Unmarshal(b, &req); err != nil {
-		return nil, err
-	}
-	ctx, cancel := NewTaskExecutionContext(tc)
-	defer cancel()
-	result := PrepareTools(ctx, req)
-	result.Diagnostics.TaskOrdinal = &tc.Step
-	// Setup failures are durable diagnostics, distinct from task execution errors.
-	return jobdb.NewTaskData(result)
-}
-
 // PrepareTools is shared by task workers and native recipe-test passthrough.
-// Callers supply the setup context, separate from the op execution timeout.
+// Callers supply the consuming task context, including its execution timeout.
 func PrepareTools(ctx context.Context, req ToolSetupRequest) ToolSetupResult {
 	start := time.Now()
 	result := ToolSetupResult{Extension: req.Extension}
@@ -133,28 +86,4 @@ func PrepareTools(ctx context.Context, req ToolSetupRequest) ToolSetupResult {
 	result.Duration = time.Since(start)
 	result.Diagnostics.WallMS = result.Duration.Milliseconds() + req.ResolutionMS
 	return result
-}
-
-type extensionResolutionWorker struct{}
-
-func NewExtensionResolutionWorker() jobworkflow.TaskWorker { return extensionResolutionWorker{} }
-func (extensionResolutionWorker) Name() string             { return ExtensionResolutionTaskType }
-func (extensionResolutionWorker) Run(tc jobworkflow.TaskContext, input jobdb.TaskData) (jobdb.TaskData, error) {
-	b, err := input.GetData()
-	if err != nil {
-		return nil, err
-	}
-	var req ExtensionResolutionRequest
-	if err = json.Unmarshal(b, &req); err != nil {
-		return nil, err
-	}
-	ctx, cancel := NewTaskExecutionContext(tc)
-	defer cancel()
-	start := time.Now()
-	op, err := extops.Resolve(ctx, req.Selector, req.Options)
-	result := ExtensionResolutionResult{Op: op, WallMS: time.Since(start).Milliseconds()}
-	if err != nil {
-		result.Error = err.Error()
-	}
-	return jobdb.NewTaskData(result)
 }

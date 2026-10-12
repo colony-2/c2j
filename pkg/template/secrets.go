@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/colony-2/c2j/pkg/configuration"
 	"github.com/colony-2/c2j/pkg/secrets"
 	exprpb "google.golang.org/genproto/googleapis/api/expr/v1alpha1"
 )
@@ -48,6 +49,9 @@ func (rc *ResolutionContext) rejectSecretCEL(e *exprpb.Expr) error {
 		return nil
 	}
 	if v, ok := rc.staticInput(e); ok {
+		if configuration.Contains(v) {
+			return fmt.Errorf("config references cannot be used in expressions; echo the value in an op first")
+		}
 		if secrets.Contains(v) {
 			return fmt.Errorf("secret inputs cannot be used in expressions")
 		}
@@ -99,6 +103,9 @@ func (rc *ResolutionContext) staticInput(e *exprpb.Expr) (any, bool) {
 	}
 	if s := e.GetSelectExpr(); s != nil {
 		if v, ok := rc.staticInput(s.Operand); ok {
+			if _, ref, _ := configuration.Parse(v); ref {
+				return v, true
+			}
 			if m, ok := v.(map[string]any); ok {
 				return m[s.Field], true
 			}

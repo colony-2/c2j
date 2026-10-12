@@ -277,3 +277,7 @@ func cloneValidationValue(value interface{}) interface{} {
 func (c *validationJobContext) ResolveSecrets(context.Context, []string) (jobdb.SecretResolveResult, error) {
 	return jobdb.SecretResolveResult{}, jobdb.ErrNoSecretProvider
 }
+
+func (c *validationJobContext) GetConfiguration(context.Context) (jobdb.ConfigurationSnapshot, error) {
+	return jobdb.ConfigurationSnapshot{}, jobdb.ErrConfigurationUnavailable
+}

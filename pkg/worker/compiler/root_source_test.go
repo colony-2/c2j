@@ -1448,16 +1448,16 @@ func requireResolvedInvocation(t *testing.T, run jobdb.GetJobRunResponse, select
 	t.Helper()
 	for _, attempt := range run.Attempts {
 		for _, task := range attempt.Tasks {
-			if task.TaskType != workerops.ExtensionResolutionTaskType {
+			if task.TaskType != "extension_execution:extension_execution" {
 				continue
 			}
 			for _, call := range task.Attempts {
 				if call.Output == nil {
 					continue
 				}
-				var result workerops.ExtensionResolutionResult
-				require.NoError(t, json.Unmarshal(call.Output.Data, &result))
-				if result.Op != nil && result.Op.ResolvedSelector == selector {
+				result, err := decodeTaskOutput(call.Output.Data)
+				require.NoError(t, err)
+				if result.Activity.Extension != nil && result.Activity.Extension.ResolvedSelector == selector {
 					return
 				}
 			}

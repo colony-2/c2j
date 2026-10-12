@@ -186,7 +186,8 @@ func (f *nixPassthroughFixture) prepare(t *testing.T, ctx context.Context, req w
 	require.NoError(t, os.Symlink(packageDir, prepared.NixRoot))
 	result := workerops.PrepareTools(ctx, workerops.ToolSetupRequest{Scopes: req.Scopes})
 	result.Extension = &prepared
-	require.True(t, result.Ready(), "fixture setup must be ready before returning to the op")
+	require.True(t, result.Extension.Ready(), "fixture package must be ready before returning to the op")
+	require.Empty(t, result.Diagnostics.Error)
 	return result
 }
 
@@ -229,10 +230,10 @@ func TestNixPassthroughLifecycle(t *testing.T) {
 		{name: "passthrough", mode: "passthrough", artifact: `{"ok":true}`, wantSetup: 1, wantRuns: 1, wantCalls: 2},
 		{name: "symlinked package directory", mode: "passthrough", artifact: `{"ok":true}`, symlinkPackageDir: true, wantSetup: 1, wantRuns: 1, wantCalls: 2},
 		{name: "record passthrough", mode: "record_passthrough", artifact: `{"ok":true}`, wantSetup: 1, wantRuns: 1, wantCalls: 2},
-		{name: "invalid input", mode: "passthrough", artifact: `{"ok":true}`, invalidInput: true, wantError: "failed to validate selector inputs", wantCalls: 1},
+		{name: "invalid input", mode: "passthrough", artifact: `{"ok":true}`, invalidInput: true, wantError: "failed to validate selector inputs", wantCalls: 2},
 		{name: "rejected result artifact", mode: "passthrough", artifact: `{"ok":false}`, wantError: "result artifact failed schema validation", wantSetup: 1, wantRuns: 1, wantCalls: 2},
 		{name: "invalid output", mode: "passthrough", artifact: `{"ok":true}`, invalidOutput: true, wantError: "output failed schema validation", wantSetup: 1, wantRuns: 1, wantCalls: 2},
-		{name: "setup failure", mode: "passthrough", artifact: `{"ok":true}`, setupFailure: true, wantError: "tool setup failed: binary cache unavailable", wantSetup: 1, wantCalls: 1},
+		{name: "setup failure", mode: "passthrough", artifact: `{"ok":true}`, setupFailure: true, wantError: "tool setup failed: binary cache unavailable", wantSetup: 1, wantCalls: 2},
 		{name: "mocked return", mode: "return", artifact: `{"ok":true}`, wantCalls: 2},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -279,7 +280,7 @@ func TestNixPassthroughLifecycle(t *testing.T) {
 				}
 			}
 			require.Equal(t, tc.wantSetup, setups)
-			require.Len(t, j.calls, tc.wantCalls, "setup retries must not count as op calls")
+			require.Len(t, j.calls, tc.wantCalls, "one call per consuming task, including preparation failures")
 			require.Len(t, j.mockHits, tc.wantCalls, "setup retries must not consume mocks")
 			require.Len(t, j.consumedMockIdxs, tc.wantCalls)
 			runs, _ := os.ReadFile(f.runLog)
@@ -301,8 +302,14 @@ func TestRunCaseNixPassthroughRequestsRealSetup(t *testing.T) {
 			result := RunCase(context.Background(), HarnessOptions{WorkRoot: filepath.Join(f.root, "work")}, "test",
 				TargetRecipe{Mode: "inline_recipe", Format: "yaml", Content: nixPassthroughRecipe}, nixPassthroughCase(mode, `{"ok":true}`), ExecutionOptions{})
 			calls, err := os.ReadFile(f.nixLog)
-			require.NoError(t, err)
-			require.Contains(t, string(calls), " eval ")
+			if mode == "return" {
+				require.True(t, os.IsNotExist(err))
+			} else {
+				require.NoError(t, err)
+			}
+			if mode != "return" {
+				require.Contains(t, string(calls), " eval ")
+			}
 			if mode == "return" {
 				require.Equal(t, "passed", result.Status, result.FailureReason)
 				require.NotContains(t, string(calls), " build ")
@@ -397,37 +404,38 @@ outputs:
 	}
 }
 
-func TestPassthroughSetupExcludesOpTimeout(t *testing.T) {
-	synctest.Test(t, func(t *testing.T) {
-		const opName = "passthrough_timeout_probe"
-		invoked := 0
-		op := coreops.NewActivityMappedOpV2[map[string]any, map[string]any](coreops.OpMetadata{Type: opName},
-			func(_ coreops.OpDependencies, ctx context.Context, _ map[string]any) (map[string]any, error) {
-				invoked++
-				deadline, ok := ctx.Deadline()
-				require.True(t, ok)
-				require.Equal(t, time.Second, deadline.Sub(time.Now()), "op keeps its full budget after setup")
-				return map[string]any{}, nil
-			})
-		withRegisteredCoreOps(t, op)
-		deps := coreops.NewServiceDepsBuilder().Build()
-		j := newTestJobContext("test", Case{Mocks: Mocks{Ops: []OpMock{{
-			Match: OpMockMatch{Op: opName}, Behavior: MockBehavior{Mode: "passthrough"},
-		}}}}, TestPolicy{}, deps)
-		j.operationPaths = recipeTestOperationPaths(t.TempDir())
-		setups := 0
-		j.prepareTools = func(ctx context.Context, req workerops.ToolSetupRequest) workerops.ToolSetupResult {
-			setups++
-			require.NotEmpty(t, req.Scopes)
-			deadline, ok := ctx.Deadline()
-			require.True(t, ok)
-			require.Equal(t, time.Minute, deadline.Sub(time.Now()), "setup uses the enclosing budget, not the op budget")
-			// synctest advances virtual time; this does not wait twenty seconds.
-			time.Sleep(20 * time.Second)
-			require.NoError(t, ctx.Err())
-			return workerops.ToolSetupResult{Duration: 20 * time.Second}
-		}
-		rec := mustLoadRecipe(t, `id: setup-timeout
+func TestPassthroughSetupSharesOpTimeout(t *testing.T) {
+	for _, setupDuration := range []time.Duration{250 * time.Millisecond, 2 * time.Second} {
+		t.Run(setupDuration.String(), func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				const opName = "passthrough_timeout_probe"
+				invoked := 0
+				op := coreops.NewActivityMappedOpV2[map[string]any, map[string]any](coreops.OpMetadata{Type: opName},
+					func(_ coreops.OpDependencies, ctx context.Context, _ map[string]any) (map[string]any, error) {
+						invoked++
+						deadline, ok := ctx.Deadline()
+						require.True(t, ok)
+						require.Equal(t, 750*time.Millisecond, deadline.Sub(time.Now()), "setup consumes the op budget")
+						return map[string]any{}, nil
+					})
+				withRegisteredCoreOps(t, op)
+				deps := coreops.NewServiceDepsBuilder().Build()
+				j := newTestJobContext("test", Case{Mocks: Mocks{Ops: []OpMock{{
+					Match: OpMockMatch{Op: opName}, Behavior: MockBehavior{Mode: "passthrough"},
+				}}}}, TestPolicy{}, deps)
+				j.operationPaths = recipeTestOperationPaths(t.TempDir())
+				setups := 0
+				j.prepareTools = func(ctx context.Context, req workerops.ToolSetupRequest) workerops.ToolSetupResult {
+					setups++
+					require.NotEmpty(t, req.Scopes)
+					deadline, ok := ctx.Deadline()
+					require.True(t, ok)
+					require.Equal(t, time.Second, deadline.Sub(time.Now()), "setup uses the op budget")
+					// Advance virtual time, without wall-clock sleeps.
+					time.Sleep(setupDuration)
+					return workerops.ToolSetupResult{Duration: setupDuration}
+				}
+				rec := mustLoadRecipe(t, `id: setup-timeout
 timeout: 1m
 execution: {packages: [uv:probe==1]}
 sequence:
@@ -435,11 +443,18 @@ sequence:
     op: passthrough_timeout_probe
     timeout: 1s
 `)
-		_, _, err := compiler.ExecuteRecipe(workflow.Context{JobContext: j, ServiceDependencies2: deps}, *rec, nil,
-			contextual.JobContext{Environment: recipeTestEnvironment(j.operationPaths)}, contextual.GitCommitContext{})
-		require.NoError(t, err)
-		require.Equal(t, 1, setups)
-		require.Equal(t, 1, invoked)
-		require.Len(t, j.calls, 1)
-	})
+				_, _, err := compiler.ExecuteRecipe(workflow.Context{JobContext: j, ServiceDependencies2: deps}, *rec, nil,
+					contextual.JobContext{Environment: recipeTestEnvironment(j.operationPaths)}, contextual.GitCommitContext{})
+				if setupDuration >= time.Second {
+					require.ErrorIs(t, err, context.DeadlineExceeded)
+					require.Equal(t, 0, invoked)
+				} else {
+					require.NoError(t, err)
+					require.Equal(t, 1, invoked)
+				}
+				require.Equal(t, 1, setups)
+				require.Len(t, j.calls, 1)
+			})
+		})
+	}
 }

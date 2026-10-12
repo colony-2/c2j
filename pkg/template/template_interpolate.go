@@ -9,6 +9,7 @@ import (
 	texttemplate "text/template"
 
 	recipeartifacts "github.com/colony-2/c2j/pkg/artifacts"
+	"github.com/colony-2/c2j/pkg/configuration"
 	"github.com/colony-2/c2j/pkg/contextual"
 	"github.com/colony-2/c2j/pkg/secrets"
 	"github.com/colony-2/c2j/pkg/template/funcregistry"
@@ -23,6 +24,10 @@ func (rc *ResolutionContext) interpolateString(template string, mode RenderMode)
 	if mode == ModePureCEL {
 		// This should be a pure CEL expression, no {{ }} markers
 		return rc.EvaluateCEL(template)
+	}
+
+	if v, ok, err := rc.configScalar(template); ok || err != nil {
+		return v, err
 	}
 
 	if v, ok, err := rc.secretScalar(template); ok || err != nil {
@@ -122,6 +127,9 @@ func (rc *ResolutionContext) resolveSimpleGoTemplateScalar(input string) (interf
 	}
 
 	for _, key := range path[1:] {
+		if _, ref, _ := configuration.Parse(current); ref {
+			return nil, true, fmt.Errorf("cannot inspect config reference internals")
+		}
 		asMap, ok := current.(map[string]interface{})
 		if !ok {
 			return nil, false, nil
@@ -133,6 +141,9 @@ func (rc *ResolutionContext) resolveSimpleGoTemplateScalar(input string) (interf
 		current = next
 	}
 
+	if configuration.Contains(current) {
+		return nil, true, fmt.Errorf("config references cannot be used in recipe expressions")
+	}
 	switch value := current.(type) {
 	case nil:
 		return "", true, nil
@@ -178,6 +189,9 @@ func (rc *ResolutionContext) renderGoTemplateSegment(input string) (string, erro
 }
 
 func (rc *ResolutionContext) renderGoTemplate(input string) (string, error) {
+	if configuration.Contains(rc.TemplateData.ContainerInputs) && strings.Contains(input, "inputs") {
+		return "", fmt.Errorf("config references cannot be used in Go template expressions")
+	}
 	if secrets.Contains(rc.TemplateData.ContainerInputs) && strings.Contains(input, "inputs") {
 		return "", fmt.Errorf("secret inputs cannot be used in Go template expressions")
 	}
@@ -376,12 +390,21 @@ func (rc *ResolutionContext) ResolveTemplateWithMode(expr string, mode RenderMod
 
 // ResolveValueWithMode recursively resolves templates in a value with a specific mode
 func (rc *ResolutionContext) ResolveValueWithMode(value interface{}, mode RenderMode) (interface{}, error) {
+	if ref, ok, err := configuration.Parse(value); ok || err != nil {
+		if err != nil {
+			return nil, err
+		}
+		if !rc.allowSecrets {
+			return nil, fmt.Errorf("config references are only allowed in task inputs")
+		}
+		return ref, nil
+	}
 	if _, ok, err := secrets.Parse(value); ok || err != nil {
 		if err != nil {
 			return nil, err
 		}
 		if !rc.allowSecrets {
-			return nil, fmt.Errorf("secret references are only allowed in secret-enabled inputs")
+			return nil, fmt.Errorf("unresolved references are only allowed in permitted inputs")
 		}
 		return value, nil
 	}
@@ -389,8 +412,8 @@ func (rc *ResolutionContext) ResolveValueWithMode(value interface{}, mode Render
 	case string:
 		// Resolve string templates with the given mode
 		value, err := rc.ResolveTemplateWithMode(v, mode)
-		if err == nil && !rc.allowSecrets && secrets.Contains(value) {
-			return nil, fmt.Errorf("secret references are only allowed in secret-enabled inputs")
+		if err == nil && !rc.allowSecrets && (secrets.Contains(value) || configuration.Contains(value)) {
+			return nil, fmt.Errorf("unresolved references are only allowed in permitted inputs")
 		}
 		return value, err
 	case map[string]interface{}:

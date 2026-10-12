@@ -23,6 +23,7 @@ import (
 // through this runtime fails the test instead of supplying fallback data.
 type completionListOnly struct {
 	jobdb.WorkflowRuntime
+	jobdb.ConfigurationAdmin
 	list  func(context.Context, jobdb.ListJobsRequest) (jobdb.ListJobsResponse, error)
 	calls atomic.Int32
 }

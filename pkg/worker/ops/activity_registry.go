@@ -3,17 +3,19 @@ package ops
 import (
 	"context"
 	"fmt"
-	"github.com/colony-2/c2j/pkg/execution"
-	"github.com/colony-2/c2j/pkg/secrets"
-	"github.com/colony-2/c2j/pkg/toolenv"
 	"os"
 	"reflect"
 
 	recipeartifacts "github.com/colony-2/c2j/pkg/artifacts"
+	"github.com/colony-2/c2j/pkg/configuration"
 	"github.com/colony-2/c2j/pkg/contextual"
+	"github.com/colony-2/c2j/pkg/execution"
 	"github.com/colony-2/c2j/pkg/git/gitstate"
 	"github.com/colony-2/c2j/pkg/jobcontext"
 	"github.com/colony-2/c2j/pkg/ops"
+	extops "github.com/colony-2/c2j/pkg/ops/extensions"
+	"github.com/colony-2/c2j/pkg/secrets"
+	"github.com/colony-2/c2j/pkg/toolenv"
 	"github.com/colony-2/c2j/pkg/worker/activity"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
@@ -24,33 +26,34 @@ const thinPackSentinel = gitstate.ThinPackArtifactName
 
 // ActivityInvocationRequest wraps the invocation metadata and original input payload.
 type ActivityInvocationRequest struct {
-	SecretSetupMS    int64                         `json:"secret_setup_ms,omitempty"`
-	Setup            *ToolSetupResult              `json:"setup,omitempty"`
-	WorkspaceManaged bool                          `json:"workspace_managed,omitempty"`
-	RestoreArtifact  *jobdb.ArtifactKey            `json:"restore_artifact,omitempty"`
-	Input            map[string]interface{}        `json:"input"`
-	Const            bool                          `json:"const,omitempty"`
-	GitTaskContext   gitstate.GlobalGitTaskContext `json:"context"
- "github.com/colony-2/c2j/pkg/secrets"`
-	ArtifactKeys []jobdb.ArtifactKey            `json:"artifact_keys,omitempty"`
-	Artifacts    map[string]recipeartifacts.Ref `json:"artifacts,omitempty"`
-	Deps         ops.OpDependencies             `json:"-"`
+	Preparation      PreparationRequest             `json:"preparation,omitempty"`
+	SecretSetupMS    int64                          `json:"-"`
+	Setup            *ToolSetupResult               `json:"-"`
+	WorkspaceManaged bool                           `json:"workspace_managed,omitempty"`
+	RestoreArtifact  *jobdb.ArtifactKey             `json:"restore_artifact,omitempty"`
+	Input            map[string]interface{}         `json:"input"`
+	Const            bool                           `json:"const,omitempty"`
+	GitTaskContext   gitstate.GlobalGitTaskContext  `json:"context"`
+	ArtifactKeys     []jobdb.ArtifactKey            `json:"artifact_keys,omitempty"`
+	Artifacts        map[string]recipeartifacts.Ref `json:"artifacts,omitempty"`
+	Deps             ops.OpDependencies             `json:"-"`
 }
 
 // ActivityInvocationOutput wraps the raw op output alongside workspace results.
 type ActivityInvocationOutput struct {
-	SecretSetupRequired bool                           `json:"secret_setup_required,omitempty"`
-	SecretSetupMS       int64                          `json:"secret_setup_ms,omitempty"`
-	Setup               *toolenv.Diagnostics           `json:"setup,omitempty"`
-	SetupRequired       bool                           `json:"setup_required,omitempty"`
-	WorkspaceScopeID    string                         `json:"workspace_scope_id,omitempty"`
-	Execution           *execution.Requirements        `json:"execution,omitempty"`
-	GitResult           contextual.GitCommitContext    `json:"git,omitempty"`
-	NextTaskAlternate   *jobworkflow.TaskAlternate     `json:"next_task_alternate,omitempty"`
-	NextTask            string                         `json:"nextTaskType,omitempty"`
-	OpOutput            map[string]interface{}         `json:"output"`
-	ArtifactRefs        map[string]recipeartifacts.Ref `json:"artifact_refs,omitempty"`
-	Jobs                jobcontext.StartedJobsContext  `json:"jobs,omitempty"`
+	PreparationMS     int64                          `json:"preparation_ms,omitempty"`
+	Configuration     *configuration.Diagnostics     `json:"configuration,omitempty"`
+	Extension         *extops.ResolvedOp             `json:"extension,omitempty"`
+	SecretSetupMS     int64                          `json:"secret_setup_ms,omitempty"`
+	Setup             *toolenv.Diagnostics           `json:"setup,omitempty"`
+	WorkspaceScopeID  string                         `json:"workspace_scope_id,omitempty"`
+	Execution         *execution.Requirements        `json:"execution,omitempty"`
+	GitResult         contextual.GitCommitContext    `json:"git,omitempty"`
+	NextTaskAlternate *jobworkflow.TaskAlternate     `json:"next_task_alternate,omitempty"`
+	NextTask          string                         `json:"nextTaskType,omitempty"`
+	OpOutput          map[string]interface{}         `json:"output"`
+	ArtifactRefs      map[string]recipeartifacts.Ref `json:"artifact_refs,omitempty"`
+	Jobs              jobcontext.StartedJobsContext  `json:"jobs,omitempty"`
 }
 
 // variation of ActivityInvocationOutput that allows arbitrary output types to avoid double serialization
@@ -134,7 +137,6 @@ func (r *ActivityRegistry) GetTaskWorkers(deps ops.ServiceDependencies2) []jobwo
 		doer := &opExecutor{deps: deps, reg: registration, controller: controller}
 		workers = append(workers, &taskWorker{name: name, reg: registration, doer: doer, sessions: r.SecretSessions})
 	}
-	workers = append(workers, secretSetupWorker{r.SecretSessions}, NewToolSetupWorker(), NewExtensionResolutionWorker())
 	return workers
 }
 

@@ -22,9 +22,8 @@ type ValidationOptions struct {
 }
 
 type ExecutionOptions struct {
-	LegacyExtensionResolution bool
-	Mode                      ExecutionMode
-	Validation                ValidationOptions
+	Mode       ExecutionMode
+	Validation ValidationOptions
 	// Optional CEL options provider to inject extra functions/types.
 	CELOptionsProvider  template.CELOptionsProvider
 	StateObserver       StateObserver
@@ -54,7 +53,6 @@ func normalizeExecutionOptions(opts []ExecutionOptions) ExecutionOptions {
 
 func resolutionOptionsFromExecution(opts ExecutionOptions) template.ResolutionOptions {
 	resolution := template.DefaultResolutionOptions()
-	resolution.LegacyExtensionResolution = opts.LegacyExtensionResolution
 	resolution.CELOptionsProvider = opts.CELOptionsProvider
 	resolution.ResolvedSelectors = cloneResolvedSelectors(opts.ResolvedSelectors)
 	resolution.ResolvedGitRefs = cloneResolvedGitRefs(opts.ResolvedGitRefs)

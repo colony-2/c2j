@@ -250,3 +250,7 @@ var _ jobworkflow.JobContext = (*timeoutJobContext)(nil)
 func (c *timeoutJobContext) ResolveSecrets(ctx context.Context, names []string) (jobdb.SecretResolveResult, error) {
 	return c.inner.ResolveSecrets(ctx, names)
 }
+
+func (c *timeoutJobContext) GetConfiguration(ctx context.Context) (jobdb.ConfigurationSnapshot, error) {
+	return c.inner.GetConfiguration(ctx)
+}

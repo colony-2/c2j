@@ -189,18 +189,18 @@ executable names use the nearest declaration's version. See
 
 ## Lazy execution, replay, and testing
 
-When a Nix op is reached, c2j evaluates its manifest, exact output store path,
-and target system together. It uses the manifest for defaults and validation.
-Only an uncached activity requests installation of the recorded output. Setup
-uses `--max-jobs 0 --builders ''`, retains a GC root, verifies the packaged
-manifest and executable, and prepares extra dependencies before running the op.
-It does not re-evaluate a mutable package reference during installation.
+Only on a task-result miss does c2j evaluate the Nix manifest, exact output store
+path and target system, apply defaults, validate inputs and install the output.
+Setup uses `--max-jobs 0 --builders ''`, retains a GC root, verifies the packaged
+manifest and executable, and prepares dependencies before invoking the op.
+Installation uses the resolved identity without re-evaluating a mutable reference.
 
-Unvisited ops cause no lookup. Replay uses the recorded manifest and task
-results without Nix, definition repositories, or installed packages. If a live
-task loses its package, it returns to setup outside the op's timeout. Setup
-diagnostics include the output store path, duration, reuse/failure outcome, and
-the setup task ordinal. Recipe/sequence/job deadlines still apply.
+Cached and unvisited ops cause no lookup. Replay uses recorded outcomes without
+Nix, definition repositories or installed packages. A live task prepares any lost
+installation again. Preparation and execution currently share the task timeout;
+enclosing deadlines still apply. Resolved extension metadata and setup timing,
+store path and reuse/failure diagnostics belong to the consuming task outcome.
+There are no separate manifest-resolution or setup tasks.
 
 Normal `go test ./...` includes real Nix integration tests in a disposable Docker
 container. They verify that metadata inspection does not fetch the binary,

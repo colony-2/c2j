@@ -58,13 +58,16 @@ cannot trigger installation. They support one package and an explicit executable
 for uvx/pnpm; `nix run` requires a derivation with a discoverable main program.
 Other pnpm/Nix commands use the base manager normally.
 
-Setup has a separate 30-minute invocation limit and runs before the op's timeout
-starts. Enclosing recipe/sequence deadlines still apply. If a prepared environment
-is missing before a live step, setup runs again and resumes that step, preserving
-completed steps. Setup failures prevent execution and remain in job history.
-Task output envelopes contain `setup.wall_ms`, per-tool scope/identity/outcome,
-and `setup.task_ordinal`, which links to the durable setup record. Count each setup
-ordinal once when aggregating across steps or retries; user op outputs are unchanged.
+Setup runs inside each live task before its op body. Preparation and execution
+currently share the task timeout; enclosing deadlines still apply. Cached tasks
+skip setup entirely. Lost installations are prepared again for the next live
+step without repeating completed steps.
+
+Task outcomes contain `preparation_ms`, `setup.wall_ms`, per-tool
+scope/identity/outcome, and `setup.task_ordinal` identifying the consuming task.
+Worker-reported failures attach diagnostics as `_c2j/preparation.json` outcome
+artifacts. No separate setup task is created. A future JobDB preparation phase
+can give setup its own timeout.
 
 ## Local reuse and providers
 
@@ -81,10 +84,8 @@ Pulse-provider implementation is included here. An unpinned reference may resolv
 to a newer version after its installation is evicted; there is no transitive
 package lock service.
 
-New submissions record `tool_setup_version: 1` in their internal job input. Older
-jobs retain their original extension-resolution history for replay compatibility.
-Direct JobDB integrations that construct `StartJob` themselves must set this field
-to enable the new extension dependency lifecycle.
+This execution format targets fresh databases; there is no legacy setup-history
+compatibility path or `tool_setup_version` switch.
 
 ## Nix integration test
 

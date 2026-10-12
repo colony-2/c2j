@@ -8,6 +8,7 @@ import (
 	"time"
 
 	recipeartifacts "github.com/colony-2/c2j/pkg/artifacts"
+	"github.com/colony-2/c2j/pkg/configuration"
 	"github.com/colony-2/c2j/pkg/contextual"
 	"github.com/colony-2/c2j/pkg/git/gitstate"
 	"github.com/colony-2/c2j/pkg/input/formdefaults"
@@ -369,8 +370,7 @@ func (d DefaultRecipeExecutor) executeOpAttempt(ctx workflow.Context, parentReso
 		return err
 	}
 
-	var preparedExtension *extops.ResolvedOp
-	var resolutionMS int64
+	var extensionRequest *workerops.ExtensionResolutionRequest
 	var (
 		registeredOp ops.RegisterableOp
 		chain        []ops.TaskStep
@@ -383,30 +383,28 @@ func (d DefaultRecipeExecutor) executeOpAttempt(ctx workflow.Context, parentReso
 	if isSelectorOp(op) {
 		pinnedSelector := resolvedSelector(op, resCtx.Options.ResolvedSelectors)
 		resolveOpts := selectorLoadResolveOptions(resCtx.TaskExecutionContext().JobContext(), resCtx.GetGitCommitContext())
-		if resCtx.Options.ResolvedGitRefs == nil {
-			resCtx.Options.ResolvedGitRefs = map[string]string{}
-		}
-		resolveOpts.ResolvedRefs = resCtx.Options.ResolvedGitRefs
-		resolvedSelectorOp, selectorRegisteredOp, elapsed, err := resolveInvocationExtension(ctx, resCtx, pinnedSelector, resolveOpts)
+		resolveOpts.ResolvedRefs = cloneResolvedGitRefs(resCtx.Options.ResolvedGitRefs)
+		snapshot, err := resCtx.InputSnapshot()
 		if err != nil {
 			return err
 		}
-		if pinned := strings.TrimSpace(resolvedSelectorOp.ResolvedSelector); pinned != "" {
-			if resCtx.Options.ResolvedSelectors == nil {
-				resCtx.Options.ResolvedSelectors = map[string]string{}
-			}
-			resCtx.Options.ResolvedSelectors[op] = pinned
+		extensionRequest = &workerops.ExtensionResolutionRequest{Selector: pinnedSelector, Options: resolveOpts, TemplateContext: snapshot, RawInputs: metadata.Inputs}
+		var exists bool
+		registeredOp, exists = ops.Get(extops.ExecutionOpType)
+		if !exists {
+			return fmt.Errorf("extension execution op not registered")
 		}
-		if !resCtx.Options.LegacyExtensionResolution {
-			preparedExtension = resolvedSelectorOp
-		}
-		resolutionMS = elapsed
-		registeredOp = selectorRegisteredOp
 		chain = registeredOp.TaskChain()
 		taskPrefix = registeredOp.GetMetadata().Type
-		selectorOp = resolvedSelectorOp
-		if _, err := selectorOp.ApplyInvocationDefaults(metadata.Inputs); err != nil {
-			return fmt.Errorf("failed to apply selector input defaults: %w", err)
+		if resCtx.Options.Mode == template.ModeValidate {
+			resolved, _, err := loadSelectorOp(pinnedSelector, resolveOpts)
+			if err != nil {
+				return err
+			}
+			selectorOp = resolved
+			if _, err := selectorOp.ApplyInvocationDefaults(metadata.Inputs); err != nil {
+				return err
+			}
 		}
 	} else {
 		var exists bool
@@ -437,9 +435,11 @@ func (d DefaultRecipeExecutor) executeOpAttempt(ctx workflow.Context, parentReso
 			return nil, nil, fmt.Errorf("failed to resolve templates op inputs: %w", err)
 		}
 
-		if selectorOp != nil {
-			if err := selectorOp.ValidateInvocationInputs(resolvedNodeInputs); err != nil {
-				return nil, nil, fmt.Errorf("failed to validate selector inputs: %w", err)
+		if extensionRequest != nil {
+			if selectorOp != nil && !configuration.Contains(resolvedNodeInputs) {
+				if err := selectorOp.ValidateInvocationInputs(resolvedNodeInputs); err != nil {
+					return nil, nil, fmt.Errorf("failed to validate selector inputs: %w", err)
+				}
 			}
 			invocationRepoSource, invocationRepoRef := selectorInvocationRepository(resCtx.TaskExecutionContext())
 			normalizedInput, err := NormalizeOpInput(chain[0].InputType, selectorInvocationInput(
@@ -479,32 +479,13 @@ func (d DefaultRecipeExecutor) executeOpAttempt(ctx workflow.Context, parentReso
 		artifactKeys = appendArtifactKeys(artifactKeys, resolvedArtifacts)
 	}
 
-	setupCtx := ctx
-	var setupRequest workerops.ToolSetupRequest
-	var setup *workerops.ToolSetupResult
-	setupRecoveries := 0
-	secretRecoveries := 0
-	var secretSetupMS int64
-	if resCtx.Options.Mode != template.ModeValidate && (len(resCtx.ToolScopes) > 0 || preparedExtension != nil) {
-		scopes := append([]toolenv.Scope(nil), resCtx.ToolScopes...)
-		if preparedExtension != nil && len(preparedExtension.Spec.Dependencies) > 0 {
-			scopes = append(scopes, toolenv.Scope{ID: "op:" + op, Packages: preparedExtension.Spec.Dependencies})
-		}
-		if ctx.StageNodeExecution != nil {
-			ctx.StageNodeExecution(resCtx.ExecutionNeeds)
-		}
-		setupRequest = workerops.ToolSetupRequest{Scopes: scopes, Extension: preparedExtension, ResolutionMS: resolutionMS}
-		if preparedExtension != nil && preparedExtension.Nix != nil {
-			// A cached activity result needs no payload. Only a live worker can
-			// request materialization, using the existing setup-recovery boundary.
-			setup = &workerops.ToolSetupResult{Pending: true, Extension: preparedExtension}
-		} else {
-			setup, err = prepareInvocationTools(ctx, setupRequest)
-			if err != nil {
-				return err
-			}
+	if taskPrefix == extops.ExecutionOpType && extensionRequest == nil {
+		_, ok := stepInput["selector"].(string)
+		if !ok {
+			return fmt.Errorf("extension selector must be a string, not a config reference")
 		}
 	}
+	preparation := workerops.PreparationRequest{Extension: extensionRequest, Scopes: append([]toolenv.Scope(nil), resCtx.ToolScopes...), SecretCandidates: resCtx.Options.SecretCandidates}
 	// Execute the operation
 	retry := jobdb.RetryPolicy{}
 	if metadata.Retry != nil {
@@ -558,8 +539,7 @@ func (d DefaultRecipeExecutor) executeOpAttempt(ctx workflow.Context, parentReso
 				invocationKeys = acc.Keys()
 			}
 			invocation := workerops.ActivityInvocationRequest{
-				Setup:          setup,
-				SecretSetupMS:  secretSetupMS,
+				Preparation:    preparation,
 				Input:          stepInput,
 				Const:          resCtx.EffectiveConst,
 				GitTaskContext: *gitstate.NewGlobalGitTaskContext(resCtx.TaskExecutionContext()),
@@ -616,54 +596,6 @@ func (d DefaultRecipeExecutor) executeOpAttempt(ctx workflow.Context, parentReso
 
 			switch decoded.Kind {
 			case coretask.OutputKindActivityInvocationOutput:
-				if decoded.Activity.SecretSetupRequired {
-					if hadMismatch {
-						return mismatchErr
-					}
-					secretRecoveries++
-					if secretRecoveries > 8 {
-						return fmt.Errorf("secret setup repeatedly lost before execution")
-					}
-					names, e := secrets.InvocationNames(chain[i].InputType, stepInput)
-					if e != nil {
-						return e
-					}
-					duration, e := prepareInvocationSecrets(setupCtx, names, resCtx.Options.SecretCandidates)
-					if e != nil {
-						return e
-					}
-					secretSetupMS += duration.Milliseconds()
-					if opTimeout > 0 {
-						timed := *ctx.JobContext.(*timeoutJobContext)
-						timed.deadline = timed.deadline.Add(duration)
-						ctx.JobContext = &timed
-					}
-					continue
-				}
-				if decoded.Activity.SetupRequired {
-					if hadMismatch {
-						return mismatchErr
-					}
-					setupRecoveries++
-					if setupRecoveries > 8 {
-						return fmt.Errorf("tool setup repeatedly lost before execution")
-					}
-					if setup == nil || !setup.Pending {
-						setupRequest.ResolutionMS = 0
-					}
-					setup, err = prepareInvocationTools(setupCtx, setupRequest)
-					if err != nil {
-						return err
-					}
-					// Resume this exact step, preserving completed steps and their outputs.
-					// Only the op's own budget excludes setup; enclosing deadlines still apply.
-					if opTimeout > 0 {
-						timed := *ctx.JobContext.(*timeoutJobContext)
-						timed.deadline = timed.deadline.Add(setup.Duration)
-						ctx.JobContext = &timed
-					}
-					continue
-				}
 				if hadMismatch {
 					// A mismatch that still produced an activity output indicates real non-determinism.
 					return mismatchErr

@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/colony-2/c2j/pkg/configuration"
 	"log/slog"
 	"os"
 	"path"
@@ -868,7 +869,6 @@ type testJobContext struct {
 	recordings       map[string]passthroughRecord
 	vars             []RenderedVarsDiagnostic
 	transitions      []TransitionDiagnostic
-	setupRequested   bool
 	prepareTools     func(context.Context, workerops.ToolSetupRequest) workerops.ToolSetupResult
 }
 
@@ -956,31 +956,6 @@ func (j *testJobContext) TransitionSelected(fromState string, toState string, pa
 }
 
 func (j *testJobContext) DoTask(runPolicy jobdb.RunPolicy, taskType string, data jobdb.TaskData) (jobdb.TaskData, error) {
-	switch taskType {
-	case workerops.ToolSetupTaskType:
-		var req workerops.ToolSetupRequest
-		raw, err := data.GetData()
-		if err != nil {
-			return nil, err
-		}
-		if err := json.Unmarshal(raw, &req); err != nil {
-			return nil, err
-		}
-		if !j.setupRequested {
-			// Select the mock before installing anything. A passthrough miss
-			// will ask the compiler to repeat setup outside the op's timeout.
-			return jobdb.NewTaskData(workerops.ToolSetupResult{Pending: true, Extension: req.Extension})
-		}
-		j.setupRequested = false
-		ctx, cancel := contextForRunPolicy(runPolicy)
-		defer cancel()
-		if err := ctx.Err(); err != nil {
-			return nil, err
-		}
-		return jobdb.NewTaskData(j.prepareTools(ctx, req))
-	case workerops.ExtensionResolutionTaskType:
-		return workerops.NewExtensionResolutionWorker().Run(jobworkflow.TaskContext{}, data)
-	}
 	if taskType == compiler.TimeoutCheckpointTaskType {
 		return compiler.NewTimeoutCheckpointTaskWorker().Run(jobworkflow.TaskContext{}, data)
 	}
@@ -1013,20 +988,6 @@ func (j *testJobContext) doMockedTask(runPolicy jobdb.RunPolicy, taskType string
 	nodePath := strings.TrimSpace(inv.GitTaskContext.NodePath)
 	invocationKey := fmt.Sprintf("%s::%s::%d", nodePath, opName, inv.GitTaskContext.InvokeSeq)
 	idx, matched := j.selectOpMockIndexForInvocation(invocationKey, nodePath, opName)
-	if requireMock && matched && (j.policy.AllowedOnlyNodePath == "" || nodePath == j.policy.AllowedOnlyNodePath) {
-		mode := j.caseDef.Mocks.Ops[idx].Behavior.Mode
-		if (mode == "passthrough" || mode == "record_passthrough") && !inv.Setup.Ready() {
-			// This is control flow, not an op call or a consumed mock. Retrying
-			// the same step after setup must leave call counts and cassettes intact.
-			j.setupRequested = true
-			env, err := coretask.NewOutputEnvelope(coretask.OutputKindActivityInvocationOutput, workerops.ActivityInvocationOutput{SetupRequired: true})
-			if err != nil {
-				return nil, true, err
-			}
-			out, err := jobdb.NewTaskData(env)
-			return out, true, err
-		}
-	}
 	if requireMock {
 		j.calls = append(j.calls, OpCall{NodePath: nodePath, Op: opName, Inputs: inv.Input})
 	}
@@ -1161,6 +1122,13 @@ func (j *testJobContext) buildTaskData(outputs map[string]interface{}, artifacts
 }
 
 func (j *testJobContext) runPassthroughTask(ctx context.Context, taskType string, inv workerops.ActivityInvocationRequest) (passthroughRecord, error) {
+	if configuration.Contains(inv.Input) {
+		return passthroughRecord{}, fmt.Errorf("config inputs require a lease-backed job execution; use a mocked return for this recipe test")
+	}
+	if err := workerops.PrepareInvocation(ctx, &inv, j.prepareTools); err != nil {
+		return passthroughRecord{}, err
+	}
+
 	opName, stepName := splitTaskType(taskType)
 	op, exists := coreops.Get(opName)
 	if !exists {
@@ -1926,4 +1894,8 @@ func evaluateAssertion(expr string, outputs map[string]any, artifacts map[string
 
 func (j *testJobContext) ResolveSecrets(context.Context, []string) (jobdb.SecretResolveResult, error) {
 	return jobdb.SecretResolveResult{}, jobdb.ErrNoSecretProvider
+}
+
+func (j *testJobContext) GetConfiguration(context.Context) (jobdb.ConfigurationSnapshot, error) {
+	return jobdb.ConfigurationSnapshot{}, jobdb.ErrConfigurationUnavailable
 }

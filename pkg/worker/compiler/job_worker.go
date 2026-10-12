@@ -163,9 +163,6 @@ func (j recipeJobWorker) Run(ctx jobworkflow.JobContext, jobData jobdb.JobData) 
 		return nil, err
 	}
 
-	if input.ToolSetupVersion < 0 || input.ToolSetupVersion > 1 {
-		return nil, fmt.Errorf("unsupported tool setup version %d", input.ToolSetupVersion)
-	}
 	if input.RecipeName == "" {
 		err := fmt.Errorf("missing recipe name")
 		logger.Warn("recipe job: invalid start payload", "error", err)
@@ -311,7 +308,7 @@ func (j recipeJobWorker) Run(ctx jobworkflow.JobContext, jobData jobdb.JobData) 
 			wCtx.StageNodeExecution = session.stageNode
 		}
 	}
-	opts := ExecutionOptions{LegacyExtensionResolution: input.ToolSetupVersion == 0}
+	opts := ExecutionOptions{}
 	if j.celProvider != nil {
 		opts.CELOptionsProvider = j.celProvider
 	}

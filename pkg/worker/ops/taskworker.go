@@ -6,6 +6,7 @@ import (
 	"errors"
 	"time"
 
+	"github.com/colony-2/c2j/pkg/configuration"
 	"github.com/colony-2/c2j/pkg/contextual"
 	"github.com/colony-2/c2j/pkg/ops"
 	extops "github.com/colony-2/c2j/pkg/ops/extensions"
@@ -27,7 +28,7 @@ func (t *taskWorker) Name() string {
 	return t.name
 }
 
-func (t *taskWorker) Run(ctx jobworkflow.TaskContext, input jobdb.TaskData) (jobdb.TaskData, error) {
+func (t *taskWorker) Run(ctx jobworkflow.TaskContext, input jobdb.TaskData) (result jobdb.TaskData, runErr error) {
 	d, err := input.GetData()
 	if err != nil {
 		return nil, err
@@ -40,14 +41,68 @@ func (t *taskWorker) Run(ctx jobworkflow.TaskContext, input jobdb.TaskData) (job
 	if err != nil {
 		return nil, err
 	}
-	// This worker is called only on a task-result miss. A lost prepared
-	// environment records a control result; the compiler returns to setup.
-	if !air.Setup.Ready() {
-		env, err := coretask.NewOutputEnvelope(coretask.OutputKindActivityInvocationOutput, ActivityInvocationOutput{SetupRequired: true})
-		if err != nil {
-			return nil, err
+	prepStart := time.Now()
+	var configDiag *configuration.Diagnostics
+	var resolved *extops.ResolvedOp
+	var prepMS int64
+	var prepared bool
+	defer func() {
+		if runErr == nil || (air.Preparation.Extension == nil && len(air.Preparation.Scopes) == 0 && configDiag == nil && !configuration.Contains(air.Input) && !secrets.Contains(air.Input)) {
+			return
 		}
-		return jobdb.NewTaskData(env)
+		if !prepared {
+			prepMS = time.Since(prepStart).Milliseconds()
+		}
+		diagnostic := ActivityInvocationOutput{Configuration: configDiag, Extension: resolved, PreparationMS: prepMS, SecretSetupMS: air.SecretSetupMS}
+		if air.Setup != nil {
+			air.Setup.Diagnostics.TaskOrdinal = &ctx.Step
+			diagnostic.Setup = &air.Setup.Diagnostics
+		}
+		// JobDB persists error artifacts, but discards error return data.
+		// Keep preparation evidence attached to the consuming failed outcome.
+		if session := t.sessions.Get(ctx.JobKey); session != nil {
+			runErr = session.Error(runErr)
+			if err := session.CheckOutput(diagnostic); err != nil {
+				runErr = errors.Join(runErr, err)
+				return
+			}
+		}
+		raw, err := json.Marshal(diagnostic)
+		if err != nil {
+			runErr = errors.Join(runErr, err)
+			return
+		}
+		var artifacts []jobdb.Artifact
+		var payload json.RawMessage
+		if result != nil {
+			payload, err = result.GetData()
+			if err != nil {
+				runErr = errors.Join(runErr, err)
+				return
+			}
+			artifacts, err = result.GetArtifacts()
+			if err != nil {
+				runErr = errors.Join(runErr, err)
+				return
+			}
+		}
+		artifacts = append(artifacts, jobdb.NewArtifactFromBytes("_c2j/preparation.json", raw))
+		result, err = jobdb.NewTaskData(payload, artifacts...)
+		runErr = errors.Join(runErr, err)
+	}()
+	opCtx, cancel := NewTaskExecutionContext(ctx)
+	defer cancel()
+	req, err := ResolveInvocation(opCtx, &air)
+	resolved = req.Extension
+	if err != nil {
+		return nil, err
+	}
+	configDiag, err = materializeConfiguration(opCtx, t.reg, &air, ctx.GetConfiguration)
+	if err != nil {
+		return nil, err
+	}
+	if err := InstallInvocation(opCtx, &air, req, PrepareTools); err != nil {
+		return nil, err
 	}
 	if err := secrets.ValidateType(t.reg.Step.InputType, air.Input); err != nil {
 		return nil, err
@@ -66,15 +121,17 @@ func (t *taskWorker) Run(ctx jobworkflow.TaskContext, input jobdb.TaskData) (job
 		return nil, err
 	}
 	session := t.sessions.Get(ctx.JobKey)
-	if !session.Ready(names) {
-		env, err := coretask.NewOutputEnvelope(coretask.OutputKindActivityInvocationOutput, ActivityInvocationOutput{SecretSetupRequired: true})
-		if err != nil {
-			return nil, err
+	secretStart := time.Now()
+	if len(names) > 0 {
+		if session == nil {
+			return nil, errors.New("secret setup requires a local job execution")
 		}
-		return jobdb.NewTaskData(env)
+		err := session.Prepare(opCtx, names, air.Preparation.SecretCandidates, ctx.ResolveSecrets)
+		air.SecretSetupMS = time.Since(secretStart).Milliseconds()
+		if err != nil {
+			return nil, session.Error(err)
+		}
 	}
-	opCtx, cancel := NewTaskExecutionContext(ctx)
-	defer cancel()
 	if session != nil {
 		opCtx = secrets.WithSession(opCtx, session)
 	}
@@ -86,9 +143,21 @@ func (t *taskWorker) Run(ctx jobworkflow.TaskContext, input jobdb.TaskData) (job
 			opCtx = extops.WithPreparedOp(opCtx, air.Setup.Extension)
 		}
 	}
+	prepMS = time.Since(prepStart).Milliseconds()
+	prepared = true
+	if err := opCtx.Err(); err != nil {
+		return nil, err
+	}
 	jobTool := &ops.TaskBasedJobTool{TaskContext: ctx}
 	out, outArt, err := t.doer.do(opCtx, jobTool, air, inArt)
+	out.PreparationMS = prepMS
 	out.SecretSetupMS = air.SecretSetupMS
+	out.Configuration = configDiag
+	if air.Setup != nil {
+		out.Extension = air.Setup.Extension
+		air.Setup.Diagnostics.TaskOrdinal = &ctx.Step
+		out.Setup = &air.Setup.Diagnostics
+	}
 	if session != nil {
 		err = session.Error(err)
 		if e := session.CheckOutput(out); e != nil {
@@ -180,7 +249,7 @@ func failedTaskData(output ActivityInvocationOutput, artifacts []jobdb.Artifact)
 }
 
 func hasFailedActivityPayload(output ActivityInvocationOutput, artifacts []jobdb.Artifact) bool {
-	if output.Setup != nil || output.SetupRequired || output.SecretSetupRequired || output.SecretSetupMS != 0 {
+	if output.Configuration != nil || output.Extension != nil || output.Setup != nil || output.SecretSetupMS != 0 {
 		return true
 	}
 	if len(artifacts) > 0 {

@@ -187,7 +187,7 @@ func TestNewNoTaskStepIsDisallowedAndNotRegisteredAsWorker(t *testing.T) {
 	for _, worker := range workers {
 		require.NotEqual(t, "no-task-op:collect", worker.Name(), "disallowed steps should not be exposed as task workers")
 	}
-	require.Len(t, workers, 3, "only setup control workers remain")
+	require.Empty(t, workers, "preparation does not register separate workers")
 }
 
 func TestWithGitWorkspaceAppliesContextPatch(t *testing.T) {

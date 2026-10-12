@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	recipeartifacts "github.com/colony-2/c2j/pkg/artifacts"
+	"github.com/colony-2/c2j/pkg/configuration"
 	"github.com/colony-2/c2j/pkg/objects"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	"github.com/mitchellh/mapstructure"
@@ -171,6 +172,9 @@ func normalizeStructFields(targetType reflect.Type, raw map[string]interface{}, 
 }
 
 func normalizeValueForType(targetType reflect.Type, value interface{}, acc *artifactKeyAccumulator, path string) (interface{}, error) {
+	if r, ok, err := configuration.Parse(value); ok || err != nil {
+		return r, err
+	}
 	if _, ok, err := objects.Parse(value); ok {
 		if err != nil {
 			return nil, err

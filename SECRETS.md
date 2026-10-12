@@ -66,11 +66,11 @@ them in the parent.
 
 ## Resolution, cache, and history
 
-On a live task-result miss, missing secrets trigger a `secret_setup` task before
-the op. It calls JobDB's `TaskContext.ResolveSecrets`, retains values only in the
-local execution session, and records duration/error diagnostics. Setup time is
-excluded from the op timeout; enclosing deadlines still apply. Activity results
-include `secret_setup_ms` when nonzero.
+On a live task-result miss, the task wrapper resolves missing secrets before
+invoking the op. Preparation and execution currently share the task timeout.
+Retrieval creates no separate task or chapter; activity results include
+`secret_setup_ms` and total `preparation_ms` when nonzero. Replay skips retrieval.
+A future JobDB preparation phase can give preparation a separate timeout.
 
 The first fetch batches required names with references visible in the already
 loaded recipe, including future branches. No packages or includes are fetched

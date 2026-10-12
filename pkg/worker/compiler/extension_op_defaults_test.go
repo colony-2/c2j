@@ -1,6 +1,7 @@
 package compiler
 
 import (
+	"context"
 	"encoding/json"
 	"log/slog"
 	"os"
@@ -38,12 +39,6 @@ func (c *capturingInvocationJobContext) DoTask(_ jobdb.RunPolicy, taskType strin
 	if taskType == TimeoutCheckpointTaskType {
 		return (timeoutCheckpointWorker{}).Run(jobworkflow.TaskContext{}, data)
 	}
-	switch taskType {
-	case workerops.ExtensionResolutionTaskType:
-		return workerops.NewExtensionResolutionWorker().Run(jobworkflow.TaskContext{}, data)
-	case workerops.ToolSetupTaskType:
-		return workerops.NewToolSetupWorker().Run(jobworkflow.TaskContext{}, data)
-	}
 	c.calls++
 	c.lastTaskType = taskType
 
@@ -74,7 +69,7 @@ func newActivityOutputTaskData(t *testing.T, gitCtx contextual.GitCommitContext)
 	return jobdb.NewTaskDataOrPanic(outEnv)
 }
 
-func TestExecuteRecipeSelectorOpAppliesSchemaDefaultsBeforeResolution(t *testing.T) {
+func TestExecuteRecipeSelectorOpDefersDefaultsUntilTaskExecution(t *testing.T) {
 	tmpDir := t.TempDir()
 	opDir := filepath.Join(tmpDir, "tools", "ops", "defaulted")
 	require.NoError(t, os.MkdirAll(opDir, 0o755))
@@ -141,6 +136,10 @@ output_schema:
 	require.Equal(t, 1, stub.calls)
 	require.Equal(t, extops.ExecutionOpType+":"+extops.ExecutionOpType, stub.lastTaskType)
 
+	require.NotNil(t, stub.lastInvocation.Preparation.Extension)
+	require.Nil(t, stub.lastInvocation.Input["inputs"].(map[string]any)["ref"], "manifest is not needed to schedule the task")
+	_, err = workerops.ResolveInvocation(context.Background(), &stub.lastInvocation)
+	require.NoError(t, err)
 	require.Equal(t, "./tools/ops/defaulted", stub.lastInvocation.Input["selector"])
 	rawInputs, ok := stub.lastInvocation.Input["inputs"].(map[string]interface{})
 	require.True(t, ok)

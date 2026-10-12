@@ -170,19 +170,17 @@ outputs:
 	require.JSONEq(t, `{"message":"hello"}`, string(raw))
 	history, err := engine.GetJobRun(ctx, jobdb.GetJobRunRequest{JobKey: key, IncludeOutputs: true})
 	require.NoError(t, err)
-	missSeen, setupSeen := false, false
+	setupSeen := false
 	for _, task := range history.Attempts[0].Tasks {
-		if strings.HasPrefix(task.TaskType, "extension_execution:") && !setupSeen {
-			missSeen = true
-		}
-		if task.TaskType == workerops.ToolSetupTaskType {
-			require.True(t, missSeen, "package setup must follow an uncached activity")
+		require.NotEqual(t, "tool_setup", task.TaskType)
+		if strings.HasPrefix(task.TaskType, "extension_execution:") {
+			result, err := decodeTaskOutput(task.Attempts[0].Output.Data)
+			require.NoError(t, err)
+			require.NotNil(t, result.Activity.Setup)
+			require.Equal(t, described.Nix.StorePath, result.Activity.Setup.Tools[0].Identity)
+			require.Equal(t, "prepared", result.Activity.Setup.Tools[0].Outcome)
+			require.NotNil(t, result.Activity.Setup.TaskOrdinal)
 			setupSeen = true
-			var setup workerops.ToolSetupResult
-			require.NoError(t, json.Unmarshal(task.Attempts[0].Output.Data, &setup))
-			require.Equal(t, described.Nix.StorePath, setup.Diagnostics.Tools[0].Identity)
-			require.Equal(t, "prepared", setup.Diagnostics.Tools[0].Outcome)
-			require.NotNil(t, setup.Diagnostics.TaskOrdinal)
 		}
 	}
 	require.True(t, setupSeen)

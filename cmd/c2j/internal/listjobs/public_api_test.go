@@ -17,6 +17,7 @@ import (
 
 type parityRuntime struct {
 	jobdb.WorkflowRuntime
+	jobdb.ConfigurationAdmin
 	job      jobdb.JobSummary
 	requests chan jobdb.ListJobsRequest
 }

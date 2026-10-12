@@ -58,3 +58,7 @@ func TestExecutionSuspensionUsesActiveTimeoutScope(t *testing.T) {
 func (*failingExecutionContext) ResolveSecrets(context.Context, []string) (jobdb.SecretResolveResult, error) {
 	return jobdb.SecretResolveResult{}, jobdb.ErrNoSecretProvider
 }
+
+func (*failingExecutionContext) GetConfiguration(context.Context) (jobdb.ConfigurationSnapshot, error) {
+	return jobdb.ConfigurationSnapshot{}, jobdb.ErrConfigurationUnavailable
+}
