@@ -85,8 +85,8 @@ func (n *Recipe) UnmarshalYAML(node *yamlv3.Node) error {
 
 	n.RecipeImpl = impl
 	for name, def := range n.GetMetdata().InputSchema {
-		if def.Secret && (def.Type != "string" || def.Default != nil) {
-			return fmt.Errorf("secret input %q requires string type and no default", name)
+		if err := def.ValidateSecretDeclaration(); err != nil {
+			return fmt.Errorf("input %q: %w", name, err)
 		}
 	}
 	return nil
@@ -120,8 +120,8 @@ func (n RecipeMetadata) ValidateInputShapeAndFillDefaults(data map[string]interf
 
 	// 1. Check for missing required fields and apply defaults
 	for key, def := range n.InputSchema {
-		if def.Secret && (def.Type != "string" || def.Default != nil) {
-			return nil, fmt.Errorf("secret input %q requires type string and no default", key)
+		if err := def.ValidateSecretDeclaration(); err != nil {
+			return nil, fmt.Errorf("input %q: %w", key, err)
 		}
 		_, exists := data[key]
 
@@ -135,6 +135,9 @@ func (n RecipeMetadata) ValidateInputShapeAndFillDefaults(data map[string]interf
 		// Apply default value if field is missing and a default is provided
 		if !exists && def.Default != nil {
 			resolved[key] = def.Default
+			if def.Secret {
+				resolved[key] = secrets.WithDefault(secrets.Reference{}, def.Default)
+			}
 		}
 	}
 
@@ -146,6 +149,14 @@ func (n RecipeMetadata) ValidateInputShapeAndFillDefaults(data map[string]interf
 				if ref, ok := secrets.Template(text); ok {
 					value = ref
 				}
+			}
+		}
+		if def.Secret {
+			if ref, ok, err := secrets.Parse(value); ok || err != nil {
+				if err != nil {
+					return nil, err
+				}
+				value = secrets.WithDefault(ref, def.Default)
 			}
 		}
 		if !def.Secret {
@@ -344,6 +355,20 @@ func isArtifactMapValue(value interface{}) bool {
 func (def InputSchema) validateMissing(key string) error {
 	if def.Required && def.Default == nil {
 		return fmt.Errorf("required field '%s' is missing", key)
+	}
+	return nil
+}
+
+// ValidateSecretDeclaration checks the public default without resolving it.
+func (def InputSchema) ValidateSecretDeclaration() error {
+	if !def.Secret {
+		return nil
+	}
+	if def.Type != "string" {
+		return fmt.Errorf("secret input requires string type")
+	}
+	if def.Default != nil {
+		return secrets.ValidateDefault(def.Default)
 	}
 	return nil
 }

@@ -19,10 +19,10 @@ func validationDefaultsFromSchema(schema map[string]recipe.InputSchema) (map[str
 	inputs := make(map[string]interface{}, len(schema))
 	for key, def := range schema {
 		if def.Secret {
-			if def.Type != "string" || def.Default != nil {
-				return nil, fmt.Errorf("secret input requires string type and no default")
+			if err := def.ValidateSecretDeclaration(); err != nil {
+				return nil, err
 			}
-			inputs[key] = secrets.Reference{Name: key}
+			inputs[key] = secrets.WithDefault(secrets.Reference{Name: key}, def.Default)
 			continue
 		}
 		if def.Default != nil {

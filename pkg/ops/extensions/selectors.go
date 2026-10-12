@@ -7,6 +7,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"reflect"
 	"strings"
 
 	"github.com/colony-2/c2j/pkg/execution"
@@ -129,17 +130,29 @@ func (r *ResolvedOp) validateInputSchema(raw map[string]interface{}) error {
 }
 
 func (r *ResolvedOp) ApplyInvocationDefaults(raw map[string]interface{}) (bool, error) {
-	if r == nil || r.inputDefaults == nil {
+	if r == nil {
 		return false, nil
 	}
 	payload := make(map[string]interface{}, len(raw))
 	for key, value := range raw {
 		payload[key] = value
 	}
-	changed, err := r.inputDefaults.Apply(payload)
+	changed := false
+	if r.inputDefaults != nil {
+		var err error
+		changed, err = r.inputDefaults.Apply(payload)
+		if err != nil {
+			return false, err
+		}
+	}
+	defaulted, err := secrets.ApplySchemaDefaults(r.Spec.InputSchema, payload)
 	if err != nil {
 		return false, err
 	}
+	if !reflect.DeepEqual(payload, defaulted) {
+		changed = true
+	}
+	payload = defaulted.(map[string]any)
 	for key, value := range payload {
 		raw[key] = value
 	}

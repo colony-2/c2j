@@ -106,6 +106,9 @@ func (rc *ResolutionContext) staticInput(e *exprpb.Expr) (any, bool) {
 			if _, ref, _ := configuration.Parse(v); ref {
 				return v, true
 			}
+			if _, ref, _ := secrets.Parse(v); ref {
+				return v, true
+			}
 			if m, ok := v.(map[string]any); ok {
 				return m[s.Field], true
 			}

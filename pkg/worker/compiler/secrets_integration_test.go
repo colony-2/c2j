@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -158,4 +159,88 @@ func TestSecretsAcrossTasksReplayAndFailures(t *testing.T) {
 	}
 	require.NotContains(t, logs.String(), "private-value")
 	require.Contains(t, logs.String(), "[REDACTED]")
+}
+
+func TestSecretFallbacksInLiveTasksAndReplay(t *testing.T) {
+	type input struct {
+		Token    string `json:"token" secret:"true"`
+		Expected string `json:"expected"`
+	}
+	var calls atomic.Int32
+	op := coreops.NewActivityMappedOpV2[input, map[string]any](coreops.OpMetadata{Type: "fallback_probe"}, func(_ coreops.OpDependencies, _ context.Context, in input) (map[string]any, error) {
+		calls.Add(1)
+		if in.Token != in.Expected {
+			return nil, fmt.Errorf("unexpected materialized input")
+		}
+		return map[string]any{"ok": true}, nil
+	})
+	withRegisteredOps(t, op)
+	registry, err := workerops.NewActivityRegistry()
+	require.NoError(t, err)
+	ws, err := NewRecipeWorker(coreops.NewServiceDepsBuilder().Build(), registry)
+	require.NoError(t, err)
+	provider := &testSecretProvider{}
+	runtime := toyruntime.New(toyruntime.WithSecretProvider(provider))
+	workers := []jobworkflow.TaskWorker{}
+	for _, w := range ws.TaskWorkers {
+		workers = append(workers, w)
+	}
+	engine, err := jobworkflow.NewEngineBuilder().WithRuntime(runtime).WithWorkerTenantId("fallbacks").PlusWorkers(ws.JobWorker, workers...).BuildEngine()
+	require.NoError(t, err)
+	engine = jobdbschema.WorkflowEngine{Engine: engine, Registry: runtime}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go engine.Run(ctx)
+	source := `id: fallbacks
+input_schema:
+  token: {type: string, secret: true, default_value: "schema-default"}
+  omitted: {type: string, secret: true, default_value: ""}
+inputs:
+  token: '${{ inputs.token }}'
+  omitted: '${{ inputs.omitted }}'
+sequence:
+  - id: explicit
+    op: fallback_probe
+    inputs:
+      token: '${{ context.secrets.?missing.orValue("first") }}'
+      expected: first
+  - id: another
+    op: fallback_probe
+    inputs:
+      token: '${{ context.secrets.?missing.orValue("second") }}'
+      expected: second
+  - id: schema
+    op: fallback_probe
+    inputs:
+      token: '${{ inputs.token }}'
+      expected: schema-default
+  - id: omitted
+    op: fallback_probe
+    inputs:
+      token: '${{ inputs.omitted }}'
+      expected: ""
+`
+	rec, err := recipe.LoadRecipeFromString([]byte(source))
+	require.NoError(t, err)
+	job, git := GenerateTestContext()
+	key, err := starter.StartRecipeJob(ctx, workflowctl.StartJob{
+		TenantId: "fallbacks", RecipeName: "fallbacks", JobContext: job, GitRef: git.ParentRef,
+		Inputs: map[string]any{"token": "${{ context.secrets.missing }}"},
+	}, engine, *rec)
+	require.NoError(t, err)
+	require.NoError(t, jobworkflow.WaitForJobToComplete(ctx, 30*time.Second, key, engine))
+	_, err = swfutil.JobResult(ctx, engine, key)
+	require.NoError(t, err)
+	require.EqualValues(t, 4, calls.Load())
+	require.Len(t, provider.Calls(), 3, "missing values and defaults must not be cached; omitted default needs no fetch")
+	run, err := engine.GetJobRun(ctx, jobdb.GetJobRunRequest{JobKey: key, IncludeInputs: true, IncludeOutputs: true})
+	require.NoError(t, err)
+	raw, err := json.Marshal(run)
+	require.NoError(t, err)
+	require.Contains(t, string(raw), "$c2j_secret")
+	require.NotContains(t, string(raw), "private-value")
+	_, err = engine.ReplayJobRun(ctx, jobworkflow.ReplayRunRequest{JobKey: key, JobWorker: NewRecipeJobWorker(RecipeJobWorkerOptions{ReadOnlyReplay: true})})
+	require.NoError(t, err)
+	require.EqualValues(t, 4, calls.Load())
+	require.Len(t, provider.Calls(), 3)
 }

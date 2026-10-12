@@ -127,6 +127,9 @@ func (rc *ResolutionContext) resolveSimpleGoTemplateScalar(input string) (interf
 	}
 
 	for _, key := range path[1:] {
+		if _, ref, _ := secrets.Parse(current); ref {
+			return nil, true, fmt.Errorf("cannot inspect secret reference internals")
+		}
 		if _, ref, _ := configuration.Parse(current); ref {
 			return nil, true, fmt.Errorf("cannot inspect config reference internals")
 		}

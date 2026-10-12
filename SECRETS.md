@@ -1,5 +1,7 @@
 # Job secrets
 
+For recipe and extension-op examples, see the [secrets/config author guide](SECRETS_AND_CONFIG.md).
+
 Recipes reference names; runners fetch values from JobDB using their current
 execution lease. Submitting a job and replaying its history require no secret
 reads. Pulse uses its existing lease handoff without transporting secret values.
@@ -28,6 +30,8 @@ A recipe accepting a secret declares a string input with `secret: true`:
 id: publish
 input_schema:
   token: {type: string, secret: true, required: true}
+inputs:
+  token: '${{ inputs.token }}'
 sequence:
   - op: command_execution
     inputs:
@@ -37,8 +41,8 @@ sequence:
 
 Pass `${{ context.secrets.github_token }}` as that input. References can cross
 include and child-job input boundaries; the receiving recipe validates its
-schema. A child resolves under its own lease. Plaintext and defaults are rejected
-for secret-marked inputs. Environment maps also accept ordinary nonsecret strings.
+schema. A child resolves under its own lease. Plaintext inputs are rejected;
+public string defaults are supported for secret-marked inputs. Environment maps also accept ordinary nonsecret strings.
 An empty secret value is valid; a missing or denied required name fails setup.
 Values retain trailing newlines.
 
@@ -56,13 +60,30 @@ The extension receives the materialized input through its usual JSON stdin.
 Annotations are supported on direct/nested `properties`, `items`, and
 `additionalProperties` string schemas. Permission is not inferred through
 `$ref`, schema combinators, or `patternProperties`. String constraints are checked
-again against the real value before invoking the extension. Defaults are forbidden.
+again against the materialized value before invoking the extension, including fallbacks.
 The explicit `extension_execution` wrapper also supports an `env` map; selectors
 with secret manifest inputs should be invoked directly via `op: <selector>`.
 
 Native Go ops opt in with `secret:"true"` on string input fields or `secret:"env"`
 on environment maps. Child recipe ops forward references without materializing
 them in the parent.
+
+## Optional secrets
+
+Use `${{ context.secrets.?github_token.orValue("") }}` for an explicit fallback.
+Only a literal CEL string is accepted. Recipes may declare `default_value: ""`
+on a secret input; extensions may declare `default: ""` beside `x-secret: true`.
+
+An available secret wins, including an empty string. Otherwise the reference's
+fallback wins over the receiving schema's default; without either, setup fails.
+Defaults survive forwarding and remain specific to each input binding. An omitted
+secret input with a schema default requires no lookup. Defaults are public,
+recordable strings and are never cached or masked as credentials.
+
+A missing/denied name in a successful provider response permits fallback.
+Provider failures (including no configured provider), cancellation, timeouts,
+and lease loss still fail. See the [author guide](SECRETS_AND_CONFIG.md#optional-secrets-and-public-fallbacks)
+for examples and forwarding behavior.
 
 ## Resolution, cache, and history
 
@@ -85,8 +106,8 @@ handoff and lease loss. Resumed executions and child jobs get fresh caches.
 Provider expiry timestamps are honored; rotation otherwise becomes visible at
 the next fetch or execution. Cached task results and replay perform no reads.
 
-History stores reserved reference objects containing names, never plaintext or
-secret hashes. Rotating a value does not invalidate recorded task outcomes.
+History stores reserved reference objects containing names and any public
+fallbacks, never secret plaintext or secret hashes. Rotating a value does not invalidate recorded task outcomes.
 Values are registered for masking before invocation. c2j masks known values in
 its default logs and returned errors, including extension stderr, and rejects
 structured op outputs containing them. Ops must not write credentials into

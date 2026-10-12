@@ -10,7 +10,12 @@ import (
 // in the parent. The child validates its own recipe schema before executing.
 func InvocationNames(t reflect.Type, input any) ([]string, error) {
 	set := map[string]bool{}
-	_, err := transformInput(t, input, "", false, func(r Reference) (any, error) { set[r.Name] = true; return r, nil })
+	_, err := transformInput(t, input, "", false, func(r Reference) (any, error) {
+		if r.Name != "" {
+			set[r.Name] = true
+		}
+		return r, nil
+	})
 	out := make([]string, 0, len(set))
 	for n := range set {
 		out = append(out, n)
@@ -103,4 +108,11 @@ func transformInput(t reflect.Type, v any, mode string, preserveSchema bool, f f
 	default:
 		return v, nil
 	}
+}
+
+// InvocationReferences excludes references forwarded to child jobs.
+func InvocationReferences(t reflect.Type, input any) ([]Reference, error) {
+	var refs []Reference
+	_, err := transformInput(t, input, "", false, func(r Reference) (any, error) { refs = append(refs, r); return r, nil })
+	return refs, err
 }

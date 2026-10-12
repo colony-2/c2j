@@ -1,5 +1,7 @@
 # Configuration in task inputs
 
+For recipe and extension-op examples, see the [secrets/config author guide](SECRETS_AND_CONFIG.md).
+
 Use a whole-value template to read non-secret tenant configuration:
 
 ```yaml

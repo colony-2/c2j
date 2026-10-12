@@ -116,17 +116,17 @@ func (t *taskWorker) Run(ctx jobworkflow.TaskContext, input jobdb.TaskData) (res
 			return nil, err
 		}
 	}
-	names, err := secrets.InvocationNames(t.reg.Step.InputType, air.Input)
+	refs, err := secrets.InvocationReferences(t.reg.Step.InputType, air.Input)
 	if err != nil {
 		return nil, err
 	}
 	session := t.sessions.Get(ctx.JobKey)
 	secretStart := time.Now()
-	if len(names) > 0 {
+	if len(refs) > 0 {
 		if session == nil {
 			return nil, errors.New("secret setup requires a local job execution")
 		}
-		err := session.Prepare(opCtx, names, air.Preparation.SecretCandidates, ctx.ResolveSecrets)
+		err := session.PrepareReferences(opCtx, refs, air.Preparation.SecretCandidates, ctx.ResolveSecrets)
 		air.SecretSetupMS = time.Since(secretStart).Milliseconds()
 		if err != nil {
 			return nil, session.Error(err)

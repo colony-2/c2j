@@ -36,3 +36,46 @@ func TestSecretTemplatesAreOpaqueAndInputOnly(t *testing.T) {
 	_, err = rc.ResolveInputs(map[string]any{"value": "${{ inputs.normal + '!' }}"})
 	require.NoError(t, err)
 }
+
+func TestSecretFallbackTemplates(t *testing.T) {
+	rc, err := NewRecipeResolutionContext(&contextual.GitCommitContext{}, nil, contextual.JobContext{})
+	require.NoError(t, err)
+	single, err := rc.ResolveInputs(map[string]any{"token": "${{ context.secrets.?token.orValue('public') }}"})
+	require.NoError(t, err)
+	require.Equal(t, secrets.WithDefault(secrets.Reference{Name: "token"}, "public"), single["token"])
+	for _, fallback := range []string{"", "public", "line\nquoted\""} {
+		literal, err := json.Marshal(fallback)
+		require.NoError(t, err)
+		expr := "${{ context.secrets.?token.orValue(" + string(literal) + ") }}"
+		input, err := rc.ResolveInputs(map[string]any{"token": expr})
+		require.NoError(t, err)
+		require.Equal(t, secrets.WithDefault(secrets.Reference{Name: "token"}, fallback), input["token"])
+		_, err = rc.ResolveMap(map[string]any{"value": expr})
+		require.Error(t, err)
+	}
+	for _, expr := range []string{
+		`${{ context.secrets.?token.orValue(inputs.value) }}`,
+		`${{ context.secrets.?token.orValue(context.secrets.other) }}`,
+		`${{ context.secrets.?token.orValue(123) }}`,
+		`${{ context.secrets.?token.orValue("a" + "b") }}`,
+		`prefix ${{ context.secrets.?token.orValue("") }}`,
+		`${{ context.secrets.?token.orValue("") == "" }}`,
+	} {
+		_, err := rc.ResolveInputs(map[string]any{"token": expr})
+		require.Error(t, err, expr)
+	}
+}
+
+func TestSecretFallbackInternalsRemainOpaque(t *testing.T) {
+	for _, ref := range []any{
+		secrets.WithDefault(secrets.Reference{Name: "token"}, "public"),
+		map[string]any{"$c2j_secret": "token", "default": "public"},
+	} {
+		rc, err := NewRecipeResolutionContext(&contextual.GitCommitContext{}, map[string]any{"token": ref}, contextual.JobContext{})
+		require.NoError(t, err)
+		for _, expr := range []string{`${{ inputs.token.default }}`, `{{ inputs.token.default }}`, `${{ inputs.token.default == "public" }}`} {
+			_, err := rc.ResolveInputs(map[string]any{"value": expr})
+			require.Error(t, err, expr)
+		}
+	}
+}

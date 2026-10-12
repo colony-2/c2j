@@ -52,9 +52,9 @@ func TestExtensionSecretSchemaDeferredAndMaterialized(t *testing.T) {
 	require.Error(t, r.ValidateInvocationInputs(map[string]any{"token": secrets.Reference{Name: "token"}, "path": secrets.Reference{Name: "token"}}))
 	require.NoError(t, r.ValidateMaterializedInputs(map[string]any{"token": "real-token"}))
 	require.Error(t, r.ValidateMaterializedInputs(map[string]any{"token": "x"}))
-	schema["properties"].(map[string]any)["token"].(map[string]any)["default"] = "plaintext"
+	schema["properties"].(map[string]any)["token"].(map[string]any)["default"] = 123
 	_, _, err = parseSchema(schema)
-	require.ErrorContains(t, err, "no default")
+	require.ErrorContains(t, err, "default must be a string")
 }
 
 func TestUnsupportedSecretAnnotationsFailClosed(t *testing.T) {
@@ -68,4 +68,59 @@ func TestUnsupportedSecretAnnotationsFailClosed(t *testing.T) {
 	}
 	_, err := RestoreResolvedOp(&ResolvedOp{Spec: ExtensionOpSpec{OutputSchema: map[string]any{"type": "string", "x-secret": true}}})
 	require.ErrorContains(t, err, "secret output annotations")
+}
+
+func TestExtensionSecretFallbacks(t *testing.T) {
+	schema := map[string]any{"type": "object", "required": []any{"token"}, "properties": map[string]any{
+		"token": map[string]any{"type": "string", "x-secret": true, "default": "public", "minLength": 1},
+	}}
+	resolved, err := RestoreResolvedOp(&ResolvedOp{Spec: ExtensionOpSpec{InputSchema: schema}})
+	require.NoError(t, err)
+	for _, tc := range []struct {
+		name  string
+		input map[string]any
+		want  string
+	}{
+		{"omitted", map[string]any{}, "public"},
+		{"schema", map[string]any{"token": secrets.Reference{Name: "missing"}}, "public"},
+		{"explicit", map[string]any{"token": secrets.WithDefault(secrets.Reference{Name: "missing"}, "override")}, "override"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := resolved.ApplyInvocationDefaults(tc.input)
+			require.NoError(t, err)
+			require.NoError(t, resolved.ValidateInvocationInputs(tc.input))
+			session := secrets.NewSession()
+			defer session.Close()
+			value, err := session.Materialize(tc.input)
+			require.NoError(t, err)
+			require.Equal(t, tc.want, value.(map[string]any)["token"])
+			require.NoError(t, resolved.ValidateMaterializedInputs(value.(map[string]any)))
+		})
+	}
+	// A default does not bypass materialized string constraints.
+	require.Error(t, resolved.ValidateMaterializedInputs(map[string]any{"token": ""}))
+	// Public schema defaults do not grant permission to submit arbitrary plaintext.
+	require.Error(t, resolved.ValidateInvocationInputs(map[string]any{"token": "public"}))
+}
+
+func TestExtensionExecutesWithSecretFallback(t *testing.T) {
+	root := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(root, "op.yaml"), []byte(`name: fallback
+input_schema:
+  type: object
+  required: [token]
+  properties:
+    token: {type: string, x-secret: true, default: public}
+output_schema: {type: object}
+run: |
+  IFS= read -r payload
+  case "$payload" in *'"token":"public"'*) ;; *) exit 9;; esac
+  printf '{"output":{"ok":true}}'
+`), 0600))
+	session := secrets.NewSession()
+	defer session.Close()
+	deps := coreops.NewOpDependenciesBuilder().WithWorktreePath(root).Build()
+	out, err := executeExtension(deps, secrets.WithSession(context.Background(), session), ExecutionInput{Selector: "./", Inputs: map[string]any{"token": secrets.Reference{Name: "missing"}}})
+	require.NoError(t, err)
+	require.Equal(t, true, out["ok"])
 }

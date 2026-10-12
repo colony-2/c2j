@@ -156,8 +156,8 @@ func StartRecipeJobWithOptions(ctx context.Context, startJob workflowctl.StartJo
 				if !def.Secret {
 					continue
 				}
-				if def.Type != "string" || def.Default != nil {
-					return jobdb.JobKey{}, fmt.Errorf("secret input %q requires string type and no default", k)
+				if err := def.ValidateSecretDeclaration(); err != nil {
+					return jobdb.JobKey{}, fmt.Errorf("secret input %q: %w", k, err)
 				}
 				v, exists := inputs[k]
 				if !exists {

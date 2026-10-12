@@ -30,15 +30,19 @@ func ExpandSchema(schema map[string]any) (map[string]any, error) {
 			}
 		}
 		if yes, _ := s["x-secret"].(bool); yes {
-			if s["type"] != "string" || s["default"] != nil {
-				return fmt.Errorf("secret schema requires type string and no default")
+			if err := validateSecretSchema(s); err != nil {
+				return err
 			}
+			// Attach secret defaults to references via ApplySchemaDefaults;
+			// the ordinary default engine must not insert plaintext.
 			plain := map[string]any{}
 			for k, v := range s {
-				plain[k] = v
+				if k != "default" {
+					plain[k] = v
+				}
 			}
 			clear(s)
-			s["anyOf"] = []any{plain, map[string]any{"type": "object", "required": []string{WireKey}, "additionalProperties": false, "properties": map[string]any{WireKey: map[string]any{"type": "string"}}}}
+			s["anyOf"] = []any{plain, map[string]any{"type": "object", "required": []string{WireKey}, "additionalProperties": false, "properties": map[string]any{WireKey: map[string]any{"type": "string"}, "default": map[string]any{"type": "string"}}}}
 			return nil
 		}
 		for _, key := range []string{"properties"} {
@@ -175,8 +179,8 @@ func reject(v any) error {
 func ValidateSchema(schema map[string]any, v any, materialized bool) error {
 	marked, _ := schema["x-secret"].(bool)
 	if marked {
-		if schema["type"] != "string" || schema["default"] != nil {
-			return fmt.Errorf("secret schema requires type string and no default")
+		if err := validateSecretSchema(schema); err != nil {
+			return err
 		}
 		if materialized {
 			if _, ok := v.(string); ok {
@@ -212,4 +216,75 @@ func ValidateSchema(schema map[string]any, v any, materialized bool) error {
 		}
 	}
 	return nil
+}
+
+func validateSecretSchema(schema map[string]any) error {
+	if schema["type"] != "string" {
+		return fmt.Errorf("secret schema requires type string")
+	}
+	if d, exists := schema["default"]; exists {
+		return ValidateDefault(d)
+	}
+	return nil
+}
+
+// ApplySchemaDefaults attaches fallbacks to secret bindings, including omitted
+// inputs. It never substitutes a named secret or evaluates default strings.
+func ApplySchemaDefaults(schema map[string]any, value any) (any, error) {
+	if marked, _ := schema["x-secret"].(bool); marked {
+		if err := validateSecretSchema(schema); err != nil {
+			return nil, err
+		}
+		if ref, ok, err := Parse(value); ok || err != nil {
+			if err != nil {
+				return nil, err
+			}
+			return WithDefault(ref, schema["default"]), nil
+		}
+		return value, nil
+	}
+	switch v := value.(type) {
+	case map[string]any:
+		out := make(map[string]any, len(v))
+		props, _ := schema["properties"].(map[string]any)
+		for k, item := range v {
+			child, _ := props[k].(map[string]any)
+			if child == nil {
+				child, _ = schema["additionalProperties"].(map[string]any)
+			}
+			resolved, err := ApplySchemaDefaults(child, item)
+			if err != nil {
+				return nil, err
+			}
+			out[k] = resolved
+		}
+		for k, child := range props {
+			sub, _ := child.(map[string]any)
+			if _, exists := out[k]; exists {
+				continue
+			}
+			if marked, _ := sub["x-secret"].(bool); marked {
+				if d, exists := sub["default"]; exists {
+					if err := ValidateDefault(d); err != nil {
+						return nil, err
+					}
+					out[k] = WithDefault(Reference{}, d)
+				}
+			}
+		}
+		return out, nil
+	case []any:
+		out := make([]any, len(v))
+		sub, _ := schema["items"].(map[string]any)
+		for i, item := range v {
+			resolved, err := ApplySchemaDefaults(sub, item)
+			if err != nil {
+				return nil, err
+			}
+			out[i] = resolved
+		}
+		return out, nil
+	default:
+		return value, nil
+	}
 }

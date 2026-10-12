@@ -67,6 +67,31 @@ func (s *Session) Ready(names []string) bool {
 // response limits remain authoritative; speculative failures fall back to the
 // current task's names. Missing future names are never negatively cached.
 func (s *Session) Prepare(ctx context.Context, required, candidates []string, resolve Resolver) error {
+	return s.prepare(ctx, required, required, candidates, resolve)
+}
+
+// PrepareReferences fetches every referenced name, but requires availability only
+// for bindings without a fallback. Fallbacks never enter the session cache.
+func (s *Session) PrepareReferences(ctx context.Context, refs []Reference, candidates []string, resolve Resolver) error {
+	names, required := []string{}, []string{}
+	seen, strict := map[string]bool{}, map[string]bool{}
+	for _, r := range refs {
+		if r.Name == "" {
+			continue
+		}
+		if !seen[r.Name] {
+			names = append(names, r.Name)
+			seen[r.Name] = true
+		}
+		if r.Default == nil && !strict[r.Name] {
+			required = append(required, r.Name)
+			strict[r.Name] = true
+		}
+	}
+	return s.prepare(ctx, names, required, candidates, resolve)
+}
+
+func (s *Session) prepare(ctx context.Context, names, required, candidates []string, resolve Resolver) error {
 	select {
 	case s.fetch <- struct{}{}:
 	case <-ctx.Done():
@@ -82,7 +107,7 @@ func (s *Session) Prepare(ctx context.Context, required, candidates []string, re
 		return jobdb.ErrExecutionLeaseLost
 	}
 	missing := []string{}
-	for _, n := range required {
+	for _, n := range names {
 		if v, ok := s.values[n]; !ok || expired(v) {
 			missing = append(missing, n)
 		}
@@ -148,6 +173,9 @@ func (s *Session) Prepare(ctx context.Context, required, candidates []string, re
 
 func (s *Session) Materialize(v any) (any, error) {
 	return Transform(v, func(r Reference) (any, error) {
+		if r.Name == "" && r.Default != nil {
+			return *r.Default, nil
+		}
 		if s == nil {
 			return nil, errors.New("secret setup required")
 		}
@@ -158,6 +186,9 @@ func (s *Session) Materialize(v any) (any, error) {
 		}
 		value, ok := s.values[r.Name]
 		if !ok || expired(value) {
+			if r.Default != nil {
+				return *r.Default, nil
+			}
 			return nil, errors.New("required secret unavailable")
 		}
 		return value.Value, nil

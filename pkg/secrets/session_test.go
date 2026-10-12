@@ -36,7 +36,7 @@ func TestSessionBatchReuseAndMissing(t *testing.T) {
 	require.Equal(t, []string{"token", "future", "empty", "missing"}, calls[0])
 	require.NoError(t, s.Prepare(context.Background(), []string{"future", "empty"}, nil, resolve))
 	require.Len(t, calls, 1)
-	input := map[string]any{"token": Reference{"token"}, "empty": Reference{"empty"}}
+	input := map[string]any{"token": Reference{Name: "token"}, "empty": Reference{Name: "empty"}}
 	out, err := s.Materialize(input)
 	require.NoError(t, err)
 	require.Equal(t, map[string]any{"token": "token-private\n", "empty": ""}, out)

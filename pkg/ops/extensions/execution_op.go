@@ -69,6 +69,11 @@ func executeExtension(deps ops.OpDependencies, ctx context.Context, input Execut
 	if input.Inputs == nil {
 		input.Inputs = map[string]interface{}{}
 	}
+	defaulted, err := secrets.ApplySchemaDefaults(resolved.Spec.InputSchema, input.Inputs)
+	if err != nil {
+		return nil, err
+	}
+	input.Inputs = defaulted.(map[string]any)
 	if err := resolved.ValidateInvocationInputs(input.Inputs); err != nil {
 		return nil, fmt.Errorf("extension input validation failed: %w", err)
 	}

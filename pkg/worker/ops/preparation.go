@@ -9,6 +9,7 @@ import (
 	"github.com/colony-2/c2j/pkg/configuration"
 	coreops "github.com/colony-2/c2j/pkg/ops"
 	extops "github.com/colony-2/c2j/pkg/ops/extensions"
+	"github.com/colony-2/c2j/pkg/secrets"
 	"github.com/colony-2/c2j/pkg/template"
 	"github.com/colony-2/c2j/pkg/toolenv"
 )
@@ -82,6 +83,12 @@ func PrepareInvocation(ctx context.Context, inv *ActivityInvocationRequest, prep
 func InstallInvocation(ctx context.Context, inv *ActivityInvocationRequest, req ToolSetupRequest, prepareTools func(context.Context, ToolSetupRequest) ToolSetupResult) error {
 	if req.Extension != nil {
 		inputs, _ := inv.Input["inputs"].(map[string]any)
+		defaulted, err := secrets.ApplySchemaDefaults(req.Extension.Spec.InputSchema, inputs)
+		if err != nil {
+			return err
+		}
+		inputs = defaulted.(map[string]any)
+		inv.Input["inputs"] = inputs
 		if err := req.Extension.ValidateInvocationInputs(inputs); err != nil {
 			return fmt.Errorf("failed to validate selector inputs: %w", err)
 		}
