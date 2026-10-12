@@ -19,9 +19,9 @@ func ExpandSchema(schema map[string]any) (map[string]any, error) {
 	}
 	var walk func(map[string]any) error
 	walk = func(s map[string]any) error {
-		if annotation, exists := s["x-c2j-secret"]; exists {
+		if annotation, exists := s["x-secret"]; exists {
 			if _, ok := annotation.(bool); !ok {
-				return fmt.Errorf("x-c2j-secret must be a boolean")
+				return fmt.Errorf("x-secret must be a boolean")
 			}
 		}
 		for _, key := range []string{"$defs", "definitions", "patternProperties", "allOf", "anyOf", "oneOf", "if", "then", "else", "not", "contains", "prefixItems", "dependentSchemas"} {
@@ -29,7 +29,7 @@ func ExpandSchema(schema map[string]any) (map[string]any, error) {
 				return fmt.Errorf("secret annotations under %s are unsupported; use properties, items, or additionalProperties", key)
 			}
 		}
-		if yes, _ := s["x-c2j-secret"].(bool); yes {
+		if yes, _ := s["x-secret"].(bool); yes {
 			if s["type"] != "string" || s["default"] != nil {
 				return fmt.Errorf("secret schema requires type string and no default")
 			}
@@ -70,7 +70,7 @@ func ExpandSchema(schema map[string]any) (map[string]any, error) {
 func HasAnnotation(value any) bool {
 	switch v := value.(type) {
 	case map[string]any:
-		if _, ok := v["x-c2j-secret"]; ok {
+		if _, ok := v["x-secret"]; ok {
 			return true
 		}
 		for _, child := range v {
@@ -173,7 +173,7 @@ func reject(v any) error {
 // Schema annotations apply to string leaves. Unsupported schema constructs
 // cannot implicitly grant permission to a reference.
 func ValidateSchema(schema map[string]any, v any, materialized bool) error {
-	marked, _ := schema["x-c2j-secret"].(bool)
+	marked, _ := schema["x-secret"].(bool)
 	if marked {
 		if schema["type"] != "string" || schema["default"] != nil {
 			return fmt.Errorf("secret schema requires type string and no default")
@@ -189,7 +189,7 @@ func ValidateSchema(schema map[string]any, v any, materialized bool) error {
 		return fmt.Errorf("secret input requires a reference, not plaintext")
 	}
 	if _, ok, err := Parse(v); ok || err != nil {
-		return fmt.Errorf("secret reference requires x-c2j-secret: true")
+		return fmt.Errorf("secret reference requires x-secret: true")
 	}
 	switch x := v.(type) {
 	case map[string]any:

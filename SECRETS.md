@@ -42,14 +42,14 @@ for secret-marked inputs. Environment maps also accept ordinary nonsecret string
 An empty secret value is valid; a missing or denied required name fails setup.
 Values retain trailing newlines.
 
-Extension manifests annotate secret string inputs with `x-c2j-secret: true`:
+Extension manifests annotate secret string inputs with `x-secret: true`:
 
 ```yaml
 input_schema:
   type: object
   required: [token]
   properties:
-    token: {type: string, x-c2j-secret: true}
+    token: {type: string, x-secret: true}
 ```
 
 The extension receives the materialized input through its usual JSON stdin.

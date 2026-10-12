@@ -21,7 +21,7 @@ input_schema:
   type: object
   required: [token]
   properties:
-    token: {type: string, x-c2j-secret: true}
+    token: {type: string, x-secret: true}
 output_schema: {type: object}
 run: |
   IFS= read -r payload
@@ -43,7 +43,7 @@ run: |
 }
 
 func TestExtensionSecretSchemaDeferredAndMaterialized(t *testing.T) {
-	schema := map[string]any{"type": "object", "required": []any{"token"}, "properties": map[string]any{"token": map[string]any{"type": "string", "x-c2j-secret": true, "minLength": 3}, "path": map[string]any{"type": "string"}}}
+	schema := map[string]any{"type": "object", "required": []any{"token"}, "properties": map[string]any{"token": map[string]any{"type": "string", "x-secret": true, "minLength": 3}, "path": map[string]any{"type": "string"}}}
 	_, compiled, err := parseSchema(schema)
 	require.NoError(t, err)
 	r := &ResolvedOp{Spec: ExtensionOpSpec{InputSchema: schema}, compiledInput: compiled}
@@ -59,13 +59,13 @@ func TestExtensionSecretSchemaDeferredAndMaterialized(t *testing.T) {
 
 func TestUnsupportedSecretAnnotationsFailClosed(t *testing.T) {
 	for _, schema := range []map[string]any{
-		{"type": "string", "x-c2j-secret": "true"},
-		{"$defs": map[string]any{"token": map[string]any{"type": "string", "x-c2j-secret": true}}, "$ref": "#/$defs/token"},
-		{"allOf": []any{map[string]any{"type": "string", "x-c2j-secret": true}}},
+		{"type": "string", "x-secret": "true"},
+		{"$defs": map[string]any{"token": map[string]any{"type": "string", "x-secret": true}}, "$ref": "#/$defs/token"},
+		{"allOf": []any{map[string]any{"type": "string", "x-secret": true}}},
 	} {
 		_, _, err := parseSchema(schema)
 		require.Error(t, err)
 	}
-	_, err := RestoreResolvedOp(&ResolvedOp{Spec: ExtensionOpSpec{OutputSchema: map[string]any{"type": "string", "x-c2j-secret": true}}})
+	_, err := RestoreResolvedOp(&ResolvedOp{Spec: ExtensionOpSpec{OutputSchema: map[string]any{"type": "string", "x-secret": true}}})
 	require.ErrorContains(t, err, "secret output annotations")
 }
