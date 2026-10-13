@@ -54,3 +54,30 @@ func TestWireConfigurationAliasesCannotBeInspected(t *testing.T) {
 		require.Error(t, err)
 	}
 }
+
+func TestConfigurationFallbacksStayDeferredAndCannotControlRouting(t *testing.T) {
+	rc := newRecipeCtx(t, nil)
+	for _, expr := range []string{`context.config.?flag.orValue(false)`, `context.config.?flag.orValue(null)`, `context.config[?"build.channel"].orValue("stable")`} {
+		text := "${{ " + expr + " }}"
+		got, err := rc.ResolveInputs(map[string]any{"value": text})
+		require.NoError(t, err)
+		ref, ok, err := configuration.Parse(got["value"])
+		require.NoError(t, err)
+		require.True(t, ok)
+		require.NotEmpty(t, ref.Default)
+		_, err = rc.ResolveMap(map[string]any{"value": text})
+		require.Error(t, err)
+		_, err = rc.EvaluateCEL(expr)
+		require.Error(t, err)
+		forwarded := newRecipeCtx(t, got)
+		alias, err := forwarded.ResolveInputs(map[string]any{"alias": "${{ inputs.value }}"})
+		require.NoError(t, err)
+		require.Equal(t, ref, alias["alias"])
+		_, err = forwarded.EvaluateCEL("inputs.value == false")
+		require.Error(t, err)
+	}
+	for _, text := range []string{`${{ context.config.?flag.orValue(inputs.default) }}`, `${{ context.config.?flag.orValue(context.secrets.token) }}`, `value: ${{ context.config.?flag.orValue(false) }}`} {
+		_, err := rc.ResolveInputs(map[string]any{"value": text})
+		require.Error(t, err, text)
+	}
+}

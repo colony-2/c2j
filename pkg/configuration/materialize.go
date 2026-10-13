@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"reflect"
+	"slices"
 
 	"github.com/colony-2/c2j/pkg/objects"
 	"github.com/colony-2/c2j/pkg/secrets"
@@ -35,10 +36,19 @@ func MaterializeInput(ctx context.Context, typ reflect.Type, input any, fetch Fe
 
 		raw, ok := snapshot.Values[ref.Name]
 		if !ok {
-			diagnostics.Missing = append(diagnostics.Missing, ref.Name)
-			return nil, fmt.Errorf("configuration %q is missing", ref.Name)
+			if !slices.Contains(diagnostics.Missing, ref.Name) {
+				diagnostics.Missing = append(diagnostics.Missing, ref.Name)
+				slices.Sort(diagnostics.Missing)
+			}
+			raw = ref.Default
+			if len(raw) == 0 {
+				raw = json.RawMessage(`null`)
+			}
+		} else {
+			// Record only provider values here: distinct references to a missing name
+			// can have different defaults, already retained in the task inputs.
+			diagnostics.Values[ref.Name] = append(json.RawMessage(nil), raw...)
 		}
-		diagnostics.Values[ref.Name] = append(json.RawMessage(nil), raw...)
 		var value any
 		if err := json.Unmarshal(raw, &value); err != nil {
 			return nil, fmt.Errorf("configuration %q: %w", ref.Name, err)

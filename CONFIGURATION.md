@@ -15,25 +15,41 @@ sequence:
 ```
 
 `context.config["build.channel"]` addresses names containing dots. Values retain
-JSON types and must satisfy the receiving input schema. Missing names fail;
-JSON `null` is a value, subject to that schema. Config may appear in public
+JSON types and must satisfy the receiving input schema. Missing names resolve
+to JSON `null`, subject to that schema. Config may appear in public
 outputs, logs and history. Use `context.secrets` for credentials.
 
-Secret references support `context.secrets.?token.orValue(null)` to omit an
-optional input or environment variable when the secret is missing or denied.
-This does not change config semantics: config JSON null is a value, missing
-config names still fail, and `orValue(null)` is not supported for config.
-An optional input declaration alone does not make a supplied secret/config
-reference optional. See the [author guide](SECRETS_AND_CONFIG.md#optional-secrets-and-public-fallbacks)
-for secret omission, empty-string fallbacks, and required-input behavior.
+Use optional lookup with `orValue` for a fallback when the config name is absent:
+
+```yaml
+channel: '${{ context.config.?release_channel.orValue("stable") }}'
+retries: '${{ context.config.?max_retries.orValue(3) }}'
+dry_run: '${{ context.config.?dry_run.orValue(false) }}'
+optional: '${{ context.config.?setting.orValue(null) }}'
+```
+
+Fallbacks must be literal strings (single or double quotes), numbers, booleans,
+or null. For names containing dots, use
+`${{ context.config[?"build.channel"].orValue("stable") }}`.
+The fallback is applied inside the task before input validation, only when the
+name is absent. Existing null, false, zero and empty-string values are preserved.
+Provider failures still fail the task. Non-nullable inputs still reject null;
+use a fallback matching the schema when the setting may be absent.
+
+Config `orValue(null)` supplies null and keeps the input field. Secret
+`orValue(null)` instead omits an optional field or environment variable; see
+the [author guide](SECRETS_AND_CONFIG.md#optional-secrets-and-public-fallbacks).
 
 c2j serializes references as
 `{"$c2j_ref":{"kind":"config","name":"release_channel"}}`. Declared recipe
-inputs also carry a `type` constraint when forwarded. These reserved objects
+inputs also carry a `type` constraint when forwarded; optional lookups carry
+a `default` JSON scalar. These reserved objects
 remain in submitted inputs and task hashes. The live task wrapper resolves a
 separate input copy through `TaskContext.GetConfiguration`; cached tasks make
 no reads. The outcome records the used names, JSON values and snapshot revision
-under `configuration`, rather than storing the whole tenant snapshot.
+under `configuration`, rather than storing the whole tenant snapshot. Absent
+names are recorded in `missing`; per-input fallbacks remain in the task input
+references, so two inputs can use different fallbacks for the same absent name.
 
 JobDB owns caching behind that API. c2j has no configuration cache and does not
 seed one from replayed outcomes. JobDB v0.0.32 caches the first successful

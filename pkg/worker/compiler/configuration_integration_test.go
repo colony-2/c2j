@@ -22,11 +22,13 @@ import (
 func TestConfigurationResumeUsesLiveTaskReadsAndRecordedRouting(t *testing.T) {
 	ctx := context.Background()
 	type input struct {
-		Value bool `json:"value"`
+		Value   bool `json:"value"`
+		Missing any  `json:"missing"`
 	}
 	calls := map[string][]bool{}
 	makeOp := func(name string) coreops.RegisterableOp {
 		return coreops.NewActivityMappedOpV2[input, input](coreops.OpMetadata{Type: name}, func(_ coreops.OpDependencies, _ context.Context, in input) (input, error) {
+			require.Nil(t, in.Missing)
 			calls[name] = append(calls[name], in.Value)
 			return in, nil
 		})
@@ -44,16 +46,19 @@ func TestConfigurationResumeUsesLiveTaskReadsAndRecordedRouting(t *testing.T) {
 		_, err := rt.SetTenantConfigurationValue(ctx, jobdb.SetTenantConfigurationValueRequest{TenantID: "config", Name: "flag", Value: json.RawMessage(value)})
 		require.NoError(t, err)
 	}
-	set("true")
 	rec, err := recipe.LoadRecipeFromString([]byte(`id: config
 sequence:
   - id: a
     op: config_a
-    inputs: {value: '${{ context.config.flag }}'}
+    inputs:
+      value: '${{ context.config.?flag.orValue(true) }}'
+      missing: '${{ context.config.absent }}'
   - id: b
     when: sequence.a.outputs.value
     op: config_b
-    inputs: {value: '${{ context.config.flag }}'}
+    inputs:
+      value: '${{ context.config.?flag.orValue(true) }}'
+      missing: '${{ context.config.absent }}'
 outputs:
   a: '${{ sequence.a.outputs.value }}'
   b: '${{ sequence.b.outputs.value }}'
@@ -104,12 +109,20 @@ outputs:
 				decoded, err := decodeTaskOutput(call.Output.Data)
 				require.NoError(t, err)
 				require.NotNil(t, decoded.Activity.Configuration)
-				require.Len(t, decoded.Activity.Configuration.Values, 1)
-				seen[task.TaskType] = string(decoded.Activity.Configuration.Values["flag"])
+				diag := decoded.Activity.Configuration
+				if task.TaskType == "config_a:config_a" {
+					require.Empty(t, diag.Values)
+					require.Equal(t, []string{"absent", "flag"}, diag.Missing)
+					seen[task.TaskType] = "missing"
+				} else {
+					require.Len(t, diag.Values, 1)
+					require.Equal(t, []string{"absent"}, diag.Missing)
+					seen[task.TaskType] = string(diag.Values["flag"])
+				}
 			}
 		}
 	}
-	require.Equal(t, map[string]string{"config_a:config_a": "true", "config_b:config_b": "false"}, seen)
+	require.Equal(t, map[string]string{"config_a:config_a": "missing", "config_b:config_b": "false"}, seen)
 	// No provider value can affect offline replay, including one of the wrong type.
 	set(`"wrong-type"`)
 	replay, err := engine.ReplayJobRun(ctx, jobworkflow.ReplayRunRequest{JobKey: key, JobWorker: NewRecipeJobWorker(RecipeJobWorkerOptions{ReadOnlyReplay: true})})

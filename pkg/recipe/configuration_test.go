@@ -26,3 +26,17 @@ func TestConfigurationRecipeInputConstraints(t *testing.T) {
 	_, err = schema.ValidateInputShapeAndFillDefaults(values)
 	require.Error(t, err)
 }
+
+func TestConfigurationFallbackRetainsRecipeTypeConstraint(t *testing.T) {
+	schema := RecipeMetadata{InputSchema: map[string]InputSchema{"flag": {Type: "boolean", Default: "${{ context.config.?flag.orValue(false) }}"}}}
+	values, err := schema.ValidateInputShapeAndFillDefaults(nil)
+	require.NoError(t, err)
+	ref, ok, err := configuration.Parse(values["flag"])
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Equal(t, "boolean", ref.ExpectedType)
+	require.Equal(t, "false", string(ref.Default))
+	forwarded, err := schema.ValidateInputShapeAndFillDefaults(values)
+	require.NoError(t, err)
+	require.Equal(t, values, forwarded)
+}

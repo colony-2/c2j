@@ -30,7 +30,7 @@ func TestMaterializeUsesTaskAPIAndPreservesInput(t *testing.T) {
 	after, _ := json.Marshal(input)
 	require.Equal(t, string(before), string(after))
 }
-func TestMaterializeMissingFailureAndForwarding(t *testing.T) {
+func TestMaterializeMissingProviderFailureAndForwarding(t *testing.T) {
 	type forward struct {
 		Inputs map[string]any `json:"inputs" secret:"forward"`
 	}
@@ -45,8 +45,10 @@ func TestMaterializeMissingFailureAndForwarding(t *testing.T) {
 		return jobdb.ConfigurationSnapshot{}, failure
 	})
 	require.ErrorIs(t, err, failure)
-	_, diag, err = MaterializeInput(context.Background(), nil, Ref("missing"), func(context.Context) (jobdb.ConfigurationSnapshot, error) { return jobdb.ConfigurationSnapshot{}, nil })
-	require.ErrorContains(t, err, "missing")
+	out, diag, err := MaterializeInput(context.Background(), nil, Ref("missing"), func(context.Context) (jobdb.ConfigurationSnapshot, error) { return jobdb.ConfigurationSnapshot{}, nil })
+	require.NoError(t, err)
+	require.Nil(t, out)
+	require.Empty(t, diag.Values)
 	require.Equal(t, []string{"missing"}, diag.Missing)
 }
 func TestReferenceRoundTripAndValidation(t *testing.T) {

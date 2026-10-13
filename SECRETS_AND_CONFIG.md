@@ -112,7 +112,38 @@ inputs are separate mechanisms. Secret inputs require references, not literal
 credentials. Secret-marked inputs may declare public string fallbacks; see below.
 
 An ordinary `default_value` supplies an **omitted recipe input**. It does not
-replace a missing config key when the caller supplied a config reference.
+replace a missing config key when the caller supplied a config reference; use
+`context.config.?name.orValue(...)` for that fallback.
+
+## Missing configuration and fallbacks
+
+An absent config name resolves to JSON null. To use a default instead, supply a
+whole-value optional lookup:
+
+```yaml
+channel: '${{ context.config.?release_channel.orValue("stable") }}'
+dry_run: '${{ context.config.?dry_run.orValue(false) }}'
+retries: '${{ context.config.?max_retries.orValue(3) }}'
+optional: '${{ context.config.?setting.orValue(null) }}'
+```
+
+For names containing punctuation, use
+`${{ context.config[?"build.channel"].orValue("stable") }}`. Fallbacks accept
+literal strings (single or double quotes), numbers, booleans, or null, not other
+expressions. They remain deferred references until the consuming task runs.
+The same syntax works in recipe inputs and inputs passed to extension ops.
+
+Only an absent name selects the fallback. Existing null, false, zero and empty
+strings remain unchanged. Provider errors still fail the task. Resolved values
+must satisfy the receiving schema, so a string-only input needs a string
+fallback when config may be absent. JSON Schema `type: [string, "null"]` permits
+null for an extension input.
+
+Config null keeps the field present, including with `orValue(null)`; it does not
+omit the field as a secret null fallback does. Two inputs may choose different
+fallbacks for the same missing name. The task records absent names in its
+`configuration.missing` metadata; its input references retain their fallbacks.
+These references still cannot be used directly for routing decisions.
 
 ## Declare extension-op inputs
 
@@ -224,7 +255,7 @@ jobs get fresh caches, and replayed outcomes never seed them.
 | Secret missing or denied | Uses a string fallback, omits the field for `orValue(null)`, or fails without a fallback |
 | Secret provider failure | Task fails: `secret resolution unavailable` |
 | Empty secret | Valid string, unless the receiving schema rejects it |
-| Config key missing | Task fails; no implicit fallback |
+| Config key missing | Resolves to null, or the explicit `orValue(...)` fallback; receiving schema still applies |
 | Config value is JSON `null` | Preserved as a value, subject to the receiving schema |
 | Config read failure or invalid input type | Task fails before the op runs |
 
@@ -295,7 +326,8 @@ not individual array elements.
 Schema defaults remain **string-only**. Extension `default: null` is rejected;
 recipe `default_value: null` means no default. Use `orValue(null)` on the
 reference to request omission. This behavior is specific to secrets: config
-JSON null remains a normal value and missing config names still fail.
+JSON null remains a normal value, and missing config names resolve to null or
+their explicit fallback without omitting the field.
 
 A reusable recipe can supply its own fallback for a secret input:
 
