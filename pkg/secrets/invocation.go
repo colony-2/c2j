@@ -1,6 +1,7 @@
 package secrets
 
 import (
+	"fmt"
 	"reflect"
 	"sort"
 	"strings"
@@ -10,7 +11,7 @@ import (
 // in the parent. The child validates its own recipe schema before executing.
 func InvocationNames(t reflect.Type, input any) ([]string, error) {
 	set := map[string]bool{}
-	_, err := transformInput(t, input, "", false, func(r Reference) (any, error) {
+	_, err := transformInput(t, input, "", false, nil, func(r Reference) (any, error) {
 		if r.Name != "" {
 			set[r.Name] = true
 		}
@@ -24,7 +25,21 @@ func InvocationNames(t reflect.Type, input any) ([]string, error) {
 	return out, err
 }
 func MaterializeInput(s *Session, t reflect.Type, input any) (any, error) {
-	return transformInput(t, input, "", true, func(r Reference) (any, error) { return s.Materialize(r) })
+	value, _, err := MaterializeInputWithUnsetEnv(s, t, input)
+	return value, err
+}
+
+func MaterializeInputWithUnsetEnv(s *Session, t reflect.Type, input any) (any, []string, error) {
+	var unset []string
+	value, err := transformInput(t, input, "", true, func(mode, key string) {
+		if mode == "env" {
+			unset = append(unset, key)
+		}
+	}, s.materializeReference)
+	if _, omit := value.(omitted); omit {
+		return nil, nil, fmt.Errorf("null secret fallback requires an object field")
+	}
+	return value, unset, err
 }
 
 func fieldForName(t reflect.Type, name string) (reflect.StructField, bool) {
@@ -54,7 +69,7 @@ func fieldForName(t reflect.Type, name string) (reflect.StructField, bool) {
 	}
 	return reflect.StructField{}, false
 }
-func transformInput(t reflect.Type, v any, mode string, preserveSchema bool, f func(Reference) (any, error)) (any, error) {
+func transformInput(t reflect.Type, v any, mode string, preserveSchema bool, onOmit func(string, string), f func(Reference) (any, error)) (any, error) {
 	if mode == "forward" || (mode == "schema" && preserveSchema) {
 		return Transform(v, func(r Reference) (any, error) { return r, nil })
 	}
@@ -84,11 +99,17 @@ func transformInput(t reflect.Type, v any, mode string, preserveSchema bool, f f
 					child = t.Elem()
 				}
 			}
-			value, err := transformInput(child, v, childMode, preserveSchema, f)
+			value, err := transformInput(child, v, childMode, preserveSchema, onOmit, f)
 			if err != nil {
 				return nil, err
 			}
-			out[k] = value
+			if _, omit := value.(omitted); omit {
+				if onOmit != nil {
+					onOmit(mode, k)
+				}
+			} else {
+				out[k] = value
+			}
 		}
 		return out, nil
 	case []any:
@@ -98,9 +119,12 @@ func transformInput(t reflect.Type, v any, mode string, preserveSchema bool, f f
 		}
 		out := make([]any, len(x))
 		for i, v := range x {
-			n, err := transformInput(child, v, "", preserveSchema, f)
+			n, err := transformInput(child, v, "", preserveSchema, onOmit, f)
 			if err != nil {
 				return nil, err
+			}
+			if _, omit := n.(omitted); omit {
+				return nil, fmt.Errorf("null secret fallback cannot omit an array element")
 			}
 			out[i] = n
 		}
@@ -113,6 +137,6 @@ func transformInput(t reflect.Type, v any, mode string, preserveSchema bool, f f
 // InvocationReferences excludes references forwarded to child jobs.
 func InvocationReferences(t reflect.Type, input any) ([]Reference, error) {
 	var refs []Reference
-	_, err := transformInput(t, input, "", false, func(r Reference) (any, error) { refs = append(refs, r); return r, nil })
+	_, err := transformInput(t, input, "", false, nil, func(r Reference) (any, error) { refs = append(refs, r); return r, nil })
 	return refs, err
 }

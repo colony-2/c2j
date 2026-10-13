@@ -54,6 +54,16 @@ func executeOnHost(ctx context.Context, req RunRequest, workingDir string) ([]by
 	}
 	cmd.Dir = workingDir
 	cmd.Env = BuildProcessEnv(req.Env)
+	unset, _ := ctx.Value(unsetEnvKey{}).([]string)
+	for _, name := range unset {
+		filtered := cmd.Env[:0]
+		for _, entry := range cmd.Env {
+			if !strings.HasPrefix(entry, name+"=") {
+				filtered = append(filtered, entry)
+			}
+		}
+		cmd.Env = filtered
+	}
 	if len(req.Stdin) > 0 {
 		cmd.Stdin = bytes.NewReader(req.Stdin)
 	}
@@ -189,4 +199,12 @@ func withContextEnv(ctx context.Context, env map[string]string) map[string]strin
 	out := BuildProcessEnvMap(env)
 	out["PATH"] = path + string(os.PathListSeparator) + out["PATH"]
 	return out
+}
+
+type unsetEnvKey struct{}
+
+// WithUnsetEnv suppresses omitted secret variables after inherited and explicit
+// environment values have been merged, without changing the runner environment.
+func WithUnsetEnv(ctx context.Context, names []string) context.Context {
+	return context.WithValue(ctx, unsetEnvKey{}, append([]string(nil), names...))
 }

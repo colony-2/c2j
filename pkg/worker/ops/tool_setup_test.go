@@ -82,7 +82,7 @@ run: unused
 	session := secrets.NewSession()
 	defer session.Close()
 	calls := 0
-	require.NoError(t, session.PrepareReferences(context.Background(), refs, nil, func(_ context.Context, names []string) (jobdb.SecretResolveResult, error) {
+	require.NoError(t, session.PrepareReferences(context.Background(), refs, func(_ context.Context, names []string) (jobdb.SecretResolveResult, error) {
 		calls++
 		require.Equal(t, []string{"missing"}, names)
 		return jobdb.SecretResolveResult{}, nil

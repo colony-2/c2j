@@ -45,3 +45,12 @@ func TestSecretRecipeDefaultsStayDeferred(t *testing.T) {
 	_, err := meta.ValidateInputShapeAndFillDefaults(map[string]any{"token": "public"})
 	require.ErrorContains(t, err, "not plaintext")
 }
+
+func TestNullSecretFallbackPreservesRecipeRequiredConstraint(t *testing.T) {
+	for _, required := range []bool{false, true} {
+		meta := RecipeMetadata{InputSchema: map[string]InputSchema{"token": {Type: "string", Secret: true, Required: required, Default: "schema"}}}
+		got, err := meta.ValidateInputShapeAndFillDefaults(map[string]any{"token": "${{ context.secrets.?token.orValue(null) }}"})
+		require.NoError(t, err)
+		require.Equal(t, secrets.Reference{Name: "token", OmitIfUnavailable: true, Required: required}, got["token"])
+	}
+}

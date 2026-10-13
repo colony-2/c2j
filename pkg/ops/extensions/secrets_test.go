@@ -30,7 +30,7 @@ run: |
 `), 0600))
 	s := secrets.NewSession()
 	defer s.Close()
-	require.NoError(t, s.Prepare(context.Background(), []string{"token"}, nil, func(context.Context, []string) (jobdb.SecretResolveResult, error) {
+	require.NoError(t, s.Prepare(context.Background(), []string{"token"}, func(context.Context, []string) (jobdb.SecretResolveResult, error) {
 		return jobdb.SecretResolveResult{Secrets: map[string]jobdb.SecretValue{"token": {Value: "private-token\n"}}}, nil
 	}))
 	ctx := secrets.WithSession(context.Background(), s)
@@ -123,4 +123,32 @@ run: |
 	out, err := executeExtension(deps, secrets.WithSession(context.Background(), session), ExecutionInput{Selector: "./", Inputs: map[string]any{"token": secrets.Reference{Name: "missing"}}})
 	require.NoError(t, err)
 	require.Equal(t, true, out["ok"])
+}
+
+func TestExtensionNullSecretFallbackValidatesOmission(t *testing.T) {
+	for _, required := range []bool{false, true} {
+		schema := map[string]any{"type": "object", "properties": map[string]any{
+			"token": map[string]any{"type": "string", "x-secret": true, "default": "schema"},
+		}}
+		if required {
+			schema["required"] = []any{"token"}
+		}
+		resolved, err := RestoreResolvedOp(&ResolvedOp{Spec: ExtensionOpSpec{InputSchema: schema}})
+		require.NoError(t, err)
+		input := map[string]any{"token": secrets.Reference{Name: "missing", OmitIfUnavailable: true}}
+		_, err = resolved.ApplyInvocationDefaults(input)
+		require.NoError(t, err)
+		require.NoError(t, resolved.ValidateInvocationInputs(input))
+		s := secrets.NewSession()
+		value, err := s.Materialize(input)
+		s.Close()
+		require.NoError(t, err)
+		require.Empty(t, value)
+		err = resolved.ValidateMaterializedInputs(value.(map[string]any))
+		if required {
+			require.Error(t, err)
+		} else {
+			require.NoError(t, err)
+		}
+	}
 }

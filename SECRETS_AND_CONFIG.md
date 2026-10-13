@@ -207,16 +207,21 @@ execution currently share the task timeout. Cached tasks skip retrieval and
 extension/tool preparation; changing a setting does not invalidate an existing
 task result.
 
-Secrets are batched and reused in memory within one local job execution, subject
-to expiry. Missing secrets prefetched for future tasks do not fail the current
-task. Resumed executions and child jobs get fresh secret caches. Configuration
-caching belongs to JobDB; c2j uses its task-context API and does not seed the cache
-from replayed outcomes. All config references within one task use one snapshot.
-Cross-task config reuse depends on the JobDB version's execution-scoped cache.
+c2j requests the current task's secret names through JobDB, in batches of up to
+64, and clears its transient input values after each task attempt. It does not
+prefetch future tasks' secrets or cache values across tasks. Only execution-wide
+redaction tracking remains in c2j, to protect later logs/errors/outputs.
+
+JobDB v0.0.32 caches secrets and configuration for the live job execution.
+Available secrets and missing/denied names are cached; known omissions are not
+retried within that execution. Requesting a new name refreshes previously
+available secrets together. Expired secrets fail resolution. Configuration uses
+the first successful snapshot for the execution. Resumed executions and child
+jobs get fresh caches, and replayed outcomes never seed them.
 
 | Situation | Current behavior |
 |---|---|
-| Secret missing or denied | Uses the binding’s fallback, or fails before the op runs: `required secret unavailable` |
+| Secret missing or denied | Uses a string fallback, omits the field for `orValue(null)`, or fails without a fallback |
 | Secret provider failure | Task fails: `secret resolution unavailable` |
 | Empty secret | Valid string, unless the receiving schema rejects it |
 | Config key missing | Task fails; no implicit fallback |
@@ -246,9 +251,51 @@ env:
   GH_TOKEN: '${{ context.secrets.?github_token.orValue("") }}'
 ```
 
-The argument to `orValue` must be a CEL string literal (single or double quotes).
-Variables, functions, concatenation, and secret-to-secret fallbacks are not
-supported. The reference remains opaque; it cannot be used in routing or outputs.
+The argument to `orValue` must be a CEL string literal (single or double quotes)
+or `null`. Variables, functions, concatenation, and secret-to-secret fallbacks
+are not supported. The reference remains opaque; it cannot be used in routing or outputs.
+
+To leave a secret unset when it is missing or denied, use `orValue(null)`:
+
+```yaml
+env:
+  GH_TOKEN: '${{ context.secrets.?github_token.orValue(null) }}'
+```
+
+Unlike `orValue("")`, this **omits the field** instead of supplying an empty
+string or JSON null. For environment maps, c2j also removes that variable from
+the child process's inherited environment. It does not modify the runner's
+environment. Protected runner metadata keeps its normal precedence.
+
+Secret inputs are optional unless declared required. For example, an extension
+can accept the reference above through this optional input:
+
+```yaml
+input_schema:
+  type: object
+  properties:
+    token: {type: string, x-secret: true}
+```
+
+| Input/reference | If the secret is unavailable |
+|---|---|
+| Optional input omitted by the caller | No lookup; schema defaults, if any, still apply |
+| `context.secrets.token` | Fails unless a string schema default is provided |
+| `context.secrets.?token.orValue("")` | Supplies an empty string |
+| `context.secrets.?token.orValue(null)` | Omits the field; fails if the receiving input is required |
+
+A recipe uses `required: true`; an extension lists the property in JSON Schema's
+`required` array. Those constraints still apply to null fallbacks, including
+recipe inputs forwarded to another op. Available secrets, including empty
+strings, remain present and are validated normally. Explicit `orValue(null)`
+takes precedence over a string schema default; the default is not reapplied
+after omission. Omission works for object fields and environment entries,
+not individual array elements.
+
+Schema defaults remain **string-only**. Extension `default: null` is rejected;
+recipe `default_value: null` means no default. Use `orValue(null)` on the
+reference to request omission. This behavior is specific to secrets: config
+JSON null remains a normal value and missing config names still fail.
 
 A reusable recipe can supply its own fallback for a secret input:
 
@@ -273,7 +320,7 @@ input_schema:
 ```
 
 Resolution uses the available secret first, then the reference's explicit
-fallback, then the receiving schema's default. Without any fallback, a missing
+fallback (including null omission), then the receiving schema's default. Without any fallback, a missing
 or denied secret fails the task. An available empty secret stays empty.
 Fallbacks attached by a recipe survive forwarding; a downstream schema cannot
 replace an already attached fallback. Extension string constraints still apply
@@ -287,8 +334,8 @@ An explicit null or plaintext input is still rejected.
 reference metadata. Never put a credential in a fallback. Defaults are literal
 strings, not evaluated templates, and are never stored as a secret in the
 execution cache. Two inputs referencing the same missing name can therefore
-use different defaults. Later tasks can retry the name and receive a newly
-available secret.
+use different defaults. JobDB caches missing/denied names for the execution;
+a newly supplied secret becomes visible after a fresh execution starts.
 
 Only a successful provider response that omits a name permits its fallback.
 Provider outages, an unconfigured provider, cancellation, timeout, and lease

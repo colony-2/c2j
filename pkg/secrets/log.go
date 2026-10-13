@@ -11,10 +11,10 @@ import (
 	"sync"
 )
 
-var activeMasks sync.Map // *Session -> struct{}; no values outside sessions
+var activeMasks sync.Map // *Redactor -> struct{}; no material outside execution redactors
 var logMu sync.Mutex
 
-func registerMask(s *Session) {
+func registerMask(s *Redactor) {
 	activeMasks.Store(s, struct{}{})
 	logMu.Lock()
 	defer logMu.Unlock()
@@ -43,7 +43,7 @@ func (w *maskWriter) Write(p []byte) (int, error) {
 	return len(p), nil
 }
 func redactLog(s string) string {
-	activeMasks.Range(func(k, v any) bool { s = k.(*Session).Redact(s); return true })
+	activeMasks.Range(func(k, v any) bool { s = k.(*Redactor).Redact(s); return true })
 	return s
 }
 

@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestFallbackBindingsAndCache(t *testing.T) {
+func TestFallbackBindingsAndRefresh(t *testing.T) {
 	session := NewSession()
 	defer session.Close()
 	refs := []Reference{
@@ -28,7 +28,7 @@ func TestFallbackBindingsAndCache(t *testing.T) {
 			"empty": {Value: ""}, "present": {Value: "private"},
 		}}, nil
 	}
-	require.NoError(t, session.PrepareReferences(context.Background(), refs, nil, resolve))
+	require.NoError(t, session.PrepareReferences(context.Background(), refs, resolve))
 	for i, expected := range []string{"first", "second", "", "private"} {
 		got, err := session.Materialize(refs[i])
 		require.NoError(t, err)
@@ -39,9 +39,9 @@ func TestFallbackBindingsAndCache(t *testing.T) {
 	require.True(t, session.Ready([]string{"present", "empty"}))
 	// A fallback is public, so it is neither masked nor stored as a secret.
 	require.Equal(t, "first second [REDACTED]", session.Redact("first second private"))
-	// Missing optional bindings are retried, and a newly available secret wins.
-	require.NoError(t, session.PrepareReferences(context.Background(), refs, nil, func(_ context.Context, names []string) (jobdb.SecretResolveResult, error) {
-		require.Equal(t, []string{"missing"}, names)
+	// Every preparation asks the resolver again; JobDB determines reuse.
+	require.NoError(t, session.PrepareReferences(context.Background(), refs, func(_ context.Context, names []string) (jobdb.SecretResolveResult, error) {
+		require.ElementsMatch(t, []string{"missing", "empty", "present"}, names)
 		return jobdb.SecretResolveResult{Secrets: map[string]jobdb.SecretValue{"missing": {Value: "new-private"}}}, nil
 	}))
 	got, err := session.Materialize(refs[0])
@@ -67,7 +67,7 @@ func TestFallbackNeverHidesRequiredBindingsOrProviderErrors(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			session := NewSession()
 			defer session.Close()
-			err := session.PrepareReferences(context.Background(), tc.refs, nil, func(context.Context, []string) (jobdb.SecretResolveResult, error) {
+			err := session.PrepareReferences(context.Background(), tc.refs, func(context.Context, []string) (jobdb.SecretResolveResult, error) {
 				return jobdb.SecretResolveResult{}, tc.providerErr
 			})
 			require.ErrorContains(t, err, tc.want)
@@ -76,7 +76,7 @@ func TestFallbackNeverHidesRequiredBindingsOrProviderErrors(t *testing.T) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	err := NewSession().PrepareReferences(ctx, []Reference{optional}, nil, func(context.Context, []string) (jobdb.SecretResolveResult, error) {
+	err := NewSession().PrepareReferences(ctx, []Reference{optional}, func(context.Context, []string) (jobdb.SecretResolveResult, error) {
 		t.Fatal("canceled setup must not fetch")
 		return jobdb.SecretResolveResult{}, nil
 	})
@@ -110,9 +110,6 @@ func TestFallbackReferencesRoundTripAndForwarding(t *testing.T) {
 	refs, err := InvocationReferences(reflect.TypeFor[input](), in)
 	require.NoError(t, err)
 	require.Equal(t, []Reference{ref}, refs)
-	require.ElementsMatch(t, []string{"missing", "future"}, Candidates(map[string]any{
-		"one": ref, "two": `${{ context.secrets.?future.orValue("") }}`,
-	}))
 	defaultOnly := WithDefault(Reference{}, "")
 	require.True(t, Contains(defaultOnly))
 	names, err := Names(defaultOnly)

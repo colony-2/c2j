@@ -84,3 +84,16 @@ func TestExecuteProcessIgnoresShaiConfiguration(t *testing.T) {
 	require.Equal(t, "input:worker", string(stdout))
 	require.Equal(t, "diagnostic", string(stderr))
 }
+
+func TestUnsetEnvironmentSuppressesInheritedAndConfiguredValues(t *testing.T) {
+	t.Setenv("C2J_OPTIONAL_SECRET_TEST", "inherited")
+	ctx := WithUnsetEnv(context.Background(), []string{"C2J_OPTIONAL_SECRET_TEST"})
+	out, _, err := ExecuteProcess(ctx, RunRequest{
+		WorkingDir: t.TempDir(), Shell: "sh",
+		Env: map[string]string{"C2J_OPTIONAL_SECRET_TEST": "configured", "C2J_EMPTY_SECRET_TEST": ""},
+		Run: "test -z \"${C2J_OPTIONAL_SECRET_TEST+x}\" && test \"${C2J_EMPTY_SECRET_TEST+x}\" = x && printf ok",
+	})
+	require.NoError(t, err)
+	require.Equal(t, "ok", string(out))
+	require.Equal(t, "inherited", os.Getenv("C2J_OPTIONAL_SECRET_TEST"))
+}

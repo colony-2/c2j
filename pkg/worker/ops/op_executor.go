@@ -493,11 +493,25 @@ func (t opExecutor) do(ctx context.Context, jobTool ops.JobTool, req ActivityInv
 
 	// Materialize only the transient invocation, after all durable input handling.
 	session := secrets.FromContext(ctx)
-	transient, secretErr := secrets.MaterializeInput(session, reg.Step.InputType, hydratedInput)
+	hasOmission := secrets.HasOmission(hydratedInput)
+	transient, unsetEnv, secretErr := secrets.MaterializeInputWithUnsetEnv(session, reg.Step.InputType, hydratedInput)
 	if secretErr != nil {
 		return zero, nil, secretErr
 	}
 	hydratedInput, _ = transient.(map[string]interface{})
+	if hasOmission {
+		if err := ops.ValidateMaterializedOpInputType(reg.Step.InputType, hydratedInput); err != nil {
+			return zero, nil, session.Error(err)
+		}
+	}
+	// Protected runner metadata retains precedence over user-supplied env.
+	var unset []string
+	for _, name := range unsetEnv {
+		if _, protected := protectedEnv[name]; !protected {
+			unset = append(unset, name)
+		}
+	}
+	ctx = process.WithUnsetEnv(ctx, unset)
 	// Execute operation with HYDRATED input (sentinels replaced)
 	outputData, stepErr := reg.Step.Invoke(opDeps, ctx, hydratedInput)
 	stepErr = session.Error(stepErr)

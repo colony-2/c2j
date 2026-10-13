@@ -19,6 +19,14 @@ JSON types and must satisfy the receiving input schema. Missing names fail;
 JSON `null` is a value, subject to that schema. Config may appear in public
 outputs, logs and history. Use `context.secrets` for credentials.
 
+Secret references support `context.secrets.?token.orValue(null)` to omit an
+optional input or environment variable when the secret is missing or denied.
+This does not change config semantics: config JSON null is a value, missing
+config names still fail, and `orValue(null)` is not supported for config.
+An optional input declaration alone does not make a supplied secret/config
+reference optional. See the [author guide](SECRETS_AND_CONFIG.md#optional-secrets-and-public-fallbacks)
+for secret omission, empty-string fallbacks, and required-input behavior.
+
 c2j serializes references as
 `{"$c2j_ref":{"kind":"config","name":"release_channel"}}`. Declared recipe
 inputs also carry a `type` constraint when forwarded. These reserved objects
@@ -28,9 +36,10 @@ no reads. The outcome records the used names, JSON values and snapshot revision
 under `configuration`, rather than storing the whole tenant snapshot.
 
 JobDB owns caching behind that API. c2j has no configuration cache and does not
-seed one from replayed outcomes. JobDB's execution-scoped cache must start fresh
-on resume. Until that upstream cache lands, successive tasks can make separate
-reads. Within a task c2j resolves all references from one API snapshot.
+seed one from replayed outcomes. JobDB v0.0.32 caches the first successful
+snapshot for the live job execution and starts fresh on resume. Successive tasks
+use that snapshot through `TaskContext.GetConfiguration`. Within a task c2j
+resolves all references from one API snapshot.
 
 References can be forwarded through recipe, include and child inputs. Child
 inputs marked for forwarding remain unresolved until the child executes.

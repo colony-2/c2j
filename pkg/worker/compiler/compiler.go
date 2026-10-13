@@ -17,7 +17,6 @@ import (
 	"github.com/colony-2/c2j/pkg/ops"
 	extops "github.com/colony-2/c2j/pkg/ops/extensions"
 	"github.com/colony-2/c2j/pkg/recipe"
-	"github.com/colony-2/c2j/pkg/secrets"
 	coretask "github.com/colony-2/c2j/pkg/task"
 	"github.com/colony-2/c2j/pkg/template"
 	"github.com/colony-2/c2j/pkg/toolenv"
@@ -142,8 +141,6 @@ func (d DefaultRecipeExecutor) ExecuteRecipe(ctx workflow.Context, r recipe.Reci
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to create resolution context: %w", err)
 	}
-	rCtx.Options.SecretCandidates = secrets.Candidates(r)
-	rCtx.Options.SecretCandidates = append(rCtx.Options.SecretCandidates, secrets.Candidates(recipeInputs)...)
 	if execOpts.Mode == ExecutionModeValidate {
 		if rCtx.Options.ResolvedGitRefs == nil {
 			rCtx.Options.ResolvedGitRefs = map[string]string{}
@@ -485,7 +482,7 @@ func (d DefaultRecipeExecutor) executeOpAttempt(ctx workflow.Context, parentReso
 			return fmt.Errorf("extension selector must be a string, not a config reference")
 		}
 	}
-	preparation := workerops.PreparationRequest{Extension: extensionRequest, Scopes: append([]toolenv.Scope(nil), resCtx.ToolScopes...), SecretCandidates: resCtx.Options.SecretCandidates}
+	preparation := workerops.PreparationRequest{Extension: extensionRequest, Scopes: append([]toolenv.Scope(nil), resCtx.ToolScopes...)}
 	// Execute the operation
 	retry := jobdb.RetryPolicy{}
 	if metadata.Retry != nil {
@@ -694,8 +691,6 @@ func (d DefaultRecipeExecutor) innerSequence(ctx workflow.Context, parentCtx *te
 	if len(metadata.Catch) > 0 {
 		resCtx.Options.CatchBeforeRetry = true
 	}
-	resCtx.Options.SecretCandidates = append(append([]string(nil), resCtx.Options.SecretCandidates...), secrets.Candidates(sequence)...)
-	resCtx.Options.SecretCandidates = append(resCtx.Options.SecretCandidates, secrets.Candidates(resolvedInputs)...)
 	if err := seedSequencePlaceholders(resCtx, sequence); err != nil {
 		return err
 	}

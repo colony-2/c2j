@@ -18,6 +18,7 @@ import (
 	"github.com/colony-2/c2j/pkg/recipe"
 	"github.com/colony-2/c2j/pkg/starter"
 	"github.com/colony-2/c2j/pkg/swfutil"
+	"github.com/colony-2/c2j/pkg/worker/commandop"
 	workerops "github.com/colony-2/c2j/pkg/worker/ops"
 	"github.com/colony-2/c2j/pkg/workflowctl"
 	"github.com/colony-2/jobdb/pkg/jobdb"
@@ -139,10 +140,13 @@ func TestSecretsAcrossTasksReplayAndFailures(t *testing.T) {
 			}
 			after := len(provider.Calls())
 			if mode == "ok" {
-				require.Equal(t, before+1, after)
+				require.Equal(t, before+2, after)
 			}
 			require.Greater(t, after, before)
-			require.ElementsMatch(t, []string{"token", "future", "missing"}, provider.Calls()[before])
+			require.Equal(t, []string{"token"}, provider.Calls()[before], "only the live task's names are requested")
+			if mode == "ok" {
+				require.ElementsMatch(t, []string{"token", "future"}, provider.Calls()[before+1], "JobDB refreshes available names when a new name is requested")
+			}
 			run, err := engine.GetJobRun(ctx, jobdb.GetJobRunRequest{JobKey: key, IncludeInputs: true, IncludeOutputs: true})
 			require.NoError(t, err)
 			raw, err := json.Marshal(run)
@@ -174,7 +178,8 @@ func TestSecretFallbacksInLiveTasksAndReplay(t *testing.T) {
 		}
 		return map[string]any{"ok": true}, nil
 	})
-	withRegisteredOps(t, op)
+	withRegisteredOps(t, op, commandop.GetOp())
+	t.Setenv("C2J_OPTIONAL_SECRET_TEST", "inherited")
 	registry, err := workerops.NewActivityRegistry()
 	require.NoError(t, err)
 	ws, err := NewRecipeWorker(coreops.NewServiceDepsBuilder().Build(), registry)
@@ -219,6 +224,13 @@ sequence:
     inputs:
       token: '${{ inputs.omitted }}'
       expected: ""
+  - id: unset_env
+    op: command_execution
+    inputs:
+      env:
+        C2J_OPTIONAL_SECRET_TEST: '${{ context.secrets.?missing.orValue(null) }}'
+        C2J_EMPTY_SECRET_TEST: ""
+      run: test -z "${C2J_OPTIONAL_SECRET_TEST+x}" && test "${C2J_EMPTY_SECRET_TEST+x}" = x
 `
 	rec, err := recipe.LoadRecipeFromString([]byte(source))
 	require.NoError(t, err)
@@ -232,15 +244,16 @@ sequence:
 	_, err = swfutil.JobResult(ctx, engine, key)
 	require.NoError(t, err)
 	require.EqualValues(t, 4, calls.Load())
-	require.Len(t, provider.Calls(), 3, "missing values and defaults must not be cached; omitted default needs no fetch")
+	require.Len(t, provider.Calls(), 1, "JobDB caches the missing name; c2j keeps each binding's fallback separate")
 	run, err := engine.GetJobRun(ctx, jobdb.GetJobRunRequest{JobKey: key, IncludeInputs: true, IncludeOutputs: true})
 	require.NoError(t, err)
 	raw, err := json.Marshal(run)
 	require.NoError(t, err)
 	require.Contains(t, string(raw), "$c2j_secret")
+	require.Contains(t, string(raw), "omit_if_unavailable")
 	require.NotContains(t, string(raw), "private-value")
 	_, err = engine.ReplayJobRun(ctx, jobworkflow.ReplayRunRequest{JobKey: key, JobWorker: NewRecipeJobWorker(RecipeJobWorkerOptions{ReadOnlyReplay: true})})
 	require.NoError(t, err)
 	require.EqualValues(t, 4, calls.Load())
-	require.Len(t, provider.Calls(), 3)
+	require.Len(t, provider.Calls(), 1)
 }

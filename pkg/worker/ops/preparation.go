@@ -17,9 +17,8 @@ import (
 // PreparationRequest contains identities, never resolved configuration or credentials.
 // Preparation runs only inside a live task, under the same timeout as execution.
 type PreparationRequest struct {
-	Extension        *ExtensionResolutionRequest `json:"extension,omitempty"`
-	Scopes           []toolenv.Scope             `json:"scopes,omitempty"`
-	SecretCandidates []string                    `json:"secret_candidates,omitempty"`
+	Extension *ExtensionResolutionRequest `json:"extension,omitempty"`
+	Scopes    []toolenv.Scope             `json:"scopes,omitempty"`
 }
 
 // ResolveInvocation loads a manifest and its defaults only for a live task.

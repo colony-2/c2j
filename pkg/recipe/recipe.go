@@ -156,6 +156,9 @@ func (n RecipeMetadata) ValidateInputShapeAndFillDefaults(data map[string]interf
 				if err != nil {
 					return nil, err
 				}
+				if ref.OmitIfUnavailable && def.Required {
+					ref.Required = true
+				}
 				value = secrets.WithDefault(ref, def.Default)
 			}
 		}

@@ -56,6 +56,16 @@ func ValidateOpInputType(inputType reflect.Type, input map[string]interface{}, a
 	if err := secrets.ValidateType(inputType, input); err != nil {
 		return err
 	}
+	return validateOpInputValue(inputType, input, allowNulls)
+}
+
+// ValidateMaterializedOpInputType rechecks constraints after optional references
+// have been removed. The caller must already have validated secret permissions.
+func ValidateMaterializedOpInputType(inputType reflect.Type, input map[string]any) error {
+	return validateOpInputValue(inputType, input, false)
+}
+
+func validateOpInputValue(inputType reflect.Type, input map[string]any, allowNulls bool) error {
 	safe, err := secrets.Placeholder(input)
 	if err != nil {
 		return err

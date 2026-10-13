@@ -15,7 +15,6 @@ type CELOptionsProvider interface {
 type ResolutionMode string
 
 type ResolutionOptions struct {
-	SecretCandidates    []string
 	Mode                ResolutionMode
 	ValidationMode      string
 	ClampSliceIndex     bool

@@ -42,7 +42,7 @@ func ExpandSchema(schema map[string]any) (map[string]any, error) {
 				}
 			}
 			clear(s)
-			s["anyOf"] = []any{plain, map[string]any{"type": "object", "required": []string{WireKey}, "additionalProperties": false, "properties": map[string]any{WireKey: map[string]any{"type": "string"}, "default": map[string]any{"type": "string"}}}}
+			s["anyOf"] = []any{plain, map[string]any{"type": "object", "required": []string{WireKey}, "additionalProperties": false, "properties": map[string]any{WireKey: map[string]any{"type": "string"}, "default": map[string]any{"type": "string"}, "omit_if_unavailable": map[string]any{"type": "boolean"}, "required": map[string]any{"type": "boolean"}}}}
 			return nil
 		}
 		for _, key := range []string{"properties"} {

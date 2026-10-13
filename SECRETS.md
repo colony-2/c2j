@@ -71,7 +71,7 @@ them in the parent.
 ## Optional secrets
 
 Use `${{ context.secrets.?github_token.orValue("") }}` for an explicit fallback.
-Only a literal CEL string is accepted. Recipes may declare `default_value: ""`
+A literal CEL string supplies a value; `orValue(null)` requests omission. Recipes may declare `default_value: ""`
 on a secret input; extensions may declare `default: ""` beside `x-secret: true`.
 
 An available secret wins, including an empty string. Otherwise the reference's
@@ -79,6 +79,20 @@ fallback wins over the receiving schema's default; without either, setup fails.
 Defaults survive forwarding and remain specific to each input binding. An omitted
 secret input with a schema default requires no lookup. Defaults are public,
 recordable strings and are never cached or masked as credentials.
+
+Use `${{ context.secrets.?github_token.orValue(null) }}` to leave an optional
+secret unset. A missing or denied secret removes the input field or environment
+entry rather than supplying JSON null or `""`. Process environment omission also
+suppresses inherited values; protected runner metadata retains precedence.
+Available secrets, including empty strings, remain present.
+
+Optional inputs can be omitted by callers, but supplying a plain secret reference
+still requires resolution unless a fallback exists. Recipe `required: true`,
+extension JSON Schema `required`, and native input constraints remain enforced
+after omission. Explicit null fallbacks override string schema defaults.
+Null omission is supported for object fields/environment entries, not individual
+array elements. Schema defaults stay string-only: extension `default: null`
+is rejected and recipe `default_value: null` means no default.
 
 A missing/denied name in a successful provider response permits fallback.
 Provider failures (including no configured provider), cancellation, timeouts,
@@ -93,18 +107,22 @@ Retrieval creates no separate task or chapter; activity results include
 `secret_setup_ms` and total `preparation_ms` when nonzero. Replay skips retrieval.
 A future JobDB preparation phase can give preparation a separate timeout.
 
-The first fetch batches required names with references visible in the already
-loaded recipe, including future branches. No packages or includes are fetched
-just to discover secrets. Batches contain at most 64 names. Later tasks reuse
-values, concurrent fills coalesce, and newly encountered names are fetched later.
-Missing future names do not fail the current task or become permanent misses.
-Speculative batch failures fall back to required names alone.
+Each live task requests its own referenced names through
+`TaskContext.ResolveSecrets`, deduplicated into batches of at most 64 names.
+c2j does not prefetch future tasks' secrets or cache resolved values across tasks.
+Its transient input values are cleared when the task attempt returns, including
+failures. Fallbacks remain local to each input binding.
 
-The cache lasts for one local job execution, including task retries and normal
-lease renewal. It is cleared when that execution exits, including cancellation,
-handoff and lease loss. Resumed executions and child jobs get fresh caches.
-Provider expiry timestamps are honored; rotation otherwise becomes visible at
-the next fetch or execution. Cached task results and replay perform no reads.
+JobDB v0.0.32 owns caching for the live job execution. It caches both available
+values and missing/denied names. Requesting a new name refreshes previously
+available names together; known omissions are not retried within that execution.
+Expired values fail resolution. Resumed executions and child jobs use fresh
+JobDB caches. Cached task results and replay perform no reads.
+
+c2j retains an in-memory redaction set for the local execution so later tasks'
+logs, errors, and outputs cannot disclose a secret fetched by an earlier task.
+This set cannot resolve names or supply input values and is cleared when the
+execution exits.
 
 History stores reserved reference objects containing names and any public
 fallbacks, never secret plaintext or secret hashes. Rotating a value does not invalidate recorded task outcomes.

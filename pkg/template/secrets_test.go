@@ -79,3 +79,21 @@ func TestSecretFallbackInternalsRemainOpaque(t *testing.T) {
 		}
 	}
 }
+
+func TestNullSecretFallbackTemplates(t *testing.T) {
+	rc, err := NewRecipeResolutionContext(&contextual.GitCommitContext{}, nil, contextual.JobContext{})
+	require.NoError(t, err)
+	expr := "${{ context.secrets.?token.orValue(null) }}"
+	got, err := rc.ResolveInputs(map[string]any{"token": expr})
+	require.NoError(t, err)
+	require.Equal(t, secrets.Reference{Name: "token", OmitIfUnavailable: true}, got["token"])
+	_, err = rc.ResolveMap(map[string]any{"token": expr})
+	require.Error(t, err)
+	for _, expr := range []string{
+		"${{ context.secrets.?token.orValue(inputs.fallback) }}",
+		"${{ context.secrets.?token.orValue(null) == null }}",
+	} {
+		_, err := rc.ResolveInputs(map[string]any{"token": expr})
+		require.Error(t, err)
+	}
+}

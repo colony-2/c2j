@@ -1,5 +1,11 @@
 # Runner-resolved secrets through `context.secrets`
 
+Implementation update: JobDB v0.0.32 now owns execution-scoped secret/config
+caching. c2j retains only task-local secret values and execution-wide redaction
+tracking; the c2j cache/prefetch design below is superseded. See [SECRETS.md](SECRETS.md)
+for current behavior.
+
+
 Starting a job requires permission to submit work, without reading its secrets.
 Recipes reference JobDB secret names through `context.secrets`; executing
 runners resolve values using their current lease. Submission, orchestration,

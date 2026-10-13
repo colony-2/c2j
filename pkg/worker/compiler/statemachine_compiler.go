@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/colony-2/c2j/pkg/recipe"
-	"github.com/colony-2/c2j/pkg/secrets"
 	"github.com/colony-2/c2j/pkg/template"
 	"github.com/colony-2/c2j/pkg/workflow"
 	"github.com/colony-2/jobdb/pkg/jobdb"
@@ -50,8 +49,6 @@ func (d DefaultRecipeExecutor) ExecuteStateMachine(ctx workflow.Context, parentC
 	if len(metadata.Catch) > 0 {
 		resCtx.Options.CatchBeforeRetry = true
 	}
-	resCtx.Options.SecretCandidates = append(append([]string(nil), resCtx.Options.SecretCandidates...), secrets.Candidates(stateMap)...)
-	resCtx.Options.SecretCandidates = append(resCtx.Options.SecretCandidates, secrets.Candidates(resolvedInputs)...)
 	if err := seedStateMachinePlaceholders(resCtx, stateMap); err != nil {
 		return err
 	}

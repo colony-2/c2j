@@ -14,114 +14,157 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestSessionBatchReuseAndMissing(t *testing.T) {
-	s := NewSession()
-	defer s.Close()
-	var calls [][]string
-	resolve := func(_ context.Context, names []string) (jobdb.SecretResolveResult, error) {
-		calls = append(calls, append([]string(nil), names...))
-		out := jobdb.SecretResolveResult{Secrets: map[string]jobdb.SecretValue{}}
-		for _, n := range names {
-			if n != "missing" {
-				out.Secrets[n] = jobdb.SecretValue{Value: n + "-private\n"}
-			}
-		}
-		out.Secrets["empty"] = jobdb.SecretValue{Value: ""}
-		return out, nil
-	}
-	for i := 0; i < 10; i++ {
-		require.NoError(t, s.Prepare(context.Background(), []string{"token"}, []string{"future", "empty", "missing"}, resolve))
-	}
-	require.Len(t, calls, 1)
-	require.Equal(t, []string{"token", "future", "empty", "missing"}, calls[0])
-	require.NoError(t, s.Prepare(context.Background(), []string{"future", "empty"}, nil, resolve))
-	require.Len(t, calls, 1)
-	input := map[string]any{"token": Reference{Name: "token"}, "empty": Reference{Name: "empty"}}
-	out, err := s.Materialize(input)
+func TestTasksResolveIndependentlyAndShareOnlyRedaction(t *testing.T) {
+	sessions := NewSessions()
+	key := jobdb.JobKey{TenantId: "tenant", JobId: "job"}
+	redactor, err := sessions.Open(key)
 	require.NoError(t, err)
-	require.Equal(t, map[string]any{"token": "token-private\n", "empty": ""}, out)
-	require.IsType(t, Reference{}, input["token"])
-	require.ErrorContains(t, s.Prepare(context.Background(), []string{"missing"}, nil, resolve), "required secret unavailable")
-	require.Error(t, s.Prepare(context.Background(), []string{"missing"}, nil, resolve))
-	require.Len(t, calls, 3)
-	require.NoError(t, s.Prepare(context.Background(), []string{"later"}, nil, resolve))
-	require.Len(t, calls, 4)
-	require.Error(t, s.CheckOutput(map[string]any{"echo": "token-private\n"}))
-	require.Equal(t, "failure: [REDACTED]", s.Error(fmt.Errorf("failure: %w", errors.New("token-private\n"))).Error())
-	_, err = json.Marshal(s)
-	require.Error(t, err)
-}
-
-func TestSessionSpeculativeFailureFallsBack(t *testing.T) {
-	s := NewSession()
-	defer s.Close()
+	defer sessions.Close(key)
 	calls := 0
 	resolve := func(_ context.Context, names []string) (jobdb.SecretResolveResult, error) {
 		calls++
-		if len(names) > 1 {
-			return jobdb.SecretResolveResult{}, errors.New("private provider details")
-		}
-		return jobdb.SecretResolveResult{Secrets: map[string]jobdb.SecretValue{"token": {Value: "value"}}}, nil
+		require.Equal(t, []string{"token"}, names)
+		return jobdb.SecretResolveResult{Secrets: map[string]jobdb.SecretValue{"token": {Value: fmt.Sprintf("private-%d", calls)}}}, nil
 	}
-	require.NoError(t, s.Prepare(context.Background(), []string{"token"}, []string{"future"}, resolve))
+	first := redactor.NewTask()
+	require.NoError(t, first.Prepare(context.Background(), []string{"token", "token"}, resolve))
+	value, err := first.Materialize(Reference{Name: "token"})
+	require.NoError(t, err)
+	require.Equal(t, "private-1", value)
+	first.Close()
+	require.Empty(t, first.values)
+	require.Equal(t, "[REDACTED]", redactor.Redact("private-1"), "completed task values still need masking")
+	second := redactor.NewTask()
+	defer second.Close()
+	require.False(t, second.Ready([]string{"token"}))
+	require.NoError(t, second.Prepare(context.Background(), []string{"token"}, resolve))
+	value, err = second.Materialize(Reference{Name: "token"})
+	require.NoError(t, err)
+	require.Equal(t, "private-2", value)
 	require.Equal(t, 2, calls)
+	require.Equal(t, "[REDACTED] [REDACTED]", second.Redact("private-1 private-2"))
+	require.Error(t, second.CheckOutput(map[string]any{"echo": "private-1"}))
+	_, err = json.Marshal(redactor)
+	require.Error(t, err)
+	_, err = json.Marshal(second)
+	require.Error(t, err)
 }
 
-func TestSessionConcurrentFillAndExpiry(t *testing.T) {
+func TestPreparationAlwaysRefreshesAndClearsFailedValues(t *testing.T) {
+	s := NewSession()
+	defer s.Close()
+	calls := 0
+	resolve := func(context.Context, []string) (jobdb.SecretResolveResult, error) {
+		calls++
+		if calls == 1 {
+			return jobdb.SecretResolveResult{Secrets: map[string]jobdb.SecretValue{"token": {Value: "private"}}}, nil
+		}
+		return jobdb.SecretResolveResult{}, nil
+	}
+	require.NoError(t, s.Prepare(context.Background(), []string{"token"}, resolve))
+	require.ErrorContains(t, s.Prepare(context.Background(), []string{"token"}, resolve), "required secret unavailable")
+	require.Equal(t, 2, calls)
+	require.Empty(t, s.values)
+	require.Equal(t, "[REDACTED]", s.Redact("private"))
+}
+
+func TestTaskBatchesBoundedAndPartialFailureClearsValues(t *testing.T) {
+	for _, fail := range []bool{false, true} {
+		s := NewSession()
+		var names []string
+		for i := 0; i < 130; i++ {
+			names = append(names, fmt.Sprintf("token%d", i))
+		}
+		calls := 0
+		err := s.Prepare(context.Background(), names, func(_ context.Context, batch []string) (jobdb.SecretResolveResult, error) {
+			calls++
+			require.LessOrEqual(t, len(batch), 64)
+			if fail && calls == 2 {
+				return jobdb.SecretResolveResult{}, errors.New("private provider detail")
+			}
+			result := jobdb.SecretResolveResult{Secrets: map[string]jobdb.SecretValue{}}
+			for _, name := range batch {
+				result.Secrets[name] = jobdb.SecretValue{Value: "private-" + name}
+			}
+			return result, nil
+		})
+		if fail {
+			require.ErrorContains(t, err, "secret resolution unavailable")
+			require.Equal(t, 2, calls, "no speculative fallback or retry")
+			require.Empty(t, s.values)
+			require.Equal(t, "[REDACTED]", s.Redact("private-token0"))
+		} else {
+			require.NoError(t, err)
+			require.Equal(t, 3, calls)
+			require.Len(t, s.values, 130)
+		}
+		s.Close()
+		require.Empty(t, s.values)
+	}
+}
+
+func TestConcurrentTasksHaveSeparateValues(t *testing.T) {
+	redactor := newRedactor()
+	defer redactor.Close()
+	var wg sync.WaitGroup
+	for i := 0; i < 10; i++ {
+		wg.Go(func() {
+			task := redactor.NewTask()
+			defer task.Close()
+			want := fmt.Sprintf("private-%d", i)
+			err := task.Prepare(context.Background(), []string{"token"}, func(context.Context, []string) (jobdb.SecretResolveResult, error) {
+				return jobdb.SecretResolveResult{Secrets: map[string]jobdb.SecretValue{"token": {Value: want}}}, nil
+			})
+			if err != nil {
+				t.Error(err)
+				return
+			}
+			got, err := task.Materialize(Reference{Name: "token"})
+			if err != nil || got != want {
+				t.Errorf("task secret isolation failed")
+			}
+		})
+	}
+	wg.Wait()
+	for i := 0; i < 10; i++ {
+		require.Equal(t, "[REDACTED]", redactor.Redact(fmt.Sprintf("private-%d", i)))
+	}
+}
+
+func TestTaskSecretExpiry(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		s := NewSession()
 		defer s.Close()
-		calls := 0
-		entered := make(chan struct{})
-		release := make(chan struct{})
-		resolve := func(_ context.Context, _ []string) (jobdb.SecretResolveResult, error) {
-			calls++
-			if calls == 1 {
-				close(entered)
-				<-release
-			}
+		require.NoError(t, s.Prepare(context.Background(), []string{"token"}, func(context.Context, []string) (jobdb.SecretResolveResult, error) {
 			expiry := time.Now().Add(time.Minute)
-			return jobdb.SecretResolveResult{Secrets: map[string]jobdb.SecretValue{"token": {Value: "value", ExpiresAt: &expiry}}}, nil
-		}
-		var wg sync.WaitGroup
-		for i := 0; i < 10; i++ {
-			wg.Go(func() {
-				if err := s.Prepare(context.Background(), []string{"token"}, nil, resolve); err != nil {
-					t.Error(err)
-				}
-			})
-		}
-		<-entered
-		synctest.Wait()
-		close(release)
-		wg.Wait()
-		require.Equal(t, 1, calls)
+			return jobdb.SecretResolveResult{Secrets: map[string]jobdb.SecretValue{"token": {Value: "private", ExpiresAt: &expiry}}}, nil
+		}))
 		time.Sleep(time.Minute)
-		require.False(t, s.Ready([]string{"token"}))
-		require.NoError(t, s.Prepare(context.Background(), []string{"token"}, nil, resolve))
-		require.Equal(t, 2, calls)
+		_, err := s.Materialize(Reference{Name: "token"})
+		require.ErrorContains(t, err, "required secret unavailable")
 	})
 }
 
-func TestSessionCloseDuringFillAndExecutionIsolation(t *testing.T) {
+func TestExecutionCloseDuringResolutionAndRestart(t *testing.T) {
 	m := NewSessions()
 	key := jobdb.JobKey{TenantId: "tenant", JobId: "job"}
-	s, err := m.Open(key)
+	redactor, err := m.Open(key)
 	require.NoError(t, err)
 	_, err = m.Open(key)
 	require.Error(t, err)
-	err = s.Prepare(context.Background(), []string{"token"}, nil, func(context.Context, []string) (jobdb.SecretResolveResult, error) {
+	task := redactor.NewTask()
+	defer task.Close()
+	err = task.Prepare(context.Background(), []string{"token"}, func(context.Context, []string) (jobdb.SecretResolveResult, error) {
 		m.Close(key)
 		return jobdb.SecretResolveResult{Secrets: map[string]jobdb.SecretValue{"token": {Value: "private"}}}, nil
 	})
 	require.ErrorIs(t, err, jobdb.ErrExecutionLeaseLost)
-	require.False(t, s.Ready([]string{"token"}))
-	require.Empty(t, s.values)
+	require.Empty(t, task.values)
 	next, err := m.Open(key)
 	require.NoError(t, err)
 	defer m.Close(key)
-	require.NotSame(t, s, next)
-	require.False(t, next.Ready([]string{"token"}))
+	require.NotSame(t, redactor, next)
+	require.Empty(t, next.masks)
 }
 
 type hiddenSecretCause struct{ cause error }
@@ -129,23 +172,22 @@ type hiddenSecretCause struct{ cause error }
 func (hiddenSecretCause) Error() string   { return "safe outer error" }
 func (e hiddenSecretCause) Unwrap() error { return e.cause }
 
-func TestSessionLeaseLossDropsCacheAndErrorChains(t *testing.T) {
+func TestTaskLeaseLossClearsValuesAndPreservesRedaction(t *testing.T) {
 	s := NewSession()
 	defer s.Close()
 	ctx := context.Background()
-	require.NoError(t, s.Prepare(ctx, []string{"token"}, nil, func(context.Context, []string) (jobdb.SecretResolveResult, error) {
+	require.NoError(t, s.Prepare(ctx, []string{"token"}, func(context.Context, []string) (jobdb.SecretResolveResult, error) {
 		return jobdb.SecretResolveResult{Secrets: map[string]jobdb.SecretValue{"token": {Value: "private-value"}}}, nil
 	}))
 	err := s.Error(hiddenSecretCause{errors.New("private-value")})
 	require.Equal(t, "safe outer error", err.Error())
 	require.Nil(t, errors.Unwrap(err))
-	err = s.Prepare(ctx, []string{"new"}, nil, func(context.Context, []string) (jobdb.SecretResolveResult, error) {
+	err = s.Prepare(ctx, []string{"new"}, func(context.Context, []string) (jobdb.SecretResolveResult, error) {
 		return jobdb.SecretResolveResult{}, jobdb.ErrExecutionLeaseLost
 	})
 	require.ErrorIs(t, err, jobdb.ErrExecutionLeaseLost)
-	require.False(t, s.Ready([]string{"token"}))
 	require.Empty(t, s.values)
-	require.Empty(t, s.masks)
+	require.Equal(t, "[REDACTED]", s.Redact("private-value"))
 	_, err = s.Materialize(Reference{Name: "token"})
 	require.ErrorIs(t, err, jobdb.ErrExecutionLeaseLost)
 }

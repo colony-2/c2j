@@ -44,11 +44,6 @@ func TestReferenceRoundTripAndReservedWireFormat(t *testing.T) {
 	require.False(t, Contains("$c2j_secret:token"))
 }
 
-func TestCandidatesFindReferencesInResolvedRecipeData(t *testing.T) {
-	value := struct{ Inputs map[string]any }{map[string]any{"first": Reference{Name: "forwarded"}, "second": "${{ context.secrets.later }}"}}
-	require.Equal(t, []string{"forwarded", "later"}, Candidates(value))
-}
-
 func TestChildForwardingNeverMaterializesOrRequestsParentSecrets(t *testing.T) {
 	type Child struct {
 		Inputs map[string]any `json:"inputs" secret:"forward"`

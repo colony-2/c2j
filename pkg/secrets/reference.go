@@ -3,7 +3,6 @@
 package secrets
 
 import (
-	"encoding/json"
 	"fmt"
 	"regexp"
 	"sort"
@@ -19,14 +18,16 @@ const WireKey = "$c2j_secret"
 // Reference holds an opaque name and an optional public fallback. An empty
 // name with a fallback represents an omitted input with a schema default.
 type Reference struct {
-	Name    string  `json:"$c2j_secret" yaml:"$c2j_secret"`
-	Default *string `json:"default,omitempty" yaml:"default,omitempty"`
+	Name              string  `json:"$c2j_secret" yaml:"$c2j_secret"`
+	Default           *string `json:"default,omitempty" yaml:"default,omitempty"`
+	OmitIfUnavailable bool    `json:"omit_if_unavailable,omitempty" yaml:"omit_if_unavailable,omitempty"`
+	// Required preserves a recipe's constraint when a null fallback is forwarded.
+	Required bool `json:"required,omitempty" yaml:"required,omitempty"`
 }
 
 var namePattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_-]{0,255}$`)
 var expressionPattern = regexp.MustCompile(`^context\.secrets\.([A-Za-z_][A-Za-z0-9_-]{0,255})$`)
 var fallbackPattern = regexp.MustCompile(`^context\.secrets\.\?([A-Za-z_][A-Za-z0-9_-]{0,255})\.orValue\((.*)\)$`)
-var templatePattern = regexp.MustCompile(`\$?\{\{\s*context\.secrets\.\??([A-Za-z_][A-Za-z0-9_-]{0,255})(?:\s*\}\}|\.orValue\()`)
 
 func Template(text string) (Reference, bool) {
 	text = strings.TrimSpace(text)
@@ -38,6 +39,9 @@ func Template(text string) (Reference, bool) {
 
 func Expression(expr string) (Reference, bool) {
 	if m := fallbackPattern.FindStringSubmatch(expr); len(m) == 3 {
+		if strings.TrimSpace(m[2]) == "null" {
+			return Reference{Name: m[1], OmitIfUnavailable: true}, true
+		}
 		parsed, errs := parser.Parse(common.NewTextSource(strings.TrimSpace(m[2])))
 		if len(errs.GetErrors()) != 0 || parsed.Expr().Kind() != ast.LiteralKind {
 			return Reference{}, false
@@ -65,8 +69,21 @@ func Parse(v any) (Reference, bool, error) {
 		if !ok {
 			return r, false, nil
 		}
-		if len(x) > 2 || (len(x) == 2 && x["default"] == nil) {
-			return r, true, fmt.Errorf("invalid secret reference")
+		for key := range x {
+			switch key {
+			case WireKey, "default", "omit_if_unavailable", "required":
+			default:
+				return r, true, fmt.Errorf("invalid secret reference")
+			}
+		}
+		for key, dest := range map[string]*bool{"omit_if_unavailable": &r.OmitIfUnavailable, "required": &r.Required} {
+			if value, exists := x[key]; exists {
+				b, ok := value.(bool)
+				if !ok {
+					return r, true, fmt.Errorf("invalid secret reference")
+				}
+				*dest = b
+			}
 		}
 		var valid bool
 		r.Name, valid = n.(string)
@@ -82,6 +99,9 @@ func Parse(v any) (Reference, bool, error) {
 		}
 	default:
 		return r, false, nil
+	}
+	if (r.OmitIfUnavailable && r.Default != nil) || (r.Required && !r.OmitIfUnavailable) {
+		return r, true, fmt.Errorf("invalid secret fallback")
 	}
 	if !namePattern.MatchString(r.Name) && !(r.Name == "" && r.Default != nil) {
 		return r, true, fmt.Errorf("invalid secret reference name")
@@ -105,7 +125,9 @@ func Transform(v any, f func(Reference) (any, error)) (any, error) {
 			if err != nil {
 				return nil, err
 			}
-			out[k] = n
+			if _, omit := n.(omitted); !omit {
+				out[k] = n
+			}
 		}
 		return out, nil
 	case []any:
@@ -114,6 +136,9 @@ func Transform(v any, f func(Reference) (any, error)) (any, error) {
 			n, err := Transform(v, f)
 			if err != nil {
 				return nil, err
+			}
+			if _, omit := n.(omitted); omit {
+				return nil, fmt.Errorf("null secret fallback cannot omit an array element")
 			}
 			out[i] = n
 		}
@@ -147,7 +172,7 @@ func Contains(v any) bool {
 
 // WithDefault attaches a public fallback without overriding an explicit fallback.
 func WithDefault(r Reference, value any) Reference {
-	if d, ok := value.(string); ok && r.Default == nil {
+	if d, ok := value.(string); ok && r.Default == nil && !r.OmitIfUnavailable {
 		r.Default = &d
 	}
 	return r
@@ -161,34 +186,16 @@ func ValidateDefault(value any) error {
 	return nil
 }
 
-// Candidates only scans data already loaded by the compiler. It performs no
-// expression evaluation, include resolution, or extension retrieval.
-func Candidates(v any) []string {
-	b, err := json.Marshal(v)
-	if err != nil {
-		return nil
-	}
-	set := map[string]bool{}
-	for _, m := range templatePattern.FindAllSubmatch(b, -1) {
-		set[string(m[1])] = true
-	}
-	var decoded any
-	if err := json.Unmarshal(b, &decoded); err != nil {
-		return nil
-	}
-	n, _ := Names(decoded)
-	for _, s := range n {
-		set[s] = true
-	}
-	out := make([]string, 0, len(set))
-	for s := range set {
-		out = append(out, s)
-	}
-	sort.Strings(out)
-	return out
-}
-
 // Placeholder is for type validation only and is never used for execution.
 func Placeholder(v any) (any, error) {
 	return Transform(v, func(Reference) (any, error) { return "secret-reference", nil })
+}
+
+// omitted is transient and must never cross an op or durable boundary.
+type omitted struct{}
+
+func HasOmission(v any) bool {
+	found := false
+	_, _ = Transform(v, func(r Reference) (any, error) { found = found || r.OmitIfUnavailable; return r, nil })
+	return found
 }
