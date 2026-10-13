@@ -159,9 +159,15 @@ func (a *thinpackForwarder) doTask(policy jobdb.RunPolicy, taskType string, data
 	}
 	out, err := invoke(data)
 	if err != nil {
-		recovered, ok, recoveryErr := a.recoverArtifactOrder(taskType, data, err, invoke)
+		recovered, ok, recoveryErr := recoverEmptyPreparation(taskType, data, err, invoke)
+		if !ok && recoveryErr == nil {
+			recovered, ok, recoveryErr = a.recoverArtifactOrder(taskType, data, err, invoke)
+		}
+		if ok && recoveryErr != nil {
+			return recovered, recoveryErr
+		}
 		if recoveryErr != nil {
-			return nil, fmt.Errorf("restore cached task after artifact-order mismatch: %v: %w", recoveryErr, err)
+			return nil, fmt.Errorf("restore cached task after invocation-encoding mismatch: %v: %w", recoveryErr, err)
 		}
 		if !ok {
 			return out, err

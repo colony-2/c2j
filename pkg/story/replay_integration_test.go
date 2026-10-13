@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -65,12 +66,14 @@ func TestStoryAPIReplaysAllPersistedAttemptsAfterDeadlines(t *testing.T) {
 	}))
 	for _, backend := range []string{"sqlite", "remote"} {
 		for _, mode := range []struct {
-			name      string
-			succeedAt int32
-			attempts  int
-			failed    int
+			name             string
+			succeedAt        int32
+			attempts         int
+			emptyPreparation bool
+			failed           int
 		}{
-			{"success", 1, 1, 0}, {"retry then success", 9, 3, 8}, {"exhausted retries", 100, 3, 9},
+			{"success", 1, 1, false, 0}, {"retry then success", 9, 3, false, 8}, {"exhausted retries", 100, 3, false, 9},
+			{"empty preparation success", 1, 1, true, 0}, {"empty preparation retry then success", 9, 3, true, 8}, {"empty preparation exhausted retries", 100, 3, true, 9},
 		} {
 			t.Run(backend+"/"+mode.name, func(t *testing.T) {
 				ctx := context.Background()
@@ -85,8 +88,12 @@ func TestStoryAPIReplaysAllPersistedAttemptsAfterDeadlines(t *testing.T) {
 					require.NoError(t, err)
 				}
 				worker := compiler.NewRecipeJobWorker(compiler.RecipeJobWorkerOptions{})
+				var recordingWorker jobworkflow.JobWorker = worker
+				if mode.emptyPreparation {
+					recordingWorker = emptyPreparationStoryWorker{worker}
+				}
 				task := &replayFixtureTask{succeedAt: mode.succeedAt}
-				engine, err := jobworkflow.NewEngineBuilder().WithRuntime(rt).WithWorkerTenantId("story").PlusWorkers(worker, task, compiler.NewTimeoutCheckpointTaskWorker()).BuildEngine()
+				engine, err := jobworkflow.NewEngineBuilder().WithRuntime(rt).WithWorkerTenantId("story").PlusWorkers(recordingWorker, task, compiler.NewTimeoutCheckpointTaskWorker()).BuildEngine()
 				require.NoError(t, err)
 				recipe := "id: historical\nsequence:\n - id: outer\n   sequence:\n    - id: work\n      op: " + replayTestOp + "\n      retry: {maximum_attempts: 3, initial_interval: 1ms}\n      timeout: 5m\n"
 				data, err := jobdb.NewTaskData(workflowctl.StartJob{TenantId: "story", RecipeName: "historical"}, jobdb.NewArtifactFromBytes("historical"+starter.RecipeArtifactSuffix, []byte(recipe)))
@@ -96,7 +103,7 @@ func TestStoryAPIReplaysAllPersistedAttemptsAfterDeadlines(t *testing.T) {
 				policy.Retry.InitialInterval = jobdb.Duration(time.Millisecond)
 				key, err := engine.SubmitJob(ctx, jobdb.SubmitJob{TenantId: "story", JobType: "recipe", Data: data, RunPolicy: policy})
 				require.NoError(t, err)
-				runnable, err := jobworkflow.GetJobForRun(ctx, rt, jobworkflow.GetJobForRunRequest{JobKey: key, JobWorker: worker, TaskWorkers: []jobworkflow.TaskWorker{task, compiler.NewTimeoutCheckpointTaskWorker()}, WorkerID: "story-fixture", LeaseDuration: time.Minute})
+				runnable, err := jobworkflow.GetJobForRun(ctx, rt, jobworkflow.GetJobForRunRequest{JobKey: key, JobWorker: recordingWorker, TaskWorkers: []jobworkflow.TaskWorker{task, compiler.NewTimeoutCheckpointTaskWorker()}, WorkerID: "story-fixture", LeaseDuration: time.Minute})
 				require.NoError(t, err)
 				_, err = runnable.Run(nil)
 				require.NoError(t, err)
@@ -121,7 +128,7 @@ func TestStoryAPIReplaysAllPersistedAttemptsAfterDeadlines(t *testing.T) {
 					require.NotNil(t, st.Root)
 					require.Len(t, st.Root.PastAttempts, mode.attempts-1)
 					want := story.WorkflowStatusCompleted
-					if mode.name == "exhausted retries" {
+					if strings.HasSuffix(mode.name, "exhausted retries") {
 						want = story.WorkflowStatusFailed
 					}
 					require.Equal(t, want, st.Status)
@@ -150,4 +157,30 @@ func TestStoryAPIReplaysAllPersistedAttemptsAfterDeadlines(t *testing.T) {
 			})
 		}
 	}
+}
+
+// Write the exact older invocation encoding, without changing stored chapters
+// after execution. The story service replays with today's unwrapped compiler.
+type emptyPreparationStoryWorker struct{ jobworkflow.JobWorker }
+
+func (w emptyPreparationStoryWorker) Run(ctx jobworkflow.JobContext, input jobdb.JobData) (jobdb.JobData, error) {
+	return w.JobWorker.Run(emptyPreparationStoryContext{ctx}, input)
+}
+
+type emptyPreparationStoryContext struct{ jobworkflow.JobContext }
+
+func (c emptyPreparationStoryContext) DoTask(policy jobdb.RunPolicy, typ string, data jobdb.TaskData) (jobdb.TaskData, error) {
+	if strings.Contains(typ, ":") {
+		raw, err := data.GetData()
+		if err != nil {
+			return nil, err
+		}
+		artifacts, err := data.GetArtifacts()
+		if err != nil {
+			return nil, err
+		}
+		raw = append([]byte(`{"preparation":{},`), raw[1:]...)
+		data = jobworkflow.WithTaskOptions(&jobdb.SimpleTaskData{Data: raw, Artifacts: artifacts}, jobworkflow.TaskOptionsFor(data))
+	}
+	return c.JobContext.DoTask(policy, typ, data)
 }

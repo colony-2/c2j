@@ -26,7 +26,7 @@ const thinPackSentinel = gitstate.ThinPackArtifactName
 
 // ActivityInvocationRequest wraps the invocation metadata and original input payload.
 type ActivityInvocationRequest struct {
-	Preparation      PreparationRequest             `json:"preparation,omitempty"`
+	Preparation      PreparationRequest             `json:"preparation,omitzero"`
 	SecretSetupMS    int64                          `json:"-"`
 	Setup            *ToolSetupResult               `json:"-"`
 	WorkspaceManaged bool                           `json:"workspace_managed,omitempty"`

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"github.com/colony-2/c2j/pkg/workflowctl"
 	"log/slog"
+	"strings"
 	"testing"
 	"time"
 
@@ -164,4 +165,26 @@ func TestStoryReplayRetainsRecipeLoadErrorWhenEngineReportsMismatch(t *testing.T
 			require.ErrorContains(t, err, source.want)
 		})
 	}
+}
+
+func TestStoryReplayReportsMismatchBeforeUnemittedEvents(t *testing.T) {
+	mismatch := jobworkflow.TaskInputMismatchError{TaskType: "op:run", Ordinal: 4, CachedInputHash: "before", ComputedInputHash: "after"}
+	engine := &scriptedStoryEngine{
+		run:    jobdb.GetJobRunResponse{Attempts: []jobdb.JobAttempt{{Attempt: 1, Tasks: []jobdb.TaskRun{{TaskType: "op:run", Attempts: []jobdb.TaskAttempt{{Ordinal: 4, Attempt: 1, State: jobdb.TaskAttemptStateSucceeded}}}}}}},
+		replay: func(jobworkflow.ReplayRunRequest) (jobdb.JobData, error) { return nil, mismatch },
+	}
+	_, err := BuildJobRunStory(context.Background(), engine, jobdb.JobKey{TenantId: "test", JobId: "job"}, nil, nil)
+	require.ErrorIs(t, err, jobworkflow.ErrWorkflowNotDeterministic)
+	require.ErrorIs(t, err, ErrIncompleteReplay)
+	require.Equal(t, mismatch.Error(), strings.SplitN(err.Error(), "\n", 2)[0])
+	require.ErrorContains(t, err, "replay stopped before all recorded events were emitted")
+}
+
+func TestStoryReplayPrefersTaskMismatchToSubsequentChapterMismatch(t *testing.T) {
+	mismatch := jobworkflow.TaskInputMismatchError{TaskType: "op:run", Ordinal: 4, CachedInputHash: "before", ComputedInputHash: "after"}
+	worker := &replayRecipeWorker{err: fmt.Errorf("op failed: %w", mismatch)}
+	err := worker.withCause(fmt.Errorf("unexpected chapter: %w", jobdb.ErrWorkflowNotDeterministic))
+	require.True(t, strings.HasPrefix(err.Error(), "recipe replay: op failed: "+mismatch.Error()))
+	var got jobworkflow.TaskInputMismatchError
+	require.ErrorAs(t, err, &got)
 }

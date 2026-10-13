@@ -197,7 +197,11 @@ func BuildJobRunStory(ctx context.Context, engine replayJobRunner, jobKey jobdb.
 	}
 	if recorded != nil {
 		if err := events.validate(*recorded); err != nil {
-			return story, jobWorker.withCause(errors.Join(err, replayErr))
+			cause := jobWorker.withCause(replayErr)
+			if cause != nil {
+				return story, errors.Join(cause, fmt.Errorf("replay stopped before all recorded events were emitted: %w", err))
+			}
+			return story, err
 		}
 	}
 	if replayErr == nil || isReplayCacheMissErr(replayErr) {

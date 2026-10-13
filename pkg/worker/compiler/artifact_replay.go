@@ -137,5 +137,5 @@ func withRecordedArtifactOrder(current, cached []byte) ([]byte, error) {
 		}
 	}
 	request.ArtifactKeys = recorded.ArtifactKeys
-	return json.Marshal(request)
+	return marshalRecordedPreparation(request, cached)
 }

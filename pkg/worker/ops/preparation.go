@@ -21,6 +21,12 @@ type PreparationRequest struct {
 	Scopes    []toolenv.Scope             `json:"scopes,omitempty"`
 }
 
+// IsZero makes nil and empty scope lists serialize identically when no extension
+// needs preparation. omitempty alone does not omit a value-typed struct.
+func (p PreparationRequest) IsZero() bool {
+	return p.Extension == nil && len(p.Scopes) == 0
+}
+
 // ResolveInvocation loads a manifest and its defaults only for a live task.
 func ResolveInvocation(ctx context.Context, inv *ActivityInvocationRequest) (ToolSetupRequest, error) {
 	req := ToolSetupRequest{Scopes: append([]toolenv.Scope(nil), inv.Preparation.Scopes...)}

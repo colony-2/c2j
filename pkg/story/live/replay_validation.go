@@ -120,5 +120,9 @@ func (w *replayRecipeWorker) withCause(err error) error {
 	if w.err == nil || errors.Is(err, w.err) {
 		return err
 	}
-	return errors.Join(err, fmt.Errorf("recipe replay: %w", w.err))
+	cause := fmt.Errorf("recipe replay: %w", w.err)
+	if _, mismatch := jobworkflow.UnexpectedChapter(w.err); mismatch {
+		return errors.Join(cause, err)
+	}
+	return errors.Join(err, cause)
 }
