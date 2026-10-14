@@ -12,7 +12,6 @@ import (
 type decodedTaskOutput struct {
 	Kind     coretask.OutputKind
 	Activity workerops.ActivityInvocationOutput
-	Patch    coretask.ContextPatch
 }
 
 func decodeTaskOutput(outputData []byte) (decodedTaskOutput, error) {
@@ -32,14 +31,6 @@ func decodeTaskOutput(outputData []byte) (decodedTaskOutput, error) {
 			return decodedTaskOutput{}, err
 		}
 		return decodedTaskOutput{Kind: env.Kind, Activity: act}, nil
-	case coretask.OutputKindContextPatch:
-		var patch coretask.ContextPatch
-		if len(env.Payload) > 0 {
-			if err := decodeJSONStrict(env.Payload, &patch); err != nil {
-				return decodedTaskOutput{}, fmt.Errorf("decode context patch payload: %w", err)
-			}
-		}
-		return decodedTaskOutput{Kind: env.Kind, Patch: patch}, nil
 	default:
 		return decodedTaskOutput{}, fmt.Errorf("unsupported task output kind: %q", env.Kind)
 	}

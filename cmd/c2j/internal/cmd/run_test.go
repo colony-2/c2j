@@ -1,12 +1,13 @@
 package cmd
 
 import (
-	"github.com/spf13/cobra"
 	"testing"
+
+	"github.com/spf13/cobra"
 )
 
 func TestExecutionFlagsAreRegisteredOnEveryEntryPoint(t *testing.T) {
-	for _, cmd := range []*cobra.Command{newRunCmd(), newRunOneSpecificCmd("one"), newRunAnyCmd(), newRunLoopCmd(), newRunWithLeaseCmd(), newSubmitCmd(), newListCmd(), newListChildrenCmd()} {
+	for _, cmd := range []*cobra.Command{newRunCmd(), newRunOneSpecificCmd("one"), newRunWithLeaseCmd(), newSubmitCmd(), newListCmd(), newListChildrenCmd()} {
 		t.Run(cmd.Use, func(t *testing.T) {
 			for _, field := range []string{"cpu", "memory", "ephemeral-storage", "platform", "image", "image-digest", "image-id"} {
 				if cmd.Flags().Lookup("execution-"+field) == nil {
@@ -49,32 +50,17 @@ func TestRunWithLeaseCommandHasProtectedInputAndNoClaimControls(t *testing.T) {
 	}
 }
 
-func TestRunCommandHasOneAnyAndLoopForms(t *testing.T) {
+func TestRunCommandSupportsTargetedAndSuppliedLeases(t *testing.T) {
 	cmd := newRunCmd()
-	if flag := cmd.Flags().Lookup("job-id"); flag == nil {
-		t.Fatal("run command should default to one-job mode and expose --job-id")
+	for _, name := range []string{"one", "with-lease"} {
+		if sub, _, err := cmd.Find([]string{name}); err != nil || sub.Use != name {
+			t.Fatalf("missing %s: %v", name, err)
+		}
 	}
-	if flag := cmd.Flags().Lookup("embed"); flag == nil {
-		t.Fatal("run command should expose --embed for one-job mode")
-	}
-	if subcmd, _, err := cmd.Find([]string{"one"}); err != nil || subcmd.Use != "one" {
-		t.Fatalf("run command should expose one subcommand, got %v err=%v", subcmd, err)
-	}
-	if subcmd, _, err := cmd.Find([]string{"any"}); err != nil || subcmd.Use != "any" {
-		t.Fatalf("run command should expose any subcommand, got %v err=%v", subcmd, err)
-	}
-	if subcmd, _, err := cmd.Find([]string{"loop"}); err != nil || subcmd.Use != "loop" {
-		t.Fatalf("run command should expose loop subcommand, got %v err=%v", subcmd, err)
-	}
-}
-
-func TestRunLoopCommandDoesNotExposeEmbedFlag(t *testing.T) {
-	cmd := newRunLoopCmd()
-	if flag := cmd.Flags().Lookup("embed"); flag != nil {
-		t.Fatal("run loop command must not expose --embed")
-	}
-	if flag := cmd.Flags().Lookup("concurrency"); flag == nil {
-		t.Fatal("run loop command should expose --concurrency")
+	for _, sub := range cmd.Commands() {
+		if sub.Name() == "any" || sub.Name() == "loop" {
+			t.Fatalf("unexpected polling command %s", sub.Name())
+		}
 	}
 }
 
@@ -91,18 +77,5 @@ func TestReadyCommandExposesTenantAndRuntimeFlags(t *testing.T) {
 	}
 	if flag := cmd.Flags().Lookup("swf-url"); flag != nil {
 		t.Fatal("ready command should not expose --swf-url")
-	}
-}
-
-func TestRunAnyCommandDoesNotExposeConcurrencyFlag(t *testing.T) {
-	cmd := newRunAnyCmd()
-	if flag := cmd.Flags().Lookup("embed"); flag != nil {
-		t.Fatal("run any command should not expose --embed")
-	}
-	if flag := cmd.Flags().Lookup("concurrency"); flag != nil {
-		t.Fatal("run any command should not expose --concurrency")
-	}
-	if flag := cmd.Flags().Lookup("lease-duration"); flag == nil {
-		t.Fatal("run any command should expose --lease-duration")
 	}
 }

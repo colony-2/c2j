@@ -2,6 +2,7 @@ package live
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"github.com/colony-2/c2j/pkg/workflowctl"
@@ -24,7 +25,7 @@ type scriptedStoryEngine struct {
 }
 
 func (e *scriptedStoryEngine) GetJobRun(_ context.Context, req jobdb.GetJobRunRequest) (jobdb.GetJobRunResponse, error) {
-	return e.run, e.historyErr
+	return executionFixture(e.run), e.historyErr
 }
 func (e *scriptedStoryEngine) ReplayJobRun(_ context.Context, req jobworkflow.ReplayRunRequest) (jobdb.JobData, error) {
 	return e.replay(req)
@@ -72,10 +73,10 @@ func TestStoryReplayChecksEveryPersistedAttempt(t *testing.T) {
 					if missing != "all tasks" {
 						for _, a := range j.Tasks[0].Attempts {
 							if missing != "middle task start" || a.Ordinal != 6 {
-								req.Observer.OnTaskStart(jobworkflow.TaskStartEvent{JobKey: key, TaskType: compiler.RootSourceResolutionTaskType, Ordinal: a.Ordinal, AttemptNumber: a.Attempt})
+								req.Observer.OnTaskStart(jobworkflow.TaskStartEvent{InvocationID: fmt.Sprintf("task:%d/attempt:%d", a.Ordinal, a.Attempt), JobKey: key, TaskType: compiler.RootSourceResolutionTaskType, Ordinal: a.Ordinal, AttemptNumber: a.Attempt})
 							}
 							if missing != "middle task end" || a.Ordinal != 6 {
-								req.Observer.OnTaskEnd(jobworkflow.TaskEndEvent{JobKey: key, TaskType: compiler.RootSourceResolutionTaskType, Ordinal: a.Ordinal, AttemptNumber: a.Attempt, Err: failure})
+								req.Observer.OnTaskEnd(jobworkflow.TaskEndEvent{InvocationID: fmt.Sprintf("task:%d/attempt:%d", a.Ordinal, a.Attempt), JobKey: key, TaskType: compiler.RootSourceResolutionTaskType, Ordinal: a.Ordinal, AttemptNumber: a.Attempt, Err: failure})
 							}
 						}
 					}
@@ -125,7 +126,7 @@ func TestStoryReplaySuccessfulReturnCannotHideMissingHistory(t *testing.T) {
 }
 
 type loadErrorReplayContext struct {
-	jobworkflow.JobContext
+	jobworkflow.ExecutionContext
 	observer jobworkflow.ReplayObserver
 	output   jobdb.TaskData
 }
@@ -134,7 +135,12 @@ func (*loadErrorReplayContext) GetJobKey() jobdb.JobKey {
 	return jobdb.JobKey{TenantId: "tenant", JobId: "job"}
 }
 func (*loadErrorReplayContext) Logger() *slog.Logger { return slog.Default() }
-func (c *loadErrorReplayContext) DoTask(_ jobdb.RunPolicy, task string, input jobdb.TaskData) (jobdb.TaskData, error) {
+func (c *loadErrorReplayContext) DoTask(call jobworkflow.TaskCall, build func(context.Context) (jobdb.TaskData, error)) (jobdb.TaskData, error) {
+	task := call.TaskType
+	input, err := build(context.Background())
+	if err != nil {
+		return nil, err
+	}
 	c.observer.OnTaskStart(jobworkflow.TaskStartEvent{TaskType: task, Ordinal: 1, AttemptNumber: 1, Input: input})
 	c.observer.OnTaskEnd(jobworkflow.TaskEndEvent{TaskType: task, Ordinal: 1, AttemptNumber: 1, Output: c.output})
 	return c.output, nil
@@ -154,7 +160,7 @@ func TestStoryReplayRetainsRecipeLoadErrorWhenEngineReportsMismatch(t *testing.T
 				req.Observer.OnJobStart(jobworkflow.JobStartEvent{JobKey: req.JobKey, AttemptNumber: 1, Input: start})
 				var loadErr error
 				require.NotPanics(t, func() {
-					_, loadErr = req.JobWorker.Run(&loadErrorReplayContext{observer: req.Observer, output: resolved}, start)
+					_, loadErr = req.JobWorker.(*replayRecipeWorker).Execute(&loadErrorReplayContext{observer: req.Observer, output: resolved}, start)
 				})
 				require.ErrorContains(t, loadErr, source.want)
 				// The engine encounters a task chapter where it now expects a job outcome.
@@ -168,7 +174,7 @@ func TestStoryReplayRetainsRecipeLoadErrorWhenEngineReportsMismatch(t *testing.T
 }
 
 func TestStoryReplayReportsMismatchBeforeUnemittedEvents(t *testing.T) {
-	mismatch := jobworkflow.TaskInputMismatchError{TaskType: "op:run", Ordinal: 4, CachedInputHash: "before", ComputedInputHash: "after"}
+	mismatch := fmt.Errorf("task command changed for op:run: %w", jobworkflow.ErrWorkflowNotDeterministic)
 	engine := &scriptedStoryEngine{
 		run:    jobdb.GetJobRunResponse{Attempts: []jobdb.JobAttempt{{Attempt: 1, Tasks: []jobdb.TaskRun{{TaskType: "op:run", Attempts: []jobdb.TaskAttempt{{Ordinal: 4, Attempt: 1, State: jobdb.TaskAttemptStateSucceeded}}}}}}},
 		replay: func(jobworkflow.ReplayRunRequest) (jobdb.JobData, error) { return nil, mismatch },
@@ -180,11 +186,37 @@ func TestStoryReplayReportsMismatchBeforeUnemittedEvents(t *testing.T) {
 	require.ErrorContains(t, err, "replay stopped before all recorded events were emitted")
 }
 
-func TestStoryReplayPrefersTaskMismatchToSubsequentChapterMismatch(t *testing.T) {
-	mismatch := jobworkflow.TaskInputMismatchError{TaskType: "op:run", Ordinal: 4, CachedInputHash: "before", ComputedInputHash: "after"}
+func TestStoryReplayRetainsTaskMismatchAndEngineError(t *testing.T) {
+	mismatch := fmt.Errorf("task command changed for op:run: %w", jobworkflow.ErrWorkflowNotDeterministic)
 	worker := &replayRecipeWorker{err: fmt.Errorf("op failed: %w", mismatch)}
 	err := worker.withCause(fmt.Errorf("unexpected chapter: %w", jobdb.ErrWorkflowNotDeterministic))
 	require.True(t, strings.HasPrefix(err.Error(), "recipe replay: op failed: "+mismatch.Error()))
-	var got jobworkflow.TaskInputMismatchError
-	require.ErrorAs(t, err, &got)
+	require.ErrorIs(t, err, mismatch)
+	require.ErrorIs(t, err, jobworkflow.ErrWorkflowNotDeterministic)
+}
+
+// Build synthetic versioned records for observer-integrity tests. The scripted
+// observer below can then deliberately omit individual committed events.
+func executionFixture(run jobdb.GetJobRunResponse) jobdb.GetJobRunResponse {
+	if len(run.Execution) > 0 {
+		return run
+	}
+	add := func(r jobdb.ExecutionRecord) {
+		run.Execution = append(run.Execution, jobdb.ExecutionHistoryEntry{Record: r})
+	}
+	add(jobdb.ExecutionRecord{Kind: "scope", ID: "job"})
+	for _, j := range run.Attempts {
+		for _, task := range j.Tasks {
+			for _, a := range task.Attempts {
+				id := fmt.Sprintf("task:%d", a.Ordinal)
+				descriptor, _ := json.Marshal(map[string]any{"call": map[string]any{"task_type": task.TaskType}})
+				add(jobdb.ExecutionRecord{Kind: "task", ID: id, Descriptor: descriptor})
+				add(jobdb.ExecutionRecord{Kind: "result", ID: fmt.Sprintf("%s/attempt:%d", id, a.Attempt)})
+			}
+		}
+		if j.Outcome.Status != "" {
+			add(jobdb.ExecutionRecord{Kind: "result", ID: fmt.Sprintf("job/attempt:%d", j.Attempt)})
+		}
+	}
+	return run
 }

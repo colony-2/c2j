@@ -158,12 +158,8 @@ func startMultipleJobs(deps ops.OpDependencies, ctx context.Context, input Multi
 	return StartedJobs{JobIDs: ids}, nil
 }
 
-func currentInvocation(deps ops.OpDependencies) contextual.Invocation {
-	gitContext := deps.GitContext()
-	return contextual.Invocation{
-		NodePath:  gitContext.NodePath,
-		InvokeSeq: gitContext.InvokeSeq,
-	}
+func currentInvocation(deps ops.OpDependencies) string {
+	return deps.JobTool().InvocationID()
 }
 
 func currentRecipeSource(deps ops.OpDependencies) (string, string) {

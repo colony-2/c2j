@@ -18,6 +18,7 @@ type Session struct {
 	values       map[string]jobdb.SecretValue
 	redactor     *Redactor
 	ownsRedactor bool
+	released     bool
 	closed       bool
 }
 
@@ -34,8 +35,13 @@ func (*Session) GoString() string { return "secret task session (redacted)" }
 func (s *Session) Close() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.released {
+		return
+	}
+	s.released = true
 	clear(s.values)
 	s.closed = true
+	s.redactor.releaseTask()
 	if s.ownsRedactor {
 		s.redactor.Close()
 	}
@@ -200,35 +206,69 @@ func FromContext(ctx context.Context) *Session { s, _ := ctx.Value(contextKey{})
 // stores names or values for materializing task inputs.
 type Sessions struct {
 	mu     sync.Mutex
-	active map[jobdb.JobKey]*Redactor
+	active map[jobdb.JobKey]executionRedactor
 }
 
-func NewSessions() *Sessions { return &Sessions{active: map[jobdb.JobKey]*Redactor{}} }
+type executionRedactor struct {
+	ctx      context.Context
+	redactor *Redactor
+}
+
+func NewSessions() *Sessions { return &Sessions{active: map[jobdb.JobKey]executionRedactor{}} }
 func (m *Sessions) Open(key jobdb.JobKey) (*Redactor, error) {
+	return m.OpenExecution(context.Background(), key)
+}
+
+// OpenExecution allows recovery once the previous activation is cancelled,
+// even while its abandoned callbacks are still unwinding.
+func (m *Sessions) OpenExecution(ctx context.Context, key jobdb.JobKey) (*Redactor, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if m.active[key] != nil {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if prior, ok := m.active[key]; ok && prior.ctx.Err() == nil {
 		return nil, errors.New("job already executing locally")
 	}
 	s := newRedactor()
-	m.active[key] = s
+	m.active[key] = executionRedactor{ctx: ctx, redactor: s}
 	registerMask(s)
 	return s, nil
 }
 func (m *Sessions) Get(key jobdb.JobKey) *Redactor {
+	return m.GetExecution(context.Background(), key)
+}
+
+func (m *Sessions) GetExecution(ctx context.Context, key jobdb.JobKey) *Redactor {
 	if m == nil {
 		return nil
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	return m.active[key]
+	if ctx.Err() != nil {
+		return nil
+	}
+	entry, ok := m.active[key]
+	if !ok || entry.ctx.Err() != nil {
+		return nil
+	}
+	return entry.redactor
 }
 func (m *Sessions) Close(key jobdb.JobKey) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if s := m.active[key]; s != nil {
-		s.Close()
-		activeMasks.Delete(s)
+	if entry, ok := m.active[key]; ok {
+		entry.redactor.Close()
+		delete(m.active, key)
+	}
+}
+
+// CloseExecution cannot close a newer activation of the same job.
+func (m *Sessions) CloseExecution(key jobdb.JobKey, redactor *Redactor) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	redactor.Close()
+	if m.active[key].redactor == redactor {
 		delete(m.active, key)
 	}
 }

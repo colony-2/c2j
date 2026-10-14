@@ -196,14 +196,11 @@ c2j submit "Review the new endpoint" \
   --json
 ```
 
-Save the returned parent job ID. If workers are not already running, start a
-worker connected to the same runtime:
+Save the returned parent job ID. Configure Pulse to dispatch jobs from the same
+runtime and tenant. For manual execution, use `c2j run --job-id JOB_ID --jobdb
+https://jobdb.example.com/dev` for each ready parent or child job.
 
-```bash
-c2j run loop --jobdb https://jobdb.example.com/dev
-```
-
-The parent launches the child when its command executes; workers can then
+The parent launches the child when its command executes; the dispatcher can then
 execute the child. Both may finish quickly, so include terminal statuses when
 checking the relationship:
 

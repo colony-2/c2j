@@ -74,15 +74,15 @@ func TestMultiStepWithCapabilityClaim(t *testing.T) {
 		jobErr    error
 	)
 	jobWorkerType := fmt.Sprintf("%T", ws.JobWorker)
-	ws.JobWorker = loggingJobWorker{
-		inner: ws.JobWorker,
+	ws.JobWorker = asExecutionTestWorker(loggingJobWorker{
+		inner: ws.JobWorker.(jobworkflow.ExecutionWorker),
 		after: func(err error) {
 			jobRunsMu.Lock()
 			defer jobRunsMu.Unlock()
 			jobRuns++
 			jobErr = err
 		},
-	}
+	})
 	require.NotContains(t, (*ws).TaskWorkers, fmt.Sprintf("%s:second", opType))
 	firstTaskType := fmt.Sprintf("%s:%s", opType, opType)
 	firstReg, ok := registry.Get(firstTaskType)
@@ -307,7 +307,7 @@ type loggingTaskWorker struct {
 }
 
 type loggingJobWorker struct {
-	inner jobworkflow.JobWorker
+	inner jobworkflow.ExecutionWorker
 	after func(error)
 }
 
@@ -315,7 +315,7 @@ func (l loggingJobWorker) Name() string {
 	return l.inner.Name()
 }
 
-func (l loggingJobWorker) Run(ctx jobworkflow.JobContext, data jobdb.JobData) (jobdb.JobData, error) {
+func (l loggingJobWorker) Run(ctx jobworkflow.ExecutionContext, data jobdb.JobData) (jobdb.JobData, error) {
 	var (
 		out jobdb.JobData
 		err error
@@ -326,7 +326,7 @@ func (l loggingJobWorker) Run(ctx jobworkflow.JobContext, data jobdb.JobData) (j
 				err = fmt.Errorf("panic: %v\n%s", r, debug.Stack())
 			}
 		}()
-		out, err = l.inner.Run(ctx, data)
+		out, err = l.inner.Execute(ctx, data)
 	}()
 	if l.after != nil {
 		l.after(err)

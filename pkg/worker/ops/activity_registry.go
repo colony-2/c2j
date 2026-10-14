@@ -41,31 +41,31 @@ type ActivityInvocationRequest struct {
 
 // ActivityInvocationOutput wraps the raw op output alongside workspace results.
 type ActivityInvocationOutput struct {
-	PreparationMS     int64                          `json:"preparation_ms,omitempty"`
-	Configuration     *configuration.Diagnostics     `json:"configuration,omitempty"`
-	Extension         *extops.ResolvedOp             `json:"extension,omitempty"`
-	SecretSetupMS     int64                          `json:"secret_setup_ms,omitempty"`
-	Setup             *toolenv.Diagnostics           `json:"setup,omitempty"`
-	WorkspaceScopeID  string                         `json:"workspace_scope_id,omitempty"`
-	Execution         *execution.Requirements        `json:"execution,omitempty"`
-	GitResult         contextual.GitCommitContext    `json:"git,omitempty"`
-	NextTaskAlternate *jobworkflow.TaskAlternate     `json:"next_task_alternate,omitempty"`
-	NextTask          string                         `json:"nextTaskType,omitempty"`
-	OpOutput          map[string]interface{}         `json:"output"`
-	ArtifactRefs      map[string]recipeartifacts.Ref `json:"artifact_refs,omitempty"`
-	Jobs              jobcontext.StartedJobsContext  `json:"jobs,omitempty"`
+	PreparationMS     int64                           `json:"preparation_ms,omitempty"`
+	Configuration     *configuration.Diagnostics      `json:"configuration,omitempty"`
+	Extension         *extops.ResolvedOp              `json:"extension,omitempty"`
+	SecretSetupMS     int64                           `json:"secret_setup_ms,omitempty"`
+	Setup             *toolenv.Diagnostics            `json:"setup,omitempty"`
+	WorkspaceScopeID  string                          `json:"workspace_scope_id,omitempty"`
+	Execution         *execution.Requirements         `json:"execution,omitempty"`
+	GitResult         contextual.GitCommitContext     `json:"git,omitempty"`
+	NextTaskAlternate *jobworkflow.TaskAlternateAfter `json:"next_task_alternate,omitempty"`
+	NextTask          string                          `json:"nextTaskType,omitempty"`
+	OpOutput          map[string]interface{}          `json:"output"`
+	ArtifactRefs      map[string]recipeartifacts.Ref  `json:"artifact_refs,omitempty"`
+	Jobs              jobcontext.StartedJobsContext   `json:"jobs,omitempty"`
 }
 
 // variation of ActivityInvocationOutput that allows arbitrary output types to avoid double serialization
 type ActivityInvocationOutputRaw struct {
-	WorkspaceScopeID  string                         `json:"workspace_scope_id,omitempty"`
-	Execution         *execution.Requirements        `json:"execution,omitempty"`
-	GitResult         contextual.GitCommitContext    `json:"git,omitempty"`
-	NextTaskAlternate *jobworkflow.TaskAlternate     `json:"next_task_alternate,omitempty"`
-	NextTask          string                         `json:"nextTaskType,omitempty"`
-	Output            any                            `json:"output"`
-	ArtifactRefs      map[string]recipeartifacts.Ref `json:"artifact_refs,omitempty"`
-	Jobs              jobcontext.StartedJobsContext  `json:"jobs,omitempty"`
+	WorkspaceScopeID  string                          `json:"workspace_scope_id,omitempty"`
+	Execution         *execution.Requirements         `json:"execution,omitempty"`
+	GitResult         contextual.GitCommitContext     `json:"git,omitempty"`
+	NextTaskAlternate *jobworkflow.TaskAlternateAfter `json:"next_task_alternate,omitempty"`
+	NextTask          string                          `json:"nextTaskType,omitempty"`
+	Output            any                             `json:"output"`
+	ArtifactRefs      map[string]recipeartifacts.Ref  `json:"artifact_refs,omitempty"`
+	Jobs              jobcontext.StartedJobsContext   `json:"jobs,omitempty"`
 }
 
 // ActivityRegistration holds the activity step and its generated schemas.
@@ -263,4 +263,13 @@ func createWorkDir() (string, error) {
 // removeWorkDir removes the temporary worktree directory
 func removeWorkDir(path string) {
 	_ = os.RemoveAll(path)
+}
+
+// ExternalOutput carries unchanged context from an external task's input snapshot.
+func (r ActivityInvocationRequest) ExternalOutput() ActivityInvocationOutput {
+	out := ActivityInvocationOutput{OpOutput: r.Input, ArtifactRefs: r.Artifacts, GitResult: contextual.GitCommitContext{ParentHash: r.GitTaskContext.ParentHash, ParentRef: r.GitTaskContext.ParentRef, PersistHash: r.GitTaskContext.PersistHash}}
+	if r.GitTaskContext.Workspace != nil {
+		out.WorkspaceScopeID = r.GitTaskContext.Workspace.ScopeID
+	}
+	return out
 }

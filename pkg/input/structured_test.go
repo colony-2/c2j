@@ -3,11 +3,13 @@ package input
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"path/filepath"
 	"testing"
 	"time"
 
 	recipeartifacts "github.com/colony-2/c2j/pkg/artifacts"
+	"github.com/colony-2/c2j/pkg/contextual"
 	coreops "github.com/colony-2/c2j/pkg/ops"
 	coretask "github.com/colony-2/c2j/pkg/task"
 	workerops "github.com/colony-2/c2j/pkg/worker/ops"
@@ -80,29 +82,29 @@ func (structuredPrepareTask) Run(_ workflow.TaskContext, data jobdb.TaskData) (j
 type structuredWorker struct{ forms []InputForm }
 
 func (structuredWorker) Name() string { return "recipe" }
-func (w structuredWorker) Run(ctx workflow.JobContext, _ jobdb.JobData) (jobdb.JobData, error) {
-	var result jobdb.TaskData
-	for _, form := range w.forms {
-		value, err := jsonValue(form)
-		if err != nil {
-			return nil, err
+func (w structuredWorker) executionWorker() workflow.ExecutionWorker {
+	return workflow.ExecutionWorker{JobType: "recipe", Execute: func(ctx workflow.ExecutionContext, _ jobdb.JobData) (jobdb.JobData, error) {
+		var result jobdb.TaskData
+		for i, form := range w.forms {
+			raw, err := json.Marshal(form)
+			if err != nil {
+				return nil, err
+			}
+			result, err = ctx.DoTask(workflow.TaskCall{Site: fmt.Sprint("input-", i), TaskType: "input:collect_user_input", ContractVersion: 1, Command: raw}, func(context.Context) (jobdb.TaskData, error) {
+				value, err := jsonValue(form)
+				if err != nil {
+					return nil, err
+				}
+				req := workerops.ActivityInvocationRequest{Input: value.(map[string]any)}
+				req.GitTaskContext.Workspace = &contextual.WorkspaceContext{ScopeID: "cell-b-workspace"}
+				return jobdb.NewTaskData(req)
+			})
+			if err != nil {
+				return nil, err
+			}
 		}
-		env, err := coretask.NewOutputEnvelope(coretask.OutputKindActivityInvocationOutput, workerops.ActivityInvocationOutput{
-			WorkspaceScopeID: "cell-b-workspace", OpOutput: value.(map[string]any),
-		})
-		if err != nil {
-			return nil, err
-		}
-		prepared, err := ctx.DoTask(jobdb.DefaultRunPolicy(), "prepare", jobdb.NewTaskDataOrPanic(env))
-		if err != nil {
-			return nil, err
-		}
-		result, err = ctx.DoTask(jobdb.DefaultRunPolicy(), "input:collect_user_input", prepared)
-		if err != nil {
-			return nil, err
-		}
-	}
-	return result, nil
+		return result, nil
+	}}
 }
 
 func TestStructuredInputSQLiteAttachmentsReplayAndStaleSubmission(t *testing.T) {
@@ -128,7 +130,7 @@ func TestStructuredInputSQLiteAttachmentsReplayAndStaleSubmission(t *testing.T) 
 	handle, err := rt.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "tenant", JobID: "review", JobType: "recipe", Data: jobdb.NewTaskDataOrPanic(map[string]any{}), RunPolicy: jobdb.DefaultRunPolicy()}})
 	require.NoError(t, err)
 	run := func() {
-		runnable, err := workflow.GetJobForRun(ctx, rt, workflow.GetJobForRunRequest{JobKey: handle.JobKey, JobWorker: w, TaskWorkers: []workflow.TaskWorker{structuredPrepareTask{}}, WorkerID: "test", LeaseDuration: time.Minute})
+		runnable, err := workflow.GetJobForRun(ctx, rt, workflow.GetJobForRunRequest{JobKey: handle.JobKey, JobWorker: w.executionWorker(), TaskWorkers: []workflow.TaskWorker{structuredPrepareTask{}}, WorkerID: "test", LeaseDuration: time.Minute})
 		require.NoError(t, err)
 		_, err = runnable.Run(nil)
 		require.NoError(t, err)
@@ -173,10 +175,10 @@ func TestStructuredInputSQLiteAttachmentsReplayAndStaleSubmission(t *testing.T) 
 	require.Equal(t, content, bytes)
 	chapter, err := rt.GetChapter(ctx, jobdb.ChapterRef{JobKey: handle.JobKey, Ordinal: key.TaskOrdinal})
 	require.NoError(t, err)
-	body, ok := chapter.Body.(jobdb.TaskAttemptOutcomeChapter)
+	body, ok := chapter.Body.(jobdb.ExecutionChapter)
 	require.True(t, ok)
-	persisted, ok := body.Outcome.(jobdb.ApplicationOutputOutcome)
-	require.True(t, ok)
+	persisted, err := jobdb.DecodeExecutionRecord(body.Record)
+	require.NoError(t, err)
 	encoded := persisted.Output.Data
 	var persistedEnvelope coretask.OutputEnvelope
 	require.NoError(t, json.Unmarshal(encoded, &persistedEnvelope))

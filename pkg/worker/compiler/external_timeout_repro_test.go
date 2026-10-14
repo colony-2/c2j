@@ -22,8 +22,8 @@ func TestTimeoutReproJobDBExternalTaskDeadline(t *testing.T) {
 			const total = 100 * time.Millisecond
 			const invocation = 600 * time.Millisecond
 			key := submitTimeoutRepro(t, rt, "external", timeoutReproPolicy(5*time.Second, 2*time.Second))
-			worker := timeoutReproWorker{"repro", func(ctx jobworkflow.JobContext, data jobdb.JobData) (jobdb.JobData, error) {
-				return ctx.DoTask(timeoutReproPolicy(total, invocation), "external", data)
+			worker := timeoutReproWorker{"repro", func(ctx jobworkflow.ExecutionContext, data jobdb.JobData) (jobdb.JobData, error) {
+				return testValueCall(ctx, timeoutReproPolicy(total, invocation), "external", data)
 			}}
 			require.Equal(t, jobworkflow.JobRunSuspended, runTimeoutRepro(t, rt, key, worker).Status)
 			handoff := rt.lastHandoff(t)
@@ -45,8 +45,8 @@ func TestTimeoutReproJobDeadlineEventuallyRecordsFailure(t *testing.T) {
 		t.Run(backend, func(t *testing.T) {
 			rt := newTimeoutReproRuntime(t, backend)
 			key := submitTimeoutRepro(t, rt, "job-deadline", timeoutReproPolicy(100*time.Millisecond, 600*time.Millisecond))
-			worker := timeoutReproWorker{"repro", func(ctx jobworkflow.JobContext, data jobdb.JobData) (jobdb.JobData, error) {
-				return ctx.DoTask(jobdb.RunPolicy{}, "external", data)
+			worker := timeoutReproWorker{"repro", func(ctx jobworkflow.ExecutionContext, data jobdb.JobData) (jobdb.JobData, error) {
+				return testValueCall(ctx, jobdb.RunPolicy{}, "external", data)
 			}}
 			require.Equal(t, jobworkflow.JobRunSuspended, runTimeoutRepro(t, rt, key, worker).Status)
 			handoff := rt.lastHandoff(t)
@@ -108,7 +108,7 @@ func TestTimeoutReproAwaitJobsDoesNotScheduleDeadline(t *testing.T) {
 	rt := newTimeoutReproRuntime(t, "remote")
 	child := submitTimeoutRepro(t, rt, "child", timeoutReproPolicy(time.Minute, time.Second))
 	parent := submitTimeoutRepro(t, rt, "parent", timeoutReproPolicy(100*time.Millisecond, time.Second))
-	worker := timeoutReproWorker{"repro", func(ctx jobworkflow.JobContext, data jobdb.JobData) (jobdb.JobData, error) {
+	worker := timeoutReproWorker{"repro", func(ctx jobworkflow.ExecutionContext, data jobdb.JobData) (jobdb.JobData, error) {
 		return data, ctx.AwaitJobs(child.JobId)
 	}}
 	require.Equal(t, jobworkflow.JobRunSuspended, runTimeoutRepro(t, rt, parent, worker).Status)
@@ -128,12 +128,12 @@ func TestTimeoutReproJobDeadlinePreservesExistingChapter(t *testing.T) {
 			data, err := jobdb.NewTaskData(map[string]any{"cached": true})
 			require.NoError(t, err)
 			local := &timeoutReproActivity{name: "local", output: data}
-			worker := timeoutReproWorker{"repro", func(ctx jobworkflow.JobContext, input jobdb.JobData) (jobdb.JobData, error) {
-				result, err := ctx.DoTask(jobdb.RunPolicy{}, "local", input)
+			worker := timeoutReproWorker{"repro", func(ctx jobworkflow.ExecutionContext, input jobdb.JobData) (jobdb.JobData, error) {
+				result, err := testValueCall(ctx, jobdb.RunPolicy{}, "local", input)
 				if err != nil {
 					return nil, err
 				}
-				return ctx.DoTask(jobdb.RunPolicy{}, "external", result)
+				return testValueCall(ctx, jobdb.RunPolicy{}, "external", result)
 			}}
 			require.Equal(t, jobworkflow.JobRunSuspended, runTimeoutRepro(t, rt, key, worker, local).Status)
 			require.EqualValues(t, 1, local.runs.Load())
@@ -141,7 +141,7 @@ func TestTimeoutReproJobDeadlinePreservesExistingChapter(t *testing.T) {
 			require.NoError(t, err)
 			h := rt.lastHandoff(t)
 			waitTimeoutRepro(t, h.at.Add(*h.req.AlternateAfter+50*time.Millisecond))
-			runnable, err := jobworkflow.GetJobForRun(context.Background(), rt, jobworkflow.GetJobForRunRequest{JobKey: key, JobWorker: worker, TaskWorkers: []jobworkflow.TaskWorker{local}, WorkerID: "restart", LeaseDuration: time.Second})
+			runnable, err := jobworkflow.GetJobForRun(context.Background(), rt, jobworkflow.GetJobForRunRequest{JobKey: key, JobWorker: asExecutionTestWorker(worker), TaskWorkers: []jobworkflow.TaskWorker{local}, WorkerID: "restart", LeaseDuration: time.Second})
 			require.NoError(t, err)
 			out, err := runnable.Run(nil)
 			require.NoError(t, err)
@@ -161,11 +161,11 @@ func TestTimeoutReproAwaitDurationClampsToDeadline(t *testing.T) {
 			rt := newTimeoutReproRuntime(t, backend)
 			start := time.Now()
 			key := submitTimeoutRepro(t, rt, "timed-wait", timeoutReproPolicy(100*time.Millisecond, time.Second))
-			worker := timeoutReproWorker{"repro", func(ctx jobworkflow.JobContext, data jobdb.JobData) (jobdb.JobData, error) {
+			worker := timeoutReproWorker{"repro", func(ctx jobworkflow.ExecutionContext, data jobdb.JobData) (jobdb.JobData, error) {
 				return data, ctx.AwaitDuration(jobdb.Duration(time.Second))
 			}}
 			// This control specifically exercises durable timed suspension.
-			runnable, err := jobworkflow.GetJobForRun(context.Background(), rt, jobworkflow.GetJobForRunRequest{JobKey: key, JobWorker: worker, WorkerID: "timed-wait", LeaseDuration: time.Second, AwaitThreshold: time.Millisecond})
+			runnable, err := jobworkflow.GetJobForRun(context.Background(), rt, jobworkflow.GetJobForRunRequest{JobKey: key, JobWorker: asExecutionTestWorker(worker), WorkerID: "timed-wait", LeaseDuration: time.Second, AwaitThreshold: time.Millisecond})
 			require.NoError(t, err)
 			out, err := runnable.Run(nil)
 			require.NoError(t, err)

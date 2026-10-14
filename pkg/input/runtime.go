@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/colony-2/c2j/pkg/ops"
 	coretask "github.com/colony-2/c2j/pkg/task"
@@ -77,7 +78,10 @@ func (r *Runtime) GetDetails(ctx context.Context, projectID string, jobID string
 		return nil, err
 	}
 
-	_ = task
+	if err := r.populateFallbackAt(ctx, task, &form); err != nil {
+		return nil, err
+	}
+
 	return &UserInputDetails{
 		JobId:     jobID,
 		Status:    "pending",
@@ -223,20 +227,43 @@ func (r *Runtime) getOutput(ctx context.Context, projectID string, jobID string)
 		return nil, workerops.ActivityInvocationOutput{}, nil, runtimeError(ErrStorage, "failed to get task artifacts", err)
 	}
 
-	var env coretask.OutputEnvelope
-	if err := json.Unmarshal(data, &env); err != nil {
-		return nil, workerops.ActivityInvocationOutput{}, nil, runtimeError(ErrStorage, "failed to unmarshal task output envelope", err)
+	var request workerops.ActivityInvocationRequest
+	if err := json.Unmarshal(data, &request); err != nil {
+		return nil, workerops.ActivityInvocationOutput{}, nil, fmt.Errorf("decode pending input snapshot: %w", err)
 	}
-	if env.Version != coretask.OutputEnvelopeVersion {
-		return nil, workerops.ActivityInvocationOutput{}, nil, invalidFormError(fmt.Errorf("unsupported task output envelope version %d", env.Version))
-	}
-	if env.Kind != coretask.OutputKindActivityInvocationOutput {
-		return nil, workerops.ActivityInvocationOutput{}, nil, invalidFormError(fmt.Errorf("unexpected task output kind %q", env.Kind))
-	}
+	out := request.ExternalOutput()
 
-	var out workerops.ActivityInvocationOutput
-	if err := env.DecodePayload(&out); err != nil {
-		return nil, workerops.ActivityInvocationOutput{}, nil, runtimeError(ErrStorage, "failed to decode activity output payload", err)
-	}
 	return task, out, artifacts, nil
+}
+
+// Eligibility belongs to JobDB's durable wait, never to form-generation time.
+func (r *Runtime) populateFallbackAt(ctx context.Context, task workflowctl.TaskHandle, form *InputForm) error {
+	if form.Fallback == nil {
+		return nil
+	}
+	reader, ok := r.ctl.(interface {
+		GetJobRun(context.Context, jobdb.GetJobRunRequest) (jobdb.GetJobRunResponse, error)
+	})
+	if !ok {
+		return nil
+	}
+	run, err := reader.GetJobRun(ctx, jobdb.GetJobRunRequest{JobKey: task.JobKey()})
+	if err != nil {
+		return err
+	}
+	// A handle is tied to one output ordinal. The last preceding wait is its
+	// input snapshot, even when the alternate has become eligible.
+	for i := len(run.Execution) - 1; i >= 0; i-- {
+		e := run.Execution[i]
+		if e.Ordinal >= task.TaskOrdinalToComplete() {
+			continue
+		}
+		if e.Record.Kind == "wait" {
+			if e.Record.AlternateAt != nil {
+				form.FallbackAt = e.Record.AlternateAt.Format(time.RFC3339Nano)
+			}
+			break
+		}
+	}
+	return nil
 }

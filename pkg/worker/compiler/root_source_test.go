@@ -39,7 +39,15 @@ func (c *renameAfterWithinResolutionContext) GetJobKey() jobdb.JobKey           
 func (c *renameAfterWithinResolutionContext) Logger() *slog.Logger               { return slog.Default() }
 func (c *renameAfterWithinResolutionContext) AwaitDuration(jobdb.Duration) error { return nil }
 
-func (c *renameAfterWithinResolutionContext) DoTask(_ jobdb.RunPolicy, taskType string, data jobdb.TaskData) (jobdb.TaskData, error) {
+func (c *renameAfterWithinResolutionContext) DoTask(call testTaskCall, build func(testContext) (jobdb.TaskData, error)) (jobdb.TaskData, error) {
+	data, buildErr := build(c.Context())
+	if buildErr != nil {
+		return nil, buildErr
+	}
+	_ = data
+	taskType := call.TaskType
+	_ = taskType
+
 	if taskType != WithinRecipeResolutionTaskType {
 		return nil, fmt.Errorf("unexpected task %q before validation wrapper", taskType)
 	}
@@ -269,11 +277,11 @@ outputs:
 	})
 	require.NoError(t, err)
 	require.Len(t, run.Attempts, 1)
-	require.GreaterOrEqual(t, len(run.Attempts[0].Tasks), 2)
-	require.Equal(t, RootSourceResolutionTaskType, run.Attempts[0].Tasks[0].TaskType)
-	require.NotEmpty(t, run.Attempts[0].Tasks[0].Attempts)
-	require.NotNil(t, run.Attempts[0].Tasks[0].Attempts[0].Output)
-	resolvedSource, err := ParseResolvedRecipeSourceJSON(run.Attempts[0].Tasks[0].Attempts[0].Output.Data)
+	require.GreaterOrEqual(t, len(executionTaskRuns(run)), 2)
+	require.Equal(t, RootSourceResolutionTaskType, executionTaskRuns(run)[0].TaskType)
+	require.NotEmpty(t, executionTaskRuns(run)[0].Attempts)
+	require.NotNil(t, executionTaskRuns(run)[0].Attempts[0].Output)
+	resolvedSource, err := ParseResolvedRecipeSourceJSON(executionTaskRuns(run)[0].Attempts[0].Output.Data)
 	require.NoError(t, err)
 	require.Equal(t, "remote-root", resolvedSource.SubmittedSelector)
 	require.Contains(t, resolvedSource.RecipeYAML, "id: remote_root_recipe")
@@ -342,10 +350,10 @@ outputs:
 	})
 	require.NoError(t, err)
 	require.Len(t, run.Attempts, 1)
-	require.GreaterOrEqual(t, len(run.Attempts[0].Tasks), 1)
-	require.Equal(t, RootSourceResolutionTaskType, run.Attempts[0].Tasks[0].TaskType)
+	require.GreaterOrEqual(t, len(executionTaskRuns(run)), 1)
+	require.Equal(t, RootSourceResolutionTaskType, executionTaskRuns(run)[0].TaskType)
 
-	resolvedSource, err := ParseResolvedRecipeSourceJSON(run.Attempts[0].Tasks[0].Attempts[0].Output.Data)
+	resolvedSource, err := ParseResolvedRecipeSourceJSON(executionTaskRuns(run)[0].Attempts[0].Output.Data)
 	require.NoError(t, err)
 	require.Equal(t, "remote-root", resolvedSource.SubmittedSelector)
 	require.Equal(t, fmt.Sprintf("git+%s//.c2j/recipes/remote-root.yaml@%s", repoURL, commit), resolvedSource.ResolvedSelector)
@@ -543,7 +551,7 @@ outputs:
 	})
 	require.NoError(t, err)
 	require.Len(t, run.Attempts, 1)
-	for _, task := range run.Attempts[0].Tasks {
+	for _, task := range executionTaskRuns(run) {
 		require.NotEqual(t, RootSourceResolutionTaskType, task.TaskType)
 	}
 }
@@ -663,9 +671,9 @@ outputs:
 	})
 	require.NoError(t, err)
 	require.Len(t, run.Attempts, 1)
-	require.NotEmpty(t, run.Attempts[0].Tasks)
-	for i := range run.Attempts[0].Tasks {
-		task := &run.Attempts[0].Tasks[i]
+	require.NotEmpty(t, executionTaskRuns(run))
+	for i := range executionTaskRuns(run) {
+		task := &executionTaskRuns(run)[i]
 		require.NotEqual(t, RootSourceResolutionTaskType, task.TaskType)
 		require.NotEqual(t, WithinRecipeResolutionTaskType, task.TaskType)
 	}
@@ -783,8 +791,8 @@ outputs:
 	require.NoError(t, err)
 	require.Len(t, run.Attempts, 1)
 	var resolutionOutput []byte
-	for i := range run.Attempts[0].Tasks {
-		task := &run.Attempts[0].Tasks[i]
+	for i := range executionTaskRuns(run) {
+		task := &executionTaskRuns(run)[i]
 		require.NotEqual(t, RootSourceResolutionTaskType, task.TaskType)
 		if task.TaskType == WithinRecipeResolutionTaskType {
 			require.NotEmpty(t, task.Attempts)
@@ -914,13 +922,13 @@ outputs:
 	})
 	require.NoError(t, err)
 	require.Len(t, run.Attempts, 1)
-	require.NotEmpty(t, run.Attempts[0].Tasks)
-	require.Equal(t, RootSourceResolutionTaskType, run.Attempts[0].Tasks[0].TaskType)
-	for i := range run.Attempts[0].Tasks {
-		require.NotEqual(t, WithinRecipeResolutionTaskType, run.Attempts[0].Tasks[i].TaskType)
+	require.NotEmpty(t, executionTaskRuns(run))
+	require.Equal(t, RootSourceResolutionTaskType, executionTaskRuns(run)[0].TaskType)
+	for i := range executionTaskRuns(run) {
+		require.NotEqual(t, WithinRecipeResolutionTaskType, executionTaskRuns(run)[i].TaskType)
 	}
 
-	resolvedSource, err := ParseResolvedRecipeSourceJSON(run.Attempts[0].Tasks[0].Attempts[0].Output.Data)
+	resolvedSource, err := ParseResolvedRecipeSourceJSON(executionTaskRuns(run)[0].Attempts[0].Output.Data)
 	require.NoError(t, err)
 	require.Equal(t, fmt.Sprintf("git+%s//recipes/remote.yaml@%s", repoURL, commit), resolvedSource.ResolvedSelector)
 	require.Contains(t, resolvedSource.RecipeYAML, "selector: ./tools/cel/text-utils")
@@ -1027,7 +1035,7 @@ outputs:
 	})
 	require.NoError(t, err)
 	requireResolvedInvocation(t, run, fmt.Sprintf("git+%s//tools/ops/echo@%s", repoURL, rootCommit))
-	for _, task := range run.Attempts[0].Tasks {
+	for _, task := range executionTaskRuns(run) {
 		require.NotEqual(t, WithinRecipeResolutionTaskType, task.TaskType, "ops resolve at invocation, not upfront")
 	}
 
@@ -1160,12 +1168,12 @@ outputs:
 	})
 	require.NoError(t, err)
 	require.Len(t, run.Attempts, 1)
-	require.NotEmpty(t, run.Attempts[0].Tasks)
-	require.Equal(t, RootSourceResolutionTaskType, run.Attempts[0].Tasks[0].TaskType)
+	require.NotEmpty(t, executionTaskRuns(run))
+	require.Equal(t, RootSourceResolutionTaskType, executionTaskRuns(run)[0].TaskType)
 
 	var withinOutput []byte
-	for i := range run.Attempts[0].Tasks {
-		task := &run.Attempts[0].Tasks[i]
+	for i := range executionTaskRuns(run) {
+		task := &executionTaskRuns(run)[i]
 		if task.TaskType == WithinRecipeResolutionTaskType {
 			require.NotEmpty(t, task.Attempts)
 			require.NotNil(t, task.Attempts[0].Output)
@@ -1174,7 +1182,7 @@ outputs:
 	}
 	require.NotEmpty(t, withinOutput)
 
-	resolvedSource, err := ParseResolvedRecipeSourceJSON(run.Attempts[0].Tasks[0].Attempts[0].Output.Data)
+	resolvedSource, err := ParseResolvedRecipeSourceJSON(executionTaskRuns(run)[0].Attempts[0].Output.Data)
 	require.NoError(t, err)
 	require.Equal(t, fmt.Sprintf("git+%s//recipes/remote.yaml@%s", rootRepoURL, rootCommit), resolvedSource.ResolvedSelector)
 
@@ -1334,12 +1342,12 @@ outputs:
 	})
 	require.NoError(t, err)
 	require.Len(t, run.Attempts, 1)
-	require.NotEmpty(t, run.Attempts[0].Tasks)
-	require.Equal(t, RootSourceResolutionTaskType, run.Attempts[0].Tasks[0].TaskType)
+	require.NotEmpty(t, executionTaskRuns(run))
+	require.Equal(t, RootSourceResolutionTaskType, executionTaskRuns(run)[0].TaskType)
 
 	var withinOutput []byte
-	for i := range run.Attempts[0].Tasks {
-		task := &run.Attempts[0].Tasks[i]
+	for i := range executionTaskRuns(run) {
+		task := &executionTaskRuns(run)[i]
 		if task.TaskType == WithinRecipeResolutionTaskType {
 			require.NotEmpty(t, task.Attempts)
 			require.NotNil(t, task.Attempts[0].Output)
@@ -1348,7 +1356,7 @@ outputs:
 	}
 	require.NotEmpty(t, withinOutput)
 
-	resolvedSource, err := ParseResolvedRecipeSourceJSON(run.Attempts[0].Tasks[0].Attempts[0].Output.Data)
+	resolvedSource, err := ParseResolvedRecipeSourceJSON(executionTaskRuns(run)[0].Attempts[0].Output.Data)
 	require.NoError(t, err)
 	require.Equal(t, fmt.Sprintf("git+%s//recipes/remote.yaml@%s", rootRepoURL, rootCommit), resolvedSource.ResolvedSelector)
 	require.Contains(t, resolvedSource.RecipeYAML, "selector: ./tools/cel/local-utils")
@@ -1446,8 +1454,8 @@ func cachedCommitDirs(t *testing.T, cacheRoot string) []string {
 
 func requireResolvedInvocation(t *testing.T, run jobdb.GetJobRunResponse, selector string) {
 	t.Helper()
-	for _, attempt := range run.Attempts {
-		for _, task := range attempt.Tasks {
+	for _, tasks := range [][]jobdb.TaskRun{executionTaskRuns(run)} {
+		for _, task := range tasks {
 			if task.TaskType != "extension_execution:extension_execution" {
 				continue
 			}
@@ -1464,4 +1472,12 @@ func requireResolvedInvocation(t *testing.T, run jobdb.GetJobRunResponse, select
 		}
 	}
 	t.Fatalf("no lazy extension resolution for %s", selector)
+}
+
+func (c *renameAfterWithinResolutionContext) DoScope(site string, opts testScopeOptions, body func(testExecutionContext) (jobdb.JobData, error)) (jobdb.JobData, error) {
+	return runMockScope(c, site, opts, body)
+}
+func (c *renameAfterWithinResolutionContext) Context() testContext { return testBackground() }
+func (c *renameAfterWithinResolutionContext) ExecutionVersions() jobdb.ExecutionVersions {
+	return jobdb.ExecutionVersions{}
 }

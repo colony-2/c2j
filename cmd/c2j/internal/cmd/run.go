@@ -14,8 +14,6 @@ func newRunCmd() *cobra.Command {
 	cmd := newRunOneSpecificCmd("run")
 	cmd.Short = "Run jobs through JobDB"
 	cmd.AddCommand(newRunOneSpecificCmd("one"))
-	cmd.AddCommand(newRunAnyCmd())
-	cmd.AddCommand(newRunLoopCmd())
 	cmd.AddCommand(newRunWithLeaseCmd())
 	return cmd
 }

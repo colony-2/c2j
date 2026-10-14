@@ -13,8 +13,6 @@ c2j submit
 c2j run
 c2j run one
 c2j run with-lease
-c2j run any
-c2j run loop
 c2j ready
 c2j list
 c2j list children

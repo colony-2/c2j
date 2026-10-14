@@ -1,6 +1,8 @@
 package compiler
 
 import (
+	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -102,7 +104,6 @@ func (d DefaultRecipeExecutor) ExecuteRecipe(ctx workflow.Context, r recipe.Reci
 
 	// we forward thin packs from one task to the next to maintain state.
 	forwarder := newThinPackForwardingJobContext(ctx.JobContext)
-	configureArtifactReplay(forwarder, ctx)
 	forwarder.scopedMode = recipe.HasWorkspaces(r) || execCtx.Workspace != nil
 	if execCtx.InitialCommit != nil {
 		commitContext = *execCtx.InitialCommit
@@ -119,6 +120,10 @@ func (d DefaultRecipeExecutor) ExecuteRecipe(ctx workflow.Context, r recipe.Reci
 
 	execOpts := normalizeExecutionOptions(opts)
 	var err error
+	ctx.RecipeDigest, err = recipe.ExecutionDigest(r)
+	if err != nil {
+		return nil, nil, err
+	}
 	if execOpts.CELOptionsProvider == nil && d.celProvider != nil {
 		execOpts.CELOptionsProvider = d.celProvider
 	}
@@ -271,14 +276,22 @@ type StepResult struct {
 }
 
 func (d DefaultRecipeExecutor) ExecuteOp(ctx workflow.Context, parentResolutionContext *template.ResolutionContext, metadata recipe.NodeMetadata, op string) error {
+	if registered, ok := ops.Get(op); ok && metadata.Timeout == 0 {
+		metadata.Timeout = recipe.Duration(effectiveOpTimeout(metadata, registered))
+	}
+	return executeNodeScope(ctx, parentResolutionContext, metadata, template.ScopeOp, op, func(inner workflow.Context, state *template.ResolutionContext, meta recipe.NodeMetadata) error {
+		return d.executeOpBody(inner, state, meta, op)
+	})
+}
+func (d DefaultRecipeExecutor) executeOpBody(ctx workflow.Context, parentResolutionContext *template.ResolutionContext, metadata recipe.NodeMetadata, op string) error {
 	if metadata.Workspace != nil {
 		return withNodeWorkspace(ctx, parentResolutionContext, metadata, func(inner workflow.Context, scoped *template.ResolutionContext, meta recipe.NodeMetadata) error {
-			return d.ExecuteOp(inner, scoped, meta, op)
+			return d.executeOpBody(inner, scoped, meta, op)
 		})
 	}
 	l := slog.Default()
 	l.Info("executing op", "op", op)
-	err := d.executeOp2(ctx, parentResolutionContext, metadata, op)
+	err := d.executeOpAttempt(ctx, parentResolutionContext, metadata, op)
 	if err != nil {
 		if logReplayCacheMiss(l, "op execution replay cache miss", err, "op", op) {
 			return err
@@ -288,61 +301,6 @@ func (d DefaultRecipeExecutor) ExecuteOp(ctx workflow.Context, parentResolutionC
 	}
 
 	l.Info("op executed successfully", "op", op)
-	return nil
-}
-
-func (d DefaultRecipeExecutor) executeOp2(ctx workflow.Context, parentResolutionContext *template.ResolutionContext, metadata recipe.NodeMetadata, op string) error {
-	catchAware := len(metadata.Catch) > 0 || parentResolutionContext.Options.CatchBeforeRetry
-	if !catchAware {
-		return d.executeOpAttempt(ctx, parentResolutionContext, metadata, op)
-	}
-
-	attemptMetadata := metadata
-	singleAttempt := singleAttemptRetryPolicy(metadata.Retry)
-	attemptMetadata.Retry = &singleAttempt
-	attempts := 1
-	if len(metadata.Catch) > 0 {
-		attempts = retryPolicyAttempts(metadata.Retry)
-	}
-	for attempt := 1; attempt <= attempts; attempt++ {
-		err := d.executeOpAttempt(ctx, parentResolutionContext, attemptMetadata, op)
-		if isExecutionControlError(err) {
-			return err
-		}
-		if err == nil {
-			return nil
-		}
-		failure, ok := failureFromError(err)
-		if !ok {
-			return err
-		}
-
-		if len(metadata.Catch) > 0 {
-			decision, catchErr := evaluateCatchClauses(metadata.Catch, failure, parentResolutionContext, containingStateName(parentResolutionContext), canRouteToState(parentResolutionContext))
-			if catchErr != nil {
-				return catchErr
-			}
-			switch decision.Kind {
-			case catchDecisionRoute:
-				return &catchRouteError{Transition: template.NewFailureTransitionData(containingStateName(parentResolutionContext), decision.To, decision.Payload, decision.Failure)}
-			case catchDecisionContinue:
-				return recordSyntheticNodeOutput(parentResolutionContext, template.ScopeOp, metadata, op, decision.Outputs)
-			case catchDecisionFail:
-				err = decision.Error
-				failure = decision.Failure
-			}
-		}
-
-		if attempt < attempts && shouldRetryFailure(err, failure, metadata.Retry) {
-			if delay := retryDelay(metadata.Retry, attempt); delay > 0 {
-				if awaitErr := ctx.JobContext.AwaitDuration(jobdb.Duration(delay)); awaitErr != nil {
-					return awaitErr
-				}
-			}
-			continue
-		}
-		return newRecipeFailureError(failure, err)
-	}
 	return nil
 }
 
@@ -359,6 +317,9 @@ func (d DefaultRecipeExecutor) executeOpAttempt(ctx workflow.Context, parentReso
 	resCtx, err := parentResolutionContext.NewChildContext(template.ScopeOp, metadata, op, nil)
 	if err != nil {
 		return fmt.Errorf("failed to create resolution context: %w", err)
+	}
+	if ctx.ScopeState != nil {
+		ctx.ScopeState(resCtx)
 	}
 	if err := resCtx.ResolveVars(metadata.Vars); err != nil {
 		return fmt.Errorf("failed to resolve op vars: %w", err)
@@ -414,20 +375,11 @@ func (d DefaultRecipeExecutor) executeOpAttempt(ctx workflow.Context, parentReso
 		}
 		chain = registeredOp.TaskChain()
 		taskPrefix = registeredOp.GetMetadata().Type
-		if len(chain) > 0 {
-			if err := workerops.InjectDefaults(chain[0].InputType, metadata.Inputs); err != nil {
-				return fmt.Errorf("failed to inject defaults: %w", err)
-			}
-		}
+
 	}
 
-	resolvedArtifacts, err := resolveArtifactBindings(resCtx, map[string]interface{}(metadata.Artifacts))
-	if err != nil {
-		return err
-	}
-
-	resolveNormalizedInputs := func() (map[string]interface{}, []jobdb.ArtifactKey, error) {
-		resolvedNodeInputs, err := resCtx.ResolveInputs(metadata.Inputs)
+	resolveNormalizedInputs := func(resCtx *template.ResolutionContext, inputs map[string]interface{}) (map[string]interface{}, []jobdb.ArtifactKey, error) {
+		resolvedNodeInputs, err := resCtx.ResolveInputs(inputs)
 		if err != nil {
 			return nil, nil, fmt.Errorf("failed to resolve templates op inputs: %w", err)
 		}
@@ -467,24 +419,10 @@ func (d DefaultRecipeExecutor) executeOpAttempt(ctx workflow.Context, parentReso
 		return normalizedInput.Data, normalizedInput.StoredArtifactKeys, nil
 	}
 
-	stepInput, artifactKeys, err := resolveNormalizedInputs()
-	if err != nil {
-		return err
-	}
-	initialStepInput := cloneStringMap(stepInput)
-	if len(resolvedArtifacts) > 0 {
-		artifactKeys = appendArtifactKeys(artifactKeys, resolvedArtifacts)
-	}
-
-	if taskPrefix == extops.ExecutionOpType && extensionRequest == nil {
-		_, ok := stepInput["selector"].(string)
-		if !ok {
-			return fmt.Errorf("extension selector must be a string, not a config reference")
-		}
-	}
+	var stepInput, initialStepInput map[string]interface{}
 	preparation := workerops.PreparationRequest{Extension: extensionRequest, Scopes: append([]toolenv.Scope(nil), resCtx.ToolScopes...)}
 	// Execute the operation
-	retry := jobdb.RetryPolicy{}
+	retry := jobdb.RetryPolicy{MaximumAttempts: 1}
 	if metadata.Retry != nil {
 		retry = *metadata.Retry
 	}
@@ -492,93 +430,101 @@ func (d DefaultRecipeExecutor) executeOpAttempt(ctx workflow.Context, parentReso
 	runPolicy := jobdb.RunPolicy{
 		Retry: retry,
 	}
-	opTimeout := effectiveOpTimeout(metadata, registeredOp)
-	if opTimeout > 0 {
-		ctx.JobContext, err = withDurableExecutionTimeout(ctx.JobContext, opTimeout, fmt.Sprintf("op %q", op))
-		if err != nil {
-			return err
-		}
-	}
-	taskExecutionTimeout := activeExecutionTimeoutLimit(ctx.JobContext)
-	if taskExecutionTimeout > 0 {
-		totalTimeout := jobdb.Duration(taskExecutionTimeout)
-		runPolicy.TotalTimeout = &totalTimeout
-	}
-
 	taskType := fmt.Sprintf("%s:%s", taskPrefix, chain[0].Name)
-	var taskAlternate *jobworkflow.TaskAlternate
+	var taskAlternate *jobworkflow.TaskAlternateAfter
 
 	var stepArtifacts map[string]recipeartifacts.Ref
 	var stepOutputArtifacts []jobdb.Artifact
 	var stepJobs jobcontext.StartedJobsContext
 	for i := 0; i < 64; i++ { // guard against accidental loops
 		done := false
-		for patchAttempts := 0; patchAttempts < 64; patchAttempts++ {
-			// Later steps can introduce references that were not in the original op
-			// inputs (for example, a child-result checkpoint in an await chain).
-			invocationKeys := artifactKeys
-			refs, err := objects.Collect(stepInput)
-			if err != nil {
-				return fmt.Errorf("object input: %w", err)
-			}
-			if len(refs) > 0 {
-				acc := newArtifactKeyAccumulator()
-				for _, key := range artifactKeys {
-					if err := acc.Add(key); err != nil {
-						return err
-					}
-				}
-				for _, ref := range refs {
-					if err := acc.Add(ref.Artifact); err != nil {
-						return err
-					}
-				}
-				invocationKeys = acc.Keys()
-			}
-			invocation := workerops.ActivityInvocationRequest{
-				Preparation:    preparation,
-				Input:          stepInput,
-				Const:          resCtx.EffectiveConst,
-				GitTaskContext: *gitstate.NewGlobalGitTaskContext(resCtx.TaskExecutionContext()),
-				ArtifactKeys:   invocationKeys,
-				Artifacts:      resolvedArtifacts,
-			}
+		{
 
-			taskData, err := jobdb.NewTaskData(invocation)
+			commandInput := map[string]any{"recipe": ctx.RecipeDigest, "node": resCtx.TaskExecutionContext().Invocation.NodePath, "op": op, "inputs": metadata.Inputs, "step": taskType, "artifacts": metadata.Artifacts}
+			if i > 0 {
+				commandInput["prior"] = stepInput
+			}
+			command, err := json.Marshal(commandInput)
 			if err != nil {
 				return err
-			}
-
-			if taskAlternate != nil {
-				taskData = jobworkflow.WithTaskOptions(taskData, jobworkflow.TaskOptions{Alternate: taskAlternate})
 			}
 			if ctx.StageNodeExecution != nil {
 				ctx.StageNodeExecution(resCtx.ExecutionNeeds)
 			}
-			out, err := ctx.DoTask(
-				runPolicy,
-				taskType,
-				taskData,
-			)
-
-			mismatchErr := err
-			hadMismatch := false
-			if err != nil {
-				if mismatch, ok := jobworkflow.UnexpectedChapter(err); ok {
-					if mismatch.CachedTaskDataErr() != nil {
-						return fmt.Errorf("rehydrate cached task output: %w", mismatch.CachedTaskDataErr())
-					}
-					out = mismatch.CachedTaskData()
-					if out == nil {
-						// Some JobDB versions expose the mismatch without its cached output.
-						// Preserve the determinism error instead of dereferencing nil.
-						return mismatchErr
-					}
-					hadMismatch = true
-				} else {
-					failure := normalizeRuntimeFailure(err, resCtx, metadata, recipe.FailureNodeOp, op)
-					return newRecipeFailureError(failure, err)
+			out, err := ctx.DoTask(jobworkflow.TaskCall{Site: taskType, TaskType: taskType, ContractVersion: 1, Command: command, Policy: runPolicy, Alternate: taskAlternate}, func(buildContext context.Context) (jobdb.TaskData, error) {
+				buildResolver, err := resCtx.CloneAttempt()
+				if err != nil {
+					return nil, err
 				}
+				var artifactKeys []jobdb.ArtifactKey
+				input := stepInput
+				if i == 0 {
+					raw, e := json.Marshal(metadata.Inputs)
+					if e != nil {
+						return nil, e
+					}
+					var declared map[string]interface{}
+					if e = json.Unmarshal(raw, &declared); e != nil {
+						return nil, e
+					}
+					if extensionRequest == nil && len(chain) > 0 {
+						if e = workerops.InjectDefaults(chain[0].InputType, declared); e != nil {
+							return nil, e
+						}
+					}
+					input, artifactKeys, e = resolveNormalizedInputs(buildResolver, declared)
+					if e != nil {
+						return nil, e
+					}
+				}
+				resolvedArtifacts, e := resolveArtifactBindings(buildResolver, map[string]interface{}(metadata.Artifacts))
+				if e != nil {
+					return nil, e
+				}
+				artifactKeys = appendArtifactKeys(artifactKeys, resolvedArtifacts)
+				// Later steps can introduce references that were not in the original op
+				// inputs (for example, a child-result checkpoint in an await chain).
+				invocationKeys := artifactKeys
+				refs, err := objects.Collect(input)
+				if err != nil {
+					return nil, fmt.Errorf("object input: %w", err)
+				}
+				if len(refs) > 0 {
+					acc := newArtifactKeyAccumulator()
+					for _, key := range artifactKeys {
+						if err := acc.Add(key); err != nil {
+							return nil, err
+						}
+					}
+					for _, ref := range refs {
+						if err := acc.Add(ref.Artifact); err != nil {
+							return nil, err
+						}
+					}
+					invocationKeys = acc.Keys()
+				}
+				invocation := workerops.ActivityInvocationRequest{
+					Preparation:    preparation,
+					Input:          input,
+					Const:          resCtx.EffectiveConst,
+					GitTaskContext: *gitstate.NewGlobalGitTaskContext(resCtx.TaskExecutionContext()),
+					ArtifactKeys:   invocationKeys,
+					Artifacts:      resolvedArtifacts,
+				}
+
+				taskData, err := jobdb.NewTaskData(invocation)
+				if err != nil {
+					return nil, err
+				}
+
+				if err := buildContext.Err(); err != nil {
+					return nil, err
+				}
+				return taskData, nil
+			})
+
+			if err != nil {
+				return newRecipeFailureError(normalizeRuntimeFailure(err, resCtx, metadata, recipe.FailureNodeOp, op), err)
 			}
 
 			outputData, err := out.GetData()
@@ -593,10 +539,6 @@ func (d DefaultRecipeExecutor) executeOpAttempt(ctx workflow.Context, parentReso
 
 			switch decoded.Kind {
 			case coretask.OutputKindActivityInvocationOutput:
-				if hadMismatch {
-					// A mismatch that still produced an activity output indicates real non-determinism.
-					return mismatchErr
-				}
 				if ws := resCtx.TaskExecutionContext().Workspace; ws != nil && ws.ScopeID != "" && resCtx.Options.Mode != template.ModeValidate && decoded.Activity.WorkspaceScopeID != ws.ScopeID {
 					return fmt.Errorf("activity result belongs to workspace %q, expected %q", decoded.Activity.WorkspaceScopeID, ws.ScopeID)
 				}
@@ -606,8 +548,17 @@ func (d DefaultRecipeExecutor) executeOpAttempt(ctx workflow.Context, parentReso
 						return err
 					}
 				}
-				stepInput = normalizeOpOutput(chain[i].OutputType, decoded.Activity.OpOutput)
-				stepJobs = decoded.Activity.Jobs
+				stepInput = decoded.Activity.OpOutput
+				for _, step := range chain {
+					if taskType == taskPrefix+":"+step.Name {
+						stepInput = normalizeOpOutput(step.OutputType, stepInput)
+						break
+					}
+				}
+				if taskPrefix == "input" && i == 0 && decoded.Activity.NextTask != "" {
+					initialStepInput = map[string]interface{}{"form": decoded.Activity.OpOutput, "if_unanswered": decoded.Activity.OpOutput["fallback"]}
+				}
+				stepJobs = workerops.MergeStartedJobs(stepJobs, decoded.Activity.Jobs)
 				if decoded.Activity.NextTask == "" {
 					outputArtifacts, err := out.GetArtifacts()
 					if err != nil {
@@ -623,34 +574,9 @@ func (d DefaultRecipeExecutor) executeOpAttempt(ctx workflow.Context, parentReso
 				}
 				break
 
-			case coretask.OutputKindContextPatch:
-				if err := resCtx.ApplyContextPatch(decoded.Patch); err != nil {
-					return fmt.Errorf("apply context patch: %w", err)
-				}
-
-				// Re-resolve inputs for the task based on the updated context.
-				if i == 0 {
-					stepInput, artifactKeys, err = resolveNormalizedInputs()
-					if err != nil {
-						return err
-					}
-					initialStepInput = cloneStringMap(stepInput)
-				}
-
-				// Re-resolve artifacts and keys (patch may have changed bindings or inputs).
-				resolvedArtifacts, err = resolveArtifactBindings(resCtx, map[string]interface{}(metadata.Artifacts))
-				if err != nil {
-					return err
-				}
-				if len(resolvedArtifacts) > 0 {
-					artifactKeys = appendArtifactKeys(artifactKeys, resolvedArtifacts)
-				}
-				continue
-
 			default:
 				return fmt.Errorf("unsupported task output kind: %q", decoded.Kind)
 			}
-			break
 		}
 		if done {
 			break
@@ -682,14 +608,14 @@ func (d DefaultRecipeExecutor) innerSequence(ctx workflow.Context, parentCtx *te
 	if err != nil {
 		return fmt.Errorf("failed to create resolution context: %w", err)
 	}
+	if ctx.ScopeState != nil {
+		ctx.ScopeState(resCtx)
+	}
 	if err := resCtx.ResolveVars(metadata.Vars); err != nil {
 		return fmt.Errorf("failed to resolve sequence vars: %w", err)
 	}
 	if err := resCtx.ResolveExecutionNeeds(metadata.ExecutionNeeds); err != nil {
 		return err
-	}
-	if len(metadata.Catch) > 0 {
-		resCtx.Options.CatchBeforeRetry = true
 	}
 	if err := seedSequencePlaceholders(resCtx, sequence); err != nil {
 		return err
@@ -710,21 +636,6 @@ func (d DefaultRecipeExecutor) innerSequence(ctx workflow.Context, parentCtx *te
 			if !ok {
 				failure = normalizeRuntimeFailure(err, resCtx, metadata, recipe.FailureNodeSequence, "")
 			}
-			if len(metadata.Catch) > 0 {
-				decision, catchErr := evaluateCatchClauses(metadata.Catch, failure, resCtx, containingStateName(resCtx), canRouteToState(resCtx))
-				if catchErr != nil {
-					return catchErr
-				}
-				switch decision.Kind {
-				case catchDecisionRoute:
-					return &catchRouteError{Transition: template.NewFailureTransitionData(containingStateName(resCtx), decision.To, decision.Payload, decision.Failure)}
-				case catchDecisionContinue:
-					resCtx.AddExecutionWithArtifactData(decision.Outputs, nil, nil)
-					return nil
-				case catchDecisionFail:
-					return decision.Error
-				}
-			}
 			wrapped := fmt.Errorf("sequence node %d failed: %w", i, err)
 			return newRecipeFailureError(failure, wrapped)
 		}
@@ -741,55 +652,14 @@ func (d DefaultRecipeExecutor) innerSequence(ctx workflow.Context, parentCtx *te
 }
 
 func (d DefaultRecipeExecutor) ExecuteSequence(ctx workflow.Context, rCtx *template.ResolutionContext, metadata recipe.NodeMetadata, outputTemplate map[string]interface{}, sequence []recipe.Node) error {
-	if metadata.Workspace != nil {
-		return withNodeWorkspace(ctx, rCtx, metadata, func(inner workflow.Context, scoped *template.ResolutionContext, meta recipe.NodeMetadata) error {
-			return d.ExecuteSequence(inner, scoped, meta, outputTemplate, sequence)
-		})
-	}
-	timeout := time.Duration(metadata.Timeout)
-	fn := func(inner workflow.Context) error {
-		e := d.innerSequence(inner, rCtx, metadata, outputTemplate, sequence)
-		return e
-	}
-	err := executeCompositeInEnvelope(ctx, metadata.Retry, timeout, fmt.Sprintf("sequence %q", template.ScopeID(metadata, "", template.ScopeSequence)), fn)
-
-	return err
-}
-
-// executeCompositeInEnvelope executes a composite nodes in a retry/timeout envelope
-func executeCompositeInEnvelope(ctx workflow.Context, retry *recipe.RetryPolicy, timeoutDuration time.Duration, label string, fn func(inner workflow.Context) error) error {
-	if timeoutDuration > 0 {
-		var err error
-		ctx.JobContext, err = withDurableExecutionTimeout(ctx.JobContext, timeoutDuration, label)
-		if err != nil {
-			return err
+	return executeNodeScope(ctx, rCtx, metadata, template.ScopeSequence, "", func(inner workflow.Context, state *template.ResolutionContext, meta recipe.NodeMetadata) error {
+		if meta.Workspace != nil {
+			return withNodeWorkspace(inner, state, meta, func(inner workflow.Context, state *template.ResolutionContext, meta recipe.NodeMetadata) error {
+				return d.innerSequence(inner, state, meta, outputTemplate, sequence)
+			})
 		}
-	}
-	attempts := retryPolicyAttempts(retry)
-	for attempt := 1; attempt <= attempts; attempt++ {
-		err := fn(ctx)
-		if isExecutionControlError(err) {
-			return err
-		}
-		if err == nil {
-			return nil
-		}
-		var routeErr *catchRouteError
-		if errors.As(err, &routeErr) {
-			return err
-		}
-		failure, _ := failureFromError(err)
-		if attempt < attempts && shouldRetryFailure(err, failure, retry) {
-			if delay := retryDelay(retry, attempt); delay > 0 {
-				if awaitErr := ctx.JobContext.AwaitDuration(jobdb.Duration(delay)); awaitErr != nil {
-					return awaitErr
-				}
-			}
-			continue
-		}
-		return err
-	}
-	return nil
+		return d.innerSequence(inner, state, meta, outputTemplate, sequence)
+	})
 }
 
 func effectiveOpTimeout(metadata recipe.NodeMetadata, registeredOp ops.RegisterableOp) time.Duration {

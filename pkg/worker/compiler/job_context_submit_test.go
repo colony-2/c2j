@@ -31,14 +31,6 @@ func (c *catchScriptedJobContext) SubmitRestartJob(ctx context.Context, restart 
 	return unsupportedTestSubmitRestartJob(ctx, restart)
 }
 
-func (p *patchingStubJobContext) SubmitJob(ctx context.Context, submit jobdb.SubmitJob) (jobdb.JobKey, error) {
-	return unsupportedTestSubmitJob(ctx, submit)
-}
-
-func (p *patchingStubJobContext) SubmitRestartJob(ctx context.Context, restart jobdb.SubmitRestartJob) (jobdb.JobKey, error) {
-	return unsupportedTestSubmitRestartJob(ctx, restart)
-}
-
 func (s *stubJobContext) SubmitJob(ctx context.Context, submit jobdb.SubmitJob) (jobdb.JobKey, error) {
 	return unsupportedTestSubmitJob(ctx, submit)
 }

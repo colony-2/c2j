@@ -23,7 +23,7 @@ type UnansweredPolicy struct {
 	ArtifactRefs map[string]artifacts.Ref `json:"artifact_refs,omitempty"`
 }
 
-// FallbackAnswers is frozen in the prepared form, together with FallbackAt.
+// FallbackAnswers is frozen in the prepared form for both implementations.
 type FallbackAnswers struct {
 	Response     any                      `json:"response,omitempty"`
 	Fields       map[string]any           `json:"fields,omitempty"`
@@ -63,13 +63,10 @@ func prepareUnanswered(deps ops.OpDependencies, ctx context.Context, form InputF
 	if err := json.Unmarshal(raw, &form.Fallback); err != nil {
 		return InputForm{}, err
 	}
-	prepared := time.Now().UTC()
-	at := prepared.Add(duration)
-	form.FallbackAt = at.Format(time.RFC3339Nano)
 	if _, err := acceptFallback(deps, ctx, form); err != nil {
 		return InputForm{}, fmt.Errorf("if_unanswered: %w", err)
 	}
-	if err := ops.SetNextTaskAlternate(deps, jobworkflow.TaskAlternate{TaskType: alternateTaskType, At: at}); err != nil {
+	if err := ops.SetNextTaskAlternate(deps, jobworkflow.TaskAlternateAfter{TaskType: alternateTaskType, After: duration}); err != nil {
 		return InputForm{}, err
 	}
 	return form, nil
@@ -86,10 +83,6 @@ func GetAlternateOp() ops.RegisterableOp {
 }
 
 func completeUnanswered(deps ops.OpDependencies, ctx context.Context, form InputForm) (map[string]any, error) {
-	at, err := time.Parse(time.RFC3339Nano, form.FallbackAt)
-	if err != nil || time.Now().Before(at) {
-		return nil, fmt.Errorf("input alternate is not eligible")
-	}
 	out, err := acceptFallback(deps, ctx, form)
 	if err != nil {
 		return nil, err

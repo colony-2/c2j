@@ -111,11 +111,7 @@ func resolveWithinRecipeSelectors(ctx workflow.Context, rec recipe.Recipe, execC
 		return WithinRecipeResolutionResult{ResolvedGitRefs: cloneResolvedGitRefs(execOpts.ResolvedGitRefs)}, nil
 	}
 
-	taskInput, err := jobdb.NewTaskData(req)
-	if err != nil {
-		return WithinRecipeResolutionResult{}, fmt.Errorf("encode within recipe resolution input: %w", err)
-	}
-	taskOutput, err := ctx.DoTask(jobdb.RunPolicy{}, WithinRecipeResolutionTaskType, taskInput)
+	taskOutput, err := workflow.ValueCall(ctx.JobContext, "includes", WithinRecipeResolutionTaskType, jobdb.RunPolicy{}, req)
 	if err != nil {
 		return WithinRecipeResolutionResult{}, fmt.Errorf("within recipe resolution task failed: %w", err)
 	}

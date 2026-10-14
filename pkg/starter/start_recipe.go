@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"github.com/colony-2/c2j/pkg/execution"
 	"github.com/colony-2/c2j/pkg/secrets"
+	"strings"
 	"time"
 
 	"github.com/colony-2/c2j/pkg/jobcontext"
@@ -256,24 +257,12 @@ func recipeRunPolicy(startJob workflowctl.StartJob, recipes []recipe.Recipe) job
 	return policy
 }
 
-// RestartRecipeJob restarts an existing recipe job from the provided step offset.
-//
-// stepOffset is the next chapter ordinal to execute (0-based). Internally SWF uses LastStepToKeep,
-// so we keep chapters up to stepOffset-1.
-//
-// If patch is non-nil, we inject a context patch envelope as the next chapter output to be replayed.
-// This intentionally causes a swf.TaskInputMismatchError at replay time, allowing the recipe worker
-// to detect and apply the patch before re-executing the task.
-func RestartRecipeJob(ctx context.Context, engine recipeJobRestartSubmitter, prior jobdb.JobKey, stepOffset int64, patch *task.ContextPatch) (jobdb.JobKey, error) {
-	if stepOffset < 0 {
-		return jobdb.JobKey{}, fmt.Errorf("stepOffset must be >= 0, got %d", stepOffset)
+// RestartRecipeJob starts a fresh continuation at a recorded, patchable scope.
+func RestartRecipeJob(ctx context.Context, engine recipeJobRestartSubmitter, prior jobdb.JobKey, scopeID string, patch *task.ContextPatch) (jobdb.JobKey, error) {
+	if strings.TrimSpace(scopeID) == "" {
+		return jobdb.JobKey{}, fmt.Errorf("scope ID is required")
 	}
-	lastToKeep := stepOffset - 1
-
-	req := jobdb.SubmitRestartJob{
-		PriorJobKey:    prior,
-		LastStepToKeep: lastToKeep,
-	}
+	req := jobdb.SubmitRestartJob{PriorJobKey: prior, ExecutionRestart: &jobdb.ExecutionRestart{ScopeID: scopeID}}
 	priorInfo, err := engine.GetJob(ctx, prior)
 	if err != nil {
 		return jobdb.JobKey{}, err
@@ -294,24 +283,11 @@ func RestartRecipeJob(ctx context.Context, engine recipeJobRestartSubmitter, pri
 	}
 
 	if patch != nil {
-		env, err := task.NewOutputEnvelope(task.OutputKindContextPatch, patch)
+		raw, err := json.Marshal(patch)
 		if err != nil {
 			return jobdb.JobKey{}, err
 		}
-		out, err := jobdb.NewTaskData(env)
-		if err != nil {
-			return jobdb.JobKey{}, err
-		}
-
-		// Use an input that will not match normal ActivityInvocationRequest inputs, so the worker
-		// receives TaskInputMismatchError and can inspect the cached patch output.
-		in, err := jobdb.NewTaskData(map[string]any{"kind": string(task.OutputKindContextPatch)})
-		if err != nil {
-			return jobdb.JobKey{}, err
-		}
-
-		req.ExtraTaskInput = in
-		req.ExtraTaskOutput = out
+		req.ExecutionRestart.Payload = raw
 	}
 
 	return engine.SubmitRestartJob(ctx, req)

@@ -30,7 +30,7 @@ func TestRestartPreservesPublishedExecutionRequirements(t *testing.T) {
 	raw, err := execution.PayloadWithDemand(json.RawMessage(`{"unrelated":"not inherited"}`), d)
 	require.NoError(t, err)
 	engine := &captureEngine{info: jobdb.JobInfo{ClientPayload: raw}}
-	_, err = RestartRecipeJob(context.Background(), engine, jobdb.JobKey{TenantId: "t", JobId: "prior"}, 2, nil)
+	_, err = RestartRecipeJob(context.Background(), engine, jobdb.JobKey{TenantId: "t", JobId: "prior"}, "scope-id", nil)
 	require.NoError(t, err)
 	require.NotNil(t, engine.last.ClientPayloadUpdate)
 	got, err := execution.PayloadDemand(engine.last.ClientPayloadUpdate.Value)
@@ -48,7 +48,7 @@ func TestRestartRecipeJob_NoPatch(t *testing.T) {
 	engine := &captureEngine{}
 	prior := jobdb.JobKey{TenantId: "t1", JobId: "j1"}
 
-	_, err := RestartRecipeJob(context.Background(), engine, prior, 3, nil)
+	_, err := RestartRecipeJob(context.Background(), engine, prior, "scope-id", nil)
 	if err != nil {
 		t.Fatalf("RestartRecipeJob: %v", err)
 	}
@@ -58,57 +58,31 @@ func TestRestartRecipeJob_NoPatch(t *testing.T) {
 	if engine.last.PriorJobKey != prior {
 		t.Fatalf("unexpected prior job key: %#v", engine.last.PriorJobKey)
 	}
-	if engine.last.LastStepToKeep != 2 {
-		t.Fatalf("expected LastStepToKeep=2, got %d", engine.last.LastStepToKeep)
-	}
-	if engine.last.ExtraTaskOutput != nil {
-		t.Fatalf("expected no ExtraTaskOutput")
-	}
+	require.Equal(t, "scope-id", engine.last.ExecutionRestart.ScopeID)
+	require.Nil(t, engine.last.ExtraTaskOutput)
 	assertHashOnlySchemaSelector(t, engine.last.Schema)
 }
 
-func TestRestartRecipeJob_WithPatch_InjectsEnvelope(t *testing.T) {
+func TestRestartRecipeJob_WithPatch_UsesScopePayload(t *testing.T) {
 	engine := &captureEngine{}
 	prior := jobdb.JobKey{TenantId: "t1", JobId: "j1"}
 	patch := &task.ContextPatch{
 		Job: map[string]any{"git": map[string]any{"author": "new-author"}},
 	}
 
-	_, err := RestartRecipeJob(context.Background(), engine, prior, 0, patch)
+	_, err := RestartRecipeJob(context.Background(), engine, prior, "scope-id", patch)
 	if err != nil {
 		t.Fatalf("RestartRecipeJob: %v", err)
 	}
 	if engine.last == nil {
 		t.Fatalf("expected SubmitRestartJob call")
 	}
-	if engine.last.LastStepToKeep != -1 {
-		t.Fatalf("expected LastStepToKeep=-1 for stepOffset=0, got %d", engine.last.LastStepToKeep)
-	}
-	if engine.last.ExtraTaskInput == nil {
-		t.Fatalf("expected ExtraTaskInput")
-	}
-	if engine.last.ExtraTaskOutput == nil {
-		t.Fatalf("expected ExtraTaskOutput")
-	}
-
-	raw, err := engine.last.ExtraTaskOutput.GetData()
-	if err != nil {
-		t.Fatalf("get ExtraTaskOutput data: %v", err)
-	}
-	var env task.OutputEnvelope
-	if err := json.Unmarshal(raw, &env); err != nil {
-		t.Fatalf("unmarshal envelope: %v", err)
-	}
-	if env.Kind != task.OutputKindContextPatch {
-		t.Fatalf("expected kind %q, got %q", task.OutputKindContextPatch, env.Kind)
-	}
+	require.Equal(t, "scope-id", engine.last.ExecutionRestart.ScopeID)
+	require.Nil(t, engine.last.ExtraTaskInput)
+	require.Nil(t, engine.last.ExtraTaskOutput)
 	var decoded task.ContextPatch
-	if err := env.DecodePayload(&decoded); err != nil {
-		t.Fatalf("decode patch: %v", err)
-	}
-	if decoded.Job["git"] == nil {
-		t.Fatalf("expected decoded job patch")
-	}
+	require.NoError(t, json.Unmarshal(engine.last.ExecutionRestart.Payload, &decoded))
+	require.Equal(t, patch.Job, decoded.Job)
 	assertHashOnlySchemaSelector(t, engine.last.Schema)
 }
 

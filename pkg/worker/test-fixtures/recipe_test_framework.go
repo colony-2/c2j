@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	executor "github.com/colony-2/c2j/internal/testexecutor"
 	"github.com/colony-2/c2j/pkg/contextual"
 	gitexport "github.com/colony-2/c2j/pkg/git/export"
 	"github.com/colony-2/c2j/pkg/jobdbschema"
@@ -20,7 +21,6 @@ import (
 	"github.com/colony-2/c2j/pkg/recipe"
 	"github.com/colony-2/c2j/pkg/swfutil"
 	"github.com/colony-2/c2j/pkg/worker/compiler"
-	"github.com/colony-2/c2j/pkg/worker/executor"
 	workerops "github.com/colony-2/c2j/pkg/worker/ops"
 	workflow "github.com/colony-2/c2j/pkg/worker/workflow"
 	"github.com/colony-2/c2j/pkg/workflowctl"

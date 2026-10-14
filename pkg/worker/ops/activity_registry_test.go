@@ -141,6 +141,8 @@ type jt struct {
 	JobKey jobdb.JobKey
 }
 
+func (j *jt) InvocationID() string { return "test-invocation" }
+
 func (j *jt) GetJobKey() jobdb.JobKey {
 	return j.JobKey
 }
@@ -341,6 +343,8 @@ func TestWithGitWorkspaceProducesDiffAndThinPack(t *testing.T) {
 type stubJobTool struct {
 	JobKey jobdb.JobKey
 }
+
+func (s *stubJobTool) InvocationID() string { return "test-invocation" }
 
 func (s *stubJobTool) GetJobKey() jobdb.JobKey {
 	return s.JobKey

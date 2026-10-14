@@ -125,11 +125,8 @@ outputs:
 	run, err := engine.GetJobRun(context.Background(), jobdb.GetJobRunRequest{JobKey: key, IncludeOutputs: true})
 	require.NoError(t, err)
 	setups := 0
-	for _, task := range run.Attempts[0].Tasks {
+	for _, task := range executionTaskRuns(run) {
 		require.NotContains(t, []string{"tool_setup", "extension_resolution", "secret_setup"}, task.TaskType)
-		if task.TaskType == TimeoutCheckpointTaskType {
-			continue
-		}
 		decoded, err := decodeTaskOutput(task.Attempts[0].Output.Data)
 		require.NoError(t, err)
 		require.NotNil(t, decoded.Activity.Setup)

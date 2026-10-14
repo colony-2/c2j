@@ -85,7 +85,8 @@ outputs:
 	require.Equal(t, []bool{true}, calls["config_a"])
 	require.Empty(t, calls["config_b"])
 	set("false")
-	require.Equal(t, jobworkflow.JobRunCompleted, run(all).Status)
+	outcome := run(all)
+	require.Equal(t, jobworkflow.JobRunCompleted, outcome.Status, "%v", outcome.JobError)
 	require.Equal(t, []bool{true}, calls["config_a"], "cached A never executes or seeds B")
 	require.Equal(t, []bool{false}, calls["config_b"])
 	result, err := swfutil.JobResult(ctx, engine, key)
@@ -96,8 +97,8 @@ outputs:
 	history, err := engine.GetJobRun(ctx, jobdb.GetJobRunRequest{JobKey: key, IncludeOutputs: true})
 	require.NoError(t, err)
 	seen := map[string]string{}
-	for _, attempt := range history.Attempts {
-		for _, task := range attempt.Tasks {
+	for _, tasks := range [][]jobdb.TaskRun{executionTaskRuns(history)} {
+		for _, task := range tasks {
 			require.NotContains(t, []string{"configuration_snapshot", "tool_setup", "secret_setup", "extension_resolution"}, task.TaskType)
 			if task.TaskType != "config_a:config_a" && task.TaskType != "config_b:config_b" {
 				continue

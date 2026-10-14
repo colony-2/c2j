@@ -10,9 +10,17 @@ import (
 )
 
 type fakeJobTool struct {
-	key       jobdb.JobKey
-	awaitErr  error
-	awaitArgs []string
+	invocationID string
+	key          jobdb.JobKey
+	awaitErr     error
+	awaitArgs    []string
+}
+
+func (f *fakeJobTool) InvocationID() string {
+	if f.invocationID != "" {
+		return f.invocationID
+	}
+	return "test-invocation"
 }
 
 func (f *fakeJobTool) GetJobKey() jobdb.JobKey {

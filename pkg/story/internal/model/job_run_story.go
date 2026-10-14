@@ -17,6 +17,8 @@ type GetJobRunStoryRequest struct {
 // JobRunStory is a recipe-centric narrative of a job run built by replaying recipe execution
 // against recorded task outcomes from swf.GetJobRunResponse.
 type JobRunStory struct {
+	RestartScopes []RestartScope `json:"restart_scopes,omitempty"`
+
 	JobID              string            `json:"job_id"`
 	InvocationSequence int64             `json:"invocation_sequence"`
 	Recipe             JobRunStoryRecipe `json:"recipe"`
@@ -51,7 +53,6 @@ const (
 	JobRunStoryNodeKindSequence               JobRunStoryNodeKind = "sequence"
 	JobRunStoryNodeKindOp                     JobRunStoryNodeKind = "op"
 	JobRunStoryNodeKindOpStep                 JobRunStoryNodeKind = "opStep"
-	JobRunStoryNodeKindContextPatch           JobRunStoryNodeKind = "contextPatch"
 	JobRunStoryNodeKindStateMachine           JobRunStoryNodeKind = "stateMachine"
 	JobRunStoryNodeKindState                  JobRunStoryNodeKind = "state"
 	JobRunStoryNodeKindTransitionEval         JobRunStoryNodeKind = "transitionEval"
@@ -78,12 +79,13 @@ const (
 //   - This is distinct from SWF "job attempts" (GetJobRunResponse.Attempts), which are surfaced
 //     at the recipe root via JobAttempt/PastAttempts.
 type JobRunStoryNode struct {
-	ID         string                `json:"id"`
-	Kind       JobRunStoryNodeKind   `json:"kind"`
-	Title      string                `json:"title"`
-	Status     JobRunStoryNodeStatus `json:"status"`
-	StartedAt  *time.Time            `json:"started_at"`
-	FinishedAt *time.Time            `json:"finished_at"`
+	InvocationID string                `json:"invocation_id,omitempty"`
+	ID           string                `json:"id"`
+	Kind         JobRunStoryNodeKind   `json:"kind"`
+	Title        string                `json:"title"`
+	Status       JobRunStoryNodeStatus `json:"status"`
+	StartedAt    *time.Time            `json:"started_at"`
+	FinishedAt   *time.Time            `json:"finished_at"`
 
 	Path        []string                         `json:"path"`
 	InvokeSeq   int64                            `json:"invoke_seq"`
@@ -105,12 +107,8 @@ type JobRunStoryNode struct {
 	ArtifactKeys []jobdb.ArtifactKey    `json:"artifact_keys"`
 	ArtifactRefs []recipeartifacts.Ref  `json:"artifact_refs,omitempty"`
 
-	// TaskOrdinal is the SWF chapter ordinal for this node's latest attempt (when applicable).
-	// This is the primary "restart cursor" surface for the frontend.
+	// TaskOrdinal locates the stored outcome. Use RestartScopes for restart targets.
 	TaskOrdinal *int64 `json:"task_ordinal,omitempty"`
-	// RestartFromOrdinal is the first attempt's ordinal for this logical node (when applicable).
-	// SWF restart cannot cut into a retry chain, so this is the safe ordinal to restart from.
-	RestartFromOrdinal *int64 `json:"restart_from_ordinal,omitempty"`
 
 	Children []*JobRunStoryNode `json:"children"`
 
@@ -154,4 +152,10 @@ type JobRunStoryTransitionDecision struct {
 	Kind      string                 `json:"kind"` // state|fallthrough
 	ToStateID *string                `json:"to_state_id,omitempty"`
 	Payload   map[string]interface{} `json:"payload,omitempty"`
+}
+
+// RestartScope identifies a patchable durable boundary, including task blocks.
+type RestartScope struct {
+	ScopeID   string    `json:"scope_id"`
+	StartedAt time.Time `json:"started_at"`
 }

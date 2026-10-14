@@ -31,7 +31,7 @@ func TestClientPayloadSurvivesYieldAndExternalTaskCompletion(t *testing.T) {
 				t.Cleanup(func() { require.NoError(t, db.Close(context.Background())) })
 				rt = db
 			}
-			worker := payloadLifecycleWorker{}
+			worker := asExecutionTestWorker(payloadLifecycleWorker{})
 			handle, err := rt.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{
 				TenantId: "tenant", JobID: "payload", JobType: worker.Name(),
 				Data:                jobdb.NewTaskDataOrPanic(map[string]any{"input": true}),
@@ -53,7 +53,13 @@ func TestClientPayloadSurvivesYieldAndExternalTaskCompletion(t *testing.T) {
 			require.Equal(t, &jobdb.Route{JobType: worker.Name()}, first.NextRoute)
 			chapters, err := rt.ListChapters(ctx, jobdb.ListChaptersRequest{JobKey: handle.JobKey})
 			require.NoError(t, err)
-			require.Len(t, chapters, 1, "explicit yield must not write a task/job result chapter")
+			for _, chapter := range chapters {
+				if body, ok := chapter.Body.(jobdb.ExecutionChapter); ok {
+					record, e := jobdb.DecodeExecutionRecord(body.Record)
+					require.NoError(t, e)
+					require.NotEqual(t, "result", record.Kind)
+				}
+			}
 			waiting := run()
 			require.Equal(t, jobworkflow.JobRunSuspended, waiting.Status)
 			require.Equal(t, &jobdb.Route{JobType: worker.Name(), TaskType: "external:review"}, waiting.NextRoute)
@@ -92,13 +98,13 @@ func TestClientPayloadSurvivesYieldAndExternalTaskCompletion(t *testing.T) {
 type payloadLifecycleWorker struct{}
 
 func (payloadLifecycleWorker) Name() string { return "payload:lifecycle" }
-func (w payloadLifecycleWorker) Run(ctx jobworkflow.JobContext, _ jobdb.JobData) (jobdb.JobData, error) {
-	wrapped := newThinPackForwardingJobContext(withExecutionTimeout(ctx, time.Minute, "payload test"))
+func (w payloadLifecycleWorker) Run(ctx jobworkflow.ExecutionContext, _ jobdb.JobData) (jobdb.JobData, error) {
+	wrapped := newThinPackForwardingJobContext(ctx)
 	if revision := wrapped.ClientPayloadRevision(); revision == 1 {
-		if err := wrapped.Yield(context.Background(), jobdb.RescheduleExecutionRequest{
+		if err := wrapped.Yield(context.Background(), jobworkflow.YieldRequest{Reschedule: jobdb.RescheduleExecutionRequest{
 			NextRoute:           jobdb.Route{JobType: w.Name()},
 			ClientPayloadUpdate: &jobdb.ClientPayloadUpdate{Mode: "patch", ExpectedRevision: &revision, Value: json.RawMessage(`{"phase":"resumed"}`)},
-		}); err != nil {
+		}}); err != nil {
 			return nil, err
 		}
 		return nil, fmt.Errorf("successful yield must stop the invocation")
@@ -106,5 +112,7 @@ func (w payloadLifecycleWorker) Run(ctx jobworkflow.JobContext, _ jobdb.JobData)
 	if wrapped.ClientPayloadRevision() != 2 {
 		return nil, fmt.Errorf("unexpected client payload revision %d", wrapped.ClientPayloadRevision())
 	}
-	return wrapped.DoTask(jobdb.DefaultRunPolicy(), "external:review", jobdb.NewTaskDataOrPanic(map[string]any{"prompt": true}))
+	return wrapped.DoTask(testTaskCall{Site: "review", TaskType: "external:review", ContractVersion: 1, Command: json.RawMessage(`{"prompt":true}`)}, func(context.Context) (jobdb.TaskData, error) {
+		return jobdb.NewTaskDataOrPanic(map[string]any{"prompt": true}), nil
+	})
 }

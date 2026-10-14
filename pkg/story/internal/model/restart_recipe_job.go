@@ -2,15 +2,15 @@ package model
 
 import coretask "github.com/colony-2/c2j/pkg/task"
 
-// RestartRecipeJobRequest requests a restart of an existing recipe job at a particular SWF step offset.
+// RestartRecipeJobRequest requests a restart of an existing recipe job at a recorded execution scope.
 //
-// StepOffset is the next SWF chapter ordinal to execute (0-based). See recipe-core starter.RestartRecipeJob.
+// ScopeID is a logical scope ID from the job execution history.
 // Patch is optional; when present it is applied before resuming execution.
 type RestartRecipeJobRequest struct {
-	ProjectID  string
-	JobID      string
-	StepOffset int64
-	Patch      *coretask.ContextPatch
+	ProjectID string
+	JobID     string
+	ScopeID   string
+	Patch     *coretask.ContextPatch
 }
 
 type RestartRecipeJobResponse struct {

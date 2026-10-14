@@ -10,10 +10,10 @@ import (
 	"sync"
 	"testing"
 
+	executor "github.com/colony-2/c2j/internal/testexecutor"
 	"github.com/colony-2/c2j/pkg/contextual"
 	coreops "github.com/colony-2/c2j/pkg/ops"
 	"github.com/colony-2/c2j/pkg/recipe"
-	"github.com/colony-2/c2j/pkg/worker/executor"
 	"github.com/colony-2/c2j/pkg/worker/ops"
 	"go.uber.org/zap/zaptest"
 	"gopkg.in/yaml.v3"

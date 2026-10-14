@@ -7,7 +7,6 @@ import (
 	"log/slog"
 	"reflect"
 	"strings"
-	"time"
 
 	"github.com/colony-2/c2j/pkg/contextual"
 	"github.com/colony-2/c2j/pkg/input/formdefaults"
@@ -22,7 +21,7 @@ import (
 )
 
 type validationJobContext struct {
-	inner              jobworkflow.JobContext
+	inner              jobworkflow.ExecutionContext
 	gitContext         contextual.GitCommitContext
 	resolvedSelectors  map[string]string
 	resolvedGitRefs    map[string]string
@@ -36,7 +35,7 @@ type validationTaskOverride interface {
 // Validation has no live execution snapshot and must not publish client state.
 func (v *validationJobContext) ClientPayload() json.RawMessage { return nil }
 func (v *validationJobContext) ClientPayloadRevision() int64   { return 0 }
-func (v *validationJobContext) Yield(context.Context, jobdb.RescheduleExecutionRequest) error {
+func (v *validationJobContext) Yield(context.Context, jobworkflow.YieldRequest) error {
 	return fmt.Errorf("yielding is not supported during validation")
 }
 
@@ -61,7 +60,6 @@ func wrapValidationContext(ctx workflow.Context, commitContext contextual.GitCom
 	}
 	return workflow.Context{
 		WorkspaceSnapshots: ctx.WorkspaceSnapshots,
-		TaskHistory:        ctx.TaskHistory,
 		JobContext: &validationJobContext{
 			inner:              ctx.JobContext,
 			gitContext:         commitContext,
@@ -94,13 +92,18 @@ func (v *validationJobContext) AwaitDuration(waitFor jobdb.Duration) error {
 	return v.inner.AwaitDuration(waitFor)
 }
 
-func (v *validationJobContext) executionTimeoutLimit() time.Duration {
-	return activeExecutionTimeoutLimit(v.inner)
+func (v *validationJobContext) Context() context.Context { return context.Background() }
+func (v *validationJobContext) ExecutionVersions() jobdb.ExecutionVersions {
+	return jobdb.ExecutionVersions{}
 }
-
-func (v *validationJobContext) DoTask(runPolicy jobdb.RunPolicy, taskType string, data jobdb.TaskData) (jobdb.TaskData, error) {
-	if taskType == TimeoutCheckpointTaskType {
-		return (timeoutCheckpointWorker{}).Run(jobworkflow.TaskContext{}, data)
+func (v *validationJobContext) DoScope(_ string, _ jobworkflow.ScopeOptions, body func(jobworkflow.ExecutionContext) (jobdb.JobData, error)) (jobdb.JobData, error) {
+	return body(v)
+}
+func (v *validationJobContext) DoTask(call jobworkflow.TaskCall, build func(context.Context) (jobdb.TaskData, error)) (jobdb.TaskData, error) {
+	runPolicy, taskType := call.Policy, call.TaskType
+	data, err := build(v.Context())
+	if err != nil {
+		return nil, err
 	}
 	if taskType == WithinRecipeResolutionTaskType {
 		return newWithinRecipeResolutionTaskWorker().Run(jobworkflow.TaskContext{}, data)

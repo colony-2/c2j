@@ -58,8 +58,8 @@ func RefFromArtifact(artifact jobdb.Artifact) (Ref, error) {
 		return Ref{}, err
 	}
 	ref := NewStoredRef(key)
-	if ref.Name == "" {
-		ref.Name = strings.TrimSpace(artifact.Name())
+	if name := strings.TrimSpace(artifact.Name()); name != "" {
+		ref.Name = name
 	}
 	return ref, nil
 }

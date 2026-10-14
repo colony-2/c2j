@@ -1,4 +1,5 @@
-package executor
+// Package testexecutor supplies a local runner for c2j integration fixtures.
+package testexecutor
 
 import (
 	"context"
@@ -92,17 +93,9 @@ func (e *StandaloneExecutor) ExecuteWithRegistry(
 	runCtx, stop := context.WithCancel(ctx)
 	defer stop()
 	runtime := toyruntime.New()
-	events := make(chan compiler.ExecutionHandoff, 1)
-	onHandoff := func(event compiler.ExecutionHandoff) {
-		select {
-		case events <- event:
-		default:
-		}
-		stop()
-	}
-	executionRuntime := executionruntime.New(runtime, e.allocation, onHandoff)
+	executionRuntime := executionruntime.New(runtime, e.allocation)
 	workset, err := compiler.NewRecipeWorkerWithOptions(deps, e.registry, compiler.RecipeJobWorkerOptions{
-		Allocation: e.allocation, StageExecution: executionRuntime.Stage, OnExecutionHandoff: onHandoff,
+		Allocation: e.allocation, StageExecution: executionRuntime.Stage,
 		WrapTaskWorker:     executionRuntime.WrapTaskWorker,
 		RootSourceResolver: rootResolver,
 	})
@@ -140,11 +133,6 @@ func (e *StandaloneExecutor) ExecuteWithRegistry(
 		return nil, err
 	}
 	if err := jobworkflow.WaitForJobToComplete(runCtx, 30*time.Second, jobKey, eng); err != nil {
-		select {
-		case event := <-events:
-			return nil, &EnvironmentRequiredError{Handoff: event}
-		default:
-		}
 		return nil, err
 	}
 	out, err := swfutil.JobResult(ctx, eng, jobKey)
@@ -158,14 +146,6 @@ func (e *StandaloneExecutor) ExecuteWithRegistry(
 	outMap := make(map[string]interface{})
 	err = json.Unmarshal(d, &outMap)
 	return outMap, err
-}
-
-// EnvironmentRequiredError reports that a disposable standalone runtime cannot
-// migrate itself. Durable production execution should use a persistent runtime.
-type EnvironmentRequiredError struct{ Handoff compiler.ExecutionHandoff }
-
-func (e *EnvironmentRequiredError) Error() string {
-	return "execution environment required; standalone executor cannot provision a replacement"
 }
 
 // GetActivityRegistry returns the activity registry

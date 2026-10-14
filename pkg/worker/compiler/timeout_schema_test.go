@@ -20,7 +20,7 @@ func TestC2JSchemaAcceptsTimeoutCompletion(t *testing.T) {
 	for _, backend := range []string{"toy", "sqlite", "remote"} {
 		t.Run(backend, func(t *testing.T) {
 			rt := newTimeoutReproRuntime(t, backend)
-			timeoutWorker := timeoutReproWorker{"repro", func(jobworkflow.JobContext, jobdb.JobData) (jobdb.JobData, error) {
+			timeoutWorker := timeoutReproWorker{"repro", func(jobworkflow.ExecutionContext, jobdb.JobData) (jobdb.JobData, error) {
 				return nil, jobdb.NewTimeoutError("job", time.Second, jobdb.TimeoutScopeTotal, nil, false)
 			}}
 			plain := submitTimeoutRepro(t, rt, "plain-schema", timeoutReproPolicy(time.Minute, time.Second))
@@ -32,7 +32,7 @@ func TestC2JSchemaAcceptsTimeoutCompletion(t *testing.T) {
 			key, err := starter.StartRecipeJob(context.Background(), workflowctl.StartJob{TenantId: "timeout-repro", RecipeName: "schema-probe", GitRef: gitCtx.ParentRef}, submitter)
 			require.NoError(t, err)
 			timeoutWorker.name = "recipe"
-			runnable, err := jobworkflow.GetJobForRun(context.Background(), rt, jobworkflow.GetJobForRunRequest{JobKey: key, JobWorker: timeoutWorker, WorkerID: "schema-probe", LeaseDuration: time.Second})
+			runnable, err := jobworkflow.GetJobForRun(context.Background(), rt, jobworkflow.GetJobForRunRequest{JobKey: key, JobWorker: asExecutionTestWorker(timeoutWorker), WorkerID: "schema-probe", LeaseDuration: time.Second})
 			require.NoError(t, err)
 			out, err := runnable.Run(nil)
 			require.NoError(t, err)

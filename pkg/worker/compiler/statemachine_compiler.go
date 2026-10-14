@@ -3,27 +3,23 @@ package compiler
 import (
 	"errors"
 	"fmt"
-	"time"
 
 	"github.com/colony-2/c2j/pkg/recipe"
 	"github.com/colony-2/c2j/pkg/template"
 	"github.com/colony-2/c2j/pkg/workflow"
-	"github.com/colony-2/jobdb/pkg/jobdb"
 )
 
 // ExecuteStateMachine runs the state machine with the new StateMap format
 func (d DefaultRecipeExecutor) ExecuteStateMachine(ctx workflow.Context, parentContext *template.ResolutionContext, metadata recipe.NodeMetadata, outputTemplate map[string]interface{}, stateMap *recipe.StateMap, opts ...ExecutionOptions) error {
+	return executeNodeScope(ctx, parentContext, metadata, template.ScopeStateMachine, "", func(inner workflow.Context, state *template.ResolutionContext, meta recipe.NodeMetadata) error {
+		return d.executeStateMachineBody(inner, state, meta, outputTemplate, stateMap, opts...)
+	})
+}
+func (d DefaultRecipeExecutor) executeStateMachineBody(ctx workflow.Context, parentContext *template.ResolutionContext, metadata recipe.NodeMetadata, outputTemplate map[string]interface{}, stateMap *recipe.StateMap, opts ...ExecutionOptions) error {
 	if metadata.Workspace != nil {
 		return withNodeWorkspace(ctx, parentContext, metadata, func(inner workflow.Context, scoped *template.ResolutionContext, meta recipe.NodeMetadata) error {
-			return d.ExecuteStateMachine(inner, scoped, meta, outputTemplate, stateMap, opts...)
+			return d.executeStateMachineBody(inner, scoped, meta, outputTemplate, stateMap, opts...)
 		})
-	}
-	if timeout := time.Duration(metadata.Timeout); timeout > 0 {
-		var err error
-		ctx.JobContext, err = withDurableExecutionTimeout(ctx.JobContext, timeout, fmt.Sprintf("state machine %q", template.ScopeID(metadata, "", template.ScopeStateMachine)))
-		if err != nil {
-			return err
-		}
 	}
 
 	// Create resolution context for the state machine
@@ -39,6 +35,9 @@ func (d DefaultRecipeExecutor) ExecuteStateMachine(ctx workflow.Context, parentC
 	resCtx, err := parentContext.NewChildContext(template.ScopeStateMachine, metadata, "", resolvedInputs)
 	if err != nil {
 		return fmt.Errorf("failed to create resolution context: %w", err)
+	}
+	if ctx.ScopeState != nil {
+		ctx.ScopeState(resCtx)
 	}
 	if err := resCtx.ResolveVars(metadata.Vars); err != nil {
 		return fmt.Errorf("failed to resolve state machine vars: %w", err)
@@ -74,7 +73,6 @@ func (d DefaultRecipeExecutor) ExecuteStateMachine(ctx workflow.Context, parentC
 	if _, ok := stateMap.States[currentState]; !ok {
 		return fmt.Errorf("state '%s' not found", currentState)
 	}
-	stateInvocationCount := make(map[string]int)
 
 	if resCtx.Options.Mode == template.ModeValidate && resCtx.Options.ValidationMode == string(ValidateAll) {
 		stateNames := sortedStateNames(stateMap.States)
@@ -107,7 +105,6 @@ func (d DefaultRecipeExecutor) ExecuteStateMachine(ctx workflow.Context, parentC
 	}
 
 	// Execute state machine. Always run the current state at least once, even if it is terminal.
-stateMachineLoop:
 	for {
 		// Get current state definition
 		stateDef, exists := stateMap.States[currentState]
@@ -115,60 +112,40 @@ stateMachineLoop:
 			return fmt.Errorf("state '%s' not found", currentState)
 		}
 
+		observer.StateEntered(currentState)
 		var stateResult stateRunResult
-		stateRetry := stateDef.GetMetadata().Retry
-		stateAttempts := retryPolicyAttempts(stateRetry)
-		for attempt := 1; attempt <= stateAttempts; attempt++ {
-			observer.StateEntered(currentState)
-			result, err := d.runState(ctx, resCtx, currentState, stateDef, currentTransition)
-			if err == nil {
-				stateResult = result
-				observer.StateExited(currentState)
-				break
-			}
-
-			failure, ok := failureFromError(err)
-			if !ok {
-				failure = normalizeRuntimeFailure(err, resCtx, metadata, recipe.FailureNodeStateMachine, "")
-			}
-			if isExecutionControlError(err) {
-				return err
-			}
-			if len(metadata.Catch) > 0 {
-				decision, catchErr := evaluateCatchClauses(metadata.Catch, failure, resCtx, currentState, true)
-				if catchErr != nil {
-					return catchErr
+		var err error
+		if len(metadata.Catch) == 0 {
+			stateResult, err = d.runState(ctx, resCtx, currentState, stateDef, currentTransition)
+		} else {
+			outer := ctx
+			outer.CatchStateName = currentState
+			policy := stateDef.GetMetadata()
+			policy.ID = "state-policy:" + currentState
+			policy.Catch = metadata.Catch
+			policy.Timeout = 0
+			state := stateDef
+			state.Node = nodeWithoutRetry(state.Node)
+			err = executeNodeScope(outer, resCtx, policy, template.ScopeStateMachine, currentState, func(inner workflow.Context, entry *template.ResolutionContext, _ recipe.NodeMetadata) error {
+				result, e := d.runState(inner, entry, currentState, state, currentTransition)
+				if result.Route != nil {
+					return &catchRouteError{Transition: *result.Route}
 				}
-				switch decision.Kind {
-				case catchDecisionRoute:
-					if _, ok := stateMap.States[decision.To]; !ok {
-						return fmt.Errorf("catch target state %q not found", decision.To)
-					}
-					observer.StateExited(currentState)
-					sourceState := currentState
-					currentState = decision.To
-					currentTransition = template.NewFailureTransitionData(sourceState, decision.To, decision.Payload, decision.Failure)
-					continue stateMachineLoop
-				case catchDecisionContinue:
-					resCtx.AddExecutionWithArtifactData(decision.Outputs, nil, nil)
-					observer.StateExited(currentState)
-					return nil
-				case catchDecisionFail:
-					err = decision.Error
-					failure = decision.Failure
-				}
+				return e
+			})
+			var handled *machineCatchHandledError
+			if errors.As(err, &handled) {
+				return nil
 			}
-			if attempt < stateAttempts && shouldRetryFailure(err, failure, stateRetry) {
-				observer.StateExited(currentState)
-				if delay := retryDelay(stateRetry, attempt); delay > 0 {
-					if awaitErr := ctx.JobContext.AwaitDuration(jobdb.Duration(delay)); awaitErr != nil {
-						return awaitErr
-					}
-				}
-				continue
+			var routed *catchRouteError
+			if errors.As(err, &routed) {
+				stateResult.Route = &routed.Transition
+				err = nil
 			}
-			observer.StateExited(currentState)
-			return fmt.Errorf("state '%s' execution failed: %w", currentState, newRecipeFailureError(failure, err))
+		}
+		observer.StateExited(currentState)
+		if err != nil {
+			return err
 		}
 		if stateResult.Route != nil {
 			if _, ok := stateMap.States[stateResult.Route.To]; !ok {
@@ -188,7 +165,6 @@ stateMachineLoop:
 		if err != nil {
 			return fmt.Errorf("failed to evaluate state transitions: %w", err)
 		}
-		stateInvocationCount[currentState]++
 		if decision.To == "" {
 			// No transition matched, state machine completes
 			break
@@ -379,9 +355,32 @@ type stateRunResult struct {
 }
 
 func (d DefaultRecipeExecutor) runState(ctx workflow.Context, resCtx *template.ResolutionContext, stateName string, node recipe.State, transition template.TransitionData) (stateRunResult, error) {
+	meta := node.GetMetadata()
+	if meta.ID == "" {
+		meta.ID = stateName
+	}
+	err := executeNodeScope(ctx, resCtx, meta, template.ScopeState, stateName, func(inner workflow.Context, state *template.ResolutionContext, clean recipe.NodeMetadata) error {
+		copy := node
+		copy.Node = nodeWithoutPolicy(node.Node)
+		result, err := d.runStateAttempt(inner, state, stateName, copy, transition)
+		if result.Route != nil {
+			return &catchRouteError{Transition: *result.Route}
+		}
+		return err
+	})
+	var route *catchRouteError
+	if errors.As(err, &route) {
+		return stateRunResult{Route: &route.Transition}, nil
+	}
+	return stateRunResult{}, err
+}
+func (d DefaultRecipeExecutor) runStateAttempt(ctx workflow.Context, resCtx *template.ResolutionContext, stateName string, node recipe.State, transition template.TransitionData) (stateRunResult, error) {
 	stateResCtx, err := resCtx.NewChildContext(template.ScopeState, node.GetMetadata(), stateName, nil)
 	if err != nil {
 		return stateRunResult{}, fmt.Errorf("failed to create state context: %w", err)
+	}
+	if ctx.ScopeState != nil {
+		ctx.ScopeState(stateResCtx)
 	}
 	stateResCtx.TemplateData.Transition = transition.Clone()
 	if node.GetMetadata().Workspace != nil {
@@ -404,9 +403,6 @@ func (d DefaultRecipeExecutor) runStateBody(ctx workflow.Context, stateResCtx *t
 	if err := stateResCtx.ResolveVars(node.GetMetadata().Vars); err != nil {
 		return stateRunResult{}, fmt.Errorf("failed to resolve state vars: %w", err)
 	}
-	if len(node.GetMetadata().Catch) > 0 {
-		stateResCtx.Options.CatchBeforeRetry = true
-	}
 
 	stateNode := nodeWithoutVars(node.Node)
 	err := d.self().ExecuteNode(ctx, stateResCtx, &stateNode)
@@ -423,30 +419,7 @@ func (d DefaultRecipeExecutor) runStateBody(ctx workflow.Context, stateResCtx *t
 		return stateRunResult{Route: &route}, nil
 	}
 
-	failure, ok := failureFromError(err)
-	if !ok {
-		failure = normalizeRuntimeFailure(err, stateResCtx, node.GetMetadata(), recipe.FailureNodeState, "")
-	}
-	if len(node.GetMetadata().Catch) == 0 {
-		return stateRunResult{}, newRecipeFailureError(failure, err)
-	}
-
-	decision, catchErr := evaluateCatchClauses(node.GetMetadata().Catch, failure, stateResCtx, stateName, true)
-	if catchErr != nil {
-		return stateRunResult{}, catchErr
-	}
-	switch decision.Kind {
-	case catchDecisionRoute:
-		route := template.NewFailureTransitionData(stateName, decision.To, decision.Payload, decision.Failure)
-		return stateRunResult{Route: &route}, nil
-	case catchDecisionContinue:
-		stateResCtx.AddExecutionWithArtifactData(decision.Outputs, nil, nil)
-		return stateRunResult{}, nil
-	case catchDecisionFail:
-		return stateRunResult{}, decision.Error
-	default:
-		return stateRunResult{}, newRecipeFailureError(failure, err)
-	}
+	return stateRunResult{}, err
 }
 
 func nodeWithoutVars(node recipe.Node) recipe.Node {
@@ -478,4 +451,56 @@ func nodeWithoutVars(node recipe.Node) recipe.Node {
 	default:
 		return node
 	}
+}
+
+func nodeWithoutPolicy(node recipe.Node) recipe.Node {
+	switch n := node.NodeImpl.(type) {
+	case *recipe.NodeOp:
+		v := *n
+		v.Retry = nil
+		v.Timeout = 0
+		v.Catch = nil
+		node.NodeImpl = &v
+	case *recipe.NodeSequence:
+		v := *n
+		v.Retry = nil
+		v.Timeout = 0
+		v.Catch = nil
+		node.NodeImpl = &v
+	case *recipe.NodeState:
+		v := *n
+		v.Retry = nil
+		v.Timeout = 0
+		v.Catch = nil
+		node.NodeImpl = &v
+	case *recipe.NodeChildGroup:
+		v := *n
+		v.Retry = nil
+		v.Timeout = 0
+		v.Catch = nil
+		node.NodeImpl = &v
+	}
+	return node
+}
+
+func nodeWithoutRetry(node recipe.Node) recipe.Node {
+	switch n := node.NodeImpl.(type) {
+	case *recipe.NodeOp:
+		v := *n
+		v.Retry = nil
+		node.NodeImpl = &v
+	case *recipe.NodeSequence:
+		v := *n
+		v.Retry = nil
+		node.NodeImpl = &v
+	case *recipe.NodeState:
+		v := *n
+		v.Retry = nil
+		node.NodeImpl = &v
+	case *recipe.NodeChildGroup:
+		v := *n
+		v.Retry = nil
+		node.NodeImpl = &v
+	}
+	return node
 }

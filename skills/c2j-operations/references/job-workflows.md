@@ -25,18 +25,17 @@ Use JSON output to capture the submitted job identity. Use `c2j list --self --em
 Use `ready` to count claimable work for schedulers:
 
 ```bash
-c2j ready --embed
+c2j ready --jobdb embed:///
 ```
 
-Use worker commands to run claim loops:
+Run a specific job directly:
 
 ```bash
-c2j run one --embed
-c2j run any --embed
-c2j run loop --embed
+c2j run one --job-id <job-id> --embed
 ```
 
-Prefer bounded local concurrency and explicit tenant/cell targeting in automation.
+Use Pulse for discovery and dispatch through supplied leases. The polling
+commands `run any` and `run loop` have been removed.
 
 ## Execute a supplied lease
 

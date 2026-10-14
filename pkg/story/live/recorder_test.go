@@ -2,6 +2,7 @@ package live
 
 import (
 	"encoding/json"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -77,5 +78,65 @@ func TestRecorderSnapshot_DoesNotDuplicateSyntheticSourceResolutionNode(t *testi
 	}
 	if second.Recipe.Source.ResolutionTaskOrdinal == nil || *second.Recipe.Source.ResolutionTaskOrdinal != 1 {
 		t.Fatalf("expected second resolution ordinal 1, got %#v", second.Recipe.Source.ResolutionTaskOrdinal)
+	}
+}
+
+func TestCloseNotificationsFencesLateCallbacks(t *testing.T) {
+	var calls atomic.Int32
+	rec := NewRecorder(Options{OnChange: func(*JobRunStory) { calls.Add(1) }})
+	rec.notify()
+	release, done := make(chan struct{}), make(chan struct{})
+	go func() { <-release; rec.notify(); close(done) }()
+	rec.CloseNotifications()
+	close(release)
+	<-done
+	rec.CloseNotifications()
+	if calls.Load() != 1 {
+		t.Fatalf("late notifications: %d", calls.Load())
+	}
+}
+
+// JobDB may report task outcomes while the orchestration callback is still
+// updating its recipe tree. Snapshots must be isolated from both writers.
+func TestRecorderSnapshotDuringStateUpdates(t *testing.T) {
+	rec := NewRecorder(Options{})
+	tree := rec.ensureAttemptTree()
+	root := tree.newNode(JobRunStoryNodeKindRecipe, "recipe")
+	tree.push("root", root)
+	rec.SetRoot(root)
+	exec := newRecordingExecutor(compiler.DefaultRecipeExecutor{}, tree, rec)
+	observer := newStoryStateObserver(tree, rec)
+
+	start, done := make(chan struct{}), make(chan struct{})
+	go func() {
+		defer close(done)
+		<-start
+		for range 200 {
+			observer.StateEntered("work")
+			exec.VarsResolved("", "", map[string]interface{}{"value": "rendered"})
+			observer.TransitionEvalauted("true", true, "next")
+			observer.TransitionSelected("work", "next", map[string]interface{}{"value": "next"})
+			observer.StateExited("work")
+			observer.Flush()
+		}
+	}()
+	close(start)
+	for range 200 {
+		if snapshot := rec.Snapshot(); snapshot.Root == nil {
+			t.Fatal("missing recipe root")
+		}
+	}
+	<-done
+	snapshot := rec.Finalize(nil)
+	if len(snapshot.Root.Children) != 200 {
+		t.Fatalf("states recorded: %d", len(snapshot.Root.Children))
+	}
+	for _, state := range snapshot.Root.Children {
+		if state.Status != JobRunStoryNodeStatusSucceeded || len(state.Children) != 1 || state.RenderedVars["value"] != "rendered" {
+			t.Fatalf("incomplete state: %#v", state)
+		}
+		if decision := state.Children[0].Decision; decision == nil || decision.Payload["value"] != "next" {
+			t.Fatalf("missing transition payload: %#v", decision)
+		}
 	}
 }

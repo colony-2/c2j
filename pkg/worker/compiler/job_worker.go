@@ -24,13 +24,11 @@ import (
 )
 
 type RecipeJobWorkerOptions struct {
+	ConsumerVersions map[string]string
 	// SecretSessions is shared with the activity registry when registering workers individually.
-	SecretSessions *secrets.Sessions
-	// TaskHistory supplies read-only recovery for legacy artifact dependency order.
-	TaskHistory        workflow.TaskHistoryReader
+	SecretSessions     *secrets.Sessions
 	Allocation         execution.Allocation
 	ReadOnlyReplay     bool
-	OnExecutionHandoff func(ExecutionHandoff)
 	StageExecution     func(jobdb.JobKey, execution.Demand)
 	WrapTaskWorker     func(jobworkflow.TaskWorker) jobworkflow.TaskWorker
 	CELOptionsProvider template.CELOptionsProvider
@@ -51,11 +49,9 @@ type RecipeJobWorkerOptions struct {
 
 type recipeJobWorker struct {
 	secretSessions      *secrets.Sessions
-	taskHistory         workflow.TaskHistoryReader
 	taskGuardConfigured bool
 	allocation          execution.Allocation
 	readOnlyReplay      bool
-	onExecutionHandoff  func(ExecutionHandoff)
 	stageExecution      func(jobdb.JobKey, execution.Demand)
 	celProvider         template.CELOptionsProvider
 	executor            RecipeExecutor
@@ -65,13 +61,12 @@ type recipeJobWorker struct {
 	onSourceResolved    func(RecipeSourceResolution)
 }
 
-func NewRecipeJobWorker(opts RecipeJobWorkerOptions) jobworkflow.JobWorker {
-	return &recipeJobWorker{
+func NewRecipeJobWorker(opts RecipeJobWorkerOptions) jobworkflow.ExecutionWorker {
+	j := &recipeJobWorker{
 		secretSessions:      opts.SecretSessions,
-		taskHistory:         opts.TaskHistory,
 		taskGuardConfigured: opts.WrapTaskWorker != nil,
 		allocation:          opts.Allocation, readOnlyReplay: opts.ReadOnlyReplay,
-		onExecutionHandoff: opts.OnExecutionHandoff, stageExecution: opts.StageExecution,
+		stageExecution:   opts.StageExecution,
 		celProvider:      opts.CELOptionsProvider,
 		executor:         opts.Executor,
 		executorFactory:  opts.ExecutorFactory,
@@ -79,6 +74,7 @@ func NewRecipeJobWorker(opts RecipeJobWorkerOptions) jobworkflow.JobWorker {
 		onRecipeLoadedFn: opts.OnRecipeLoaded,
 		onSourceResolved: opts.OnRecipeSourceResolved,
 	}
+	return jobworkflow.ExecutionWorker{JobType: starter.RecipeJobType, Execute: j.Run}
 }
 
 func NewRecipeWorker(dependencies ops.ServiceDependencies2, activityRegistry *workerops.ActivityRegistry, provider ...template.CELOptionsProvider) (*jobworkflow.WorkSet, error) {
@@ -90,9 +86,6 @@ func NewRecipeWorker(dependencies ops.ServiceDependencies2, activityRegistry *wo
 }
 
 func NewRecipeWorkerWithOptions(dependencies ops.ServiceDependencies2, activityRegistry *workerops.ActivityRegistry, opts RecipeJobWorkerOptions) (*jobworkflow.WorkSet, error) {
-	if opts.TaskHistory == nil && dependencies != nil {
-		opts.TaskHistory, _ = dependencies.WorkflowControl().(workflow.TaskHistoryReader)
-	}
 	opts.SecretSessions = activityRegistry.SecretSessions
 	job := NewRecipeJobWorker(opts)
 	taskWorkers := activityRegistry.GetTaskWorkers(dependencies)
@@ -105,23 +98,21 @@ func NewRecipeWorkerWithOptions(dependencies ops.ServiceDependencies2, activityR
 			taskWorkers[i] = opts.WrapTaskWorker(worker)
 		}
 	}
-	// Deadline bookkeeping is control work, independent of the task's required
-	// execution environment. Do not apply resource-admission guards to it.
-	taskWorkers = append(taskWorkers, timeoutCheckpointWorker{})
-	return jobworkflow.AsWorkSet(job, taskWorkers...)
+	return jobworkflow.AsWorkSetWithOptions(job, jobworkflow.WorkRegistrationOptions{ConsumerVersions: ExecutionConsumerVersions(opts.ConsumerVersions)}, taskWorkers...)
 }
 
 func (j recipeJobWorker) Name() string {
 	return starter.RecipeJobType
 }
 
-func (j recipeJobWorker) Run(ctx jobworkflow.JobContext, jobData jobdb.JobData) (jobdb.JobData, error) {
+func (j recipeJobWorker) Run(ctx jobworkflow.ExecutionContext, jobData jobdb.JobData) (jobdb.JobData, error) {
 	jobKey := ctx.GetJobKey()
 	if j.secretSessions != nil && !j.readOnlyReplay {
-		if _, err := j.secretSessions.Open(jobKey); err != nil {
+		redactor, err := j.secretSessions.OpenExecution(ctx.Context(), jobKey)
+		if err != nil {
 			return nil, err
 		}
-		defer j.secretSessions.Close(jobKey)
+		defer j.secretSessions.CloseExecution(jobKey, redactor)
 	}
 	logger := ctx.Logger()
 	if logger == nil {
@@ -197,22 +188,12 @@ func (j recipeJobWorker) Run(ctx jobworkflow.JobContext, jobData jobdb.JobData) 
 			)
 			return nil, err
 		}
-		taskInput, err := jobdb.NewTaskData(rootSourceResolutionTaskInput{
-			ProjectID:  strings.TrimSpace(input.TenantId),
-			Selector:   input.RecipeName,
-			LookupRepo: rootRecipeLookupRepo(input.JobContext),
-			LookupRef:  rootRecipeLookupRef(input.JobContext),
-		})
-		if err != nil {
-			logger.Error("recipe job: failed to encode root recipe source resolution input",
-				"error", err,
-				"error_chain", logutil.ErrorChain(err),
-				"stacktrace", logutil.Stacktrace(5),
-			)
-			return nil, err
+		req := rootSourceResolutionTaskInput{
+			ProjectID: strings.TrimSpace(input.TenantId), Selector: input.RecipeName,
+			LookupRepo: rootRecipeLookupRepo(input.JobContext), LookupRef: rootRecipeLookupRef(input.JobContext),
 		}
 
-		taskOutput, err := ctx.DoTask(jobdb.RunPolicy{}, RootSourceResolutionTaskType, taskInput)
+		taskOutput, err := workflow.ValueCall(ctx, "root-source", RootSourceResolutionTaskType, jobdb.RunPolicy{}, req)
 		if err != nil {
 			if logReplayCacheMiss(logger, "recipe job: root recipe source resolution replay cache miss", err) {
 				return nil, err
@@ -293,7 +274,7 @@ func (j recipeJobWorker) Run(ctx jobworkflow.JobContext, jobData jobdb.JobData) 
 		return nil, err
 	}
 
-	wCtx := workflow.Context{JobContext: ctx, TaskHistory: j.taskHistory}
+	wCtx := workflow.Context{JobContext: ctx}
 	if input.Execution != nil {
 		wCtx.JobPackages = input.Execution.JobRequirements.Packages
 	}
@@ -446,8 +427,6 @@ func ensureEnvironmentSentinels(env *contextual.EnvironmentContext) error {
 	}
 	return nil
 }
-
-var _ jobworkflow.JobWorker = &recipeJobWorker{}
 
 func rootRecipeLookupRepo(jobContext contextual.JobContext) string {
 	return strings.TrimSpace(jobContext.RecipeSource.Repo)

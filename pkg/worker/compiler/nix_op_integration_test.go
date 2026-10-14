@@ -171,7 +171,7 @@ outputs:
 	history, err := engine.GetJobRun(ctx, jobdb.GetJobRunRequest{JobKey: key, IncludeOutputs: true})
 	require.NoError(t, err)
 	setupSeen := false
-	for _, task := range history.Attempts[0].Tasks {
+	for _, task := range executionTaskRuns(history) {
 		require.NotEqual(t, "tool_setup", task.TaskType)
 		if strings.HasPrefix(task.TaskType, "extension_execution:") {
 			result, err := decodeTaskOutput(task.Attempts[0].Output.Data)

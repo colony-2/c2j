@@ -7,10 +7,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/colony-2/c2j/pkg/swfutil"
 	"log/slog"
 	"os"
-	"sort"
-	"strconv"
 	"strings"
 	"time"
 
@@ -556,7 +555,17 @@ func (s *Service) GetWorkflowOutcome(ctx context.Context, req model.GetWorkflowO
 		}
 	}
 
-	artifacts := aggregateArtifacts(run.Attempts, projectID, jobID)
+	tasks, err := swfutil.ExecutionTasks(run)
+	if err != nil {
+		return nil, err
+	}
+	attempts := append([]jobdb.JobAttempt(nil), run.Attempts...)
+	activityArtifacts := jobdb.JobAttempt{}
+	for _, task := range tasks {
+		activityArtifacts.Tasks = append(activityArtifacts.Tasks, task.TaskRun)
+	}
+	attempts = append(attempts, activityArtifacts)
+	artifacts := aggregateArtifacts(attempts, projectID, jobID)
 
 	return &model.WorkflowOutcome{
 		JobID:          jobID,
@@ -639,56 +648,6 @@ func isTerminalJobStatus(st jobdb.JobStatus) bool {
 		return true
 	default:
 		return false
-	}
-}
-
-func applyJobAttemptOutcomeAndOutputToStory(st *model.JobRunStory, run jobdb.GetJobRunResponse) {
-	if st == nil || st.Root == nil || len(run.Attempts) == 0 {
-		return
-	}
-
-	byAttempt := make(map[int]jobdb.JobAttempt, len(run.Attempts))
-	for i := range run.Attempts {
-		att := run.Attempts[i]
-		byAttempt[att.Attempt] = att
-	}
-
-	apply := func(n *model.JobRunStoryNode) {
-		if n == nil || n.JobAttempt <= 0 {
-			return
-		}
-		att, ok := byAttempt[n.JobAttempt]
-		if !ok {
-			return
-		}
-
-		// Prefer surfacing the job attempt output on the recipe attempt node, since it contains
-		// runner-level terminal details (e.g. job total timeout message) that the recipe output
-		// may not include.
-		if att.Output != nil && len(att.Output.Data) > 0 {
-			var v any
-			if err := json.Unmarshal(att.Output.Data, &v); err == nil {
-				n.Output = v
-			} else {
-				n.Output = string(att.Output.Data)
-			}
-		}
-
-		// Best-effort: attach terminal error when not already present.
-		if n.Error == nil && att.Outcome.Error != nil {
-			msg := strings.TrimSpace(att.Outcome.Error.Message)
-			if msg != "" {
-				n.Error = &model.JobRunStoryError{
-					Message: msg,
-					Code:    strings.TrimSpace(att.Outcome.Error.Code),
-				}
-			}
-		}
-	}
-
-	apply(st.Root)
-	for _, pa := range st.Root.PastAttempts {
-		apply(pa)
 	}
 }
 
@@ -904,121 +863,6 @@ func errorChainForLog(err error) []string {
 	return out
 }
 
-func countTaskRuns(attempts []jobdb.JobAttempt) int {
-	n := 0
-	for i := range attempts {
-		n += len(attempts[i].Tasks)
-	}
-	return n
-}
-
-func summarizeTaskTimelineForLog(attempts []jobdb.JobAttempt) []string {
-	if len(attempts) == 0 {
-		return nil
-	}
-
-	type row struct {
-		ord      int64
-		jobAtt   int
-		taskType string
-		attempts int
-		state    string
-	}
-
-	rows := make([]row, 0, countTaskRuns(attempts))
-	for i := range attempts {
-		ja := attempts[i]
-		for _, tr := range ja.Tasks {
-			r := row{
-				ord:      -1,
-				jobAtt:   ja.Attempt,
-				taskType: tr.TaskType,
-				attempts: len(tr.Attempts),
-				state:    "",
-			}
-			if len(tr.Attempts) > 0 {
-				r.ord = tr.Attempts[0].Ordinal
-				r.state = tr.Attempts[len(tr.Attempts)-1].State
-			} else if ord, ok := parseOrdinalFromTaskRunID(tr.TaskRunID); ok {
-				r.ord = ord
-			}
-			rows = append(rows, r)
-		}
-	}
-
-	// Sort by ordinal ascending; unknown ordinals go last.
-	sort.SliceStable(rows, func(i, j int) bool {
-		oi := rows[i].ord
-		oj := rows[j].ord
-		if oi < 0 && oj < 0 {
-			if rows[i].jobAtt != rows[j].jobAtt {
-				return rows[i].jobAtt < rows[j].jobAtt
-			}
-			return rows[i].taskType < rows[j].taskType
-		}
-		if oi < 0 {
-			return false
-		}
-		if oj < 0 {
-			return true
-		}
-		if oi != oj {
-			return oi < oj
-		}
-		if rows[i].jobAtt != rows[j].jobAtt {
-			return rows[i].jobAtt < rows[j].jobAtt
-		}
-		return rows[i].taskType < rows[j].taskType
-	})
-
-	format := func(r row) string {
-		if r.ord >= 0 {
-			if r.state != "" {
-				return fmt.Sprintf("ord=%d job_attempt=%d type=%q attempts=%d state=%q", r.ord, r.jobAtt, r.taskType, r.attempts, r.state)
-			}
-			return fmt.Sprintf("ord=%d job_attempt=%d type=%q attempts=%d", r.ord, r.jobAtt, r.taskType, r.attempts)
-		}
-		if r.state != "" {
-			return fmt.Sprintf("ord=? job_attempt=%d type=%q attempts=%d state=%q", r.jobAtt, r.taskType, r.attempts, r.state)
-		}
-		return fmt.Sprintf("ord=? job_attempt=%d type=%q attempts=%d", r.jobAtt, r.taskType, r.attempts)
-	}
-
-	const max = 24
-	if len(rows) <= max {
-		out := make([]string, 0, len(rows))
-		for _, r := range rows {
-			out = append(out, format(r))
-		}
-		return out
-	}
-
-	head := rows[:12]
-	tail := rows[len(rows)-12:]
-	out := make([]string, 0, max+1)
-	for _, r := range head {
-		out = append(out, format(r))
-	}
-	out = append(out, fmt.Sprintf("... (%d more tasks) ...", len(rows)-24))
-	for _, r := range tail {
-		out = append(out, format(r))
-	}
-	return out
-}
-
-func parseOrdinalFromTaskRunID(taskRunID string) (int64, bool) {
-	taskRunID = strings.TrimSpace(taskRunID)
-	if taskRunID == "" {
-		return 0, false
-	}
-	last := taskRunID
-	if idx := strings.LastIndex(taskRunID, ":"); idx >= 0 && idx < len(taskRunID)-1 {
-		last = taskRunID[idx+1:]
-	}
-	ord, err := strconv.ParseInt(last, 10, 64)
-	return ord, err == nil
-}
-
 func (s *Service) RestartRecipeJob(ctx context.Context, req model.RestartRecipeJobRequest) (*model.RestartRecipeJobResponse, error) {
 	if s.engine == nil {
 		return nil, ErrEngineUnavailable
@@ -1041,7 +885,7 @@ func (s *Service) RestartRecipeJob(ctx context.Context, req model.RestartRecipeJ
 		}
 	}
 
-	newKey, err := starter.RestartRecipeJob(ctx, restartSubmitter, jobdb.JobKey{TenantId: projectID, JobId: jobID}, req.StepOffset, req.Patch)
+	newKey, err := starter.RestartRecipeJob(ctx, restartSubmitter, jobdb.JobKey{TenantId: projectID, JobId: jobID}, req.ScopeID, req.Patch)
 	if err != nil {
 		if errors.Is(err, jobdb.ErrJobNotFound) {
 			return nil, ErrNotFound
@@ -1380,7 +1224,11 @@ func aggregateArtifacts(jobAttempts []jobdb.JobAttempt, projectID, jobID string)
 			}
 			seen[key] = true
 			size := art.SizeBytes
-			url := fmt.Sprintf("/api/projects/%s/jobs/%s/tasks/%d/artifacts/%s", projectID, jobID, ordinal, art.Name)
+			artifactJob, artifactOrdinal, artifactName := jobID, ordinal, art.Name
+			if art.Key != nil {
+				artifactJob, artifactOrdinal, artifactName = art.Key.JobId, art.Key.TaskOrdinal, art.Key.Name
+			}
+			url := fmt.Sprintf("/api/projects/%s/jobs/%s/tasks/%d/artifacts/%s", projectID, artifactJob, artifactOrdinal, artifactName)
 			refs = append(refs, model.ArtifactReference{
 				ArtifactID:   art.ID,
 				ArtifactType: art.ContentType,

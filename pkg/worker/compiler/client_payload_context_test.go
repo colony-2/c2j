@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"testing"
-	"time"
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
@@ -18,7 +17,7 @@ type noLeaseClientContext struct{}
 
 func (noLeaseClientContext) ClientPayload() json.RawMessage { return nil }
 func (noLeaseClientContext) ClientPayloadRevision() int64   { return 0 }
-func (noLeaseClientContext) Yield(context.Context, jobdb.RescheduleExecutionRequest) error {
+func (noLeaseClientContext) Yield(context.Context, jobworkflow.YieldRequest) error {
 	return fmt.Errorf("yield requires an execution lease")
 }
 
@@ -26,7 +25,7 @@ type payloadJobContext struct {
 	stubJobContext
 	payload  json.RawMessage
 	revision int64
-	yields   []jobdb.RescheduleExecutionRequest
+	yields   []jobworkflow.YieldRequest
 	yieldErr error
 }
 
@@ -34,7 +33,7 @@ func (c *payloadJobContext) ClientPayload() json.RawMessage {
 	return append(json.RawMessage(nil), c.payload...)
 }
 func (c *payloadJobContext) ClientPayloadRevision() int64 { return c.revision }
-func (c *payloadJobContext) Yield(_ context.Context, req jobdb.RescheduleExecutionRequest) error {
+func (c *payloadJobContext) Yield(_ context.Context, req jobworkflow.YieldRequest) error {
 	c.yields = append(c.yields, req)
 	return c.yieldErr
 }
@@ -42,14 +41,10 @@ func (c *payloadJobContext) Yield(_ context.Context, req jobdb.RescheduleExecuti
 func TestClientPayloadContextForwarding(t *testing.T) {
 	for _, tt := range []struct {
 		name string
-		wrap func(jobworkflow.JobContext) jobworkflow.JobContext
+		wrap func(jobworkflow.ExecutionContext) jobworkflow.ExecutionContext
 	}{
-		{"thinpack", func(c jobworkflow.JobContext) jobworkflow.JobContext { return newThinPackForwardingJobContext(c) }},
-		{"timeout", func(c jobworkflow.JobContext) jobworkflow.JobContext {
-			return withExecutionTimeout(c, time.Minute, "test")
-		}},
-		{"nested", func(c jobworkflow.JobContext) jobworkflow.JobContext {
-			return newThinPackForwardingJobContext(withExecutionTimeout(c, time.Minute, "test"))
+		{"thinpack", func(c jobworkflow.ExecutionContext) jobworkflow.ExecutionContext {
+			return newThinPackForwardingJobContext(c)
 		}},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
@@ -58,23 +53,16 @@ func TestClientPayloadContextForwarding(t *testing.T) {
 			require.JSONEq(t, string(inner.payload), string(wrapped.ClientPayload()))
 			require.EqualValues(t, 7, wrapped.ClientPayloadRevision())
 			revision := int64(7)
-			req := jobdb.RescheduleExecutionRequest{
+			req := jobworkflow.YieldRequest{Reschedule: jobdb.RescheduleExecutionRequest{
 				NextRoute: jobdb.Route{JobType: "recipe"}, WaitForJobIDs: []string{"child"},
 				ClientPayloadUpdate: &jobdb.ClientPayloadUpdate{Mode: "reset", ExpectedRevision: &revision, Value: json.RawMessage(`{"cursor":"two"}`)},
-			}
+			}, Metadata: json.RawMessage(`{"kind":"probe"}`)}
 			require.NoError(t, wrapped.Yield(context.Background(), req))
-			require.Equal(t, []jobdb.RescheduleExecutionRequest{req}, inner.yields)
+			require.Equal(t, []jobworkflow.YieldRequest{req}, inner.yields)
 			inner.yieldErr = jobdb.ErrConflict
 			require.ErrorIs(t, wrapped.Yield(context.Background(), req), jobdb.ErrConflict)
 		})
 	}
-}
-
-func TestExpiredTimeoutDoesNotYield(t *testing.T) {
-	inner := &payloadJobContext{}
-	wrapped := &timeoutJobContext{inner: inner, deadline: time.Now().Add(-time.Second)}
-	require.ErrorIs(t, wrapped.Yield(context.Background(), jobdb.RescheduleExecutionRequest{NextRoute: jobdb.Route{JobType: "recipe"}}), context.DeadlineExceeded)
-	require.Empty(t, inner.yields)
 }
 
 func TestValidationDoesNotExposeOrPublishLiveClientPayload(t *testing.T) {
@@ -82,7 +70,7 @@ func TestValidationDoesNotExposeOrPublishLiveClientPayload(t *testing.T) {
 	for _, wrapped := range []*validationJobContext{{inner: inner}, {}} {
 		require.Nil(t, wrapped.ClientPayload())
 		require.Zero(t, wrapped.ClientPayloadRevision())
-		require.ErrorContains(t, wrapped.Yield(context.Background(), jobdb.RescheduleExecutionRequest{NextRoute: jobdb.Route{JobType: "recipe"}}), "not supported during validation")
+		require.ErrorContains(t, wrapped.Yield(context.Background(), jobworkflow.YieldRequest{Reschedule: jobdb.RescheduleExecutionRequest{NextRoute: jobdb.Route{JobType: "recipe"}}}), "not supported during validation")
 	}
 	require.Empty(t, inner.yields)
 }

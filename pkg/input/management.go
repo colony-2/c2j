@@ -12,7 +12,6 @@ import (
 
 	openapi "github.com/colony-2/c2j/pkg/input/openapi"
 	"github.com/colony-2/c2j/pkg/ops"
-	coretask "github.com/colony-2/c2j/pkg/task"
 	ops2 "github.com/colony-2/c2j/pkg/worker/ops"
 	"github.com/colony-2/c2j/pkg/workflowctl"
 	"github.com/colony-2/jobdb/pkg/jobdb"
@@ -156,23 +155,11 @@ func (s *inputManagementService) getOutput(ctx context.Context, projectID string
 		return nil, ops2.ActivityInvocationOutput{}, nil, fmt.Errorf("failed to get task artifacts: %w", err)
 	}
 
-	// Note: for capability-based waiting tasks, swf-go exposes the cached output chapter
-	// data (the last completed step), not the next step's invocation request.
-	var env coretask.OutputEnvelope
-	if err := json.Unmarshal(data, &env); err != nil {
-		return nil, ops2.ActivityInvocationOutput{}, nil, fmt.Errorf("failed to unmarshal task output envelope: %w", err)
+	var request ops2.ActivityInvocationRequest
+	if err := json.Unmarshal(data, &request); err != nil {
+		return nil, ops2.ActivityInvocationOutput{}, nil, fmt.Errorf("decode pending input snapshot: %w", err)
 	}
-	if env.Version != coretask.OutputEnvelopeVersion {
-		return nil, ops2.ActivityInvocationOutput{}, nil, fmt.Errorf("unsupported task output envelope version %d", env.Version)
-	}
-	if env.Kind != coretask.OutputKindActivityInvocationOutput {
-		return nil, ops2.ActivityInvocationOutput{}, nil, fmt.Errorf("unexpected task output kind %q", env.Kind)
-	}
-
-	var out ops2.ActivityInvocationOutput
-	if err := env.DecodePayload(&out); err != nil {
-		return nil, ops2.ActivityInvocationOutput{}, nil, fmt.Errorf("failed to decode activity output payload: %w", err)
-	}
+	out := request.ExternalOutput()
 
 	return task, out, artifacts, nil
 }

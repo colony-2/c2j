@@ -129,7 +129,7 @@ func buildStructuredForm(deps ops.OpDependencies, ctx context.Context, config Co
 
 // GetForm returns the frozen form independently of any presentation transport.
 func (r *Runtime) GetForm(ctx context.Context, projectID, jobID string) (InputForm, error) {
-	_, req, _, err := r.getOutput(ctx, projectID, jobID)
+	task, req, _, err := r.getOutput(ctx, projectID, jobID)
 	if err != nil {
 		return InputForm{}, err
 	}
@@ -137,6 +137,9 @@ func (r *Runtime) GetForm(ctx context.Context, projectID, jobID string) (InputFo
 	err = ops.DecodeWithJsonTags(req.OpOutput, &form)
 	if err != nil {
 		return InputForm{}, invalidFormError(err)
+	}
+	if err := r.populateFallbackAt(ctx, task, &form); err != nil {
+		return InputForm{}, err
 	}
 	return form, nil
 }

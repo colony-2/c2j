@@ -28,7 +28,13 @@ func (c *countingJobContext) AwaitJobs(jobIds ...string) error {
 func (c *countingJobContext) GetJobKey() jobdb.JobKey            { return c.jobKey }
 func (c *countingJobContext) Logger() *slog.Logger               { return slog.Default() }
 func (c *countingJobContext) AwaitDuration(jobdb.Duration) error { return nil }
-func (c *countingJobContext) DoTask(jobdb.RunPolicy, string, jobdb.TaskData) (jobdb.TaskData, error) {
+func (c *countingJobContext) DoTask(call testTaskCall, build func(testContext) (jobdb.TaskData, error)) (jobdb.TaskData, error) {
+	data, buildErr := build(c.Context())
+	if buildErr != nil {
+		return nil, buildErr
+	}
+	_ = data
+
 	c.calls++
 	return nil, fmt.Errorf("unexpected task invocation")
 }
@@ -86,7 +92,7 @@ func registerArtifactOp(t *testing.T, opName string) {
 	withRegisteredOps(t, op.(coreops.RegisterableOp))
 }
 
-func newWorkflowContext(jobCtx jobworkflow.JobContext) workflow.Context {
+func newWorkflowContext(jobCtx jobworkflow.ExecutionContext) workflow.Context {
 	return workflow.Context{
 		JobContext:           jobCtx,
 		ServiceDependencies2: coreops.NewServiceDepsBuilder().Build(),
@@ -334,4 +340,12 @@ func TestValidationRejectsInvalidCEL(t *testing.T) {
 
 	_, _, err := ExecuteRecipe(ctx, rec, map[string]interface{}{}, jobCtx, gitCtx, ExecutionOptions{Mode: ExecutionModeValidate})
 	require.Error(t, err)
+}
+
+func (c *countingJobContext) DoScope(site string, opts testScopeOptions, body func(testExecutionContext) (jobdb.JobData, error)) (jobdb.JobData, error) {
+	return runMockScope(c, site, opts, body)
+}
+func (c *countingJobContext) Context() testContext { return testBackground() }
+func (c *countingJobContext) ExecutionVersions() jobdb.ExecutionVersions {
+	return jobdb.ExecutionVersions{}
 }

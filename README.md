@@ -57,8 +57,6 @@ c2j submit
 c2j run
 c2j run one
 c2j run with-lease
-c2j run any
-c2j run loop
 c2j ready
 c2j list
 c2j test
@@ -551,56 +549,19 @@ the job becomes runnable or the wait timeout is reached.
 - `4`: job not runnable under the selected policy
 - `5`: invalid job identity or invalid run arguments
 
-## Worker Modes
+## Dispatching work
 
-`c2j run loop` runs a long-lived worker for one tenant. It leases available jobs
-from a remote JobDB runtime and executes up to the configured local concurrency.
+Run a known job with `c2j run --job-id <id>`, or let a dispatcher such as Pulse
+claim a lease and launch [`c2j run with-lease`](GUIDE-Run-With-Lease.md).
+`run any` and `run loop` are no longer supported.
 
-Basic usage:
-
-```bash
-c2j run loop --jobdb http://localhost:9047/<tenant-id> --concurrency 4
-```
-
-Important behavior:
-
-- `--concurrency <n>` controls how many jobs this process can run at once
-- `--jobdb` must be a remote `http://host/tenant` or `https://host/tenant` URI
-- `--embed` is not available for `run loop`
-- `--jobdb embed:///` is rejected for `run loop`
-- `run loop` is non-interactive; use `run` or an ops surface for jobs that need input
-
-### Loose scheduling with `ready` and `run any`
-
-`c2j ready` prints the number of currently ready recipe jobs for one tenant:
+`c2j ready` prints a read-only snapshot of the number of ready recipe jobs:
 
 ```bash
 c2j ready --jobdb http://localhost:9047/<tenant-id>
 ```
 
-`c2j run any` atomically polls for one available item of recipe work, leases it,
-runs it, and exits. If no lease is available, it exits successfully after
-printing `no jobs found`.
-
-```bash
-c2j run any --jobdb http://localhost:9047/<tenant-id>
-```
-
-These can be composed by an external scheduler:
-
-```bash
-count=$(c2j ready --jobdb http://localhost:9047/<tenant-id>)
-if [ "$count" -gt 0 ]; then
-  for _ in $(seq 1 "$count"); do
-    c2j run any --jobdb http://localhost:9047/<tenant-id> &
-  done
-  wait
-fi
-```
-
-`ready` is only a non-mutating snapshot and can become stale under competing
-workers. `run any` uses JobDB polling so finding available work and acquiring the
-lease happen in one runtime operation.
+The count is not a reservation and may change before a dispatcher claims work.
 
 ## Listing Jobs
 

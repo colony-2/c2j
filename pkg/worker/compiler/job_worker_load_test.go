@@ -15,7 +15,7 @@ import (
 )
 
 type loadFailureContext struct {
-	jobworkflow.JobContext
+	jobworkflow.ExecutionContext
 	output jobdb.TaskData
 	err    error
 	calls  int
@@ -25,7 +25,15 @@ func (c *loadFailureContext) GetJobKey() jobdb.JobKey {
 	return jobdb.JobKey{TenantId: "tenant", JobId: "job"}
 }
 func (c *loadFailureContext) Logger() *slog.Logger { return slog.Default() }
-func (c *loadFailureContext) DoTask(_ jobdb.RunPolicy, kind string, _ jobdb.TaskData) (jobdb.TaskData, error) {
+func (c *loadFailureContext) DoTask(call testTaskCall, build func(testContext) (jobdb.TaskData, error)) (jobdb.TaskData, error) {
+	data, buildErr := build(c.Context())
+	if buildErr != nil {
+		return nil, buildErr
+	}
+	_ = data
+	kind := call.TaskType
+	_ = kind
+
 	if kind != RootSourceResolutionTaskType {
 		panic("execution continued after recipe load failure")
 	}
@@ -84,7 +92,7 @@ func TestRecipeJobWorkerLoadFailuresStopBeforeExecution(t *testing.T) {
 				start, err := jobdb.NewTaskData(workflowctl.StartJob{RecipeName: "test", TenantId: "tenant"}, artifacts...)
 				require.NoError(t, err)
 				worker := NewRecipeJobWorker(RecipeJobWorkerOptions{ReadOnlyReplay: replay, RootSourceResolver: loader, OnRecipeSourceResolved: func(RecipeSourceResolution) { t.Fatal("reported an unloaded recipe as resolved") }, ExecutorFactory: func() RecipeExecutor { t.Fatal("created executor after failed load"); return nil }})
-				require.NotPanics(t, func() { _, err = worker.Run(ctx, start) })
+				require.NotPanics(t, func() { _, err = worker.Execute(ctx, start) })
 				require.ErrorContains(t, err, tc.want)
 				if tc.loadErr != nil {
 					require.ErrorIs(t, err, tc.loadErr)
@@ -100,4 +108,12 @@ func TestRecipeJobWorkerLoadFailuresStopBeforeExecution(t *testing.T) {
 			})
 		}
 	}
+}
+
+func (c *loadFailureContext) DoScope(site string, opts testScopeOptions, body func(testExecutionContext) (jobdb.JobData, error)) (jobdb.JobData, error) {
+	return runMockScope(c, site, opts, body)
+}
+func (c *loadFailureContext) Context() testContext { return testBackground() }
+func (c *loadFailureContext) ExecutionVersions() jobdb.ExecutionVersions {
+	return jobdb.ExecutionVersions{}
 }

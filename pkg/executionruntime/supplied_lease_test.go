@@ -28,11 +28,12 @@ func TestSuppliedLeaseUsesExecutionAdmission(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, claimed)
 	require.NoError(t, claimed.KeepAlive(ctx))
-	var event *compiler.ExecutionHandoff
-	runtime := New(f.runtime, allocation("2Gi"), func(e compiler.ExecutionHandoff) { event = &e })
+	runtime := New(f.runtime, allocation("2Gi"))
 	outcome, err := runFixtureLease(t, f, runtime, claimed, f.tasks)
 	require.NoError(t, err)
 	require.Equal(t, jobworkflow.JobRunSuspended, outcome.Status)
+	event, err := compiler.ExecutionHandoffFromOutcome(outcome)
+	require.NoError(t, err)
 	require.NotNil(t, event)
 	require.Zero(t, f.first.Load())
 	require.Zero(t, f.second.Load())
@@ -57,7 +58,7 @@ func (r noClaimsRuntime) PollWork(context.Context, jobdb.PollWorkRequest) ([]job
 func runFixtureLease(t *testing.T, f *fixture, rt *Runtime, supplied jobdb.ExecutionLease, tasks []jobworkflow.TaskWorker) (jobworkflow.JobRunOutcome, error) {
 	t.Helper()
 	rt.WorkflowRuntime = noClaimsRuntime{f.runtime, t}
-	worker := compiler.NewRecipeJobWorker(compiler.RecipeJobWorkerOptions{Allocation: rt.Allocation, StageExecution: rt.Stage, WrapTaskWorker: rt.WrapTaskWorker, OnExecutionHandoff: rt.OnHandoff})
+	worker := compiler.NewRecipeJobWorker(compiler.RecipeJobWorkerOptions{Allocation: rt.Allocation, StageExecution: rt.Stage, WrapTaskWorker: rt.WrapTaskWorker})
 	wrapped := make([]jobworkflow.TaskWorker, len(tasks))
 	for i, task := range tasks {
 		wrapped[i] = rt.WrapTaskWorker(task)
@@ -74,7 +75,7 @@ func TestRunSuppliedLeaseReplaysTaskRouteAndPreservesState(t *testing.T) {
 				require.NotNil(t, l)
 				return l
 			}
-			rt := New(f.runtime, allocation("2Gi"), nil)
+			rt := New(f.runtime, allocation("2Gi"))
 			// Execute the first task, then let normal dispatch reschedule the missing second task.
 			out, err := runFixtureLease(t, f, rt, claim(jobdb.Route{JobType: "recipe"}), f.tasks[:1])
 			require.NoError(t, err)
@@ -84,7 +85,7 @@ func TestRunSuppliedLeaseReplaysTaskRouteAndPreservesState(t *testing.T) {
 			require.Empty(t, rt.leases)
 			require.NotNil(t, out.NextRoute)
 			require.Equal(t, f.tasks[1].Name(), out.NextRoute.TaskType)
-			rt = New(f.runtime, allocation("2Gi"), nil)
+			rt = New(f.runtime, allocation("2Gi"))
 			out, err = runFixtureLease(t, f, rt, claim(*out.NextRoute), f.tasks)
 			require.NoError(t, err)
 			require.Equal(t, jobworkflow.JobRunCompleted, out.Status)
@@ -108,7 +109,7 @@ func TestRenewedSuppliedLeaseRetainsStagedDemand(t *testing.T) {
 	supplied, err := f.runtime.GetJobLease(context.Background(), jobdb.GetJobLeaseRequest{JobKey: f.key, WorkerID: "dispatcher", Routes: []jobdb.Route{{JobType: "recipe"}}, LeaseDuration: 100 * time.Millisecond})
 	require.NoError(t, err)
 	require.NotNil(t, supplied)
-	rt := New(f.runtime, allocation("2Gi"), nil)
+	rt := New(f.runtime, allocation("2Gi"))
 	out, err := runFixtureLease(t, f, rt, supplied, []jobworkflow.TaskWorker{delayedSuppliedTask{f.tasks[0]}})
 	require.NoError(t, err)
 	require.Equal(t, jobworkflow.JobRunSuspended, out.Status)

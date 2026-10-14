@@ -5,8 +5,9 @@ wants c2j to execute it. The command validates and renews that exact lease befor
 recipe work, maintains its heartbeat, and exits when the invocation completes,
 reschedules, or loses authority. It never claims replacement work.
 
-Ordinary `c2j run`, `run one`, `run any`, and `run loop` retain their existing
-claim-and-run behavior. Recipes need no changes.
+Ordinary `c2j run` and `run one` claim a specific job. Polling commands
+`run any` and `run loop` have been removed; Pulse owns discovery and dispatch.
+Recipes need no changes.
 
 ## Dispatcher handoff
 
@@ -95,13 +96,12 @@ Use `executionruntime.Runtime.RunWithLease` to retain c2j's allocation checks an
 staged execution requirements while using JobDB's supplied-lease runner:
 
 ```go
-rt := executionruntime.New(jobDBRuntime, allocation, onHandoff)
+rt := executionruntime.New(jobDBRuntime, allocation)
 worker := compiler.NewRecipeJobWorker(compiler.RecipeJobWorkerOptions{
     Allocation:         allocation,
     StageExecution:     rt.Stage,
     WrapTaskWorker:     rt.WrapTaskWorker,
-    OnExecutionHandoff: onHandoff,
-    // Supply your normal source resolver, task history, and other options.
+    // Supply your normal source resolver and other options.
 })
 wrappedTasks := make([]jobworkflow.TaskWorker, len(taskWorkers))
 for i, taskWorker := range taskWorkers {
@@ -113,6 +113,10 @@ outcome, err := rt.RunWithLease(ctx, lease, jobworkflow.GetJobForRunRequest{
     TaskWorkers:    wrappedTasks,
     AwaitThreshold: 30 * time.Second,
 }, listener)
+if err != nil { return err }
+handoff, err := compiler.ExecutionHandoffFromOutcome(outcome)
+if err != nil { return err }
+if handoff != nil { emitEnvironmentRequired(*handoff) }
 ```
 
 Here `jobworkflow` is `github.com/colony-2/jobdb/pkg/workflow`; `executionruntime`
@@ -149,3 +153,8 @@ dispatch. Operations must cooperate with cancellation; arbitrary Go code or
 external side effects cannot be forcibly rolled back. JobDB's existing persistence
 and ownership guarantees continue to apply. Passing a lease does not introduce
 exactly-once side effects.
+
+Handoff metadata belongs to the current run outcome. Emit it once after `Run`
+returns; reading `Outcome()` again is not a new notification. Ordinary waits and
+unconfirmed reschedule responses do not produce an environment handoff receipt.
+The compiler's former `OnExecutionHandoff` callback has been removed.

@@ -82,10 +82,8 @@ func submitNodeRecipe(t *testing.T, f *fixture, r recipe.Recipe) {
 
 func runNode(t *testing.T, f *fixture, alloc execution.Allocation, tasks []jobworkflow.TaskWorker) (jobworkflow.JobRunOutcome, *compiler.ExecutionHandoff) {
 	t.Helper()
-	var event *compiler.ExecutionHandoff
-	callback := func(e compiler.ExecutionHandoff) { event = &e }
-	rt := New(f.runtime, alloc, callback)
-	worker := compiler.NewRecipeJobWorker(compiler.RecipeJobWorkerOptions{Allocation: alloc, StageExecution: rt.Stage, WrapTaskWorker: rt.WrapTaskWorker, OnExecutionHandoff: callback})
+	rt := New(f.runtime, alloc)
+	worker := compiler.NewRecipeJobWorker(compiler.RecipeJobWorkerOptions{Allocation: alloc, StageExecution: rt.Stage, WrapTaskWorker: rt.WrapTaskWorker})
 	wrapped := make([]jobworkflow.TaskWorker, len(tasks))
 	for i, tw := range tasks {
 		wrapped[i] = rt.WrapTaskWorker(tw)
@@ -93,6 +91,8 @@ func runNode(t *testing.T, f *fixture, alloc execution.Allocation, tasks []jobwo
 	runnable, err := jobworkflow.GetJobForRun(context.Background(), rt, jobworkflow.GetJobForRunRequest{JobKey: f.key, JobWorker: worker, TaskWorkers: wrapped, WorkerID: "needs-test", LeaseDuration: time.Minute})
 	require.NoError(t, err)
 	out, err := runnable.Run(nil)
+	require.NoError(t, err)
+	event, err := compiler.ExecutionHandoffFromOutcome(out)
 	require.NoError(t, err)
 	return out, event
 }
@@ -217,25 +217,40 @@ sequence:
 }
 
 func TestNodeNeedsRecoveryIgnoresStalePublishedScope(t *testing.T) {
-	f, tasks := newNodeFixture(t, "sqlite", scopedRecipe)
-	a := nodeAllocation("16Gi", "linux/amd64", "example.com/runner:a")
-	b := nodeAllocation("8Gi", "linux/arm64", "example.com/runner:b")
-	_, _ = runNode(t, f, a, f.tasks[:1])
-	old, err := f.runtime.GetJob(context.Background(), f.key)
-	require.NoError(t, err)
-	_, _ = runNode(t, f, b, f.tasks[:2])
-	// Model recovery with a saved B snapshot and durable B result, but no newer
-	// published scope. Scheduler data is deliberately not a live progress mirror.
-	l, err := f.runtime.GetJobLease(context.Background(), jobdb.GetJobLeaseRequest{JobKey: f.key, Routes: []jobdb.Route{{JobType: "recipe", TaskType: "needs_c:work"}}, WorkerID: "recovery-fixture", LeaseDuration: time.Minute})
-	require.NoError(t, err)
-	require.NotNil(t, l)
-	revision := l.ClientPayloadRevision()
-	require.NoError(t, l.Reschedule(context.Background(), jobdb.RescheduleExecutionRequest{NextRoute: jobdb.Route{JobType: "recipe", TaskType: "needs_b:work"}, TaskWait: old.ExecutionState.TaskWait, ClientPayloadUpdate: &jobdb.ClientPayloadUpdate{Mode: "reset", Value: old.ClientPayload, ExpectedRevision: &revision}}))
-	out, event := runNode(t, f, a, f.tasks)
-	require.Equal(t, jobworkflow.JobRunCompleted, out.Status)
-	require.Nil(t, event, "completed B must not demand arm64 during replay")
-	for _, task := range tasks {
-		require.EqualValues(t, 1, task.runs.Load())
+	for _, backend := range []string{"toy", "sqlite", "remote"} {
+		t.Run(backend, func(t *testing.T) {
+			f, tasks := newNodeFixture(t, backend, scopedRecipe)
+			a := nodeAllocation("16Gi", "linux/amd64", "example.com/runner:a")
+			b := nodeAllocation("8Gi", "linux/arm64", "example.com/runner:b")
+			_, _ = runNode(t, f, a, f.tasks[:1])
+			old, err := f.runtime.GetJob(context.Background(), f.key)
+			require.NoError(t, err)
+			_, _ = runNode(t, f, b, f.tasks[:2])
+			// Model recovery with a saved B snapshot and durable B result, but no newer
+			// published scope. Scheduler data is deliberately not a live progress mirror.
+			l, err := f.runtime.GetJobLease(context.Background(), jobdb.GetJobLeaseRequest{JobKey: f.key, Routes: []jobdb.Route{{JobType: "recipe", TaskType: "needs_c:work"}}, WorkerID: "recovery-fixture", LeaseDuration: time.Minute})
+			require.NoError(t, err)
+			require.NotNil(t, l)
+			revision := l.ClientPayloadRevision()
+			require.NoError(t, l.Reschedule(context.Background(), jobdb.RescheduleExecutionRequest{NextRoute: jobdb.Route{JobType: "recipe", TaskType: "needs_b:work"}, TaskWait: old.ExecutionState.TaskWait, ClientPayloadUpdate: &jobdb.ClientPayloadUpdate{Mode: "reset", Value: old.ClientPayload, ExpectedRevision: &revision}}))
+			out, event := runNode(t, f, a, f.tasks)
+			// The stale B lease cannot execute C's durable external wait. JobDB first
+			// republishes C's wait so it can be acquired with the correct identity.
+			require.Equal(t, jobworkflow.JobRunSuspended, out.Status)
+			require.Nil(t, event, "stale task coordinates must not request a new environment")
+			current, err := f.runtime.GetJob(context.Background(), f.key)
+			require.NoError(t, err)
+			require.NotNil(t, current.ExecutionState.TaskWait)
+			require.NotEqual(t, old.ExecutionState.TaskWait.InputOrdinal, current.ExecutionState.TaskWait.InputOrdinal)
+			require.EqualValues(t, 1, tasks[1].runs.Load(), "completed B must not run again")
+			require.Zero(t, tasks[2].runs.Load(), "C must wait for a matching lease")
+			out, event = runNode(t, f, a, f.tasks)
+			require.Equal(t, jobworkflow.JobRunCompleted, out.Status)
+			require.Nil(t, event, "completed B must not demand arm64 during replay")
+			for _, task := range tasks {
+				require.EqualValues(t, 1, task.runs.Load())
+			}
+		})
 	}
 }
 
@@ -336,11 +351,12 @@ op: needs_a
 	// This second, incompatible invocation commits a reschedule but loses the
 	// response. It must not invoke the task or claim an acknowledged handoff.
 	base := f.runtime
-	rt := New(lostResponseRuntime{base}, allocation("2Gi"), func(compiler.ExecutionHandoff) { t.Error("uncertain yield reported success") })
+	rt := New(lostResponseRuntime{base}, allocation("2Gi"))
 	worker := compiler.NewRecipeJobWorker(compiler.RecipeJobWorkerOptions{Allocation: allocation("2Gi"), StageExecution: rt.Stage, WrapTaskWorker: rt.WrapTaskWorker})
 	runnable, err := jobworkflow.GetJobForRun(context.Background(), rt, jobworkflow.GetJobForRunRequest{JobKey: f.key, JobWorker: worker, TaskWorkers: []jobworkflow.TaskWorker{rt.WrapTaskWorker(tasks[0])}, WorkerID: "lost-response", LeaseDuration: time.Minute})
 	require.NoError(t, err)
-	_, _ = runnable.Run(nil)
+	uncertain, _ := runnable.Run(nil)
+	require.Nil(t, uncertain.Handoff)
 	require.Zero(t, tasks[0].runs.Load())
 	out, event = runNode(t, f, allocation("16Gi"), f.tasks)
 	require.Equal(t, jobworkflow.JobRunCompleted, out.Status)

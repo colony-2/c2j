@@ -102,7 +102,7 @@ func TestReviewSQLiteAttachmentsReplayAndStaleSubmission(t *testing.T) {
 	handle, err := rt.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "tenant", JobID: "review", JobType: "recipe", Data: jobdb.NewTaskDataOrPanic(map[string]any{}), RunPolicy: jobdb.DefaultRunPolicy()}})
 	require.NoError(t, err)
 	run := func() {
-		runnable, err := workflow.GetJobForRun(ctx, rt, workflow.GetJobForRunRequest{JobKey: handle.JobKey, JobWorker: w, TaskWorkers: []workflow.TaskWorker{structuredPrepareTask{}}, WorkerID: "test", LeaseDuration: time.Minute})
+		runnable, err := workflow.GetJobForRun(ctx, rt, workflow.GetJobForRunRequest{JobKey: handle.JobKey, JobWorker: w.executionWorker(), TaskWorkers: []workflow.TaskWorker{structuredPrepareTask{}}, WorkerID: "test", LeaseDuration: time.Minute})
 		require.NoError(t, err)
 		_, err = runnable.Run(nil)
 		require.NoError(t, err)
@@ -154,10 +154,10 @@ func TestReviewSQLiteAttachmentsReplayAndStaleSubmission(t *testing.T) {
 	require.Equal(t, content, bytes)
 	chapter, err := rt.GetChapter(ctx, jobdb.ChapterRef{JobKey: handle.JobKey, Ordinal: key.TaskOrdinal})
 	require.NoError(t, err)
-	body, ok := chapter.Body.(jobdb.TaskAttemptOutcomeChapter)
+	body, ok := chapter.Body.(jobdb.ExecutionChapter)
 	require.True(t, ok)
-	persisted, ok := body.Outcome.(jobdb.ApplicationOutputOutcome)
-	require.True(t, ok)
+	persisted, err := jobdb.DecodeExecutionRecord(body.Record)
+	require.NoError(t, err)
 	encoded := persisted.Output.Data
 	var persistedEnvelope coretask.OutputEnvelope
 	require.NoError(t, json.Unmarshal(encoded, &persistedEnvelope))

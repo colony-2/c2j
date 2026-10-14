@@ -52,7 +52,7 @@ func TestRecipeDeadlineAcrossRecovery(t *testing.T) {
 	// not depend on finishing replay within a 100ms window.
 	const budget = 3 * time.Second
 	for _, backend := range []string{"toy", "sqlite", "remote"} {
-		for _, scope := range []string{"preloaded-root", "runtime-resolved-root", "preloaded-nested", "completed-nested", "timely-runtime-root"} {
+		for _, scope := range []string{"preloaded-root", "runtime-resolved-root", "preloaded-nested", "unfinished-nested-result", "timely-runtime-root"} {
 			t.Run(backend+"/"+scope, func(t *testing.T) {
 				source := fmt.Sprintf(`id: timeout_repro_recipe
 timeout: %s
@@ -74,7 +74,7 @@ sequence:
         op: timeout_repro_finish
 `, budget)
 				}
-				if scope == "completed-nested" {
+				if scope == "unfinished-nested-result" {
 					source = fmt.Sprintf(`id: timeout_repro_recipe
 sequence:
   - id: bounded
@@ -112,7 +112,7 @@ sequence:
 				t.Logf("submitted durable job TotalTimeout=%s; lexical scope=%s", wantTotal, budget)
 				output := newActivityOutputTaskData(t, gitCtx)
 				finish := &timeoutReproActivity{name: "timeout_repro_finish:run", output: output}
-				tasks := []jobworkflow.TaskWorker{finish, timeoutCheckpointWorker{}}
+				tasks := []jobworkflow.TaskWorker{finish}
 				if resolver != nil {
 					tasks = append(tasks, newRootSourceResolutionTaskWorker(resolver))
 				}
@@ -146,7 +146,7 @@ sequence:
 					require.NoError(t, runErr)
 					requireTimeoutCompletion(t, rt, key, out)
 					require.Zero(t, finish.runs.Load(), "root durable job timeout prevents new work")
-				} else if scope == "completed-nested" || scope == "timely-runtime-root" {
+				} else if scope == "timely-runtime-root" {
 					require.NoError(t, runErr)
 					require.Equal(t, jobworkflow.JobRunCompleted, out.Status)
 					require.EqualValues(t, 1, finish.runs.Load())

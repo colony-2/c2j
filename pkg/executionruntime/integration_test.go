@@ -103,13 +103,13 @@ func newFixture(t *testing.T, backend, memory string, patch *execution.Requireme
 
 func (f *fixture) run(t *testing.T, memory string, tasks []jobworkflow.TaskWorker) (jobworkflow.JobRunOutcome, *compiler.ExecutionHandoff) {
 	t.Helper()
-	var event *compiler.ExecutionHandoff
-	callback := func(e compiler.ExecutionHandoff) { event = &e }
-	rt := New(f.runtime, allocation(memory), callback)
-	worker := compiler.NewRecipeJobWorker(compiler.RecipeJobWorkerOptions{Allocation: allocation(memory), StageExecution: rt.Stage, OnExecutionHandoff: callback})
+	rt := New(f.runtime, allocation(memory))
+	worker := compiler.NewRecipeJobWorker(compiler.RecipeJobWorkerOptions{Allocation: allocation(memory), StageExecution: rt.Stage})
 	runnable, err := jobworkflow.GetJobForRun(context.Background(), rt, jobworkflow.GetJobForRunRequest{JobKey: f.key, JobWorker: worker, TaskWorkers: tasks, WorkerID: "test", LeaseDuration: time.Minute})
 	require.NoError(t, err)
 	out, err := runnable.Run(nil)
+	require.NoError(t, err)
+	event, err := compiler.ExecutionHandoffFromOutcome(out)
 	require.NoError(t, err)
 	return out, event
 }
@@ -168,6 +168,14 @@ func TestInitialPreflightAndOrdinaryTaskHandoff(t *testing.T) {
 	require.NotNil(t, event)
 	require.Zero(t, f.first.Load())
 	out, event = f.run(t, "16Gi", f.tasks)
+	// Preflight yielded to orchestration. The durable external wait must be
+	// republished and acquired before its task can run on this executor.
+	require.Equal(t, jobworkflow.JobRunSuspended, out.Status)
+	require.Nil(t, event)
+	require.NotNil(t, out.NextRoute)
+	require.Equal(t, f.tasks[0].Name(), out.NextRoute.TaskType)
+	require.Zero(t, f.first.Load())
+	out, event = f.run(t, "16Gi", f.tasks)
 	require.Equal(t, jobworkflow.JobRunCompleted, out.Status)
 	require.Nil(t, event)
 }
@@ -222,14 +230,12 @@ func (l lostResponseLease) Reschedule(ctx context.Context, req jobdb.RescheduleE
 
 func TestLostHandoffResponseStopsAndRecoversWithoutRepeatingActivity(t *testing.T) {
 	f := newFixture(t, "toy", "2Gi", &execution.Requirements{Resources: execution.Resources{Memory: str("16Gi")}})
-	var events int
-	callback := func(compiler.ExecutionHandoff) { events++ }
-	rt := New(lostResponseRuntime{f.runtime}, allocation("2Gi"), callback)
-	worker := compiler.NewRecipeJobWorker(compiler.RecipeJobWorkerOptions{Allocation: allocation("2Gi"), StageExecution: rt.Stage, OnExecutionHandoff: callback})
+	rt := New(lostResponseRuntime{f.runtime}, allocation("2Gi"))
+	worker := compiler.NewRecipeJobWorker(compiler.RecipeJobWorkerOptions{Allocation: allocation("2Gi"), StageExecution: rt.Stage})
 	runnable, err := jobworkflow.GetJobForRun(context.Background(), rt, jobworkflow.GetJobForRunRequest{JobKey: f.key, JobWorker: worker, TaskWorkers: f.tasks, WorkerID: "test", LeaseDuration: time.Minute})
 	require.NoError(t, err)
-	_, _ = runnable.Run(nil) // Finalization can also fail because the lease was surrendered.
-	require.Zero(t, events, "an uncertain response must not report an acknowledged handoff")
+	uncertain, _ := runnable.Run(nil) // Finalization can also fail because the lease was surrendered.
+	require.Nil(t, uncertain.Handoff, "an uncertain response must not report an acknowledged handoff")
 	require.EqualValues(t, 1, f.first.Load())
 	require.Zero(t, f.second.Load())
 	info, err := f.runtime.GetJob(context.Background(), f.key)
@@ -272,12 +278,10 @@ func TestDeferredResolutionPinsRequirementsWithoutProvisionerResolution(t *testi
 			require.NoError(t, err)
 			require.Zero(t, resolver.loads.Load())
 			run := func(memory string) (jobworkflow.JobRunOutcome, *compiler.ExecutionHandoff) {
-				var event *compiler.ExecutionHandoff
-				callback := func(e compiler.ExecutionHandoff) { event = &e }
-				wrapped := New(rt, allocation(memory), callback)
+				wrapped := New(rt, allocation(memory))
 				registry, err := workerops.NewActivityRegistry()
 				require.NoError(t, err)
-				ws, err := compiler.NewRecipeWorkerWithOptions(coreops.NewServiceDepsBuilder().Build(), registry, compiler.RecipeJobWorkerOptions{RootSourceResolver: resolver, Allocation: allocation(memory), StageExecution: wrapped.Stage, OnExecutionHandoff: callback})
+				ws, err := compiler.NewRecipeWorkerWithOptions(coreops.NewServiceDepsBuilder().Build(), registry, compiler.RecipeJobWorkerOptions{RootSourceResolver: resolver, Allocation: allocation(memory), StageExecution: wrapped.Stage})
 				require.NoError(t, err)
 				var tasks []jobworkflow.TaskWorker
 				for _, tw := range ws.TaskWorkers {
@@ -286,6 +290,8 @@ func TestDeferredResolutionPinsRequirementsWithoutProvisionerResolution(t *testi
 				runnable, err := jobworkflow.GetJobForRun(ctx, wrapped, jobworkflow.GetJobForRunRequest{JobKey: key, JobWorker: ws.JobWorker, TaskWorkers: tasks, WorkerID: "test", LeaseDuration: time.Minute})
 				require.NoError(t, err)
 				out, err := runnable.Run(nil)
+				require.NoError(t, err)
+				event, err := compiler.ExecutionHandoffFromOutcome(out)
 				require.NoError(t, err)
 				return out, event
 			}

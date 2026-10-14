@@ -16,6 +16,7 @@ type GlobalGitTaskContext struct {
 	RecipeSourceRepo string                           `json:"recipe_source_repo,omitempty"`
 	RecipeSourceRef  string                           `json:"recipe_source_ref,omitempty"`
 	PersistHash      string                           `json:"persist_hash,omitempty"`
+	ParentRef        string                           `json:"parent_ref,omitempty"`
 	ParentHash       string                           `json:"parent_hash,omitempty"`
 	CellName         string                           `json:"cell_name,omitempty"`
 	GitAuthor        string                           `json:"git_author,omitempty"`
@@ -43,6 +44,7 @@ func NewGlobalGitTaskContext(tec contextual.TaskExecutionContext) *GlobalGitTask
 		GitAuthor:        tec.GitTask.GitAuthor,
 		PersistHash:      tec.GitTask.PersistHash,
 		ParentHash:       tec.GitTask.ParentHash,
+		ParentRef:        tec.GitTask.ParentRef,
 		CellName:         tec.Workflow.CellName,
 		NodePath:         tec.Invocation.NodePath,
 		InvokeSeq:        tec.Invocation.InvokeSeq,

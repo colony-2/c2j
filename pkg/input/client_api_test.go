@@ -10,7 +10,6 @@ import (
 
 	"github.com/colony-2/c2j/pkg/artifacts"
 	"github.com/colony-2/c2j/pkg/ops"
-	coretask "github.com/colony-2/c2j/pkg/task"
 	workerops "github.com/colony-2/c2j/pkg/worker/ops"
 	c2workflow "github.com/colony-2/c2j/pkg/worker/workflow"
 	"github.com/colony-2/c2j/pkg/workflowctl"
@@ -59,8 +58,7 @@ func apiTask(t *testing.T, id string, ordinal int64, form InputForm) *clientTask
 	t.Helper()
 	value, err := jsonValue(form)
 	require.NoError(t, err)
-	env, err := coretask.NewOutputEnvelope(coretask.OutputKindActivityInvocationOutput, workerops.ActivityInvocationOutput{OpOutput: value.(map[string]any)})
-	require.NoError(t, err)
+	env := workerops.ActivityInvocationRequest{Input: value.(map[string]any)}
 	return &clientTask{key: jobdb.JobKey{TenantId: "tenant", JobId: id}, ordinal: ordinal, data: jobdb.NewTaskDataOrPanic(env)}
 }
 func taskListing(task *clientTask) workflowctl.JobItem {
@@ -302,7 +300,7 @@ func TestPendingInputSQLitePaginationBeyondBackendPageLimit(t *testing.T) {
 		worker := structuredWorker{forms: []InputForm{form}}
 		handle, err := db.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "tenant", JobID: fmt.Sprintf("job-%03d", i), JobType: "recipe", Data: jobdb.NewTaskDataOrPanic(map[string]any{}), RunPolicy: jobdb.DefaultRunPolicy()}})
 		require.NoError(t, err)
-		runnable, err := workflow.GetJobForRun(ctx, db, workflow.GetJobForRunRequest{JobKey: handle.JobKey, JobWorker: worker, TaskWorkers: []workflow.TaskWorker{structuredPrepareTask{}}, WorkerID: "test", LeaseDuration: time.Minute})
+		runnable, err := workflow.GetJobForRun(ctx, db, workflow.GetJobForRunRequest{JobKey: handle.JobKey, JobWorker: worker.executionWorker(), TaskWorkers: []workflow.TaskWorker{structuredPrepareTask{}}, WorkerID: "test", LeaseDuration: time.Minute})
 		require.NoError(t, err)
 		_, err = runnable.Run(nil)
 		require.NoError(t, err)

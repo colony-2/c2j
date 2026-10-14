@@ -14,7 +14,6 @@ import (
 	coretask "github.com/colony-2/c2j/pkg/task"
 	workerops "github.com/colony-2/c2j/pkg/worker/ops"
 	"github.com/colony-2/jobdb/pkg/jobdb"
-	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
 	"github.com/stretchr/testify/require"
 )
 
@@ -35,10 +34,14 @@ func (c *capturingInvocationJobContext) GetJobKey() jobdb.JobKey            { re
 func (c *capturingInvocationJobContext) Logger() *slog.Logger               { return slog.Default() }
 func (c *capturingInvocationJobContext) AwaitDuration(jobdb.Duration) error { return nil }
 
-func (c *capturingInvocationJobContext) DoTask(_ jobdb.RunPolicy, taskType string, data jobdb.TaskData) (jobdb.TaskData, error) {
-	if taskType == TimeoutCheckpointTaskType {
-		return (timeoutCheckpointWorker{}).Run(jobworkflow.TaskContext{}, data)
+func (c *capturingInvocationJobContext) DoTask(call testTaskCall, build func(testContext) (jobdb.TaskData, error)) (jobdb.TaskData, error) {
+	data, buildErr := build(c.Context())
+	if buildErr != nil {
+		return nil, buildErr
 	}
+	_ = data
+	taskType := call.TaskType
+	_ = taskType
 	c.calls++
 	c.lastTaskType = taskType
 
@@ -150,4 +153,12 @@ output_schema:
 	config, ok := rawInputs["config"].(map[string]interface{})
 	require.True(t, ok)
 	require.Equal(t, "Hello", config["label"])
+}
+
+func (c *capturingInvocationJobContext) DoScope(site string, opts testScopeOptions, body func(testExecutionContext) (jobdb.JobData, error)) (jobdb.JobData, error) {
+	return runMockScope(c, site, opts, body)
+}
+func (c *capturingInvocationJobContext) Context() testContext { return testBackground() }
+func (c *capturingInvocationJobContext) ExecutionVersions() jobdb.ExecutionVersions {
+	return jobdb.ExecutionVersions{}
 }

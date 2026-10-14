@@ -3,14 +3,12 @@ package recipe
 import (
 	"context"
 	"crypto/sha256"
-	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
 
 	recipeartifacts "github.com/colony-2/c2j/pkg/artifacts"
-	"github.com/colony-2/c2j/pkg/contextual"
 	"github.com/colony-2/c2j/pkg/ops"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	"github.com/segmentio/ksuid"
@@ -20,7 +18,7 @@ const (
 	ChildGroupStartOpType           = "recipe.child_group.start"
 	ChildGroupRunAndGetResultOpType = "recipe.child_group.run_and_get_result"
 
-	childGroupJobIDNamespace = "colony2.recipe-child-group/v1"
+	childGroupJobIDNamespace = "colony2.recipe-child-group/v2"
 )
 
 type ChildGroupStartInput struct {
@@ -135,6 +133,9 @@ func startChildGroup(deps ops.OpDependencies, ctx context.Context, input ChildGr
 
 	parentJobKey := deps.JobTool().GetJobKey()
 	invocation := currentInvocation(deps)
+	if invocation == "" {
+		return ChildGroupStepState{}, fmt.Errorf("child submission requires a logical task invocation ID")
+	}
 	parentContext := parentContextFromDeps(deps)
 	recipeSourceRepo, recipeSourceRef := currentRecipeSource(deps)
 	gitContext := deps.GitContext()
@@ -181,7 +182,7 @@ func startChildGroup(deps ops.OpDependencies, ctx context.Context, input ChildGr
 		if gitRef == "" {
 			gitRef = state.GitRef
 		}
-		jobID := deterministicChildGroupJobID(parentJobKey.JobId, invocation, child.Key, i)
+		jobID := deterministicChildGroupJobID(parentJobKey, invocation, child.Key, i)
 		job, err := recipeToStart(parentJobKey.TenantId, SingleRecipe{
 			Name:      record.Recipe,
 			CellName:  cellName,
@@ -519,22 +520,19 @@ func childGroupAggregateShape(shape string) (string, error) {
 	}
 }
 
-func deterministicChildGroupJobID(parentJobID string, invocation contextual.Invocation, key string, recipeIndex int) string {
+func deterministicChildGroupJobID(parentJobKey jobdb.JobKey, invocation string, key string, recipeIndex int) string {
 	key = strings.TrimSpace(key)
 	if key == "" {
-		return deterministicChildJobID(parentJobID, invocation, recipeIndex)
+		return deterministicChildJobID(parentJobKey, invocation, recipeIndex)
 	}
 	hasher := sha256.New()
 	hasher.Write([]byte(childGroupJobIDNamespace))
 	hasher.Write([]byte{0})
-	hasher.Write([]byte(parentJobID))
+	hasher.Write([]byte(parentJobKey.TenantId))
 	hasher.Write([]byte{0})
-	hasher.Write([]byte(invocation.NodePath))
+	hasher.Write([]byte(parentJobKey.JobId))
 	hasher.Write([]byte{0})
-
-	var intBuf [8]byte
-	binary.BigEndian.PutUint64(intBuf[:], uint64(invocation.InvokeSeq))
-	hasher.Write(intBuf[:])
+	hasher.Write([]byte(invocation))
 	hasher.Write([]byte{0})
 	hasher.Write([]byte(key))
 

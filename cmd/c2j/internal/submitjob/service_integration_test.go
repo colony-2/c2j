@@ -14,6 +14,7 @@ import (
 	"github.com/colony-2/c2j/cmd/c2j/internal/defaults"
 	"github.com/colony-2/c2j/cmd/c2j/internal/runjob"
 	"github.com/colony-2/c2j/cmd/c2j/internal/swfruntime"
+	"github.com/colony-2/c2j/pkg/swfutil"
 	"github.com/colony-2/c2j/pkg/worker/compiler"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	remoteruntime "github.com/colony-2/jobdb/pkg/jobdb/runtime/remote"
@@ -491,11 +492,15 @@ outputs:
 	if err != nil {
 		t.Fatalf("get job run: %v", err)
 	}
-	if len(run.Attempts) == 0 || len(run.Attempts[0].Tasks) == 0 {
-		t.Fatalf("expected recorded tasks in job run: %#v", run.Attempts)
+	tasks, err := swfutil.ExecutionTasks(run)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if run.Attempts[0].Tasks[0].TaskType != compiler.RootSourceResolutionTaskType {
-		t.Fatalf("expected first task %q, got %q", compiler.RootSourceResolutionTaskType, run.Attempts[0].Tasks[0].TaskType)
+	if len(tasks) == 0 {
+		t.Fatal("expected recorded tasks in execution history")
+	}
+	if tasks[0].TaskType != compiler.RootSourceResolutionTaskType {
+		t.Fatalf("expected first task %q, got %q", compiler.RootSourceResolutionTaskType, tasks[0].TaskType)
 	}
 }
 

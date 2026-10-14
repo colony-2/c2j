@@ -6,9 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"reflect"
 	"strings"
-	"time"
 
 	"github.com/colony-2/c2j/pkg/recipe"
 	"github.com/colony-2/c2j/pkg/template"
@@ -59,6 +57,18 @@ func failureFromError(err error) (*recipe.RuntimeFailure, bool) {
 	var failureErr *recipeFailureError
 	if errors.As(err, &failureErr) && failureErr.Failure != nil {
 		return failureErr.Failure.Clone(), true
+	}
+	var app *jobdb.AppError
+	if errors.As(err, &app) {
+		if value, ok := app.Payload.Attrs["c2j_failure"]; ok {
+			raw, e := json.Marshal(value)
+			if e == nil {
+				var failure recipe.RuntimeFailure
+				if json.Unmarshal(raw, &failure) == nil {
+					return &failure, true
+				}
+			}
+		}
 	}
 	return nil, false
 }
@@ -345,79 +355,20 @@ func recordSyntheticNodeOutput(parent *template.ResolutionContext, scopeType tem
 	return nil
 }
 
-func retryPolicyAttempts(retry *recipe.RetryPolicy) int {
-	if retry == nil || retry.MaximumAttempts <= 0 {
-		return 1
-	}
-	return int(retry.MaximumAttempts)
-}
+func (e *recipeFailureError) NonRetryable() bool { return e.Failure != nil && !e.Failure.Retryable }
 
-func retryDelay(retry *recipe.RetryPolicy, attempt int) time.Duration {
-	if retry == nil {
-		return 0
-	}
-	base := time.Duration(retry.InitialInterval)
-	if base <= 0 {
-		return 0
-	}
-	coefficient := retry.BackoffCoefficient
-	if coefficient == 0 {
-		coefficient = 1
-	}
-	delay := float64(base)
-	for i := 1; i < attempt; i++ {
-		delay *= coefficient
-	}
-	out := time.Duration(delay)
-	if max := time.Duration(retry.MaximumInterval); max > 0 && out > max {
-		out = max
-	}
-	if out < 0 {
-		return 0
-	}
-	return out
-}
-
-func shouldRetryFailure(err error, failure *recipe.RuntimeFailure, retry *recipe.RetryPolicy) bool {
-	if retry == nil {
+func (e *recipeFailureError) As(target any) bool {
+	if e.Failure == nil {
 		return false
 	}
-	if failure != nil && !failure.Retryable {
-		return false
-	}
-	var nonRetryable jobdb.NonRetryableError
-	if errors.As(err, &nonRetryable) && nonRetryable.NonRetryable() {
-		return false
-	}
-	for _, name := range retry.NonRetryableErrorTypes {
-		if errorMatchesTypeName(err, name) {
-			return false
-		}
-	}
-	return true
-}
-
-func errorMatchesTypeName(err error, typeName string) bool {
-	for e := err; e != nil; e = errors.Unwrap(e) {
-		t := reflect.TypeOf(e)
-		if t == nil {
-			continue
-		}
-		if t.Kind() == reflect.Ptr {
-			t = t.Elem()
-		}
-		if t.Name() == typeName || t.String() == typeName {
-			return true
-		}
+	value := jobdb.AppError{Payload: jobdb.AppErrorPayload{Message: e.Error(), Attrs: map[string]any{"c2j_failure": e.Failure}}}
+	switch p := target.(type) {
+	case **jobdb.AppError:
+		*p = &value
+		return true
+	case *jobdb.AppError:
+		*p = value
+		return true
 	}
 	return false
-}
-
-func singleAttemptRetryPolicy(retry *recipe.RetryPolicy) jobdb.RetryPolicy {
-	if retry == nil {
-		return jobdb.RetryPolicy{MaximumAttempts: 1}
-	}
-	out := *retry
-	out.MaximumAttempts = 1
-	return out
 }

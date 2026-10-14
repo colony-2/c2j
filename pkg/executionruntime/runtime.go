@@ -20,13 +20,12 @@ import (
 type Runtime struct {
 	jobdb.WorkflowRuntime
 	Allocation execution.Allocation
-	OnHandoff  func(compiler.ExecutionHandoff)
 	mu         sync.Mutex
 	leases     map[jobdb.JobKey]*lease
 }
 
-func New(runtime jobdb.WorkflowRuntime, allocation execution.Allocation, handoff func(compiler.ExecutionHandoff)) *Runtime {
-	return &Runtime{WorkflowRuntime: runtime, Allocation: allocation, OnHandoff: handoff, leases: map[jobdb.JobKey]*lease{}}
+func New(runtime jobdb.WorkflowRuntime, allocation execution.Allocation) *Runtime {
+	return &Runtime{WorkflowRuntime: runtime, Allocation: allocation, leases: map[jobdb.JobKey]*lease{}}
 }
 
 func (r *Runtime) Stage(key jobdb.JobKey, demand execution.Demand) {
@@ -72,45 +71,8 @@ func (r *Runtime) PollWork(ctx context.Context, req jobdb.PollWorkRequest) ([]jo
 	return out, nil
 }
 
-func (r *Runtime) accept(ctx context.Context, l jobdb.ExecutionLease) (jobdb.ExecutionLease, error) {
-	admitted := false
-	defer func() {
-		if !admitted {
-			l.StopKeepAlive()
-		}
-	}()
-	accepted, err := r.checkAdmission(ctx, l)
-	if err != nil || !accepted {
-		return nil, err
-	}
-	wrapped := r.wrapLease(l, &leaseState{})
-	admitted = true
-	return wrapped, nil
-}
-
-func (r *Runtime) checkAdmission(ctx context.Context, l jobdb.ExecutionLease) (bool, error) {
-	d, err := execution.PayloadDemand(l.ClientPayload())
-	if err != nil {
-		return false, fmt.Errorf("job %s execution state: %w", l.Job().JobKey, err)
-	}
-	if d != nil && d.NodeRequirements == nil {
-		m, err := execution.Compare(d.Effective, r.Allocation)
-		if err != nil {
-			return false, err
-		}
-		if len(m) > 0 {
-			// Retain the exact pending task coordinates and route. No payload
-			// rewrite/revision bump is needed for an already-published demand.
-			if err := l.Reschedule(ctx, jobdb.RescheduleExecutionRequest{NextRoute: l.Route(), TaskWait: l.ExecutionState().TaskWait}); err != nil {
-				return false, err
-			}
-			if r.OnHandoff != nil {
-				r.OnHandoff(compiler.ExecutionHandoff{Kind: "environment_required", JobKey: l.Job().JobKey, Demand: *d, Allocation: r.Allocation, Mismatches: m})
-			}
-			return false, nil
-		}
-	}
-	return true, nil
+func (r *Runtime) accept(_ context.Context, l jobdb.ExecutionLease) (jobdb.ExecutionLease, error) {
+	return r.wrapLease(l, &leaseState{}), nil
 }
 
 func (r *Runtime) wrapLease(l jobdb.ExecutionLease, state *leaseState) jobdb.ExecutionLease {
@@ -283,19 +245,13 @@ func (w *guardedTask) Run(ctx jobworkflow.TaskContext, input jobdb.TaskData) (jo
 	if err != nil {
 		return l.blockExecution(err)
 	}
-	accepted := true
-	defer func() {
-		if p := recover(); p != nil {
-			panic(p)
-		}
-		if accepted && r.OnHandoff != nil {
-			r.OnHandoff(compiler.ExecutionHandoff{Kind: "environment_required", JobKey: ctx.JobKey, Demand: *publishedDemand, Allocation: r.Allocation, Mismatches: mismatches, Published: published})
-		}
-	}()
-	err = ctx.Yield(context.Background(), req)
-	accepted = false
-	if err == nil {
-		err = fmt.Errorf("execution yield returned without stopping invocation")
+	metadata, err := json.Marshal(compiler.ExecutionHandoff{Kind: "environment_required", JobKey: ctx.JobKey, Demand: *publishedDemand, Allocation: r.Allocation, Mismatches: mismatches, Published: published})
+	if err != nil {
+		return l.blockExecution(err)
+	}
+	err = ctx.Yield(context.Background(), jobworkflow.YieldRequest{Reschedule: req, Metadata: metadata})
+	if jobworkflow.IsExecutionSuspended(err) {
+		return nil, err
 	}
 	return l.blockExecution(err)
 }

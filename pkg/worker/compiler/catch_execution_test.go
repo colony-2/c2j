@@ -41,7 +41,15 @@ func (c *catchScriptedJobContext) AwaitDuration(d jobdb.Duration) error {
 	return nil
 }
 
-func (c *catchScriptedJobContext) DoTask(policy jobdb.RunPolicy, _ string, _ jobdb.TaskData) (jobdb.TaskData, error) {
+func (c *catchScriptedJobContext) DoTask(call testTaskCall, build func(testContext) (jobdb.TaskData, error)) (jobdb.TaskData, error) {
+	data, buildErr := build(c.Context())
+	if buildErr != nil {
+		return nil, buildErr
+	}
+	_ = data
+	policy := call.Policy
+	_ = policy
+
 	c.policies = append(c.policies, policy)
 	idx := c.calls
 	c.calls++
@@ -96,7 +104,7 @@ func appFailure(message string, code string) error {
 	}}
 }
 
-func catchWorkflowContext(job jobworkflow.JobContext) workflow.Context {
+func catchWorkflowContext(job jobworkflow.ExecutionContext) workflow.Context {
 	return workflow.Context{
 		JobContext:           job,
 		ServiceDependencies2: coreops.NewServiceDepsBuilder().Build(),
@@ -395,7 +403,7 @@ func TestUnhandledLocalCatchRetriesAccordingToPolicy(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, map[string]interface{}{"ok": true}, result)
 	require.Equal(t, 3, script.calls)
-	require.Len(t, script.waits, 2)
+	require.Empty(t, script.waits, "scope engine owns backoff")
 }
 
 func TestStateCatchNoMatchRetriesStateOpBeforeFailing(t *testing.T) {
@@ -441,7 +449,7 @@ func TestStateCatchNoMatchRetriesStateOpBeforeFailing(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, map[string]interface{}{"ok": true}, result)
 	require.Equal(t, 2, script.calls)
-	require.Len(t, script.waits, 1)
+	require.Empty(t, script.waits, "scope engine owns backoff")
 	require.Equal(t, int32(1), script.policies[0].Retry.MaximumAttempts)
 	require.Equal(t, int32(1), script.policies[1].Retry.MaximumAttempts)
 }
@@ -495,7 +503,7 @@ func TestStateMachineCatchNoMatchRetriesStateOpBeforeFailing(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, map[string]interface{}{"ok": true}, result)
 	require.Equal(t, 2, script.calls)
-	require.Len(t, script.waits, 1)
+	require.Empty(t, script.waits, "scope engine owns backoff")
 	require.Equal(t, int32(1), script.policies[0].Retry.MaximumAttempts)
 	require.Equal(t, int32(1), script.policies[1].Retry.MaximumAttempts)
 }
@@ -549,4 +557,12 @@ func TestSequenceChildCatchContinueFeedsLaterSibling(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, map[string]interface{}{"first": true, "second": true}, result)
 	require.Equal(t, 2, script.calls)
+}
+
+func (c *catchScriptedJobContext) DoScope(site string, opts testScopeOptions, body func(testExecutionContext) (jobdb.JobData, error)) (jobdb.JobData, error) {
+	return runMockScope(c, site, opts, body)
+}
+func (c *catchScriptedJobContext) Context() testContext { return testBackground() }
+func (c *catchScriptedJobContext) ExecutionVersions() jobdb.ExecutionVersions {
+	return jobdb.ExecutionVersions{}
 }

@@ -191,3 +191,35 @@ func TestTaskLeaseLossClearsValuesAndPreservesRedaction(t *testing.T) {
 	_, err = s.Materialize(Reference{Name: "token"})
 	require.ErrorIs(t, err, jobdb.ErrExecutionLeaseLost)
 }
+
+func TestExecutionRecoveryBeforePriorCleanup(t *testing.T) {
+	m := NewSessions()
+	key := jobdb.JobKey{TenantId: "tenant", JobId: "job"}
+	priorCtx, cancel := context.WithCancel(context.Background())
+	prior, err := m.OpenExecution(priorCtx, key)
+	require.NoError(t, err)
+	task := prior.NewTask()
+	require.NoError(t, task.Prepare(priorCtx, []string{"token"}, func(context.Context, []string) (jobdb.SecretResolveResult, error) {
+		return jobdb.SecretResolveResult{Secrets: map[string]jobdb.SecretValue{"token": {Value: "prior-secret"}}}, nil
+	}))
+	cancel()
+	next, err := m.OpenExecution(context.Background(), key)
+	require.NoError(t, err, "resume must not wait for cancelled callback cleanup")
+	defer m.CloseExecution(key, next)
+	require.NotSame(t, prior, next)
+	require.Empty(t, next.masks)
+	require.Nil(t, m.GetExecution(priorCtx, key), "cancelled tasks cannot acquire the new activation's redactor")
+	m.CloseExecution(key, prior)
+	require.Same(t, next, m.Get(key), "late cleanup must not close the new activation")
+	require.False(t, next.isClosed())
+	require.Equal(t, "[REDACTED]", task.Redact("prior-secret"), "late task diagnostics remain redacted")
+	_, registered := activeMasks.Load(prior)
+	require.True(t, registered, "late task logs remain masked")
+	_, err = task.Materialize(Reference{Name: "token"})
+	require.ErrorIs(t, err, jobdb.ErrExecutionLeaseLost)
+	task.Close()
+	task.Close() // Cleanup is idempotent.
+	require.Empty(t, prior.masks)
+	_, registered = activeMasks.Load(prior)
+	require.False(t, registered)
+}

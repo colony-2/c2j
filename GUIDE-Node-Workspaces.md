@@ -117,7 +117,7 @@ Upgrade recipe compilers and task workers together before submitting recipes tha
 
 Brokered child submissions preserve compiled include metadata, including workspace-bearing includes. Update the submitting CLI and the parent broker worker together when using this support. Authored recipes still cannot supply `__c2j_internal` metadata.
 
-Artifact dependencies have a stable order for replay. The standard runtime can also recover successful tasks recorded by older compilers with a different dependency order, after verifying the original input hash and restore-pack contents. It reads the recorded result without rerunning the task. Other input changes remain determinism errors. Hosts constructing recipe job workers directly can provide `RecipeJobWorkerOptions.TaskHistory`; `NewRecipeWorkerWithOptions` obtains it from a compatible workflow controller automatically.
+Artifact dependencies are captured in the task input snapshot. Completed tasks replay their recorded outputs without rebuilding inputs or restore packs. The execution-scope migration requires fresh jobs; old task histories are not converted or repaired.
 
 ## Regression coverage
 

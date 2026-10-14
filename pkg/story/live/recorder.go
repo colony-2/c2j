@@ -21,7 +21,6 @@ import (
 	"github.com/colony-2/c2j/pkg/template"
 	"github.com/colony-2/c2j/pkg/worker/compiler"
 	"github.com/colony-2/c2j/pkg/worker/ops"
-	workerworkflow "github.com/colony-2/c2j/pkg/worker/workflow"
 	coreworkflow "github.com/colony-2/c2j/pkg/workflow"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
@@ -54,7 +53,6 @@ const (
 	JobRunStoryNodeKindSequence               = model.JobRunStoryNodeKindSequence
 	JobRunStoryNodeKindOp                     = model.JobRunStoryNodeKindOp
 	JobRunStoryNodeKindOpStep                 = model.JobRunStoryNodeKindOpStep
-	JobRunStoryNodeKindContextPatch           = model.JobRunStoryNodeKindContextPatch
 	JobRunStoryNodeKindStateMachine           = model.JobRunStoryNodeKindStateMachine
 	JobRunStoryNodeKindState                  = model.JobRunStoryNodeKindState
 	JobRunStoryNodeKindTransitionEval         = model.JobRunStoryNodeKindTransitionEval
@@ -83,6 +81,7 @@ type Recorder struct {
 
 	jobKey   jobdb.JobKey
 	logger   *slog.Logger
+	notifyMu sync.Mutex
 	onChange func(*JobRunStory)
 
 	recipeNameFromStart string
@@ -98,7 +97,7 @@ type Recorder struct {
 	sourceNodes       map[int]*rootSourceResolutionTracker
 
 	currentOpNode  *model.JobRunStoryNode
-	currentOpSteps map[int64]*ordinalStepTracker
+	currentOpSteps map[string]*ordinalStepTracker
 }
 
 type jobAttemptTiming struct {
@@ -171,19 +170,14 @@ func BuildJobRunStory(ctx context.Context, engine replayJobRunner, jobKey jobdb.
 	}
 	rec := NewRecorder(Options{JobKey: jobKey, Logger: logger})
 	events := newReplayEvents(rec.Observer())
-	var history coreworkflow.TaskHistoryReader
-	if full, ok := engine.(jobworkflow.Engine); ok {
-		history = &workerworkflow.SWFWorkflowControl{Engine: full}
-	}
-	jobWorker := &replayRecipeWorker{JobWorker: compiler.NewRecipeJobWorker(compiler.RecipeJobWorkerOptions{
-		TaskHistory:            history,
+	jobWorker := newReplayRecipeWorker(compiler.NewRecipeJobWorker(compiler.RecipeJobWorkerOptions{
 		ReadOnlyReplay:         true,
 		CELOptionsProvider:     celProvider,
 		OnRecipeLoaded:         rec.OnRecipeLoaded,
 		OnRecipeSourceResolved: rec.OnRecipeSourceResolved,
 		RootSourceResolver:     rootResolver,
 		ExecutorFactory:        rec.ExecutorFactory(),
-	})}
+	}))
 
 	_, replayErr := engine.ReplayJobRun(ctx, jobworkflow.ReplayRunRequest{
 		JobKey:    jobKey,
@@ -192,6 +186,20 @@ func BuildJobRunStory(ctx context.Context, engine replayJobRunner, jobKey jobdb.
 	})
 
 	story := rec.Finalize(replayErr)
+	if recorded != nil {
+		for _, entry := range recorded.Execution {
+			if entry.Record.Kind != "scope" {
+				continue
+			}
+			var policy struct {
+				Restart bool `json:"restart"`
+			}
+			if json.Unmarshal(entry.Record.Descriptor, &policy) == nil && policy.Restart {
+				story.RestartScopes = append(story.RestartScopes, model.RestartScope{ScopeID: entry.Record.ID, StartedAt: entry.Record.At})
+			}
+		}
+	}
+
 	if errors.Is(replayErr, context.Canceled) || errors.Is(replayErr, context.DeadlineExceeded) || errors.Is(replayErr, jobdb.ErrJobNotFound) {
 		return nil, replayErr
 	}
@@ -327,18 +335,17 @@ func (r *Recorder) OnTaskStart(event jobworkflow.TaskStartEvent) {
 	}
 
 	if r.currentOpSteps == nil {
-		r.currentOpSteps = make(map[int64]*ordinalStepTracker)
+		r.currentOpSteps = make(map[string]*ordinalStepTracker)
 	}
 
-	tr, ok := r.currentOpSteps[event.Ordinal]
+	tr, ok := r.currentOpSteps[taskInvocationID(event.InvocationID, event.AttemptNumber)]
 	if !ok || tr == nil {
 		stepID := strings.TrimSpace(stepIDFromTaskType(op.OpID, event.TaskType))
 		stepNode := tree.newNode(model.JobRunStoryNodeKindOpStep, "step "+stepID)
 		stepNode.StepID = stepID
+		stepNode.InvocationID = taskInvocationID(event.InvocationID, event.AttemptNumber)
 		stepNode.StepType = "other"
 		stepNode.Status = model.JobRunStoryNodeStatusRunning
-		ord := event.Ordinal
-		stepNode.RestartFromOrdinal = &ord
 		op.Children = append(op.Children, stepNode)
 
 		tr = &ordinalStepTracker{
@@ -348,7 +355,7 @@ func (r *Recorder) OnTaskStart(event jobworkflow.TaskStartEvent) {
 			attemptNodes: make([]*model.JobRunStoryNode, 0, 2),
 			byAttempt:    make(map[int]*model.JobRunStoryNode),
 		}
-		r.currentOpSteps[event.Ordinal] = tr
+		r.currentOpSteps[taskInvocationID(event.InvocationID, event.AttemptNumber)] = tr
 	}
 
 	attNode := tree.newNode(model.JobRunStoryNodeKindOpStep, "step "+strings.TrimSpace(tr.stepID))
@@ -356,6 +363,7 @@ func (r *Recorder) OnTaskStart(event jobworkflow.TaskStartEvent) {
 	attNode.StepType = "other"
 	attNode.Status = model.JobRunStoryNodeStatusRunning
 	attNode.Attempt = event.AttemptNumber
+	attNode.InvocationID = event.InvocationID
 	ord := event.Ordinal
 	attNode.TaskOrdinal = &ord
 	if !event.At.IsZero() {
@@ -384,7 +392,7 @@ func (r *Recorder) OnTaskEnd(event jobworkflow.TaskEndEvent) {
 		return
 	}
 
-	tr := r.currentOpSteps[event.Ordinal]
+	tr := r.currentOpSteps[taskInvocationID(event.InvocationID, event.AttemptNumber)]
 	if tr == nil || tr.stepNode == nil || tr.byAttempt == nil {
 		r.mu.Unlock()
 		return
@@ -457,7 +465,7 @@ func (r *Recorder) SetCurrentOpNode(op *model.JobRunStoryNode) {
 	if op == nil {
 		r.currentOpSteps = nil
 	} else {
-		r.currentOpSteps = make(map[int64]*ordinalStepTracker)
+		r.currentOpSteps = make(map[string]*ordinalStepTracker)
 	}
 	r.mu.Unlock()
 }
@@ -522,14 +530,13 @@ func (r *Recorder) handleRootSourceResolutionTaskStartLocked(event jobworkflow.T
 	if tracker.node == nil {
 		node := tree.newNode(model.JobRunStoryNodeKindRecipeSourceResolution, "recipe source resolution")
 		node.Status = model.JobRunStoryNodeStatusRunning
-		ord := event.Ordinal
-		node.RestartFromOrdinal = &ord
 		tracker.node = node
 	}
 
 	attNode := tree.newNode(model.JobRunStoryNodeKindRecipeSourceResolution, "recipe source resolution")
 	attNode.Status = model.JobRunStoryNodeStatusRunning
 	attNode.Attempt = event.AttemptNumber
+	attNode.InvocationID = event.InvocationID
 	ord := event.Ordinal
 	attNode.TaskOrdinal = &ord
 	if !event.At.IsZero() {
@@ -770,8 +777,24 @@ func (r *Recorder) syntheticRootForAttemptLocked(attempt int, sourceNode *model.
 	return root
 }
 
+// CloseNotifications fences callbacks that outlive a cancelled execution.
+// It waits for an in-flight notification before detaching the output consumer.
+func (r *Recorder) CloseNotifications() {
+	if r == nil {
+		return
+	}
+	r.notifyMu.Lock()
+	defer r.notifyMu.Unlock()
+	r.onChange = nil
+}
+
 func (r *Recorder) notify() {
-	if r == nil || r.onChange == nil {
+	if r == nil {
+		return
+	}
+	r.notifyMu.Lock()
+	defer r.notifyMu.Unlock()
+	if r.onChange == nil {
 		return
 	}
 	r.onChange(r.Snapshot())
@@ -860,8 +883,24 @@ func newRecordingExecutor(inner compiler.DefaultRecipeExecutor, tree *treeBuilde
 	return &recordingExecutor{inner: inner, tree: tree, rec: rec}
 }
 
+// Tree mutations share the recorder lock with task observers and snapshots.
+// Never hold it across delegated execution or notifications: both can reenter
+// the recorder. Executors without a recorder are used synchronously.
+func (r *Recorder) lockTree() {
+	if r != nil {
+		r.mu.Lock()
+	}
+}
+
+func (r *Recorder) unlockTree() {
+	if r != nil {
+		r.mu.Unlock()
+	}
+}
+
 func (e *recordingExecutor) ExecuteRecipe(ctx coreworkflow.Context, r recipe.Recipe, rawRecipeInputs map[string]interface{}, execCtx contextual.JobContext, commitContext contextual.GitCommitContext, opts ...compiler.ExecutionOptions) (map[string]interface{}, []jobdb.Artifact, error) {
 	recipeID := strings.TrimSpace(r.GetMetadata().ID)
+	e.rec.lockTree()
 	root := e.tree.newNode(model.JobRunStoryNodeKindRecipe, "recipe "+recipeID)
 	root.RecipeID = recipeID
 	root.Invocation = map[string]interface{}{"args": rawRecipeInputs}
@@ -869,6 +908,7 @@ func (e *recordingExecutor) ExecuteRecipe(ctx coreworkflow.Context, r recipe.Rec
 	root.Status = model.JobRunStoryNodeStatusRunning
 	e.tree.push("root", root)
 	e.root = root
+	e.rec.unlockTree()
 	if e.rec != nil {
 		e.rec.SetRecipeMeta(recipeID, strings.TrimSpace(r.GetMetadata().Version))
 		e.rec.SetRoot(root)
@@ -880,21 +920,18 @@ func (e *recordingExecutor) ExecuteRecipe(ctx coreworkflow.Context, r recipe.Rec
 	}
 	execOpts.DiagnosticsObserver = chainDiagnosticsObservers(execOpts.DiagnosticsObserver, e)
 	out, arts, err := e.inner.WithDelegate(e).ExecuteRecipe(ctx, r, rawRecipeInputs, execCtx, commitContext, execOpts)
+	defer e.rec.notify()
+	e.rec.lockTree()
+	defer e.rec.unlockTree()
 	if err != nil {
 		root.Status = statusFromErr(err, root.Status)
 		root.Output = out
 		e.tree.pop()
-		if e.rec != nil {
-			e.rec.notify()
-		}
 		return out, arts, err
 	}
 	root.Status = model.JobRunStoryNodeStatusSucceeded
 	root.Output = out
 	e.tree.pop()
-	if e.rec != nil {
-		e.rec.notify()
-	}
 	return out, arts, nil
 }
 
@@ -902,15 +939,15 @@ func (e *recordingExecutor) VarsResolved(_ template.ScopeType, _ string, vars ma
 	if e == nil || e.tree == nil {
 		return
 	}
+	defer e.rec.notify()
+	e.rec.lockTree()
+	defer e.rec.unlockTree()
 	current := e.tree.current()
 	if current == nil {
 		return
 	}
 	if redacted, ok := redact.Value("vars", vars).(map[string]interface{}); ok {
 		current.RenderedVars = redacted
-	}
-	if e.rec != nil {
-		e.rec.notify()
 	}
 }
 
@@ -931,15 +968,17 @@ func (e *recordingExecutor) ExecuteNode(ctx coreworkflow.Context, parentResCtx *
 			}
 		}
 
+		e.rec.lockTree()
 		if cur := e.tree.current(); cur != nil && cur.Kind == model.JobRunStoryNodeKindState && cur.Status == model.JobRunStoryNodeStatusRunning {
 			cur.Title = title
 			setStoryNodePath(cur, nodePath)
+			e.rec.unlockTree()
 			err := e.inner.WithDelegate(e).ExecuteNode(ctx, parentResCtx, n)
+			defer e.rec.notify()
+			e.rec.lockTree()
+			defer e.rec.unlockTree()
 			if err != nil {
 				cur.Status = statusFromErr(err, cur.Status)
-				if e.rec != nil {
-					e.rec.notify()
-				}
 				return err
 			}
 			return nil
@@ -949,17 +988,16 @@ func (e *recordingExecutor) ExecuteNode(ctx coreworkflow.Context, parentResCtx *
 		stateNode.Status = model.JobRunStoryNodeStatusRunning
 		setStoryNodePath(stateNode, nodePath)
 		e.tree.push("state", stateNode)
-		if e.rec != nil {
-			e.rec.notify()
-		}
+		e.rec.unlockTree()
+		e.rec.notify()
 
 		err := e.inner.WithDelegate(e).ExecuteNode(ctx, parentResCtx, n)
+		defer e.rec.notify()
+		e.rec.lockTree()
+		defer e.rec.unlockTree()
 		if err != nil {
 			stateNode.Status = statusFromErr(err, stateNode.Status)
 			e.tree.pop()
-			if e.rec != nil {
-				e.rec.notify()
-			}
 			return err
 		}
 		stateNode.Status = deriveContainerStatus(stateNode.Children)
@@ -967,9 +1005,6 @@ func (e *recordingExecutor) ExecuteNode(ctx coreworkflow.Context, parentResCtx *
 			stateNode.Status = model.JobRunStoryNodeStatusSucceeded
 		}
 		e.tree.pop()
-		if e.rec != nil {
-			e.rec.notify()
-		}
 		return nil
 	}
 
@@ -978,6 +1013,7 @@ func (e *recordingExecutor) ExecuteNode(ctx coreworkflow.Context, parentResCtx *
 
 func (e *recordingExecutor) ExecuteSequence(ctx coreworkflow.Context, rCtx *template.ResolutionContext, metadata recipe.NodeMetadata, outputTemplate map[string]interface{}, sequence []recipe.Node) error {
 	seqID := template.ScopeID(metadata, "", template.ScopeSequence)
+	e.rec.lockTree()
 	node := e.tree.newNode(model.JobRunStoryNodeKindSequence, "sequence "+seqID)
 	node.SequenceID = seqID
 	node.Status = model.JobRunStoryNodeStatusRunning
@@ -988,17 +1024,16 @@ func (e *recordingExecutor) ExecuteSequence(ctx coreworkflow.Context, rCtx *temp
 		}
 	}
 	e.tree.push("sequence:"+seqID, node)
-	if e.rec != nil {
-		e.rec.notify()
-	}
+	e.rec.unlockTree()
+	e.rec.notify()
 
 	err := e.inner.WithDelegate(e).ExecuteSequence(ctx, rCtx, metadata, outputTemplate, sequence)
+	defer e.rec.notify()
+	e.rec.lockTree()
+	defer e.rec.unlockTree()
 	if err != nil {
 		node.Status = statusFromErr(err, node.Status)
 		e.tree.pop()
-		if e.rec != nil {
-			e.rec.notify()
-		}
 		return err
 	}
 	node.Status = deriveContainerStatus(node.Children)
@@ -1006,14 +1041,12 @@ func (e *recordingExecutor) ExecuteSequence(ctx coreworkflow.Context, rCtx *temp
 		node.Output = rCtx.GetLastExecution()
 	}
 	e.tree.pop()
-	if e.rec != nil {
-		e.rec.notify()
-	}
 	return nil
 }
 
 func (e *recordingExecutor) ExecuteStateMachine(ctx coreworkflow.Context, parentContext *template.ResolutionContext, metadata recipe.NodeMetadata, outputTemplate map[string]interface{}, stateMap *recipe.StateMap, opts ...compiler.ExecutionOptions) error {
 	smID := template.ScopeID(metadata, "", template.ScopeStateMachine)
+	e.rec.lockTree()
 	node := e.tree.newNode(model.JobRunStoryNodeKindStateMachine, "stateMachine "+smID)
 	node.StateMachineID = smID
 	node.Status = model.JobRunStoryNodeStatusRunning
@@ -1029,12 +1062,10 @@ func (e *recordingExecutor) ExecuteStateMachine(ctx coreworkflow.Context, parent
 		}
 	}
 	e.tree.push("stateMachine:"+smID, node)
-	if e.rec != nil {
-		e.rec.notify()
-	}
+	e.rec.unlockTree()
+	e.rec.notify()
 
 	stObs := newStoryStateObserver(e.tree, e.rec)
-	defer stObs.Flush()
 
 	var execOpts compiler.ExecutionOptions
 	if len(opts) > 0 {
@@ -1043,12 +1074,13 @@ func (e *recordingExecutor) ExecuteStateMachine(ctx coreworkflow.Context, parent
 	execOpts.StateObserver = chainStateObservers(execOpts.StateObserver, stObs)
 
 	err := e.inner.WithDelegate(e).ExecuteStateMachine(ctx, parentContext, metadata, outputTemplate, stateMap, execOpts)
+	stObs.Flush()
+	defer e.rec.notify()
+	e.rec.lockTree()
+	defer e.rec.unlockTree()
 	if err != nil {
 		node.Status = statusFromErr(err, node.Status)
 		e.tree.pop()
-		if e.rec != nil {
-			e.rec.notify()
-		}
 		return err
 	}
 	node.Status = deriveContainerStatus(node.Children)
@@ -1059,20 +1091,19 @@ func (e *recordingExecutor) ExecuteStateMachine(ctx coreworkflow.Context, parent
 		node.Output = parentContext.GetLastExecution()
 	}
 	e.tree.pop()
-	if e.rec != nil {
-		e.rec.notify()
-	}
 	return nil
 }
 
 func (e *recordingExecutor) ExecuteOp(ctx coreworkflow.Context, parentResolutionContext *template.ResolutionContext, metadata recipe.NodeMetadata, opID string) error {
 	opID = strings.TrimSpace(opID)
+	e.rec.lockTree()
 	opNode := e.tree.newNode(model.JobRunStoryNodeKindOp, "op "+opID)
 	opNode.OpID = opID
 	opNode.OpType = "custom"
 	opNode.Status = model.JobRunStoryNodeStatusRunning
 	opNode.InlineStack = storyInlineStack(parentResolutionContext, metadata, opID)
 	e.tree.push("op:"+opID, opNode)
+	e.rec.unlockTree()
 
 	if e.rec != nil {
 		e.rec.SetCurrentOpNode(opNode)
@@ -1082,6 +1113,9 @@ func (e *recordingExecutor) ExecuteOp(ctx coreworkflow.Context, parentResolution
 	if e.rec != nil {
 		e.rec.SetCurrentOpNode(nil)
 	}
+	defer e.rec.notify()
+	e.rec.lockTree()
+	defer e.rec.unlockTree()
 
 	if err != nil {
 		e.ensureReplayMissStepNode(opNode, opID, err)
@@ -1095,9 +1129,6 @@ func (e *recordingExecutor) ExecuteOp(ctx coreworkflow.Context, parentResolution
 		}
 		opNode.Status = statusFromErr(err, opNode.Status)
 		e.tree.pop()
-		if e.rec != nil {
-			e.rec.notify()
-		}
 		return err
 	}
 
@@ -1120,7 +1151,6 @@ func (e *recordingExecutor) ExecuteOp(ctx coreworkflow.Context, parentResolution
 			opNode.ArtifactKeys = ch.ArtifactKeys
 			opNode.ArtifactRefs = ch.ArtifactRefs
 			opNode.TaskOrdinal = ch.TaskOrdinal
-			opNode.RestartFromOrdinal = ch.RestartFromOrdinal
 			opNode.StartedAt = ch.StartedAt
 			opNode.FinishedAt = ch.FinishedAt
 			opNode.Error = ch.Error
@@ -1130,9 +1160,6 @@ func (e *recordingExecutor) ExecuteOp(ctx coreworkflow.Context, parentResolution
 			opNode.InlineStack = cloneInlineBoundaryStack(ch.InlineStack)
 			opNode.Status = ch.Status
 			e.tree.pop()
-			if e.rec != nil {
-				e.rec.notify()
-			}
 			return nil
 		}
 	}
@@ -1143,9 +1170,6 @@ func (e *recordingExecutor) ExecuteOp(ctx coreworkflow.Context, parentResolution
 	}
 
 	e.tree.pop()
-	if e.rec != nil {
-		e.rec.notify()
-	}
 	return nil
 }
 
@@ -1189,7 +1213,6 @@ func (e *recordingExecutor) ensureReplayMissStepNode(opNode *model.JobRunStoryNo
 	}
 	ord := miss.Ordinal
 	stepNode.TaskOrdinal = &ord
-	stepNode.RestartFromOrdinal = &ord
 	applyTaskOutputToNode(stepNode, "", miss.TaskType, nil, miss)
 	opNode.Children = append(opNode.Children, stepNode)
 }
@@ -1211,7 +1234,13 @@ func newStoryStateObserver(tree *treeBuilder, rec *Recorder) *storyStateObserver
 }
 
 func (o *storyStateObserver) StateEntered(stateName string) {
-	if o == nil || o.tree == nil {
+	if o == nil {
+		return
+	}
+	defer o.rec.notify()
+	o.rec.lockTree()
+	defer o.rec.unlockTree()
+	if o.tree == nil {
 		return
 	}
 
@@ -1239,20 +1268,26 @@ func (o *storyStateObserver) StateEntered(stateName string) {
 	o.currentExited = false
 	o.stateNeedsPop = true
 	o.transitionEval = nil
-	if o.rec != nil {
-		o.rec.notify()
-	}
 }
 
 func (o *storyStateObserver) StateExited(_ string) {
 	if o == nil {
 		return
 	}
+	defer o.rec.notify()
+	o.rec.lockTree()
+	defer o.rec.unlockTree()
 	o.currentExited = true
 }
 
 func (o *storyStateObserver) TransitionEvalauted(expression string, result bool, nextStateIfExpressionTrue string) {
-	if o == nil || o.tree == nil || o.currentState == nil {
+	if o == nil {
+		return
+	}
+	defer o.rec.notify()
+	o.rec.lockTree()
+	defer o.rec.unlockTree()
+	if o.tree == nil || o.currentState == nil {
 		return
 	}
 	expression = strings.TrimSpace(expression)
@@ -1289,13 +1324,16 @@ func (o *storyStateObserver) TransitionEvalauted(expression string, result bool,
 			ToStateID: &to,
 		}
 	}
-	if o.rec != nil {
-		o.rec.notify()
-	}
 }
 
 func (o *storyStateObserver) TransitionSelected(fromState string, toState string, payload map[string]interface{}) {
-	if o == nil || o.tree == nil || o.currentState == nil {
+	if o == nil {
+		return
+	}
+	defer o.rec.notify()
+	o.rec.lockTree()
+	defer o.rec.unlockTree()
+	if o.tree == nil || o.currentState == nil {
 		return
 	}
 	te := o.transitionEval
@@ -1320,15 +1358,15 @@ func (o *storyStateObserver) TransitionSelected(fromState string, toState string
 			break
 		}
 	}
-	if o.rec != nil {
-		o.rec.notify()
-	}
 }
 
 func (o *storyStateObserver) Flush() {
 	if o == nil {
 		return
 	}
+	defer o.rec.notify()
+	o.rec.lockTree()
+	defer o.rec.unlockTree()
 	o.closeCurrentState()
 }
 
@@ -1363,9 +1401,6 @@ func (o *storyStateObserver) closeCurrentState() {
 	o.currentExited = false
 	o.stateNeedsPop = false
 	o.transitionEval = nil
-	if o.rec != nil {
-		o.rec.notify()
-	}
 }
 
 type chainedStateObserver struct {
@@ -1872,18 +1907,6 @@ func applyTaskOutputToNode(n *model.JobRunStoryNode, jobID string, taskType stri
 		return
 	}
 
-	if mismatch, ok := jobworkflow.UnexpectedChapter(err); ok && mismatch.CachedTaskDataErr() == nil && mismatch.CachedTaskData() != nil {
-		cached := mismatch.CachedTaskData()
-		raw, rerr := cached.GetData()
-		if rerr == nil && len(raw) > 0 {
-			kind, ok := outputKindFromRaw(raw)
-			if ok && kind == coretasks.OutputKindContextPatch {
-				td = cached
-				err = nil
-			}
-		}
-	}
-
 	if err != nil {
 		if isReplayCacheMissErr(err) {
 			n.Status = model.JobRunStoryNodeStatusRunning
@@ -1913,15 +1936,6 @@ func applyTaskOutputToNode(n *model.JobRunStoryNode, jobID string, taskType stri
 							}
 							n.ArtifactRefs = refs
 						}
-					}
-				case coretasks.OutputKindContextPatch:
-					var patch coretasks.ContextPatch
-					if outEnv.DecodePayload(&patch) == nil {
-						n.Kind = model.JobRunStoryNodeKindContextPatch
-						n.Title = "context patch"
-						n.StepID = ""
-						n.StepType = ""
-						n.Output = patch
 					}
 				default:
 					n.Output = map[string]any{"kind": string(outEnv.Kind)}
@@ -1977,7 +1991,6 @@ func cloneNode(src *model.JobRunStoryNode) *model.JobRunStoryNode {
 	dst.ArtifactKeys = append([]jobdb.ArtifactKey{}, src.ArtifactKeys...)
 	dst.ArtifactRefs = append([]recipeartifacts.Ref{}, src.ArtifactRefs...)
 	dst.TaskOrdinal = cloneInt64Ptr(src.TaskOrdinal)
-	dst.RestartFromOrdinal = cloneInt64Ptr(src.RestartFromOrdinal)
 	dst.Children = cloneNodes(src.Children)
 	dst.Invocation = cloneInvocation(src.Invocation)
 	dst.Error = cloneError(src.Error)
@@ -2088,4 +2101,8 @@ func cloneBoolPtr(src *bool) *bool {
 	}
 	v := *src
 	return &v
+}
+
+func taskInvocationID(id string, attempt int) string {
+	return strings.TrimSuffix(id, fmt.Sprintf("/attempt:%d", attempt))
 }

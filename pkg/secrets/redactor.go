@@ -18,6 +18,7 @@ type Redactor struct {
 	mu     sync.Mutex
 	masks  map[string]bool
 	closed bool
+	tasks  int
 }
 
 func newRedactor() *Redactor { return &Redactor{masks: map[string]bool{}} }
@@ -27,13 +28,31 @@ func (*Redactor) MarshalJSON() ([]byte, error) {
 func (*Redactor) String() string   { return "secret redactor (redacted)" }
 func (*Redactor) GoString() string { return "secret redactor (redacted)" }
 func (s *Redactor) NewTask() *Session {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.tasks++
 	return &Session{values: map[string]jobdb.SecretValue{}, redactor: s}
 }
 func (s *Redactor) Close() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	clear(s.masks)
 	s.closed = true
+	s.clearClosed()
+}
+func (s *Redactor) releaseTask() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.tasks--
+	s.clearClosed()
+}
+
+// Cancelled tasks may still log while unwinding. Retain their masks until the
+// last task releases them, while preventing any new secret materialization.
+func (s *Redactor) clearClosed() {
+	if s.closed && s.tasks == 0 {
+		clear(s.masks)
+		activeMasks.Delete(s)
+	}
 }
 func (s *Redactor) isClosed() bool {
 	s.mu.Lock()

@@ -23,7 +23,6 @@ const (
 
 const (
 	OutputKindActivityInvocationOutput OutputKind = "activity_output"
-	OutputKindContextPatch             OutputKind = "context_patch"
 )
 
 func NewOutputEnvelope(kind OutputKind, payload any) (OutputEnvelope, error) {

@@ -23,14 +23,7 @@ type SWFWorkflowControl struct {
 }
 
 func (s *SWFWorkflowControl) GetWaitingTask(ctx context.Context, jobKey jobdb.JobKey) (workflowctl.TaskHandle, error) {
-	e, err := s.Engine.GetWaitingTask(ctx, jobKey)
-	if err != nil {
-		return nil, err
-	}
-	if e != nil && e.TaskType() == "input:collect_user_input" {
-		return &preparedInputTaskHandle{TaskHandle: e, engine: s.Engine, ctx: ctx}, nil
-	}
-	return e, nil
+	return s.Engine.GetWaitingTask(ctx, jobKey)
 }
 
 func (s *SWFWorkflowControl) ListJobs(ctx context.Context, request jobdb.ListJobsRequest) (jobs []workflowctl.JobItem, nextPage string, err error) {
@@ -327,4 +320,8 @@ func failureMessageFromTaskError(taskErr *jobdb.TaskError) string {
 		return ""
 	}
 	return taskErr.Message
+}
+
+func (s *SWFWorkflowControl) GetJobRun(ctx context.Context, req jobdb.GetJobRunRequest) (jobdb.GetJobRunResponse, error) {
+	return s.Engine.GetJobRun(ctx, req)
 }

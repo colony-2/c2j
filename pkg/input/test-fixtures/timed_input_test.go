@@ -162,20 +162,16 @@ func TestTimedInputPublicAPIs(t *testing.T) {
 				require.NoError(t, err)
 				wait := info.ExecutionState.TaskWait
 				require.NotNil(t, wait)
-				// This deliberately verifies the v0.0.58 checkpoint shape, without a
-				// new field or reordered chapter that would invalidate existing histories.
-				if scope != "untimed" {
-					rawHandle, err := f.engine.GetWaitingTask(ctx, f.key)
-					require.NoError(t, err)
-					rawData, err := rawHandle.Data()
-					require.NoError(t, err)
-					raw, err := rawData.GetData()
-					require.NoError(t, err)
-					var stamp map[string]any
-					require.NoError(t, json.Unmarshal(raw, &stamp))
-					require.Len(t, stamp, 1)
-					require.Contains(t, stamp, "at")
-				}
+				rawHandle, err := f.engine.GetWaitingTask(ctx, f.key)
+				require.NoError(t, err)
+				rawData, err := rawHandle.Data()
+				require.NoError(t, err)
+				raw, err := rawData.GetData()
+				require.NoError(t, err)
+				var snapshot workerops.ActivityInvocationRequest
+				require.NoError(t, json.Unmarshal(raw, &snapshot))
+				require.NotEmpty(t, snapshot.Input, "waiting work must carry its own input snapshot")
+				require.NotEmpty(t, snapshot.GitTaskContext.PersistHash)
 				client, err := input.NewRuntime(f.ctl, nil)
 				require.NoError(t, err)
 				form, err := client.GetForm(ctx, f.key.TenantId, f.key.JobId)
@@ -317,28 +313,4 @@ func TestTimedInputFallbackAfterRecovery(t *testing.T) {
 			require.Equal(t, "preserved", strings.TrimSpace(fmt.Sprint(result["preserved"])))
 		})
 	}
-}
-
-func TestTimedInputAnswerBeforeExpiryWorkerWins(t *testing.T) {
-	// Deadline passage alone must not introduce a new API rejection rule. The
-	// human can complete the task until an expiry worker wins atomic completion.
-	// Use an op scope: a separate enclosing job deadline can still fail the job.
-	ctx := context.Background()
-	f := newTimedInputFixture(t, timedInputSource("input-op", "ordinary", "3s", false), "input-op")
-	require.Equal(t, jobworkflow.JobRunSuspended, f.run().Status)
-	client, err := input.NewRuntime(f.ctl, nil)
-	require.NoError(t, err)
-	_, err = client.GetForm(ctx, f.key.TenantId, f.key.JobId)
-	require.NoError(t, err)
-	f.reopen()
-	time.Sleep(3200 * time.Millisecond)
-	var answer any = "human"
-	require.NoError(t, client.SubmitResponse(ctx, f.key.TenantId, f.key.JobId, input.FormResponse{Response: &answer}))
-	require.Equal(t, jobworkflow.JobRunCompleted, f.run().Status)
-	out, err := f.ctl.JobResult(ctx, f.key)
-	require.NoError(t, err)
-	result, err := readJobOutputAsMap(out)
-	require.NoError(t, err)
-	require.Equal(t, "human", result["answer"])
-	assertTimedPublicOutcome(t, f, story.WorkflowStatusCompleted)
 }

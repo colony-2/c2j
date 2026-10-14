@@ -9,7 +9,6 @@ import (
 	"io"
 	"log/slog"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/colony-2/c2j/cmd/c2j/internal/c2jops"
@@ -68,20 +67,23 @@ func Run(ctx context.Context, opts Options) error {
 		liveWorker := newStoryJobWorker(deps, liveRecorder)
 
 		runnable, err := jobworkflow.GetJobForRun(ctx, deps.runtime, jobworkflow.GetJobForRunRequest{
-			JobKey:         jobKey,
-			JobWorker:      liveWorker,
-			TaskWorkers:    deps.taskWorkers,
-			WorkerID:       opts.WorkerID,
-			LeaseDuration:  opts.LeaseDuration,
-			AwaitThreshold: opts.AwaitThreshold,
-			Logger:         slog.Default(),
+			ConsumerVersions: compiler.ExecutionConsumerVersions(nil),
+			JobKey:           jobKey,
+			JobWorker:        liveWorker,
+			TaskWorkers:      deps.taskWorkers,
+			WorkerID:         opts.WorkerID,
+			LeaseDuration:    opts.LeaseDuration,
+			AwaitThreshold:   opts.AwaitThreshold,
+			Logger:           slog.Default(),
 		})
 		if err != nil {
 			return exitError{code: exitCodeFailure, err: err}
 		}
 
 		if outcome, ok := runnable.Outcome(); ok {
-			if event := deps.handoff(); event != nil {
+			if event, err := compiler.ExecutionHandoffFromOutcome(outcome); err != nil {
+				return exitError{code: exitCodeFailure, err: err}
+			} else if event != nil {
 				return json.NewEncoder(opts.Stdout).Encode(event)
 			}
 			wait, err := handleOutcome(ctx, opts, deps, jobKey, outcome, deadline)
@@ -95,13 +97,16 @@ func Run(ctx context.Context, opts Options) error {
 		}
 
 		outcome, err := runnable.Run(liveRecorder.Observer())
-		if event := deps.handoff(); event != nil {
-			return json.NewEncoder(opts.Stdout).Encode(event)
-		}
+		liveRecorder.CloseNotifications()
 		renderer.Render(liveRecorder.Finalize(err))
 		renderer.Flush()
 		if err != nil {
 			return exitError{code: exitCodeFailure, err: err}
+		}
+		if event, err := compiler.ExecutionHandoffFromOutcome(outcome); err != nil {
+			return exitError{code: exitCodeFailure, err: err}
+		} else if event != nil {
+			return json.NewEncoder(opts.Stdout).Encode(event)
 		}
 
 		wait, err := handleOutcome(ctx, opts, deps, jobKey, outcome, deadline)
@@ -117,8 +122,6 @@ func Run(ctx context.Context, opts Options) error {
 type runnerDeps struct {
 	importLease      func(context.Context, remoteruntime.LeaseCapability) (jobdb.RenewableExecutionLease, error)
 	executionRuntime *executionruntime.Runtime
-	handoffMu        sync.Mutex
-	handoffEvent     *compiler.ExecutionHandoff
 	runtime          jobdb.WorkflowRuntime
 	engine           jobworkflow.Engine
 	taskWorkers      []jobworkflow.TaskWorker
@@ -127,17 +130,6 @@ type runnerDeps struct {
 	inputRuntime     *input.Runtime
 	stopRegistry     func()
 	stopRuntime      func() error
-}
-
-func (d *runnerDeps) recordHandoff(e compiler.ExecutionHandoff) {
-	d.handoffMu.Lock()
-	defer d.handoffMu.Unlock()
-	d.handoffEvent = &e
-}
-func (d *runnerDeps) handoff() *compiler.ExecutionHandoff {
-	d.handoffMu.Lock()
-	defer d.handoffMu.Unlock()
-	return d.handoffEvent
 }
 
 func buildDeps(ctx context.Context, opts Options) (*runnerDeps, func(), error) {
@@ -211,7 +203,7 @@ func buildDeps(ctx context.Context, opts Options) (*runnerDeps, func(), error) {
 		stopRegistry: stopRegistry,
 		stopRuntime:  handle.Cleanup,
 	}
-	deps.executionRuntime = executionruntime.New(handle.Runtime, opts.Allocation, deps.recordHandoff)
+	deps.executionRuntime = executionruntime.New(handle.Runtime, opts.Allocation)
 	for i, worker := range deps.taskWorkers {
 		deps.taskWorkers[i] = deps.executionRuntime.WrapTaskWorker(worker)
 	}
@@ -240,11 +232,9 @@ func taskWorkersFromWorkSet(workset *jobworkflow.WorkSet) []jobworkflow.TaskWork
 
 func newStoryJobWorker(deps *runnerDeps, recorder *storylive.Recorder, replay ...bool) jobworkflow.JobWorker {
 	return compiler.NewRecipeJobWorker(compiler.RecipeJobWorkerOptions{
-		TaskHistory:            &workerworkflow.SWFWorkflowControl{Engine: deps.engine},
 		Allocation:             deps.executionRuntime.Allocation,
 		StageExecution:         deps.executionRuntime.Stage,
 		WrapTaskWorker:         deps.executionRuntime.WrapTaskWorker,
-		OnExecutionHandoff:     deps.recordHandoff,
 		ReadOnlyReplay:         len(replay) > 0 && replay[0],
 		CELOptionsProvider:     deps.celProvider,
 		RootSourceResolver:     deps.rootResolver,

@@ -35,6 +35,8 @@ type OpDependencies interface {
 
 // JobTool provides a way to influence the current jobs operation. It is separate from workflowcontrol, which is about running jobs independent of this jobs context.
 type JobTool interface {
+	// InvocationID is stable across task retries and recovery, and distinct across scope retries.
+	InvocationID() string
 	GetJobKey() jobdb.JobKey
 	AwaitJobs(jobIds ...string) error
 }
@@ -42,6 +44,8 @@ type JobTool interface {
 type TaskBasedJobTool struct {
 	TaskContext jobworkflow.TaskContext
 }
+
+func (j *TaskBasedJobTool) InvocationID() string { return j.TaskContext.InvocationID }
 
 func (j *TaskBasedJobTool) TaskOrdinal() int64 { return j.TaskContext.Step }
 
@@ -72,7 +76,7 @@ type opDepImpl struct {
 	currentJobContext     jobcontext.Current
 	protectedEnv          map[string]string
 	jobTool               JobTool
-	nextTaskAlternate     *jobworkflow.TaskAlternate
+	nextTaskAlternate     *jobworkflow.TaskAlternateAfter
 	nextTaskType          string
 	nextTaskTypeSet       bool
 }
@@ -344,9 +348,9 @@ func (b *OpDependenciesBuilder) Build() OpDependencies {
 
 // SetNextTaskAlternate declares another handler for the next logical substep.
 // The absolute eligibility time is persisted with the current activity outcome.
-func SetNextTaskAlternate(deps OpDependencies, alternate jobworkflow.TaskAlternate) error {
+func SetNextTaskAlternate(deps OpDependencies, alternate jobworkflow.TaskAlternateAfter) error {
 	setter, ok := deps.(interface {
-		SetNextTaskAlternate(jobworkflow.TaskAlternate)
+		SetNextTaskAlternate(jobworkflow.TaskAlternateAfter)
 	})
 	if !ok {
 		return fmt.Errorf("alternate task dispatch is not supported by these operation dependencies")
@@ -354,7 +358,7 @@ func SetNextTaskAlternate(deps OpDependencies, alternate jobworkflow.TaskAlterna
 	setter.SetNextTaskAlternate(alternate)
 	return nil
 }
-func (c *opDepImpl) SetNextTaskAlternate(alternate jobworkflow.TaskAlternate) {
+func (c *opDepImpl) SetNextTaskAlternate(alternate jobworkflow.TaskAlternateAfter) {
 	c.nextTaskAlternate = &alternate
 }
-func (c *opDepImpl) NextTaskAlternate() *jobworkflow.TaskAlternate { return c.nextTaskAlternate }
+func (c *opDepImpl) NextTaskAlternate() *jobworkflow.TaskAlternateAfter { return c.nextTaskAlternate }

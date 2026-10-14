@@ -33,21 +33,16 @@ func TestUnansweredPreparationAndAcceptance(t *testing.T) {
 			form, err := buildForm(deps, context.Background(), Input{Form: cfg, IfUnanswered: &policy})
 			require.NoError(t, err)
 			require.NotEmpty(t, form.RequestID)
-			at, err := time.Parse(time.RFC3339Nano, form.FallbackAt)
-			require.NoError(t, err)
-			require.WithinDuration(t, time.Now().Add(30*time.Minute), at, time.Second)
+			require.Empty(t, form.FallbackAt, "due time is recorded by JobDB at the first wait")
 			alt := deps.(interface {
-				NextTaskAlternate() *jobworkflow.TaskAlternate
+				NextTaskAlternate() *jobworkflow.TaskAlternateAfter
 			}).NextTaskAlternate()
 			require.Equal(t, alternateTaskType, alt.TaskType)
-			require.Equal(t, at, alt.At)
+			require.Equal(t, 30*time.Minute, alt.After)
 			if policy.Fields != nil {
 				policy.Fields["decision"] = "changed"
 				require.Equal(t, "revise", form.Fallback.Fields["decision"])
 			}
-			_, err = completeUnanswered(deps, context.Background(), form)
-			require.ErrorContains(t, err, "not eligible")
-			form.FallbackAt = time.Now().Add(-time.Second).Format(time.RFC3339Nano)
 			out, err := completeUnanswered(deps, context.Background(), form)
 			require.NoError(t, err)
 			raw, err := json.Marshal(form)
@@ -96,7 +91,7 @@ func TestUnansweredRejectsInvalidConfigurationBeforePublication(t *testing.T) {
 			_, err := buildForm(deps, context.Background(), in)
 			require.Error(t, err)
 			require.Nil(t, deps.(interface {
-				NextTaskAlternate() *jobworkflow.TaskAlternate
+				NextTaskAlternate() *jobworkflow.TaskAlternateAfter
 			}).NextTaskAlternate())
 		})
 	}

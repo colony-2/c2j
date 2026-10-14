@@ -100,14 +100,30 @@ func (s *stubJobContext) AwaitJobs(jobIds ...string) error {
 	return nil
 }
 
-var _ jobworkflow.JobContext = &stubJobContext{}
+var _ jobworkflow.ExecutionContext = &stubJobContext{}
 
 func (s *stubJobContext) GetJobKey() jobdb.JobKey            { return s.jobKey }
 func (s *stubJobContext) Logger() *slog.Logger               { return slog.Default() }
 func (s *stubJobContext) AwaitDuration(jobdb.Duration) error { return nil }
 
-func (s *stubJobContext) DoTask(_ jobdb.RunPolicy, taskType string, data jobdb.TaskData) (jobdb.TaskData, error) {
+func (s *stubJobContext) DoTask(call testTaskCall, build func(testContext) (jobdb.TaskData, error)) (jobdb.TaskData, error) {
+	data, buildErr := build(s.Context())
+	if buildErr != nil {
+		return nil, buildErr
+	}
+	_ = data
+	taskType := call.TaskType
+	_ = taskType
+
 	s.calls++
 	s.lastTaskType = taskType
 	return s.out, nil
+}
+
+func (c *stubJobContext) DoScope(site string, opts testScopeOptions, body func(testExecutionContext) (jobdb.JobData, error)) (jobdb.JobData, error) {
+	return runMockScope(c, site, opts, body)
+}
+func (c *stubJobContext) Context() testContext { return testBackground() }
+func (c *stubJobContext) ExecutionVersions() jobdb.ExecutionVersions {
+	return jobdb.ExecutionVersions{}
 }

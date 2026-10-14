@@ -181,24 +181,25 @@ an error, never an unconstrained job.
 
 ## CLI and embedding
 
-`run`, `run one`, `run any`, `run loop`, and `submit --run` accept individual
+`run`, `run one`, `run with-lease`, and `submit --run` accept individual
 `--execution-*` arguments and `C2J_EXECUTION_*` environment variables for CPU,
 memory, ephemeral storage, platform, image reference, image digest, and image
 ID. Arguments override corresponding environment fields independently.
 
-Targeted runs and `run any` return promptly after an environment handoff.
-`run loop` emits the event and stops to avoid reacquiring the same incompatible
-job; its supervisor decides what environment to launch next. A handoff is a
-successful process outcome, not job completion. Disposable standalone execution
-returns `EnvironmentRequiredError`; durable resumption needs a persistent
-runtime.
+Runs return promptly after an environment handoff. A handoff is a successful
+process outcome; the job remains suspended for a compatible allocation.
+Polling commands and the public standalone executor are removed. Pulse continues
+to discover work and dispatch it through `run with-lease`.
 
 Embedders wrap JobDB with `pkg/executionruntime`, pass the same allocation to
-`RecipeJobWorkerOptions`, and connect `StageExecution` and
-`OnExecutionHandoff`, with `WrapTaskWorker: runtime.WrapTaskWorker` for every
-task worker. This also applies to task-route executors. Schema
-registration uses the underlying runtime. Read-only story replay disables
-execution checks/publication: it reconstructs history rather than executing.
+`RecipeJobWorkerOptions`, and connect `StageExecution`, with
+`WrapTaskWorker: runtime.WrapTaskWorker` for every task worker. After `Run`, use
+`compiler.ExecutionHandoffFromOutcome` to read the acknowledged receipt from
+`JobRunOutcome.Handoff`. Metadata is submitted with `YieldRequest` before
+cancellation; no post-Yield callback is needed. This also applies to task-route
+executors. Schema registration uses the underlying runtime. Read-only story
+replay disables execution checks/publication: it reconstructs history rather
+than executing.
 
 ## Listings
 

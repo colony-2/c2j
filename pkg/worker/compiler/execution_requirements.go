@@ -25,15 +25,14 @@ type ExecutionHandoff struct {
 }
 
 type executionSession struct {
-	ctx        jobworkflow.JobContext
+	ctx        jobworkflow.ExecutionContext
 	demand     execution.Demand
 	allocation execution.Allocation
-	onHandoff  func(ExecutionHandoff)
 	stage      func(jobdb.JobKey, execution.Demand)
 	checkpoint int
 }
 
-func (j recipeJobWorker) executionSession(ctx jobworkflow.JobContext, r recipe.Recipe, initial *execution.Demand) (*executionSession, error) {
+func (j recipeJobWorker) executionSession(ctx jobworkflow.ExecutionContext, r recipe.Recipe, initial *execution.Demand) (*executionSession, error) {
 	a := j.allocation
 	if a.SchemaVersion == 0 {
 		a.SchemaVersion = execution.SchemaVersion
@@ -70,7 +69,7 @@ func (j recipeJobWorker) executionSession(ctx jobworkflow.JobContext, r recipe.R
 		}
 		d = *current
 	}
-	s := &executionSession{ctx: ctx, demand: d, allocation: a, onHandoff: j.onExecutionHandoff, stage: j.stageExecution}
+	s := &executionSession{ctx: ctx, demand: d, allocation: a, stage: j.stageExecution}
 	if recipe.HasExecutionConstraints(r) {
 		if j.stageExecution == nil || !j.taskGuardConfigured {
 			return nil, fmt.Errorf("execution_needs requires an execution-aware runtime and guarded task workers")
@@ -123,7 +122,7 @@ func isExecutionControlError(err error) bool {
 	return errors.As(err, &control)
 }
 
-func (s *executionSession) suspend(ctx jobworkflow.JobContext, site string, patch execution.Requirements) (result error) {
+func (s *executionSession) suspend(ctx jobworkflow.ExecutionContext, site string, patch execution.Requirements) (result error) {
 	defer func() {
 		if result != nil {
 			result = &executionControlError{result}
@@ -163,7 +162,7 @@ func (s *executionSession) suspend(ctx jobworkflow.JobContext, site string, patc
 	return s.yield(ctx, true, m)
 }
 
-func (s *executionSession) yield(ctx jobworkflow.JobContext, publish bool, mismatches []execution.Mismatch) error {
+func (s *executionSession) yield(ctx jobworkflow.ExecutionContext, publish bool, mismatches []execution.Mismatch) error {
 	req := jobdb.RescheduleExecutionRequest{NextRoute: jobdb.Route{JobType: starter.RecipeJobType}}
 	if publish {
 		s.demand.LastAllocation = &s.allocation
@@ -174,21 +173,25 @@ func (s *executionSession) yield(ctx jobworkflow.JobContext, publish bool, misma
 		revision := s.ctx.ClientPayloadRevision()
 		req.ClientPayloadUpdate = &jobdb.ClientPayloadUpdate{Mode: "reset", Value: raw, ExpectedRevision: &revision}
 	}
-	// Yield stops the goroutine on success. Notify only after it has returned
-	// through its deferred stack; an error/uncertain response is not success.
-	accepted := true
-	defer func() {
-		if p := recover(); p != nil {
-			panic(p)
-		}
-		if accepted && s.onHandoff != nil {
-			s.onHandoff(ExecutionHandoff{Kind: "environment_required", JobKey: s.ctx.GetJobKey(), Demand: s.demand, Allocation: s.allocation, Mismatches: mismatches, Published: publish})
-		}
-	}()
-	err := ctx.Yield(context.Background(), req)
-	accepted = false
+	metadata, err := json.Marshal(ExecutionHandoff{Kind: "environment_required", JobKey: s.ctx.GetJobKey(), Demand: s.demand, Allocation: s.allocation, Mismatches: mismatches, Published: publish})
 	if err != nil {
 		return err
 	}
-	return fmt.Errorf("execution yield returned without stopping invocation")
+	return ctx.Yield(context.Background(), jobworkflow.YieldRequest{Reschedule: req, Metadata: metadata})
+}
+
+// ExecutionHandoffFromOutcome decodes only this run's acknowledged environment
+// handoff. Ordinary waits and unrelated Yield metadata are not environment changes.
+func ExecutionHandoffFromOutcome(outcome jobworkflow.JobRunOutcome) (*ExecutionHandoff, error) {
+	if outcome.Handoff == nil || len(outcome.Handoff.Metadata) == 0 {
+		return nil, nil
+	}
+	var event ExecutionHandoff
+	if err := json.Unmarshal(outcome.Handoff.Metadata, &event); err != nil {
+		return nil, fmt.Errorf("decode execution handoff: %w", err)
+	}
+	if event.Kind != "environment_required" {
+		return nil, nil
+	}
+	return &event, nil
 }

@@ -2,7 +2,6 @@ package compiler
 
 import (
 	"context"
-	"errors"
 	"log/slog"
 	"testing"
 	"time"
@@ -12,7 +11,6 @@ import (
 	"github.com/colony-2/c2j/pkg/recipe"
 	"github.com/colony-2/c2j/pkg/workflow"
 	"github.com/colony-2/jobdb/pkg/jobdb"
-	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
 	"github.com/stretchr/testify/require"
 )
 
@@ -23,6 +21,7 @@ type policyCaptureJobContext struct {
 	sleep    time.Duration
 	calls    int
 	policies []jobdb.RunPolicy
+	scopes   []testScopeOptions
 }
 
 func (c *policyCaptureJobContext) AwaitJobs(jobIds ...string) error {
@@ -33,10 +32,16 @@ func (c *policyCaptureJobContext) GetJobKey() jobdb.JobKey            { return c
 func (c *policyCaptureJobContext) Logger() *slog.Logger               { return slog.Default() }
 func (c *policyCaptureJobContext) AwaitDuration(jobdb.Duration) error { return nil }
 
-func (c *policyCaptureJobContext) DoTask(policy jobdb.RunPolicy, taskType string, data jobdb.TaskData) (jobdb.TaskData, error) {
-	if taskType == TimeoutCheckpointTaskType {
-		return (timeoutCheckpointWorker{}).Run(jobworkflow.TaskContext{}, data)
+func (c *policyCaptureJobContext) DoTask(call testTaskCall, build func(testContext) (jobdb.TaskData, error)) (jobdb.TaskData, error) {
+	data, buildErr := build(c.Context())
+	if buildErr != nil {
+		return nil, buildErr
 	}
+	_ = data
+	policy := call.Policy
+	_ = policy
+	taskType := call.TaskType
+	_ = taskType
 	c.calls++
 	c.policies = append(c.policies, policy)
 	if c.sleep > 0 {
@@ -76,12 +81,18 @@ func newTimeoutWorkflow(t *testing.T, gitCtx contextual.GitCommitContext, sleep 
 	return stub, newWorkflowContext(stub)
 }
 
-func requireCapturedTimeoutBetween(t *testing.T, policy jobdb.RunPolicy, min time.Duration, max time.Duration) {
+func requireCapturedScopeTimeout(t *testing.T, stub *policyCaptureJobContext, want time.Duration) {
 	t.Helper()
-	require.NotNil(t, policy.TotalTimeout)
-	got := time.Duration(*policy.TotalTimeout)
-	require.GreaterOrEqual(t, got, min, "captured timeout %s was below minimum %s", got, min)
-	require.LessOrEqual(t, got, max, "captured timeout %s was above maximum %s", got, max)
+	var found bool
+	for _, scope := range stub.scopes {
+		if scope.TotalTimeout == want {
+			found = true
+		}
+	}
+	require.True(t, found, "scope budget %s absent from %+v", want, stub.scopes)
+	for _, policy := range stub.policies {
+		require.Nil(t, policy.TotalTimeout, "scope enforces the shared budget")
+	}
 }
 
 func TestExecuteOpUsesOpDefaultTimeoutWhenNodeTimeoutMissing(t *testing.T) {
@@ -102,7 +113,7 @@ func TestExecuteOpUsesOpDefaultTimeoutWhenNodeTimeoutMissing(t *testing.T) {
 	_, _, err := ExecuteRecipe(wfCtx, rec, map[string]interface{}{}, jobCtx, gitCtx)
 	require.NoError(t, err)
 	require.Equal(t, 1, stub.calls)
-	requireCapturedTimeoutBetween(t, stub.policies[0], 119*time.Second, 2*time.Minute)
+	requireCapturedScopeTimeout(t, stub, 2*time.Minute)
 }
 
 func TestExecuteOpExplicitTimeoutOverridesOpDefault(t *testing.T) {
@@ -127,7 +138,7 @@ func TestExecuteOpExplicitTimeoutOverridesOpDefault(t *testing.T) {
 	_, _, err := ExecuteRecipe(wfCtx, rec, map[string]interface{}{}, jobCtx, gitCtx)
 	require.NoError(t, err)
 	require.Equal(t, 1, stub.calls)
-	requireCapturedTimeoutBetween(t, stub.policies[0], 4*time.Second, 5*time.Second)
+	requireCapturedScopeTimeout(t, stub, 5*time.Second)
 }
 
 func TestSequenceTimeoutClampsNestedOpTimeout(t *testing.T) {
@@ -156,7 +167,7 @@ func TestSequenceTimeoutClampsNestedOpTimeout(t *testing.T) {
 	_, _, err := ExecuteRecipe(wfCtx, rec, map[string]interface{}{}, jobCtx, gitCtx)
 	require.NoError(t, err)
 	require.Equal(t, 1, stub.calls)
-	requireCapturedTimeoutBetween(t, stub.policies[0], 1*time.Millisecond, 50*time.Millisecond)
+	requireCapturedScopeTimeout(t, stub, 50*time.Millisecond)
 }
 
 func TestNestedOpTimeoutClampsBelowParentSequenceTimeout(t *testing.T) {
@@ -189,36 +200,7 @@ func TestNestedOpTimeoutClampsBelowParentSequenceTimeout(t *testing.T) {
 	_, _, err := ExecuteRecipe(wfCtx, rec, map[string]interface{}{}, jobCtx, gitCtx)
 	require.NoError(t, err)
 	require.Equal(t, 1, stub.calls)
-	requireCapturedTimeoutBetween(t, stub.policies[0], 1*time.Millisecond, 20*time.Millisecond)
-}
-
-func TestSequenceTimeoutFailsWhenNestedTaskExceedsBudget(t *testing.T) {
-	opType := "timeout-sequence-fail-op"
-	withRegisteredOps(t, newTimeoutTestOp(t, opType, 0))
-	jobCtx, gitCtx := GenerateTestContext()
-	stub, wfCtx := newTimeoutWorkflow(t, gitCtx, 40*time.Millisecond)
-
-	rec := recipe.Recipe{
-		RecipeImpl: &recipe.RecipeSequence{
-			RecipeMetadata: recipe.RecipeMetadata{
-				NodeMetadata: recipe.NodeMetadata{
-					ID:      "root-sequence",
-					Timeout: recipe.Duration(10 * time.Millisecond),
-				},
-			},
-			SequenceData: recipe.SequenceData{Sequence: []recipe.Node{{
-				NodeImpl: &recipe.NodeOp{
-					NodeMetadata: recipe.NodeMetadata{ID: "slow", Inputs: map[string]interface{}{}},
-					OpData:       recipe.OpData{Op: opType},
-				},
-			}}},
-		},
-	}
-
-	_, _, err := ExecuteRecipe(wfCtx, rec, map[string]interface{}{}, jobCtx, gitCtx)
-	require.Error(t, err)
-	require.True(t, errors.Is(err, context.DeadlineExceeded), "expected deadline exceeded error, got %v", err)
-	require.Equal(t, 1, stub.calls)
+	requireCapturedScopeTimeout(t, stub, 20*time.Millisecond)
 }
 
 func TestStateMachineTimeoutClampsNestedOpTimeout(t *testing.T) {
@@ -252,5 +234,14 @@ func TestStateMachineTimeoutClampsNestedOpTimeout(t *testing.T) {
 	_, _, err := ExecuteRecipe(wfCtx, rec, map[string]interface{}{}, jobCtx, gitCtx)
 	require.NoError(t, err)
 	require.Equal(t, 1, stub.calls)
-	requireCapturedTimeoutBetween(t, stub.policies[0], 1*time.Millisecond, 50*time.Millisecond)
+	requireCapturedScopeTimeout(t, stub, 50*time.Millisecond)
+}
+
+func (c *policyCaptureJobContext) DoScope(site string, opts testScopeOptions, body func(testExecutionContext) (jobdb.JobData, error)) (jobdb.JobData, error) {
+	c.scopes = append(c.scopes, opts)
+	return body(c)
+}
+func (c *policyCaptureJobContext) Context() testContext { return testBackground() }
+func (c *policyCaptureJobContext) ExecutionVersions() jobdb.ExecutionVersions {
+	return jobdb.ExecutionVersions{}
 }

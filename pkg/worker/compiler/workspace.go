@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/colony-2/c2j/pkg/cellref"
 	"github.com/colony-2/c2j/pkg/contextual"
@@ -109,10 +108,6 @@ func enterWorkspace(ctx workflow.Context, parent *template.ResolutionContext, me
 	if parent.Options.Mode == template.ModeValidate {
 		result = WorkspaceResolutionOutput{Workspace: contextual.WorkspaceContext{Cell: cell, ScopeID: req.ScopeID, ParentScopeID: req.ParentScopeID, InitialHash: strings.Repeat("0", 40)}, Git: contextual.GitBaseContext{BaseRepo: cell, BaseRef: ref, ResolvedBaseHash: strings.Repeat("0", 40)}}
 	} else {
-		input, e := jobdb.NewTaskData(req)
-		if e != nil {
-			return nil, e
-		}
 		if ctx.StageNodeExecution != nil {
 			ctx.StageNodeExecution(parent.ExecutionNeeds)
 		}
@@ -120,7 +115,7 @@ func enterWorkspace(ctx workflow.Context, parent *template.ResolutionContext, me
 		if meta.Retry != nil {
 			policy.Retry = *meta.Retry
 		}
-		out, e := ctx.DoTask(policy, WorkspaceResolutionTaskType, input)
+		out, e := workflow.ValueCall(ctx.JobContext, "workspace:"+req.ScopeID, WorkspaceResolutionTaskType, policy, req)
 		if e != nil {
 			return nil, e
 		}
@@ -144,17 +139,9 @@ type workspaceBody func(workflow.Context, *template.ResolutionContext, recipe.No
 func withNodeWorkspace(ctx workflow.Context, parent *template.ResolutionContext, meta recipe.NodeMetadata, body workspaceBody) error {
 	if !ctx.WorkspaceSnapshots {
 		forwarding := newThinPackForwardingJobContext(ctx.JobContext)
-		configureArtifactReplay(forwarding, ctx)
 		forwarding.scopedMode = true
 		ctx.JobContext = forwarding
 		ctx.WorkspaceSnapshots = true
-	}
-	if meta.Timeout > 0 {
-		timeout := time.Duration(meta.Timeout)
-		meta.Timeout = 0
-		return executeCompositeInEnvelope(ctx, nil, timeout, "workspace "+meta.ID, func(inner workflow.Context) error {
-			return withNodeWorkspace(inner, parent, meta, body)
-		})
 	}
 	scoped, err := enterWorkspace(ctx, parent, meta)
 	if err != nil {
@@ -162,20 +149,6 @@ func withNodeWorkspace(ctx workflow.Context, parent *template.ResolutionContext,
 			return err
 		}
 		failure := normalizeRuntimeFailure(err, parent, meta, recipe.FailureNodeOp, "workspace")
-		if len(meta.Catch) > 0 {
-			decision, e := evaluateCatchClauses(meta.Catch, failure, parent, containingStateName(parent), canRouteToState(parent))
-			if e != nil {
-				return e
-			}
-			switch decision.Kind {
-			case catchDecisionContinue:
-				return recordSyntheticNodeOutput(parent, template.ScopeOp, meta, "workspace", decision.Outputs)
-			case catchDecisionRoute:
-				return &catchRouteError{Transition: template.NewFailureTransitionData(containingStateName(parent), decision.To, decision.Payload, decision.Failure)}
-			case catchDecisionFail:
-				return decision.Error
-			}
-		}
 		return newRecipeFailureError(failure, err)
 	}
 	meta.Workspace = nil

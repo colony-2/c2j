@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/colony-2/c2j/pkg/configuration"
+	"github.com/colony-2/c2j/pkg/input/formdefaults"
 	"log/slog"
 	"os"
 	"path"
@@ -573,7 +574,7 @@ func runPreparedCase(ctx context.Context, opts HarnessOptions, tenantID string, 
 		compiler.ExecutionOptions{CELOptionsProvider: opts.CELOptions, StateObserver: jobCtx, DiagnosticsObserver: jobCtx},
 	)
 	if err != nil {
-		if errors.Is(err, context.DeadlineExceeded) {
+		if errors.Is(err, context.DeadlineExceeded) || failureCategoryFromError(err) == "timeout" {
 			timedOut = true
 			execResp.Status = "timed_out"
 			execResp.FailureCategory = "timeout"
@@ -900,7 +901,7 @@ func newTestJobContext(projectID string, caseDef Case, policy TestPolicy, deps c
 func (j *testJobContext) AwaitJobs(_ ...string) error    { return nil }
 func (j *testJobContext) ClientPayload() json.RawMessage { return nil }
 func (j *testJobContext) ClientPayloadRevision() int64   { return 0 }
-func (j *testJobContext) Yield(context.Context, jobdb.RescheduleExecutionRequest) error {
+func (j *testJobContext) Yield(context.Context, jobworkflow.YieldRequest) error {
 	return fmt.Errorf("yielding is not supported by recipe test context")
 }
 func (j *testJobContext) GetJobKey() jobdb.JobKey              { return j.jobKey }
@@ -955,20 +956,29 @@ func (j *testJobContext) TransitionSelected(fromState string, toState string, pa
 	j.transitions = append(j.transitions, selected)
 }
 
-func (j *testJobContext) DoTask(runPolicy jobdb.RunPolicy, taskType string, data jobdb.TaskData) (jobdb.TaskData, error) {
-	if taskType == compiler.TimeoutCheckpointTaskType {
-		return compiler.NewTimeoutCheckpointTaskWorker().Run(jobworkflow.TaskContext{}, data)
+func (j *testJobContext) Context() context.Context { return context.Background() }
+func (j *testJobContext) ExecutionVersions() jobdb.ExecutionVersions {
+	return jobdb.ExecutionVersions{}
+}
+func (j *testJobContext) DoScope(site string, opts jobworkflow.ScopeOptions, body func(jobworkflow.ExecutionContext) (jobdb.JobData, error)) (jobdb.JobData, error) {
+	return runIsolatedScope(j, site, opts, body)
+}
+func (j *testJobContext) DoTask(call jobworkflow.TaskCall, build func(context.Context) (jobdb.TaskData, error)) (jobdb.TaskData, error) {
+	runPolicy, taskType := call.Policy, call.TaskType
+	data, err := build(j.Context())
+	if err != nil {
+		return nil, err
 	}
-	out, _, err := j.doMockedTask(runPolicy, taskType, data, true)
+	out, _, err := j.doMockedTask(j.Context(), runPolicy, taskType, data, true)
 	return out, err
 }
 
 func (j *testJobContext) DoValidationTask(runPolicy jobdb.RunPolicy, taskType string, data jobdb.TaskData) (jobdb.TaskData, bool, error) {
-	return j.doMockedTask(runPolicy, taskType, data, false)
+	return j.doMockedTask(j.Context(), runPolicy, taskType, data, false)
 }
 
-func (j *testJobContext) doMockedTask(runPolicy jobdb.RunPolicy, taskType string, data jobdb.TaskData, requireMock bool) (jobdb.TaskData, bool, error) {
-	ctx, cancel := contextForRunPolicy(runPolicy)
+func (j *testJobContext) doMockedTask(parent context.Context, runPolicy jobdb.RunPolicy, taskType string, data jobdb.TaskData, requireMock bool) (jobdb.TaskData, bool, error) {
+	ctx, cancel := contextForRunPolicy(parent, runPolicy)
 	defer cancel()
 	if err := ctx.Err(); err != nil {
 		return nil, true, err
@@ -1024,7 +1034,15 @@ func (j *testJobContext) doMockedTask(runPolicy jobdb.RunPolicy, taskType string
 	j.mockHits = append(j.mockHits, MockHit{NodePath: nodePath, Op: opName, Mode: mock.Behavior.Mode})
 	switch mock.Behavior.Mode {
 	case "return":
-		out, err := j.buildTaskData(mock.Behavior.Outputs, mock.Behavior.Artifacts, "")
+		outputs := mock.Behavior.Outputs
+		if opName == "input" {
+			var err error
+			outputs, err = formdefaults.NormalizeOutputMap(inv.Input, outputs)
+			if err != nil {
+				return nil, true, err
+			}
+		}
+		out, err := j.buildTaskData(outputs, mock.Behavior.Artifacts, "")
 		return out, true, err
 	case "fail":
 		msg := "mock failure"
@@ -1056,7 +1074,7 @@ func (j *testJobContext) doMockedTask(runPolicy jobdb.RunPolicy, taskType string
 	}
 }
 
-func contextForRunPolicy(runPolicy jobdb.RunPolicy) (context.Context, context.CancelFunc) {
+func contextForRunPolicy(parent context.Context, runPolicy jobdb.RunPolicy) (context.Context, context.CancelFunc) {
 	var timeout time.Duration
 	for _, limit := range []*jobdb.Duration{runPolicy.TotalTimeout, runPolicy.InvocationTimeout} {
 		if limit != nil && *limit > 0 && (timeout == 0 || time.Duration(*limit) < timeout) {
@@ -1064,9 +1082,9 @@ func contextForRunPolicy(runPolicy jobdb.RunPolicy) (context.Context, context.Ca
 		}
 	}
 	if timeout <= 0 {
-		return context.WithCancel(context.Background())
+		return context.WithCancel(parent)
 	}
-	return context.WithTimeout(context.Background(), timeout)
+	return context.WithTimeout(parent, timeout)
 }
 
 func (j *testJobContext) selectOpMockForInvocation(invocationKey string, nodePath string, opName string) (OpMock, bool) {
@@ -1181,7 +1199,7 @@ func (j *testJobContext) runPassthroughTask(ctx context.Context, taskType string
 		WithDatabase(j.deps.Database()).
 		WithWorkflowControl(j.deps.WorkflowControl()).
 		WithArtifacts(inputArtifacts).
-		WithJobTool(j).
+		WithJobTool(testInvocationJobTool{testJobContext: j, id: fmt.Sprintf("%s:%s:%d", taskType, inv.GitTaskContext.NodePath, inv.GitTaskContext.InvokeSeq)}).
 		WithOperationPaths(operationPaths).
 		WithGitContext(coreops.GitExecutionContext{
 			Workspace: inv.GitTaskContext.Workspace, CellResolution: inv.GitTaskContext.CellResolution,
@@ -1836,7 +1854,7 @@ func failureCategoryFromError(err error) string {
 	switch {
 	case strings.Contains(e, "policy") || strings.Contains(e, "blocked") || strings.Contains(e, "target scope") || strings.Contains(e, "requires op mock"):
 		return "policy_blocked"
-	case strings.Contains(e, "timeout"):
+	case strings.Contains(e, "timeout") || strings.Contains(e, "timed out"):
 		return "timeout"
 	default:
 		return "runtime_error"
@@ -1899,3 +1917,11 @@ func (j *testJobContext) ResolveSecrets(context.Context, []string) (jobdb.Secret
 func (j *testJobContext) GetConfiguration(context.Context) (jobdb.ConfigurationSnapshot, error) {
 	return jobdb.ConfigurationSnapshot{}, jobdb.ErrConfigurationUnavailable
 }
+
+// Passthrough tests have synthetic task identities and cannot submit real jobs.
+type testInvocationJobTool struct {
+	*testJobContext
+	id string
+}
+
+func (j testInvocationJobTool) InvocationID() string { return j.id }

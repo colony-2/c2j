@@ -14,25 +14,46 @@ import (
 
 var c2jJobSchema = json.RawMessage(`{
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "description": "c2j recipe job chapter schema v1",
+  "description": "c2j recipe execution chapter schema v2",
   "firstChapterShape": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "type": "object",
-    "required": ["ordinal", "createdAt", "taskType", "body"],
+    "required": [
+      "ordinal",
+      "createdAt",
+      "taskType",
+      "body"
+    ],
     "properties": {
-      "ordinal": { "const": 0 },
-      "createdAt": { "type": "string", "format": "date-time" },
-      "taskType": { "const": "recipe" },
+      "ordinal": {
+        "const": 0
+      },
+      "createdAt": {
+        "type": "string",
+        "format": "date-time"
+      },
+      "taskType": {
+        "const": "recipe"
+      },
       "artifacts": {
         "type": "array",
-        "items": { "$ref": "#/$defs/storedArtifact" }
+        "items": {
+          "$ref": "#/$defs/storedArtifact"
+        }
       },
       "body": {
         "type": "object",
-        "required": ["kind", "input"],
+        "required": [
+          "kind",
+          "input"
+        ],
         "properties": {
-          "kind": { "const": "jobStart" },
-          "input": { "$ref": "#/$defs/startJob" }
+          "kind": {
+            "const": "jobStart"
+          },
+          "input": {
+            "$ref": "#/$defs/startJob"
+          }
         },
         "additionalProperties": false
       }
@@ -42,52 +63,113 @@ var c2jJobSchema = json.RawMessage(`{
       "workspaceContext": {
         "type": "object",
         "properties": {
-          "cell": { "type": "string" },
-          "scope_id": { "type": "string" },
-          "parent_scope_id": { "type": "string" },
-          "initial_hash": { "type": "string" }
-        }, "additionalProperties": false
+          "cell": {
+            "type": "string"
+          },
+          "scope_id": {
+            "type": "string"
+          },
+          "parent_scope_id": {
+            "type": "string"
+          },
+          "initial_hash": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
       },
       "cellResolutionContext": {
         "type": "object",
         "properties": {
-          "pattern": { "type": "string" },
-          "self_repo": { "type": "string" }, "self_ref": { "type": "string" },
-          "root_repo": { "type": "string" }, "root_ref": { "type": "string" },
-          "base_dir": { "type": "string" }
-        }, "additionalProperties": false
+          "pattern": {
+            "type": "string"
+          },
+          "self_repo": {
+            "type": "string"
+          },
+          "self_ref": {
+            "type": "string"
+          },
+          "root_repo": {
+            "type": "string"
+          },
+          "root_ref": {
+            "type": "string"
+          },
+          "base_dir": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
       },
       "artifactKey": {
         "type": "object",
-        "required": ["jobId", "taskOrdinal", "name", "sizeBytes"],
+        "required": [
+          "jobId",
+          "taskOrdinal",
+          "name",
+          "sizeBytes"
+        ],
         "properties": {
-          "jobId": { "type": "string", "minLength": 1 },
-          "taskOrdinal": { "type": "integer", "minimum": 0 },
-          "name": { "type": "string", "minLength": 1 },
-          "sizeBytes": { "type": "integer", "minimum": 0 }
+          "jobId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "taskOrdinal": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "sizeBytes": {
+            "type": "integer",
+            "minimum": 0
+          }
         },
         "additionalProperties": false
       },
       "artifactRef": {
         "type": "object",
-        "required": ["kind"],
+        "required": [
+          "kind"
+        ],
         "properties": {
-          "kind": { "enum": ["stored", "external"] },
-          "name": { "type": "string" },
+          "kind": {
+            "enum": [
+              "stored",
+              "external"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
           "stored": {
             "type": "object",
-            "required": ["key"],
+            "required": [
+              "key"
+            ],
             "properties": {
-              "key": { "$ref": "#/$defs/artifactKey" }
+              "key": {
+                "$ref": "#/$defs/artifactKey"
+              }
             },
             "additionalProperties": false
           },
           "external": {
             "type": "object",
-            "required": ["url"],
+            "required": [
+              "url"
+            ],
             "properties": {
-              "url": { "type": "string", "minLength": 1 },
-              "expand": { "type": "boolean" }
+              "url": {
+                "type": "string",
+                "minLength": 1
+              },
+              "expand": {
+                "type": "boolean"
+              }
             },
             "additionalProperties": false
           }
@@ -97,119 +179,259 @@ var c2jJobSchema = json.RawMessage(`{
       "environmentPathContext": {
         "type": "object",
         "properties": {
-          "workdir": { "type": "string" },
-          "worktree_path": { "type": "string" },
-          "inbox": { "type": "string" },
-          "outbox": { "type": "string" }
+          "workdir": {
+            "type": "string"
+          },
+          "worktree_path": {
+            "type": "string"
+          },
+          "inbox": {
+            "type": "string"
+          },
+          "outbox": {
+            "type": "string"
+          }
         },
         "additionalProperties": false
       },
       "environmentContext": {
         "type": "object",
         "properties": {
-          "worktree_path": { "type": "string" },
-          "workdir": { "type": "string" },
-          "inbox": { "type": "string" },
-          "outbox": { "type": "string" },
-          "host": { "$ref": "#/$defs/environmentPathContext" },
-          "op": { "$ref": "#/$defs/environmentPathContext" }
+          "worktree_path": {
+            "type": "string"
+          },
+          "workdir": {
+            "type": "string"
+          },
+          "inbox": {
+            "type": "string"
+          },
+          "outbox": {
+            "type": "string"
+          },
+          "host": {
+            "$ref": "#/$defs/environmentPathContext"
+          },
+          "op": {
+            "$ref": "#/$defs/environmentPathContext"
+          }
         },
         "additionalProperties": false
       },
       "workflowContext": {
         "type": "object",
         "properties": {
-          "cell_id": { "type": "string" },
-          "cell": { "type": "string" },
-          "job_id": { "type": "string" },
-          "project_id": { "type": "string" }
+          "cell_id": {
+            "type": "string"
+          },
+          "cell": {
+            "type": "string"
+          },
+          "job_id": {
+            "type": "string"
+          },
+          "project_id": {
+            "type": "string"
+          }
         },
         "additionalProperties": false
       },
       "gitBaseContext": {
         "type": "object",
         "properties": {
-          "repo": { "type": "string" },
-          "ref": { "type": "string" },
-          "resolved_hash": { "type": "string" },
-          "author": { "type": "string" }
+          "repo": {
+            "type": "string"
+          },
+          "ref": {
+            "type": "string"
+          },
+          "resolved_hash": {
+            "type": "string"
+          },
+          "author": {
+            "type": "string"
+          }
         },
         "additionalProperties": false
       },
       "recipeSourceContext": {
         "type": "object",
         "properties": {
-          "repo": { "type": "string" },
-          "ref": { "type": "string" },
-          "path": { "type": "string" },
-          "selector": { "type": "string" }
+          "repo": {
+            "type": "string"
+          },
+          "ref": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "selector": {
+            "type": "string"
+          }
         },
         "additionalProperties": false
       },
       "jobContext": {
         "type": "object",
         "properties": {
-          "workspace": { "$ref": "#/$defs/workspaceContext" },
-          "cell_resolution": { "$ref": "#/$defs/cellResolutionContext" },
-          "initial_commit": { "type": "object", "properties": { "hash": {"type":"string"}, "parent_hash": {"type":"string"}, "parent_ref": {"type":"string"} }, "additionalProperties": false },
-          "restore_artifact": { "$ref": "#/$defs/artifactKey" },
-          "environment": { "$ref": "#/$defs/environmentContext" },
+          "workspace": {
+            "$ref": "#/$defs/workspaceContext"
+          },
+          "cell_resolution": {
+            "$ref": "#/$defs/cellResolutionContext"
+          },
+          "initial_commit": {
+            "type": "object",
+            "properties": {
+              "hash": {
+                "type": "string"
+              },
+              "parent_hash": {
+                "type": "string"
+              },
+              "parent_ref": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false
+          },
+          "restore_artifact": {
+            "$ref": "#/$defs/artifactKey"
+          },
+          "environment": {
+            "$ref": "#/$defs/environmentContext"
+          },
           "artifacts": {
             "type": "object",
-            "additionalProperties": { "$ref": "#/$defs/artifactRef" }
+            "additionalProperties": {
+              "$ref": "#/$defs/artifactRef"
+            }
           },
-          "workflow": { "$ref": "#/$defs/workflowContext" },
-          "git": { "$ref": "#/$defs/gitBaseContext" },
-          "recipe_source": { "$ref": "#/$defs/recipeSourceContext" }
+          "workflow": {
+            "$ref": "#/$defs/workflowContext"
+          },
+          "git": {
+            "$ref": "#/$defs/gitBaseContext"
+          },
+          "recipe_source": {
+            "$ref": "#/$defs/recipeSourceContext"
+          }
         },
         "additionalProperties": false
       },
       "parentJobContext": {
         "type": "object",
         "properties": {
-          "tenant_id": { "type": "string" },
-          "job_id": { "type": "string" },
-          "job_type": { "type": "string" },
-          "op_type": { "type": "string" },
-          "op_step": { "type": "string" },
-          "op_task_type": { "type": "string" },
-          "cell_name": { "type": "string" },
-          "repo": { "type": "string" },
-          "git_ref": { "type": "string" },
-          "invocation_path": { "type": "string" },
-          "invocation_seq": { "type": "integer" },
-          "invocation_hash": { "type": "string" }
+          "tenant_id": {
+            "type": "string"
+          },
+          "job_id": {
+            "type": "string"
+          },
+          "job_type": {
+            "type": "string"
+          },
+          "op_type": {
+            "type": "string"
+          },
+          "op_step": {
+            "type": "string"
+          },
+          "op_task_type": {
+            "type": "string"
+          },
+          "cell_name": {
+            "type": "string"
+          },
+          "repo": {
+            "type": "string"
+          },
+          "git_ref": {
+            "type": "string"
+          },
+          "invocation_path": {
+            "type": "string"
+          },
+          "invocation_seq": {
+            "type": "integer"
+          },
+          "invocation_hash": {
+            "type": "string"
+          }
         },
         "additionalProperties": false
       },
       "startJob": {
         "type": "object",
-        "required": ["tenantId", "recipe", "context"],
+        "required": [
+          "tenantId",
+          "recipe",
+          "context"
+        ],
         "properties": {
-		  "execution": { "type": "object" },
-          "tenantId": { "type": "string", "minLength": 1 },
-          "job_id": { "type": "string" },
-          "recipe": { "type": "string", "minLength": 1 },
-          "inputs": { "type": "object" },
+          "execution": {
+            "type": "object"
+          },
+          "tenantId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "job_id": {
+            "type": "string"
+          },
+          "recipe": {
+            "type": "string",
+            "minLength": 1
+          },
+          "inputs": {
+            "type": "object"
+          },
           "artifact_refs": {
             "type": "array",
-            "items": { "$ref": "#/$defs/artifactRef" }
+            "items": {
+              "$ref": "#/$defs/artifactRef"
+            }
           },
-          "context": { "$ref": "#/$defs/jobContext" },
-          "parent": { "$ref": "#/$defs/parentJobContext" },
-          "git": { "type": "string" },
-          "submitted_at": { "type": "string", "format": "date-time" },
-          "input_hash": { "type": "string" }
+          "context": {
+            "$ref": "#/$defs/jobContext"
+          },
+          "parent": {
+            "$ref": "#/$defs/parentJobContext"
+          },
+          "git": {
+            "type": "string"
+          },
+          "submitted_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "input_hash": {
+            "type": "string"
+          }
         },
         "additionalProperties": false
       },
       "storedArtifact": {
         "type": "object",
-        "required": ["name", "digest", "size"],
+        "required": [
+          "name",
+          "digest",
+          "size"
+        ],
         "properties": {
-          "name": { "type": "string", "minLength": 1 },
-          "digest": { "type": "string", "minLength": 1 },
-          "size": { "type": "integer", "minimum": 0 }
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "digest": {
+            "type": "string",
+            "minLength": 1
+          },
+          "size": {
+            "type": "integer",
+            "minimum": 0
+          }
         },
         "additionalProperties": true
       }
@@ -218,598 +440,154 @@ var c2jJobSchema = json.RawMessage(`{
   "chapterShape": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "type": "object",
-    "required": ["ordinal", "createdAt", "body"],
+    "required": [
+      "ordinal",
+      "createdAt",
+      "body"
+    ],
     "properties": {
-      "ordinal": { "type": "integer", "minimum": 1 },
-      "createdAt": { "type": "string", "format": "date-time" },
-      "taskType": { "type": "string", "minLength": 1 },
+      "ordinal": {
+        "type": "integer",
+        "minimum": 1
+      },
+      "createdAt": {
+        "type": "string",
+        "format": "date-time"
+      },
+      "taskType": {
+        "type": "string",
+        "minLength": 1
+      },
       "input": true,
       "artifacts": {
         "type": "array",
-        "items": { "$ref": "#/$defs/storedArtifact" }
+        "items": {
+          "$ref": "#/$defs/storedArtifact"
+        }
       },
       "body": true
     },
     "anyOf": [
-      { "$ref": "#/$defs/rootResolveChapter" },
-      { "$ref": "#/$defs/withinResolveChapter" },
-      { "$ref": "#/$defs/workspaceResolveChapter" },
-      { "$ref": "#/$defs/timeoutCheckpointChapter" },
-      { "$ref": "#/$defs/activityInvocationChapter" },
-      { "$ref": "#/$defs/restartExtraChapter" },
-      { "$ref": "#/$defs/jobAttemptOutcomeChapter" }
+      {
+        "properties": {
+          "body": {
+            "type": "object",
+            "required": [
+              "kind",
+              "record"
+            ],
+            "properties": {
+              "kind": {
+                "const": "execution"
+              },
+              "record": {
+                "type": "object"
+              }
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      {
+        "$ref": "#/$defs/jobAttemptOutcomeChapter"
+      }
     ],
     "additionalProperties": true,
     "$defs": {
-      "workspaceContext": {
-        "type": "object",
-        "properties": {
-          "cell": { "type": "string" },
-          "scope_id": { "type": "string" },
-          "parent_scope_id": { "type": "string" },
-          "initial_hash": { "type": "string" }
-        }, "additionalProperties": false
-      },
-      "cellResolutionContext": {
-        "type": "object",
-        "properties": {
-          "pattern": { "type": "string" },
-          "self_repo": { "type": "string" }, "self_ref": { "type": "string" },
-          "root_repo": { "type": "string" }, "root_ref": { "type": "string" },
-          "base_dir": { "type": "string" }
-        }, "additionalProperties": false
-      },
-      "artifactKey": {
-        "type": "object",
-        "required": ["jobId", "taskOrdinal", "name", "sizeBytes"],
-        "properties": {
-          "jobId": { "type": "string", "minLength": 1 },
-          "taskOrdinal": { "type": "integer", "minimum": 0 },
-          "name": { "type": "string", "minLength": 1 },
-          "sizeBytes": { "type": "integer", "minimum": 0 }
-        },
-        "additionalProperties": false
-      },
-      "artifactRef": {
-        "type": "object",
-        "required": ["kind"],
-        "properties": {
-          "kind": { "enum": ["stored", "external"] },
-          "name": { "type": "string" },
-          "stored": {
-            "type": "object",
-            "required": ["key"],
-            "properties": {
-              "key": { "$ref": "#/$defs/artifactKey" }
-            },
-            "additionalProperties": false
-          },
-          "external": {
-            "type": "object",
-            "required": ["url"],
-            "properties": {
-              "url": { "type": "string", "minLength": 1 },
-              "expand": { "type": "boolean" }
-            },
-            "additionalProperties": false
-          }
-        },
-        "additionalProperties": false
-      },
-      "inlineBoundaryFrame": {
-        "type": "object",
-        "properties": {
-          "callsite_path": { "type": "string" },
-          "boundary_node_path": { "type": "string" },
-          "recipe_id": { "type": "string" },
-          "recipe_version": { "type": "string" },
-          "source_kind": { "type": "string" },
-          "submitted_selector": { "type": "string" },
-          "resolved_selector": { "type": "string" },
-          "resolved_commit": { "type": "string" },
-          "content_sha256": { "type": "string" }
-        },
-        "additionalProperties": false
-      },
-      "globalGitTaskContext": {
-        "type": "object",
-        "required": ["invoke_seq"],
-        "properties": {
-          "workspace": { "$ref": "#/$defs/workspaceContext" },
-          "cell_resolution": { "$ref": "#/$defs/cellResolutionContext" },
-          "base_repo": { "type": "string" },
-          "base_ref": { "type": "string" },
-          "resolved_base_hash": { "type": "string" },
-          "recipe_source_repo": { "type": "string" },
-          "recipe_source_ref": { "type": "string" },
-          "persist_hash": { "type": "string" },
-          "parent_hash": { "type": "string" },
-          "cell_name": { "type": "string" },
-          "git_author": { "type": "string" },
-          "node_path": { "type": "string" },
-          "invoke_seq": { "type": "integer", "minimum": 0 },
-          "invoke_hash": { "type": "string" },
-          "inline_stack": {
-            "type": "array",
-            "items": { "$ref": "#/$defs/inlineBoundaryFrame" }
-          }
-        },
-        "additionalProperties": false
-      },
-      "gitCommitContext": {
-        "type": "object",
-        "properties": {
-          "parent_ref": { "type": "string" },
-          "hash": { "type": "string" },
-          "parent_hash": { "type": "string" }
-        },
-        "additionalProperties": false
-      },
-      "startedJobContext": {
-        "type": "object",
-        "properties": {
-          "tenant_id": { "type": "string" },
-          "job_id": { "type": "string" },
-          "recipe": { "type": "string" },
-          "status": { "type": "string" },
-          "parent_invocation_hash": { "type": "string" }
-        },
-        "additionalProperties": false
-      },
-      "startedJobsContext": {
-        "type": "object",
-        "properties": {
-          "job_ids": {
-            "type": "array",
-            "items": { "type": "string" }
-          },
-          "items": {
-            "type": "array",
-            "items": { "$ref": "#/$defs/startedJobContext" }
-          }
-        },
-        "additionalProperties": false
-      },
-      "rootSourceResolutionInput": {
-        "type": "object",
-        "required": ["project_id", "selector"],
-        "properties": {
-          "project_id": { "type": "string", "minLength": 1 },
-          "selector": { "type": "string", "minLength": 1 },
-          "lookup_repo": { "type": "string" },
-          "lookup_ref": { "type": "string" }
-        },
-        "additionalProperties": false
-      },
-      "recipeSourceResolution": {
-        "type": "object",
-        "required": ["source_kind", "submitted_selector", "was_already_pinned"],
-        "properties": {
-          "source_kind": { "enum": ["artifact", "serverRef", "git"] },
-          "submitted_selector": { "type": "string" },
-          "resolved_selector": { "type": "string" },
-          "resolved_commit": { "type": "string" },
-          "artifact_name": { "type": "string" },
-          "was_already_pinned": { "type": "boolean" }
-        },
-        "additionalProperties": false
-      },
-      "resolvedRecipeSource": {
-        "type": "object",
-        "required": ["source_kind", "submitted_selector", "was_already_pinned"],
-        "properties": {
-          "source_kind": { "enum": ["artifact", "serverRef", "git"] },
-          "submitted_selector": { "type": "string" },
-          "resolved_selector": { "type": "string" },
-          "resolved_commit": { "type": "string" },
-          "artifact_name": { "type": "string" },
-          "was_already_pinned": { "type": "boolean" },
-          "recipe_yaml": { "type": "string" }
-        },
-        "additionalProperties": false
-      },
-      "withinRecipeResolutionInput": {
-        "type": "object",
-        "required": ["selectors"],
-        "properties": {
-          "selectors": {
-            "type": "array",
-            "items": { "type": "string", "minLength": 1 }
-          },
-          "repository_source": { "type": "string" },
-          "repository_ref": { "type": "string" },
-          "resolved_git_refs": {
-            "type": "object",
-            "additionalProperties": { "type": "string" }
-          }
-        },
-        "additionalProperties": false
-      },
-      "withinRecipeResolutionOutput": {
-        "type": "object",
-        "properties": {
-          "resolved_selectors": {
-            "type": "object",
-            "additionalProperties": { "type": "string" }
-          },
-          "resolved_git_refs": {
-            "type": "object",
-            "additionalProperties": { "type": "string" }
-          }
-        },
-        "additionalProperties": false
-      },
-      "workspaceResolutionInput": {
-        "type":"object", "required":["cell","scope_id","resolution"],
-        "properties": {
-          "cell":{"type":"string","minLength":1}, "ref":{"type":"string"},
-          "scope_id":{"type":"string","minLength":1}, "parent_scope_id":{"type":"string"},
-          "resolution":{"$ref":"#/$defs/cellResolutionContext"}
-        }, "additionalProperties":false
-      },
-      "workspaceResolutionOutput": {
-        "type":"object", "required":["workspace","git"],
-        "properties": {
-          "workspace":{"$ref":"#/$defs/workspaceContext"},
-          "git":{"type":"object", "properties":{
-            "repo":{"type":"string"},"ref":{"type":"string"},"resolved_hash":{"type":"string"},"author":{"type":"string"}
-          },"additionalProperties":false}
-        }, "additionalProperties":false
-      },
-      "activityInvocationRequest": {
-        "type": "object",
-        "required": ["input", "context"],
-        "properties": {
-          "input": {
-            "type": "object",
-            "additionalProperties": true
-          },
-          "preparation": { "type": "object" },
-          "workspace_managed": { "type": "boolean" },
-          "restore_artifact": { "$ref": "#/$defs/artifactKey" },
-          "const": { "type": "boolean" },
-          "context": { "$ref": "#/$defs/globalGitTaskContext" },
-          "artifact_keys": {
-            "type": "array",
-            "items": { "$ref": "#/$defs/artifactKey" }
-          },
-          "artifacts": {
-            "type": "object",
-            "additionalProperties": { "$ref": "#/$defs/artifactRef" }
-          }
-        },
-        "additionalProperties": false
-      },
-      "activityInvocationOutput": {
-        "type": "object",
-        "required": ["output"],
-        "properties": {
-          "preparation_ms": { "type": "integer", "minimum": 0 },
-          "configuration": { "type": "object" },
-          "extension": { "type": "object" },
-          "setup": { "type": "object" },
-          "secret_setup_ms": { "type": "integer", "minimum": 0 },
-          "git": { "$ref": "#/$defs/gitCommitContext" },
-          "workspace_scope_id": { "type": "string" },
-          "nextTaskType": { "type": "string" },
-          "next_task_alternate": {
-            "type": "object",
-            "required": ["taskType", "at"],
-            "properties": {
-              "taskType": { "type": "string", "minLength": 1 },
-              "at": { "type": "string", "format": "date-time" }
-            },
-            "additionalProperties": false
-          },
-		  "execution": { "type": "object" },
-          "output": true,
-          "artifact_refs": {
-            "type": "object",
-            "additionalProperties": { "$ref": "#/$defs/artifactRef" }
-          },
-          "jobs": { "$ref": "#/$defs/startedJobsContext" }
-        },
-        "additionalProperties": false
-      },
-      "activityOutputEnvelope": {
-        "type": "object",
-        "required": ["v", "kind", "payload"],
-        "properties": {
-          "v": { "const": 1 },
-          "kind": { "const": "activity_output" },
-          "payload": { "$ref": "#/$defs/activityInvocationOutput" }
-        },
-        "additionalProperties": false
-      },
-      "scopePatch": {
-        "type": "object",
-        "required": ["container", "id"],
-        "properties": {
-          "container": { "enum": ["sequence", "states"] },
-          "id": { "type": "string", "minLength": 1 },
-          "outputs": {
-            "type": "object",
-            "additionalProperties": true
-          }
-        },
-        "additionalProperties": false
-      },
-      "contextPatch": {
-        "type": "object",
-        "properties": {
-          "job": {
-            "type": "object",
-            "additionalProperties": true
-          },
-          "scopes": {
-            "type": "array",
-            "items": { "$ref": "#/$defs/scopePatch" }
-          }
-        },
-        "additionalProperties": false
-      },
-      "contextPatchEnvelope": {
-        "type": "object",
-        "required": ["v", "kind", "payload"],
-        "properties": {
-          "v": { "const": 1 },
-          "kind": { "const": "context_patch" },
-          "payload": { "$ref": "#/$defs/contextPatch" }
-        },
-        "additionalProperties": false
-      },
-      "taskAttemptBody": {
-        "type": "object",
-        "required": ["kind", "outcome"],
-        "properties": {
-          "kind": { "const": "taskAttemptOutcome" },
-          "outcome": true
-        },
-        "additionalProperties": false
-      },
       "failureOutcome": {
         "type": "object",
-        "required": ["kind"],
+        "required": [
+          "kind"
+        ],
         "properties": {
-          "kind": { "enum": ["appError", "systemError", "timeout"] },
+          "kind": {
+            "enum": [
+              "appError",
+              "systemError",
+              "timeout"
+            ]
+          },
           "error": {
             "type": "object",
             "properties": {
-              "message": { "type": "string" },
-              "attrs": { "type": "object" }
+              "message": {
+                "type": "string"
+              },
+              "attrs": {
+                "type": "object"
+              }
             },
             "additionalProperties": true
           },
           "timeout": {
             "type": "object",
-            "required": ["scope", "after", "retryable"],
+            "required": [
+              "scope",
+              "after",
+              "retryable"
+            ],
             "properties": {
-              "scope": { "enum": ["invocation", "total"] },
-              "after": { "type": "string" },
-              "retryable": { "type": "boolean" },
-              "input_ref": { "type": "object" },
-              "kind": { "type": "string" },
-              "component": { "type": "string" },
-              "code": { "type": "string" },
-              "message": { "type": "string" }
+              "scope": {
+                "enum": [
+                  "invocation",
+                  "total"
+                ]
+              },
+              "after": {
+                "type": "string"
+              },
+              "retryable": {
+                "type": "boolean"
+              },
+              "input_ref": {
+                "type": "object"
+              },
+              "kind": {
+                "type": "string"
+              },
+              "component": {
+                "type": "string"
+              },
+              "code": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              }
             },
             "additionalProperties": true
           }
         },
         "additionalProperties": true
       },
-      "rootResolveChapter": {
-        "type": "object",
-        "required": ["taskType", "input", "body"],
-        "properties": {
-          "taskType": { "const": "recipe_root_source_resolve" },
-          "input": { "$ref": "#/$defs/rootSourceResolutionInput" },
-          "body": {
-            "allOf": [
-              { "$ref": "#/$defs/taskAttemptBody" },
-              {
-                "properties": {
-                  "outcome": {
-                    "anyOf": [
-                      {
-                        "type": "object",
-                        "required": ["kind", "output"],
-                        "properties": {
-                          "kind": { "const": "success" },
-                          "output": { "$ref": "#/$defs/resolvedRecipeSource" }
-                        },
-                        "additionalProperties": false
-                      },
-                      { "$ref": "#/$defs/failureOutcome" }
-                    ]
-                  }
-                }
-              }
-            ]
-          }
-        }
-      },
-      "withinResolveChapter": {
-        "type": "object",
-        "required": ["taskType", "input", "body"],
-        "properties": {
-          "taskType": { "const": "recipe_within_resolution" },
-          "input": { "$ref": "#/$defs/withinRecipeResolutionInput" },
-          "body": {
-            "allOf": [
-              { "$ref": "#/$defs/taskAttemptBody" },
-              {
-                "properties": {
-                  "outcome": {
-                    "anyOf": [
-                      {
-                        "type": "object",
-                        "required": ["kind", "output"],
-                        "properties": {
-                          "kind": { "const": "success" },
-                          "output": { "$ref": "#/$defs/withinRecipeResolutionOutput" }
-                        },
-                        "additionalProperties": false
-                      },
-                      { "$ref": "#/$defs/failureOutcome" }
-                    ]
-                  }
-                }
-              }
-            ]
-          }
-        }
-      },
-      "workspaceResolveChapter": {
-        "type": "object",
-        "required": ["taskType", "input", "body"],
-        "properties": {
-          "taskType": { "const": "recipe_workspace_resolve" },
-          "input": { "$ref": "#/$defs/workspaceResolutionInput" },
-          "body": {
-            "allOf": [
-              { "$ref": "#/$defs/taskAttemptBody" },
-              {
-                "properties": {
-                  "outcome": {
-                    "anyOf": [
-                      {
-                        "type": "object",
-                        "required": ["kind", "output"],
-                        "properties": {
-                          "kind": { "const": "success" },
-                          "output": { "$ref": "#/$defs/workspaceResolutionOutput" }
-                        },
-                        "additionalProperties": false
-                      },
-                      { "$ref": "#/$defs/failureOutcome" }
-                    ]
-                  }
-                }
-              }
-            ]
-          }
-        }
-      },
-      "timeoutCheckpointChapter": {
-        "type": "object",
-        "required": ["taskType", "input", "body"],
-        "properties": {
-          "taskType": { "const": "recipe_timeout_checkpoint" },
-          "input": {
-            "type": "object",
-            "required": ["kind", "label", "timeout"],
-            "properties": {
-              "kind": { "enum": ["scope", "task"] },
-              "label": { "type": "string" },
-              "timeout": { "type": "integer", "minimum": 1 }
-            },
-            "additionalProperties": false
-          },
-          "body": {
-            "allOf": [
-              { "$ref": "#/$defs/taskAttemptBody" },
-              {
-                "properties": {
-                  "outcome": {
-                    "anyOf": [
-                      {
-                        "type": "object",
-                        "required": ["kind", "output"],
-                        "properties": {
-                          "kind": { "const": "success" },
-                          "output": {
-                            "type": "object",
-                            "required": ["at"],
-                            "properties": { "at": { "type": "string", "format": "date-time" } },
-                            "additionalProperties": false
-                          }
-                        },
-                        "additionalProperties": false
-                      },
-                      { "$ref": "#/$defs/failureOutcome" }
-                    ]
-                  }
-                }
-              }
-            ]
-          }
-        }
-      },
-      "activityInvocationChapter": {
-        "type": "object",
-        "required": ["taskType", "body"],
-        "properties": {
-          "taskType": {
-            "type": "string",
-            "not": { "enum": ["recipe_root_source_resolve", "recipe_within_resolution", "recipe_workspace_resolve", "recipe_timeout_checkpoint", "__restart_extra__"] }
-          },
-          "input": { "$ref": "#/$defs/activityInvocationRequest" },
-          "body": {
-            "allOf": [
-              { "$ref": "#/$defs/taskAttemptBody" },
-              {
-                "properties": {
-                  "outcome": {
-                    "anyOf": [
-                      {
-                        "type": "object",
-                        "required": ["kind", "output"],
-                        "properties": {
-                          "kind": { "const": "success" },
-                          "output": { "$ref": "#/$defs/activityOutputEnvelope" }
-                        },
-                        "additionalProperties": false
-                      },
-                      { "$ref": "#/$defs/failureOutcome" }
-                    ]
-                  }
-                }
-              }
-            ]
-          }
-        }
-      },
-      "restartExtraChapter": {
-        "type": "object",
-        "required": ["taskType", "input", "body"],
-        "properties": {
-          "taskType": { "const": "__restart_extra__" },
-          "input": {
-            "type": "object",
-            "required": ["kind"],
-            "properties": {
-              "kind": { "const": "context_patch" }
-            },
-            "additionalProperties": false
-          },
-          "body": {
-            "type": "object",
-            "required": ["kind", "output"],
-            "properties": {
-              "kind": { "const": "restartExtra" },
-              "output": { "$ref": "#/$defs/contextPatchEnvelope" }
-            },
-            "additionalProperties": false
-          }
-        }
-      },
       "jobAttemptOutcomeChapter": {
         "type": "object",
-        "required": ["body"],
+        "required": [
+          "body"
+        ],
         "properties": {
           "body": {
             "type": "object",
-            "required": ["kind", "outcome"],
+            "required": [
+              "kind",
+              "outcome"
+            ],
             "properties": {
-              "kind": { "const": "jobAttemptOutcome" },
+              "kind": {
+                "const": "jobAttemptOutcome"
+              },
               "outcome": {
                 "anyOf": [
                   {
                     "type": "object",
-                    "required": ["kind", "output"],
+                    "required": [
+                      "kind",
+                      "output"
+                    ],
                     "properties": {
-                      "kind": { "const": "success" },
+                      "kind": {
+                        "const": "success"
+                      },
                       "output": {
                         "type": "object",
                         "additionalProperties": true
@@ -817,7 +595,9 @@ var c2jJobSchema = json.RawMessage(`{
                     },
                     "additionalProperties": false
                   },
-                  { "$ref": "#/$defs/failureOutcome" }
+                  {
+                    "$ref": "#/$defs/failureOutcome"
+                  }
                 ]
               }
             },
@@ -827,11 +607,24 @@ var c2jJobSchema = json.RawMessage(`{
       },
       "storedArtifact": {
         "type": "object",
-        "required": ["name", "digest", "size"],
+        "required": [
+          "name",
+          "digest",
+          "size"
+        ],
         "properties": {
-          "name": { "type": "string", "minLength": 1 },
-          "digest": { "type": "string", "minLength": 1 },
-          "size": { "type": "integer", "minimum": 0 }
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "digest": {
+            "type": "string",
+            "minLength": 1
+          },
+          "size": {
+            "type": "integer",
+            "minimum": 0
+          }
         },
         "additionalProperties": true
       }
@@ -840,26 +633,48 @@ var c2jJobSchema = json.RawMessage(`{
   "lastChapterShape": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "type": "object",
-    "required": ["ordinal", "createdAt", "body"],
+    "required": [
+      "ordinal",
+      "createdAt",
+      "body"
+    ],
     "properties": {
-      "ordinal": { "type": "integer", "minimum": 1 },
-      "createdAt": { "type": "string", "format": "date-time" },
+      "ordinal": {
+        "type": "integer",
+        "minimum": 1
+      },
+      "createdAt": {
+        "type": "string",
+        "format": "date-time"
+      },
       "artifacts": {
         "type": "array",
-        "items": { "$ref": "#/$defs/storedArtifact" }
+        "items": {
+          "$ref": "#/$defs/storedArtifact"
+        }
       },
       "body": {
         "type": "object",
-        "required": ["kind", "outcome"],
+        "required": [
+          "kind",
+          "outcome"
+        ],
         "properties": {
-          "kind": { "const": "jobAttemptOutcome" },
+          "kind": {
+            "const": "jobAttemptOutcome"
+          },
           "outcome": {
             "anyOf": [
               {
                 "type": "object",
-                "required": ["kind", "output"],
+                "required": [
+                  "kind",
+                  "output"
+                ],
                 "properties": {
-                  "kind": { "const": "success" },
+                  "kind": {
+                    "const": "success"
+                  },
                   "output": {
                     "type": "object",
                     "additionalProperties": true
@@ -869,29 +684,64 @@ var c2jJobSchema = json.RawMessage(`{
               },
               {
                 "type": "object",
-                "required": ["kind"],
+                "required": [
+                  "kind"
+                ],
                 "properties": {
-                  "kind": { "enum": ["appError", "systemError", "timeout"] },
+                  "kind": {
+                    "enum": [
+                      "appError",
+                      "systemError",
+                      "timeout"
+                    ]
+                  },
                   "error": {
                     "type": "object",
                     "properties": {
-                      "message": { "type": "string" },
-                      "attrs": { "type": "object" }
+                      "message": {
+                        "type": "string"
+                      },
+                      "attrs": {
+                        "type": "object"
+                      }
                     },
                     "additionalProperties": true
                   },
                   "timeout": {
                     "type": "object",
-                    "required": ["scope", "after", "retryable"],
+                    "required": [
+                      "scope",
+                      "after",
+                      "retryable"
+                    ],
                     "properties": {
-                      "scope": { "enum": ["invocation", "total"] },
-                      "after": { "type": "string" },
-                      "retryable": { "type": "boolean" },
-                      "input_ref": { "type": "object" },
-                      "kind": { "type": "string" },
-                      "component": { "type": "string" },
-                      "code": { "type": "string" },
-                      "message": { "type": "string" }
+                      "scope": {
+                        "enum": [
+                          "invocation",
+                          "total"
+                        ]
+                      },
+                      "after": {
+                        "type": "string"
+                      },
+                      "retryable": {
+                        "type": "boolean"
+                      },
+                      "input_ref": {
+                        "type": "object"
+                      },
+                      "kind": {
+                        "type": "string"
+                      },
+                      "component": {
+                        "type": "string"
+                      },
+                      "code": {
+                        "type": "string"
+                      },
+                      "message": {
+                        "type": "string"
+                      }
                     },
                     "additionalProperties": true
                   }
@@ -908,11 +758,24 @@ var c2jJobSchema = json.RawMessage(`{
     "$defs": {
       "storedArtifact": {
         "type": "object",
-        "required": ["name", "digest", "size"],
+        "required": [
+          "name",
+          "digest",
+          "size"
+        ],
         "properties": {
-          "name": { "type": "string", "minLength": 1 },
-          "digest": { "type": "string", "minLength": 1 },
-          "size": { "type": "integer", "minimum": 0 }
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "digest": {
+            "type": "string",
+            "minLength": 1
+          },
+          "size": {
+            "type": "integer",
+            "minimum": 0
+          }
         },
         "additionalProperties": true
       }

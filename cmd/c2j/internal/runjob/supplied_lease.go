@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	storylive "github.com/colony-2/c2j/pkg/story/live"
+	"github.com/colony-2/c2j/pkg/worker/compiler"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	remoteruntime "github.com/colony-2/jobdb/pkg/jobdb/runtime/remote"
 	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
@@ -61,17 +62,21 @@ func RunWithLease(ctx context.Context, opts Options, leaseFile string) error {
 	// The live runner already replays durable history. Avoid doing a separate
 	// cached replay before its heartbeat has started.
 	outcome, err := deps.executionRuntime.RunWithLease(ctx, lease, jobworkflow.GetJobForRunRequest{
-		JobKey: jobKey, JobWorker: newStoryJobWorker(deps, recorder),
+		ConsumerVersions: compiler.ExecutionConsumerVersions(nil),
+		JobKey:           jobKey, JobWorker: newStoryJobWorker(deps, recorder),
 		TaskWorkers: deps.taskWorkers, WorkerID: opts.WorkerID,
 		AwaitThreshold: opts.AwaitThreshold, Logger: slog.Default(),
 	}, recorder.Observer())
+	recorder.CloseNotifications()
 	renderer.Render(recorder.Finalize(err))
 	renderer.Flush()
 	// Lease loss must not be hidden by a concurrently reported handoff.
 	if err != nil {
 		return exitError{code: exitCodeFailure, err: err}
 	}
-	if event := deps.handoff(); event != nil {
+	if event, err := compiler.ExecutionHandoffFromOutcome(outcome); err != nil {
+		return exitError{code: exitCodeFailure, err: err}
+	} else if event != nil {
 		return json.NewEncoder(opts.Stdout).Encode(event)
 	}
 	switch outcome.Status {

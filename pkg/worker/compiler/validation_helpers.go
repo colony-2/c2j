@@ -122,6 +122,9 @@ func zeroStructMap(outputType reflect.Type, validation bool) map[string]interfac
 		if field.PkgPath != "" {
 			continue
 		}
+		if !validation && field.Type.Kind() == reflect.Pointer && strings.Contains(field.Tag.Get("json"), ",omitempty") {
+			continue
+		}
 		name := field.Tag.Get("json")
 		if name == "-" {
 			continue

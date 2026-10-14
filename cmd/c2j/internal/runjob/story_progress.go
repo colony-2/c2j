@@ -386,8 +386,6 @@ func renderNodeKindAndLabel(node *storylive.JobRunStoryNode) (string, string) {
 		return "op", firstNonEmpty(node.OpID, trimNodeTitle(node.Title, "op"))
 	case storylive.JobRunStoryNodeKindOpStep:
 		return "step", firstNonEmpty(node.StepID, trimNodeTitle(node.Title, "step"))
-	case storylive.JobRunStoryNodeKindContextPatch:
-		return "context-patch", firstNonEmpty(trimNodeTitle(node.Title, "context patch"), "context patch")
 	case storylive.JobRunStoryNodeKindStateMachine:
 		return "state-machine", firstNonEmpty(node.StateMachineID, trimNodeTitle(node.Title, "stateMachine"))
 	case storylive.JobRunStoryNodeKindState:

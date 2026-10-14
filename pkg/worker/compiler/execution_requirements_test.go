@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"testing"
-	"time"
 
 	"github.com/colony-2/c2j/pkg/execution"
 	"github.com/colony-2/jobdb/pkg/jobdb"
@@ -14,14 +13,14 @@ import (
 )
 
 type failingExecutionContext struct {
-	jobworkflow.JobContext
+	jobworkflow.ExecutionContext
 	err    error
 	yields int
 }
 
 func (*failingExecutionContext) ClientPayload() json.RawMessage { return nil }
 func (*failingExecutionContext) ClientPayloadRevision() int64   { return 0 }
-func (c *failingExecutionContext) Yield(context.Context, jobdb.RescheduleExecutionRequest) error {
+func (c *failingExecutionContext) Yield(context.Context, jobworkflow.YieldRequest) error {
 	c.yields++
 	return c.err
 }
@@ -32,7 +31,7 @@ func TestExecutionSuspensionFailureIsControlError(t *testing.T) {
 			ctx := &failingExecutionContext{err: cause}
 			d, err := execution.Initial(nil, "pinned", execution.Requirements{})
 			require.NoError(t, err)
-			s := executionSession{ctx: ctx, demand: d, allocation: execution.Allocation{SchemaVersion: 1}, onHandoff: func(ExecutionHandoff) { t.Fatal("failed publication reported success") }}
+			s := executionSession{ctx: ctx, demand: d, allocation: execution.Allocation{SchemaVersion: 1}}
 			memory := "16Gi"
 			err = s.suspend(ctx, "test", execution.Requirements{Resources: execution.Resources{Memory: &memory}})
 			require.True(t, isExecutionControlError(err))
@@ -42,23 +41,14 @@ func TestExecutionSuspensionFailureIsControlError(t *testing.T) {
 	}
 }
 
-func TestExecutionSuspensionUsesActiveTimeoutScope(t *testing.T) {
-	ctx := &failingExecutionContext{err: errors.New("must not yield")}
-	d, err := execution.Initial(nil, "pinned", execution.Requirements{})
-	require.NoError(t, err)
-	s := executionSession{ctx: ctx, demand: d, allocation: execution.Allocation{SchemaVersion: 1}}
-	expired := &timeoutJobContext{inner: ctx, deadline: time.Now().Add(-time.Second), label: "test"}
-	memory := "16Gi"
-	err = s.suspend(expired, "test", execution.Requirements{Resources: execution.Resources{Memory: &memory}})
-	require.Error(t, err)
-	require.True(t, isExecutionControlError(err))
-	require.Zero(t, ctx.yields)
-}
-
 func (*failingExecutionContext) ResolveSecrets(context.Context, []string) (jobdb.SecretResolveResult, error) {
 	return jobdb.SecretResolveResult{}, jobdb.ErrNoSecretProvider
 }
 
 func (*failingExecutionContext) GetConfiguration(context.Context) (jobdb.ConfigurationSnapshot, error) {
 	return jobdb.ConfigurationSnapshot{}, jobdb.ErrConfigurationUnavailable
+}
+
+func (*failingExecutionContext) GetJobKey() jobdb.JobKey {
+	return jobdb.JobKey{TenantId: "test", JobId: "job"}
 }

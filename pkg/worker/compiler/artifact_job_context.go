@@ -4,9 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log/slog"
+	"maps"
 	"strings"
-	"time"
 
 	"github.com/colony-2/c2j/pkg/git/gitstate"
 	workerops "github.com/colony-2/c2j/pkg/worker/ops"
@@ -15,8 +14,7 @@ import (
 )
 
 type thinpackForwarder struct {
-	history        taskHistoryReader
-	inner          jobworkflow.JobContext
+	jobworkflow.ExecutionContext
 	lastThinpack   jobdb.Artifact
 	workspaces     map[string]jobdb.Artifact
 	scopedMode     bool
@@ -25,78 +23,57 @@ type thinpackForwarder struct {
 	initialRestore map[string]*jobdb.ArtifactKey
 }
 
-func (a *thinpackForwarder) ClientPayload() json.RawMessage {
-	return a.inner.ClientPayload()
+func newThinPackForwardingJobContext(inner jobworkflow.ExecutionContext) *thinpackForwarder {
+	return &thinpackForwarder{ExecutionContext: inner, workspaces: map[string]jobdb.Artifact{}}
 }
 
-func (a *thinpackForwarder) ClientPayloadRevision() int64 {
-	return a.inner.ClientPayloadRevision()
+func (a *thinpackForwarder) fork(inner jobworkflow.ExecutionContext) *thinpackForwarder {
+	copy := *a
+	copy.ExecutionContext = inner
+	copy.workspaces = maps.Clone(a.workspaces)
+	copy.initialRestore = maps.Clone(a.initialRestore)
+	copy.rootArtifacts = append([]jobdb.Artifact(nil), a.rootArtifacts...)
+	return &copy
 }
-
-func (a *thinpackForwarder) Yield(ctx context.Context, req jobdb.RescheduleExecutionRequest) error {
-	return a.inner.Yield(ctx, req)
+func (a *thinpackForwarder) adopt(src *thinpackForwarder) {
+	a.lastThinpack = src.lastThinpack
+	a.workspaces = src.workspaces
+	a.rootArtifacts = src.rootArtifacts
 }
-
-func (a *thinpackForwarder) AwaitJobs(jobIds ...string) error {
-	return a.inner.AwaitJobs(jobIds...)
-}
-
-func (a *thinpackForwarder) SubmitJob(ctx context.Context, submit jobdb.SubmitJob) (jobdb.JobKey, error) {
-	return a.inner.SubmitJob(ctx, submit)
-}
-
-func (a *thinpackForwarder) SubmitRestartJob(ctx context.Context, restart jobdb.SubmitRestartJob) (jobdb.JobKey, error) {
-	return a.inner.SubmitRestartJob(ctx, restart)
-}
-
-func newThinPackForwardingJobContext(inner jobworkflow.JobContext) *thinpackForwarder {
-	return &thinpackForwarder{inner: inner, workspaces: map[string]jobdb.Artifact{}}
-}
-
-func (a *thinpackForwarder) GetJobKey() jobdb.JobKey {
-	return a.inner.GetJobKey()
-}
-
-func (a *thinpackForwarder) Logger() *slog.Logger {
-	return a.inner.Logger()
-}
-
-func (a *thinpackForwarder) DoTask(policy jobdb.RunPolicy, taskType string, data jobdb.TaskData) (jobdb.TaskData, error) {
-	if taskType == TimeoutCheckpointTaskType {
-		return a.inner.DoTask(policy, taskType, data)
+func (a *thinpackForwarder) DoTask(call jobworkflow.TaskCall, build func(context.Context) (jobdb.TaskData, error)) (jobdb.TaskData, error) {
+	out, err := a.ExecutionContext.DoTask(call, func(ctx context.Context) (jobdb.TaskData, error) {
+		data, err := build(ctx)
+		if err != nil {
+			return nil, err
+		}
+		return a.prepareInput(call.TaskType, data)
+	})
+	if err != nil || out == nil {
+		return out, err
 	}
-	out, err := a.doTask(policy, taskType, data, func(data jobdb.TaskData) (jobdb.TaskData, error) {
-		return a.inner.DoTask(policy, taskType, data)
-	})
-	return out, err
-}
-
-func (a *thinpackForwarder) doTaskAt(policy jobdb.RunPolicy, taskType string, data jobdb.TaskData, at time.Time) (jobdb.TaskData, error) {
-	return a.doTask(policy, taskType, data, func(data jobdb.TaskData) (jobdb.TaskData, error) {
-		return doTaskAt(a.inner, policy, taskType, data, at)
-	})
+	return a.recordOutput(out)
 }
 
 func (a *thinpackForwarder) DoValidationTask(policy jobdb.RunPolicy, taskType string, data jobdb.TaskData) (jobdb.TaskData, bool, error) {
-	override, ok := a.inner.(validationTaskOverride)
+	override, ok := a.ExecutionContext.(validationTaskOverride)
 	if !ok {
 		return nil, false, nil
 	}
-	var handled bool
-	var innerOut jobdb.TaskData
-	out, err := a.doTask(policy, taskType, data, func(data jobdb.TaskData) (jobdb.TaskData, error) {
-		var innerErr error
-		innerOut, handled, innerErr = override.DoValidationTask(policy, taskType, data)
-		return innerOut, innerErr
-	})
+	data, err := a.prepareInput(taskType, data)
+	if err != nil {
+		return nil, false, err
+	}
+	out, handled, err := override.DoValidationTask(policy, taskType, data)
+	if err != nil || !handled || out == nil {
+		return out, handled, err
+	}
+	out, err = a.recordOutput(out)
 	return out, handled, err
 }
 
-func (a *thinpackForwarder) doTask(policy jobdb.RunPolicy, taskType string, data jobdb.TaskData, invoke func(jobdb.TaskData) (jobdb.TaskData, error)) (jobdb.TaskData, error) {
-	options := jobworkflow.TaskOptionsFor(data)
-	_ = policy
+func (a *thinpackForwarder) prepareInput(taskType string, data jobdb.TaskData) (jobdb.TaskData, error) {
 	if !strings.Contains(taskType, ":") {
-		return invoke(data)
+		return data, nil
 	}
 	scope := ""
 	payload, err := data.GetData()
@@ -154,28 +131,17 @@ func (a *thinpackForwarder) doTask(policy jobdb.RunPolicy, taskType string, data
 		}
 	}
 
-	if options.Alternate != nil {
-		data = jobworkflow.WithTaskOptions(data, options)
-	}
-	out, err := invoke(data)
+	return data, nil
+}
+
+func (a *thinpackForwarder) recordOutput(out jobdb.TaskData) (jobdb.TaskData, error) {
+	scope := ""
+	raw, err := out.GetData()
 	if err != nil {
-		recovered, ok, recoveryErr := recoverEmptyPreparation(taskType, data, err, invoke)
-		if !ok && recoveryErr == nil {
-			recovered, ok, recoveryErr = a.recoverArtifactOrder(taskType, data, err, invoke)
-		}
-		if ok && recoveryErr != nil {
-			return recovered, recoveryErr
-		}
-		if recoveryErr != nil {
-			return nil, fmt.Errorf("restore cached task after invocation-encoding mismatch: %v: %w", recoveryErr, err)
-		}
-		if !ok {
-			return out, err
-		}
-		out = recovered
+		return nil, err
 	}
-	if out == nil {
-		return nil, nil
+	if decoded, e := decodeTaskOutput(raw); e == nil {
+		scope = decoded.Activity.WorkspaceScopeID
 	}
 	outputArtifacts, err2 := out.GetArtifacts()
 	if err2 != nil {
@@ -192,7 +158,7 @@ func (a *thinpackForwarder) doTask(policy jobdb.RunPolicy, taskType string, data
 			return nil, fmt.Errorf("ambiguous workspace snapshot: multiple thin packs in task result")
 		}
 	}
-	if last = findThinPack(outputArtifacts); last != nil {
+	if last := findThinPack(outputArtifacts); last != nil {
 		if scope == a.rootScopeID {
 			a.rootArtifacts = nil
 			for _, art := range outputArtifacts {
@@ -219,16 +185,6 @@ func findThinPack(artifacts []jobdb.Artifact) jobdb.Artifact {
 	return nil
 }
 
-func (a *thinpackForwarder) AwaitDuration(waitFor jobdb.Duration) error {
-	return a.inner.AwaitDuration(waitFor)
-}
-
-func (a *thinpackForwarder) executionTimeoutLimit() time.Duration {
-	return activeExecutionTimeoutLimit(a.inner)
-}
-
-var _ jobworkflow.JobContext = &thinpackForwarder{}
-
 // A foreign workspace's automatic snapshots must never become the root result.
 func (a *thinpackForwarder) resultArtifacts(in []jobdb.Artifact) []jobdb.Artifact {
 	if !a.scopedMode {
@@ -253,12 +209,4 @@ func (a *thinpackForwarder) resultArtifacts(in []jobdb.Artifact) []jobdb.Artifac
 }
 func workspaceInternalArtifact(name string) bool {
 	return name == gitstate.ThinPackArtifactName || name == "diff_from_parent.diff" || name == "diff_from_base.diff"
-}
-
-func (c *thinpackForwarder) ResolveSecrets(ctx context.Context, names []string) (jobdb.SecretResolveResult, error) {
-	return c.inner.ResolveSecrets(ctx, names)
-}
-
-func (c *thinpackForwarder) GetConfiguration(ctx context.Context) (jobdb.ConfigurationSnapshot, error) {
-	return c.inner.GetConfiguration(ctx)
 }

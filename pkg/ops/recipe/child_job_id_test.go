@@ -5,29 +5,28 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/colony-2/c2j/pkg/contextual"
 	coreops "github.com/colony-2/c2j/pkg/ops"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	"github.com/segmentio/ksuid"
 )
 
 func TestDeterministicChildJobID(t *testing.T) {
-	invocation := contextual.Invocation{NodePath: "workflow/steps/start", InvokeSeq: 7}
+	invocation := "task-1"
 
-	id := deterministicChildJobID("parent-job", invocation, 0)
-	if id != deterministicChildJobID("parent-job", invocation, 0) {
+	id := deterministicChildJobID(jobdb.JobKey{TenantId: "tenant", JobId: "parent-job"}, invocation, 0)
+	if id != deterministicChildJobID(jobdb.JobKey{TenantId: "tenant", JobId: "parent-job"}, invocation, 0) {
 		t.Fatal("expected identical input to produce the same child job id")
 	}
 	if _, err := ksuid.Parse(id); err != nil {
 		t.Fatalf("expected child job id to be parseable as ksuid, got %q: %v", id, err)
 	}
-	if other := deterministicChildJobID("parent-job", invocation, 1); other == id {
+	if other := deterministicChildJobID(jobdb.JobKey{TenantId: "tenant", JobId: "parent-job"}, invocation, 1); other == id {
 		t.Fatal("expected different recipe indices to produce different child job ids")
 	}
-	if other := deterministicChildJobID("parent-job", contextual.Invocation{NodePath: "workflow/steps/other", InvokeSeq: 7}, 0); other == id {
+	if other := deterministicChildJobID(jobdb.JobKey{TenantId: "tenant", JobId: "parent-job"}, "task-2", 0); other == id {
 		t.Fatal("expected different node paths to produce different child job ids")
 	}
-	if other := deterministicChildJobID("parent-job", contextual.Invocation{NodePath: invocation.NodePath, InvokeSeq: 8}, 0); other == id {
+	if other := deterministicChildJobID(jobdb.JobKey{TenantId: "tenant", JobId: "parent-job"}, "task-3", 0); other == id {
 		t.Fatal("expected different invocation sequences to produce different child job ids")
 	}
 }
@@ -57,7 +56,7 @@ func TestStartSingleJobPassesDeterministicJobID(t *testing.T) {
 		t.Fatalf("expected one child start, got %d", len(ctl.startRequests))
 	}
 
-	want := deterministicChildJobID("parent-job", contextual.Invocation{NodePath: "workflow/steps/start", InvokeSeq: 5}, 0)
+	want := deterministicChildJobID(jobdb.JobKey{TenantId: "tenant", JobId: "parent-job"}, "test-invocation", 0)
 	if ctl.startRequests[0].JobID != want {
 		t.Fatalf("expected explicit child job id %q, got %q", want, ctl.startRequests[0].JobID)
 	}

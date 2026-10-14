@@ -3,5 +3,5 @@ tests:
   description: State catch routes a task error and exposes transition.failure to the target state.
   inputs: {}
   want:
-    review_output: handled unknown from work as unknown
+    review_output: handled task_error from work as task_error
   wantErr: false

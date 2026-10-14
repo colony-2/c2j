@@ -5,6 +5,7 @@ import (
 	"archive/zip"
 	"compress/gzip"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -163,7 +164,8 @@ func recipeNameFromMetadata(raw json.RawMessage) string {
 	return meta.RecipeName
 }
 
-func mergeStartedJobs(primary jobcontext.StartedJobsContext, secondary jobcontext.StartedJobsContext) jobcontext.StartedJobsContext {
+// MergeStartedJobs retains all children produced by the steps of an op.
+func MergeStartedJobs(primary jobcontext.StartedJobsContext, secondary jobcontext.StartedJobsContext) jobcontext.StartedJobsContext {
 	out := jobcontext.StartedJobsContext{
 		JobIDs: make([]string, 0, len(primary.JobIDs)+len(secondary.JobIDs)),
 		Items:  make([]jobcontext.StartedJobContext, 0, len(primary.Items)+len(secondary.Items)),
@@ -268,6 +270,9 @@ func (t opExecutor) do(ctx context.Context, jobTool ops.JobTool, req ActivityInv
 		return zero, nil, fmt.Errorf("job tool is required")
 	}
 	currentJob := currentJobContext(jobTool.GetJobKey(), reg, req.GitTaskContext)
+	if id := jobTool.InvocationID(); id != "" {
+		currentJob.InvocationHash = fmt.Sprintf("%x", sha256.Sum256([]byte(id)))
+	}
 	replacements := map[string]string{
 		contextual.WorktreePathSentinel:   worktreePath,
 		contextual.WorkdirPathSentinel:    workDir,
@@ -533,7 +538,7 @@ func (t opExecutor) do(ctx context.Context, jobTool ops.JobTool, req ActivityInv
 
 	defer func() {
 		if source, ok := opDeps.(interface {
-			NextTaskAlternate() *jobworkflow.TaskAlternate
+			NextTaskAlternate() *jobworkflow.TaskAlternateAfter
 		}); ok {
 			output.NextTaskAlternate = source.NextTaskAlternate()
 		}
@@ -557,7 +562,7 @@ func (t opExecutor) do(ctx context.Context, jobTool ops.JobTool, req ActivityInv
 	if collectErr != nil {
 		stepErr = errors.Join(stepErr, fmt.Errorf("collect started jobs: %w", collectErr))
 	} else {
-		startedJobs = mergeStartedJobs(startedJobs, listedJobs)
+		startedJobs = MergeStartedJobs(startedJobs, listedJobs)
 	}
 	if err := filepath.WalkDir(outbox, func(path string, d fs.DirEntry, walkErr error) error {
 		if walkErr != nil {

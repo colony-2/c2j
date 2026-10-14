@@ -29,6 +29,15 @@ func (t *taskWorker) Name() string {
 }
 
 func (t *taskWorker) Run(ctx jobworkflow.TaskContext, input jobdb.TaskData) (result jobdb.TaskData, runErr error) {
+	if err := ctx.Context().Err(); err != nil {
+		return nil, err
+	}
+	redactor := t.sessions.GetExecution(ctx.Context(), ctx.JobKey)
+	var session *secrets.Session
+	if redactor != nil {
+		session = redactor.NewTask()
+		defer session.Close()
+	}
 	d, err := input.GetData()
 	if err != nil {
 		return nil, err
@@ -58,9 +67,8 @@ func (t *taskWorker) Run(ctx jobworkflow.TaskContext, input jobdb.TaskData) (res
 			air.Setup.Diagnostics.TaskOrdinal = &ctx.Step
 			diagnostic.Setup = &air.Setup.Diagnostics
 		}
-		// JobDB persists error artifacts, but discards error return data.
 		// Keep preparation evidence attached to the consuming failed outcome.
-		if session := t.sessions.Get(ctx.JobKey); session != nil {
+		if session != nil {
 			runErr = session.Error(runErr)
 			if err := session.CheckOutput(diagnostic); err != nil {
 				runErr = errors.Join(runErr, err)
@@ -119,11 +127,6 @@ func (t *taskWorker) Run(ctx jobworkflow.TaskContext, input jobdb.TaskData) (res
 	refs, err := secrets.InvocationReferences(t.reg.Step.InputType, air.Input)
 	if err != nil {
 		return nil, err
-	}
-	var session *secrets.Session
-	if redactor := t.sessions.Get(ctx.JobKey); redactor != nil {
-		session = redactor.NewTask()
-		defer session.Close()
 	}
 	secretStart := time.Now()
 	if len(refs) > 0 {
@@ -190,55 +193,9 @@ func (t *taskWorker) Run(ctx jobworkflow.TaskContext, input jobdb.TaskData) (res
 
 var _ jobworkflow.TaskWorker = &taskWorker{}
 
-const (
-	taskDeadlinePollInterval = 250 * time.Millisecond
-	taskDeadlineCancelDelay  = 100 * time.Millisecond
-)
-
-// NewTaskExecutionContext returns a context that is canceled when the SWF task context reports
-// its durable deadline has elapsed. The deadline source remains SWF chapter metadata, not c2j
-// wall-clock bookkeeping, so replay keeps the original task/job start time semantics.
+// NewTaskExecutionContext follows JobDB's invocation cancellation directly.
 func NewTaskExecutionContext(taskCtx jobworkflow.TaskContext) (context.Context, context.CancelFunc) {
-	ctx, cancelCause := context.WithCancelCause(context.Background())
-
-	go monitorTaskDeadline(ctx, cancelCause, taskCtx)
-
-	return ctx, func() {
-		cancelCause(context.Canceled)
-	}
-}
-
-func monitorTaskDeadline(ctx context.Context, cancelCause context.CancelCauseFunc, taskCtx jobworkflow.TaskContext) {
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		default:
-		}
-		err := taskCtx.AwaitDuration(jobdb.Duration(taskDeadlinePollInterval))
-		if err == nil {
-			continue
-		}
-		var cacheMiss jobworkflow.ReplayCacheMissError
-		if errors.As(err, &cacheMiss) {
-			return
-		}
-
-		cause := err
-		var timeoutErr *jobdb.TimeoutError
-		if errors.As(err, &timeoutErr) {
-			cause = context.DeadlineExceeded
-		}
-
-		timer := time.NewTimer(taskDeadlineCancelDelay)
-		select {
-		case <-timer.C:
-			cancelCause(cause)
-		case <-ctx.Done():
-		}
-		timer.Stop()
-		return
-	}
+	return context.WithCancel(taskCtx.Context())
 }
 
 func failedTaskData(output ActivityInvocationOutput, artifacts []jobdb.Artifact) (jobdb.TaskData, error) {

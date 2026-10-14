@@ -2,6 +2,7 @@ package compiler
 
 import (
 	"encoding/json"
+	coretask "github.com/colony-2/c2j/pkg/task"
 	"testing"
 
 	"github.com/colony-2/c2j/pkg/contextual"
@@ -38,7 +39,9 @@ func TestWorkspaceForwarderUsesScopeAndSkipsInternalTasks(t *testing.T) {
 				require.NoError(t, e)
 				require.Equal(t, &key, got.RestoreArtifact)
 			}
-			return jobdb.NewTaskData(map[string]any{}, output...)
+			env, e := coretask.NewOutputEnvelope(coretask.OutputKindActivityInvocationOutput, workerops.ActivityInvocationOutput{WorkspaceScopeID: scope})
+			require.NoError(t, e)
+			return jobdb.NewTaskData(env, output...)
 		})
 		require.NoError(t, err)
 	}

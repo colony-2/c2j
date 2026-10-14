@@ -99,11 +99,11 @@ func newTimeoutReproRuntime(t *testing.T, backend string) *timeoutReproRuntime {
 
 type timeoutReproWorker struct {
 	name string
-	run  func(jobworkflow.JobContext, jobdb.JobData) (jobdb.JobData, error)
+	run  func(jobworkflow.ExecutionContext, jobdb.JobData) (jobdb.JobData, error)
 }
 
 func (w timeoutReproWorker) Name() string { return w.name }
-func (w timeoutReproWorker) Run(ctx jobworkflow.JobContext, data jobdb.JobData) (jobdb.JobData, error) {
+func (w timeoutReproWorker) Run(ctx jobworkflow.ExecutionContext, data jobdb.JobData) (jobdb.JobData, error) {
 	return w.run(ctx, data)
 }
 
@@ -121,11 +121,10 @@ func submitTimeoutRepro(t *testing.T, rt jobdb.WorkflowRuntime, id string, p job
 	require.NoError(t, err)
 	return h.JobKey
 }
-func runTimeoutRepro(t *testing.T, rt jobdb.WorkflowRuntime, key jobdb.JobKey, worker jobworkflow.JobWorker, tasks ...jobworkflow.TaskWorker) jobworkflow.JobRunOutcome {
+func runTimeoutRepro(t *testing.T, rt jobdb.WorkflowRuntime, key jobdb.JobKey, worker any, tasks ...jobworkflow.TaskWorker) jobworkflow.JobRunOutcome {
 	t.Helper()
-	// Keep c2j's 250ms task-deadline monitor in-process. An artificially
-	// smaller threshold would make that monitor yield during recipe resolution.
-	r, err := jobworkflow.GetJobForRun(context.Background(), rt, jobworkflow.GetJobForRunRequest{JobKey: key, JobWorker: worker, TaskWorkers: tasks, WorkerID: "restarted-worker", LeaseDuration: time.Second, AwaitThreshold: time.Second})
+	// Use the real JobDB execution engine for both local and remote runtimes.
+	r, err := jobworkflow.GetJobForRun(context.Background(), rt, jobworkflow.GetJobForRunRequest{JobKey: key, JobWorker: asExecutionTestWorker(worker), TaskWorkers: tasks, WorkerID: "restarted-worker", LeaseDuration: time.Second, AwaitThreshold: time.Second})
 	require.NoError(t, err)
 	out, err := r.Run(nil)
 	require.NoError(t, err)

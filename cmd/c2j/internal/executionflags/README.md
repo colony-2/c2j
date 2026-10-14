@@ -1,6 +1,6 @@
 # Execution allocation inputs
 
-This is the shared input parser used by `run`, `run one`, `run any`, `run loop`,
+This is the shared input parser used by `run`, `run one`, `run with-lease`,
 `submit --run`, `list`, and `list children`. Run paths inject the actual
 allocation into both recipe preflight and pending-task lease checks.
 

@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -51,7 +53,7 @@ func (e *fakeReplayEngine) ReplayJobRun(ctx context.Context, req jobworkflow.Rep
 		scripts:             append([]fakeTaskScript{}, e.taskScripts...),
 		skipTaskStartOnMiss: e.skipTaskStartOnMiss,
 	}
-	out, err := req.JobWorker.Run(jc, e.jobInput)
+	out, err := reflect.ValueOf(req.JobWorker).Elem().FieldByName("ExecutionWorker").Interface().(jobworkflow.ExecutionWorker).Execute(jc, e.jobInput)
 	if obs != nil {
 		obs.OnJobEnd(jobworkflow.JobEndEvent{JobKey: req.JobKey, AttemptNumber: 1, Output: out, Err: err, At: e.jobEndAt})
 	}
@@ -71,7 +73,7 @@ type fakeReplayJobContext struct {
 func (c *fakeReplayJobContext) GetJobKey() jobdb.JobKey        { return c.jobKey }
 func (c *fakeReplayJobContext) ClientPayload() json.RawMessage { return nil }
 func (c *fakeReplayJobContext) ClientPayloadRevision() int64   { return 0 }
-func (c *fakeReplayJobContext) Yield(context.Context, jobdb.RescheduleExecutionRequest) error {
+func (c *fakeReplayJobContext) Yield(context.Context, jobworkflow.YieldRequest) error {
 	return errors.New("yielding is not supported by replay test context")
 }
 func (c *fakeReplayJobContext) Logger() *slog.Logger { return nil }
@@ -98,7 +100,12 @@ type fakeTaskScript struct {
 	Attempts []fakeTaskAttempt
 }
 
-func (c *fakeReplayJobContext) DoTask(_ jobdb.RunPolicy, taskType string, input jobdb.TaskData) (jobdb.TaskData, error) {
+func (c *fakeReplayJobContext) DoTask(call jobworkflow.TaskCall, build func(context.Context) (jobdb.TaskData, error)) (jobdb.TaskData, error) {
+	taskType := call.TaskType
+	input, err := build(c.Context())
+	if err != nil {
+		return nil, err
+	}
 	ord := c.nextOrdinal
 	script := fakeTaskScript{}
 	if len(c.scripts) > 0 {
@@ -133,6 +140,7 @@ func (c *fakeReplayJobContext) DoTask(_ jobdb.RunPolicy, taskType string, input 
 		var miss jobworkflow.ReplayCacheMissError
 		if c.observer != nil && !(c.skipTaskStartOnMiss && errors.As(att.Err, &miss)) {
 			c.observer.OnTaskStart(jobworkflow.TaskStartEvent{
+				InvocationID:  fmt.Sprintf("task:%d/attempt:%d", ord, attemptNum),
 				JobKey:        c.jobKey,
 				TaskType:      taskType,
 				Ordinal:       ord,
@@ -143,6 +151,7 @@ func (c *fakeReplayJobContext) DoTask(_ jobdb.RunPolicy, taskType string, input 
 		}
 		if c.observer != nil {
 			c.observer.OnTaskEnd(jobworkflow.TaskEndEvent{
+				InvocationID:  fmt.Sprintf("task:%d/attempt:%d", ord, attemptNum),
 				JobKey:        c.jobKey,
 				TaskType:      taskType,
 				Ordinal:       ord,
@@ -158,7 +167,7 @@ func (c *fakeReplayJobContext) DoTask(_ jobdb.RunPolicy, taskType string, input 
 	return last.Output, last.Err
 }
 
-var _ jobworkflow.JobContext = (*fakeReplayJobContext)(nil)
+var _ jobworkflow.ExecutionContext = (*fakeReplayJobContext)(nil)
 
 func TestJobRunStoryReplay_BuildsTreeAndNormalizesMissingOutputKeys(t *testing.T) {
 	type in struct{}
@@ -933,4 +942,12 @@ func (*fakeReplayJobContext) ResolveSecrets(context.Context, []string) (jobdb.Se
 
 func (*fakeReplayJobContext) GetConfiguration(context.Context) (jobdb.ConfigurationSnapshot, error) {
 	return jobdb.ConfigurationSnapshot{}, jobdb.ErrConfigurationUnavailable
+}
+
+func (c *fakeReplayJobContext) Context() context.Context { return context.Background() }
+func (c *fakeReplayJobContext) ExecutionVersions() jobdb.ExecutionVersions {
+	return jobdb.ExecutionVersions{}
+}
+func (c *fakeReplayJobContext) DoScope(_ string, _ jobworkflow.ScopeOptions, body func(jobworkflow.ExecutionContext) (jobdb.JobData, error)) (jobdb.JobData, error) {
+	return body(c)
 }

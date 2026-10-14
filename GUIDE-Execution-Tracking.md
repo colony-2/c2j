@@ -104,7 +104,7 @@ submission overrides remain visible as known hints.
 
 ## Describe the actual executor
 
-Pass actual allocation to `run`, `run one`, `run any`, `run loop`, or
+Pass actual allocation to `run`, `run one`, `run with-lease`, or
 `submit --run`. Each argument also has an environment-variable equivalent:
 
 | Argument | Environment variable | Meaning |
@@ -143,9 +143,8 @@ and emits an `environment_required` JSON event. It includes `job`, `demand`,
 requirements and the actual allocation reported for that handoff. No replacement
 recipe or job is created.
 
-Targeted runs and `run any` return promptly. `run loop` emits the event and
-stops its loop, so a supervisor can select another environment without a tight
-reclaim/yield cycle. A successful handoff exits successfully; it does **not**
+Targeted and supplied-lease runs return promptly, so a dispatcher can select
+another environment. Events are decoded from the acknowledged JobDB run outcome. A successful handoff exits successfully; it does **not**
 mean the job completed. Run output may also contain non-JSON progress lines.
 
 Resume by running the same job ID with sufficient actual allocation. Repeated
@@ -509,27 +508,17 @@ the parent invocation scope; `--all` fetches pages.
 
 ## Track worker handoffs
 
-For external schedulers using a remote runtime:
+A dispatcher such as Pulse claims work and launches `c2j run with-lease`.
+See the [supplied-lease guide](GUIDE-Run-With-Lease.md) for capability transport.
+For manual execution, use `c2j run --job-id <id>`.
 
-```bash
-c2j ready --jobdb https://jobdb.example.com/my-tenant
-c2j run any --jobdb https://jobdb.example.com/my-tenant
-```
+`c2j ready --jobdb URL` is a read-only count of ready recipe jobs across the
+selected tenant. It does not reserve work. Polling commands `run any` and
+`run loop` have been removed.
 
-`ready` is a read-only count of ready recipe jobs across the selected tenant,
-not a reservation or a cell-scoped list. `run any` claims one available work
-item and executes it. Another worker can consume work between those commands.
-
-`run any` reports completion or rescheduling. A handoff is reported with
-`status=rescheduled` and a separate JSON `next_route`; that means the current
-lease was handed back, not that the whole recipe finished. It prints
-`no jobs found` and exits successfully when no work can be claimed. Use job
-state and execution outcomes, not just that process's exit code, to track the
-overall recipe result.
-
-For ongoing processing, `c2j run loop --jobdb URL --concurrency 4` starts a
-non-interactive tenant worker. It requires a remote runtime. Use listings for
-inspection and targeted `run` or an input-handling service for human input.
+An `environment_required` event confirms that this invocation handed back its
+lease. It does not mean the whole recipe finished. Use job state and execution
+outcomes to track completion. Ordinary waits do not emit environment events.
 
 ## When something looks wrong
 

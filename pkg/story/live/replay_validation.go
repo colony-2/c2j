@@ -2,8 +2,12 @@ package live
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"reflect"
+	"strconv"
+	"strings"
 	"sync"
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
@@ -19,8 +23,8 @@ type jobRunReader interface {
 }
 
 type replayTaskAttempt struct {
-	ordinal int64
-	attempt int
+	invocation string
+	attempt    int
 }
 
 // Track all events, including control tasks that are not rendered as recipe nodes.
@@ -52,13 +56,13 @@ func (e *replayEvents) OnJobEnd(v jobworkflow.JobEndEvent) {
 }
 func (e *replayEvents) OnTaskStart(v jobworkflow.TaskStartEvent) {
 	e.mu.Lock()
-	e.taskStarts[replayTaskAttempt{v.Ordinal, v.AttemptNumber}] = true
+	e.taskStarts[replayTaskAttempt{v.InvocationID, v.AttemptNumber}] = true
 	e.mu.Unlock()
 	e.ReplayObserver.OnTaskStart(v)
 }
 func (e *replayEvents) OnTaskEnd(v jobworkflow.TaskEndEvent) {
 	e.mu.Lock()
-	e.taskEnds[replayTaskAttempt{v.Ordinal, v.AttemptNumber}] = true
+	e.taskEnds[replayTaskAttempt{v.InvocationID, v.AttemptNumber}] = true
 	e.mu.Unlock()
 	e.ReplayObserver.OnTaskEnd(v)
 }
@@ -66,24 +70,47 @@ func (e *replayEvents) OnTaskEnd(v jobworkflow.TaskEndEvent) {
 func (e *replayEvents) validate(run jobdb.GetJobRunResponse) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	for _, job := range run.Attempts {
-		for _, task := range job.Tasks {
-			for _, attempt := range task.Attempts {
-				if attempt.State != jobdb.TaskAttemptStateSucceeded && attempt.State != jobdb.TaskAttemptStateFailed {
-					continue
-				}
-				key := replayTaskAttempt{attempt.Ordinal, attempt.Attempt}
-				if !e.taskStarts[key] || !e.taskEnds[key] {
-					return fmt.Errorf("%w: missing events for task %q ordinal %d attempt %d", ErrIncompleteReplay, task.TaskType, attempt.Ordinal, attempt.Attempt)
-				}
+	tasks := map[string]string{}
+	jobScope := ""
+	for _, entry := range run.Execution {
+		record := entry.Record
+		if record.Kind == "scope" && jobScope == "" {
+			jobScope = record.ID
+		}
+		if record.Kind == "task" {
+			var descriptor struct {
+				Call jobworkflow.TaskCall `json:"call"`
+			}
+			if err := json.Unmarshal(record.Descriptor, &descriptor); err != nil {
+				return err
+			}
+			tasks[record.ID] = descriptor.Call.TaskType
+		}
+		if record.Kind != "result" {
+			continue
+		}
+		split := strings.LastIndex(record.ID, "/attempt:")
+		if split < 0 {
+			continue
+		}
+		base := record.ID[:split]
+		attempt, err := strconv.Atoi(record.ID[split+len("/attempt:"):])
+		if err != nil {
+			return err
+		}
+		if taskType, ok := tasks[base]; ok {
+			key := replayTaskAttempt{record.ID, attempt}
+			if !e.taskStarts[key] || !e.taskEnds[key] {
+				return fmt.Errorf("%w: missing events for task %q invocation %s", ErrIncompleteReplay, taskType, record.ID)
 			}
 		}
-		if job.Outcome.Status == jobdb.TaskOutcomeStatusSucceeded || job.Outcome.Status == jobdb.TaskOutcomeStatusFailed {
-			if _, ended := e.jobEnds[job.Attempt]; !e.jobStarts[job.Attempt] || !ended {
-				return fmt.Errorf("%w: missing events for job attempt %d", ErrIncompleteReplay, job.Attempt)
+		if base == jobScope {
+			if _, ended := e.jobEnds[attempt]; !e.jobStarts[attempt] || !ended {
+				return fmt.Errorf("%w: missing events for job attempt %d", ErrIncompleteReplay, attempt)
 			}
 		}
 	}
+
 	return nil
 }
 
@@ -96,23 +123,27 @@ func (e *replayEvents) endedWith(err error) bool {
 			latest = attempt
 		}
 	}
-	return latest > 0 && errors.Is(e.jobEnds[latest].Err, err)
+	return latest > 0 && (errors.Is(e.jobEnds[latest].Err, err) || reflect.DeepEqual(e.jobEnds[latest].Err, err))
 }
 
 // JobDB may report a chapter mismatch after orchestration exits early. Retain
 // the compiler's original error (for example an unknown op in stored YAML).
 type replayRecipeWorker struct {
-	jobworkflow.JobWorker
+	jobworkflow.ExecutionWorker
 	mu  sync.Mutex
 	err error
 }
 
-func (w *replayRecipeWorker) Run(ctx jobworkflow.JobContext, input jobdb.JobData) (jobdb.JobData, error) {
-	out, err := w.JobWorker.Run(ctx, input)
-	w.mu.Lock()
-	w.err = err
-	w.mu.Unlock()
-	return out, err
+func newReplayRecipeWorker(worker jobworkflow.ExecutionWorker) *replayRecipeWorker {
+	w := &replayRecipeWorker{}
+	w.ExecutionWorker = jobworkflow.ExecutionWorker{JobType: worker.JobType, Execute: func(ctx jobworkflow.ExecutionContext, input jobdb.JobData) (jobdb.JobData, error) {
+		out, err := worker.Execute(ctx, input)
+		w.mu.Lock()
+		w.err = err
+		w.mu.Unlock()
+		return out, err
+	}}
+	return w
 }
 func (w *replayRecipeWorker) withCause(err error) error {
 	w.mu.Lock()
@@ -121,8 +152,5 @@ func (w *replayRecipeWorker) withCause(err error) error {
 		return err
 	}
 	cause := fmt.Errorf("recipe replay: %w", w.err)
-	if _, mismatch := jobworkflow.UnexpectedChapter(w.err); mismatch {
-		return errors.Join(cause, err)
-	}
-	return errors.Join(err, cause)
+	return errors.Join(cause, err)
 }

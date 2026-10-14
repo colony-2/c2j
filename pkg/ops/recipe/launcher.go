@@ -17,20 +17,20 @@ import (
 	"github.com/segmentio/ksuid"
 )
 
-const childJobIDNamespace = "colony2.recipe-child/v1"
+const childJobIDNamespace = "colony2.recipe-child/v2"
 
-func deterministicChildJobID(parentJobID string, invocation contextual.Invocation, recipeIndex int) string {
+func deterministicChildJobID(parentJobKey jobdb.JobKey, invocation string, recipeIndex int) string {
 	hasher := sha256.New()
 	hasher.Write([]byte(childJobIDNamespace))
 	hasher.Write([]byte{0})
-	hasher.Write([]byte(parentJobID))
+	hasher.Write([]byte(parentJobKey.TenantId))
 	hasher.Write([]byte{0})
-	hasher.Write([]byte(invocation.NodePath))
+	hasher.Write([]byte(parentJobKey.JobId))
+	hasher.Write([]byte{0})
+	hasher.Write([]byte(invocation))
 	hasher.Write([]byte{0})
 
 	var intBuf [8]byte
-	binary.BigEndian.PutUint64(intBuf[:], uint64(invocation.InvokeSeq))
-	hasher.Write(intBuf[:])
 	binary.BigEndian.PutUint64(intBuf[:], uint64(recipeIndex))
 	hasher.Write(intBuf[:])
 
@@ -93,14 +93,18 @@ type childJobSubmitter interface {
 	SubmitJob(context.Context, jobdb.SubmitJob) (jobdb.JobKey, error)
 }
 
-func startJobs(ctx context.Context, deps ops.OpDependencies, parentJobKey jobdb.JobKey, invocation contextual.Invocation, ctl workflowctl.WorkflowControl, recipeSourceRepo string, recipeSourceRef string, recipes []SingleRecipe, gitRef string, parent jobcontext.Parent) ([]jobdb.JobKey, error) {
+func startJobs(ctx context.Context, deps ops.OpDependencies, parentJobKey jobdb.JobKey, invocation string, ctl workflowctl.WorkflowControl, recipeSourceRepo string, recipeSourceRef string, recipes []SingleRecipe, gitRef string, parent jobcontext.Parent) ([]jobdb.JobKey, error) {
 	if len(recipes) == 0 {
 		return nil, fmt.Errorf("no jobs to start")
 	}
 
+	if invocation == "" {
+		return nil, fmt.Errorf("child submission requires a logical task invocation ID")
+	}
+
 	jobs := make([]workflowctl.StartJob, len(recipes))
 	for i, recipe := range recipes {
-		job, err := recipeToStart(parentJobKey.TenantId, recipe, recipeSourceRepo, recipeSourceRef, gitRef, deterministicChildJobID(parentJobKey.JobId, invocation, i), parent)
+		job, err := recipeToStart(parentJobKey.TenantId, recipe, recipeSourceRepo, recipeSourceRef, gitRef, deterministicChildJobID(parentJobKey, invocation, i), parent)
 		if err != nil {
 			return nil, err
 		}

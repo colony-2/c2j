@@ -35,7 +35,15 @@ func (*workspaceReplayContext) GetJobKey() jobdb.JobKey {
 func (*workspaceReplayContext) Logger() *slog.Logger               { return slog.Default() }
 func (*workspaceReplayContext) AwaitJobs(...string) error          { return nil }
 func (*workspaceReplayContext) AwaitDuration(jobdb.Duration) error { return nil }
-func (c *workspaceReplayContext) DoTask(_ jobdb.RunPolicy, task string, data jobdb.TaskData) (jobdb.TaskData, error) {
+func (c *workspaceReplayContext) DoTask(call testTaskCall, build func(testContext) (jobdb.TaskData, error)) (jobdb.TaskData, error) {
+	data, buildErr := build(c.Context())
+	if buildErr != nil {
+		return nil, buildErr
+	}
+	_ = data
+	task := call.TaskType
+	_ = task
+
 	raw, err := data.GetData()
 	if err != nil {
 		return nil, err
@@ -135,4 +143,12 @@ func (*workspaceReplayContext) SubmitJob(context.Context, jobdb.SubmitJob) (jobd
 }
 func (*workspaceReplayContext) SubmitRestartJob(context.Context, jobdb.SubmitRestartJob) (jobdb.JobKey, error) {
 	return jobdb.JobKey{}, fmt.Errorf("unexpected restart")
+}
+
+func (c *workspaceReplayContext) DoScope(site string, opts testScopeOptions, body func(testExecutionContext) (jobdb.JobData, error)) (jobdb.JobData, error) {
+	return runMockScope(c, site, opts, body)
+}
+func (c *workspaceReplayContext) Context() testContext { return testBackground() }
+func (c *workspaceReplayContext) ExecutionVersions() jobdb.ExecutionVersions {
+	return jobdb.ExecutionVersions{}
 }
