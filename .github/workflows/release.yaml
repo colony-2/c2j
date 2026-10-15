@@ -39,15 +39,6 @@ jobs:
     uses: ./.github/workflows/test.yaml
     secrets: inherit
 
-  nix:
-    needs: test
-    uses: ./.github/workflows/nix.yaml
-    permissions:
-      contents: read
-    with:
-      publish: true
-    secrets: inherit
-
   create-tag:
     needs: test
     runs-on: ubuntu-latest
@@ -331,6 +322,72 @@ jobs:
           files: |
             dist/release/*.tar.gz
             dist/release/checksums.txt
+
+  # Publish the tagged revision alongside npm, after GitHub assets are available.
+  nix:
+    needs:
+      - build
+      - github-release
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            system: x86_64-linux
+          - runner: ubuntu-24.04-arm
+            system: aarch64-linux
+          - runner: macos-15-intel
+            system: x86_64-darwin
+          - runner: macos-15
+            system: aarch64-darwin
+    runs-on: ${{ matrix.runner }}
+    env:
+      NIX_SYSTEM: ${{ matrix.system }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.build.outputs.tag }}
+          fetch-depth: 1
+      - uses: cachix/install-nix-action@2126ae7fc54c9df00dd18f7f18754393182c73cd # v31.9.1
+        with:
+          github_access_token: ${{ secrets.GITHUB_TOKEN }}
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+            allow-import-from-derivation = false
+      - uses: cachix/cachix-action@38b082610b782e7e93e209c35fd730d399dee866 # v17
+        with:
+          name: colony2
+          skipPush: true
+
+      - name: Check flake metadata
+        run: nix flake check --no-build --all-systems
+
+      - name: Build and smoke test the bare executable
+        run: |
+          set -euo pipefail
+          nix build ".#packages.${NIX_SYSTEM}.c2j" --no-link --print-out-paths -L > package-path.txt
+          echo "PACKAGE_PATH=$(cat package-path.txt)" >> "$GITHUB_ENV"
+          echo "NIX_REVISION=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+
+      - name: Publish, verify downloads, and retain the package
+        env:
+          CACHIX_AUTH_TOKEN: ${{ secrets.CACHIX_COLONY2_AUTHKEY }}
+        run: |
+          set -euo pipefail
+          test -n "$CACHIX_AUTH_TOKEN" || { echo 'Set the CACHIX_COLONY2_AUTHKEY repository secret'; exit 1; }
+          cachix push colony2 "$PACKAGE_PATH"
+
+          # An empty store and disabled builders prove consumers can download it.
+          verify_store="$(mktemp -d "$RUNNER_TEMP/c2j-nix-verify.XXXXXX")"
+          nix build --store "$verify_store" --no-link --max-jobs 0 --builders '' \
+            --option fallback false --option require-sigs true \
+            --option substituters https://colony2.cachix.org \
+            --option extra-substituters '' --option narinfo-cache-negative-ttl 0 \
+            "$PACKAGE_PATH"
+          nix store verify --store "$verify_store" --recursive "$PACKAGE_PATH"
+          cachix pin colony2 "c2j-${NIX_REVISION}-${NIX_SYSTEM}" "$PACKAGE_PATH"
 
   npm:
     needs:

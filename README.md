@@ -85,7 +85,9 @@ See [Extension ops](EXTENSION_OPS.md) for authoring, publishing, and invoking pr
 
 The Nix package contains only the `c2j` executable, with no Node/npm wrapper or
 bundled tool runtimes. Linux and macOS builds are published for x86-64 and ARM64
-to the `colony2` Cachix cache after the main-branch tests pass.
+to the `colony2` Cachix cache in the Release workflow. After tests, tagging, and
+GitHub asset publication succeed, Nix and npm publish in parallel from the same
+release tag.
 
 ```bash
 cachix use colony2
