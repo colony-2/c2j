@@ -379,11 +379,12 @@ jobs:
           test -n "$CACHIX_AUTH_TOKEN" || { echo 'Set the CACHIX_COLONY2_AUTHKEY repository secret'; exit 1; }
           cachix push colony2 "$PACKAGE_PATH"
 
-          # An empty store and disabled builders prove consumers can download it.
+          # Cachix skips dependencies already available from cache.nixos.org.
+          # Verify the complete closure using both caches, as consumers do.
           verify_store="$(mktemp -d "$RUNNER_TEMP/c2j-nix-verify.XXXXXX")"
           nix build --store "$verify_store" --no-link --max-jobs 0 --builders '' \
             --option fallback false --option require-sigs true \
-            --option substituters https://colony2.cachix.org \
+            --option substituters "https://cache.nixos.org https://colony2.cachix.org" \
             --option extra-substituters '' --option narinfo-cache-negative-ttl 0 \
             "$PACKAGE_PATH"
           nix store verify --store "$verify_store" --recursive "$PACKAGE_PATH"
