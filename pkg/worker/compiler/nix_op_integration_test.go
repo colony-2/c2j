@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/colony-2/c2j/internal/nixtest"
+	"github.com/colony-2/c2j/pkg/jobdbschema"
 	coreops "github.com/colony-2/c2j/pkg/ops"
 	extops "github.com/colony-2/c2j/pkg/ops/extensions"
 	"github.com/colony-2/c2j/pkg/recipe"
@@ -26,6 +27,7 @@ import (
 	workerops "github.com/colony-2/c2j/pkg/worker/ops"
 	"github.com/colony-2/c2j/pkg/workflowctl"
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	toyruntime "github.com/colony-2/jobdb/pkg/jobdb/runtime/toy"
 	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
 	"github.com/stretchr/testify/require"
 )
@@ -55,7 +57,12 @@ func TestRealNixExtension(t *testing.T) {
 	shell, err = filepath.EvalSymlinks(shell)
 	require.NoError(t, err)
 	// Simulate a binary release served separately from the small definition repo.
-	payload := []byte("#!" + shell + "\nIFS= read -r input\nprintf '%s\\n' \"$input\"\n")
+	payload := []byte("#!" + shell + `
+IFS= read -r input
+case "$input" in *'"enabled":false'*) ;; *) exit 10;; esac
+case "$input" in *'token-private-value'*) ;; *) exit 11;; esac
+printf '{"output":{"message":"hello"}}'
+`)
 	var downloads atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		downloads.Add(1)
@@ -63,7 +70,7 @@ func TestRealNixExtension(t *testing.T) {
 	}))
 	t.Cleanup(server.Close)
 	hash := sha256.Sum256(payload)
-	manifest := []byte(`{"name":"echo","command":["bin/op"],"input_schema":{"type":"object","required":["message"],"properties":{"message":{"type":"string","default":"hello"}}},"output_schema":{"type":"object","required":["message"],"properties":{"message":{"type":"string"}}}}`)
+	manifest := []byte(`{"name":"echo","command":["bin/op"],"input_schema":{"type":"object","required":["message"],"properties":{"message":{"type":"string","default":"hello"},"api":{"type":"object","properties":{"enabled":{"type":"boolean","default":"${{ context.config.?enabled.orValue(false) }}"},"token":{"type":"string","x-secret":true,"default":"${{ context.secrets.token }}"}}}}},"output_schema":{"type":"object","required":["message"],"properties":{"message":{"type":"string"}}}}`)
 	definition := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(definition, "op.json"), manifest, 0600))
 	flake := fmt.Sprintf(`{
@@ -132,7 +139,16 @@ func TestRealNixExtension(t *testing.T) {
 	require.NoError(t, err)
 	ws, err := NewRecipeWorker(coreops.NewServiceDepsBuilder().Build(), registry)
 	require.NoError(t, err)
-	engine := newToyEngineWithWorkSet(t, "nix-ops", ws, nil)
+	provider := &testSecretProvider{}
+	rt := toyruntime.New(toyruntime.WithSecretProvider(provider))
+	var workers []jobworkflow.TaskWorker
+	for _, w := range ws.TaskWorkers {
+		workers = append(workers, w)
+	}
+	engine, err := jobworkflow.NewEngineBuilder().WithRuntime(rt).WithWorkerTenantId("nix-ops").PlusWorkers(ws.JobWorker, workers...).BuildEngine()
+	require.NoError(t, err)
+	engine = jobdbschema.WorkflowEngine{Engine: engine, Registry: rt}
+	go engine.Run(ctx)
 	job, git := GenerateTestContext()
 	start := func(rec *recipe.Recipe) jobdb.JobKey {
 		key, err := starter.StartRecipeJob(ctx, workflowctl.StartJob{TenantId: "nix-ops", RecipeName: rec.GetMetdata().ID, JobContext: job, GitRef: git.ParentRef}, engine, *rec)
@@ -184,6 +200,10 @@ outputs:
 		}
 	}
 	require.True(t, setupSeen)
+	require.Equal(t, [][]string{{"token"}}, provider.Calls())
+	historyJSON, err := json.Marshal(history)
+	require.NoError(t, err)
+	require.NotContains(t, string(historyJSON), "token-private-value")
 	// Cached replay needs neither definitions, installed output, nor any cache.
 	require.NoError(t, os.RemoveAll(cacheRoot))
 	run("nix-store", "--delete", described.Nix.StorePath)
@@ -194,4 +214,5 @@ outputs:
 	replayed, err := replay.GetData()
 	require.NoError(t, err)
 	require.JSONEq(t, string(raw), string(replayed))
+	require.Equal(t, [][]string{{"token"}}, provider.Calls(), "replay does not retrieve default secrets")
 }

@@ -152,3 +152,17 @@ func TestExtensionNullSecretFallbackValidatesOmission(t *testing.T) {
 		}
 	}
 }
+
+func TestUnpreparedExtensionReferenceDefaultsFailBeforeExecution(t *testing.T) {
+	for _, property := range []string{
+		"{type: string, x-secret: true, default: '${{ context.secrets.?key.orValue(null) }}'}",
+		"{type: string, default: '${{ context.config.?key.orValue(\"public\") }}'}",
+	} {
+		root := t.TempDir()
+		require.NoError(t, os.WriteFile(filepath.Join(root, "op.yaml"), []byte("name: unprepared\ninput_schema:\n  type: object\n  properties:\n    key: "+property+"\noutput_schema: {type: object}\nrun: touch executed\n"), 0600))
+		deps := coreops.NewOpDependenciesBuilder().WithWorktreePath(root).Build()
+		_, err := executeExtension(deps, context.Background(), ExecutionInput{Selector: "./"})
+		require.ErrorContains(t, err, "directly with op:")
+		require.NoFileExists(t, filepath.Join(root, "executed"))
+	}
+}

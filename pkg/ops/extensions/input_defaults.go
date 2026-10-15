@@ -1,8 +1,13 @@
 package extensions
 
 import (
+	"encoding/json"
 	"fmt"
 	"reflect"
+	"strings"
+
+	"github.com/colony-2/c2j/pkg/configuration"
+	"github.com/colony-2/c2j/pkg/secrets"
 
 	jsonschemav6 "github.com/santhosh-tekuri/jsonschema/v6"
 )
@@ -29,6 +34,9 @@ type defaultsNode struct {
 }
 
 func BuildInputDefaults(raw map[string]any, compiled *jsonschemav6.Schema) (*InputDefaults, error) {
+	if err := validateReferenceDefaults(raw); err != nil {
+		return nil, err
+	}
 	if !schemaHasDefaultKeyword(raw) {
 		return nil, nil
 	}
@@ -92,7 +100,10 @@ func buildDefaultsNode(schema *jsonschemav6.Schema, path string, memo map[*jsons
 	memo[resolved] = node
 
 	if resolved.Default != nil {
-		node.explicitDefault = deepCopyAny(*resolved.Default)
+		node.explicitDefault, err = parseDefaultReferences(*resolved.Default)
+		if err != nil {
+			return nil, fmt.Errorf("%s default: %w", path, err)
+		}
 	}
 
 	for name, prop := range resolved.Properties {
@@ -142,8 +153,13 @@ func buildDefaultsNode(schema *jsonschemav6.Schema, path string, memo map[*jsons
 		if err != nil {
 			return nil, fmt.Errorf("%s default: %w", path, err)
 		}
-		if err := resolved.Validate(value); err != nil {
-			return nil, fmt.Errorf("%s default failed schema validation: %w", path, err)
+		// Config values are unknown until the task reads its provider. Secret
+		// references are admitted by the expanded schema; ordinary literals
+		// retain eager validation. All materialized values are validated again.
+		if !configuration.Contains(value) {
+			if err := resolved.Validate(value); err != nil {
+				return nil, fmt.Errorf("%s default failed schema validation: %w", path, err)
+			}
 		}
 	}
 
@@ -352,6 +368,11 @@ func (n *defaultsNode) applyToValue(current interface{}, present bool) (interfac
 		return current, false, nil
 	}
 
+	// References are whole values, even though their durable encoding is an
+	// object. Never merge their internal keys into a caller-supplied object.
+	if !present && isReferenceDefault(n.explicitDefault) {
+		return deepCopyAny(n.explicitDefault), true, nil
+	}
 	switch n.kind {
 	case defaultsKindObject:
 		base, ok, converted := toStringMap(current)
@@ -364,7 +385,7 @@ func (n *defaultsNode) applyToValue(current interface{}, present bool) (interfac
 			return current, false, nil
 		}
 
-		if n.explicitDefault != nil {
+		if n.explicitDefault != nil && !isReferenceDefault(n.explicitDefault) {
 			defMap, ok, _ := toStringMap(deepCopyAny(n.explicitDefault))
 			if !ok {
 				return nil, false, fmt.Errorf("object default must be a map, got %T", n.explicitDefault)
@@ -410,7 +431,7 @@ func (n *defaultsNode) applyToValue(current interface{}, present bool) (interfac
 }
 
 func (n *defaultsNode) applyDescendantsToValue(current interface{}, present bool) (interface{}, bool, error) {
-	if n == nil || !present {
+	if n == nil || !present || isReferenceDefault(current) {
 		return current, false, nil
 	}
 
@@ -591,4 +612,105 @@ func mergeMissingKeys(dst map[string]interface{}, src map[string]interface{}) bo
 		changed = true
 	}
 	return changed
+}
+
+// parseDefaultReferences uses the same restricted parsers as recipe inputs.
+// It performs no provider access or evaluation of arbitrary expressions.
+func parseDefaultReferences(value any) (any, error) {
+	if isReferenceDefault(value) {
+		return deepCopyAny(value), nil
+	}
+	switch v := value.(type) {
+	case string:
+		var ref any
+		if r, ok := secrets.Template(v); ok {
+			ref = r
+		} else if r, ok := configuration.Template(v); ok {
+			ref = r
+		} else {
+			if strings.Contains(v, "{{") && (strings.Contains(v, "context.secrets") || strings.Contains(v, "context.config")) {
+				return nil, fmt.Errorf("reference defaults require whole-value references with static names and literal fallbacks")
+			}
+			return v, nil
+		}
+		// JSON-shaped defaults keep the schema engine and durable encoding aligned.
+		raw, err := json.Marshal(ref)
+		if err != nil {
+			return nil, err
+		}
+		var out any
+		err = json.Unmarshal(raw, &out)
+		return out, err
+	case map[string]any:
+		out := make(map[string]any, len(v))
+		for k, item := range v {
+			n, err := parseDefaultReferences(item)
+			if err != nil {
+				return nil, err
+			}
+			out[k] = n
+		}
+		return out, nil
+	case []any:
+		out := make([]any, len(v))
+		for i, item := range v {
+			n, err := parseDefaultReferences(item)
+			if err != nil {
+				return nil, err
+			}
+			out[i] = n
+		}
+		return out, nil
+	default:
+		return v, nil
+	}
+}
+
+func isReferenceDefault(v any) bool {
+	if _, ok, _ := secrets.Parse(v); ok {
+		return true
+	}
+	_, ok, _ := configuration.Parse(v)
+	return ok
+}
+
+func validateReferenceDefaults(schema map[string]any) error {
+	if d, exists := schema["default"]; exists {
+		value, err := parseDefaultReferences(d)
+		if err != nil {
+			return err
+		}
+		if secrets.Contains(value) {
+			if err := secrets.ValidateSchema(schema, value, false); err != nil {
+				return err
+			}
+		}
+	}
+	for _, keyword := range []string{"properties", "$defs", "definitions", "patternProperties", "dependentSchemas"} {
+		children, _ := schema[keyword].(map[string]any)
+		for name, child := range children {
+			if sub, ok := child.(map[string]any); ok {
+				if err := validateReferenceDefaults(sub); err != nil {
+					return fmt.Errorf("%s.%s: %w", keyword, name, err)
+				}
+			}
+		}
+	}
+	for _, keyword := range []string{"items", "additionalProperties", "allOf", "anyOf", "oneOf", "if", "then", "else", "not", "prefixItems", "contains"} {
+		switch child := schema[keyword].(type) {
+		case map[string]any:
+			if err := validateReferenceDefaults(child); err != nil {
+				return err
+			}
+		case []any:
+			for _, item := range child {
+				if sub, ok := item.(map[string]any); ok {
+					if err := validateReferenceDefaults(sub); err != nil {
+						return err
+					}
+				}
+			}
+		}
+	}
+	return nil
 }

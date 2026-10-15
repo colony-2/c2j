@@ -9,6 +9,7 @@ import (
 	"time"
 
 	recipeartifacts "github.com/colony-2/c2j/pkg/artifacts"
+	"github.com/colony-2/c2j/pkg/configuration"
 	"github.com/colony-2/c2j/pkg/jobcontext"
 	"github.com/colony-2/c2j/pkg/ops"
 	"github.com/colony-2/c2j/pkg/ops/process"
@@ -60,6 +61,21 @@ func executeExtension(deps ops.OpDependencies, ctx context.Context, input Execut
 			return nil, fmt.Errorf("invoke a Nix extension directly with op: %s so c2j can prepare it before execution", input.Selector)
 		}
 		resolved, err = Resolve(ctx, input.Selector, ResolveOptions{BaseDir: deps.WorktreePath(), RepositorySource: repoSource, RepositoryRef: repoRef})
+		if err == nil {
+			// The lower-level execution op has no task-time manifest preparation.
+			// Never silently omit a default whose provider was not consulted.
+			defaults := map[string]any{}
+			if _, err := resolved.ApplyInvocationDefaults(defaults); err != nil {
+				return nil, err
+			}
+			names, err := secrets.Names(defaults)
+			if err != nil {
+				return nil, err
+			}
+			if len(names) > 0 || configuration.Contains(defaults) {
+				return nil, fmt.Errorf("invoke an extension with reference defaults directly with op: %s so c2j can resolve them during task preparation", input.Selector)
+			}
+		}
 	} else {
 		resolved, err = RestoreResolvedOp(resolved)
 	}

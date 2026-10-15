@@ -56,7 +56,7 @@ input_schema:
   properties:
     token: {type: string, x-secret: true, default: schema}
     omitted: {type: string, x-secret: true, default: ""}
-    literal: {type: string, x-secret: true, default: '${{ context.secrets.never_resolve }}'}
+    binding: {type: string, x-secret: true, default: '${{ context.secrets.bound }}'}
     explicit: {type: string, x-secret: true, default: schema}
 output_schema: {type: object}
 run: unused
@@ -84,11 +84,11 @@ run: unused
 	calls := 0
 	require.NoError(t, session.PrepareReferences(context.Background(), refs, func(_ context.Context, names []string) (jobdb.SecretResolveResult, error) {
 		calls++
-		require.Equal(t, []string{"missing"}, names)
-		return jobdb.SecretResolveResult{}, nil
+		require.ElementsMatch(t, []string{"missing", "bound"}, names)
+		return jobdb.SecretResolveResult{Secrets: map[string]jobdb.SecretValue{"bound": {Value: "resolved-value"}}}, nil
 	}))
 	require.Equal(t, 1, calls)
 	value, err := session.Materialize(inv.Input["inputs"])
 	require.NoError(t, err)
-	require.Equal(t, map[string]any{"token": "schema", "omitted": "", "explicit": "explicit", "literal": "${{ context.secrets.never_resolve }}"}, value)
+	require.Equal(t, map[string]any{"token": "schema", "omitted": "", "explicit": "explicit", "binding": "resolved-value"}, value)
 }

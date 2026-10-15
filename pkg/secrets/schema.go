@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"reflect"
+	"strings"
 )
 
 // ExpandSchema admits a reference as the deferred representation of a secret
@@ -33,8 +34,12 @@ func ExpandSchema(schema map[string]any) (map[string]any, error) {
 			if err := validateSecretSchema(s); err != nil {
 				return err
 			}
-			// Attach secret defaults to references via ApplySchemaDefaults;
-			// the ordinary default engine must not insert plaintext.
+			// Named bindings fill omitted inputs through the ordinary default
+			// engine. Literal defaults remain public fallbacks attached separately.
+			binding, isBinding, err := schemaDefaultBinding(s)
+			if err != nil {
+				return err
+			}
 			plain := map[string]any{}
 			for k, v := range s {
 				if k != "default" {
@@ -43,6 +48,9 @@ func ExpandSchema(schema map[string]any) (map[string]any, error) {
 			}
 			clear(s)
 			s["anyOf"] = []any{plain, map[string]any{"type": "object", "required": []string{WireKey}, "additionalProperties": false, "properties": map[string]any{WireKey: map[string]any{"type": "string"}, "default": map[string]any{"type": "string"}, "omit_if_unavailable": map[string]any{"type": "boolean"}, "required": map[string]any{"type": "boolean"}}}}
+			if isBinding {
+				s["default"] = binding
+			}
 			return nil
 		}
 		for _, key := range []string{"properties"} {
@@ -223,13 +231,30 @@ func validateSecretSchema(schema map[string]any) error {
 		return fmt.Errorf("secret schema requires type string")
 	}
 	if d, exists := schema["default"]; exists {
-		return ValidateDefault(d)
+		if err := ValidateDefault(d); err != nil {
+			return err
+		}
+		_, _, err := schemaDefaultBinding(schema)
+		return err
 	}
 	return nil
 }
 
+// schemaDefaultBinding distinguishes an omitted-input binding from a public
+// fallback. A binding must never become the fallback for a caller's reference.
+func schemaDefaultBinding(schema map[string]any) (Reference, bool, error) {
+	text, _ := schema["default"].(string)
+	if ref, ok := Template(text); ok {
+		return ref, true, nil
+	}
+	if strings.Contains(text, "{{") {
+		return Reference{}, false, fmt.Errorf("secret default templates must be whole-value secret references with static names and literal fallbacks")
+	}
+	return Reference{}, false, nil
+}
+
 // ApplySchemaDefaults attaches fallbacks to secret bindings, including omitted
-// inputs. It never substitutes a named secret or evaluates default strings.
+// inputs. Named default bindings stay opaque until task-time materialization.
 func ApplySchemaDefaults(schema map[string]any, value any) (any, error) {
 	if marked, _ := schema["x-secret"].(bool); marked {
 		if err := validateSecretSchema(schema); err != nil {
@@ -238,6 +263,9 @@ func ApplySchemaDefaults(schema map[string]any, value any) (any, error) {
 		if ref, ok, err := Parse(value); ok || err != nil {
 			if err != nil {
 				return nil, err
+			}
+			if _, binding, err := schemaDefaultBinding(schema); binding || err != nil {
+				return ref, err
 			}
 			return WithDefault(ref, schema["default"]), nil
 		}
@@ -268,7 +296,15 @@ func ApplySchemaDefaults(schema map[string]any, value any) (any, error) {
 					if err := ValidateDefault(d); err != nil {
 						return nil, err
 					}
-					out[k] = WithDefault(Reference{}, d)
+					ref, binding, err := schemaDefaultBinding(sub)
+					if err != nil {
+						return nil, err
+					}
+					if binding {
+						out[k] = ref
+					} else {
+						out[k] = WithDefault(Reference{}, d)
+					}
 				}
 			}
 		}

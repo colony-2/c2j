@@ -197,8 +197,10 @@ and `additionalProperties`, including nesting. They are not supported through
 be secret-marked. String constraints such as `minLength` are checked against the
 resolved value before invoking the op.
 
-An extension's ordinary `default` fills an omitted input, not an unavailable
-config reference. A secret-marked property may declare a public string fallback.
+An extension's `default` fills an omitted input. It can be a whole-value
+`context.config` or `context.secrets` reference, including its own `orValue(...)`.
+A secret-marked property can also declare a public literal string fallback.
+See [reference defaults](#extension-reference-defaults) below.
 
 ## Make routing decisions from recorded outputs
 
@@ -310,8 +312,8 @@ input_schema:
 
 | Input/reference | If the secret is unavailable |
 |---|---|
-| Optional input omitted by the caller | No lookup; schema defaults, if any, still apply |
-| `context.secrets.token` | Fails unless a string schema default is provided |
+| Optional input omitted by the caller | Schema defaults, if any, apply; an extension reference default performs its named lookup |
+| `context.secrets.token` | Fails unless a public literal schema fallback is provided |
 | `context.secrets.?token.orValue("")` | Supplies an empty string |
 | `context.secrets.?token.orValue(null)` | Omits the field; fails if the receiving input is required |
 
@@ -352,23 +354,79 @@ input_schema:
 ```
 
 Resolution uses the available secret first, then the reference's explicit
-fallback (including null omission), then the receiving schema's default. Without any fallback, a missing
-or denied secret fails the task. An available empty secret stays empty.
+fallback (including null omission), then the receiving schema's public literal
+default. Without any fallback, a missing or denied secret fails the task. An available empty secret stays empty.
 Fallbacks attached by a recipe survive forwarding; a downstream schema cannot
 replace an already attached fallback. Extension string constraints still apply
 to the value actually passed to the op, including fallbacks.
 
-If a secret input is omitted entirely, its schema default supplies the value
-without a provider read. Without a default, ordinary required-input rules apply.
+If a secret input is omitted entirely, a public literal schema default supplies
+the value without a provider read. An extension reference default instead
+requests its named secret during task preparation. Without a default, ordinary
+required-input rules apply.
 An explicit null or plaintext input is still rejected.
 
 **Defaults are public:** they can appear in recipe/manifests and durable
-reference metadata. Never put a credential in a fallback. Defaults are literal
-strings, not evaluated templates, and are never stored as a secret in the
-execution cache. Two inputs referencing the same missing name can therefore
-use different defaults. JobDB caches missing/denied names for the execution;
+reference metadata. Never put a credential in a fallback. Literal fallbacks are
+not evaluated as templates and are never stored as a secret in the execution
+cache. Extension reference defaults are deferred bindings as described below;
+recipe `default_value` remains a literal fallback. Two inputs referencing the
+same missing name can therefore use different defaults. JobDB caches missing/denied names for the execution;
 a newly supplied secret becomes visible after a fresh execution starts.
 
 Only a successful provider response that omits a name permits its fallback.
 Provider outages, an unconfigured provider, cancellation, timeout, and lease
 loss still fail execution.
+
+## Extension reference defaults
+
+Local `op.yaml` manifests and Nix `passthru.c2j` / installed `op.json` manifests
+can bind omitted inputs to tenant settings using the same syntax as recipe inputs:
+
+```yaml
+input_schema:
+  type: object
+  properties:
+    api:
+      type: [object, "null"]
+      additionalProperties: false
+      properties:
+        base_url:
+          type: [string, "null"]
+          default: '${{ context.config.?codex_api_base_url.orValue(null) }}'
+        api_key:
+          type: string
+          x-secret: true
+          minLength: 1
+          default: '${{ context.secrets.?codex_api_key.orValue(null) }}'
+```
+
+Invoke the extension directly with `op: <selector>`, so c2j prepares these
+bindings within the task. The lower-level `op: extension_execution` form cannot
+prepare reference defaults and rejects such manifests.
+
+- Omitting `api` creates the object and applies both bindings. Missing config
+  produces `base_url: null`; an unavailable secret omits `api_key`.
+- Explicit `api: null` disables the whole binding and performs neither lookup.
+- A partial object fills only missing properties; explicitly supplied values
+  or references win. An explicit null on `api_key` itself is still invalid.
+- A reference default only fills an omitted input. If the caller supplies
+  `context.secrets.other_key`, c2j looks up only `other_key`; it does not fall
+  back to the manifest's secret or attach its expression as a literal fallback.
+- `orValue(null)` omits an unavailable secret property without reapplying its
+  default. `orValue("")` supplies an empty string. Required properties and string
+  constraints still apply after materialization, including to available empty
+  secrets.
+- Config defaults can yield any permitted JSON value, including booleans and
+  numbers. Existing null, false, zero, and empty strings are not missing.
+
+References use static names and the existing supported literal fallbacks.
+Secret defaults do not support interpolation or arbitrary expressions. Only
+missing or denied names select fallbacks; provider errors still fail the task.
+Resolution uses the consuming task's execution lease, never submission or
+replay of completed tasks. Durable manifests retain reference expressions,
+not resolved credentials; config values remain visible in task diagnostics.
+
+**Breaking change:** supported reference expressions in secret `default` strings
+now bind to the named secret instead of being passed as literal template text.
+Public literal defaults such as `default: ""` retain their fallback behavior.
