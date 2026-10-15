@@ -19,6 +19,7 @@ import (
 	"github.com/colony-2/c2j/pkg/jobdbschema"
 	"github.com/colony-2/c2j/pkg/recipe"
 	"github.com/colony-2/c2j/pkg/starter"
+	storylive "github.com/colony-2/c2j/pkg/story/live"
 	"github.com/colony-2/c2j/pkg/workflowctl"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/remote"
@@ -39,11 +40,15 @@ type suppliedCLI struct {
 	failRenewAfter         atomic.Int32
 }
 
-func newSuppliedCLI(t *testing.T, yaml string, duration time.Duration) *suppliedCLI {
+func newSuppliedCLI(t *testing.T, yaml string, duration time.Duration, providers ...jobdb.SecretProvider) *suppliedCLI {
 	t.Helper()
 	c2jops.Register()
 	ctx := context.Background()
-	rt, err := sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: filepath.Join(t.TempDir(), "jobs.db")})
+	cfg := sqlite.Config{DBPath: filepath.Join(t.TempDir(), "jobs.db")}
+	if len(providers) > 0 {
+		cfg.SecretProvider = providers[0]
+	}
+	rt, err := sqlite.NewFromConfig(ctx, cfg)
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, rt.Close(ctx)) })
 	f := &suppliedCLI{backend: rt}
@@ -314,4 +319,85 @@ func assertRenewalDiagnostic(t *testing.T, f *suppliedCLI, err error) {
 	require.NotContains(t, output, wire["leaseToken"].(string))
 	require.NotContains(t, output, "secret-response")
 	require.NotContains(t, output, "HTTP status 0")
+}
+
+type suppliedSecretProvider func(context.Context, jobdb.SecretResolveRequest) (jobdb.SecretResolveResult, error)
+
+func (f suppliedSecretProvider) ResolveSecrets(ctx context.Context, req jobdb.SecretResolveRequest) (jobdb.SecretResolveResult, error) {
+	return f(ctx, req)
+}
+
+func TestRunWithLeaseResolvesSecrets(t *testing.T) {
+	for _, file := range []bool{false, true} {
+		name := "stdin"
+		if file {
+			name = "file"
+		}
+		t.Run(name, func(t *testing.T) {
+			const credential = "supplied-lease-private-credential"
+			t.Setenv("C2J_TEST_EXPECTED_SECRET", credential)
+			var calls atomic.Int32
+			requests := make(chan jobdb.SecretResolveRequest, 4)
+			provider := suppliedSecretProvider(func(_ context.Context, req jobdb.SecretResolveRequest) (jobdb.SecretResolveResult, error) {
+				calls.Add(1)
+				requests <- req
+				return jobdb.SecretResolveResult{Secrets: map[string]jobdb.SecretValue{"token": {Value: credential}}}, nil
+			})
+			f := newSuppliedCLI(t, `id: supplied-secrets
+sequence:
+  - id: first
+    op: command_execution
+    inputs:
+      env:
+        TOKEN: '${{ context.secrets.token }}'
+      run: '[ "$TOKEN" = "$C2J_TEST_EXPECTED_SECRET" ] && printf resolved-first'
+  - id: second
+    op: command_execution
+    inputs:
+      env:
+        TOKEN: '${{ context.secrets.token }}'
+      run: '[ "$TOKEN" = "$C2J_TEST_EXPECTED_SECRET" ] && printf resolved-second'
+outputs:
+  first: '${{ sequence.first.outputs.stdout }}'
+  second: '${{ sequence.second.outputs.stdout }}'
+`, time.Minute, provider)
+			require.Zero(t, calls.Load(), "submission does not resolve secrets")
+			require.NoError(t, f.run(t, file), f.stderr.String())
+			require.EqualValues(t, 1, calls.Load(), "JobDB reuses the resolved secret within this execution")
+			req := <-requests
+			require.Equal(t, f.key.TenantId, req.TenantID)
+			require.Equal(t, f.key.JobId, req.JobID)
+			require.Equal(t, []string{"token"}, req.Names)
+			info, err := f.backend.GetJob(context.Background(), f.key)
+			require.NoError(t, err)
+			require.Equal(t, jobdb.JobStatusCompleted, info.Status)
+			output, err := info.Data.GetData()
+			require.NoError(t, err)
+			require.JSONEq(t, `{"first":"resolved-first","second":"resolved-second"}`, string(output))
+			history, err := jobdb.GetJobRun(context.Background(), f.backend, jobdb.GetJobRunRequest{JobKey: f.key, IncludeInputs: true, IncludeOutputs: true})
+			require.NoError(t, err)
+			raw, err := json.Marshal(history)
+			require.NoError(t, err)
+			require.Contains(t, string(raw), "$c2j_secret")
+			require.NotContains(t, string(raw), credential)
+			require.NotContains(t, f.stdout.String()+f.stderr.String(), credential)
+			require.Zero(t, f.acquisitions.Load(), "secret resolution must use the supplied execution lease")
+			// The CLI's cached story replay must not resolve secrets or open
+			// another execution session. Exercise the same worker factory.
+			opts := f.opts
+			require.NoError(t, opts.Complete(context.Background()))
+			deps, cleanup, err := buildDeps(context.Background(), opts)
+			require.NoError(t, err)
+			defer cleanup()
+			recorder := storylive.NewRecorder(storylive.Options{JobKey: f.key})
+			defer recorder.CloseNotifications()
+			_, err = deps.engine.ReplayJobRun(context.Background(), jobworkflow.ReplayRunRequest{
+				JobKey: f.key, JobWorker: newStoryJobWorker(deps, recorder, true), Observer: recorder.Observer(),
+			})
+			require.NoError(t, err)
+			require.Nil(t, deps.secretSessions.Get(f.key))
+			require.EqualValues(t, 1, calls.Load(), "completed replay must not resolve secrets")
+			require.NotContains(t, f.stdout.String()+f.stderr.String(), credential)
+		})
+	}
 }
