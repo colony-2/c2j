@@ -39,6 +39,15 @@ jobs:
     uses: ./.github/workflows/test.yaml
     secrets: inherit
 
+  nix:
+    needs: test
+    uses: ./.github/workflows/nix.yaml
+    permissions:
+      contents: read
+    with:
+      publish: true
+    secrets: inherit
+
   create-tag:
     needs: test
     runs-on: ubuntu-latest
