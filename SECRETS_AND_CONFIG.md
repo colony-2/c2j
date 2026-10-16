@@ -255,6 +255,7 @@ jobs get fresh caches, and replayed outcomes never seed them.
 | Situation | Current behavior |
 |---|---|
 | Secret missing or denied | Uses a string fallback, omits the field for `orValue(null)`, or fails without a fallback |
+| No secret provider configured | Task fails: `no secret provider configured` |
 | Secret provider failure | Task fails: `secret resolution unavailable` |
 | Empty secret | Valid string, unless the receiving schema rejects it |
 | Config key missing | Resolves to null, or the explicit `orValue(...)` fallback; receiving schema still applies |

@@ -59,7 +59,7 @@ func TestExtensionReferenceDefaultsThroughWorkerAndReplay(t *testing.T) {
 		{name: "caller secret no fallback", inputs: `inputs:
   api:
     api_key: '${{ context.secrets.caller }}'`, secret: "private-credential", wantErr: "secret resolution unavailable", calls: 1},
-		{name: "no provider", noProvider: true, wantErr: "secret resolution unavailable"},
+		{name: "no provider", noProvider: true, wantErr: "no secret provider configured"},
 		{name: "outage", outage: true, wantErr: "secret resolution unavailable", calls: 1},
 		{name: "invalid config", config: `false`, wantErr: "failed to validate selector inputs"},
 		{name: "stderr redaction", secret: "private-credential", wantErr: "extension op", calls: 1},

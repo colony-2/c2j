@@ -96,11 +96,34 @@ The recipe must contain those authored node IDs and accept the declared review
 fields. Responses are submitted through the input API, which validates fields,
 attachments and request identity. Attachments use existing file-upload fields.
 
+Optional tenant fixtures can be supplied without changing the recipe:
+
+```yaml
+runtime:
+  secrets:
+    codex_api_key: synthetic-test-credential
+  config:
+    codex_api_base_url: https://fixture.invalid
+```
+
+Omit these maps to test missing settings. Optional secret defaults also work for
+mocked extension ops: normal preparation uses the empty fixture provider, then
+the mock supplies the result without invoking the model. Real provider outages
+remain failures in production.
+
 Runtime fixture vocabulary:
 
 - `runtime.cell` selects the root cell (default `root`). `runtime.cells` maps
   names to `files` (path to inline text) and `file_sources` (destination to source
   file). Sources resolve relative to the suite; destinations stay in the fixture.
+- `runtime.secrets` maps secret names to synthetic string values; `runtime.config`
+  maps configuration names to JSON values. Each case has its own provider and
+  configuration store, shared with its child jobs. Both are empty by default,
+  so absent optional settings use their normal fallbacks. Required missing
+  secrets still fail before a mock executes. Tests never read production tenant
+  credentials. Use fake values only; these fixture declarations live in the suite.
+  Materialized secrets are masked in runtime call reports; configuration remains
+  visible. Extension mock inputs retain secret references for forwarding.
 - Existing op mocks support `return`, `fail`, and `passthrough`. `match.cell`
   scopes a response to a cell. Real built-in orchestration runs normally;
   commands and extensions require a matching response or explicit passthrough.

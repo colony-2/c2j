@@ -109,6 +109,9 @@ func (s *Session) PrepareReferences(ctx context.Context, refs []Reference, resol
 			clear(s.values)
 		}
 	}()
+	if len(names) > 0 && resolve == nil {
+		return jobdb.ErrNoSecretProvider
+	}
 	for len(names) > 0 {
 		n := min(len(names), 64)
 		result, err := resolve(ctx, names[:n])
@@ -116,6 +119,11 @@ func (s *Session) PrepareReferences(ctx context.Context, refs []Reference, resol
 			if jobdb.IsExecutionLeaseLost(err) {
 				s.closed = true
 				return jobdb.ErrExecutionLeaseLost
+			}
+			// This sentinel contains no provider details and is actionable.
+			// Do not turn absent configuration into an apparent provider outage.
+			if errors.Is(err, jobdb.ErrNoSecretProvider) {
+				return jobdb.ErrNoSecretProvider
 			}
 			return errors.New("secret resolution unavailable")
 		}

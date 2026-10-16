@@ -9,6 +9,9 @@ import (
 // RuntimeCase opts a case into real JobDB and worker execution. Legacy cases
 // (including integration_case) retain their existing executor when omitted.
 type RuntimeCase struct {
+	// Synthetic, case-local tenant values; never use production credentials.
+	Secrets      map[string]string      `json:"secrets,omitempty"`
+	Config       map[string]any         `json:"config,omitempty"`
 	ObserveFiles []string               `json:"observe_files,omitempty"`
 	ExpectError  string                 `json:"expect_error,omitempty"`
 	Cell         string                 `json:"cell,omitempty"`

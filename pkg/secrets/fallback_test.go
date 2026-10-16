@@ -59,7 +59,7 @@ func TestFallbackNeverHidesRequiredBindingsOrProviderErrors(t *testing.T) {
 	}{
 		{"required", []Reference{optional, {Name: "missing"}}, nil, "required secret unavailable"},
 		{"outage", []Reference{optional}, errors.New("private provider detail"), "secret resolution unavailable"},
-		{"no provider", []Reference{optional}, jobdb.ErrNoSecretProvider, "secret resolution unavailable"},
+		{"no provider", []Reference{optional}, jobdb.ErrNoSecretProvider, jobdb.ErrNoSecretProvider.Error()},
 		{"canceled", []Reference{optional}, context.Canceled, "secret resolution unavailable"},
 		{"deadline", []Reference{optional}, context.DeadlineExceeded, "secret resolution unavailable"},
 		{"lease", []Reference{optional}, jobdb.ErrExecutionLeaseLost, jobdb.ErrExecutionLeaseLost.Error()},
@@ -71,6 +71,9 @@ func TestFallbackNeverHidesRequiredBindingsOrProviderErrors(t *testing.T) {
 				return jobdb.SecretResolveResult{}, tc.providerErr
 			})
 			require.ErrorContains(t, err, tc.want)
+			if tc.providerErr == jobdb.ErrNoSecretProvider {
+				require.ErrorIs(t, err, jobdb.ErrNoSecretProvider)
+			}
 			require.NotContains(t, err.Error(), "private provider detail")
 		})
 	}
@@ -141,4 +144,17 @@ func TestNestedSchemaFallbacks(t *testing.T) {
 		"env":    map[string]any{"TOKEN": "explicit"},
 	}, actual)
 	require.Empty(t, input["nested"], "defaults must not mutate callers' input")
+}
+
+func TestNoSecretResolverHasSpecificDiagnostic(t *testing.T) {
+	for _, resolve := range []Resolver{nil, func(context.Context, []string) (jobdb.SecretResolveResult, error) {
+		return jobdb.SecretResolveResult{}, errors.Join(errors.New("private provider detail"), jobdb.ErrNoSecretProvider)
+	}} {
+		s := NewSession()
+		err := s.PrepareReferences(context.Background(), []Reference{{Name: "optional", OmitIfUnavailable: true}}, resolve)
+		require.ErrorIs(t, err, jobdb.ErrNoSecretProvider)
+		require.EqualError(t, err, "no secret provider configured")
+		require.NoError(t, s.PrepareReferences(context.Background(), nil, resolve), "no provider is needed without references")
+		s.Close()
+	}
 }

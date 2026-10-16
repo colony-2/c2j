@@ -21,6 +21,7 @@ import (
 	"github.com/colony-2/c2j/pkg/jobdbschema"
 	coreops "github.com/colony-2/c2j/pkg/ops"
 	"github.com/colony-2/c2j/pkg/recipe"
+	"github.com/colony-2/c2j/pkg/secrets"
 	"github.com/colony-2/c2j/pkg/starter"
 	"github.com/colony-2/c2j/pkg/worker/compiler"
 	workerops "github.com/colony-2/c2j/pkg/worker/ops"
@@ -67,7 +68,18 @@ func runRuntimeCase(parent context.Context, opts HarnessOptions, tenant string, 
 		result.FailureReason = err.Error()
 		return
 	}
-	rt := toyruntime.New()
+	rt := toyruntime.New(toyruntime.WithSecretProvider(runtimeSecretProvider{tenant: tenant, values: req.Case.Runtime.Secrets}))
+	for name, value := range req.Case.Runtime.Config {
+		raw, e := json.Marshal(value)
+		if e != nil {
+			result.FailureReason = fmt.Sprintf("configuration fixture %q: %v", name, e)
+			return
+		}
+		if _, e = rt.SetTenantConfigurationValue(ctx, jobdb.SetTenantConfigurationValueRequest{TenantID: tenant, Name: name, Value: raw}); e != nil {
+			result.FailureReason = fmt.Sprintf("configuration fixture %q: %v", name, e)
+			return
+		}
+	}
 	engine, err := jobworkflow.NewEngineBuilder().WithRuntime(rt).WithWorkerTenantId(tenant).BuildEngine()
 	if err != nil {
 		result.FailureReason = err.Error()
@@ -365,8 +377,16 @@ func (f *runtimeFixture) invoke(deps coreops.OpDependencies, ctx context.Context
 			f.mu.Unlock()
 			return nil, err
 		}
+		call := OpCall{Worktree: worktree, JobID: key.JobId, Cell: cell, NodePath: g.NodePath, Op: op, Inputs: in, Artifacts: artifacts}
+		// Invocation inputs have already been materialized. Reports must not
+		// retain those secret values or aliases to the live input map.
+		var safeCall OpCall
+		if err := snapshotRuntimeValue(ctx, call, &safeCall); err != nil {
+			f.mu.Unlock()
+			return nil, err
+		}
 		f.callIndexes[identity] = len(f.report.Calls)
-		f.report.Calls = append(f.report.Calls, OpCall{Worktree: worktree, JobID: key.JobId, Cell: cell, NodePath: g.NodePath, Op: op, Inputs: in, Artifacts: artifacts})
+		f.report.Calls = append(f.report.Calls, safeCall)
 	}
 	callIndex := f.callIndexes[identity]
 	f.mu.Unlock()
@@ -374,14 +394,11 @@ func (f *runtimeFixture) invoke(deps coreops.OpDependencies, ctx context.Context
 		if invokeErr == nil {
 			// Detach report values from mutable op inputs/outputs and normalize
 			// typed object references for the JSON/CEL report interface.
-			data, err := json.Marshal(opOutput)
-			if err == nil {
-				var out map[string]any
-				if json.Unmarshal(data, &out) == nil {
-					f.mu.Lock()
-					f.report.Calls[callIndex].Outputs = out
-					f.mu.Unlock()
-				}
+			var out map[string]any
+			if snapshotRuntimeValue(ctx, opOutput, &out) == nil {
+				f.mu.Lock()
+				f.report.Calls[callIndex].Outputs = out
+				f.mu.Unlock()
 			}
 		}
 	}()
@@ -717,4 +734,64 @@ func observeWorktree(root string, names []string) (map[string]string, error) {
 		files[name] = string(data)
 	}
 	return files, nil
+}
+
+// The runtime harness is a tenant with an empty provider by default, rather
+// than an unconfigured production runtime. Missing keys are ordinary misses.
+type runtimeSecretProvider struct {
+	tenant string
+	values map[string]string
+}
+
+func (p runtimeSecretProvider) ResolveSecrets(ctx context.Context, req jobdb.SecretResolveRequest) (jobdb.SecretResolveResult, error) {
+	if err := ctx.Err(); err != nil {
+		return jobdb.SecretResolveResult{}, err
+	}
+	if req.TenantID != p.tenant {
+		return jobdb.SecretResolveResult{}, jobdb.ErrSecretResolutionFailed
+	}
+	out := jobdb.SecretResolveResult{Secrets: map[string]jobdb.SecretValue{}}
+	for _, name := range req.Names {
+		if value, ok := p.values[name]; ok {
+			out.Secrets[name] = jobdb.SecretValue{Value: value}
+		}
+	}
+	return out, nil
+}
+
+func snapshotRuntimeValue(ctx context.Context, value, dst any) error {
+	raw, err := json.Marshal(value)
+	if err != nil {
+		return err
+	}
+	var normalized any
+	if err = json.Unmarshal(raw, &normalized); err != nil {
+		return err
+	}
+	session := secrets.FromContext(ctx)
+	var mask func(any) any
+	mask = func(value any) any {
+		switch v := value.(type) {
+		case string:
+			return session.Redact(v)
+		case map[string]any:
+			out := make(map[string]any, len(v))
+			for key, item := range v {
+				out[session.Redact(key)] = mask(item)
+			}
+			return out
+		case []any:
+			for i, item := range v {
+				v[i] = mask(item)
+			}
+			return v
+		default:
+			return value
+		}
+	}
+	raw, err = json.Marshal(mask(normalized))
+	if err != nil {
+		return err
+	}
+	return json.Unmarshal(raw, dst)
 }
