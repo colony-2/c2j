@@ -38,6 +38,7 @@ func (a *thinpackForwarder) fork(inner jobworkflow.ExecutionContext) *thinpackFo
 func (a *thinpackForwarder) adopt(src *thinpackForwarder) {
 	a.lastThinpack = src.lastThinpack
 	a.workspaces = src.workspaces
+	a.initialRestore = src.initialRestore
 	a.rootArtifacts = src.rootArtifacts
 }
 func (a *thinpackForwarder) DoTask(call jobworkflow.TaskCall, build func(context.Context) (jobdb.TaskData, error)) (jobdb.TaskData, error) {
@@ -171,6 +172,21 @@ func (a *thinpackForwarder) recordOutput(out jobdb.TaskData) (jobdb.TaskData, er
 			a.lastThinpack = last
 		} else {
 			a.workspaces[scope] = last
+		}
+	}
+	// A successful refresh can replace a snapshot with a repository base.
+	if decoded, e := decodeTaskOutput(raw); e == nil && findThinPack(outputArtifacts) == nil {
+		git := decoded.Activity.GitResult
+		if git.PersistHash != "" && git.PersistHash == git.ParentHash {
+			if scope == "" {
+				a.lastThinpack = nil
+			} else {
+				delete(a.workspaces, scope)
+			}
+			delete(a.initialRestore, scope)
+			if scope == a.rootScopeID {
+				a.rootArtifacts = nil
+			}
 		}
 	}
 	return out, nil

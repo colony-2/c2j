@@ -145,6 +145,13 @@ func (c *Controller) Restore(ctx context.Context, task *GitTaskContext, thinPack
 		return fmt.Errorf("extract thin pack artifact: %w", err)
 	}
 
+	// A refresh can move the snapshot base beyond the original checkout ref.
+	if !common.CommitExists(ctx, task.GetWorktreePath(), rootHash) {
+		if _, err := common.ExecuteGitCommand(ctx, task.GetWorktreePath(), "fetch", "--depth", "1", "origin", rootHash); err != nil {
+			return fmt.Errorf("fetch snapshot base: %w", err)
+		}
+	}
+
 	// Restore using thin pack
 	restoreInput := gitcommit.RestoreCommitActivity{
 		RepoPath:        task.GetWorktreePath(),
@@ -548,6 +555,9 @@ func (c *Controller) cloneIfNeeded(ctx context.Context, task *GitTaskContext) er
 		if cloneRef == "" {
 			cloneRef = task.Workspace.InitialHash
 		}
+	}
+	if task.ParentHash != "" && task.ParentHash == task.PersistHash {
+		cloneRef = task.ParentHash
 	}
 	input := gitshallow.GitShallowCloneInput{
 		SourceDir:  source,

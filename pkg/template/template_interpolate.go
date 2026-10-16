@@ -303,10 +303,14 @@ func (rc *ResolutionContext) goTemplateContextMap() map[string]interface{} {
 			"repo":          ctx.GitTask.BaseRepo,
 			"ref":           ctx.GitTask.BaseRef,
 			"resolved_hash": ctx.GitTask.ResolvedBaseHash,
-			"author":        ctx.GitTask.GitAuthor,
-			"parent_ref":    ctx.GitTask.ParentRef,
-			"hash":          ctx.GitTask.PersistHash,
-			"parent_hash":   ctx.GitTask.ParentHash,
+			"execution": map[string]interface{}{
+				"base_hash": contextual.GitExecutionBaseSentinel,
+				"head_hash": contextual.GitExecutionHeadSentinel,
+			},
+			"author":      ctx.GitTask.GitAuthor,
+			"parent_ref":  ctx.GitTask.ParentRef,
+			"hash":        ctx.GitTask.PersistHash,
+			"parent_hash": ctx.GitTask.ParentHash,
 		},
 		"invocation": map[string]interface{}{
 			"hash":     ctx.Invocation.Hash,

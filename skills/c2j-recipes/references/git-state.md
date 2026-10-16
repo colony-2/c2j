@@ -11,6 +11,13 @@ Common git context fields:
 - `context.git.hash`
 - `context.git.resolved_hash`
 - `context.git.author`
+- `context.git.execution.base_hash` (op input reference, resolved after workspace restoration)
+- `context.git.execution.head_hash` (op input reference, actual restored HEAD)
+
+`context.git.resolved_hash` may intentionally be empty before a job commits to a
+hash. For op inputs requiring the prepared workspace's hashes, use the execution
+references instead. Reading them does not itself pin the job. Use completed op
+outputs when recipe routing needs concrete hashes.
 
 ## Scoped Workspaces
 
@@ -66,6 +73,13 @@ inputs:
   target_base_hash: "{{ inputs.main_head }}"
   preserve_author: true
 ```
+
+`base_hash` and `persist_hash` default to the task-time execution references;
+recipes normally supply only the target. Shallow ancestry is fetched as needed.
+A successful refresh preserves pending commits and updates the base used by
+subsequent tasks, including after suspension. The target must descend from the
+current base; conflicts and genuinely divergent history fail without discarding
+pending work. See [the op specification](../../../pkg/git/thinpackrebase-op-spec.md).
 
 Outputs include `target_base_hash`, `new_base_hash`, `new_persist_hash`, `updated_ref`, `rebased_from`, and `git_context_patch`.
 

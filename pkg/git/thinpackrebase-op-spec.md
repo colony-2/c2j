@@ -1,65 +1,75 @@
-# Thinpack Rebase Op Specification
+# Thinpack rebase
 
-## Overview
-
-The `thinpackrebase` git op rebases a recipe’s thin-pack backed history onto a newer base commit (typically the head of `main`) and republishes a thin pack representing the rebased commits.
-
-## Goals
-
-- Provide a first-class op that rebases the active `GitContext` onto a caller-specified base hash.
-- Preserve commit lineage, metadata, and thin-pack artifacts without requiring users to leave the recipe workspace.
-- Keep defaults backwards compatible by reusing existing author metadata and workspace semantics (shared or discrete) automatically.
-
-## Registration & Usage
-
-- Register `thinpackrebase` under `server/git/pkg/thinpackrebase` and surface it through the recipe registry.
-- Typical recipe snippet:
+`thinpackrebase` refreshes the active workspace to a newer repository base,
+replaying any pending local commits on top of it.
 
 ```yaml
-- id: refresh_main
+- id: refresh
   op: thinpackrebase
-  with:
-    target_base_hash: {{ context.inputs.main_head }}
-    preserve_author: true
+  inputs:
+    target_base_hash: '${{ sequence.child.outputs.outputs.merged_hash }}'
 ```
 
-## Inputs
+## Defaults and execution context
 
-| Field | Required | Description |
-| --- | --- | --- |
-| `target_base_hash` | yes | Commit hash that becomes the new base (often the latest `main`/`trunk`). |
-| `upstream_remote` | no | Remote name to fetch the target base from; defaults to the remote encoded in `context.git.base_repo`. |
-| `preserve_author` | no | Defaults to `true`; when set to `false` the worker reassigns commits to the workflow’s default author identity. |
-| `update_refs` | no | Optional refspec (e.g., `refs/heads/feature`) to fast-forward after rebasing. Defaults to detached HEAD.
+Only `target_base_hash` is required from the recipe. The defaults are:
 
-## Execution Flow
+| Input | Default |
+| --- | --- |
+| `repo_path` | `{{ context.environment.worktree_path }}` |
+| `base_hash` | `{{ context.git.execution.base_hash }}` |
+| `persist_hash` | `{{ context.git.execution.head_hash }}` |
+| `base_repo` | `{{ context.git.repo }}` |
+| `git_author` | `{{ context.git.author }}` (otherwise the cell's author identity) |
 
-1. **Workspace Preparation** – reuse the prepared workspace and ensure the configured remote contains `target_base_hash`.
-2. **Baseline Validation** – verify the current `persist_hash` is a descendant of `target_base_hash`. Fail fast if history diverged.
-3. **Rebase** – run `git rebase --reapply-cherry-picks` (or libgit2 equivalent) from `context.git.base_hash` onto `target_base_hash` while respecting the `preserve_author` flag.
-4. **Thin Pack Generation** – invoke `gitcommit.PersistCommit` to write a new thin pack for the rebased commits. Filename incorporates the new base hash for traceability.
-5. **Context Update** – set `context.git.base_hash = target_base_hash`, refresh `context.git.persist_hash` to the rebased tip, and append a `rebased_from` block detailing the old base/persist hashes.
-6. **Output Injection** – update recipe outputs so downstream nodes read the refreshed `context.git` and `git_persist_hash` values.
+The two `context.git.execution.*` expressions are task-time references, usable
+in op inputs. They resolve after the workspace is restored, before invoking the
+op. `base_hash` is the base beneath pending commits; `head_hash` is the actual
+restored HEAD. Both `{{ ... }}` and `${{ ... }}` syntax work. They are not
+immediately available hashes for recipe routing; use a completed op's outputs
+when a decision needs a hash.
 
-## Failure Semantics
+`context.git.resolved_hash` keeps its existing meaning and can intentionally be
+empty before work commits to a hash. Reading an execution reference does not
+pin an otherwise uncommitted recipe. A successful refresh explicitly commits
+the workspace to the selected base and rebased HEAD.
 
-- Rebase conflicts produce plain text activity errors describing the failing command. Callers can branch on standard error strings when needed.
-- Retries reuse the same workspace; the op detects when the target base moves again to avoid replaying conflicting rebases.
-- Thin-pack upload failures retry the upload step without repeating the entire rebase (the rebased commit already exists locally).
+Explicit hashes remain supported. For a separate checkout, supply its
+`repo_path`, `base_hash`, and `persist_hash` explicitly; the defaults describe
+the managed workspace. A separate checkout's refresh does not update managed
+workspace metadata.
 
-## Testing Strategy
+## Behavior
 
-- **Unit:**
-  - Verify happy-path rebase, conflict detection, and thin-pack regeneration within `ops/thinpackrebase` tests.
-  - Confirm the controller updates `GitContext` fields and outputs correctly.
-- **End-to-End:**
-  - Exercise a recipe that periodically rebases onto moving `main` while other activities mutate the workspace, validating blob-store contents and commit metadata.
+- The target must descend from the supplied current base and respect the
+  managed workspace's initial base when available. Equal bases are allowed.
+- A target commit being present locally does not prove its ancestry is present.
+  Fetch target history incrementally when shallow boundaries hide the relation.
+  There is no unconditional full-history clone or unshallow operation. Truly
+  divergent history fails; unavailable history fails as unverified ancestry.
+- With no pending commits, fast-forward to the target. Otherwise, rebase pending
+  commits onto it. `preserve_author` defaults to true; a committer identity is
+  supplied even when retaining original authors.
+- Uncommitted changes are rejected without discarding them. Conflicts abort the
+  rebase and retain the original commits.
+- On the managed workspace, update the persistence base and carry a replacement
+  thin pack containing only remaining pending work. A refresh with no pending
+  work needs no thin pack. Subsequent tasks and resumed execution restore this
+  completed state, even if the repository ref advances again.
+- Completed task replay uses the recorded outcome without fetching or rebasing.
+  Whole-job retries are separate attempts and keep their existing policy.
 
-## Rollout
+`upstream_remote` optionally selects the fetch remote. `update_refs` optionally
+updates a local ref to the resulting HEAD.
 
-- Update user documentation (`VIBETHIS.md`, cookbook) with examples and troubleshooting tips.
+Outputs: `target_base_hash`, `new_base_hash`, `new_persist_hash`, `updated_ref`,
+`rebased_from`, and `git_context_patch`. The patch is descriptive output; native
+workspace persistence uses an explicit runtime update, not arbitrary output
+fields named `git_context_patch`.
 
+## Coverage
 
-## Notes
-
-If it makes sense, extract some common context variables from server/recipe-worker to the server/git packages to avoid duplication.
+Tests cover real child merge → refresh → next task; omitted defaults; shallow
+history with present/missing targets; pending commits; fast-forward; already
+merged local work; divergence and conflicts; dirty work preservation; base
+constraints; scoped workspaces; suspension/resumption; and offline replay.

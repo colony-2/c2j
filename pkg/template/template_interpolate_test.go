@@ -862,3 +862,16 @@ func TestTemplateContextExposesHostAndOpEnvironmentPaths(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, contextual.OpWorktreePathSentinel, opWorktree)
 }
+
+func TestGitExecutionDefaultsRemainDeferred(t *testing.T) {
+	ctx := newRecipeCtx(t, nil)
+	values, err := ctx.ResolveInputs(map[string]any{
+		"base":     "{{ context.git.execution.base_hash }}",
+		"head":     "${{ context.git.execution.head_hash }}",
+		"embedded": "git checkout {{ context.git.execution.head_hash }}",
+	})
+	require.NoError(t, err)
+	require.Equal(t, contextual.GitExecutionBaseSentinel, values["base"])
+	require.Equal(t, contextual.GitExecutionHeadSentinel, values["head"])
+	require.Equal(t, "git checkout "+contextual.GitExecutionHeadSentinel, values["embedded"])
+}

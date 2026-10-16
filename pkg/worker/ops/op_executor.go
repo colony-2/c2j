@@ -26,6 +26,7 @@ import (
 	"github.com/colony-2/c2j/pkg/childbroker"
 	"github.com/colony-2/c2j/pkg/contextual"
 	"github.com/colony-2/c2j/pkg/execution"
+	"github.com/colony-2/c2j/pkg/git/common"
 	"github.com/colony-2/c2j/pkg/git/gitstate"
 	"github.com/colony-2/c2j/pkg/jobcontext"
 	"github.com/colony-2/c2j/pkg/logutil"
@@ -429,6 +430,16 @@ func (t opExecutor) do(ctx context.Context, jobTool ops.JobTool, req ActivityInv
 		return zero, nil, err
 	}
 
+	hasGitExecutionReference := containsGitExecutionReference(req.Input)
+	if hasGitExecutionReference {
+		headHash, err := common.GetCommitHash(ctx, fullContext.WorktreePath, "HEAD")
+		if err != nil {
+			return zero, nil, err
+		}
+		replacements[contextual.GitExecutionBaseSentinel] = fullContext.ResolvedBaseHash
+		replacements[contextual.GitExecutionHeadSentinel] = headHash
+	}
+
 	// CRITICAL: Hydrate sentinel values in input with actual worktree path
 	// Templates like {{ environment.worktree_path }} resolved to sentinel at compile time
 	// Now replace with real local path
@@ -504,7 +515,7 @@ func (t opExecutor) do(ctx context.Context, jobTool ops.JobTool, req ActivityInv
 		return zero, nil, secretErr
 	}
 	hydratedInput, _ = transient.(map[string]interface{})
-	if hasOmission {
+	if hasOmission || hasGitExecutionReference {
 		if err := ops.ValidateMaterializedOpInputType(reg.Step.InputType, hydratedInput); err != nil {
 			return zero, nil, session.Error(err)
 		}
@@ -613,6 +624,17 @@ func (t opExecutor) do(ctx context.Context, jobTool ops.JobTool, req ActivityInv
 		return output, outputArtifacts, nil
 	}
 
+	rebasedBase := ""
+	if source, ok := opDeps.(interface{ WorkspaceBase() string }); ok && stepErr == nil {
+		rebasedBase = source.WorkspaceBase()
+		if rebasedBase != "" {
+			fullContext.ParentHash = rebasedBase
+			fullContext.ResolvedBaseHash = rebasedBase
+			// Persist just the pending commits on top of the new base.
+			fullContext.PersistHash = rebasedBase
+		}
+	}
+
 	// Call PersistWithDiffs with full context
 	persistOutput, persistArtifacts, err := controller.PersistWithDiffs(ctx, fullContext)
 	if err != nil {
@@ -634,6 +656,10 @@ func (t opExecutor) do(ctx context.Context, jobTool ops.JobTool, req ActivityInv
 		// PersistWithDiffs created artifacts (changes were made)
 		// Append all artifacts (thin pack + diffs) to output
 		outputArtifacts = append(outputArtifacts, persistArtifacts...)
+	} else if rebasedBase != "" {
+		// A refresh with no pending commits still commits to this exact base.
+		// It needs no snapshot: the base is available from the repository.
+		gitResult = contextual.GitCommitContext{PersistHash: rebasedBase, ParentHash: rebasedBase}
 	} else {
 		// Preserve input git state for unchanged tasks so hash-mode never regresses to ref-mode.
 		gitResult = unchangedGitResult(incomingGitContext)
@@ -1102,4 +1128,24 @@ func hasTrailingSlash(name string) bool {
 
 func artifactKeyIdentity(key jobdb.ArtifactKey) string {
 	return fmt.Sprintf("%s:%d:%s", key.JobId, key.TaskOrdinal, key.Name)
+}
+
+func containsGitExecutionReference(value any) bool {
+	switch v := value.(type) {
+	case string:
+		return strings.Contains(v, contextual.GitExecutionBaseSentinel) || strings.Contains(v, contextual.GitExecutionHeadSentinel)
+	case map[string]any:
+		for _, item := range v {
+			if containsGitExecutionReference(item) {
+				return true
+			}
+		}
+	case []any:
+		for _, item := range v {
+			if containsGitExecutionReference(item) {
+				return true
+			}
+		}
+	}
+	return false
 }

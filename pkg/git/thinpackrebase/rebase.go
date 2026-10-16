@@ -25,6 +25,10 @@ type workspaceSnapshot struct {
 
 // Run performs the thin-pack aware rebase and returns structured outputs.
 func Run(ctx context.Context, input ThinpackRebaseInput) (*ThinpackRebaseOutput, error) {
+	return run(ctx, input, "")
+}
+
+func run(ctx context.Context, input ThinpackRebaseInput, minimumBase string) (*ThinpackRebaseOutput, error) {
 	targetBase := strings.TrimSpace(input.TargetBaseHash)
 	if targetBase == "" {
 		return nil, fmt.Errorf("target_base_hash is required")
@@ -60,8 +64,43 @@ func Run(ctx context.Context, input ThinpackRebaseInput) (*ThinpackRebaseOutput,
 		return nil, err
 	}
 
-	if err := ensureLinearHistory(ctx, snapshot.RepoPath, snapshot.BaseHash, targetBase); err != nil {
+	if minimumBase != "" {
+		if err := ensureLinearHistory(ctx, snapshot.RepoPath, remoteName, minimumBase, targetBase); err != nil {
+			return nil, fmt.Errorf("workspace base constraint: %w", err)
+		}
+	}
+
+	if err := ensureLinearHistory(ctx, snapshot.RepoPath, remoteName, snapshot.BaseHash, targetBase); err != nil {
 		return nil, err
+	}
+
+	// Resolve abbreviations before comparing or publishing metadata.
+	targetBase, err = common.GetCommitHash(ctx, snapshot.RepoPath, targetBase+"^{commit}")
+	if err != nil {
+		return nil, err
+	}
+	snapshot.BaseHash, err = common.GetCommitHash(ctx, snapshot.RepoPath, snapshot.BaseHash+"^{commit}")
+	if err != nil {
+		return nil, err
+	}
+	head, err := common.GetCommitHash(ctx, snapshot.RepoPath, "HEAD")
+	if err != nil {
+		return nil, err
+	}
+	requestedHead, err := common.GetCommitHash(ctx, snapshot.RepoPath, snapshot.PersistHash+"^{commit}")
+	if err != nil {
+		return nil, err
+	}
+	if requestedHead != head {
+		return nil, fmt.Errorf("persist_hash does not match workspace HEAD")
+	}
+	snapshot.PersistHash = head
+	status, err := common.ExecuteGitCommand(ctx, snapshot.RepoPath, "status", "--porcelain")
+	if err != nil {
+		return nil, err
+	}
+	if len(strings.TrimSpace(string(status))) != 0 {
+		return nil, fmt.Errorf("thinpackrebase requires a clean workspace; commit pending changes first")
 	}
 
 	rebasedFrom := RebasedFromSummary{BaseHash: snapshot.BaseHash, PersistHash: snapshot.PersistHash}
@@ -193,7 +232,7 @@ func ensureTargetAvailable(ctx context.Context, repoPath, remoteName, target str
 		return fmt.Errorf("target base hash %s not found locally and no remote configured", shortHash(target))
 	}
 
-	if _, err := common.ExecuteGitCommand(ctx, repoPath, "fetch", remoteName); err != nil {
+	if _, err := common.ExecuteGitCommand(ctx, repoPath, "fetch", "--depth", "1", remoteName, target); err != nil {
 		return fmt.Errorf("fetch remote %s: %w", remoteName, err)
 	}
 
@@ -203,19 +242,84 @@ func ensureTargetAvailable(ctx context.Context, repoPath, remoteName, target str
 	return fmt.Errorf("target base hash %s not available after fetching %s", shortHash(target), remoteName)
 }
 
-func ensureLinearHistory(ctx context.Context, repoPath, currentBase, targetBase string) error {
+// A present commit may still sit at a shallow boundary. Fetch the target's
+// history incrementally until ancestry is proved or its reachable history is
+// complete. Never unshallow the whole repository just to refresh a workspace.
+func ensureLinearHistory(ctx context.Context, repoPath, remoteName, currentBase, targetBase string) error {
 	if hashesEqual(currentBase, targetBase) {
 		return nil
 	}
+	depth := 2
+	previousBoundary := ""
+	for {
+		ancestor, err := isAncestor(ctx, repoPath, currentBase, targetBase)
+		if err != nil {
+			return err
+		}
+		if ancestor {
+			return nil
+		}
+		boundary, err := reachableShallowBoundary(ctx, repoPath, targetBase)
+		if err != nil {
+			return err
+		}
+		if boundary == "" {
+			return fmt.Errorf("target base %s does not descend from current base %s", shortHash(targetBase), shortHash(currentBase))
+		}
+		if remoteName == "" || boundary == previousBoundary || depth > 1048576 {
+			return fmt.Errorf("cannot verify target ancestry: incomplete shallow history for %s", shortHash(targetBase))
+		}
+		previousBoundary = boundary
+		// Start beyond the already available history; don't make it shallower.
+		count, err := common.ExecuteGitCommand(ctx, repoPath, "rev-list", "--count", targetBase)
+		if err != nil {
+			return err
+		}
+		n, err := strconv.Atoi(strings.TrimSpace(string(count)))
+		if err != nil {
+			return err
+		}
+		if depth <= n {
+			depth = n + 1
+		}
+		if _, err := common.ExecuteGitCommand(ctx, repoPath, "fetch", "--depth", strconv.Itoa(depth), remoteName, targetBase); err != nil {
+			return fmt.Errorf("fetch target ancestry: %w", err)
+		}
+		depth *= 2
+	}
+}
 
-	ancestor, err := isAncestor(ctx, repoPath, currentBase, targetBase)
+func reachableShallowBoundary(ctx context.Context, repoPath, target string) (string, error) {
+	path, err := common.ExecuteGitCommand(ctx, repoPath, "rev-parse", "--git-path", "shallow")
 	if err != nil {
-		return err
+		return "", err
 	}
-	if !ancestor {
-		return fmt.Errorf("target base %s does not descend from current base %s", shortHash(targetBase), shortHash(currentBase))
+	name := strings.TrimSpace(string(path))
+	if !filepath.IsAbs(name) {
+		name = filepath.Join(repoPath, name)
 	}
-	return nil
+	shallow, err := os.ReadFile(name)
+	if os.IsNotExist(err) {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	roots, err := common.ExecuteGitCommand(ctx, repoPath, "rev-list", "--max-parents=0", target)
+	if err != nil {
+		return "", err
+	}
+	boundaries := map[string]bool{}
+	for _, hash := range strings.Fields(string(shallow)) {
+		boundaries[hash] = true
+	}
+	var reachable []string
+	for _, hash := range strings.Fields(string(roots)) {
+		if boundaries[hash] {
+			reachable = append(reachable, hash)
+		}
+	}
+	return strings.Join(reachable, "\n"), nil
 }
 
 func isAncestor(ctx context.Context, repoPath, ancestor, descendant string) (bool, error) {
@@ -265,11 +369,13 @@ func rebaseOntoTarget(ctx context.Context, snapshot workspaceSnapshot, targetBas
 
 	env := append(os.Environ(), "GIT_SEQUENCE_EDITOR=true", "GIT_TERMINAL_PROMPT=0")
 
+	// Rebase always creates commits, even when retaining their original author.
+	// Fresh worker clones do not inherit the source repository's Git config.
+	name, email := splitAuthor(snapshot.GitAuthor)
+	if name != "" && email != "" {
+		args = append([]string{"-c", fmt.Sprintf("user.name=%s", name), "-c", fmt.Sprintf("user.email=%s", email)}, args...)
+	}
 	if !keepAuthor {
-		name, email := splitAuthor(snapshot.GitAuthor)
-		if name != "" && email != "" {
-			args = append([]string{"-c", fmt.Sprintf("user.name=%s", name), "-c", fmt.Sprintf("user.email=%s", email)}, args...)
-		}
 		args = append(args, "--exec", "git commit --amend --no-edit --reset-author")
 	}
 
@@ -326,12 +432,6 @@ func hashesEqual(a, b string) bool {
 	b = strings.TrimSpace(b)
 	if len(a) == 0 || len(b) == 0 {
 		return false
-	}
-	if len(a) > 12 {
-		a = a[:12]
-	}
-	if len(b) > 12 {
-		b = b[:12]
 	}
 	return strings.EqualFold(a, b)
 }

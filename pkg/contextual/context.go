@@ -9,9 +9,11 @@ import (
 	"github.com/colony-2/jobdb/pkg/jobdb"
 )
 
-// WorktreePathSentinel is a placeholder value used during template resolution
-// Templates that reference {{ environment.worktree_path }} will resolve to this sentinel
-// The actual worktree path is determined at execution time on the target machine
+// Git execution references stay unresolved until the task restores its workspace.
+const GitExecutionBaseSentinel = "__C2_SENTINEL_GIT_EXECUTION_BASE__"
+const GitExecutionHeadSentinel = "__C2_SENTINEL_GIT_EXECUTION_HEAD__"
+
+// WorktreePathSentinel is replaced with the task-local worktree path.
 const WorktreePathSentinel = "__C2_SENTINEL_WORKTREE__"
 const WorkdirPathSentinel = "__C2_SENTINEL_WORKDIR__"
 const ArtifactInboxSentinel = "__C2_SENTINEL_ARTIFACT_INBOX__"
@@ -130,14 +132,21 @@ type InlineBoundaryFrame struct {
 	ContentSHA256     string `json:"content_sha256,omitempty"`
 }
 
+// GitExecutionReferences are hydrated only after the task workspace is restored.
+type GitExecutionReferences struct {
+	BaseHash string `json:"base_hash"`
+	HeadHash string `json:"head_hash"`
+}
+
 type GitTask struct {
-	BaseRepo         string `json:"repo,omitempty"`
-	BaseRef          string `json:"ref,omitempty"`
-	ResolvedBaseHash string `json:"resolved_hash,omitempty"`
-	GitAuthor        string `json:"author,omitempty"`
-	ParentRef        string `json:"parent_ref,omitempty"`  // ref carrying workspace state until a hash exists
-	PersistHash      string `json:"hash,omitempty"`        // materialized SHA after a commit is created
-	ParentHash       string `json:"parent_hash,omitempty"` // resolved job parent/root SHA once materialized
+	Execution        GitExecutionReferences `json:"execution"`
+	BaseRepo         string                 `json:"repo,omitempty"`
+	BaseRef          string                 `json:"ref,omitempty"`
+	ResolvedBaseHash string                 `json:"resolved_hash,omitempty"`
+	GitAuthor        string                 `json:"author,omitempty"`
+	ParentRef        string                 `json:"parent_ref,omitempty"`  // ref carrying workspace state until a hash exists
+	PersistHash      string                 `json:"hash,omitempty"`        // materialized SHA after a commit is created
+	ParentHash       string                 `json:"parent_hash,omitempty"` // resolved job parent/root SHA once materialized
 }
 
 type InvocationCtx struct {

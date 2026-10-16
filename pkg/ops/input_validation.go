@@ -6,6 +6,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/colony-2/c2j/pkg/contextual"
 	"github.com/colony-2/c2j/pkg/secrets"
 	"github.com/go-playground/validator/v10"
 	"github.com/mitchellh/mapstructure"
@@ -56,7 +57,7 @@ func ValidateOpInputType(inputType reflect.Type, input map[string]interface{}, a
 	if err := secrets.ValidateType(inputType, input); err != nil {
 		return err
 	}
-	return validateOpInputValue(inputType, input, allowNulls)
+	return validateOpInputValue(inputType, gitExecutionPlaceholders(input).(map[string]any), allowNulls)
 }
 
 // ValidateMaterializedOpInputType rechecks constraints after optional references
@@ -200,4 +201,27 @@ func filterRequiredValidationErrors(err error) error {
 		return nil
 	}
 	return remaining
+}
+
+// Git execution references are validated again after workspace restoration.
+// Use a hash-shaped placeholder only in this validation copy, never in task data.
+func gitExecutionPlaceholders(value any) any {
+	switch v := value.(type) {
+	case string:
+		return strings.NewReplacer(contextual.GitExecutionBaseSentinel, strings.Repeat("0", 40), contextual.GitExecutionHeadSentinel, strings.Repeat("0", 40)).Replace(v)
+	case map[string]any:
+		out := make(map[string]any, len(v))
+		for k, item := range v {
+			out[k] = gitExecutionPlaceholders(item)
+		}
+		return out
+	case []any:
+		out := make([]any, len(v))
+		for i, item := range v {
+			out[i] = gitExecutionPlaceholders(item)
+		}
+		return out
+	default:
+		return value
+	}
 }

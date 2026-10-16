@@ -13,8 +13,8 @@ type ThinpackRebaseInput struct {
 	UpstreamRemote string `json:"upstream_remote,omitempty"`
 	PreserveAuthor *bool  `json:"preserve_author,omitempty"`
 	UpdateRefs     string `json:"update_refs,omitempty"`
-	BaseHash       string `json:"base_hash" default:"{{ context.git.resolved_hash }}" validate:"required,hexadecimal,min=7,max=40"`
-	PersistHash    string `json:"persist_hash,omitempty" validate:"omitempty,hexadecimal,min=7,max=40"`
+	BaseHash       string `json:"base_hash" default:"{{ context.git.execution.base_hash }}" validate:"required,hexadecimal,min=7,max=40"`
+	PersistHash    string `json:"persist_hash,omitempty" default:"{{ context.git.execution.head_hash }}" validate:"omitempty,hexadecimal,min=7,max=40"`
 	BaseRepo       string `json:"base_repo,omitempty" default:"{{ context.git.repo }}"`
 	GitAuthor      string `json:"git_author,omitempty" default:"{{ context.git.author }}"`
 	CellName       string `json:"cell_name,omitempty" default:"{{ context.workflow.cell }}"`
@@ -61,9 +61,23 @@ func (a *ThinpackRebaseActivity) GetMetadata() ops.OpMetadata {
 
 // Execute performs the thin-pack aware rebase operation.
 func (a *ThinpackRebaseActivity) Execute(inv ops.OpDependencies, ctx context.Context, input ThinpackRebaseInput) (ThinpackRebaseOutput, error) {
-	output, err := Run(ctx, input)
+	minimumBase := ""
+	if inv != nil && input.RepoPath == inv.WorktreePath() {
+		g := inv.GitContext()
+		minimumBase = g.ResolvedBaseHash
+		if g.Workspace != nil && g.Workspace.InitialHash != "" {
+			minimumBase = g.Workspace.InitialHash
+		}
+	}
+	output, err := run(ctx, input, minimumBase)
 	if err != nil {
 		return ThinpackRebaseOutput{}, err
+	}
+	// Only update the managed workspace when this operation used that workspace.
+	if inv != nil && input.RepoPath == inv.WorktreePath() {
+		if err := ops.SetWorkspaceBase(inv, output.NewBaseHash); err != nil {
+			return ThinpackRebaseOutput{}, err
+		}
 	}
 	return *output, nil
 }

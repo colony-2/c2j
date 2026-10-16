@@ -258,6 +258,7 @@ func (rc *ResolutionContext) initializeCEL() (*ResolutionContext, error) {
 
 func (rc *ResolutionContext) TaskExecutionContext() contextual.TaskExecutionContext {
 	rc.syncWorkspace()
+	rc.TemplateData.Context.GitTask.Execution = contextual.GitExecutionReferences{BaseHash: contextual.GitExecutionBaseSentinel, HeadHash: contextual.GitExecutionHeadSentinel}
 	return rc.TemplateData.Context
 }
 

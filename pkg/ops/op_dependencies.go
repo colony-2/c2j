@@ -73,6 +73,7 @@ type opDepImpl struct {
 	worktreePath          string
 	operationPaths        OperationPaths
 	gitContext            GitExecutionContext
+	workspaceBase         string
 	currentJobContext     jobcontext.Current
 	protectedEnv          map[string]string
 	jobTool               JobTool
@@ -362,3 +363,16 @@ func (c *opDepImpl) SetNextTaskAlternate(alternate jobworkflow.TaskAlternateAfte
 	c.nextTaskAlternate = &alternate
 }
 func (c *opDepImpl) NextTaskAlternate() *jobworkflow.TaskAlternateAfter { return c.nextTaskAlternate }
+
+// SetWorkspaceBase records an explicit native Git operation's new persistence
+// base. Ordinary op output fields cannot mutate workspace metadata.
+func SetWorkspaceBase(deps OpDependencies, hash string) error {
+	setter, ok := deps.(interface{ SetWorkspaceBase(string) })
+	if !ok {
+		return fmt.Errorf("workspace base updates are unavailable")
+	}
+	setter.SetWorkspaceBase(hash)
+	return nil
+}
+func (c *opDepImpl) SetWorkspaceBase(hash string) { c.workspaceBase = hash }
+func (c *opDepImpl) WorkspaceBase() string        { return c.workspaceBase }

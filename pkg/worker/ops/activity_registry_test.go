@@ -192,7 +192,7 @@ func TestNewNoTaskStepIsDisallowedAndNotRegisteredAsWorker(t *testing.T) {
 	require.Empty(t, workers, "preparation does not register separate workers")
 }
 
-func TestWithGitWorkspaceAppliesContextPatch(t *testing.T) {
+func TestWithGitWorkspaceDoesNotApplyArbitraryOutputContextPatch(t *testing.T) {
 	t.Parallel()
 
 	repoDir, baseHash, nextHash := initTwoCommitRepo(t)
