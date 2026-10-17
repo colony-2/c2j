@@ -5,7 +5,6 @@ import (
 	"runtime"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/colony-2/c2j/pkg/jobcontext"
 	ops "github.com/colony-2/c2j/pkg/ops"
@@ -21,8 +20,8 @@ func TestCommandExecutionActivity_GetMetadata(t *testing.T) {
 	if metadata.Version != "1.0.0" {
 		t.Errorf("Expected version '1.0.0', got '%s'", metadata.Version)
 	}
-	if metadata.DefaultTimeout != 5*time.Minute {
-		t.Errorf("Expected default timeout 5m, got %v", metadata.DefaultTimeout)
+	if metadata.DefaultTimeout != 0 {
+		t.Errorf("Expected no default timeout, got %v", metadata.DefaultTimeout)
 	}
 }
 

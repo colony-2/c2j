@@ -12,10 +12,37 @@ import (
 	"github.com/colony-2/c2j/pkg/recipe"
 	"github.com/colony-2/c2j/pkg/workflowctl"
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	"github.com/stretchr/testify/require"
 )
 
 type captureSubmitter struct {
 	job jobdb.SubmitJob
+}
+
+func TestStartRecipeJobDoesNotAddTimeouts(t *testing.T) {
+	for _, embedded := range []bool{false, true} {
+		name := "runtime-resolved"
+		if embedded {
+			name = "embedded"
+		}
+		t.Run(name, func(t *testing.T) {
+			engine := &captureSubmitter{}
+			var recipes []recipe.Recipe
+			if embedded {
+				recipes = []recipe.Recipe{{RecipeImpl: &recipe.RecipeOp{
+					RecipeMetadata: recipe.RecipeMetadata{NodeMetadata: recipe.NodeMetadata{ID: "unbounded"}},
+					OpData:         recipe.OpData{Op: "noop"},
+				}}}
+			}
+			_, err := StartRecipeJobWithOptions(context.Background(), workflowctl.StartJob{
+				TenantId: "tenant", RecipeName: "unbounded",
+			}, engine, StartRecipeJobOptions{}, recipes...)
+			require.NoError(t, err)
+			require.Nil(t, engine.job.RunPolicy.TotalTimeout)
+			require.Nil(t, engine.job.RunPolicy.InvocationTimeout)
+			require.Equal(t, jobdb.DefaultRunPolicy().Retry, engine.job.RunPolicy.Retry)
+		})
+	}
 }
 
 func TestStartRecipeJobUsesRecipeTimeoutAsDurableJobTotalTimeout(t *testing.T) {
@@ -45,6 +72,7 @@ func TestStartRecipeJobUsesRecipeTimeoutAsDurableJobTotalTimeout(t *testing.T) {
 	if got := time.Duration(*engine.job.RunPolicy.TotalTimeout); got != 2*time.Minute {
 		t.Fatalf("expected total timeout %s, got %s", 2*time.Minute, got)
 	}
+	require.Nil(t, engine.job.RunPolicy.InvocationTimeout)
 	wantSchemaHash, err := jobdbschema.Hash()
 	if err != nil {
 		t.Fatalf("schema hash: %v", err)

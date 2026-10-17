@@ -8,7 +8,10 @@ import (
 
 	"github.com/colony-2/c2j/pkg/contextual"
 	coreops "github.com/colony-2/c2j/pkg/ops"
+	"github.com/colony-2/c2j/pkg/ops/extensions"
+	"github.com/colony-2/c2j/pkg/ops/sleepop"
 	"github.com/colony-2/c2j/pkg/recipe"
+	"github.com/colony-2/c2j/pkg/worker/commandop"
 	"github.com/colony-2/c2j/pkg/workflow"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	"github.com/stretchr/testify/require"
@@ -92,6 +95,48 @@ func requireCapturedScopeTimeout(t *testing.T, stub *policyCaptureJobContext, wa
 	require.True(t, found, "scope budget %s absent from %+v", want, stub.scopes)
 	for _, policy := range stub.policies {
 		require.Nil(t, policy.TotalTimeout, "scope enforces the shared budget")
+	}
+}
+
+func TestBuiltInOpsOnlyUseExplicitTimeouts(t *testing.T) {
+	registered := []coreops.RegisterableOp{commandop.GetOp(), sleepop.GetOp(), extensions.GetExecutionOp()}
+	for _, op := range registered {
+		require.Zero(t, op.GetMetadata().DefaultTimeout, op.GetName())
+	}
+	withRegisteredOps(t, registered...)
+	for _, tc := range []struct {
+		op     string
+		inputs map[string]interface{}
+	}{
+		{"command_execution", map[string]interface{}{"run": "true", "timeout": "10m"}},
+		{"sleep", map[string]interface{}{"duration": "48h"}},
+		{"extension_execution", map[string]interface{}{"selector": "./probe"}},
+		{"nix:github:example/ops/main#probe", nil},
+	} {
+		for _, timeout := range []time.Duration{0, time.Hour} {
+			t.Run(tc.op+"/"+timeout.String(), func(t *testing.T) {
+				jobCtx, gitCtx := GenerateTestContext()
+				stub, wfCtx := newTimeoutWorkflow(t, gitCtx, 0)
+				rec := recipe.Recipe{RecipeImpl: &recipe.RecipeOp{
+					RecipeMetadata: recipe.RecipeMetadata{NodeMetadata: recipe.NodeMetadata{
+						ID: "root", Inputs: tc.inputs, Timeout: recipe.Duration(timeout),
+					}},
+					OpData: recipe.OpData{Op: tc.op},
+				}}
+				_, _, err := ExecuteRecipe(wfCtx, rec, map[string]interface{}{}, jobCtx, gitCtx)
+				require.NoError(t, err)
+				require.Equal(t, 1, stub.calls)
+				require.NotEmpty(t, stub.scopes)
+				for _, scope := range stub.scopes {
+					require.Equal(t, timeout, scope.TotalTimeout)
+					require.Zero(t, scope.AttemptTimeout)
+				}
+				for _, policy := range stub.policies {
+					require.Nil(t, policy.TotalTimeout)
+					require.Nil(t, policy.InvocationTimeout)
+				}
+			})
+		}
 	}
 }
 

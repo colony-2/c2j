@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
-	"time"
 
 	recipeartifacts "github.com/colony-2/c2j/pkg/artifacts"
 	"github.com/colony-2/c2j/pkg/configuration"
@@ -37,7 +36,6 @@ func GetExecutionOp() ops.RegisterableOp {
 			Type:             ExecutionOpType,
 			Description:      "Executes a selector-backed extension op",
 			Version:          "1.0.0",
-			DefaultTimeout:   30 * time.Minute,
 			AcceptsArtifacts: true,
 		},
 		executeExtension,

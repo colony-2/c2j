@@ -243,7 +243,8 @@ func StartRecipeJobWithOptions(ctx context.Context, startJob workflowctl.StartJo
 }
 
 func recipeRunPolicy(startJob workflowctl.StartJob, recipes []recipe.Recipe) jobdb.RunPolicy {
-	policy := jobdb.DefaultRunPolicy()
+	// Retain JobDB's retry defaults, but only impose explicitly configured timeouts.
+	policy := jobdb.RunPolicy{Retry: jobdb.DefaultRunPolicy().Retry}
 	for _, r := range recipes {
 		if r.GetMetdata().ID != startJob.RecipeName {
 			continue

@@ -104,12 +104,13 @@ sequence:
 				}
 				key, err := starter.StartRecipeJob(context.Background(), start, submitter, embedded...)
 				require.NoError(t, err)
-				wantTotal := 30 * time.Minute
 				if scope == "preloaded-root" {
-					wantTotal = budget
+					require.NotNil(t, submitter.policy.TotalTimeout)
+					require.Equal(t, budget, time.Duration(*submitter.policy.TotalTimeout))
+				} else {
+					require.Nil(t, submitter.policy.TotalTimeout)
 				}
-				require.Equal(t, wantTotal, time.Duration(*submitter.policy.TotalTimeout))
-				t.Logf("submitted durable job TotalTimeout=%s; lexical scope=%s", wantTotal, budget)
+				require.Nil(t, submitter.policy.InvocationTimeout)
 				output := newActivityOutputTaskData(t, gitCtx)
 				finish := &timeoutReproActivity{name: "timeout_repro_finish:run", output: output}
 				tasks := []jobworkflow.TaskWorker{finish}

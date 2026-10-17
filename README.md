@@ -533,6 +533,10 @@ exit behavior, and the JobDB v0.0.22 server requirement.
 
 ### Recipe timeouts and recovery
 
+c2j does not set default job or built-in op timeouts. Set `timeout` on a recipe
+or node to bound its execution. Command `inputs.timeout` and extension manifest
+`timeout` remain supported; an enclosing deadline can end execution sooner.
+
 Recipe and nested execution timeouts retain their original scope budget across
 worker recovery. Cached completed tasks remain replayable; new work does not
 receive a fresh budget merely because execution resumed. See

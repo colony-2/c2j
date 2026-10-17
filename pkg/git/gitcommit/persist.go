@@ -13,14 +13,11 @@ import (
 
 // PersistCommit performs the Git commit and thin pack generation
 func PersistCommit(ctx context.Context, input PersistCommitActivity) (*PersistCommitOutput, error) {
-	// Set default timeout if not provided
-	if input.Timeout == 0 {
-		input.Timeout = 5 * time.Minute
+	if input.Timeout != 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, input.Timeout)
+		defer cancel()
 	}
-
-	// Create context with timeout
-	ctx, cancel := context.WithTimeout(ctx, input.Timeout)
-	defer cancel()
 
 	// Validate repository
 	if err := common.ValidateRepository(input.RepoPath); err != nil {

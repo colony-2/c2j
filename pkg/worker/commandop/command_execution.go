@@ -58,7 +58,6 @@ func GetOp() ops.RegisterableOp {
 			Type:             "command_execution",
 			Description:      "Executes arbitrary shell commands with GitHub Actions-style configuration",
 			Version:          "1.0.0",
-			DefaultTimeout:   5 * time.Minute,
 			AcceptsArtifacts: true,
 		}, execute)
 }
