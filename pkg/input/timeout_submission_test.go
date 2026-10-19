@@ -13,13 +13,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestInputSubmissionHonorsDeadlineBeforeWorkerPickup(t *testing.T) {
-	for _, expired := range []bool{false, true} {
-		name := "before_deadline"
-		if expired {
-			name = "after_deadline"
-		}
-		t.Run(name, func(t *testing.T) {
+func TestInputSubmissionRacesTimeoutPickup(t *testing.T) {
+	for _, scenario := range []string{"before_deadline", "late_response_first", "timeout_first"} {
+		t.Run(scenario, func(t *testing.T) {
 			synctest.Test(t, func(t *testing.T) {
 				ctx := context.Background()
 				rt := toy.New()
@@ -42,17 +38,30 @@ func TestInputSubmissionHonorsDeadlineBeforeWorkerPickup(t *testing.T) {
 				require.NoError(t, err)
 				client, err := NewRuntime(&c2workflow.SWFWorkflowControl{Engine: engine}, nil)
 				require.NoError(t, err)
-				if expired {
+				if scenario != "before_deadline" {
 					time.Sleep(2 * time.Minute)
+				}
+				// Expiry makes timeout work eligible; the pending response can
+				// still win until that work is claimed by a worker.
+				if scenario == "timeout_first" {
+					require.Equal(t, workflow.JobRunFailed, run().Status)
 				}
 				var answer any = "yes"
 				err = client.SubmitResponse(ctx, submitted.JobKey.TenantId, submitted.JobKey.JobId, FormResponse{Response: &answer})
-				if expired {
-					require.ErrorIs(t, err, jobdb.ErrConflict, "expiry rejects completion even before another worker runs")
-					require.Equal(t, workflow.JobRunFailed, run().Status)
+				if scenario == "timeout_first" {
+					require.Error(t, err, "a timeout winner rejects a later response")
 				} else {
 					require.NoError(t, err)
-					require.Equal(t, workflow.JobRunCompleted, run().Status)
+					outcome := run()
+					if scenario == "late_response_first" {
+						// Accepting the response does not extend the enclosing
+						// scope's independent total deadline.
+						require.Equal(t, workflow.JobRunFailed, outcome.Status)
+						var timeout jobdb.TimeoutError
+						require.ErrorAs(t, outcome.JobError, &timeout)
+					} else {
+						require.Equal(t, workflow.JobRunCompleted, outcome.Status)
+					}
 				}
 			})
 		})

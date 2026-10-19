@@ -35,6 +35,14 @@ func (r *chapterVisibilityRuntime) PutChapter(ctx context.Context, req jobdb.Put
 	return r.awaitChapterVisible(ctx, req.Ref)
 }
 
+func (r *chapterVisibilityRuntime) DeleteJobs(ctx context.Context, req jobdb.DeleteJobsRequest) (jobdb.DeleteJobsResponse, error) {
+	admin, ok := r.WorkflowRuntime.(jobdb.JobDeletionRuntime)
+	if !ok {
+		return jobdb.DeleteJobsResponse{}, jobdb.ErrJobDeletionUnsupported
+	}
+	return admin.DeleteJobs(ctx, req)
+}
+
 func (r *chapterVisibilityRuntime) RegisterJobSchema(ctx context.Context, req jobdb.RegisterJobSchemaRequest) (jobdb.JobSchemaInfo, error) {
 	registry, err := r.schemaRegistry()
 	if err != nil {

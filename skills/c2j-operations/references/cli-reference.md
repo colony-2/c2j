@@ -16,6 +16,7 @@ c2j run with-lease
 c2j ready
 c2j list
 c2j list children
+c2j delete
 c2j test
 ```
 
@@ -115,6 +116,28 @@ c2j list --self --embed --json
 ```
 
 Filter with `--status`, `--job-type`, `--job-id`, `--waiting-for`, `--created-after`, `--created-before`, `--page-size`, `--page-token`, and `--all` where exposed by the command.
+
+## `c2j delete`
+
+Delete jobs through one server-side bulk request:
+
+```bash
+c2j delete --self --older-than 720h --dry-run
+c2j delete --cell backend --cell frontend --recipe build
+c2j delete --job-id JOB1 --job-id JOB2 --json
+```
+
+Requires explicit selectors or `--all` (the entire selected tenant, incompatible
+with selectors). No implicit current-cell selection. Cells/IDs are repeatable;
+different selectors intersect. `--created-before` is an exclusive RFC3339
+creation-time cutoff; `--older-than` uses a positive Go duration. Both age flags
+are mutually exclusive. `--jobdb` and `--embed` follow the usual conventions.
+Status filtering is unavailable; unfinished matches are included.
+
+`--dry-run` previews counts, without reserving matches. Deletion hides jobs,
+cancels unfinished work, and revokes leases; completed outcomes, history, and
+artifacts remain accessible. No storage reclamation or child/clone/schedule
+cascade. A compatible JobDB deletion API/backend is required.
 
 ## `c2j test`
 

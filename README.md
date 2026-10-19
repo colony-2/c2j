@@ -531,11 +531,51 @@ owned by the worker user with no group/other permissions. See the
 [supplied-lease guide](GUIDE-Run-With-Lease.md) for dispatcher/library integration,
 exit behavior, and the JobDB v0.0.22 server requirement.
 
+### Deleting jobs
+
+```bash
+c2j delete --self --older-than 720h --dry-run
+c2j delete --cell backend --cell frontend --recipe build
+c2j delete --job-id JOB1 --job-id JOB2 --json
+c2j delete --created-before 2026-10-01T00:00:00Z --dry-run
+c2j delete --all --embed --dry-run
+```
+
+Use the usual `--jobdb`, environment, or project configuration to select a tenant;
+`--embed` uses local JobDB. Deletion requires an explicit selector or `--all`.
+It does not implicitly select the current cell: use `--self` for that.
+`--cell` matches the owning repository across all refs, as `c2j list` does;
+workspace overrides do not change job ownership. Repeat `--cell` or `--job-id`
+to select any of those values. Different selectors intersect.
+
+`--created-before` is an exclusive creation-time cutoff, not a completion-time
+cutoff. Alternatively, `--older-than` takes a positive Go duration (`720h` is
+30 days); the cutoff is calculated once per invocation. `--all` cannot combine
+with selectors. Status filtering is not supported; matching unfinished jobs
+are included.
+
+`--dry-run` reports matches without deleting; it does not reserve those matches
+for a later call. Both text and JSON output include resolved selection criteria
+and matched/deleted counts. Missing and already-hidden jobs do not count.
+
+Deletion hides jobs from normal job and schedule-run listings, cancels unfinished
+jobs, and revokes their leases. Completed outcomes, history, and artifacts remain
+accessible by direct lookup and to surviving clones. It does not reclaim disk
+space, cascade to children/clones/schedules, undo external effects, or forcibly
+stop worker processes. This uses JobDB's bulk deletion API; remote servers must
+support it (JobDB `20269bd` / `v0.0.46` or later, with a compatible backend).
+Unsupported backends return an error; c2j never falls back to listing and deleting
+jobs individually.
+
 ### Recipe timeouts and recovery
 
 c2j does not set default job or built-in op timeouts. Set `timeout` on a recipe
 or node to bound its execution. Command `inputs.timeout` and extension manifest
 `timeout` remain supported; an enclosing deadline can end execution sooner.
+
+For pending external input, a late response can be accepted until a worker claims
+the timeout work. Once the timeout wins, later responses are rejected. Accepting
+a late response does not extend an enclosing recipe or scope deadline.
 
 Recipe and nested execution timeouts retain their original scope budget across
 worker recovery. Cached completed tasks remain replayable; new work does not
