@@ -21,7 +21,7 @@ buildGoModule {
       ../skills
     ];
   };
-  vendorHash = "sha256-2k7RgxeH3OFkeM9MscmZ3wWRGSnKLtWobp2KZwIaW9g=";
+  vendorHash = "sha256-eH0q8Cg+Qqvwux2Zd0PkbDA20ezxdIDPXjrR0doURmI=";
   subPackages = [ "cmd/c2j" ];
   env.CGO_ENABLED = "0";
   ldflags = [ "-s" "-w" "-X main.version=${version}" "-X main.commit=${revision}" ];
