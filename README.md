@@ -84,29 +84,23 @@ See [Extension ops](EXTENSION_OPS.md) for authoring, publishing, and invoking pr
 ## Nix package
 
 The Nix package contains only the `c2j` executable, with no Node/npm wrapper or
-bundled tool runtimes. Linux and macOS builds are published for x86-64 and ARM64
-to the `colony2` Cachix cache in the Release workflow. After tests, tagging, and
-GitHub asset publication succeed, Nix and npm publish in parallel from the same
-release tag.
+bundled tool runtimes. The package definition supports Linux and macOS on x86-64
+and ARM64 for local builds. CI does not build or publish the Nix package.
 
 ```bash
-cachix use colony2
 nix run github:colony-2/c2j/main#c2j -- version
 # Install into your profile:
 nix profile add github:colony-2/c2j/main#c2j
 ```
 
-For reproducible, download-only deployments, replace `main` with a commit whose
-Release workflow's Nix jobs have succeeded and use `--max-jobs 0`. A newly pushed
-commit may not be cached yet. `main` builds report `unstable-<commit>` as their
-version. Runtime tools such as Git, Nix, pnpm, and uv are supplied separately by
-the execution environment when needed.
+Pin a commit instead of `main` for reproducible builds. New revisions may require
+local compilation because there is no automatic Cachix publication. `main` builds
+report `unstable-<commit>` as their version. Runtime tools such as Git, Nix, pnpm,
+and uv are supplied separately by the execution environment when needed.
 
 Maintainers: `nix build .#c2j` builds the executable; `nix flake check` also runs
 its installation checks. After changing Go dependencies, update `vendorHash` in
-`nix/package.nix` to the hash reported by a build with `lib.fakeHash`. CI checks
-all four platforms, pushes with `CACHIX_COLONY2_AUTHKEY`, verifies downloads into
-an empty store with builds disabled, and pins each commit's package in Cachix.
+`nix/package.nix` to the hash reported by a build with `lib.fakeHash`.
 
 ## Quick Start
 
