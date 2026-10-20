@@ -16,8 +16,8 @@ func TestSubmissionRecipeConventions(t *testing.T) {
 		want string
 	}{
 		{"default", Options{}, "build"},
-		{"build", Options{Build: true}, "build"},
-		{"evolve", Options{Evolve: true}, "evolve"},
+		{"explicit build", Options{Recipe: "build"}, "build"},
+		{"evolve is a custom name", Options{Recipe: "evolve"}, "evolve"},
 		{"advanced", Options{Recipe: "custom"}, "custom"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
@@ -33,17 +33,13 @@ func TestSubmissionRecipeConventions(t *testing.T) {
 	}
 }
 
-func TestSubmissionModeConflicts(t *testing.T) {
-	for _, opts := range []Options{
-		{Build: true, Evolve: true},
-		{Build: true, Recipe: "custom"},
-		{Evolve: true, RecipeFile: "custom.yaml"},
-		{Recipe: "custom", RecipeFile: "custom.yaml"},
-	} {
-		opts.TenantID, opts.SWFURL = "tenant", "http://example.invalid"
-		if err := opts.Validate(); err == nil {
-			t.Fatalf("accepted conflicting options: %+v", opts)
-		}
+func TestSubmissionRecipeConflicts(t *testing.T) {
+	opts := Options{
+		Recipe: "custom", RecipeFile: "custom.yaml",
+		TenantID: "tenant", SWFURL: "http://example.invalid",
+	}
+	if err := opts.Validate(); err == nil {
+		t.Fatalf("accepted conflicting options: %+v", opts)
 	}
 }
 
@@ -55,13 +51,10 @@ func TestSubmissionType(t *testing.T) {
 		wantErr bool
 	}{
 		{name: "default", want: "build"},
-		{name: "build", opts: Options{Build: true}, want: "build"},
-		{name: "evolve", opts: Options{Evolve: true}, want: "evolve"},
 		{name: "explicit build name", opts: Options{Recipe: "build"}, want: "build"},
-		{name: "explicit evolve name", opts: Options{Recipe: "evolve"}, want: "evolve"},
-		{name: "matching type", opts: Options{Evolve: true, InputsJSON: `{"type":"evolve"}`}, want: "evolve"},
+		{name: "evolve is a custom name", opts: Options{Recipe: "evolve"}},
+		{name: "matching type", opts: Options{InputsJSON: `{"type":"build"}`}, want: "build"},
 		{name: "conflicting type", opts: Options{InputsJSON: `{"type":"evolve"}`}, wantErr: true},
-		{name: "conflicting evolve", opts: Options{Evolve: true, InputsJSON: `{"type":"build"}`}, wantErr: true},
 		{name: "null type", opts: Options{InputsJSON: `{"type":null}`}, wantErr: true},
 		{name: "numeric type", opts: Options{InputsJSON: `{"type":1}`}, wantErr: true},
 		{name: "object type", opts: Options{InputsJSON: `{"type":{}}`}, wantErr: true},
@@ -97,7 +90,7 @@ func TestSubmissionTypeFromInputsFile(t *testing.T) {
 		if err := os.WriteFile(path, []byte(raw), 0o600); err != nil {
 			t.Fatal(err)
 		}
-		inputs, err := loadInputs(Options{InputsFile: path, Evolve: true})
+		inputs, err := loadInputs(Options{InputsFile: path, Recipe: "custom"})
 		if err != nil {
 			t.Fatal(err)
 		}

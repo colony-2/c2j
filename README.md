@@ -131,13 +131,12 @@ If the current directory does not resolve as a cell, either:
 - create `.c2j/config.yaml`, or
 - pass `--cell <repo-or-path>` explicitly to `submit` or `list`
 
-### 2. Submit and run a build or evolve job
+### 2. Submit and run a build job
 
-Build is the default. Add `--evolve` to select the evolve recipe:
+Submissions use the build recipe:
 
 ```bash
 c2j submit "Implement the new endpoint" --run --embed
-c2j submit "Improve retry behavior" --evolve --run --embed
 ```
 
 That does all of the following:
@@ -229,46 +228,39 @@ npx skills add colony-2/c2j
 
 ### Basic forms
 
-Submit a build job (the default), or choose evolve:
+Submit a build job:
 
 ```bash
 c2j submit "Implement the new endpoint" --embed
-c2j submit "Implement the new endpoint" --build --embed
-c2j submit "Improve the retry behavior" --evolve --embed
 ```
 
-These submit the names `build` and `evolve` through the existing recipe resolution system. At execution time, c2j first looks for `.c2j/recipes/build.yaml` or `.c2j/recipes/evolve.yaml` in the **target cell's repository**, at its configured ref. This also applies to `--cell`; the submitting project's recipes do not override another target cell's recipes. As with other named recipes, uncommitted files are not used.
+Submissions use the name `build` through the existing recipe resolution system. At execution time, c2j first looks for `.c2j/recipes/build.yaml` in the **target cell's repository**, at its configured ref. This also applies to `--cell`; the submitting project's recipes do not override another target cell's recipes. As with other named recipes, uncommitted files are not used.
 
-If that recipe file is absent, c2j resolves one of these shared recipes instead:
+If that recipe file is absent, c2j resolves the shared recipe instead:
 
 - `git+https://github.com/colony-2/recipes.git//build.yaml@main`
-- `git+https://github.com/colony-2/recipes.git//evolve.yaml@main`
 
-The shared repository must provide `build.yaml` and `evolve.yaml` at its root on `main`. These recipes are not bundled with c2j; until published, jobs needing the fallback cannot execute. Missing refs, authentication/network failures, and invalid recipes remain errors rather than triggering fallback. Resolution is pinned and cached by the existing job execution machinery. A shared recipe still operates on the target cell's worktree.
+The shared repository must provide `build.yaml` at its root on `main`. This recipe is not bundled with c2j; until published, jobs needing the fallback cannot execute. Missing refs, authentication/network failures, and invalid recipes remain errors rather than triggering fallback. Resolution is pinned and cached by the existing job execution machinery. A shared recipe still operates on the target cell's worktree.
 
 Every submission requires a non-empty prompt, passed as `inputs.prompt`. Omit the argument in a terminal to enter it interactively:
 
 ```bash
-c2j submit --evolve --embed
+c2j submit --embed
 ```
 
 For automation, provide the positional prompt or a string `prompt` in `--inputs-json`/`--inputs-file`; missing prompts with non-terminal stdin fail immediately. Interactive prompts go to stderr, so `--json` stdout stays machine-readable.
 
-### Build/evolve input contract
+### Build input contract
 
-c2j automatically includes the selected type alongside the prompt:
+Build submissions include `type: build` alongside the prompt:
 
 ```json
 {"prompt": "Implement the new endpoint", "type": "build"}
 ```
 
-```json
-{"prompt": "Improve retry behavior", "type": "evolve"}
-```
+`type` is fixed to `"build"` for build submissions; it does not select a recipe. A matching `type` in `--inputs-json` or `--inputs-file` is accepted; a conflicting or non-string value is rejected before submission. The same contract applies to target-cell recipes and shared fallbacks, including explicit selection of the name `build`.
 
-`type` is derived from the selected recipe, not used to select it: use `--evolve` to submit an evolve job. A matching `type` in `--inputs-json` or `--inputs-file` is accepted; a conflicting or non-string value is rejected before submission. The same contract applies to target-cell recipes and shared fallbacks, including explicit selection of the names `build` and `evolve`.
-
-Both conventional recipes must declare these inputs and bind them for recipe logic:
+The build recipe must declare these inputs and bind them for recipe logic:
 
 ```yaml
 input_schema:
@@ -300,7 +292,7 @@ Submit and run immediately:
 c2j submit "Review the changes" --advanced-recipe-file ./recipes/review.yaml --run --embed
 ```
 
-`--advanced-recipe` accepts a target-cell recipe name or explicit git selector. `--advanced-recipe-file` embeds a local YAML file, including uncommitted changes. These flags are mutually exclusive with each other and with `--build`/`--evolve`. The old `--recipe`/`--recipe-file` flags remain hidden, deprecated aliases on `submit`; `c2j test` retains its existing flag names. Custom names and explicit selectors do not get a hosted fallback; the conventional names `build` and `evolve` do.
+`--advanced-recipe` accepts a target-cell recipe name or explicit git selector. `--advanced-recipe-file` embeds a local YAML file, including uncommitted changes. These flags are mutually exclusive. The old `--recipe`/`--recipe-file` flags remain hidden, deprecated aliases on `submit`; `c2j test` retains its existing flag names. Custom names and explicit selectors do not get a hosted fallback; only the name `build` does.
 
 Custom recipes submitted through the CLI must also declare the prompt in their input schema:
 
@@ -385,7 +377,7 @@ c2j submit "Implement the new endpoint" --self --embed
 Use another cell explicitly:
 
 ```bash
-c2j submit "Improve retry behavior" --evolve \
+c2j submit "Improve retry behavior" \
   --cell github.com/colony-2/root \
   --embed
 ```
@@ -785,7 +777,7 @@ c2j submit "Run the requested task" \
 
 ## Gotchas
 
-- `--build`, `--evolve`, `--advanced-recipe`, and `--advanced-recipe-file` are mutually exclusive on `submit`
+- `--advanced-recipe` and `--advanced-recipe-file` are mutually exclusive on `submit`
 - `--json` and `--run` are mutually exclusive on `submit`
 - `--inputs-json` and `--inputs-file` are mutually exclusive
 - `--self` and `--cell` are mutually exclusive

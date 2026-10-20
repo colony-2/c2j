@@ -21,8 +21,6 @@ type Options struct {
 	SWFURL                string
 	Recipe                string
 	RecipeFile            string
-	Build                 bool
-	Evolve                bool
 
 	Prompt    string
 	PromptSet bool
@@ -84,12 +82,6 @@ func (o *Options) Complete(ctx context.Context) error {
 }
 
 func (o Options) Validate() error {
-	if o.Build && o.Evolve {
-		return fmt.Errorf("--build and --evolve are mutually exclusive")
-	}
-	if (o.Build || o.Evolve) && (strings.TrimSpace(o.Recipe) != "" || strings.TrimSpace(o.RecipeFile) != "") {
-		return fmt.Errorf("--build/--evolve cannot be combined with advanced recipe selection")
-	}
 	if !o.RunAfterSubmit && o.ExecutionFlags.HasArguments() {
 		return fmt.Errorf("allocation flags require --run on submit; use --require-* to override job requirements")
 	}

@@ -42,11 +42,10 @@ c2j init --with-op-skills
 
 ## `c2j submit`
 
-Submit a build (default) or evolve job. A non-empty prompt is required: pass it positionally or as `inputs.prompt`, or enter it interactively in a terminal. Missing prompts in non-terminal mode fail immediately.
+Submit a build job. A non-empty prompt is required: pass it positionally or as `inputs.prompt`, or enter it interactively in a terminal. Missing prompts in non-terminal mode fail immediately.
 
 ```bash
 c2j submit "Implement the endpoint" --embed
-c2j submit "Improve the retry behavior" --evolve --embed
 c2j submit "Run the requested task" --advanced-recipe-file ./recipes/my-recipe.yaml --embed
 c2j submit "Run the requested task" --advanced-recipe-file ./recipes/my-recipe.yaml --run --embed
 ```
@@ -54,8 +53,6 @@ c2j submit "Run the requested task" --advanced-recipe-file ./recipes/my-recipe.y
 Key flags:
 
 - `--jobdb`
-- `--build` (default)
-- `--evolve`
 - `--advanced-recipe`
 - `--advanced-recipe-file`
 - `--inputs-json`
@@ -69,9 +66,9 @@ Key flags:
 
 The recipe-selection flags are mutually exclusive. `--json` and `--run` are mutually exclusive. `--recipe` and `--recipe-file` are hidden, deprecated aliases on `submit`.
 
-Normal selection resolves the name `build` or `evolve` at execution time in the target cell's repository/ref (`.c2j/recipes/build.yaml` or `evolve.yaml`). Only a missing recipe falls back to `git+https://github.com/colony-2/recipes.git//build.yaml@main` or `evolve.yaml@main`. `--cell` never uses the submitting project's recipes. Named recipes use committed content; explicit advanced files embed local edits. All CLI-submitted recipes must declare `prompt` in `input_schema`.
+Normal selection resolves the name `build` at execution time in the target cell's repository/ref (`.c2j/recipes/build.yaml`). Only a missing recipe falls back to `git+https://github.com/colony-2/recipes.git//build.yaml@main`. `--cell` never uses the submitting project's recipes. Named recipes use committed content; explicit advanced files embed local edits. All CLI-submitted recipes must declare `prompt` in `input_schema`.
 
-Build/evolve submissions automatically include `inputs.type` (`"build"` or `"evolve"`) alongside `inputs.prompt`, including explicit selection of those names. Both conventional recipes must declare a string `type` in `input_schema`. A supplied type must match the selection; it does not select a mode. Custom names, explicit Git selectors, and local files preserve their own input contracts without automatic type injection.
+Build submissions automatically include `inputs.type` (`"build"`) alongside `inputs.prompt`, including explicit selection of that name. The build recipe must declare a string `type` in `input_schema`. A supplied type must be `"build"`; it does not select a recipe. Custom names, explicit Git selectors, and local files preserve their own input contracts without automatic type injection.
 
 ## `c2j run`
 

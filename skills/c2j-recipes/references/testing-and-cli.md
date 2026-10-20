@@ -12,9 +12,9 @@ c2j submit "Run the requested task" --advanced-recipe-file ./recipes/my-recipe.y
 
 This loads the local YAML file, embeds it into the submitted job, starts an embedded runtime, submits the job, and runs it immediately.
 
-For ordinary jobs, use `c2j submit "your prompt"` (build) or add `--evolve`. The existing resolver looks up `build`/`evolve` in the target cell, with missing-file fallback to the same-named root YAML on `main` in `colony-2/recipes`. Custom files/selectors use `--advanced-recipe-file`/`--advanced-recipe`; do not combine these with `--build`/`--evolve`.
+For ordinary jobs, use `c2j submit "your prompt"` to submit the build recipe. The existing resolver looks up `build` in the target cell, with missing-file fallback to the same-named root YAML on `main` in `colony-2/recipes`. Custom files/selectors use `--advanced-recipe-file`/`--advanced-recipe`; these flags are mutually exclusive.
 
-Conventional build/evolve recipes receive `{"prompt":"your prompt","type":"build"}` or the corresponding `"evolve"` type. Declare both as required strings in `input_schema`, and bind them in root `inputs` when using them in recipe logic. This also applies to explicit selection of the names `build` and `evolve`; custom names, Git selectors, and files have no automatic type injection. User-provided types must match the conventional selection.
+Build recipes receive `{"prompt":"your prompt","type":"build"}`. Declare both as required strings in `input_schema`, and bind them in root `inputs` when using them in recipe logic. This also applies to explicit selection of the name `build`; custom names, Git selectors, and files have no automatic type injection. For build submissions, a user-provided type must be `"build"`.
 
 Every CLI submission supplies `inputs.prompt`, so custom recipes must declare a string `prompt` in `input_schema`. When omitted from arguments and input data, a terminal prompts interactively; non-terminal stdin produces an error. `c2j test` retains its flags and does not require a prompt unless the recipe's schema does.
 

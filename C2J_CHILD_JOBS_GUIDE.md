@@ -22,7 +22,7 @@ Parent recipe's op → nested c2j submit → parent-side broker → JobDB child 
 ```
 
 No parent flags, special recipe inputs, or manually constructed metadata are
-needed for this normal workflow. It applies to build, evolve, and advanced
+needed for this normal workflow. It applies to build and advanced
 recipe submissions, including another target cell in the same tenant.
 
 The relationship belongs to jobs, not operating-system processes. Two nested
@@ -66,9 +66,6 @@ With the inherited environment and JobDB configuration in place:
 # Build is the default.
 c2j submit "Implement the supporting endpoint"
 
-# Select evolve explicitly.
-c2j submit "Improve retry handling" --evolve
-
 # Another target cell, still within the parent's tenant.
 c2j submit "Update the client" --cell github.com/acme/client
 
@@ -90,15 +87,15 @@ Every CLI submission needs a non-empty prompt. Pass it positionally or as
 `prompt` in `--inputs-json`/`--inputs-file`, not both. Do not rely on interactive
 prompting inside an op: non-terminal submissions without a prompt fail.
 
-Build/evolve submissions pass these recipe inputs:
+Build submissions pass these recipe inputs:
 
 ```json
 {"prompt": "Implement the supporting endpoint", "type": "build"}
 ```
 
-Evolve uses `"type": "evolve"`. A supplied type must match the selected mode.
+A supplied type must be `"build"`.
 Custom names, explicit Git selectors, and local files do not receive an
-automatic type. See [the submission contract](README.md#buildevolve-input-contract).
+automatic type. See [the submission contract](README.md#build-input-contract).
 
 `--json` returns the submitted identity, not the recipe's eventual output:
 
@@ -121,14 +118,14 @@ Use an explicit `--cell` when the working directory is ambiguous. In a recipe,
 `C2J_CURRENT_REPOSITORY_SOURCE` always identifies that target: it prefers the
 recipe-source repository, which may be the shared recipe repository.
 
-Build/evolve names resolve in the target cell at its configured ref, with the
+The build recipe resolves in the target cell at its configured ref, with the
 documented shared fallback. Named recipes use committed content. For local
 recipe changes that have not been committed, use `--advanced-recipe-file`.
 
 ## 4. Complete command-based example
 
 This example submits one child and returns its identity. It deliberately does
-not wait for the child. It needs no shared build/evolve recipes.
+not wait for the child. It needs no shared build recipe.
 
 Save this child as `.c2j/recipes/child-example.yaml` in the target repository:
 
@@ -365,7 +362,7 @@ execution and participate in the same child listing. Native child starts have
 deterministic IDs based on the parent invocation and child position/key.
 
 Native recipe operations are not CLI submissions: supply their recipe inputs
-explicitly. If calling a build/evolve recipe that requires `prompt` and `type`,
+explicitly. If calling a build recipe that requires `prompt` and `type`,
 pass both; the CLI's automatic type injection does not apply to native ops.
 
 Workers must be available to execute children while the parent is waiting.
@@ -384,7 +381,7 @@ uses that context to describe its parent.
 | `C2J_CURRENT_CONTEXT_VERSION` | Emitted contract version, currently `1`. |
 | `C2J_CURRENT_TENANT_ID` | Current job's tenant; required for parent context. |
 | `C2J_CURRENT_JOB_ID` | Current job's ID; required for parent context. |
-| `C2J_CURRENT_JOB_TYPE` | Job type, normally `recipe`; not the build/evolve input type. |
+| `C2J_CURRENT_JOB_TYPE` | Job type, normally `recipe`; independent of the recipe name. |
 | `C2J_CURRENT_OP_TYPE` | Executing operation type. |
 | `C2J_CURRENT_OP_STEP` | Operation's internal execution step. |
 | `C2J_CURRENT_OP_TASK_TYPE` | Executing task type. |
@@ -480,7 +477,7 @@ explicitly.
 | Child broker variables required | Forward endpoint, token, and session ID together. |
 | Broker connection refused or authorization rejected | Check session lifetime and worker-local reachability; do not reuse credentials from another invocation. |
 | Tenant mismatch | Parent-linked submission and listing must use the parent's tenant. |
-| Missing prompt or unknown `prompt`/`type` input | Pass a prompt explicitly and declare the relevant input schema; build/evolve recipes receive both fields. |
+| Missing prompt or unknown `prompt`/`type` input | Pass a prompt explicitly and declare the relevant input schema; build recipes receive both fields. |
 | No child jobs listed | Check runtime/tenant, parent ID, invocation scope, status filters, pagination, and whether submission used the broker rather than metadata alone. |
 | Invocation hash required when listing | Supply `--parent-invocation-hash`, or use `--all-ops`. |
 | A later step sees no children | Its invocation hash differs; use `--all-ops` or read the earlier step's `jobs` context. |

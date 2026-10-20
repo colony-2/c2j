@@ -13,13 +13,13 @@ func newSubmitCmd() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "submit [prompt]",
-		Short: "Submit a build (default) or evolve job",
-		Long: `Submit a build (default) or evolve job for the target cell.
+		Short: "Submit a build job",
+		Long: `Submit a build job for the target cell.
 
-Uses the target cell's .c2j/recipes/build.yaml or evolve.yaml, falling back
-to build.yaml or evolve.yaml on main in github.com/colony-2/recipes.
+Uses the target cell's .c2j/recipes/build.yaml, falling back
+to build.yaml on main in github.com/colony-2/recipes.
 The prompt becomes inputs.prompt; if omitted, it is requested interactively.
-Build/evolve submissions also set inputs.type to the selected mode.
+Build submissions also set inputs.type to "build".
 Custom recipes are an advanced use case: use --advanced-recipe[-file].`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -44,15 +44,13 @@ Custom recipes are an advanced use case: use --advanced-recipe[-file].`,
 	executionflags.AddRequirementFlags(flags, &opts.ExecutionRequirements)
 	opts.ExecutionFlags.AddFlags(flags)
 	flags.StringVar(&opts.JobDBURI, "jobdb", "", "JobDB URI (http(s)://host/tenant or embed:///)")
-	flags.BoolVar(&opts.Build, "build", false, "Submit a build job (default)")
-	flags.BoolVar(&opts.Evolve, "evolve", false, "Submit an evolve job")
 	flags.StringVar(&opts.Recipe, "advanced-recipe", "", "Advanced: custom recipe name or git selector")
 	flags.StringVar(&opts.RecipeFile, "advanced-recipe-file", "", "Advanced: custom local recipe YAML file")
 	flags.StringVar(&opts.Recipe, "recipe", "", "Deprecated alias for --advanced-recipe")
 	flags.StringVar(&opts.RecipeFile, "recipe-file", "", "Deprecated alias for --advanced-recipe-file")
 	_ = flags.MarkDeprecated("recipe", "use --advanced-recipe")
 	_ = flags.MarkDeprecated("recipe-file", "use --advanced-recipe-file")
-	cmd.MarkFlagsMutuallyExclusive("build", "evolve", "advanced-recipe", "advanced-recipe-file", "recipe", "recipe-file")
+	cmd.MarkFlagsMutuallyExclusive("advanced-recipe", "advanced-recipe-file", "recipe", "recipe-file")
 	flags.StringVar(&opts.InputsJSON, "inputs-json", "", "Inline JSON object for recipe inputs")
 	flags.StringVar(&opts.InputsFile, "inputs-file", "", "Path to a JSON or YAML file containing recipe inputs")
 	flags.StringArrayVar(&opts.ArtifactSpecs, "artifact", nil, "Attach a local file as a job artifact; repeatable, accepts PATH or NAME=PATH")

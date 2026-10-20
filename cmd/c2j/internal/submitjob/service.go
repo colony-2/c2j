@@ -225,9 +225,6 @@ func selectedRecipeName(opts Options) string {
 	if name := strings.TrimSpace(opts.Recipe); name != "" {
 		return name
 	}
-	if opts.Evolve {
-		return compiler.EvolveRecipeName
-	}
 	return compiler.DefaultRecipeName
 }
 
@@ -271,7 +268,7 @@ mergePrompt:
 	}
 	if strings.TrimSpace(opts.RecipeFile) == "" {
 		name := selectedRecipeName(opts)
-		if name == compiler.DefaultRecipeName || name == compiler.EvolveRecipeName {
+		if name == compiler.DefaultRecipeName {
 			if value, exists := inputs["type"]; exists {
 				if supplied, ok := value.(string); !ok || supplied != name {
 					return nil, fmt.Errorf("inputs.type must be %q for this submission", name)

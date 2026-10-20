@@ -6,10 +6,9 @@
 
 ```bash
 c2j submit "Implement the endpoint" --run --embed
-c2j submit "Improve retry behavior" --evolve --run --embed
 ```
 
-These resolve `build` (default) or `evolve` in the target cell, falling back to the shared recipes when absent. Embedded runtime avoids a remote JobDB. For custom local recipe authoring, use `--advanced-recipe-file ./recipes/my-recipe.yaml` instead of a mode flag and declare `prompt` in the recipe's input schema.
+This resolves `build` in the target cell, falling back to the shared build recipe when absent. Embedded runtime avoids a remote JobDB. For custom local recipe authoring, use `--advanced-recipe-file ./recipes/my-recipe.yaml` and declare `prompt` in the recipe's input schema.
 
 ## Submit Then Continue Later
 

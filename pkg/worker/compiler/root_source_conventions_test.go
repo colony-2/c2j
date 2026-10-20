@@ -39,7 +39,7 @@ func TestConventionalRecipeFallbackRules(t *testing.T) {
 		fallbackMissing                bool
 	}{
 		{name: "build missing", selector: "build", loadErr: os.ErrNotExist, fallback: true},
-		{name: "evolve missing", selector: "evolve", loadErr: fmt.Errorf("missing: %w", os.ErrNotExist), fallback: true},
+		{name: "evolve has no shared fallback", selector: "evolve", loadErr: fmt.Errorf("missing: %w", os.ErrNotExist), wantErr: true},
 		{name: "target override", selector: "build"},
 		{name: "evolve override", selector: "evolve"},
 		{name: "custom missing", selector: "custom", loadErr: os.ErrNotExist, wantErr: true},
@@ -102,10 +102,8 @@ func TestConventionalFallbackUsesExistingGitResolutionAndPreservesTarget(t *test
 	}
 	target, hosted := newRepo(), newRepo()
 	writeRootSourceRecipe(t, filepath.Join(hosted, "phase.yaml"), "shared_phase")
-	for _, kind := range []string{"build", "evolve"} {
-		raw := "id: shared_" + kind + "\nversion: '1'\nsequence:\n  - id: phase\n    include: ./phase.yaml\n"
-		require.NoError(t, os.WriteFile(filepath.Join(hosted, kind+".yaml"), []byte(raw), 0o644))
-	}
+	raw := "id: shared_build\nversion: '1'\nsequence:\n  - id: phase\n    include: ./phase.yaml\n"
+	require.NoError(t, os.WriteFile(filepath.Join(hosted, "build.yaml"), []byte(raw), 0o644))
 	require.NoError(t, runGit(hosted, "git", "add", "."))
 	require.NoError(t, runGit(hosted, "git", "commit", "-m", "shared recipes"))
 	delegate := NewRecipeSourceResolver(RecipeSourceResolverOptions{SelectorCache: &selectorcache.Cache{Root: t.TempDir()}})
@@ -117,24 +115,22 @@ func TestConventionalFallbackUsesExistingGitResolutionAndPreservesTarget(t *test
 	resolver.load = func(res RecipeSourceResolution) ([]byte, error) {
 		return delegate.(RecipeSourceYAMLLoader).LoadYAML(ctx, "tenant", res)
 	}
-	for _, kind := range []string{"build", "evolve"} {
-		input, err := jobdb.NewTaskData(rootSourceResolutionTaskInput{ProjectID: "tenant", Selector: kind, LookupRepo: "file://" + target, LookupRef: "main"})
-		require.NoError(t, err)
-		output, err := newRootSourceResolutionTaskWorker(resolver).Run(jobworkflow.TaskContext{}, input)
-		require.NoError(t, err)
-		source, err := ParseResolvedRecipeSourceTaskData(output)
-		require.NoError(t, err)
-		require.Equal(t, gitHead(t, hosted), source.ResolvedCommit)
-		require.Equal(t, "git+file://"+hosted+"//"+kind+".yaml@"+source.ResolvedCommit, source.ResolvedSelector)
-		require.Equal(t, kind, source.SubmittedSelector)
-		require.NotContains(t, source.RecipeYAML, "include:")
-		rec, err := source.LoadRecipe()
-		require.NoError(t, err)
-		require.Equal(t, "shared_"+kind, rec.GetMetadata().ID)
-		var runContext contextual.JobContext
-		runContext.GitBase.BaseRepo = "file://" + target
-		applyRootRecipeSource(&runContext, source.RecipeSourceResolution)
-		require.Equal(t, "file://"+target, runContext.GitBase.BaseRepo)
-		require.Equal(t, "file://"+hosted, runContext.RecipeSource.Repo)
-	}
+	input, err := jobdb.NewTaskData(rootSourceResolutionTaskInput{ProjectID: "tenant", Selector: "build", LookupRepo: "file://" + target, LookupRef: "main"})
+	require.NoError(t, err)
+	output, err := newRootSourceResolutionTaskWorker(resolver).Run(jobworkflow.TaskContext{}, input)
+	require.NoError(t, err)
+	source, err := ParseResolvedRecipeSourceTaskData(output)
+	require.NoError(t, err)
+	require.Equal(t, gitHead(t, hosted), source.ResolvedCommit)
+	require.Equal(t, "git+file://"+hosted+"//build.yaml@"+source.ResolvedCommit, source.ResolvedSelector)
+	require.Equal(t, "build", source.SubmittedSelector)
+	require.NotContains(t, source.RecipeYAML, "include:")
+	rec, err := source.LoadRecipe()
+	require.NoError(t, err)
+	require.Equal(t, "shared_build", rec.GetMetadata().ID)
+	var runContext contextual.JobContext
+	runContext.GitBase.BaseRepo = "file://" + target
+	applyRootRecipeSource(&runContext, source.RecipeSourceResolution)
+	require.Equal(t, "file://"+target, runContext.GitBase.BaseRepo)
+	require.Equal(t, "file://"+hosted, runContext.RecipeSource.Repo)
 }

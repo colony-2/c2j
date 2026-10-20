@@ -19,9 +19,14 @@ func TestSubmitHelpPromotesConventions(t *testing.T) {
 	if err := cmd.Execute(); err != nil {
 		t.Fatal(err)
 	}
-	for _, flag := range []string{"--build", "--evolve", "--advanced-recipe", "--advanced-recipe-file"} {
+	for _, flag := range []string{"--advanced-recipe", "--advanced-recipe-file"} {
 		if !strings.Contains(out.String(), flag) {
 			t.Fatalf("help missing %s: %s", flag, &out)
+		}
+	}
+	for _, name := range []string{"build", "evolve"} {
+		if cmd.Flags().Lookup(name) != nil || strings.Contains(out.String(), "--"+name) {
+			t.Fatalf("obsolete mode flag %s is still exposed", name)
 		}
 	}
 	for _, name := range []string{"recipe", "recipe-file"} {
@@ -34,9 +39,6 @@ func TestSubmitHelpPromotesConventions(t *testing.T) {
 
 func TestSubmitRejectsConflictingRecipeFlags(t *testing.T) {
 	for _, args := range [][]string{
-		{"--build", "--evolve"},
-		{"--build", "--advanced-recipe", "custom"},
-		{"--evolve", "--advanced-recipe-file", "custom.yaml"},
 		{"--advanced-recipe", "a", "--recipe", "b"},
 		{"--advanced-recipe", "a", "--advanced-recipe-file", "b.yaml"},
 	} {
@@ -55,7 +57,7 @@ func TestSubmitConventionsWithInteractivePromptAndJSON(t *testing.T) {
 	t.Chdir(root)
 	server := httptest.NewServer(remoteruntime.NewServer(toyruntime.New()))
 	defer server.Close()
-	for _, mode := range []string{"default", "build", "evolve"} {
+	for _, mode := range []string{"default", "build", "custom"} {
 		t.Run(mode, func(t *testing.T) {
 			cmd := newSubmitCmd()
 			var out, stderr bytes.Buffer
@@ -67,7 +69,7 @@ func TestSubmitConventionsWithInteractivePromptAndJSON(t *testing.T) {
 			if mode == "default" {
 				want = "build"
 			} else {
-				args = append(args, "--"+mode)
+				args = append(args, "--advanced-recipe", mode)
 			}
 			cmd.SetArgs(args)
 			if err := cmd.Execute(); err != nil {
@@ -85,6 +87,20 @@ func TestSubmitConventionsWithInteractivePromptAndJSON(t *testing.T) {
 			}
 			if stderr.String() != "Prompt: " {
 				t.Fatalf("unexpected stderr %q", stderr.String())
+			}
+		})
+	}
+}
+
+func TestSubmitRejectsRemovedModeFlags(t *testing.T) {
+	for _, flag := range []string{"--build", "--evolve"} {
+		t.Run(flag, func(t *testing.T) {
+			cmd := newSubmitCmd()
+			cmd.SetOut(&bytes.Buffer{})
+			cmd.SetErr(&bytes.Buffer{})
+			cmd.SetArgs([]string{flag})
+			if err := cmd.Execute(); err == nil || !strings.Contains(err.Error(), "unknown flag: "+flag) {
+				t.Fatalf("error = %v, want unknown flag", err)
 			}
 		})
 	}

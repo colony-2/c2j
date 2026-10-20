@@ -609,8 +609,9 @@ outputs:
 
 func TestRun_ConventionsUseTargetCellNotSubmittingCell(t *testing.T) {
 	t.Parallel()
-	for _, kind := range []string{"build", "evolve"} {
-		t.Run(kind, func(t *testing.T) {
+	for _, selection := range []string{"", "build"} {
+		t.Run("recipe="+selection, func(t *testing.T) {
+			const kind = "build"
 			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 			defer cancel()
 			targetRepo, _ := createGitRepo(t)
@@ -644,7 +645,7 @@ outputs:
 			var stdout, stderr bytes.Buffer
 			err := Run(ctx, Options{
 				JobDBURI:   testJobDBURI(server.URL, "target-conventions"),
-				WorkingDir: submittingRepo, Cell: targetRepo, Evolve: kind == "evolve",
+				WorkingDir: submittingRepo, Cell: targetRepo, Recipe: selection,
 				RunAfterSubmit: true, Stdin: strings.NewReader("interactive prompt\n"),
 				Stdout: &stdout, Stderr: &stderr,
 			})
