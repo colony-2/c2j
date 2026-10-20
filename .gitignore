@@ -51,3 +51,4 @@ server/colony2/colony2
 **/playwright-report/*
 **/test-results/*
 .nx
+.c2/passthrough-go-cache

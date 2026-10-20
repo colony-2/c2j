@@ -1,0 +1,23 @@
+# c2j project config
+#
+# `base: go` derives:
+# - self.repo via: go list -m -f '{{.Path}}'
+# - dependents via: go list -m -f '{{if not .Main}}{{.Path}}{{end}}' all
+base: go
+jobdb: http://localhost:9047/c2
+
+
+# Derived current repo: github.com/colony-2/c2j
+# Derived pattern: github.com/colony-2/${{ cell }}
+# Derived root repo: github.com/colony-2/root
+#
+# Uncomment to override:
+# pattern: 'github.com/colony-2/${{ cell }}'
+# self:
+#   repo: c2j
+#   ref: main
+# root:
+#   repo: root
+#   ref: main
+# dependents:
+#   filter: '^github\.com/colony-2/([A-Za-z0-9._-]+)$'
