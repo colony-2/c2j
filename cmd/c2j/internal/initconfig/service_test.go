@@ -25,7 +25,7 @@ func TestRunWritesConfigFile(t *testing.T) {
 		t.Fatalf("Run(): %v", err)
 	}
 
-	configPath := filepath.Join(root, ".c2j", "config.yaml")
+	configPath := filepath.Join(root, ".c2", "config.yaml")
 	raw, err := os.ReadFile(configPath)
 	if err != nil {
 		t.Fatalf("read config: %v", err)
@@ -54,7 +54,7 @@ func TestRunWritesSlashDerivedPattern(t *testing.T) {
 		t.Fatalf("Run(): %v", err)
 	}
 
-	raw, err := os.ReadFile(filepath.Join(root, ".c2j", "config.yaml"))
+	raw, err := os.ReadFile(filepath.Join(root, ".c2", "config.yaml"))
 	if err != nil {
 		t.Fatalf("read config: %v", err)
 	}
@@ -68,7 +68,7 @@ func TestRunRejectsExistingConfigWithoutForce(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
-	configPath := filepath.Join(root, ".c2j", "config.yaml")
+	configPath := filepath.Join(root, ".c2", "config.yaml")
 	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
 		t.Fatalf("mkdir config dir: %v", err)
 	}
@@ -86,7 +86,7 @@ func TestRunExistingConfigDoesNotInstallSkills(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
-	configPath := filepath.Join(root, ".c2j", "config.yaml")
+	configPath := filepath.Join(root, ".c2", "config.yaml")
 	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
 		t.Fatalf("mkdir config dir: %v", err)
 	}
@@ -116,7 +116,7 @@ func TestRunStdoutDoesNotWriteConfig(t *testing.T) {
 		t.Fatalf("Run(): %v", err)
 	}
 
-	if _, err := os.Stat(filepath.Join(root, ".c2j", "config.yaml")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(root, ".c2", "config.yaml")); !os.IsNotExist(err) {
 		t.Fatalf("expected stdout-only mode to avoid writing config, stat err=%v", err)
 	}
 	if !strings.Contains(stdout.String(), "# c2j project config") {
@@ -141,7 +141,7 @@ func TestRunStdoutDoesNotInstallSkills(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(root, ".agents", "skills")); !os.IsNotExist(err) {
 		t.Fatalf("expected stdout-only mode to avoid installing skills, stat err=%v", err)
 	}
-	if _, err := os.Stat(filepath.Join(root, ".c2j", "skills-lock.yaml")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(root, ".c2", "skills-lock.yaml")); !os.IsNotExist(err) {
 		t.Fatalf("expected stdout-only mode to avoid writing skills lock, stat err=%v", err)
 	}
 }
@@ -162,10 +162,38 @@ func TestRunInstallsSkillsWhenEnabled(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(root, ".agents", "skills", "c2j-recipes", "SKILL.md")); err != nil {
 		t.Fatalf("expected c2j-recipes install: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(root, ".c2j", "skills-lock.yaml")); err != nil {
+	if _, err := os.Stat(filepath.Join(root, ".c2", "skills-lock.yaml")); err != nil {
 		t.Fatalf("expected skills lock: %v", err)
 	}
 	if !strings.Contains(stdout.String(), "installed skills:") {
 		t.Fatalf("expected stdout to mention installed skills, got %q", stdout.String())
+	}
+}
+
+func TestRunIgnoresLegacyConfig(t *testing.T) {
+	root := t.TempDir()
+	legacy := filepath.Join(root, ".c2j", "config.yaml")
+	if err := os.MkdirAll(filepath.Dir(legacy), 0755); err != nil {
+		t.Fatal(err)
+	}
+	original := []byte("invalid old configuration: [")
+	if err := os.WriteFile(legacy, original, 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "go.mod"), []byte("module github.com/acme/example\ngo 1.26\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := Run(context.Background(), Options{WorkingDir: root}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(root, ".c2", "config.yaml")); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(legacy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(original, data) {
+		t.Fatal("init changed legacy config")
 	}
 }

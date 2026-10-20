@@ -24,7 +24,7 @@ server.
 Default root:
 
 ```text
-~/.c2j/embed/default
+~/.c2/embed/default
 ```
 
 Layout:

@@ -68,7 +68,7 @@ run: %q
 				runtime.Config = map[string]any{"base_url": "https://fixture.invalid"}
 			}
 			if tc.child {
-				runtime.Cells = map[string]CellFixture{"root": {Files: map[string]string{".c2j/recipes/child.yaml": yaml}}}
+				runtime.Cells = map[string]CellFixture{"root": {Files: map[string]string{".c2/recipes/child.yaml": yaml}}}
 				yaml = "id: parent\nop: recipe.run_and_get_result\ninputs: {name: child, cell_name: root, git_ref: main}\n"
 			}
 			c := Case{ID: tc.name, Type: "integration_case", Runtime: runtime, Mocks: Mocks{Ops: []OpMock{{Repeat: true, Match: OpMockMatch{Selector: selector}, Behavior: MockBehavior{Mode: "return", Outputs: map[string]any{"ok": true}}}}}}

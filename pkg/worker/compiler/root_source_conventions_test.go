@@ -43,7 +43,7 @@ func TestConventionalRecipeFallbackRules(t *testing.T) {
 		{name: "target override", selector: "build"},
 		{name: "evolve override", selector: "evolve"},
 		{name: "custom missing", selector: "custom", loadErr: os.ErrNotExist, wantErr: true},
-		{name: "explicit selector", selector: "git+https://example.test/target.git//.c2j/recipes/build.yaml@main", loadErr: os.ErrNotExist, wantErr: true},
+		{name: "explicit selector", selector: "git+https://example.test/target.git//.c2/recipes/build.yaml@main", loadErr: os.ErrNotExist, wantErr: true},
 		{name: "permission", selector: "build", loadErr: os.ErrPermission, wantErr: true},
 		{name: "network", selector: "evolve", resolveErr: fmt.Errorf("network failure"), wantErr: true},
 		{name: "resolve not found", selector: "build", resolveErr: os.ErrNotExist, wantErr: true},
@@ -81,7 +81,7 @@ func TestConventionalRecipeFallbackRules(t *testing.T) {
 				require.Equal(t, tt.selector, source.SubmittedSelector)
 			}
 			if tt.fallback {
-				require.Equal(t, []string{"git+https://example.test/target.git//.c2j/recipes/" + tt.selector + ".yaml@release", "git+https://github.com/colony-2/recipes.git//" + tt.selector + ".yaml@main"}, resolver.selectors)
+				require.Equal(t, []string{"git+https://example.test/target.git//.c2/recipes/" + tt.selector + ".yaml@release", "git+https://github.com/colony-2/recipes.git//" + tt.selector + ".yaml@main"}, resolver.selectors)
 			} else {
 				require.Len(t, resolver.selectors, 1)
 			}

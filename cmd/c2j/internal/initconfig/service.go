@@ -50,7 +50,7 @@ func Run(ctx context.Context, opts Options) error {
 		return err
 	}
 
-	configPath := filepath.Join(workingDir, ".c2j", "config.yaml")
+	configPath := filepath.Join(workingDir, ".c2", "config.yaml")
 	if !opts.Force {
 		if _, err := os.Stat(configPath); err == nil {
 			return fmt.Errorf("%s already exists", configPath)

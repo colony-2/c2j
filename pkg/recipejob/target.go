@@ -84,7 +84,7 @@ func resolveSelfTarget(ctx context.Context, workingDir string, tenantID string) 
 	cfg, err := configpkg.LoadProjectConfig(workingDir)
 	if err != nil {
 		if err == configpkg.ErrConfigNotFound {
-			return ResolvedTarget{}, fmt.Errorf("current cell requires %s/%s or a supported auto-detected base", ".c2j", "config.yaml")
+			return ResolvedTarget{}, fmt.Errorf("current cell requires %s/%s or a supported auto-detected base", ".c2", "config.yaml")
 		}
 		return ResolvedTarget{}, err
 	}
@@ -260,7 +260,7 @@ func resolveRepositoryInput(workingDir string, value string) (string, error) {
 	if strings.Contains(value, "/") || strings.Contains(value, ":") {
 		return value, nil
 	}
-	return "", fmt.Errorf("cell %q looks like a short name; define pattern in .c2j/config.yaml or use an explicit repo/path", value)
+	return "", fmt.Errorf("cell %q looks like a short name; define pattern in .c2/config.yaml or use an explicit repo/path", value)
 }
 
 func absPathFromWorkingDir(workingDir string, value string) (string, error) {

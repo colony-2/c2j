@@ -106,7 +106,11 @@ its installation checks. After changing Go dependencies, update `vendorHash` in
 
 ### 1. Check current-cell resolution
 
-`submit` targets the current cell by default. That usually comes from `.c2j/config.yaml`, but supported project types can also be auto-detected.
+`submit` targets the current cell by default. That usually comes from `.c2/config.yaml`, but supported project types can also be auto-detected.
+
+Configuration now lives in `.c2/config.yaml`; the old `.c2j` directory is not
+searched or migrated automatically. Move existing configuration and recipes to
+`.c2` before running this version.
 
 Inspect the resolved config:
 
@@ -128,7 +132,7 @@ c2j init --stdout
 
 If the current directory does not resolve as a cell, either:
 
-- create `.c2j/config.yaml`, or
+- create `.c2/config.yaml`, or
 - pass `--cell <repo-or-path>` explicitly to `submit` or `list`
 
 ### 2. Submit and run a build job
@@ -166,7 +170,7 @@ c2j run --job-id <job-id> --embed
 
 ### `c2j self`
 
-Shows how `c2j` resolves the current cell from `.c2j/config.yaml` or supported auto-detection.
+Shows how `c2j` resolves the current cell from `.c2/config.yaml` or supported auto-detection.
 
 ```bash
 c2j self
@@ -195,7 +199,7 @@ This is mainly useful when you want to target another cell by short name and nee
 
 ### `c2j init`
 
-Writes a commented `.c2j/config.yaml` template and installs bundled c2j skills for Codex-compatible agents.
+Writes a commented `.c2/config.yaml` template and installs bundled c2j skills for Codex-compatible agents.
 
 ```bash
 c2j init
@@ -216,7 +220,7 @@ c2j init --skills-scope user
 c2j init --skills-force
 ```
 
-`auto` currently installs to the project-local `.agents/skills` directory. `user` installs to `${CODEX_HOME:-$HOME/.codex}/skills`. Install metadata is recorded in `.c2j/skills-lock.yaml`.
+`auto` currently installs to the project-local `.agents/skills` directory. `user` installs to `${CODEX_HOME:-$HOME/.codex}/skills`. Install metadata is recorded in `.c2/skills-lock.yaml`.
 
 You can also install the repo skills directly with the public `skills` tool:
 
@@ -234,7 +238,7 @@ Submit a build job:
 c2j submit "Implement the new endpoint" --embed
 ```
 
-Submissions use the name `build` through the existing recipe resolution system. At execution time, c2j first looks for `.c2j/recipes/build.yaml` in the **target cell's repository**, at its configured ref. This also applies to `--cell`; the submitting project's recipes do not override another target cell's recipes. As with other named recipes, uncommitted files are not used.
+Submissions use the name `build` through the existing recipe resolution system. At execution time, c2j first looks for `.c2/recipes/build.yaml` in the **target cell's repository**, at its configured ref. This also applies to `--cell`; the submitting project's recipes do not override another target cell's recipes. As with other named recipes, uncommitted files are not used.
 
 If that recipe file is absent, c2j resolves the shared recipe instead:
 
@@ -387,7 +391,7 @@ c2j submit "Improve retry behavior" \
 - a canonical repo string
 - a clone URL
 - a local repository path
-- a configured short name when `.c2j/config.yaml` defines a pattern
+- a configured short name when `.c2/config.yaml` defines a pattern
 
 Rules:
 
@@ -471,7 +475,7 @@ Useful flags:
 - `--recipe-file <path>` uses a local inline recipe file
 - `--case <id>` filters suite mode to selected cases
 - `--parallelism <n>` controls local case concurrency
-- `--out-dir <dir>` defaults to `.c2j/test-results/<timestamp>/`
+- `--out-dir <dir>` defaults to `.c2/test-results/<timestamp>/`
 - passthrough cases use a disposable embedded runtime automatically
 
 ## Running Jobs
@@ -704,7 +708,7 @@ Behavior:
 Defaults:
 
 - runtime URL: `embed:///`
-- runtime root: `~/.c2j/embed/default`
+- runtime root: `~/.c2/embed/default`
 
 Notes:
 
@@ -787,6 +791,8 @@ c2j submit "Run the requested task" \
 - `submit --advanced-recipe-file` is clearer than passing a local file path through `--advanced-recipe`
 
 ## Related Files
+
+- separate Git operations: [squash, rebase, and fast-forward-only merge](GUIDE-Git-Ops.md)
 
 - command entrypoint: [main.go](main.go)
 - embedded runtime notes: [embed-swf-mode-spec.md](embed-swf-mode-spec.md)

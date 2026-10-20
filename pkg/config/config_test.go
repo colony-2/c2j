@@ -2,6 +2,7 @@ package config
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -12,7 +13,7 @@ func TestLoadProjectConfigDiscoversNearestConfig(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
-	configPath := filepath.Join(root, ".c2j", "config.yaml")
+	configPath := filepath.Join(root, ".c2", "config.yaml")
 	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
 		t.Fatalf("mkdir config dir: %v", err)
 	}
@@ -49,7 +50,7 @@ func TestProjectConfig_JobDBURI(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
-	configPath := filepath.Join(root, ".c2j", "config.yaml")
+	configPath := filepath.Join(root, ".c2", "config.yaml")
 	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
 		t.Fatalf("mkdir config dir: %v", err)
 	}
@@ -74,7 +75,7 @@ func TestProjectConfig_EmbeddedJobDBURI(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
-	configPath := filepath.Join(root, ".c2j", "config.yaml")
+	configPath := filepath.Join(root, ".c2", "config.yaml")
 	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
 		t.Fatalf("mkdir config dir: %v", err)
 	}
@@ -143,7 +144,7 @@ func TestProjectConfig_ExplicitValuesAndPatternFiltering(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
-	configPath := filepath.Join(root, ".c2j", "config.yaml")
+	configPath := filepath.Join(root, ".c2", "config.yaml")
 	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
 		t.Fatalf("mkdir config dir: %v", err)
 	}
@@ -245,7 +246,7 @@ func TestProjectConfig_CommandParsingIgnoresStderrAndUsesNonLoginShell(t *testin
 	t.Parallel()
 
 	root := t.TempDir()
-	configPath := filepath.Join(root, ".c2j", "config.yaml")
+	configPath := filepath.Join(root, ".c2", "config.yaml")
 	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
 		t.Fatalf("mkdir config dir: %v", err)
 	}
@@ -292,7 +293,7 @@ func TestProjectConfig_DependentsListIsExplicitFinalSet(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
-	configPath := filepath.Join(root, ".c2j", "config.yaml")
+	configPath := filepath.Join(root, ".c2", "config.yaml")
 	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
 		t.Fatalf("mkdir config dir: %v", err)
 	}
@@ -331,7 +332,7 @@ func TestProjectConfig_GoBaseDefaults(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
-	mustWriteFile(t, filepath.Join(root, ".c2j", "config.yaml"), []byte("base: go\n"))
+	mustWriteFile(t, filepath.Join(root, ".c2", "config.yaml"), []byte("base: go\n"))
 
 	monkeyDir := filepath.Join(root, "deps", "monkey")
 	zebraDir := filepath.Join(root, "deps", "zebra")
@@ -432,7 +433,7 @@ func TestProjectConfig_GoBaseDefaultsUseSlashBoundaryWhenRepoHasNoDashAfterSlash
 	t.Parallel()
 
 	root := t.TempDir()
-	mustWriteFile(t, filepath.Join(root, ".c2j", "config.yaml"), []byte("base: go\n"))
+	mustWriteFile(t, filepath.Join(root, ".c2", "config.yaml"), []byte("base: go\n"))
 
 	monkeyDir := filepath.Join(root, "deps", "monkey")
 	externalDir := filepath.Join(root, "deps", "external")
@@ -497,7 +498,7 @@ func TestProjectConfig_DependentsFilterOnlyUsesBaseDefaults(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
-	mustWriteFile(t, filepath.Join(root, ".c2j", "config.yaml"), []byte(`
+	mustWriteFile(t, filepath.Join(root, ".c2", "config.yaml"), []byte(`
 base: go
 dependents:
   filter: '^github\.com/acme/boo-([A-Za-z0-9._-]+)$'
@@ -586,7 +587,7 @@ func TestLoadProjectConfig_PrefersExplicitConfigOverAutoDetect(t *testing.T) {
 
 	root := t.TempDir()
 	mustWriteFile(t, filepath.Join(root, "go.mod"), []byte("module github.com/acme/boo-cheetah\ngo 1.26\n"))
-	mustWriteFile(t, filepath.Join(root, ".c2j", "config.yaml"), []byte(`
+	mustWriteFile(t, filepath.Join(root, ".c2", "config.yaml"), []byte(`
 self:
   repo: github.com/acme/manual
   ref: release
@@ -621,7 +622,7 @@ func TestProjectConfig_RootWithoutPatternCanStillResolveRootTicket(t *testing.T)
 	t.Parallel()
 
 	root := t.TempDir()
-	mustWriteFile(t, filepath.Join(root, ".c2j", "config.yaml"), []byte(`
+	mustWriteFile(t, filepath.Join(root, ".c2", "config.yaml"), []byte(`
 self:
   repo: github.com/acme/self
 root:
@@ -651,7 +652,7 @@ func TestProjectConfig_RejectsShortNameWithoutPattern(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
-	mustWriteFile(t, filepath.Join(root, ".c2j", "config.yaml"), []byte(`
+	mustWriteFile(t, filepath.Join(root, ".c2", "config.yaml"), []byte(`
 self:
   repo: cheetah
 `))
@@ -674,5 +675,33 @@ func mustWriteFile(t *testing.T, path string, contents []byte) {
 	}
 	if err := os.WriteFile(path, contents, 0o644); err != nil {
 		t.Fatalf("write %s: %v", path, err)
+	}
+}
+
+func TestConfigDiscoveryIgnoresLegacyFolder(t *testing.T) {
+	root := t.TempDir()
+	legacy := filepath.Join(root, ".c2j", "config.yaml")
+	if err := os.MkdirAll(filepath.Dir(legacy), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(legacy, []byte("self:\n  repo: legacy.example/ignored\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := DiscoverConfigPath(root); !errors.Is(err, ErrConfigNotFound) {
+		t.Fatalf("legacy config was discovered: %v", err)
+	}
+	current := filepath.Join(root, ".c2", "config.yaml")
+	if err := os.MkdirAll(filepath.Dir(current), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(current, []byte("self:\n  repo: github.com/acme/current\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := LoadProjectConfig(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Path() != current {
+		t.Fatalf("config path = %q, want %q", cfg.Path(), current)
 	}
 }

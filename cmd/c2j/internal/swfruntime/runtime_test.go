@@ -18,7 +18,7 @@ func TestOpenEmbedPersistsJobsAcrossReopen(t *testing.T) {
 
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	root := filepath.Join(home, ".c2j", "embed", "default")
+	root := filepath.Join(home, ".c2", "embed", "default")
 
 	handle, err := Open(ctx, "embed:///")
 	if err != nil {

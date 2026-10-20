@@ -47,8 +47,8 @@ func TestChildWaitSurvivesWorkerReplacementAndCancellation(t *testing.T) {
 	workspaceTestWorker(t, probe, hold)
 	repo := t.TempDir()
 	workspaceRepo(t, repo, "root")
-	require.NoError(t, os.MkdirAll(filepath.Join(repo, ".c2j/recipes"), 0755))
-	require.NoError(t, os.WriteFile(filepath.Join(repo, ".c2j/recipes/child.yaml"), []byte(`id: child
+	require.NoError(t, os.MkdirAll(filepath.Join(repo, ".c2/recipes"), 0755))
+	require.NoError(t, os.WriteFile(filepath.Join(repo, ".c2/recipes/child.yaml"), []byte(`id: child
 version: "1"
 op: hold_child
 `), 0644))

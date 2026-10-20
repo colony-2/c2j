@@ -10,7 +10,7 @@ import (
 )
 
 const (
-	CellRecipeDirectory = ".c2j/recipes"
+	CellRecipeDirectory = ".c2/recipes"
 	DefaultRecipeName   = "build"
 	DefaultRecipeRef    = "main"
 )

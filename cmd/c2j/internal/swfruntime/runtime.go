@@ -197,7 +197,7 @@ func resolveEmbedRoot() (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("resolve home directory for embedded JobDB runtime: %w", err)
 	}
-	return filepath.Join(home, ".c2j", "embed", "default"), nil
+	return filepath.Join(home, ".c2", "embed", "default"), nil
 }
 
 type embedLock struct {

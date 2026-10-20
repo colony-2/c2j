@@ -53,7 +53,7 @@ if err != nil {
 
 Supported values:
 
-- empty `Cell` or `Self:true`: current cell from `.c2j/config.yaml` or supported auto-detection
+- empty `Cell` or `Self:true`: current cell from `.c2/config.yaml` or supported auto-detection
 - `root`: configured or derivable root repo
 - configured short names, such as `checkout`
 - canonical repo strings, such as `github.com/acme/app`

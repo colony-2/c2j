@@ -140,7 +140,7 @@ func (c *Cache) cacheRoot() (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("resolve home directory for git selector cache: %w", err)
 	}
-	root := filepath.Join(home, ".c2j", "cache", "git-selectors", "v1")
+	root := filepath.Join(home, ".c2", "cache", "git-selectors", "v1")
 	if err := os.MkdirAll(root, 0o755); err != nil {
 		return "", fmt.Errorf("create git selector cache root: %w", err)
 	}

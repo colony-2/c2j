@@ -16,7 +16,7 @@ func newSubmitCmd() *cobra.Command {
 		Short: "Submit a build job",
 		Long: `Submit a build job for the target cell.
 
-Uses the target cell's .c2j/recipes/build.yaml, falling back
+Uses the target cell's .c2/recipes/build.yaml, falling back
 to build.yaml on main in github.com/colony-2/recipes.
 The prompt becomes inputs.prompt; if omitted, it is requested interactively.
 Build submissions also set inputs.type to "build".

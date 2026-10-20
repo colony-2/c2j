@@ -297,9 +297,9 @@ outputs:
  text: "{{ sequence.read.outputs.text }}"
  cell: "{{ sequence.read.outputs.cell }}"
 `
-			require.NoError(t, os.MkdirAll(filepath.Join(a, ".c2j", "recipes"), 0755))
-			require.NoError(t, os.WriteFile(filepath.Join(a, ".c2j", "recipes", "child.yaml"), []byte(child), 0644))
-			require.NoError(t, os.WriteFile(filepath.Join(a, ".c2j", "recipes", "inspect.yaml"), []byte("id: inspect\nop: workspace_probe\n"), 0644))
+			require.NoError(t, os.MkdirAll(filepath.Join(a, ".c2", "recipes"), 0755))
+			require.NoError(t, os.WriteFile(filepath.Join(a, ".c2", "recipes", "child.yaml"), []byte(child), 0644))
+			require.NoError(t, os.WriteFile(filepath.Join(a, ".c2", "recipes", "inspect.yaml"), []byte("id: inspect\nop: workspace_probe\n"), 0644))
 			require.NoError(t, runGit(a, "git", "add", "."))
 			require.NoError(t, runGit(a, "git", "commit", "-m", "child recipe"))
 			eng := newToyEngine(t, "workspace-tests", nil)

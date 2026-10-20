@@ -163,7 +163,7 @@ Keep workspace ancestry separate from template/output ancestry. An isolated node
 
 ## Resolving and entering a workspace
 
-Resolve cell names relative to a stable resolution configuration for the owning job. Do not read whichever `.c2j/config.yaml` happens to be in the worker process's current directory, or switch naming rules when entering cellB.
+Resolve cell names relative to a stable resolution configuration for the owning job. Do not read whichever `.c2/config.yaml` happens to be in the worker process's current directory, or switch naming rules when entering cellB.
 
 1. Capture a portable resolution context when preparing the job: the effective naming pattern, self/root repositories and refs, and explicit configuration values needed by the existing resolver. Resolve local auto-detection at this point. API submitters must provide an equivalent context or use an explicit repository target. Do not put credentials in the snapshot.
 2. At boundary entry, evaluate `workspace.cell` and optional `workspace.ref` against the incoming template context. Parent inputs, prior visible outputs, transition data, and inherited vars are available. The node's own vars are evaluated after entry and cannot define its selector. Composite input bindings keep their current caller-side evaluation semantics.

@@ -23,7 +23,7 @@ over. Schemas and schedules must be recreated and jobs submitted again.
 Stop all old processes before switching storage. Preserve any old data needed
 for rollback or inspection; do not point this executable at an existing
 database expecting conversion. The embedded database and blob directory are
-normally under `$HOME/.c2j/embed/default/`; the application does not automatically
+normally under `$HOME/.c2/embed/default/`; the application does not automatically
 delete them or migrate them. Follow the deployment owner's approved fresh-store
 procedure. This code update does not reset any database or artifact storage.
 

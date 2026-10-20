@@ -33,3 +33,10 @@ func opNames(ops []coreops.RegisterableOp) map[string]struct{} {
 	}
 	return names
 }
+
+func TestOpsIncludesSeparateAndCombinedGitOperations(t *testing.T) {
+	names := opNames(Ops())
+	for _, name := range []string{"squash", "rebase", "merge", "thinpackrebase", "squashrebasemerge"} {
+		require.Contains(t, names, name)
+	}
+}

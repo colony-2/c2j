@@ -64,7 +64,7 @@ func TestBuildCellRecipeSelector(t *testing.T) {
 		t.Fatalf("BuildCellRecipeSelector(): %v", err)
 	}
 
-	want := "git+https://github.com/acme/demo.git//.c2j/recipes/deploy.yaml@main"
+	want := "git+https://github.com/acme/demo.git//.c2/recipes/deploy.yaml@main"
 	if selector != want {
 		t.Fatalf("BuildCellRecipeSelector() = %q, want %q", selector, want)
 	}
@@ -83,7 +83,7 @@ func TestIsLocalRecipeFileReference(t *testing.T) {
 		{value: "./deploy.yaml", want: true},
 		{value: "../deploy.yaml", want: true},
 		{value: "/tmp/deploy.yaml", want: true},
-		{value: "git+https://github.com/acme/demo.git//.c2j/recipes/deploy.yaml@main", want: false},
+		{value: "git+https://github.com/acme/demo.git//.c2/recipes/deploy.yaml@main", want: false},
 	}
 
 	for _, tt := range tests {
@@ -103,7 +103,7 @@ func TestIsCellRecipeName(t *testing.T) {
 		{value: "deploy", want: true},
 		{value: "deploy.yaml", want: false},
 		{value: "./deploy.yaml", want: false},
-		{value: "git+https://github.com/acme/demo.git//.c2j/recipes/deploy.yaml@main", want: false},
+		{value: "git+https://github.com/acme/demo.git//.c2/recipes/deploy.yaml@main", want: false},
 	}
 
 	for _, tt := range tests {

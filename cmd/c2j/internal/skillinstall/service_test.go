@@ -32,7 +32,7 @@ func TestInstallBundledProjectCopiesSkillsAndWritesLock(t *testing.T) {
 		}
 	}
 
-	lock, err := readLockFile(filepath.Join(root, ".c2j", "skills-lock.yaml"))
+	lock, err := readLockFile(filepath.Join(root, ".c2", "skills-lock.yaml"))
 	if err != nil {
 		t.Fatalf("read lock: %v", err)
 	}

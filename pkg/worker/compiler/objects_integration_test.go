@@ -231,8 +231,8 @@ sequence:
 outputs:
  session: "${{ sequence.resume.outputs.session }}"
 `
-	require.NoError(t, os.MkdirAll(filepath.Join(repo, ".c2j", "recipes"), 0755))
-	require.NoError(t, os.WriteFile(filepath.Join(repo, ".c2j", "recipes", "child.yaml"), []byte(child), 0644))
+	require.NoError(t, os.MkdirAll(filepath.Join(repo, ".c2", "recipes"), 0755))
+	require.NoError(t, os.WriteFile(filepath.Join(repo, ".c2", "recipes", "child.yaml"), []byte(child), 0644))
 	require.NoError(t, runGit(repo, "git", "add", "."))
 	require.NoError(t, runGit(repo, "git", "commit", "-m", "child recipe"))
 	dbPath := filepath.Join(t.TempDir(), "jobs.db")

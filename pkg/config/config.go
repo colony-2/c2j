@@ -18,7 +18,7 @@ import (
 )
 
 const (
-	configDirName       = ".c2j"
+	configDirName       = ".c2"
 	configFileName      = "config.yaml"
 	cellPlaceholder     = "${{ cell }}"
 	shortNamePatternRaw = `^[A-Za-z0-9._-]+$`

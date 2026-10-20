@@ -4,7 +4,7 @@
 
 ## Current Cell
 
-`submit` targets the current cell by default. Cell resolution usually comes from `.c2j/config.yaml`; supported project types can also be auto-detected.
+`submit` targets the current cell by default. Cell resolution usually comes from `.c2/config.yaml`; supported project types can also be auto-detected.
 
 Inspect resolution:
 
@@ -56,7 +56,7 @@ Skill scopes:
 - `user`: `${CODEX_HOME:-$HOME/.codex}/skills/<skill-name>`.
 - `auto`: project scope.
 
-Skill install metadata is recorded in `.c2j/skills-lock.yaml`.
+Skill install metadata is recorded in `.c2/skills-lock.yaml`.
 
 ## JobDB Targets
 

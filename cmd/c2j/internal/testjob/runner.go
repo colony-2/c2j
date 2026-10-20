@@ -807,7 +807,7 @@ func resolveTargetRepo(ctx context.Context, opts Options) (string, string, error
 
 	if opts.Self || strings.TrimSpace(opts.Cell) == "" {
 		if cfgErr == configpkg.ErrConfigNotFound || cfg == nil {
-			return "", "", fmt.Errorf("current cell requires .c2j/config.yaml or supported auto-detection")
+			return "", "", fmt.Errorf("current cell requires .c2/config.yaml or supported auto-detection")
 		}
 		repo, err := cfg.SelfRepo(ctx)
 		if err != nil {

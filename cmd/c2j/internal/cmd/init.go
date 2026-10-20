@@ -17,14 +17,14 @@ func newInitCmd() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "init",
-		Short: "Write a commented .c2j/config.yaml template",
+		Short: "Write a commented .c2/config.yaml template",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return initconfig.Run(context.Background(), opts)
 		},
 	}
 
 	flags := cmd.Flags()
-	flags.BoolVar(&opts.Force, "force", false, "Overwrite an existing .c2j/config.yaml")
+	flags.BoolVar(&opts.Force, "force", false, "Overwrite an existing .c2/config.yaml")
 	flags.BoolVar(&opts.StdoutOnly, "stdout", false, "Print the generated config to stdout instead of writing it")
 	flags.BoolVar(&opts.NoSkills, "no-skills", false, "Do not install bundled c2j skills")
 	flags.BoolVar(&opts.SkillsForce, "skills-force", false, "Overwrite existing installed c2j skill folders")

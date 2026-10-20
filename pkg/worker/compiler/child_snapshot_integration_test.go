@@ -54,8 +54,8 @@ outputs:
  cell: "{{ sequence.write.outputs.text }}"
  merged_hash: "{{ sequence.merge.outputs.merged_hash }}"
 `
-				require.NoError(t, os.MkdirAll(filepath.Join(a, ".c2j", "recipes"), 0755))
-				require.NoError(t, os.WriteFile(filepath.Join(a, ".c2j", "recipes", "child.yaml"), []byte(child), 0644))
+				require.NoError(t, os.MkdirAll(filepath.Join(a, ".c2", "recipes"), 0755))
+				require.NoError(t, os.WriteFile(filepath.Join(a, ".c2", "recipes", "child.yaml"), []byte(child), 0644))
 				require.NoError(t, runGit(a, "git", "add", "."))
 				require.NoError(t, runGit(a, "git", "commit", "-m", "Install child"))
 				aBase, err := common.GetCommitHash(context.Background(), a, "HEAD")

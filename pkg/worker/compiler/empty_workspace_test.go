@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/colony-2/c2j/pkg/contextual"
@@ -17,6 +18,12 @@ import (
 )
 
 func TestEmptyWorkspaceRecipePublicationAndParentIsolation(t *testing.T) {
+	for _, separate := range []bool{false, true} {
+		t.Run(fmt.Sprintf("separate=%t", separate), func(t *testing.T) { testEmptyWorkspacePublication(t, separate) })
+	}
+}
+
+func testEmptyWorkspacePublication(t *testing.T, separate bool) {
 	root := t.TempDir()
 	a := filepath.Join(root, "A")
 	b := filepath.Join(root, "B.git")
@@ -28,7 +35,7 @@ func TestEmptyWorkspaceRecipePublicationAndParentIsolation(t *testing.T) {
 		Base string `json:"base" default:"{{ context.git.execution.base_hash }}"`
 	}
 	probe := coreops.NewActivityMappedOpV2[hashes, hashes](coreops.OpMetadata{Type: "execution_hash_probe"}, func(_ coreops.OpDependencies, _ context.Context, in hashes) (hashes, error) { return in, nil })
-	ws := workspaceTestWorker(t, squashrebasemerge.GetOp(), probe)
+	ws := workspaceTestWorker(t, squashrebasemerge.GetOp(), squashrebasemerge.GetSquashOp(), squashrebasemerge.GetMergeOp(), probe)
 	job := contextual.JobContext{Workflow: contextual.WorkflowContext{CellName: "A"}, GitBase: contextual.GitBaseContext{BaseRepo: a, BaseRef: "main"}}
 	text := fmt.Sprintf(`id: workspace-test
 version: "1"
@@ -75,6 +82,25 @@ outputs:
  restored: "{{ sequence.create.outputs.restored }}"
  parent: "{{ sequence.parent.outputs.head }}"
 `, b)
+	if separate {
+		text = strings.Replace(text, `    - id: publish
+      op: squashrebasemerge
+      inputs: {commit_message: "Approved initial purpose"}`, `    - id: squash
+      op: squash
+      inputs: {commit_message: "Approved initial purpose"}
+    - id: restored_candidate
+      op: workspace_probe
+      inputs: {read: PURPOSE.md}
+    - id: publish
+      op: merge`, 1)
+		text = strings.Replace(text, `    - id: publish_again
+      op: squashrebasemerge
+      inputs: {commit_message: "Following change"}`, `    - id: squash_again
+      op: squash
+      inputs: {commit_message: "Following change"}
+    - id: publish_again
+      op: merge`, 1)
+	}
 	out, _ := runWorkspaceRecipe(t, ws, text, job)
 	require.Empty(t, out["unborn"])
 	require.Equal(t, out["first"], out["restored"])

@@ -133,20 +133,20 @@ func TestRecipeSourceResolver_GitSelectorUsesSharedCacheForPinnedOfflineLoad(t *
 	require.NoError(t, runGit(repoDir, "git", "config", "user.email", "root-source-test@example.com"))
 	require.NoError(t, runGit(repoDir, "git", "config", "user.name", "Root Source Test"))
 
-	recipePath := filepath.Join(repoDir, ".c2j", "recipes", "cached.yaml")
+	recipePath := filepath.Join(repoDir, ".c2", "recipes", "cached.yaml")
 	writeRootSourceRecipe(t, recipePath, "cached_recipe")
 	require.NoError(t, runGit(repoDir, "git", "add", "."))
 	require.NoError(t, runGit(repoDir, "git", "commit", "-m", "add cached recipe"))
 
 	repoURL := (&url.URL{Scheme: "file", Path: repoDir}).String()
-	selector := fmt.Sprintf("git+%s//.c2j/recipes/cached.yaml@HEAD", repoURL)
+	selector := fmt.Sprintf("git+%s//.c2/recipes/cached.yaml@HEAD", repoURL)
 	cache := &selectorcache.Cache{Root: t.TempDir()}
 	resolver := NewRecipeSourceResolver(RecipeSourceResolverOptions{SelectorCache: cache})
 
 	resolution, err := resolver.Resolve(context.Background(), "tenant", selector)
 	require.NoError(t, err)
 	require.Len(t, resolution.ResolvedCommit, 40)
-	require.Equal(t, fmt.Sprintf("git+%s//.c2j/recipes/cached.yaml@%s", repoURL, resolution.ResolvedCommit), resolution.ResolvedSelector)
+	require.Equal(t, fmt.Sprintf("git+%s//.c2/recipes/cached.yaml@%s", repoURL, resolution.ResolvedCommit), resolution.ResolvedSelector)
 
 	// The source tree has been materialized once. Loading the pinned resolution
 	// should not need the remote repository anymore.
@@ -169,14 +169,14 @@ func TestRecipeSourceResolver_MutableGitSelectorTracksMovedBranchInCache(t *test
 	require.NoError(t, runGit(repoDir, "git", "config", "user.email", "root-source-test@example.com"))
 	require.NoError(t, runGit(repoDir, "git", "config", "user.name", "Root Source Test"))
 
-	recipePath := filepath.Join(repoDir, ".c2j", "recipes", "moving.yaml")
+	recipePath := filepath.Join(repoDir, ".c2", "recipes", "moving.yaml")
 	writeRootSourceRecipe(t, recipePath, "moving_recipe_v1")
 	require.NoError(t, runGit(repoDir, "git", "add", "."))
 	require.NoError(t, runGit(repoDir, "git", "commit", "-m", "add moving recipe v1"))
 	firstCommit := gitHead(t, repoDir)
 
 	repoURL := (&url.URL{Scheme: "file", Path: repoDir}).String()
-	selector := fmt.Sprintf("git+%s//.c2j/recipes/moving.yaml@HEAD", repoURL)
+	selector := fmt.Sprintf("git+%s//.c2/recipes/moving.yaml@HEAD", repoURL)
 	cache := &selectorcache.Cache{Root: t.TempDir()}
 	resolver := NewRecipeSourceResolver(RecipeSourceResolverOptions{SelectorCache: cache})
 
@@ -295,7 +295,7 @@ func TestRecipeJobWorker_ResolvesBareRootRecipeAgainstLookupContext(t *testing.T
 	require.NoError(t, runGit(repoDir, "git", "config", "user.email", "root-source-test@example.com"))
 	require.NoError(t, runGit(repoDir, "git", "config", "user.name", "Root Source Test"))
 
-	recipePath := filepath.Join(repoDir, ".c2j", "recipes", "remote-root.yaml")
+	recipePath := filepath.Join(repoDir, ".c2", "recipes", "remote-root.yaml")
 	require.NoError(t, os.MkdirAll(filepath.Dir(recipePath), 0o755))
 	require.NoError(t, os.WriteFile(recipePath, []byte(strings.TrimSpace(`
 id: remote_root_lookup_recipe
@@ -356,7 +356,7 @@ outputs:
 	resolvedSource, err := ParseResolvedRecipeSourceJSON(executionTaskRuns(run)[0].Attempts[0].Output.Data)
 	require.NoError(t, err)
 	require.Equal(t, "remote-root", resolvedSource.SubmittedSelector)
-	require.Equal(t, fmt.Sprintf("git+%s//.c2j/recipes/remote-root.yaml@%s", repoURL, commit), resolvedSource.ResolvedSelector)
+	require.Equal(t, fmt.Sprintf("git+%s//.c2/recipes/remote-root.yaml@%s", repoURL, commit), resolvedSource.ResolvedSelector)
 }
 
 func TestWithinRecipeResolutionTaskResolvesSelectors(t *testing.T) {

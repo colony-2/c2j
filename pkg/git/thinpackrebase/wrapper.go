@@ -81,3 +81,12 @@ func (a *ThinpackRebaseActivity) Execute(inv ops.OpDependencies, ctx context.Con
 	}
 	return *output, nil
 }
+
+// GetRebaseOp exposes the same workspace-aware local rebase as a standalone op.
+func GetRebaseOp() ops.RegisterableOp {
+	act := NewThinpackRebaseActivity()
+	metadata := act.GetMetadata()
+	metadata.Type = "rebase"
+	metadata.Description = "Rebases local commits onto target_base_hash without squashing or publishing"
+	return ops.NewActivityMappedOpV2[ThinpackRebaseInput, ThinpackRebaseOutput](metadata, act.Execute)
+}

@@ -188,7 +188,7 @@ output_schema:
 	if wantDir := filepath.Join(resolved.ProjectRoot, "tools", "ops", "echo"); resolved.Dir != wantDir {
 		t.Fatalf("resolved dir = %q, want %q", resolved.Dir, wantDir)
 	}
-	if !strings.Contains(resolved.ProjectRoot, filepath.Join(".c2j", "cache", "git-selectors", "v1", "sources")) {
+	if !strings.Contains(resolved.ProjectRoot, filepath.Join(".c2", "cache", "git-selectors", "v1", "sources")) {
 		t.Fatalf("project root %q does not use shared selector cache", resolved.ProjectRoot)
 	}
 

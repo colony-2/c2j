@@ -256,11 +256,11 @@ func assertNoError(t *testing.T, err error) bool {
 
 func TestExplicitInputsIgnoreProjectAndEnvironment(t *testing.T) {
 	root := t.TempDir()
-	require.NoError(t, os.MkdirAll(filepath.Join(root, ".c2j"), 0700))
-	require.NoError(t, os.WriteFile(filepath.Join(root, ".c2j", "config.yaml"), []byte("invalid: ["), 0600))
+	require.NoError(t, os.MkdirAll(filepath.Join(root, ".c2"), 0700))
+	require.NoError(t, os.WriteFile(filepath.Join(root, ".c2", "config.yaml"), []byte("invalid: ["), 0600))
 	child := filepath.Join(root, "child")
-	require.NoError(t, os.MkdirAll(filepath.Join(child, ".c2j"), 0700))
-	require.NoError(t, os.WriteFile(filepath.Join(child, ".c2j", "config.yaml"), []byte("jobdb: https://wrong.invalid/wrong\nself:\n  repo: github.com/wrong/repo\n"), 0600))
+	require.NoError(t, os.MkdirAll(filepath.Join(child, ".c2"), 0700))
+	require.NoError(t, os.WriteFile(filepath.Join(child, ".c2", "config.yaml"), []byte("jobdb: https://wrong.invalid/wrong\nself:\n  repo: github.com/wrong/repo\n"), 0600))
 	// A path resembling a canonical remote must not shadow the explicit identity.
 	require.NoError(t, os.MkdirAll(filepath.Join(child, "github.com", "acme", "app"), 0700))
 	t.Chdir(child)

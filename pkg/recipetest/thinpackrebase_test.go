@@ -68,7 +68,7 @@ outputs:
  target: '${{ sequence.child.outputs.outputs.merged_hash }}'
  refreshed: '${{ sequence.refresh.outputs.new_base_hash }}'
 `}
-	c := Case{ID: "child-refresh", Type: "integration_case", Runtime: &RuntimeCase{Cell: "root", Cells: map[string]CellFixture{"root": {Files: map[string]string{".c2j/recipes/child.yaml": child, "README.md": "root"}}}}, Mocks: Mocks{Ops: []OpMock{{Repeat: true, Match: OpMockMatch{Op: "command_execution"}, Behavior: MockBehavior{Mode: "passthrough"}}}}}
+	c := Case{ID: "child-refresh", Type: "integration_case", Runtime: &RuntimeCase{Cell: "root", Cells: map[string]CellFixture{"root": {Files: map[string]string{".c2/recipes/child.yaml": child, "README.md": "root"}}}}, Mocks: Mocks{Ops: []OpMock{{Repeat: true, Match: OpMockMatch{Op: "command_execution"}, Behavior: MockBehavior{Mode: "passthrough"}}}}}
 	result := RunCase(context.Background(), HarnessOptions{Deps: coreops.NewServiceDepsBuilder().Build(), WorkRoot: t.TempDir()}, "refresh-test", target, c, ExecutionOptions{})
 	require.Equal(t, "passed", result.Status, result.FailureReason)
 	require.Equal(t, "missing", result.Outputs["before"])

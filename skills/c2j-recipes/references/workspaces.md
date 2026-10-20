@@ -35,3 +35,5 @@ Explicit child jobs default to the active cell and can inherit its synthetic sna
 Workspace entry/exit never pushes or merges to the selected cell. Existing explicit publishing ops and external access controls keep their normal behavior. No additional approval or read-only mode is implied.
 
 Use isolated recipe tests for templates and mocked flow; use a real embedded/deployed runtime for checkout and snapshot assertions. Upgrade recipe compilers and task workers together before using the field; old workers may ignore unknown YAML fields.
+
+Use separate [`squash`, `rebase`, and `merge` tasks](../../../GUIDE-Git-Ops.md) to persist preparation before publication. `merge` is fast-forward only. For an empty workspace, use `squash` then `merge` without `rebase`.

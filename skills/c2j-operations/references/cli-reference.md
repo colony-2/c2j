@@ -24,7 +24,7 @@ Use `c2j --help` or `go run ./cmd/c2j --help` for the complete command tree.
 
 ## `c2j init`
 
-Writes a commented `.c2j/config.yaml` template and installs bundled c2j skills unless disabled.
+Writes a commented `.c2/config.yaml` template and installs bundled c2j skills unless disabled.
 
 ```bash
 c2j init
@@ -66,7 +66,7 @@ Key flags:
 
 The recipe-selection flags are mutually exclusive. `--json` and `--run` are mutually exclusive. `--recipe` and `--recipe-file` are hidden, deprecated aliases on `submit`.
 
-Normal selection resolves the name `build` at execution time in the target cell's repository/ref (`.c2j/recipes/build.yaml`). Only a missing recipe falls back to `git+https://github.com/colony-2/recipes.git//build.yaml@main`. `--cell` never uses the submitting project's recipes. Named recipes use committed content; explicit advanced files embed local edits. All CLI-submitted recipes must declare `prompt` in `input_schema`.
+Normal selection resolves the name `build` at execution time in the target cell's repository/ref (`.c2/recipes/build.yaml`). Only a missing recipe falls back to `git+https://github.com/colony-2/recipes.git//build.yaml@main`. `--cell` never uses the submitting project's recipes. Named recipes use committed content; explicit advanced files embed local edits. All CLI-submitted recipes must declare `prompt` in `input_schema`.
 
 Build submissions automatically include `inputs.type` (`"build"`) alongside `inputs.prompt`, including explicit selection of that name. The build recipe must declare a string `type` in `input_schema`. A supplied type must be `"build"`; it does not select a recipe. Custom names, explicit Git selectors, and local files preserve their own input contracts without automatic type injection.
 

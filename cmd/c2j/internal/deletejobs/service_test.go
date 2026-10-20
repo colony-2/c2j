@@ -14,8 +14,8 @@ import (
 func cellConfig(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
-	require.NoError(t, os.MkdirAll(filepath.Join(dir, ".c2j"), 0755))
-	require.NoError(t, os.WriteFile(filepath.Join(dir, ".c2j", "config.yaml"), []byte("pattern: 'github.com/acme/${{ cell }}'\nself:\n  repo: backend\n"), 0644))
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, ".c2"), 0755))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, ".c2", "config.yaml"), []byte("pattern: 'github.com/acme/${{ cell }}'\nself:\n  repo: backend\n"), 0644))
 	return dir
 }
 

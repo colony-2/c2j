@@ -161,7 +161,7 @@ func loadConfigAndOutput(workingDir string, stdout io.Writer) (*configpkg.Projec
 	cfg, err := configpkg.LoadProjectConfig(workingDir)
 	if err != nil {
 		if err == configpkg.ErrConfigNotFound {
-			return nil, nil, fmt.Errorf("requires %s/%s", ".c2j", "config.yaml")
+			return nil, nil, fmt.Errorf("requires %s/%s", ".c2", "config.yaml")
 		}
 		return nil, nil, err
 	}

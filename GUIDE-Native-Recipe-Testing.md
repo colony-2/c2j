@@ -32,7 +32,7 @@ Discover suites recursively without a manifest or runner script:
 
 ```sh
 c2j test validate --directory recipe-tests
-c2j test run --directory recipe-tests --out-dir .c2j/test-results
+c2j test run --directory recipe-tests --out-dir .c2/test-results
 c2j test run --directory recipe-tests --case rejected-plan-does-not-merge
 ```
 

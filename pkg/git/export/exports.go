@@ -18,6 +18,9 @@ func GetAll() []ops.RegisterableOp {
 		gitcommit.GetPersistOp(),
 		gitcommit.GetRestoreOp(),
 		thinpackrebase.GetOp(),
+		thinpackrebase.GetRebaseOp(),
+		squashrebasemerge.GetSquashOp(),
+		squashrebasemerge.GetMergeOp(),
 		squashrebasemerge.GetOp(),
 	}
 }

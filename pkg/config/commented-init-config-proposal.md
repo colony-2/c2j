@@ -309,7 +309,7 @@ Recommended behavior:
 
 - if discovery succeeds cleanly, write a minimal valid config with comments around the inferred defaults
 - if discovery is partial, write the commented template plus inline notes about what still needs editing
-- fail if `.c2j/config.yaml` already exists unless `--force` is passed
+- fail if `.c2/config.yaml` already exists unless `--force` is passed
 - support `--stdout` for previewing the generated file
 
 ## Example Generated File

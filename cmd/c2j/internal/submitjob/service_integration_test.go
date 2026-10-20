@@ -292,8 +292,8 @@ outputs:
 `) + "\n"
 
 	baseRepo, _ := createGitRepo(t)
-	mustWriteRepoFile(t, baseRepo, ".c2j/recipes/parent-artifact-forwarding.yaml", parentYAML)
-	mustWriteRepoFile(t, baseRepo, ".c2j/recipes/child-artifact-forwarding.yaml", childYAML)
+	mustWriteRepoFile(t, baseRepo, ".c2/recipes/parent-artifact-forwarding.yaml", parentYAML)
+	mustWriteRepoFile(t, baseRepo, ".c2/recipes/child-artifact-forwarding.yaml", childYAML)
 	commitRepo(t, baseRepo, "add artifact forwarding recipes")
 
 	root := t.TempDir()
@@ -431,7 +431,7 @@ outputs:
 `) + "\n"
 
 	baseRepo, _ := createGitRepo(t)
-	mustWriteRepoFile(t, baseRepo, ".c2j/recipes/nucleus_submit_ref_recipe.yaml", recipeYAML)
+	mustWriteRepoFile(t, baseRepo, ".c2/recipes/nucleus_submit_ref_recipe.yaml", recipeYAML)
 	commitRepo(t, baseRepo, "add bare recipe")
 
 	underlying := toyruntime.New()
@@ -532,8 +532,8 @@ outputs:
 `) + "\n"
 
 	baseRepo, _ := createGitRepo(t)
-	mustWriteRepoFile(t, baseRepo, ".c2j/recipes/build.yaml", recipeYAML)
-	mustWriteRepoFile(t, baseRepo, ".c2j/config.yaml", "self:\n  repo: "+baseRepo+"\n  ref: main\n")
+	mustWriteRepoFile(t, baseRepo, ".c2/recipes/build.yaml", recipeYAML)
+	mustWriteRepoFile(t, baseRepo, ".c2/config.yaml", "self:\n  repo: "+baseRepo+"\n  ref: main\n")
 	commitRepo(t, baseRepo, "add self config and default recipe")
 
 	underlying := toyruntime.New()
@@ -616,7 +616,7 @@ func TestRun_ConventionsUseTargetCellNotSubmittingCell(t *testing.T) {
 			defer cancel()
 			targetRepo, _ := createGitRepo(t)
 			submittingRepo, _ := createGitRepo(t)
-			mustWriteRepoFile(t, targetRepo, ".c2j/recipes/"+kind+".yaml", `
+			mustWriteRepoFile(t, targetRepo, ".c2/recipes/"+kind+".yaml", `
 id: target_recipe
 version: "1.0"
 input_schema:
@@ -636,8 +636,8 @@ outputs:
   source: target
 `)
 			commitRepo(t, targetRepo, "target recipe")
-			mustWriteRepoFile(t, submittingRepo, ".c2j/recipes/"+kind+".yaml", "invalid: [")
-			mustWriteRepoFile(t, submittingRepo, ".c2j/config.yaml", "self:\n  repo: "+submittingRepo+"\n  ref: main\n")
+			mustWriteRepoFile(t, submittingRepo, ".c2/recipes/"+kind+".yaml", "invalid: [")
+			mustWriteRepoFile(t, submittingRepo, ".c2/config.yaml", "self:\n  repo: "+submittingRepo+"\n  ref: main\n")
 			commitRepo(t, submittingRepo, "unrelated submitting cell")
 			underlying := toyruntime.New()
 			server := httptest.NewServer(remoteruntime.NewServer(underlying))
@@ -891,7 +891,7 @@ func TestRun_EmbedExtensionFailureCompletesWithOriginalError(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 
 	baseRepo, _ := createGitRepo(t)
-	mustWriteRepoFile(t, baseRepo, ".c2j/recipes/failing_extension_recipe.yaml", strings.TrimSpace(`
+	mustWriteRepoFile(t, baseRepo, ".c2/recipes/failing_extension_recipe.yaml", strings.TrimSpace(`
 id: failing_extension_recipe
 input_schema:
   prompt:

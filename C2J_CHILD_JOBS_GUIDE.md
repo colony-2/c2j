@@ -127,7 +127,7 @@ recipe changes that have not been committed, use `--advanced-recipe-file`.
 This example submits one child and returns its identity. It deliberately does
 not wait for the child. It needs no shared build recipe.
 
-Save this child as `.c2j/recipes/child-example.yaml` in the target repository:
+Save this child as `.c2/recipes/child-example.yaml` in the target repository:
 
 ```yaml
 id: child-example

@@ -176,7 +176,7 @@ func TestResolveTargetRejectsRecipeSelectorAsRepository(t *testing.T) {
 
 	_, err := ResolveTarget(context.Background(), ResolveTargetRequest{
 		WorkingDir: t.TempDir(),
-		Cell:       "git+https://github.com/acme/demo.git//.c2j/recipes/deploy.yaml@main",
+		Cell:       "git+https://github.com/acme/demo.git//.c2/recipes/deploy.yaml@main",
 	})
 	if err == nil || !strings.Contains(err.Error(), "not a recipe selector") {
 		t.Fatalf("expected recipe selector error, got %v", err)
@@ -186,7 +186,7 @@ func TestResolveTargetRejectsRecipeSelectorAsRepository(t *testing.T) {
 func writeConfig(t *testing.T, root string, raw string) {
 	t.Helper()
 
-	configPath := filepath.Join(root, ".c2j", "config.yaml")
+	configPath := filepath.Join(root, ".c2", "config.yaml")
 	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
 		t.Fatalf("mkdir config dir: %v", err)
 	}

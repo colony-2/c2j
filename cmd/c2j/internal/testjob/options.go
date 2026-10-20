@@ -120,7 +120,7 @@ func (o Options) ValidateSuiteInput() error {
 }
 
 func defaultOutDir() string {
-	return filepath.Join(".c2j", "test-results", time.Now().UTC().Format("20060102T150405Z"))
+	return filepath.Join(".c2", "test-results", time.Now().UTC().Format("20060102T150405Z"))
 }
 
 type exitError struct {

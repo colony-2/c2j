@@ -56,7 +56,7 @@ func InstallBundled(ctx context.Context, opts Options) (Summary, error) {
 		return Summary{}, err
 	}
 
-	lockPath := filepath.Join(workingDir, ".c2j", "skills-lock.yaml")
+	lockPath := filepath.Join(workingDir, ".c2", "skills-lock.yaml")
 	lock, err := readLockFile(lockPath)
 	if err != nil {
 		return Summary{}, err

@@ -21,7 +21,7 @@ func TestResolveSelfTargetRejectsEmptySelfRepo(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
-	configPath := filepath.Join(root, ".c2j", "config.yaml")
+	configPath := filepath.Join(root, ".c2", "config.yaml")
 	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
 		t.Fatalf("mkdir config dir: %v", err)
 	}
@@ -39,7 +39,7 @@ func TestResolveSelfTargetUsesPatternShortName(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
-	configPath := filepath.Join(root, ".c2j", "config.yaml")
+	configPath := filepath.Join(root, ".c2", "config.yaml")
 	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
 		t.Fatalf("mkdir config dir: %v", err)
 	}
@@ -95,7 +95,7 @@ func TestResolveExplicitTargetExpandsShortNameFromConfig(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
-	configPath := filepath.Join(root, ".c2j", "config.yaml")
+	configPath := filepath.Join(root, ".c2", "config.yaml")
 	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
 		t.Fatalf("mkdir config dir: %v", err)
 	}
@@ -128,7 +128,7 @@ func TestResolveExplicitTargetUsesRootConfigWithoutPattern(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
-	configPath := filepath.Join(root, ".c2j", "config.yaml")
+	configPath := filepath.Join(root, ".c2", "config.yaml")
 	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
 		t.Fatalf("mkdir config dir: %v", err)
 	}
@@ -220,7 +220,7 @@ func TestLoadRecipeStartTreatsBareRecipeAsCellSelector(t *testing.T) {
 func TestLoadRecipeStartPassesThroughGitSelector(t *testing.T) {
 	t.Parallel()
 
-	selector := "git+https://github.com/acme/demo.git//.c2j/recipes/deploy.yaml@deadbeefdeadbeefdeadbeefdeadbeefdeadbeef"
+	selector := "git+https://github.com/acme/demo.git//.c2/recipes/deploy.yaml@deadbeefdeadbeefdeadbeefdeadbeefdeadbeef"
 	name, rec, cleanup, err := loadRecipeStart(Options{
 		Recipe:     selector,
 		WorkingDir: t.TempDir(),

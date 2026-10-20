@@ -80,3 +80,6 @@ The existing [lost push outcome retry issue](BUG-C2J-PUSH-OUTCOME-RETRY.md) is
 separate and deferred. If publication succeeded but its task outcome was lost,
 a retry is not guaranteed to recognize that success; it will not overwrite a
 different existing branch.
+
+To persist the prepared root commit before publication, use separate `squash`
+and `merge` tasks instead of `squashrebasemerge`. See [separate Git ops](GUIDE-Git-Ops.md).

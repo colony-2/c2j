@@ -41,7 +41,7 @@ func TestOptionsCompleteUsesProjectJobDB(t *testing.T) {
 	t.Setenv(defaults.JobDBEnv, "")
 
 	root := t.TempDir()
-	configPath := filepath.Join(root, ".c2j", "config.yaml")
+	configPath := filepath.Join(root, ".c2", "config.yaml")
 	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
 		t.Fatalf("mkdir config dir: %v", err)
 	}

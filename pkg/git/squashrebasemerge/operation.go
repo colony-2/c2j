@@ -533,25 +533,10 @@ func publishInitial(ctx context.Context, input SquashRebaseMergeInput, snapshot 
 		return nil, err
 	}
 	author, message := buildSquashCommit(input, details)
-	tree, err := common.GetCommitHash(ctx, snapshot.RepoPath, snapshot.PersistHash+"^{tree}")
+	candidate, err := commitTree(ctx, snapshot.RepoPath, snapshot.PersistHash, "", author, message)
 	if err != nil {
 		return nil, err
 	}
-	cmd := exec.CommandContext(ctx, "git", "commit-tree", tree, "-m", message)
-	cmd.Dir = snapshot.RepoPath
-	cmd.Env = os.Environ()
-	if author != "" {
-		name, email, ok := strings.Cut(author, " <")
-		if !ok || !strings.HasSuffix(email, ">") {
-			return nil, fmt.Errorf("invalid author %q", author)
-		}
-		cmd.Env = append(cmd.Env, "GIT_AUTHOR_NAME="+name, "GIT_AUTHOR_EMAIL="+strings.TrimSuffix(email, ">"))
-	}
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		return nil, fmt.Errorf("create initial squash commit: %w: %s", err, out)
-	}
-	candidate := strings.TrimSpace(string(out))
 	if _, err := common.ExecuteGitCommand(ctx, snapshot.RepoPath, "push", "--force-with-lease="+branch+":", snapshot.UpstreamRepo, candidate+":"+branch); err != nil {
 		return nil, fmt.Errorf("publish initial branch %s (destination must be absent): %w", branch, err)
 	}
@@ -564,4 +549,31 @@ func publishInitial(ctx context.Context, input SquashRebaseMergeInput, snapshot 
 		GitContextPatch: map[string]interface{}{"base_hash": candidate, "persist_hash": candidate, "previous_hash": snapshot.PersistHash},
 		FastForward:     false,
 	}, nil
+}
+
+// commitTree preserves the selected tree without changing the workspace on failure.
+func commitTree(ctx context.Context, repoPath, head, parent, author, message string) (string, error) {
+	tree, err := common.GetCommitHash(ctx, repoPath, head+"^{tree}")
+	if err != nil {
+		return "", err
+	}
+	args := []string{"commit-tree", tree, "-m", message}
+	if parent != "" {
+		args = append(args, "-p", parent)
+	}
+	cmd := exec.CommandContext(ctx, "git", args...)
+	cmd.Dir = repoPath
+	cmd.Env = os.Environ()
+	if author != "" {
+		name, email, ok := strings.Cut(author, " <")
+		if !ok || !strings.HasSuffix(email, ">") {
+			return "", fmt.Errorf("invalid author %q", author)
+		}
+		cmd.Env = append(cmd.Env, "GIT_AUTHOR_NAME="+name, "GIT_AUTHOR_EMAIL="+strings.TrimSuffix(email, ">"))
+	}
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("create squash commit: %w: %s", err, out)
+	}
+	return strings.TrimSpace(string(out)), nil
 }

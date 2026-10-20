@@ -185,7 +185,7 @@ recipe and fixture paths resolve relative to the suite file.
 
 ```sh
 c2j test validate --directory recipe-tests
-c2j test run --directory recipe-tests --out-dir .c2j/test-results
+c2j test run --directory recipe-tests --out-dir .c2/test-results
 ```
 
 Reuse existing case selection, parallelism, assertion results, JSON events and
@@ -248,7 +248,7 @@ until its replacement coverage has passed.
    shell suite runners once their replacements pass. Remove their Go modules,
    uv/Python test dependencies and generated-case documentation as well.
 7. Update author guides, test statements and skills to the native command.
-   Update `.c2j/mandate.md` to reflect the agreed ownership: recipe test
+   Update `.c2/mandate.md` to reflect the agreed ownership: recipe test
    declarations belong here; reusable testing infrastructure belongs in c2j.
 
 Recipe correctness tests need no Go toolchain or Python harness. Real recipe ops
