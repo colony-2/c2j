@@ -40,6 +40,9 @@ func TestInstallBundledProjectCopiesSkillsAndWritesLock(t *testing.T) {
 		t.Fatalf("lock skills = %d, want 3: %#v", len(lock.Skills), lock.Skills)
 	}
 	for _, entry := range lock.Skills {
+		if want := ".agents/skills/" + entry.Name; entry.Path != want {
+			t.Fatalf("lock path = %q, want %q", entry.Path, want)
+		}
 		if entry.Source != "c2j" || entry.Ref != "bundled" || entry.SkillPath == "" || entry.Path == "" || !strings.HasPrefix(entry.Digest, "sha256:") {
 			t.Fatalf("incomplete lock entry: %#v", entry)
 		}
@@ -212,5 +215,59 @@ func TestValidateSkillDirRejectsSymlink(t *testing.T) {
 	}
 	if err := ValidateSkillDir(os.DirFS(root), "bad-skill"); err == nil || !strings.Contains(err.Error(), "symlinks are not allowed") {
 		t.Fatalf("ValidateSkillDir() err = %v, want symlink rejection", err)
+	}
+}
+
+func TestProjectLockSurvivesRelocation(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	oldRoot, newRoot := filepath.Join(root, "original"), filepath.Join(root, "moved")
+	if _, err := InstallBundled(t.Context(), Options{Bundle: skillsbundle.FS, WorkingDir: oldRoot}); err != nil {
+		t.Fatal(err)
+	}
+	before, err := os.ReadFile(filepath.Join(oldRoot, ".c2", "skills-lock.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(oldRoot, newRoot); err != nil {
+		t.Fatal(err)
+	}
+	summary, err := InstallBundled(t.Context(), Options{Bundle: skillsbundle.FS, WorkingDir: newRoot})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(summary.Skipped()) != 3 {
+		t.Fatalf("expected unchanged skills after relocation: %#v", summary)
+	}
+	after, err := os.ReadFile(filepath.Join(newRoot, ".c2", "skills-lock.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(before) != string(after) {
+		t.Fatal("relocating project changed the skills lock")
+	}
+}
+
+func TestWriteLockUsesScopeRelativePaths(t *testing.T) {
+	lockPath := filepath.Join(t.TempDir(), "skills-lock.yaml")
+	lock := LockFile{Skills: []LockEntry{
+		{Name: "project-skill", Scope: ScopeProject, Path: "/old/project/.agents/skills/project-skill"},
+		{Name: "user-skill", Scope: ScopeUser, Path: "/old/home/.codex/skills/user-skill"},
+	}}
+	if err := writeLockFile(lockPath, lock); err != nil {
+		t.Fatal(err)
+	}
+	actual, err := readLockFile(lockPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range actual.Skills {
+		want := "skills/" + entry.Name
+		if entry.Scope == ScopeProject {
+			want = ".agents/" + want
+		}
+		if entry.Path != want {
+			t.Fatalf("%s: path = %q, want %q", entry.Name, entry.Path, want)
+		}
 	}
 }

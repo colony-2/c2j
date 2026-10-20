@@ -79,7 +79,9 @@ Skill scopes:
 - `user`: `${CODEX_HOME:-$HOME/.codex}/skills/<skill-name>`.
 - `auto`: project scope.
 
-Skill install metadata is recorded in `.c2/skills-lock.yaml`.
+Skill install metadata is recorded in `.c2/skills-lock.yaml`. Lock paths are relative
+to the project root for project scope and to `CODEX_HOME` (default `~/.codex`)
+for user scope; the lock does not store machine-specific absolute install paths.
 
 ## JobDB Targets
 

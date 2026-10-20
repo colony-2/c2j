@@ -32,8 +32,9 @@ type LockEntry struct {
 	Commit    string `yaml:"commit,omitempty"`
 	SkillPath string `yaml:"skill_path"`
 	Scope     string `yaml:"scope"`
-	Path      string `yaml:"path"`
-	Digest    string `yaml:"digest"`
+	// Path is relative to the project root, or CODEX_HOME for user scope.
+	Path   string `yaml:"path"`
+	Digest string `yaml:"digest"`
 }
 
 func InstallBundled(ctx context.Context, opts Options) (Summary, error) {
@@ -78,7 +79,6 @@ func InstallBundled(ctx context.Context, opts Options) (Summary, error) {
 				Ref:       "bundled",
 				SkillPath: path.Join("skills", name),
 				Scope:     scope,
-				Path:      filepath.ToSlash(result.Path),
 				Digest:    result.Digest,
 			})
 		}
@@ -453,6 +453,16 @@ func readLockFile(lockPath string) (LockFile, error) {
 
 func writeLockFile(lockPath string, lock LockFile) error {
 	lock.Version = 1
+	// Normalize existing entries too, including skills skipped due to local edits.
+	for i := range lock.Skills {
+		entry := &lock.Skills[i]
+		switch entry.Scope {
+		case ScopeProject:
+			entry.Path = path.Join(".agents", "skills", entry.Name)
+		case ScopeUser:
+			entry.Path = path.Join("skills", entry.Name)
+		}
+	}
 	if err := os.MkdirAll(filepath.Dir(lockPath), 0o755); err != nil {
 		return fmt.Errorf("mkdir %s: %w", filepath.Dir(lockPath), err)
 	}
