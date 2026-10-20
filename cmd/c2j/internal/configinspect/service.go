@@ -6,8 +6,10 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strconv"
 	"strings"
 	"text/tabwriter"
+	"unicode"
 
 	configpkg "github.com/colony-2/c2j/pkg/config"
 )
@@ -25,8 +27,9 @@ type SelfOptions struct {
 }
 
 type CellInfo struct {
-	ShortName string `json:"short_name"`
-	Repo      string `json:"repo"`
+	ShortName   string `json:"short_name"`
+	Repo        string `json:"repo"`
+	Description string `json:"description,omitempty"`
 }
 
 type SelfInfo struct {
@@ -45,17 +48,18 @@ func RunCells(ctx context.Context, opts CellsOptions) error {
 		return err
 	}
 
-	repos, err := cfg.AllowedDependentRepos(ctx)
+	entries, err := cfg.AllowedDependentEntries(ctx)
 	if err != nil {
 		return err
 	}
 
-	rows := make([]CellInfo, 0, len(repos))
-	for _, repo := range repos {
-		shortName, _ := cfg.CellNameFromRepo(ctx, repo)
+	rows := make([]CellInfo, 0, len(entries))
+	for _, entry := range entries {
+		shortName, _ := cfg.CellNameFromRepo(ctx, entry.Repo)
 		rows = append(rows, CellInfo{
-			ShortName: strings.TrimSpace(shortName),
-			Repo:      strings.TrimSpace(repo),
+			ShortName:   strings.TrimSpace(shortName),
+			Repo:        strings.TrimSpace(entry.Repo),
+			Description: entry.Description,
 		})
 	}
 
@@ -64,7 +68,7 @@ func RunCells(ctx context.Context, opts CellsOptions) error {
 	}
 
 	w := tabwriter.NewWriter(stdout, 0, 0, 2, ' ', 0)
-	if _, err := fmt.Fprintln(w, "SHORT NAME\tREPO"); err != nil {
+	if _, err := fmt.Fprintln(w, "SHORT NAME\tREPO\tDESCRIPTION"); err != nil {
 		return err
 	}
 	for _, row := range rows {
@@ -72,11 +76,29 @@ func RunCells(ctx context.Context, opts CellsOptions) error {
 		if name == "" {
 			name = "-"
 		}
-		if _, err := fmt.Fprintf(w, "%s\t%s\n", name, row.Repo); err != nil {
+		if _, err := fmt.Fprintf(w, "%s\t%s\t%s\n", name, row.Repo, displayDescription(row.Description)); err != nil {
 			return err
 		}
 	}
 	return w.Flush()
+}
+
+func displayDescription(value string) string {
+	if value == "" {
+		return "-"
+	}
+	var out strings.Builder
+	for _, r := range value {
+		if r == '\n' {
+			out.WriteByte(' ')
+		} else if unicode.IsControl(r) || !unicode.IsPrint(r) {
+			quoted := strconv.QuoteRuneToASCII(r)
+			out.WriteString(quoted[1 : len(quoted)-1])
+		} else {
+			out.WriteRune(r)
+		}
+	}
+	return out.String()
 }
 
 func RunSelf(ctx context.Context, opts SelfOptions) error {

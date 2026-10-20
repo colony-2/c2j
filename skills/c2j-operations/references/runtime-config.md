@@ -20,6 +20,29 @@ c2j cells
 c2j cells --json
 ```
 
+## Manual Dependent Cells
+
+`dependents` supports simple repository strings and detailed entries with an
+optional literal description. Both forms can appear in the same list:
+
+```yaml
+dependents:
+  - github.com/acme/shared
+  - repo: github.com/acme/auth
+    description: Authentication service
+```
+
+Use full repository locations in YAML. `c2j cell add auth --description 'Identity service'`
+can expand a short name through the project pattern before writing.
+Add `--stdout` to preview; omit `--description` to preserve it or pass an empty
+string to clear it. The editor preserves comments and unrelated fields.
+
+A manual list is the complete allowed set and bypasses discovery filters.
+Otherwise, Go or command-based discovery stays live and detected cells are used
+directly, without copying them into config. Descriptions currently apply to manual
+entries only. `c2j cells` displays descriptions; `--json` includes a `description`
+field only when nonempty and preserves multiline text.
+
 ## Config Initialization
 
 Generate a starter config:

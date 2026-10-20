@@ -56,7 +56,13 @@ func renderGenericInitTemplate() string {
 #
 # dependents:
 #   - github.com/acme/boo-root
-#   - github.com/acme/boo-monkey
+#   - repo: github.com/acme/boo-monkey
+#     description: Monkey service
+#
+# Strings and mappings are the simple and detailed forms of a manual entry.
+# A manual list replaces discovery. Detected cells can be used directly.
+# Edit manual lists with: c2j cell add <repo> --description 'Service description'
+# Add --stdout to preview the proposed config without writing.
 #
 # Or use the object form:
 # dependents:
@@ -84,6 +90,14 @@ func renderGoInitTemplate(data initTemplateData) string {
 	b.WriteString("# - self.repo via: go list -m -f '{{.Path}}'\n")
 	b.WriteString("# - dependents via: go list -m -f '{{if not .Main}}{{.Path}}{{end}}' all\n")
 	b.WriteString("base: go\n\n")
+	b.WriteString("# Detected dependent cells are used directly; inspect them with c2j cells.\n")
+	b.WriteString("# To maintain an explicit list instead, uncomment and edit:\n")
+	b.WriteString("# dependents:\n")
+	b.WriteString("#   - github.com/acme/shared\n")
+	b.WriteString("#   - repo: github.com/acme/auth\n")
+	b.WriteString("#     description: Authentication service\n")
+	b.WriteString("# Edit manual lists with: c2j cell add <repo> --description 'Service description'\n")
+	b.WriteString("# Add --stdout to preview without writing.\n\n")
 	b.WriteString("# JobDB URI: https://<jobdb-host>/<tenant-id> or embed:///\n")
 	b.WriteString("# jobdb: https://jobdb.example.com/your-tenant-id\n\n")
 

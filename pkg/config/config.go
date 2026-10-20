@@ -37,7 +37,8 @@ type StringOrCommand struct {
 
 type DependentsConfig struct {
 	mode    string
-	Repos   []string
+	Repos   []string // Repository projection of Entries, retained for repo-only callers.
+	Entries []DependentEntry
 	Command string `yaml:"command"`
 	Filter  string `yaml:"filter"`
 }
@@ -126,13 +127,16 @@ func (d *DependentsConfig) UnmarshalYAML(node *yaml.Node) error {
 	case yaml.SequenceNode:
 		d.mode = "list"
 		d.Repos = make([]string, 0, len(node.Content))
-		for _, item := range node.Content {
-			if item.Kind != yaml.ScalarNode {
-				return fmt.Errorf("expected dependents list entries to be scalar repo values")
+		for i, item := range node.Content {
+			entry, err := decodeDependentEntry(item)
+			if err != nil {
+				return fmt.Errorf("dependents[%d]: %w", i, err)
 			}
-			d.Repos = append(d.Repos, strings.TrimSpace(item.Value))
+			d.Entries = append(d.Entries, entry)
+			d.Repos = append(d.Repos, entry.Repo)
 		}
-		return nil
+		_, err := uniqueDependentEntries(d.Entries)
+		return err
 	case yaml.MappingNode:
 		d.mode = "object"
 		type rawDependentsConfig struct {
@@ -236,7 +240,7 @@ func (c *ProjectConfig) RootRef(ctx context.Context) (string, error) {
 	return c.SelfRef(ctx)
 }
 
-func (c *ProjectConfig) DependentRepos(ctx context.Context) ([]string, error) {
+func (c *ProjectConfig) dependentSourceRepos(ctx context.Context) ([]string, error) {
 	switch {
 	case c.raw.Dependents.mode == "list":
 		values := uniqueStrings(c.raw.Dependents.Repos)
@@ -264,27 +268,15 @@ func (c *ProjectConfig) DependentRepos(ctx context.Context) ([]string, error) {
 	}
 }
 
+// DependentRepos projects repository locations from the resolved entries.
+func (c *ProjectConfig) DependentRepos(ctx context.Context) ([]string, error) {
+	entries, err := c.DependentEntries(ctx)
+	return entryRepos(entries), err
+}
+
 func (c *ProjectConfig) AllowedDependentRepos(ctx context.Context) ([]string, error) {
-	repos, err := c.DependentRepos(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	filter, err := c.dependentFilter(ctx)
-	if err != nil {
-		return nil, err
-	}
-	if filter == nil {
-		return repos, nil
-	}
-
-	filtered := make([]string, 0, len(repos))
-	for _, repo := range repos {
-		if filter.MatchString(repo) {
-			filtered = append(filtered, repo)
-		}
-	}
-	return filtered, nil
+	entries, err := c.AllowedDependentEntries(ctx)
+	return entryRepos(entries), err
 }
 
 func (c *ProjectConfig) Pattern(ctx context.Context) (string, error) {
@@ -399,6 +391,10 @@ func loadProjectConfig(configPath string) (*ProjectConfig, error) {
 		return nil, fmt.Errorf("read %s: %w", configPath, err)
 	}
 
+	return parseProjectConfig(configPath, rawBytes)
+}
+
+func parseProjectConfig(configPath string, rawBytes []byte) (*ProjectConfig, error) {
 	cfg := fileConfig{}
 	if err := yaml.Unmarshal(rawBytes, &cfg); err != nil {
 		return nil, fmt.Errorf("parse %s: %w", configPath, err)

@@ -83,6 +83,41 @@ self:
 	}
 }
 
+func TestRunCellsDescriptions(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	writeConfig(t, root, `
+pattern: 'github.com/acme/${{ cell }}'
+dependents:
+  - repo: github.com/acme/auth
+    description: "Identity\nSessions\t\e[31m"
+  - github.com/acme/shared
+`)
+	var out bytes.Buffer
+	opts := CellsOptions{WorkingDir: root, Stdout: &out, JSONOutput: true}
+	if err := RunCells(context.Background(), opts); err != nil {
+		t.Fatal(err)
+	}
+	var rows []map[string]string
+	if err := json.Unmarshal(out.Bytes(), &rows); err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 2 || rows[0]["description"] != "Identity\nSessions\t\x1b[31m" || rows[0]["short_name"] != "auth" {
+		t.Fatalf("rows = %#v", rows)
+	}
+	if _, ok := rows[1]["description"]; ok {
+		t.Fatal("empty description must be omitted")
+	}
+	out.Reset()
+	opts.JSONOutput = false
+	if err := RunCells(context.Background(), opts); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Count(out.String(), "\n") != 3 || strings.Contains(out.String(), "\x1b") || !strings.Contains(out.String(), `Identity Sessions\t\x1b[31m`) || !strings.Contains(out.String(), "DESCRIPTION") {
+		t.Fatalf("table = %q", out.String())
+	}
+}
+
 func TestRunSelfText(t *testing.T) {
 	t.Parallel()
 

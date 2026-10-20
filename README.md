@@ -197,6 +197,41 @@ c2j cells --json
 
 This is mainly useful when you want to target another cell by short name and need to verify how config expands it.
 
+The table includes a description column. JSON rows contain `short_name`, `repo`,
+and an optional `description`; multiline descriptions retain their newlines in JSON.
+
+### `c2j cell add`
+
+Add or update a manually listed dependent cell in the nearest `.c2/config.yaml`:
+
+```bash
+c2j cell add github.com/acme/auth --description 'Authentication service'
+c2j cell add auth --description 'Identity and sessions' --stdout
+c2j cell add auth --description ''
+```
+
+Short names require a configured or derived pattern. `--stdout` previews the
+complete YAML without writing. Omitting `--description` preserves the current
+description; an empty value clears it. Repeating the same edit leaves the file
+unchanged. Edits preserve comments and unrelated config; YAML indentation may
+be normalized. If no config exists, run `c2j init --no-skills` at the project root.
+
+Manual lists support simple strings and detailed mappings, including mixed lists:
+
+```yaml
+pattern: 'github.com/acme/${{ cell }}'
+dependents:
+  - github.com/acme/shared
+  - repo: github.com/acme/auth
+    description: Authentication service
+```
+
+A manual list defines the complete allowed set and bypasses discovery filtering.
+Automatically detected cells are used directly and stay live. Adding an already
+detected cell without a description succeeds without writing. Adding undetected
+cells or descriptions in discovery mode is not supported by this command;
+descriptions currently belong to manual entries.
+
 ### `c2j init`
 
 Writes a commented `.c2/config.yaml` template and installs bundled c2j skills for Codex-compatible agents.

@@ -7,6 +7,7 @@
 ```bash
 c2j self
 c2j cells
+c2j cell add <repo-or-short-name>
 c2j init
 c2j version
 c2j submit
@@ -21,6 +22,27 @@ c2j test
 ```
 
 Use `c2j --help` or `go run ./cmd/c2j --help` for the complete command tree.
+
+## `c2j cell add`
+
+Add or update a manually listed dependent cell in the nearest project config:
+
+```bash
+c2j cell add github.com/acme/auth --description 'Authentication service'
+c2j cell add auth --description 'Identity and sessions' --stdout
+c2j cell add auth --description ''
+```
+
+Short names use the project's pattern. `--stdout` prints proposed YAML without
+writing. Omitted descriptions are preserved; an explicitly empty description
+clears the field. Repeating an identical edit does not rewrite the file. Comments
+and unrelated config are preserved, though YAML indentation may be normalized.
+Run `c2j init --no-skills` at the project root if there is no config file.
+
+Detected cells are used directly. Adding an already detected cell without a
+description is a no-op. The command does not replace discovery or attach
+descriptions to detected cells. Use `c2j cells` or `c2j cells --json` to inspect
+cells and their descriptions.
 
 ## `c2j init`
 
