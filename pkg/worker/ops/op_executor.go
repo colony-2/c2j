@@ -432,7 +432,7 @@ func (t opExecutor) do(ctx context.Context, jobTool ops.JobTool, req ActivityInv
 
 	hasGitExecutionReference := containsGitExecutionReference(req.Input)
 	if hasGitExecutionReference {
-		headHash, err := common.GetCommitHash(ctx, fullContext.WorktreePath, "HEAD")
+		headHash, err := common.HeadCommit(ctx, fullContext.WorktreePath, fullContext.Workspace.HasEmptyBase(fullContext.ResolvedBaseHash, fullContext.ParentHash))
 		if err != nil {
 			return zero, nil, err
 		}

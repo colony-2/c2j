@@ -8,6 +8,7 @@ import (
 
 	"github.com/colony-2/c2j/pkg/cellref"
 	"github.com/colony-2/c2j/pkg/contextual"
+	"github.com/colony-2/c2j/pkg/git/common"
 	"github.com/colony-2/c2j/pkg/git/selectorcache"
 	"github.com/colony-2/c2j/pkg/recipe"
 	"github.com/colony-2/c2j/pkg/template"
@@ -21,6 +22,7 @@ const WorkspaceResolutionTaskType = "recipe_workspace_resolve"
 
 type WorkspaceResolutionInput struct {
 	Cell          string          `json:"cell"`
+	Initial       string          `json:"initial,omitempty"`
 	Ref           string          `json:"ref,omitempty"`
 	ScopeID       string          `json:"scope_id"`
 	ParentScopeID string          `json:"parent_scope_id,omitempty"`
@@ -54,6 +56,18 @@ func resolveWorkspaceTask(ctx context.Context, data jobdb.TaskData) (jobdb.TaskD
 	target, err := req.Resolution.Resolve(req.Cell, req.Ref)
 	if err != nil {
 		return nil, err
+	}
+	if req.Initial != "" {
+		if req.Initial != "empty" {
+			return nil, fmt.Errorf("invalid workspace.initial %q", req.Initial)
+		}
+		if _, err := common.ExecuteGitCommand(ctx, "", "check-ref-format", "refs/heads/"+strings.TrimPrefix(target.Ref, "refs/heads/")); err != nil {
+			return nil, fmt.Errorf("empty workspace requires a branch: %w", err)
+		}
+		return jobdb.NewTaskData(WorkspaceResolutionOutput{
+			Workspace: contextual.WorkspaceContext{Cell: target.Cell, ScopeID: req.ScopeID, ParentScopeID: req.ParentScopeID, Initial: "empty"},
+			Git:       contextual.GitBaseContext{BaseRepo: target.Repository, BaseRef: target.Ref},
+		})
 	}
 	resolved, err := selectorcache.Default().Resolve(ctx, selectorcache.ResolveRequest{RepositoryURL: target.Repository, Ref: target.Ref})
 	if err != nil {
@@ -100,13 +114,18 @@ func enterWorkspace(ctx workflow.Context, parent *template.ResolutionContext, me
 	if incoming.CellResolution != nil {
 		resolution = *incoming.CellResolution
 	}
-	req := WorkspaceResolutionInput{Cell: cell, Ref: ref, ScopeID: parent.NextWorkspaceID(meta.ID), Resolution: resolution}
+	req := WorkspaceResolutionInput{Cell: cell, Ref: ref, Initial: spec.Initial, ScopeID: parent.NextWorkspaceID(meta.ID), Resolution: resolution}
 	if incoming.Workspace != nil {
 		req.ParentScopeID = incoming.Workspace.ScopeID
 	}
 	var result WorkspaceResolutionOutput
 	if parent.Options.Mode == template.ModeValidate {
 		result = WorkspaceResolutionOutput{Workspace: contextual.WorkspaceContext{Cell: cell, ScopeID: req.ScopeID, ParentScopeID: req.ParentScopeID, InitialHash: strings.Repeat("0", 40)}, Git: contextual.GitBaseContext{BaseRepo: cell, BaseRef: ref, ResolvedBaseHash: strings.Repeat("0", 40)}}
+		if spec.Initial == "empty" {
+			result.Workspace.Initial = "empty"
+			result.Workspace.InitialHash = ""
+			result.Git.ResolvedBaseHash = ""
+		}
 	} else {
 		if ctx.StageNodeExecution != nil {
 			ctx.StageNodeExecution(parent.ExecutionNeeds)
@@ -126,7 +145,7 @@ func enterWorkspace(ctx workflow.Context, parent *template.ResolutionContext, me
 		if e = json.Unmarshal(raw, &result); e != nil {
 			return nil, e
 		}
-		if result.Workspace.ScopeID != req.ScopeID || result.Workspace.InitialHash == "" || result.Git.BaseRepo == "" {
+		if result.Workspace.ScopeID != req.ScopeID || (result.Workspace.InitialHash == "" && result.Workspace.Initial != "empty") || result.Workspace.Initial != req.Initial || result.Git.BaseRepo == "" {
 			return nil, fmt.Errorf("invalid workspace resolution result")
 		}
 	}

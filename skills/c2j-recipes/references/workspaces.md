@@ -2,7 +2,7 @@
 
 # Cell Workspaces
 
-Use node metadata `workspace: {cell: cellB, ref: main}` for work against another cell's data in the same job. `cell` is required; `ref` is optional. Both support literals and runtime templates. Apply it to an op, sequence, state machine, individual state, child group, include call site, or recipe root. Put it on a shared definition or containing sequence, not on a `shared` reference.
+Use node metadata `workspace: {cell: cellB, ref: main}` for work against another cell's data in the same job. `cell` is required; `ref` is optional. Both support literals and runtime templates. Add literal `initial: empty` to initialize locally without fetching; see [empty workspaces](../../../GUIDE-Empty-Workspaces.md). Writing tasks persist self-contained snapshots until `squashrebasemerge` publishes a root squash commit to an absent branch. Apply it to an op, sequence, state machine, individual state, child group, include call site, or recipe root. Put it on a shared definition or containing sequence, not on a `shared` reference.
 
 ```yaml
 sequence:

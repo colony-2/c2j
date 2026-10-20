@@ -100,3 +100,21 @@ func IsRemoteRepository(source string) bool {
 	}
 	return strings.HasPrefix(source, "git@")
 }
+
+// HeadCommit permits an unborn symbolic HEAD only when explicitly requested.
+func HeadCommit(ctx context.Context, repoPath string, allowUnborn bool) (string, error) {
+	hash, err := GetCommitHash(ctx, repoPath, "HEAD")
+	if err == nil || !allowUnborn || ctx.Err() != nil {
+		return hash, err
+	}
+	ref, refErr := ExecuteGitCommand(ctx, repoPath, "symbolic-ref", "HEAD")
+	if refErr != nil {
+		return "", err
+	}
+	_, refErr = ExecuteGitCommand(ctx, repoPath, "show-ref", "--verify", "--quiet", strings.TrimSpace(string(ref)))
+	var exit *exec.ExitError
+	if ctx.Err() == nil && errors.As(refErr, &exit) && exit.ExitCode() == 1 {
+		return "", nil
+	}
+	return "", err
+}

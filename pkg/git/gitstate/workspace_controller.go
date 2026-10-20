@@ -54,13 +54,13 @@ func (c *Controller) prepareWorkspace(ctx context.Context, task *GitTaskContext)
 		return err
 	}
 
-	if task.ResolvedBaseHash == "" {
+	if task.ResolvedBaseHash == "" && !task.emptyBase() {
 		if head, err := common.GetCommitHash(ctx, task.GetWorktreePath(), "HEAD"); err == nil {
 			task.ResolvedBaseHash = head
 		}
 	}
 
-	return nil
+	return common.EnsureGitIdentity(ctx, task.GetWorktreePath())
 }
 
 // Restore replays thin packs when the target persist hash differs from the workspace state. It also prepares the workspace if it doesn't yet have a local copy of the repo.
@@ -74,6 +74,35 @@ func (c *Controller) Restore(ctx context.Context, task *GitTaskContext, thinPack
 		return fmt.Errorf("git workspace requires worktree path")
 	}
 
+	if task.emptyBase() {
+		if task.PersistHash == "" {
+			// Restore the unborn branch while retaining local identity/config.
+			ref := "refs/heads/" + strings.TrimPrefix(task.BaseRef, "refs/heads/")
+			for _, args := range [][]string{{"symbolic-ref", "HEAD", ref}, {"update-ref", "-d", ref}, {"read-tree", "--empty"}, {"clean", "-fdx"}} {
+				if _, err := common.ExecuteGitCommand(ctx, task.WorktreePath, args...); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+		if thinPack == nil {
+			return fmt.Errorf("snapshot artifact required to restore empty-base workspace")
+		}
+		dir, err := os.MkdirTemp("", "empty-base-restore-*")
+		if err != nil {
+			return err
+		}
+		defer os.RemoveAll(dir)
+		pack := filepath.Join(dir, "snapshot-empty-empty.pack")
+		if err := thinPack.SaveToFile(ctx, pack); err != nil {
+			return err
+		}
+		_, err = gitcommit.RestoreCommit(ctx, gitcommit.RestoreCommitActivity{RepoPath: task.WorktreePath, TargetCommit: task.PersistHash, StorageLocation: dir, EmptyBase: true, Force: true})
+		if err != nil {
+			return err
+		}
+		return c.ensureCleanAfterRestore(ctx, task)
+	}
 	targetRef := strings.TrimSpace(task.GetBaseRef())
 	if task.Workspace != nil && task.Workspace.InitialHash != "" {
 		targetRef = strings.TrimSpace(task.ResolvedBaseHash)
@@ -197,6 +226,7 @@ func (c *Controller) Persist(ctx context.Context, task *GitTaskContext) (*gitcom
 		RepoPath:         task.GetWorktreePath(),
 		StorageLocation:  thinPackDir,
 		RootHash:         rootHash,
+		EmptyBase:        task.emptyBase(),
 		ExpectedHeadHash: persistExpectedHeadHash(task, rootHash),
 		CommitMessage:    commitMessage,
 		Author:           author,
@@ -286,6 +316,7 @@ func (c *Controller) PersistWithDiffs(ctx context.Context, task *GitTaskContext)
 		RepoPath:         task.GetWorktreePath(),
 		StorageLocation:  persistDir,
 		RootHash:         rootHash,
+		EmptyBase:        task.emptyBase(),
 		ExpectedHeadHash: persistExpectedHeadHash(task, rootHash),
 		CommitMessage:    commitMessage,
 		Author:           author,
@@ -419,6 +450,9 @@ func restoreRootHash(task *GitTaskContext, targetHash string) string {
 }
 
 func persistRootHash(ctx context.Context, task *GitTaskContext) (string, error) {
+	if task.emptyBase() {
+		return "", nil
+	}
 	rootHash := strings.TrimSpace(task.GetParentHash())
 	if rootHash == "" {
 		rootHash = strings.TrimSpace(task.GetResolvedBaseHash())
@@ -528,7 +562,7 @@ func persistAuthor(task *GitTaskContext) string {
 	if author := strings.TrimSpace(task.GetGitAuthor()); author != "" {
 		return author
 	}
-	return common.GitAuthorForCell(task.GetWorkspaceCellName())
+	return "" // Git configuration, then the common bot fallback, supplies identity.
 }
 
 func (c *Controller) cloneIfNeeded(ctx context.Context, task *GitTaskContext) error {
@@ -536,6 +570,17 @@ func (c *Controller) cloneIfNeeded(ctx context.Context, task *GitTaskContext) er
 		return nil
 	}
 
+	if task.emptyBase() {
+		if err := os.MkdirAll(task.WorktreePath, 0o755); err != nil {
+			return err
+		}
+		branch := strings.TrimPrefix(task.BaseRef, "refs/heads/")
+		if _, err := common.ExecuteGitCommand(ctx, task.WorktreePath, "init", "--initial-branch="+branch); err != nil {
+			return err
+		}
+		_, err := common.ExecuteGitCommand(ctx, task.WorktreePath, "remote", "add", "origin", task.BaseRepo)
+		return err
+	}
 	source := task.GetBaseRepo()
 	if strings.HasPrefix(source, "file://") {
 		path, err := fileURIToPath(source)
@@ -602,4 +647,8 @@ func shortHash(hash string) string {
 		return hash[:7]
 	}
 	return hash
+}
+
+func (task *GitTaskContext) emptyBase() bool {
+	return task.Workspace.HasEmptyBase(task.ResolvedBaseHash, task.ParentHash)
 }

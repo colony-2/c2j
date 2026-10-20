@@ -63,12 +63,14 @@ func TestRunThinpackRebase_ReplaysCommits(t *testing.T) {
 }
 
 func TestRunThinpackRebase_ResetAuthor(t *testing.T) {
-	t.Parallel()
+	t.Setenv("GIT_CONFIG_GLOBAL", os.DevNull)
+	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
 
 	for _, tc := range []struct{ name, cell, author, want string }{
 		{"explicit", ".", "Workflow Bot <workflow@example.com>", "Workflow Bot <workflow@example.com>"},
-		{"root fallback", ".", "", "c2j <c2j@colony2>"},
-		{"named fallback", "workflow", "", "workflow <workflow@colony2>"},
+		{"configured", ".", "", "Feature Dev <feature@example.com>"},
+		{"root fallback", ".", "", "colony2.com <col2bot@colony2.com>"},
+		{"named fallback", "workflow", "", "colony2.com <col2bot@colony2.com>"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			tempDir := t.TempDir()
@@ -90,6 +92,10 @@ func TestRunThinpackRebase_ResetAuthor(t *testing.T) {
 			runGit(t, remotePath, "git", "commit", "-m", "upstream change")
 			targetBase := gitRevParse(t, remotePath, "HEAD")
 
+			if strings.Contains(tc.name, "fallback") {
+				runGit(t, workspacePath, "git", "config", "--unset", "user.name")
+				runGit(t, workspacePath, "git", "config", "--unset", "user.email")
+			}
 			preserve := false
 			input := ThinpackRebaseInput{
 				RepoPath:       workspacePath,

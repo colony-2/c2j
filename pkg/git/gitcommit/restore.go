@@ -65,6 +65,33 @@ func RestoreCommit(ctx context.Context, input RestoreCommitActivity) (*RestoreCo
 		}, nil
 	}
 
+	if input.EmptyBase {
+		packs, err := filepath.Glob(filepath.Join(input.StorageLocation, "*-empty-empty.pack"))
+		if err != nil {
+			return nil, err
+		}
+		if len(packs) == 0 {
+			return nil, fmt.Errorf("self-contained snapshot required for empty base")
+		}
+		var applied []string
+		for _, pack := range packs {
+			if _, err := common.ExecuteGitCommand(ctx, input.RepoPath, "bundle", "unbundle", pack); err != nil {
+				return nil, fmt.Errorf("restore empty-base snapshot: %w", err)
+			}
+			applied = append(applied, pack)
+			if common.CommitExists(ctx, input.RepoPath, input.TargetCommit) {
+				break
+			}
+		}
+		if _, err := common.ExecuteGitCommand(ctx, input.RepoPath, "checkout", "--detach", input.TargetCommit); err != nil {
+			return nil, err
+		}
+		if err := common.EnsureCleanAfterRestore(ctx, input.RepoPath, ".", input.TargetCommit); err != nil {
+			return nil, err
+		}
+		return &RestoreCommitOutput{Success: true, CurrentCommit: input.TargetCommit, RestoredFrom: "thin_packs", ThinPacksApplied: applied, RestoredAt: time.Now()}, nil
+	}
+
 	// Commit doesn't exist, need to restore from thin packs
 	// First, verify root hash exists
 	if !common.CommitExists(ctx, input.RepoPath, input.RootHash) {

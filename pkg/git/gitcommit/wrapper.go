@@ -9,12 +9,12 @@ import (
 
 // PersistCommitInput defines the input for persist commit activities - ALL fields MUST have json tags
 type PersistCommitInput struct {
-	RepoPath        string        `json:"repo_path" default:"{{ context.environment.worktree_path }}" validate:"required,dir"`              // Required: path to the local Git repository
-	StorageLocation string        `json:"storage_location" validate:"required"`                                                             // Required: directory path where thin packs will be stored
-	RootHash        string        `json:"root_hash" default:"{{ context.git.resolved_hash }}" validate:"required,hexadecimal,min=7,max=40"` // Required: base commit hash this set was built upon
-	CommitMessage   string        `json:"commit_message,omitempty"`                                                                         // Optional: message for the commit
-	Author          string        `json:"author,omitempty" default:"{{ context.git.author }}"`                                              // Optional: author name and email
-	Timeout         time.Duration `json:"timeout,omitempty"`                                                                                // Optional: operation timeout
+	RepoPath        string        `json:"repo_path" default:"{{ context.environment.worktree_path }}" validate:"required,dir"`               // Required: path to the local Git repository
+	StorageLocation string        `json:"storage_location" validate:"required"`                                                              // Required: directory path where thin packs will be stored
+	RootHash        string        `json:"root_hash" default:"{{ context.git.resolved_hash }}" validate:"omitempty,hexadecimal,min=7,max=40"` // Base commit hash; absent only in an explicitly empty workspace.
+	CommitMessage   string        `json:"commit_message,omitempty"`                                                                          // Optional: message for the commit
+	Author          string        `json:"author,omitempty" default:"{{ context.git.author }}"`                                               // Optional: author name and email
+	Timeout         time.Duration `json:"timeout,omitempty"`                                                                                 // Optional: operation timeout
 }
 
 // PersistCommitActivityWrapper implements the RegisterableOp interface
@@ -35,7 +35,7 @@ func (a *PersistCommitActivityWrapper) GetMetadata() ops.OpMetadata {
 }
 
 // Execute runs the activity with provided configuration and inputs
-func (a *PersistCommitActivityWrapper) Execute(_ ops.OpDependencies, ctx context.Context, input PersistCommitInput) (PersistCommitOutput, error) {
+func (a *PersistCommitActivityWrapper) Execute(inv ops.OpDependencies, ctx context.Context, input PersistCommitInput) (PersistCommitOutput, error) {
 	// Build the persist input
 	persistInput := PersistCommitActivity{
 		RepoPath:        input.RepoPath,
@@ -44,6 +44,11 @@ func (a *PersistCommitActivityWrapper) Execute(_ ops.OpDependencies, ctx context
 		CommitMessage:   input.CommitMessage,
 		Author:          input.Author,
 		Timeout:         input.Timeout,
+	}
+
+	if inv != nil && input.RepoPath == inv.WorktreePath() {
+		g := inv.GitContext()
+		persistInput.EmptyBase = g.Workspace.HasEmptyBase(g.ResolvedBaseHash, g.ParentHash)
 	}
 
 	// Execute the persist operation
@@ -57,12 +62,12 @@ func (a *PersistCommitActivityWrapper) Execute(_ ops.OpDependencies, ctx context
 
 // RestoreCommitInput defines the input for restore commit activities - ALL fields MUST have json tags
 type RestoreCommitInput struct {
-	RepoPath        string        `json:"repo_path" default:"{{ context.environment.worktree_path }}" validate:"required,dir"`              // Required: path to the local Git repository
-	TargetCommit    string        `json:"target_commit" validate:"required,hexadecimal,min=7,max=40"`                                       // Required: commit hash to restore to
-	RootHash        string        `json:"root_hash" default:"{{ context.git.resolved_hash }}" validate:"required,hexadecimal,min=7,max=40"` // Required: root commit hash for this set
-	StorageLocation string        `json:"storage_location" validate:"required"`                                                             // Required: directory containing thin packs
-	Force           bool          `json:"force,omitempty"`                                                                                  // Optional: force checkout even with uncommitted changes
-	Timeout         time.Duration `json:"timeout,omitempty"`                                                                                // Optional: operation timeout
+	RepoPath        string        `json:"repo_path" default:"{{ context.environment.worktree_path }}" validate:"required,dir"`               // Required: path to the local Git repository
+	TargetCommit    string        `json:"target_commit" validate:"required,hexadecimal,min=7,max=40"`                                        // Required: commit hash to restore to
+	RootHash        string        `json:"root_hash" default:"{{ context.git.resolved_hash }}" validate:"omitempty,hexadecimal,min=7,max=40"` // Base commit hash; absent only in an explicitly empty workspace.
+	StorageLocation string        `json:"storage_location" validate:"required"`                                                              // Required: directory containing thin packs
+	Force           bool          `json:"force,omitempty"`                                                                                   // Optional: force checkout even with uncommitted changes
+	Timeout         time.Duration `json:"timeout,omitempty"`                                                                                 // Optional: operation timeout
 }
 
 // RestoreCommitActivityWrapper implements the RegisterableOp interface
@@ -88,7 +93,7 @@ func (a *RestoreCommitActivityWrapper) GetMetadata() ops.OpMetadata {
 }
 
 // Execute runs the activity with provided configuration and inputs
-func (a *RestoreCommitActivityWrapper) Execute(_ ops.OpDependencies, ctx context.Context, input RestoreCommitInput) (RestoreCommitOutput, error) {
+func (a *RestoreCommitActivityWrapper) Execute(inv ops.OpDependencies, ctx context.Context, input RestoreCommitInput) (RestoreCommitOutput, error) {
 	// Build the restore input
 	restoreInput := RestoreCommitActivity{
 		RepoPath:        input.RepoPath,
@@ -97,6 +102,11 @@ func (a *RestoreCommitActivityWrapper) Execute(_ ops.OpDependencies, ctx context
 		StorageLocation: input.StorageLocation,
 		Force:           input.Force,
 		Timeout:         input.Timeout,
+	}
+
+	if inv != nil && input.RepoPath == inv.WorktreePath() {
+		g := inv.GitContext()
+		restoreInput.EmptyBase = g.Workspace.HasEmptyBase(g.ResolvedBaseHash, g.ParentHash)
 	}
 
 	// Execute the restore operation

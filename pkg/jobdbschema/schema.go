@@ -72,6 +72,10 @@ var c2jJobSchema = json.RawMessage(`{
           "parent_scope_id": {
             "type": "string"
           },
+          "initial": {
+            "type": "string",
+            "enum": ["empty"]
+          },
           "initial_hash": {
             "type": "string"
           }

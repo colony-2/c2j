@@ -30,12 +30,12 @@ func PersistCommit(ctx context.Context, input PersistCommitActivity) (*PersistCo
 	}
 
 	// Validate root hash exists in repository
-	if !common.CommitExists(ctx, input.RepoPath, input.RootHash) {
+	if !input.EmptyBase && !common.CommitExists(ctx, input.RepoPath, input.RootHash) {
 		return nil, fmt.Errorf("root hash %s does not exist in repository", input.RootHash)
 	}
 
 	// Get initial commit hash before any changes
-	initialCommit, err := common.GetCommitHash(ctx, input.RepoPath, "HEAD")
+	initialCommit, err := common.HeadCommit(ctx, input.RepoPath, input.EmptyBase)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get initial commit: %w", err)
 	}
@@ -49,7 +49,7 @@ func PersistCommit(ctx context.Context, input PersistCommitActivity) (*PersistCo
 
 	var commitHash string
 	dirtyChanges := len(strings.TrimSpace(string(statusOutput))) > 0
-	historyAdvanced := strings.TrimSpace(input.ExpectedHeadHash) != "" && !hashMatches(initialCommit, input.ExpectedHeadHash)
+	historyAdvanced := initialCommit != "" && ((input.EmptyBase && input.ExpectedHeadHash == "") || (input.ExpectedHeadHash != "" && !hashMatches(initialCommit, input.ExpectedHeadHash)))
 	hasChanges := dirtyChanges || historyAdvanced
 
 	if dirtyChanges {
@@ -61,24 +61,8 @@ func PersistCommit(ctx context.Context, input PersistCommitActivity) (*PersistCo
 			// Continue anyway
 		}
 
-		// Configure git user if author is provided
-		if input.Author != "" {
-			// Parse author string (format: "Name <email>")
-			parts := strings.Split(input.Author, " <")
-			if len(parts) == 2 {
-				name := parts[0]
-				email := strings.TrimSuffix(parts[1], ">")
-
-				_, err = common.ExecuteGitCommand(ctx, input.RepoPath, "config", "user.name", name)
-				if err != nil {
-					return nil, fmt.Errorf("failed to set git user name: %w", err)
-				}
-
-				_, err = common.ExecuteGitCommand(ctx, input.RepoPath, "config", "user.email", email)
-				if err != nil {
-					return nil, fmt.Errorf("failed to set git user email: %w", err)
-				}
-			}
+		if err := common.EnsureGitIdentity(ctx, input.RepoPath); err != nil {
+			return nil, err
 		}
 
 		// Create commit
@@ -87,7 +71,11 @@ func PersistCommit(ctx context.Context, input PersistCommitActivity) (*PersistCo
 			commitMessage = "Automated commit from PersistCommit activity"
 		}
 
-		_, err = common.ExecuteGitCommand(ctx, input.RepoPath, "commit", "-m", commitMessage)
+		args := []string{"commit", "-m", commitMessage}
+		if input.Author != "" {
+			args = append(args, "--author", input.Author)
+		}
+		_, err = common.ExecuteGitCommand(ctx, input.RepoPath, args...)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create commit: %w", err)
 		}
@@ -102,7 +90,13 @@ func PersistCommit(ctx context.Context, input PersistCommitActivity) (*PersistCo
 		// The operation advanced HEAD itself, so carry that history forward even
 		// when the worktree is clean.
 		commitHash = initialCommit
-		parentHash, err = common.GetCommitHash(ctx, input.RepoPath, "HEAD^")
+		parents, e := common.ExecuteGitCommand(ctx, input.RepoPath, "rev-list", "--parents", "-n", "1", "HEAD")
+		err = e
+		fields := strings.Fields(string(parents))
+		parentHash = ""
+		if len(fields) > 1 {
+			parentHash = fields[1]
+		}
 		if err != nil {
 			return nil, fmt.Errorf("failed to get parent hash for existing head %s: %w", shortHash(commitHash), err)
 		}
@@ -118,17 +112,25 @@ func PersistCommit(ctx context.Context, input PersistCommitActivity) (*PersistCo
 		// Generate thin pack
 		// Format: {commit_hash}-{parent_hash}-{root_hash}.pack
 		packName := fmt.Sprintf("%s-%s-%s.pack",
-			commitHash[:7],
-			parentHash[:7],
-			input.RootHash[:7])
+			shortHash(commitHash),
+			shortHash(parentHash),
+			shortHash(input.RootHash))
+		if input.EmptyBase {
+			packName = shortHash(commitHash) + "-empty-empty.pack"
+		}
 		packPath = filepath.Join(input.StorageLocation, packName)
 
 		// Create bundle containing commits from root to current
 		// This ensures the bundle can be applied when only root is available
-		_, err = common.ExecuteGitCommand(ctx, input.RepoPath,
-			"bundle", "create", packPath,
-			"HEAD", fmt.Sprintf("^%s", input.RootHash))
+		args := []string{"bundle", "create", packPath, "HEAD"}
+		if !input.EmptyBase {
+			args = append(args, "^"+input.RootHash)
+		}
+		_, err = common.ExecuteGitCommand(ctx, input.RepoPath, args...)
 		if err != nil {
+			if input.EmptyBase {
+				return nil, fmt.Errorf("create self-contained snapshot: %w", err)
+			}
 			// If that fails (maybe root is HEAD), include just this commit
 			_, err = common.ExecuteGitCommand(ctx, input.RepoPath,
 				"bundle", "create", packPath,
@@ -189,14 +191,27 @@ func PersistCommitWithDiffs(ctx context.Context, input PersistCommitActivity, ba
 		return result, nil
 	}
 
+	// A root commit is diffed against the empty tree, never a fake commit.
+	parentHash := persistOutput.ParentHash
+	if input.EmptyBase {
+		out, err := common.ExecuteGitCommand(ctx, input.RepoPath, "hash-object", "-w", "-t", "tree", "--stdin")
+		if err != nil {
+			return nil, err
+		}
+		baseHash = strings.TrimSpace(string(out))
+		if parentHash == "" {
+			parentHash = baseHash
+		}
+	}
+
 	// Use context lines of 10 for wide context window
 	contextLines := 10
 
 	// Generate diff from parent hash
-	if persistOutput.ParentHash != "" {
+	if parentHash != "" {
 		diffFromParentInput := GenerateDiffInput{
 			RepoPath:        input.RepoPath,
-			FromHash:        persistOutput.ParentHash,
+			FromHash:        parentHash,
 			ToHash:          persistOutput.CommitHash,
 			StorageLocation: input.StorageLocation,
 			ContextLines:    contextLines,
@@ -210,7 +225,7 @@ func PersistCommitWithDiffs(ctx context.Context, input PersistCommitActivity, ba
 	}
 
 	// Generate diff from base hash (if provided and different from parent)
-	if baseHash != "" && baseHash != persistOutput.ParentHash {
+	if baseHash != "" && baseHash != parentHash {
 		diffFromBaseInput := GenerateDiffInput{
 			RepoPath:        input.RepoPath,
 			FromHash:        baseHash,

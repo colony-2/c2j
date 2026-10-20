@@ -12,6 +12,7 @@ type PersistCommitActivity struct {
 	RootHash        string `json:"root_hash"`        // Base commit hash this set was built upon
 
 	// Optional configuration
+	EmptyBase        bool          `json:"empty_base,omitempty"`         // Explicitly no prerequisite commit.
 	ExpectedHeadHash string        `json:"expected_head_hash,omitempty"` // HEAD hash expected before persistence starts; used to detect history-only changes
 	CommitMessage    string        `json:"commit_message,omitempty"`     // Message for the commit
 	Author           string        `json:"author,omitempty"`             // Author name and email
@@ -37,8 +38,9 @@ type RestoreCommitActivity struct {
 	StorageLocation string `json:"storage_location"` // Directory containing thin packs
 
 	// Optional configuration
-	Force   bool          `json:"force,omitempty"`   // Force checkout even with uncommitted changes
-	Timeout time.Duration `json:"timeout,omitempty"` // Operation timeout
+	EmptyBase bool          `json:"empty_base,omitempty"` // Explicitly no prerequisite commit.
+	Force     bool          `json:"force,omitempty"`      // Force checkout even with uncommitted changes
+	Timeout   time.Duration `json:"timeout,omitempty"`    // Operation timeout
 }
 
 // RestoreCommitOutput represents the output from restore operation

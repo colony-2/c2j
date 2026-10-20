@@ -11,7 +11,7 @@ import (
 func TestWorkspaceRecipeRoundTripAndSchema(t *testing.T) {
 	text := `id: workspaces
 version: "1"
-workspace: {cell: B, ref: "{{ inputs.ref }}"}
+workspace: {cell: B, ref: "{{ inputs.ref }}", initial: empty}
 sequence:
  - id: nested
    workspace: {cell: C}
@@ -39,7 +39,7 @@ sequence:
 	require.NotEqual(t, before, after)
 }
 func TestWorkspaceRejectsInvalidSpec(t *testing.T) {
-	for _, spec := range []string{"null", "{}", "B", "{cell: ''}", "{cell: '   '}", "{cell: 9}", "{cell: B, ref: false}", "{cell: B, extra: true}", "{cell: B, cell: C}"} {
+	for _, spec := range []string{"null", "{}", "B", "{cell: ''}", "{cell: '   '}", "{cell: 9}", "{cell: B, ref: false}", "{cell: B, initial: unknown}", "{cell: B, initial: null}", "{cell: B, initial: true}", "{cell: B, extra: true}", "{cell: B, cell: C}"} {
 		t.Run(spec, func(t *testing.T) {
 			var r Recipe
 			require.Error(t, yaml.Unmarshal([]byte("workspace: "+spec+"\nsequence: []"), &r))

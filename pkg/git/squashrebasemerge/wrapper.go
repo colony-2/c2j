@@ -44,9 +44,19 @@ func NewActivity() *Activity {
 // GetOp exposes the operation to recipe registration.
 func GetOp() ops.RegisterableOp {
 	return ops.NewActivityMappedOpV2[SquashRebaseMergeInput, SquashRebaseMergeOutput](NewActivity().GetMetadata(), func(inv ops.OpDependencies, ctx context.Context, input SquashRebaseMergeInput) (SquashRebaseMergeOutput, error) {
-		result, err := Run(ctx, input)
+		emptyBase := false
+		if inv != nil && input.RepoPath == inv.WorktreePath() {
+			g := inv.GitContext()
+			emptyBase = g.Workspace.HasEmptyBase(g.ResolvedBaseHash, g.ParentHash)
+		}
+		result, err := run(ctx, input, emptyBase)
 		if err != nil {
 			return SquashRebaseMergeOutput{}, err
+		}
+		if emptyBase {
+			if err := ops.SetWorkspaceBase(inv, result.MergedHash); err != nil {
+				return SquashRebaseMergeOutput{}, err
+			}
 		}
 		return *result, nil
 	})

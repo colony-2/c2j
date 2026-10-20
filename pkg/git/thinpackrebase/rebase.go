@@ -174,10 +174,6 @@ func resolveWorkspaceSnapshot(input ThinpackRebaseInput) (workspaceSnapshot, err
 	snapshot.GitAuthor = strings.TrimSpace(input.GitAuthor)
 	snapshot.CellName = strings.TrimSpace(input.CellName)
 
-	if snapshot.GitAuthor == "" && snapshot.CellName != "" {
-		snapshot.GitAuthor = common.GitAuthorForCell(snapshot.CellName)
-	}
-
 	return snapshot, nil
 }
 
@@ -360,6 +356,9 @@ func countCommitsSince(ctx context.Context, repoPath, base string) (int, error) 
 }
 
 func rebaseOntoTarget(ctx context.Context, snapshot workspaceSnapshot, targetBase string, preserveAuthor *bool) error {
+	if err := common.EnsureGitIdentity(ctx, snapshot.RepoPath); err != nil {
+		return err
+	}
 	keepAuthor := true
 	if preserveAuthor != nil {
 		keepAuthor = *preserveAuthor

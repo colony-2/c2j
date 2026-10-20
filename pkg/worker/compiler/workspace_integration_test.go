@@ -277,13 +277,17 @@ outputs:
 }
 
 func TestWorkspaceExplicitChildrenRestoreSnapshotWithoutAdoptingChildChanges(t *testing.T) {
-	root := t.TempDir()
-	a := filepath.Join(root, "A")
-	b := filepath.Join(root, "B")
-	workspaceRepo(t, a, "A")
-	workspaceRepo(t, b, "B")
-	workspaceTestWorker(t)
-	child := `id: child
+	for _, empty := range []bool{false, true} {
+		t.Run(fmt.Sprintf("empty=%t", empty), func(t *testing.T) {
+			root := t.TempDir()
+			a := filepath.Join(root, "A")
+			b := filepath.Join(root, "B")
+			workspaceRepo(t, a, "A")
+			if !empty {
+				workspaceRepo(t, b, "B")
+			}
+			workspaceTestWorker(t)
+			child := `id: child
 version: "1"
 sequence:
  - id: read
@@ -293,22 +297,30 @@ outputs:
  text: "{{ sequence.read.outputs.text }}"
  cell: "{{ sequence.read.outputs.cell }}"
 `
-	require.NoError(t, os.MkdirAll(filepath.Join(a, ".c2j", "recipes"), 0755))
-	require.NoError(t, os.WriteFile(filepath.Join(a, ".c2j", "recipes", "child.yaml"), []byte(child), 0644))
-	require.NoError(t, runGit(a, "git", "add", "."))
-	require.NoError(t, runGit(a, "git", "commit", "-m", "child recipe"))
-	eng := newToyEngine(t, "workspace-tests", nil)
-	ctl := &workerworkflow.SWFWorkflowControl{Engine: eng}
-	deps := coreops.NewServiceDepsBuilder().WithWorkflowControl(ctl).Build()
-	registry, err := workerops.NewActivityRegistry()
-	require.NoError(t, err)
-	ws, err := NewRecipeWorkerWithOptions(deps, registry, RecipeJobWorkerOptions{RootSourceResolver: NewRecipeSourceResolver(RecipeSourceResolverOptions{})})
-	require.NoError(t, err)
-	require.NoError(t, eng.RegisterWorkers(ws))
-	parent, err := recipe.LoadRecipeFromString([]byte(`id: parent
+			require.NoError(t, os.MkdirAll(filepath.Join(a, ".c2j", "recipes"), 0755))
+			require.NoError(t, os.WriteFile(filepath.Join(a, ".c2j", "recipes", "child.yaml"), []byte(child), 0644))
+			require.NoError(t, os.WriteFile(filepath.Join(a, ".c2j", "recipes", "inspect.yaml"), []byte("id: inspect\nop: workspace_probe\n"), 0644))
+			require.NoError(t, runGit(a, "git", "add", "."))
+			require.NoError(t, runGit(a, "git", "commit", "-m", "child recipe"))
+			eng := newToyEngine(t, "workspace-tests", nil)
+			ctl := &workerworkflow.SWFWorkflowControl{Engine: eng}
+			deps := coreops.NewServiceDepsBuilder().WithWorkflowControl(ctl).Build()
+			registry, err := workerops.NewActivityRegistry()
+			require.NoError(t, err)
+			ws, err := NewRecipeWorkerWithOptions(deps, registry, RecipeJobWorkerOptions{RootSourceResolver: NewRecipeSourceResolver(RecipeSourceResolverOptions{})})
+			require.NoError(t, err)
+			require.NoError(t, eng.RegisterWorkers(ws))
+			initial := ""
+			if empty {
+				initial = ", initial: empty"
+			}
+			parent, err := recipe.LoadRecipeFromString([]byte(fmt.Sprintf(`id: parent
 version: "1"
-workspace: {cell: B}
+workspace: {cell: B%s}
 sequence:
+ - id: inspect_child
+   op: recipe.run_and_get_result
+   inputs: {name: inspect}
  - id: write
    op: workspace_probe
    inputs: {write: b.txt}
@@ -329,20 +341,29 @@ outputs:
  child: "{{ sequence.child.outputs.outputs.text }}"
  child_cell: "{{ sequence.child.outputs.outputs.cell }}"
  ok: "${{ sequence.children.outputs.ok }}"
-`))
-	require.NoError(t, err)
-	job := contextual.JobContext{Workflow: contextual.WorkflowContext{CellName: "A"}, GitBase: contextual.GitBaseContext{BaseRepo: a, BaseRef: "main"}, CellResolution: &cellref.Context{Pattern: root + "/${{ cell }}"}}
-	key, err := starter.StartRecipeJob(context.Background(), workflowctl.StartJob{TenantId: "workspace-tests", RecipeName: "parent", JobContext: job, GitRef: "main"}, eng, *parent)
-	require.NoError(t, err)
-	require.NoError(t, jobworkflow.WaitForJobToComplete(context.Background(), 15*time.Second, key, eng))
-	result, err := swfutil.JobResult(context.Background(), eng, key)
-	require.NoError(t, err)
-	raw, err := result.GetData()
-	require.NoError(t, err)
-	var out map[string]any
-	require.NoError(t, json.Unmarshal(raw, &out))
-	require.Equal(t, "B data", out["text"])
-	require.Equal(t, "B data", out["child"])
-	require.Equal(t, "B", out["child_cell"])
-	require.Equal(t, true, out["ok"])
+ initial_head: "{{ sequence.inspect_child.outputs.outputs.head }}"
+`, initial)))
+			require.NoError(t, err)
+			job := contextual.JobContext{Workflow: contextual.WorkflowContext{CellName: "A"}, GitBase: contextual.GitBaseContext{BaseRepo: a, BaseRef: "main"}, CellResolution: &cellref.Context{Pattern: root + "/${{ cell }}"}}
+			key, err := starter.StartRecipeJob(context.Background(), workflowctl.StartJob{TenantId: "workspace-tests", RecipeName: "parent", JobContext: job, GitRef: "main"}, eng, *parent)
+			require.NoError(t, err)
+			require.NoError(t, jobworkflow.WaitForJobToComplete(context.Background(), 15*time.Second, key, eng))
+			result, err := swfutil.JobResult(context.Background(), eng, key)
+			require.NoError(t, err)
+			raw, err := result.GetData()
+			require.NoError(t, err)
+			var out map[string]any
+			require.NoError(t, json.Unmarshal(raw, &out))
+			require.Equal(t, "B data", out["text"])
+			require.Equal(t, "B data", out["child"])
+			require.Equal(t, "B", out["child_cell"])
+			require.Equal(t, true, out["ok"])
+
+			if empty {
+				require.Empty(t, out["initial_head"])
+				_, err := os.Stat(b)
+				require.True(t, os.IsNotExist(err))
+			}
+		})
+	}
 }

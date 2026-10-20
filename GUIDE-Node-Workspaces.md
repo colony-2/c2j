@@ -23,7 +23,9 @@ outputs:
   report: "{{ sequence.inspect.outputs.stdout }}"
 ```
 
-The field accepts an object with required `cell` and optional `ref`. Both accept nonempty literal strings or runtime templates. It is available on recipe roots, operations, sequences, state machines, individual states, child groups, and include call sites. Put it on a shared definition or a containing sequence; `shared` reference overrides are not supported.
+The field accepts an object with required `cell`, optional `ref`, and optional
+`initial: empty` for a new Git history. See [empty workspaces](GUIDE-Empty-Workspaces.md)
+for initialization and first publication. `cell` and `ref` accept nonempty literal strings or runtime templates. It is available on recipe roots, operations, sequences, state machines, individual states, child groups, and include call sites. Put it on a shared definition or a containing sequence; `shared` reference overrides are not supported.
 
 ## Share changes among descendants
 

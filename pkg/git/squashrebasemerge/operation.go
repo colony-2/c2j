@@ -24,6 +24,10 @@ type workspaceSnapshot struct {
 
 // Run executes the squash-rebase-merge flow.
 func Run(ctx context.Context, input SquashRebaseMergeInput) (*SquashRebaseMergeOutput, error) {
+	return run(ctx, input, false)
+}
+
+func run(ctx context.Context, input SquashRebaseMergeInput, emptyBase bool) (*SquashRebaseMergeOutput, error) {
 	snapshot, err := resolveWorkspaceSnapshot(input)
 	if err != nil {
 		return nil, err
@@ -33,6 +37,9 @@ func Run(ctx context.Context, input SquashRebaseMergeInput) (*SquashRebaseMergeO
 		return nil, fmt.Errorf("validate repository: %w", err)
 	}
 
+	if err := common.EnsureGitIdentity(ctx, snapshot.RepoPath); err != nil {
+		return nil, err
+	}
 	targetBranch := strings.TrimSpace(input.UpstreamBranch)
 	if targetBranch == "" {
 		targetBranch = defaultTargetBranch
@@ -44,6 +51,10 @@ func Run(ctx context.Context, input SquashRebaseMergeInput) (*SquashRebaseMergeO
 			return nil, fmt.Errorf("determine current HEAD: %w", err)
 		}
 		snapshot.PersistHash = hash
+	}
+
+	if emptyBase {
+		return publishInitial(ctx, input, snapshot, targetBranch)
 	}
 
 	remoteName, err := determineRemoteName(ctx, snapshot)
@@ -288,7 +299,11 @@ type commitDetail struct {
 }
 
 func collectCommitDetails(ctx context.Context, repoPath, baseHash, persistHash string) ([]commitDetail, error) {
-	out, err := common.ExecuteGitCommand(ctx, repoPath, "log", "--reverse", "--pretty=format:%an <%ae>%x1f%s%x1e", fmt.Sprintf("%s..%s", baseHash, persistHash))
+	revision := persistHash
+	if baseHash != "" {
+		revision = baseHash + ".." + persistHash
+	}
+	out, err := common.ExecuteGitCommand(ctx, repoPath, "log", "--reverse", "--pretty=format:%an <%ae>%x1f%s%x1e", revision)
 	if err != nil {
 		return nil, fmt.Errorf("collect commit summaries: %w", err)
 	}
@@ -501,4 +516,52 @@ func isNonFastForwardError(err error) bool {
 	}
 	lowered := strings.ToLower(err.Error())
 	return strings.Contains(lowered, "non-fast-forward") || strings.Contains(lowered, "[rejected]")
+}
+
+// publishInitial squashes the unpublished tree into a real root commit. The
+// branch-absence lease is checked by receive-pack, not a racy preflight fetch.
+func publishInitial(ctx context.Context, input SquashRebaseMergeInput, snapshot workspaceSnapshot, branch string) (*SquashRebaseMergeOutput, error) {
+	if snapshot.UpstreamRepo == "" {
+		return nil, fmt.Errorf("upstream_repo is required")
+	}
+	branch = "refs/heads/" + strings.TrimPrefix(branch, "refs/heads/")
+	if _, err := common.ExecuteGitCommand(ctx, snapshot.RepoPath, "check-ref-format", branch); err != nil {
+		return nil, fmt.Errorf("invalid publication branch: %w", err)
+	}
+	details, err := collectCommitDetails(ctx, snapshot.RepoPath, "", snapshot.PersistHash)
+	if err != nil {
+		return nil, err
+	}
+	author, message := buildSquashCommit(input, details)
+	tree, err := common.GetCommitHash(ctx, snapshot.RepoPath, snapshot.PersistHash+"^{tree}")
+	if err != nil {
+		return nil, err
+	}
+	cmd := exec.CommandContext(ctx, "git", "commit-tree", tree, "-m", message)
+	cmd.Dir = snapshot.RepoPath
+	cmd.Env = os.Environ()
+	if author != "" {
+		name, email, ok := strings.Cut(author, " <")
+		if !ok || !strings.HasSuffix(email, ">") {
+			return nil, fmt.Errorf("invalid author %q", author)
+		}
+		cmd.Env = append(cmd.Env, "GIT_AUTHOR_NAME="+name, "GIT_AUTHOR_EMAIL="+strings.TrimSuffix(email, ">"))
+	}
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return nil, fmt.Errorf("create initial squash commit: %w: %s", err, out)
+	}
+	candidate := strings.TrimSpace(string(out))
+	if _, err := common.ExecuteGitCommand(ctx, snapshot.RepoPath, "push", "--force-with-lease="+branch+":", snapshot.UpstreamRepo, candidate+":"+branch); err != nil {
+		return nil, fmt.Errorf("publish initial branch %s (destination must be absent): %w", branch, err)
+	}
+	if _, err := common.ExecuteGitCommand(ctx, snapshot.RepoPath, "reset", "--hard", candidate); err != nil {
+		return nil, err
+	}
+	return &SquashRebaseMergeOutput{
+		TargetBranch: branch, RemoteRef: branch, MergedHash: candidate,
+		SquashedCommits: SquashRangeSummary{PersistHash: snapshot.PersistHash},
+		GitContextPatch: map[string]interface{}{"base_hash": candidate, "persist_hash": candidate, "previous_hash": snapshot.PersistHash},
+		FastForward:     false,
+	}, nil
 }

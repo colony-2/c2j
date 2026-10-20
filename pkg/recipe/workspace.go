@@ -10,8 +10,9 @@ import (
 
 // WorkspaceSpec starts an isolated, durable workspace for a node invocation.
 type WorkspaceSpec struct {
-	Cell string `yaml:"cell" json:"cell"`
-	Ref  string `yaml:"ref,omitempty" json:"ref,omitempty"`
+	Cell    string `yaml:"cell" json:"cell"`
+	Ref     string `yaml:"ref,omitempty" json:"ref,omitempty"`
+	Initial string `yaml:"initial,omitempty" json:"initial,omitempty"`
 }
 
 func (s *WorkspaceSpec) UnmarshalYAML(n *yaml.Node) error {
@@ -26,7 +27,7 @@ func (s *WorkspaceSpec) UnmarshalYAML(n *yaml.Node) error {
 			return fmt.Errorf("duplicate workspace.%s", key)
 		}
 		seen[key] = true
-		if key != "cell" && key != "ref" {
+		if key != "cell" && key != "ref" && key != "initial" {
 			return fmt.Errorf("unknown workspace field %q", key)
 		}
 		if val.Kind != yaml.ScalarNode || val.Tag != "!!str" || strings.TrimSpace(val.Value) == "" {
@@ -34,6 +35,11 @@ func (s *WorkspaceSpec) UnmarshalYAML(n *yaml.Node) error {
 		}
 		if key == "cell" {
 			s.Cell = val.Value
+		} else if key == "initial" {
+			if val.Value != "empty" {
+				return fmt.Errorf("workspace.initial must be empty")
+			}
+			s.Initial = val.Value
 		} else {
 			s.Ref = val.Value
 		}
@@ -48,6 +54,7 @@ func (WorkspaceSpec) JSONSchema() *jsonschema.Schema {
 	min := uint64(1)
 	props := jsonschema.NewProperties()
 	props.Set("cell", &jsonschema.Schema{Type: "string", MinLength: &min})
+	props.Set("initial", &jsonschema.Schema{Type: "string", Enum: []any{"empty"}})
 	props.Set("ref", &jsonschema.Schema{Type: "string", MinLength: &min})
 	return &jsonschema.Schema{Type: "object", Properties: props, Required: []string{"cell"}, AdditionalProperties: jsonschema.FalseSchema}
 }

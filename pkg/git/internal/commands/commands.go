@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/colony-2/c2j/pkg/git/common"
 )
 
 // Status represents the current status of a Git repository
@@ -227,6 +229,9 @@ func (r *Repository) CreateCommit(ctx context.Context, nodePath, message string)
 		return fmt.Errorf("no changes to commit")
 	}
 
+	if err := common.EnsureGitIdentity(ctx, nodePath); err != nil {
+		return err
+	}
 	// Create commit
 	cmd := exec.CommandContext(ctx, "git", "commit", "-m", message)
 	cmd.Dir = nodePath
@@ -409,6 +414,9 @@ func (r *Repository) Pull(ctx context.Context, nodePath string, remote string, b
 		return false, "", "", nil, err
 	}
 
+	if err := common.EnsureGitIdentity(ctx, nodePath); err != nil {
+		return false, "", "", nil, err
+	}
 	args := []string{"pull"}
 
 	if remote == "" {
