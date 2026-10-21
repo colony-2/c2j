@@ -20,6 +20,7 @@ import (
 // template configuration (json_parse, json_stringify, string overloads, jq).
 func defaultBuiltins() map[string]BuiltinFactory {
 	return map[string]BuiltinFactory{
+		"path_match": pathMatchCELFunc,
 		"json_parse": func(adapter types.Adapter, _ ContextProvider) cel.EnvOption {
 			return cel.Function(
 				"json_parse",
@@ -138,6 +139,7 @@ func defaultBuiltins() map[string]BuiltinFactory {
 
 func defaultTemplateBuiltins() map[string]TemplateFuncFactory {
 	return map[string]TemplateFuncFactory{
+		"path_match": func(_ ContextProvider) interface{} { return pathMatchTemplate },
 		"json_parse": func(_ ContextProvider) interface{} {
 			return func(input any) (any, error) {
 				raw, ok := input.(string)

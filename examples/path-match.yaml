@@ -1,0 +1,12 @@
+id: path-match-example
+version: "1.0.0"
+desc: Resolve an agent's document reference against an explicit inventory
+input_schema:
+  reference:
+    type: string
+    default_value: outbox/design.md
+inputs:
+  reference: "${{ inputs.reference }}"
+sequence: []
+outputs:
+  match: '${{ path_match(inputs.reference, ["design.md", "archive/reply.md", "current/reply.md"]) }}'
