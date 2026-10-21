@@ -32,6 +32,7 @@ type RecipeJobWorkerOptions struct {
 	StageExecution     func(jobdb.JobKey, execution.Demand)
 	WrapTaskWorker     func(jobworkflow.TaskWorker) jobworkflow.TaskWorker
 	CELOptionsProvider template.CELOptionsProvider
+	BeforeScope        func(context.Context, string, *template.ResolutionContext) error
 
 	// Executor overrides recipe execution for instrumentation. When nil, DefaultRecipeExecutor is used.
 	Executor RecipeExecutor
@@ -54,6 +55,7 @@ type recipeJobWorker struct {
 	readOnlyReplay      bool
 	stageExecution      func(jobdb.JobKey, execution.Demand)
 	celProvider         template.CELOptionsProvider
+	beforeScope         func(context.Context, string, *template.ResolutionContext) error
 	executor            RecipeExecutor
 	executorFactory     func() RecipeExecutor
 	rootResolver        RecipeSourceResolver
@@ -68,6 +70,7 @@ func NewRecipeJobWorker(opts RecipeJobWorkerOptions) jobworkflow.ExecutionWorker
 		allocation:          opts.Allocation, readOnlyReplay: opts.ReadOnlyReplay,
 		stageExecution:   opts.StageExecution,
 		celProvider:      opts.CELOptionsProvider,
+		beforeScope:      opts.BeforeScope,
 		executor:         opts.Executor,
 		executorFactory:  opts.ExecutorFactory,
 		rootResolver:     opts.RootSourceResolver,
@@ -274,7 +277,7 @@ func (j recipeJobWorker) Run(ctx jobworkflow.ExecutionContext, jobData jobdb.Job
 		return nil, err
 	}
 
-	wCtx := workflow.Context{JobContext: ctx}
+	wCtx := workflow.Context{JobContext: ctx, BeforeScope: j.beforeScope}
 	if input.Execution != nil {
 		wCtx.JobPackages = input.Execution.JobRequirements.Packages
 	}

@@ -13,9 +13,12 @@ import (
 )
 
 type Context struct {
-	RecipeDigest       string
-	CatchStateName     string
-	ScopeState         func(*template.ResolutionContext)
+	RecipeDigest   string
+	CatchStateName string
+	ScopeState     func(*template.ResolutionContext)
+	// BeforeScope observes the resolver that a restart patch will modify.
+	// Returning an error stops before entering the durable scope.
+	BeforeScope        func(context.Context, string, *template.ResolutionContext) error
 	JobPackages        []string
 	WorkspaceSnapshots bool
 	SuspendExecution   func(jobworkflow.ExecutionContext, string, execution.Requirements) error

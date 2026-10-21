@@ -10,7 +10,10 @@ type RestartRecipeJobRequest struct {
 	ProjectID string
 	JobID     string
 	ScopeID   string
-	Patch     *coretask.ContextPatch
+	// ChapterOrdinal selects a recorded restartable scope entry. Mutually
+	// exclusive with ScopeID, which remains supported for existing clients.
+	ChapterOrdinal *int64
+	Patch          *coretask.ContextPatch
 }
 
 type RestartRecipeJobResponse struct {

@@ -17,6 +17,9 @@ Examples below assume you are running from the repo root.
 For resolving agent-returned paths against published artifact names, see the
 [`path_match` user guide](GUIDE-Path-Matching.md).
 
+For selecting restart points and inspecting context before a patch, see the
+[restart context API guide](GUIDE-Restart-Context.md).
+
 For execution requirements, actual allocation inputs, compatibility filtering,
 job status, progress, handoffs, and child-job lineage, see the
 [execution tracking user guide](GUIDE-Execution-Tracking.md).

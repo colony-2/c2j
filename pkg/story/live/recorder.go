@@ -170,18 +170,30 @@ func BuildJobRunStory(ctx context.Context, engine replayJobRunner, jobKey jobdb.
 	}
 	rec := NewRecorder(Options{JobKey: jobKey, Logger: logger})
 	events := newReplayEvents(rec.Observer())
-	jobWorker := newReplayRecipeWorker(compiler.NewRecipeJobWorker(compiler.RecipeJobWorkerOptions{
+	workerOpts := compiler.RecipeJobWorkerOptions{
 		ReadOnlyReplay:         true,
 		CELOptionsProvider:     celProvider,
 		OnRecipeLoaded:         rec.OnRecipeLoaded,
 		OnRecipeSourceResolved: rec.OnRecipeSourceResolved,
 		RootSourceResolver:     rootResolver,
 		ExecutorFactory:        rec.ExecutorFactory(),
-	}))
+	}
+	var replayObserver jobworkflow.ReplayObserver = events
+	var scopes *scopeReplay
+	if recorded != nil {
+		scopes = newScopeReplay(recorded.Execution, rec.recordRestartScope)
+		workerOpts.BeforeScope = scopes.beforeScope
+		replayObserver = scopeReplayObserver{ReplayObserver: events, scopes: scopes}
+	}
+	worker := compiler.NewRecipeJobWorker(workerOpts)
+	if scopes != nil {
+		worker = scopes.worker(worker)
+	}
+	jobWorker := newReplayRecipeWorker(worker)
 
 	_, replayErr := engine.ReplayJobRun(ctx, jobworkflow.ReplayRunRequest{
 		JobKey:    jobKey,
-		Observer:  events,
+		Observer:  replayObserver,
 		JobWorker: jobWorker,
 	})
 
@@ -195,11 +207,13 @@ func BuildJobRunStory(ctx context.Context, engine replayJobRunner, jobKey jobdb.
 				Restart bool `json:"restart"`
 			}
 			if json.Unmarshal(entry.Record.Descriptor, &policy) == nil && policy.Restart {
-				story.RestartScopes = append(story.RestartScopes, model.RestartScope{ScopeID: entry.Record.ID, StartedAt: entry.Record.At})
+				story.RestartScopes = append(story.RestartScopes, model.RestartScope{ScopeID: entry.Record.ID, ChapterOrdinal: entry.Ordinal, StartedAt: entry.Record.At})
 			}
 		}
 	}
 
+	associateRestartScopes(story.Root, nil)
+	labelRestartScopes(story)
 	if errors.Is(replayErr, context.Canceled) || errors.Is(replayErr, context.DeadlineExceeded) || errors.Is(replayErr, jobdb.ErrJobNotFound) {
 		return nil, replayErr
 	}
@@ -1151,6 +1165,7 @@ func (e *recordingExecutor) ExecuteOp(ctx coreworkflow.Context, parentResolution
 			opNode.ArtifactKeys = ch.ArtifactKeys
 			opNode.ArtifactRefs = ch.ArtifactRefs
 			opNode.TaskOrdinal = ch.TaskOrdinal
+			opNode.InvocationID = ch.InvocationID
 			opNode.StartedAt = ch.StartedAt
 			opNode.FinishedAt = ch.FinishedAt
 			opNode.Error = ch.Error
@@ -1849,6 +1864,9 @@ func parseResolvedRecipeSource(td jobdb.TaskData) *compiler.ResolvedRecipeSource
 func copyAttemptIntoStep(dst, src *model.JobRunStoryNode) {
 	if dst == nil || src == nil {
 		return
+	}
+	if dst.InvocationID == "" {
+		dst.InvocationID = taskInvocationID(src.InvocationID, src.Attempt)
 	}
 	dst.Kind = src.Kind
 	dst.Title = src.Title

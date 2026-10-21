@@ -171,6 +171,11 @@ func executeNodeScope(ctx workflow.Context, parent *template.ResolutionContext, 
 		}})
 	}
 	site := string(kind) + ":" + template.ScopeID(meta, fallback, kind)
+	if ctx.BeforeScope != nil {
+		if err := ctx.BeforeScope(ctx.JobContext.Context(), site, original); err != nil {
+			return &executionControlError{err}
+		}
+	}
 	out, err := ctx.JobContext.DoScope(site, options, func(exec jobworkflow.ExecutionContext) (jobdb.JobData, error) {
 		mu.Lock()
 		base := entry

@@ -79,13 +79,17 @@ const (
 //   - This is distinct from SWF "job attempts" (GetJobRunResponse.Attempts), which are surfaced
 //     at the recipe root via JobAttempt/PastAttempts.
 type JobRunStoryNode struct {
-	InvocationID string                `json:"invocation_id,omitempty"`
-	ID           string                `json:"id"`
-	Kind         JobRunStoryNodeKind   `json:"kind"`
-	Title        string                `json:"title"`
-	Status       JobRunStoryNodeStatus `json:"status"`
-	StartedAt    *time.Time            `json:"started_at"`
-	FinishedAt   *time.Time            `json:"finished_at"`
+	// RestartChapterOrdinal identifies a scope-entry chapter, never a task result.
+	RestartChapterOrdinal    *int64                `json:"restart_chapter_ordinal,omitempty"`
+	RestartRelationship      string                `json:"restart_relationship,omitempty"`
+	RestartUnavailableReason string                `json:"restart_unavailable_reason,omitempty"`
+	InvocationID             string                `json:"invocation_id,omitempty"`
+	ID                       string                `json:"id"`
+	Kind                     JobRunStoryNodeKind   `json:"kind"`
+	Title                    string                `json:"title"`
+	Status                   JobRunStoryNodeStatus `json:"status"`
+	StartedAt                *time.Time            `json:"started_at"`
+	FinishedAt               *time.Time            `json:"finished_at"`
 
 	Path        []string                         `json:"path"`
 	InvokeSeq   int64                            `json:"invoke_seq"`
@@ -156,6 +160,9 @@ type JobRunStoryTransitionDecision struct {
 
 // RestartScope identifies a patchable durable boundary, including task blocks.
 type RestartScope struct {
-	ScopeID   string    `json:"scope_id"`
-	StartedAt time.Time `json:"started_at"`
+	ChapterOrdinal int64     `json:"chapter_ordinal"`
+	Title          string    `json:"title,omitempty"`
+	Path           []string  `json:"path,omitempty"`
+	ScopeID        string    `json:"scope_id"`
+	StartedAt      time.Time `json:"started_at"`
 }

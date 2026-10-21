@@ -20,6 +20,7 @@ import (
 	workflowapi "github.com/colony-2/c2j/pkg/story/api"
 	"github.com/colony-2/c2j/pkg/story/internal/model"
 	jobstory "github.com/colony-2/c2j/pkg/story/internal/story"
+	storylive "github.com/colony-2/c2j/pkg/story/live"
 	"github.com/colony-2/c2j/pkg/template"
 	"github.com/colony-2/c2j/pkg/worker/compiler"
 	"github.com/colony-2/c2j/pkg/workflowctl"
@@ -875,6 +876,23 @@ func (s *Service) RestartRecipeJob(ctx context.Context, req model.RestartRecipeJ
 	}
 	if jobID == "" {
 		return nil, ErrNotFound
+	}
+	if req.ChapterOrdinal != nil {
+		if strings.TrimSpace(req.ScopeID) != "" {
+			return nil, fmt.Errorf("%w: specify chapter ordinal or scope ID, not both", storylive.ErrInvalidRestartBoundary)
+		}
+		run, err := s.engine.GetJobRun(ctx, jobdb.GetJobRunRequest{JobKey: jobdb.JobKey{TenantId: projectID, JobId: jobID}})
+		if err != nil {
+			if errors.Is(err, jobdb.ErrJobNotFound) {
+				return nil, ErrNotFound
+			}
+			return nil, err
+		}
+		boundary, err := storylive.RestartBoundary(run.Execution, *req.ChapterOrdinal)
+		if err != nil {
+			return nil, err
+		}
+		req.ScopeID = boundary.Record.ID
 	}
 
 	var restartSubmitter recipeRestartSubmitter = s.engine

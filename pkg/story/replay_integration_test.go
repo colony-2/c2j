@@ -170,6 +170,21 @@ func TestStoryAPIReplaysAllPersistedAttemptsAfterDeadlines(t *testing.T) {
 					}
 					visit(st.Root)
 					require.Len(t, failures, mode.failed)
+					if historical == "current" {
+						roots := append([]*story.JobRunStoryNode{st.Root}, st.Root.PastAttempts...)
+						seen := map[int64]bool{}
+						for _, root := range roots {
+							require.NotNil(t, root.RestartChapterOrdinal)
+							ordinal := *root.RestartChapterOrdinal
+							require.False(t, seen[ordinal], "job attempts have distinct restart boundaries")
+							seen[ordinal] = true
+						}
+						for _, scope := range st.RestartScopes {
+							inspected, err := svc.GetRestartContext(ctx, story.GetRestartContextRequest{ProjectID: key.TenantId, JobID: key.JobId, ChapterOrdinal: scope.ChapterOrdinal})
+							require.NoError(t, err, "inspect historical scope %s", scope.ScopeID)
+							require.Equal(t, scope.ScopeID, inspected.ScopeID)
+						}
+					}
 					require.Equal(t, executions, task.calls.Load(), "story reads must not re-execute tasks")
 					after, err := rt.ListChapters(ctx, jobdb.ListChaptersRequest{JobKey: key})
 					require.NoError(t, err)

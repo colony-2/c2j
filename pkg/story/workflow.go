@@ -50,6 +50,9 @@ type (
 	GetJobRunStoryRequest         = model.GetJobRunStoryRequest
 	RestartRecipeJobRequest       = model.RestartRecipeJobRequest
 	RestartRecipeJobResponse      = model.RestartRecipeJobResponse
+	GetRestartContextRequest      = model.GetRestartContextRequest
+	RestartContext                = model.RestartContext
+	RestartScope                  = model.RestartScope
 	GetArtifactByOrdinalRequest   = model.GetArtifactByOrdinalRequest
 	GetWorkflowArtifactRequest    = model.GetWorkflowArtifactRequest
 	StartWorkflowRequest          = model.StartWorkflowRequest
@@ -78,15 +81,17 @@ const (
 )
 
 var (
-	ErrNotFound              = service.ErrNotFound
-	ErrWorkflowNotInProject  = service.ErrWorkflowNotInProject
-	ErrInvalidProject        = service.ErrInvalidProject
-	ErrInvalidCell           = service.ErrInvalidCell
-	ErrRecipeNotFound        = service.ErrRecipeNotFound
-	ErrEngineUnavailable     = service.ErrEngineUnavailable
-	ErrOutcomePending        = service.ErrOutcomePending
-	ErrJobRunStoryMismatch   = service.ErrJobRunStoryMismatch
-	ErrJobRunStoryIncomplete = storylive.ErrIncompleteReplay
+	ErrNotFound                  = service.ErrNotFound
+	ErrWorkflowNotInProject      = service.ErrWorkflowNotInProject
+	ErrInvalidProject            = service.ErrInvalidProject
+	ErrInvalidCell               = service.ErrInvalidCell
+	ErrRecipeNotFound            = service.ErrRecipeNotFound
+	ErrEngineUnavailable         = service.ErrEngineUnavailable
+	ErrOutcomePending            = service.ErrOutcomePending
+	ErrJobRunStoryMismatch       = service.ErrJobRunStoryMismatch
+	ErrJobRunStoryIncomplete     = storylive.ErrIncompleteReplay
+	ErrInvalidRestartBoundary    = storylive.ErrInvalidRestartBoundary
+	ErrRestartContextUnavailable = storylive.ErrRestartContextUnavailable
 )
 
 type Service interface {
@@ -95,6 +100,7 @@ type Service interface {
 	GetWorkflowOutcome(ctx context.Context, req GetWorkflowOutcomeRequest) (*WorkflowOutcome, error)
 	GetJobRunStory(ctx context.Context, req GetJobRunStoryRequest) (*JobRunStory, error)
 	RestartRecipeJob(ctx context.Context, req RestartRecipeJobRequest) (*RestartRecipeJobResponse, error)
+	GetRestartContext(ctx context.Context, req GetRestartContextRequest) (*RestartContext, error)
 	GetArtifactByOrdinal(ctx context.Context, req GetArtifactByOrdinalRequest) (*ArtifactData, error)
 	GetWorkflowArtifact(ctx context.Context, req GetWorkflowArtifactRequest) (*ArtifactData, error)
 	StartWorkflow(ctx context.Context, req StartWorkflowRequest) (*WorkflowSummary, error)
