@@ -2,7 +2,7 @@
 
 # Cell Workspaces
 
-Use node metadata `workspace: {cell: cellB, ref: main}` for work against another cell's data in the same job. `cell` is required; `ref` is optional. Both support literals and runtime templates. Add literal `initial: empty` to initialize locally without fetching; see [empty workspaces](../../../GUIDE-Empty-Workspaces.md). Writing tasks persist self-contained snapshots until `squashrebasemerge` publishes a root squash commit to an absent branch. Apply it to an op, sequence, state machine, individual state, child group, include call site, or recipe root. Put it on a shared definition or containing sequence, not on a `shared` reference.
+Use node metadata `workspace: {cell: cellB, ref: main}` for work against another cell's data in the same job. `cell` is required; `ref` is optional. Both support literals and runtime templates. Add literal `initial: empty` to initialize locally without fetching; see [empty workspaces](https://github.com/colony-2/c2j/blob/main/GUIDE-Empty-Workspaces.md). Writing tasks persist self-contained snapshots until `squashrebasemerge` publishes a root squash commit to an absent branch. Apply it to an op, sequence, state machine, individual state, child group, include call site, or recipe root. Put it on a shared definition or containing sequence, not on a `shared` reference.
 
 ```yaml
 sequence:
@@ -36,4 +36,4 @@ Workspace entry/exit never pushes or merges to the selected cell. Existing expli
 
 Use isolated recipe tests for templates and mocked flow; use a real embedded/deployed runtime for checkout and snapshot assertions. Upgrade recipe compilers and task workers together before using the field; old workers may ignore unknown YAML fields.
 
-Use separate [`squash`, `rebase`, and `merge` tasks](../../../GUIDE-Git-Ops.md) to persist preparation before publication. `merge` is fast-forward only. For an empty workspace, use `squash` then `merge` without `rebase`.
+Use separate [`squash`, `rebase`, and `merge` tasks](https://github.com/colony-2/c2j/blob/main/GUIDE-Git-Ops.md) to persist preparation before publication. `merge` is fast-forward only. For an empty workspace, use `squash` then `merge` without `rebase`.

@@ -9,6 +9,7 @@ c2j self
 c2j cells
 c2j cell add <repo-or-short-name>
 c2j init
+c2j skills update
 c2j version
 c2j submit
 c2j run
@@ -61,6 +62,25 @@ c2j init --with-op-skills
 ```
 
 `--stdout` prints only the config and does not install skills.
+
+## `c2j skills update`
+
+Install or refresh all three bundled skills without writing project configuration:
+
+```bash
+c2j skills update
+c2j skills update --scope project
+c2j skills update --scope user
+c2j skills update --force
+```
+
+`auto` (default) and `project` target `.agents/skills` in the current directory. `user` targets `${CODEX_HOME:-$HOME/.codex}/skills`. Run from the project root; installation metadata stays in `.c2/skills-lock.yaml`. Unchanged files are skipped, previously installed unmodified skills are refreshed, and local edits are preserved unless `--force` is supplied. Read the summary for skipped/failed entries.
+
+This uses the installed c2j binary's bundle, including the reviewed c2ops catalog. Upgrade c2j first for a newer bundle. It does not fetch live GitHub docs, install op executables, or reset `.c2/config.yaml`. Reload the agent session to pick up changed instructions.
+
+## Diagnostic logging
+
+Use `--log-level=debug|info|warn|error`, `--log-format=text|json`, and repeatable `--log-debug=field=value` (e.g. `--log-debug=component=worker`). Selectors match exact top-level values and combine with OR. `C2J_LOG_LEVEL` and `C2J_LOG_FORMAT` provide defaults; flags win. Diagnostic logs go to stderr, separate from command results. Replay inspection does not mean an op executed again.
 
 ## `c2j submit`
 

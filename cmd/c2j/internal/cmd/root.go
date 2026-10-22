@@ -39,6 +39,7 @@ func newRootCmd(info buildinfo.Info) *cobra.Command {
 	root.AddCommand(newDeleteCmd())
 	root.AddCommand(newTestCmd())
 	root.AddCommand(newInitCmd())
+	root.AddCommand(newSkillsCmd())
 	root.AddCommand(newCellsCmd())
 	root.AddCommand(newCellCmd())
 	root.AddCommand(newSelfCmd())

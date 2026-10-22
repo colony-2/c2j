@@ -218,6 +218,35 @@ func TestValidateSkillDirRejectsSymlink(t *testing.T) {
 	}
 }
 
+func TestPublishedC2OpsSelectors(t *testing.T) {
+	sources, err := LoadSources(skillsbundle.FS)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, selector := range []string{
+		"nix:github:colony-2/c2ops/published#codex",
+		"nix:github:colony-2/c2ops/published#skill-run",
+		"nix:github:colony-2/c2ops/v1.0.0#jev",
+		"git+https://github.com/colony-2/c2ops.git//kimi@published",
+	} {
+		if name, ok, err := sources.TrustedSelector(selector); err != nil || !ok || name != "c2ops" {
+			t.Errorf("%s: name=%q trusted=%v err=%v", selector, name, ok, err)
+		}
+	}
+	for _, selector := range []string{
+		"nix:github:someone/c2ops/published#codex",
+		"nix:github:colony-2/c2ops-other/published#codex",
+		"nix:github:colony-2/c2ops/untrusted#codex",
+		"nix:github:colony-2/c2ops/published",
+		"nix:github:colony-2/c2ops/published#",
+		"nix:github:colony-2/c2ops/#codex",
+	} {
+		if _, ok, _ := sources.TrustedSelector(selector); ok {
+			t.Errorf("unexpectedly trusted %s", selector)
+		}
+	}
+}
+
 func TestProjectLockSurvivesRelocation(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()

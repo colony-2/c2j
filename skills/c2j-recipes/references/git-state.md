@@ -79,9 +79,37 @@ recipes normally supply only the target. Shallow ancestry is fetched as needed.
 A successful refresh preserves pending commits and updates the base used by
 subsequent tasks, including after suspension. The target must descend from the
 current base; conflicts and genuinely divergent history fail without discarding
-pending work. See [the op specification](../../../pkg/git/thinpackrebase-op-spec.md).
+pending work. See [the op specification](https://github.com/colony-2/c2j/blob/main/pkg/git/thinpackrebase-op-spec.md).
 
 Outputs include `target_base_hash`, `new_base_hash`, `new_persist_hash`, `updated_ref`, `rebased_from`, and `git_context_patch`.
+
+## Standalone `squash`, `rebase`, and `merge`
+
+Use these when recipe checks, approvals, or other work belong between Git transformations. They are independent built-ins:
+
+| Op | Effect | Main outputs |
+| --- | --- | --- |
+| `squash` | Replace commits after the workspace base with one local commit. | `squashed_hash`, `squashed_commits` |
+| `rebase` | Replay local commits onto `target_base_hash`; same contract as `thinpackrebase`. | `new_base_hash`, `new_persist_hash`, `rebased_from` |
+| `merge` | Push the prepared HEAD to the destination branch by fast-forward. | `merged_hash`, `target_branch` |
+
+```yaml
+sequence:
+  - id: squash_changes
+    op: squash
+    inputs:
+      commit_message: Apply reviewed changes
+  - id: refresh_base
+    op: rebase
+    inputs:
+      target_base_hash: "${{ inputs.target_base_hash }}"
+  - id: publish
+    op: merge
+```
+
+Use an existing clean, committed workspace; commit changes before these operations. The worker normally persists ordinary task modifications between steps. `squash` keeps the existing workspace base and defaults `base_hash` to `context.git.execution.base_hash`. In a managed empty workspace it can squash root history without a base.
+
+`rebase` requires a real base and a target descending from it; it does not publish. `merge` defaults the destination to `context.git.repo` / `context.git.ref`, never forces a normal branch update, and fails if the target has diverged. A concurrent publisher can still cause rejection; refresh and revalidate before retrying publication. After publishing to the workspace's own source branch, c2j advances that workspace's base. Publishing elsewhere keeps the source snapshot. An empty workspace can create an absent target branch but does not overwrite an existing unrelated branch.
 
 ## `squashrebasemerge`
 

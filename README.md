@@ -267,6 +267,21 @@ c2j init --skills-force
 
 `auto` currently installs to the project-local `.agents/skills` directory. `user` installs to `${CODEX_HOME:-$HOME/.codex}/skills`. Install metadata is recorded in `.c2/skills-lock.yaml`.
 
+Refresh the installed skills independently of configuration:
+
+```bash
+c2j skills update
+c2j skills update --scope user
+c2j skills update --force  # replace locally edited bundled skill folders
+```
+
+Run from the project root. This installs the bundle shipped in your c2j binary;
+upgrade c2j first for newer references. It preserves local edits by default and
+reports skipped skills. It does not fetch live GitHub skills or install c2ops
+executables. The c2ops catalog records the upstream revision it was reviewed
+against. Reload the agent session after updating. See the
+[skill CLI reference](skills/c2j-operations/references/cli-reference.md).
+
 You can also install the repo skills directly with the public `skills` tool:
 
 ```bash

@@ -107,7 +107,7 @@ Commands and extensions run directly in the worker environment. c2j does not
 read `.shai/config.yaml` or create a container per operation. Provision required
 images, tools, mounts, environment variables, and isolation externally before
 starting the worker. Remove former generic `sandbox` inputs and forwarding
-parameters when migrating recipes; see [breaking release notes](../../../RELEASE-NOTES-Remove-Op-Sandboxing.md).
+parameters when migrating recipes; see [breaking release notes](https://github.com/colony-2/c2j/blob/main/RELEASE-NOTES-Remove-Op-Sandboxing.md).
 
 Stored recipes and history are not rewritten. Finish jobs requiring the old
 runtime with a pinned older release, or resubmit deliberately migrated recipes.

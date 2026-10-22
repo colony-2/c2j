@@ -1,6 +1,6 @@
 ---
 name: c2j-operations
-description: Operate existing c2j projects, cells, recipes, and jobs without doing full recipe authoring. Use for `c2j init`, `self`, `cells`, submitting a known recipe, continuing jobs, listing jobs or child jobs, checking ready counts, running supplied-lease or one/any/loop workers, embedded JobDB runs, runtime config, inputs/artifacts flags, JSON output, and debugging c2j CLI or JobDB invocation behavior.
+description: Operate existing c2j projects, cells, recipes, and jobs without doing full recipe authoring. Use for `c2j init`, `skills update`, `self`, `cells`, submitting a known recipe, continuing jobs, listing jobs or child jobs, checking ready counts, running supplied-lease or one/any/loop workers, embedded JobDB runs, runtime config, inputs/artifacts flags, JSON output, and debugging c2j CLI or JobDB invocation behavior.
 ---
 
 # c2j Operations

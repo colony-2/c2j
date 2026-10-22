@@ -81,40 +81,9 @@ func Run(ctx context.Context, opts Options) error {
 		Force:           opts.SkillsForce,
 		IncludeOpSkills: opts.InstallOpSkills,
 	})
-	printSkillSummary(stdout, summary)
+	skillinstall.PrintSummary(stdout, summary)
 	if err != nil {
 		return err
 	}
 	return nil
-}
-
-func printSkillSummary(stdout io.Writer, summary skillinstall.Summary) {
-	if len(summary.Results) == 0 {
-		return
-	}
-	if installed := summary.Installed(); len(installed) > 0 {
-		fmt.Fprintf(stdout, "installed skills: %s\n", resultNames(installed, false))
-	}
-	if skipped := summary.Skipped(); len(skipped) > 0 {
-		fmt.Fprintf(stdout, "skipped skills: %s\n", resultNames(skipped, true))
-	}
-	if failed := summary.Failed(); len(failed) > 0 {
-		fmt.Fprintf(stdout, "failed skills: %s\n", resultNames(failed, true))
-	}
-}
-
-func resultNames(results []skillinstall.SkillResult, includeReason bool) string {
-	parts := make([]string, 0, len(results))
-	for _, result := range results {
-		name := result.Name
-		reason := strings.TrimSpace(result.Reason)
-		if result.Err != nil {
-			reason = result.Err.Error()
-		}
-		if includeReason && reason != "" {
-			name += " (" + reason + ")"
-		}
-		parts = append(parts, name)
-	}
-	return strings.Join(parts, ", ")
 }

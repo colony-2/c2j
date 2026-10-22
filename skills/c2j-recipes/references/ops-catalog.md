@@ -45,7 +45,7 @@ Run a selector-backed extension op.
 ```yaml
 op: extension_execution
 inputs:
-  selector: git+https://github.com/colony-2/c2ops.git//codex@main
+  selector: nix:github:colony-2/c2ops/published#codex
   inputs:
     prompt: "{{ inputs.prompt }}"
 ```
@@ -60,6 +60,10 @@ Inputs: `selector`, nested `inputs`, optional `repository_source`, and optional 
 - `recipe.await_result`: wait for a child job and return recipe output.
 - `recipe.await_result_soft`: inspect a child terminal state without failing hard on child failure/cancel.
 - `recipe.get_result`: fetch a completed recipe result.
+- `recipe.child_group.start`: start children and return child-group state.
+- `recipe.child_group.run_and_get_result`: run a child group and return its result.
+
+The child-group helpers back the recipe `child_group` node; prefer that node for ordinary fan-out and routing. See [control-flow.md](control-flow.md).
 
 Single recipe inputs include `name`, `cell_name`, `inputs`, `artifacts`, and `git`. `SingleRecipeWithRef` also uses `git_ref`, defaulting to the current git hash when present, otherwise current ref.
 
@@ -95,6 +99,20 @@ Rebase a thin-pack backed workspace onto a new base commit and refresh git conte
 
 Inputs: `repo_path`, `target_base_hash`, `upstream_remote`, `preserve_author`, `update_refs`, `base_hash`, `persist_hash`, `base_repo`, `git_author`, and `cell_name`.
 
+### `squash`
+
+Squash the clean workspace's commits after `base_hash` into one unpublished commit. Inputs: `repo_path`, `base_hash`, `author`, `commit_message`. Context supplies path, execution base, and author. Outputs: `squashed_hash`, `squashed_commits` (original `base_hash`/`persist_hash`). No rebase or push.
+
+### `rebase`
+
+Standalone name for the workspace-aware `thinpackrebase` operation; same inputs, defaults, and outputs. Supply `target_base_hash`. Preserves commits and advances the workspace base without squashing or publishing.
+
+### `merge`
+
+Publish the current clean workspace HEAD by fast-forward push. Inputs: `repo_path`, `upstream_repo`, `upstream_branch`, all with context defaults. Outputs: `merged_hash`, `target_branch`. No squash, rebase, or merge commit; a diverged target fails. Publishing to the same source branch advances the managed workspace base. Empty workspaces may create an absent destination branch.
+
+See [git-state.md](git-state.md) for composing these operations and publication behavior.
+
 ### `squashrebasemerge`
 
 Squash local commits, rebase onto the target branch tip, and fast-forward merge back to the remote.
@@ -107,7 +125,7 @@ Fixture recipes use test-only ops such as `echo_activity`, `error-activity`, `te
 
 ## Selector Ops
 
-Unknown `op` names that look like selectors are allowed through parser validation and resolved as extension ops later. Prefer explicit `extension_execution` snippets for clarity unless the surrounding docs or examples already use selector shorthand.
+Unknown `op` names that look like selectors are allowed through parser validation and resolved as extension ops later. Use explicit selectors directly in `op:` for ordinary calls; use `extension_execution` when a nested selector/input envelope is useful. See [the c2ops guide](c2ops.md).
 
 ## Document Review (`input`)
 
@@ -126,7 +144,7 @@ Do not mix review forms with generic `request` / `response_schema` configuration
 
 A consuming client must use `SubmitFormResponse` with the pending request ID;
 the ordinary CLI prompt does not render document reviews. `--input-mode ops`
-exposes their forms. See [the author guide](../../../GUIDE-Review-Recipe-Authors.md).
+exposes their forms. See [the author guide](https://github.com/colony-2/c2j/blob/main/GUIDE-Review-Recipe-Authors.md).
 
 ## Unanswered input
 
@@ -137,4 +155,4 @@ documents use existing stored artifact refs. Do not combine it with `form.autofi
 Templates and answers freeze during preparation, and retries do not reset the
 clock. Becoming due does not reject a human answer: the first completion to obtain
 authority wins. A worker must be available; hard job/op timeouts still apply.
-See [the guide](../../../GUIDE-Input-Fallback-Answers.md) for output and worker details.
+See [the guide](https://github.com/colony-2/c2j/blob/main/GUIDE-Input-Fallback-Answers.md) for output and worker details.

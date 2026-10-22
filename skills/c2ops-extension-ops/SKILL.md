@@ -1,6 +1,6 @@
 ---
 name: c2ops-extension-ops
-description: Choose and call trusted selector-backed c2ops extension ops from `colony-2/c2ops`. Use for c2j recipes that rely on c2ops selectors such as llm, llm2, codex, codex/run_skill, rule_gate, gha, gha-many, pydantic, aider, or litellm, and for writing richer `extension_execution` invocation snippets with c2j template, artifact, and worker environment conventions.
+description: Choose and call trusted selector-backed c2ops extension ops from `colony-2/c2ops`. Use for c2j recipes that rely on c2ops selectors such as llm, llm2, codex, codex/run_skill, rule_gate, gha, gha-many, pydantic, aider, litellm, kimi, or jev, and for writing richer `extension_execution` invocation snippets with c2j template, artifact, and worker environment conventions.
 ---
 
 # c2ops Extension Ops

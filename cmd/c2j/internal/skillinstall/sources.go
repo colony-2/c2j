@@ -95,6 +95,14 @@ func (s SourcesFile) TrustedSelector(selector string) (string, bool, error) {
 				continue
 			}
 			ref := selectorRef(strings.TrimPrefix(selector, prefix))
+			if strings.HasPrefix(prefix, "nix:github:") {
+				var attr string
+				var ok bool
+				ref, attr, ok = strings.Cut(strings.TrimPrefix(selector, prefix), "#")
+				if !ok || attr == "" || strings.ContainsAny(attr, "#? \t\r\n") || strings.ContainsAny(ref, "?# \t\r\n") {
+					return name, false, fmt.Errorf("selector %q requires a package attribute", selector)
+				}
+			}
 			if ref == "" {
 				return name, false, fmt.Errorf("selector %q is missing a ref", selector)
 			}
