@@ -2,12 +2,16 @@ package cmd
 
 import (
 	"fmt"
+	"log"
+	"log/slog"
 
 	"github.com/colony-2/c2j/cmd/c2j/internal/buildinfo"
 	"github.com/spf13/cobra"
 )
 
 func Execute(info buildinfo.Info) (int, error) {
+	previous, writer, flags := slog.Default(), log.Writer(), log.Flags()
+	defer func() { slog.SetDefault(previous); log.SetOutput(writer); log.SetFlags(flags) }()
 	root := newRootCmd(info)
 	if err := root.Execute(); err != nil {
 		if coded, ok := err.(exitCoder); ok {
@@ -25,6 +29,7 @@ func newRootCmd(info buildinfo.Info) *cobra.Command {
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}
+	bindLoggingFlags(root)
 
 	root.AddCommand(newVersionCmd(info))
 	root.AddCommand(newSubmitCmd())

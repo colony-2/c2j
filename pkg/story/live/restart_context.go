@@ -4,12 +4,15 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"sort"
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/colony-2/c2j/pkg/redact"
+	"github.com/colony-2/c2j/pkg/secrets"
 	"github.com/colony-2/c2j/pkg/story/internal/model"
 	"github.com/colony-2/c2j/pkg/template"
 	"github.com/colony-2/c2j/pkg/worker/compiler"
@@ -31,7 +34,21 @@ func RestartBoundary(history []jobdb.ExecutionHistoryEntry, ordinal int64) (jobd
 
 // InspectRestartContext replays only as far as the selected scope's entry.
 // A replay control error unwinds synchronously before the selected body runs.
-func InspectRestartContext(ctx context.Context, engine replayJobRunner, key jobdb.JobKey, history []jobdb.ExecutionHistoryEntry, ordinal int64, provider template.CELOptionsProvider, resolver compiler.RecipeSourceResolver) (*model.RestartContext, error) {
+func InspectRestartContext(ctx context.Context, engine replayJobRunner, key jobdb.JobKey, history []jobdb.ExecutionHistoryEntry, ordinal int64, provider template.CELOptionsProvider, resolver compiler.RecipeSourceResolver, loggers ...*slog.Logger) (snapshot *model.RestartContext, resultErr error) {
+	var logger *slog.Logger
+	if len(loggers) > 0 {
+		logger = loggers[0]
+	}
+	compilerLogger := secrets.MaskLogger(logger).With("purpose", "restart_context")
+	logger = compilerLogger.With("tenant_id", key.TenantId, "job_id", key.JobId)
+	started := time.Now()
+	defer func() {
+		outcome := "succeeded"
+		if resultErr != nil {
+			outcome = "failed"
+		}
+		logger.Debug("Restart context inspection finished", "component", "story", "event", "restart_context.inspection.finished", "outcome", outcome, "chapter_ordinal", ordinal, "duration_ms", time.Since(started).Milliseconds(), "error", resultErr)
+	}()
 	boundary, err := RestartBoundary(history, ordinal)
 	if err != nil {
 		return nil, err
@@ -63,6 +80,7 @@ func InspectRestartContext(ctx context.Context, engine replayJobRunner, key jobd
 		return context.Canceled
 	})
 	worker := scopes.worker(compiler.NewRecipeJobWorker(compiler.RecipeJobWorkerOptions{
+		Logger:         compilerLogger,
 		ReadOnlyReplay: true, CELOptionsProvider: provider, RootSourceResolver: resolver, BeforeScope: scopes.beforeScope,
 	}))
 	observer := scopeReplayObserver{ReplayObserver: restartContextObserver{}, scopes: scopes}

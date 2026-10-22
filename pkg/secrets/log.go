@@ -14,6 +14,25 @@ import (
 var activeMasks sync.Map // *Redactor -> struct{}; no material outside execution redactors
 var logMu sync.Mutex
 
+// MaskLogger protects injected and derived loggers using all active execution
+// redactors. Call before With/WithGroup so fields captured before secret setup
+// are still masked when emitted. It does not replace the process logger.
+func MaskLogger(logger *slog.Logger) *slog.Logger {
+	if logger == nil {
+		logger = slog.Default()
+	}
+	if _, ok := logger.Handler().(*maskHandler); ok {
+		return logger
+	}
+	// The built-in default handler uses log.Default's writer. registerMask
+	// protects that writer; wrapping it and later calling SetDefault can recurse.
+	t := reflect.TypeOf(logger.Handler())
+	if t.Kind() == reflect.Pointer && t.Elem().PkgPath() == "log/slog" && t.Elem().Name() == "defaultHandler" {
+		return logger
+	}
+	return slog.New(&maskHandler{base: logger.Handler()})
+}
+
 func registerMask(s *Redactor) {
 	activeMasks.Store(s, struct{}{})
 	logMu.Lock()

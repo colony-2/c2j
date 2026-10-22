@@ -140,7 +140,7 @@ func executeNodeScope(ctx workflow.Context, parent *template.ResolutionContext, 
 			if ctx.CatchStateName != "" {
 				sourceState = ctx.CatchStateName
 			}
-			decision, err := evaluateCatchClauses([]recipe.CatchClause{clause}, failure, state, sourceState, sourceState != "")
+			decision, err := evaluateCatchClauses([]recipe.CatchClause{clause}, failure, state, sourceState, sourceState != "", ctx.GetLogger())
 			if err != nil {
 				return jobworkflow.CatchResult{}, err
 			}

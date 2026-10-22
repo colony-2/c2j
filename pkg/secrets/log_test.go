@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"testing"
 
+	"github.com/colony-2/c2j/pkg/logging"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	"github.com/stretchr/testify/require"
 )
@@ -37,4 +38,34 @@ func TestLogMasksValuesAndPreservesGroups(t *testing.T) {
 	require.NotContains(t, out.String(), "private-token")
 	require.Contains(t, out.String(), `"root":"yes","nested":`)
 	require.Contains(t, out.String(), "[REDACTED]")
+}
+
+func TestInjectedSelectiveLoggerMasksFieldsCapturedBeforeSecretSetup(t *testing.T) {
+	var out bytes.Buffer
+	previous, writer, flags := slog.Default(), log.Writer(), log.Flags()
+	t.Cleanup(func() { slog.SetDefault(previous); log.SetOutput(writer); log.SetFlags(flags) })
+	base, err := logging.New(&out, logging.Options{Format: "json", Debug: []logging.Selector{{Field: "component", Value: "worker"}}})
+	require.NoError(t, err)
+	logger := MaskLogger(base)
+	require.Same(t, previous, slog.Default(), "wrapping an injected logger does not change globals")
+	child := logger.With("component", "worker").WithGroup("payload").With("captured", "late-private-token")
+	slog.SetDefault(logger)
+	sessions := NewSessions()
+	key := jobdb.JobKey{TenantId: "logging", JobId: "injected"}
+	redactor, err := sessions.Open(key)
+	require.NoError(t, err)
+	defer sessions.Close(key)
+	session := redactor.NewTask()
+	defer session.Close()
+	require.NoError(t, session.Prepare(context.Background(), []string{"token"}, func(context.Context, []string) (jobdb.SecretResolveResult, error) {
+		return jobdb.SecretResolveResult{Secrets: map[string]jobdb.SecretValue{"token": {Value: "late-private-token"}}}, nil
+	}))
+	child.Debug("late-private-token", "error", fmt.Errorf("failed: late-private-token"))
+	logger.Debug("unrelated detail")
+	log.Print("legacy late-private-token")
+	require.NotContains(t, out.String(), "late-private-token")
+	require.NotContains(t, out.String(), "unrelated detail")
+	require.Contains(t, out.String(), `"level":"DEBUG"`)
+	require.Contains(t, out.String(), `"captured":"[REDACTED]"`)
+	require.Contains(t, out.String(), "legacy [REDACTED]")
 }

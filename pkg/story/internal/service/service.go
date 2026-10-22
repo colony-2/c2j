@@ -16,6 +16,7 @@ import (
 	"github.com/colony-2/c2j/pkg/contextual"
 	"github.com/colony-2/c2j/pkg/jobdbschema"
 	"github.com/colony-2/c2j/pkg/recipe"
+	"github.com/colony-2/c2j/pkg/secrets"
 	"github.com/colony-2/c2j/pkg/starter"
 	workflowapi "github.com/colony-2/c2j/pkg/story/api"
 	"github.com/colony-2/c2j/pkg/story/internal/model"
@@ -96,7 +97,7 @@ func New(cfg Config) (*Service, error) {
 		recipes:      cfg.Recipes,
 		rootResolver: cfg.RootSourceResolver,
 		celProvider:  cfg.CELOptionsProvider,
-		logger:       logger,
+		logger:       secrets.MaskLogger(logger),
 	}, nil
 }
 
@@ -124,7 +125,7 @@ type chapterMeta struct {
 }
 
 func (s *Service) ListWorkflows(ctx context.Context, req model.ListWorkflowsRequest) ([]model.WorkflowSummary, error) {
-	s.logger.Debug("ListWorkflows: request received",
+	s.logger.Debug("ListWorkflows: request received", "component", "story",
 		"project_id", req.ProjectID,
 		"limit", req.Limit,
 		"offset", req.Offset,
@@ -194,7 +195,7 @@ func (s *Service) ListWorkflows(ctx context.Context, req model.ListWorkflowsRequ
 		if err != nil {
 			return nil, err
 		}
-		s.logger.Debug("ListWorkflows: engine returned jobs",
+		s.logger.Debug("ListWorkflows: engine returned jobs", "component", "story",
 			"job_count", len(resp.Jobs),
 			"project_id", req.ProjectID,
 			"statuses", jobStatuses)
@@ -202,7 +203,7 @@ func (s *Service) ListWorkflows(ctx context.Context, req model.ListWorkflowsRequ
 			break
 		}
 		for i, job := range resp.Jobs {
-			s.logger.Debug("ListWorkflows: processing job",
+			s.logger.Debug("ListWorkflows: processing job", "component", "story",
 				"index", i,
 				"job_id", job.JobKey.JobId,
 				"tenant_id", job.JobKey.TenantId,
@@ -214,11 +215,11 @@ func (s *Service) ListWorkflows(ctx context.Context, req model.ListWorkflowsRequ
 				return nil, err
 			}
 			if !ok {
-				s.logger.Debug("ListWorkflows: job skipped by buildSummary",
+				s.logger.Debug("ListWorkflows: job skipped by buildSummary", "component", "story",
 					"job_id", job.JobKey.JobId)
 				continue
 			}
-			s.logger.Debug("ListWorkflows: job included",
+			s.logger.Debug("ListWorkflows: job included", "component", "story",
 				"job_id", job.JobKey.JobId,
 				"status", summary.Status)
 			if req.CellID != nil && strings.TrimSpace(*req.CellID) != "" {
@@ -239,7 +240,7 @@ func (s *Service) ListWorkflows(ctx context.Context, req model.ListWorkflowsRequ
 	}
 
 	if offset >= len(summaries) {
-		s.logger.Debug("ListWorkflows: offset beyond results",
+		s.logger.Debug("ListWorkflows: offset beyond results", "component", "story",
 			"project_id", req.ProjectID,
 			"offset", offset,
 			"total_summaries", len(summaries))
@@ -250,7 +251,7 @@ func (s *Service) ListWorkflows(ctx context.Context, req model.ListWorkflowsRequ
 		end = len(summaries)
 	}
 	result := summaries[offset:end]
-	s.logger.Debug("ListWorkflows: returning results",
+	s.logger.Debug("ListWorkflows: returning results", "component", "story",
 		"project_id", req.ProjectID,
 		"result_count", len(result),
 		"total_summaries", len(summaries))
@@ -364,7 +365,7 @@ func (s *Service) GetWorkflow(ctx context.Context, req model.GetWorkflowRequest)
 	}
 	jobKey := jobdb.JobKey{TenantId: req.ProjectID, JobId: req.WorkflowID}
 
-	s.logger.Debug("GetWorkflow: querying engine for job",
+	s.logger.Debug("GetWorkflow: querying engine for job", "component", "story",
 		"project_id", req.ProjectID,
 		"workflow_id", req.WorkflowID)
 	resp, err := s.engine.ListJobs(ctx, jobdb.ListJobsRequest{
@@ -374,19 +375,19 @@ func (s *Service) GetWorkflow(ctx context.Context, req model.GetWorkflowRequest)
 		PageSize:  1,
 	})
 	if err != nil {
-		s.logger.Error("GetWorkflow: engine query failed",
+		s.logger.Debug("GetWorkflow: engine query failed", "component", "story",
 			"project_id", req.ProjectID,
 			"workflow_id", req.WorkflowID,
 			"error", err)
 		return nil, err
 	}
 	if len(resp.Jobs) == 0 {
-		s.logger.Debug("GetWorkflow: workflow not found in engine",
+		s.logger.Debug("GetWorkflow: workflow not found in engine", "component", "story",
 			"project_id", req.ProjectID,
 			"workflow_id", req.WorkflowID)
 		return nil, ErrNotFound
 	}
-	s.logger.Debug("GetWorkflow: found workflow in engine",
+	s.logger.Debug("GetWorkflow: found workflow in engine", "component", "story",
 		"project_id", req.ProjectID,
 		"workflow_id", req.WorkflowID,
 		"status", resp.Jobs[0].Status)
@@ -398,7 +399,7 @@ func (s *Service) GetWorkflow(ctx context.Context, req model.GetWorkflowRequest)
 
 	meta, metaErr := jobMetadataFromRaw(job.Metadata)
 	if metaErr != nil {
-		s.logger.Debug("GetWorkflow: failed to parse job metadata",
+		s.logger.Debug("GetWorkflow: failed to parse job metadata", "component", "story",
 			"workflow_id", req.WorkflowID,
 			"error", metaErr)
 	}
@@ -958,12 +959,12 @@ func (s *Service) GetArtifactByOrdinal(ctx context.Context, req model.GetArtifac
 func (s *Service) buildSummary(ctx context.Context, projectID string, job jobdb.JobSummary) (model.WorkflowSummary, bool, error) {
 	meta, metaErr := jobMetadataFromRaw(job.Metadata)
 	if metaErr != nil {
-		s.logger.Debug("buildSummary: failed to parse job metadata",
+		s.logger.Debug("buildSummary: failed to parse job metadata", "component", "story",
 			"job_id", job.JobKey.JobId,
 			"error", metaErr)
 	}
 	if meta == nil {
-		s.logger.Debug("buildSummary: no job metadata",
+		s.logger.Debug("buildSummary: no job metadata", "component", "story",
 			"job_id", job.JobKey.JobId,
 			"strata_available", s.strata != nil)
 		return model.WorkflowSummary{}, false, nil
@@ -1007,24 +1008,24 @@ func (s *Service) loadChapters(ctx context.Context, jobKey jobdb.JobKey) ([]mode
 	if s.strata == nil {
 		return []model.ChapterDetail{}, nil
 	}
-	s.logger.Debug("loadChapters: loading story from strata",
+	s.logger.Debug("loadChapters: loading story from strata", "component", "story",
 		"tenant_id", jobKey.TenantId,
 		"job_id", jobKey.JobId)
 	storyHandle, err := s.strata.Story(ctx, strataStoryKey(jobKey))
 	if err != nil {
-		s.logger.Error("loadChapters: failed to load story from strata",
+		s.logger.Debug("loadChapters: failed to load story from strata", "component", "story",
 			"tenant_id", jobKey.TenantId,
 			"job_id", jobKey.JobId,
 			"error", err)
 		return nil, err
 	}
-	s.logger.Debug("loadChapters: creating chapters iterator",
+	s.logger.Debug("loadChapters: creating chapters iterator", "component", "story",
 		"tenant_id", jobKey.TenantId,
 		"job_id", jobKey.JobId,
 		"page_size", 100)
 	iter, err := storyHandle.Chapters(ctx, story.ChaptersOptions{PageSize: 100, Direction: story.DirectionForward})
 	if err != nil {
-		s.logger.Error("loadChapters: failed to create chapters iterator",
+		s.logger.Debug("loadChapters: failed to create chapters iterator", "component", "story",
 			"tenant_id", jobKey.TenantId,
 			"job_id", jobKey.JobId,
 			"error", err)
@@ -1038,7 +1039,7 @@ func (s *Service) loadChapters(ctx context.Context, jobKey jobdb.JobKey) ([]mode
 			break
 		}
 		if err != nil {
-			s.logger.Error("loadChapters: failed to get next chapter",
+			s.logger.Debug("loadChapters: failed to get next chapter", "component", "story",
 				"tenant_id", jobKey.TenantId,
 				"job_id", jobKey.JobId,
 				"error", err)
@@ -1046,7 +1047,7 @@ func (s *Service) loadChapters(ctx context.Context, jobKey jobdb.JobKey) ([]mode
 		}
 		detail, err := chapterToDetail(chap)
 		if err != nil {
-			s.logger.Error("loadChapters: failed to convert chapter to detail",
+			s.logger.Debug("loadChapters: failed to convert chapter to detail", "component", "story",
 				"tenant_id", jobKey.TenantId,
 				"job_id", jobKey.JobId,
 				"chapter_ordinal", chap.Ordinal(),
@@ -1055,7 +1056,7 @@ func (s *Service) loadChapters(ctx context.Context, jobKey jobdb.JobKey) ([]mode
 		}
 		chapters = append(chapters, detail)
 	}
-	s.logger.Debug("loadChapters: successfully loaded all chapters",
+	s.logger.Debug("loadChapters: successfully loaded all chapters", "component", "story",
 		"tenant_id", jobKey.TenantId,
 		"job_id", jobKey.JobId,
 		"chapter_count", len(chapters))
@@ -1371,13 +1372,13 @@ func (s *Service) GetWorkflowArtifact(
 		JobId:    req.WorkflowID,
 	}
 
-	s.logger.Debug("GetWorkflowArtifact: loading chapter from strata",
+	s.logger.Debug("GetWorkflowArtifact: loading chapter from strata", "component", "story",
 		"tenant_id", jobKey.TenantId,
 		"job_id", jobKey.JobId,
 		"chapter_number", req.ChapterNumber)
 	chap, err := s.strata.Chapter(ctx, strataStoryKey(jobKey), int64(req.ChapterNumber))
 	if err != nil {
-		s.logger.Error("GetWorkflowArtifact: failed to retrieve chapter from strata",
+		s.logger.Debug("GetWorkflowArtifact: failed to retrieve chapter from strata", "component", "story",
 			"tenant_id", jobKey.TenantId,
 			"job_id", jobKey.JobId,
 			"chapter_number", req.ChapterNumber,
@@ -1391,7 +1392,7 @@ func (s *Service) GetWorkflowArtifact(
 	for _, art := range chap.Artifacts() {
 		if art.Name() == req.ArtifactName {
 			// 7. Retrieve artifact bytes
-			s.logger.Debug("GetWorkflowArtifact: loading artifact bytes from strata",
+			s.logger.Debug("GetWorkflowArtifact: loading artifact bytes from strata", "component", "story",
 				"tenant_id", jobKey.TenantId,
 				"job_id", jobKey.JobId,
 				"chapter_number", req.ChapterNumber,
@@ -1399,7 +1400,7 @@ func (s *Service) GetWorkflowArtifact(
 				"artifact_id", art.ID())
 			content, err = art.Bytes(ctx)
 			if err != nil {
-				s.logger.Error("GetWorkflowArtifact: failed to read artifact content from strata",
+				s.logger.Debug("GetWorkflowArtifact: failed to read artifact content from strata", "component", "story",
 					"tenant_id", jobKey.TenantId,
 					"job_id", jobKey.JobId,
 					"chapter_number", req.ChapterNumber,
@@ -1413,7 +1414,7 @@ func (s *Service) GetWorkflowArtifact(
 		}
 	}
 	if !found {
-		s.logger.Warn("GetWorkflowArtifact: artifact not found in strata chapter",
+		s.logger.Debug("GetWorkflowArtifact: artifact not found in strata chapter", "component", "story",
 			"tenant_id", jobKey.TenantId,
 			"job_id", jobKey.JobId,
 			"chapter_number", req.ChapterNumber,
@@ -1421,7 +1422,7 @@ func (s *Service) GetWorkflowArtifact(
 		return nil, fmt.Errorf("artifact %s not found in chapter %d",
 			req.ArtifactName, req.ChapterNumber)
 	}
-	s.logger.Debug("GetWorkflowArtifact: successfully loaded artifact",
+	s.logger.Debug("GetWorkflowArtifact: successfully loaded artifact", "component", "story",
 		"tenant_id", jobKey.TenantId,
 		"job_id", jobKey.JobId,
 		"chapter_number", req.ChapterNumber,

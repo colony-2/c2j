@@ -12,6 +12,7 @@ import (
 
 	openapi "github.com/colony-2/c2j/pkg/input/openapi"
 	"github.com/colony-2/c2j/pkg/ops"
+	"github.com/colony-2/c2j/pkg/secrets"
 	ops2 "github.com/colony-2/c2j/pkg/worker/ops"
 	"github.com/colony-2/c2j/pkg/workflowctl"
 	"github.com/colony-2/jobdb/pkg/jobdb"
@@ -20,6 +21,7 @@ import (
 
 // inputManagementService implements ManagementService for input activities
 type inputManagementService struct {
+	logger       *slog.Logger
 	workflowType string
 	sse          ops.SSEManager
 	ctl          workflowctl.WorkflowControl
@@ -35,6 +37,7 @@ func newInputManagementService() *inputManagementService {
 
 // Initialize sets up the service with dependencies
 func (s *inputManagementService) Initialize(deps ops.ServiceDependencies2) error {
+	s.logger = secrets.MaskLogger(deps.Logger()).With("component", "input")
 	runtime, err := NewRuntimeFromDeps(deps)
 	if err != nil {
 		return err
@@ -46,6 +49,13 @@ func (s *inputManagementService) Initialize(deps ops.ServiceDependencies2) error
 		return fmt.Errorf("sse manager must be provided")
 	}
 	return nil
+}
+
+func (s *inputManagementService) log() *slog.Logger {
+	if s.logger != nil {
+		return s.logger
+	}
+	return secrets.MaskLogger(nil).With("component", "input")
 }
 
 func (s *inputManagementService) Close() {
@@ -65,62 +75,62 @@ func (s *inputManagementService) GetRoutes() []ops.Route {
 
 // ListPending returns all pending input requests
 func (s *inputManagementService) ListPending(w http.ResponseWriter, r *http.Request) {
-	slog.Info("list_pending: request received", "method", r.Method, "url", r.URL.Path)
+	s.log().Debug("list_pending: request received", "method", r.Method, "url", r.URL.Path)
 
 	vars := mux.Vars(r)
 	projectID := vars["projectId"]
 	if projectID == "" {
-		slog.Warn("list_pending: missing projectId parameter", "url", r.URL.Path, "vars", vars)
+		s.log().Debug("list_pending: missing projectId parameter", "url", r.URL.Path, "vars", vars)
 		http.Error(w, "projectId is required", http.StatusBadRequest)
 		return
 	}
 
-	slog.Info("list_pending: collecting pending inputs", "project_id", projectID)
+	s.log().Debug("list_pending: collecting pending inputs", "project_id", projectID)
 	pending, err := s.collectPendingInputs(r.Context(), projectID)
 	if err != nil {
-		slog.Error("list_pending: failed to collect pending inputs",
+		s.log().Error("list_pending: failed to collect pending inputs",
 			"project_id", projectID,
 			"error", err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	slog.Info("list_pending: success", "project_id", projectID, "count", len(pending))
+	s.log().Debug("list_pending: success", "project_id", projectID, "count", len(pending))
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(pending); err != nil {
-		slog.Error("list_pending: failed to encode response", "project_id", projectID, "error", err)
+		s.log().Error("list_pending: failed to encode response", "project_id", projectID, "error", err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
 }
 
 func (s *inputManagementService) GetDetails(w http.ResponseWriter, r *http.Request) {
-	slog.Info("get_details: request received", "method", r.Method, "url", r.URL.Path)
+	s.log().Debug("get_details: request received", "method", r.Method, "url", r.URL.Path)
 
 	vars := mux.Vars(r)
 	projectID := vars["projectId"]
 	if projectID == "" {
-		slog.Warn("get_details: missing projectId parameter", "url", r.URL.Path, "vars", vars)
+		s.log().Debug("get_details: missing projectId parameter", "url", r.URL.Path, "vars", vars)
 		http.Error(w, "projectId is required", http.StatusBadRequest)
 		return
 	}
 
 	jobId := vars["jobId"]
 	if jobId == "" {
-		slog.Warn("get_details: missing jobId parameter", "url", r.URL.Path, "project_id", projectID, "vars", vars)
+		s.log().Debug("get_details: missing jobId parameter", "url", r.URL.Path, "project_id", projectID, "vars", vars)
 		http.Error(w, "jobId is required", http.StatusBadRequest)
 		return
 	}
 
-	slog.Info("get_details: fetching job details", "project_id", projectID, "job_id", jobId)
+	s.log().Debug("get_details: fetching job details", "project_id", projectID, "job_id", jobId)
 	res := s.getDetails(r.Context(), projectID, jobId)
 	if res.sendError(w) {
-		slog.Error("get_details: failed to get details", "project_id", projectID, "job_id", jobId, "error", res.err)
+		s.log().Error("get_details: failed to get details", "project_id", projectID, "job_id", jobId, "error", res.err)
 		return
 	}
 	d := res.value
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(d); err != nil {
-		slog.Error("get_details: failed to encode response", "project_id", projectID, "job_id", jobId, "error", err)
+		s.log().Error("get_details: failed to encode response", "project_id", projectID, "job_id", jobId, "error", err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
 
@@ -180,7 +190,7 @@ func (s *inputManagementService) getDetails(ctx context.Context, projectID strin
 }
 
 func (s *inputManagementService) findJob(ctx context.Context, projectID string, jobId string) result[*workflowctl.JobItem] {
-	slog.Info("find_job: searching for job", "project_id", projectID, "job_id", jobId)
+	s.log().Debug("find_job: searching for job", "project_id", projectID, "job_id", jobId)
 
 	if s.ctl == nil {
 		return result[*workflowctl.JobItem]{err: "workflow control unavailable"}
@@ -198,7 +208,7 @@ func (s *inputManagementService) findJob(ctx context.Context, projectID string, 
 		}},
 	})
 	if err != nil {
-		slog.Error("find_job: query failed",
+		s.log().Debug("find_job: query failed",
 			"project_id", projectID,
 			"job_id", jobId,
 			"error", err)
@@ -208,7 +218,7 @@ func (s *inputManagementService) findJob(ctx context.Context, projectID string, 
 	}
 
 	if len(jobs) == 0 {
-		slog.Warn("find_job: job not found",
+		s.log().Debug("find_job: job not found",
 			"project_id", projectID,
 			"job_id", jobId)
 		return result[*workflowctl.JobItem]{
@@ -220,7 +230,7 @@ func (s *inputManagementService) findJob(ctx context.Context, projectID string, 
 	// Validate project ownership
 	job := jobs[0]
 	if job.JobKey.TenantId != projectID {
-		slog.Warn("find_job: project mismatch",
+		s.log().Debug("find_job: project mismatch",
 			"project_id", projectID,
 			"job_tenant_id", job.JobKey.TenantId,
 			"job_id", jobId)
@@ -230,7 +240,7 @@ func (s *inputManagementService) findJob(ctx context.Context, projectID string, 
 		}
 	}
 
-	slog.Info("find_job: found job", "project_id", projectID, "job_id", jobId)
+	s.log().Debug("find_job: found job", "project_id", projectID, "job_id", jobId)
 	return result[*workflowctl.JobItem]{
 		value: &job,
 	}
@@ -258,33 +268,33 @@ func (res result[T]) sendError(w http.ResponseWriter) bool {
 }
 
 func (s *inputManagementService) SubmitResponse(w http.ResponseWriter, r *http.Request) {
-	slog.Info("submit_response: request received", "method", r.Method, "url", r.URL.Path)
+	s.log().Debug("submit_response: request received", "method", r.Method, "url", r.URL.Path)
 
 	vars := mux.Vars(r)
 	projectID := vars["projectId"]
 	if projectID == "" {
-		slog.Warn("submit_response: missing projectId parameter", "url", r.URL.Path, "vars", vars)
+		s.log().Debug("submit_response: missing projectId parameter", "url", r.URL.Path, "vars", vars)
 		http.Error(w, "projectId is required", http.StatusBadRequest)
 		return
 	}
 
 	jobId := vars["jobId"]
 	if jobId == "" {
-		slog.Warn("submit_response: missing jobId parameter", "url", r.URL.Path, "project_id", projectID, "vars", vars)
+		s.log().Debug("submit_response: missing jobId parameter", "url", r.URL.Path, "project_id", projectID, "vars", vars)
 		http.Error(w, "jobId is required", http.StatusBadRequest)
 		return
 	}
 
-	slog.Info("submit_response: decoding request body", "project_id", projectID, "job_id", jobId)
+	s.log().Debug("submit_response: decoding request body", "project_id", projectID, "job_id", jobId)
 	output := FormResponse{}
 	if err := json.NewDecoder(r.Body).Decode(&output); err != nil {
-		slog.Warn("submit_response: invalid request body", "project_id", projectID, "job_id", jobId, "error", err)
+		s.log().Debug("submit_response: invalid request body", "project_id", projectID, "job_id", jobId, "error", err)
 		http.Error(w, "invalid request body", http.StatusBadRequest)
 		return
 	}
 
 	if output.Fields == nil {
-		slog.Warn("submit_response: missing fields in request", "project_id", projectID, "job_id", jobId)
+		s.log().Debug("submit_response: missing fields in request", "project_id", projectID, "job_id", jobId)
 		http.Error(w, "fields are required", http.StatusBadRequest)
 		return
 	}
@@ -295,22 +305,22 @@ func (s *inputManagementService) SubmitResponse(w http.ResponseWriter, r *http.R
 	}
 	if userID == "" {
 		userID = r.Header.Get("X-User-ID")
-		slog.Info("submit_response: using user ID from header", "project_id", projectID, "job_id", jobId, "user_id", userID)
+		s.log().Debug("submit_response: using user ID from header", "project_id", projectID, "job_id", jobId, "user_id", userID)
 	} else {
-		slog.Info("submit_response: using user ID from body", "project_id", projectID, "job_id", jobId, "user_id", userID)
+		s.log().Debug("submit_response: using user ID from body", "project_id", projectID, "job_id", jobId, "user_id", userID)
 	}
 	if userID != "" {
 		output.UserId = &userID
 	}
 
-	slog.Info("submit_response: submitting response", "project_id", projectID, "job_id", jobId, "field_count", len(output.Fields))
+	s.log().Debug("submit_response: submitting response", "project_id", projectID, "job_id", jobId, "field_count", len(output.Fields))
 	res := s.submitResponse(r.Context(), projectID, jobId, output)
 	if res.sendError(w) {
-		slog.Error("submit_response: failed to submit response", "project_id", projectID, "job_id", jobId, "error", res.err)
+		s.log().Error("submit_response: failed to submit response", "project_id", projectID, "job_id", jobId, "error", res.err)
 		return
 	}
 	// Return success response
-	slog.Info("submit_response: success", "project_id", projectID, "job_id", jobId)
+	s.log().Debug("submit_response: success", "project_id", projectID, "job_id", jobId)
 	w.Header().Set("Content-Type", "application/json")
 	ok := res.value
 	_ = json.NewEncoder(w).Encode(struct {
@@ -327,16 +337,16 @@ func (s *inputManagementService) submitResponse(ctx context.Context, projectID s
 	if err := s.runtime.SubmitResponse(ctx, projectID, jobId, output); err != nil {
 		return result[bool]{err: err.Error()}
 	}
-	slog.Info("submitResponse: successfully completed", "project_id", projectID, "job_id", jobId)
+	s.log().Debug("submitResponse: successfully completed", "project_id", projectID, "job_id", jobId)
 	return result[bool]{value: true}
 }
 
 // Cancel handles cancellation of a pending input request
 func (s *inputManagementService) Cancel(w http.ResponseWriter, r *http.Request) {
-	slog.Info("cancel: request received", "method", r.Method, "url", r.URL.Path)
+	s.log().Debug("cancel: request received", "method", r.Method, "url", r.URL.Path)
 
 	if s.ctl == nil {
-		slog.Error("cancel: workflow control unavailable")
+		s.log().Error("cancel: workflow control unavailable")
 		http.Error(w, "workflow control unavailable", http.StatusInternalServerError)
 		return
 	}
@@ -344,14 +354,14 @@ func (s *inputManagementService) Cancel(w http.ResponseWriter, r *http.Request) 
 	vars := mux.Vars(r)
 	projectID := vars["projectId"]
 	if projectID == "" {
-		slog.Warn("cancel: missing projectId parameter", "url", r.URL.Path, "vars", vars)
+		s.log().Debug("cancel: missing projectId parameter", "url", r.URL.Path, "vars", vars)
 		http.Error(w, "projectId is required", http.StatusBadRequest)
 		return
 	}
 
 	jobId := vars["jobId"]
 	if jobId == "" {
-		slog.Warn("cancel: missing jobId parameter", "url", r.URL.Path, "project_id", projectID, "vars", vars)
+		s.log().Debug("cancel: missing jobId parameter", "url", r.URL.Path, "project_id", projectID, "vars", vars)
 		http.Error(w, "jobId is required", http.StatusBadRequest)
 		return
 	}
@@ -359,9 +369,9 @@ func (s *inputManagementService) Cancel(w http.ResponseWriter, r *http.Request) 
 	// Parse cancellation request (OpenAPI-generated type)
 	var cancelRequest openapi.CancelRequest
 
-	slog.Info("cancel: decoding cancellation request", "project_id", projectID, "job_id", jobId)
+	s.log().Debug("cancel: decoding cancellation request", "project_id", projectID, "job_id", jobId)
 	if err := json.NewDecoder(r.Body).Decode(&cancelRequest); err != nil {
-		slog.Warn("cancel: invalid request body", "project_id", projectID, "job_id", jobId, "error", err)
+		s.log().Debug("cancel: invalid request body", "project_id", projectID, "job_id", jobId, "error", err)
 		http.Error(w, "invalid request body", http.StatusBadRequest)
 		return
 	}
@@ -371,21 +381,21 @@ func (s *inputManagementService) Cancel(w http.ResponseWriter, r *http.Request) 
 		reason = *cancelRequest.Reason
 	}
 
-	slog.Info("cancel: attempting to cancel job", "project_id", projectID, "job_id", jobId, "reason", reason)
+	s.log().Debug("cancel: attempting to cancel job", "project_id", projectID, "job_id", jobId, "reason", reason)
 	if s.runtime == nil {
 		http.Error(w, "workflow control unavailable", http.StatusInternalServerError)
 		return
 	}
 	err := s.runtime.Cancel(r.Context(), projectID, jobId, reason)
 	if err != nil {
-		slog.Error("cancel: cancel failed",
+		s.log().Error("cancel: cancel failed",
 			"project_id", projectID,
 			"job_id", jobId,
 			"error", err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	slog.Info("cancel: successfully cancelled job", "project_id", projectID, "job_id", jobId)
+	s.log().Debug("cancel: successfully cancelled job", "project_id", projectID, "job_id", jobId)
 	// Return success response
 	w.Header().Set("Content-Type", "application/json")
 	ok := true
@@ -396,7 +406,7 @@ func (s *inputManagementService) Cancel(w http.ResponseWriter, r *http.Request) 
 
 // SSEStream handles Server-Sent Events streaming for real-time updates
 func (s *inputManagementService) SSEStream(w http.ResponseWriter, r *http.Request) {
-	slog.Info("sse_stream: request received",
+	s.log().Debug("sse_stream: request received",
 		"method", r.Method,
 		"url", r.URL.Path,
 		"remote_addr", r.RemoteAddr,
@@ -405,7 +415,7 @@ func (s *inputManagementService) SSEStream(w http.ResponseWriter, r *http.Reques
 	vars := mux.Vars(r)
 	projectID := vars["projectId"]
 	if projectID == "" {
-		slog.Warn("sse_stream: missing projectId parameter",
+		s.log().Debug("sse_stream: missing projectId parameter",
 			"url", r.URL.Path,
 			"remote_addr", r.RemoteAddr,
 			"vars", vars)
@@ -413,64 +423,64 @@ func (s *inputManagementService) SSEStream(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	slog.Info("sse_stream: validated projectId", "project_id", projectID)
+	s.log().Debug("sse_stream: validated projectId", "project_id", projectID)
 
 	// Set headers for SSE
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
 	w.Header().Set("Access-Control-Allow-Origin", "*")
-	slog.Info("sse_stream: set SSE headers", "project_id", projectID)
+	s.log().Debug("sse_stream: set SSE headers", "project_id", projectID)
 
 	// Create a client ID
 	clientID := r.Header.Get("X-Client-ID")
 	if clientID == "" {
 		clientID = generateClientID()
-		slog.Info("sse_stream: generated client ID", "project_id", projectID, "client_id", clientID)
+		s.log().Debug("sse_stream: generated client ID", "project_id", projectID, "client_id", clientID)
 	} else {
-		slog.Info("sse_stream: using provided client ID", "project_id", projectID, "client_id", clientID)
+		s.log().Debug("sse_stream: using provided client ID", "project_id", projectID, "client_id", clientID)
 	}
 
 	// Subscribe to events if SSE manager is available
 	if s.sse == nil {
-		slog.Error("sse_stream: SSE manager not configured", "project_id", projectID, "client_id", clientID)
+		s.log().Error("sse_stream: SSE manager not configured", "project_id", projectID, "client_id", clientID)
 		// No SSE manager, just send a heartbeat and close
 		fmt.Fprintf(w, "event: error\ndata: {\"error\": \"SSE not configured\"}\n\n")
 		return
 	}
 
-	slog.Info("sse_stream: subscribing to events", "project_id", projectID, "client_id", clientID)
+	s.log().Debug("sse_stream: subscribing to events", "project_id", projectID, "client_id", clientID)
 	events := s.sse.Subscribe(clientID)
 	defer func() {
-		slog.Info("sse_stream: unsubscribing client", "project_id", projectID, "client_id", clientID)
+		s.log().Debug("sse_stream: unsubscribing client", "project_id", projectID, "client_id", clientID)
 		s.sse.Unsubscribe(clientID)
 	}()
 
 	// Send initial connection event
-	slog.Info("sse_stream: sending connection event", "project_id", projectID, "client_id", clientID)
+	s.log().Debug("sse_stream: sending connection event", "project_id", projectID, "client_id", clientID)
 	fmt.Fprintf(w, "event: connected\ndata: {\"client_id\": \"%s\"}\n\n", clientID)
 	flush(w)
 
 	sentPending := make(map[string]struct{})
 
 	// Emit snapshot of current pending inputs so subscribers have immediate context.
-	slog.Info("sse_stream: collecting pending inputs snapshot", "project_id", projectID, "client_id", clientID)
+	s.log().Debug("sse_stream: collecting pending inputs snapshot", "project_id", projectID, "client_id", clientID)
 	if pending, err := s.collectPendingInputs(r.Context(), projectID); err != nil {
-		slog.Error("sse_stream: failed to collect pending inputs snapshot",
+		s.log().Error("sse_stream: failed to collect pending inputs snapshot",
 			"project_id", projectID,
 			"client_id", clientID,
 			"error", err)
 		fmt.Fprintf(w, "event: error\ndata: {\"error\": \"failed to load pending inputs\"}\n\n")
 		flush(w)
 	} else {
-		slog.Info("sse_stream: sending pending inputs snapshot",
+		s.log().Debug("sse_stream: sending pending inputs snapshot",
 			"project_id", projectID,
 			"client_id", clientID,
 			"count", len(pending))
 		for _, item := range pending {
 			payload, err := json.Marshal(item)
 			if err != nil {
-				slog.Error("sse_stream: failed to marshal pending input",
+				s.log().Error("sse_stream: failed to marshal pending input",
 					"project_id", projectID,
 					"client_id", clientID,
 					"job_id", item.Id,
@@ -481,7 +491,7 @@ func (s *inputManagementService) SSEStream(w http.ResponseWriter, r *http.Reques
 			sentPending[item.Id] = struct{}{}
 		}
 		flush(w)
-		slog.Info("sse_stream: finished sending pending inputs", "project_id", projectID, "client_id", clientID)
+		s.log().Debug("sse_stream: finished sending pending inputs", "project_id", projectID, "client_id", clientID)
 	}
 
 	// Create a ticker for heartbeat
@@ -493,14 +503,14 @@ func (s *inputManagementService) SSEStream(w http.ResponseWriter, r *http.Reques
 	defer pendingTimer.Stop()
 	lastNewPendingAt := time.Now()
 
-	slog.Info("sse_stream: entering event loop", "project_id", projectID, "client_id", clientID)
+	s.log().Debug("sse_stream: entering event loop", "project_id", projectID, "client_id", clientID)
 
 	// Stream events
 	for {
 		select {
 		case <-r.Context().Done():
 			// Client disconnected
-			slog.Info("sse_stream: client disconnected",
+			s.log().Debug("sse_stream: client disconnected",
 				"project_id", projectID,
 				"client_id", clientID,
 				"context_error", r.Context().Err())
@@ -508,7 +518,7 @@ func (s *inputManagementService) SSEStream(w http.ResponseWriter, r *http.Reques
 
 		case event := <-events:
 			// Send event to client
-			slog.Info("sse_stream: sending event to client",
+			s.log().Debug("sse_stream: sending event to client",
 				"project_id", projectID,
 				"client_id", clientID,
 				"event_type", event.Type)
@@ -520,7 +530,7 @@ func (s *inputManagementService) SSEStream(w http.ResponseWriter, r *http.Reques
 			newPending := false
 			pending, err := s.collectPendingInputs(r.Context(), projectID)
 			if err != nil {
-				slog.Warn("sse_stream: pending input poll failed",
+				s.log().Warn("sse_stream: pending input poll failed",
 					"project_id", projectID,
 					"client_id", clientID,
 					"error", err)
@@ -531,7 +541,7 @@ func (s *inputManagementService) SSEStream(w http.ResponseWriter, r *http.Reques
 					}
 					payload, err := json.Marshal(item)
 					if err != nil {
-						slog.Error("sse_stream: failed to marshal polled pending input",
+						s.log().Error("sse_stream: failed to marshal polled pending input",
 							"project_id", projectID,
 							"client_id", clientID,
 							"job_id", item.Id,

@@ -3,6 +3,7 @@ package story
 import (
 	"context"
 	"errors"
+	"log/slog"
 
 	workflowapi "github.com/colony-2/c2j/pkg/story/api"
 	"github.com/colony-2/c2j/pkg/story/internal/model"
@@ -107,6 +108,7 @@ type Service interface {
 }
 
 type ServiceConfig struct {
+	Logger             *slog.Logger
 	Engine             jobworkflow.Engine
 	SchemaRegistry     jobdb.JobSchemaRegistry
 	Strata             *client.Client
@@ -119,6 +121,7 @@ type ServiceConfig struct {
 
 func New(config ServiceConfig) (Service, error) {
 	return service.New(service.Config{
+		Logger:             config.Logger,
 		Engine:             config.Engine,
 		SchemaRegistry:     config.SchemaRegistry,
 		Strata:             config.Strata,

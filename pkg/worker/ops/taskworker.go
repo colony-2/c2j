@@ -29,6 +29,28 @@ func (t *taskWorker) Name() string {
 }
 
 func (t *taskWorker) Run(ctx jobworkflow.TaskContext, input jobdb.TaskData) (result jobdb.TaskData, runErr error) {
+	logger := secrets.MaskLogger(ctx.Logger).With("component", "worker", "purpose", "run",
+		"tenant_id", ctx.JobKey.TenantId, "job_id", ctx.JobKey.JobId,
+		"task_type", t.name, "op_type", t.reg.Metadata.Type, "step", t.reg.Step.Name,
+		"chapter_ordinal", ctx.Step, "invocation_id", ctx.InvocationID)
+	if ctx.AttemptNumber > 0 {
+		logger = logger.With("attempt", ctx.AttemptNumber)
+	}
+	started := time.Now()
+	logger.Debug("Task attempt started", "event", "task.attempt.started")
+	defer func() {
+		outcome := "succeeded"
+		switch {
+		case jobworkflow.IsExecutionSuspended(runErr):
+			outcome = "waiting"
+		case errors.Is(runErr, context.Canceled):
+			outcome = "canceled"
+		case runErr != nil:
+			outcome = "failed"
+		}
+		logger.Debug("Task attempt finished", "event", "task.attempt.finished", "outcome", outcome,
+			"duration_ms", time.Since(started).Milliseconds(), "error", runErr)
+	}()
 	if err := ctx.Context().Err(); err != nil {
 		return nil, err
 	}
@@ -46,6 +68,7 @@ func (t *taskWorker) Run(ctx jobworkflow.TaskContext, input jobdb.TaskData) (res
 	if err := json.Unmarshal(d, &air); err != nil {
 		return nil, err
 	}
+	logger = logger.With("node_path", air.GitTaskContext.NodePath, "invoke_hash", air.GitTaskContext.InvokeHash)
 	inArt, err := input.GetArtifacts()
 	if err != nil {
 		return nil, err
@@ -156,7 +179,7 @@ func (t *taskWorker) Run(ctx jobworkflow.TaskContext, input jobdb.TaskData) (res
 		return nil, err
 	}
 	jobTool := &ops.TaskBasedJobTool{TaskContext: ctx}
-	out, outArt, err := t.doer.do(opCtx, jobTool, air, inArt)
+	out, outArt, err := t.doer.doLogged(opCtx, jobTool, air, inArt, ctx.Logger)
 	out.PreparationMS = prepMS
 	out.SecretSetupMS = air.SecretSetupMS
 	out.Configuration = configDiag

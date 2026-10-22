@@ -29,7 +29,6 @@ import (
 	"github.com/colony-2/c2j/pkg/git/common"
 	"github.com/colony-2/c2j/pkg/git/gitstate"
 	"github.com/colony-2/c2j/pkg/jobcontext"
-	"github.com/colony-2/c2j/pkg/logutil"
 	"github.com/colony-2/c2j/pkg/objects"
 	"github.com/colony-2/c2j/pkg/ops"
 	"github.com/colony-2/c2j/pkg/ops/process"
@@ -200,13 +199,18 @@ func MergeStartedJobs(primary jobcontext.StartedJobsContext, secondary jobcontex
 }
 
 func (t opExecutor) do(ctx context.Context, jobTool ops.JobTool, req ActivityInvocationRequest, inputArtifacts []jobdb.Artifact) (output ActivityInvocationOutput, outputArtifacts []jobdb.Artifact, err error) {
+	return t.doLogged(ctx, jobTool, req, inputArtifacts, nil)
+}
+
+func (t opExecutor) doLogged(ctx context.Context, jobTool ops.JobTool, req ActivityInvocationRequest, inputArtifacts []jobdb.Artifact, baseLogger *slog.Logger) (output ActivityInvocationOutput, outputArtifacts []jobdb.Artifact, err error) {
 	deps := t.deps
 	controller := t.controller
 	reg := t.reg
 
 	var zero ActivityInvocationOutput
 
-	logger := slog.Default().With(
+	logger := secrets.MaskLogger(baseLogger).With(
+		"component", "worker", "purpose", "run",
 		"task_type", reg.TaskType,
 		"op_type", reg.Metadata.Type,
 		"step", reg.Step.Name,
@@ -227,6 +231,7 @@ func (t opExecutor) do(ctx context.Context, jobTool ops.JobTool, req ActivityInv
 		logger = logger.With("workspace_cell", ws.Cell, "workspace_scope_id", ws.ScopeID, "workspace_initial_hash", ws.InitialHash, "workspace_repo", req.GitTaskContext.BaseRepo, "workspace_ref", req.GitTaskContext.BaseRef)
 	}
 	start := time.Now()
+	phase := "prepare_workspace"
 
 	// Create temporary worktree directory for this invocation
 	workDir, err := createWorkDir()
@@ -240,13 +245,12 @@ func (t opExecutor) do(ctx context.Context, jobTool ops.JobTool, req ActivityInv
 			return
 		}
 		err = secrets.FromContext(ctx).Error(err)
-		logger.Error("opExecutor.do failed",
+		logger.Debug("Task operation processing stopped",
+			"event", "op.processing.stopped", "phase", phase,
 			"duration_ms", time.Since(start).Milliseconds(),
 			"work_dir", workDir,
 			"worktree_path", worktreePath,
 			"error", err,
-			"error_chain", logutil.ErrorChain(err),
-			"stacktrace", logutil.Stacktrace(6),
 		)
 	}()
 
@@ -426,9 +430,11 @@ func (t opExecutor) do(ctx context.Context, jobTool ops.JobTool, req ActivityInv
 		return zero, nil, fmt.Errorf("workspace restore artifact missing")
 	}
 	// Call Restore with full context (includes WorktreePath)
+	phase = "restore_git_state"
 	if err := controller.Restore(ctx, fullContext, thinPackArtifact); err != nil {
 		return zero, nil, err
 	}
+	phase = "prepare_op_input"
 
 	hasGitExecutionReference := containsGitExecutionReference(req.Input)
 	if hasGitExecutionReference {
@@ -529,7 +535,10 @@ func (t opExecutor) do(ctx context.Context, jobTool ops.JobTool, req ActivityInv
 	}
 	ctx = process.WithUnsetEnv(ctx, unset)
 	// Execute operation with HYDRATED input (sentinels replaced)
+	phase = "invoke_op"
+	logger.Debug("Op body started", "event", "op.body.started")
 	outputData, stepErr := reg.Step.Invoke(opDeps, ctx, hydratedInput)
+	phase = "process_op_output"
 	stepErr = session.Error(stepErr)
 	if err := session.CheckOutput(outputData); err != nil {
 		return zero, nil, err

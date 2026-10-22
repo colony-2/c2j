@@ -206,7 +206,7 @@ type catchDecision struct {
 	Error    error
 }
 
-func evaluateCatchClauses(clauses []recipe.CatchClause, failure *recipe.RuntimeFailure, resCtx *template.ResolutionContext, sourceState string, allowRoute bool) (catchDecision, error) {
+func evaluateCatchClauses(clauses []recipe.CatchClause, failure *recipe.RuntimeFailure, resCtx *template.ResolutionContext, sourceState string, allowRoute bool, logger *slog.Logger) (catchDecision, error) {
 	if len(clauses) == 0 || failure == nil {
 		return catchDecision{Kind: catchDecisionNone}, nil
 	}
@@ -227,7 +227,7 @@ func evaluateCatchClauses(clauses []recipe.CatchClause, failure *recipe.RuntimeF
 			if err != nil {
 				return catchDecision{}, fmt.Errorf("catch clause %s payload render failed: %w", catchClauseLabel(idx, clause), err)
 			}
-			logCatchSelected(clause, "route")
+			logCatchSelected(logger, clause, "route")
 			return catchDecision{
 				Kind:     catchDecisionRoute,
 				ClauseID: clause.ID,
@@ -241,7 +241,7 @@ func evaluateCatchClauses(clauses []recipe.CatchClause, failure *recipe.RuntimeF
 			if err != nil {
 				return catchDecision{}, fmt.Errorf("catch clause %s continue.outputs render failed: %w", catchClauseLabel(idx, clause), err)
 			}
-			logCatchSelected(clause, "continue")
+			logCatchSelected(logger, clause, "continue")
 			return catchDecision{
 				Kind:     catchDecisionContinue,
 				ClauseID: clause.ID,
@@ -254,7 +254,7 @@ func evaluateCatchClauses(clauses []recipe.CatchClause, failure *recipe.RuntimeF
 			if err != nil {
 				return catchDecision{}, fmt.Errorf("catch clause %s fail render failed: %w", catchClauseLabel(idx, clause), err)
 			}
-			logCatchSelected(clause, "fail")
+			logCatchSelected(logger, clause, "fail")
 			return catchDecision{
 				Kind:     catchDecisionFail,
 				ClauseID: clause.ID,
@@ -267,12 +267,12 @@ func evaluateCatchClauses(clauses []recipe.CatchClause, failure *recipe.RuntimeF
 	return catchDecision{Kind: catchDecisionNone}, nil
 }
 
-func logCatchSelected(clause recipe.CatchClause, action string) {
-	attrs := []any{"action", action}
+func logCatchSelected(logger *slog.Logger, clause recipe.CatchClause, action string) {
+	attrs := []any{"event", "recipe.catch.selected", "action", action}
 	if clause.ID != "" {
 		attrs = append(attrs, "id", clause.ID)
 	}
-	slog.Default().Info("catch clause selected", attrs...)
+	logger.Debug("Catch clause selected during evaluation", attrs...)
 }
 
 func catchClauseLabel(idx int, clause recipe.CatchClause) string {

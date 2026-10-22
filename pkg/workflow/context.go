@@ -13,6 +13,8 @@ import (
 )
 
 type Context struct {
+	// Logger carries request-scoped metadata through nested recipe evaluation.
+	Logger         *slog.Logger
 	RecipeDigest   string
 	CatchStateName string
 	ScopeState     func(*template.ResolutionContext)
@@ -32,6 +34,14 @@ func (c Context) GetJobId() string {
 }
 
 func (c Context) GetLogger() *slog.Logger {
+	if c.Logger != nil {
+		return c.Logger
+	}
+	if c.JobContext != nil {
+		if logger := c.JobContext.Logger(); logger != nil {
+			return logger
+		}
+	}
 	return slog.Default()
 }
 

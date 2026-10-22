@@ -15,6 +15,7 @@ import (
 	"github.com/colony-2/c2j/pkg/contextual"
 	"github.com/colony-2/c2j/pkg/recipe"
 	"github.com/colony-2/c2j/pkg/redact"
+	"github.com/colony-2/c2j/pkg/secrets"
 	"github.com/colony-2/c2j/pkg/starter"
 	"github.com/colony-2/c2j/pkg/story/internal/model"
 	coretasks "github.com/colony-2/c2j/pkg/task"
@@ -140,7 +141,7 @@ func NewRecorder(opts Options) *Recorder {
 	}
 }
 
-func BuildJobRunStory(ctx context.Context, engine replayJobRunner, jobKey jobdb.JobKey, celProvider template.CELOptionsProvider, logger *slog.Logger, rootResolvers ...compiler.RecipeSourceResolver) (*JobRunStory, error) {
+func BuildJobRunStory(ctx context.Context, engine replayJobRunner, jobKey jobdb.JobKey, celProvider template.CELOptionsProvider, logger *slog.Logger, rootResolvers ...compiler.RecipeSourceResolver) (result *JobRunStory, resultErr error) {
 	if engine == nil {
 		return nil, fmt.Errorf("engine is required")
 	}
@@ -150,6 +151,16 @@ func BuildJobRunStory(ctx context.Context, engine replayJobRunner, jobKey jobdb.
 	if logger == nil {
 		logger = slog.Default()
 	}
+	compilerLogger := secrets.MaskLogger(logger).With("purpose", "story")
+	logger = compilerLogger.With("tenant_id", jobKey.TenantId, "job_id", jobKey.JobId)
+	started := time.Now()
+	defer func() {
+		outcome := "succeeded"
+		if resultErr != nil {
+			outcome = "failed"
+		}
+		logger.Debug("Story reconstruction finished", "component", "story", "event", "story.reconstruction.finished", "outcome", outcome, "duration_ms", time.Since(started).Milliseconds(), "error", resultErr)
+	}()
 
 	var rootResolver compiler.RecipeSourceResolver
 	if len(rootResolvers) > 0 {
@@ -171,6 +182,7 @@ func BuildJobRunStory(ctx context.Context, engine replayJobRunner, jobKey jobdb.
 	rec := NewRecorder(Options{JobKey: jobKey, Logger: logger})
 	events := newReplayEvents(rec.Observer())
 	workerOpts := compiler.RecipeJobWorkerOptions{
+		Logger:                 compilerLogger,
 		ReadOnlyReplay:         true,
 		CELOptionsProvider:     celProvider,
 		OnRecipeLoaded:         rec.OnRecipeLoaded,

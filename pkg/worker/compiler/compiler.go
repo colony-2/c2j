@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log/slog"
 	"strings"
 	"time"
 
@@ -289,19 +288,8 @@ func (d DefaultRecipeExecutor) executeOpBody(ctx workflow.Context, parentResolut
 			return d.executeOpBody(inner, scoped, meta, op)
 		})
 	}
-	l := slog.Default()
-	l.Info("executing op", "op", op)
-	err := d.executeOpAttempt(ctx, parentResolutionContext, metadata, op)
-	if err != nil {
-		if logReplayCacheMiss(l, "op execution replay cache miss", err, "op", op) {
-			return err
-		}
-		l.Error("failed to execute op", "op", op, "err", err)
-		return err
-	}
-
-	l.Info("op executed successfully", "op", op)
-	return nil
+	// Evaluation also runs during replay; only task workers can report execution.
+	return d.executeOpAttempt(ctx, parentResolutionContext, metadata, op)
 }
 
 // executeOperation executes a single operation node attempt.

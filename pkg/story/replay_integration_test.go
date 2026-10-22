@@ -3,6 +3,8 @@ package story_test
 import (
 	"context"
 	"encoding/json"
+	"log"
+	"log/slog"
 	"net/http/httptest"
 	"path/filepath"
 	"strings"
@@ -10,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/colony-2/c2j/pkg/logging"
 	coreops "github.com/colony-2/c2j/pkg/ops"
 	"github.com/colony-2/c2j/pkg/starter"
 	"github.com/colony-2/c2j/pkg/story"
@@ -81,6 +84,10 @@ func (r historicalStoryRuntime) GetChapter(ctx context.Context, ref jobdb.Chapte
 }
 
 func TestStoryAPIReplaysAllPersistedAttemptsAfterDeadlines(t *testing.T) {
+	var fallback storyLogBuffer
+	previous, writer, flags := slog.Default(), log.Writer(), log.Flags()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&fallback, nil)))
+	t.Cleanup(func() { slog.SetDefault(previous); log.SetOutput(writer); log.SetFlags(flags) })
 	coreops.Register(coreops.NewActivityMappedOpV2[struct{}, map[string]any](coreops.OpMetadata{Type: replayTestOp}, func(coreops.OpDependencies, context.Context, struct{}) (map[string]any, error) {
 		panic("replay must not execute ops")
 	}))
@@ -139,9 +146,13 @@ func TestStoryAPIReplaysAllPersistedAttemptsAfterDeadlines(t *testing.T) {
 					if historical != "current" {
 						replayRuntime = historicalStoryRuntime{WorkflowRuntime: rt, expireJob: historical == "job deadline" || historical == "both deadlines", expireTasks: historical == "task deadline" || historical == "both deadlines"}
 					}
-					replayEngine, err := jobworkflow.NewEngineBuilder().WithRuntime(replayRuntime).WithWorkerTenantId("story").PlusWorkers(worker, task).BuildEngine()
+					var logs storyLogBuffer
+					fallback.Reset()
+					logger, err := logging.New(&logs, logging.Options{Format: "json", Debug: []logging.Selector{{Field: "purpose", Value: "story"}, {Field: "purpose", Value: "restart_context"}}})
 					require.NoError(t, err)
-					svc, err := story.New(story.ServiceConfig{Engine: replayEngine})
+					replayEngine, err := jobworkflow.NewEngineBuilder().WithRuntime(replayRuntime).WithLogger(logger).WithWorkerTenantId("story").PlusWorkers(worker, task).BuildEngine()
+					require.NoError(t, err)
+					svc, err := story.New(story.ServiceConfig{Engine: replayEngine, Logger: logger})
 					require.NoError(t, err)
 					st, err := svc.GetJobRunStory(ctx, story.GetJobRunStoryRequest{ProjectID: key.TenantId, JobID: key.JobId})
 					// Completed history must replay fully regardless of today's deadlines.
@@ -186,6 +197,8 @@ func TestStoryAPIReplaysAllPersistedAttemptsAfterDeadlines(t *testing.T) {
 						}
 					}
 					require.Equal(t, executions, task.calls.Load(), "story reads must not re-execute tasks")
+					assertReplayDiagnostics(t, logs.Bytes(), key.JobId)
+					require.Empty(t, fallback.Bytes(), "replay must use the supplied logger and stay quiet at INFO")
 					after, err := rt.ListChapters(ctx, jobdb.ListChaptersRequest{JobKey: key})
 					require.NoError(t, err)
 					require.Equal(t, before, after, "story reads must not alter history")

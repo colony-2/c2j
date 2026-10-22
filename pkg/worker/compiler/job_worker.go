@@ -10,7 +10,6 @@ import (
 	recipeartifacts "github.com/colony-2/c2j/pkg/artifacts"
 	"github.com/colony-2/c2j/pkg/contextual"
 	"github.com/colony-2/c2j/pkg/execution"
-	"github.com/colony-2/c2j/pkg/logutil"
 	"github.com/colony-2/c2j/pkg/ops"
 	"github.com/colony-2/c2j/pkg/recipe"
 	"github.com/colony-2/c2j/pkg/secrets"
@@ -24,6 +23,8 @@ import (
 )
 
 type RecipeJobWorkerOptions struct {
+	// Logger optionally overrides the runtime logger (for request-scoped replay).
+	Logger           *slog.Logger
 	ConsumerVersions map[string]string
 	// SecretSessions is shared with the activity registry when registering workers individually.
 	SecretSessions     *secrets.Sessions
@@ -49,6 +50,7 @@ type RecipeJobWorkerOptions struct {
 }
 
 type recipeJobWorker struct {
+	logger              *slog.Logger
 	secretSessions      *secrets.Sessions
 	taskGuardConfigured bool
 	allocation          execution.Allocation
@@ -65,6 +67,7 @@ type recipeJobWorker struct {
 
 func NewRecipeJobWorker(opts RecipeJobWorkerOptions) jobworkflow.ExecutionWorker {
 	j := &recipeJobWorker{
+		logger:              opts.Logger,
 		secretSessions:      opts.SecretSessions,
 		taskGuardConfigured: opts.WrapTaskWorker != nil,
 		allocation:          opts.Allocation, readOnlyReplay: opts.ReadOnlyReplay,
@@ -117,21 +120,24 @@ func (j recipeJobWorker) Run(ctx jobworkflow.ExecutionContext, jobData jobdb.Job
 		}
 		defer j.secretSessions.CloseExecution(jobKey, redactor)
 	}
-	logger := ctx.Logger()
+	logger := j.logger
 	if logger == nil {
-		logger = slog.Default()
+		logger = ctx.Logger()
+	}
+	logger = secrets.MaskLogger(logger)
+	if !j.readOnlyReplay {
+		logger = logger.With("purpose", "run")
 	}
 	logger = logger.With(
+		"component", "compiler",
 		"tenant_id", jobKey.TenantId,
 		"job_id", jobKey.JobId,
 		"job_type", starter.RecipeJobType,
 	)
 	artifacts, err := jobData.GetArtifacts()
 	if err != nil {
-		logger.Error("recipe job: failed to load artifacts",
+		logger.Debug("recipe job: failed to load artifacts",
 			"error", err,
-			"error_chain", logutil.ErrorChain(err),
-			"stacktrace", logutil.Stacktrace(5),
 		)
 		return nil, err
 	}
@@ -139,27 +145,23 @@ func (j recipeJobWorker) Run(ctx jobworkflow.ExecutionContext, jobData jobdb.Job
 
 	data, err := jobData.GetData()
 	if err != nil {
-		logger.Error("recipe job: failed to read job data",
+		logger.Debug("recipe job: failed to read job data",
 			"error", err,
-			"error_chain", logutil.ErrorChain(err),
-			"stacktrace", logutil.Stacktrace(5),
 		)
 		return nil, err
 	}
 	input := workflowctl.StartJob{}
 	err = json.Unmarshal(data, &input)
 	if err != nil {
-		logger.Error("recipe job: failed to unmarshal start job payload",
+		logger.Debug("recipe job: failed to unmarshal start job payload",
 			"error", err,
-			"error_chain", logutil.ErrorChain(err),
-			"stacktrace", logutil.Stacktrace(5),
 		)
 		return nil, err
 	}
 
 	if input.RecipeName == "" {
 		err := fmt.Errorf("missing recipe name")
-		logger.Warn("recipe job: invalid start payload", "error", err)
+		logger.Debug("recipe job: invalid start payload", "error", err)
 		return nil, err
 	}
 	logger = logger.With("recipe_name", input.RecipeName)
@@ -184,10 +186,8 @@ func (j recipeJobWorker) Run(ctx jobworkflow.ExecutionContext, jobData jobdb.Job
 	} else {
 		if j.rootResolver == nil {
 			err = fmt.Errorf("recipe source resolver not configured to load non-artifact selector %q", input.RecipeName)
-			logger.Error("recipe job: failed to load recipe",
+			logger.Debug("recipe job: failed to load recipe",
 				"error", err,
-				"error_chain", logutil.ErrorChain(err),
-				"stacktrace", logutil.Stacktrace(5),
 			)
 			return nil, err
 		}
@@ -201,20 +201,16 @@ func (j recipeJobWorker) Run(ctx jobworkflow.ExecutionContext, jobData jobdb.Job
 			if logReplayCacheMiss(logger, "recipe job: root recipe source resolution replay cache miss", err) {
 				return nil, err
 			}
-			logger.Error("recipe job: root recipe source resolution task failed",
+			logger.Debug("recipe job: root recipe source resolution task failed",
 				"error", err,
-				"error_chain", logutil.ErrorChain(err),
-				"stacktrace", logutil.Stacktrace(5),
 			)
 			return nil, err
 		}
 
 		resolvedSource, err := ParseResolvedRecipeSourceTaskData(taskOutput)
 		if err != nil {
-			logger.Error("recipe job: failed to decode root recipe source resolution output",
+			logger.Debug("recipe job: failed to decode root recipe source resolution output",
 				"error", err,
-				"error_chain", logutil.ErrorChain(err),
-				"stacktrace", logutil.Stacktrace(5),
 			)
 			return nil, err
 		}
@@ -230,10 +226,8 @@ func (j recipeJobWorker) Run(ctx jobworkflow.ExecutionContext, jobData jobdb.Job
 		loadErr = fmt.Errorf("recipe source returned an empty recipe")
 	}
 	if loadErr != nil {
-		logger.Error("recipe job: failed to load recipe",
+		logger.Debug("recipe job: failed to load recipe",
 			"error", loadErr,
-			"error_chain", logutil.ErrorChain(loadErr),
-			"stacktrace", logutil.Stacktrace(5),
 		)
 		return nil, fmt.Errorf("load recipe %q: %w", input.RecipeName, loadErr)
 	}
@@ -250,34 +244,28 @@ func (j recipeJobWorker) Run(ctx jobworkflow.ExecutionContext, jobData jobdb.Job
 	runContext := input.JobContext
 	submittedRefs, err := submittedArtifactRefs(input, artifacts, hasEmbeddedRecipeArtifact)
 	if err != nil {
-		logger.Error("recipe job: failed to index submitted artifacts",
+		logger.Debug("recipe job: failed to index submitted artifacts",
 			"error", err,
-			"error_chain", logutil.ErrorChain(err),
-			"stacktrace", logutil.Stacktrace(5),
 		)
 		return nil, err
 	}
 	runContext.Artifacts = submittedRefs
 	applyRootRecipeSource(&runContext, resolution)
 	if err := ensureEnvironmentSentinels(&runContext.Environment); err != nil {
-		logger.Error("recipe job: invalid environment sentinel",
+		logger.Debug("recipe job: invalid environment sentinel",
 			"error", err,
-			"error_chain", logutil.ErrorChain(err),
-			"stacktrace", logutil.Stacktrace(5),
 		)
 		return nil, err
 	}
 	err = ensureSentinel(&runContext.Workflow.JobID, contextual.JobIdSentinel, "job id")
 	if err != nil {
-		logger.Error("recipe job: invalid job id sentinel",
+		logger.Debug("recipe job: invalid job id sentinel",
 			"error", err,
-			"error_chain", logutil.ErrorChain(err),
-			"stacktrace", logutil.Stacktrace(5),
 		)
 		return nil, err
 	}
 
-	wCtx := workflow.Context{JobContext: ctx, BeforeScope: j.beforeScope}
+	wCtx := workflow.Context{JobContext: ctx, BeforeScope: j.beforeScope, Logger: logger}
 	if input.Execution != nil {
 		wCtx.JobPackages = input.Execution.JobRequirements.Packages
 	}
@@ -312,14 +300,12 @@ func (j recipeJobWorker) Run(ctx jobworkflow.ExecutionContext, jobData jobdb.Job
 	}
 	taskData, err := jobdb.NewTaskData(out, artifacts...)
 	if err != nil {
-		logger.Error("recipe job: failed to create task data",
+		logger.Debug("recipe job: failed to create task data",
 			"error", err,
-			"error_chain", logutil.ErrorChain(err),
-			"stacktrace", logutil.Stacktrace(5),
 		)
 		return nil, err
 	}
-	logger.Info("recipe execution completed successfully")
+	logger.Debug("Recipe evaluation finished", "event", "recipe.evaluation.finished", "outcome", "succeeded", "read_only_replay", j.readOnlyReplay)
 	return jobdb.JobData(taskData), nil
 
 }

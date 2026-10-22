@@ -14,6 +14,10 @@ Use it when you want to:
 
 Examples below assume you are running from the repo root.
 
+For log levels and selective DEBUG output, see the [logging user guide](GUIDE-Logging.md).
+For shared logger configuration across C2J, JobDB, Pulse, and Cortex, see the
+[logging integration guide](GUIDE-Logging-Integration.md).
+
 For resolving agent-returned paths against published artifact names, see the
 [`path_match` user guide](GUIDE-Path-Matching.md).
 

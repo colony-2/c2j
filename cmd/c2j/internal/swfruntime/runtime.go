@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"os"
@@ -81,7 +82,7 @@ func openRemote(swfURL string, workerTenantID string) (*Handle, error) {
 	}
 	runtime := withChapterVisibility(baseRuntime)
 
-	builder := jobworkflow.NewEngineBuilder().WithRuntime(runtime)
+	builder := jobworkflow.NewEngineBuilder().WithRuntime(runtime).WithLogger(slog.Default())
 	if workerTenantID != "" {
 		builder = builder.WithWorkerTenantId(workerTenantID)
 	}
@@ -142,7 +143,7 @@ func openEmbed(ctx context.Context, parsed *url.URL, rawURL string, workerTenant
 	}
 	runtime := withChapterVisibility(baseRuntime)
 
-	builder := jobworkflow.NewEngineBuilder().WithRuntime(runtime)
+	builder := jobworkflow.NewEngineBuilder().WithRuntime(runtime).WithLogger(slog.Default())
 	if workerTenantID != "" {
 		builder = builder.WithWorkerTenantId(workerTenantID)
 	}

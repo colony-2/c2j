@@ -28,5 +28,5 @@ func (s *Service) GetRestartContext(ctx context.Context, req model.GetRestartCon
 		}
 		return nil, err
 	}
-	return storylive.InspectRestartContext(ctx, s.engine, key, run.Execution, req.ChapterOrdinal, s.celProvider, s.rootResolver)
+	return storylive.InspectRestartContext(ctx, s.engine, key, run.Execution, req.ChapterOrdinal, s.celProvider, s.rootResolver, s.logger)
 }

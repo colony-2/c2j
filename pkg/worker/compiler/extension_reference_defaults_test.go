@@ -131,7 +131,7 @@ run: ` + fmt.Sprintf("%q\n", script)
 			var logs secretTestLogBuffer
 			previous := slog.Default()
 			previousWriter, previousFlags := log.Writer(), log.Flags()
-			slog.SetDefault(slog.New(slog.NewTextHandler(&logs, nil)))
+			slog.SetDefault(slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug})))
 			defer func() { slog.SetDefault(previous); log.SetOutput(previousWriter); log.SetFlags(previousFlags) }()
 			var workers []jobworkflow.TaskWorker
 			for _, w := range ws.TaskWorkers {
