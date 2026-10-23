@@ -3,8 +3,8 @@ package gitshallow
 import (
 	"context"
 	"fmt"
+	"github.com/colony-2/c2j/pkg/gitprofile"
 	"os"
-	"os/exec"
 	"path/filepath"
 
 	"github.com/colony-2/c2j/pkg/git/common"
@@ -67,7 +67,7 @@ func GitShallowClone(ctx context.Context, input GitShallowCloneInput) (*GitShall
 	}
 
 	// Perform shallow clone with depth 1
-	cmd := exec.CommandContext(ctx, "git", "clone", "--depth", "1", "--no-single-branch", input.SourceDir, input.TargetDir)
+	cmd := gitprofile.Command(ctx, "clone", "--depth", "1", "--no-single-branch", input.SourceDir, input.TargetDir)
 	if err := cmd.Run(); err != nil {
 		return nil, fmt.Errorf("failed to clone repository: %w", err)
 	}

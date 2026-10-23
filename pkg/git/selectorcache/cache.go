@@ -7,8 +7,8 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"github.com/colony-2/c2j/pkg/gitprofile"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -79,6 +79,9 @@ func (c *Cache) Resolve(ctx context.Context, req ResolveRequest) (ResolveResult,
 		return ResolveResult{}, err
 	}
 	repoKey := cacheRepoKey(repoURL)
+	if namespace := gitprofile.CacheNamespace(ctx); namespace != "" {
+		repoKey = cacheRepoKey(namespace + "\x00" + repoURL)
+	}
 
 	var commit, fetchRef string
 	if pinnedCommit := strings.TrimSpace(req.PinnedCommit); pinnedCommit != "" {
@@ -110,7 +113,7 @@ func (c *Cache) Resolve(ctx context.Context, req ResolveRequest) (ResolveResult,
 		}, nil
 	}
 
-	key := repoURL + "\x00" + commit
+	key := repoKey + "\x00" + commit
 	if err := c.do(key, func() error {
 		if dirExists(sourceDir) {
 			return nil
@@ -392,7 +395,7 @@ func isFullGitHash(ref string) bool {
 }
 
 func runGitOutput(ctx context.Context, dir string, args ...string) (string, error) {
-	cmd := exec.CommandContext(ctx, "git", args...)
+	cmd := gitprofile.Command(ctx, args...)
 	if dir != "" {
 		cmd.Dir = dir
 	}

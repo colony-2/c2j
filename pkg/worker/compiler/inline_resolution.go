@@ -12,7 +12,9 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/colony-2/c2j/pkg/configuration"
 	"github.com/colony-2/c2j/pkg/git/selectorcache"
+	"github.com/colony-2/c2j/pkg/gitprofile"
 	"github.com/colony-2/c2j/pkg/recipe"
 )
 
@@ -118,6 +120,9 @@ func (r *inlineRecipeResolver) rootSourceContext(opts InlineResolutionOptions) (
 }
 
 func (r *inlineRecipeResolver) expandRecipe(ctx context.Context, rec recipe.Recipe, source inlineRecipeSourceContext) (recipe.Recipe, error) {
+	if spec := rec.GetMetadata().GitProfile; spec != nil {
+		ctx = context.WithValue(ctx, inlineGitProfileKey{}, spec)
+	}
 	switch node := rec.RecipeImpl.(type) {
 	case *recipe.RecipeSequence:
 		expanded, err := r.expandNodeList(ctx, node.Sequence, source, []string{"root"})
@@ -186,6 +191,11 @@ func (r *inlineRecipeResolver) expandStateMap(ctx context.Context, states *recip
 }
 
 func (r *inlineRecipeResolver) expandNode(ctx context.Context, node recipe.Node, source inlineRecipeSourceContext, pathParts []string, stateKey string) (recipe.Node, error) {
+	if _, shared := node.NodeImpl.(*recipe.NodeShared); !shared {
+		if spec := node.GetMetadata().GitProfile; spec != nil {
+			ctx = context.WithValue(ctx, inlineGitProfileKey{}, spec)
+		}
+	}
 	switch n := node.NodeImpl.(type) {
 	case *recipe.NodeInclude:
 		return r.expandInclude(ctx, n, source, pathParts, stateKey)
@@ -211,6 +221,24 @@ func (r *inlineRecipeResolver) expandNode(ctx context.Context, node recipe.Node,
 }
 
 func (r *inlineRecipeResolver) expandInclude(ctx context.Context, include *recipe.NodeInclude, parentSource inlineRecipeSourceContext, pathParts []string, stateKey string) (recipe.Node, error) {
+	if parent := gitprofile.FromContext(ctx); parent != nil {
+		if spec, ok := ctx.Value(inlineGitProfileKey{}).(*recipe.GitProfileSpec); ok {
+			value := spec.Value
+			if text, ok := value.(string); ok {
+				if ref, yes := configuration.Template(text); yes {
+					value = ref
+				} else if strings.Contains(text, "{{") {
+					return recipe.Node{}, fmt.Errorf("Git profile for include loading must be a literal or configuration reference; runtime expressions are unavailable during source expansion")
+				}
+			}
+			scope, err := parent.Fork(ctx, gitprofile.Selection{Explicit: true, Value: value})
+			if err != nil {
+				return recipe.Node{}, err
+			}
+			defer scope.Close()
+			ctx = gitprofile.WithScope(ctx, scope)
+		}
+	}
 	target := strings.TrimSpace(include.Include.Recipe)
 	if target == "" {
 		return recipe.Node{}, fmt.Errorf("include at %s must specify a recipe reference", strings.Join(pathParts, "/"))
@@ -232,6 +260,8 @@ func (r *inlineRecipeResolver) expandInclude(ctx context.Context, include *recip
 	}
 	return wrapper, nil
 }
+
+type inlineGitProfileKey struct{}
 
 func (r *inlineRecipeResolver) loadIncludedRecipe(ctx context.Context, target string, parentSource inlineRecipeSourceContext) (loadedInlineRecipe, error) {
 	switch {

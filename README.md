@@ -852,6 +852,7 @@ c2j submit "Run the requested task" \
 
 ## Related Files
 
+- Git authentication and URL routing: [Git profiles](GIT_PROFILES.md)
 - separate Git operations: [squash, rebase, and fast-forward-only merge](GUIDE-Git-Ops.md)
 
 - command entrypoint: [main.go](main.go)

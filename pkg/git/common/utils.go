@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/colony-2/c2j/pkg/gitprofile"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -11,7 +12,7 @@ import (
 
 // ExecuteGitCommand runs a git command with context
 func ExecuteGitCommand(ctx context.Context, repoPath string, args ...string) ([]byte, error) {
-	cmd := exec.CommandContext(ctx, "git", args...)
+	cmd := gitprofile.Command(ctx, args...)
 	cmd.Dir = repoPath
 	output, err := cmd.CombinedOutput()
 	if err != nil {

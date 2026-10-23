@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"fmt"
+	"github.com/colony-2/c2j/pkg/gitprofile"
 	"strings"
 
 	recipeartifacts "github.com/colony-2/c2j/pkg/artifacts"
@@ -131,6 +132,7 @@ func startJobs(ctx context.Context, deps ops.OpDependencies, parentJobKey jobdb.
 }
 
 func startRecipeChildJob(ctx context.Context, deps ops.OpDependencies, ctl workflowctl.WorkflowControl, start workflowctl.StartJob) (jobdb.JobKey, error) {
+	start.JobContext.GitProfile = gitprofile.InheritedSelection(ctx)
 	if deps != nil {
 		var err error
 		start, err = inheritWorkspace(start, deps.GitContext())

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/colony-2/c2j/pkg/gitprofile"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -378,9 +379,9 @@ func rebaseOntoTarget(ctx context.Context, snapshot workspaceSnapshot, targetBas
 		args = append(args, "--exec", "git commit --amend --no-edit --reset-author")
 	}
 
-	cmd := exec.CommandContext(ctx, "git", args...)
+	cmd := gitprofile.Command(ctx, args...)
 	cmd.Dir = snapshot.RepoPath
-	cmd.Env = env
+	cmd.Env = gitprofile.Env(ctx, env)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		_ = abortRebase(ctx, snapshot.RepoPath)

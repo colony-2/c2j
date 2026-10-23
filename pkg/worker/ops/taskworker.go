@@ -8,6 +8,7 @@ import (
 
 	"github.com/colony-2/c2j/pkg/configuration"
 	"github.com/colony-2/c2j/pkg/contextual"
+	"github.com/colony-2/c2j/pkg/gitprofile"
 	"github.com/colony-2/c2j/pkg/ops"
 	extops "github.com/colony-2/c2j/pkg/ops/extensions"
 	"github.com/colony-2/c2j/pkg/ops/process"
@@ -151,6 +152,13 @@ func (t *taskWorker) Run(ctx jobworkflow.TaskContext, input jobdb.TaskData) (res
 	if err != nil {
 		return nil, err
 	}
+	if scope := gitprofile.FromContext(opCtx); scope != nil {
+		names := make([]string, 0, len(refs))
+		for _, ref := range refs {
+			names = append(names, ref.Name)
+		}
+		scope.AllowSecrets(names)
+	}
 	secretStart := time.Now()
 	if len(refs) > 0 {
 		if session == nil {
@@ -218,7 +226,7 @@ var _ jobworkflow.TaskWorker = &taskWorker{}
 
 // NewTaskExecutionContext follows JobDB's invocation cancellation directly.
 func NewTaskExecutionContext(taskCtx jobworkflow.TaskContext) (context.Context, context.CancelFunc) {
-	return context.WithCancel(taskCtx.Context())
+	return context.WithCancel(gitprofile.TaskContext(taskCtx))
 }
 
 func failedTaskData(output ActivityInvocationOutput, artifacts []jobdb.Artifact) (jobdb.TaskData, error) {

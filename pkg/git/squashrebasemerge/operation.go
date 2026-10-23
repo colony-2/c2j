@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/colony-2/c2j/pkg/gitprofile"
 	"os"
 	"os/exec"
 	"strconv"
@@ -408,9 +409,9 @@ func createSquashCommit(ctx context.Context, snapshot workspaceSnapshot, squashB
 	if author != "" {
 		args = append(args, "--author", author)
 	}
-	cmd := exec.CommandContext(ctx, "git", args...)
+	cmd := gitprofile.Command(ctx, args...)
 	cmd.Dir = snapshot.RepoPath
-	cmd.Env = env
+	cmd.Env = gitprofile.Env(ctx, env)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("create squash commit: %s", strings.TrimSpace(string(output)))
@@ -424,9 +425,9 @@ func rebaseOntoTarget(ctx context.Context, repoPath, remoteTip, originalBase str
 
 	env := append(os.Environ(), "GIT_TERMINAL_PROMPT=0", "GIT_SEQUENCE_EDITOR=true")
 
-	cmd := exec.CommandContext(ctx, "git", args...)
+	cmd := gitprofile.Command(ctx, args...)
 	cmd.Dir = repoPath
-	cmd.Env = env
+	cmd.Env = gitprofile.Env(ctx, env)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		_ = abortRebase(ctx, repoPath)
@@ -561,9 +562,9 @@ func commitTree(ctx context.Context, repoPath, head, parent, author, message str
 	if parent != "" {
 		args = append(args, "-p", parent)
 	}
-	cmd := exec.CommandContext(ctx, "git", args...)
+	cmd := gitprofile.Command(ctx, args...)
 	cmd.Dir = repoPath
-	cmd.Env = os.Environ()
+	cmd.Env = gitprofile.Env(ctx, os.Environ())
 	if author != "" {
 		name, email, ok := strings.Cut(author, " <")
 		if !ok || !strings.HasSuffix(email, ">") {

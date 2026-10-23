@@ -66,6 +66,9 @@ func (n *Node) UnmarshalYAML(node *yamlv3.Node) error {
 	if err := node.Decode(impl); err != nil {
 		return err
 	}
+	if err := decodeGitProfile(node, impl); err != nil {
+		return err
+	}
 
 	if nodeOp != nil {
 		if err := checkOpInputs(nodeOp.Op, nodeOp.Inputs, node.Line, node.Column); err != nil {
@@ -271,6 +274,7 @@ func (NodeOp) JSONSchema() *jsonschema.Schema {
 func (n *NodeOp) isNode() {}
 
 type NodeMetadata struct {
+	GitProfile     *GitProfileSpec        `yaml:"git_profile,omitempty" json:"git_profile,omitempty"`
 	Workspace      *WorkspaceSpec         `yaml:"workspace,omitempty" json:"workspace,omitempty"`
 	ExecutionNeeds *ExecutionNeeds        `yaml:"execution_needs,omitempty" json:"execution_needs,omitempty"`
 	ID             string                 `yaml:"id,omitempty"`

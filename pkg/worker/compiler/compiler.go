@@ -126,6 +126,20 @@ func (d DefaultRecipeExecutor) ExecuteRecipe(ctx workflow.Context, r recipe.Reci
 	if execOpts.CELOptionsProvider == nil && d.celProvider != nil {
 		execOpts.CELOptionsProvider = d.celProvider
 	}
+	// CEL imports are fetched before the body. Resolve the root's profile in
+	// the same caller-input context used by normal node entry.
+	profileInputs, err := prepareRecipeInputs(r.GetMetdata(), rawRecipeInputs, execOpts)
+	if err != nil {
+		return nil, nil, err
+	}
+	profileContext, err := template.NewRecipeResolutionContext(&commitContext, profileInputs, execCtx, resolutionOptionsFromExecution(execOpts))
+	if err != nil {
+		return nil, nil, err
+	}
+	if err := profileContext.SelectGitProfile(r.GetMetadata().GitProfile, ""); err != nil {
+		return nil, nil, err
+	}
+	execCtx.GitProfile = profileContext.GitProfile
 	withinResolution, err := resolveWithinRecipeSelectors(ctx, r, execCtx, commitContext, execOpts)
 	if err != nil {
 		return nil, nil, err
@@ -163,6 +177,9 @@ func (d DefaultRecipeExecutor) ExecuteRecipe(ctx workflow.Context, r recipe.Reci
 	}
 
 	metadata := r.GetMetadata().NodeMetadata
+	if err := rCtx.SelectGitProfile(metadata.GitProfile, ""); err != nil {
+		return nil, nil, err
+	}
 	body := func(inner workflow.Context, scoped *template.ResolutionContext, meta recipe.NodeMetadata) error {
 		if err := scoped.ResolveVars(meta.Vars); err != nil {
 			return fmt.Errorf("failed to resolve recipe vars: %w", err)
@@ -492,6 +509,7 @@ func (d DefaultRecipeExecutor) executeOpAttempt(ctx workflow.Context, parentReso
 					invocationKeys = acc.Keys()
 				}
 				invocation := workerops.ActivityInvocationRequest{
+					GitProfile:     resCtx.GitProfile,
 					Preparation:    preparation,
 					Input:          input,
 					Const:          resCtx.EffectiveConst,

@@ -17,6 +17,8 @@ import (
 	"github.com/colony-2/c2j/pkg/cellref"
 	"github.com/colony-2/c2j/pkg/childbroker"
 	"github.com/colony-2/c2j/pkg/contextual"
+	"github.com/colony-2/c2j/pkg/execution"
+	"github.com/colony-2/c2j/pkg/executionruntime"
 	inputop "github.com/colony-2/c2j/pkg/input"
 	"github.com/colony-2/c2j/pkg/jobdbschema"
 	coreops "github.com/colony-2/c2j/pkg/ops"
@@ -80,7 +82,8 @@ func runRuntimeCase(parent context.Context, opts HarnessOptions, tenant string, 
 			return
 		}
 	}
-	engine, err := jobworkflow.NewEngineBuilder().WithRuntime(rt).WithWorkerTenantId(tenant).BuildEngine()
+	scopedRuntime := executionruntime.New(rt, execution.Allocation{SchemaVersion: 1})
+	engine, err := jobworkflow.NewEngineBuilder().WithRuntime(scopedRuntime).WithWorkerTenantId(tenant).BuildEngine()
 	if err != nil {
 		result.FailureReason = err.Error()
 		return
@@ -101,7 +104,10 @@ func runRuntimeCase(parent context.Context, opts HarnessOptions, tenant string, 
 		}
 		registry.UpdateRegistration(name, reg)
 	}
-	workers, err := compiler.NewRecipeWorkerWithOptions(deps, registry, compiler.RecipeJobWorkerOptions{RootSourceResolver: compiler.NewRecipeSourceResolver(compiler.RecipeSourceResolverOptions{})})
+	workers, err := compiler.NewRecipeWorkerWithOptions(deps, registry, compiler.RecipeJobWorkerOptions{
+		RootSourceResolver: compiler.NewRecipeSourceResolver(compiler.RecipeSourceResolverOptions{}),
+		Allocation:         scopedRuntime.Allocation, WrapTaskWorker: scopedRuntime.WrapTaskWorker, StageExecution: scopedRuntime.Stage,
+	})
 	if err == nil {
 		err = engine.RegisterWorkers(workers)
 	}

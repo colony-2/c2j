@@ -3,6 +3,7 @@ package template
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/colony-2/c2j/pkg/gitprofile"
 	"reflect"
 	"strings"
 	"time"
@@ -61,6 +62,7 @@ type ScopeMetadata struct {
 
 // ResolutionContext represents template resolution context
 type ResolutionContext struct {
+	GitProfile   gitprofile.Selection
 	allowSecrets bool
 	ToolScopes   []toolenv.Scope
 	// ExecutionNeeds is lexical same-job state, never a persistent job override.
@@ -130,6 +132,7 @@ func NewRecipeResolutionContext(commitContext *contextual.GitCommitContext, reci
 
 func newResolutionContext(commitContext *contextual.GitCommitContext, tracker *invocationTracker, scopeType ScopeType, scopeId string, containerInputs map[string]interface{}, execCtx contextual.JobContext, options ResolutionOptions) (*ResolutionContext, error) {
 	rc := &ResolutionContext{
+		GitProfile:    execCtx.GitProfile,
 		commitContext: commitContext,
 		ScopeType:     scopeType,
 		Options:       options,
@@ -350,6 +353,7 @@ func (rc *ResolutionContext) NewChildContext(scopeType ScopeType, metadata recip
 		return nil, err
 	}
 	child.EffectiveConst = rc.EffectiveConst || metadata.Const
+	child.GitProfile = rc.GitProfile
 	child.ExecutionNeeds = execution.Overlay(rc.ExecutionNeeds, execution.Requirements{})
 	child.ToolScopes = append([]toolenv.Scope(nil), rc.ToolScopes...)
 	if metadata.Internal != nil && metadata.Internal.Inline != nil && metadata.Internal.Inline.Execution != nil {

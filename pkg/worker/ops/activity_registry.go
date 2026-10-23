@@ -11,6 +11,7 @@ import (
 	"github.com/colony-2/c2j/pkg/contextual"
 	"github.com/colony-2/c2j/pkg/execution"
 	"github.com/colony-2/c2j/pkg/git/gitstate"
+	"github.com/colony-2/c2j/pkg/gitprofile"
 	"github.com/colony-2/c2j/pkg/jobcontext"
 	"github.com/colony-2/c2j/pkg/ops"
 	extops "github.com/colony-2/c2j/pkg/ops/extensions"
@@ -26,6 +27,7 @@ const thinPackSentinel = gitstate.ThinPackArtifactName
 
 // ActivityInvocationRequest wraps the invocation metadata and original input payload.
 type ActivityInvocationRequest struct {
+	GitProfile       gitprofile.Selection           `json:"git_profile,omitzero"`
 	Preparation      PreparationRequest             `json:"preparation,omitzero"`
 	SecretSetupMS    int64                          `json:"-"`
 	Setup            *ToolSetupResult               `json:"-"`

@@ -16,9 +16,10 @@ import (
 
 type loadFailureContext struct {
 	jobworkflow.ExecutionContext
-	output jobdb.TaskData
-	err    error
-	calls  int
+	output    jobdb.TaskData
+	err       error
+	reloadErr error
+	calls     int
 }
 
 func (c *loadFailureContext) GetJobKey() jobdb.JobKey {
@@ -38,6 +39,9 @@ func (c *loadFailureContext) DoTask(call testTaskCall, build func(testContext) (
 		panic("execution continued after recipe load failure")
 	}
 	c.calls++
+	if c.calls > 1 && c.reloadErr != nil {
+		return nil, c.reloadErr
+	}
 	return c.output, c.err
 }
 
@@ -66,7 +70,7 @@ func TestRecipeJobWorkerLoadFailuresStopBeforeExecution(t *testing.T) {
 		{name: "resolved invalid yaml", yaml: "sequence: [", want: "parse resolved recipe YAML"},
 		{name: "resolved unknown nested op", yaml: "id: test\nsequence:\n - sequence:\n    - op: deliberately_unregistered_load_test\n", want: "unknown op"},
 		{name: "legacy loader failure", loadErr: loaderErr, want: loaderErr.Error()},
-		{name: "legacy empty recipe", want: "empty recipe"},
+		{name: "legacy empty recipe", want: "recipe YAML is empty"},
 		{name: "embedded invalid yaml", embedded: true, yaml: "sequence: [", want: "unmarshal YAML"},
 		{name: "embedded unknown op", embedded: true, yaml: "id: test\nop: deliberately_unregistered_load_test\n", want: "unknown op"},
 		{name: "resolution read failure", taskErr: sourceErr, want: sourceErr.Error()},
@@ -84,7 +88,7 @@ func TestRecipeJobWorkerLoadFailuresStopBeforeExecution(t *testing.T) {
 				if tc.malformedOutput {
 					source = &jobdb.SimpleTaskData{Data: []byte(`{"broken":true}`)}
 				}
-				ctx := &loadFailureContext{output: source, err: tc.taskErr}
+				ctx := &loadFailureContext{output: source, err: tc.taskErr, reloadErr: tc.loadErr}
 				var artifacts []jobdb.Artifact
 				if tc.embedded {
 					artifacts = append(artifacts, jobdb.NewArtifactFromBytes("test"+starter.RecipeArtifactSuffix, []byte(tc.yaml)))
@@ -102,6 +106,9 @@ func TestRecipeJobWorkerLoadFailuresStopBeforeExecution(t *testing.T) {
 				}
 				if tc.embedded {
 					require.Zero(t, ctx.calls)
+				} else if tc.yaml == "" && tc.taskErr == nil && !tc.malformedOutput {
+					require.Equal(t, 2, ctx.calls, "legacy YAML loading uses a lease-scoped task")
+					require.Zero(t, loader.calls, "orchestration must not fetch Git sources directly")
 				} else {
 					require.Equal(t, 1, ctx.calls)
 				}

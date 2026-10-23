@@ -5,6 +5,7 @@ import (
 
 	"github.com/colony-2/c2j/pkg/artifacts"
 	"github.com/colony-2/c2j/pkg/cellref"
+	"github.com/colony-2/c2j/pkg/gitprofile"
 	"github.com/colony-2/c2j/pkg/jobcontext"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 )
@@ -66,6 +67,7 @@ type WorkflowContext struct {
 
 // ExecutionContext holds typed workflow context available to templates. It is created per task.
 type JobContext struct {
+	GitProfile      gitprofile.Selection     `json:"git_profile,omitzero"`
 	InitialCommit   *GitCommitContext        `json:"initial_commit,omitempty"`
 	RestoreArtifact *jobdb.ArtifactKey       `json:"restore_artifact,omitempty"`
 	Workspace       *WorkspaceContext        `json:"workspace,omitempty"`

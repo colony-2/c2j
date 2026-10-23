@@ -3,15 +3,46 @@ package childbroker
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/colony-2/c2j/pkg/contextual"
+	"github.com/colony-2/c2j/pkg/gitprofile"
 	"github.com/colony-2/c2j/pkg/jobcontext"
 	"github.com/colony-2/c2j/pkg/starter"
 	"github.com/colony-2/c2j/pkg/workflowctl"
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	"github.com/stretchr/testify/require"
 )
+
+func TestBrokerInheritsClearAndRejectsForgedProfile(t *testing.T) {
+	scope, err := gitprofile.NewScope(context.Background(), gitprofile.Selection{}, jobdb.ConfigurationSnapshot{}, nil, "/usr/bin/c2j")
+	require.NoError(t, err)
+	defer scope.Close()
+	ctx := gitprofile.WithScope(context.Background(), scope)
+	submitter := &captureSubmitter{}
+	broker, err := Start(ctx, Options{Current: jobcontext.Current{TenantID: "tenant", JobID: "parent"}, Submitter: submitter})
+	require.NoError(t, err)
+	defer broker.Close()
+	var socket string
+	for _, entry := range gitprofile.Env(ctx, nil) {
+		if value, ok := strings.CutPrefix(entry, gitprofile.SocketEnv+"="); ok {
+			socket = value
+		}
+	}
+	_, err = gitprofile.Call(ctx, socket, gitprofile.Request{Operation: "clear"})
+	require.NoError(t, err)
+	_, err = Submit(ctx, brokerConfig(t, broker), SubmitRequest{Start: workflowctl.StartJob{
+		TenantId: "tenant", RecipeName: "child", JobContext: contextual.JobContext{GitProfile: gitprofile.Selection{Explicit: true, Value: "forged-rw"}},
+	}})
+	require.NoError(t, err)
+	raw, err := submitter.last.Data.GetData()
+	require.NoError(t, err)
+	var start workflowctl.StartJob
+	require.NoError(t, json.Unmarshal(raw, &start))
+	require.Equal(t, gitprofile.Selection{Explicit: true}, start.JobContext.GitProfile)
+}
 
 func TestBrokerSubmitUsesLeaseSubmitterAndOverridesParent(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)

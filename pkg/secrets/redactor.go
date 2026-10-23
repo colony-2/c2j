@@ -69,6 +69,9 @@ func (s *Redactor) add(value string) error {
 	return nil
 }
 
+// Register adds dynamically acquired credentials before they reach subprocesses.
+func (s *Redactor) Register(value string) error { return s.add(value) }
+
 func (s *Redactor) Redact(text string) string {
 	if s == nil {
 		return text

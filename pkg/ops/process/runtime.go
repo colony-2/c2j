@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/colony-2/c2j/pkg/contextual"
+	"github.com/colony-2/c2j/pkg/gitprofile"
 	"github.com/colony-2/c2j/pkg/shellcmd"
 )
 
@@ -25,7 +26,16 @@ type RunRequest struct {
 	Stdin         []byte
 }
 
-func ExecuteProcess(ctx context.Context, req RunRequest) ([]byte, []byte, error) {
+func ExecuteProcess(ctx context.Context, req RunRequest) (stdout, stderr []byte, runErr error) {
+	if scope := gitprofile.FromContext(ctx); scope != nil {
+		release := scope.RetainRedaction()
+		defer release()
+		defer func() {
+			stdout = []byte(scope.Redact(string(stdout)))
+			stderr = []byte(scope.Redact(string(stderr)))
+			runErr = scope.Error(runErr)
+		}()
+	}
 	workspaceRoot := strings.TrimSpace(req.WorkspaceRoot)
 	workingDir := strings.TrimSpace(req.WorkingDir)
 	if workspaceRoot == "" {
@@ -65,8 +75,10 @@ func executeOnHost(ctx context.Context, req RunRequest, workingDir string) ([]by
 		cmd.Env = filtered
 	}
 	if len(req.Stdin) > 0 {
+		// Input bytes are independent of the protected execution environment.
 		cmd.Stdin = bytes.NewReader(req.Stdin)
 	}
+	cmd.Env = gitprofile.Env(ctx, cmd.Env)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr

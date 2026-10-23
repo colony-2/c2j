@@ -75,6 +75,9 @@ func (n *Recipe) UnmarshalYAML(node *yamlv3.Node) error {
 	if err := node.Decode(impl); err != nil {
 		return err
 	}
+	if err := decodeGitProfile(node, impl); err != nil {
+		return err
+	}
 
 	if op, ok := impl.(*RecipeOp); ok {
 		err := checkOpInputs(op.Op, op.Inputs, node.Line, node.Column)

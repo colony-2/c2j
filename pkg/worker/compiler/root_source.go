@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/colony-2/c2j/pkg/gitprofile"
 	"net/url"
 	"os"
 	"path"
@@ -324,10 +325,11 @@ func (r providerBackedRecipeRefResolver) LoadRecipeRef(_ context.Context, projec
 }
 
 type rootSourceResolutionTaskInput struct {
-	ProjectID  string `json:"project_id"`
-	Selector   string `json:"selector"`
-	LookupRepo string `json:"lookup_repo,omitempty"`
-	LookupRef  string `json:"lookup_ref,omitempty"`
+	GitProfile gitprofile.Selection `json:"git_profile,omitzero"`
+	ProjectID  string               `json:"project_id"`
+	Selector   string               `json:"selector"`
+	LookupRepo string               `json:"lookup_repo,omitempty"`
+	LookupRef  string               `json:"lookup_ref,omitempty"`
 }
 
 type rootSourceResolutionTaskWorker struct {

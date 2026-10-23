@@ -16,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/colony-2/c2j/pkg/gitprofile"
 	"github.com/colony-2/c2j/pkg/jobcontext"
 	"github.com/colony-2/c2j/pkg/recipe"
 	"github.com/colony-2/c2j/pkg/starter"
@@ -41,8 +42,9 @@ type Options struct {
 }
 
 type Server struct {
-	current   jobcontext.Current
-	submitter Submitter
+	executionContext context.Context
+	current          jobcontext.Current
+	submitter        Submitter
 
 	localEndpoint string
 	endpoint      string
@@ -122,14 +124,15 @@ func start(ctx context.Context, opts Options, openListener func() (net.Listener,
 		localIP = net.IPv4(127, 0, 0, 1)
 	}
 	broker := &Server{
-		localEndpoint: "http://" + net.JoinHostPort(localIP.String(), fmt.Sprint(tcpAddr.Port)) + submitPath,
-		current:       opts.Current,
-		submitter:     opts.Submitter,
-		endpoint:      fmt.Sprintf("http://%s:%d%s", advertiseHost, tcpAddr.Port, submitPath),
-		token:         token,
-		sessionID:     sessionID,
-		host:          advertiseHost,
-		port:          tcpAddr.Port,
+		executionContext: ctx,
+		localEndpoint:    "http://" + net.JoinHostPort(localIP.String(), fmt.Sprint(tcpAddr.Port)) + submitPath,
+		current:          opts.Current,
+		submitter:        opts.Submitter,
+		endpoint:         fmt.Sprintf("http://%s:%d%s", advertiseHost, tcpAddr.Port, submitPath),
+		token:            token,
+		sessionID:        sessionID,
+		host:             advertiseHost,
+		port:             tcpAddr.Port,
 	}
 
 	mux := http.NewServeMux()
@@ -255,6 +258,7 @@ func (s *Server) authorized(r *http.Request) bool {
 
 func (s *Server) submit(ctx context.Context, req SubmitRequest) (SubmitResponse, error) {
 	start := req.Start
+	start.JobContext.GitProfile = gitprofile.InheritedSelection(s.executionContext)
 	if strings.TrimSpace(start.TenantId) != strings.TrimSpace(s.current.TenantID) {
 		return SubmitResponse{}, fmt.Errorf("child job submission must use the current tenant %q; got %q", s.current.TenantID, start.TenantId)
 	}

@@ -10,6 +10,7 @@ import (
 	"github.com/colony-2/c2j/pkg/contextual"
 	"github.com/colony-2/c2j/pkg/git/common"
 	"github.com/colony-2/c2j/pkg/git/selectorcache"
+	"github.com/colony-2/c2j/pkg/gitprofile"
 	"github.com/colony-2/c2j/pkg/recipe"
 	"github.com/colony-2/c2j/pkg/template"
 	workerops "github.com/colony-2/c2j/pkg/worker/ops"
@@ -21,12 +22,13 @@ import (
 const WorkspaceResolutionTaskType = "recipe_workspace_resolve"
 
 type WorkspaceResolutionInput struct {
-	Cell          string          `json:"cell"`
-	Initial       string          `json:"initial,omitempty"`
-	Ref           string          `json:"ref,omitempty"`
-	ScopeID       string          `json:"scope_id"`
-	ParentScopeID string          `json:"parent_scope_id,omitempty"`
-	Resolution    cellref.Context `json:"resolution"`
+	GitProfile    gitprofile.Selection `json:"git_profile,omitzero"`
+	Cell          string               `json:"cell"`
+	Initial       string               `json:"initial,omitempty"`
+	Ref           string               `json:"ref,omitempty"`
+	ScopeID       string               `json:"scope_id"`
+	ParentScopeID string               `json:"parent_scope_id,omitempty"`
+	Resolution    cellref.Context      `json:"resolution"`
 }
 type WorkspaceResolutionOutput struct {
 	Workspace contextual.WorkspaceContext `json:"workspace"`
@@ -115,6 +117,7 @@ func enterWorkspace(ctx workflow.Context, parent *template.ResolutionContext, me
 		resolution = *incoming.CellResolution
 	}
 	req := WorkspaceResolutionInput{Cell: cell, Ref: ref, Initial: spec.Initial, ScopeID: parent.NextWorkspaceID(meta.ID), Resolution: resolution}
+	req.GitProfile = parent.GitProfile
 	if incoming.Workspace != nil {
 		req.ParentScopeID = incoming.Workspace.ScopeID
 	}

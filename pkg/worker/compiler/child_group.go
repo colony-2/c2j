@@ -17,6 +17,11 @@ import (
 )
 
 func (d DefaultRecipeExecutor) ExecuteChildGroup(ctx workflow.Context, parent *template.ResolutionContext, metadata recipe.NodeMetadata, group recipe.ChildGroupData) error {
+	previousProfile := parent.GitProfile
+	defer func() { parent.GitProfile = previousProfile }()
+	if err := parent.SelectGitProfile(metadata.GitProfile, ""); err != nil {
+		return err
+	}
 	if metadata.Workspace != nil {
 		return withNodeWorkspace(ctx, parent, metadata, func(inner workflow.Context, scoped *template.ResolutionContext, meta recipe.NodeMetadata) error {
 			return d.ExecuteChildGroup(inner, scoped, meta, group)

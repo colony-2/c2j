@@ -228,14 +228,14 @@ func (w *guardedTask) Run(ctx jobworkflow.TaskContext, input jobdb.TaskData) (jo
 	// Recipe-resolution tasks run before a scope is staged. Scoped recipe work
 	// always replays first, including when claimed through a pending-task route.
 	if d == nil {
-		return w.TaskWorker.Run(ctx, input)
+		return w.runWithGitProfile(ctx, input, l)
 	}
 	mismatches, err := execution.Compare(d.Effective, r.Allocation)
 	if err != nil {
 		return nil, err
 	}
 	if len(mismatches) == 0 {
-		return w.TaskWorker.Run(ctx, input)
+		return w.runWithGitProfile(ctx, input, l)
 	}
 	// A staged demand belongs to the recipe's current task, which may be later
 	// than the task route on the acquired lease. Resume recipe replay, not stale

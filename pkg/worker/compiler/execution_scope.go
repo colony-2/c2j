@@ -30,6 +30,19 @@ type scopeFrame struct {
 // to each invocation, including callbacks which outlive cancellation. Only a
 // frame identified by the committed scope outcome is published to the caller.
 func executeNodeScope(ctx workflow.Context, parent *template.ResolutionContext, meta recipe.NodeMetadata, kind template.ScopeType, fallback string, body func(workflow.Context, *template.ResolutionContext, recipe.NodeMetadata) error) error {
+	innerBody := body
+	body = func(ctx workflow.Context, state *template.ResolutionContext, meta recipe.NodeMetadata) error {
+		previous := state.GitProfile
+		defer func() { state.GitProfile = previous }()
+		op := ""
+		if kind == template.ScopeOp {
+			op = fallback
+		}
+		if err := state.SelectGitProfile(meta.GitProfile, op); err != nil {
+			return err
+		}
+		return innerBody(ctx, state, meta)
+	}
 	if parent.Options.Mode == template.ModeValidate {
 		return body(ctx, parent, meta)
 	}
@@ -200,9 +213,14 @@ func executeNodeScope(ctx workflow.Context, parent *template.ResolutionContext, 
 			result.Route = &route.Transition
 			e = nil
 		}
+		if e != nil {
+			e = persistRecipeFailure(e, state, meta, kind, fallback)
+		}
+		// Failure normalization updates resolver views. Publish only after all
+		// mutations finish: cancellation may let the caller adopt immediately.
 		save(id, state, lexical, f)
 		if e != nil {
-			return nil, persistRecipeFailure(e, state, meta, kind, fallback)
+			return nil, e
 		}
 		return jobdb.NewTaskData(result)
 	})

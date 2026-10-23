@@ -2,15 +2,43 @@ package process
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/colony-2/c2j/pkg/gitprofile"
+	"github.com/colony-2/jobdb/pkg/jobdb"
 	"github.com/stretchr/testify/require"
 )
+
+func TestExecuteProcessMasksDynamicallyResolvedGitCredentials(t *testing.T) {
+	profile := gitprofile.Profile{Version: 1, Entries: []gitprofile.Entry{{URL: "https://git.example/", Username: "bot", SecretRef: "token"}}}
+	raw, err := json.Marshal(profile)
+	require.NoError(t, err)
+	scope, err := gitprofile.NewScope(context.Background(), gitprofile.Selection{Explicit: true, Value: "test"}, jobdb.ConfigurationSnapshot{Values: map[string]json.RawMessage{gitprofile.ProfilePrefix + "test": raw}}, func(ctx context.Context, names []string) (jobdb.SecretResolveResult, error) {
+		return jobdb.SecretResolveResult{Secrets: map[string]jobdb.SecretValue{"token": {Value: "private-git-token"}}}, nil
+	}, "/usr/bin/c2j")
+	require.NoError(t, err)
+	defer scope.Close()
+	ctx := gitprofile.WithScope(context.Background(), scope)
+	var socket string
+	for _, v := range gitprofile.Env(ctx, nil) {
+		if value, ok := strings.CutPrefix(v, gitprofile.SocketEnv+"="); ok {
+			socket = value
+		}
+	}
+	_, err = gitprofile.Call(ctx, socket, gitprofile.Request{Operation: "secret", Name: "token"})
+	require.NoError(t, err)
+	stdout, stderr, err := ExecuteProcess(ctx, RunRequest{WorkingDir: t.TempDir(), Shell: "sh", Run: "printf private-git-token; printf private-git-token >&2"})
+	require.NoError(t, err)
+	require.Equal(t, "[REDACTED]", string(stdout))
+	require.Equal(t, "[REDACTED]", string(stderr))
+}
 
 func TestExecuteProcessTimeoutKillsHostProcessTree(t *testing.T) {
 	if runtime.GOOS == "windows" {

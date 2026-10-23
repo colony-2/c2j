@@ -192,7 +192,8 @@ func (j recipeJobWorker) Run(ctx jobworkflow.ExecutionContext, jobData jobdb.Job
 			return nil, err
 		}
 		req := rootSourceResolutionTaskInput{
-			ProjectID: strings.TrimSpace(input.TenantId), Selector: input.RecipeName,
+			GitProfile: input.JobContext.GitProfile,
+			ProjectID:  strings.TrimSpace(input.TenantId), Selector: input.RecipeName,
 			LookupRepo: rootRecipeLookupRepo(input.JobContext), LookupRef: rootRecipeLookupRef(input.JobContext),
 		}
 
@@ -219,7 +220,20 @@ func (j recipeJobWorker) Run(ctx jobworkflow.ExecutionContext, jobData jobdb.Job
 		if strings.TrimSpace(resolvedSource.RecipeYAML) != "" {
 			r, loadErr = resolvedSource.LoadRecipe()
 		} else {
-			r, loadErr = j.rootResolver.Load(context.Background(), strings.TrimSpace(input.TenantId), resolution)
+			// Older source outcomes lack embedded YAML. Reload through a task so
+			// even this recovery path gets the current lease's Git environment.
+			reload, e := workflow.ValueCall(ctx, "root-source-load", RootSourceResolutionTaskType, jobdb.RunPolicy{}, rootSourceResolutionTaskInput{
+				GitProfile: input.JobContext.GitProfile, ProjectID: strings.TrimSpace(input.TenantId),
+				Selector: resolution.EffectiveSelector(), LookupRepo: req.LookupRepo, LookupRef: req.LookupRef,
+			})
+			if e != nil {
+				return nil, e
+			}
+			loaded, e := ParseResolvedRecipeSourceTaskData(reload)
+			if e != nil {
+				return nil, e
+			}
+			r, loadErr = loaded.LoadRecipe()
 		}
 	}
 	if loadErr == nil && r.RecipeImpl == nil {

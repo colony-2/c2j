@@ -43,6 +43,9 @@ func newRootCmd(info buildinfo.Info) *cobra.Command {
 	root.AddCommand(newCellsCmd())
 	root.AddCommand(newCellCmd())
 	root.AddCommand(newSelfCmd())
+	root.AddCommand(newConfigCmd())
+	root.AddCommand(newSecretCmd())
+	root.AddCommand(newGitCmd())
 
 	return root
 }
