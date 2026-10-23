@@ -54,17 +54,20 @@ func (rc *ResolutionContext) PublishWorkspaceResult(from *ResolutionContext) {
 }
 
 func (rc *ResolutionContext) syncWorkspace() {
-	if rc.workspaceBase == nil {
-		return
-	}
 	g := &rc.TemplateData.Context.GitTask
-	g.BaseRepo = rc.workspaceBase.BaseRepo
-	g.BaseRef = rc.workspaceBase.BaseRef
-	g.ResolvedBaseHash = rc.workspaceBase.ResolvedBaseHash
-	g.GitAuthor = rc.workspaceBase.GitAuthor
-	g.PersistHash = rc.commitContext.PersistHash
-	g.ParentHash = rc.commitContext.ParentHash
-	g.ParentRef = rc.commitContext.ParentRef
+	if rc.workspaceBase != nil {
+		g.BaseRepo = rc.workspaceBase.BaseRepo
+		g.BaseRef = rc.workspaceBase.BaseRef
+		g.ResolvedBaseHash = rc.workspaceBase.ResolvedBaseHash
+		g.GitAuthor = rc.workspaceBase.GitAuthor
+	}
+	// Task chains update the shared commit between steps, including in the
+	// implicit workspace where no workspaceBase override exists.
+	if rc.commitContext != nil {
+		g.PersistHash = rc.commitContext.PersistHash
+		g.ParentHash = rc.commitContext.ParentHash
+		g.ParentRef = rc.commitContext.ParentRef
+	}
 }
 
 // Composite bindings are evaluated in the calling workspace, before the override.

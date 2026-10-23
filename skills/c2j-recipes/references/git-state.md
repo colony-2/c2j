@@ -126,6 +126,13 @@ inputs:
 
 Outputs include `target_branch`, `remote_ref`, `merged_hash`, `squashed_commits`, `git_context_patch`, and `fast_forward`.
 
+Internally, this op checkpoints squash and rebase before a separate publication
+task. Retries reuse the saved candidate and pinned destination; they do not
+repeat completed preparation. Publication recognizes the candidate at the
+destination tip or in its ancestry and preserves later commits. Exhausted task
+retries propagate without automatically restarting the enclosing scope. Use
+the managed worktree with persistence enabled (`const: false`).
+
 ## Practical Rules
 
 - Prefer context defaults for repo paths and refs unless the recipe intentionally targets another checkout.

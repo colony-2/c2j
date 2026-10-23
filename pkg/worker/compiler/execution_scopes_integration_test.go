@@ -339,6 +339,61 @@ func TestExecutionScopesBlockBudgetCancelsWorker(t *testing.T) {
 	})
 }
 
+func TestExecutionScopesStepRetryTimeoutDoesNotRestartParent(t *testing.T) {
+	registerCatchOp(t, "scope_probe")
+	coreops.Replace(coreops.NewOp().WithType("scope_probe").WithStepRetries(true).
+		AddStep("run", coreops.NewStepWithDeps(func(_ coreops.OpDependencies, _ context.Context, input map[string]any) (map[string]any, error) {
+			return input, nil
+		})).BuildOrPanic())
+	synctest.Test(t, func(t *testing.T) {
+		rt := toy.New()
+		node := probeNode("blocked")
+		node.NodeImpl.(*recipe.NodeOp).Timeout = recipe.Duration(time.Minute)
+		rec := probeRecipe(node)
+		rec.RecipeImpl.(*recipe.RecipeSequence).Retry = &recipe.RetryPolicy{MaximumAttempts: 3}
+		w := probeWorker(t, rec)
+		key := probeSubmit(t, rt, w)
+		done := make(chan struct{})
+		out := probeRun(t, rt, key, w, scopeCancelTask{done})
+		require.Equal(t, jobworkflow.JobRunFailed, out.Status)
+		require.ErrorContains(t, out.JobError, "timed out")
+		<-done
+		require.Error(t, probeReplay(t, rt, key, w))
+		run, err := jobdb.GetJobRun(context.Background(), rt, jobdb.GetJobRunRequest{JobKey: key})
+		require.NoError(t, err)
+		tasks, err := swfutil.ExecutionTasks(run)
+		require.NoError(t, err)
+		require.Len(t, tasks, 1, "an op timeout must not restart completed publication steps")
+	})
+}
+
+func TestExecutionScopesExhaustedStepTimeoutDoesNotRestartParent(t *testing.T) {
+	registerCatchOp(t, "scope_probe")
+	coreops.Replace(coreops.NewOp().WithType("scope_probe").WithStepRetries(true).
+		AddStep("run", coreops.NewStepWithDeps(func(_ coreops.OpDependencies, _ context.Context, input map[string]any) (map[string]any, error) {
+			return input, nil
+		})).BuildOrPanic())
+	synctest.Test(t, func(t *testing.T) {
+		rt := toy.New()
+		node := probeNode("blocked")
+		node.NodeImpl.(*recipe.NodeOp).Retry = &recipe.RetryPolicy{MaximumAttempts: 2}
+		rec := probeRecipe(node)
+		rec.RecipeImpl.(*recipe.RecipeSequence).Retry = &recipe.RetryPolicy{MaximumAttempts: 3}
+		_, git := GenerateTestContext()
+		probe := &scopeProbeTask{calls: map[string]int{}, git: git}
+		task := publicationFaultWorker{TaskWorker: probe, after: func(jobdb.TaskData) error {
+			return jobdb.NewTimeoutError("task", time.Minute, jobdb.TimeoutScopeInvocation, nil, true)
+		}}
+		w := probeWorker(t, rec)
+		key := probeSubmit(t, rt, w)
+		out := probeRun(t, rt, key, w, task)
+		require.Equal(t, jobworkflow.JobRunFailed, out.Status)
+		require.ErrorContains(t, out.JobError, "timed out")
+		require.Equal(t, 2, probe.calls["blocked"], "only the task's own retry policy may repeat the step")
+		require.Error(t, probeReplay(t, rt, key, w))
+	})
+}
+
 type interruptScopeRuntime struct {
 	jobdb.WorkflowRuntime
 	lease jobdb.ExecutionLease

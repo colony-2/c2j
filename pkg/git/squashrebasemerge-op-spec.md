@@ -19,7 +19,7 @@ The `squashrebasemerge` git op gives recipes a deterministic pathway to collapse
 ```yaml
 - id: deliver_feature
   op: squashrebasemerge
-  with:
+  inputs:
     upstream_branch: refs/heads/main
     upstream_repo: git@github.com:org/repo.git
     rebase: true
@@ -40,22 +40,31 @@ The op inherits the surrounding gitstate lifecycle.
 
 ## Execution Flow
 
-1. **Fetch Target** – ensure the latest `upstream_branch` is available locally by fetching from the matched `upstream_repo`.
-2. **Merge Base Discovery** – resolve the merge-base between the local hash (or `HEAD`) and the upstream tip to define the squash range.
-3. **Squash** – collapse the diff between merge-base and local hash into a single commit with the requested/derived author and commit message.
-4. **Rebase** – if enabled, replay the squashed commit onto the fetched tip (`git rebase --reapply-cherry-picks`). Conflicts abort with plain text errors.
-5. **Fast-Forward Merge** – push the resulting commit to the remote (`git push <remote> HEAD:<upstream_branch>`), requiring a fast-forward.
+The recipe API and final output fields remain unchanged. Internally the op has
+three worker tasks, reusing the standalone squash, rebase, and merge primitives:
+
+1. **Prepare/squash** – fetch the requested destination, pin its exact tip, discover the merge base, and squash the local range. Save the original range, pinned destination, candidate SHA, and workspace snapshot before continuing. Empty workspaces prepare a root commit without fetching.
+2. **Rebase** – replay onto the saved target SHA, then persist the candidate and snapshot. When rebasing is disabled or the workspace has an empty base, this task passes through the prepared candidate. No-change workspaces fast-forward to the pinned tip.
+3. **Merge** – verify that restored HEAD equals the saved candidate and publish that exact SHA. No commits are created here. No-change flows complete without a push.
+
+Managed worktree paths are represented by a sentinel between tasks, so a new
+worker restores the same snapshot at its own path. Normal publication retains
+the prepared snapshot as result/child evidence; first publication transitions
+the workspace out of empty-base mode.
 
 ## Failure Semantics
 
 - Fetch/push failures bubble up directly for observability and retry logic.
 - Rebase conflicts surface as plain text errors; no structured payload is required.
-- Push rejection (e.g., remote advanced) aborts the op with a descriptive error so recipes can decide whether to retry or alert an operator.
+- A lost push response or outcome is reconciled against the exact saved candidate. If the branch equals or contains that commit, publication succeeds without changing later history. Otherwise a normal push must fast-forward; initial publication requires an absent branch.
+- `retry` applies per internal task. Exhausted retries propagate as a non-retryable enclosing-scope failure, avoiding automatic re-preparation after an ambiguous publication. Recipe catches can handle the failure explicitly.
+- A divergent target requires explicit new preparation, rather than an implicit rebase during publication retry.
+- Use the managed worktree with persistence enabled. Direct Go `Run` calls execute the same primitives synchronously and do not provide worker checkpoints.
 
 ## Implementation Notes
 
-- Add to exports.go in `server/git/pkg/export`
-- Validate that the operation only proceeds when the local history contains changes (no-op squashes should return early).
+- `wrapper.go` registers the task chain; `chain.go` carries its checkpoint state.
+- No-change workspaces complete without publishing a new commit.
 
 ## Testing Strategy
 
@@ -64,3 +73,4 @@ The op inherits the surrounding gitstate lifecycle.
   - Run within shared and discrete workspaces to confirm isolation semantics are preserved.
   - Chain with `thinpackrebase` to ensure the resulting remote state can be rebased onto by another recipe.
 - **End-to-End:** exercise delivery of a feature branch into `main`, validating that thin packs and remote refs match the merged commit.
+- **Failure injection:** lose outcomes after each step, discard worktrees, lose a successful push response, fail the JobDB outcome write and resume on a new worker, and advance or diverge the target before retry. Cover first publication and existing branches.

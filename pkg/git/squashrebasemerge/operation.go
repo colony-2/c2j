@@ -4,13 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/colony-2/c2j/pkg/gitprofile"
 	"os"
 	"os/exec"
-	"strconv"
 	"strings"
 
 	"github.com/colony-2/c2j/pkg/git/common"
+	"github.com/colony-2/c2j/pkg/gitprofile"
 )
 
 const defaultTargetBranch = "refs/heads/main"
@@ -18,216 +17,41 @@ const defaultTargetBranch = "refs/heads/main"
 // workspaceSnapshot captures relevant git context for the operation.
 type workspaceSnapshot struct {
 	RepoPath     string
-	BaseHash     string
-	PersistHash  string
 	UpstreamRepo string
 }
 
-// Run executes the squash-rebase-merge flow.
+// Run executes the same primitives synchronously for Go callers. Durable
+// checkpoints and retry guarantees are provided by GetOp's worker task chain.
 func Run(ctx context.Context, input SquashRebaseMergeInput) (*SquashRebaseMergeOutput, error) {
 	return run(ctx, input, false)
 }
 
-func run(ctx context.Context, input SquashRebaseMergeInput, emptyBase bool) (*SquashRebaseMergeOutput, error) {
-	snapshot, err := resolveWorkspaceSnapshot(input)
+func run(ctx context.Context, input SquashRebaseMergeInput, emptyBase bool) (output *SquashRebaseMergeOutput, err error) {
+	if err := requireCleanWorkspace(ctx, input.RepoPath); err != nil {
+		return nil, err
+	}
+	original, err := common.GetCommitHash(ctx, input.RepoPath, "HEAD")
 	if err != nil {
 		return nil, err
 	}
-
-	if err := common.ValidateRepository(snapshot.RepoPath); err != nil {
-		return nil, fmt.Errorf("validate repository: %w", err)
-	}
-
-	if err := common.EnsureGitIdentity(ctx, snapshot.RepoPath); err != nil {
-		return nil, err
-	}
-	targetBranch := strings.TrimSpace(input.UpstreamBranch)
-	if targetBranch == "" {
-		targetBranch = defaultTargetBranch
-	}
-
-	if snapshot.PersistHash == "" {
-		hash, err := common.GetCommitHash(ctx, snapshot.RepoPath, "HEAD")
+	defer func() {
 		if err != nil {
-			return nil, fmt.Errorf("determine current HEAD: %w", err)
+			_, _ = common.ExecuteGitCommand(context.Background(), input.RepoPath, "reset", "--hard", original)
 		}
-		snapshot.PersistHash = hash
-	}
-
-	if emptyBase {
-		return publishInitial(ctx, input, snapshot, targetBranch)
-	}
-
-	remoteName, err := determineRemoteName(ctx, snapshot)
+	}()
+	prepared, err := preparePublicationFrom(ctx, nil, input, emptyBase)
 	if err != nil {
 		return nil, err
 	}
-	if strings.TrimSpace(remoteName) == "" {
-		return nil, fmt.Errorf("no remote configured for squashrebasemerge")
-	}
-
-	if err := fetchTargetBranch(ctx, snapshot.RepoPath, remoteName, targetBranch); err != nil {
-		return nil, err
-	}
-
-	remoteRef := remoteTrackingRef(remoteName, targetBranch)
-	remoteTip, err := common.GetCommitHash(ctx, snapshot.RepoPath, remoteRef)
-	if err != nil {
-		return nil, fmt.Errorf("resolve remote target %s: %w", remoteRef, err)
-	}
-
-	baseHash, err := mergeBase(ctx, snapshot.RepoPath, snapshot.PersistHash, remoteTip)
+	rebased, err := rebasePublication(nil, ctx, prepared)
 	if err != nil {
 		return nil, err
 	}
-	if baseHash == "" {
-		return nil, fmt.Errorf("unable to determine merge base between local %s and %s", shortHash(snapshot.PersistHash), shortHash(remoteTip))
-	}
-	snapshot.BaseHash = baseHash
-
-	doRebase := true
-	if input.Rebase != nil {
-		doRebase = *input.Rebase
-	}
-	rangeBaseHash := snapshot.BaseHash
-	if !doRebase {
-		fastForwardable, err := isAncestor(ctx, snapshot.RepoPath, remoteTip, snapshot.PersistHash)
-		if err != nil {
-			return nil, fmt.Errorf("check fast-forward eligibility: %w", err)
-		}
-		if !fastForwardable {
-			return nil, common.NotFastForwardError{
-				TargetBranch: targetBranch,
-				LocalHead:    snapshot.PersistHash,
-				UpstreamHead: remoteTip,
-			}
-		}
-		rangeBaseHash = remoteTip
-	}
-
-	newlyCommitted, err := countCommitsBetween(ctx, snapshot.RepoPath, rangeBaseHash, snapshot.PersistHash)
+	result, err := mergePublication(nil, ctx, rebased)
 	if err != nil {
 		return nil, err
 	}
-
-	if newlyCommitted == 0 {
-		// Nothing to merge; fast-forward local context to remote tip.
-		if _, err := common.ExecuteGitCommand(ctx, snapshot.RepoPath, "reset", "--hard", remoteTip); err != nil {
-			return nil, fmt.Errorf("fast-forward workspace to %s: %w", shortHash(remoteTip), err)
-		}
-		return &SquashRebaseMergeOutput{
-			TargetBranch: targetBranch,
-			RemoteRef:    remoteRef,
-			MergedHash:   remoteTip,
-			SquashedCommits: SquashRangeSummary{
-				BaseHash:    snapshot.BaseHash,
-				PersistHash: snapshot.PersistHash,
-			},
-			GitContextPatch: map[string]interface{}{
-				"base_hash":     remoteTip,
-				"persist_hash":  remoteTip,
-				"previous_hash": snapshot.PersistHash,
-			},
-			FastForward: !doRebase,
-		}, nil
-	}
-
-	commitDetails, err := collectCommitDetails(ctx, snapshot.RepoPath, rangeBaseHash, snapshot.PersistHash)
-	if err != nil {
-		return nil, err
-	}
-
-	originalHead := snapshot.PersistHash
-	restoreOnError := func() {
-		_, _ = common.ExecuteGitCommand(context.Background(), snapshot.RepoPath, "reset", "--hard", originalHead)
-	}
-
-	commitAuthor, commitMessage := buildSquashCommit(input, commitDetails)
-	if err := createSquashCommit(ctx, snapshot, rangeBaseHash, commitMessage, commitAuthor); err != nil {
-		restoreOnError()
-		return nil, err
-	}
-
-	var mergedHash string
-	if !doRebase {
-		mergedHash, err = common.GetCommitHash(ctx, snapshot.RepoPath, "HEAD")
-		if err != nil {
-			restoreOnError()
-			return nil, fmt.Errorf("determine merged head: %w", err)
-		}
-
-		stillAncestor, err := isAncestor(ctx, snapshot.RepoPath, remoteTip, mergedHash)
-		if err != nil {
-			restoreOnError()
-			return nil, fmt.Errorf("confirm fast-forward ancestor: %w", err)
-		}
-		if !stillAncestor {
-			restoreOnError()
-			return nil, common.NotFastForwardError{
-				TargetBranch: targetBranch,
-				LocalHead:    mergedHash,
-				UpstreamHead: remoteTip,
-			}
-		}
-
-		if _, err := common.ExecuteGitCommand(ctx, snapshot.RepoPath, "push", remoteName, fmt.Sprintf("HEAD:%s", targetBranch)); err != nil {
-			restoreOnError()
-			if isNonFastForwardError(err) {
-				return nil, common.NotFastForwardError{
-					TargetBranch: targetBranch,
-					LocalHead:    mergedHash,
-					UpstreamHead: remoteTip,
-				}
-			}
-			return nil, fmt.Errorf("push to %s: %w", targetBranch, err)
-		}
-	} else {
-		if err := rebaseOntoTarget(ctx, snapshot.RepoPath, remoteTip, snapshot.BaseHash); err != nil {
-			restoreOnError()
-			return nil, err
-		}
-
-		mergedHash, err = common.GetCommitHash(ctx, snapshot.RepoPath, "HEAD")
-		if err != nil {
-			restoreOnError()
-			return nil, fmt.Errorf("determine merged head: %w", err)
-		}
-
-		if _, err := common.ExecuteGitCommand(ctx, snapshot.RepoPath, "push", remoteName, fmt.Sprintf("HEAD:%s", targetBranch)); err != nil {
-			restoreOnError()
-			return nil, fmt.Errorf("push to %s: %w", targetBranch, err)
-		}
-	}
-
-	return &SquashRebaseMergeOutput{
-		TargetBranch: targetBranch,
-		RemoteRef:    remoteRef,
-		MergedHash:   mergedHash,
-		SquashedCommits: SquashRangeSummary{
-			BaseHash:    snapshot.BaseHash,
-			PersistHash: snapshot.PersistHash,
-		},
-		GitContextPatch: map[string]interface{}{
-			"base_hash":     mergedHash,
-			"persist_hash":  mergedHash,
-			"previous_hash": snapshot.PersistHash,
-		},
-		FastForward: !doRebase,
-	}, nil
-}
-
-func resolveWorkspaceSnapshot(input SquashRebaseMergeInput) (workspaceSnapshot, error) {
-	snapshot := workspaceSnapshot{}
-	repoPath := strings.TrimSpace(input.RepoPath)
-	if repoPath == "" {
-		return snapshot, fmt.Errorf("repo_path is required")
-	}
-
-	snapshot.RepoPath = repoPath
-	snapshot.PersistHash = strings.TrimSpace(input.LocalHash)
-	snapshot.UpstreamRepo = strings.TrimSpace(input.UpstreamRepo)
-
-	return snapshot, nil
+	return &result, nil
 }
 
 func determineRemoteName(ctx context.Context, snapshot workspaceSnapshot) (string, error) {
@@ -398,68 +222,6 @@ func appendCoauthors(message string, coauthors []string) string {
 	return strings.TrimRight(b.String(), "\n")
 }
 
-func createSquashCommit(ctx context.Context, snapshot workspaceSnapshot, squashBaseHash, commitMessage, author string) error {
-	if _, err := common.ExecuteGitCommand(ctx, snapshot.RepoPath, "reset", "--soft", squashBaseHash); err != nil {
-		return fmt.Errorf("prepare squash reset: %w", err)
-	}
-
-	args := []string{"commit", "-m", commitMessage}
-	env := os.Environ()
-	env = append(env, "GIT_TERMINAL_PROMPT=0")
-	if author != "" {
-		args = append(args, "--author", author)
-	}
-	cmd := gitprofile.Command(ctx, args...)
-	cmd.Dir = snapshot.RepoPath
-	cmd.Env = gitprofile.Env(ctx, env)
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("create squash commit: %s", strings.TrimSpace(string(output)))
-	}
-
-	return nil
-}
-
-func rebaseOntoTarget(ctx context.Context, repoPath, remoteTip, originalBase string) error {
-	args := []string{"rebase", "--reapply-cherry-picks", "--onto", remoteTip, originalBase}
-
-	env := append(os.Environ(), "GIT_TERMINAL_PROMPT=0", "GIT_SEQUENCE_EDITOR=true")
-
-	cmd := gitprofile.Command(ctx, args...)
-	cmd.Dir = repoPath
-	cmd.Env = gitprofile.Env(ctx, env)
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		_ = abortRebase(ctx, repoPath)
-		return fmt.Errorf("git rebase failed: %s", strings.TrimSpace(string(output)))
-	}
-	return nil
-}
-
-func abortRebase(ctx context.Context, repoPath string) error {
-	_, err := common.ExecuteGitCommand(ctx, repoPath, "rebase", "--abort")
-	return err
-}
-
-func countCommitsBetween(ctx context.Context, repoPath, baseHash, persistHash string) (int, error) {
-	if strings.TrimSpace(baseHash) == "" || strings.TrimSpace(persistHash) == "" {
-		return 0, fmt.Errorf("base and persist hashes are required to compute squash range")
-	}
-	out, err := common.ExecuteGitCommand(ctx, repoPath, "rev-list", "--count", fmt.Sprintf("%s..%s", baseHash, persistHash))
-	if err != nil {
-		return 0, fmt.Errorf("count commits between %s and %s: %w", shortHash(baseHash), shortHash(persistHash), err)
-	}
-	trimmed := strings.TrimSpace(string(out))
-	if trimmed == "" {
-		return 0, nil
-	}
-	count, err := strconv.Atoi(trimmed)
-	if err != nil {
-		return 0, fmt.Errorf("parse commit count: %w", err)
-	}
-	return count, nil
-}
-
 func isAncestor(ctx context.Context, repoPath, ancestor, descendant string) (bool, error) {
 	if ancestor == "" || descendant == "" {
 		return false, fmt.Errorf("ancestor and descendant must be provided")
@@ -509,47 +271,6 @@ func shortHash(hash string) string {
 		return hash[:7]
 	}
 	return hash
-}
-
-func isNonFastForwardError(err error) bool {
-	if err == nil {
-		return false
-	}
-	lowered := strings.ToLower(err.Error())
-	return strings.Contains(lowered, "non-fast-forward") || strings.Contains(lowered, "[rejected]")
-}
-
-// publishInitial squashes the unpublished tree into a real root commit. The
-// branch-absence lease is checked by receive-pack, not a racy preflight fetch.
-func publishInitial(ctx context.Context, input SquashRebaseMergeInput, snapshot workspaceSnapshot, branch string) (*SquashRebaseMergeOutput, error) {
-	if snapshot.UpstreamRepo == "" {
-		return nil, fmt.Errorf("upstream_repo is required")
-	}
-	branch = "refs/heads/" + strings.TrimPrefix(branch, "refs/heads/")
-	if _, err := common.ExecuteGitCommand(ctx, snapshot.RepoPath, "check-ref-format", branch); err != nil {
-		return nil, fmt.Errorf("invalid publication branch: %w", err)
-	}
-	details, err := collectCommitDetails(ctx, snapshot.RepoPath, "", snapshot.PersistHash)
-	if err != nil {
-		return nil, err
-	}
-	author, message := buildSquashCommit(input, details)
-	candidate, err := commitTree(ctx, snapshot.RepoPath, snapshot.PersistHash, "", author, message)
-	if err != nil {
-		return nil, err
-	}
-	if _, err := common.ExecuteGitCommand(ctx, snapshot.RepoPath, "push", "--force-with-lease="+branch+":", snapshot.UpstreamRepo, candidate+":"+branch); err != nil {
-		return nil, fmt.Errorf("publish initial branch %s (destination must be absent): %w", branch, err)
-	}
-	if _, err := common.ExecuteGitCommand(ctx, snapshot.RepoPath, "reset", "--hard", candidate); err != nil {
-		return nil, err
-	}
-	return &SquashRebaseMergeOutput{
-		TargetBranch: branch, RemoteRef: branch, MergedHash: candidate,
-		SquashedCommits: SquashRangeSummary{PersistHash: snapshot.PersistHash},
-		GitContextPatch: map[string]interface{}{"base_hash": candidate, "persist_hash": candidate, "previous_hash": snapshot.PersistHash},
-		FastForward:     false,
-	}, nil
 }
 
 // commitTree preserves the selected tree without changing the workspace on failure.

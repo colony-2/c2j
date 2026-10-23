@@ -1,8 +1,10 @@
 # Separate Git operations
 
 Use `squash`, `rebase`, and `merge` as separate recipe tasks when preparation and
-publication should have separate persisted outcomes. `thinpackrebase` and
-`squashrebasemerge` remain available with their existing behavior.
+publication should be explicit in the recipe. `squashrebasemerge` keeps its
+single-op recipe API and now performs these primitives as durable internal
+tasks, saving the prepared commit before publication. `thinpackrebase` remains
+available.
 
 | Op | Behavior | Main inputs | Output |
 | --- | --- | --- | --- |
@@ -45,8 +47,9 @@ as commits. Do not mark these tasks `const`, which disables workspace persistenc
 
 Task completion stores the prepared workspace snapshot before `merge` runs.
 A retry of `merge` publishes the same commit; if the remote already points to
-that exact commit, publication succeeds as a no-op. A divergent target or one
-already ahead of the candidate is rejected. `merge` never force-updates existing
+that exact commit, publication succeeds as a no-op. A target containing the
+candidate in its ancestry also counts as success, preserving later commits.
+A divergent target is rejected. `merge` never force-updates existing
 history. It checks target ancestry and fetches missing history when the workspace
 is shallow. Publishing to an alternate repository or branch retains the original
 workspace base and snapshot. If the target advances, explicitly prepare a new candidate with
@@ -55,5 +58,12 @@ workspace base and snapshot. If the target advances, explicitly prepare a new ca
 For `workspace: {cell: ..., ref: main, initial: empty}`, use `squash` followed by
 `merge`, without `rebase`. `squash` creates a root commit and task completion
 persists a self-contained snapshot. `merge` creates the target branch only if
-absent, or accepts the identical previously published commit. An existing branch
-with a different commit is rejected. See [empty workspaces](GUIDE-Empty-Workspaces.md).
+absent, or recognizes the candidate already published in the target's history.
+An unrelated existing branch is rejected. See [empty workspaces](GUIDE-Empty-Workspaces.md).
+
+For `squashrebasemerge`, `retry` applies to the failing internal task. Completed
+preparation is reused; publication never rebases again on retry. Once these
+retries are exhausted, the failure propagates without an automatic enclosing
+scope retry that would recreate the candidate. A recipe catch can handle the
+failure and explicitly choose further work. Use the managed worktree and do not
+mark the op `const`, since the durable boundary requires workspace persistence.

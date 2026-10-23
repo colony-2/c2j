@@ -47,6 +47,7 @@ type OpMetadata struct {
 	Version          string        // Semantic version
 	DefaultTimeout   time.Duration // Default execution timeout
 	AcceptsArtifacts bool          // Whether the op accepts inbox artifact bindings
+	RetrySteps       bool          // Apply recipe retry policy to each task, preserving completed steps
 }
 
 type OpExecutor interface {
@@ -145,6 +146,7 @@ type OpBuilder interface {
 	WithVersion(ver string) OpBuilder
 	WithDefaultTimeout(d time.Duration) OpBuilder
 	WithAcceptsArtifacts(accept bool) OpBuilder
+	WithStepRetries(enabled bool) OpBuilder
 	AddStep(name string, step Step) OpBuilder
 	WithManagementService(svc ManagementService) OpBuilder
 	Build() (RegisterableOp, error)
@@ -183,6 +185,11 @@ func (b *opBuilder) WithDefaultTimeout(d time.Duration) OpBuilder {
 
 func (b *opBuilder) WithAcceptsArtifacts(accept bool) OpBuilder {
 	b.metadata.AcceptsArtifacts = accept
+	return b
+}
+
+func (b *opBuilder) WithStepRetries(enabled bool) OpBuilder {
+	b.metadata.RetrySteps = enabled
 	return b
 }
 
@@ -274,6 +281,7 @@ func NewActivityMappedOpV2[In any, Out any](metadata OpMetadata, handler Activit
 		WithVersion(metadata.Version).
 		WithDefaultTimeout(metadata.DefaultTimeout).
 		WithAcceptsArtifacts(metadata.AcceptsArtifacts).
+		WithStepRetries(metadata.RetrySteps).
 		AddStep(metadata.Type, NewStepWithDeps(handler)).
 		Build()
 	if err != nil {
@@ -323,6 +331,7 @@ func NewActivityMappedOpWithProviderV2[In any, Out any](metadata OpMetadata, han
 		WithVersion(metadata.Version).
 		WithDefaultTimeout(metadata.DefaultTimeout).
 		WithAcceptsArtifacts(metadata.AcceptsArtifacts).
+		WithStepRetries(metadata.RetrySteps).
 		AddStep(metadata.Type, step).
 		Build()
 	if err != nil {

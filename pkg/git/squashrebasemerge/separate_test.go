@@ -61,7 +61,7 @@ func TestSeparateSquashAndMerge(t *testing.T) {
 				require.Equal(t, out.SquashedHash, published.MergedHash)
 				require.Equal(t, out.SquashedHash, revParse(t, remote, "refs/heads/main"))
 			}
-			// A competing branch update must not be overwritten by a stale retry.
+			// Publication remains successful after another writer builds on it.
 			writeFile(t, repo, "other.txt", "other")
 			runGit(t, repo, "git", "add", ".")
 			runGit(t, repo, "git", "commit", "-m", "competitor")
@@ -69,7 +69,7 @@ func TestSeparateSquashAndMerge(t *testing.T) {
 			runGit(t, repo, "git", "push", remote, "HEAD:refs/heads/main")
 			runGit(t, repo, "git", "reset", "--hard", out.SquashedHash)
 			_, err = merge(ctx, input, empty)
-			require.Error(t, err)
+			require.NoError(t, err)
 			require.Equal(t, other, revParse(t, remote, "refs/heads/main"))
 			require.Equal(t, out.SquashedHash, revParse(t, repo, "HEAD"))
 		})

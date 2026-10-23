@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/colony-2/c2j/pkg/ops"
 	"github.com/colony-2/c2j/pkg/recipe"
 	coretask "github.com/colony-2/c2j/pkg/task"
 	"github.com/colony-2/c2j/pkg/template"
@@ -61,7 +62,13 @@ func executeNodeScope(ctx workflow.Context, parent *template.ResolutionContext, 
 		forwarding = f
 	}
 	options := jobworkflow.ScopeOptions{TotalTimeout: time.Duration(meta.Timeout)}
-	if meta.Retry != nil && (!parent.Options.CatchBeforeRetry || len(meta.Catch) > 0) {
+	retrySteps := false
+	if kind == template.ScopeOp {
+		if op, ok := ops.Get(fallback); ok {
+			retrySteps = op.GetMetadata().RetrySteps
+		}
+	}
+	if !retrySteps && meta.Retry != nil && (!parent.Options.CatchBeforeRetry || len(meta.Catch) > 0) {
 		options.Retry = *meta.Retry
 	}
 	options.OnRestart = func(raw json.RawMessage) error {
@@ -202,7 +209,9 @@ func executeNodeScope(ctx workflow.Context, parent *template.ResolutionContext, 
 		if kind == template.ScopeStateMachine && ctx.CatchStateName == "" {
 			clean.Catch = meta.Catch
 		}
-		clean.Retry = nil
+		if !retrySteps {
+			clean.Retry = nil
+		}
 		clean.Timeout = 0
 		lexical := state
 		inner.ScopeState = func(value *template.ResolutionContext) { lexical = value }
@@ -248,7 +257,18 @@ func executeNodeScope(ctx workflow.Context, parent *template.ResolutionContext, 
 		}
 	}
 	if err != nil {
-		return err
+		if retrySteps && !isExecutionControlError(err) {
+			// Exhausted task retries and scope timeouts must not trigger an
+			// enclosing retry that discards completed preparation. Rehydrate
+			// this marker after JobDB's serialized scope boundary on replay too.
+			failure := normalizeRuntimeFailure(err, parent, meta, failureNodeType(kind), fallback)
+			failure.Retryable = false
+			// Keep the normalized failure details, but do not unwrap the spent
+			// task error: JobDB prioritizes a TimeoutError's retryable flag over
+			// the outer NonRetryable marker.
+			return newRecipeFailureError(failure, nil)
+		}
+		return persistRecipeFailure(err, parent, meta, kind, fallback)
 	}
 	if !ok {
 		return fmt.Errorf("scope %s outcome has no reconstructed frame %d", site, result.Frame)

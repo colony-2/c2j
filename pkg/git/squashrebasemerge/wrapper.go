@@ -1,8 +1,6 @@
 package squashrebasemerge
 
 import (
-	"context"
-
 	"github.com/colony-2/c2j/pkg/ops"
 )
 
@@ -43,23 +41,15 @@ func NewActivity() *Activity {
 
 // GetOp exposes the operation to recipe registration.
 func GetOp() ops.RegisterableOp {
-	return ops.NewActivityMappedOpV2[SquashRebaseMergeInput, SquashRebaseMergeOutput](NewActivity().GetMetadata(), func(inv ops.OpDependencies, ctx context.Context, input SquashRebaseMergeInput) (SquashRebaseMergeOutput, error) {
-		emptyBase := false
-		if inv != nil && input.RepoPath == inv.WorktreePath() {
-			g := inv.GitContext()
-			emptyBase = g.Workspace.HasEmptyBase(g.ResolvedBaseHash, g.ParentHash)
-		}
-		result, err := run(ctx, input, emptyBase)
-		if err != nil {
-			return SquashRebaseMergeOutput{}, err
-		}
-		if emptyBase {
-			if err := ops.SetWorkspaceBase(inv, result.MergedHash); err != nil {
-				return SquashRebaseMergeOutput{}, err
-			}
-		}
-		return *result, nil
-	})
+	return ops.NewOp().
+		WithType("squashrebasemerge").
+		WithDescription(NewActivity().GetMetadata().Description).
+		WithVersion(NewActivity().GetMetadata().Version).
+		WithStepRetries(true).
+		AddStep("squash", ops.NewStepWithDeps(preparePublication)).
+		AddStep("rebase", ops.NewStepWithDeps(rebasePublication)).
+		AddStep("merge", ops.NewStepWithDeps(mergePublication)).
+		BuildOrPanic()
 }
 
 // GetMetadata describes the operation for discovery and documentation.
@@ -67,6 +57,7 @@ func (a *Activity) GetMetadata() ops.OpMetadata {
 	return ops.OpMetadata{
 		Type:        "squashrebasemerge",
 		Description: "Squashes local commits, rebases onto the latest target branch tip, and fast-forward merges back to the remote",
-		Version:     "1.0.0",
+		Version:     "1.1.0",
+		RetrySteps:  true,
 	}
 }

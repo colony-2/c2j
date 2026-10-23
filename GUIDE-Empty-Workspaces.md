@@ -76,10 +76,12 @@ Across all workspaces, c2j fills missing Git identity fields with
 are honored; preserved original authorship remains distinct from the committer.
 Defaults are repository-local, never written to global Git configuration.
 
-The existing [lost push outcome retry issue](BUG-C2J-PUSH-OUTCOME-RETRY.md) is
-separate and deferred. If publication succeeded but its task outcome was lost,
-a retry is not guaranteed to recognize that success; it will not overwrite a
-different existing branch.
+`squashrebasemerge` persists the prepared root commit before its internal
+publication task runs. If the push succeeds but its response or task outcome is
+lost, recovery retries that exact commit. A destination already containing it
+counts as success, including when another writer has added descendants. An
+unrelated branch is never overwritten. See the [publication recovery
+details](BUG-C2J-PUSH-OUTCOME-RETRY.md).
 
-To persist the prepared root commit before publication, use separate `squash`
-and `merge` tasks instead of `squashrebasemerge`. See [separate Git ops](GUIDE-Git-Ops.md).
+Separate `squash` and `merge` recipe tasks remain available when explicit
+preparation and publication are useful. See [separate Git ops](GUIDE-Git-Ops.md).

@@ -119,16 +119,20 @@ func executeMerge(inv ops.OpDependencies, ctx context.Context, input MergeInput)
 	if err != nil {
 		return result, err
 	}
+	return result, setPublishedBase(inv, input, result.MergedHash)
+}
+
+func setPublishedBase(inv ops.OpDependencies, input MergeInput, hash string) error {
 	if inv != nil && inv.WorktreePath() == input.RepoPath {
 		g := inv.GitContext()
 		// Publishing to a different destination does not make this commit
 		// available from the workspace's source. Retain its snapshot there.
 		if normalizeRemoteURL(input.UpstreamRepo) == normalizeRemoteURL(g.BaseRepo) &&
 			strings.TrimPrefix(input.UpstreamBranch, "refs/heads/") == strings.TrimPrefix(g.BaseRef, "refs/heads/") {
-			err = ops.SetWorkspaceBase(inv, result.MergedHash)
+			return ops.SetWorkspaceBase(inv, hash)
 		}
 	}
-	return result, err
+	return nil
 }
 
 func merge(ctx context.Context, input MergeInput, emptyBase bool) (MergeOutput, error) {
@@ -157,8 +161,12 @@ func mergeFrom(ctx context.Context, input MergeInput, emptyBase bool, source str
 		// first; insist the branch is absent (or already at this exact commit).
 		args = append(args, "--force-with-lease="+branch+":")
 	} else {
-		if err := verifyMergeAncestry(ctx, input.RepoPath, source, input.UpstreamRepo, branch, head); err != nil {
+		published, err := verifyMergeAncestry(ctx, input.RepoPath, source, input.UpstreamRepo, branch, head)
+		if err != nil {
 			return result, err
+		}
+		if published {
+			return MergeOutput{MergedHash: head, TargetBranch: branch}, nil
 		}
 		// Ordinary push enforces fast-forward on the server, including a race
 		// with another publisher. Never force or rewrite the prepared commit.
@@ -166,6 +174,15 @@ func mergeFrom(ctx context.Context, input MergeInput, emptyBase bool, source str
 	}
 	args = append(args, "--", input.UpstreamRepo, head+":"+branch)
 	if _, err := common.ExecuteGitCommand(ctx, input.RepoPath, args...); err != nil {
+		// A rejected/lost response may follow successful publication. This also
+		// handles an initial publication followed by another writer's commit.
+		// Initial creation must reach receive-pack before any read-side lookup.
+		if published, checkErr := publicationPresent(ctx, input.RepoPath, input.UpstreamRepo, branch, head); checkErr == nil && published {
+			return MergeOutput{MergedHash: head, TargetBranch: branch}, nil
+		}
+		if emptyBase {
+			return result, fmt.Errorf("publish initial branch %s (destination must be absent or contain the saved candidate): %w", branch, err)
+		}
 		return result, fmt.Errorf("publish prepared commit to %s: %w", branch, err)
 	}
 	return MergeOutput{MergedHash: head, TargetBranch: branch}, nil

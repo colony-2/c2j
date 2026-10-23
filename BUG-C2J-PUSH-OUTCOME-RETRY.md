@@ -1,28 +1,36 @@
 # Publication can succeed before its task outcome is recorded
 
-Status: deferred; independent of empty-workspace support.
+Status: fixed for the recipe `squashrebasemerge` task chain and standalone `merge`.
 
-`pkg/git/squashrebasemerge/operation.go` creates a squash commit and pushes it
-inside the operation. `pkg/worker/ops/op_executor.go` persists the resulting Git
-snapshot and returns the task outcome afterward.
+The combined op previously created commits and pushed in one task. A successful
+push followed by a lost response or task outcome could cause a retry to recreate
+commits against changed history.
 
-If the push succeeds but its response is lost, or the worker stops before the
-outcome is stored, a retry starts from the previous recorded snapshot. It may
-create a different squash commit (for example, with a new committer timestamp)
-even though the first commit is already remote. The retry can fail or repeat
-publication instead of recognizing the prior success. Recorded-task replay is
-not affected: the missing outcome and external side effect are the problem.
+The recipe API remains `op: squashrebasemerge`, with unchanged inputs and final
+outputs. Preparation and rebase now each persist a workspace snapshot before
+publication. The publication task verifies and pushes the saved candidate SHA;
+it cannot recreate the commit. Recipe retries apply to the failed task, and an
+exhausted task failure prevents enclosing automatic retries from repeating
+preparation.
 
-Expected: reconcile an ambiguous publication without overwriting unrelated
-remote work or creating duplicate history. Possible approaches include retaining
-the exact publication candidate before the push, or reconstructing it
-reproducibly and checking the destination for that exact commit. This report does
-not choose an approach or require a new recipe-level receipt.
+Both publication paths recognize the exact candidate at the destination tip or
+in its ancestry. Later commits are preserved. Divergent history is rejected.
+Initial publication still uses the branch-absence lease, with reconciliation
+after a failed push so repository creation can happen during receive-pack.
 
-Regression coverage should inject failure after the remote accepts a push but
-before local task completion, then retry on another worker. Cover both existing
-branches and first publication, plus a destination changed by another writer.
+Regression coverage:
 
-Empty-workspace delivery explicitly defers this lost-response guarantee. Its
-first-publication push still requires the destination branch to be absent and
-must never replace a different existing branch.
+- `pkg/worker/compiler/publication_recovery_test.go`: lost outcomes after every
+  internal step, discarded worktrees, initial and existing branches, subsequent
+  writers, divergence, replay, and an actual injected JobDB outcome-write failure
+  recovered by a newly constructed worker.
+- `pkg/git/squashrebasemerge/publication_transport_test.go`: real smart HTTP
+  accepts the push, loses its response, and remains unavailable for immediate
+  reconciliation; a fresh checkout then retries the saved candidate.
+- `pkg/git/squashrebasemerge/chain_test.go`: the target stays pinned across steps
+  and a changed local HEAD cannot substitute for the saved candidate.
+- `pkg/worker/compiler/execution_scopes_integration_test.go`: op timeouts and
+  exhausted task timeouts cannot restart preparation through an enclosing retry.
+
+Durability requires the managed workspace and persistence (`const: false`).
+Direct Go `Run` calls are synchronous and have no task checkpoints.

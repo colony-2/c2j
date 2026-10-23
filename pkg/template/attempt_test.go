@@ -20,6 +20,8 @@ func TestAttemptIsolatesStateAndPublishesSharedWorkspaceCounters(t *testing.T) {
 	require.NoError(t, err)
 	attempt.TemplateData.Sequence["previous"].Outputs["value"] = "committed"
 	attempt.UpdateGitState(contextual.GitCommitContext{PersistHash: "committed"})
+	require.Equal(t, "committed", attempt.TaskExecutionContext().GitTask.PersistHash)
+	require.Equal(t, "initial", abandoned.TaskExecutionContext().GitTask.PersistHash)
 	firstWorkspace := attempt.NextWorkspaceID("workspace")
 	require.Equal(t, "initial", root.TemplateData.Sequence["previous"].Outputs["value"])
 	require.Equal(t, "initial", root.GetGitCommitContext().PersistHash)
