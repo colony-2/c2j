@@ -1,10 +1,12 @@
 package model
 
-// ChapterOrdinal is the scope-entry chapter exposed by the story, not TaskOrdinal.
+// Prefer ScopeID: compact histories can contain multiple scopes in one chapter.
+// ChapterOrdinal remains available for unambiguous historical boundaries.
 type GetRestartContextRequest struct {
 	ProjectID      string
 	JobID          string
 	ChapterOrdinal int64
+	ScopeID        string
 }
 
 type RestartContext struct {

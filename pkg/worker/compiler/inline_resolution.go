@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"os"
 	"path"
 	"path/filepath"
@@ -15,6 +16,7 @@ import (
 	"github.com/colony-2/c2j/pkg/configuration"
 	"github.com/colony-2/c2j/pkg/git/selectorcache"
 	"github.com/colony-2/c2j/pkg/gitprofile"
+	"github.com/colony-2/c2j/pkg/permissions"
 	"github.com/colony-2/c2j/pkg/recipe"
 )
 
@@ -38,9 +40,10 @@ func ResolveInlineRecipes(ctx context.Context, rec recipe.Recipe, opts InlineRes
 		resolver = NewRecipeSourceResolver(RecipeSourceResolverOptions{})
 	}
 	r := &inlineRecipeResolver{
-		projectID: strings.TrimSpace(opts.ProjectID),
-		resolver:  resolver,
-		gitRefs:   make(map[string]string),
+		permissions: recipe.HasPermissions(rec),
+		projectID:   strings.TrimSpace(opts.ProjectID),
+		resolver:    resolver,
+		gitRefs:     make(map[string]string),
 	}
 	for key, value := range gitRefPinsFromRecipeSourceValue(opts.RootSource) {
 		r.gitRefs[key] = value
@@ -53,14 +56,20 @@ func ResolveInlineRecipes(ctx context.Context, rec recipe.Recipe, opts InlineRes
 	if err != nil {
 		return InlineResolutionResult{}, err
 	}
+	if recipe.HasPermissions(expanded) {
+		if err := validateIncludePermissionBoundaries(expanded); err != nil {
+			return InlineResolutionResult{}, err
+		}
+	}
 	return InlineResolutionResult{Recipe: expanded}, nil
 }
 
 type inlineRecipeResolver struct {
-	projectID  string
-	resolver   RecipeSourceResolver
-	gitRefs    map[string]string
-	extensions recipe.ExtensionImports
+	permissions bool
+	projectID   string
+	resolver    RecipeSourceResolver
+	gitRefs     map[string]string
+	extensions  recipe.ExtensionImports
 }
 
 type inlineRecipeSourceContext struct {
@@ -74,10 +83,11 @@ type inlineRecipeSourceContext struct {
 }
 
 type loadedInlineRecipe struct {
-	Recipe        recipe.Recipe
-	Raw           []byte
-	Snapshot      recipe.RecipeSourceSnapshot
-	SourceContext inlineRecipeSourceContext
+	PermissionBoundary bool
+	Recipe             recipe.Recipe
+	Raw                []byte
+	Snapshot           recipe.RecipeSourceSnapshot
+	SourceContext      inlineRecipeSourceContext
 }
 
 func (r *inlineRecipeResolver) rootSourceContext(opts InlineResolutionOptions) (inlineRecipeSourceContext, error) {
@@ -120,6 +130,10 @@ func (r *inlineRecipeResolver) rootSourceContext(opts InlineResolutionOptions) (
 }
 
 func (r *inlineRecipeResolver) expandRecipe(ctx context.Context, rec recipe.Recipe, source inlineRecipeSourceContext) (recipe.Recipe, error) {
+	if recipe.HasPermissions(rec) {
+		r.permissions = true
+	}
+	ctx = inlinePermissionContext(ctx, rec.GetMetadata().NodeMetadata)
 	if spec := rec.GetMetadata().GitProfile; spec != nil {
 		ctx = context.WithValue(ctx, inlineGitProfileKey{}, spec)
 	}
@@ -192,6 +206,11 @@ func (r *inlineRecipeResolver) expandStateMap(ctx context.Context, states *recip
 
 func (r *inlineRecipeResolver) expandNode(ctx context.Context, node recipe.Node, source inlineRecipeSourceContext, pathParts []string, stateKey string) (recipe.Node, error) {
 	if _, shared := node.NodeImpl.(*recipe.NodeShared); !shared {
+		// The caller fetches the include itself; its new ceiling governs the
+		// loaded child's preparation and nested includes, not this bootstrap read.
+		if _, include := node.NodeImpl.(*recipe.NodeInclude); !include {
+			ctx = inlinePermissionContext(ctx, node.GetMetadata())
+		}
 		if spec := node.GetMetadata().GitProfile; spec != nil {
 			ctx = context.WithValue(ctx, inlineGitProfileKey{}, spec)
 		}
@@ -222,6 +241,7 @@ func (r *inlineRecipeResolver) expandNode(ctx context.Context, node recipe.Node,
 
 func (r *inlineRecipeResolver) expandInclude(ctx context.Context, include *recipe.NodeInclude, parentSource inlineRecipeSourceContext, pathParts []string, stateKey string) (recipe.Node, error) {
 	if parent := gitprofile.FromContext(ctx); parent != nil {
+		selection := gitprofile.InheritedSelection(ctx)
 		if spec, ok := ctx.Value(inlineGitProfileKey{}).(*recipe.GitProfileSpec); ok {
 			value := spec.Value
 			if text, ok := value.(string); ok {
@@ -231,13 +251,16 @@ func (r *inlineRecipeResolver) expandInclude(ctx context.Context, include *recip
 					return recipe.Node{}, fmt.Errorf("Git profile for include loading must be a literal or configuration reference; runtime expressions are unavailable during source expansion")
 				}
 			}
-			scope, err := parent.Fork(ctx, gitprofile.Selection{Explicit: true, Value: value})
-			if err != nil {
-				return recipe.Node{}, err
-			}
-			defer scope.Close()
-			ctx = gitprofile.WithScope(ctx, scope)
+			selection = gitprofile.Selection{Explicit: true, Value: value}
 		}
+		// Always fork so inherited include ceilings also apply when the child
+		// never selects an explicit Git profile.
+		scope, err := parent.Fork(ctx, selection)
+		if err != nil {
+			return recipe.Node{}, err
+		}
+		defer scope.Close()
+		ctx = gitprofile.WithScope(ctx, scope)
 	}
 	target := strings.TrimSpace(include.Include.Recipe)
 	if target == "" {
@@ -247,6 +270,13 @@ func (r *inlineRecipeResolver) expandInclude(ctx context.Context, include *recip
 	loaded, err := r.loadIncludedRecipe(ctx, target, parentSource)
 	if err != nil {
 		return recipe.Node{}, fmt.Errorf("resolve include %q at %s: %w", target, strings.Join(pathParts, "/"), err)
+	}
+	loaded.PermissionBoundary = !sameRecipeRepository(parentSource, loaded.SourceContext)
+	if _, err := (permissions.State{}).Enter(include.Perms, loaded.PermissionBoundary && (r.permissions || recipe.HasPermissions(loaded.Recipe))); err != nil {
+		return recipe.Node{}, fmt.Errorf("include %q at %s: %w", target, strings.Join(pathParts, "/"), err)
+	}
+	if include.Perms != nil && include.Perms.Limit != nil && include.Perms.Limit.JobDB != nil {
+		ctx = gitprofile.WithSecretLimit(ctx, include.Perms.Limit.JobDB.Secrets.Resolve)
 	}
 	expandedRecipe, err := r.expandRecipe(ctx, loaded.Recipe, loaded.SourceContext)
 	if err != nil {
@@ -454,13 +484,14 @@ func inlineWrapperNode(include *recipe.NodeInclude, rec recipe.Recipe, loaded lo
 	wrapperMeta.ID = wrapperID
 	wrapperMeta.Internal = &recipe.NodeInternalMetadata{
 		Inline: &recipe.InlineInclusionMetadata{
-			Execution:         meta.Execution,
-			CallsitePath:      callsitePath,
-			RecipeID:          meta.ID,
-			RecipeVersion:     meta.Version,
-			Source:            loaded.Snapshot,
-			ContentSHA256:     sha256Hex(loaded.Raw),
-			ResolvedSelectors: nil,
+			PermissionBoundary: loaded.PermissionBoundary,
+			Execution:          meta.Execution,
+			CallsitePath:       callsitePath,
+			RecipeID:           meta.ID,
+			RecipeVersion:      meta.Version,
+			Source:             loaded.Snapshot,
+			ContentSHA256:      sha256Hex(loaded.Raw),
+			ResolvedSelectors:  nil,
 		},
 		CompositeInputSchema: cloneInputSchema(meta.InputSchema),
 	}
@@ -472,6 +503,41 @@ func inlineWrapperNode(include *recipe.NodeInclude, rec recipe.Recipe, loaded lo
 			Outputs:  passThroughOutputs(innerID, innerOutputs),
 		},
 	}}, nil
+}
+
+// Compare source repositories, never workspace labels or recipe IDs. Local paths
+// must resolve inside the same actual checkout; symlinks cannot launder origin.
+func sameRecipeRepository(a, b inlineRecipeSourceContext) bool {
+	if a.GitRepositoryURL != "" && b.GitRepositoryURL != "" {
+		canonical := func(raw string) string {
+			u, err := url.Parse(raw)
+			if err != nil || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
+				return ""
+			}
+			return strings.ToLower(u.Scheme) + "://" + strings.ToLower(u.Host) + strings.TrimSuffix(strings.TrimSuffix(u.Path, "/"), ".git")
+		}
+		left := canonical(a.GitRepositoryURL)
+		return left != "" && left == canonical(b.GitRepositoryURL)
+	}
+	root := func(file string) string {
+		if file == "" {
+			return ""
+		}
+		real, err := filepath.EvalSymlinks(file)
+		if err != nil {
+			return ""
+		}
+		for dir := filepath.Dir(real); ; dir = filepath.Dir(dir) {
+			if _, err := os.Stat(filepath.Join(dir, ".git")); err == nil {
+				return dir
+			}
+			if filepath.Dir(dir) == dir {
+				return ""
+			}
+		}
+	}
+	left := root(a.LocalFile)
+	return left != "" && left == root(b.LocalFile)
 }
 
 func includedRecipeRootNode(rec recipe.Recipe) (recipe.Node, map[string]interface{}, recipe.RecipeMetadata, error) {
@@ -625,4 +691,27 @@ func extensionImportKey(fn recipe.ExtensionFunctionImport) string {
 		return fn.Selector
 	}
 	return string(raw)
+}
+
+func inlinePermissionContext(ctx context.Context, meta recipe.NodeMetadata) context.Context {
+	if p := meta.Perms; p != nil && p.Limit != nil && p.Limit.JobDB != nil {
+		return gitprofile.WithSecretLimit(ctx, p.Limit.JobDB.Secrets.Resolve)
+	}
+	return ctx
+}
+
+type permissionBoundaryVisitor struct{ recipe.BaseVisitor }
+
+func (v *permissionBoundaryVisitor) VisitNodeSequence(node *recipe.NodeSequence, path []string) (recipe.Node, error) {
+	if m := node.Internal; m != nil && m.Inline != nil && m.Inline.PermissionBoundary {
+		if _, err := (permissions.State{}).Enter(node.Perms, true); err != nil {
+			return recipe.Node{}, fmt.Errorf("include at %s (%s): %w", strings.Join(path, "/"), m.Inline.Source.ResolvedSelector, err)
+		}
+	}
+	return v.BaseVisitor.VisitNodeSequence(node, path)
+}
+
+func validateIncludePermissionBoundaries(rec recipe.Recipe) error {
+	_, err := recipe.NewNodeWalker(&permissionBoundaryVisitor{}).Walk(rec)
+	return err
 }

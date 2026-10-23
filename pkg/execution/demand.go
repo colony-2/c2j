@@ -8,6 +8,10 @@ import (
 	"reflect"
 )
 
+// DemandSchemaVersion requires workers that understand node permissions.
+// Allocation reporting retains its independent version; old jobs remain valid.
+const DemandSchemaVersion = 2
+
 // Demand is a complete snapshot. Only a yield publishes a runtime change.
 type Demand struct {
 	SchemaVersion    int           `json:"schema_version"`
@@ -25,7 +29,7 @@ type Demand struct {
 }
 
 func Initial(base *Requirements, digest string, overrides Requirements) (Demand, error) {
-	d := Demand{SchemaVersion: SchemaVersion, RecipeResolution: "unresolved", JobRequirements: overrides}
+	d := Demand{SchemaVersion: DemandSchemaVersion, RecipeResolution: "unresolved", JobRequirements: overrides}
 	if digest != "" {
 		d.RecipeResolution, d.RecipeDigest, d.RecipeBase = "resolved", digest, base
 	}
@@ -53,7 +57,7 @@ func (e *UnsupportedVersionError) Error() string {
 }
 
 func (d Demand) Validate() error {
-	if d.SchemaVersion != SchemaVersion {
+	if d.SchemaVersion != SchemaVersion && d.SchemaVersion != DemandSchemaVersion {
 		return &UnsupportedVersionError{d.SchemaVersion}
 	}
 	if d.RecipeResolution != "resolved" && d.RecipeResolution != "unresolved" {

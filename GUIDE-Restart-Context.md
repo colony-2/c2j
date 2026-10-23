@@ -3,7 +3,7 @@
 The `pkg/story` service exposes a recorded restart boundary on story nodes and
 can reconstruct the complete context at that boundary before a new patch is
 applied. The boundary is identified by **tenant/project, source job ID, and
-chapter ordinal**. No revision token is required: later chapters do not change
+logical scope ID**. An unambiguous chapter ordinal remains supported. No revision token is required: later chapters do not change
 the selected history prefix.
 
 ## Select a restart boundary
@@ -21,13 +21,14 @@ Each `JobRunStoryNode` may have:
 
 | Go field / JSON field | Meaning |
 | --- | --- |
-| `RestartChapterOrdinal` / `restart_chapter_ordinal` | Pointer to the recorded scope-entry chapter. Use this for inspection and restart. |
+| `RestartScopeID` / `restart_scope_id` | Exact logical boundary; use for inspection and restart. |
+| `RestartChapterOrdinal` / `restart_chapter_ordinal` | Physical chapter containing the scope. Compact histories can contain several scopes in one chapter. |
 | `RestartRelationship` / `restart_relationship` | `exact` for the node's scope, `containing` for an enclosing scope, or `body` for a recipe's executable root body. |
 | `RestartUnavailableReason` / `restart_unavailable_reason` | Explanation when no recorded recipe boundary is available. |
 
 `st.RestartScopes` lists the available boundaries with `chapter_ordinal`,
 `scope_id`, `started_at`, and, when associated with a displayed node, `title` and
-`path`. Use the ordinal to join the selected node to this list.
+`path`. Use the scope ID to join the selected node to this list.
 
 Do not substitute `TaskOrdinal`. That field identifies stored task data, not a
 restart boundary. Do not calculate a boundary from a node's path or subtract one
@@ -38,7 +39,7 @@ restart association. Repeated state visits and nested scope invocations have
 their own recorded boundaries. Individual task retries use their containing
 recipe scope: restarting there reruns that scope, not only the chosen task retry.
 Prior job attempts can be inspected and restarted through their recorded
-ordinals; they are never mapped to the current attempt by display path.
+scope IDs; they are never mapped to the current attempt by display path.
 
 Source-resolution nodes and locations without a recorded recipe scope may have
 no target. Show the unavailable reason or let the user choose a boundary from
@@ -47,15 +48,15 @@ the explicit list.
 ## Inspect context before patching
 
 ```go
-if node.RestartChapterOrdinal == nil {
+if node.RestartScopeID == "" {
     // Present node.RestartUnavailableReason.
     return
 }
-ordinal := *node.RestartChapterOrdinal
+scopeID := node.RestartScopeID
 before, err := svc.GetRestartContext(ctx, story.GetRestartContextRequest{
     ProjectID:      tenantID,
     JobID:          sourceJobID,
-    ChapterOrdinal: ordinal,
+    ScopeID:        scopeID,
 })
 ```
 
@@ -103,7 +104,7 @@ patch := &task.ContextPatch{
 result, err := svc.RestartRecipeJob(ctx, story.RestartRecipeJobRequest{
     ProjectID:      tenantID,
     JobID:          sourceJobID,
-    ChapterOrdinal: &ordinal,
+    ScopeID:        scopeID,
     Patch:         patch,
 })
 // result.JobID identifies the new continuation job.
@@ -113,8 +114,9 @@ The examples use `github.com/colony-2/c2j/pkg/story` and
 `github.com/colony-2/c2j/pkg/task`. Construct the service with the same engine and
 schema registry configuration used for existing story/restart calls.
 
-The existing `ScopeID` request field remains supported. Supply either
-`ChapterOrdinal` or `ScopeID`, never both. `GetRestartContext` uses the ordinal.
+Both requests accept `ScopeID`. Supply either `ChapterOrdinal` or `ScopeID`,
+never both. A chapter containing multiple restartable scopes is rejected as
+ambiguous; use the returned logical scope ID to select the intended visit.
 An absent patch means an unpatched restart. Map nulls and arrays retain the
 existing patch semantics: map nulls delete keys and arrays replace values.
 

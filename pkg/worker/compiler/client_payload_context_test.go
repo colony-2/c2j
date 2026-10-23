@@ -82,3 +82,7 @@ func (noLeaseClientContext) ResolveSecrets(context.Context, []string) (jobdb.Sec
 func (noLeaseClientContext) GetConfiguration(context.Context) (jobdb.ConfigurationSnapshot, error) {
 	return jobdb.ConfigurationSnapshot{}, jobdb.ErrConfigurationUnavailable
 }
+
+func (c noLeaseClientContext) ResolveSecretsFresh(ctx context.Context, names []string) (jobdb.SecretResolveResult, error) {
+	return c.ResolveSecrets(ctx, names)
+}

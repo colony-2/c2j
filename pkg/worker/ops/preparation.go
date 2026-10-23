@@ -86,6 +86,24 @@ func PrepareInvocation(ctx context.Context, inv *ActivityInvocationRequest, prep
 }
 
 func InstallInvocation(ctx context.Context, inv *ActivityInvocationRequest, req ToolSetupRequest, prepareTools func(context.Context, ToolSetupRequest) ToolSetupResult) error {
+	if err := validatePreparedInputs(inv, req); err != nil {
+		return err
+	}
+	if len(req.Scopes) > 0 || req.Extension != nil {
+		setup := prepareTools(ctx, req)
+		inv.Setup = &setup
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if setup.Diagnostics.Error != "" {
+			return fmt.Errorf("tool setup failed: %s", setup.Diagnostics.Error)
+		}
+	}
+	return nil
+}
+
+// Complete schema defaults before collecting or authorizing secret references.
+func validatePreparedInputs(inv *ActivityInvocationRequest, req ToolSetupRequest) error {
 	if req.Extension != nil {
 		inputs, _ := inv.Input["inputs"].(map[string]any)
 		defaulted, err := secrets.ApplySchemaDefaults(req.Extension.Spec.InputSchema, inputs)
@@ -96,16 +114,6 @@ func InstallInvocation(ctx context.Context, inv *ActivityInvocationRequest, req 
 		inv.Input["inputs"] = inputs
 		if err := req.Extension.ValidateInvocationInputs(inputs); err != nil {
 			return fmt.Errorf("failed to validate selector inputs: %w", err)
-		}
-	}
-	if len(req.Scopes) > 0 || req.Extension != nil {
-		setup := prepareTools(ctx, req)
-		inv.Setup = &setup
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		if setup.Diagnostics.Error != "" {
-			return fmt.Errorf("tool setup failed: %s", setup.Diagnostics.Error)
 		}
 	}
 	return nil

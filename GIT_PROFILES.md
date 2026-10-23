@@ -77,3 +77,9 @@ Activation and clearing normally happen internally. Manual `clear` removes profi
 | Secret | `_c2j_git_secret_ID` for supplied credentials |
 
 `NAME` matches `[A-Za-z][A-Za-z0-9_-]{0,127}`; generated IDs are UUIDs without hyphens. Reserve `_c2j_` for typed c2j management APIs. Other underscore-prefixed keys remain user keys. Generic reads are allowed under normal execution authorization; use `c2j git set` to validate profile writes. Direct JobDB writes can bypass that validation, so c2j validates again on activation.
+
+## Node permissions
+
+See [Recipe node permissions](GUIDE-Node-Permissions.md) for `perms.jobdb`
+grants, automatic Git RO/RW secrets, and cross-repository include ceilings.
+Git profiles remain outside the JobDB permission namespace.

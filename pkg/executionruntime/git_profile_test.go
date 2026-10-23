@@ -3,11 +3,13 @@ package executionruntime
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http/httptest"
 	"os"
 	"os/exec"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -17,6 +19,7 @@ import (
 	"github.com/colony-2/c2j/pkg/gitprofile"
 	"github.com/colony-2/c2j/pkg/jobdbschema"
 	coreops "github.com/colony-2/c2j/pkg/ops"
+	"github.com/colony-2/c2j/pkg/permissions"
 	"github.com/colony-2/c2j/pkg/recipe"
 	"github.com/colony-2/c2j/pkg/starter"
 	"github.com/colony-2/c2j/pkg/worker/compiler"
@@ -43,11 +46,13 @@ func TestRecipeGitProfilesAcrossRenewalAndScopeChanges(t *testing.T) {
 	previous := coreops.List()
 	t.Cleanup(func() { coreops.Replace(previous...) })
 	type input struct {
-		Want string `json:"want"`
-		Wait bool   `json:"wait,omitempty"`
+		Want  string `json:"want"`
+		Wait  bool   `json:"wait,omitempty"`
+		Model bool   `json:"model,omitempty"`
+		Deny  bool   `json:"deny,omitempty"`
 	}
 	var observed []string
-	probe := func(_ coreops.OpDependencies, ctx context.Context, in input) (map[string]any, error) {
+	probe := func(deps coreops.OpDependencies, ctx context.Context, in input) (map[string]any, error) {
 		var socket string
 		for _, entry := range gitprofile.Env(ctx, os.Environ()) {
 			if v, ok := strings.CutPrefix(entry, gitprofile.SocketEnv+"="); ok {
@@ -90,18 +95,34 @@ func TestRecipeGitProfilesAcrossRenewalAndScopeChanges(t *testing.T) {
 				return nil, fmt.Errorf("RO scope obtained RW secret")
 			}
 		}
+		if access := permissions.FromContext(ctx); access != nil {
+			if _, err := gitprofile.Call(ctx, socket, gitprofile.Request{Operation: "config", Name: gitprofile.ReadWriteKey}); err != nil {
+				return nil, fmt.Errorf("config read denied in restricted scope: %w", err)
+			}
+			_, err := gitprofile.Call(ctx, socket, gitprofile.Request{Operation: "secret", Name: "model"})
+			if in.Model != (err == nil) {
+				return nil, fmt.Errorf("unexpected model secret access: %v", err)
+			}
+			if in.Deny {
+				_, err = deps.JobTool().(*coreops.TaskBasedJobTool).SubmitJob(ctx, jobdb.SubmitJob{TenantId: "test", JobType: "child", Data: jobdb.NewTaskDataOrPanic(nil)})
+				if !errors.Is(err, jobdb.ErrLeasePermissionDenied) {
+					return nil, fmt.Errorf("submission was not denied: %v", err)
+				}
+			}
+		}
 		observed = append(observed, in.Want)
 		return map[string]any{"ok": true}, nil
 	}
 	coreops.Replace(coreops.NewActivityMappedOpV2[input, map[string]any](coreops.OpMetadata{Type: "git_profile_probe"}, probe), coreops.NewActivityMappedOpV2[input, map[string]any](coreops.OpMetadata{Type: "merge"}, probe), coreops.NewActivityMappedOpV2[input, map[string]any](coreops.OpMetadata{Type: "squashrebasemerge"}, probe))
-	for _, backend := range []string{"toy", "remote"} {
+	for _, backend := range []string{"toy", "remote", "toy-permissions", "remote-permissions"} {
 		t.Run(backend, func(t *testing.T) {
 			observed = nil
-			ctx := context.Background()
+			ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+			defer cancel()
 			provider := &freshGitProvider{}
 			base := toy.New(toy.WithSecretProvider(provider))
 			var runtime jobdb.WorkflowRuntime = base
-			if backend == "remote" {
+			if strings.HasPrefix(backend, "remote") {
 				server := httptest.NewServer(remote.NewServer(base))
 				defer server.Close()
 				remoteRT, err := remote.New(server.URL, server.Client())
@@ -152,6 +173,22 @@ sequence:
     op: git_profile_probe
     inputs: {want: ro}
 `
+			if strings.HasSuffix(backend, "permissions") {
+				text = strings.Replace(text, "id: profiles\n", "id: profiles\nperms: {}\ntimeout: 10s\n", 1)
+				text = strings.Replace(text, "  - id: read\n", "  - id: read\n    timeout: 1m\n", 1)
+				text += `  - id: model
+    op: git_profile_probe
+    perms: {jobdb: {secrets: {resolve: [model, ro]}}}
+    inputs: {want: ro, model: true, deny: true}
+  - id: deny
+    op: git_profile_probe
+    perms: {jobdb: {}}
+    inputs: {want: none, deny: true}
+  - id: sibling
+    op: git_profile_probe
+    inputs: {want: ro}
+`
+			}
 			rec, err := recipe.LoadRecipeFromString([]byte(text))
 			require.NoError(t, err)
 			engine, err := jobworkflow.NewEngineBuilder().WithRuntime(runtime).BuildEngine()
@@ -159,6 +196,11 @@ sequence:
 			key, err := starter.StartRecipeJob(ctx, workflowctl.StartJob{TenantId: "test", RecipeName: "profiles", JobContext: contextual.JobContext{Workflow: contextual.WorkflowContext{CellName: "repo"}, GitBase: contextual.GitBaseContext{BaseRepo: repo, BaseRef: "main"}}}, jobdbschema.WorkflowEngine{Engine: engine, Registry: runtime.(jobdb.JobSchemaRegistry)}, *rec)
 			require.NoError(t, err)
 			rt := New(runtime, execution.Allocation{SchemaVersion: 1})
+			var issued *recordingPermissionIssuer
+			if backend == "remote-permissions" {
+				issued = &recordingPermissionIssuer{inner: rt.Issuer}
+				rt.Issuer = issued
+			}
 			registry, err := workerops.NewActivityRegistry()
 			require.NoError(t, err)
 			deps := coreops.NewServiceDepsBuilder().Build()
@@ -172,9 +214,43 @@ sequence:
 			require.NoError(t, err)
 			out, err := runnable.Run(nil)
 			require.NoError(t, err)
+			if _, supported := any(jobworkflow.TaskContext{}).(interface{ Deadline() (time.Time, bool) }); backend == "remote-permissions" && !supported {
+				require.Equal(t, jobworkflow.JobRunFailed, out.Status)
+				require.ErrorContains(t, out.JobError, "expose the effective task deadline")
+				require.Empty(t, observed, "unsupported remote execution must fail before invoking an op")
+				return
+			}
 			require.Equal(t, jobworkflow.JobRunCompleted, out.Status, fmt.Sprintf("%+v", out))
-			require.Equal(t, []string{"ro", "rw", "ro", "none", "ro", "ro"}, observed)
-			require.EqualValues(t, 10, provider.calls.Load())
+			if strings.HasSuffix(backend, "permissions") {
+				require.Equal(t, []string{"ro", "rw", "ro", "none", "ro", "ro", "ro", "none", "ro"}, observed)
+				require.EqualValues(t, 15, provider.calls.Load())
+				if issued != nil {
+					issued.mu.Lock()
+					defer issued.mu.Unlock()
+					require.NotEmpty(t, issued.deadlines)
+					for _, deadline := range issued.deadlines {
+						require.Equal(t, issued.deadlines[0], deadline, "preparation and sibling tasks must not restart the enclosing deadline")
+						require.WithinDuration(t, time.Now(), deadline, 10*time.Second, "enclosing timeout must beat the op's one-minute timeout")
+					}
+				}
+			} else {
+				require.Equal(t, []string{"ro", "rw", "ro", "none", "ro", "ro"}, observed)
+				require.EqualValues(t, 10, provider.calls.Load())
+			}
 		})
 	}
+}
+
+// Capture only policy bounds, never credential material.
+type recordingPermissionIssuer struct {
+	inner     permissions.Issuer
+	mu        sync.Mutex
+	deadlines []time.Time
+}
+
+func (i *recordingPermissionIssuer) IssueRestrictedLease(ctx context.Context, parent jobdb.ExecutionLease, grant permissions.JobDB, deadline time.Time) (jobdb.ExecutionLease, error) {
+	i.mu.Lock()
+	i.deadlines = append(i.deadlines, deadline)
+	i.mu.Unlock()
+	return i.inner.IssueRestrictedLease(ctx, parent, grant, deadline)
 }

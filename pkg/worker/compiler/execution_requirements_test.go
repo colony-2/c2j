@@ -52,3 +52,7 @@ func (*failingExecutionContext) GetConfiguration(context.Context) (jobdb.Configu
 func (*failingExecutionContext) GetJobKey() jobdb.JobKey {
 	return jobdb.JobKey{TenantId: "test", JobId: "job"}
 }
+
+func (c *failingExecutionContext) ResolveSecretsFresh(ctx context.Context, names []string) (jobdb.SecretResolveResult, error) {
+	return c.ResolveSecrets(ctx, names)
+}

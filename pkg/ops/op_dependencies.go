@@ -9,6 +9,7 @@ import (
 	"github.com/colony-2/c2j/pkg/execution"
 	"github.com/colony-2/c2j/pkg/jobcontext"
 	"github.com/colony-2/c2j/pkg/objects"
+	"github.com/colony-2/c2j/pkg/permissions"
 	"github.com/colony-2/c2j/pkg/workflowctl"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
@@ -43,6 +44,7 @@ type JobTool interface {
 
 type TaskBasedJobTool struct {
 	TaskContext jobworkflow.TaskContext
+	Restricted  *permissions.Access
 }
 
 func (j *TaskBasedJobTool) InvocationID() string { return j.TaskContext.InvocationID }
@@ -58,6 +60,9 @@ func (j *TaskBasedJobTool) AwaitJobs(jobIds ...string) error {
 }
 
 func (j *TaskBasedJobTool) SubmitJob(ctx context.Context, job jobdb.SubmitJob) (jobdb.JobKey, error) {
+	if j.Restricted != nil {
+		return j.Restricted.Submit(ctx, job)
+	}
 	return j.TaskContext.SubmitJob(ctx, job)
 }
 
@@ -252,7 +257,7 @@ func (b *OpDependenciesBuilder) WithDatabase(db *gorm.DB) *OpDependenciesBuilder
 }
 
 func (b *OpDependenciesBuilder) WithTaskContext(tc jobworkflow.TaskContext) *OpDependenciesBuilder {
-	b.jobTool = &TaskBasedJobTool{tc}
+	b.jobTool = &TaskBasedJobTool{TaskContext: tc}
 	return b
 }
 

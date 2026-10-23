@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -62,6 +63,17 @@ type Scope struct {
 }
 
 func NewScope(ctx context.Context, selection Selection, snapshot jobdb.ConfigurationSnapshot, resolve Resolver, executable string, namespace ...string) (*Scope, error) {
+	if limit, ok := ctx.Value(secretLimitKey{}).([]string); ok && resolve != nil {
+		inner := resolve
+		resolve = func(ctx context.Context, names []string) (jobdb.SecretResolveResult, error) {
+			for _, name := range names {
+				if !slices.Contains(limit, name) {
+					return jobdb.SecretResolveResult{}, jobdb.ErrLeasePermissionDenied
+				}
+			}
+			return inner(ctx, names)
+		}
+	}
 	name, err := selection.Resolve(snapshot)
 	if err != nil {
 		return nil, err
@@ -407,7 +419,44 @@ func BindTask(tc jobworkflow.TaskContext, s *Scope) func() {
 func TaskContext(tc jobworkflow.TaskContext) context.Context {
 	ctx := tc.Context()
 	if s, ok := taskScopes.Load(key(tc)); ok {
-		return WithScope(ctx, s.(*Scope))
+		scope := s.(*Scope)
+		return WithScope(scope.ctx, scope)
 	}
 	return ctx
+}
+
+type secretLimitKey struct{}
+
+// WithSecretLimit restricts trusted include preparation as well as later node
+// execution. Nested includes can narrow but cannot restore a removed name.
+func WithSecretLimit(ctx context.Context, names []string) context.Context {
+	allowed := slices.Clone(names)
+	if old, ok := ctx.Value(secretLimitKey{}).([]string); ok {
+		allowed = nil
+		for _, name := range names {
+			if slices.Contains(old, name) {
+				allowed = append(allowed, name)
+			}
+		}
+	}
+	return context.WithValue(ctx, secretLimitKey{}, allowed)
+}
+
+func CredentialNames(selection Selection, snapshot jobdb.ConfigurationSnapshot) ([]string, error) {
+	name, err := selection.Resolve(snapshot)
+	if err != nil || name == "" {
+		return nil, err
+	}
+	p, err := Load(snapshot, name)
+	if err != nil {
+		return nil, err
+	}
+	var names []string
+	for _, e := range p.Entries {
+		if e.SecretRef != "" {
+			names = append(names, e.SecretRef)
+		}
+	}
+	slices.Sort(names)
+	return slices.Compact(names), nil
 }

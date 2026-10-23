@@ -281,6 +281,10 @@ func (c *validationJobContext) ResolveSecrets(context.Context, []string) (jobdb.
 	return jobdb.SecretResolveResult{}, jobdb.ErrNoSecretProvider
 }
 
+func (c *validationJobContext) ResolveSecretsFresh(ctx context.Context, names []string) (jobdb.SecretResolveResult, error) {
+	return c.ResolveSecrets(ctx, names)
+}
+
 func (c *validationJobContext) GetConfiguration(context.Context) (jobdb.ConfigurationSnapshot, error) {
 	return jobdb.ConfigurationSnapshot{}, jobdb.ErrConfigurationUnavailable
 }

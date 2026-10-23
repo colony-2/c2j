@@ -33,6 +33,9 @@ type executionSession struct {
 }
 
 func (j recipeJobWorker) executionSession(ctx jobworkflow.ExecutionContext, r recipe.Recipe, initial *execution.Demand) (*executionSession, error) {
+	if recipe.HasPermissions(r) && !j.taskGuardConfigured {
+		return nil, fmt.Errorf("perms requires an execution-aware runtime and guarded task workers")
+	}
 	a := j.allocation
 	if a.SchemaVersion == 0 {
 		a.SchemaVersion = execution.SchemaVersion

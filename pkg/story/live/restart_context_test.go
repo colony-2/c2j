@@ -42,3 +42,19 @@ func TestCopyAttemptPreservesLogicalInvocationIdentity(t *testing.T) {
 	require.Equal(t, "source-task", step.InvocationID, "step identity must not become an attempt identity")
 	require.Equal(t, 2, step.Attempt)
 }
+
+func TestCompactRestartBoundaryRequiresScopeIDWhenAmbiguous(t *testing.T) {
+	history := []jobdb.ExecutionHistoryEntry{
+		{Ordinal: 7, Record: jobdb.ExecutionRecord{Kind: "scope", ID: "first", Descriptor: []byte(`{"restart":true}`)}},
+		{Ordinal: 7, Record: jobdb.ExecutionRecord{Kind: "scope", ID: "second", Descriptor: []byte(`{"restart":true}`)}},
+	}
+	_, err := RestartBoundary(history, 7)
+	require.ErrorIs(t, err, ErrInvalidRestartBoundary)
+	for _, id := range []string{"first", "second"} {
+		entry, err := RestartBoundaryByID(history, id)
+		require.NoError(t, err)
+		require.Equal(t, id, entry.Record.ID)
+	}
+	_, err = RestartBoundaryByID(history, "missing")
+	require.ErrorIs(t, err, ErrInvalidRestartBoundary)
+}

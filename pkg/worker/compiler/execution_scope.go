@@ -34,7 +34,16 @@ func executeNodeScope(ctx workflow.Context, parent *template.ResolutionContext, 
 	innerBody := body
 	body = func(ctx workflow.Context, state *template.ResolutionContext, meta recipe.NodeMetadata) error {
 		previous := state.GitProfile
-		defer func() { state.GitProfile = previous }()
+		previousPerms := state.Permissions
+		defer func() { state.GitProfile = previous; state.Permissions = previousPerms }()
+		boundary := meta.Internal != nil && meta.Internal.Inline != nil && meta.Internal.Inline.PermissionBoundary
+		var err error
+		if state.Permissions.Version != 0 || meta.Perms != nil {
+			state.Permissions, err = state.Permissions.Enter(meta.Perms, boundary)
+			if err != nil {
+				return err
+			}
+		}
 		op := ""
 		if kind == template.ScopeOp {
 			op = fallback

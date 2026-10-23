@@ -951,3 +951,7 @@ func (c *fakeReplayJobContext) ExecutionVersions() jobdb.ExecutionVersions {
 func (c *fakeReplayJobContext) DoScope(_ string, _ jobworkflow.ScopeOptions, body func(jobworkflow.ExecutionContext) (jobdb.JobData, error)) (jobdb.JobData, error) {
 	return body(c)
 }
+
+func (c *fakeReplayJobContext) ResolveSecretsFresh(ctx context.Context, names []string) (jobdb.SecretResolveResult, error) {
+	return c.ResolveSecrets(ctx, names)
+}

@@ -79,7 +79,9 @@ const (
 //   - This is distinct from SWF "job attempts" (GetJobRunResponse.Attempts), which are surfaced
 //     at the recipe root via JobAttempt/PastAttempts.
 type JobRunStoryNode struct {
-	// RestartChapterOrdinal identifies a scope-entry chapter, never a task result.
+	// RestartScopeID identifies the logical boundary. Compact histories may
+	// share RestartChapterOrdinal with other scopes and task outcomes.
+	RestartScopeID           string                `json:"restart_scope_id,omitempty"`
 	RestartChapterOrdinal    *int64                `json:"restart_chapter_ordinal,omitempty"`
 	RestartRelationship      string                `json:"restart_relationship,omitempty"`
 	RestartUnavailableReason string                `json:"restart_unavailable_reason,omitempty"`

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/colony-2/c2j/pkg/execution"
+	"github.com/colony-2/c2j/pkg/permissions"
 	"github.com/colony-2/c2j/pkg/worker/compiler"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
@@ -19,13 +20,19 @@ import (
 
 type Runtime struct {
 	jobdb.WorkflowRuntime
+	// Issuer is the only credential-creation hook, replaceable for local attenuation.
+	Issuer     permissions.Issuer
 	Allocation execution.Allocation
 	mu         sync.Mutex
 	leases     map[jobdb.JobKey]*lease
 }
 
 func New(runtime jobdb.WorkflowRuntime, allocation execution.Allocation) *Runtime {
-	return &Runtime{WorkflowRuntime: runtime, Allocation: allocation, leases: map[jobdb.JobKey]*lease{}}
+	r := &Runtime{WorkflowRuntime: runtime, Allocation: allocation, leases: map[jobdb.JobKey]*lease{}}
+	if creator, ok := runtime.(permissions.DelegationCreator); ok {
+		r.Issuer = permissions.JobDBIssuer{Creator: creator}
+	}
+	return r
 }
 
 func (r *Runtime) Stage(key jobdb.JobKey, demand execution.Demand) {

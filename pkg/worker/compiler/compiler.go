@@ -17,6 +17,7 @@ import (
 	"github.com/colony-2/c2j/pkg/objects"
 	"github.com/colony-2/c2j/pkg/ops"
 	extops "github.com/colony-2/c2j/pkg/ops/extensions"
+	"github.com/colony-2/c2j/pkg/permissions"
 	"github.com/colony-2/c2j/pkg/recipe"
 	coretask "github.com/colony-2/c2j/pkg/task"
 	"github.com/colony-2/c2j/pkg/template"
@@ -177,6 +178,9 @@ func (d DefaultRecipeExecutor) ExecuteRecipe(ctx workflow.Context, r recipe.Reci
 	}
 
 	metadata := r.GetMetadata().NodeMetadata
+	if recipe.HasPermissions(r) {
+		rCtx.Permissions.Version = permissions.Version
+	}
 	if err := rCtx.SelectGitProfile(metadata.GitProfile, ""); err != nil {
 		return nil, nil, err
 	}
@@ -294,6 +298,9 @@ type StepResult struct {
 func (d DefaultRecipeExecutor) ExecuteOp(ctx workflow.Context, parentResolutionContext *template.ResolutionContext, metadata recipe.NodeMetadata, op string) error {
 	if registered, ok := ops.Get(op); ok && metadata.Timeout == 0 {
 		metadata.Timeout = recipe.Duration(effectiveOpTimeout(metadata, registered))
+	}
+	if metadata.Timeout == 0 && (parentResolutionContext.Permissions.Version != 0 || metadata.Perms != nil) {
+		metadata.Timeout = recipe.Duration(time.Hour)
 	}
 	return executeNodeScope(ctx, parentResolutionContext, metadata, template.ScopeOp, op, func(inner workflow.Context, state *template.ResolutionContext, meta recipe.NodeMetadata) error {
 		return d.executeOpBody(inner, state, meta, op)
@@ -516,6 +523,10 @@ func (d DefaultRecipeExecutor) executeOpAttempt(ctx workflow.Context, parentReso
 					GitTaskContext: *gitstate.NewGlobalGitTaskContext(resCtx.TaskExecutionContext()),
 					ArtifactKeys:   invocationKeys,
 					Artifacts:      resolvedArtifacts,
+				}
+				if resCtx.Permissions.Version != 0 {
+					p := resCtx.Permissions
+					invocation.Permissions = &p
 				}
 
 				taskData, err := jobdb.NewTaskData(invocation)

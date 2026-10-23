@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 
 	"github.com/colony-2/c2j/pkg/story/internal/model"
@@ -27,6 +28,12 @@ func (s *Service) GetRestartContext(ctx context.Context, req model.GetRestartCon
 			return nil, ErrNotFound
 		}
 		return nil, err
+	}
+	if id := strings.TrimSpace(req.ScopeID); id != "" {
+		if req.ChapterOrdinal != 0 {
+			return nil, fmt.Errorf("%w: specify chapter ordinal or scope ID, not both", storylive.ErrInvalidRestartBoundary)
+		}
+		return storylive.InspectRestartContextByScopeID(ctx, s.engine, key, run.Execution, id, s.celProvider, s.rootResolver, s.logger)
 	}
 	return storylive.InspectRestartContext(ctx, s.engine, key, run.Execution, req.ChapterOrdinal, s.celProvider, s.rootResolver, s.logger)
 }

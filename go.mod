@@ -3,7 +3,7 @@ module github.com/colony-2/c2j
 go 1.26
 
 require (
-	github.com/colony-2/jobdb v0.0.46
+	github.com/colony-2/jobdb v0.0.50-0.20261023230857-5a311bd4fff3
 	github.com/colony-2/strata-go v0.0.0-20260621025934-747fa0c819c0
 	github.com/distribution/reference v0.6.0
 	github.com/fatih/structs v1.1.0
@@ -97,6 +97,7 @@ require (
 	golang.org/x/tools v0.43.0 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260406210006-6f92a3bedf2d // indirect
 	gopkg.in/inf.v0 v0.9.1 // indirect
+	gopkg.in/macaroon.v2 v2.1.0 // indirect
 	modernc.org/libc v1.72.3 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.11.0 // indirect

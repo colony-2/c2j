@@ -130,6 +130,7 @@ func storyNodes(root *story.JobRunStoryNode, kind, id string) []*story.JobRunSto
 	visit(root)
 	return out
 }
+
 const restartSequenceRecipe = `id: inspect
 sequence:
   - id: first
@@ -183,7 +184,7 @@ func TestRestartContextAndOrdinalAPI(t *testing.T) {
 			require.Equal(t, "original", snapshot.Visible["inputs"].(map[string]any)["value"])
 			require.NotEmpty(t, snapshot.Job)
 			for _, scope := range st.RestartScopes {
-				f.inspect(t, f.key, scope.ChapterOrdinal)
+				f.inspectScope(t, f.key, scope.ScopeID)
 			}
 			require.Equal(t, int32(4), f.task.calls.Load())
 			after, err := f.runtime.ListChapters(f.ctx, jobdb.ListChaptersRequest{JobKey: f.key})
@@ -238,17 +239,17 @@ outputs: {count: '${{ states.loop.outputs.count }}'}
 	require.Len(t, states, 2)
 	require.NotNil(t, states[0].RestartChapterOrdinal)
 	require.NotNil(t, states[1].RestartChapterOrdinal)
-	require.NotEqual(t, *states[0].RestartChapterOrdinal, *states[1].RestartChapterOrdinal)
-	first := f.inspect(t, f.key, *states[0].RestartChapterOrdinal)
-	second := f.inspect(t, f.key, *states[1].RestartChapterOrdinal)
+	require.NotEqual(t, states[0].RestartScopeID, states[1].RestartScopeID)
+	first := f.inspectScope(t, f.key, states[0].RestartScopeID)
+	second := f.inspectScope(t, f.key, states[1].RestartScopeID)
 	require.Empty(t, first.Visible["states"])
 	prior := second.Visible["states"].(map[string]any)["loop"].(map[string]any)
 	require.EqualValues(t, 1, prior["outputs"].(map[string]any)["count"])
 	for _, scope := range st.RestartScopes {
-		f.inspect(t, f.key, scope.ChapterOrdinal)
+		f.inspectScope(t, f.key, scope.ScopeID)
 	}
-	ordinal := *states[1].RestartChapterOrdinal
-	restarted, err := f.service.RestartRecipeJob(f.ctx, story.RestartRecipeJobRequest{ProjectID: f.key.TenantId, JobID: f.key.JobId, ChapterOrdinal: &ordinal})
+	scopeID := states[1].RestartScopeID
+	restarted, err := f.service.RestartRecipeJob(f.ctx, story.RestartRecipeJobRequest{ProjectID: f.key.TenantId, JobID: f.key.JobId, ScopeID: scopeID})
 	require.NoError(t, err)
 	key := jobdb.JobKey{TenantId: f.key.TenantId, JobId: restarted.JobID}
 	f.run(t, key)
@@ -268,4 +269,12 @@ func TestRestartContextRejectsInvalidTargets(t *testing.T) {
 	require.ErrorIs(t, err, story.ErrNotFound)
 	_, err = f.service.RestartRecipeJob(f.ctx, story.RestartRecipeJobRequest{ProjectID: f.key.TenantId, JobID: f.key.JobId, ScopeID: st.RestartScopes[0].ScopeID, ChapterOrdinal: st.Root.RestartChapterOrdinal})
 	require.ErrorIs(t, err, story.ErrInvalidRestartBoundary)
+}
+
+func (f *restartFixture) inspectScope(t *testing.T, key jobdb.JobKey, id string) *story.RestartContext {
+	t.Helper()
+	result, err := f.service.GetRestartContext(f.ctx, story.GetRestartContextRequest{ProjectID: key.TenantId, JobID: key.JobId, ScopeID: id})
+	require.NoError(t, err)
+	require.Equal(t, id, result.ScopeID)
+	return result
 }

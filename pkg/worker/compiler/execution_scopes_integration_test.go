@@ -407,23 +407,52 @@ func (r *interruptScopeRuntime) GetJobLease(ctx context.Context, req jobdb.GetJo
 	return lease, err
 }
 func (r *interruptScopeRuntime) PutChapter(ctx context.Context, req jobdb.PutChapterRequest) error {
-	if body, ok := req.Chapter.Body.(jobdb.ExecutionChapter); ok && !r.fired {
+	if r.fired {
+		return r.WorkflowRuntime.PutChapter(ctx, req)
+	}
+	matches := func(record jobdb.ExecutionRecord) bool {
+		return record.Kind == r.kind && strings.Contains(record.ID, `scope:"sequence:block"`) && (r.kind != "decision" || record.Retry)
+	}
+	interrupt := func() error {
+		r.fired = true
+		if err := r.lease.Reschedule(ctx, jobdb.RescheduleExecutionRequest{NextRoute: jobdb.Route{JobType: "scope-probe"}}); err != nil {
+			return err
+		}
+		return fmt.Errorf("injected interruption at %s", r.kind)
+	}
+	if body, ok := req.Chapter.Body.(jobdb.ExecutionChapter); ok {
 		record, err := jobdb.DecodeExecutionRecord(body.Record)
 		if err != nil {
 			return err
 		}
-		if record.Kind == r.kind && strings.Contains(record.ID, `scope:"sequence:block"`) && (r.kind != "decision" || record.Retry) {
-			r.fired = true
-			// Deliberately release the lease at the durable boundary, rather than
-			// waiting for a short lease to expire in this test.
-			if err := r.lease.Reschedule(ctx, jobdb.RescheduleExecutionRequest{NextRoute: jobdb.Route{JobType: "scope-probe"}}); err != nil {
+		if matches(record) {
+			return interrupt()
+		}
+	}
+	// JobDB v0.0.49 compacts catch/handled records into the following durable
+	// outcome. Interrupt after committing that checkpoint: the buffered event
+	// by itself is no longer a durable recovery boundary.
+	if raw := req.Chapter.Metadata.Fields["metadata"].Map["__execution_prefix_v3"].String; raw != "" {
+		var records []json.RawMessage
+		if err := json.Unmarshal([]byte(raw), &records); err != nil {
+			return err
+		}
+		for _, raw := range records {
+			record, err := jobdb.DecodeExecutionRecord(raw)
+			if err != nil {
 				return err
 			}
-			return fmt.Errorf("injected interruption before %s", r.kind)
+			if matches(record) {
+				if err := r.WorkflowRuntime.PutChapter(ctx, req); err != nil {
+					return err
+				}
+				return interrupt()
+			}
 		}
 	}
 	return r.WorkflowRuntime.PutChapter(ctx, req)
 }
+
 func TestExecutionScopesRecoverCatchAndRetryDecision(t *testing.T) {
 	registerCatchOp(t, "scope_probe")
 	for _, backend := range []string{"sqlite", "remote"} {

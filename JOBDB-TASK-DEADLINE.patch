@@ -1,0 +1,63 @@
+diff --git a/pkg/workflow/execution_task.go b/pkg/workflow/execution_task.go
+index 330cfb3..8251683 100644
+--- a/pkg/workflow/execution_task.go
++++ b/pkg/workflow/execution_task.go
+@@ -143,0 +144 @@ func (c *executionContext) taskContext() TaskContext {
++	tc.executionDeadline = c.deadline
+diff --git a/pkg/workflow/tasks.go b/pkg/workflow/tasks.go
+index 93dd59a..e06cbe6 100644
+--- a/pkg/workflow/tasks.go
++++ b/pkg/workflow/tasks.go
+@@ -30,0 +31 @@ type TaskContext struct {
++	executionDeadline   time.Time
+@@ -186,0 +188,11 @@ func (tc TaskContext) Context() context.Context {
++
++// Deadline returns the effective absolute task-attempt deadline, including all
++// enclosing scope and total budgets. It does not change engine cancellation
++// causes or create a new timer. An absent deadline is reported as false.
++func (tc TaskContext) Deadline() (time.Time, bool) {
++	deadline := tc.executionDeadline
++	if outer, ok := tc.Context().Deadline(); ok {
++		deadline = earlier(deadline, outer)
++	}
++	return deadline, !deadline.IsZero()
++}
+diff --git a/pkg/workflow/tasks_deadline_test.go b/pkg/workflow/tasks_deadline_test.go
+new file mode 100644
+index 0000000..dac4072
+--- /dev/null
++++ b/pkg/workflow/tasks_deadline_test.go
+@@ -0,0 +1,33 @@
++package workflow
++
++import (
++	"context"
++	"errors"
++	"testing"
++	"time"
++)
++
++func TestTaskContextDeadlineReportsBoundWithoutChangingCancellation(t *testing.T) {
++	deadline := time.Now().Add(time.Minute)
++	ctx, cancel := context.WithCancelCause(context.Background())
++	task := TaskContext{executionContext: ctx, executionDeadline: deadline}
++	got, ok := task.Deadline()
++	if !ok || !got.Equal(deadline) {
++		t.Fatalf("deadline = %v, %v", got, ok)
++	}
++	cause := errors.New("engine timeout cause")
++	cancel(cause)
++	if !errors.Is(context.Cause(task.Context()), cause) {
++		t.Fatal("deadline accessor changed cancellation cause")
++	}
++	outer, stop := context.WithDeadline(context.Background(), deadline.Add(-time.Second))
++	defer stop()
++	task.executionContext = outer
++	got, ok = task.Deadline()
++	if !ok || !got.Equal(deadline.Add(-time.Second)) {
++		t.Fatal("outer deadline was not respected")
++	}
++	if _, ok := (TaskContext{}).Deadline(); ok {
++		t.Fatal("invented deadline")
++	}
++}

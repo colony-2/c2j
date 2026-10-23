@@ -5,12 +5,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/colony-2/c2j/pkg/cellref"
 	"github.com/colony-2/c2j/pkg/contextual"
 	"github.com/colony-2/c2j/pkg/git/common"
 	"github.com/colony-2/c2j/pkg/git/selectorcache"
 	"github.com/colony-2/c2j/pkg/gitprofile"
+	"github.com/colony-2/c2j/pkg/permissions"
 	"github.com/colony-2/c2j/pkg/recipe"
 	"github.com/colony-2/c2j/pkg/template"
 	workerops "github.com/colony-2/c2j/pkg/worker/ops"
@@ -22,6 +24,7 @@ import (
 const WorkspaceResolutionTaskType = "recipe_workspace_resolve"
 
 type WorkspaceResolutionInput struct {
+	Permissions   *permissions.State   `json:"permissions,omitempty"`
 	GitProfile    gitprofile.Selection `json:"git_profile,omitzero"`
 	Cell          string               `json:"cell"`
 	Initial       string               `json:"initial,omitempty"`
@@ -51,6 +54,9 @@ func resolveWorkspaceTask(ctx context.Context, data jobdb.TaskData) (jobdb.TaskD
 	var req WorkspaceResolutionInput
 	if err = json.Unmarshal(raw, &req); err != nil {
 		return nil, err
+	}
+	if req.Permissions != nil && permissions.FromContext(ctx) == nil {
+		return nil, fmt.Errorf("permission-scoped workspace requires executionruntime.WrapTaskWorker")
 	}
 	if req.ScopeID == "" {
 		return nil, fmt.Errorf("workspace scope ID is required")
@@ -118,6 +124,10 @@ func enterWorkspace(ctx workflow.Context, parent *template.ResolutionContext, me
 	}
 	req := WorkspaceResolutionInput{Cell: cell, Ref: ref, Initial: spec.Initial, ScopeID: parent.NextWorkspaceID(meta.ID), Resolution: resolution}
 	req.GitProfile = parent.GitProfile
+	if parent.Permissions.Version != 0 {
+		p := parent.Permissions
+		req.Permissions = &p
+	}
 	if incoming.Workspace != nil {
 		req.ParentScopeID = incoming.Workspace.ScopeID
 	}
@@ -134,6 +144,9 @@ func enterWorkspace(ctx workflow.Context, parent *template.ResolutionContext, me
 			ctx.StageNodeExecution(parent.ExecutionNeeds)
 		}
 		policy := jobdb.RunPolicy{}
+		if req.Permissions != nil {
+			policy.TotalTimeout = jobdb.AsDuration(time.Hour)
+		}
 		if meta.Retry != nil {
 			policy.Retry = *meta.Retry
 		}

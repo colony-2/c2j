@@ -138,6 +138,7 @@ func (r *Recorder) recordRestartScope(entry jobdb.ExecutionHistoryEntry, _ *temp
 		if node := tree.current(); node != nil && node.RestartChapterOrdinal == nil {
 			ordinal := entry.Ordinal
 			node.RestartChapterOrdinal = &ordinal
+			node.RestartScopeID = entry.Record.ID
 			node.RestartRelationship = "exact"
 		}
 	}
@@ -146,7 +147,7 @@ func (r *Recorder) recordRestartScope(entry jobdb.ExecutionHistoryEntry, _ *temp
 
 // Tasks restart through their enclosing recipe scope. Source-loading nodes have
 // no such boundary. A recipe root uses its outer executable body's boundary.
-func associateRestartScopes(node *model.JobRunStoryNode, parent *int64) {
+func associateRestartScopes(node *model.JobRunStoryNode, parent *model.JobRunStoryNode) {
 	if node == nil {
 		return
 	}
@@ -154,23 +155,25 @@ func associateRestartScopes(node *model.JobRunStoryNode, parent *int64) {
 		for _, child := range node.Children {
 			if child.RestartChapterOrdinal != nil {
 				node.RestartChapterOrdinal = child.RestartChapterOrdinal
+				node.RestartScopeID = child.RestartScopeID
 				node.RestartRelationship = "body"
 				break
 			}
 		}
 	}
 	if node.RestartChapterOrdinal == nil && parent != nil && node.Kind != model.JobRunStoryNodeKindRecipeSourceResolution {
-		node.RestartChapterOrdinal = parent
+		node.RestartChapterOrdinal = parent.RestartChapterOrdinal
+		node.RestartScopeID = parent.RestartScopeID
 		node.RestartRelationship = "containing"
 	}
 	if node.RestartChapterOrdinal == nil {
 		node.RestartUnavailableReason = "No recorded restartable recipe scope"
 	}
 	for _, child := range node.Children {
-		associateRestartScopes(child, node.RestartChapterOrdinal)
+		associateRestartScopes(child, node)
 	}
 	for _, prior := range node.PriorAttempts {
-		associateRestartScopes(prior, node.RestartChapterOrdinal)
+		associateRestartScopes(prior, node)
 	}
 	for _, prior := range node.PastAttempts {
 		associateRestartScopes(prior, nil)
@@ -178,9 +181,9 @@ func associateRestartScopes(node *model.JobRunStoryNode, parent *int64) {
 }
 
 func labelRestartScopes(story *JobRunStory) {
-	scopes := map[int64]*model.RestartScope{}
+	scopes := map[string]*model.RestartScope{}
 	for i := range story.RestartScopes {
-		scopes[story.RestartScopes[i].ChapterOrdinal] = &story.RestartScopes[i]
+		scopes[story.RestartScopes[i].ScopeID] = &story.RestartScopes[i]
 	}
 	var visit func(*model.JobRunStoryNode)
 	visit = func(node *model.JobRunStoryNode) {
@@ -188,7 +191,7 @@ func labelRestartScopes(story *JobRunStory) {
 			return
 		}
 		if node.RestartChapterOrdinal != nil && node.RestartRelationship == "exact" {
-			if scope := scopes[*node.RestartChapterOrdinal]; scope != nil {
+			if scope := scopes[node.RestartScopeID]; scope != nil {
 				scope.Title = node.Title
 				scope.Path = append([]string(nil), node.Path...)
 			}

@@ -12,6 +12,7 @@ import (
 	"github.com/colony-2/c2j/pkg/contextual"
 	"github.com/colony-2/c2j/pkg/execution"
 	"github.com/colony-2/c2j/pkg/jobcontext"
+	"github.com/colony-2/c2j/pkg/permissions"
 	"github.com/colony-2/c2j/pkg/recipe"
 	"github.com/colony-2/c2j/pkg/template/funcregistry"
 	"github.com/colony-2/c2j/pkg/toolenv"
@@ -62,6 +63,7 @@ type ScopeMetadata struct {
 
 // ResolutionContext represents template resolution context
 type ResolutionContext struct {
+	Permissions  permissions.State
 	GitProfile   gitprofile.Selection
 	allowSecrets bool
 	ToolScopes   []toolenv.Scope
@@ -354,6 +356,7 @@ func (rc *ResolutionContext) NewChildContext(scopeType ScopeType, metadata recip
 	}
 	child.EffectiveConst = rc.EffectiveConst || metadata.Const
 	child.GitProfile = rc.GitProfile
+	child.Permissions = rc.Permissions
 	child.ExecutionNeeds = execution.Overlay(rc.ExecutionNeeds, execution.Requirements{})
 	child.ToolScopes = append([]toolenv.Scope(nil), rc.ToolScopes...)
 	if metadata.Internal != nil && metadata.Internal.Inline != nil && metadata.Internal.Inline.Execution != nil {

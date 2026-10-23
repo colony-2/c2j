@@ -24,17 +24,51 @@ var ErrInvalidRestartBoundary = errors.New("invalid restart boundary")
 var ErrRestartContextUnavailable = errors.New("restart context unavailable")
 
 func RestartBoundary(history []jobdb.ExecutionHistoryEntry, ordinal int64) (jobdb.ExecutionHistoryEntry, error) {
+	var found *jobdb.ExecutionHistoryEntry
 	for _, entry := range history {
 		if entry.Ordinal == ordinal && restartableScope(entry) {
+			if found != nil {
+				return jobdb.ExecutionHistoryEntry{}, fmt.Errorf("%w: chapter %d contains multiple scopes; use scope ID", ErrInvalidRestartBoundary, ordinal)
+			}
+			copy := entry
+			found = &copy
+		}
+	}
+	if found != nil {
+		return *found, nil
+	}
+	return jobdb.ExecutionHistoryEntry{}, fmt.Errorf("%w: chapter %d is not a recorded patchable scope entry", ErrInvalidRestartBoundary, ordinal)
+}
+
+func RestartBoundaryByID(history []jobdb.ExecutionHistoryEntry, id string) (jobdb.ExecutionHistoryEntry, error) {
+	for _, entry := range history {
+		if entry.Record.ID == id && restartableScope(entry) {
 			return entry, nil
 		}
 	}
-	return jobdb.ExecutionHistoryEntry{}, fmt.Errorf("%w: chapter %d is not a recorded patchable scope entry", ErrInvalidRestartBoundary, ordinal)
+	return jobdb.ExecutionHistoryEntry{}, fmt.Errorf("%w: scope ID is not a recorded patchable scope entry", ErrInvalidRestartBoundary)
 }
 
 // InspectRestartContext replays only as far as the selected scope's entry.
 // A replay control error unwinds synchronously before the selected body runs.
 func InspectRestartContext(ctx context.Context, engine replayJobRunner, key jobdb.JobKey, history []jobdb.ExecutionHistoryEntry, ordinal int64, provider template.CELOptionsProvider, resolver compiler.RecipeSourceResolver, loggers ...*slog.Logger) (snapshot *model.RestartContext, resultErr error) {
+	boundary, err := RestartBoundary(history, ordinal)
+	if err != nil {
+		return nil, err
+	}
+	return inspectRestartBoundary(ctx, engine, key, history, boundary, provider, resolver, loggers...)
+}
+
+func InspectRestartContextByScopeID(ctx context.Context, engine replayJobRunner, key jobdb.JobKey, history []jobdb.ExecutionHistoryEntry, id string, provider template.CELOptionsProvider, resolver compiler.RecipeSourceResolver, loggers ...*slog.Logger) (*model.RestartContext, error) {
+	boundary, err := RestartBoundaryByID(history, id)
+	if err != nil {
+		return nil, err
+	}
+	return inspectRestartBoundary(ctx, engine, key, history, boundary, provider, resolver, loggers...)
+}
+
+func inspectRestartBoundary(ctx context.Context, engine replayJobRunner, key jobdb.JobKey, history []jobdb.ExecutionHistoryEntry, boundary jobdb.ExecutionHistoryEntry, provider template.CELOptionsProvider, resolver compiler.RecipeSourceResolver, loggers ...*slog.Logger) (snapshot *model.RestartContext, resultErr error) {
+	ordinal := boundary.Ordinal
 	var logger *slog.Logger
 	if len(loggers) > 0 {
 		logger = loggers[0]
@@ -49,10 +83,6 @@ func InspectRestartContext(ctx context.Context, engine replayJobRunner, key jobd
 		}
 		logger.Debug("Restart context inspection finished", "component", "story", "event", "restart_context.inspection.finished", "outcome", outcome, "chapter_ordinal", ordinal, "duration_ms", time.Since(started).Milliseconds(), "error", resultErr)
 	}()
-	boundary, err := RestartBoundary(history, ordinal)
-	if err != nil {
-		return nil, err
-	}
 	if resolver == nil {
 		resolver = replayRootSourceResolver{}
 	}
@@ -60,7 +90,7 @@ func InspectRestartContext(ctx context.Context, engine replayJobRunner, key jobd
 	var result *model.RestartContext
 	var captureErr error
 	scopes := newScopeReplay(history, func(entry jobdb.ExecutionHistoryEntry, state *template.ResolutionContext) error {
-		if entry.Ordinal != ordinal {
+		if entry.Record.ID != boundary.Record.ID {
 			return nil
 		}
 		job, visible, err := state.RestartContextSnapshot()

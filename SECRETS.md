@@ -141,3 +141,9 @@ Use `NewRecipeWorkerWithOptions` to wire the session lifecycle automatically.
 Hosts registering workers separately must pass the activity registry's
 `SecretSessions` to `RecipeJobWorkerOptions`. Offline recipe tests can mock ops
 using references; secret-consuming passthrough requires a lease-backed job run.
+
+## Node permissions
+
+See [Recipe node permissions](GUIDE-Node-Permissions.md) for `perms.jobdb`
+grants, automatic Git RO/RW secrets, and cross-repository include ceilings.
+Git profiles remain outside the JobDB permission namespace.

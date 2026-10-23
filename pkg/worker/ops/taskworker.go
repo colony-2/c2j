@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/colony-2/c2j/pkg/configuration"
@@ -12,6 +13,7 @@ import (
 	"github.com/colony-2/c2j/pkg/ops"
 	extops "github.com/colony-2/c2j/pkg/ops/extensions"
 	"github.com/colony-2/c2j/pkg/ops/process"
+	"github.com/colony-2/c2j/pkg/permissions"
 	"github.com/colony-2/c2j/pkg/secrets"
 	coretask "github.com/colony-2/c2j/pkg/task"
 	"github.com/colony-2/jobdb/pkg/jobdb"
@@ -124,47 +126,71 @@ func (t *taskWorker) Run(ctx jobworkflow.TaskContext, input jobdb.TaskData) (res
 	}()
 	opCtx, cancel := NewTaskExecutionContext(ctx)
 	defer cancel()
+	access := permissions.FromContext(opCtx)
+	if air.Permissions != nil && access == nil {
+		return nil, errors.New("permission-scoped task requires executionruntime.WrapTaskWorker")
+	}
 	req, err := ResolveInvocation(opCtx, &air)
 	resolved = req.Extension
 	if err != nil {
 		return nil, err
 	}
+	if access != nil && req.Extension != nil && req.Extension.Spec.Timeout != "" {
+		duration, err := time.ParseDuration(req.Extension.Spec.Timeout)
+		if err != nil || duration <= 0 {
+			return nil, fmt.Errorf("restricted extension requires a valid positive timeout")
+		}
+		deadline := time.Now().Add(duration)
+		stopAccess := access.LimitDeadline(deadline)
+		defer stopAccess()
+		var stopOp context.CancelFunc
+		opCtx, stopOp = context.WithDeadline(opCtx, deadline)
+		defer stopOp()
+	}
 	configDiag, err = materializeConfiguration(opCtx, t.reg, &air, ctx.GetConfiguration)
 	if err != nil {
 		return nil, err
 	}
-	if err := InstallInvocation(opCtx, &air, req, PrepareTools); err != nil {
+	if err := validatePreparedInputs(&air, req); err != nil {
 		return nil, err
 	}
 	if err := secrets.ValidateType(t.reg.Step.InputType, air.Input); err != nil {
 		return nil, err
 	}
 	if t.reg.Metadata.Type == extops.ExecutionOpType && secrets.Contains(air.Input["inputs"]) {
-		if air.Setup == nil || air.Setup.Extension == nil {
+		if req.Extension == nil {
 			return nil, errors.New("secret extension inputs require a prepared manifest")
 		}
-		raw, _ := air.Input["inputs"].(map[string]any)
-		if err := air.Setup.Extension.ValidateInvocationInputs(raw); err != nil {
-			return nil, err
-		}
+
 	}
 	refs, err := secrets.InvocationReferences(t.reg.Step.InputType, air.Input)
 	if err != nil {
 		return nil, err
 	}
-	if scope := gitprofile.FromContext(opCtx); scope != nil {
-		names := make([]string, 0, len(refs))
-		for _, ref := range refs {
-			names = append(names, ref.Name)
+	names := make([]string, 0, len(refs))
+	for _, ref := range refs {
+		names = append(names, ref.Name)
+	}
+	if access != nil {
+		if err := access.CheckSecrets(names); err != nil {
+			return nil, err
 		}
-		scope.AllowSecrets(names)
+	} else if scope := gitprofile.FromContext(opCtx); scope != nil {
+		scope.AllowSecrets(names) // Legacy invocations retain their existing behavior.
+	}
+	if err := InstallInvocation(opCtx, &air, req, PrepareTools); err != nil {
+		return nil, err
 	}
 	secretStart := time.Now()
 	if len(refs) > 0 {
 		if session == nil {
 			return nil, errors.New("secret setup requires a local job execution")
 		}
-		err := session.PrepareReferences(opCtx, refs, ctx.ResolveSecrets)
+		resolve := ctx.ResolveSecrets
+		if access != nil {
+			resolve = access.Resolve
+		}
+		err := session.PrepareReferences(opCtx, refs, resolve)
 		air.SecretSetupMS = time.Since(secretStart).Milliseconds()
 		if err != nil {
 			return nil, session.Error(err)
@@ -186,7 +212,7 @@ func (t *taskWorker) Run(ctx jobworkflow.TaskContext, input jobdb.TaskData) (res
 	if err := opCtx.Err(); err != nil {
 		return nil, err
 	}
-	jobTool := &ops.TaskBasedJobTool{TaskContext: ctx}
+	jobTool := &ops.TaskBasedJobTool{TaskContext: ctx, Restricted: access}
 	out, outArt, err := t.doer.doLogged(opCtx, jobTool, air, inArt, ctx.Logger)
 	out.PreparationMS = prepMS
 	out.SecretSetupMS = air.SecretSetupMS

@@ -1925,3 +1925,7 @@ type testInvocationJobTool struct {
 }
 
 func (j testInvocationJobTool) InvocationID() string { return j.id }
+
+func (c *testJobContext) ResolveSecretsFresh(ctx context.Context, names []string) (jobdb.SecretResolveResult, error) {
+	return c.ResolveSecrets(ctx, names)
+}

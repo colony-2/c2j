@@ -8,6 +8,7 @@ import (
 
 	"github.com/colony-2/c2j/pkg/cel"
 	"github.com/colony-2/c2j/pkg/ops"
+	"github.com/colony-2/c2j/pkg/permissions"
 	"github.com/invopop/jsonschema"
 	yamlv3 "gopkg.in/yaml.v3"
 )
@@ -67,6 +68,9 @@ func (n *Node) UnmarshalYAML(node *yamlv3.Node) error {
 		return err
 	}
 	if err := decodeGitProfile(node, impl); err != nil {
+		return err
+	}
+	if err := decodePerms(node, impl); err != nil {
 		return err
 	}
 
@@ -274,6 +278,7 @@ func (NodeOp) JSONSchema() *jsonschema.Schema {
 func (n *NodeOp) isNode() {}
 
 type NodeMetadata struct {
+	Perms          *permissions.Spec      `yaml:"perms,omitempty" json:"perms,omitempty"`
 	GitProfile     *GitProfileSpec        `yaml:"git_profile,omitempty" json:"git_profile,omitempty"`
 	Workspace      *WorkspaceSpec         `yaml:"workspace,omitempty" json:"workspace,omitempty"`
 	ExecutionNeeds *ExecutionNeeds        `yaml:"execution_needs,omitempty" json:"execution_needs,omitempty"`
@@ -296,13 +301,14 @@ type NodeInternalMetadata struct {
 }
 
 type InlineInclusionMetadata struct {
-	Execution         *execution.Requirements `yaml:"execution,omitempty" json:"execution,omitempty"`
-	CallsitePath      string                  `yaml:"callsite_path,omitempty" json:"callsite_path,omitempty"`
-	RecipeID          string                  `yaml:"recipe_id,omitempty" json:"recipe_id,omitempty"`
-	RecipeVersion     string                  `yaml:"recipe_version,omitempty" json:"recipe_version,omitempty"`
-	Source            RecipeSourceSnapshot    `yaml:"source,omitempty" json:"source,omitempty"`
-	ContentSHA256     string                  `yaml:"content_sha256,omitempty" json:"content_sha256,omitempty"`
-	ResolvedSelectors map[string]string       `yaml:"resolved_selectors,omitempty" json:"resolved_selectors,omitempty"`
+	PermissionBoundary bool                    `yaml:"permission_boundary,omitempty" json:"permission_boundary,omitempty"`
+	Execution          *execution.Requirements `yaml:"execution,omitempty" json:"execution,omitempty"`
+	CallsitePath       string                  `yaml:"callsite_path,omitempty" json:"callsite_path,omitempty"`
+	RecipeID           string                  `yaml:"recipe_id,omitempty" json:"recipe_id,omitempty"`
+	RecipeVersion      string                  `yaml:"recipe_version,omitempty" json:"recipe_version,omitempty"`
+	Source             RecipeSourceSnapshot    `yaml:"source,omitempty" json:"source,omitempty"`
+	ContentSHA256      string                  `yaml:"content_sha256,omitempty" json:"content_sha256,omitempty"`
+	ResolvedSelectors  map[string]string       `yaml:"resolved_selectors,omitempty" json:"resolved_selectors,omitempty"`
 }
 
 type RecipeSourceSnapshot struct {

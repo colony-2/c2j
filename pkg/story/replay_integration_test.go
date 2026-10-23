@@ -191,7 +191,7 @@ func TestStoryAPIReplaysAllPersistedAttemptsAfterDeadlines(t *testing.T) {
 							seen[ordinal] = true
 						}
 						for _, scope := range st.RestartScopes {
-							inspected, err := svc.GetRestartContext(ctx, story.GetRestartContextRequest{ProjectID: key.TenantId, JobID: key.JobId, ChapterOrdinal: scope.ChapterOrdinal})
+							inspected, err := svc.GetRestartContext(ctx, story.GetRestartContextRequest{ProjectID: key.TenantId, JobID: key.JobId, ScopeID: scope.ScopeID})
 							require.NoError(t, err, "inspect historical scope %s", scope.ScopeID)
 							require.Equal(t, scope.ScopeID, inspected.ScopeID)
 						}
