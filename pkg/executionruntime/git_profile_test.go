@@ -214,12 +214,6 @@ sequence:
 			require.NoError(t, err)
 			out, err := runnable.Run(nil)
 			require.NoError(t, err)
-			if _, supported := any(jobworkflow.TaskContext{}).(interface{ Deadline() (time.Time, bool) }); backend == "remote-permissions" && !supported {
-				require.Equal(t, jobworkflow.JobRunFailed, out.Status)
-				require.ErrorContains(t, out.JobError, "expose the effective task deadline")
-				require.Empty(t, observed, "unsupported remote execution must fail before invoking an op")
-				return
-			}
 			require.Equal(t, jobworkflow.JobRunCompleted, out.Status, fmt.Sprintf("%+v", out))
 			if strings.HasSuffix(backend, "permissions") {
 				require.Equal(t, []string{"ro", "rw", "ro", "none", "ro", "ro", "ro", "none", "ro"}, observed)
@@ -248,9 +242,13 @@ type recordingPermissionIssuer struct {
 	deadlines []time.Time
 }
 
-func (i *recordingPermissionIssuer) IssueRestrictedLease(ctx context.Context, parent jobdb.ExecutionLease, grant permissions.JobDB, deadline time.Time) (jobdb.ExecutionLease, error) {
-	i.mu.Lock()
-	i.deadlines = append(i.deadlines, deadline)
-	i.mu.Unlock()
-	return i.inner.IssueRestrictedLease(ctx, parent, grant, deadline)
+func (i *recordingPermissionIssuer) IssueRestrictedLease(ctx context.Context, task permissions.TaskDelegator, grant permissions.JobDB, deadline time.Time) (jobdb.ExecutionLease, error) {
+	child, err := i.inner.IssueRestrictedLease(ctx, task, grant, deadline)
+	if err == nil {
+		info := child.(interface{ Delegation() *jobdb.DelegationInfo }).Delegation()
+		i.mu.Lock()
+		i.deadlines = append(i.deadlines, *info.NotAfter)
+		i.mu.Unlock()
+	}
+	return child, err
 }

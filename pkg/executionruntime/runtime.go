@@ -20,7 +20,7 @@ import (
 
 type Runtime struct {
 	jobdb.WorkflowRuntime
-	// Issuer is the only credential-creation hook, replaceable for local attenuation.
+	// Issuer translates recipe grants into task-scoped delegation requests.
 	Issuer     permissions.Issuer
 	Allocation execution.Allocation
 	mu         sync.Mutex
@@ -29,10 +29,27 @@ type Runtime struct {
 
 func New(runtime jobdb.WorkflowRuntime, allocation execution.Allocation) *Runtime {
 	r := &Runtime{WorkflowRuntime: runtime, Allocation: allocation, leases: map[jobdb.JobKey]*lease{}}
-	if creator, ok := runtime.(permissions.DelegationCreator); ok {
-		r.Issuer = permissions.JobDBIssuer{Creator: creator}
+	if _, ok := runtime.(jobdb.LeaseDelegator); ok {
+		r.Issuer = permissions.JobDBIssuer{}
 	}
 	return r
+}
+
+// CreateDelegation forwards the optional runtime capability hidden by embedding
+// WorkflowRuntime. Preserve the exact parent chosen by the engine and unwrap our
+// admission wrapper so the remote runtime can export its original capability.
+func (r *Runtime) CreateDelegation(ctx context.Context, parent jobdb.ExecutionLease, req jobdb.CreateDelegationRequest) (jobdb.RenewableExecutionLease, error) {
+	creator, ok := r.WorkflowRuntime.(jobdb.LeaseDelegator)
+	if !ok {
+		return nil, jobdb.ErrLeaseDelegationUnsupported
+	}
+	switch l := parent.(type) {
+	case *renewableLease:
+		parent = l.ExecutionLease
+	case *lease:
+		parent = l.ExecutionLease
+	}
+	return creator.CreateDelegation(ctx, parent, req)
 }
 
 func (r *Runtime) Stage(key jobdb.JobKey, demand execution.Demand) {
@@ -104,6 +121,14 @@ type lease struct {
 type leaseState struct {
 	demand  *execution.Demand
 	blocked error
+}
+
+// Preserve signed parent bounds for the engine's task-scoped deadline clamp.
+func (l *lease) Delegation() *jobdb.DelegationInfo {
+	if restricted, ok := l.ExecutionLease.(interface{ Delegation() *jobdb.DelegationInfo }); ok {
+		return restricted.Delegation()
+	}
+	return nil
 }
 
 func (l *lease) LeaseSchemaHash() string {

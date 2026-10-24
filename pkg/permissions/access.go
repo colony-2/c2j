@@ -118,11 +118,3 @@ func WithAccess(ctx context.Context, access *Access) context.Context {
 	return context.WithValue(ctx, accessKey{}, access)
 }
 func FromContext(ctx context.Context) *Access { a, _ := ctx.Value(accessKey{}).(*Access); return a }
-
-// Earlier ignores absent deadlines. It never restarts a timeout from issuance.
-func Earlier(a, b time.Time) time.Time {
-	if a.IsZero() || (!b.IsZero() && b.Before(a)) {
-		return b
-	}
-	return a
-}

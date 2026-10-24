@@ -9,48 +9,64 @@ import (
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/remote"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/toy"
+	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
 	"github.com/stretchr/testify/require"
 )
 
-type creatorFunc func(context.Context, jobdb.ExecutionLease, jobdb.CreateDelegationRequest) (jobdb.RenewableExecutionLease, error)
+type creatorFunc func(context.Context, jobdb.CreateDelegationRequest) (jobdb.RenewableExecutionLease, error)
 
-func (f creatorFunc) CreateDelegation(ctx context.Context, p jobdb.ExecutionLease, req jobdb.CreateDelegationRequest) (jobdb.RenewableExecutionLease, error) {
-	return f(ctx, p, req)
+func (f creatorFunc) CreateDelegation(ctx context.Context, req jobdb.CreateDelegationRequest) (jobdb.RenewableExecutionLease, error) {
+	return f(ctx, req)
 }
 
 type issuedLease struct {
 	jobdb.RenewableExecutionLease
+	info     *jobdb.DelegationInfo
 	renewErr error
 	renewals int
 }
 
+func (l *issuedLease) Delegation() *jobdb.DelegationInfo { return l.info }
+
 func (l *issuedLease) KeepAlive(context.Context) error { l.renewals++; return l.renewErr }
 
-func TestCentralIssuerPreservesGrantAndEarliestDeadline(t *testing.T) {
-	deadline := time.Now().Add(time.Minute)
-	ctx, cancel := context.WithDeadline(context.Background(), deadline)
+func TestCentralIssuerUsesTaskBoundsNotCallTimeout(t *testing.T) {
+	deadline := time.Now().UTC().Add(time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
-	child := &issuedLease{}
-	calls := 0
-	issuer := JobDBIssuer{Creator: creatorFunc(func(_ context.Context, _ jobdb.ExecutionLease, req jobdb.CreateDelegationRequest) (jobdb.RenewableExecutionLease, error) {
-		calls++
-		require.Equal(t, deadline, *req.NotAfter)
-		require.Equal(t, []string{"model"}, req.Permissions.Secrets)
-		require.Nil(t, req.Permissions.Read)
-		require.Nil(t, req.Permissions.Write)
-		require.True(t, req.Permissions.Submit.JobTypes.Any)
-		require.True(t, req.Permissions.Submit.JobIDs.Any)
-		return child, nil
-	})}
-	grant := JobDB{Secrets: SecretPermissions{Resolve: []string{"model"}}, Jobs: JobPermissions{Submit: true}}
-	got, err := issuer.IssueRestrictedLease(ctx, &issuedLease{}, grant, deadline.Add(time.Hour))
-	require.NoError(t, err)
-	require.Same(t, child, got)
-	require.Equal(t, 0, child.renewals, "issuance is local and must not call renewal")
-	_, err = issuer.IssueRestrictedLease(context.Background(), &issuedLease{}, grant, time.Time{})
-	require.ErrorContains(t, err, "finite")
-	require.Equal(t, 1, calls)
+	child := &issuedLease{info: &jobdb.DelegationInfo{NotAfter: &deadline}}
+	issuer := JobDBIssuer{}
+	for _, limit := range []time.Time{{}, deadline} {
+		task := creatorFunc(func(call context.Context, req jobdb.CreateDelegationRequest) (jobdb.RenewableExecutionLease, error) {
+			require.Same(t, ctx, call)
+			if limit.IsZero() {
+				require.Nil(t, req.NotAfter, "JobDB supplies the execution bounds")
+			} else {
+				require.Equal(t, limit, *req.NotAfter)
+			}
+			require.Equal(t, []string{"model"}, req.Permissions.Secrets)
+			require.Nil(t, req.Permissions.Read)
+			require.Nil(t, req.Permissions.Write)
+			require.True(t, req.Permissions.Submit.JobTypes.Any)
+			require.True(t, req.Permissions.Submit.JobIDs.Any)
+			return child, nil
+		})
+		grant := JobDB{Secrets: SecretPermissions{Resolve: []string{"model"}}, Jobs: JobPermissions{Submit: true}}
+		got, err := issuer.IssueRestrictedLease(ctx, task, grant, limit)
+		require.NoError(t, err)
+		require.Same(t, child, got)
+	}
+	require.Zero(t, child.renewals, "issuance is local and must not call renewal")
+}
 
+func TestCentralIssuerRejectsMissingTaskCapabilityAndUnboundedChild(t *testing.T) {
+	issuer := JobDBIssuer{}
+	_, err := issuer.IssueRestrictedLease(context.Background(), jobworkflow.TaskContext{}, JobDB{}, time.Time{})
+	require.ErrorIs(t, err, jobdb.ErrLeaseDelegationUnsupported)
+	_, err = issuer.IssueRestrictedLease(context.Background(), creatorFunc(func(context.Context, jobdb.CreateDelegationRequest) (jobdb.RenewableExecutionLease, error) {
+		return &issuedLease{info: &jobdb.DelegationInfo{}}, nil
+	}), JobDB{}, time.Time{})
+	require.ErrorContains(t, err, "finite task deadline")
 }
 
 func TestLocalAttenuationAndRenewalRespectHardDeadline(t *testing.T) {
@@ -65,20 +81,19 @@ func TestLocalAttenuationAndRenewalRespectHardDeadline(t *testing.T) {
 	owner, err := client.GetJobLease(ctx, jobdb.GetJobLeaseRequest{JobKey: job.JobKey, WorkerID: "test", Routes: []jobdb.Route{{JobType: "test"}}, LeaseDuration: time.Minute})
 	require.NoError(t, err)
 	require.NotNil(t, owner)
-	issuer := JobDBIssuer{Creator: client}
 	deadline := time.Now().UTC().Add(time.Second)
-	child, err := issuer.IssueRestrictedLease(ctx, owner, JobDB{Jobs: JobPermissions{Submit: true}}, deadline)
+	child, err := client.CreateDelegation(ctx, owner, jobdb.CreateDelegationRequest{Permissions: jobdb.DelegationPermissions{Submit: &jobdb.DelegationSubmitPermission{JobTypes: jobdb.DelegationNames{Any: true}, JobIDs: jobdb.DelegationNames{Any: true}}}, NotAfter: &deadline})
 	require.NoError(t, err)
 	info := child.(interface{ Delegation() *jobdb.DelegationInfo }).Delegation()
 	require.Equal(t, deadline, *info.NotAfter)
-	renewed, err := child.(jobdb.RenewableExecutionLease).Renew(ctx)
+	renewed, err := child.Renew(ctx)
 	require.NoError(t, err)
 	require.Equal(t, deadline, *renewed.(interface{ Delegation() *jobdb.DelegationInfo }).Delegation().NotAfter)
 	// Further local attenuation cannot widen permissions or the parent's deadline.
-	narrow, err := issuer.IssueRestrictedLease(ctx, child, JobDB{}, deadline.Add(time.Hour))
+	narrow, err := client.CreateDelegation(ctx, child, jobdb.CreateDelegationRequest{})
 	require.NoError(t, err)
 	require.Equal(t, deadline, *narrow.(interface{ Delegation() *jobdb.DelegationInfo }).Delegation().NotAfter)
-	_, err = issuer.IssueRestrictedLease(ctx, narrow, JobDB{Jobs: JobPermissions{Submit: true}}, deadline)
+	_, err = client.CreateDelegation(ctx, narrow, jobdb.CreateDelegationRequest{Permissions: info.Permissions, NotAfter: &deadline})
 	require.ErrorIs(t, err, jobdb.ErrLeasePermissionDenied)
 	jobReq := jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "test", JobType: "child", Data: jobdb.NewTaskDataOrPanic(nil)}}
 	_, err = narrow.SubmitJob(ctx, jobReq)

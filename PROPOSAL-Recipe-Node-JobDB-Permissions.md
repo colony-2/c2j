@@ -1,8 +1,8 @@
 # Recipe node JobDB permissions
 
-Status: c2j implementation with opt-in migration, 2026-10-23. Remote execution
-awaits the JobDB deadline accessor in [the upstream patch](JOBDB-TASK-DEADLINE.patch). See
-[the usage guide](GUIDE-Node-Permissions.md) for the runtime contract and rollout.
+Status: implemented with opt-in migration, 2026-10-24. Remote execution uses
+JobDB's task-scoped local attenuation API. GUIDE-Node-Permissions.md describes
+the runtime contract and rollout.
 
 Add a `perms` mapping to common recipe node metadata, with a nested `jobdb`
 namespace. It describes what the
@@ -338,12 +338,15 @@ to the receiver's policy.
 ### One delegation issuance boundary
 
 Centralize all restricted credential creation behind a small c2j runtime service,
-for example `IssueRestrictedLease(ctx, parent, resolvedGrant)`. No compiler, op,
+for example `IssueRestrictedLease(ctx, task, resolvedGrant, operationDeadline)`. No compiler, op,
 Git helper, child broker, or CLI path calls JobDB delegation creation directly.
 The compiler resolves policy; this service is the sole credential issuer.
 
-The issuer receives the exact JobDB grant and effective absolute hard deadline.
-Invocation identity stays in the trusted task context; JobDB owns transport refresh. Keep source
+The issuer receives the exact JobDB grant, live task delegation capability, and
+optional stricter operation deadline. `TaskContext.CreateDelegation` applies the
+engine's attempt, total, enclosing, caller, and parent capability bounds. The call
+context controls issuance cancellation only; its timeout is not a token bound.
+Invocation identity stays in the trusted task context. Keep source
 provenance and default Git credential expansion in c2j policy evaluation;
 only supported concrete permissions cross the JobDB credential boundary. Return
 the existing restricted lease/capability abstraction so callers do not depend
@@ -353,16 +356,16 @@ The service calls JobDB’s local attenuation API. Future call-pattern changes
 stay inside that implementation. Do not invent a token format or copy signing logic into c2j.
 The central service must validate that requested authority fits both c2j's
 resolved policy and the supplied parent capability. Attenuation can only narrow
-permissions, renewal authority and lifetime; it cannot restore a permission
-absent from its parent or extend the parent's hard deadline. Include any parent
-capability hard deadline in the effective minimum. A parent's rotating access
-expiry remains a bound on each access token, not a new permanent scope deadline.
+permissions and lifetime; it cannot restore a permission absent from its parent
+or extend the parent's hard deadline. JobDB includes the parent capability's hard
+deadline in the effective minimum. The renewable owner's expiry snapshot is not
+a permanent child deadline; the exact parent lease must remain live at use.
 
 Centralize version/capability checks, issuance errors, and sanitized audit data
 there as well. Unsupported issuance must fail without falling back to an owner
 credential or dropping restrictions. Retry/reissue goes through the same service
-with the original resolved scope bounds. Client-side lazy refresh remains the
-JobDB client's job; it is not reissuance with a fresh timeout.
+with the original live task capability and operation bound. Child renewal only
+validates current authority; it cannot restart the timeout or renew the owner.
 
 Test the centralized issuance contract against local attenuation. Recipe compilation, Git defaults, include limits, capability
 handoff, and operation code should need no call-pattern changes for that switch.
@@ -403,17 +406,20 @@ at token issuance. For a five-minute task starting at 12:00, the hard deadline i
 Preparation consuming 30 seconds does not move either deadline. A refreshed
 parent lease may allow a later access expiry, but never a later `notAfter`.
 
-Let the JobDB client refresh lazily until the fixed hard deadline. Its current
-local-attenuation API owns refresh and has no author-set TTL or renewal grant. The controller alone renews the
-owner. Renewal is runtime-managed transport authority, not an author-set business
-permission. If the operation needs no delegated calls, issue no token.
+The child uses its token directly with JobDB; it needs no refresh scheduler or
+contact with the owner process. `Renew` and `KeepAlive` validate its authority
+without extending the hard deadline or parent lease. The controller alone renews
+the owner. There is no author-set TTL or renewal grant. If the operation needs no
+delegated calls, issue no token.
 
 c2j already passes node timeouts into execution scopes in
 `pkg/worker/compiler/execution_scope.go`. The JobDB engine computes the
 minimum of task/attempt and enclosing deadlines in `workflow/execution_task.go`.
-Use the engine’s public task deadline API; do not reconstruct it by scanning
-chapters, since execution records can still be buffered when a task starts. Include any shorter operation-local timeout
-before minting the token, rather than discovering that timeout inside the op.
+Use the live `TaskContext.CreateDelegation` method, which applies those bounds
+without exposing a deadline getter. Preserve the task context when forwarding
+it; reconstructing it loses the engine-owned capability. Include any shorter
+operation-local timeout before minting the operation's token. Request timeouts
+for individual helper calls must not narrow the credential.
 
 Retries may receive a new attempt deadline under existing runtime semantics,
 but remain bounded by unexpired enclosing/total deadlines. Resume uses recorded
@@ -430,25 +436,16 @@ copies held elsewhere. Issuing a retry's token does not revoke earlier tokens.
 
 ### JobDB hard-deadline renewal contract
 
-Disabling renewal whenever `notAfter` is set was a bug fixed in JobDB main.
-The supplied documents still describe that bug; this proposal assumes the
-corrected contract rather than requesting a new feature.
-Verify the fixed dependency during integration.
+The pinned JobDB implementation supports renewal with `notAfter`. A delegation
+remains usable while `now < notAfter` and the exact parent lease remains live.
+`Renew` and `KeepAlive` validate these conditions without extending either bound.
+At or after the hard deadline, resource operations and renewal fail. Parent
+release, expiry, completion, cancellation, or replacement also invalidates it.
 
-A delegation can refresh while `now < notAfter` and the
-exact parent lease is still live. Preserve the original absolute deadline,
-permission set on every refresh.
-Clamp each new access expiry to the parent expiry and hard deadline. At or after
-the hard deadline, reject both resource operations and renewal, including renewal
-using an access-expired token. An expired access token can still refresh before
-the hard deadline under the existing lazy-refresh protocol.
-
-Delegations without a hard deadline remain valid for other clients, but c2j
-always supplies one for restricted task execution. Do not drop `notAfter` to make renewal work
-against an older server. Treat bounded renewal as a required server/client
-capability and reject unsupported restricted execution. The JobDB guide and
-renewal truth table should reflect the bug fix; c2j integration tests must cover
-this behavior.
+JobDB permits delegations without a hard deadline for other callers. Restricted
+recipe execution has a finite scope timeout, so the central issuer verifies a
+live finite `NotAfter` on the returned child before handing it to helpers. Never
+drop this bound or retry with the owner credential when issuance fails.
 
 Use JobDB's delegation-only ingress for restricted token traffic. Existing
 `run --with-lease` imports an owner lease for a complete workflow run; a delegated
@@ -494,8 +491,9 @@ validated inputs; a node policy cannot make attacker-modified publishing code sa
 
 ## Integration and rollout
 
-The implementation pins JobDB main for local attenuation and corrected refresh.
-It also requires the engine to expose its effective task deadline. Relevant c2j
+The implementation pins JobDB main for task-scoped local attenuation. Its runtime
+wrapper explicitly forwards the optional `LeaseDelegator` method and preserves
+parent delegation metadata so the engine can apply all signed bounds. Relevant c2j
 integration points are common recipe metadata, include/shared expansion,
 compiled invocation serialization, `pkg/worker/ops/taskworker.go`,
 `pkg/executionruntime/git_profile.go`, and `pkg/childbroker`. The include resolver
@@ -554,8 +552,8 @@ Acceptance tests should cover:
 - A five-minute task token renews within its deadline and fails at/after it;
   a shorter enclosing scope wins. Preparation, retries, and resume do not reset
   the applicable total budget, and operation-local timeouts also constrain it.
-- Access-expired tokens renew before the hard deadline but never after it;
-  every refreshed token preserves the original deadline and permissions.
+- Child renewal validates the original deadline and permissions without
+  extending either; the owner renews independently.
 - Parent loss invalidates tokens early; child refresh never renews the owner.
   Early task completion leaves the documented residual validity, and a new
   attempt's token cannot extend an old token's deadline.

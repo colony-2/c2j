@@ -100,8 +100,10 @@ an explicit grant or enclosing limit.
 ## Runtime integration
 
 `pkg/permissions.Issuer` is the only credential creation boundary. Its JobDB
-implementation uses local attenuation through `CreateDelegation`. JobDB handles
-refresh; recipe authors do not configure transport refresh permissions.
+implementation calls the live `workflow.TaskContext.CreateDelegation` capability.
+JobDB applies execution and parent bounds during local attenuation, without an
+HTTP creation call. The operation never receives the owner lease. Child renewal
+validates existing authority; it extends neither `notAfter` nor the parent lease.
 
 Every issued token has `notAfter` bounded by the engine's effective task
 and enclosing deadlines, any parent delegation deadline, and any shorter known
@@ -111,14 +113,15 @@ engine may impose a shorter deadline. Extension manifest timeouts narrow the
 operation and its helpers once resolved, before installation and input secrets.
 Preparatory source reads happen in the preceding node-bounded scope.
 
-The pinned JobDB main revision (`5a311bd4fff3`) has local attenuation but does
-not yet expose the effective task deadline. [This upstream patch](JOBDB-TASK-DEADLINE.patch)
-adds the accessor and its tests (`git apply --unidiff-zero JOBDB-TASK-DEADLINE.patch`
-in the JobDB checkout). Remote restricted tasks remain unavailable
-until that change is present in the dependency; c2j rejects remote
-restricted execution when it cannot obtain it. It does not reconstruct a new
-budget from the current clock or use an owner token as a fallback. Credential
-creation is lazy; narrower calls obtain narrower credentials held by the helper.
+The pinned JobDB revision (`6ae6faa00896`) supplies task-scoped delegation.
+The issuer preserves the live task context and passes only the resolved grant
+and an optional stricter operation deadline. It does not reconstruct a budget
+from the current clock or execution history. Helper/RPC request timeouts control
+cancellation of that call, not credential lifetime. Credential creation is lazy;
+a new operation limit obtains a narrower credential held by the helper.
+The runtime wrapper forwards JobDB's optional `LeaseDelegator` capability and
+preserves parent delegation metadata. Unsupported issuance or a missing finite
+deadline fails without using an owner token as a fallback.
 Embedded runtimes use the same per-call permission checks and engine cancellation
 without minting a bearer token.
 
