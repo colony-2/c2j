@@ -38,3 +38,19 @@ func TestAttemptIsolatesStateAndPublishesSharedWorkspaceCounters(t *testing.T) {
 	require.Equal(t, "committed", root.GetGitCommitContext().PersistHash)
 	require.Equal(t, "committed", root.TemplateData.Sequence["previous"].Outputs["value"])
 }
+
+func TestWorkspaceIdentitySurvivesRestartWithNewJobAndGoal(t *testing.T) {
+	original, err := NewRecipeResolutionContext(&contextual.GitCommitContext{}, nil, contextual.JobContext{
+		Workflow: contextual.WorkflowContext{JobID: "original", GoalID: "original-goal"},
+	})
+	require.NoError(t, err)
+	restarted, err := NewRecipeResolutionContext(&contextual.GitCommitContext{}, nil, contextual.JobContext{
+		Workflow: contextual.WorkflowContext{JobID: "replacement", GoalID: "new-goal"},
+	})
+	require.NoError(t, err)
+	first := original.NextWorkspaceID("workspace")
+	require.Equal(t, first, restarted.NextWorkspaceID("workspace"))
+	next := original.NextWorkspaceID("workspace")
+	require.NotEqual(t, first, next, "repeated visits still have distinct identities")
+	require.Equal(t, next, restarted.NextWorkspaceID("workspace"))
+}

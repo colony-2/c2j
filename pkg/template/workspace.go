@@ -7,12 +7,13 @@ import (
 	"github.com/colony-2/c2j/pkg/contextual"
 )
 
-// NextWorkspaceID uses separate counters so legacy invocation identities do not change.
+// NextWorkspaceID is local to the execution history. Job and goal IDs may
+// change on restart, while names in the copied history must remain identical.
 func (rc *ResolutionContext) NextWorkspaceID(node string) string {
 	if rc.workspaceCounters == nil {
 		rc.workspaceCounters = map[string]int64{}
 	}
-	key := rc.TaskExecutionContext().Workflow.JobID + "/" + rc.TemplateData.Context.Invocation.NodePath + "/" + node
+	key := rc.TemplateData.Context.Invocation.NodePath + "/" + node
 	if rc.TemplateData.Context.Workspace != nil {
 		key = rc.TemplateData.Context.Workspace.ScopeID + "/" + key
 	}
