@@ -68,7 +68,7 @@ outputs:
 
 	baseRepo, baseHash := createGitRepo(t)
 
-	jobKey, err := starter.StartRecipeJob(ctx, workflowctl.StartJob{
+	jobKeyRef, err := starter.StartRecipeJob(ctx, workflowctl.StartJob{
 		TenantId:   tenantID,
 		RecipeName: rec.GetMetadata().ID,
 		Inputs:     map[string]any{},
@@ -85,6 +85,8 @@ outputs:
 		},
 		GitRef: baseHash,
 	}, submitEngine, *rec)
+
+	jobKey := jobKeyRef.Key()
 	if err != nil {
 		t.Fatalf("start recipe job: %v", err)
 	}

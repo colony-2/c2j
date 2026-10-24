@@ -15,15 +15,16 @@ import (
 	"github.com/colony-2/c2j/cmd/c2j/internal/swfruntime"
 	"github.com/colony-2/c2j/pkg/childbroker"
 	"github.com/colony-2/c2j/pkg/jobcontext"
+	"github.com/colony-2/c2j/pkg/jobref"
 	"github.com/colony-2/c2j/pkg/recipe"
 	"github.com/colony-2/c2j/pkg/recipejob"
 	"github.com/colony-2/c2j/pkg/starter"
 	"github.com/colony-2/c2j/pkg/worker/compiler"
-	"github.com/colony-2/jobdb/pkg/jobdb"
 	"gopkg.in/yaml.v3"
 )
 
 type submitResult struct {
+	GoalID   string `json:"goal_id"`
 	TenantID string `json:"tenant_id"`
 	JobID    string `json:"job_id"`
 	Recipe   string `json:"recipe"`
@@ -107,6 +108,7 @@ func Run(ctx context.Context, opts Options) error {
 		}
 		result = submitResult{
 			TenantID: resp.TenantID,
+			GoalID:   resp.GoalID,
 			JobID:    resp.JobID,
 			Recipe:   resp.Recipe,
 		}
@@ -122,7 +124,7 @@ func Run(ctx context.Context, opts Options) error {
 			return errors.Join(err, handle.Cleanup())
 		}
 
-		var jobKey jobdb.JobKey
+		var jobKey jobref.Ref
 		if embeddedRecipe != nil {
 			jobKey, err = starter.StartRecipeJob(ctx, start, handle.Engine, *embeddedRecipe)
 		} else {
@@ -134,7 +136,8 @@ func Run(ctx context.Context, opts Options) error {
 
 		result = submitResult{
 			TenantID: opts.TenantID,
-			JobID:    jobKey.JobId,
+			JobID:    jobKey.JobID,
+			GoalID:   jobKey.GoalID,
 			Recipe:   recipeName,
 		}
 		return closeHandle(writeSubmitResult(opts, result))

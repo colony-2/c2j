@@ -104,7 +104,7 @@ func TestRecipeGitProfilesAcrossRenewalAndScopeChanges(t *testing.T) {
 				return nil, fmt.Errorf("unexpected model secret access: %v", err)
 			}
 			if in.Deny {
-				_, err = deps.JobTool().(*coreops.TaskBasedJobTool).SubmitJob(ctx, jobdb.SubmitJob{TenantId: "test", JobType: "child", Data: jobdb.NewTaskDataOrPanic(nil)})
+				_, err = deps.JobTool().(*coreops.TaskBasedJobTool).SubmitJobRef(ctx, jobdb.SubmitJob{TenantId: "test", JobType: "child", Data: jobdb.NewTaskDataOrPanic(nil)})
 				if !errors.Is(err, jobdb.ErrLeasePermissionDenied) {
 					return nil, fmt.Errorf("submission was not denied: %v", err)
 				}
@@ -193,7 +193,8 @@ sequence:
 			require.NoError(t, err)
 			engine, err := jobworkflow.NewEngineBuilder().WithRuntime(runtime).BuildEngine()
 			require.NoError(t, err)
-			key, err := starter.StartRecipeJob(ctx, workflowctl.StartJob{TenantId: "test", RecipeName: "profiles", JobContext: contextual.JobContext{Workflow: contextual.WorkflowContext{CellName: "repo"}, GitBase: contextual.GitBaseContext{BaseRepo: repo, BaseRef: "main"}}}, jobdbschema.WorkflowEngine{Engine: engine, Registry: runtime.(jobdb.JobSchemaRegistry)}, *rec)
+			keyRef, err := starter.StartRecipeJob(ctx, workflowctl.StartJob{TenantId: "test", RecipeName: "profiles", JobContext: contextual.JobContext{Workflow: contextual.WorkflowContext{CellName: "repo"}, GitBase: contextual.GitBaseContext{BaseRepo: repo, BaseRef: "main"}}}, jobdbschema.WorkflowEngine{Engine: engine, Registry: runtime.(jobdb.JobSchemaRegistry)}, *rec)
+			key := keyRef.Key()
 			require.NoError(t, err)
 			rt := New(runtime, execution.Allocation{SchemaVersion: 1})
 			var issued *recordingPermissionIssuer

@@ -3,7 +3,9 @@ package executionruntime
 import (
 	"context"
 	"encoding/json"
+
 	"github.com/colony-2/c2j/pkg/gitprofile"
+	"github.com/colony-2/c2j/pkg/jobref"
 	"github.com/colony-2/c2j/pkg/permissions"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
@@ -46,6 +48,10 @@ func (w *guardedTask) runWithGitProfile(tc jobworkflow.TaskContext, input jobdb.
 		}
 		return result, err
 	}
+	current, err := jobref.FromHandle(original.Job())
+	if err != nil {
+		return nil, err
+	}
 	scopeContext := tc.Context()
 	var access *permissions.Access
 	if request.Permissions != nil {
@@ -65,6 +71,19 @@ func (w *guardedTask) runWithGitProfile(tc jobworkflow.TaskContext, input jobdb.
 		defer cancel()
 		resolve = access.Resolve
 	}
+	scopeContext = jobref.WithScope(scopeContext, jobref.Scope{Current: current, Submit: func(call context.Context, job jobdb.SubmitJob) (jobref.Ref, error) {
+		if access != nil {
+			return access.Submit(call, job)
+		}
+		if err := tc.Context().Err(); err != nil {
+			return jobref.Ref{}, err
+		}
+		h, err := w.runtime.submitOnCurrentLease(call, tc, original, job)
+		if err != nil {
+			return jobref.Ref{}, err
+		}
+		return jobref.FromHandle(h)
+	}})
 	scope, err := gitprofile.NewScope(scopeContext, request.GitProfile, snapshot, resolve, "", tc.JobKey.TenantId)
 	if err != nil {
 		return nil, err
@@ -89,4 +108,15 @@ func (w *guardedTask) runWithGitProfile(tc jobworkflow.TaskContext, input jobdb.
 		}
 	}
 	return out, err
+}
+
+// Submission must use the renewed owner lease, just like fresh secret reads.
+func (r *Runtime) submitOnCurrentLease(ctx context.Context, tc jobworkflow.TaskContext, original *lease, job jobdb.SubmitJob) (jobdb.JobHandle, error) {
+	r.mu.Lock()
+	current := r.leases[tc.JobKey]
+	r.mu.Unlock()
+	if current == nil || current.leaseState != original.leaseState || tc.Context().Err() != nil {
+		return jobdb.JobHandle{}, jobdb.ErrExecutionLeaseLost
+	}
+	return current.ExecutionLease.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: job})
 }

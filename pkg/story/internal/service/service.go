@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/colony-2/c2j/pkg/swfutil"
 	"log/slog"
 	"os"
 	"strings"
@@ -15,6 +14,7 @@ import (
 
 	"github.com/colony-2/c2j/pkg/contextual"
 	"github.com/colony-2/c2j/pkg/jobdbschema"
+	"github.com/colony-2/c2j/pkg/jobref"
 	"github.com/colony-2/c2j/pkg/recipe"
 	"github.com/colony-2/c2j/pkg/secrets"
 	"github.com/colony-2/c2j/pkg/starter"
@@ -22,6 +22,7 @@ import (
 	"github.com/colony-2/c2j/pkg/story/internal/model"
 	jobstory "github.com/colony-2/c2j/pkg/story/internal/story"
 	storylive "github.com/colony-2/c2j/pkg/story/live"
+	"github.com/colony-2/c2j/pkg/swfutil"
 	"github.com/colony-2/c2j/pkg/template"
 	"github.com/colony-2/c2j/pkg/worker/compiler"
 	"github.com/colony-2/c2j/pkg/workflowctl"
@@ -333,8 +334,12 @@ func (s *Service) StartWorkflow(ctx context.Context, req model.StartWorkflowRequ
 		InputHash:   inputHash,
 	}
 
-	jobKey, err := starter.StartRecipeJobWithOptions(ctx, start, s.engine, starter.StartRecipeJobOptions{
-		Prerequisites: req.Prerequisites,
+	var submitter any = jobdbschema.WorkflowEngine{Engine: s.engine, Registry: s.registry}
+	if direct, ok := s.engine.(jobref.Submitter); ok {
+		submitter = direct
+	}
+	jobKey, err := starter.StartRecipeJobWithOptions(ctx, start, submitter, starter.StartRecipeJobOptions{
+		Dependencies: req.Dependencies,
 	})
 	if err != nil {
 		return nil, err
@@ -343,8 +348,8 @@ func (s *Service) StartWorkflow(ctx context.Context, req model.StartWorkflowRequ
 	cellIDCopy := string(cellRecord.ID)
 	cellName := cellRecord.Name
 	summary := &model.WorkflowSummary{
-		WorkflowID:  jobKey.JobId,
-		RunID:       jobKey.JobId,
+		WorkflowID:  jobKey.JobID,
+		RunID:       jobKey.JobID,
 		Status:      model.WorkflowStatusRunning,
 		RecipeName:  recipeName,
 		InputHash:   stringPtr(inputHash),
@@ -604,6 +609,12 @@ func (s *Service) GetJobRunStory(ctx context.Context, req model.GetJobRunStoryRe
 		}
 		return st, err
 	}
+	info, err := s.engine.GetJob(ctx, jobKey)
+	if err != nil {
+		return nil, err
+	}
+	st.GoalID = info.GoalID
+	st.OtherGoalIDs = append([]string{}, info.OtherGoalIDs...)
 	return st, nil
 }
 
@@ -896,15 +907,11 @@ func (s *Service) RestartRecipeJob(ctx context.Context, req model.RestartRecipeJ
 		req.ScopeID = boundary.Record.ID
 	}
 
-	var restartSubmitter recipeRestartSubmitter = s.engine
-	if s.registry != nil {
-		restartSubmitter = jobdbschema.Submitter{
-			RestartSubmitter: s.engine,
-			Registry:         s.registry,
-		}
+	var restartSubmitter any = jobdbschema.WorkflowEngine{Engine: s.engine, Registry: s.registry}
+	if _, ok := s.engine.(jobref.RestartSubmitter); ok {
+		restartSubmitter = s.engine
 	}
-
-	newKey, err := starter.RestartRecipeJob(ctx, restartSubmitter, jobdb.JobKey{TenantId: projectID, JobId: jobID}, req.ScopeID, req.Patch)
+	newKey, err := starter.RestartRecipeJob(ctx, restartSubmitter, jobdb.JobKey{TenantId: projectID, JobId: jobID}, req.ScopeID, req.Patch, starter.RestartOptions{Goal: req.Goal.Mode, RequestID: req.RequestID})
 	if err != nil {
 		if errors.Is(err, jobdb.ErrJobNotFound) {
 			return nil, ErrNotFound
@@ -912,7 +919,7 @@ func (s *Service) RestartRecipeJob(ctx context.Context, req model.RestartRecipeJ
 		return nil, err
 	}
 
-	return &model.RestartRecipeJobResponse{JobID: newKey.JobId}, nil
+	return &model.RestartRecipeJobResponse{JobID: newKey.JobID, GoalID: newKey.GoalID, TenantID: newKey.TenantID}, nil
 }
 
 func (s *Service) GetArtifactByOrdinal(ctx context.Context, req model.GetArtifactByOrdinalRequest) (*model.ArtifactData, error) {

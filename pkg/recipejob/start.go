@@ -13,6 +13,7 @@ import (
 	"github.com/colony-2/c2j/pkg/contextual"
 	"github.com/colony-2/c2j/pkg/execution"
 	"github.com/colony-2/c2j/pkg/jobcontext"
+	"github.com/colony-2/c2j/pkg/jobref"
 	"github.com/colony-2/c2j/pkg/recipe"
 	"github.com/colony-2/c2j/pkg/starter"
 	"github.com/colony-2/c2j/pkg/worker/compiler"
@@ -21,6 +22,7 @@ import (
 )
 
 type BuildStartJobRequest struct {
+	Dependencies          []jobdb.Dependency
 	ExecutionRequirements execution.Requirements
 	TenantID              string
 	JobID                 string
@@ -34,7 +36,7 @@ type BuildStartJobRequest struct {
 }
 
 type Submitter interface {
-	SubmitJob(ctx context.Context, job jobdb.SubmitJob) (jobdb.JobKey, error)
+	SubmitJobRef(ctx context.Context, job jobdb.SubmitJob) (jobref.Ref, error)
 }
 
 func BuildStartJob(req BuildStartJobRequest) (workflowctl.StartJob, error) {
@@ -81,6 +83,7 @@ func BuildStartJob(req BuildStartJobRequest) (workflowctl.StartJob, error) {
 		return workflowctl.StartJob{}, err
 	}
 	return workflowctl.StartJob{
+		Dependencies: append([]jobdb.Dependency(nil), req.Dependencies...),
 		Execution:    &initial,
 		TenantId:     tenantID,
 		JobID:        strings.TrimSpace(req.JobID),
@@ -118,10 +121,10 @@ func cloneParent(parent *jobcontext.Parent) *jobcontext.Parent {
 	return &out
 }
 
-func SubmitRecipeJob(ctx context.Context, req BuildStartJobRequest, submitter Submitter, recipes ...recipe.Recipe) (jobdb.JobKey, error) {
+func SubmitRecipeJob(ctx context.Context, req BuildStartJobRequest, submitter Submitter, recipes ...recipe.Recipe) (jobref.Ref, error) {
 	start, err := BuildStartJob(req)
 	if err != nil {
-		return jobdb.JobKey{}, err
+		return jobref.Ref{}, err
 	}
 	return starter.StartRecipeJob(ctx, start, submitter, recipes...)
 }

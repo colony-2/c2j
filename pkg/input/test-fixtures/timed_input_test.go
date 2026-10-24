@@ -83,7 +83,8 @@ func newTimedInputFixture(t *testing.T, source, scope string) *timedInputFixture
 	if scope != "runtime-root" {
 		embedded = []recipe.Recipe{*rec}
 	}
-	f.key, err = starter.StartRecipeJob(ctx, workflowctl.StartJob{TenantId: "timed-input", RecipeName: rec.GetMetadata().ID, JobContext: jobCtx, GitRef: gitCtx.ParentRef}, f.engine, embedded...)
+	fkeyRef, err := starter.StartRecipeJob(ctx, workflowctl.StartJob{TenantId: "timed-input", RecipeName: rec.GetMetadata().ID, JobContext: jobCtx, GitRef: gitCtx.ParentRef}, f.engine, embedded...)
+	f.key = fkeyRef.Key()
 	require.NoError(t, err)
 	f.run = func() jobworkflow.JobRunOutcome {
 		var tasks []jobworkflow.TaskWorker

@@ -12,6 +12,8 @@ import (
 	"time"
 
 	"github.com/colony-2/c2j/pkg/contextual"
+	"github.com/colony-2/c2j/pkg/execution"
+	"github.com/colony-2/c2j/pkg/executionruntime"
 	"github.com/colony-2/c2j/pkg/jobdbschema"
 	"github.com/colony-2/c2j/pkg/objects"
 	coreops "github.com/colony-2/c2j/pkg/ops"
@@ -161,14 +163,15 @@ func objectEngineAt(t *testing.T, dbPath string) (jobworkflow.Engine, func()) {
 	ctx, cancel := context.WithCancel(context.Background())
 	rt, err := sqliteruntime.NewFromConfig(ctx, sqliteruntime.Config{DBPath: dbPath})
 	require.NoError(t, err)
-	eng, err := jobworkflow.NewEngineBuilder().WithRuntime(rt).WithWorkerTenantId("object-tests").BuildEngine()
+	guard := executionruntime.New(rt, execution.Allocation{SchemaVersion: 1})
+	eng, err := jobworkflow.NewEngineBuilder().WithRuntime(guard).WithWorkerTenantId("object-tests").BuildEngine()
 	require.NoError(t, err)
 	eng = jobdbschema.WorkflowEngine{Engine: eng, Registry: rt}
 	ctl := &workerworkflow.SWFWorkflowControl{Engine: eng}
 	deps := coreops.NewServiceDepsBuilder().WithWorkflowControl(ctl).Build()
 	registry, err := workerops.NewActivityRegistry()
 	require.NoError(t, err)
-	ws, err := NewRecipeWorkerWithOptions(deps, registry, RecipeJobWorkerOptions{RootSourceResolver: NewRecipeSourceResolver(RecipeSourceResolverOptions{})})
+	ws, err := NewRecipeWorkerWithOptions(deps, registry, RecipeJobWorkerOptions{WrapTaskWorker: guard.WrapTaskWorker, RootSourceResolver: NewRecipeSourceResolver(RecipeSourceResolverOptions{})})
 	require.NoError(t, err)
 	require.NoError(t, eng.RegisterWorkers(ws))
 	done := make(chan struct{})
@@ -197,7 +200,8 @@ func runObjectRecipe(t *testing.T, eng jobworkflow.Engine, source string, job co
 }
 func runObjectRecipeValue(t *testing.T, eng jobworkflow.Engine, rec *recipe.Recipe, job contextual.JobContext, inputs ...map[string]any) map[string]any {
 	t.Helper()
-	key, err := starter.StartRecipeJob(context.Background(), workflowctl.StartJob{TenantId: "object-tests", RecipeName: rec.GetMetadata().ID, Inputs: firstObjectInputs(inputs), JobContext: job, GitRef: job.GitBase.BaseRef}, eng, *rec)
+	keyRef, err := starter.StartRecipeJob(context.Background(), workflowctl.StartJob{TenantId: "object-tests", RecipeName: rec.GetMetadata().ID, Inputs: firstObjectInputs(inputs), JobContext: job, GitRef: job.GitBase.BaseRef}, eng, *rec)
+	key := keyRef.Key()
 	require.NoError(t, err)
 	require.NoError(t, jobworkflow.WaitForJobToComplete(context.Background(), 15*time.Second, key, eng))
 	result, err := swfutil.JobResult(context.Background(), eng, key)

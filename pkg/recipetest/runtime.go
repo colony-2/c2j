@@ -132,7 +132,7 @@ func runRuntimeCase(parent context.Context, opts HarnessOptions, tenant string, 
 	defer ticker.Stop()
 	var output jobdb.JobData
 	for {
-		inspection, inspectErr := f.ctl.InspectJob(ctx, key)
+		inspection, inspectErr := f.ctl.InspectJob(ctx, key.Key())
 		if inspectErr != nil {
 			result.FailureReason = inspectErr.Error()
 			break

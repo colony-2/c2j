@@ -83,17 +83,19 @@ func TestCommandExecutionActivity_Execute_InjectsProtectedCurrentJobEnv(t *testi
 		WithCurrentJobContext(jobcontext.Current{
 			TenantID:           "tenant",
 			JobID:              "job-1",
+			GoalID:             "goal-1",
 			InvocationSequence: 0,
 			InvocationHash:     "hash-1",
 		}).
 		Build()
 
 	input := CommandExecutionInput{
-		Run:   "printf '%s' \"$C2J_CURRENT_TENANT_ID:$C2J_CURRENT_JOB_ID:$C2J_CURRENT_INVOCATION_SEQUENCE:$C2J_CURRENT_INVOCATION_HASH\"",
+		Run:   "printf '%s' \"$C2J_CURRENT_TENANT_ID:$C2J_CURRENT_JOB_ID:$C2J_CURRENT_GOAL_ID:$C2J_CURRENT_INVOCATION_SEQUENCE:$C2J_CURRENT_INVOCATION_HASH\"",
 		Shell: "sh",
 		Env: map[string]string{
 			"C2J_CURRENT_TENANT_ID":           "spoofed",
 			"C2J_CURRENT_JOB_ID":              "spoofed",
+			"C2J_CURRENT_GOAL_ID":             "spoofed",
 			"C2J_CURRENT_INVOCATION_HASH":     "spoofed",
 			"C2J_CURRENT_CONTEXT_VERSION":     "spoofed",
 			"C2J_CURRENT_INVOCATION_SEQUENCE": "999",
@@ -104,7 +106,7 @@ func TestCommandExecutionActivity_Execute_InjectsProtectedCurrentJobEnv(t *testi
 	if err != nil {
 		t.Fatalf("execute(): %v", err)
 	}
-	if output.Stdout != "tenant:job-1:0:hash-1" {
+	if output.Stdout != "tenant:job-1:goal-1:0:hash-1" {
 		t.Fatalf("stdout = %q", output.Stdout)
 	}
 }

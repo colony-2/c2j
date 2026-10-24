@@ -61,6 +61,7 @@ func (rc *ResolutionContext) CloneAttempt() (*ResolutionContext, error) {
 		dst.lastArtifactRefs = append(dst.lastArtifactRefs[:0:0], src.lastArtifactRefs...)
 		dst.lastExecution = cloneAnyMap(src.lastExecution)
 		dst.lastJobs.JobIDs = append(src.lastJobs.JobIDs[:0:0], src.lastJobs.JobIDs...)
+		dst.lastJobs.GoalIDs = append(src.lastJobs.GoalIDs[:0:0], src.lastJobs.GoalIDs...)
 		dst.lastJobs.Items = append(src.lastJobs.Items[:0:0], src.lastJobs.Items...)
 		dst.Options.ResolvedSelectors = maps.Clone(src.Options.ResolvedSelectors)
 		dst.Options.ResolvedGitRefs = maps.Clone(src.Options.ResolvedGitRefs)

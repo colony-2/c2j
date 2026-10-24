@@ -145,7 +145,8 @@ outputs:
 			if tc.scoped {
 				job.Workspace = &contextual.WorkspaceContext{Cell: "root", ScopeID: "refresh-scope", InitialHash: initial}
 			}
-			key, e := starter.StartRecipeJob(ctx, workflowctl.StartJob{TenantId: "refresh", RecipeName: "refresh", GitRef: "main", JobContext: job}, eng, *rec)
+			keyRef, e := starter.StartRecipeJob(ctx, workflowctl.StartJob{TenantId: "refresh", RecipeName: "refresh", GitRef: "main", JobContext: job}, eng, *rec)
+			key := keyRef.Key()
 			require.NoError(t, e)
 			var first, all []jobworkflow.TaskWorker
 			for name, w := range ws.TaskWorkers {

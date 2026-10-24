@@ -74,7 +74,7 @@ func TestBrokerSubmitFromC2JInWorkerEnvironment(t *testing.T) {
 	workspace := t.TempDir()
 	writeWorkerBrokerWorkspace(t, workspace)
 
-	current := jobcontext.Current{
+	current := jobcontext.Current{GoalID: "parent-goal",
 		TenantID:           "0",
 		JobID:              "parent-worker",
 		JobType:            starter.RecipeJobType,
@@ -114,6 +114,7 @@ func TestBrokerSubmitFromC2JInWorkerEnvironment(t *testing.T) {
 	}
 
 	var submitted struct {
+		GoalID   string `json:"goal_id"`
 		TenantID string `json:"tenant_id"`
 		JobID    string `json:"job_id"`
 		Recipe   string `json:"recipe"`
@@ -121,7 +122,7 @@ func TestBrokerSubmitFromC2JInWorkerEnvironment(t *testing.T) {
 	if err := json.Unmarshal([]byte(strings.TrimSpace(string(stdout))), &submitted); err != nil {
 		t.Fatalf("decode c2j submit output %q: %v\nstderr:\n%s", string(stdout), err, string(stderr))
 	}
-	if submitted.TenantID != "0" || submitted.JobID == "" || submitted.Recipe != "child_from_worker" {
+	if submitted.TenantID != "0" || submitted.JobID == "" || submitted.GoalID == "" || submitted.Recipe != "child_from_worker" {
 		t.Fatalf("unexpected c2j submit output: %#v", submitted)
 	}
 	if submitter.calls != 1 {
@@ -139,9 +140,16 @@ func TestBrokerSubmitFromC2JInWorkerEnvironment(t *testing.T) {
 		t.Fatalf("unexpected submitted artifacts: %#v", artifacts)
 	}
 
+	started := broker.StartedJobs()
+	if len(started.GoalIDs) != 1 || started.GoalIDs[0] != submitted.GoalID || started.Items[0].GoalID != submitted.GoalID {
+		t.Fatalf("lost goal metadata: %#v", started)
+	}
 	var meta starter.JobMetadata
 	if err := json.Unmarshal(submitter.last.Metadata, &meta); err != nil {
 		t.Fatalf("metadata decode: %v", err)
+	}
+	if meta.ParentGoalID != current.GoalID {
+		t.Fatalf("lost parent goal: %#v", meta)
 	}
 	if meta.ParentTenantID != "0" || meta.ParentJobID != "parent-worker" || meta.ParentInvocationHash != "invoke-worker" {
 		t.Fatalf("broker did not attach parent metadata: %#v", meta)
@@ -150,7 +158,7 @@ func TestBrokerSubmitFromC2JInWorkerEnvironment(t *testing.T) {
 		t.Fatalf("broker did not preserve parent op context: %#v", meta)
 	}
 
-	started := broker.StartedJobs()
+	started = broker.StartedJobs()
 	if len(started.JobIDs) != 1 || started.JobIDs[0] != submitted.JobID {
 		t.Fatalf("unexpected broker started jobs: %#v", started)
 	}

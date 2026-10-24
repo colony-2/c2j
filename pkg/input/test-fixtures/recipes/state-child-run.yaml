@@ -13,6 +13,7 @@ state:
     triage:
       op: recipe.run_and_get_result
       inputs:
+        wait: {on: job}
         name: "{{ inputs.child_recipe }}"
         inputs: {}
       transitions:

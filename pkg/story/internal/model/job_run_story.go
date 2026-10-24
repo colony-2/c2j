@@ -17,6 +17,8 @@ type GetJobRunStoryRequest struct {
 // JobRunStory is a recipe-centric narrative of a job run built by replaying recipe execution
 // against recorded task outcomes from swf.GetJobRunResponse.
 type JobRunStory struct {
+	GoalID        string         `json:"goal_id"`
+	OtherGoalIDs  []string       `json:"other_goal_ids"`
 	RestartScopes []RestartScope `json:"restart_scopes,omitempty"`
 
 	JobID              string            `json:"job_id"`

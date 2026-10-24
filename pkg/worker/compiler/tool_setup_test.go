@@ -109,7 +109,8 @@ outputs:
 	job.GitBase.ResolvedBaseHash = commit
 	git.ParentRef = commit
 	engine := newToyEngineWithWorkSet(t, "tools", ws, nil)
-	key, err := starter.StartRecipeJob(context.Background(), workflowctl.StartJob{TenantId: "tools", RecipeName: "tools", JobContext: job, GitRef: git.ParentRef}, engine, *rec)
+	keyRef, err := starter.StartRecipeJob(context.Background(), workflowctl.StartJob{TenantId: "tools", RecipeName: "tools", JobContext: job, GitRef: git.ParentRef}, engine, *rec)
+	key := keyRef.Key()
 	require.NoError(t, err)
 	require.NoError(t, jobworkflow.WaitForJobToComplete(context.Background(), 10*time.Second, key, engine))
 	result, err := swfutil.JobResult(context.Background(), engine, key)
@@ -221,7 +222,8 @@ sequence:
 	require.NoError(t, err)
 	job, git := GenerateTestContext()
 	engine := newToyEngineWithWorkSet(t, "tools", ws, nil)
-	key, err := starter.StartRecipeJob(context.Background(), workflowctl.StartJob{TenantId: "tools", RecipeName: "recovery", JobContext: job, GitRef: git.ParentRef}, engine, *rec)
+	keyRef, err := starter.StartRecipeJob(context.Background(), workflowctl.StartJob{TenantId: "tools", RecipeName: "recovery", JobContext: job, GitRef: git.ParentRef}, engine, *rec)
+	key := keyRef.Key()
 	require.NoError(t, err)
 	waitErr := jobworkflow.WaitForJobToComplete(context.Background(), 10*time.Second, key, engine)
 	require.NoError(t, waitErr)

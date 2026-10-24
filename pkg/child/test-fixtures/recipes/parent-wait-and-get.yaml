@@ -18,6 +18,6 @@ sequence:
   - id: wait
     op: recipe.await_result
     inputs:
-      job_id: "${{ sequence.start.outputs.job_ids[0] }}"
+      target: {job: "${{ sequence.start.outputs.job_ids[0] }}"}
 outputs:
   artifact_name: "{{ sequence.wait.outputs.outputs.name }}"

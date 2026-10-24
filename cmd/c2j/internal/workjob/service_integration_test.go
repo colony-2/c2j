@@ -92,7 +92,7 @@ func submitRecipeJob(t *testing.T, ctx context.Context, engine jobworkflow.Engin
 		t.Fatalf("load recipe: %v\n%s", err, recipeYAML)
 	}
 	baseRepo, baseHash := workCreateGitRepo(t)
-	key, err := starter.StartRecipeJob(ctx, workflowctl.StartJob{
+	keyRef, err := starter.StartRecipeJob(ctx, workflowctl.StartJob{
 		TenantId:   tenantID,
 		RecipeName: rec.GetMetadata().ID,
 		Inputs:     map[string]any{},
@@ -109,6 +109,7 @@ func submitRecipeJob(t *testing.T, ctx context.Context, engine jobworkflow.Engin
 		},
 		GitRef: baseHash,
 	}, engine, *rec)
+	key := keyRef.Key()
 	if err != nil {
 		t.Fatalf("start recipe job: %v", err)
 	}

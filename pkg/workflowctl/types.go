@@ -2,18 +2,19 @@ package workflowctl
 
 import (
 	"context"
-	"github.com/colony-2/c2j/pkg/execution"
 	"time"
 
 	recipeartifacts "github.com/colony-2/c2j/pkg/artifacts"
 	"github.com/colony-2/c2j/pkg/contextual"
+	"github.com/colony-2/c2j/pkg/execution"
 	"github.com/colony-2/c2j/pkg/jobcontext"
+	"github.com/colony-2/c2j/pkg/jobref"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
 )
 
 type WorkflowControl interface {
-	StartJob(ctx context.Context, req StartJob) (jobdb.JobKey, error)
+	StartJob(ctx context.Context, req StartJob) (jobref.Ref, error)
 	Cancel(ctx context.Context, jobKey jobdb.JobKey) error
 	ListJobs(ctx context.Context, request jobdb.ListJobsRequest) (jobs []JobItem, nextPage string, err error)
 	CompleteTask(ctx context.Context, jobKey jobdb.JobKey, taskOrdinal int64, hash string, data any) error
@@ -27,6 +28,8 @@ type JobInspector interface {
 }
 
 type JobInspection struct {
+	GoalID         string
+	OtherGoalIDs   []string
 	JobKey         jobdb.JobKey
 	Terminal       bool
 	Status         string
@@ -38,6 +41,7 @@ type JobInspection struct {
 }
 
 type StartJob struct {
+	Dependencies []jobdb.Dependency     `json:"dependencies,omitempty"`
 	Execution    *execution.Demand      `json:"execution,omitempty"`
 	TenantId     string                 `json:"tenantId"`
 	JobID        string                 `json:"job_id,omitempty"`

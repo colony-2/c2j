@@ -132,10 +132,10 @@ func (e *StandaloneExecutor) ExecuteWithRegistry(
 	if err != nil {
 		return nil, err
 	}
-	if err := jobworkflow.WaitForJobToComplete(runCtx, 30*time.Second, jobKey, eng); err != nil {
+	if err := jobworkflow.WaitForJobToComplete(runCtx, 30*time.Second, jobKey.Key(), eng); err != nil {
 		return nil, err
 	}
-	out, err := swfutil.JobResult(ctx, eng, jobKey)
+	out, err := swfutil.JobResult(ctx, eng, jobKey.Key())
 	if err != nil {
 		return nil, err
 	}

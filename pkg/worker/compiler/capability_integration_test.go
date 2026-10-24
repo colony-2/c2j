@@ -159,7 +159,9 @@ func TestMultiStepWithCapabilityClaim(t *testing.T) {
 		GitRef: baseHash,
 	}
 
-	submittedJobKey, err := starter.StartRecipeJob(context.Background(), start, engine, rec)
+	submittedJobKeyRef, err := starter.StartRecipeJob(context.Background(), start, engine, rec)
+
+	submittedJobKey := submittedJobKeyRef.Key()
 	require.NoError(t, err)
 
 	// Wait for the second step to become pending (disallowed as task).

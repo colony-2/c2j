@@ -68,7 +68,7 @@ sequence:
   inputs: {child: "${{ sequence.submit.outputs.job_ids[0] }}"}
 - id: wait
   op: recipe.await_result_soft
-  inputs: {job_id: "${{ sequence.submit.outputs.job_ids[0] }}"}
+  inputs: {target: {job: "${{ sequence.submit.outputs.job_ids[0] }}"}, wait: {on: job}}
 - id: after
   op: wait_probe
 outputs:
@@ -77,7 +77,8 @@ outputs:
 `))
 	require.NoError(t, err)
 	job := contextual.JobContext{Workflow: contextual.WorkflowContext{CellName: "root"}, GitBase: contextual.GitBaseContext{BaseRepo: repo, BaseRef: "main"}}
-	key, err := starter.StartRecipeJob(ctx, workflowctl.StartJob{TenantId: "object-tests", RecipeName: "parent", JobContext: job, GitRef: "main"}, eng, *rec)
+	keyRef, err := starter.StartRecipeJob(ctx, workflowctl.StartJob{TenantId: "object-tests", RecipeName: "parent", JobContext: job, GitRef: "main"}, eng, *rec)
+	key := keyRef.Key()
 	require.NoError(t, err)
 	var child string
 	select {
@@ -131,7 +132,8 @@ func TestAwaitAlreadyFinishedChildAfterWorkerReplacement(t *testing.T) {
 	job := contextual.JobContext{Workflow: contextual.WorkflowContext{CellName: "root"}, GitBase: contextual.GitBaseContext{BaseRepo: repo, BaseRef: "main"}}
 	child, err := recipe.LoadRecipeFromString([]byte("id: child\nversion: '1'\nsequence: []\noutputs: {value: retained}\n"))
 	require.NoError(t, err)
-	key, err := starter.StartRecipeJob(ctx, workflowctl.StartJob{TenantId: "object-tests", RecipeName: "child", JobContext: job, GitRef: "main"}, eng, *child)
+	keyRef, err := starter.StartRecipeJob(ctx, workflowctl.StartJob{TenantId: "object-tests", RecipeName: "child", JobContext: job, GitRef: "main"}, eng, *child)
+	key := keyRef.Key()
 	require.NoError(t, err)
 	require.NoError(t, jobworkflow.WaitForJobToComplete(ctx, 10*time.Second, key, eng))
 	stop()
@@ -144,7 +146,7 @@ inputs: {child: "${{ inputs.child }}"}
 sequence:
 - id: await
   op: recipe.await_result_soft
-  inputs: {job_id: "${{ inputs.child }}"}
+  inputs: {target: {job: "${{ inputs.child }}"}, wait: {on: job}}
 outputs:
   status: ${{ sequence.await.outputs.status }}
   terminal: ${{ sequence.await.outputs.terminal }}

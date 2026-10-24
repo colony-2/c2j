@@ -76,7 +76,8 @@ func submitNodeRecipe(t *testing.T, f *fixture, r recipe.Recipe) {
 	engine, err := jobworkflow.NewEngineBuilder().WithRuntime(f.runtime).BuildEngine()
 	require.NoError(t, err)
 	jobContext, git := compiler.GenerateTestContext()
-	f.key, err = starter.StartRecipeJob(context.Background(), workflowctl.StartJob{TenantId: "tenant", RecipeName: r.GetMetadata().ID, JobContext: jobContext, GitRef: git.ParentRef}, jobdbschema.WorkflowEngine{Engine: engine, Registry: f.runtime.(jobdb.JobSchemaRegistry)}, r)
+	fkeyRef, err := starter.StartRecipeJob(context.Background(), workflowctl.StartJob{TenantId: "tenant", RecipeName: r.GetMetadata().ID, JobContext: jobContext, GitRef: git.ParentRef}, jobdbschema.WorkflowEngine{Engine: engine, Registry: f.runtime.(jobdb.JobSchemaRegistry)}, r)
+	f.key = fkeyRef.Key()
 	require.NoError(t, err)
 }
 

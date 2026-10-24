@@ -23,11 +23,11 @@ sequence:
   - id: wait_one
     op: recipe.await_result
     inputs:
-      job_id: "${{ sequence.start.outputs.job_ids[0] }}"
+      target: {job: "${{ sequence.start.outputs.job_ids[0] }}"}
   - id: wait_two
     op: recipe.await_result
     inputs:
-      job_id: "${{ sequence.start.outputs.job_ids[1] }}"
+      target: {job: "${{ sequence.start.outputs.job_ids[1] }}"}
 outputs:
   first: "{{ sequence.wait_one.outputs.outputs.value }}"
   second: "{{ sequence.wait_two.outputs.outputs.value }}"

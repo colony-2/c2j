@@ -8,8 +8,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/colony-2/c2j/pkg/configuration"
-	"github.com/colony-2/c2j/pkg/input/formdefaults"
 	"log/slog"
 	"os"
 	"path"
@@ -20,7 +18,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/colony-2/c2j/pkg/configuration"
 	"github.com/colony-2/c2j/pkg/contextual"
+	"github.com/colony-2/c2j/pkg/input/formdefaults"
 	coreops "github.com/colony-2/c2j/pkg/ops"
 	extops "github.com/colony-2/c2j/pkg/ops/extensions"
 	"github.com/colony-2/c2j/pkg/ops/process"
@@ -1928,4 +1928,11 @@ func (j testInvocationJobTool) InvocationID() string { return j.id }
 
 func (c *testJobContext) ResolveSecretsFresh(ctx context.Context, names []string) (jobdb.SecretResolveResult, error) {
 	return c.ResolveSecrets(ctx, names)
+}
+
+func (j *testJobContext) AwaitDependencies(deps ...jobdb.Dependency) ([]jobdb.DependencyResolution, error) {
+	return nil, fmt.Errorf("unmocked dependency wait in recipe test")
+}
+func (j *testJobContext) AwaitGoals(ids ...string) ([]jobdb.DependencyResolution, error) {
+	return nil, fmt.Errorf("unmocked goal wait in recipe test")
 }

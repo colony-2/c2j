@@ -10,6 +10,7 @@ import (
 	"github.com/colony-2/c2j/pkg/contextual"
 	"github.com/colony-2/c2j/pkg/gitprofile"
 	"github.com/colony-2/c2j/pkg/jobcontext"
+	"github.com/colony-2/c2j/pkg/jobref"
 	"github.com/colony-2/c2j/pkg/starter"
 	"github.com/colony-2/c2j/pkg/workflowctl"
 	"github.com/colony-2/jobdb/pkg/jobdb"
@@ -22,7 +23,7 @@ func TestBrokerInheritsClearAndRejectsForgedProfile(t *testing.T) {
 	defer scope.Close()
 	ctx := gitprofile.WithScope(context.Background(), scope)
 	submitter := &captureSubmitter{}
-	broker, err := Start(ctx, Options{Current: jobcontext.Current{TenantID: "tenant", JobID: "parent"}, Submitter: submitter})
+	broker, err := Start(ctx, Options{Current: jobcontext.Current{GoalID: "parent-goal", TenantID: "tenant", JobID: "parent"}, Submitter: submitter})
 	require.NoError(t, err)
 	defer broker.Close()
 	var socket string
@@ -50,7 +51,7 @@ func TestBrokerSubmitUsesLeaseSubmitterAndOverridesParent(t *testing.T) {
 
 	submitter := &captureSubmitter{}
 	broker, err := Start(ctx, Options{
-		Current: jobcontext.Current{
+		Current: jobcontext.Current{GoalID: "parent-goal",
 			TenantID:           "tenant",
 			JobID:              "parent",
 			JobType:            starter.RecipeJobType,
@@ -123,7 +124,7 @@ func TestBrokerRejectsCrossTenantSubmit(t *testing.T) {
 	defer cancel()
 
 	broker, err := Start(ctx, Options{
-		Current:   jobcontext.Current{TenantID: "tenant", JobID: "parent"},
+		Current:   jobcontext.Current{GoalID: "parent-goal", TenantID: "tenant", JobID: "parent"},
 		Submitter: &captureSubmitter{},
 	})
 	if err != nil {
@@ -148,7 +149,7 @@ func TestBrokerSubmitReturnsAssignedJobIDWhenStartOmitsJobID(t *testing.T) {
 
 	submitter := &captureSubmitter{}
 	broker, err := Start(ctx, Options{
-		Current: jobcontext.Current{
+		Current: jobcontext.Current{GoalID: "parent-goal",
 			TenantID:       "tenant",
 			JobID:          "parent",
 			InvocationHash: "hash-1",
@@ -200,7 +201,7 @@ type captureSubmitter struct {
 	lastKey jobdb.JobKey
 }
 
-func (s *captureSubmitter) SubmitJob(_ context.Context, job jobdb.SubmitJob) (jobdb.JobKey, error) {
+func (s *captureSubmitter) SubmitJobRef(_ context.Context, job jobdb.SubmitJob) (jobref.Ref, error) {
 	s.calls++
 	s.last = job
 	jobID := job.JobID
@@ -208,5 +209,5 @@ func (s *captureSubmitter) SubmitJob(_ context.Context, job jobdb.SubmitJob) (jo
 		jobID = "captured-child"
 	}
 	s.lastKey = jobdb.JobKey{TenantId: job.TenantId, JobId: jobID}
-	return s.lastKey, nil
+	return jobref.Ref{TenantID: s.lastKey.TenantId, JobID: s.lastKey.JobId, GoalID: "goal-" + s.lastKey.JobId}, nil
 }

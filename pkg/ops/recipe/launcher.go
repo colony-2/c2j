@@ -5,12 +5,13 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"fmt"
-	"github.com/colony-2/c2j/pkg/gitprofile"
 	"strings"
 
 	recipeartifacts "github.com/colony-2/c2j/pkg/artifacts"
 	"github.com/colony-2/c2j/pkg/contextual"
+	"github.com/colony-2/c2j/pkg/gitprofile"
 	"github.com/colony-2/c2j/pkg/jobcontext"
+	"github.com/colony-2/c2j/pkg/jobref"
 	"github.com/colony-2/c2j/pkg/ops"
 	"github.com/colony-2/c2j/pkg/starter"
 	"github.com/colony-2/c2j/pkg/workflowctl"
@@ -91,10 +92,10 @@ func recipeToStart(tenantId string, recipe SingleRecipe, recipeSourceRepo string
 // func(deps OpDependencies, ctx context.Context, in In)
 // Execute runs the activity with provided configuration and inputs
 type childJobSubmitter interface {
-	SubmitJob(context.Context, jobdb.SubmitJob) (jobdb.JobKey, error)
+	SubmitJobRef(context.Context, jobdb.SubmitJob) (jobref.Ref, error)
 }
 
-func startJobs(ctx context.Context, deps ops.OpDependencies, parentJobKey jobdb.JobKey, invocation string, ctl workflowctl.WorkflowControl, recipeSourceRepo string, recipeSourceRef string, recipes []SingleRecipe, gitRef string, parent jobcontext.Parent) ([]jobdb.JobKey, error) {
+func startJobs(ctx context.Context, deps ops.OpDependencies, parentJobKey jobdb.JobKey, invocation string, ctl workflowctl.WorkflowControl, recipeSourceRepo string, recipeSourceRef string, recipes []SingleRecipe, gitRef string, parent jobcontext.Parent) ([]jobref.Ref, error) {
 	if len(recipes) == 0 {
 		return nil, fmt.Errorf("no jobs to start")
 	}
@@ -117,10 +118,10 @@ func startJobs(ctx context.Context, deps ops.OpDependencies, parentJobKey jobdb.
 		if err != nil {
 			return nil, err
 		}
-		return []jobdb.JobKey{key}, nil
+		return []jobref.Ref{key}, nil
 	}
 
-	keys := make([]jobdb.JobKey, len(jobs))
+	keys := make([]jobref.Ref, len(jobs))
 	for i, job := range jobs {
 		key, err := startRecipeChildJob(ctx, deps, ctl, job)
 		if err != nil {
@@ -131,13 +132,13 @@ func startJobs(ctx context.Context, deps ops.OpDependencies, parentJobKey jobdb.
 	return keys, nil
 }
 
-func startRecipeChildJob(ctx context.Context, deps ops.OpDependencies, ctl workflowctl.WorkflowControl, start workflowctl.StartJob) (jobdb.JobKey, error) {
+func startRecipeChildJob(ctx context.Context, deps ops.OpDependencies, ctl workflowctl.WorkflowControl, start workflowctl.StartJob) (jobref.Ref, error) {
 	start.JobContext.GitProfile = gitprofile.InheritedSelection(ctx)
 	if deps != nil {
 		var err error
 		start, err = inheritWorkspace(start, deps.GitContext())
 		if err != nil {
-			return jobdb.JobKey{}, err
+			return jobref.Ref{}, err
 		}
 		if jobTool := deps.JobTool(); jobTool != nil {
 			if submitter, ok := jobTool.(childJobSubmitter); ok {

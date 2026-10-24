@@ -15,14 +15,7 @@ import (
 	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
 )
 
-type ExecutionHandoff struct {
-	Kind       string               `json:"kind"`
-	JobKey     jobdb.JobKey         `json:"job"`
-	Demand     execution.Demand     `json:"demand"`
-	Allocation execution.Allocation `json:"allocation"`
-	Mismatches []execution.Mismatch `json:"mismatches,omitempty"`
-	Published  bool                 `json:"published"`
-}
+type ExecutionHandoff = execution.Handoff
 
 type executionSession struct {
 	ctx        jobworkflow.ExecutionContext

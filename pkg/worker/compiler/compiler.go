@@ -575,7 +575,11 @@ func (d DefaultRecipeExecutor) executeOpAttempt(ctx workflow.Context, parentReso
 				if taskPrefix == "input" && i == 0 && decoded.Activity.NextTask != "" {
 					initialStepInput = map[string]interface{}{"form": decoded.Activity.OpOutput, "if_unanswered": decoded.Activity.OpOutput["fallback"]}
 				}
-				stepJobs = workerops.MergeStartedJobs(stepJobs, decoded.Activity.Jobs)
+				var mergeErr error
+				stepJobs, mergeErr = workerops.MergeStartedJobs(stepJobs, decoded.Activity.Jobs)
+				if mergeErr != nil {
+					return mergeErr
+				}
 				if decoded.Activity.NextTask == "" {
 					outputArtifacts, err := out.GetArtifacts()
 					if err != nil {

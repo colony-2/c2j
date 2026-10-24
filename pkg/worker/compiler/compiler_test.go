@@ -8,7 +8,10 @@ import (
 
 	recipecel "github.com/colony-2/c2j/pkg/cel"
 	"github.com/colony-2/c2j/pkg/contextual"
+	"github.com/colony-2/c2j/pkg/execution"
+	"github.com/colony-2/c2j/pkg/executionruntime"
 	"github.com/colony-2/c2j/pkg/jobdbschema"
+	"github.com/colony-2/c2j/pkg/jobref"
 	ops2 "github.com/colony-2/c2j/pkg/ops"
 	"github.com/colony-2/c2j/pkg/recipe"
 	"github.com/colony-2/c2j/pkg/starter"
@@ -40,13 +43,14 @@ func newToyEngine(t *testing.T, workerTenantID string, gen func(string) (jobdb.J
 		opts = append(opts, toyruntime.WithJobIDGenerator(gen))
 	}
 	runtime := toyruntime.New(opts...)
-	builder := jobworkflow.NewEngineBuilder().WithRuntime(runtime)
+	guard := executionruntime.New(runtime, execution.Allocation{SchemaVersion: 1})
+	builder := jobworkflow.NewEngineBuilder().WithRuntime(guard)
 	if workerTenantID != "" {
 		builder = builder.WithWorkerTenantId(workerTenantID)
 	}
 	engine, err := builder.BuildEngine()
 	require.NoError(t, err)
-	engine = jobdbschema.WorkflowEngine{Engine: engine, Registry: runtime}
+	engine = &guardedTestEngine{Engine: jobdbschema.WorkflowEngine{Engine: engine, Registry: runtime}, guard: guard}
 	go engine.Run(ctx)
 	return engine
 }
@@ -60,20 +64,21 @@ func newToyEngineWithWorkSet(t *testing.T, workerTenantID string, ws *jobworkflo
 		opts = append(opts, toyruntime.WithJobIDGenerator(gen))
 	}
 	runtime := toyruntime.New(opts...)
-	builder := jobworkflow.NewEngineBuilder().WithRuntime(runtime)
+	guard := executionruntime.New(runtime, execution.Allocation{SchemaVersion: 1})
+	builder := jobworkflow.NewEngineBuilder().WithRuntime(guard)
 	if workerTenantID != "" {
 		builder = builder.WithWorkerTenantId(workerTenantID)
 	}
 	if ws != nil {
 		taskWorkers := make([]jobworkflow.TaskWorker, 0, len(ws.TaskWorkers))
 		for _, tw := range ws.TaskWorkers {
-			taskWorkers = append(taskWorkers, tw)
+			taskWorkers = append(taskWorkers, guard.WrapTaskWorker(tw))
 		}
 		builder.PlusWorkers(ws.JobWorker, taskWorkers...)
 	}
 	engine, err := builder.BuildEngine()
 	require.NoError(t, err)
-	engine = jobdbschema.WorkflowEngine{Engine: engine, Registry: runtime}
+	engine = &guardedTestEngine{Engine: jobdbschema.WorkflowEngine{Engine: engine, Registry: runtime}, guard: guard}
 	go engine.Run(ctx)
 	return engine
 }
@@ -137,7 +142,9 @@ func (s *CompilerTestSuite) testRecipe(recipeYaml string, input map[string]inter
 		GitRef:     gitCtx.ParentRef,
 	}
 
-	jobKey, err := starter.StartRecipeJob(context.Background(), job, s.eng, *testRecipe)
+	jobKeyRef, err := starter.StartRecipeJob(context.Background(), job, s.eng, *testRecipe)
+
+	jobKey := jobKeyRef.Key()
 	require.NoError(s.T(), err)
 	require.NoError(s.T(), jobworkflow.WaitForJobToComplete(context.Background(), 30*time.Second, jobKey, s.eng))
 	r, err := swfutil.JobResult(context.Background(), s.eng, jobKey)
@@ -547,7 +554,9 @@ func (s *CompilerTestSuite) TestSequenceRecipeCompilation() {
 		GitRef:     gitCtx.ParentRef,
 	}
 
-	jobId, err := starter.StartRecipeJob(context.Background(), job, s.eng, *testRecipe)
+	jobIdRef, err := starter.StartRecipeJob(context.Background(), job, s.eng, *testRecipe)
+
+	jobId := jobIdRef.Key()
 	require.NoError(s.T(), err)
 	require.NoError(s.T(), jobworkflow.WaitForJobToComplete(context.Background(), 30*time.Second, jobId, s.eng))
 	r, err := swfutil.JobResult(context.Background(), s.eng, jobId)
@@ -597,4 +606,24 @@ sequence:
 	op := item.NodeImpl.(*recipe.NodeOp)
 	assert.Equal(s.T(), "llm", op.Op)
 	assert.Len(s.T(), recipeSeq.Sequence, 1)
+}
+
+type guardedTestEngine struct {
+	jobworkflow.Engine
+	guard *executionruntime.Runtime
+}
+
+func (e *guardedTestEngine) SubmitJobRef(ctx context.Context, job jobdb.SubmitJob) (jobref.Ref, error) {
+	return e.Engine.(jobref.Submitter).SubmitJobRef(ctx, job)
+}
+func (e *guardedTestEngine) GetGoal(ctx context.Context, key jobdb.GoalKey) (jobdb.GoalInfo, error) {
+	return e.guard.GetGoal(ctx, key)
+}
+func (e *guardedTestEngine) RegisterWorkers(ws *jobworkflow.WorkSet) error {
+	copy := *ws
+	copy.TaskWorkers = make(map[string]jobworkflow.TaskWorker, len(ws.TaskWorkers))
+	for name, tw := range ws.TaskWorkers {
+		copy.TaskWorkers[name] = e.guard.WrapTaskWorker(tw)
+	}
+	return e.Engine.RegisterWorkers(&copy)
 }

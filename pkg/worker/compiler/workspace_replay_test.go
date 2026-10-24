@@ -152,3 +152,11 @@ func (c *workspaceReplayContext) Context() testContext { return testBackground()
 func (c *workspaceReplayContext) ExecutionVersions() jobdb.ExecutionVersions {
 	return jobdb.ExecutionVersions{}
 }
+
+func (*workspaceReplayContext) AwaitGoals(...string) ([]jobdb.DependencyResolution, error) {
+	return nil, fmt.Errorf("unexpected AwaitGoals in test context")
+}
+
+func (*workspaceReplayContext) AwaitDependencies(...jobdb.Dependency) ([]jobdb.DependencyResolution, error) {
+	return nil, fmt.Errorf("unexpected AwaitDependencies in test context")
+}

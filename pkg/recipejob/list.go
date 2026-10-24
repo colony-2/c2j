@@ -24,6 +24,7 @@ type Lister interface {
 }
 
 type ListRecipeJobsRequest struct {
+	GoalIDs          []string
 	ExecutionFilter  *execution.Filter
 	TenantID         string
 	RepositorySource string
@@ -65,6 +66,8 @@ type GetRecipeJobRequest struct {
 }
 
 type RecipeJob struct {
+	GoalID       string   `json:"goal_id"`
+	OtherGoalIDs []string `json:"other_goal_ids"`
 	// Completion fields are persisted terminal results, separate from scheduler Status.
 	// Empty status means unavailable; empty detail is valid. Both are preserved verbatim.
 	CompletionStatus      string             `json:"completion_status,omitempty"`
@@ -149,6 +152,7 @@ func BuildListJobsRequest(req ListRecipeJobsRequest) (jobdb.ListJobsRequest, err
 		JobTypes:       []string{starter.RecipeJobType},
 		JobTasks:       append([]jobdb.JobTaskFilter(nil), req.JobTasks...),
 		JobKeys:        jobKeys,
+		GoalIDs:        append([]string(nil), req.GoalIDs...),
 		MetadataFilter: metadataFilter,
 		CreatedAfter:   req.CreatedAfter,
 		CreatedBefore:  req.CreatedBefore,
@@ -299,6 +303,7 @@ func StartedJobsContextFromRecipeJobs(jobs []RecipeJob) jobcontext.StartedJobsCo
 			continue
 		}
 		out.JobIDs = append(out.JobIDs, job.JobID)
+		out.GoalIDs = append(out.GoalIDs, job.GoalID)
 		parentInvocationHash := ""
 		if job.Parent != nil {
 			parentInvocationHash = job.Parent.InvocationHash
@@ -306,6 +311,7 @@ func StartedJobsContextFromRecipeJobs(jobs []RecipeJob) jobcontext.StartedJobsCo
 		out.Items = append(out.Items, jobcontext.StartedJobContext{
 			TenantID:             job.TenantID,
 			JobID:                job.JobID,
+			GoalID:               job.GoalID,
 			RecipeName:           job.RecipeName,
 			Status:               string(job.Status),
 			ParentInvocationHash: parentInvocationHash,
@@ -345,6 +351,8 @@ func RecipeJobFromSummary(summary jobdb.JobSummary) (RecipeJob, bool, error) {
 	}
 
 	job := RecipeJob{
+		GoalID:                summary.GoalID,
+		OtherGoalIDs:          append([]string(nil), summary.OtherGoalIDs...),
 		CompletionStatus:      summary.CompletionStatus,
 		CompletionDetail:      summary.CompletionDetail,
 		Execution:             ExecutionView(summary),
@@ -418,6 +426,7 @@ func parentFromMetadata(meta *starter.JobMetadata) jobcontext.Parent {
 	return jobcontext.Parent{
 		TenantID:           meta.ParentTenantID,
 		JobID:              meta.ParentJobID,
+		GoalID:             meta.ParentGoalID,
 		JobType:            meta.ParentJobType,
 		OpType:             meta.ParentOpType,
 		OpStep:             meta.ParentOpStep,

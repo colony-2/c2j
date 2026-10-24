@@ -35,7 +35,7 @@ func TestPublicAPIAndCLIParity(t *testing.T) {
 			require.NoError(t, err)
 			meta, err := json.Marshal(map[string]any{"repo": "https://github.com/acme/app.git", "execution": demand})
 			require.NoError(t, err)
-			runtime := &parityRuntime{requests: make(chan jobdb.ListJobsRequest, 2), job: jobdb.JobSummary{
+			runtime := &parityRuntime{requests: make(chan jobdb.ListJobsRequest, 2), job: jobdb.JobSummary{GoalID: "goal", OtherGoalIDs: []string{},
 				JobKey: jobdb.JobKey{TenantId: "tenant", JobId: "job"}, Status: status, JobType: "recipe", Metadata: meta,
 				CreatedAt: time.Unix(10, 0).UTC(), AvailableAt: time.Unix(20, 0).UTC(), CancelRequested: true,
 				NextRoute: &jobdb.Route{JobType: "recipe", TaskType: "recipe:two-step:next"},

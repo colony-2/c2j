@@ -28,7 +28,7 @@ func TestCompletionFieldsInOrdinaryAndChildCLIJSON(t *testing.T) {
 			if completion == "cancelled" {
 				status = jobdb.JobStatusCancelled
 			}
-			rt := &parityRuntime{requests: make(chan jobdb.ListJobsRequest, 2), job: jobdb.JobSummary{JobKey: jobdb.JobKey{TenantId: "tenant", JobId: "child"}, JobType: "recipe", Status: status, CompletionStatus: completion, CompletionDetail: detail, ParentJobID: "parent", Metadata: json.RawMessage(`{"recipe":"not-installed","repo":"https://github.com/acme/app.git"}`)}}
+			rt := &parityRuntime{requests: make(chan jobdb.ListJobsRequest, 2), job: jobdb.JobSummary{GoalID: "goal", OtherGoalIDs: []string{}, JobKey: jobdb.JobKey{TenantId: "tenant", JobId: "child"}, JobType: "recipe", Status: status, CompletionStatus: completion, CompletionDetail: detail, ParentJobID: "parent", Metadata: json.RawMessage(`{"recipe":"not-installed","repo":"https://github.com/acme/app.git"}`)}}
 			server := httptest.NewServer(remote.NewServer(rt))
 			defer server.Close()
 			root := t.TempDir()

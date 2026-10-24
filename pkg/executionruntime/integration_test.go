@@ -94,7 +94,8 @@ func newFixture(t *testing.T, backend, memory string, patch *execution.Requireme
 	require.NoError(t, err)
 	registry := rt.(jobdb.JobSchemaRegistry)
 	jobContext, git := compiler.GenerateTestContext()
-	key, err := starter.StartRecipeJob(ctx, workflowctl.StartJob{TenantId: "tenant", RecipeName: "resources", JobContext: jobContext, GitRef: git.ParentRef}, jobdbschema.WorkflowEngine{Engine: engine, Registry: registry}, *r)
+	keyRef, err := starter.StartRecipeJob(ctx, workflowctl.StartJob{TenantId: "tenant", RecipeName: "resources", JobContext: jobContext, GitRef: git.ParentRef}, jobdbschema.WorkflowEngine{Engine: engine, Registry: registry}, *r)
+	key := keyRef.Key()
 	require.NoError(t, err)
 	f := &fixture{runtime: rt, key: key}
 	f.tasks = []jobworkflow.TaskWorker{resultTask{"execution_discover:work", &f.first, patch}, resultTask{"execution_finish:work", &f.second, nil}}
@@ -274,7 +275,8 @@ func TestDeferredResolutionPinsRequirementsWithoutProvisionerResolution(t *testi
 			r, err := recipe.LoadRecipeFromString([]byte("id: deferred\nexecution:\n  resources:\n    memory: 16Gi\nsequence: []\n"))
 			require.NoError(t, err)
 			resolver := &mutableResolver{rec: *r}
-			key, err := starter.StartRecipeJob(ctx, workflowctl.StartJob{TenantId: "tenant", RecipeName: "deferred"}, jobdbschema.WorkflowEngine{Engine: engine, Registry: rt})
+			keyRef, err := starter.StartRecipeJob(ctx, workflowctl.StartJob{TenantId: "tenant", RecipeName: "deferred"}, jobdbschema.WorkflowEngine{Engine: engine, Registry: rt})
+			key := keyRef.Key()
 			require.NoError(t, err)
 			require.Zero(t, resolver.loads.Load())
 			run := func(memory string) (jobworkflow.JobRunOutcome, *compiler.ExecutionHandoff) {
@@ -332,7 +334,8 @@ func TestInlineDeclarationIsRetainedAndYieldsBeforeIncludedBody(t *testing.T) {
 	rt := toy.New()
 	engine, err := jobworkflow.NewEngineBuilder().WithRuntime(rt).BuildEngine()
 	require.NoError(t, err)
-	key, err := starter.StartRecipeJob(ctx, workflowctl.StartJob{TenantId: "tenant", RecipeName: "parent"}, jobdbschema.WorkflowEngine{Engine: engine, Registry: rt}, expanded.Recipe)
+	keyRef, err := starter.StartRecipeJob(ctx, workflowctl.StartJob{TenantId: "tenant", RecipeName: "parent"}, jobdbschema.WorkflowEngine{Engine: engine, Registry: rt}, expanded.Recipe)
+	key := keyRef.Key()
 	require.NoError(t, err)
 	f := &fixture{runtime: rt, key: key}
 	out, event := f.run(t, "2Gi", nil)

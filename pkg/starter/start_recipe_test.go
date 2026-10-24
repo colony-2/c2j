@@ -9,6 +9,7 @@ import (
 	"github.com/colony-2/c2j/pkg/contextual"
 	"github.com/colony-2/c2j/pkg/jobcontext"
 	"github.com/colony-2/c2j/pkg/jobdbschema"
+	"github.com/colony-2/c2j/pkg/jobref"
 	"github.com/colony-2/c2j/pkg/recipe"
 	"github.com/colony-2/c2j/pkg/workflowctl"
 	"github.com/colony-2/jobdb/pkg/jobdb"
@@ -88,9 +89,9 @@ func TestStartRecipeJobUsesRecipeTimeoutAsDurableJobTotalTimeout(t *testing.T) {
 	}
 }
 
-func (c *captureSubmitter) SubmitJob(_ context.Context, job jobdb.SubmitJob) (jobdb.JobKey, error) {
+func (c *captureSubmitter) SubmitJobRef(_ context.Context, job jobdb.SubmitJob) (jobref.Ref, error) {
 	c.job = job
-	return jobdb.JobKey{TenantId: job.TenantId, JobId: job.JobID}, nil
+	return jobref.Ref{GoalID: "test-goal", TenantID: job.TenantId, JobID: job.JobID}, nil
 }
 
 func TestJobMetadataFromStartJob_JSONFields(t *testing.T) {

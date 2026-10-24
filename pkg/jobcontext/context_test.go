@@ -3,7 +3,7 @@ package jobcontext
 import "testing"
 
 func TestCurrentEnvRoundTrip(t *testing.T) {
-	current := Current{
+	current := Current{GoalID: "parent-goal",
 		TenantID:           " tenant ",
 		JobID:              " job ",
 		JobType:            "recipe",

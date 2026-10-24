@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	recipeartifacts "github.com/colony-2/c2j/pkg/artifacts"
+	"github.com/colony-2/c2j/pkg/contextual"
 	"github.com/colony-2/c2j/pkg/git/gitstate"
 	"github.com/colony-2/c2j/pkg/objects"
 	"github.com/colony-2/c2j/pkg/ops"
@@ -12,6 +13,7 @@ import (
 )
 
 type recipeJobOutput struct {
+	GitResult          contextual.GitCommitContext
 	Outputs            map[string]interface{}
 	Artifacts          map[string]recipeartifacts.Ref
 	OutputAvailable    bool
@@ -37,9 +39,20 @@ func decodeRecipeJobOutput(deps ops.OpDependencies, data jobdb.JobData) (recipeJ
 		if err := json.Unmarshal(rawData, &raw); err != nil {
 			return recipeJobOutput{}, err
 		}
+		if git, ok := raw["git"]; ok {
+			buf, err := json.Marshal(git)
+			if err != nil {
+				return recipeJobOutput{}, err
+			}
+			if err = json.Unmarshal(buf, &out.GitResult); err != nil {
+				return recipeJobOutput{}, err
+			}
+		}
 		if wrapped, ok := raw["output"]; ok {
 			if cast, ok := wrapped.(map[string]interface{}); ok {
 				out.Outputs = cast
+			} else if wrapped != nil {
+				return recipeJobOutput{}, fmt.Errorf("recipe result output must be an object")
 			}
 		} else {
 			out.Outputs = raw

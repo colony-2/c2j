@@ -13,6 +13,7 @@ import (
 
 	"github.com/colony-2/c2j/pkg/childbroker"
 	"github.com/colony-2/c2j/pkg/jobcontext"
+	"github.com/colony-2/c2j/pkg/jobref"
 	"github.com/colony-2/c2j/pkg/starter"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 )
@@ -260,7 +261,7 @@ outputs:
 		t.Fatalf("write recipe: %v", err)
 	}
 
-	current := jobcontext.Current{
+	current := jobcontext.Current{GoalID: "parent-goal",
 		TenantID:           "0",
 		JobID:              "parent-submitjob",
 		JobType:            starter.RecipeJobType,
@@ -333,13 +334,13 @@ type submitjobCaptureSubmitter struct {
 	last  jobdb.SubmitJob
 }
 
-func (s *submitjobCaptureSubmitter) SubmitJob(_ context.Context, job jobdb.SubmitJob) (jobdb.JobKey, error) {
+func (s *submitjobCaptureSubmitter) SubmitJobRef(_ context.Context, job jobdb.SubmitJob) (jobref.Ref, error) {
 	s.calls++
 	s.last = job
 	if s.last.JobID == "" {
 		s.last.JobID = "captured-child"
 	}
-	return jobdb.JobKey{TenantId: job.TenantId, JobId: s.last.JobID}, nil
+	return jobref.Ref{GoalID: "test-goal", TenantID: job.TenantId, JobID: s.last.JobID}, nil
 }
 
 func TestLoadInputsAddsPromptField(t *testing.T) {

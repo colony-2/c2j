@@ -130,6 +130,7 @@ func renderChildGroupInput(resCtx *template.ResolutionContext, group recipe.Chil
 	}
 
 	return recipeops.ChildGroupStartInput{
+		Wait:      recipeops.WaitPolicy{On: group.Wait.On, Condition: group.Wait.Condition},
 		Mode:      mode,
 		Children:  children,
 		Aggregate: aggregate,
@@ -201,7 +202,12 @@ func renderChildGroupChild(resCtx *template.ResolutionContext, child recipe.Chil
 		return recipeops.ChildGroupChildSpec{}, fmt.Errorf("recipe is required")
 	}
 
+	var wait *recipeops.WaitPolicy
+	if child.Wait != nil {
+		wait = &recipeops.WaitPolicy{On: child.Wait.On, Condition: child.Wait.Condition}
+	}
 	return recipeops.ChildGroupChildSpec{
+		Wait:       wait,
 		Key:        key,
 		Index:      index,
 		Recipe:     recipeName,

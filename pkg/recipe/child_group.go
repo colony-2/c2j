@@ -3,6 +3,7 @@ package recipe
 // ChildGroupData describes a first-class recipe node that fans out to child
 // recipes. The compiler lowers this node to internal task-backed recipe ops.
 type ChildGroupData struct {
+	Wait         ChildWait           `yaml:"wait,omitempty" json:"wait,omitempty"`
 	Mode         string              `yaml:"mode,omitempty" json:"mode,omitempty"`
 	Children     []ChildGroupChild   `yaml:"children,omitempty" json:"children,omitempty"`
 	ChildrenFrom interface{}         `yaml:"children_from,omitempty" json:"children_from,omitempty"`
@@ -21,6 +22,7 @@ type ChildGroupAggregate struct {
 }
 
 type ChildGroupChild struct {
+	Wait       *ChildWait             `yaml:"wait,omitempty" json:"wait,omitempty"`
 	Key        interface{}            `yaml:"key,omitempty" json:"key,omitempty"`
 	Recipe     interface{}            `yaml:"recipe,omitempty" json:"recipe,omitempty"`
 	CellName   interface{}            `yaml:"cell_name,omitempty" json:"cell_name,omitempty"`
@@ -53,3 +55,8 @@ func (n *NodeChildGroup) GetMetadata() NodeMetadata {
 }
 
 func (n *NodeChildGroup) isNode() {}
+
+type ChildWait struct {
+	On        string `yaml:"on,omitempty" json:"on,omitempty"`
+	Condition string `yaml:"condition,omitempty" json:"condition,omitempty"`
+}

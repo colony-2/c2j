@@ -65,7 +65,8 @@ outputs:
 `))
 	require.NoError(t, err)
 	job, git := GenerateTestContext()
-	key, err := starter.StartRecipeJob(ctx, workflowctl.StartJob{TenantId: "config", RecipeName: "config", JobContext: job, GitRef: git.ParentRef}, engine, *rec)
+	keyRef, err := starter.StartRecipeJob(ctx, workflowctl.StartJob{TenantId: "config", RecipeName: "config", JobContext: job, GitRef: git.ParentRef}, engine, *rec)
+	key := keyRef.Key()
 	require.NoError(t, err)
 	var first, all []jobworkflow.TaskWorker
 	for name, w := range ws.TaskWorkers {

@@ -256,6 +256,7 @@ func (j recipeJobWorker) Run(ctx jobworkflow.ExecutionContext, jobData jobdb.Job
 	)
 
 	runContext := input.JobContext
+	runContext.Workflow.GoalID = resolution.GoalID
 	submittedRefs, err := submittedArtifactRefs(input, artifacts, hasEmbeddedRecipeArtifact)
 	if err != nil {
 		logger.Debug("recipe job: failed to index submitted artifacts",

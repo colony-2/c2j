@@ -7,7 +7,9 @@ import (
 
 	recipeartifacts "github.com/colony-2/c2j/pkg/artifacts"
 	"github.com/colony-2/c2j/pkg/execution"
+	"github.com/colony-2/c2j/pkg/gitprofile"
 	"github.com/colony-2/c2j/pkg/jobcontext"
+	"github.com/colony-2/c2j/pkg/jobref"
 	"github.com/colony-2/c2j/pkg/objects"
 	"github.com/colony-2/c2j/pkg/permissions"
 	"github.com/colony-2/c2j/pkg/workflowctl"
@@ -59,11 +61,19 @@ func (j *TaskBasedJobTool) AwaitJobs(jobIds ...string) error {
 	return j.TaskContext.AwaitJobs(jobIds...)
 }
 
-func (j *TaskBasedJobTool) SubmitJob(ctx context.Context, job jobdb.SubmitJob) (jobdb.JobKey, error) {
-	if j.Restricted != nil {
-		return j.Restricted.Submit(ctx, job)
+func (j *TaskBasedJobTool) SubmitJobRef(ctx context.Context, job jobdb.SubmitJob) (jobref.Ref, error) {
+	scope, ok := jobref.FromContext(gitprofile.TaskContext(j.TaskContext))
+	if !ok || scope.Submit == nil {
+		return jobref.Ref{}, fmt.Errorf("task submission scope is unavailable")
 	}
-	return j.TaskContext.SubmitJob(ctx, job)
+	return scope.Submit(ctx, job)
+}
+func (j *TaskBasedJobTool) GetJobRef() jobref.Ref {
+	scope, _ := jobref.FromContext(gitprofile.TaskContext(j.TaskContext))
+	return scope.Current
+}
+func (j *TaskBasedJobTool) AwaitDependencies(deps ...jobdb.Dependency) ([]jobdb.DependencyResolution, error) {
+	return j.TaskContext.AwaitDependencies(deps...)
 }
 
 // opDepImpl holds the actual dependencies.

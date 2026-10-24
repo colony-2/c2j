@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"testing"
 
+	"github.com/colony-2/c2j/pkg/jobref"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
@@ -80,9 +81,9 @@ func TestAccessChecksBeforeCacheAndSubmission(t *testing.T) {
 	a := NewAccess(ctx, JobDB{Secrets: SecretPermissions{Resolve: []string{"model"}}}, func(context.Context, []string) (jobdb.SecretResolveResult, error) {
 		calls++
 		return jobdb.SecretResolveResult{Secrets: map[string]jobdb.SecretValue{"model": {Value: "allowed"}, "rw": {Value: "cached-other-task"}}}, nil
-	}, func(context.Context, jobdb.SubmitJob) (jobdb.JobKey, error) {
+	}, func(context.Context, jobdb.SubmitJob) (jobref.Ref, error) {
 		t.Fatal("denied submit called backend")
-		return jobdb.JobKey{}, nil
+		return jobref.Ref{}, nil
 	})
 	_, err := a.Resolve(ctx, []string{"rw"})
 	require.ErrorIs(t, err, jobdb.ErrLeasePermissionDenied)

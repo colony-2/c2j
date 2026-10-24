@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -20,7 +21,6 @@ import (
 	remoteruntime "github.com/colony-2/jobdb/pkg/jobdb/runtime/remote"
 	toyruntime "github.com/colony-2/jobdb/pkg/jobdb/runtime/toy"
 	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
-	"net/http/httptest"
 )
 
 func testJobDBURI(serverURL string, tenantID string) string {
@@ -344,7 +344,15 @@ outputs:
 	if err == nil {
 		t.Fatal("expected parent to pause waiting for child job")
 	}
-	childJobID := extractWaitForJobID(t, err)
+	discoveryRuntime, openErr := remoteruntime.New(server.URL, server.Client())
+	if openErr != nil {
+		t.Fatal(openErr)
+	}
+	children, listErr := discoveryRuntime.ListJobs(ctx, jobdb.ListJobsRequest{TenantIds: []string{tenantID}, ParentJobIDs: []string{submitted.JobID}})
+	if listErr != nil || len(children.Jobs) != 1 {
+		t.Fatalf("discover submitted child: %v, %#v", listErr, children)
+	}
+	childJobID := children.Jobs[0].JobKey.JobId
 
 	var childStdout bytes.Buffer
 	var childStderr bytes.Buffer

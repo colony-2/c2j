@@ -116,7 +116,7 @@ func TestCompletionProjectionsUseOnlySummaryFields(t *testing.T) {
 			if tc.scheduler == "" {
 				tc.scheduler = jobdb.JobStatusCompleted
 			}
-			summary := jobdb.JobSummary{JobKey: jobdb.JobKey{TenantId: "tenant", JobId: "job"}, JobType: "recipe", ParentJobID: "parent", Status: tc.scheduler, CompletionStatus: tc.status, CompletionDetail: tc.detail, CancelRequested: tc.cancelRequested, Metadata: json.RawMessage(`{"recipe":"not-installed","repo":"https://github.com/acme/app.git"}`)}
+			summary := jobdb.JobSummary{GoalID: "test-goal", OtherGoalIDs: []string{}, JobKey: jobdb.JobKey{TenantId: "tenant", JobId: "job"}, JobType: "recipe", ParentJobID: "parent", Status: tc.scheduler, CompletionStatus: tc.status, CompletionDetail: tc.detail, CancelRequested: tc.cancelRequested, Metadata: json.RawMessage(`{"recipe":"not-installed","repo":"https://github.com/acme/app.git"}`)}
 			rt := &completionListOnly{list: func(_ context.Context, req jobdb.ListJobsRequest) (jobdb.ListJobsResponse, error) {
 				require.Equal(t, []string{"tenant"}, req.TenantIds)
 				return jobdb.ListJobsResponse{Jobs: []jobdb.JobSummary{summary}, NextPageToken: "next"}, nil

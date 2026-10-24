@@ -55,7 +55,7 @@ func demandJob(t *testing.T, id, memory string) jobdb.JobSummary {
 	require.NoError(t, err)
 	meta, err := json.Marshal(map[string]any{"repo": "https://github.com/acme/app.git", "execution": d})
 	require.NoError(t, err)
-	return jobdb.JobSummary{
+	return jobdb.JobSummary{GoalID: "test-goal", OtherGoalIDs: []string{},
 		JobKey: jobdb.JobKey{TenantId: "tenant", JobId: id}, JobType: "recipe", Status: jobdb.JobStatusReady,
 		Metadata: meta, CreatedAt: time.Unix(100, 0).UTC(), AvailableAt: time.Unix(200, 0).UTC(),
 	}
@@ -126,6 +126,8 @@ func TestExecutionDiagnosticsAndUnspecified(t *testing.T) {
 	for i := range jobs {
 		jobs[i].JobKey = jobdb.JobKey{TenantId: "tenant", JobId: strconv.Itoa(i)}
 		jobs[i].JobType = "recipe"
+		jobs[i].GoalID = "goal"
+		jobs[i].OtherGoalIDs = []string{}
 	}
 	s := serve(t, func(context.Context, jobdb.ListJobsRequest) (jobdb.ListJobsResponse, error) {
 		return jobdb.ListJobsResponse{Jobs: jobs}, nil

@@ -13,6 +13,7 @@ sequence:
           value: beta
           required: false
     child_group:
+      wait: {on: job}
       mode: run_and_get_result
       children_from: "${{ vars.targets }}"
       child:

@@ -7,6 +7,7 @@ import (
 
 	"github.com/colony-2/c2j/pkg/jobcontext"
 	"github.com/colony-2/c2j/pkg/jobdbschema"
+	"github.com/colony-2/c2j/pkg/jobref"
 	"github.com/colony-2/c2j/pkg/starter"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	toyruntime "github.com/colony-2/jobdb/pkg/jobdb/runtime/toy"
@@ -214,11 +215,11 @@ func newListTestEngine(t *testing.T) jobworkflow.Engine {
 
 func submitRecipeJob(t *testing.T, ctx context.Context, engine jobworkflow.Engine, tenantID string, jobID string, repo string, cellName string, submittedAt time.Time) {
 	t.Helper()
-	submitRecipeJobWithParent(t, ctx, engine, tenantID, jobID, repo, cellName, submittedAt, jobcontext.Parent{})
+	submitRecipeJobWithParent(t, ctx, engine.(jobref.Submitter), tenantID, jobID, repo, cellName, submittedAt, jobcontext.Parent{})
 }
 
 type testRecipeSubmitter interface {
-	SubmitJob(context.Context, jobdb.SubmitJob) (jobdb.JobKey, error)
+	SubmitJobRef(context.Context, jobdb.SubmitJob) (jobref.Ref, error)
 }
 
 func submitRecipeJobWithParent(t *testing.T, ctx context.Context, engine testRecipeSubmitter, tenantID string, jobID string, repo string, cellName string, submittedAt time.Time, parent jobcontext.Parent) {
@@ -250,13 +251,13 @@ type leaseSubmitter struct {
 	lease jobdb.ExecutionLease
 }
 
-func (s leaseSubmitter) SubmitJob(ctx context.Context, job jobdb.SubmitJob) (jobdb.JobKey, error) {
+func (s leaseSubmitter) SubmitJobRef(ctx context.Context, job jobdb.SubmitJob) (jobref.Ref, error) {
 	handle, err := s.lease.SubmitJob(ctx, jobdb.SubmitJobRequest{
 		Job:         job,
 		RequestTime: time.Now().UTC(),
 	})
 	if err != nil {
-		return jobdb.JobKey{}, err
+		return jobref.Ref{}, err
 	}
-	return handle.JobKey, nil
+	return jobref.FromHandle(handle)
 }

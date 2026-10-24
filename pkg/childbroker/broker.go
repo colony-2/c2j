@@ -18,6 +18,7 @@ import (
 
 	"github.com/colony-2/c2j/pkg/gitprofile"
 	"github.com/colony-2/c2j/pkg/jobcontext"
+	"github.com/colony-2/c2j/pkg/jobref"
 	"github.com/colony-2/c2j/pkg/recipe"
 	"github.com/colony-2/c2j/pkg/starter"
 	"github.com/colony-2/c2j/pkg/workflowctl"
@@ -33,7 +34,7 @@ const (
 )
 
 type Submitter interface {
-	SubmitJob(context.Context, jobdb.SubmitJob) (jobdb.JobKey, error)
+	SubmitJobRef(context.Context, jobdb.SubmitJob) (jobref.Ref, error)
 }
 
 type Options struct {
@@ -82,6 +83,7 @@ type SubmitRequest struct {
 }
 
 type SubmitResponse struct {
+	GoalID   string `json:"goal_id"`
 	TenantID string `json:"tenant_id"`
 	JobID    string `json:"job_id"`
 	Recipe   string `json:"recipe"`
@@ -202,14 +204,16 @@ func (s *Server) StartedJobs() jobcontext.StartedJobsContext {
 	defer s.mu.Unlock()
 
 	out := jobcontext.StartedJobsContext{
-		JobIDs: make([]string, 0, len(s.started)),
-		Items:  make([]jobcontext.StartedJobContext, 0, len(s.started)),
+		GoalIDs: make([]string, 0, len(s.started)),
+		JobIDs:  make([]string, 0, len(s.started)),
+		Items:   make([]jobcontext.StartedJobContext, 0, len(s.started)),
 	}
 	for _, item := range s.started {
 		if strings.TrimSpace(item.JobID) == "" {
 			continue
 		}
 		out.JobIDs = append(out.JobIDs, item.JobID)
+		out.GoalIDs = append(out.GoalIDs, item.GoalID)
 		out.Items = append(out.Items, item)
 	}
 	return out
@@ -303,18 +307,20 @@ func (s *Server) submit(ctx context.Context, req SubmitRequest) (SubmitResponse,
 
 	s.record(key, start)
 	return SubmitResponse{
-		TenantID: key.TenantId,
-		JobID:    key.JobId,
+		TenantID: key.TenantID,
+		GoalID:   key.GoalID,
+		JobID:    key.JobID,
 		Recipe:   start.RecipeName,
 	}, nil
 }
 
-func (s *Server) record(key jobdb.JobKey, start workflowctl.StartJob) {
+func (s *Server) record(key jobref.Ref, start workflowctl.StartJob) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.started = append(s.started, jobcontext.StartedJobContext{
-		TenantID:             key.TenantId,
-		JobID:                key.JobId,
+		TenantID:             key.TenantID,
+		GoalID:               key.GoalID,
+		JobID:                key.JobID,
 		RecipeName:           start.RecipeName,
 		ParentInvocationHash: s.current.InvocationHash,
 	})

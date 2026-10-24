@@ -955,3 +955,11 @@ func (c *fakeReplayJobContext) DoScope(_ string, _ jobworkflow.ScopeOptions, bod
 func (c *fakeReplayJobContext) ResolveSecretsFresh(ctx context.Context, names []string) (jobdb.SecretResolveResult, error) {
 	return c.ResolveSecrets(ctx, names)
 }
+
+func (*fakeReplayJobContext) AwaitGoals(...string) ([]jobdb.DependencyResolution, error) {
+	return nil, fmt.Errorf("unexpected AwaitGoals in test context")
+}
+
+func (*fakeReplayJobContext) AwaitDependencies(...jobdb.Dependency) ([]jobdb.DependencyResolution, error) {
+	return nil, fmt.Errorf("unexpected AwaitDependencies in test context")
+}

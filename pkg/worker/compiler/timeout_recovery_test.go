@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/colony-2/c2j/pkg/jobdbschema"
+	"github.com/colony-2/c2j/pkg/jobref"
 	coreops "github.com/colony-2/c2j/pkg/ops"
 	"github.com/colony-2/c2j/pkg/recipe"
 	"github.com/colony-2/c2j/pkg/starter"
@@ -22,9 +23,9 @@ type timeoutReproSubmitter struct {
 	policy jobdb.RunPolicy
 }
 
-func (s *timeoutReproSubmitter) SubmitJob(ctx context.Context, job jobdb.SubmitJob) (jobdb.JobKey, error) {
+func (s *timeoutReproSubmitter) SubmitJobRef(ctx context.Context, job jobdb.SubmitJob) (jobref.Ref, error) {
 	s.policy = job.RunPolicy
-	return s.inner.SubmitJob(ctx, job)
+	return s.inner.(jobref.Submitter).SubmitJobRef(ctx, job)
 }
 
 type timeoutReproActivity struct {
@@ -102,7 +103,8 @@ sequence:
 				} else {
 					embedded = []recipe.Recipe{*rec}
 				}
-				key, err := starter.StartRecipeJob(context.Background(), start, submitter, embedded...)
+				keyRef, err := starter.StartRecipeJob(context.Background(), start, submitter, embedded...)
+				key := keyRef.Key()
 				require.NoError(t, err)
 				if scope == "preloaded-root" {
 					require.NotNil(t, submitter.policy.TotalTimeout)

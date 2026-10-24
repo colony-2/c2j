@@ -25,7 +25,7 @@ func TestLocalSubmitUsesBoundInterfaceAndDynamicPort(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
 			submitter := &captureSubmitter{}
-			broker, err := start(ctx, Options{Current: jobcontext.Current{TenantID: "tenant", JobID: "parent", InvocationHash: "current-attempt"}, Submitter: submitter}, func() (net.Listener, string, error) { return listener, "container-host.invalid", nil })
+			broker, err := start(ctx, Options{Current: jobcontext.Current{GoalID: "parent-goal", TenantID: "tenant", JobID: "parent", InvocationHash: "current-attempt"}, Submitter: submitter}, func() (net.Listener, string, error) { return listener, "container-host.invalid", nil })
 			require.NoError(t, err)
 			defer broker.Close()
 			require.Equal(t, "container-host.invalid", broker.Host())
@@ -66,7 +66,7 @@ func TestLocalSubmitDoesNotUseAmbientProxyOrAdvertisedHost(t *testing.T) {
 	t.Cleanup(func() { http.DefaultTransport = original })
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	broker, err := Start(ctx, Options{Current: jobcontext.Current{TenantID: "tenant", JobID: "parent"}, Submitter: &captureSubmitter{}})
+	broker, err := Start(ctx, Options{Current: jobcontext.Current{GoalID: "parent-goal", TenantID: "tenant", JobID: "parent"}, Submitter: &captureSubmitter{}})
 	require.NoError(t, err)
 	defer broker.Close()
 	req, err := NewSubmitRequest(ctx, workflowctl.StartJob{TenantId: "tenant", JobID: "child", RecipeName: "child"}, nil)

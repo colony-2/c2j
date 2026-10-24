@@ -336,7 +336,10 @@ Use `recipe.await_result_soft` when failure or cancellation should be data:
 - id: inspect_child
   op: recipe.await_result_soft
   inputs:
-    job_id: "{{ inputs.child_job_id }}"
+    target:
+      job: "{{ inputs.child_job_id }}"
+    wait:
+      on: job
     return_when: terminal
 ```
 

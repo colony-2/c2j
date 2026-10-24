@@ -16,6 +16,7 @@ import (
 
 	"github.com/colony-2/c2j/pkg/contextual"
 	"github.com/colony-2/c2j/pkg/git/gitstate"
+	"github.com/colony-2/c2j/pkg/jobref"
 	recipeops "github.com/colony-2/c2j/pkg/ops"
 	"github.com/colony-2/c2j/pkg/worker/activity"
 	"github.com/colony-2/c2j/pkg/workflowctl"
@@ -453,10 +454,10 @@ func (s *stubWorkflowControl) CompleteTask(ctx context.Context, jobKey jobdb.Job
 
 var _ workflowctl.WorkflowControl = &stubWorkflowControl{}
 
-func (s *stubWorkflowControl) StartJob(ctx context.Context, req workflowctl.StartJob) (jobdb.JobKey, error) {
+func (s *stubWorkflowControl) StartJob(ctx context.Context, req workflowctl.StartJob) (jobref.Ref, error) {
 	_ = ctx
 	_ = req
-	return jobdb.JobKey{}, nil
+	return jobref.Ref{}, nil
 }
 
 func (s *stubWorkflowControl) Cancel(ctx context.Context, jobKey jobdb.JobKey) error {

@@ -13,7 +13,6 @@ import (
 
 	"github.com/colony-2/c2j/pkg/execution"
 	"github.com/colony-2/c2j/pkg/permissions"
-	"github.com/colony-2/c2j/pkg/worker/compiler"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
 )
@@ -277,7 +276,7 @@ func (w *guardedTask) Run(ctx jobworkflow.TaskContext, input jobdb.TaskData) (jo
 	if err != nil {
 		return l.blockExecution(err)
 	}
-	metadata, err := json.Marshal(compiler.ExecutionHandoff{Kind: "environment_required", JobKey: ctx.JobKey, Demand: *publishedDemand, Allocation: r.Allocation, Mismatches: mismatches, Published: published})
+	metadata, err := json.Marshal(execution.Handoff{Kind: "environment_required", JobKey: ctx.JobKey, Demand: *publishedDemand, Allocation: r.Allocation, Mismatches: mismatches, Published: published})
 	if err != nil {
 		return l.blockExecution(err)
 	}

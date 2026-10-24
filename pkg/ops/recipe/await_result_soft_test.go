@@ -5,6 +5,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/colony-2/c2j/pkg/jobref"
 	"github.com/colony-2/c2j/pkg/ops"
 	workerops "github.com/colony-2/c2j/pkg/worker/ops"
 	"github.com/colony-2/c2j/pkg/workflowctl"
@@ -44,7 +45,7 @@ func TestAwaitResultSoftCompletedChildReturnsOutput(t *testing.T) {
 		WithJobTool(&fakeJobTool{key: jobdb.JobKey{TenantId: "tenant"}}).
 		Build()
 
-	out, err := awaitResultSoft(deps, context.Background(), AwaitResultSoftInput{JobID: "child-1"})
+	out, err := awaitResultSoft(deps, context.Background(), AwaitResultSoftInput{Wait: WaitPolicy{On: "job"}, Target: WaitTarget{Job: "child-1"}})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -91,7 +92,7 @@ func TestAwaitResultSoftFailedChildReturnsDataNotError(t *testing.T) {
 		WithJobTool(jobTool).
 		Build()
 
-	out, err := awaitResultSoft(deps, context.Background(), AwaitResultSoftInput{JobID: "child-1"})
+	out, err := awaitResultSoft(deps, context.Background(), AwaitResultSoftInput{Wait: WaitPolicy{On: "job"}, Target: WaitTarget{Job: "child-1"}})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -121,8 +122,8 @@ func TestAwaitResultSoftCurrentStatusDoesNotAwait(t *testing.T) {
 		WithJobTool(jobTool).
 		Build()
 
-	out, err := awaitResultSoft(deps, context.Background(), AwaitResultSoftInput{
-		JobID:      "child-1",
+	out, err := awaitResultSoft(deps, context.Background(), AwaitResultSoftInput{Wait: WaitPolicy{On: "job"},
+		Target:     WaitTarget{Job: "child-1"},
 		ReturnWhen: "current_status",
 	})
 	if err != nil {
@@ -147,7 +148,7 @@ func TestAwaitResultSoftInspectErrorFailsOp(t *testing.T) {
 		WithJobTool(&fakeJobTool{key: jobdb.JobKey{TenantId: "tenant"}}).
 		Build()
 
-	_, err := awaitResultSoft(deps, context.Background(), AwaitResultSoftInput{JobID: "child-1"})
+	_, err := awaitResultSoft(deps, context.Background(), AwaitResultSoftInput{Wait: WaitPolicy{On: "job"}, Target: WaitTarget{Job: "child-1"}})
 	if err == nil || err.Error() != "inspect failed" {
 		t.Fatalf("expected inspect error, got %v", err)
 	}
@@ -164,7 +165,7 @@ func TestAwaitResultSoftFallbackSoftensJobFailed(t *testing.T) {
 		WithJobTool(&fakeJobTool{key: jobdb.JobKey{TenantId: "tenant"}}).
 		Build()
 
-	out, err := awaitResultSoft(deps, context.Background(), AwaitResultSoftInput{JobID: "child-1"})
+	out, err := awaitResultSoft(deps, context.Background(), AwaitResultSoftInput{Wait: WaitPolicy{On: "job"}, Target: WaitTarget{Job: "child-1"}})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -177,8 +178,8 @@ type jobResultOnlyWorkflowControl struct {
 	jobResultFunc func(ctx context.Context, key jobdb.JobKey) (jobdb.JobData, error)
 }
 
-func (j *jobResultOnlyWorkflowControl) StartJob(ctx context.Context, req workflowctl.StartJob) (jobdb.JobKey, error) {
-	return jobdb.JobKey{}, errors.New("not implemented")
+func (j *jobResultOnlyWorkflowControl) StartJob(ctx context.Context, req workflowctl.StartJob) (jobref.Ref, error) {
+	return jobref.Ref{}, errors.New("not implemented")
 }
 
 func (j *jobResultOnlyWorkflowControl) Cancel(ctx context.Context, jobKey jobdb.JobKey) error {

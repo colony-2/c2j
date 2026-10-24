@@ -59,6 +59,7 @@ type RecipeSourceContext struct {
 
 // WorkflowContext provides high-level workflow/session identifiers.
 type WorkflowContext struct {
+	GoalID    string `json:"goal_id"`
 	CellID    string `json:"cell_id,omitempty"`
 	CellName  string `json:"cell,omitempty"`
 	JobID     string `json:"job_id,omitempty"`

@@ -62,3 +62,51 @@ func (c *renameAfterWithinResolutionContext) SubmitJob(ctx context.Context, subm
 func (c *renameAfterWithinResolutionContext) SubmitRestartJob(ctx context.Context, restart jobdb.SubmitRestartJob) (jobdb.JobKey, error) {
 	return unsupportedTestSubmitRestartJob(ctx, restart)
 }
+
+func (*countingJobContext) AwaitGoals(...string) ([]jobdb.DependencyResolution, error) {
+	return nil, fmt.Errorf("unexpected AwaitGoals in test context")
+}
+
+func (*countingJobContext) AwaitDependencies(...jobdb.Dependency) ([]jobdb.DependencyResolution, error) {
+	return nil, fmt.Errorf("unexpected AwaitDependencies in test context")
+}
+
+func (*catchScriptedJobContext) AwaitGoals(...string) ([]jobdb.DependencyResolution, error) {
+	return nil, fmt.Errorf("unexpected AwaitGoals in test context")
+}
+
+func (*catchScriptedJobContext) AwaitDependencies(...jobdb.Dependency) ([]jobdb.DependencyResolution, error) {
+	return nil, fmt.Errorf("unexpected AwaitDependencies in test context")
+}
+
+func (*stubJobContext) AwaitGoals(...string) ([]jobdb.DependencyResolution, error) {
+	return nil, fmt.Errorf("unexpected AwaitGoals in test context")
+}
+
+func (*stubJobContext) AwaitDependencies(...jobdb.Dependency) ([]jobdb.DependencyResolution, error) {
+	return nil, fmt.Errorf("unexpected AwaitDependencies in test context")
+}
+
+func (*policyCaptureJobContext) AwaitGoals(...string) ([]jobdb.DependencyResolution, error) {
+	return nil, fmt.Errorf("unexpected AwaitGoals in test context")
+}
+
+func (*policyCaptureJobContext) AwaitDependencies(...jobdb.Dependency) ([]jobdb.DependencyResolution, error) {
+	return nil, fmt.Errorf("unexpected AwaitDependencies in test context")
+}
+
+func (*capturingInvocationJobContext) AwaitGoals(...string) ([]jobdb.DependencyResolution, error) {
+	return nil, fmt.Errorf("unexpected AwaitGoals in test context")
+}
+
+func (*capturingInvocationJobContext) AwaitDependencies(...jobdb.Dependency) ([]jobdb.DependencyResolution, error) {
+	return nil, fmt.Errorf("unexpected AwaitDependencies in test context")
+}
+
+func (*renameAfterWithinResolutionContext) AwaitGoals(...string) ([]jobdb.DependencyResolution, error) {
+	return nil, fmt.Errorf("unexpected AwaitGoals in test context")
+}
+
+func (*renameAfterWithinResolutionContext) AwaitDependencies(...jobdb.Dependency) ([]jobdb.DependencyResolution, error) {
+	return nil, fmt.Errorf("unexpected AwaitDependencies in test context")
+}

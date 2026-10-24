@@ -60,8 +60,8 @@ func TestStartSingleJobPassesDeterministicJobID(t *testing.T) {
 	if ctl.startRequests[0].JobID != want {
 		t.Fatalf("expected explicit child job id %q, got %q", want, ctl.startRequests[0].JobID)
 	}
-	if out.JobId != want {
-		t.Fatalf("expected started job output to reuse deterministic job id %q, got %q", want, out.JobId)
+	if out.JobID != want {
+		t.Fatalf("expected started job output to reuse deterministic job id %q, got %q", want, out.JobID)
 	}
 }
 

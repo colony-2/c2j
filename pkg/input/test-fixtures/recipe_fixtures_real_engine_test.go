@@ -16,6 +16,8 @@ import (
 	"time"
 
 	"github.com/colony-2/c2j/pkg/contextual"
+	"github.com/colony-2/c2j/pkg/execution"
+	"github.com/colony-2/c2j/pkg/executionruntime"
 	"github.com/colony-2/c2j/pkg/input"
 	"github.com/colony-2/c2j/pkg/jobdbschema"
 	coreops "github.com/colony-2/c2j/pkg/ops"
@@ -76,8 +78,12 @@ func TestRecipeFixturesRealEngine(t *testing.T) {
 	}
 
 	tenantID := "test-tenant"
+	guard := executionruntime.New(embedded.Runtime, execution.Allocation{SchemaVersion: 1})
+	for i, tw := range taskWorkers {
+		taskWorkers[i] = guard.WrapTaskWorker(tw)
+	}
 	engine, err := jobworkflow.NewEngineBuilder().
-		WithRuntime(embedded.Runtime).
+		WithRuntime(guard).
 		WithWorkerTenantId(tenantID).
 		WithAwaitRecycleThreshold(5*time.Second).
 		WithLogger(slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelError}))).
@@ -134,7 +140,9 @@ func TestRecipeFixturesRealEngine(t *testing.T) {
 						GitRef:     gitCtx.ParentRef,
 					}
 
-					jobKey, err := starter.StartRecipeJob(ctx, start, engine, *primary)
+					jobKeyRef, err := starter.StartRecipeJob(ctx, start, engine, *primary)
+
+					jobKey := jobKeyRef.Key()
 					require.NoError(t, err)
 
 					require.NoError(t, jobworkflow.WaitForJobToComplete(ctx, 60*time.Second, jobKey, engine))

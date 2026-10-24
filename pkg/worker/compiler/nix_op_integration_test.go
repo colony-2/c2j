@@ -151,7 +151,8 @@ printf '{"output":{"message":"hello"}}'
 	go engine.Run(ctx)
 	job, git := GenerateTestContext()
 	start := func(rec *recipe.Recipe) jobdb.JobKey {
-		key, err := starter.StartRecipeJob(ctx, workflowctl.StartJob{TenantId: "nix-ops", RecipeName: rec.GetMetdata().ID, JobContext: job, GitRef: git.ParentRef}, engine, *rec)
+		keyRef, err := starter.StartRecipeJob(ctx, workflowctl.StartJob{TenantId: "nix-ops", RecipeName: rec.GetMetdata().ID, JobContext: job, GitRef: git.ParentRef}, engine, *rec)
+		key := keyRef.Key()
 		require.NoError(t, err)
 		require.NoError(t, jobworkflow.WaitForJobToComplete(ctx, 30*time.Second, key, engine))
 		return key

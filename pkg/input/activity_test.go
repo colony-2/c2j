@@ -265,7 +265,9 @@ inputs:
 		GitRef:     gitCtx.ParentRef,
 	}
 
-	jobKey, err := starter.StartRecipeJob(ctx, job, engine, *testRecipe)
+	jobKeyRef, err := starter.StartRecipeJob(ctx, job, engine, *testRecipe)
+
+	jobKey := jobKeyRef.Key()
 	require.NoError(t, err)
 
 	// Wait for job to reach Ready status

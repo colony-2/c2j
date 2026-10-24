@@ -3,6 +3,7 @@ version: "1.0"
 sequence:
   - id: group
     child_group:
+      wait: {on: job}
       mode: run_and_get_result
       children:
         - key: failing

@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
+	"github.com/colony-2/c2j/pkg/jobref"
 	"github.com/colony-2/c2j/pkg/workflowctl"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 )
@@ -45,21 +47,21 @@ type fakeWorkflowControl struct {
 	inspectCalls     int
 }
 
-func (f *fakeWorkflowControl) StartJob(ctx context.Context, req workflowctl.StartJob) (jobdb.JobKey, error) {
+func (f *fakeWorkflowControl) StartJob(ctx context.Context, req workflowctl.StartJob) (jobref.Ref, error) {
 	idx := len(f.startRequests)
 	f.startRequests = append(f.startRequests, req)
 	_, ok := jobdb.TxFromCtx(ctx)
 	f.startSawTx = append(f.startSawTx, ok)
 	if idx < len(f.startErrs) && f.startErrs[idx] != nil {
-		return jobdb.JobKey{}, f.startErrs[idx]
+		return jobref.Ref{}, f.startErrs[idx]
 	}
 	if idx < len(f.startKeys) {
-		return f.startKeys[idx], nil
+		return jobref.Ref{TenantID: f.startKeys[idx].TenantId, JobID: f.startKeys[idx].JobId, GoalID: "goal-" + f.startKeys[idx].JobId}, nil
 	}
 	if req.JobID != "" {
-		return jobdb.JobKey{TenantId: req.TenantId, JobId: req.JobID}, nil
+		return jobref.Ref{TenantID: req.TenantId, JobID: req.JobID, GoalID: "goal-" + req.JobID}, nil
 	}
-	return jobdb.JobKey{TenantId: req.TenantId, JobId: fmt.Sprintf("job-%d", idx)}, nil
+	return jobref.Ref{TenantID: req.TenantId, JobID: fmt.Sprintf("job-%d", idx), GoalID: fmt.Sprintf("goal-job-%d", idx)}, nil
 }
 
 func (f *fakeWorkflowControl) Cancel(ctx context.Context, jobKey jobdb.JobKey) error {
@@ -129,4 +131,17 @@ func (e *errorTaskData) GetArtifacts() ([]jobdb.Artifact, error) {
 		return nil, e.artifactsErr
 	}
 	return e.artifacts, nil
+}
+
+func (f *fakeJobTool) AwaitDependencies(deps ...jobdb.Dependency) ([]jobdb.DependencyResolution, error) {
+	out := make([]jobdb.DependencyResolution, len(deps))
+	for i, d := range deps {
+		id := d.Target.JobID
+		if id == "" {
+			id = strings.TrimPrefix(d.Target.GoalID, "goal-")
+		}
+		f.awaitArgs = append(f.awaitArgs, id)
+		out[i] = jobdb.DependencyResolution{Target: d.Target, Condition: d.Condition, State: jobdb.DependencySatisfied, SatisfiedByJobID: id}
+	}
+	return out, f.awaitErr
 }

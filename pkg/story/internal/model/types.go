@@ -164,5 +164,5 @@ type StartWorkflowRequest struct {
 	Inputs         map[string]interface{}
 	GitRef         *string
 	IdempotencyKey *string
-	Prerequisites  []jobdb.JobPrerequisite
+	Dependencies   []jobdb.Dependency
 }

@@ -76,13 +76,14 @@ func newSuppliedCLI(t *testing.T, yaml string, duration time.Duration, providers
 	rec, err := recipe.LoadRecipeFromString([]byte(yaml))
 	require.NoError(t, err)
 	repo, hash := createGitRepo(t)
-	f.key, err = starter.StartRecipeJob(ctx, workflowctl.StartJob{
+	fkeyRef, err := starter.StartRecipeJob(ctx, workflowctl.StartJob{
 		TenantId: "tenant", RecipeName: rec.GetMetadata().ID, GitRef: hash,
 		JobContext: contextual.JobContext{
 			Workflow: contextual.WorkflowContext{ProjectId: "tenant", CellName: "."},
 			GitBase:  contextual.GitBaseContext{BaseRepo: repo, BaseRef: hash, ResolvedBaseHash: hash},
 		},
 	}, jobdbschema.WorkflowEngine{Engine: engine, Registry: rt}, *rec)
+	f.key = fkeyRef.Key()
 	require.NoError(t, err)
 	f.opts = Options{JobID: f.key.JobId, JobDBURI: server.URL + "/tenant", CI: true, Stdout: &f.stdout, Stderr: &f.stderr}
 	f.claim(t, jobdb.Route{JobType: "recipe"}, duration)

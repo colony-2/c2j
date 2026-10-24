@@ -4,28 +4,20 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/colony-2/c2j/pkg/execution"
-	"github.com/colony-2/c2j/pkg/secrets"
 	"strings"
 	"time"
 
+	"github.com/colony-2/c2j/pkg/execution"
 	"github.com/colony-2/c2j/pkg/jobcontext"
 	"github.com/colony-2/c2j/pkg/jobdbschema"
+	"github.com/colony-2/c2j/pkg/jobref"
 	"github.com/colony-2/c2j/pkg/recipe"
+	"github.com/colony-2/c2j/pkg/secrets"
 	"github.com/colony-2/c2j/pkg/task"
 	"github.com/colony-2/c2j/pkg/workflowctl"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	"gopkg.in/yaml.v3"
 )
-
-type recipeJobSubmitter interface {
-	SubmitJob(ctx context.Context, job jobdb.SubmitJob) (jobdb.JobKey, error)
-}
-
-type recipeJobRestartSubmitter interface {
-	SubmitRestartJob(ctx context.Context, req jobdb.SubmitRestartJob) (jobdb.JobKey, error)
-	GetJob(context.Context, jobdb.JobKey) (jobdb.JobInfo, error)
-}
 
 const (
 	RecipeJobType        = "recipe"
@@ -68,6 +60,7 @@ type JobMetadata struct {
 	GitRef           string            `json:"git_ref,omitempty"`
 
 	ParentTenantID           string `json:"parent_tenant_id,omitempty"`
+	ParentGoalID             string `json:"parent_goal_id,omitempty"`
 	ParentJobID              string `json:"parent_job_id,omitempty"`
 	ParentJobType            string `json:"parent_job_type,omitempty"`
 	ParentOpType             string `json:"parent_op_type,omitempty"`
@@ -106,6 +99,7 @@ func JobMetadataFromStartJob(startJob workflowctl.StartJob) JobMetadata {
 func applyParentMetadata(meta *JobMetadata, parent jobcontext.Parent) {
 	meta.ParentTenantID = parent.TenantID
 	meta.ParentJobID = parent.JobID
+	meta.ParentGoalID = parent.GoalID
 	meta.ParentJobType = parent.JobType
 	meta.ParentOpType = parent.OpType
 	meta.ParentOpStep = parent.OpStep
@@ -118,30 +112,35 @@ func applyParentMetadata(meta *JobMetadata, parent jobcontext.Parent) {
 	meta.ParentInvocationHash = parent.InvocationHash
 }
 
-func StartRecipeJob(ctx context.Context, startJob workflowctl.StartJob, engine recipeJobSubmitter, recipes ...recipe.Recipe) (jobdb.JobKey, error) {
+func StartRecipeJob(ctx context.Context, startJob workflowctl.StartJob, engine any, recipes ...recipe.Recipe) (jobref.Ref, error) {
 	return StartRecipeJobWithOptions(ctx, startJob, engine, StartRecipeJobOptions{}, recipes...)
 }
 
 type StartRecipeJobOptions struct {
 	ExecutionRequirements execution.Requirements
 	JobID                 string
-	Prerequisites         []jobdb.JobPrerequisite
+	Dependencies          []jobdb.Dependency
 }
 
-func StartRecipeJobWithOptions(ctx context.Context, startJob workflowctl.StartJob, engine recipeJobSubmitter, opts StartRecipeJobOptions, recipes ...recipe.Recipe) (jobdb.JobKey, error) {
+func StartRecipeJobWithOptions(ctx context.Context, startJob workflowctl.StartJob, engine any, opts StartRecipeJobOptions, recipes ...recipe.Recipe) (jobref.Ref, error) {
+	submitter, ok := engine.(jobref.Submitter)
+	if !ok {
+		return jobref.Ref{}, fmt.Errorf("submitter must preserve the complete job reference")
+	}
+
 	initial, err := execution.Initial(nil, "", opts.ExecutionRequirements)
 	if err != nil {
-		return jobdb.JobKey{}, err
+		return jobref.Ref{}, err
 	}
 	if startJob.Execution != nil {
 		if err := startJob.Execution.Validate(); err != nil {
-			return jobdb.JobKey{}, err
+			return jobref.Ref{}, err
 		}
 		initial = *startJob.Execution
 	}
 	initial, err = execution.Initial(initial.RecipeBase, initial.RecipeDigest, execution.Overlay(initial.JobRequirements, opts.ExecutionRequirements))
 	if err != nil {
-		return jobdb.JobKey{}, err
+		return jobref.Ref{}, err
 	}
 	for _, r := range recipes {
 		if r.GetMetdata().ID == startJob.RecipeName {
@@ -158,7 +157,7 @@ func StartRecipeJobWithOptions(ctx context.Context, startJob workflowctl.StartJo
 					continue
 				}
 				if err := def.ValidateSecretDeclaration(); err != nil {
-					return jobdb.JobKey{}, fmt.Errorf("secret input %q: %w", k, err)
+					return jobref.Ref{}, fmt.Errorf("secret input %q: %w", k, err)
 				}
 				v, exists := inputs[k]
 				if !exists {
@@ -171,14 +170,14 @@ func StartRecipeJobWithOptions(ctx context.Context, startJob workflowctl.StartJo
 					}
 				}
 				if _, ok, err := secrets.Parse(v); err != nil || !ok {
-					return jobdb.JobKey{}, fmt.Errorf("secret input %q requires a reference, not plaintext", k)
+					return jobref.Ref{}, fmt.Errorf("secret input %q requires a reference, not plaintext", k)
 				}
 			}
 			startJob.Inputs = inputs
 
 			digest, digestErr := recipe.ExecutionDigest(r)
 			if digestErr != nil {
-				return jobdb.JobKey{}, digestErr
+				return jobref.Ref{}, digestErr
 			}
 			initial, err = execution.Initial(r.GetMetdata().Execution, digest, execution.Overlay(initial.JobRequirements, opts.ExecutionRequirements))
 			if recipe.HasExecutionNeeds(r) {
@@ -187,7 +186,7 @@ func StartRecipeJobWithOptions(ctx context.Context, startJob workflowctl.StartJo
 				initial, err = execution.Initial(nil, "", execution.Overlay(initial.JobRequirements, opts.ExecutionRequirements))
 			}
 			if err != nil {
-				return jobdb.JobKey{}, err
+				return jobref.Ref{}, err
 			}
 		}
 	}
@@ -197,7 +196,7 @@ func StartRecipeJobWithOptions(ctx context.Context, startJob workflowctl.StartJo
 	for i, r := range recipes {
 		recipeYaml, err := yaml.Marshal(&r)
 		if err != nil {
-			return jobdb.JobKey{}, err
+			return jobref.Ref{}, err
 		}
 		name := r.GetMetadata().ID + RecipeArtifactSuffix
 		artifacts[i] = jobdb.NewArtifactFromBytes(name, recipeYaml)
@@ -212,13 +211,13 @@ func StartRecipeJobWithOptions(ctx context.Context, startJob workflowctl.StartJo
 	inputData, err := jobdb.NewTaskData(payload, artifacts...)
 
 	if err != nil {
-		return jobdb.JobKey{}, err
+		return jobref.Ref{}, err
 	}
 
 	meta := JobMetadataFromStartJob(startJob)
 	metaRaw, err := json.Marshal(meta)
 	if err != nil {
-		return jobdb.JobKey{}, err
+		return jobref.Ref{}, err
 	}
 
 	runPolicy := recipeRunPolicy(startJob, recipes)
@@ -228,18 +227,18 @@ func StartRecipeJobWithOptions(ctx context.Context, startJob workflowctl.StartJo
 	}
 
 	job := jobdb.SubmitJob{
-		TenantId:      startJob.TenantId,
-		JobType:       RecipeJobType,
-		JobID:         jobID,
-		Data:          inputData,
-		RunPolicy:     runPolicy,
-		Metadata:      metaRaw,
-		Prerequisites: opts.Prerequisites,
+		TenantId:     startJob.TenantId,
+		JobType:      RecipeJobType,
+		JobID:        jobID,
+		Data:         inputData,
+		RunPolicy:    runPolicy,
+		Metadata:     metaRaw,
+		Dependencies: append(append([]jobdb.Dependency(nil), startJob.Dependencies...), opts.Dependencies...),
 	}
 	if err := jobdbschema.SetSubmitJobSchema(&job); err != nil {
-		return jobdb.JobKey{}, err
+		return jobref.Ref{}, err
 	}
-	return engine.SubmitJob(ctx, job)
+	return submitter.SubmitJobRef(ctx, job)
 }
 
 func recipeRunPolicy(startJob workflowctl.StartJob, recipes []recipe.Recipe) jobdb.RunPolicy {
@@ -259,37 +258,62 @@ func recipeRunPolicy(startJob workflowctl.StartJob, recipes []recipe.Recipe) job
 }
 
 // RestartRecipeJob starts a fresh continuation at a recorded, patchable scope.
-func RestartRecipeJob(ctx context.Context, engine recipeJobRestartSubmitter, prior jobdb.JobKey, scopeID string, patch *task.ContextPatch) (jobdb.JobKey, error) {
+type RestartOptions struct {
+	Goal      string
+	RequestID string
+}
+
+func RestartRecipeJob(ctx context.Context, engine any, prior jobdb.JobKey, scopeID string, patch *task.ContextPatch, opts RestartOptions) (jobref.Ref, error) {
 	if strings.TrimSpace(scopeID) == "" {
-		return jobdb.JobKey{}, fmt.Errorf("scope ID is required")
+		return jobref.Ref{}, fmt.Errorf("scope ID is required")
 	}
 	req := jobdb.SubmitRestartJob{PriorJobKey: prior, ExecutionRestart: &jobdb.ExecutionRestart{ScopeID: scopeID}}
-	priorInfo, err := engine.GetJob(ctx, prior)
+	reader, ok := engine.(interface {
+		GetJob(context.Context, jobdb.JobKey) (jobdb.JobInfo, error)
+	})
+	if !ok {
+		return jobref.Ref{}, fmt.Errorf("restart reader is unavailable")
+	}
+	priorInfo, err := reader.GetJob(ctx, prior)
 	if err != nil {
-		return jobdb.JobKey{}, err
+		return jobref.Ref{}, err
 	}
 	if demand, err := execution.PayloadDemand(priorInfo.ClientPayload); err != nil {
-		return jobdb.JobKey{}, err
+		return jobref.Ref{}, err
 	} else if demand != nil {
 		// Only this client's execution namespace is inherited; unrelated client
 		// data follows JobDB's explicit-initialization restart policy.
 		raw, err := execution.PayloadWithDemand(nil, *demand)
 		if err != nil {
-			return jobdb.JobKey{}, err
+			return jobref.Ref{}, err
 		}
 		req.ClientPayloadUpdate = &jobdb.ClientPayloadUpdate{Mode: "reset", Value: raw}
 	}
 	if err := jobdbschema.SetSubmitRestartJobSchema(&req); err != nil {
-		return jobdb.JobKey{}, err
+		return jobref.Ref{}, err
 	}
 
 	if patch != nil {
 		raw, err := json.Marshal(patch)
 		if err != nil {
-			return jobdb.JobKey{}, err
+			return jobref.Ref{}, err
 		}
 		req.ExecutionRestart.Payload = raw
 	}
 
-	return engine.SubmitRestartJob(ctx, req)
+	switch opts.Goal {
+	case "", "continue":
+		req.ShareGoal = true
+	case "new":
+	default:
+		return jobref.Ref{}, fmt.Errorf("goal mode must be continue or new")
+	}
+	if strings.TrimSpace(opts.RequestID) == "" {
+		return jobref.Ref{}, fmt.Errorf("restart request ID is required")
+	}
+	submitter, ok := engine.(jobref.RestartSubmitter)
+	if !ok {
+		return jobref.Ref{}, fmt.Errorf("restart submitter must preserve the complete job reference")
+	}
+	return submitter.SubmitRestartJobRef(ctx, jobdb.SubmitRestartJobRequest{Job: req, RequestID: opts.RequestID})
 }

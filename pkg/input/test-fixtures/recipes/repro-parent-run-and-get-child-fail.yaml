@@ -5,6 +5,7 @@ sequence:
   - id: child
     op: recipe.run_and_get_result
     inputs:
+      wait: {on: job}
       name: repro-child-fail
       inputs: {}
       artifacts: []

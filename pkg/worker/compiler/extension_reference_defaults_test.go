@@ -125,7 +125,8 @@ run: ` + fmt.Sprintf("%q\n", script)
 			job, git := GenerateTestContext()
 			job.RecipeSource.Repo = root
 			job.RecipeSource.Ref = "HEAD"
-			key, err := starter.StartRecipeJob(ctx, workflowctl.StartJob{TenantId: "extension-defaults", RecipeName: "reference-defaults", JobContext: job, GitRef: git.ParentRef}, engine, *rec)
+			keyRef, err := starter.StartRecipeJob(ctx, workflowctl.StartJob{TenantId: "extension-defaults", RecipeName: "reference-defaults", JobContext: job, GitRef: git.ParentRef}, engine, *rec)
+			key := keyRef.Key()
 			require.NoError(t, err)
 			require.Zero(t, provider.calls, "submission must not retrieve defaults")
 			var logs secretTestLogBuffer

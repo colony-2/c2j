@@ -17,7 +17,7 @@ func TestAwaitChildGroupTreatsTerminalChildErrorsAsCollectable(t *testing.T) {
 	deps := ops.NewOpDependenciesBuilder().WithJobTool(jobTool).Build()
 
 	state := ChildGroupStepState{Children: []ChildGroupChildRecord{
-		{Status: "started", JobID: "child-1"},
+		{Status: "started", Wait: WaitPolicy{On: "job"}, Result: ResultSource{Job: "child-1"}, JobID: "child-1"},
 	}}
 	out, err := awaitChildGroup(deps, context.Background(), state)
 	if err != nil {
@@ -37,7 +37,7 @@ func TestAwaitChildGroupPropagatesSystemAwaitError(t *testing.T) {
 		Build()
 
 	_, err := awaitChildGroup(deps, context.Background(), ChildGroupStepState{Children: []ChildGroupChildRecord{
-		{Status: "started", JobID: "child-1"},
+		{Status: "started", Wait: WaitPolicy{On: "job"}, Result: ResultSource{Job: "child-1"}, JobID: "child-1"},
 	}})
 	if err == nil || err.Error() != "backend down" {
 		t.Fatalf("expected backend error, got %v", err)
@@ -56,8 +56,8 @@ func TestCollectChildGroupSoftensOnlyTerminalChildErrors(t *testing.T) {
 		Build()
 
 	out, err := collectChildGroup(deps, context.Background(), ChildGroupStepState{Children: []ChildGroupChildRecord{
-		{Key: "required", Required: true, Status: "started", JobID: "child-1"},
-		{Key: "optional", Required: false, Status: "started", JobID: "child-2"},
+		{Key: "required", Required: true, Status: "started", Wait: WaitPolicy{On: "job"}, Result: ResultSource{Job: "child-1"}, JobID: "child-1"},
+		{Key: "optional", Required: false, Status: "started", Wait: WaitPolicy{On: "job"}, Result: ResultSource{Job: "child-2"}, JobID: "child-2"},
 	}})
 	if err != nil {
 		t.Fatalf("unexpected collect error: %v", err)
@@ -85,7 +85,7 @@ func TestCollectChildGroupPropagatesUnexpectedResultError(t *testing.T) {
 		Build()
 
 	_, err := collectChildGroup(deps, context.Background(), ChildGroupStepState{Children: []ChildGroupChildRecord{
-		{Key: "child", Required: true, Status: "started", JobID: "child-1"},
+		{Key: "child", Required: true, Status: "started", Wait: WaitPolicy{On: "job"}, Result: ResultSource{Job: "child-1"}, JobID: "child-1"},
 	}})
 	if err == nil || err.Error() != "result store down" {
 		t.Fatalf("expected result store error, got %v", err)

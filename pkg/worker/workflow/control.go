@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/colony-2/c2j/pkg/contextual"
+	"github.com/colony-2/c2j/pkg/jobref"
 	"github.com/colony-2/c2j/pkg/recipe"
 	"github.com/colony-2/c2j/pkg/starter"
 	coretask "github.com/colony-2/c2j/pkg/task"
@@ -77,11 +78,19 @@ func (s *SWFWorkflowControl) InspectJob(ctx context.Context, key jobdb.JobKey) (
 	}
 
 	inspection := workflowctl.JobInspection{
-		JobKey:    key,
+		JobKey: key,
+
 		Status:    normalizeInspectionStatus(run.Job.Status),
 		Terminal:  isTerminalInspectionStatus(run.Job.Status),
 		StartedAt: run.Job.CreatedAt,
 	}
+	info, err := s.Engine.GetJob(ctx, key)
+	if err != nil {
+		return workflowctl.JobInspection{}, err
+	}
+	inspection.GoalID = info.GoalID
+	inspection.OtherGoalIDs = info.OtherGoalIDs
+
 	if !run.Start.CreatedAt.IsZero() {
 		inspection.StartedAt = run.Start.CreatedAt
 	}
@@ -152,7 +161,7 @@ func (s *SWFWorkflowControl) CompleteTask(ctx context.Context, jobKey jobdb.JobK
 	return handle.Finish(ctx, outData)
 }
 
-func (s *SWFWorkflowControl) StartJob(ctx context.Context, req workflowctl.StartJob) (jobdb.JobKey, error) {
+func (s *SWFWorkflowControl) StartJob(ctx context.Context, req workflowctl.StartJob) (jobref.Ref, error) {
 	if s.PreferRuntimeRecipeResolution || s.Registry == nil {
 		return starter.StartRecipeJobWithOptions(ctx, req, s.Engine, starter.StartRecipeJobOptions{
 			JobID: req.JobID,
@@ -161,7 +170,7 @@ func (s *SWFWorkflowControl) StartJob(ctx context.Context, req workflowctl.Start
 
 	r, err := s.Registry(req.TenantId, req.RecipeName)
 	if err != nil {
-		return jobdb.JobKey{}, err
+		return jobref.Ref{}, err
 	}
 
 	return starter.StartRecipeJobWithOptions(ctx, req, s.Engine, starter.StartRecipeJobOptions{
@@ -324,4 +333,14 @@ func failureMessageFromTaskError(taskErr *jobdb.TaskError) string {
 
 func (s *SWFWorkflowControl) GetJobRun(ctx context.Context, req jobdb.GetJobRunRequest) (jobdb.GetJobRunResponse, error) {
 	return s.Engine.GetJobRun(ctx, req)
+}
+
+func (s *SWFWorkflowControl) GetGoal(ctx context.Context, key jobdb.GoalKey) (jobdb.GoalInfo, error) {
+	rt, ok := s.Engine.(interface {
+		GetGoal(context.Context, jobdb.GoalKey) (jobdb.GoalInfo, error)
+	})
+	if !ok {
+		return jobdb.GoalInfo{}, fmt.Errorf("goal runtime unavailable")
+	}
+	return rt.GetGoal(ctx, key)
 }

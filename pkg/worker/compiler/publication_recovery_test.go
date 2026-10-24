@@ -164,7 +164,8 @@ outputs:
 				rec, err := recipe.LoadRecipeFromString([]byte(yaml))
 				require.NoError(t, err)
 				eng := newToyEngineWithWorkSet(t, "publication-tests", ws, nil)
-				key, err := starter.StartRecipeJob(ctx, workflowctl.StartJob{TenantId: "publication-tests", RecipeName: "workspace-test", JobContext: job, GitRef: "main"}, eng, *rec)
+				keyRef, err := starter.StartRecipeJob(ctx, workflowctl.StartJob{TenantId: "publication-tests", RecipeName: "workspace-test", JobContext: job, GitRef: "main"}, eng, *rec)
+				key := keyRef.Key()
 				require.NoError(t, err)
 				require.NoError(t, jobworkflow.WaitForJobToComplete(ctx, 15*time.Second, key, eng))
 				result, resultErr := swfutil.JobResult(ctx, eng, key)
@@ -328,7 +329,8 @@ outputs:
 			}
 			rec, err := recipe.LoadRecipeFromString([]byte(yaml))
 			require.NoError(t, err)
-			key, err := starter.StartRecipeJob(ctx, workflowctl.StartJob{TenantId: "recovery", RecipeName: "recover-publication", JobContext: job, GitRef: "main"}, eng, *rec)
+			keyRef, err := starter.StartRecipeJob(ctx, workflowctl.StartJob{TenantId: "recovery", RecipeName: "recover-publication", JobContext: job, GitRef: "main"}, eng, *rec)
+			key := keyRef.Key()
 			require.NoError(t, err)
 			run := func(ws *jobworkflow.WorkSet, id string) (jobworkflow.JobRunOutcome, error) {
 				var workers []jobworkflow.TaskWorker

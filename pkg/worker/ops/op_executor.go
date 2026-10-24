@@ -29,6 +29,7 @@ import (
 	"github.com/colony-2/c2j/pkg/git/common"
 	"github.com/colony-2/c2j/pkg/git/gitstate"
 	"github.com/colony-2/c2j/pkg/jobcontext"
+	"github.com/colony-2/c2j/pkg/jobref"
 	"github.com/colony-2/c2j/pkg/objects"
 	"github.com/colony-2/c2j/pkg/ops"
 	"github.com/colony-2/c2j/pkg/ops/process"
@@ -99,7 +100,7 @@ func currentJobContext(jobKey jobdb.JobKey, reg ActivityRegistration, task gitst
 }
 
 type leaseChildJobSubmitter interface {
-	SubmitJob(context.Context, jobdb.SubmitJob) (jobdb.JobKey, error)
+	SubmitJobRef(context.Context, jobdb.SubmitJob) (jobref.Ref, error)
 }
 
 type childJobLister interface {
@@ -122,8 +123,9 @@ func collectStartedJobs(ctx context.Context, lister childJobLister, current jobc
 		MetadataFilter: metadataFilter,
 	}
 	out := jobcontext.StartedJobsContext{
-		JobIDs: []string{},
-		Items:  []jobcontext.StartedJobContext{},
+		GoalIDs: []string{},
+		JobIDs:  []string{},
+		Items:   []jobcontext.StartedJobContext{},
 	}
 	for {
 		items, nextPage, err := lister.ListJobs(ctx, req)
@@ -137,8 +139,10 @@ func collectStartedJobs(ctx context.Context, lister childJobLister, current jobc
 				continue
 			}
 			out.JobIDs = append(out.JobIDs, jobID)
+			out.GoalIDs = append(out.GoalIDs, summary.GoalID)
 			out.Items = append(out.Items, jobcontext.StartedJobContext{
 				TenantID:             summary.JobKey.TenantId,
+				GoalID:               summary.GoalID,
 				JobID:                jobID,
 				RecipeName:           recipeNameFromMetadata(summary.Metadata),
 				Status:               string(summary.Status),
@@ -165,37 +169,8 @@ func recipeNameFromMetadata(raw json.RawMessage) string {
 }
 
 // MergeStartedJobs retains all children produced by the steps of an op.
-func MergeStartedJobs(primary jobcontext.StartedJobsContext, secondary jobcontext.StartedJobsContext) jobcontext.StartedJobsContext {
-	out := jobcontext.StartedJobsContext{
-		JobIDs: make([]string, 0, len(primary.JobIDs)+len(secondary.JobIDs)),
-		Items:  make([]jobcontext.StartedJobContext, 0, len(primary.Items)+len(secondary.Items)),
-	}
-	seen := map[string]struct{}{}
-	add := func(item jobcontext.StartedJobContext) {
-		jobID := strings.TrimSpace(item.JobID)
-		if jobID == "" {
-			return
-		}
-		if _, exists := seen[jobID]; exists {
-			return
-		}
-		seen[jobID] = struct{}{}
-		out.JobIDs = append(out.JobIDs, jobID)
-		out.Items = append(out.Items, item)
-	}
-	for _, item := range primary.Items {
-		add(item)
-	}
-	for _, jobID := range primary.JobIDs {
-		add(jobcontext.StartedJobContext{JobID: jobID})
-	}
-	for _, item := range secondary.Items {
-		add(item)
-	}
-	for _, jobID := range secondary.JobIDs {
-		add(jobcontext.StartedJobContext{JobID: jobID})
-	}
-	return out
+func MergeStartedJobs(primary, secondary jobcontext.StartedJobsContext) (jobcontext.StartedJobsContext, error) {
+	return jobcontext.MergeStartedJobs(primary, secondary)
 }
 
 func (t opExecutor) do(ctx context.Context, jobTool ops.JobTool, req ActivityInvocationRequest, inputArtifacts []jobdb.Artifact) (output ActivityInvocationOutput, outputArtifacts []jobdb.Artifact, err error) {
@@ -275,6 +250,9 @@ func (t opExecutor) doLogged(ctx context.Context, jobTool ops.JobTool, req Activ
 		return zero, nil, fmt.Errorf("job tool is required")
 	}
 	currentJob := currentJobContext(jobTool.GetJobKey(), reg, req.GitTaskContext)
+	if refTool, ok := jobTool.(interface{ GetJobRef() jobref.Ref }); ok {
+		currentJob.GoalID = refTool.GetJobRef().GoalID
+	}
 	if id := jobTool.InvocationID(); id != "" {
 		currentJob.InvocationHash = fmt.Sprintf("%x", sha256.Sum256([]byte(id)))
 	}
@@ -582,7 +560,9 @@ func (t opExecutor) doLogged(ctx context.Context, jobTool ops.JobTool, req Activ
 	if collectErr != nil {
 		stepErr = errors.Join(stepErr, fmt.Errorf("collect started jobs: %w", collectErr))
 	} else {
-		startedJobs = MergeStartedJobs(startedJobs, listedJobs)
+		var mergeErr error
+		startedJobs, mergeErr = MergeStartedJobs(startedJobs, listedJobs)
+		stepErr = errors.Join(stepErr, mergeErr)
 	}
 	if err := filepath.WalkDir(outbox, func(path string, d fs.DirEntry, walkErr error) error {
 		if walkErr != nil {

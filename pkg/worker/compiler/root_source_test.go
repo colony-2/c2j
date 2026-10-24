@@ -259,7 +259,9 @@ outputs:
 		GitRef:     gitCtx.ParentRef,
 	}
 
-	jobKey, err := starter.StartRecipeJob(context.Background(), job, engine)
+	jobKeyRef, err := starter.StartRecipeJob(context.Background(), job, engine)
+
+	jobKey := jobKeyRef.Key()
 	require.NoError(t, err)
 	require.NoError(t, jobworkflow.WaitForJobToComplete(context.Background(), 30*time.Second, jobKey, engine))
 
@@ -332,7 +334,9 @@ outputs:
 		GitRef:     commit,
 	}
 
-	jobKey, err := starter.StartRecipeJob(context.Background(), job, engine)
+	jobKeyRef, err := starter.StartRecipeJob(context.Background(), job, engine)
+
+	jobKey := jobKeyRef.Key()
 	require.NoError(t, err)
 	require.NoError(t, jobworkflow.WaitForJobToComplete(context.Background(), 30*time.Second, jobKey, engine))
 
@@ -533,7 +537,9 @@ outputs:
 		GitRef:     gitCtx.ParentRef,
 	}
 
-	jobKey, err := starter.StartRecipeJob(context.Background(), job, engine, *rec)
+	jobKeyRef, err := starter.StartRecipeJob(context.Background(), job, engine, *rec)
+
+	jobKey := jobKeyRef.Key()
 	require.NoError(t, err)
 	require.NoError(t, jobworkflow.WaitForJobToComplete(context.Background(), 30*time.Second, jobKey, engine))
 
@@ -653,7 +659,9 @@ outputs:
 		GitRef:     commit,
 	}
 
-	jobKey, err := starter.StartRecipeJob(context.Background(), job, engine, *rec)
+	jobKeyRef, err := starter.StartRecipeJob(context.Background(), job, engine, *rec)
+
+	jobKey := jobKeyRef.Key()
 	require.NoError(t, err)
 	require.NoError(t, jobworkflow.WaitForJobToComplete(context.Background(), 30*time.Second, jobKey, engine))
 
@@ -772,7 +780,9 @@ outputs:
 		JobContext: jobCtx,
 	}
 
-	jobKey, err := starter.StartRecipeJob(context.Background(), job, engine, *rec)
+	jobKeyRef, err := starter.StartRecipeJob(context.Background(), job, engine, *rec)
+
+	jobKey := jobKeyRef.Key()
 	require.NoError(t, err)
 	require.NoError(t, jobworkflow.WaitForJobToComplete(context.Background(), 30*time.Second, jobKey, engine))
 
@@ -904,7 +914,9 @@ outputs:
 		JobContext: jobCtx,
 	}
 
-	jobKey, err := starter.StartRecipeJob(context.Background(), job, engine)
+	jobKeyRef, err := starter.StartRecipeJob(context.Background(), job, engine)
+
+	jobKey := jobKeyRef.Key()
 	require.NoError(t, err)
 	require.NoError(t, jobworkflow.WaitForJobToComplete(context.Background(), 30*time.Second, jobKey, engine))
 
@@ -1016,7 +1028,9 @@ outputs:
 		JobContext: jobCtx,
 	}
 
-	jobKey, err := starter.StartRecipeJob(context.Background(), job, engine)
+	jobKeyRef, err := starter.StartRecipeJob(context.Background(), job, engine)
+
+	jobKey := jobKeyRef.Key()
 	require.NoError(t, err)
 	require.NoError(t, jobworkflow.WaitForJobToComplete(context.Background(), 30*time.Second, jobKey, engine))
 	require.NotEqual(t, rootCommit, gitHead(t, repoDir))
@@ -1150,7 +1164,9 @@ outputs:
 		JobContext: jobCtx,
 	}
 
-	jobKey, err := starter.StartRecipeJob(context.Background(), job, engine)
+	jobKeyRef, err := starter.StartRecipeJob(context.Background(), job, engine)
+
+	jobKey := jobKeyRef.Key()
 	require.NoError(t, err)
 	require.NoError(t, jobworkflow.WaitForJobToComplete(context.Background(), 30*time.Second, jobKey, engine))
 
@@ -1323,7 +1339,9 @@ outputs:
 		JobContext: jobCtx,
 	}
 
-	jobKey, err := starter.StartRecipeJob(context.Background(), job, engine)
+	jobKeyRef, err := starter.StartRecipeJob(context.Background(), job, engine)
+
+	jobKey := jobKeyRef.Key()
 	require.NoError(t, err)
 	require.NoError(t, jobworkflow.WaitForJobToComplete(context.Background(), 30*time.Second, jobKey, engine))
 

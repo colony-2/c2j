@@ -3,6 +3,7 @@ package story_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http/httptest"
 	"path/filepath"
 	"sync/atomic"
@@ -20,6 +21,7 @@ import (
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/remote"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/sqlite"
 	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 )
 
@@ -28,11 +30,17 @@ const restartProbeOp = "restart_context_probe"
 type restartProbeInput struct {
 	Value string `json:"value"`
 }
-type restartProbeTask struct{ calls atomic.Int32 }
+type restartProbeTask struct {
+	calls atomic.Int32
+	fail  atomic.Bool
+}
 
 func (*restartProbeTask) Name() string { return restartProbeOp + ":" + restartProbeOp }
 func (w *restartProbeTask) Run(_ jobworkflow.TaskContext, data jobdb.TaskData) (jobdb.TaskData, error) {
 	w.calls.Add(1)
+	if w.fail.Load() {
+		return nil, fmt.Errorf("candidate failed")
+	}
 	raw, err := data.GetData()
 	if err != nil {
 		return nil, err
@@ -60,7 +68,7 @@ type restartFixture struct {
 	key     jobdb.JobKey
 }
 
-func newRestartFixture(t *testing.T, backend, recipe string) *restartFixture {
+func newRestartFixture(t *testing.T, backend, recipe string, failFirst ...bool) *restartFixture {
 	t.Helper()
 	coreops.Register(coreops.NewActivityMappedOpV2[restartProbeInput, map[string]any](coreops.OpMetadata{Type: restartProbeOp}, func(coreops.OpDependencies, context.Context, restartProbeInput) (map[string]any, error) {
 		panic("inspection must not execute operations")
@@ -79,6 +87,9 @@ func newRestartFixture(t *testing.T, backend, recipe string) *restartFixture {
 	}
 	w := compiler.NewRecipeJobWorker(compiler.RecipeJobWorkerOptions{})
 	task := &restartProbeTask{}
+	if len(failFirst) > 0 {
+		task.fail.Store(failFirst[0])
+	}
 	engine, err := jobworkflow.NewEngineBuilder().WithRuntime(rt).WithWorkerTenantId("restart-tests").PlusWorkers(w, task).BuildEngine()
 	require.NoError(t, err)
 	svc, err := story.New(story.ServiceConfig{Engine: engine, SchemaRegistry: db})
@@ -88,7 +99,15 @@ func newRestartFixture(t *testing.T, backend, recipe string) *restartFixture {
 	key, err := engine.SubmitJob(ctx, jobdb.SubmitJob{TenantId: "restart-tests", JobType: "recipe", Data: data})
 	require.NoError(t, err)
 	f := &restartFixture{ctx, rt, engine, svc, w, task, key}
-	f.run(t, key)
+	if task.fail.Load() {
+		run, err := jobworkflow.GetJobForRun(ctx, rt, jobworkflow.GetJobForRunRequest{JobKey: key, JobWorker: w, TaskWorkers: []jobworkflow.TaskWorker{task}, WorkerID: "test", LeaseDuration: time.Minute})
+		require.NoError(t, err)
+		out, err := run.Run(nil)
+		require.NoError(t, err)
+		require.Equal(t, jobworkflow.JobRunFailed, out.Status)
+	} else {
+		f.run(t, key)
+	}
 	return f
 }
 func (f *restartFixture) run(t *testing.T, key jobdb.JobKey) {
@@ -192,7 +211,9 @@ func TestRestartContextAndOrdinalAPI(t *testing.T) {
 			require.Equal(t, before, after, "inspection never writes history")
 
 			patch := &coretask.ContextPatch{Scopes: []coretask.ScopePatch{{Container: "sequence", ID: "inner", Outputs: map[string]any{"value": "patched"}}}}
-			restarted, err := f.service.RestartRecipeJob(f.ctx, story.RestartRecipeJobRequest{ProjectID: f.key.TenantId, JobID: f.key.JobId, ChapterOrdinal: &target, Patch: patch})
+			restarted, err := f.service.RestartRecipeJob(f.ctx, story.RestartRecipeJobRequest{RequestID: uuid.NewString(), Goal: struct {
+				Mode string `json:"mode"`
+			}{Mode: "new"}, ProjectID: f.key.TenantId, JobID: f.key.JobId, ChapterOrdinal: &target, Patch: patch})
 			require.NoError(t, err)
 			key := jobdb.JobKey{TenantId: f.key.TenantId, JobId: restarted.JobID}
 			f.run(t, key)
@@ -208,7 +229,9 @@ func TestRestartContextAndOrdinalAPI(t *testing.T) {
 			// A restart at the same boundary replaces that boundary's old patch.
 			same := f.inspect(t, key, *newOps[2].RestartChapterOrdinal)
 			require.Equal(t, snapshot.Visible["sequence"], same.Visible["sequence"])
-			again, err := f.service.RestartRecipeJob(f.ctx, story.RestartRecipeJobRequest{ProjectID: key.TenantId, JobID: key.JobId, ChapterOrdinal: newOps[2].RestartChapterOrdinal})
+			again, err := f.service.RestartRecipeJob(f.ctx, story.RestartRecipeJobRequest{RequestID: uuid.NewString(), Goal: struct {
+				Mode string `json:"mode"`
+			}{Mode: "new"}, ProjectID: key.TenantId, JobID: key.JobId, ChapterOrdinal: newOps[2].RestartChapterOrdinal})
 			require.NoError(t, err)
 			againKey := jobdb.JobKey{TenantId: key.TenantId, JobId: again.JobID}
 			f.run(t, againKey)
@@ -249,7 +272,9 @@ outputs: {count: '${{ states.loop.outputs.count }}'}
 		f.inspectScope(t, f.key, scope.ScopeID)
 	}
 	scopeID := states[1].RestartScopeID
-	restarted, err := f.service.RestartRecipeJob(f.ctx, story.RestartRecipeJobRequest{ProjectID: f.key.TenantId, JobID: f.key.JobId, ScopeID: scopeID})
+	restarted, err := f.service.RestartRecipeJob(f.ctx, story.RestartRecipeJobRequest{RequestID: uuid.NewString(), Goal: struct {
+		Mode string `json:"mode"`
+	}{Mode: "new"}, ProjectID: f.key.TenantId, JobID: f.key.JobId, ScopeID: scopeID})
 	require.NoError(t, err)
 	key := jobdb.JobKey{TenantId: f.key.TenantId, JobId: restarted.JobID}
 	f.run(t, key)
@@ -262,12 +287,16 @@ func TestRestartContextRejectsInvalidTargets(t *testing.T) {
 	for _, ordinal := range []int64{-1, 0, 999999, *storyNodes(st.Root, "op", restartProbeOp)[0].TaskOrdinal} {
 		_, err := f.service.GetRestartContext(f.ctx, story.GetRestartContextRequest{ProjectID: f.key.TenantId, JobID: f.key.JobId, ChapterOrdinal: ordinal})
 		require.ErrorIs(t, err, story.ErrInvalidRestartBoundary)
-		_, err = f.service.RestartRecipeJob(f.ctx, story.RestartRecipeJobRequest{ProjectID: f.key.TenantId, JobID: f.key.JobId, ChapterOrdinal: &ordinal})
+		_, err = f.service.RestartRecipeJob(f.ctx, story.RestartRecipeJobRequest{RequestID: uuid.NewString(), Goal: struct {
+			Mode string `json:"mode"`
+		}{Mode: "new"}, ProjectID: f.key.TenantId, JobID: f.key.JobId, ChapterOrdinal: &ordinal})
 		require.ErrorIs(t, err, story.ErrInvalidRestartBoundary)
 	}
 	_, err := f.service.GetRestartContext(f.ctx, story.GetRestartContextRequest{ProjectID: "wrong-tenant", JobID: f.key.JobId, ChapterOrdinal: *st.Root.RestartChapterOrdinal})
 	require.ErrorIs(t, err, story.ErrNotFound)
-	_, err = f.service.RestartRecipeJob(f.ctx, story.RestartRecipeJobRequest{ProjectID: f.key.TenantId, JobID: f.key.JobId, ScopeID: st.RestartScopes[0].ScopeID, ChapterOrdinal: st.Root.RestartChapterOrdinal})
+	_, err = f.service.RestartRecipeJob(f.ctx, story.RestartRecipeJobRequest{RequestID: uuid.NewString(), Goal: struct {
+		Mode string `json:"mode"`
+	}{Mode: "new"}, ProjectID: f.key.TenantId, JobID: f.key.JobId, ScopeID: st.RestartScopes[0].ScopeID, ChapterOrdinal: st.Root.RestartChapterOrdinal})
 	require.ErrorIs(t, err, story.ErrInvalidRestartBoundary)
 }
 
@@ -277,4 +306,47 @@ func (f *restartFixture) inspectScope(t *testing.T, key jobdb.JobKey, id string)
 	require.NoError(t, err)
 	require.Equal(t, id, result.ScopeID)
 	return result
+}
+
+func TestRestartContinuesGoalAndReconcilesAfterWinning(t *testing.T) {
+	for _, backend := range []string{"sqlite", "remote"} {
+		t.Run(backend, func(t *testing.T) {
+			f := newRestartFixture(t, backend, `id: fixture
+sequence:
+ - id: work
+   op: restart_context_probe
+   inputs: {value: repaired}
+outputs:
+ value: ${{ sequence.work.outputs.value }}
+`, true)
+			info, err := f.runtime.GetJob(f.ctx, f.key)
+			require.NoError(t, err)
+			goalKey := jobdb.GoalKey{TenantId: f.key.TenantId, GoalID: info.GoalID}
+			goal, err := f.runtime.GetGoal(f.ctx, goalKey)
+			require.NoError(t, err)
+			require.Equal(t, jobdb.GoalOpen, goal.State)
+			st := f.story(t, f.key)
+			require.NotEmpty(t, st.RestartScopes)
+			req := story.RestartRecipeJobRequest{ProjectID: f.key.TenantId, JobID: f.key.JobId, ScopeID: st.RestartScopes[0].ScopeID, RequestID: "repair-attempt"}
+			restarted, err := f.service.RestartRecipeJob(f.ctx, req)
+			require.NoError(t, err)
+			require.Equal(t, info.GoalID, restarted.GoalID)
+			require.Equal(t, f.key.TenantId, restarted.TenantID)
+			f.task.fail.Store(false)
+			f.run(t, jobdb.JobKey{TenantId: restarted.TenantID, JobId: restarted.JobID})
+			goal, err = f.runtime.GetGoal(f.ctx, goalKey)
+			require.NoError(t, err)
+			require.Equal(t, restarted.JobID, goal.SuccessfulJobID)
+			again, err := f.service.RestartRecipeJob(f.ctx, req)
+			require.NoError(t, err)
+			require.Equal(t, restarted, again)
+			req.RequestID = "different-attempt"
+			_, err = f.service.RestartRecipeJob(f.ctx, req)
+			require.ErrorIs(t, err, jobdb.ErrGoalConflict)
+			req.Goal.Mode = "new"
+			fresh, err := f.service.RestartRecipeJob(f.ctx, req)
+			require.NoError(t, err)
+			require.NotEqual(t, restarted.GoalID, fresh.GoalID)
+		})
+	}
 }

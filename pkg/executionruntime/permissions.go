@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/colony-2/c2j/pkg/jobref"
 	"github.com/colony-2/c2j/pkg/permissions"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
@@ -17,7 +18,13 @@ func (r *Runtime) restrictedAccess(tc jobworkflow.TaskContext, original *lease, 
 	ctx, cancel := context.WithCancel(tc.Context())
 	var access *permissions.Access
 	resolve := fresh
-	submit := permissions.SubmitFunc(tc.SubmitJob)
+	submit := permissions.SubmitFunc(func(call context.Context, job jobdb.SubmitJob) (jobref.Ref, error) {
+		h, err := r.submitOnCurrentLease(call, tc, original, job)
+		if err != nil {
+			return jobref.Ref{}, err
+		}
+		return jobref.FromHandle(h)
+	})
 	if len(grant.Secrets.Resolve) != 0 || grant.Jobs.Submit {
 		if r.Issuer != nil {
 			var mu sync.Mutex
@@ -52,13 +59,16 @@ func (r *Runtime) restrictedAccess(tc jobworkflow.TaskContext, original *lease, 
 				}
 				return child.ResolveSecrets(call, names)
 			}
-			submit = func(call context.Context, job jobdb.SubmitJob) (jobdb.JobKey, error) {
+			submit = func(call context.Context, job jobdb.SubmitJob) (jobref.Ref, error) {
 				child, err := get(call)
 				if err != nil {
-					return jobdb.JobKey{}, err
+					return jobref.Ref{}, err
 				}
 				handle, err := child.SubmitJob(call, jobdb.SubmitJobRequest{Job: job})
-				return handle.JobKey, err
+				if err != nil {
+					return jobref.Ref{}, err
+				}
+				return jobref.FromHandle(handle)
 			}
 		} else if original.LeaseToken() != "" {
 			cancel()

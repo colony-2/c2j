@@ -7,11 +7,12 @@ import (
 	"sync"
 	"time"
 
+	"github.com/colony-2/c2j/pkg/jobref"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 )
 
 type ResolveFunc func(context.Context, []string) (jobdb.SecretResolveResult, error)
-type SubmitFunc func(context.Context, jobdb.SubmitJob) (jobdb.JobKey, error)
+type SubmitFunc func(context.Context, jobdb.SubmitJob) (jobref.Ref, error)
 
 // Access checks every use before consulting a resolver, including cached ones.
 // Callbacks belong to the controller and are never serialized into task input.
@@ -86,15 +87,15 @@ func (a *Access) Resolve(ctx context.Context, names []string) (jobdb.SecretResol
 	values.Secrets = filtered
 	return values, nil
 }
-func (a *Access) Submit(ctx context.Context, job jobdb.SubmitJob) (jobdb.JobKey, error) {
+func (a *Access) Submit(ctx context.Context, job jobdb.SubmitJob) (jobref.Ref, error) {
 	if err := a.Context().Err(); err != nil {
-		return jobdb.JobKey{}, err
+		return jobref.Ref{}, err
 	}
 	if !a.grant.Jobs.Submit {
-		return jobdb.JobKey{}, jobdb.ErrLeasePermissionDenied
+		return jobref.Ref{}, jobdb.ErrLeasePermissionDenied
 	}
 	if a.submit == nil {
-		return jobdb.JobKey{}, fmt.Errorf("restricted submission unavailable")
+		return jobref.Ref{}, fmt.Errorf("restricted submission unavailable")
 	}
 	call, cancel := bound(ctx, a.Context())
 	defer cancel()

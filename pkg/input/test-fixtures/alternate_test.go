@@ -143,7 +143,8 @@ outputs:
 					// complete the fallback when CI takes longer than 600ms.
 					delay = "1h"
 				}
-				key, err := starter.StartRecipeJob(ctx, workflowctl.StartJob{TenantId: "alternate", RecipeName: rec.GetMetadata().ID, Inputs: map[string]any{"fallback": "defer", "delay": delay}, JobContext: jobCtx, GitRef: gitCtx.ParentRef}, engine, *rec)
+				keyRef, err := starter.StartRecipeJob(ctx, workflowctl.StartJob{TenantId: "alternate", RecipeName: rec.GetMetadata().ID, Inputs: map[string]any{"fallback": "defer", "delay": delay}, JobContext: jobCtx, GitRef: gitCtx.ParentRef}, engine, *rec)
+				key := keyRef.Key()
 				require.NoError(t, err)
 				run := func() jobworkflow.JobRunOutcome {
 					runnable, err := jobworkflow.GetJobForRun(ctx, rt, jobworkflow.GetJobForRunRequest{JobKey: key, JobWorker: workers.JobWorker, TaskWorkers: tasks, WorkerID: "recipe-worker", LeaseDuration: time.Minute})

@@ -9,6 +9,7 @@ import (
 const (
 	CurrentContextVersionEnv     = "C2J_CURRENT_CONTEXT_VERSION"
 	CurrentTenantIDEnv           = "C2J_CURRENT_TENANT_ID"
+	CurrentGoalIDEnv             = "C2J_CURRENT_GOAL_ID"
 	CurrentJobIDEnv              = "C2J_CURRENT_JOB_ID"
 	CurrentJobTypeEnv            = "C2J_CURRENT_JOB_TYPE"
 	CurrentOpTypeEnv             = "C2J_CURRENT_OP_TYPE"
@@ -34,6 +35,7 @@ const (
 )
 
 type Current struct {
+	GoalID             string `json:"goal_id"`
 	TenantID           string `json:"tenant_id,omitempty"`
 	JobID              string `json:"job_id,omitempty"`
 	JobType            string `json:"job_type,omitempty"`
@@ -49,6 +51,7 @@ type Current struct {
 }
 
 type Parent struct {
+	GoalID             string `json:"goal_id"`
 	TenantID           string `json:"tenant_id,omitempty"`
 	JobID              string `json:"job_id,omitempty"`
 	JobType            string `json:"job_type,omitempty"`
@@ -64,6 +67,7 @@ type Parent struct {
 }
 
 type StartedJobContext struct {
+	GoalID               string `json:"goal_id"`
 	TenantID             string `json:"tenant_id,omitempty"`
 	JobID                string `json:"job_id,omitempty"`
 	RecipeName           string `json:"recipe,omitempty"`
@@ -72,8 +76,9 @@ type StartedJobContext struct {
 }
 
 type StartedJobsContext struct {
-	JobIDs []string            `json:"job_ids,omitempty"`
-	Items  []StartedJobContext `json:"items,omitempty"`
+	GoalIDs []string            `json:"goal_ids"`
+	JobIDs  []string            `json:"job_ids"`
+	Items   []StartedJobContext `json:"items"`
 }
 
 type ChildJobBroker struct {
@@ -84,8 +89,9 @@ type ChildJobBroker struct {
 
 func EmptyStartedJobsContext() StartedJobsContext {
 	return StartedJobsContext{
-		JobIDs: []string{},
-		Items:  []StartedJobContext{},
+		JobIDs:  []string{},
+		GoalIDs: []string{},
+		Items:   []StartedJobContext{},
 	}
 }
 
@@ -101,6 +107,7 @@ func ParentFromCurrent(c Current) Parent {
 	return Parent{
 		TenantID:           strings.TrimSpace(c.TenantID),
 		JobID:              strings.TrimSpace(c.JobID),
+		GoalID:             strings.TrimSpace(c.GoalID),
 		JobType:            strings.TrimSpace(c.JobType),
 		OpType:             strings.TrimSpace(c.OpType),
 		OpStep:             strings.TrimSpace(c.OpStep),
@@ -122,6 +129,7 @@ func EnvForCurrent(c Current) map[string]string {
 	env[CurrentContextVersionEnv] = CurrentContextVersion
 	env[CurrentTenantIDEnv] = strings.TrimSpace(c.TenantID)
 	env[CurrentJobIDEnv] = strings.TrimSpace(c.JobID)
+	env[CurrentGoalIDEnv] = strings.TrimSpace(c.GoalID)
 	env[TenantIDEnv] = strings.TrimSpace(c.TenantID)
 	setIfNotEmpty(env, CurrentJobTypeEnv, c.JobType)
 	setIfNotEmpty(env, CurrentOpTypeEnv, c.OpType)
@@ -160,6 +168,7 @@ func CurrentFromEnv(getenv func(string) string) (Current, bool, error) {
 		return Current{}, false, nil
 	}
 	current := Current{
+		GoalID:           strings.TrimSpace(getenv(CurrentGoalIDEnv)),
 		TenantID:         strings.TrimSpace(getenv(CurrentTenantIDEnv)),
 		JobID:            strings.TrimSpace(getenv(CurrentJobIDEnv)),
 		JobType:          strings.TrimSpace(getenv(CurrentJobTypeEnv)),
@@ -185,8 +194,8 @@ func CurrentFromEnv(getenv func(string) string) (Current, bool, error) {
 	if !hasAnyCurrentEnv(current, seqRaw) {
 		return Current{}, false, nil
 	}
-	if current.TenantID == "" || current.JobID == "" {
-		return Current{}, true, fmt.Errorf("%s and %s are required when c2j current job context is present", CurrentTenantIDEnv, CurrentJobIDEnv)
+	if current.TenantID == "" || current.JobID == "" || current.GoalID == "" {
+		return Current{}, true, fmt.Errorf("%s, %s and %s are required when c2j current job context is present", CurrentTenantIDEnv, CurrentJobIDEnv, CurrentGoalIDEnv)
 	}
 	return current, true, nil
 }
@@ -225,7 +234,7 @@ func setIfNotEmpty(env map[string]string, key string, value string) {
 }
 
 func hasAnyCurrentEnv(c Current, seqRaw string) bool {
-	return c.TenantID != "" ||
+	return c.GoalID != "" || c.TenantID != "" ||
 		c.JobID != "" ||
 		c.JobType != "" ||
 		c.OpType != "" ||
@@ -237,4 +246,33 @@ func hasAnyCurrentEnv(c Current, seqRaw string) bool {
 		c.InvocationPath != "" ||
 		c.InvocationHash != "" ||
 		strings.TrimSpace(seqRaw) != ""
+}
+
+// MergeStartedJobs preserves complete identity records; projections are derived
+// together so their indexes always refer to the same submitted child.
+func MergeStartedJobs(groups ...StartedJobsContext) (StartedJobsContext, error) {
+	out := EmptyStartedJobsContext()
+	seen := map[string]int{}
+	for _, group := range groups {
+		if len(group.Items) == 0 && (len(group.JobIDs) > 0 || len(group.GoalIDs) > 0) {
+			return out, fmt.Errorf("started job projections require complete items")
+		}
+		for _, item := range group.Items {
+			if item.TenantID == "" || item.JobID == "" || item.GoalID == "" {
+				return out, fmt.Errorf("started job requires tenant, goal and job IDs")
+			}
+			key := item.TenantID + "\x00" + item.JobID
+			if idx, ok := seen[key]; ok {
+				if out.Items[idx].GoalID != item.GoalID {
+					return out, fmt.Errorf("conflicting goal identities for job %s", item.JobID)
+				}
+				continue
+			}
+			seen[key] = len(out.Items)
+			out.Items = append(out.Items, item)
+			out.JobIDs = append(out.JobIDs, item.JobID)
+			out.GoalIDs = append(out.GoalIDs, item.GoalID)
+		}
+	}
+	return out, nil
 }

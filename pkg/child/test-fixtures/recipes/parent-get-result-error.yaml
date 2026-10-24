@@ -4,6 +4,6 @@ sequence:
   - id: get
     op: recipe.get_result
     inputs:
-      job_id: "missing-job"
+      target: {job: "missing-job"}
 outputs:
   value: "{{ sequence.get.outputs.outputs.value }}"

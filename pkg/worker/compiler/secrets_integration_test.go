@@ -128,7 +128,8 @@ func TestSecretsAcrossTasksReplayAndFailures(t *testing.T) {
 			rec, err := recipe.LoadRecipeFromString([]byte(source.String()))
 			require.NoError(t, err)
 			job, git := GenerateTestContext()
-			key, err := starter.StartRecipeJob(ctx, workflowctl.StartJob{TenantId: "secrets", RecipeName: "secrets", JobContext: job, GitRef: git.ParentRef}, engine, *rec)
+			keyRef, err := starter.StartRecipeJob(ctx, workflowctl.StartJob{TenantId: "secrets", RecipeName: "secrets", JobContext: job, GitRef: git.ParentRef}, engine, *rec)
+			key := keyRef.Key()
 			require.NoError(t, err)
 			require.NoError(t, jobworkflow.WaitForJobToComplete(ctx, 30*time.Second, key, engine))
 			_, err = swfutil.JobResult(ctx, engine, key)
@@ -235,10 +236,11 @@ sequence:
 	rec, err := recipe.LoadRecipeFromString([]byte(source))
 	require.NoError(t, err)
 	job, git := GenerateTestContext()
-	key, err := starter.StartRecipeJob(ctx, workflowctl.StartJob{
+	keyRef, err := starter.StartRecipeJob(ctx, workflowctl.StartJob{
 		TenantId: "fallbacks", RecipeName: "fallbacks", JobContext: job, GitRef: git.ParentRef,
 		Inputs: map[string]any{"token": "${{ context.secrets.missing }}"},
 	}, engine, *rec)
+	key := keyRef.Key()
 	require.NoError(t, err)
 	require.NoError(t, jobworkflow.WaitForJobToComplete(ctx, 30*time.Second, key, engine))
 	_, err = swfutil.JobResult(ctx, engine, key)

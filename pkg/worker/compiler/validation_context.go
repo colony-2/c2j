@@ -288,3 +288,16 @@ func (c *validationJobContext) ResolveSecretsFresh(ctx context.Context, names []
 func (c *validationJobContext) GetConfiguration(context.Context) (jobdb.ConfigurationSnapshot, error) {
 	return jobdb.ConfigurationSnapshot{}, jobdb.ErrConfigurationUnavailable
 }
+
+func (v *validationJobContext) AwaitDependencies(deps ...jobdb.Dependency) ([]jobdb.DependencyResolution, error) {
+	if v.inner == nil {
+		return nil, nil
+	}
+	return v.inner.AwaitDependencies(deps...)
+}
+func (v *validationJobContext) AwaitGoals(ids ...string) ([]jobdb.DependencyResolution, error) {
+	if v.inner == nil {
+		return nil, nil
+	}
+	return v.inner.AwaitGoals(ids...)
+}

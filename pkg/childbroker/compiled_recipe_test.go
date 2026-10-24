@@ -9,6 +9,7 @@ import (
 
 	"github.com/colony-2/c2j/pkg/childbroker"
 	"github.com/colony-2/c2j/pkg/jobcontext"
+	"github.com/colony-2/c2j/pkg/jobref"
 	"github.com/colony-2/c2j/pkg/recipe"
 	"github.com/colony-2/c2j/pkg/worker/compiler"
 	"github.com/colony-2/c2j/pkg/workflowctl"
@@ -21,10 +22,10 @@ type recipeCapture struct {
 	calls int
 }
 
-func (c *recipeCapture) SubmitJob(_ context.Context, job jobdb.SubmitJob) (jobdb.JobKey, error) {
+func (c *recipeCapture) SubmitJobRef(_ context.Context, job jobdb.SubmitJob) (jobref.Ref, error) {
 	c.job = job
 	c.calls++
-	return jobdb.JobKey{TenantId: job.TenantId, JobId: job.JobID}, nil
+	return jobref.Ref{GoalID: "test-goal", TenantID: job.TenantId, JobID: job.JobID}, nil
 }
 
 func TestBrokerCompiledIncludeRoundTrip(t *testing.T) {
@@ -47,7 +48,7 @@ func TestBrokerCompiledIncludeRoundTrip(t *testing.T) {
 			compiled, err := compiler.ResolveInlineRecipes(ctx, *authored, compiler.InlineResolutionOptions{RootFile: filepath.Join(dir, "child.yaml")})
 			require.NoError(t, err)
 			capture := &recipeCapture{}
-			server, err := childbroker.Start(ctx, childbroker.Options{Current: jobcontext.Current{TenantID: "test", JobID: "parent"}, Submitter: capture})
+			server, err := childbroker.Start(ctx, childbroker.Options{Current: jobcontext.Current{GoalID: "parent-goal", TenantID: "test", JobID: "parent"}, Submitter: capture})
 			require.NoError(t, err)
 			defer server.Close()
 			env := server.Env()

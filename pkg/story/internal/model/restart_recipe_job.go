@@ -7,6 +7,10 @@ import coretask "github.com/colony-2/c2j/pkg/task"
 // ScopeID is a logical scope ID from the job execution history.
 // Patch is optional; when present it is applied before resuming execution.
 type RestartRecipeJobRequest struct {
+	RequestID string
+	Goal      struct {
+		Mode string `json:"mode"`
+	}
 	ProjectID string
 	JobID     string
 	ScopeID   string
@@ -17,5 +21,7 @@ type RestartRecipeJobRequest struct {
 }
 
 type RestartRecipeJobResponse struct {
-	JobID string `json:"job_id"`
+	GoalID   string `json:"goal_id"`
+	TenantID string `json:"tenant_id"`
+	JobID    string `json:"job_id"`
 }

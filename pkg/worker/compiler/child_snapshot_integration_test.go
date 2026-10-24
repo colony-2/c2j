@@ -93,7 +93,7 @@ sequence:
  - id: await
    const: %t
    op: recipe.await_result_soft
-   inputs: {job_id: "${{ sequence.submit.outputs.job_ids[0] }}"}
+   inputs: {target: {job: "${{ sequence.submit.outputs.job_ids[0] }}"}}
  - id: after
    op: workspace_probe
    inputs: {read: candidate.txt, absent: child.txt}
@@ -105,7 +105,8 @@ outputs:
 `, consultation, bBase, b, bBase, constant)))
 				require.NoError(t, err)
 				job := contextual.JobContext{Workflow: contextual.WorkflowContext{CellName: "A"}, GitBase: contextual.GitBaseContext{BaseRepo: a, BaseRef: "main"}, CellResolution: &cellref.Context{Pattern: root + "/${{ cell }}"}}
-				key, err := starter.StartRecipeJob(context.Background(), workflowctl.StartJob{TenantId: "snapshot-tests", RecipeName: "parent", JobContext: job, GitRef: "main"}, eng, *parent)
+				keyRef, err := starter.StartRecipeJob(context.Background(), workflowctl.StartJob{TenantId: "snapshot-tests", RecipeName: "parent", JobContext: job, GitRef: "main"}, eng, *parent)
+				key := keyRef.Key()
 				require.NoError(t, err)
 				require.NoError(t, jobworkflow.WaitForJobToComplete(context.Background(), 20*time.Second, key, eng))
 				result, err := swfutil.JobResult(context.Background(), eng, key)

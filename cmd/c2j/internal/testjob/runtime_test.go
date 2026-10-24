@@ -78,7 +78,7 @@ sequence:
     inputs: {}
 - id: await
   op: recipe.await_result_soft
-  inputs: {job_id: "${{ sequence.submit.jobs.job_ids[0] }}"}
+  inputs: {target: {goal: "${{ sequence.submit.jobs.goal_ids[0] }}"}}
 outputs:
   accepted: ${{ sequence.await.outputs.outputs.accepted }}
 `)

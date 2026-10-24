@@ -29,7 +29,8 @@ func TestC2JSchemaAcceptsTimeoutCompletion(t *testing.T) {
 			require.NoError(t, err)
 			submitter := jobdbschema.WorkflowEngine{Engine: engine, Registry: rt.WorkflowRuntime.(jobdb.JobSchemaRegistry)}
 			_, gitCtx := GenerateTestContext()
-			key, err := starter.StartRecipeJob(context.Background(), workflowctl.StartJob{TenantId: "timeout-repro", RecipeName: "schema-probe", GitRef: gitCtx.ParentRef}, submitter)
+			keyRef, err := starter.StartRecipeJob(context.Background(), workflowctl.StartJob{TenantId: "timeout-repro", RecipeName: "schema-probe", GitRef: gitCtx.ParentRef}, submitter)
+			key := keyRef.Key()
 			require.NoError(t, err)
 			timeoutWorker.name = "recipe"
 			runnable, err := jobworkflow.GetJobForRun(context.Background(), rt, jobworkflow.GetJobForRunRequest{JobKey: key, JobWorker: asExecutionTestWorker(timeoutWorker), WorkerID: "schema-probe", LeaseDuration: time.Second})

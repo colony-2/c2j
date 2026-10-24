@@ -17,6 +17,8 @@ type Page struct {
 // Job is the CLI-compatible typed projection, with repository identity added.
 // ClientPayload is optional raw data; execution consumers should use Execution.
 type Job struct {
+	GoalID       string   `json:"goal_id"`
+	OtherGoalIDs []string `json:"other_goal_ids"`
 	// Completion fields are persisted terminal results, separate from scheduler Status.
 	// Empty status means unavailable; empty detail is valid. Both are preserved verbatim.
 	CompletionStatus      string          `json:"completion_status,omitempty"`
@@ -51,6 +53,7 @@ func JobFromSummary(job jobdb.JobSummary) Job {
 	// independently reports malformed execution metadata for waiting jobs.
 	_ = json.Unmarshal(job.Metadata, &meta)
 	return Job{
+		GoalID: job.GoalID, OtherGoalIDs: append([]string(nil), job.OtherGoalIDs...),
 		CompletionStatus: job.CompletionStatus,
 		CompletionDetail: job.CompletionDetail,
 		Execution:        ExecutionView(job), RepositorySource: meta.RepositorySource,

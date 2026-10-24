@@ -64,7 +64,7 @@ func TestChildResultsKeepSnapshotProvenanceWithoutForwardingChildState(t *testin
 						if method == "await_result" {
 							call = waitAndGetRecipeOutput
 						}
-						out, err := call(deps, context.Background(), StartedJob{JobId: "child"})
+						out, err := call(deps, context.Background(), StartedJob{Wait: WaitPolicy{On: "job"}, JobID: "child"})
 						require.NoError(t, err)
 						require.Equal(t, true, out.Outputs["merged"])
 						refs = out.Artifacts
@@ -73,7 +73,7 @@ func TestChildResultsKeepSnapshotProvenanceWithoutForwardingChildState(t *testin
 						require.NoError(t, err)
 						refs = out.Artifacts
 					default:
-						out, err := awaitResultSoft(deps, context.Background(), AwaitResultSoftInput{JobID: "child"})
+						out, err := awaitResultSoft(deps, context.Background(), AwaitResultSoftInput{Wait: WaitPolicy{On: "job"}, Target: WaitTarget{Job: "child"}})
 						require.NoError(t, err)
 						refs = out.Artifacts
 					}

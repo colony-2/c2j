@@ -27,6 +27,7 @@ type Options struct {
 
 	Statuses      []string
 	JobTypes      []string
+	GoalIDs       []string
 	JobIDs        []string
 	WaitingFor    []string
 	CreatedAfter  string

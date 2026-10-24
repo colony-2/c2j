@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/colony-2/c2j/pkg/gitprofile"
 	"net/url"
 	"os"
 	"path"
@@ -14,6 +13,8 @@ import (
 
 	gitpkg "github.com/colony-2/c2j/pkg/git"
 	"github.com/colony-2/c2j/pkg/git/selectorcache"
+	"github.com/colony-2/c2j/pkg/gitprofile"
+	"github.com/colony-2/c2j/pkg/jobref"
 	"github.com/colony-2/c2j/pkg/recipe"
 	workerops "github.com/colony-2/c2j/pkg/worker/ops"
 	"github.com/colony-2/jobdb/pkg/jobdb"
@@ -32,6 +33,7 @@ const (
 )
 
 type RecipeSourceResolution struct {
+	GoalID            string           `json:"goal_id"`
 	SourceKind        RecipeSourceKind `json:"source_kind"`
 	SubmittedSelector string           `json:"submitted_selector"`
 	ResolvedSelector  string           `json:"resolved_selector,omitempty"`
@@ -410,6 +412,8 @@ func (w rootSourceResolutionTaskWorker) Run(taskCtx jobworkflow.TaskContext, inp
 		RecipeSourceResolution: resolution,
 		RecipeYAML:             string(yamlBytes),
 	}
+	scope, _ := jobref.FromContext(gitprofile.TaskContext(taskCtx))
+	source.GoalID = scope.Current.GoalID
 	return jobdb.NewTaskData(source)
 }
 

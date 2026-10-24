@@ -22,6 +22,7 @@ const (
 )
 
 type ChildGroupStartInput struct {
+	Wait      WaitPolicy                `json:"wait,omitempty"`
 	Mode      string                    `json:"mode,omitempty"`
 	GitRef    string                    `json:"git_ref,omitempty" default:"${{ has(context.git.hash) && context.git.hash != \"\" ? context.git.hash : context.git.ref }}"`
 	Children  []ChildGroupChildSpec     `json:"children,omitempty"`
@@ -29,6 +30,7 @@ type ChildGroupStartInput struct {
 }
 
 type ChildGroupChildSpec struct {
+	Wait       *WaitPolicy            `json:"wait,omitempty"`
 	Key        string                 `json:"key,omitempty"`
 	Index      int                    `json:"index,omitempty"`
 	Recipe     string                 `json:"recipe,omitempty"`
@@ -54,17 +56,22 @@ type ChildGroupStepState struct {
 }
 
 type ChildGroupChildRecord struct {
-	Key        string                         `json:"key,omitempty"`
-	Index      int                            `json:"index,omitempty"`
-	Recipe     string                         `json:"recipe,omitempty"`
-	CellName   string                         `json:"cell_name,omitempty"`
-	Required   bool                           `json:"required"`
-	Status     string                         `json:"status,omitempty"`
-	JobID      string                         `json:"job_id,omitempty"`
-	Outputs    map[string]interface{}         `json:"outputs,omitempty"`
-	Artifacts  map[string]recipeartifacts.Ref `json:"artifacts,omitempty"`
-	Error      string                         `json:"error,omitempty"`
-	SkipReason string                         `json:"skip_reason,omitempty"`
+	TenantID    string                         `json:"tenant_id,omitempty"`
+	GoalFailure *jobdb.GoalFailure             `json:"goal_failure,omitempty"`
+	GoalID      string                         `json:"goal_id,omitempty"`
+	Result      ResultSource                   `json:"result"`
+	Wait        WaitPolicy                     `json:"wait,omitempty"`
+	Key         string                         `json:"key,omitempty"`
+	Index       int                            `json:"index,omitempty"`
+	Recipe      string                         `json:"recipe,omitempty"`
+	CellName    string                         `json:"cell_name,omitempty"`
+	Required    bool                           `json:"required"`
+	Status      string                         `json:"status,omitempty"`
+	JobID       string                         `json:"job_id,omitempty"`
+	Outputs     map[string]interface{}         `json:"outputs,omitempty"`
+	Artifacts   map[string]recipeartifacts.Ref `json:"artifacts,omitempty"`
+	Error       string                         `json:"error,omitempty"`
+	SkipReason  string                         `json:"skip_reason,omitempty"`
 }
 
 type ChildGroupSummary struct {
@@ -81,19 +88,23 @@ type ChildGroupSummary struct {
 }
 
 type ChildGroupOutput struct {
-	Ok                  bool                           `json:"ok"`
-	Mode                string                         `json:"mode,omitempty"`
-	ChildJobIDs         []string                       `json:"child_job_ids,omitempty"`
-	RequiredChildJobIDs []string                       `json:"required_child_job_ids,omitempty"`
-	OptionalChildJobIDs []string                       `json:"optional_child_job_ids,omitempty"`
-	FailedChildJobIDs   []string                       `json:"failed_child_job_ids,omitempty"`
-	Children            []ChildGroupChildRecord        `json:"children,omitempty"`
-	Summary             ChildGroupSummary              `json:"summary"`
-	Aggregate           map[string]interface{}         `json:"aggregate,omitempty"`
-	Warnings            []map[string]interface{}       `json:"warnings,omitempty"`
-	BlockingIssues      []map[string]interface{}       `json:"blocking_issues,omitempty"`
-	AggregateArtifact   string                         `json:"aggregate_artifact,omitempty"`
-	Artifacts           map[string]recipeartifacts.Ref `json:"artifacts,omitempty"`
+	ChildGoalIDs         []string                       `json:"child_goal_ids"`
+	RequiredChildGoalIDs []string                       `json:"required_child_goal_ids"`
+	OptionalChildGoalIDs []string                       `json:"optional_child_goal_ids"`
+	FailedChildGoalIDs   []string                       `json:"failed_child_goal_ids"`
+	Ok                   bool                           `json:"ok"`
+	Mode                 string                         `json:"mode,omitempty"`
+	ChildJobIDs          []string                       `json:"child_job_ids,omitempty"`
+	RequiredChildJobIDs  []string                       `json:"required_child_job_ids,omitempty"`
+	OptionalChildJobIDs  []string                       `json:"optional_child_job_ids,omitempty"`
+	FailedChildJobIDs    []string                       `json:"failed_child_job_ids,omitempty"`
+	Children             []ChildGroupChildRecord        `json:"children,omitempty"`
+	Summary              ChildGroupSummary              `json:"summary"`
+	Aggregate            map[string]interface{}         `json:"aggregate,omitempty"`
+	Warnings             []map[string]interface{}       `json:"warnings,omitempty"`
+	BlockingIssues       []map[string]interface{}       `json:"blocking_issues,omitempty"`
+	AggregateArtifact    string                         `json:"aggregate_artifact,omitempty"`
+	Artifacts            map[string]recipeartifacts.Ref `json:"artifacts,omitempty"`
 }
 
 func getChildGroupOps() []ops.RegisterableOp {
@@ -120,6 +131,17 @@ func startChildGroupOnly(deps ops.OpDependencies, ctx context.Context, input Chi
 }
 
 func startChildGroup(deps ops.OpDependencies, ctx context.Context, input ChildGroupStartInput) (ChildGroupStepState, error) {
+	for i := range input.Children {
+		policy := input.Wait
+		if input.Children[i].Wait != nil {
+			policy = *input.Children[i].Wait
+		}
+		effective, err := policy.normalized(false)
+		if err != nil {
+			return ChildGroupStepState{}, fmt.Errorf("child %d: %w", i, err)
+		}
+		input.Children[i].Wait = &effective
+	}
 	mode := normalizeChildGroupMode(input.Mode)
 	state := ChildGroupStepState{
 		Mode:      mode,
@@ -148,6 +170,7 @@ func startChildGroup(deps ops.OpDependencies, ctx context.Context, input ChildGr
 		}
 
 		record := ChildGroupChildRecord{
+			Wait:       input.Wait,
 			Key:        child.Key,
 			Index:      i,
 			Recipe:     strings.TrimSpace(child.Recipe),
@@ -155,6 +178,9 @@ func startChildGroup(deps ops.OpDependencies, ctx context.Context, input ChildGr
 			Required:   child.Required,
 			SkipReason: strings.TrimSpace(child.SkipReason),
 			Artifacts:  map[string]recipeartifacts.Ref{},
+		}
+		if child.Wait != nil {
+			record.Wait = *child.Wait
 		}
 		if child.Skipped {
 			record.Status = "skipped"
@@ -209,7 +235,9 @@ func startChildGroup(deps ops.OpDependencies, ctx context.Context, input ChildGr
 			continue
 		}
 		record.Status = "started"
-		record.JobID = key.JobId
+		record.JobID = key.JobID
+		record.TenantID = key.TenantID
+		record.GoalID = key.GoalID
 		state.Children = append(state.Children, record)
 	}
 
@@ -217,14 +245,27 @@ func startChildGroup(deps ops.OpDependencies, ctx context.Context, input ChildGr
 }
 
 func awaitChildGroup(deps ops.OpDependencies, ctx context.Context, state ChildGroupStepState) (ChildGroupStepState, error) {
-	ids := childGroupStartedJobIDs(state.Children)
-	if len(ids) == 0 {
-		return state, nil
+	for i := range state.Children {
+		child := &state.Children[i]
+		if child.Status != "started" {
+			continue
+		}
+		binding, err := awaitChild(deps, ctx, StartedJob{JobID: child.JobID, GoalID: child.GoalID, Wait: child.Wait}, false)
+		if err != nil {
+			if binding.State == jobdb.DependencyFailed || errors.Is(err, jobdb.ErrGoalFailed) || errors.Is(err, jobdb.ErrJobFailed) || errors.Is(err, jobdb.ErrJobCancelled) {
+				child.Status = "failed"
+				child.Error = err.Error()
+				var failed *jobdb.GoalFailedError
+				if errors.As(err, &failed) {
+					child.GoalFailure = &failed.Failure
+				}
+				continue
+			}
+			return state, err
+		}
+		child.Result = ResultSource{Goal: binding.Target.GoalID, Job: binding.SatisfiedByJobID}
 	}
-	err := deps.JobTool().AwaitJobs(ids...)
-	if err != nil && !errors.Is(err, jobdb.ErrJobFailed) && !errors.Is(err, jobdb.ErrJobCancelled) {
-		return state, err
-	}
+
 	return state, nil
 }
 
@@ -234,7 +275,10 @@ func collectChildGroup(deps ops.OpDependencies, ctx context.Context, state Child
 		if child.Status != "started" || strings.TrimSpace(child.JobID) == "" {
 			continue
 		}
-		result, err := getChildGroupRecipeOutput(deps, ctx, child.JobID)
+		if child.Result.Job == "" {
+			return ChildGroupOutput{}, fmt.Errorf("child %s has no recorded result binding", child.Key)
+		}
+		result, err := getChildGroupRecipeOutput(deps, ctx, child.Result.Job)
 		if err != nil {
 			if !errors.Is(err, jobdb.ErrJobFailed) && !errors.Is(err, jobdb.ErrJobCancelled) {
 				return ChildGroupOutput{}, err
@@ -295,10 +339,13 @@ func buildChildGroupOutput(deps ops.OpDependencies, state ChildGroupStepState) (
 		}
 		if child.JobID != "" {
 			out.ChildJobIDs = append(out.ChildJobIDs, child.JobID)
+			out.ChildGoalIDs = append(out.ChildGoalIDs, child.GoalID)
 			if child.Required {
 				out.RequiredChildJobIDs = append(out.RequiredChildJobIDs, child.JobID)
+				out.RequiredChildGoalIDs = append(out.RequiredChildGoalIDs, child.GoalID)
 			} else {
 				out.OptionalChildJobIDs = append(out.OptionalChildJobIDs, child.JobID)
+				out.OptionalChildGoalIDs = append(out.OptionalChildGoalIDs, child.GoalID)
 			}
 		}
 		for name, ref := range child.Artifacts {
@@ -318,6 +365,7 @@ func buildChildGroupOutput(deps ops.OpDependencies, state ChildGroupStepState) (
 		case "failed", "cancelled":
 			out.Summary.Failed++
 			out.FailedChildJobIDs = append(out.FailedChildJobIDs, child.JobID)
+			out.FailedChildGoalIDs = append(out.FailedChildGoalIDs, child.GoalID)
 			issue := childGroupIssue(child, "child_failed", child.Error)
 			if child.Required {
 				out.Summary.FailedRequired++
@@ -403,12 +451,15 @@ func childGroupStartedJobIDs(children []ChildGroupChildRecord) []string {
 
 func childGroupIssue(child ChildGroupChildRecord, code string, message string) map[string]interface{} {
 	return map[string]interface{}{
-		"code":     code,
-		"message":  strings.TrimSpace(message),
-		"child":    child.Key,
-		"job_id":   child.JobID,
-		"recipe":   child.Recipe,
-		"required": child.Required,
+		"code":         code,
+		"message":      strings.TrimSpace(message),
+		"child":        child.Key,
+		"job_id":       child.JobID,
+		"goal_id":      child.GoalID,
+		"result":       child.Result,
+		"goal_failure": child.GoalFailure,
+		"recipe":       child.Recipe,
+		"required":     child.Required,
 	}
 }
 
@@ -427,10 +478,13 @@ func childGroupOutputIssues(child ChildGroupChildRecord, key string) []map[strin
 	out := make([]map[string]interface{}, 0, len(items))
 	for _, item := range items {
 		issue := map[string]interface{}{
-			"child":    child.Key,
-			"job_id":   child.JobID,
-			"recipe":   child.Recipe,
-			"required": child.Required,
+			"child":        child.Key,
+			"job_id":       child.JobID,
+			"goal_id":      child.GoalID,
+			"result":       child.Result,
+			"goal_failure": child.GoalFailure,
+			"recipe":       child.Recipe,
+			"required":     child.Required,
 		}
 		switch typed := item.(type) {
 		case map[string]interface{}:
@@ -454,12 +508,15 @@ func childGroupJobAggregate(children []ChildGroupChildRecord) []map[string]inter
 			continue
 		}
 		out = append(out, map[string]interface{}{
-			"key":      child.Key,
-			"index":    child.Index,
-			"recipe":   child.Recipe,
-			"job_id":   child.JobID,
-			"required": child.Required,
-			"status":   child.Status,
+			"key":          child.Key,
+			"index":        child.Index,
+			"recipe":       child.Recipe,
+			"job_id":       child.JobID,
+			"goal_id":      child.GoalID,
+			"result":       child.Result,
+			"goal_failure": child.GoalFailure,
+			"required":     child.Required,
+			"status":       child.Status,
 		})
 	}
 	return out
@@ -469,12 +526,15 @@ func childGroupReviewChildren(children []ChildGroupChildRecord) []map[string]int
 	out := make([]map[string]interface{}, 0, len(children))
 	for _, child := range children {
 		entry := map[string]interface{}{
-			"key":      child.Key,
-			"index":    child.Index,
-			"recipe":   child.Recipe,
-			"job_id":   child.JobID,
-			"required": child.Required,
-			"status":   child.Status,
+			"key":          child.Key,
+			"index":        child.Index,
+			"recipe":       child.Recipe,
+			"job_id":       child.JobID,
+			"goal_id":      child.GoalID,
+			"result":       child.Result,
+			"goal_failure": child.GoalFailure,
+			"required":     child.Required,
+			"status":       child.Status,
 		}
 		if child.Error != "" {
 			entry["error"] = child.Error

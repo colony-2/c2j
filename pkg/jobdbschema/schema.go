@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/colony-2/c2j/pkg/jobref"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
 )
@@ -231,6 +232,7 @@ var c2jJobSchema = json.RawMessage(`{
           "cell": {
             "type": "string"
           },
+          "goal_id": {"type":"string"},
           "job_id": {
             "type": "string"
           },
@@ -330,6 +332,7 @@ var c2jJobSchema = json.RawMessage(`{
           "tenant_id": {
             "type": "string"
           },
+          "goal_id": {"type":"string"},
           "job_id": {
             "type": "string"
           },
@@ -381,6 +384,7 @@ var c2jJobSchema = json.RawMessage(`{
             "type": "string",
             "minLength": 1
           },
+          "dependencies": {"type":"array", "items":{"type":"object"}},
           "job_id": {
             "type": "string"
           },
@@ -932,4 +936,79 @@ func isJobSchemaNotFound(err error) bool {
 		return true
 	}
 	return strings.Contains(err.Error(), jobdb.ErrJobSchemaNotFound.Error())
+}
+
+// SubmitJobRef preserves the handle returned by the runtime. The workflow SDK's
+// SubmitJob convenience method currently returns only JobKey.
+func (e WorkflowEngine) SubmitJobRef(ctx context.Context, job jobdb.SubmitJob) (jobref.Ref, error) {
+	rt, ok := e.Registry.(jobdb.WorkflowRuntime)
+	if !ok {
+		return jobref.Ref{}, fmt.Errorf("submission runtime is unavailable")
+	}
+	if job.JobType == "recipe" {
+		if err := SetSubmitJobSchema(&job); err != nil {
+			return jobref.Ref{}, err
+		}
+	}
+	h, err := rt.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: job})
+	if isJobSchemaNotFound(err) {
+		if err = Register(ctx, e.Registry, job.TenantId); err != nil {
+			return jobref.Ref{}, err
+		}
+		h, err = rt.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: job})
+	}
+	if err != nil {
+		return jobref.Ref{}, err
+	}
+	return jobref.FromHandle(h)
+}
+func (e WorkflowEngine) SubmitRestartJobRef(ctx context.Context, req jobdb.SubmitRestartJobRequest) (jobref.Ref, error) {
+	rt, ok := e.Registry.(jobdb.WorkflowRuntime)
+	if !ok {
+		return jobref.Ref{}, fmt.Errorf("restart runtime is unavailable")
+	}
+	if err := SetSubmitRestartJobSchema(&req.Job); err != nil {
+		return jobref.Ref{}, err
+	}
+	h, err := rt.SubmitRestartJob(ctx, req)
+	if isJobSchemaNotFound(err) {
+		if err = Register(ctx, e.Registry, req.Job.PriorJobKey.TenantId); err != nil {
+			return jobref.Ref{}, err
+		}
+		h, err = rt.SubmitRestartJob(ctx, req)
+	}
+	if err != nil {
+		return jobref.Ref{}, err
+	}
+	return jobref.FromHandle(h)
+}
+
+func (e WorkflowEngine) GetGoal(ctx context.Context, key jobdb.GoalKey) (jobdb.GoalInfo, error) {
+	rt, ok := e.Registry.(jobdb.GoalRuntime)
+	if !ok {
+		return jobdb.GoalInfo{}, fmt.Errorf("goal runtime unavailable")
+	}
+	return rt.GetGoal(ctx, key)
+}
+func (e WorkflowEngine) GetDependencyWait(ctx context.Context, key jobdb.DependencyWaitKey) (jobdb.DependencyWaitInfo, error) {
+	rt, ok := e.Registry.(jobdb.GoalRuntime)
+	if !ok {
+		return jobdb.DependencyWaitInfo{}, fmt.Errorf("goal runtime unavailable")
+	}
+	return rt.GetDependencyWait(ctx, key)
+}
+
+func (e WorkflowEngine) AddGoalCandidate(ctx context.Context, req jobdb.AddGoalCandidateRequest) (jobdb.GoalCandidateInfo, error) {
+	rt, ok := e.Registry.(jobdb.GoalRuntime)
+	if !ok {
+		return jobdb.GoalCandidateInfo{}, fmt.Errorf("goal runtime unavailable")
+	}
+	return rt.AddGoalCandidate(ctx, req)
+}
+func (e WorkflowEngine) FailGoal(ctx context.Context, req jobdb.FailGoalRequest) (jobdb.GoalInfo, error) {
+	rt, ok := e.Registry.(jobdb.GoalRuntime)
+	if !ok {
+		return jobdb.GoalInfo{}, fmt.Errorf("goal runtime unavailable")
+	}
+	return rt.FailGoal(ctx, req)
 }

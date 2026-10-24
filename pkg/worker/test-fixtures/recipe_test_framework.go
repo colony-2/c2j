@@ -15,6 +15,8 @@ import (
 
 	executor "github.com/colony-2/c2j/internal/testexecutor"
 	"github.com/colony-2/c2j/pkg/contextual"
+	"github.com/colony-2/c2j/pkg/execution"
+	"github.com/colony-2/c2j/pkg/executionruntime"
 	gitexport "github.com/colony-2/c2j/pkg/git/export"
 	"github.com/colony-2/c2j/pkg/jobdbschema"
 	coreops "github.com/colony-2/c2j/pkg/ops"
@@ -703,8 +705,12 @@ func executeRecipeWithArtifacts(
 	}
 	tenantID := "default"
 	runtime := toyruntime.New()
+	guard := executionruntime.New(runtime, execution.Allocation{SchemaVersion: 1})
+	for i, tw := range taskWorkers {
+		taskWorkers[i] = guard.WrapTaskWorker(tw)
+	}
 	engine, err := jobworkflow.NewEngineBuilder().
-		WithRuntime(runtime).
+		WithRuntime(guard).
 		WithWorkerTenantId(tenantID).
 		PlusWorkers(workset.JobWorker, taskWorkers...).
 		BuildEngine()
@@ -726,10 +732,10 @@ func executeRecipeWithArtifacts(
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	if err := jobworkflow.WaitForJobToComplete(ctx, 30*time.Second, jobKey, engine); err != nil {
+	if err := jobworkflow.WaitForJobToComplete(ctx, 30*time.Second, jobKey.Key(), engine); err != nil {
 		return nil, nil, nil, err
 	}
-	out, err := swfutil.JobResult(ctx, engine, jobKey)
+	out, err := swfutil.JobResult(ctx, engine, jobKey.Key())
 	if err != nil {
 		return nil, nil, nil, err
 	}
