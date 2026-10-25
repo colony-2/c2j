@@ -25,9 +25,8 @@ type executionSession struct {
 }
 
 func (j recipeJobWorker) executionSession(ctx jobworkflow.ExecutionContext, r recipe.Recipe, initial *execution.Submission) (*executionSession, error) {
-	if recipe.HasPermissions(r) && !j.taskGuardConfigured {
-		return nil, fmt.Errorf("perms requires an execution-aware runtime and guarded task workers")
-	}
+	// Permission enforcement is checked by each live task worker. Embedders may
+	// register wrapped workers separately; read-only replay needs no capabilities.
 	s := &executionSession{ctx: ctx, stage: j.stageExecution, guarded: j.stageExecution != nil && j.taskGuardConfigured}
 	if initial != nil {
 		if err := initial.Validate(); err != nil {

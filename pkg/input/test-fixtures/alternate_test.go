@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/colony-2/c2j/pkg/execution"
+	"github.com/colony-2/c2j/pkg/executionruntime"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
@@ -147,7 +149,12 @@ outputs:
 				key := keyRef.Key()
 				require.NoError(t, err)
 				run := func() jobworkflow.JobRunOutcome {
-					runnable, err := jobworkflow.GetJobForRun(ctx, rt, jobworkflow.GetJobForRunRequest{JobKey: key, JobWorker: workers.JobWorker, TaskWorkers: tasks, WorkerID: "recipe-worker", LeaseDuration: time.Minute})
+					guard := executionruntime.New(rt, execution.Allocation{SchemaVersion: 1})
+					guarded := make([]jobworkflow.TaskWorker, 0, len(tasks))
+					for _, task := range tasks {
+						guarded = append(guarded, guard.WrapTaskWorker(task))
+					}
+					runnable, err := jobworkflow.GetJobForRun(ctx, guard, jobworkflow.GetJobForRunRequest{JobKey: key, JobWorker: workers.JobWorker, TaskWorkers: guarded, WorkerID: "recipe-worker", LeaseDuration: time.Minute})
 					require.NoError(t, err)
 					out, err := runnable.Run(nil)
 					require.NoError(t, err)

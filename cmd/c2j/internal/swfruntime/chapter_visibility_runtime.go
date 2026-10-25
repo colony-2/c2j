@@ -25,7 +25,11 @@ func withChapterVisibility(runtime jobdb.WorkflowRuntime) jobdb.WorkflowRuntime 
 	if runtime == nil {
 		return nil
 	}
-	return &chapterVisibilityRuntime{WorkflowRuntime: runtime}
+	wrapped := &chapterVisibilityRuntime{WorkflowRuntime: runtime}
+	if delegator, ok := runtime.(jobdb.LeaseDelegator); ok {
+		return &delegatingChapterVisibilityRuntime{chapterVisibilityRuntime: wrapped, LeaseDelegator: delegator}
+	}
+	return wrapped
 }
 
 func (r *chapterVisibilityRuntime) PutChapter(ctx context.Context, req jobdb.PutChapterRequest) error {
@@ -130,4 +134,10 @@ func (r *chapterVisibilityRuntime) awaitChapterVisible(ctx context.Context, ref 
 		case <-timer.C:
 		}
 	}
+}
+
+// Preserve the optional capability without claiming it for embedded runtimes.
+type delegatingChapterVisibilityRuntime struct {
+	*chapterVisibilityRuntime
+	jobdb.LeaseDelegator
 }

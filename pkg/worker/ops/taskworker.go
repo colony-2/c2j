@@ -127,15 +127,15 @@ func (t *taskWorker) Run(ctx jobworkflow.TaskContext, input jobdb.TaskData) (res
 	opCtx, cancel := NewTaskExecutionContext(ctx)
 	defer cancel()
 	access := permissions.FromContext(opCtx)
-	if air.Permissions != nil && access == nil {
-		return nil, errors.New("permission-scoped task requires executionruntime.WrapTaskWorker")
+	if access == nil {
+		return nil, errors.New("task requires executionruntime.WrapTaskWorker")
 	}
 	req, err := ResolveInvocation(opCtx, &air)
 	resolved = req.Extension
 	if err != nil {
 		return nil, err
 	}
-	if access != nil && req.Extension != nil && req.Extension.Spec.Timeout != "" {
+	if req.Extension != nil && req.Extension.Spec.Timeout != "" {
 		duration, err := time.ParseDuration(req.Extension.Spec.Timeout)
 		if err != nil || duration <= 0 {
 			return nil, fmt.Errorf("restricted extension requires a valid positive timeout")
@@ -169,14 +169,13 @@ func (t *taskWorker) Run(ctx jobworkflow.TaskContext, input jobdb.TaskData) (res
 	}
 	names := make([]string, 0, len(refs))
 	for _, ref := range refs {
-		names = append(names, ref.Name)
-	}
-	if access != nil {
-		if err := access.CheckSecrets(names); err != nil {
-			return nil, err
+		// Empty-name references carry literal defaults and never query JobDB.
+		if ref.Name != "" {
+			names = append(names, ref.Name)
 		}
-	} else if scope := gitprofile.FromContext(opCtx); scope != nil {
-		scope.AllowSecrets(names) // Legacy invocations retain their existing behavior.
+	}
+	if err := access.CheckSecrets(names); err != nil {
+		return nil, err
 	}
 	if err := InstallInvocation(opCtx, &air, req, PrepareTools); err != nil {
 		return nil, err
@@ -186,11 +185,7 @@ func (t *taskWorker) Run(ctx jobworkflow.TaskContext, input jobdb.TaskData) (res
 		if session == nil {
 			return nil, errors.New("secret setup requires a local job execution")
 		}
-		resolve := ctx.ResolveSecrets
-		if access != nil {
-			resolve = access.Resolve
-		}
-		err := session.PrepareReferences(opCtx, refs, resolve)
+		err := session.PrepareReferences(opCtx, refs, access.Resolve)
 		air.SecretSetupMS = time.Since(secretStart).Milliseconds()
 		if err != nil {
 			return nil, session.Error(err)

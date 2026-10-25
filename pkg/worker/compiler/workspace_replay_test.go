@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/colony-2/c2j/pkg/permissions"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -60,7 +61,7 @@ func (c *workspaceReplayContext) DoTask(call testTaskCall, build func(testContex
 	var out jobdb.TaskData
 	if task == WorkspaceResolutionTaskType {
 		c.resolves++
-		out, err = resolveWorkspaceTask(context.Background(), data)
+		out, err = resolveWorkspaceTask(permissions.WithAccess(context.Background(), permissions.NewAccess(context.Background(), permissions.JobDB{}, nil, nil)), data)
 	} else {
 		var req workerops.ActivityInvocationRequest
 		if err = json.Unmarshal(raw, &req); err != nil {

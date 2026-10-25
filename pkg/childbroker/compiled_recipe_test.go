@@ -37,7 +37,7 @@ func TestBrokerCompiledIncludeRoundTrip(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			ctx := context.Background()
 			dir := t.TempDir()
-			source := "id: child\nsequence:\n  - id: phase\n    include: ./phase.yaml\n"
+			source := "id: child\nsequence:\n  - id: phase\n    include: ./phase.yaml\n    perms: {limit: {jobdb: {}}}\n"
 			if workspace {
 				source += "    workspace: {cell: cellB, ref: release}\n"
 			}

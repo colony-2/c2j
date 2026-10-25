@@ -3,6 +3,8 @@ package compiler
 import (
 	"context"
 	"encoding/json"
+	"github.com/colony-2/c2j/pkg/execution"
+	"github.com/colony-2/c2j/pkg/executionruntime"
 	"testing"
 	"time"
 
@@ -39,7 +41,8 @@ func TestConfigurationResumeUsesLiveTaskReadsAndRecordedRouting(t *testing.T) {
 	ws, err := NewRecipeWorker(coreops.NewServiceDepsBuilder().Build(), registry)
 	require.NoError(t, err)
 	rt := toyruntime.New()
-	engine, err := jobworkflow.NewEngineBuilder().WithRuntime(rt).WithWorkerTenantId("config").PlusWorkers(ws.JobWorker).BuildEngine()
+	guard := executionruntime.New(rt, execution.Allocation{SchemaVersion: 1})
+	engine, err := jobworkflow.NewEngineBuilder().WithRuntime(guard).WithWorkerTenantId("config").PlusWorkers(ws.JobWorker).BuildEngine()
 	require.NoError(t, err)
 	engine = jobdbschema.WorkflowEngine{Engine: engine, Registry: rt}
 	set := func(value string) {
@@ -70,13 +73,14 @@ outputs:
 	require.NoError(t, err)
 	var first, all []jobworkflow.TaskWorker
 	for name, w := range ws.TaskWorkers {
+		w = guard.WrapTaskWorker(w)
 		all = append(all, w)
 		if name != "config_b:config_b" {
 			first = append(first, w)
 		}
 	}
 	run := func(workers []jobworkflow.TaskWorker) jobworkflow.JobRunOutcome {
-		runnable, err := jobworkflow.GetJobForRun(ctx, rt, jobworkflow.GetJobForRunRequest{JobKey: key, JobWorker: ws.JobWorker, TaskWorkers: workers, WorkerID: "test", LeaseDuration: time.Minute})
+		runnable, err := jobworkflow.GetJobForRun(ctx, guard, jobworkflow.GetJobForRunRequest{JobKey: key, JobWorker: ws.JobWorker, TaskWorkers: workers, WorkerID: "test", LeaseDuration: time.Minute})
 		require.NoError(t, err)
 		outcome, err := runnable.Run(nil)
 		require.NoError(t, err)

@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/colony-2/c2j/pkg/execution"
+	"github.com/colony-2/c2j/pkg/executionruntime"
 	"log"
 	"log/slog"
 	"os"
@@ -117,10 +119,11 @@ run: ` + fmt.Sprintf("%q\n", script)
 			require.NoError(t, err)
 			ws, err := NewRecipeWorker(coreops.NewServiceDepsBuilder().Build(), registry)
 			require.NoError(t, err)
-			engine, err := jobworkflow.NewEngineBuilder().WithRuntime(rt).WithWorkerTenantId("extension-defaults").PlusWorkers(ws.JobWorker).BuildEngine()
+			guard := executionruntime.New(rt, execution.Allocation{SchemaVersion: 1})
+			engine, err := jobworkflow.NewEngineBuilder().WithRuntime(guard).WithWorkerTenantId("extension-defaults").PlusWorkers(ws.JobWorker).BuildEngine()
 			require.NoError(t, err)
 			engine = jobdbschema.WorkflowEngine{Engine: engine, Registry: rt}
-			rec, err := recipe.LoadRecipeFromString([]byte("id: reference-defaults\nop: git+file://" + filepath.ToSlash(root) + "//op@HEAD\n" + tc.inputs + "\n"))
+			rec, err := recipe.LoadRecipeFromString([]byte("id: reference-defaults\nperms: {jobdb: {secrets: {resolve: [api_key, caller]}}}\nop: git+file://" + filepath.ToSlash(root) + "//op@HEAD\n" + tc.inputs + "\n"))
 			require.NoError(t, err)
 			job, git := GenerateTestContext()
 			job.RecipeSource.Repo = root
@@ -136,9 +139,9 @@ run: ` + fmt.Sprintf("%q\n", script)
 			defer func() { slog.SetDefault(previous); log.SetOutput(previousWriter); log.SetFlags(previousFlags) }()
 			var workers []jobworkflow.TaskWorker
 			for _, w := range ws.TaskWorkers {
-				workers = append(workers, w)
+				workers = append(workers, guard.WrapTaskWorker(w))
 			}
-			runnable, err := jobworkflow.GetJobForRun(ctx, rt, jobworkflow.GetJobForRunRequest{JobKey: key, JobWorker: ws.JobWorker, TaskWorkers: workers, WorkerID: "test", LeaseDuration: time.Minute})
+			runnable, err := jobworkflow.GetJobForRun(ctx, guard, jobworkflow.GetJobForRunRequest{JobKey: key, JobWorker: ws.JobWorker, TaskWorkers: workers, WorkerID: "test", LeaseDuration: time.Minute})
 			require.NoError(t, err)
 			_, err = runnable.Run(nil)
 			require.NoError(t, err)

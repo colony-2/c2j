@@ -23,7 +23,7 @@ func TestSecretIncludeBoundarySchemaAndOutputs(t *testing.T) {
 				flag = "true"
 			}
 			require.NoError(t, os.WriteFile(included, []byte("id: included\ninput_schema:\n  token: {type: string, secret: "+flag+", required: true}\nsequence: []\n"), 0600))
-			r, err := recipe.LoadRecipeFromString([]byte("id: root\nsequence:\n  - include: ./included.yaml\n    inputs: {token: '${{ context.secrets.token }}'}\n"))
+			r, err := recipe.LoadRecipeFromString([]byte("id: root\nsequence:\n  - include: ./included.yaml\n    perms: {limit: {jobdb: {}}}\n    inputs: {token: '${{ context.secrets.token }}'}\n"))
 			require.NoError(t, err)
 			expanded, err := ResolveInlineRecipes(context.Background(), *r, InlineResolutionOptions{RootFile: rootFile})
 			require.NoError(t, err)

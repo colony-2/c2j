@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/colony-2/c2j/pkg/execution"
+	"github.com/colony-2/c2j/pkg/executionruntime"
 	"github.com/colony-2/c2j/pkg/git/gitstate"
 	recipeops "github.com/colony-2/c2j/pkg/ops"
 	"github.com/colony-2/c2j/pkg/swfutil"
@@ -55,7 +57,7 @@ func TestTaskWorkerRunReturnsTaskDataOnFailure(t *testing.T) {
 		},
 	})
 
-	td, err := worker.Run(jobworkflow.NewTaskContext(jobdb.JobKey{TenantId: "tenant", JobId: "job"}, 1, nil, nil, nil), input)
+	td, err := worker.Run(bindDeniedTask(t, jobworkflow.NewTaskContext(jobdb.JobKey{TenantId: "tenant", JobId: "job"}, 1, nil, nil, nil)), input)
 	require.Error(t, err)
 	require.NotNil(t, td)
 
@@ -78,13 +80,13 @@ func TestTaskWorkerRunReturnsTaskDataOnFailure(t *testing.T) {
 
 	t.Run("persist_and_replay", func(t *testing.T) {
 		ctx := context.Background()
-		rt := toy.New()
+		rt := executionruntime.New(toy.New(), execution.Allocation{SchemaVersion: 1})
 		orchestrator := jobworkflow.ExecutionWorker{JobType: "diagnostics", Execute: func(c jobworkflow.ExecutionContext, data jobdb.JobData) (jobdb.JobData, error) {
 			return c.DoTask(jobworkflow.TaskCall{Site: "failure", TaskType: worker.Name(), ContractVersion: 1, Command: json.RawMessage(`{}`), Policy: jobdb.RunPolicy{Retry: jobdb.RetryPolicy{MaximumAttempts: 1}}}, func(context.Context) (jobdb.TaskData, error) { return data, nil })
 		}}
 		job, err := rt.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "test", JobType: orchestrator.Name(), Data: input, RunPolicy: jobdb.RunPolicy{Retry: jobdb.RetryPolicy{MaximumAttempts: 1}}}})
 		require.NoError(t, err)
-		h, err := jobworkflow.GetJobForRun(ctx, rt, jobworkflow.GetJobForRunRequest{JobKey: job.JobKey, JobWorker: orchestrator, TaskWorkers: []jobworkflow.TaskWorker{worker}, WorkerID: "test", LeaseDuration: time.Minute})
+		h, err := jobworkflow.GetJobForRun(ctx, rt, jobworkflow.GetJobForRunRequest{JobKey: job.JobKey, JobWorker: orchestrator, TaskWorkers: []jobworkflow.TaskWorker{rt.WrapTaskWorker(worker)}, WorkerID: "test", LeaseDuration: time.Minute})
 		require.NoError(t, err)
 		outcome, err := h.Run(nil)
 		require.NoError(t, err)
@@ -167,7 +169,7 @@ func TestTaskWorkerRunCancelsStepWithExecutionContext(t *testing.T) {
 		},
 	})
 
-	rt := toy.New()
+	rt := executionruntime.New(toy.New(), execution.Allocation{SchemaVersion: 1})
 	job, err := rt.SubmitJob(executionCtx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "tenant", JobType: "cancel-step", Data: input}})
 	require.NoError(t, err)
 	finished := make(chan taskWorkerResult, 1)
@@ -175,7 +177,7 @@ func TestTaskWorkerRunCancelsStepWithExecutionContext(t *testing.T) {
 	orchestrator := jobworkflow.ExecutionWorker{JobType: "cancel-step", Execute: func(ctx jobworkflow.ExecutionContext, data jobdb.JobData) (jobdb.JobData, error) {
 		return ctx.DoTask(jobworkflow.TaskCall{Site: "step", TaskType: worker.Name(), ContractVersion: 1, Command: json.RawMessage(`{}`)}, func(context.Context) (jobdb.TaskData, error) { return data, nil })
 	}}
-	h, err := jobworkflow.GetJobForRun(executionCtx, rt, jobworkflow.GetJobForRunRequest{JobKey: job.JobKey, JobWorker: orchestrator, TaskWorkers: []jobworkflow.TaskWorker{wrapped}, WorkerID: "test", LeaseDuration: time.Minute})
+	h, err := jobworkflow.GetJobForRun(executionCtx, rt, jobworkflow.GetJobForRunRequest{JobKey: job.JobKey, JobWorker: orchestrator, TaskWorkers: []jobworkflow.TaskWorker{rt.WrapTaskWorker(wrapped)}, WorkerID: "test", LeaseDuration: time.Minute})
 	require.NoError(t, err)
 	outcome, runErr := h.Run(nil)
 	select {

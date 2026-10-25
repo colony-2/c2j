@@ -40,10 +40,9 @@ func ResolveInlineRecipes(ctx context.Context, rec recipe.Recipe, opts InlineRes
 		resolver = NewRecipeSourceResolver(RecipeSourceResolverOptions{})
 	}
 	r := &inlineRecipeResolver{
-		permissions: recipe.HasPermissions(rec),
-		projectID:   strings.TrimSpace(opts.ProjectID),
-		resolver:    resolver,
-		gitRefs:     make(map[string]string),
+		projectID: strings.TrimSpace(opts.ProjectID),
+		resolver:  resolver,
+		gitRefs:   make(map[string]string),
 	}
 	for key, value := range gitRefPinsFromRecipeSourceValue(opts.RootSource) {
 		r.gitRefs[key] = value
@@ -56,20 +55,17 @@ func ResolveInlineRecipes(ctx context.Context, rec recipe.Recipe, opts InlineRes
 	if err != nil {
 		return InlineResolutionResult{}, err
 	}
-	if recipe.HasPermissions(expanded) {
-		if err := validateIncludePermissionBoundaries(expanded); err != nil {
-			return InlineResolutionResult{}, err
-		}
+	if err := validateIncludePermissionBoundaries(expanded); err != nil {
+		return InlineResolutionResult{}, err
 	}
 	return InlineResolutionResult{Recipe: expanded}, nil
 }
 
 type inlineRecipeResolver struct {
-	permissions bool
-	projectID   string
-	resolver    RecipeSourceResolver
-	gitRefs     map[string]string
-	extensions  recipe.ExtensionImports
+	projectID  string
+	resolver   RecipeSourceResolver
+	gitRefs    map[string]string
+	extensions recipe.ExtensionImports
 }
 
 type inlineRecipeSourceContext struct {
@@ -130,9 +126,6 @@ func (r *inlineRecipeResolver) rootSourceContext(opts InlineResolutionOptions) (
 }
 
 func (r *inlineRecipeResolver) expandRecipe(ctx context.Context, rec recipe.Recipe, source inlineRecipeSourceContext) (recipe.Recipe, error) {
-	if recipe.HasPermissions(rec) {
-		r.permissions = true
-	}
 	ctx = inlinePermissionContext(ctx, rec.GetMetadata().NodeMetadata)
 	if spec := rec.GetMetadata().GitProfile; spec != nil {
 		ctx = context.WithValue(ctx, inlineGitProfileKey{}, spec)
@@ -272,7 +265,7 @@ func (r *inlineRecipeResolver) expandInclude(ctx context.Context, include *recip
 		return recipe.Node{}, fmt.Errorf("resolve include %q at %s: %w", target, strings.Join(pathParts, "/"), err)
 	}
 	loaded.PermissionBoundary = !sameRecipeRepository(parentSource, loaded.SourceContext)
-	if _, err := (permissions.State{}).Enter(include.Perms, loaded.PermissionBoundary && (r.permissions || recipe.HasPermissions(loaded.Recipe))); err != nil {
+	if _, err := (permissions.State{}).Enter(include.Perms, loaded.PermissionBoundary); err != nil {
 		return recipe.Node{}, fmt.Errorf("include %q at %s: %w", target, strings.Join(pathParts, "/"), err)
 	}
 	if include.Perms != nil && include.Perms.Limit != nil && include.Perms.Limit.JobDB != nil {

@@ -12,7 +12,7 @@ func TestRecipePermissionsRoundTripAndStrictFields(t *testing.T) {
 	for _, shape := range []string{"sequence: []", "state: {initial: end, states: {end: {sequence: []}}}", "child_group: {mode: run, children: []}"} {
 		rec, err := LoadRecipeFromString([]byte("id: scoped\nperms: {jobdb: {}, limit: {jobdb: {jobs: {submit: false}}}}\n" + shape))
 		require.NoError(t, err)
-		require.True(t, HasPermissions(*rec))
+		require.NotNil(t, rec.GetMetdata().Perms)
 		raw, err := yaml.Marshal(rec)
 		require.NoError(t, err)
 		copy, err := LoadRecipeFromString(raw)
@@ -26,11 +26,11 @@ func TestRecipePermissionsRoundTripAndStrictFields(t *testing.T) {
 	}
 	_, err := LoadRecipeFromString([]byte("id: invalid\ndefs: {x: {sequence: []}}\nsequence: [{shared: x, perms: {}}]"))
 	require.ErrorContains(t, err, "shared definition")
-	legacy, err := LoadRecipeFromString([]byte("id: old\nsequence: []"))
+	plain, err := LoadRecipeFromString([]byte("id: plain\nsequence: []"))
 	require.NoError(t, err)
-	require.False(t, HasPermissions(*legacy))
-	// Empty perms opts in; explicit empty jobdb denies instead of disappearing.
+	require.Nil(t, plain.GetMetdata().Perms)
+	// Empty perms inherits; explicit empty jobdb denies instead of disappearing.
 	rec, err := LoadRecipeFromReader(strings.NewReader("id: enabled\nperms: {}\nsequence: []"))
 	require.NoError(t, err)
-	require.True(t, HasPermissions(*rec))
+	require.NotNil(t, rec.GetMetdata().Perms)
 }

@@ -12,6 +12,7 @@ import (
 	"github.com/colony-2/c2j/pkg/git/common"
 	"github.com/colony-2/c2j/pkg/git/squashrebasemerge"
 	coreops "github.com/colony-2/c2j/pkg/ops"
+	"github.com/colony-2/c2j/pkg/permissions"
 	"github.com/colony-2/c2j/pkg/recipe"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	"github.com/stretchr/testify/require"
@@ -135,7 +136,7 @@ func TestEmptyWorkspaceResolutionAndReplay(t *testing.T) {
 	for _, initial := range []string{"", "typo"} {
 		data, err := jobdb.NewTaskData(WorkspaceResolutionInput{Cell: missing, Ref: "main", ScopeID: "test", Initial: initial})
 		require.NoError(t, err)
-		_, err = resolveWorkspaceTask(context.Background(), data)
+		_, err = resolveWorkspaceTask(permissions.WithAccess(context.Background(), permissions.NewAccess(context.Background(), permissions.JobDB{}, nil, nil)), data)
 		require.Error(t, err)
 	}
 }

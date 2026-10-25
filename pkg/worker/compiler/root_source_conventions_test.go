@@ -102,7 +102,7 @@ func TestConventionalFallbackUsesExistingGitResolutionAndPreservesTarget(t *test
 	}
 	target, hosted := newRepo(), newRepo()
 	writeRootSourceRecipe(t, filepath.Join(hosted, "phase.yaml"), "shared_phase")
-	raw := "id: shared_build\nversion: '1'\nsequence:\n  - id: phase\n    include: ./phase.yaml\n"
+	raw := "id: shared_build\nversion: '1'\nsequence:\n  - id: phase\n    include: ./phase.yaml\n    perms: {limit: {jobdb: {}}}\n"
 	require.NoError(t, os.WriteFile(filepath.Join(hosted, "build.yaml"), []byte(raw), 0o644))
 	require.NoError(t, runGit(hosted, "git", "add", "."))
 	require.NoError(t, runGit(hosted, "git", "commit", "-m", "shared recipes"))

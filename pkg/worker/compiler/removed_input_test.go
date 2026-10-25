@@ -53,6 +53,7 @@ sequence:
 sequence:
   - id: old-command
     include: ./child.yaml
+    perms: {limit: {jobdb: {}}}
 `,
 	}
 	for name, source := range cases {

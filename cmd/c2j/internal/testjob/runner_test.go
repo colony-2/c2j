@@ -554,6 +554,7 @@ inputs:
 sequence:
   - id: child
     include: ./child.yaml
+    perms: {limit: {jobdb: {}}}
     inputs:
       prompt: "{{ inputs.prompt }}"
 outputs:
@@ -653,6 +654,7 @@ state:
   states:
     child:
       include: ./child.yaml
+      perms: {limit: {jobdb: {}}}
       transitions: []
       inputs: {}
 outputs:

@@ -4,15 +4,14 @@ Use `perms.jobdb` to control the JobDB authority available to a node. Git profil
 remain in the existing `git_profile` field; permission grants contain concrete
 secret names, never Git profile names.
 
-## Enable restricted defaults
+## Restricted defaults
 
-For migration, recipes with no `perms` anywhere retain legacy behavior. Add
-`perms: {}` at the root to enable restricted defaults throughout the recipe.
-Any permission declaration in the expanded recipe enables the same contract.
+Every recipe uses restricted defaults, including recipes with no `perms` fields.
+Use `perms` to change a node’s grants or limit its descendants. An empty
+`perms: {}` inherits the enclosing policy.
 
 ```yaml
 id: edit-and-publish
-perms: {}
 sequence:
   - id: edit
     op: command_execution
@@ -108,12 +107,12 @@ validates existing authority; it extends neither `notAfter` nor the parent lease
 Every issued token has `notAfter` bounded by the engine's effective task
 and enclosing deadlines, any parent delegation deadline, and any shorter known
 operation timeout. It cannot gain time when refreshed. Tasks without an explicit
-or built-in timeout receive a one-hour scope timeout in restricted mode. The
+or built-in timeout receive a one-hour scope timeout. The
 engine may impose a shorter deadline. Extension manifest timeouts narrow the
 operation and its helpers once resolved, before installation and input secrets.
 Preparatory source reads happen in the preceding node-bounded scope.
 
-The pinned JobDB revision (`6ae6faa00896`) supplies task-scoped delegation.
+JobDB supplies task-scoped delegation.
 The issuer preserves the live task context and passes only the resolved grant
 and an optional stricter operation deadline. It does not reconstruct a budget
 from the current clock or execution history. Helper/RPC request timeouts control
@@ -125,11 +124,10 @@ deadline fails without using an owner token as a fallback.
 Embedded runtimes use the same per-call permission checks and engine cancellation
 without minting a bearer token.
 
-Upgrade submitters and workers together. New c2j submissions use execution-demand
-version 2, which older workers reject. Embedders must install
-`executionruntime.Runtime.WrapTaskWorker`; restricted operation workers reject
-invocations missing that guard. Execution-demand version 1 is still accepted; JobDB’s separate execution-history
-version compatibility is governed by JobDB.
+Embedders must install `executionruntime.Runtime.WrapTaskWorker`. Operation
+workers reject invocations missing that guard, even when the task request omits
+permission metadata. The guard applies restricted defaults to omitted metadata;
+invalid policy versions fail. There is no unrestricted fallback.
 
 These controls govern c2j's operation interfaces. Native Go ops and the driver
 remain trusted. Isolating arbitrary subprocesses from the driver, owner-token

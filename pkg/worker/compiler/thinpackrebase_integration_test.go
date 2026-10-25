@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/colony-2/c2j/pkg/execution"
+	"github.com/colony-2/c2j/pkg/executionruntime"
 	"os"
 	"path/filepath"
 	"testing"
@@ -121,7 +123,8 @@ func TestThinpackRefreshDefaultsPersistenceAndReplay(t *testing.T) {
 			ws, e := NewRecipeWorker(coreops.NewServiceDepsBuilder().Build(), registry)
 			require.NoError(t, e)
 			rt := toyruntime.New()
-			eng, e := jobworkflow.NewEngineBuilder().WithRuntime(rt).WithWorkerTenantId("refresh").PlusWorkers(ws.JobWorker).BuildEngine()
+			guard := executionruntime.New(rt, execution.Allocation{SchemaVersion: 1})
+			eng, e := jobworkflow.NewEngineBuilder().WithRuntime(guard).WithWorkerTenantId("refresh").PlusWorkers(ws.JobWorker).BuildEngine()
 			require.NoError(t, e)
 			eng = jobdbschema.WorkflowEngine{Engine: eng, Registry: rt}
 			rec, e := recipe.LoadRecipeFromString([]byte(`id: refresh
@@ -150,13 +153,14 @@ outputs:
 			require.NoError(t, e)
 			var first, all []jobworkflow.TaskWorker
 			for name, w := range ws.TaskWorkers {
+				w = guard.WrapTaskWorker(w)
 				all = append(all, w)
 				if name != "refresh_after:refresh_after" {
 					first = append(first, w)
 				}
 			}
 			run := func(workers []jobworkflow.TaskWorker) jobworkflow.JobRunOutcome {
-				h, e := jobworkflow.GetJobForRun(ctx, rt, jobworkflow.GetJobForRunRequest{JobKey: key, JobWorker: ws.JobWorker, TaskWorkers: workers, WorkerID: "test", LeaseDuration: time.Minute})
+				h, e := jobworkflow.GetJobForRun(ctx, guard, jobworkflow.GetJobForRunRequest{JobKey: key, JobWorker: ws.JobWorker, TaskWorkers: workers, WorkerID: "test", LeaseDuration: time.Minute})
 				require.NoError(t, e)
 				out, e := h.Run(nil)
 				require.NoError(t, e)

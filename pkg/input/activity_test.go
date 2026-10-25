@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/colony-2/c2j/pkg/execution"
+	"github.com/colony-2/c2j/pkg/executionruntime"
 	"github.com/colony-2/c2j/pkg/jobdbschema"
 	coreops "github.com/colony-2/c2j/pkg/ops"
 	"github.com/colony-2/c2j/pkg/recipe"
@@ -49,13 +51,14 @@ func newToyEngine(t *testing.T, workerTenantID string, gen func(string) (jobdb.J
 	if workerTenantID != "" {
 		require.NoError(t, jobdbschema.Register(context.Background(), runtime, workerTenantID))
 	}
-	builder := jobworkflow.NewEngineBuilder().WithRuntime(runtime)
+	guard := executionruntime.New(runtime, execution.Allocation{SchemaVersion: 1})
+	builder := jobworkflow.NewEngineBuilder().WithRuntime(guard)
 	if workerTenantID != "" {
 		builder = builder.WithWorkerTenantId(workerTenantID)
 	}
 	eng, err := builder.BuildEngine()
 	require.NoError(t, err)
-	eng = jobdbschema.WorkflowEngine{Engine: eng, Registry: runtime}
+	eng = &guardedInputTestEngine{WorkflowEngine: jobdbschema.WorkflowEngine{Engine: eng, Registry: runtime}, guard: guard}
 	go eng.Run(ctx)
 	return eng
 }
@@ -227,12 +230,13 @@ inputs:
 	require.NoError(t, err)
 	defer embedded.Shutdown()
 
+	guard := executionruntime.New(embedded.Runtime, execution.Allocation{SchemaVersion: 1})
 	taskWorkers := make([]jobworkflow.TaskWorker, 0, len(workSet.TaskWorkers))
 	for _, tw := range workSet.TaskWorkers {
-		taskWorkers = append(taskWorkers, tw)
+		taskWorkers = append(taskWorkers, guard.WrapTaskWorker(tw))
 	}
 	engine, err := jobworkflow.NewEngineBuilder().
-		WithRuntime(embedded.Runtime).
+		WithRuntime(guard).
 		WithWorkerTenantId("test-tenant").
 		WithAwaitRecycleThreshold(5*time.Second).
 		WithLogger(slog.Default()).
@@ -319,4 +323,18 @@ inputs:
 	require.NoError(t, json.Unmarshal(res4, &air))
 
 	require.Equal(t, "foolish", air.Response)
+}
+
+type guardedInputTestEngine struct {
+	jobdbschema.WorkflowEngine
+	guard *executionruntime.Runtime
+}
+
+func (e *guardedInputTestEngine) RegisterWorkers(ws *jobworkflow.WorkSet) error {
+	wrapped := *ws
+	wrapped.TaskWorkers = make(map[string]jobworkflow.TaskWorker, len(ws.TaskWorkers))
+	for name, worker := range ws.TaskWorkers {
+		wrapped.TaskWorkers[name] = e.guard.WrapTaskWorker(worker)
+	}
+	return e.WorkflowEngine.RegisterWorkers(&wrapped)
 }

@@ -345,6 +345,7 @@ func TestRunWithLeaseResolvesSecrets(t *testing.T) {
 				return jobdb.SecretResolveResult{Secrets: map[string]jobdb.SecretValue{"token": {Value: credential}}}, nil
 			})
 			f := newSuppliedCLI(t, `id: supplied-secrets
+perms: {jobdb: {secrets: {resolve: [token]}}}
 sequence:
   - id: first
     op: command_execution
@@ -364,7 +365,7 @@ outputs:
 `, time.Minute, provider)
 			require.Zero(t, calls.Load(), "submission does not resolve secrets")
 			require.NoError(t, f.run(t, file), f.stderr.String())
-			require.EqualValues(t, 1, calls.Load(), "JobDB reuses the resolved secret within this execution")
+			require.EqualValues(t, 2, calls.Load(), "each task resolves secrets through its own restricted delegation")
 			req := <-requests
 			require.Equal(t, f.key.TenantId, req.TenantID)
 			require.Equal(t, f.key.JobId, req.JobID)
@@ -397,7 +398,7 @@ outputs:
 			})
 			require.NoError(t, err)
 			require.Nil(t, deps.secretSessions.Get(f.key))
-			require.EqualValues(t, 1, calls.Load(), "completed replay must not resolve secrets")
+			require.EqualValues(t, 2, calls.Load(), "completed replay must not resolve secrets")
 			require.NotContains(t, f.stdout.String()+f.stderr.String(), credential)
 		})
 	}

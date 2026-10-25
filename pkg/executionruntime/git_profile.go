@@ -1,6 +1,7 @@
 package executionruntime
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 
@@ -20,6 +21,7 @@ func (w *guardedTask) runWithGitProfile(tc jobworkflow.TaskContext, input jobdb.
 	if err != nil {
 		return nil, err
 	}
+	raw = bytes.TrimSpace(raw)
 	if len(raw) > 0 && raw[0] == '{' {
 		if err = json.Unmarshal(raw, &request); err != nil {
 			return nil, err
@@ -52,38 +54,26 @@ func (w *guardedTask) runWithGitProfile(tc jobworkflow.TaskContext, input jobdb.
 	if err != nil {
 		return nil, err
 	}
-	scopeContext := tc.Context()
-	var access *permissions.Access
+	// Omission means restricted defaults, including for source-resolution tasks.
+	policy := permissions.State{Version: permissions.Version}
 	if request.Permissions != nil {
-		names, err := gitprofile.CredentialNames(request.GitProfile, snapshot)
-		if err != nil {
-			return nil, err
-		}
-		grant, err := request.Permissions.Resolve(names)
-		if err != nil {
-			return nil, err
-		}
-		var cancel context.CancelFunc
-		access, scopeContext, cancel, err = w.runtime.restrictedAccess(tc, original, grant, resolve)
-		if err != nil {
-			return nil, err
-		}
-		defer cancel()
-		resolve = access.Resolve
+		policy = *request.Permissions
 	}
-	scopeContext = jobref.WithScope(scopeContext, jobref.Scope{Submit: func(call context.Context, job jobdb.SubmitJob) (jobref.Ref, error) {
-		if access != nil {
-			return access.Submit(call, job)
-		}
-		if err := tc.Context().Err(); err != nil {
-			return jobref.Ref{}, err
-		}
-		h, err := w.runtime.submitOnCurrentLease(call, tc, original, job)
-		if err != nil {
-			return jobref.Ref{}, err
-		}
-		return jobref.FromHandle(h)
-	}})
+	names, err := gitprofile.CredentialNames(request.GitProfile, snapshot)
+	if err != nil {
+		return nil, err
+	}
+	grant, err := policy.Resolve(names)
+	if err != nil {
+		return nil, err
+	}
+	access, scopeContext, cancel, err := w.runtime.restrictedAccess(tc, original, grant, resolve)
+	if err != nil {
+		return nil, err
+	}
+	defer cancel()
+	resolve = access.Resolve
+	scopeContext = jobref.WithScope(scopeContext, jobref.Scope{Submit: access.Submit})
 	scope, err := gitprofile.NewScope(scopeContext, request.GitProfile, snapshot, resolve, "", tc.JobKey.TenantId)
 	if err != nil {
 		return nil, err
@@ -91,9 +81,7 @@ func (w *guardedTask) runWithGitProfile(tc jobworkflow.TaskContext, input jobdb.
 	releaseRedaction := scope.RetainRedaction()
 	defer releaseRedaction()
 	defer scope.Close()
-	if access != nil {
-		scope.AllowSecrets(access.Grant().Secrets.Resolve)
-	}
+	scope.AllowSecrets(access.Grant().Secrets.Resolve)
 	unbind := gitprofile.BindTask(tc, scope)
 	defer unbind()
 	out, err := w.TaskWorker.Run(tc, input)

@@ -30,6 +30,9 @@ func TestRestrictedInputsDeniedBeforeInstallationOrResolution(t *testing.T) {
 	}
 	_, err := worker.Run(tc, jobdb.NewTaskDataOrPanic(request))
 	require.ErrorContains(t, err, "requires executionruntime.WrapTaskWorker")
+	request.Permissions = nil
+	_, err = worker.Run(tc, jobdb.NewTaskDataOrPanic(request))
+	require.ErrorContains(t, err, "requires executionruntime.WrapTaskWorker")
 	access := permissions.NewAccess(context.Background(), permissions.JobDB{}, func(context.Context, []string) (jobdb.SecretResolveResult, error) {
 		t.Fatal("denied input reached resolver")
 		return jobdb.SecretResolveResult{}, nil
@@ -42,4 +45,16 @@ func TestRestrictedInputsDeniedBeforeInstallationOrResolution(t *testing.T) {
 	defer unbind()
 	_, err = worker.Run(tc, jobdb.NewTaskDataOrPanic(request))
 	require.ErrorIs(t, err, jobdb.ErrLeasePermissionDenied)
+}
+
+// Unit tests of worker internals run with no capabilities. Runtime integration
+// tests exercise policy resolution and the lease-backed guard separately.
+func bindDeniedTask(t *testing.T, tc jobworkflow.TaskContext) jobworkflow.TaskContext {
+	t.Helper()
+	access := permissions.NewAccess(tc.Context(), permissions.JobDB{}, nil, nil)
+	scope, err := gitprofile.NewScope(permissions.WithAccess(tc.Context(), access), gitprofile.Selection{}, jobdb.ConfigurationSnapshot{}, access.Resolve, "")
+	require.NoError(t, err)
+	t.Cleanup(scope.Close)
+	t.Cleanup(gitprofile.BindTask(tc, scope))
+	return tc
 }

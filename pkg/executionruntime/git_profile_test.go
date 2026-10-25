@@ -95,13 +95,21 @@ func TestRecipeGitProfilesAcrossRenewalAndScopeChanges(t *testing.T) {
 				return nil, fmt.Errorf("RO scope obtained RW secret")
 			}
 		}
-		if access := permissions.FromContext(ctx); access != nil {
+		if access := permissions.FromContext(ctx); access == nil {
+			return nil, fmt.Errorf("missing permission guard")
+		} else {
 			if _, err := gitprofile.Call(ctx, socket, gitprofile.Request{Operation: "config", Name: gitprofile.ReadWriteKey}); err != nil {
 				return nil, fmt.Errorf("config read denied in restricted scope: %w", err)
 			}
 			_, err := gitprofile.Call(ctx, socket, gitprofile.Request{Operation: "secret", Name: "model"})
 			if in.Model != (err == nil) {
 				return nil, fmt.Errorf("unexpected model secret access: %v", err)
+			}
+			if !in.Deny {
+				_, err = deps.JobTool().(*coreops.TaskBasedJobTool).SubmitJobRef(ctx, jobdb.SubmitJob{TenantId: "test", JobType: "child", Data: jobdb.NewTaskDataOrPanic(nil)})
+				if err != nil {
+					return nil, fmt.Errorf("default submission denied: %w", err)
+				}
 			}
 			if in.Deny {
 				_, err = deps.JobTool().(*coreops.TaskBasedJobTool).SubmitJobRef(ctx, jobdb.SubmitJob{TenantId: "test", JobType: "child", Data: jobdb.NewTaskDataOrPanic(nil)})
@@ -198,7 +206,7 @@ sequence:
 			require.NoError(t, err)
 			rt := New(runtime, execution.Allocation{SchemaVersion: 1})
 			var issued *recordingPermissionIssuer
-			if backend == "remote-permissions" {
+			if strings.HasPrefix(backend, "remote") {
 				issued = &recordingPermissionIssuer{inner: rt.Issuer}
 				rt.Issuer = issued
 			}
@@ -231,6 +239,15 @@ sequence:
 			} else {
 				require.Equal(t, []string{"ro", "rw", "ro", "none", "ro", "ro"}, observed)
 				require.EqualValues(t, 10, provider.calls.Load())
+				if issued != nil {
+					issued.mu.Lock()
+					defer issued.mu.Unlock()
+					require.NotEmpty(t, issued.deadlines, "recipes without perms must issue restricted credentials")
+					for _, deadline := range issued.deadlines {
+						require.True(t, deadline.After(time.Now()))
+						require.WithinDuration(t, time.Now(), deadline, time.Hour)
+					}
+				}
 			}
 		})
 	}

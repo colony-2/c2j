@@ -51,6 +51,7 @@ inputs:
 sequence:
   - id: phase
     include: ./phase.yaml
+    perms: {limit: {jobdb: {}}}
     inputs:
       prompt: "${{ inputs.prompt }}"
 outputs:
@@ -118,8 +119,10 @@ version: "1.0"
 sequence:
   - id: first
     include: git+https://example.com/acme/recipes.git//recipes/a.yaml@main
+    perms: {limit: {jobdb: {}}}
   - id: second
     include: git+https://example.com/acme/recipes.git//recipes/b.yaml@main
+    perms: {limit: {jobdb: {}}}
 outputs:
   first: "${{ sequence.first.outputs.name }}"
   second: "${{ sequence.second.outputs.name }}"
@@ -166,6 +169,7 @@ version: "1.0"
 sequence:
   - id: first
     include: git+https://example.com/acme/recipes.git//recipes/a.yaml@main
+    perms: {limit: {jobdb: {}}}
 outputs:
   first: "${{ sequence.first.outputs.name }}"
 `) + "\n"))

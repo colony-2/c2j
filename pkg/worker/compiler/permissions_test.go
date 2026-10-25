@@ -31,24 +31,24 @@ func TestIncludePermissionsUseRepositoryBoundaries(t *testing.T) {
 		require.NoError(t, err)
 		return ResolveInlineRecipes(context.Background(), *rec, InlineResolutionOptions{RootFile: filepath.Join(root, "root.yaml")})
 	}
-	_, err := expand("id: root\nperms: {}\nsequence:\n- include: ./child.yaml\n")
+	_, err := expand("id: root\nsequence:\n- include: ./child.yaml\n")
 	require.NoError(t, err)
-	_, err = expand("id: root\nperms: {}\nsequence:\n- include: " + filepath.Join(foreign, "child.yaml") + "\n")
+	_, err = expand("id: root\nsequence:\n- include: " + filepath.Join(foreign, "child.yaml") + "\n")
 	require.ErrorContains(t, err, "requires perms.limit.jobdb")
-	result, err := expand("id: root\nperms: {}\nsequence:\n- include: " + filepath.Join(foreign, "child.yaml") + "\n  perms: {limit: {jobdb: {}}}\n")
+	result, err := expand("id: root\nsequence:\n- include: " + filepath.Join(foreign, "child.yaml") + "\n  perms: {limit: {jobdb: {}}}\n")
 	require.NoError(t, err)
 	node := result.Recipe.RecipeImpl.(*recipe.RecipeSequence).Sequence[0].NodeImpl.(*recipe.NodeSequence)
 	require.True(t, node.Internal.Inline.PermissionBoundary)
 	require.NotNil(t, node.Perms.Limit.JobDB)
 	// A symlink into another checkout is external despite its local spelling.
 	require.NoError(t, os.Symlink(filepath.Join(foreign, "child.yaml"), filepath.Join(root, "link.yaml")))
-	_, err = expand("id: root\nperms: {}\nsequence:\n- include: ./link.yaml\n")
+	_, err = expand("id: root\nsequence:\n- include: ./link.yaml\n")
 	require.ErrorContains(t, err, "requires perms.limit.jobdb")
 	// A foreign nested include must declare its own ceiling, even if its caller did.
 	write(filepath.Join(foreign, "child.yaml"), "id: child\nsequence:\n- include: "+filepath.Join(root, "child.yaml")+"\n")
-	_, err = expand("id: root\nperms: {}\nsequence:\n- include: " + filepath.Join(foreign, "child.yaml") + "\n  perms: {limit: {jobdb: {}}}\n")
+	_, err = expand("id: root\nsequence:\n- include: " + filepath.Join(foreign, "child.yaml") + "\n  perms: {limit: {jobdb: {}}}\n")
 	require.ErrorContains(t, err, "requires perms.limit.jobdb")
-	// Permissions introduced by a later include opt in the entire expanded recipe.
+	// A later permission declaration cannot authorize an earlier foreign include.
 	write(filepath.Join(root, "enabled.yaml"), "id: enabled\nperms: {}\nsequence: []\n")
 	write(filepath.Join(foreign, "child.yaml"), child)
 	_, err = expand("id: root\nsequence:\n- include: " + filepath.Join(foreign, "child.yaml") + "\n- include: ./enabled.yaml\n")
@@ -99,7 +99,7 @@ func TestIncludeCeilingBoundsNestedSourceReadsWithoutExplicitGitProfile(t *testi
 			if allowed {
 				ceiling = "{secrets: {resolve: [ro]}}"
 			}
-			rec, err := recipe.LoadRecipeFromString([]byte("id: root\nperms: {}\nsequence:\n- include: git+https://example.com/foreign.git//child.yaml@main\n  perms: {limit: {jobdb: " + ceiling + "}}\n"))
+			rec, err := recipe.LoadRecipeFromString([]byte("id: root\nsequence:\n- include: git+https://example.com/foreign.git//child.yaml@main\n  perms: {limit: {jobdb: " + ceiling + "}}\n"))
 			require.NoError(t, err)
 			_, err = ResolveInlineRecipes(gitprofile.WithScope(context.Background(), scope), *rec, InlineResolutionOptions{Resolver: resolver})
 			if allowed {
@@ -110,5 +110,12 @@ func TestIncludeCeilingBoundsNestedSourceReadsWithoutExplicitGitProfile(t *testi
 				require.Equal(t, 1, calls, "caller may bootstrap the external recipe; its nested source read must respect the ceiling")
 			}
 		})
+	}
+}
+
+func TestWorkspaceRequiresGuardWithOrWithoutPolicy(t *testing.T) {
+	for _, raw := range []string{`{}`, `{"permissions":{"version":1}}`} {
+		_, err := resolveWorkspaceTask(context.Background(), jobdb.NewTaskDataOrPanic(json.RawMessage(raw)))
+		require.ErrorContains(t, err, "requires executionruntime.WrapTaskWorker")
 	}
 }

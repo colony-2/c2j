@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/colony-2/c2j/pkg/execution"
+	"github.com/colony-2/c2j/pkg/gitprofile"
 	"github.com/colony-2/c2j/pkg/permissions"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/remote"
@@ -117,4 +118,60 @@ func TestRuntimeDelegationUnsupported(t *testing.T) {
 	rt := New(toy.New(), execution.Allocation{})
 	_, err := rt.CreateDelegation(context.Background(), nil, jobdb.CreateDelegationRequest{})
 	require.ErrorIs(t, err, jobdb.ErrLeaseDelegationUnsupported)
+}
+
+func TestTaskRequestsCannotOmitPermissionEnforcement(t *testing.T) {
+	for _, tc := range []struct {
+		name, input, wantError string
+		missingIssuer          bool
+	}{
+		{name: "omitted", input: `{}`},
+		{name: "null", input: `{"permissions":null}`},
+		{name: "invalid version", input: `{"permissions":{"version":999}}`, wantError: "permission"},
+		{name: "missing issuer", input: `{}`, missingIssuer: true, wantError: "delegation issuer"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			provider := &freshGitProvider{}
+			base := toy.New(toy.WithSecretProvider(provider))
+			server := httptest.NewServer(remote.NewServer(base))
+			defer server.Close()
+			client, err := remote.New(server.URL, server.Client())
+			require.NoError(t, err)
+			rt := New(client, execution.Allocation{})
+			if tc.missingIssuer {
+				rt.Issuer = nil
+			}
+			called := false
+			task := delegationTask(func(taskCtx wf.TaskContext, in jobdb.TaskData) (jobdb.TaskData, error) {
+				called = true
+				scope := gitprofile.TaskContext(taskCtx)
+				access := permissions.FromContext(scope)
+				require.NotNil(t, access)
+				_, err := access.Resolve(ctx, []string{"model", "rw"})
+				require.ErrorIs(t, err, jobdb.ErrLeasePermissionDenied)
+				require.Zero(t, provider.calls.Load(), "denied names must never reach the provider")
+				_, err = access.Submit(ctx, jobdb.SubmitJob{TenantId: "test", JobType: "child", Data: jobdb.NewTaskDataOrPanic(nil)})
+				require.NoError(t, err, "omitted policy retains default submission authority")
+				return in, nil
+			})
+			worker := wf.ExecutionWorker{JobType: "default-policy", Execute: func(c wf.ExecutionContext, in jobdb.JobData) (jobdb.JobData, error) {
+				return c.DoTask(wf.TaskCall{Site: "probe", TaskType: task.Name(), ContractVersion: 1, Command: json.RawMessage(`{}`), Policy: jobdb.RunPolicy{TotalTimeout: jobdb.AsDuration(time.Minute)}}, func(context.Context) (jobdb.TaskData, error) { return in, nil })
+			}}
+			h, err := client.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "test", JobType: worker.Name(), Data: jobdb.NewTaskDataOrPanic(json.RawMessage(tc.input))}})
+			require.NoError(t, err)
+			run, err := wf.GetJobForRun(ctx, rt, wf.GetJobForRunRequest{JobKey: h.JobKey, JobWorker: worker, TaskWorkers: []wf.TaskWorker{rt.WrapTaskWorker(task)}, WorkerID: "test", LeaseDuration: time.Minute})
+			require.NoError(t, err)
+			out, err := run.Run(nil)
+			require.NoError(t, err)
+			if tc.wantError != "" {
+				require.Equal(t, wf.JobRunFailed, out.Status)
+				require.ErrorContains(t, out.JobError, tc.wantError)
+				require.False(t, called, "invalid policy must fail before the task body")
+			} else {
+				require.Equal(t, wf.JobRunCompleted, out.Status, "%+v", out)
+				require.True(t, called)
+			}
+		})
+	}
 }

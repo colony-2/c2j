@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/colony-2/c2j/pkg/execution"
+	"github.com/colony-2/c2j/pkg/executionruntime"
 	"github.com/colony-2/c2j/pkg/git/gitstate"
 	"github.com/colony-2/c2j/pkg/logging"
 	recipeops "github.com/colony-2/c2j/pkg/ops"
@@ -47,9 +49,12 @@ func TestResumedJobLogsOnlyNewTaskExecution(t *testing.T) {
 		}
 		return result, nil
 	}}
-	rt := toy.New()
+	rt := executionruntime.New(toy.New(), execution.Allocation{SchemaVersion: 1})
 	job, err := rt.SubmitJob(context.Background(), jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "test", JobType: orchestrator.Name(), Data: input}})
 	require.NoError(t, err)
+	for i, worker := range workers {
+		workers[i] = rt.WrapTaskWorker(worker)
+	}
 	for pass := 1; pass <= 2; pass++ {
 		out.Reset()
 		h, err := jobworkflow.GetJobForRun(context.Background(), rt, jobworkflow.GetJobForRunRequest{JobKey: job.JobKey, JobWorker: orchestrator, TaskWorkers: workers[:pass], WorkerID: "test", LeaseDuration: time.Minute, Logger: logger})
@@ -100,7 +105,7 @@ func TestTaskLoggingDistinguishesPreparationAndOpExecution(t *testing.T) {
 				repo = filepath.Join(t.TempDir(), "missing-repo")
 			}
 			input := jobdb.NewTaskDataOrPanic(ActivityInvocationRequest{Const: true, Input: map[string]interface{}{}, GitTaskContext: gitstate.GlobalGitTaskContext{BaseRepo: repo, BaseRef: hash, NodePath: "root/probe"}})
-			_, err = worker.Run(jobworkflow.NewTaskContext(jobdb.JobKey{TenantId: "tenant", JobId: "job"}, 1, logger, nil, nil), input)
+			_, err = worker.Run(bindDeniedTask(t, jobworkflow.NewTaskContext(jobdb.JobKey{TenantId: "tenant", JobId: "job"}, 1, logger, nil, nil)), input)
 			if failRestore {
 				require.Error(t, err)
 			} else {

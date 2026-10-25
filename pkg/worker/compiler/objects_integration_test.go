@@ -353,6 +353,7 @@ sequence:
    inputs: {text: original}
  - id: via_include
    include: ./phase.yaml
+   perms: {limit: {jobdb: {}}}
    inputs:
     session: "${{ sequence.start.outputs.session }}"
  - id: state_resume

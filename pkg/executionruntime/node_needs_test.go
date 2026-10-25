@@ -297,7 +297,7 @@ func TestNodeNeedsInlineScopeRestoresParent(t *testing.T) {
 	f, tasks := newNodeFixture(t, "toy", "id: seed\nsequence: []\n")
 	dir := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "child.yaml"), []byte("id: child\nexecution_needs: {resources: {memory: 16Gi}}\nsequence:\n  - id: inside\n    op: needs_a\n"), 0600))
-	r, err := recipe.LoadRecipeFromString([]byte("id: parent\nexecution_needs: {resources: {memory: 2Gi}}\nsequence:\n  - id: inline\n    include: ./child.yaml\n  - id: sibling\n    op: needs_b\n"))
+	r, err := recipe.LoadRecipeFromString([]byte("id: parent\nexecution_needs: {resources: {memory: 2Gi}}\nsequence:\n  - id: inline\n    include: ./child.yaml\n    perms: {limit: {jobdb: {}}}\n  - id: sibling\n    op: needs_b\n"))
 	require.NoError(t, err)
 	expanded, err := compiler.ResolveInlineRecipes(context.Background(), *r, compiler.InlineResolutionOptions{RootFile: filepath.Join(dir, "root.yaml")})
 	require.NoError(t, err)

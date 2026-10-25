@@ -98,7 +98,7 @@ func requireCapturedScopeTimeout(t *testing.T, stub *policyCaptureJobContext, wa
 	}
 }
 
-func TestBuiltInOpsOnlyUseExplicitTimeouts(t *testing.T) {
+func TestBuiltInOpsUseFiniteDefaultTimeouts(t *testing.T) {
 	registered := []coreops.RegisterableOp{commandop.GetOp(), sleepop.GetOp(), extensions.GetExecutionOp()}
 	for _, op := range registered {
 		require.Zero(t, op.GetMetadata().DefaultTimeout, op.GetName())
@@ -128,7 +128,11 @@ func TestBuiltInOpsOnlyUseExplicitTimeouts(t *testing.T) {
 				require.Equal(t, 1, stub.calls)
 				require.NotEmpty(t, stub.scopes)
 				for _, scope := range stub.scopes {
-					require.Equal(t, timeout, scope.TotalTimeout)
+					want := timeout
+					if want == 0 {
+						want = time.Hour
+					}
+					require.Equal(t, want, scope.TotalTimeout)
 					require.Zero(t, scope.AttemptTimeout)
 				}
 				for _, policy := range stub.policies {

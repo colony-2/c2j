@@ -6,6 +6,8 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"github.com/colony-2/c2j/pkg/execution"
+	"github.com/colony-2/c2j/pkg/executionruntime"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -141,11 +143,12 @@ printf '{"output":{"message":"hello"}}'
 	require.NoError(t, err)
 	provider := &testSecretProvider{}
 	rt := toyruntime.New(toyruntime.WithSecretProvider(provider))
+	guard := executionruntime.New(rt, execution.Allocation{SchemaVersion: 1})
 	var workers []jobworkflow.TaskWorker
 	for _, w := range ws.TaskWorkers {
-		workers = append(workers, w)
+		workers = append(workers, guard.WrapTaskWorker(w))
 	}
-	engine, err := jobworkflow.NewEngineBuilder().WithRuntime(rt).WithWorkerTenantId("nix-ops").PlusWorkers(ws.JobWorker, workers...).BuildEngine()
+	engine, err := jobworkflow.NewEngineBuilder().WithRuntime(guard).WithWorkerTenantId("nix-ops").PlusWorkers(ws.JobWorker, workers...).BuildEngine()
 	require.NoError(t, err)
 	engine = jobdbschema.WorkflowEngine{Engine: engine, Registry: rt}
 	go engine.Run(ctx)
@@ -164,6 +167,7 @@ printf '{"output":{"message":"hello"}}'
 	require.Error(t, err)
 	require.NoFileExists(t, described.Nix.StorePath, "invalid inputs must not fetch the payload")
 	rec, err := recipe.LoadRecipeFromString([]byte(fmt.Sprintf(`id: nix-op
+perms: {jobdb: {secrets: {resolve: [token]}}}
 sequence:
   - id: echo
     op: %s

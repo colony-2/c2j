@@ -5,6 +5,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/colony-2/c2j/pkg/execution"
+	"github.com/colony-2/c2j/pkg/executionruntime"
 	"log"
 	"log/slog"
 	"strings"
@@ -101,11 +103,12 @@ func TestSecretsAcrossTasksReplayAndFailures(t *testing.T) {
 	require.NoError(t, err)
 	provider := &testSecretProvider{}
 	runtime := toyruntime.New(toyruntime.WithSecretProvider(provider))
+	guard := executionruntime.New(runtime, execution.Allocation{SchemaVersion: 1})
 	workers := []jobworkflow.TaskWorker{}
 	for _, w := range ws.TaskWorkers {
-		workers = append(workers, w)
+		workers = append(workers, guard.WrapTaskWorker(w))
 	}
-	engine, err := jobworkflow.NewEngineBuilder().WithRuntime(runtime).WithWorkerTenantId("secrets").PlusWorkers(ws.JobWorker, workers...).BuildEngine()
+	engine, err := jobworkflow.NewEngineBuilder().WithRuntime(guard).WithWorkerTenantId("secrets").PlusWorkers(ws.JobWorker, workers...).BuildEngine()
 	require.NoError(t, err)
 	engine = jobdbschema.WorkflowEngine{Engine: engine, Registry: runtime}
 	ctx, cancel := context.WithCancel(context.Background())
@@ -115,7 +118,7 @@ func TestSecretsAcrossTasksReplayAndFailures(t *testing.T) {
 		t.Run(mode, func(t *testing.T) {
 			before := len(provider.Calls())
 			var source strings.Builder
-			source.WriteString("id: secrets\nsequence:\n")
+			source.WriteString("id: secrets\nperms: {jobdb: {secrets: {resolve: [token, future]}}}\nsequence:\n")
 			for i := 0; i < 10; i++ {
 				name := "token"
 				if i == 9 {
@@ -141,12 +144,15 @@ func TestSecretsAcrossTasksReplayAndFailures(t *testing.T) {
 			}
 			after := len(provider.Calls())
 			if mode == "ok" {
-				require.Equal(t, before+2, after)
+				require.Equal(t, before+10, after)
 			}
 			require.Greater(t, after, before)
 			require.Equal(t, []string{"token"}, provider.Calls()[before], "only the live task's names are requested")
 			if mode == "ok" {
-				require.ElementsMatch(t, []string{"token", "future"}, provider.Calls()[before+1], "JobDB refreshes available names when a new name is requested")
+				for _, names := range provider.Calls()[before : before+9] {
+					require.Equal(t, []string{"token"}, names)
+				}
+				require.Equal(t, []string{"future"}, provider.Calls()[before+9], "each task resolves only its own secrets freshly")
 			}
 			run, err := engine.GetJobRun(ctx, jobdb.GetJobRunRequest{JobKey: key, IncludeInputs: true, IncludeOutputs: true})
 			require.NoError(t, err)
@@ -187,17 +193,19 @@ func TestSecretFallbacksInLiveTasksAndReplay(t *testing.T) {
 	require.NoError(t, err)
 	provider := &testSecretProvider{}
 	runtime := toyruntime.New(toyruntime.WithSecretProvider(provider))
+	guard := executionruntime.New(runtime, execution.Allocation{SchemaVersion: 1})
 	workers := []jobworkflow.TaskWorker{}
 	for _, w := range ws.TaskWorkers {
-		workers = append(workers, w)
+		workers = append(workers, guard.WrapTaskWorker(w))
 	}
-	engine, err := jobworkflow.NewEngineBuilder().WithRuntime(runtime).WithWorkerTenantId("fallbacks").PlusWorkers(ws.JobWorker, workers...).BuildEngine()
+	engine, err := jobworkflow.NewEngineBuilder().WithRuntime(guard).WithWorkerTenantId("fallbacks").PlusWorkers(ws.JobWorker, workers...).BuildEngine()
 	require.NoError(t, err)
 	engine = jobdbschema.WorkflowEngine{Engine: engine, Registry: runtime}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	go engine.Run(ctx)
 	source := `id: fallbacks
+perms: {jobdb: {secrets: {resolve: [missing]}}}
 input_schema:
   token: {type: string, secret: true, default_value: "schema-default"}
   omitted: {type: string, secret: true, default_value: ""}
@@ -246,7 +254,7 @@ sequence:
 	_, err = swfutil.JobResult(ctx, engine, key)
 	require.NoError(t, err)
 	require.EqualValues(t, 4, calls.Load())
-	require.Len(t, provider.Calls(), 1, "JobDB caches the missing name; c2j keeps each binding's fallback separate")
+	require.Len(t, provider.Calls(), 4, "each task refreshes its named secret; literal defaults need no lookup")
 	run, err := engine.GetJobRun(ctx, jobdb.GetJobRunRequest{JobKey: key, IncludeInputs: true, IncludeOutputs: true})
 	require.NoError(t, err)
 	raw, err := json.Marshal(run)
@@ -257,5 +265,5 @@ sequence:
 	_, err = engine.ReplayJobRun(ctx, jobworkflow.ReplayRunRequest{JobKey: key, JobWorker: NewRecipeJobWorker(RecipeJobWorkerOptions{ReadOnlyReplay: true})})
 	require.NoError(t, err)
 	require.EqualValues(t, 4, calls.Load())
-	require.Len(t, provider.Calls(), 1)
+	require.Len(t, provider.Calls(), 4, "replay does not resolve secrets")
 }

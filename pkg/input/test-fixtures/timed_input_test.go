@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/colony-2/c2j/pkg/execution"
+	"github.com/colony-2/c2j/pkg/executionruntime"
 	"io"
 	"net/http/httptest"
 	"os"
@@ -87,11 +89,12 @@ func newTimedInputFixture(t *testing.T, source, scope string) *timedInputFixture
 	f.key = fkeyRef.Key()
 	require.NoError(t, err)
 	f.run = func() jobworkflow.JobRunOutcome {
+		guard := executionruntime.New(f.rt, execution.Allocation{SchemaVersion: 1})
 		var tasks []jobworkflow.TaskWorker
 		for _, task := range workers.TaskWorkers {
-			tasks = append(tasks, task)
+			tasks = append(tasks, guard.WrapTaskWorker(task))
 		}
-		runnable, err := jobworkflow.GetJobForRun(ctx, f.rt, jobworkflow.GetJobForRunRequest{JobKey: f.key, JobWorker: workers.JobWorker, TaskWorkers: tasks, WorkerID: "timed-input-worker", LeaseDuration: time.Minute})
+		runnable, err := jobworkflow.GetJobForRun(ctx, guard, jobworkflow.GetJobForRunRequest{JobKey: f.key, JobWorker: workers.JobWorker, TaskWorkers: tasks, WorkerID: "timed-input-worker", LeaseDuration: time.Minute})
 		require.NoError(t, err)
 		out, err := runnable.Run(nil)
 		require.NoError(t, err)

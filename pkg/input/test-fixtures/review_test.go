@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/colony-2/c2j/pkg/execution"
+	"github.com/colony-2/c2j/pkg/executionruntime"
 	"io"
 	"log/slog"
 	"os"
@@ -73,11 +75,12 @@ outputs:
 	embedded, err := sqliteruntime.StartEmbeddedRuntime(ctx)
 	require.NoError(t, err)
 	t.Cleanup(embedded.Shutdown)
+	guard := executionruntime.New(embedded.Runtime, execution.Allocation{SchemaVersion: 1})
 	tasks := make([]jobworkflow.TaskWorker, 0, len(workers.TaskWorkers))
 	for _, w := range workers.TaskWorkers {
-		tasks = append(tasks, w)
+		tasks = append(tasks, guard.WrapTaskWorker(w))
 	}
-	engine, err := jobworkflow.NewEngineBuilder().WithRuntime(embedded.Runtime).WithWorkerTenantId("test-tenant").WithLogger(slog.New(slog.NewTextHandler(os.Stderr, nil))).PlusWorkers(workers.JobWorker, tasks...).BuildEngine()
+	engine, err := jobworkflow.NewEngineBuilder().WithRuntime(guard).WithWorkerTenantId("test-tenant").WithLogger(slog.New(slog.NewTextHandler(os.Stderr, nil))).PlusWorkers(workers.JobWorker, tasks...).BuildEngine()
 	require.NoError(t, err)
 	engine = jobdbschema.WorkflowEngine{Engine: engine, Registry: embedded.Runtime}
 	wf.Engine = engine

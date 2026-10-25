@@ -352,7 +352,7 @@ func TestInlineDeclarationIsRetainedAndYieldsBeforeIncludedBody(t *testing.T) {
 	dir := t.TempDir()
 	childPath := filepath.Join(dir, "child.yaml")
 	require.NoError(t, os.WriteFile(childPath, []byte("id: child\nexecution:\n  resources:\n    memory: 16Gi\nsequence:\n  - id: work\n    op: execution_finish\n"), 0600))
-	root, err := recipe.LoadRecipeFromString([]byte("id: parent\nexecution:\n  resources:\n    memory: 2Gi\nsequence:\n  - id: child\n    include: ./child.yaml\n"))
+	root, err := recipe.LoadRecipeFromString([]byte("id: parent\nexecution:\n  resources:\n    memory: 2Gi\nsequence:\n  - id: child\n    include: ./child.yaml\n    perms: {limit: {jobdb: {}}}\n"))
 	require.NoError(t, err)
 	expanded, err := compiler.ResolveInlineRecipes(ctx, *root, compiler.InlineResolutionOptions{RootFile: filepath.Join(dir, "root.yaml")})
 	require.NoError(t, err)

@@ -61,7 +61,7 @@ run: %q
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			selector := "git+file://" + filepath.ToSlash(root) + "//" + tc.op + "@HEAD"
-			yaml := "id: probe\nop: " + selector + "\n"
+			yaml := "id: probe\nperms: {jobdb: {secrets: {resolve: [api_key]}}}\nop: " + selector + "\n"
 			runtime := &RuntimeCase{}
 			if tc.present {
 				runtime.Secrets = map[string]string{"api_key": "fixture-private-value"}
@@ -128,7 +128,7 @@ func TestRuntimeNativeSecretFixturesAreMaterializedButNotReported(t *testing.T) 
 		if value != "" {
 			runtime.Secrets = map[string]string{"api_key": value}
 		}
-		result := RunCase(context.Background(), HarnessOptions{Deps: coreops.NewServiceDepsBuilder().Build(), WorkRoot: t.TempDir()}, "fixture", TargetRecipe{Mode: "inline_recipe", Format: "yaml", Content: "id: test\nop: secret_fixture_probe\n"}, Case{ID: "native-secret", Type: "integration_case", Runtime: runtime}, ExecutionOptions{})
+		result := RunCase(context.Background(), HarnessOptions{Deps: coreops.NewServiceDepsBuilder().Build(), WorkRoot: t.TempDir()}, "fixture", TargetRecipe{Mode: "inline_recipe", Format: "yaml", Content: "id: test\nperms: {jobdb: {secrets: {resolve: [api_key]}}}\nop: secret_fixture_probe\n"}, Case{ID: "native-secret", Type: "integration_case", Runtime: runtime}, ExecutionOptions{})
 		require.Equal(t, "passed", result.Status, result.FailureReason)
 		require.Equal(t, value, received[len(received)-1])
 		require.Len(t, result.Runtime.Calls, 1)

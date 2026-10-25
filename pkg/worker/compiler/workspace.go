@@ -55,7 +55,7 @@ func resolveWorkspaceTask(ctx context.Context, data jobdb.TaskData) (jobdb.TaskD
 	if err = json.Unmarshal(raw, &req); err != nil {
 		return nil, err
 	}
-	if req.Permissions != nil && permissions.FromContext(ctx) == nil {
+	if permissions.FromContext(ctx) == nil {
 		return nil, fmt.Errorf("permission-scoped workspace requires executionruntime.WrapTaskWorker")
 	}
 	if req.ScopeID == "" {
@@ -124,10 +124,8 @@ func enterWorkspace(ctx workflow.Context, parent *template.ResolutionContext, me
 	}
 	req := WorkspaceResolutionInput{Cell: cell, Ref: ref, Initial: spec.Initial, ScopeID: parent.NextWorkspaceID(meta.ID), Resolution: resolution}
 	req.GitProfile = parent.GitProfile
-	if parent.Permissions.Version != 0 {
-		p := parent.Permissions
-		req.Permissions = &p
-	}
+	p := parent.Permissions
+	req.Permissions = &p
 	if incoming.Workspace != nil {
 		req.ParentScopeID = incoming.Workspace.ScopeID
 	}
@@ -143,10 +141,7 @@ func enterWorkspace(ctx workflow.Context, parent *template.ResolutionContext, me
 		if ctx.StageNodeExecution != nil {
 			ctx.StageNodeExecution(parent.ExecutionNeeds)
 		}
-		policy := jobdb.RunPolicy{}
-		if req.Permissions != nil {
-			policy.TotalTimeout = jobdb.AsDuration(time.Hour)
-		}
+		policy := jobdb.RunPolicy{TotalTimeout: jobdb.AsDuration(time.Hour)}
 		if meta.Retry != nil {
 			policy.Retry = *meta.Retry
 		}

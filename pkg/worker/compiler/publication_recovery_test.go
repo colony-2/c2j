@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/colony-2/c2j/pkg/execution"
+	"github.com/colony-2/c2j/pkg/executionruntime"
 	"os"
 	"path/filepath"
 	"strings"
@@ -333,11 +335,12 @@ outputs:
 			key := keyRef.Key()
 			require.NoError(t, err)
 			run := func(ws *jobworkflow.WorkSet, id string) (jobworkflow.JobRunOutcome, error) {
+				guard := executionruntime.New(rt, execution.Allocation{SchemaVersion: 1})
 				var workers []jobworkflow.TaskWorker
 				for _, worker := range ws.TaskWorkers {
-					workers = append(workers, worker)
+					workers = append(workers, guard.WrapTaskWorker(worker))
 				}
-				h, err := jobworkflow.GetJobForRun(ctx, rt, jobworkflow.GetJobForRunRequest{JobKey: key, JobWorker: ws.JobWorker, TaskWorkers: workers, WorkerID: id, LeaseDuration: time.Minute})
+				h, err := jobworkflow.GetJobForRun(ctx, guard, jobworkflow.GetJobForRunRequest{JobKey: key, JobWorker: ws.JobWorker, TaskWorkers: workers, WorkerID: id, LeaseDuration: time.Minute})
 				if err != nil {
 					return jobworkflow.JobRunOutcome{}, err
 				}

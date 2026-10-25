@@ -180,9 +180,7 @@ func (d DefaultRecipeExecutor) ExecuteRecipe(ctx workflow.Context, r recipe.Reci
 	}
 
 	metadata := r.GetMetadata().NodeMetadata
-	if recipe.HasPermissions(r) {
-		rCtx.Permissions.Version = permissions.Version
-	}
+	rCtx.Permissions.Version = permissions.Version
 	if err := rCtx.SelectGitProfile(metadata.GitProfile, ""); err != nil {
 		return nil, nil, err
 	}
@@ -301,7 +299,7 @@ func (d DefaultRecipeExecutor) ExecuteOp(ctx workflow.Context, parentResolutionC
 	if registered, ok := ops.Get(op); ok && metadata.Timeout == 0 {
 		metadata.Timeout = recipe.Duration(effectiveOpTimeout(metadata, registered))
 	}
-	if metadata.Timeout == 0 && (parentResolutionContext.Permissions.Version != 0 || metadata.Perms != nil) {
+	if metadata.Timeout == 0 {
 		metadata.Timeout = recipe.Duration(time.Hour)
 	}
 	return executeNodeScope(ctx, parentResolutionContext, metadata, template.ScopeOp, op, func(inner workflow.Context, state *template.ResolutionContext, meta recipe.NodeMetadata) error {
@@ -535,10 +533,8 @@ func (d DefaultRecipeExecutor) executeOpAttempt(ctx workflow.Context, parentReso
 					ArtifactKeys:   invocationKeys,
 					Artifacts:      resolvedArtifacts,
 				}
-				if resCtx.Permissions.Version != 0 {
-					p := resCtx.Permissions
-					invocation.Permissions = &p
-				}
+				p := resCtx.Permissions
+				invocation.Permissions = &p
 
 				taskData, err := jobdb.NewTaskData(invocation)
 				if err != nil {
