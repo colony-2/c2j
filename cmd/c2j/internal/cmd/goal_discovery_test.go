@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/colony-2/c2j/pkg/joblist"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/remote"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/sqlite"
@@ -77,4 +78,45 @@ func TestGoalDiscoveryCommands(t *testing.T) {
 		_, err = run(args...)
 		require.Error(t, err, "args: %v", args)
 	}
+
+	// Exercise lifecycle writes through the actual CLI/HTTP path, including retries.
+	for i := 0; i < 2; i++ {
+		_, err = run("attach", a.GoalID, "b")
+		require.NoError(t, err)
+	}
+	raw, err = run("candidates", a.GoalID, "--page-size", "1")
+	require.NoError(t, err)
+	var candidates joblist.Page
+	require.NoError(t, json.Unmarshal(raw, &candidates))
+	require.Len(t, candidates.Jobs, 1)
+	require.NotEmpty(t, candidates.NextPageToken)
+	firstID := candidates.Jobs[0].JobID
+	raw, err = run("candidates", a.GoalID, "--page-size", "1", "--page-token", candidates.NextPageToken)
+	require.NoError(t, err)
+	candidates = joblist.Page{}
+	require.NoError(t, json.Unmarshal(raw, &candidates))
+	require.Len(t, candidates.Jobs, 1)
+	require.NotEqual(t, firstID, candidates.Jobs[0].JobID)
+	require.Empty(t, candidates.NextPageToken)
+	_, err = run("fail", a.GoalID)
+	require.Error(t, err)
+	_, err = run("fail", a.GoalID, "--message", " ")
+	require.Error(t, err)
+	for i := 0; i < 2; i++ {
+		_, err = run("fail", a.GoalID, "--message", "no more attempts")
+		require.NoError(t, err)
+	}
+	raw, err = run("get", a.GoalID)
+	require.NoError(t, err)
+	var failed jobdb.GoalInfo
+	require.NoError(t, json.Unmarshal(raw, &failed))
+	require.Equal(t, jobdb.GoalFailed, failed.State)
+	require.Equal(t, "no more attempts", failed.Failure.Message)
+	_, err = run("attach", a.GoalID, consumer.JobKey.JobId)
+	require.Error(t, err)
+	raw, err = run("waits", "--consumer-job", consumer.JobKey.JobId, "--state", "failed")
+	require.NoError(t, err)
+	require.NoError(t, json.Unmarshal(raw, &waits))
+	require.Len(t, waits.Waits, 1)
+	require.Equal(t, failed.Failure, waits.Waits[0].Failure)
 }

@@ -20,6 +20,7 @@ import (
 type childIdentityTask struct {
 	waitForChild bool
 	ids          []string
+	goals        []string
 	tasks        []string
 	attempts     []int
 }
@@ -36,10 +37,11 @@ func (w *childIdentityTask) Run(ctx workflow.TaskContext, _ jobdb.TaskData) (job
 	if err != nil {
 		return nil, err
 	}
-	if repeated.JobID != child.JobID {
+	if child.GoalID == "" || repeated.GoalID != child.GoalID || repeated.TenantID != child.TenantID || repeated.JobID != child.JobID {
 		return nil, fmt.Errorf("repeated submission changed child identity")
 	}
 	w.ids = append(w.ids, child.JobID)
+	w.goals = append(w.goals, child.GoalID)
 	w.tasks = append(w.tasks, ctx.InvocationID)
 	w.attempts = append(w.attempts, ctx.AttemptNumber)
 	if w.waitForChild {
@@ -89,10 +91,12 @@ func TestChildSubmissionIdentityAcrossExecutionRetries(t *testing.T) {
 				require.NotEmpty(t, task.tasks[0])
 				if boundary == "task" {
 					require.Equal(t, task.ids[0], task.ids[1])
+					require.Equal(t, task.goals[0], task.goals[1])
 					require.Equal(t, task.tasks[0], task.tasks[1])
 					require.Equal(t, []int{1, 2}, task.attempts)
 				} else {
 					require.NotEqual(t, task.ids[0], task.ids[1])
+					require.NotEqual(t, task.goals[0], task.goals[1])
 					require.NotEqual(t, task.tasks[0], task.tasks[1])
 					require.Equal(t, []int{1, 1}, task.attempts)
 				}
@@ -131,6 +135,7 @@ func TestChildSubmissionIdentityAcrossSuspension(t *testing.T) {
 	require.Equal(t, workflow.JobRunCompleted, run().Status)
 	require.Len(t, task.ids, 2)
 	require.Equal(t, task.ids[0], task.ids[1])
+	require.Equal(t, task.goals[0], task.goals[1])
 	require.Equal(t, task.tasks[0], task.tasks[1])
 	require.Equal(t, []int{1, 1}, task.attempts, "resuming unfinished work is the same task attempt")
 }

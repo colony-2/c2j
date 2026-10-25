@@ -47,17 +47,20 @@ func (t *goalWaitTask) Run(c wf.TaskContext, _ jobdb.TaskData) (jobdb.TaskData, 
 
 func TestGoalWinnerCollectionRecoveryAndExplicitFailure(t *testing.T) {
 	for _, backend := range []string{"sqlite", "remote"} {
-		for _, fail := range []bool{false, true} {
-			t.Run(fmt.Sprintf("%s/fail=%v", backend, fail), func(t *testing.T) {
+		for _, scenario := range []struct{ fail, soft bool }{{false, false}, {false, true}, {true, false}, {true, true}} {
+			fail, soft := scenario.fail, scenario.soft
+			t.Run(fmt.Sprintf("%s/fail=%v/soft=%v", backend, fail, soft), func(t *testing.T) {
 				ctx := context.Background()
-				db, err := sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: filepath.Join(t.TempDir(), "jobs.db")})
+				dbPath := filepath.Join(t.TempDir(), "jobs.db")
+				db, err := sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: dbPath})
 				require.NoError(t, err)
 				t.Cleanup(func() { require.NoError(t, db.Close(ctx)) })
 				var rt jobdb.WorkflowRuntime = db
+				var server *httptest.Server
 				if backend == "remote" {
-					s := httptest.NewServer(remote.NewServer(db))
-					t.Cleanup(s.Close)
-					rt, err = remote.New(s.URL, s.Client())
+					server = httptest.NewServer(remote.NewServer(db))
+					t.Cleanup(server.Close)
+					rt, err = remote.New(server.URL, server.Client())
 					require.NoError(t, err)
 				}
 				producer := wf.ExecutionWorker{JobType: "producer", Execute: func(c wf.ExecutionContext, _ jobdb.JobData) (jobdb.JobData, error) {
@@ -72,7 +75,7 @@ func TestGoalWinnerCollectionRecoveryAndExplicitFailure(t *testing.T) {
 				engine, err := wf.NewEngineBuilder().WithRuntime(rt).BuildEngine()
 				require.NoError(t, err)
 				ctl := &workerworkflow.SWFWorkflowControl{Engine: jobdbschema.WorkflowEngine{Engine: engine, Registry: rt.(jobdb.JobSchemaRegistry)}}
-				task := &goalWaitTask{ctl: ctl, input: StartedJob{JobID: original.JobKey.JobId, GoalID: original.GoalID}, soft: fail}
+				task := &goalWaitTask{ctl: ctl, input: StartedJob{JobID: original.JobKey.JobId, GoalID: original.GoalID}, soft: soft}
 				consumer := wf.ExecutionWorker{JobType: "consumer", Execute: func(c wf.ExecutionContext, in jobdb.JobData) (jobdb.JobData, error) {
 					return c.DoTask(wf.TaskCall{Site: "wait", TaskType: task.Name(), ContractVersion: 1, Command: []byte(`{}`)}, func(context.Context) (jobdb.TaskData, error) { return in, nil })
 				}}
@@ -85,6 +88,29 @@ func TestGoalWinnerCollectionRecoveryAndExplicitFailure(t *testing.T) {
 					return o
 				}
 				require.Equal(t, wf.JobRunSuspended, run(parent, consumer, task).Status)
+				// Replace both the database connection and HTTP endpoint while
+				// the consumer is durably suspended, then use a fresh SDK.
+				if server != nil {
+					server.Close()
+				}
+				require.NoError(t, db.Close(ctx))
+				db, err = sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: dbPath})
+				require.NoError(t, err)
+				rt = db
+				if backend == "remote" {
+					server = httptest.NewServer(remote.NewServer(db))
+					t.Cleanup(server.Close)
+					rt, err = remote.New(server.URL, server.Client())
+					require.NoError(t, err)
+				}
+				engine, err = wf.NewEngineBuilder().WithRuntime(rt).BuildEngine()
+				require.NoError(t, err)
+				ctl.Engine = jobdbschema.WorkflowEngine{Engine: engine, Registry: rt.(jobdb.JobSchemaRegistry)}
+				inspected, err := ctl.InspectJob(ctx, parent.JobKey)
+				require.NoError(t, err)
+				require.NotNil(t, inspected.BlockingWait)
+				require.Equal(t, original.GoalID, inspected.BlockingWait.Dependencies[0].Target.GoalID)
+
 				require.NoError(t, rt.CancelJob(ctx, jobdb.CancelJobRequest{JobKey: original.JobKey}))
 				key := jobdb.GoalKey{TenantId: "tenant", GoalID: original.GoalID}
 				goal, err := rt.GetGoal(ctx, key)
@@ -101,13 +127,23 @@ func TestGoalWinnerCollectionRecoveryAndExplicitFailure(t *testing.T) {
 					require.Equal(t, wf.JobRunCompleted, run(winner, producer).Status)
 				}
 				out := run(parent, consumer, task)
-				require.Equal(t, wf.JobRunCompleted, out.Status, "%v", out.JobError)
-				if fail {
+				if fail && !soft {
+					require.Equal(t, wf.JobRunFailed, out.Status)
+					require.ErrorIs(t, out.JobError, jobdb.ErrGoalFailed)
+				} else {
+					require.Equal(t, wf.JobRunCompleted, out.Status, "%v", out.JobError)
+				}
+				if fail && soft {
 					var got ChildStatusOutput
 					require.NoError(t, json.Unmarshal(out.Output.GetDataOrPanic(), &got))
 					require.Equal(t, goal.Failure, got.GoalFailure)
 					require.Equal(t, jobdb.GoalFailed, got.GoalState)
-				} else {
+				} else if soft {
+					var got ChildStatusOutput
+					require.NoError(t, json.Unmarshal(out.Output.GetDataOrPanic(), &got))
+					require.Equal(t, ResultSource{Goal: original.GoalID, Job: winner.JobKey.JobId}, got.Result)
+					require.Equal(t, winner.JobKey.JobId, got.Outputs["winner"])
+				} else if !fail {
 					var got SingleRecipeOutput
 					require.NoError(t, json.Unmarshal(out.Output.GetDataOrPanic(), &got))
 					require.Equal(t, ResultSource{Goal: original.GoalID, Job: winner.JobKey.JobId}, got.Result)
@@ -118,7 +154,11 @@ func TestGoalWinnerCollectionRecoveryAndExplicitFailure(t *testing.T) {
 				replay, err := wf.NewEngineBuilder().WithRuntime(rt).WithWorkerTenantId("tenant").PlusWorkers(consumer, task).BuildEngine()
 				require.NoError(t, err)
 				_, err = replay.ReplayJobRun(ctx, wf.ReplayRunRequest{JobKey: parent.JobKey})
-				require.NoError(t, err)
+				if fail && !soft {
+					require.ErrorIs(t, err, jobdb.ErrGoalFailed)
+				} else {
+					require.NoError(t, err)
+				}
 				require.Equal(t, count, task.calls.Load(), "replay must use recorded winner and result")
 			})
 		}

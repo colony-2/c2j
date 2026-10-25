@@ -66,8 +66,9 @@ type GetRecipeJobRequest struct {
 }
 
 type RecipeJob struct {
-	GoalID       string   `json:"goal_id"`
-	OtherGoalIDs []string `json:"other_goal_ids"`
+	BlockingWait *jobdb.DependencyWaitInfo `json:"blocking_wait,omitempty"`
+	GoalID       string                    `json:"goal_id"`
+	OtherGoalIDs []string                  `json:"other_goal_ids"`
 	// Completion fields are persisted terminal results, separate from scheduler Status.
 	// Empty status means unavailable; empty detail is valid. Both are preserved verbatim.
 	CompletionStatus      string             `json:"completion_status,omitempty"`
@@ -351,6 +352,7 @@ func RecipeJobFromSummary(summary jobdb.JobSummary) (RecipeJob, bool, error) {
 	}
 
 	job := RecipeJob{
+		BlockingWait:          summary.BlockingWait,
 		GoalID:                summary.GoalID,
 		OtherGoalIDs:          append([]string(nil), summary.OtherGoalIDs...),
 		CompletionStatus:      summary.CompletionStatus,

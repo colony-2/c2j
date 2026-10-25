@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http/httptest"
 	"path/filepath"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -341,6 +342,22 @@ outputs:
 			again, err := f.service.RestartRecipeJob(f.ctx, req)
 			require.NoError(t, err)
 			require.Equal(t, restarted, again)
+			// Reconcile duplicate operator/network retries even after the new
+			// candidate has closed the goal. Every caller must get one identity.
+			var retries sync.WaitGroup
+			for i := 0; i < 8; i++ {
+				retries.Go(func() {
+					same, e := f.service.RestartRecipeJob(f.ctx, req)
+					if e != nil {
+						t.Errorf("concurrent restart retry: %v", e)
+						return
+					}
+					if same == nil || *same != *restarted {
+						t.Errorf("restart retry changed identity: got %+v want %+v", same, restarted)
+					}
+				})
+			}
+			retries.Wait()
 			req.RequestID = "different-attempt"
 			_, err = f.service.RestartRecipeJob(f.ctx, req)
 			require.ErrorIs(t, err, jobdb.ErrGoalConflict)

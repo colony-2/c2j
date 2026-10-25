@@ -60,3 +60,20 @@ func TestRecipeJobSummaryPreservesTypedRoute(t *testing.T) {
 	require.Equal(t, "input:collect_user_input", summary.NextRoute.TaskType)
 	require.Equal(t, "recipe:kind", summary.ExecutionState.TaskWait.ResumeJobType)
 }
+
+func TestRecipeJobPreservesStructuredGoalWait(t *testing.T) {
+	deadline := time.Now().UTC().Add(time.Minute)
+	wait := &jobdb.DependencyWaitInfo{JobKey: jobdb.JobKey{TenantId: "t", JobId: "parent"}, WaitID: "wait", State: jobdb.DependencyPending, Deadline: &deadline, Dependencies: []jobdb.DependencyResolution{
+		{Target: jobdb.DependencyTarget{GoalID: "goal"}, State: jobdb.DependencySatisfied, SatisfiedByJobID: "replacement"},
+		{Target: jobdb.DependencyTarget{JobID: "exact"}, State: jobdb.DependencyPending},
+	}}
+	job, ok, err := RecipeJobFromSummary(jobdb.JobSummary{JobType: starter.RecipeJobType, BlockingWait: wait})
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Equal(t, wait, job.BlockingWait)
+	raw, err := json.Marshal(job)
+	require.NoError(t, err)
+	var decoded RecipeJob
+	require.NoError(t, json.Unmarshal(raw, &decoded))
+	require.Equal(t, wait, decoded.BlockingWait)
+}
