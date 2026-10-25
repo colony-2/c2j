@@ -70,11 +70,6 @@ type Service struct {
 
 type RecipeProvider func(projectID string, recipeRef string) (*recipe.Recipe, error)
 
-type recipeRestartSubmitter interface {
-	SubmitRestartJob(context.Context, jobdb.SubmitRestartJob) (jobdb.JobKey, error)
-	GetJob(context.Context, jobdb.JobKey) (jobdb.JobInfo, error)
-}
-
 func New(cfg Config) (*Service, error) {
 	if cfg.Engine == nil {
 		return nil, errors.New("workflow service: engine is required")
@@ -609,12 +604,6 @@ func (s *Service) GetJobRunStory(ctx context.Context, req model.GetJobRunStoryRe
 		}
 		return st, err
 	}
-	info, err := s.engine.GetJob(ctx, jobKey)
-	if err != nil {
-		return nil, err
-	}
-	st.GoalID = info.GoalID
-	st.OtherGoalIDs = append([]string{}, info.OtherGoalIDs...)
 	return st, nil
 }
 

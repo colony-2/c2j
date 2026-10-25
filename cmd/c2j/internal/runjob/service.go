@@ -391,6 +391,17 @@ func describeBlocking(outcome jobworkflow.JobRunOutcome) string {
 	if outcome.MissingRoute != nil {
 		parts = append(parts, "missing_route="+jobutil.FormatRoute(*outcome.MissingRoute))
 	}
+	if outcome.BlockingWait != nil {
+		parts = append(parts, "wait_id="+outcome.BlockingWait.WaitID)
+		for _, dependency := range outcome.BlockingWait.Dependencies {
+			if dependency.Target.GoalID != "" {
+				parts = append(parts, "goal="+dependency.Target.GoalID)
+			}
+			if dependency.Target.JobID != "" {
+				parts = append(parts, "job="+dependency.Target.JobID)
+			}
+		}
+	}
 	if len(outcome.WaitForJobIDs) > 0 {
 		parts = append(parts, "wait_for="+strings.Join(outcome.WaitForJobIDs, ","))
 	}

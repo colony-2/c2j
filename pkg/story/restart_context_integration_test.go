@@ -96,7 +96,8 @@ func newRestartFixture(t *testing.T, backend, recipe string, failFirst ...bool) 
 	require.NoError(t, err)
 	data, err := jobdb.NewTaskData(workflowctl.StartJob{TenantId: "restart-tests", RecipeName: "fixture"}, jobdb.NewArtifactFromBytes("fixture"+starter.RecipeArtifactSuffix, []byte(recipe)))
 	require.NoError(t, err)
-	key, err := engine.SubmitJob(ctx, jobdb.SubmitJob{TenantId: "restart-tests", JobType: "recipe", Data: data})
+	keyHandle, err := engine.SubmitJob(ctx, jobdb.SubmitJob{TenantId: "restart-tests", JobType: "recipe", Data: data})
+	key := keyHandle.JobKey
 	require.NoError(t, err)
 	f := &restartFixture{ctx, rt, engine, svc, w, task, key}
 	if task.fail.Load() {
@@ -315,7 +316,7 @@ func TestRestartContinuesGoalAndReconcilesAfterWinning(t *testing.T) {
 sequence:
  - id: work
    op: restart_context_probe
-   inputs: {value: repaired}
+   inputs: {value: '${{ context.workflow.goal_id }}'}
 outputs:
  value: ${{ sequence.work.outputs.value }}
 `, true)
@@ -347,6 +348,11 @@ outputs:
 			fresh, err := f.service.RestartRecipeJob(f.ctx, req)
 			require.NoError(t, err)
 			require.NotEqual(t, restarted.GoalID, fresh.GoalID)
+			freshKey := jobdb.JobKey{TenantId: fresh.TenantID, JobId: fresh.JobID}
+			f.run(t, freshKey)
+			freshStory := f.story(t, freshKey)
+			require.Equal(t, fresh.GoalID, freshStory.GoalID)
+			require.Equal(t, fresh.GoalID, freshStory.Root.Output.(map[string]any)["value"])
 		})
 	}
 }

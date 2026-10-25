@@ -37,7 +37,7 @@ func TestSubmitterRegistersOnMissingSchemaHash(t *testing.T) {
 	submitter := &missingSchemaSubmitter{}
 	registry := &captureRegistry{}
 
-	key, err := (Submitter{
+	keyHandle, err := (Submitter{
 		JobSubmitter: submitter,
 		Registry:     registry,
 	}).SubmitJob(ctx, jobdb.SubmitJob{
@@ -45,6 +45,7 @@ func TestSubmitterRegistersOnMissingSchemaHash(t *testing.T) {
 		JobType:  "recipe",
 		JobID:    "job-1",
 	})
+	key := keyHandle.JobKey
 	if err != nil {
 		t.Fatalf("SubmitJob: %v", err)
 	}
@@ -84,14 +85,17 @@ func TestRestartSubmitterRegistersOnMissingSchemaHash(t *testing.T) {
 	key, err := (Submitter{
 		RestartSubmitter: submitter,
 		Registry:         registry,
-	}).SubmitRestartJob(ctx, jobdb.SubmitRestartJob{
+	}).SubmitRestartJob(ctx, jobdb.SubmitRestartJobRequest{RequestID: "restart-id", Job: jobdb.SubmitRestartJob{
 		PriorJobKey: jobdb.JobKey{TenantId: "tenant", JobId: "prior"},
 		JobID:       "job-2",
-	})
+	}})
 	if err != nil {
 		t.Fatalf("SubmitRestartJob: %v", err)
 	}
-	if key != (jobdb.JobKey{TenantId: "tenant", JobId: "job-2"}) {
+	if key.GoalID != "goal-2" || submitter.lastRequestID != "restart-id" {
+		t.Fatal("restart lost complete identity or request ID")
+	}
+	if key.JobKey != (jobdb.JobKey{TenantId: "tenant", JobId: "job-2"}) {
 		t.Fatalf("key = %#v", key)
 	}
 	if submitter.calls != 2 {
@@ -124,27 +128,30 @@ type missingSchemaSubmitter struct {
 	last  jobdb.SubmitJob
 }
 
-func (s *missingSchemaSubmitter) SubmitJob(_ context.Context, job jobdb.SubmitJob) (jobdb.JobKey, error) {
+func (s *missingSchemaSubmitter) SubmitJob(_ context.Context, job jobdb.SubmitJob) (jobdb.JobHandle, error) {
 	s.calls++
 	s.last = job
 	if s.calls == 1 {
-		return jobdb.JobKey{}, jobdb.ErrJobSchemaNotFound
+		return jobdb.JobHandle{}, jobdb.ErrJobSchemaNotFound
 	}
-	return jobdb.JobKey{TenantId: job.TenantId, JobId: job.JobID}, nil
+	return jobdb.JobHandle{JobKey: jobdb.JobKey{TenantId: job.TenantId, JobId: job.JobID}, GoalID: "goal-1"}, nil
 }
 
 type missingSchemaRestartSubmitter struct {
-	calls int
-	last  jobdb.SubmitRestartJob
+	lastRequestID string
+	calls         int
+	last          jobdb.SubmitRestartJob
 }
 
-func (s *missingSchemaRestartSubmitter) SubmitRestartJob(_ context.Context, job jobdb.SubmitRestartJob) (jobdb.JobKey, error) {
+func (s *missingSchemaRestartSubmitter) SubmitRestartJob(_ context.Context, req jobdb.SubmitRestartJobRequest) (jobdb.JobHandle, error) {
+	job := req.Job
 	s.calls++
+	s.lastRequestID = req.RequestID
 	s.last = job
 	if s.calls == 1 {
-		return jobdb.JobKey{}, jobdb.ErrJobSchemaNotFound
+		return jobdb.JobHandle{}, jobdb.ErrJobSchemaNotFound
 	}
-	return jobdb.JobKey{TenantId: job.PriorJobKey.TenantId, JobId: job.JobID}, nil
+	return jobdb.JobHandle{JobKey: jobdb.JobKey{TenantId: job.PriorJobKey.TenantId, JobId: job.JobID}, GoalID: "goal-2"}, nil
 }
 
 type captureRegistry struct {
@@ -201,8 +208,8 @@ type errorSubmitter struct {
 	err error
 }
 
-func (s errorSubmitter) SubmitJob(context.Context, jobdb.SubmitJob) (jobdb.JobKey, error) {
-	return jobdb.JobKey{}, s.err
+func (s errorSubmitter) SubmitJob(context.Context, jobdb.SubmitJob) (jobdb.JobHandle, error) {
+	return jobdb.JobHandle{}, s.err
 }
 
 func TestSchemaIsValidJSON(t *testing.T) {

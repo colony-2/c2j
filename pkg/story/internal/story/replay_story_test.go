@@ -80,11 +80,11 @@ func (c *fakeReplayJobContext) Logger() *slog.Logger { return nil }
 
 func (c *fakeReplayJobContext) AwaitDuration(_ jobdb.Duration) error { return nil }
 func (c *fakeReplayJobContext) AwaitJobs(_ ...string) error          { return nil }
-func (c *fakeReplayJobContext) SubmitJob(context.Context, jobdb.SubmitJob) (jobdb.JobKey, error) {
-	return jobdb.JobKey{}, errors.New("submitting jobs is not supported by replay test context")
+func (c *fakeReplayJobContext) SubmitJob(context.Context, jobdb.SubmitJob) (jobdb.JobHandle, error) {
+	return jobdb.JobHandle{}, errors.New("submitting jobs is not supported by replay test context")
 }
-func (c *fakeReplayJobContext) SubmitRestartJob(context.Context, jobdb.SubmitRestartJob) (jobdb.JobKey, error) {
-	return jobdb.JobKey{}, errors.New("submitting restart jobs is not supported by replay test context")
+func (c *fakeReplayJobContext) SubmitRestartJob(context.Context, jobdb.SubmitRestartJobRequest) (jobdb.JobHandle, error) {
+	return jobdb.JobHandle{}, errors.New("submitting restart jobs is not supported by replay test context")
 }
 
 type fakeTaskAttempt struct {
@@ -963,3 +963,5 @@ func (*fakeReplayJobContext) AwaitGoals(...string) ([]jobdb.DependencyResolution
 func (*fakeReplayJobContext) AwaitDependencies(...jobdb.Dependency) ([]jobdb.DependencyResolution, error) {
 	return nil, fmt.Errorf("unexpected AwaitDependencies in test context")
 }
+
+func (c *fakeReplayJobContext) Job() jobdb.JobHandle { return jobdb.JobHandle{JobKey: c.GetJobKey()} }

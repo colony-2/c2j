@@ -1499,3 +1499,7 @@ func (c *renameAfterWithinResolutionContext) Context() testContext { return test
 func (c *renameAfterWithinResolutionContext) ExecutionVersions() jobdb.ExecutionVersions {
 	return jobdb.ExecutionVersions{}
 }
+
+func (c *renameAfterWithinResolutionContext) Job() jobdb.JobHandle {
+	return jobdb.JobHandle{JobKey: c.GetJobKey()}
+}

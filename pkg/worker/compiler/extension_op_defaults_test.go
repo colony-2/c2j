@@ -162,3 +162,7 @@ func (c *capturingInvocationJobContext) Context() testContext { return testBackg
 func (c *capturingInvocationJobContext) ExecutionVersions() jobdb.ExecutionVersions {
 	return jobdb.ExecutionVersions{}
 }
+
+func (c *capturingInvocationJobContext) Job() jobdb.JobHandle {
+	return jobdb.JobHandle{JobKey: c.GetJobKey()}
+}

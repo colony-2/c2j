@@ -48,7 +48,7 @@ func (w *guardedTask) runWithGitProfile(tc jobworkflow.TaskContext, input jobdb.
 		}
 		return result, err
 	}
-	current, err := jobref.FromHandle(original.Job())
+	_, err = jobref.FromHandle(tc.Job())
 	if err != nil {
 		return nil, err
 	}
@@ -71,7 +71,7 @@ func (w *guardedTask) runWithGitProfile(tc jobworkflow.TaskContext, input jobdb.
 		defer cancel()
 		resolve = access.Resolve
 	}
-	scopeContext = jobref.WithScope(scopeContext, jobref.Scope{Current: current, Submit: func(call context.Context, job jobdb.SubmitJob) (jobref.Ref, error) {
+	scopeContext = jobref.WithScope(scopeContext, jobref.Scope{Submit: func(call context.Context, job jobdb.SubmitJob) (jobref.Ref, error) {
 		if access != nil {
 			return access.Submit(call, job)
 		}

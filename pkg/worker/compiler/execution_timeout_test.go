@@ -290,3 +290,7 @@ func (c *policyCaptureJobContext) Context() testContext { return testBackground(
 func (c *policyCaptureJobContext) ExecutionVersions() jobdb.ExecutionVersions {
 	return jobdb.ExecutionVersions{}
 }
+
+func (c *policyCaptureJobContext) Job() jobdb.JobHandle {
+	return jobdb.JobHandle{JobKey: c.GetJobKey()}
+}

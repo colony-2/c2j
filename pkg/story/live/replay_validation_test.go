@@ -220,3 +220,5 @@ func executionFixture(run jobdb.GetJobRunResponse) jobdb.GetJobRunResponse {
 	}
 	return run
 }
+
+func (c *loadErrorReplayContext) Job() jobdb.JobHandle { return jobdb.JobHandle{JobKey: c.GetJobKey()} }

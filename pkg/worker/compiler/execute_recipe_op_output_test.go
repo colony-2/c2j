@@ -127,3 +127,5 @@ func (c *stubJobContext) Context() testContext { return testBackground() }
 func (c *stubJobContext) ExecutionVersions() jobdb.ExecutionVersions {
 	return jobdb.ExecutionVersions{}
 }
+
+func (s *stubJobContext) Job() jobdb.JobHandle { return jobdb.JobHandle{JobKey: s.GetJobKey()} }

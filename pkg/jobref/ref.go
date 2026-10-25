@@ -34,10 +34,9 @@ type RestartSubmitter interface {
 }
 
 // Scope is supplied by the trusted execution runtime, preserving the current
-// lease's identity and submission response without an additional lookup.
+// lease-bound submission authority. Identity comes from the native SDK context.
 type Scope struct {
-	Current Ref
-	Submit  func(context.Context, jobdb.SubmitJob) (Ref, error)
+	Submit func(context.Context, jobdb.SubmitJob) (Ref, error)
 }
 type scopeKey struct{}
 

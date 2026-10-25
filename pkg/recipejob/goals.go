@@ -66,3 +66,39 @@ func FailGoal(ctx context.Context, admin jobdb.GoalRuntime, req jobdb.FailGoalRe
 	}
 	return admin.FailGoal(ctx, req)
 }
+
+// GoalDiscovery exposes tenant inspection separately from lifecycle authority.
+// Requests and responses retain JobDB filters, counts, cursors and wait bindings.
+type GoalDiscovery interface {
+	ListGoals(context.Context, jobdb.ListGoalsRequest) (jobdb.ListGoalsResponse, error)
+	ListDependencyWaits(context.Context, jobdb.ListDependencyWaitsRequest) (jobdb.ListDependencyWaitsResponse, error)
+}
+
+func ListGoals(ctx context.Context, reader GoalDiscovery, req jobdb.ListGoalsRequest) (jobdb.ListGoalsResponse, error) {
+	if err := req.Validate(); err != nil {
+		return jobdb.ListGoalsResponse{}, err
+	}
+	if req.PageSize < 0 {
+		return jobdb.ListGoalsResponse{}, fmt.Errorf("page size must not be negative")
+	}
+	return reader.ListGoals(ctx, req)
+}
+
+// ListDependencyWaits retains consumer history. Target queries select only
+// unresolved pending edges, never historical reverse dependencies.
+func ListDependencyWaits(ctx context.Context, reader GoalDiscovery, req jobdb.ListDependencyWaitsRequest) (jobdb.ListDependencyWaitsResponse, error) {
+	if err := req.Validate(); err != nil {
+		return jobdb.ListDependencyWaitsResponse{}, err
+	}
+	if req.PageSize < 0 {
+		return jobdb.ListDependencyWaitsResponse{}, fmt.Errorf("page size must not be negative")
+	}
+	return reader.ListDependencyWaits(ctx, req)
+}
+
+func GetDependencyWait(ctx context.Context, reader GoalReader, key jobdb.DependencyWaitKey) (jobdb.DependencyWaitInfo, error) {
+	if key.JobKey.TenantId == "" || key.JobKey.JobId == "" || key.WaitID == "" {
+		return jobdb.DependencyWaitInfo{}, fmt.Errorf("tenant, consumer job and wait ID are required")
+	}
+	return reader.GetDependencyWait(ctx, key)
+}

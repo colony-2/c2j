@@ -123,7 +123,8 @@ func TestStoryAPIReplaysAllPersistedAttemptsAfterDeadlines(t *testing.T) {
 				policy := jobdb.DefaultRunPolicy()
 				policy.Retry.MaximumAttempts = 3
 				policy.Retry.InitialInterval = jobdb.Duration(time.Millisecond)
-				key, err := engine.SubmitJob(ctx, jobdb.SubmitJob{TenantId: "story", JobType: "recipe", Data: data, RunPolicy: policy})
+				keyHandle, err := engine.SubmitJob(ctx, jobdb.SubmitJob{TenantId: "story", JobType: "recipe", Data: data, RunPolicy: policy})
+				key := keyHandle.JobKey
 				require.NoError(t, err)
 				runnable, err := jobworkflow.GetJobForRun(ctx, rt, jobworkflow.GetJobForRunRequest{JobKey: key, JobWorker: recordingWorker, TaskWorkers: []jobworkflow.TaskWorker{task}, WorkerID: "story-fixture", LeaseDuration: time.Minute})
 				require.NoError(t, err)

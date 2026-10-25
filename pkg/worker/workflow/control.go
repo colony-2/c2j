@@ -84,12 +84,9 @@ func (s *SWFWorkflowControl) InspectJob(ctx context.Context, key jobdb.JobKey) (
 		Terminal:  isTerminalInspectionStatus(run.Job.Status),
 		StartedAt: run.Job.CreatedAt,
 	}
-	info, err := s.Engine.GetJob(ctx, key)
-	if err != nil {
-		return workflowctl.JobInspection{}, err
-	}
-	inspection.GoalID = info.GoalID
-	inspection.OtherGoalIDs = info.OtherGoalIDs
+	inspection.GoalID = run.Job.GoalID
+	inspection.OtherGoalIDs = append([]string(nil), run.Job.OtherGoalIDs...)
+	inspection.BlockingWait = run.Job.BlockingWait
 
 	if !run.Start.CreatedAt.IsZero() {
 		inspection.StartedAt = run.Start.CreatedAt

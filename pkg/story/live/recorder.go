@@ -211,6 +211,9 @@ func BuildJobRunStory(ctx context.Context, engine replayJobRunner, jobKey jobdb.
 
 	story := rec.Finalize(replayErr)
 	if recorded != nil {
+		story.GoalID = recorded.Job.GoalID
+		story.OtherGoalIDs = append([]string{}, recorded.Job.OtherGoalIDs...)
+		story.BlockingWait = recorded.Job.BlockingWait
 		for _, entry := range recorded.Execution {
 			if entry.Record.Kind != "scope" {
 				continue

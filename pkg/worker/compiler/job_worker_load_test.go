@@ -124,3 +124,5 @@ func (c *loadFailureContext) Context() testContext { return testBackground() }
 func (c *loadFailureContext) ExecutionVersions() jobdb.ExecutionVersions {
 	return jobdb.ExecutionVersions{}
 }
+
+func (c *loadFailureContext) Job() jobdb.JobHandle { return jobdb.JobHandle{JobKey: c.GetJobKey()} }

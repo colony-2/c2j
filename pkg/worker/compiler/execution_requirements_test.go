@@ -56,3 +56,7 @@ func (*failingExecutionContext) GetJobKey() jobdb.JobKey {
 func (c *failingExecutionContext) ResolveSecretsFresh(ctx context.Context, names []string) (jobdb.SecretResolveResult, error) {
 	return c.ResolveSecrets(ctx, names)
 }
+
+func (c *failingExecutionContext) Job() jobdb.JobHandle {
+	return jobdb.JobHandle{JobKey: c.GetJobKey()}
+}

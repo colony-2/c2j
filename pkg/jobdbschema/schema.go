@@ -798,11 +798,11 @@ var (
 )
 
 type JobSubmitter interface {
-	SubmitJob(context.Context, jobdb.SubmitJob) (jobdb.JobKey, error)
+	SubmitJob(context.Context, jobdb.SubmitJob) (jobdb.JobHandle, error)
 }
 
 type RestartSubmitter interface {
-	SubmitRestartJob(context.Context, jobdb.SubmitRestartJob) (jobdb.JobKey, error)
+	SubmitRestartJob(context.Context, jobdb.SubmitRestartJobRequest) (jobdb.JobHandle, error)
 }
 
 func (s Submitter) GetJob(ctx context.Context, key jobdb.JobKey) (jobdb.JobInfo, error) {
@@ -874,41 +874,41 @@ func Register(ctx context.Context, registry jobdb.JobSchemaRegistry, tenantID st
 	return err
 }
 
-func (s Submitter) SubmitJob(ctx context.Context, job jobdb.SubmitJob) (jobdb.JobKey, error) {
+func (s Submitter) SubmitJob(ctx context.Context, job jobdb.SubmitJob) (jobdb.JobHandle, error) {
 	if s.JobSubmitter == nil {
-		return jobdb.JobKey{}, errors.New("submit c2j job: submitter is nil")
+		return jobdb.JobHandle{}, errors.New("submit c2j job: submitter is nil")
 	}
 	if err := SetSubmitJobSchema(&job); err != nil {
-		return jobdb.JobKey{}, fmt.Errorf("set c2j job schema: %w", err)
+		return jobdb.JobHandle{}, fmt.Errorf("set c2j job schema: %w", err)
 	}
 	key, err := s.JobSubmitter.SubmitJob(ctx, job)
 	if !isJobSchemaNotFound(err) {
 		return key, err
 	}
 	if registerErr := Register(ctx, s.Registry, job.TenantId); registerErr != nil {
-		return jobdb.JobKey{}, fmt.Errorf("register c2j job schema after schema miss: %w", registerErr)
+		return jobdb.JobHandle{}, fmt.Errorf("register c2j job schema after schema miss: %w", registerErr)
 	}
 	return s.JobSubmitter.SubmitJob(ctx, job)
 }
 
-func (s Submitter) SubmitRestartJob(ctx context.Context, job jobdb.SubmitRestartJob) (jobdb.JobKey, error) {
+func (s Submitter) SubmitRestartJob(ctx context.Context, req jobdb.SubmitRestartJobRequest) (jobdb.JobHandle, error) {
 	if s.RestartSubmitter == nil {
-		return jobdb.JobKey{}, errors.New("submit c2j restart job: submitter is nil")
+		return jobdb.JobHandle{}, errors.New("submit c2j restart job: submitter is nil")
 	}
-	if err := SetSubmitRestartJobSchema(&job); err != nil {
-		return jobdb.JobKey{}, fmt.Errorf("set c2j job schema: %w", err)
+	if err := SetSubmitRestartJobSchema(&req.Job); err != nil {
+		return jobdb.JobHandle{}, fmt.Errorf("set c2j job schema: %w", err)
 	}
-	key, err := s.RestartSubmitter.SubmitRestartJob(ctx, job)
+	key, err := s.RestartSubmitter.SubmitRestartJob(ctx, req)
 	if !isJobSchemaNotFound(err) {
 		return key, err
 	}
-	if registerErr := Register(ctx, s.Registry, job.PriorJobKey.TenantId); registerErr != nil {
-		return jobdb.JobKey{}, fmt.Errorf("register c2j job schema after schema miss: %w", registerErr)
+	if registerErr := Register(ctx, s.Registry, req.Job.PriorJobKey.TenantId); registerErr != nil {
+		return jobdb.JobHandle{}, fmt.Errorf("register c2j job schema after schema miss: %w", registerErr)
 	}
-	return s.RestartSubmitter.SubmitRestartJob(ctx, job)
+	return s.RestartSubmitter.SubmitRestartJob(ctx, req)
 }
 
-func (e WorkflowEngine) SubmitJob(ctx context.Context, job jobdb.SubmitJob) (jobdb.JobKey, error) {
+func (e WorkflowEngine) SubmitJob(ctx context.Context, job jobdb.SubmitJob) (jobdb.JobHandle, error) {
 	if job.JobType != "recipe" {
 		return e.Engine.SubmitJob(ctx, job)
 	}
@@ -918,14 +918,14 @@ func (e WorkflowEngine) SubmitJob(ctx context.Context, job jobdb.SubmitJob) (job
 	}.SubmitJob(ctx, job)
 }
 
-func (e WorkflowEngine) SubmitRestartJob(ctx context.Context, job jobdb.SubmitRestartJob) (jobdb.JobKey, error) {
-	if job.Schema == nil {
-		return e.Engine.SubmitRestartJob(ctx, job)
+func (e WorkflowEngine) SubmitRestartJob(ctx context.Context, req jobdb.SubmitRestartJobRequest) (jobdb.JobHandle, error) {
+	if req.Job.Schema == nil {
+		return e.Engine.SubmitRestartJob(ctx, req)
 	}
 	return Submitter{
 		RestartSubmitter: e.Engine,
 		Registry:         e.Registry,
-	}.SubmitRestartJob(ctx, job)
+	}.SubmitRestartJob(ctx, req)
 }
 
 func isJobSchemaNotFound(err error) bool {
@@ -938,45 +938,19 @@ func isJobSchemaNotFound(err error) bool {
 	return strings.Contains(err.Error(), jobdb.ErrJobSchemaNotFound.Error())
 }
 
-// SubmitJobRef preserves the handle returned by the runtime. The workflow SDK's
-// SubmitJob convenience method currently returns only JobKey.
+// SubmitJobRef projects the native SDK handle without another identity read.
 func (e WorkflowEngine) SubmitJobRef(ctx context.Context, job jobdb.SubmitJob) (jobref.Ref, error) {
-	rt, ok := e.Registry.(jobdb.WorkflowRuntime)
-	if !ok {
-		return jobref.Ref{}, fmt.Errorf("submission runtime is unavailable")
-	}
-	if job.JobType == "recipe" {
-		if err := SetSubmitJobSchema(&job); err != nil {
-			return jobref.Ref{}, err
-		}
-	}
-	h, err := rt.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: job})
-	if isJobSchemaNotFound(err) {
-		if err = Register(ctx, e.Registry, job.TenantId); err != nil {
-			return jobref.Ref{}, err
-		}
-		h, err = rt.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: job})
-	}
+	h, err := e.SubmitJob(ctx, job)
 	if err != nil {
 		return jobref.Ref{}, err
 	}
 	return jobref.FromHandle(h)
 }
 func (e WorkflowEngine) SubmitRestartJobRef(ctx context.Context, req jobdb.SubmitRestartJobRequest) (jobref.Ref, error) {
-	rt, ok := e.Registry.(jobdb.WorkflowRuntime)
-	if !ok {
-		return jobref.Ref{}, fmt.Errorf("restart runtime is unavailable")
-	}
 	if err := SetSubmitRestartJobSchema(&req.Job); err != nil {
 		return jobref.Ref{}, err
 	}
-	h, err := rt.SubmitRestartJob(ctx, req)
-	if isJobSchemaNotFound(err) {
-		if err = Register(ctx, e.Registry, req.Job.PriorJobKey.TenantId); err != nil {
-			return jobref.Ref{}, err
-		}
-		h, err = rt.SubmitRestartJob(ctx, req)
-	}
+	h, err := e.SubmitRestartJob(ctx, req)
 	if err != nil {
 		return jobref.Ref{}, err
 	}
@@ -1011,4 +985,19 @@ func (e WorkflowEngine) FailGoal(ctx context.Context, req jobdb.FailGoalRequest)
 		return jobdb.GoalInfo{}, fmt.Errorf("goal runtime unavailable")
 	}
 	return rt.FailGoal(ctx, req)
+}
+
+func (e WorkflowEngine) ListGoals(ctx context.Context, req jobdb.ListGoalsRequest) (jobdb.ListGoalsResponse, error) {
+	rt, ok := e.Registry.(jobdb.GoalRuntime)
+	if !ok {
+		return jobdb.ListGoalsResponse{}, fmt.Errorf("goal runtime unavailable")
+	}
+	return rt.ListGoals(ctx, req)
+}
+func (e WorkflowEngine) ListDependencyWaits(ctx context.Context, req jobdb.ListDependencyWaitsRequest) (jobdb.ListDependencyWaitsResponse, error) {
+	rt, ok := e.Registry.(jobdb.GoalRuntime)
+	if !ok {
+		return jobdb.ListDependencyWaitsResponse{}, fmt.Errorf("goal runtime unavailable")
+	}
+	return rt.ListDependencyWaits(ctx, req)
 }

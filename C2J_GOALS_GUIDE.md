@@ -139,14 +139,59 @@ The public Go APIs expose `jobref.Ref`, goal reads, paginated candidates,
 structured submission dependencies, goal lifecycle actions, and goal-aware
 restart requests. Submission constructs references from the runtime response
 without looking up the goal afterward. Task workers must use the execution
-runtime guard so current identity and lease-bound submission remain available.
+runtime guard to preserve lease-bound submission and permission enforcement.
+Current identity comes directly from the native execution/task context.
 
-Tenant-wide goal enumeration and reverse waiter discovery require additional
-JobDB APIs. No page of job results is treated as a complete goal index.
+## Goal and dependency discovery
+
+c2j exposes JobDB's `ListGoals`, `ListDependencyWaits`, and known-wait lookup
+through public `recipejob` services and the workflow engine wrapper. Job lists,
+inspection, stories, and run diagnostics preserve structured `BlockingWait` data.
+
+```sh
+c2j goals list --state OPEN --repo https://github.com/acme/app.git --page-size 100
+c2j goals list --candidate-job B
+c2j goals waits --target-goal G
+c2j goals waits --target-job B
+c2j goals waits --consumer-job P
+c2j goals wait P WAIT
+```
+
+These commands return JSON, use the configured tenant or `--jobdb`, and perform
+one page/read per invocation. Discovery pages expose the native `nextPageToken`;
+pass it unchanged via `--page-token` with the same filters. `goals list` also
+supports `--goal`, `--job-type`, `--cell`, and RFC3339 creation/update time bounds.
+Candidate repository and cell filters use metadata keys `repo` and `cell_name`.
+Use `--state` to filter consumer history; reverse target queries accept only
+`PENDING`. Cortex still needs to connect its goal browser and waiter views to
+these discovery services.
+
+`ListGoals` returns authoritative goal records and read-time counts across all
+primary/additional candidates, including archived and hidden jobs. Nonterminal
+includes ready, running, and blocked jobs. Counts can change without a goal
+revision or update-time change. No page of jobs is a complete goal index.
+
+`ListDependencyWaits` by consumer includes current and retained historical waits.
+Reverse lookup by target includes only unresolved dependencies in pending waits;
+it does not provide historical reverse lookup. Read-time deadline expiration
+projects `TIMED_OUT` and removes the edge from reverse results without mutating
+history. Inspect the consumer or known wait ID for full history and bindings.
+Both listings have query-bound cursors, live-read pagination, and a page-size
+limit of 200.
+
+The new SDK returns complete `JobHandle` values from submission and restart,
+accepts full restart requests with request IDs, and exposes current identity via
+execution/task `Job()` methods. c2j uses those native identities
+and `JobRunSummary` goal fields while preserving its complete reference shape
+and lease restrictions. Current goal identity is not copied from a cached task
+result, so a restart with a new goal gets its own identity during execution and replay.
 
 ## Deployment
 
-Use JobDB v0.0.53 or a newer compatible revision and the coordinated goal-aware
-clients. This is a clean cutover: old histories and old standalone `job_id` wait
+c2j pins JobDB main commit `86ac742286156ce9f38305b4c8b613df70856095`
+(`v0.0.54-0.20261025173555-86ac74228615`). Deploy a backend with the same
+contract and update SDK callers together: submissions return complete handles,
+and restart submission accepts the full request including its request ID.
+This is a clean cutover: old histories and old standalone `job_id` wait
 inputs are not supported. Update failure-oriented recipes to select exact-job
 waits where appropriate before submitting new jobs.

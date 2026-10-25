@@ -26,13 +26,14 @@ func TestOpenEmbedPersistsJobsAcrossReopen(t *testing.T) {
 	}
 
 	data := jobdb.NewTaskDataOrPanic(map[string]any{"job_id": "job-1"})
-	jobKey, err := handle.Engine.SubmitJob(ctx, jobdb.SubmitJob{
+	jobKeyHandle, err := handle.Engine.SubmitJob(ctx, jobdb.SubmitJob{
 		TenantId:  "tenant-embed-test",
 		JobID:     "job-1",
 		JobType:   "alpha",
 		Data:      data,
 		RunPolicy: jobdb.DefaultRunPolicy(),
 	})
+	jobKey := jobKeyHandle.JobKey
 	cleanupErr := handle.Cleanup()
 	if err != nil {
 		t.Fatalf("SubmitJob(): %v", err)

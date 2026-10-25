@@ -46,12 +46,12 @@ func (v *validationJobContext) AwaitJobs(jobIds ...string) error {
 	return v.inner.AwaitJobs(jobIds...)
 }
 
-func (v *validationJobContext) SubmitJob(context.Context, jobdb.SubmitJob) (jobdb.JobKey, error) {
-	return jobdb.JobKey{}, fmt.Errorf("submitting jobs is not supported during validation")
+func (v *validationJobContext) SubmitJob(context.Context, jobdb.SubmitJob) (jobdb.JobHandle, error) {
+	return jobdb.JobHandle{}, fmt.Errorf("submitting jobs is not supported during validation")
 }
 
-func (v *validationJobContext) SubmitRestartJob(context.Context, jobdb.SubmitRestartJob) (jobdb.JobKey, error) {
-	return jobdb.JobKey{}, fmt.Errorf("submitting restart jobs is not supported during validation")
+func (v *validationJobContext) SubmitRestartJob(context.Context, jobdb.SubmitRestartJobRequest) (jobdb.JobHandle, error) {
+	return jobdb.JobHandle{}, fmt.Errorf("submitting restart jobs is not supported during validation")
 }
 
 func wrapValidationContext(ctx workflow.Context, commitContext contextual.GitCommitContext, resolvedSelectors map[string]string, resolvedGitRefs map[string]string) workflow.Context {
@@ -300,4 +300,11 @@ func (v *validationJobContext) AwaitGoals(ids ...string) ([]jobdb.DependencyReso
 		return nil, nil
 	}
 	return v.inner.AwaitGoals(ids...)
+}
+
+func (v *validationJobContext) Job() jobdb.JobHandle {
+	if v.inner == nil {
+		return jobdb.JobHandle{}
+	}
+	return v.inner.Job()
 }

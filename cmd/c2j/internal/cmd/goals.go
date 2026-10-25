@@ -67,5 +67,6 @@ func newGoalsCmd() *cobra.Command {
 		}
 		root.AddCommand(command)
 	}
+	root.AddCommand(newGoalListCmd(&uri), newGoalWaitsCmd(&uri), newGoalWaitCmd(&uri))
 	return root
 }

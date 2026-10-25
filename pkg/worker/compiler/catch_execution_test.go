@@ -566,3 +566,7 @@ func (c *catchScriptedJobContext) Context() testContext { return testBackground(
 func (c *catchScriptedJobContext) ExecutionVersions() jobdb.ExecutionVersions {
 	return jobdb.ExecutionVersions{}
 }
+
+func (c *catchScriptedJobContext) Job() jobdb.JobHandle {
+	return jobdb.JobHandle{JobKey: c.GetJobKey()}
+}

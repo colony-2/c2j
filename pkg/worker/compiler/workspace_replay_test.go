@@ -138,11 +138,11 @@ sequence:
 	require.Empty(t, stub.entries)
 }
 
-func (*workspaceReplayContext) SubmitJob(context.Context, jobdb.SubmitJob) (jobdb.JobKey, error) {
-	return jobdb.JobKey{}, fmt.Errorf("unexpected submit")
+func (*workspaceReplayContext) SubmitJob(context.Context, jobdb.SubmitJob) (jobdb.JobHandle, error) {
+	return jobdb.JobHandle{}, fmt.Errorf("unexpected submit")
 }
-func (*workspaceReplayContext) SubmitRestartJob(context.Context, jobdb.SubmitRestartJob) (jobdb.JobKey, error) {
-	return jobdb.JobKey{}, fmt.Errorf("unexpected restart")
+func (*workspaceReplayContext) SubmitRestartJob(context.Context, jobdb.SubmitRestartJobRequest) (jobdb.JobHandle, error) {
+	return jobdb.JobHandle{}, fmt.Errorf("unexpected restart")
 }
 
 func (c *workspaceReplayContext) DoScope(site string, opts testScopeOptions, body func(testExecutionContext) (jobdb.JobData, error)) (jobdb.JobData, error) {
@@ -160,3 +160,5 @@ func (*workspaceReplayContext) AwaitGoals(...string) ([]jobdb.DependencyResoluti
 func (*workspaceReplayContext) AwaitDependencies(...jobdb.Dependency) ([]jobdb.DependencyResolution, error) {
 	return nil, fmt.Errorf("unexpected AwaitDependencies in test context")
 }
+
+func (c *workspaceReplayContext) Job() jobdb.JobHandle { return jobdb.JobHandle{JobKey: c.GetJobKey()} }

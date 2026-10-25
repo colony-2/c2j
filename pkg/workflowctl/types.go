@@ -28,6 +28,7 @@ type JobInspector interface {
 }
 
 type JobInspection struct {
+	BlockingWait   *jobdb.DependencyWaitInfo
 	GoalID         string
 	OtherGoalIDs   []string
 	JobKey         jobdb.JobKey

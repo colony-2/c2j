@@ -69,8 +69,8 @@ func (j *TaskBasedJobTool) SubmitJobRef(ctx context.Context, job jobdb.SubmitJob
 	return scope.Submit(ctx, job)
 }
 func (j *TaskBasedJobTool) GetJobRef() jobref.Ref {
-	scope, _ := jobref.FromContext(gitprofile.TaskContext(j.TaskContext))
-	return scope.Current
+	h := j.TaskContext.Job()
+	return jobref.Ref{TenantID: h.JobKey.TenantId, JobID: h.JobKey.JobId, GoalID: h.GoalID}
 }
 func (j *TaskBasedJobTool) AwaitDependencies(deps ...jobdb.Dependency) ([]jobdb.DependencyResolution, error) {
 	return j.TaskContext.AwaitDependencies(deps...)

@@ -349,3 +349,5 @@ func (c *countingJobContext) Context() testContext { return testBackground() }
 func (c *countingJobContext) ExecutionVersions() jobdb.ExecutionVersions {
 	return jobdb.ExecutionVersions{}
 }
+
+func (c *countingJobContext) Job() jobdb.JobHandle { return jobdb.JobHandle{JobKey: c.GetJobKey()} }

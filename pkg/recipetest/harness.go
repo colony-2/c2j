@@ -907,11 +907,11 @@ func (j *testJobContext) Yield(context.Context, jobworkflow.YieldRequest) error 
 func (j *testJobContext) GetJobKey() jobdb.JobKey              { return j.jobKey }
 func (j *testJobContext) Logger() *slog.Logger                 { return nil }
 func (j *testJobContext) AwaitDuration(_ jobdb.Duration) error { return nil }
-func (j *testJobContext) SubmitJob(context.Context, jobdb.SubmitJob) (jobdb.JobKey, error) {
-	return jobdb.JobKey{}, fmt.Errorf("submitting jobs is not supported by recipe test context")
+func (j *testJobContext) SubmitJob(context.Context, jobdb.SubmitJob) (jobdb.JobHandle, error) {
+	return jobdb.JobHandle{}, fmt.Errorf("submitting jobs is not supported by recipe test context")
 }
-func (j *testJobContext) SubmitRestartJob(context.Context, jobdb.SubmitRestartJob) (jobdb.JobKey, error) {
-	return jobdb.JobKey{}, fmt.Errorf("submitting restart jobs is not supported by recipe test context")
+func (j *testJobContext) SubmitRestartJob(context.Context, jobdb.SubmitRestartJobRequest) (jobdb.JobHandle, error) {
+	return jobdb.JobHandle{}, fmt.Errorf("submitting restart jobs is not supported by recipe test context")
 }
 
 func (j *testJobContext) VarsResolved(scope template.ScopeType, nodePath string, vars map[string]interface{}) {
@@ -1936,3 +1936,5 @@ func (j *testJobContext) AwaitDependencies(deps ...jobdb.Dependency) ([]jobdb.De
 func (j *testJobContext) AwaitGoals(ids ...string) ([]jobdb.DependencyResolution, error) {
 	return nil, fmt.Errorf("unmocked goal wait in recipe test")
 }
+
+func (j *testJobContext) Job() jobdb.JobHandle { return jobdb.JobHandle{JobKey: j.GetJobKey()} }

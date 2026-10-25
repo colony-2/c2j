@@ -1,9 +1,11 @@
 # Goal-oriented execution in c2j and Cortex
 
-Status: implementation outline, 2026-10-24. Core goal execution is implemented;
-tenant-wide goal enumeration and reverse waiter discovery need additional JobDB
-APIs. The execution contract and current interfaces are documented in
-C2J_GOALS_GUIDE.md.
+Status: updated 2026-10-25. Core goal execution is implemented. JobDB has now
+provided goal enumeration, dependency discovery, and complete SDK identities;
+c2j now exposes those APIs and uses native SDK identities. Cortex goal browsing
+and reverse waiter discovery still need integration. c2j pins JobDB main commit
+`86ac742286156ce9f38305b4c8b613df70856095`
+(`v0.0.54-0.20261025173555-86ac74228615`).
 
 Use goals as the normal dependency for obtaining successful child results. Keep
 jobs as the identity of concrete executions, histories, artifacts, and actions.
@@ -15,10 +17,11 @@ new contract need to run, restart, recover, or replay. Change public APIs and
 recipe inputs directly, and update their callers together. No compatibility
 adapters, old-history support, dual semantics, or data migration are required.
 
-Implementation uses JobDB v0.0.53. Cortex now includes goal lookup, candidate
+The basic Cortex patch includes goal lookup, candidate
 pagination, winner and failure details, goal navigation from jobs, lifecycle
 actions, and explicit restart goal selection. Tenant-wide goal enumeration and
-reverse waiter discovery remain follow-ups pending JobDB API support.
+reverse waiter discovery now require integration with the supplied JobDB APIs,
+not further backend feature requests.
 
 ## 1. Semantics and recommended defaults
 
@@ -68,11 +71,12 @@ and goal ID. No follow-up `GetJob` call, enrichment step, or lookup adapter.
 
 Update these paths together:
 
-- JobDB workflow SDK submission/restart methods that currently return `JobKey`.
+- Calls to the new JobDB SDK submission/restart methods returning `JobHandle`;
+  restart takes the full `SubmitRestartJobRequest` with its request ID.
 - Public submit helpers in `pkg/recipejob`, `pkg/starter`, and `pkg/jobdbschema`.
 - `workflowctl.StartJob`, task-backed submission, and recipe child launchers.
-- Restricted submission in `pkg/permissions` and `pkg/executionruntime`, which
-  currently reduces the returned handle to its job key.
+- Restricted submission in `pkg/permissions` and `pkg/executionruntime`,
+  preserving complete references and existing lease enforcement.
 - Child broker replies and recording, CLI submit JSON, invocation-scoped child
   discovery, multi-child results, and child groups.
 - Job listing and inspection, including primary `goal_id` and `other_goal_ids`.
@@ -316,14 +320,30 @@ repository. Never build an authoritative goal status or complete candidate count
 by grouping only the current page of job results. Handle hidden/unavailable jobs
 explicitly without changing a recorded winner or misreporting an empty goal.
 
-The supplied guide documents goal lookup, candidates, job goal filters, and
-individual dependency-wait inspection. It does not establish a tenant-wide
-paginated goal enumeration API or a reverse index of waiting consumers. Confirm
-those interfaces in the goal-enabled JobDB revision. If absent, request goal
-listing/filtering and reverse waiter discovery, or specify a rebuildable indexed
-read projection; do not hide full-table scans behind Cortex pagination. JobDB
-remains authoritative for goal state and bindings. Basic get/candidate views can
-ship first, but a complete goal browser is a required delivery item.
+JobDB now supplies `ListGoals` with authoritative records and live counts over
+all primary/additional memberships, including archived and hidden jobs. Candidate
+filters select goals, but counts still describe the whole goal. Nonterminal
+includes ready, running, and blocked jobs; unavailable identities have a separate
+count. Counts may change without a goal revision or update-time change.
+
+`ListDependencyWaits` by consumer returns current and retained historical waits.
+Reverse lookup by goal/job target returns only unresolved edges in pending waits;
+there is no historical reverse query. Resolving one target removes that edge even
+if other targets still block the wait. Use the consumer or known wait ID for
+history and bindings. Reads project elapsed deadlines as `TIMED_OUT` and exclude
+those waits from reverse results without changing persisted history.
+
+Use `BlockingWait` from job info/summaries/run outcomes for current structured
+wait diagnostics. Forward both discovery methods through the expanded
+`GoalRuntime` wrappers. Cursors are tenant/filter-bound; pages are live reads,
+default to 100, and cap at 200. Reset cursors when filters change. Do not build a
+parallel goal index or scan histories to replace these APIs.
+
+Adopt native SDK `JobHandle` submissions, full restart requests, execution/task
+`Job()` identity, and `JobRunSummary` goal fields. Remove low-level identity
+workarounds while retaining centralized lease handling. c2j now implements
+these changes, including `goals list`, `goals waits`, and `goals wait JOB WAIT`.
+Cortex must adopt the updated c2j interfaces; the basic patch predates them.
 
 ## 9. Cortex experience
 
