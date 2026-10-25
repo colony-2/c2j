@@ -210,8 +210,10 @@ func (c *opDepImpl) NextTaskType() (string, bool) {
 }
 
 // SuspendExecution attaches a continuation directive to the durable activity
-// result. Return normally after requesting it; dependent recipe work resumes
-// only after a new execution invocation. It does not migrate in-memory work.
+// result. Return normally after requesting it. Subsequent unfinished work runs
+// immediately if the executor satisfies the updated requirements; otherwise it
+// yields with those requirements published for scheduling. Replay reapplies the
+// directive from the cached result without executing the activity again.
 func SuspendExecution(deps OpDependencies, patch execution.Requirements) error {
 	setter, ok := deps.(interface {
 		SetExecutionRequirements(execution.Requirements) error

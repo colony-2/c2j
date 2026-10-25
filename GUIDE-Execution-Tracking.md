@@ -140,7 +140,7 @@ An image/config ID or an unverified launch reference cannot prove that match.
 If the environment is insufficient, c2j yields before dependent recipe work
 and emits an `environment_required` JSON event. It includes `job`, `demand`,
 `allocation`, `mismatches`, and `published`. The demand contains effective
-requirements and the actual allocation reported for that handoff. No replacement
+requirements; `allocation` separately reports the current executor. No replacement
 recipe or job is created.
 
 Targeted and supplied-lease runs return promptly, so a dispatcher can select
@@ -149,9 +149,9 @@ mean the job completed. Run output may also contain non-JSON progress lines.
 
 Resume by running the same job ID with sufficient actual allocation. Repeated
 attempts with insufficient allocation yield again without rewriting an
-already-published snapshot (`published: false`). An explicit new requirement
-change always yields, even if the current allocation is large enough; the next
-invocation may use the same environment.
+already-published snapshot (`published: false`). A requirement change proceeds
+immediately when the current allocation satisfies the next unfinished task.
+There is no handoff merely because a directive changed requirements.
 
 For deferred recipes, the provisioner need not resolve or advance the recipe.
 It can start a default environment when metadata is unresolved, honoring any
@@ -177,16 +177,20 @@ The helper is from `github.com/colony-2/c2j/pkg/ops`; the value types are from
 `github.com/colony-2/c2j/pkg/execution`. Use it with operation dependencies
 supplied by c2j. It records a directive, not an immediate Go-function suspension:
 return without doing work that needs the new environment. Put that work in
-the next durable operation step. c2j records the result, then yields before
-executing that step. If the operation fails, its directive is not accepted as
+the next durable operation step. c2j records the result, then checks requirements
+before executing that step and yields only when the environment is insufficient. If the operation fails, its directive is not accepted as
 a successful continuation.
 
-Replay reuses the recorded result and skips already-accepted directives without
-restoring stale requirements. Legacy inline `execution` declarations apply to
+Replay starts with the original submission overrides and reapplies directives
+from cached results in order. Cached tasks require no environment checks. Legacy inline `execution` declarations apply to
 the same job at the inclusion boundary and remain in effect afterward. Scoped
 `execution_needs` instead restores the enclosing needs on exit. Separately
 submitted child jobs have independent requirements.
-Explicit restarts preserve the execution snapshot and accepted checkpoints.
+Explicit restarts initialize the scheduling hint from the original requirements
+saved in job metadata. They never copy the old job's latest execution payload.
+The restarted worker reconstructs changes only from retained history before the
+selected scope, then checks the requirements of unfinished work. Restart
+submission does not load or compile the recipe.
 
 ### Read and filter requirements
 
@@ -198,8 +202,9 @@ For waiting jobs, ordinary and child-job JSON listings include an `execution` vi
 
 These are submission/latest-handoff snapshots, not live telemetry. Waiting
 statuses are `READY`, `PENDING_JOBS`, `AWAITING_FUTURE`, `EXPIRED`, and
-`CRASH_CONCERN`. A saved `last_handoff_allocation` is historical, not evidence
-of a current executor; recovery still reconstructs the unfinished task.
+`CRASH_CONCERN`. The snapshot contains effective requirements and resolution
+status, without recipe digests, node overlays, directive checkpoints, or saved
+allocations. Recovery reconstructs the unfinished task's requirements.
 
 Running jobs report `execution.status: in_flight` without a demand or initial
 snapshot, because their scope needs may have changed without publication.

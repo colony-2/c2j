@@ -78,7 +78,7 @@ func BuildStartJob(req BuildStartJobRequest) (workflowctl.StartJob, error) {
 		submittedAt = req.SubmittedAt.UTC()
 	}
 
-	initial, err := execution.Initial(nil, "", req.ExecutionRequirements)
+	initial, err := execution.Initial(nil, false, req.ExecutionRequirements)
 	if err != nil {
 		return workflowctl.StartJob{}, err
 	}

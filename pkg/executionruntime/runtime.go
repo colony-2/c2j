@@ -1,4 +1,4 @@
-// Package executionruntime fences actual executor compatibility at lease entry
+// Package executionruntime checks actual executor compatibility before live tasks
 // and carries resolved demand through ordinary workflow reschedules. It does
 // not change JobDB's lease selection or add a separate persistence store.
 package executionruntime
@@ -184,15 +184,8 @@ func (l *lease) prepareReschedule(req jobdb.RescheduleExecutionRequest) (jobdb.R
 		if err != nil {
 			return req, nil, false, err
 		}
-		if current == nil || (d.NodeRequirements != nil && !sameDemand(*current, *d)) {
+		if current == nil || !reflect.DeepEqual(*current, *d) {
 			copy := *d
-			if copy.NodeRequirements != nil {
-				if current != nil && copy.Revision < current.Revision {
-					copy.Revision = current.Revision
-				}
-				copy.Revision++
-			}
-			copy.LastAllocation = &l.runtime.Allocation
 			raw, err := execution.PayloadWithDemand(l.ClientPayload(), copy)
 			if err != nil {
 				return req, nil, false, err
@@ -204,12 +197,6 @@ func (l *lease) prepareReschedule(req jobdb.RescheduleExecutionRequest) (jobdb.R
 		return req, current, false, nil
 	}
 	return req, d, false, nil
-}
-
-func sameDemand(a, b execution.Demand) bool {
-	a.Revision, b.Revision = 0, 0
-	a.LastAllocation, b.LastAllocation = nil, nil
-	return reflect.DeepEqual(a, b)
 }
 
 func (l *lease) Reschedule(ctx context.Context, req jobdb.RescheduleExecutionRequest) error {

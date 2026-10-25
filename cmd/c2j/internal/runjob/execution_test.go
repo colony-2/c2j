@@ -20,13 +20,15 @@ import (
 )
 
 func TestRunReportsEnvironmentHandoffAndResumes(t *testing.T) {
+	c2jops.Register()
 	rt := toy.New()
 	ctx := context.Background()
 	engine, err := jobworkflow.NewEngineBuilder().WithRuntime(rt).BuildEngine()
 	require.NoError(t, err)
-	r, err := recipe.LoadRecipeFromString([]byte("id: resources\nexecution:\n  resources:\n    memory: 16Gi\nsequence: []\n"))
+	r, err := recipe.LoadRecipeFromString([]byte("id: resources\nexecution:\n  resources:\n    memory: 16Gi\nop: command_execution\ninputs: {run: 'true'}\n"))
 	require.NoError(t, err)
-	keyRef, err := starter.StartRecipeJob(ctx, workflowctl.StartJob{TenantId: "tenant", RecipeName: "resources"}, jobdbschema.WorkflowEngine{Engine: engine, Registry: rt}, *r)
+	jobContext, git := compiler.GenerateTestContext()
+	keyRef, err := starter.StartRecipeJob(ctx, workflowctl.StartJob{TenantId: "tenant", RecipeName: "resources", JobContext: jobContext, GitRef: git.ParentRef}, jobdbschema.WorkflowEngine{Engine: engine, Registry: rt}, *r)
 	key := keyRef.Key()
 	require.NoError(t, err)
 	server := httptest.NewServer(remote.NewServer(rt))

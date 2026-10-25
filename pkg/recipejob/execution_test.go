@@ -29,7 +29,7 @@ func (l *pagedExecutionLister) ListJobs(_ context.Context, req jobdb.ListJobsReq
 	return resp, nil
 }
 func summaryWithMemory(t *testing.T, id, memory string) jobdb.JobSummary {
-	d, err := execution.Initial(nil, "pinned", execution.Requirements{Resources: execution.Resources{Memory: &memory}})
+	d, err := execution.Initial(nil, true, execution.Requirements{Resources: execution.Resources{Memory: &memory}})
 	require.NoError(t, err)
 	meta, err := json.Marshal(map[string]any{"v": 1, "recipe": "test", "execution": d})
 	require.NoError(t, err)

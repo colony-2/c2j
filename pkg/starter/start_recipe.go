@@ -50,16 +50,16 @@ const (
 )
 
 type JobMetadata struct {
-	Execution        *execution.Demand `json:"execution,omitempty"`
-	InputHash        string            `json:"input_hash,omitempty"`
-	SubmittedAt      *time.Time        `json:"submitted_at,omitempty"`
-	Version          int               `json:"v"`
-	RecipeName       string            `json:"recipe,omitempty"`
-	Prompt           string            `json:"prompt,omitempty"`
-	CellID           string            `json:"cell_id,omitempty"`
-	CellName         string            `json:"cell_name,omitempty"`
-	RepositorySource string            `json:"repo,omitempty"`
-	GitRef           string            `json:"git_ref,omitempty"`
+	Execution        *execution.Submission `json:"execution,omitempty"`
+	InputHash        string                `json:"input_hash,omitempty"`
+	SubmittedAt      *time.Time            `json:"submitted_at,omitempty"`
+	Version          int                   `json:"v"`
+	RecipeName       string                `json:"recipe,omitempty"`
+	Prompt           string                `json:"prompt,omitempty"`
+	CellID           string                `json:"cell_id,omitempty"`
+	CellName         string                `json:"cell_name,omitempty"`
+	RepositorySource string                `json:"repo,omitempty"`
+	GitRef           string                `json:"git_ref,omitempty"`
 
 	ParentTenantID           string `json:"parent_tenant_id,omitempty"`
 	ParentGoalID             string `json:"parent_goal_id,omitempty"`
@@ -138,7 +138,7 @@ func StartRecipeJobWithOptions(ctx context.Context, startJob workflowctl.StartJo
 		return jobref.Ref{}, fmt.Errorf("submitter must preserve the complete job reference")
 	}
 
-	initial, err := execution.Initial(nil, "", opts.ExecutionRequirements)
+	initial, err := execution.Initial(nil, false, opts.ExecutionRequirements)
 	if err != nil {
 		return jobref.Ref{}, err
 	}
@@ -148,7 +148,7 @@ func StartRecipeJobWithOptions(ctx context.Context, startJob workflowctl.StartJo
 		}
 		initial = *startJob.Execution
 	}
-	initial, err = execution.Initial(initial.RecipeBase, initial.RecipeDigest, execution.Overlay(initial.JobRequirements, opts.ExecutionRequirements))
+	initial, err = execution.Initial(nil, false, execution.Overlay(initial.JobRequirements, opts.ExecutionRequirements))
 	if err != nil {
 		return jobref.Ref{}, err
 	}
@@ -185,15 +185,11 @@ func StartRecipeJobWithOptions(ctx context.Context, startJob workflowctl.StartJo
 			}
 			startJob.Inputs = inputs
 
-			digest, digestErr := recipe.ExecutionDigest(r)
-			if digestErr != nil {
-				return jobref.Ref{}, digestErr
-			}
-			initial, err = execution.Initial(r.GetMetdata().Execution, digest, execution.Overlay(initial.JobRequirements, opts.ExecutionRequirements))
+			initial, err = execution.Initial(r.GetMetdata().Execution, true, initial.JobRequirements)
 			if recipe.HasExecutionNeeds(r) {
 				// The next task's scope can override the root and depend on prior
 				// outputs. Do not advertise a guessed frontier at submission.
-				initial, err = execution.Initial(nil, "", execution.Overlay(initial.JobRequirements, opts.ExecutionRequirements))
+				initial, err = execution.Initial(nil, false, initial.JobRequirements)
 			}
 			if err != nil {
 				return jobref.Ref{}, err
@@ -280,26 +276,35 @@ func RestartRecipeJob(ctx context.Context, engine any, prior jobdb.JobKey, scope
 	}
 	req := jobdb.SubmitRestartJob{PriorJobKey: prior, ExecutionRestart: &jobdb.ExecutionRestart{ScopeID: scopeID}}
 	reader, ok := engine.(interface {
-		GetJob(context.Context, jobdb.JobKey) (jobdb.JobInfo, error)
+		ListJobs(context.Context, jobdb.ListJobsRequest) (jobdb.ListJobsResponse, error)
 	})
 	if !ok {
-		return jobref.Ref{}, fmt.Errorf("restart reader is unavailable")
+		return jobref.Ref{}, fmt.Errorf("restart metadata reader is unavailable")
 	}
-	priorInfo, err := reader.GetJob(ctx, prior)
+	jobs, err := reader.ListJobs(ctx, jobdb.ListJobsRequest{
+		TenantIds: []string{prior.TenantId}, JobKeys: []jobdb.JobKey{prior},
+		Stores: []jobdb.JobStore{jobdb.JobStoreActive, jobdb.JobStoreArchived}, PageSize: 1,
+	})
 	if err != nil {
 		return jobref.Ref{}, err
 	}
-	if demand, err := execution.PayloadDemand(priorInfo.ClientPayload); err != nil {
-		return jobref.Ref{}, err
-	} else if demand != nil {
-		// Only this client's execution namespace is inherited; unrelated client
-		// data follows JobDB's explicit-initialization restart policy.
-		raw, err := execution.PayloadWithDemand(nil, *demand)
+	if len(jobs.Jobs) != 1 {
+		return jobref.Ref{}, fmt.Errorf("restart source job: %w", jobdb.ErrJobNotFound)
+	}
+	// Restart from the original scheduling hint, never the prior job's latest
+	// demand: the selected scope may precede any of its runtime changes.
+	initial := execution.Inspect(jobs.Jobs[0].Metadata, nil)
+	if initial.Diagnostic != "" {
+		return jobref.Ref{}, fmt.Errorf("initial execution requirements: %s", initial.Diagnostic)
+	}
+	if initial.Initial != nil {
+		raw, err := execution.PayloadWithDemand(nil, initial.Initial.Demand)
 		if err != nil {
 			return jobref.Ref{}, err
 		}
 		req.ClientPayloadUpdate = &jobdb.ClientPayloadUpdate{Mode: "reset", Value: raw}
 	}
+
 	if err := jobdbschema.SetSubmitRestartJobSchema(&req); err != nil {
 		return jobref.Ref{}, err
 	}

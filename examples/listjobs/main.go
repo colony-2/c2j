@@ -68,7 +68,7 @@ func run() error {
 			if view.Status == "specified" && view.Demand != nil {
 				// A scheduler can inspect view.Demand.Effective here. This example
 				// only reports the snapshot; it never provisions or claims jobs.
-				fmt.Fprintf(os.Stderr, "job %s: execution revision %d\n", job.JobID, view.Demand.Revision)
+				fmt.Fprintf(os.Stderr, "job %s: execution requirements from %s\n", job.JobID, view.Source)
 			}
 		}
 		if err := json.NewEncoder(os.Stdout).Encode(page); err != nil {

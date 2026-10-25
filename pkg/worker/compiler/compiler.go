@@ -173,8 +173,10 @@ func (d DefaultRecipeExecutor) ExecuteRecipe(ctx workflow.Context, r recipe.Reci
 	if base := r.GetMetdata().Execution; base != nil && len(base.Packages) > 0 {
 		rCtx.ToolScopes = append(rCtx.ToolScopes, toolenv.Scope{ID: "recipe", Packages: base.Packages})
 	}
-	if len(ctx.JobPackages) > 0 {
-		rCtx.ToolScopes = append(rCtx.ToolScopes, toolenv.Scope{ID: "job", Packages: ctx.JobPackages})
+	if ctx.JobPackages != nil {
+		// Keep the job scope's precedence while refreshing its packages for each
+		// live step from directives reconstructed during replay.
+		rCtx.ToolScopes = append(rCtx.ToolScopes, toolenv.Scope{ID: "job"})
 	}
 
 	metadata := r.GetMetadata().NodeMetadata
@@ -265,11 +267,11 @@ func normalizeOpPathAlias(op *string, host string, hostSentinel string, opSentin
 // ExecuteWorkflow implements the WorkflowExecutor interface for unified recipes
 func (d DefaultRecipeExecutor) ExecuteNode(ctx workflow.Context, parentResCtx *template.ResolutionContext, n *recipe.Node) error {
 	metadata := n.GetMetadata()
-	if metadata.Internal != nil && metadata.Internal.Inline != nil && metadata.Internal.Inline.Execution != nil && !metadata.Internal.Inline.Execution.Empty() && ctx.SuspendExecution != nil {
+	if metadata.Internal != nil && metadata.Internal.Inline != nil && metadata.Internal.Inline.Execution != nil && !metadata.Internal.Inline.Execution.Empty() && ctx.UpdateExecution != nil {
 		patch := *metadata.Internal.Inline.Execution
 		patch.Packages = nil
 		if !patch.Empty() {
-			if err := ctx.SuspendExecution(ctx.JobContext, "inline:"+metadata.Internal.Inline.CallsitePath, patch); err != nil {
+			if err := ctx.UpdateExecution(patch); err != nil {
 				return err
 			}
 		}
@@ -432,7 +434,6 @@ func (d DefaultRecipeExecutor) executeOpAttempt(ctx workflow.Context, parentReso
 	}
 
 	var stepInput, initialStepInput map[string]interface{}
-	preparation := workerops.PreparationRequest{Extension: extensionRequest, Scopes: append([]toolenv.Scope(nil), resCtx.ToolScopes...)}
 	// Execute the operation
 	retry := jobdb.RetryPolicy{MaximumAttempts: 1}
 	if metadata.Retry != nil {
@@ -515,6 +516,16 @@ func (d DefaultRecipeExecutor) executeOpAttempt(ctx workflow.Context, parentReso
 					}
 					invocationKeys = acc.Keys()
 				}
+				preparation := workerops.PreparationRequest{Extension: extensionRequest}
+				for _, scope := range resCtx.ToolScopes {
+					if scope.ID == "job" && ctx.JobPackages != nil {
+						scope.Packages = append([]string(nil), ctx.JobPackages()...)
+						if len(scope.Packages) == 0 {
+							continue
+						}
+					}
+					preparation.Scopes = append(preparation.Scopes, scope)
+				}
 				invocation := workerops.ActivityInvocationRequest{
 					GitProfile:     resCtx.GitProfile,
 					Preparation:    preparation,
@@ -560,8 +571,8 @@ func (d DefaultRecipeExecutor) executeOpAttempt(ctx workflow.Context, parentReso
 					return fmt.Errorf("activity result belongs to workspace %q, expected %q", decoded.Activity.WorkspaceScopeID, ws.ScopeID)
 				}
 				resCtx.UpdateGitState(decoded.Activity.GitResult)
-				if decoded.Activity.Execution != nil && ctx.SuspendExecution != nil {
-					if err := ctx.SuspendExecution(ctx.JobContext, "activity:"+taskType, *decoded.Activity.Execution); err != nil {
+				if decoded.Activity.Execution != nil && ctx.UpdateExecution != nil {
+					if err := ctx.UpdateExecution(*decoded.Activity.Execution); err != nil {
 						return err
 					}
 				}

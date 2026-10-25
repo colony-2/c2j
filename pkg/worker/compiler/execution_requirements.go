@@ -1,179 +1,96 @@
 package compiler
 
 import (
-	"context"
-	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"reflect"
 
 	"github.com/colony-2/c2j/pkg/execution"
 	"github.com/colony-2/c2j/pkg/recipe"
-	"github.com/colony-2/c2j/pkg/starter"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
 )
 
 type ExecutionHandoff = execution.Handoff
 
+// Each invocation reconstructs requirements from input and durable results.
+// Published payloads are scheduling hints and are never restored into replay.
 type executionSession struct {
-	ctx        jobworkflow.ExecutionContext
-	demand     execution.Demand
-	allocation execution.Allocation
-	stage      func(jobdb.JobKey, execution.Demand)
-	checkpoint int
+	ctx       jobworkflow.ExecutionContext
+	base      execution.Requirements
+	node      execution.Requirements
+	overrides execution.Requirements
+	stage     func(jobdb.JobKey, execution.Demand)
+	guarded   bool
 }
 
-func (j recipeJobWorker) executionSession(ctx jobworkflow.ExecutionContext, r recipe.Recipe, initial *execution.Demand) (*executionSession, error) {
+func (j recipeJobWorker) executionSession(ctx jobworkflow.ExecutionContext, r recipe.Recipe, initial *execution.Submission) (*executionSession, error) {
 	if recipe.HasPermissions(r) && !j.taskGuardConfigured {
 		return nil, fmt.Errorf("perms requires an execution-aware runtime and guarded task workers")
 	}
-	a := j.allocation
-	if a.SchemaVersion == 0 {
-		a.SchemaVersion = execution.SchemaVersion
-	}
-	a, err := a.Normalize()
-	if err != nil {
-		return nil, err
-	}
-	overrides := execution.Requirements{}
+	s := &executionSession{ctx: ctx, stage: j.stageExecution, guarded: j.stageExecution != nil && j.taskGuardConfigured}
 	if initial != nil {
 		if err := initial.Validate(); err != nil {
 			return nil, err
 		}
-		overrides = initial.JobRequirements
+		s.overrides = execution.Overlay(initial.JobRequirements, execution.Requirements{})
 	}
-	digest, err := recipe.ExecutionDigest(r)
-	if err != nil {
-		return nil, err
-	}
-	d, err := execution.Initial(r.GetMetdata().Execution, digest, overrides)
-	if err != nil {
-		return nil, err
-	}
-	if initial != nil && initial.RecipeResolution == "resolved" && initial.RecipeDigest != d.RecipeDigest {
-		return nil, fmt.Errorf("initial execution recipe digest disagrees with pinned recipe")
-	}
-	current, err := execution.PayloadDemand(ctx.ClientPayload())
-	if err != nil {
-		return nil, err
-	}
-	if current != nil {
-		if current.RecipeDigest != d.RecipeDigest || !reflect.DeepEqual(current.RecipeBase, d.RecipeBase) {
-			return nil, fmt.Errorf("published execution demand disagrees with pinned recipe")
+	if base := r.GetMetadata().Execution; base != nil {
+		var err error
+		s.base, err = base.Normalize()
+		if err != nil {
+			return nil, err
 		}
-		d = *current
 	}
-	s := &executionSession{ctx: ctx, demand: d, allocation: a, stage: j.stageExecution}
-	if recipe.HasExecutionConstraints(r) {
-		if j.stageExecution == nil || !j.taskGuardConfigured {
-			return nil, fmt.Errorf("execution_needs requires an execution-aware runtime and guarded task workers")
-		}
-		// The recipe must replay before selecting the next live task's scope.
-		// The last published scope may belong to already-completed work.
-		return s, nil
+	if (recipe.HasExecutionConstraints(r) || needsAllocation(s.effective())) && !s.guarded {
+		return nil, fmt.Errorf("execution requirements require an execution-aware runtime and guarded task workers")
 	}
 	s.stageCurrent()
-	m, err := execution.Compare(d.Effective, a)
-	if err != nil {
-		return nil, err
-	}
-	if len(m) > 0 {
-		return nil, s.yield(ctx, current == nil, m)
-	}
 	return s, nil
 }
 
+func needsAllocation(r execution.Requirements) bool {
+	r.Packages = nil
+	return !r.Empty()
+}
+
+func (s *executionSession) effective() execution.Requirements {
+	return execution.Overlay(execution.Overlay(s.base, s.node), s.overrides)
+}
 func (s *executionSession) stageCurrent() {
 	if s.stage != nil {
-		s.stage(s.ctx.GetJobKey(), s.demand)
+		s.stage(s.ctx.GetJobKey(), execution.Demand{SchemaVersion: execution.DemandSchemaVersion, RecipeResolution: "resolved", Effective: s.effective()})
 	}
 }
-
 func (s *executionSession) stageNode(needs execution.Requirements) {
-	copy := execution.Overlay(needs, execution.Requirements{})
-	s.demand.NodeRequirements = &copy
-	s.recomputeEffective()
+	s.node = execution.Overlay(needs, execution.Requirements{})
 	s.stageCurrent()
-}
-
-func (s *executionSession) recomputeEffective() {
-	base := execution.Requirements{}
-	if s.demand.RecipeBase != nil {
-		base = *s.demand.RecipeBase
-	}
-	if s.demand.NodeRequirements != nil {
-		base = execution.Overlay(base, *s.demand.NodeRequirements)
-	}
-	s.demand.Effective = execution.Overlay(base, s.demand.JobRequirements)
 }
 
 type executionControlError struct{ error }
 
 func (e *executionControlError) Unwrap() error { return e.error }
-
 func isExecutionControlError(err error) bool {
 	var control *executionControlError
 	return errors.As(err, &control)
 }
 
-func (s *executionSession) suspend(ctx jobworkflow.ExecutionContext, site string, patch execution.Requirements) (result error) {
-	defer func() {
-		if result != nil {
-			result = &executionControlError{result}
-		}
-	}()
+// apply reconstructs a durable directive even when its task result was cached.
+// Only the guarded worker for unfinished work checks allocation and may yield.
+func (s *executionSession) apply(patch execution.Requirements) error {
 	p, err := patch.Normalize()
 	if err != nil {
-		return err
+		return &executionControlError{err}
 	}
 	if p.Empty() {
-		return fmt.Errorf("execution suspension requires a nonempty patch")
+		return &executionControlError{fmt.Errorf("execution change requires a nonempty patch")}
 	}
-	s.checkpoint++
-	key := fmt.Sprintf("%d:%s", s.checkpoint, site)
-	data, err := json.Marshal(p)
-	if err != nil {
-		return err
+	if needsAllocation(p) && !s.guarded {
+		return &executionControlError{fmt.Errorf("execution requirements require an execution-aware runtime and guarded task workers")}
 	}
-	hash := fmt.Sprintf("%x", sha256.Sum256(data))
-	if prior, ok := s.demand.Checkpoints[key]; ok {
-		if prior != hash {
-			return fmt.Errorf("execution checkpoint %q changed during replay", key)
-		}
-		return nil
-	}
-	if s.demand.Checkpoints == nil {
-		s.demand.Checkpoints = map[string]string{}
-	}
-	s.demand.Checkpoints[key] = hash
-	s.demand.JobRequirements = execution.Overlay(s.demand.JobRequirements, p)
-	s.recomputeEffective()
-	s.demand.Revision++
-	m, err := execution.Compare(s.demand.Effective, s.allocation)
-	if err != nil {
-		return err
-	}
-	return s.yield(ctx, true, m)
-}
-
-func (s *executionSession) yield(ctx jobworkflow.ExecutionContext, publish bool, mismatches []execution.Mismatch) error {
-	req := jobdb.RescheduleExecutionRequest{NextRoute: jobdb.Route{JobType: starter.RecipeJobType}}
-	if publish {
-		s.demand.LastAllocation = &s.allocation
-		raw, err := execution.PayloadWithDemand(s.ctx.ClientPayload(), s.demand)
-		if err != nil {
-			return err
-		}
-		revision := s.ctx.ClientPayloadRevision()
-		req.ClientPayloadUpdate = &jobdb.ClientPayloadUpdate{Mode: "reset", Value: raw, ExpectedRevision: &revision}
-	}
-	metadata, err := json.Marshal(ExecutionHandoff{Kind: "environment_required", JobKey: s.ctx.GetJobKey(), Demand: s.demand, Allocation: s.allocation, Mismatches: mismatches, Published: publish})
-	if err != nil {
-		return err
-	}
-	return ctx.Yield(context.Background(), jobworkflow.YieldRequest{Reschedule: req, Metadata: metadata})
+	s.overrides = execution.Overlay(s.overrides, p)
+	s.stageCurrent()
+	return nil
 }
 
 // ExecutionHandoffFromOutcome decodes only this run's acknowledged environment

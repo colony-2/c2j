@@ -63,9 +63,9 @@ func TestJobRowUsesTypedRouteAndTaskCoordinates(t *testing.T) {
 
 func TestExecutionRowDoesNotExposeInFlightNeeds(t *testing.T) {
 	memory := "16Gi"
-	demand, err := execution.Initial(nil, "pinned", execution.Requirements{Resources: execution.Resources{Memory: &memory}})
+	demand, err := execution.Initial(nil, true, execution.Requirements{Resources: execution.Resources{Memory: &memory}})
 	require.NoError(t, err)
-	payload, err := execution.PayloadWithDemand(nil, demand)
+	payload, err := execution.PayloadWithDemand(nil, demand.Demand)
 	require.NoError(t, err)
 	job := jobdb.JobSummary{Status: jobdb.JobStatusReady, ClientPayload: payload}
 	row := makeJobRow(job)

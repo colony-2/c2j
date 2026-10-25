@@ -7,32 +7,25 @@ onHandoff)`. Pass the same normalized allocation and callback to
 build the engine using the wrapped runtime. Register schemas using the original
 runtime. The CLI performs this wiring for all execution entry points.
 
-The adapter checks current published demand at lease admission, including
-task-only leases. An incompatible lease is rescheduled with the same route and
-task coordinates, without rewriting the snapshot. Recipe preflight separately
-resolves and checks the pinned base when no snapshot has been published.
+The recipe reconstructs requirements from its input and retained activity results
+on every invocation. It never restores execution state from client payload.
+The compiler stages effective requirements before each task call. Guarded task
+workers check them only after JobDB decides the task is unfinished. Satisfied
+requirements allow execution; a mismatch publishes the requirements and yields.
+Cached tasks never request historical environments, including when recovery
+starts through a stale task route.
 
-For recipes using `execution_needs`, recipe leases replay first: an older
-published scope may belong to completed work. The compiler stages the inherited
-needs before each task call, and guarded task workers check them only after
-JobDB has decided the task is unfinished. Completed results bypass the worker
-and do not request historical environments. This also applies when recovery
-starts through a task route: its saved task may already have completed before
-the executor crashed. The next genuinely unfinished task is checked instead.
+Wrap every task worker with `WrapTaskWorker` and supply that same function in
+the recipe worker options. Resource and image constraints require this guard;
+staging alone cannot enforce a live-task boundary.
 
-If building a workset manually, wrap every task worker with `WrapTaskWorker`
-and supply that same function in the recipe worker options. This is required
-for scoped needs; staging alone cannot enforce a live-task boundary.
-
-Node scopes are ephemeral. Any subsequent ordinary reschedule publishes the
-staged scope if it differs from the saved snapshot, without mutating permanent
-job overrides. Explicit job requirements still override recipe and node
-declarations. No live scheduler updates or automatic downsizing are performed.
-
-The compiler stages resolved demand so ordinary task/time reschedules can
-publish it if needed. An explicit requirement change is a full revision-checked
-snapshot on yield. The adapter preserves lease token/worker identity forwarding
-needed for chapter persistence; it does not add lease matching or provisioning.
+Node scopes are ephemeral. An ordinary task/time reschedule publishes the staged
+effective requirements if they differ from the saved scheduling hint. Submission
+overrides and durable activity changes take precedence over recipe and node
+declarations. Replaying directives only rebuilds in-memory state; it never
+unconditionally yields. Publication uses JobDB's payload revision for concurrency
+and preserves unrelated client JSON. No separate checkpoints or demand revision
+are needed.
 
 Stop or redirect an incompatible worker after `OnHandoff` to avoid a tight
 reacquisition loop. The event is a handoff, not completion. Admission errors
@@ -46,7 +39,7 @@ See the [design](../../C2J_PORTABLE_EXECUTION_REQUIREMENTS_DESIGN.md) and
 ## Supplied leases
 
 `Runtime.RunWithLease(ctx, lease, request, listener)` uses JobDB's supplied-lease
-runner and performs allocation admission after authoritative validation/renewal.
+runner and checks live tasks after authoritative lease validation/renewal.
 It never calls acquisition APIs. Keep the same `StageExecution`,
 `WrapTaskWorker`, allocation, and callback wiring described above. The method
 returns after one lease lifecycle, including a normal reschedule or handoff.

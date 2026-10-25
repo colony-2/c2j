@@ -12,29 +12,21 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-type gatedYieldContext struct {
-	jobworkflow.ExecutionContext
+type gatedYieldTask struct {
+	jobworkflow.TaskWorker
 	release  <-chan struct{}
 	yielded  chan struct{}
 	finished chan struct{}
 }
 
-func (c gatedYieldContext) DoScope(site string, opts jobworkflow.ScopeOptions, body func(jobworkflow.ExecutionContext) (jobdb.JobData, error)) (jobdb.JobData, error) {
-	return c.ExecutionContext.DoScope(site, opts, func(inner jobworkflow.ExecutionContext) (jobdb.JobData, error) {
-		child := c
-		child.ExecutionContext = inner
-		return body(child)
-	})
-}
-
-func (c gatedYieldContext) Yield(ctx context.Context, req jobworkflow.YieldRequest) error {
-	err := c.ExecutionContext.Yield(ctx, req)
+func (w gatedYieldTask) Run(ctx jobworkflow.TaskContext, input jobdb.TaskData) (jobdb.TaskData, error) {
+	out, err := w.TaskWorker.Run(ctx, input)
 	if jobworkflow.IsExecutionSuspended(err) {
-		close(c.yielded)
-		<-c.release
-		close(c.finished)
+		close(w.yielded)
+		<-w.release
+		close(w.finished)
 	}
-	return err
+	return out, err
 }
 
 func TestEnvironmentReceiptAvailableBeforeYieldCallerReturns(t *testing.T) {
@@ -42,14 +34,12 @@ func TestEnvironmentReceiptAvailableBeforeYieldCallerReturns(t *testing.T) {
 		t.Run(backend, func(t *testing.T) {
 			f := newFixture(t, backend, "2Gi", &execution.Requirements{Resources: execution.Resources{Memory: str("16Gi")}})
 			rt := New(f.runtime, allocation("2Gi"))
-			worker := compiler.NewRecipeJobWorker(compiler.RecipeJobWorkerOptions{Allocation: rt.Allocation, StageExecution: rt.Stage})
-			execute := worker.Execute
+			worker := compiler.NewRecipeJobWorker(compiler.RecipeJobWorkerOptions{Allocation: rt.Allocation, StageExecution: rt.Stage, WrapTaskWorker: rt.WrapTaskWorker})
 			release, yielded, finished := make(chan struct{}), make(chan struct{}), make(chan struct{})
 			defer close(release)
-			worker.Execute = func(ctx jobworkflow.ExecutionContext, in jobdb.JobData) (jobdb.JobData, error) {
-				return execute(gatedYieldContext{ctx, release, yielded, finished}, in)
-			}
-			runnable, err := jobworkflow.GetJobForRun(context.Background(), rt, jobworkflow.GetJobForRunRequest{JobKey: f.key, JobWorker: worker, TaskWorkers: f.tasks, WorkerID: "receipt", LeaseDuration: time.Minute})
+			tasks := guardTasks(rt, f.tasks)
+			tasks[1] = gatedYieldTask{tasks[1], release, yielded, finished}
+			runnable, err := jobworkflow.GetJobForRun(context.Background(), rt, jobworkflow.GetJobForRunRequest{JobKey: f.key, JobWorker: worker, TaskWorkers: tasks, WorkerID: "receipt", LeaseDuration: time.Minute})
 			require.NoError(t, err)
 			out, err := runnable.Run(nil)
 			require.NoError(t, err)

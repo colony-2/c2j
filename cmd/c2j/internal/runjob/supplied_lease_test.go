@@ -161,13 +161,13 @@ inputs:
 		require.NotContains(t, f.stdout.String(), "waiting:")
 	})
 	t.Run("allocation", func(t *testing.T) {
-		f := newSuppliedCLI(t, "id: supplied\nexecution:\n  resources: {memory: 16Gi}\nsequence: []\n", time.Minute)
+		f := newSuppliedCLI(t, "id: supplied\nexecution:\n  resources: {memory: 16Gi}\nop: command_execution\ninputs: {run: 'true'}\n", time.Minute)
 		small := "2Gi"
 		f.opts.ExecutionFlags.Memory = &small
 		require.NoError(t, f.run(t, false))
 		require.Contains(t, f.stdout.String(), `"kind":"environment_required"`)
-		// Re-enter with a freshly dispatched lease. Admission now checks persisted
-		// demand under the validated heartbeat before invoking the recipe.
+		// Re-enter with a freshly dispatched lease. Replay reconstructs the same
+		// requirements and checks them before running unfinished work.
 		f.claim(t, jobdb.Route{JobType: "recipe"}, time.Minute)
 		f.stdout.Reset()
 		require.NoError(t, f.run(t, false))

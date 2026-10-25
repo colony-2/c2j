@@ -34,7 +34,7 @@ func TestExecutionDirectiveFromRealOperationReachesSuppliedLeaseOutcome(t *testi
 	})).Build()
 	require.NoError(t, err)
 	coreops.Register(op.(coreops.RegisterableOp))
-	r, err := recipe.LoadRecipeFromString([]byte("id: execution_boundary\nexecution:\n  resources:\n    memory: 2Gi\nop: execution_boundary_integration\n"))
+	r, err := recipe.LoadRecipeFromString([]byte("id: execution_boundary\nexecution:\n  resources:\n    memory: 2Gi\nsequence:\n  - id: discover\n    op: execution_boundary_integration\n  - id: next\n    op: execution_boundary_integration\n"))
 	require.NoError(t, err)
 	repo, base, cleanup := createTempRepo(t)
 	defer cleanup()

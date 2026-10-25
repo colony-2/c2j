@@ -21,9 +21,9 @@ type Context struct {
 	// BeforeScope observes the resolver that a restart patch will modify.
 	// Returning an error stops before entering the durable scope.
 	BeforeScope        func(context.Context, string, *template.ResolutionContext) error
-	JobPackages        []string
+	JobPackages        func() []string
 	WorkspaceSnapshots bool
-	SuspendExecution   func(jobworkflow.ExecutionContext, string, execution.Requirements) error
+	UpdateExecution    func(execution.Requirements) error
 	StageNodeExecution func(execution.Requirements)
 	JobContext         jobworkflow.ExecutionContext
 	ops.ServiceDependencies2

@@ -16,6 +16,7 @@ import (
 	"github.com/colony-2/c2j/pkg/recipe"
 	"github.com/colony-2/c2j/pkg/starter"
 	"github.com/colony-2/c2j/pkg/task"
+	"github.com/colony-2/c2j/pkg/toolenv"
 	"github.com/colony-2/c2j/pkg/worker/compiler"
 	workerops "github.com/colony-2/c2j/pkg/worker/ops"
 	"github.com/colony-2/c2j/pkg/workflowctl"
@@ -25,10 +26,11 @@ import (
 )
 
 type nodeTask struct {
-	name  string
-	runs  atomic.Int32
-	next  string
-	patch *execution.Requirements
+	name     string
+	runs     atomic.Int32
+	next     string
+	patch    *execution.Requirements
+	packages atomic.Value
 }
 
 func (w *nodeTask) Name() string { return w.name }
@@ -42,6 +44,7 @@ func (w *nodeTask) Run(_ jobworkflow.TaskContext, input jobdb.TaskData) (jobdb.T
 	if err := json.Unmarshal(raw, &req); err != nil {
 		return nil, err
 	}
+	w.packages.Store(req.Preparation.Scopes)
 	env, err := task.NewOutputEnvelope(task.OutputKindActivityInvocationOutput, workerops.ActivityInvocationOutput{
 		OpOutput: map[string]any{"memory": "16Gi", "count": n}, NextTask: w.next, Execution: w.patch,
 		GitResult: contextual.GitCommitContext{ParentRef: req.GitTaskContext.BaseRef},
@@ -71,12 +74,16 @@ func newNodeFixture(t *testing.T, backend, source string) (*fixture, []*nodeTask
 	return f, tasks
 }
 
-func submitNodeRecipe(t *testing.T, f *fixture, r recipe.Recipe) {
+func submitNodeRecipe(t *testing.T, f *fixture, r recipe.Recipe, options ...starter.StartRecipeJobOptions) {
 	t.Helper()
 	engine, err := jobworkflow.NewEngineBuilder().WithRuntime(f.runtime).BuildEngine()
 	require.NoError(t, err)
 	jobContext, git := compiler.GenerateTestContext()
-	fkeyRef, err := starter.StartRecipeJob(context.Background(), workflowctl.StartJob{TenantId: "tenant", RecipeName: r.GetMetadata().ID, JobContext: jobContext, GitRef: git.ParentRef}, jobdbschema.WorkflowEngine{Engine: engine, Registry: f.runtime.(jobdb.JobSchemaRegistry)}, r)
+	opts := starter.StartRecipeJobOptions{}
+	if len(options) > 0 {
+		opts = options[0]
+	}
+	fkeyRef, err := starter.StartRecipeJobWithOptions(context.Background(), workflowctl.StartJob{TenantId: "tenant", RecipeName: r.GetMetadata().ID, JobContext: jobContext, GitRef: git.ParentRef}, jobdbschema.WorkflowEngine{Engine: engine, Registry: f.runtime.(jobdb.JobSchemaRegistry)}, opts, r)
 	f.key = fkeyRef.Key()
 	require.NoError(t, err)
 }
@@ -151,7 +158,6 @@ func TestNodeNeedsScopeTransitionsAndCachedTaskReplay(t *testing.T) {
 			require.Equal(t, jobworkflow.JobRunSuspended, out.Status)
 			require.Equal(t, "16Gi", *event.Demand.Effective.Resources.Memory)
 			require.Equal(t, "linux/amd64", *event.Demand.Effective.Platform)
-			require.True(t, event.Demand.JobRequirements.Empty(), "lexical needs must not become job overrides")
 			out, event = runNode(t, f, a, f.tasks)
 			require.Equal(t, jobworkflow.JobRunCompleted, out.Status)
 			require.Nil(t, event)
@@ -363,4 +369,28 @@ op: needs_a
 	require.Equal(t, jobworkflow.JobRunCompleted, out.Status)
 	require.Nil(t, event)
 	require.EqualValues(t, 1, tasks[0].runs.Load())
+}
+
+func TestExecutionPackagesReconstructForLiveWork(t *testing.T) {
+	f, tasks := newNodeFixture(t, "sqlite", `id: packages
+sequence:
+ - id: update
+   op: needs_a
+ - id: consume
+   op: needs_b
+ - id: after
+   op: needs_c
+`)
+	tasks[0].patch = &execution.Requirements{Packages: []string{"uv:tool==2"}}
+	out, event := f.run(t, "2Gi", f.tasks[:2])
+	require.Equal(t, jobworkflow.JobRunSuspended, out.Status)
+	require.Nil(t, event, "package directives do not require a new executor")
+	require.Contains(t, tasks[1].packages.Load(), toolenv.Scope{ID: "job", Packages: []string{"uv:tool==2"}})
+	out, event = f.run(t, "2Gi", f.tasks)
+	require.Equal(t, jobworkflow.JobRunCompleted, out.Status)
+	require.Nil(t, event)
+	require.Contains(t, tasks[2].packages.Load(), toolenv.Scope{ID: "job", Packages: []string{"uv:tool==2"}})
+	for _, task := range tasks {
+		require.EqualValues(t, 1, task.runs.Load())
+	}
 }

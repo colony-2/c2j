@@ -43,7 +43,7 @@ type JobInspection struct {
 
 type StartJob struct {
 	Dependencies []jobdb.Dependency     `json:"dependencies,omitempty"`
-	Execution    *execution.Demand      `json:"execution,omitempty"`
+	Execution    *execution.Submission  `json:"execution,omitempty"`
 	TenantId     string                 `json:"tenantId"`
 	JobID        string                 `json:"job_id,omitempty"`
 	RecipeName   string                 `json:"recipe"`

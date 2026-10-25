@@ -1,11 +1,17 @@
 # Portable execution model
 
-`Demand` is the versioned full requirement snapshot used in submission metadata
-and the client-owned `c2j.execution` payload namespace. `Inspect` selects the
-latest yielded snapshot over the submission hint and labels unresolved,
-specified, unspecified, malformed, and unsupported state. Snapshot changes are
-published only with a JobDB yield; there is no live read-projection service.
-`LastAllocation` describes the publishing handoff, not a currently running lease.
+`Demand` version 3 is a scheduling hint containing resolution status and effective
+requirements. It is stored in the client-owned `c2j.execution` payload namespace.
+`Submission` adds the original job overrides and is saved in metadata and start
+input. `Inspect` selects the latest scheduling snapshot over the submission hint
+and labels unresolved, specified, unspecified, malformed, and unsupported state.
+
+Every invocation reconstructs requirements from the submitted overrides, recipe,
+and retained activity results. The payload is never used as replay state. It
+contains no recipe digest, node overlay, directive checkpoints, or allocation.
+Changes publish with a JobDB reschedule; compatible work proceeds immediately.
+Restart initializes its hint from the original submission metadata. JobDB's
+client-payload revision handles concurrency; there is no separate demand revision.
 
 This package implements the shared value model for portable execution
 requirements. It does not provision environments, change JobDB lease matching,

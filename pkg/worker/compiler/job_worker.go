@@ -53,7 +53,6 @@ type recipeJobWorker struct {
 	logger              *slog.Logger
 	secretSessions      *secrets.Sessions
 	taskGuardConfigured bool
-	allocation          execution.Allocation
 	readOnlyReplay      bool
 	stageExecution      func(jobdb.JobKey, execution.Demand)
 	celProvider         template.CELOptionsProvider
@@ -70,15 +69,15 @@ func NewRecipeJobWorker(opts RecipeJobWorkerOptions) jobworkflow.ExecutionWorker
 		logger:              opts.Logger,
 		secretSessions:      opts.SecretSessions,
 		taskGuardConfigured: opts.WrapTaskWorker != nil,
-		allocation:          opts.Allocation, readOnlyReplay: opts.ReadOnlyReplay,
-		stageExecution:   opts.StageExecution,
-		celProvider:      opts.CELOptionsProvider,
-		beforeScope:      opts.BeforeScope,
-		executor:         opts.Executor,
-		executorFactory:  opts.ExecutorFactory,
-		rootResolver:     opts.RootSourceResolver,
-		onRecipeLoadedFn: opts.OnRecipeLoaded,
-		onSourceResolved: opts.OnRecipeSourceResolved,
+		readOnlyReplay:      opts.ReadOnlyReplay,
+		stageExecution:      opts.StageExecution,
+		celProvider:         opts.CELOptionsProvider,
+		beforeScope:         opts.BeforeScope,
+		executor:            opts.Executor,
+		executorFactory:     opts.ExecutorFactory,
+		rootResolver:        opts.RootSourceResolver,
+		onRecipeLoadedFn:    opts.OnRecipeLoaded,
+		onSourceResolved:    opts.OnRecipeSourceResolved,
 	}
 	return jobworkflow.ExecutionWorker{JobType: starter.RecipeJobType, Execute: j.Run}
 }
@@ -282,18 +281,16 @@ func (j recipeJobWorker) Run(ctx jobworkflow.ExecutionContext, jobData jobdb.Job
 
 	wCtx := workflow.Context{JobContext: ctx, BeforeScope: j.beforeScope, Logger: logger}
 	if input.Execution != nil {
-		wCtx.JobPackages = input.Execution.JobRequirements.Packages
+		wCtx.JobPackages = func() []string { return input.Execution.JobRequirements.Packages }
 	}
 	if !j.readOnlyReplay {
 		session, err := j.executionSession(ctx, r, input.Execution)
 		if err != nil {
 			return nil, err
 		}
-		wCtx.SuspendExecution = session.suspend
-		wCtx.JobPackages = session.demand.JobRequirements.Packages
-		if recipe.HasExecutionConstraints(r) {
-			wCtx.StageNodeExecution = session.stageNode
-		}
+		wCtx.UpdateExecution = session.apply
+		wCtx.JobPackages = func() []string { return session.overrides.Packages }
+		wCtx.StageNodeExecution = session.stageNode
 	}
 	opts := ExecutionOptions{}
 	if j.celProvider != nil {

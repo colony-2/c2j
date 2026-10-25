@@ -31,7 +31,7 @@ func TestPublicAPIAndCLIParity(t *testing.T) {
 	for _, status := range []jobdb.JobStatus{jobdb.JobStatusReady, jobdb.JobStatusCrashConcern, jobdb.JobStatusActive, jobdb.JobStatusCompleted} {
 		t.Run(string(status), func(t *testing.T) {
 			memory := "8Gi"
-			demand, err := execution.Initial(nil, "digest", execution.Requirements{Resources: execution.Resources{Memory: &memory}})
+			demand, err := execution.Initial(nil, true, execution.Requirements{Resources: execution.Resources{Memory: &memory}})
 			require.NoError(t, err)
 			meta, err := json.Marshal(map[string]any{"repo": "https://github.com/acme/app.git", "execution": demand})
 			require.NoError(t, err)

@@ -29,6 +29,14 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func guardTasks(rt *Runtime, tasks []jobworkflow.TaskWorker) []jobworkflow.TaskWorker {
+	out := make([]jobworkflow.TaskWorker, len(tasks))
+	for i, w := range tasks {
+		out[i] = rt.WrapTaskWorker(w)
+	}
+	return out
+}
+
 func str(v string) *string { return &v }
 func allocation(memory string) execution.Allocation {
 	return execution.Allocation{SchemaVersion: 1, Resources: execution.Resources{Memory: str(memory)}}
@@ -66,6 +74,15 @@ type fixture struct {
 	tasks         []jobworkflow.TaskWorker
 }
 
+func registerExecutionOps(t *testing.T) {
+	t.Helper()
+	for _, name := range []string{"execution_discover", "execution_finish"} {
+		op, err := coreops.NewOp().WithType(name).AddStep("work", coreops.NewStepWithDeps(func(coreops.OpDependencies, context.Context, struct{}) (map[string]any, error) { return nil, nil })).Build()
+		require.NoError(t, err)
+		coreops.Register(op.(coreops.RegisterableOp))
+	}
+}
+
 func newFixture(t *testing.T, backend, memory string, patch *execution.Requirements) *fixture {
 	t.Helper()
 	ctx := context.Background()
@@ -83,11 +100,7 @@ func newFixture(t *testing.T, backend, memory string, patch *execution.Requireme
 		require.NoError(t, err)
 		rt = r
 	}
-	for _, name := range []string{"execution_discover", "execution_finish"} {
-		op, err := coreops.NewOp().WithType(name).AddStep("work", coreops.NewStepWithDeps(func(coreops.OpDependencies, context.Context, struct{}) (map[string]any, error) { return nil, nil })).Build()
-		require.NoError(t, err)
-		coreops.Register(op.(coreops.RegisterableOp))
-	}
+	registerExecutionOps(t)
 	r, err := recipe.LoadRecipeFromString([]byte("id: resources\nexecution:\n  resources:\n    memory: " + memory + "\nsequence:\n  - id: discover\n    op: execution_discover\n  - id: finish\n    op: execution_finish\n"))
 	require.NoError(t, err)
 	engine, err := jobworkflow.NewEngineBuilder().WithRuntime(rt).BuildEngine()
@@ -105,8 +118,8 @@ func newFixture(t *testing.T, backend, memory string, patch *execution.Requireme
 func (f *fixture) run(t *testing.T, memory string, tasks []jobworkflow.TaskWorker) (jobworkflow.JobRunOutcome, *compiler.ExecutionHandoff) {
 	t.Helper()
 	rt := New(f.runtime, allocation(memory))
-	worker := compiler.NewRecipeJobWorker(compiler.RecipeJobWorkerOptions{Allocation: allocation(memory), StageExecution: rt.Stage})
-	runnable, err := jobworkflow.GetJobForRun(context.Background(), rt, jobworkflow.GetJobForRunRequest{JobKey: f.key, JobWorker: worker, TaskWorkers: tasks, WorkerID: "test", LeaseDuration: time.Minute})
+	worker := compiler.NewRecipeJobWorker(compiler.RecipeJobWorkerOptions{Allocation: allocation(memory), StageExecution: rt.Stage, WrapTaskWorker: rt.WrapTaskWorker})
+	runnable, err := jobworkflow.GetJobForRun(context.Background(), rt, jobworkflow.GetJobForRunRequest{JobKey: f.key, JobWorker: worker, TaskWorkers: guardTasks(rt, tasks), WorkerID: "test", LeaseDuration: time.Minute})
 	require.NoError(t, err)
 	out, err := runnable.Run(nil)
 	require.NoError(t, err)
@@ -146,7 +159,7 @@ func TestExecutionHandoffResumesDurableActivityAcrossRuntimes(t *testing.T) {
 	}
 }
 
-func TestInitialPreflightAndOrdinaryTaskHandoff(t *testing.T) {
+func TestInitialRequirementsAndOrdinaryTaskHandoff(t *testing.T) {
 	f := newFixture(t, "sqlite", "16Gi", nil)
 	out, event := f.run(t, "2Gi", f.tasks)
 	require.Equal(t, jobworkflow.JobRunSuspended, out.Status)
@@ -169,45 +182,53 @@ func TestInitialPreflightAndOrdinaryTaskHandoff(t *testing.T) {
 	require.NotNil(t, event)
 	require.Zero(t, f.first.Load())
 	out, event = f.run(t, "16Gi", f.tasks)
-	// Preflight yielded to orchestration. The durable external wait must be
-	// republished and acquired before its task can run on this executor.
-	require.Equal(t, jobworkflow.JobRunSuspended, out.Status)
-	require.Nil(t, event)
-	require.NotNil(t, out.NextRoute)
-	require.Equal(t, f.tasks[0].Name(), out.NextRoute.TaskType)
-	require.Zero(t, f.first.Load())
-	out, event = f.run(t, "16Gi", f.tasks)
 	require.Equal(t, jobworkflow.JobRunCompleted, out.Status)
 	require.Nil(t, event)
 }
 
-func TestExplicitChangeYieldsEvenWhenAlreadySufficient(t *testing.T) {
+func TestExplicitChangeProceedsWhenAlreadySufficient(t *testing.T) {
 	f := newFixture(t, "toy", "2Gi", &execution.Requirements{Resources: execution.Resources{Memory: str("16Gi")}})
 	out, event := f.run(t, "32Gi", f.tasks)
-	require.Equal(t, jobworkflow.JobRunSuspended, out.Status)
-	require.NotNil(t, event)
-	require.Empty(t, event.Mismatches)
-	out, event = f.run(t, "32Gi", f.tasks)
 	require.Equal(t, jobworkflow.JobRunCompleted, out.Status)
 	require.Nil(t, event)
 	require.EqualValues(t, 1, f.first.Load())
 }
 
 func TestExecutionReplayDoesNotRestoreEarlierHigherRequirements(t *testing.T) {
-	f := newFixture(t, "sqlite", "2Gi", &execution.Requirements{Resources: execution.Resources{Memory: str("16Gi")}})
-	f.tasks[1] = resultTask{"execution_finish:work", &f.second, &execution.Requirements{Resources: execution.Resources{Memory: str("4Gi")}}}
-	out, event := f.run(t, "2Gi", f.tasks)
-	require.Equal(t, jobworkflow.JobRunSuspended, out.Status)
-	require.Equal(t, "16Gi", *event.Demand.Effective.Resources.Memory)
-	out, event = f.run(t, "16Gi", f.tasks)
-	require.Equal(t, jobworkflow.JobRunSuspended, out.Status)
-	require.Equal(t, "4Gi", *event.Demand.Effective.Resources.Memory)
-	require.EqualValues(t, 2, event.Demand.Revision)
-	out, event = f.run(t, "4Gi", f.tasks)
-	require.Equal(t, jobworkflow.JobRunCompleted, out.Status)
-	require.Nil(t, event)
-	require.EqualValues(t, 1, f.first.Load())
-	require.EqualValues(t, 1, f.second.Load())
+	for _, backend := range []string{"toy", "sqlite", "remote"} {
+		t.Run(backend, func(t *testing.T) {
+			f, tasks := newNodeFixture(t, backend, `id: changing
+execution: {resources: {memory: 2Gi}}
+sequence:
+ - id: increase
+   op: needs_a
+ - id: decrease
+   op: needs_b
+ - id: finish
+   op: needs_c
+`)
+			tasks[0].patch = &execution.Requirements{Resources: execution.Resources{Memory: str("16Gi")}}
+			tasks[1].patch = &execution.Requirements{Resources: execution.Resources{Memory: str("4Gi")}}
+			out, event := f.run(t, "2Gi", f.tasks)
+			require.Equal(t, jobworkflow.JobRunSuspended, out.Status)
+			require.Equal(t, "16Gi", *event.Demand.Effective.Resources.Memory)
+			// Ordinary dispatch publishes the lowered requirements for the missing task.
+			out, event = f.run(t, "16Gi", f.tasks[:2])
+			require.Equal(t, jobworkflow.JobRunSuspended, out.Status)
+			require.Nil(t, event)
+			info, err := f.runtime.GetJob(context.Background(), f.key)
+			require.NoError(t, err)
+			d, err := execution.PayloadDemand(info.ClientPayload)
+			require.NoError(t, err)
+			require.Equal(t, "4Gi", *d.Effective.Resources.Memory)
+			out, event = f.run(t, "4Gi", f.tasks)
+			require.Equal(t, jobworkflow.JobRunCompleted, out.Status)
+			require.Nil(t, event, "cached 16Gi work must not require a historical environment")
+			for _, task := range tasks {
+				require.EqualValues(t, 1, task.runs.Load())
+			}
+		})
+	}
 }
 
 type lostResponseRuntime struct{ jobdb.WorkflowRuntime }
@@ -232,8 +253,8 @@ func (l lostResponseLease) Reschedule(ctx context.Context, req jobdb.RescheduleE
 func TestLostHandoffResponseStopsAndRecoversWithoutRepeatingActivity(t *testing.T) {
 	f := newFixture(t, "toy", "2Gi", &execution.Requirements{Resources: execution.Resources{Memory: str("16Gi")}})
 	rt := New(lostResponseRuntime{f.runtime}, allocation("2Gi"))
-	worker := compiler.NewRecipeJobWorker(compiler.RecipeJobWorkerOptions{Allocation: allocation("2Gi"), StageExecution: rt.Stage})
-	runnable, err := jobworkflow.GetJobForRun(context.Background(), rt, jobworkflow.GetJobForRunRequest{JobKey: f.key, JobWorker: worker, TaskWorkers: f.tasks, WorkerID: "test", LeaseDuration: time.Minute})
+	worker := compiler.NewRecipeJobWorker(compiler.RecipeJobWorkerOptions{Allocation: allocation("2Gi"), StageExecution: rt.Stage, WrapTaskWorker: rt.WrapTaskWorker})
+	runnable, err := jobworkflow.GetJobForRun(context.Background(), rt, jobworkflow.GetJobForRunRequest{JobKey: f.key, JobWorker: worker, TaskWorkers: guardTasks(rt, f.tasks), WorkerID: "test", LeaseDuration: time.Minute})
 	require.NoError(t, err)
 	uncertain, _ := runnable.Run(nil) // Finalization can also fail because the lease was surrendered.
 	require.Nil(t, uncertain.Handoff, "an uncertain response must not report an acknowledged handoff")
@@ -269,13 +290,15 @@ func TestDeferredResolutionPinsRequirementsWithoutProvisionerResolution(t *testi
 	for _, initialMemory := range []string{"2Gi", "16Gi"} {
 		t.Run(initialMemory, func(t *testing.T) {
 			ctx := context.Background()
+			registerExecutionOps(t)
 			rt := toy.New()
 			engine, err := jobworkflow.NewEngineBuilder().WithRuntime(rt).BuildEngine()
 			require.NoError(t, err)
-			r, err := recipe.LoadRecipeFromString([]byte("id: deferred\nexecution:\n  resources:\n    memory: 16Gi\nsequence: []\n"))
+			r, err := recipe.LoadRecipeFromString([]byte("id: deferred\nexecution:\n  resources:\n    memory: 16Gi\nop: execution_finish\n"))
 			require.NoError(t, err)
 			resolver := &mutableResolver{rec: *r}
-			keyRef, err := starter.StartRecipeJob(ctx, workflowctl.StartJob{TenantId: "tenant", RecipeName: "deferred"}, jobdbschema.WorkflowEngine{Engine: engine, Registry: rt})
+			jobContext, git := compiler.GenerateTestContext()
+			keyRef, err := starter.StartRecipeJob(ctx, workflowctl.StartJob{TenantId: "tenant", RecipeName: "deferred", JobContext: jobContext, GitRef: git.ParentRef}, jobdbschema.WorkflowEngine{Engine: engine, Registry: rt})
 			key := keyRef.Key()
 			require.NoError(t, err)
 			require.Zero(t, resolver.loads.Load())
@@ -283,12 +306,15 @@ func TestDeferredResolutionPinsRequirementsWithoutProvisionerResolution(t *testi
 				wrapped := New(rt, allocation(memory))
 				registry, err := workerops.NewActivityRegistry()
 				require.NoError(t, err)
-				ws, err := compiler.NewRecipeWorkerWithOptions(coreops.NewServiceDepsBuilder().Build(), registry, compiler.RecipeJobWorkerOptions{RootSourceResolver: resolver, Allocation: allocation(memory), StageExecution: wrapped.Stage})
+				ws, err := compiler.NewRecipeWorkerWithOptions(coreops.NewServiceDepsBuilder().Build(), registry, compiler.RecipeJobWorkerOptions{RootSourceResolver: resolver, Allocation: allocation(memory), StageExecution: wrapped.Stage, WrapTaskWorker: wrapped.WrapTaskWorker})
 				require.NoError(t, err)
 				var tasks []jobworkflow.TaskWorker
 				for _, tw := range ws.TaskWorkers {
-					tasks = append(tasks, tw)
+					if tw.Name() != "execution_finish:work" {
+						tasks = append(tasks, tw)
+					}
 				}
+				tasks = append(tasks, wrapped.WrapTaskWorker(resultTask{"execution_finish:work", &atomic.Int32{}, nil}))
 				runnable, err := jobworkflow.GetJobForRun(ctx, wrapped, jobworkflow.GetJobForRunRequest{JobKey: key, JobWorker: ws.JobWorker, TaskWorkers: tasks, WorkerID: "test", LeaseDuration: time.Minute})
 				require.NoError(t, err)
 				out, err := runnable.Run(nil)
@@ -308,7 +334,7 @@ func TestDeferredResolutionPinsRequirementsWithoutProvisionerResolution(t *testi
 			} else {
 				require.Equal(t, jobworkflow.JobRunSuspended, out.Status)
 				require.NotNil(t, event)
-				changed, err := recipe.LoadRecipeFromString([]byte("id: changed\nexecution:\n  resources:\n    memory: 32Gi\nsequence: []\n"))
+				changed, err := recipe.LoadRecipeFromString([]byte("id: changed\nexecution:\n  resources:\n    memory: 32Gi\nop: execution_finish\n"))
 				require.NoError(t, err)
 				resolver.rec = *changed
 				out, event = run("16Gi")
@@ -322,9 +348,10 @@ func TestDeferredResolutionPinsRequirementsWithoutProvisionerResolution(t *testi
 
 func TestInlineDeclarationIsRetainedAndYieldsBeforeIncludedBody(t *testing.T) {
 	ctx := context.Background()
+	registerExecutionOps(t)
 	dir := t.TempDir()
 	childPath := filepath.Join(dir, "child.yaml")
-	require.NoError(t, os.WriteFile(childPath, []byte("id: child\nexecution:\n  resources:\n    memory: 16Gi\nsequence: []\n"), 0600))
+	require.NoError(t, os.WriteFile(childPath, []byte("id: child\nexecution:\n  resources:\n    memory: 16Gi\nsequence:\n  - id: work\n    op: execution_finish\n"), 0600))
 	root, err := recipe.LoadRecipeFromString([]byte("id: parent\nexecution:\n  resources:\n    memory: 2Gi\nsequence:\n  - id: child\n    include: ./child.yaml\n"))
 	require.NoError(t, err)
 	expanded, err := compiler.ResolveInlineRecipes(ctx, *root, compiler.InlineResolutionOptions{RootFile: filepath.Join(dir, "root.yaml")})
@@ -334,15 +361,39 @@ func TestInlineDeclarationIsRetainedAndYieldsBeforeIncludedBody(t *testing.T) {
 	rt := toy.New()
 	engine, err := jobworkflow.NewEngineBuilder().WithRuntime(rt).BuildEngine()
 	require.NoError(t, err)
-	keyRef, err := starter.StartRecipeJob(ctx, workflowctl.StartJob{TenantId: "tenant", RecipeName: "parent"}, jobdbschema.WorkflowEngine{Engine: engine, Registry: rt}, expanded.Recipe)
+	jobContext, git := compiler.GenerateTestContext()
+	keyRef, err := starter.StartRecipeJob(ctx, workflowctl.StartJob{TenantId: "tenant", RecipeName: "parent", JobContext: jobContext, GitRef: git.ParentRef}, jobdbschema.WorkflowEngine{Engine: engine, Registry: rt}, expanded.Recipe)
 	key := keyRef.Key()
 	require.NoError(t, err)
 	f := &fixture{runtime: rt, key: key}
-	out, event := f.run(t, "2Gi", nil)
+	f.tasks = []jobworkflow.TaskWorker{resultTask{"execution_finish:work", &f.second, nil}}
+	out, event := f.run(t, "2Gi", f.tasks)
 	require.Equal(t, jobworkflow.JobRunSuspended, out.Status)
 	require.NotNil(t, event)
 	require.Equal(t, "16Gi", *event.Demand.Effective.Resources.Memory)
-	out, event = f.run(t, "16Gi", nil)
+	out, event = f.run(t, "16Gi", f.tasks)
 	require.Equal(t, jobworkflow.JobRunCompleted, out.Status)
 	require.Nil(t, event)
+}
+
+func TestExecutionDirectiveWithoutDependentWorkDoesNotSuspend(t *testing.T) {
+	f := newFixture(t, "sqlite", "2Gi", nil)
+	f.tasks[1] = resultTask{"execution_finish:work", &f.second, &execution.Requirements{Resources: execution.Resources{Memory: str("16Gi")}}}
+	out, event := f.run(t, "2Gi", f.tasks)
+	require.Equal(t, jobworkflow.JobRunCompleted, out.Status)
+	require.Nil(t, event)
+	require.EqualValues(t, 1, f.first.Load())
+	require.EqualValues(t, 1, f.second.Load())
+}
+
+func TestReplayDoesNotRequireCompletedRootEnvironment(t *testing.T) {
+	f := newFixture(t, "remote", "16Gi", &execution.Requirements{Resources: execution.Resources{Memory: str("4Gi")}})
+	out, event := f.run(t, "16Gi", f.tasks[:1])
+	require.Equal(t, jobworkflow.JobRunSuspended, out.Status)
+	require.Nil(t, event)
+	out, event = f.run(t, "4Gi", f.tasks)
+	require.Equal(t, jobworkflow.JobRunCompleted, out.Status)
+	require.Nil(t, event, "cached work must not enforce the old root requirement")
+	require.EqualValues(t, 1, f.first.Load())
+	require.EqualValues(t, 1, f.second.Load())
 }

@@ -5,46 +5,41 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"reflect"
 )
 
-// DemandSchemaVersion requires workers that understand node permissions.
-// Allocation reporting retains its independent version; old jobs remain valid.
-const DemandSchemaVersion = 2
+// DemandSchemaVersion identifies the scheduling snapshot format.
+const DemandSchemaVersion = 3
 
-// Demand is a complete snapshot. Only a yield publishes a runtime change.
+// Demand is a disposable scheduling snapshot, never replay state.
 type Demand struct {
-	SchemaVersion    int           `json:"schema_version"`
-	RecipeResolution string        `json:"recipe_resolution"`
-	RecipeDigest     string        `json:"recipe_digest,omitempty"`
-	RecipeBase       *Requirements `json:"recipe_base,omitempty"`
-	// NodeRequirements is the lexical overlay at the last scheduling boundary.
-	// Non-nil (even empty) enables task-frontier checks instead of root preflight.
-	NodeRequirements *Requirements     `json:"node_requirements,omitempty"`
-	JobRequirements  Requirements      `json:"job_requirements"`
-	Effective        Requirements      `json:"effective"`
-	Revision         uint64            `json:"revision"`
-	Checkpoints      map[string]string `json:"checkpoints,omitempty"`
-	LastAllocation   *Allocation       `json:"last_handoff_allocation,omitempty"`
+	SchemaVersion    int          `json:"schema_version"`
+	RecipeResolution string       `json:"recipe_resolution"`
+	Effective        Requirements `json:"effective"`
 }
 
-func Initial(base *Requirements, digest string, overrides Requirements) (Demand, error) {
-	d := Demand{SchemaVersion: DemandSchemaVersion, RecipeResolution: "unresolved", JobRequirements: overrides}
-	if digest != "" {
-		d.RecipeResolution, d.RecipeDigest, d.RecipeBase = "resolved", digest, base
+// Submission retains the original overrides independently of the initial
+// scheduling hint. Replay always starts with these overrides and the recipe.
+type Submission struct {
+	Demand
+	JobRequirements Requirements `json:"job_requirements"`
+}
+
+func Initial(base *Requirements, resolved bool, overrides Requirements) (Submission, error) {
+	d := Submission{Demand: Demand{SchemaVersion: DemandSchemaVersion, RecipeResolution: "unresolved"}}
+	if resolved {
+		d.RecipeResolution = "resolved"
 	}
 	var err error
 	d.JobRequirements, err = overrides.Normalize()
 	if err != nil {
-		return Demand{}, err
+		return Submission{}, err
 	}
 	b := Requirements{}
 	if base != nil {
 		b, err = base.Normalize()
 		if err != nil {
-			return Demand{}, err
+			return Submission{}, err
 		}
-		d.RecipeBase = &b
 	}
 	d.Effective = Overlay(b, d.JobRequirements)
 	return d, nil
@@ -55,51 +50,22 @@ type UnsupportedVersionError struct{ Version int }
 func (e *UnsupportedVersionError) Error() string {
 	return fmt.Sprintf("unsupported execution schema version %d", e.Version)
 }
-
 func (d Demand) Validate() error {
-	if d.SchemaVersion != SchemaVersion && d.SchemaVersion != DemandSchemaVersion {
+	if d.SchemaVersion != DemandSchemaVersion {
 		return &UnsupportedVersionError{d.SchemaVersion}
 	}
 	if d.RecipeResolution != "resolved" && d.RecipeResolution != "unresolved" {
 		return fmt.Errorf("invalid recipe resolution %q", d.RecipeResolution)
 	}
-	if (d.RecipeResolution == "resolved") != (d.RecipeDigest != "") {
-		return fmt.Errorf("execution recipe resolution/digest disagree")
-	}
-	if d.RecipeResolution == "unresolved" && d.RecipeBase != nil {
-		return fmt.Errorf("unresolved execution demand has a recipe base")
-	}
-	want, err := Initial(d.RecipeBase, d.RecipeDigest, d.JobRequirements)
-	if err != nil {
+	_, err := d.Effective.Normalize()
+	return err
+}
+func (s Submission) Validate() error {
+	if err := s.Demand.Validate(); err != nil {
 		return err
 	}
-	if d.NodeRequirements != nil {
-		if d.RecipeResolution != "resolved" {
-			return fmt.Errorf("unresolved execution demand has node requirements")
-		}
-		scope, err := d.NodeRequirements.Normalize()
-		if err != nil {
-			return err
-		}
-		base := Requirements{}
-		if want.RecipeBase != nil {
-			base = *want.RecipeBase
-		}
-		want.Effective = Overlay(Overlay(base, scope), want.JobRequirements)
-	}
-	effective, err := d.Effective.Normalize()
-	if err != nil {
-		return err
-	}
-	if !reflect.DeepEqual(want.Effective, effective) {
-		return fmt.Errorf("execution effective requirements disagree with base/overrides")
-	}
-	if d.LastAllocation != nil {
-		if _, err := d.LastAllocation.Normalize(); err != nil {
-			return err
-		}
-	}
-	return nil
+	_, err := s.JobRequirements.Normalize()
+	return err
 }
 
 // PayloadDemand interprets only the reserved client-owned namespace. Other
@@ -172,12 +138,12 @@ func PayloadWithDemand(raw json.RawMessage, d Demand) (json.RawMessage, error) {
 }
 
 type View struct {
-	Status     string  `json:"status"`
-	Source     string  `json:"source"`
-	Published  bool    `json:"published"`
-	Demand     *Demand `json:"demand,omitempty"`
-	Initial    *Demand `json:"initial,omitempty"`
-	Diagnostic string  `json:"diagnostic,omitempty"`
+	Status     string      `json:"status"`
+	Source     string      `json:"source"`
+	Published  bool        `json:"published"`
+	Demand     *Demand     `json:"demand,omitempty"`
+	Initial    *Submission `json:"initial,omitempty"`
+	Diagnostic string      `json:"diagnostic,omitempty"`
 }
 
 // Inspect never resolves recipes or reads history. Missing metadata remains
@@ -190,7 +156,16 @@ func Inspect(metadata, payload json.RawMessage) View {
 		err = json.Unmarshal(metadata, &meta)
 	}
 	if err == nil && len(meta["execution"]) > 0 {
-		v.Initial, err = DecodeDemand(meta["execution"])
+		var initial Submission
+		dec := json.NewDecoder(bytes.NewReader(meta["execution"]))
+		dec.DisallowUnknownFields()
+		err = dec.Decode(&initial)
+		if err == nil {
+			err = initial.Validate()
+		}
+		if err == nil {
+			v.Initial = &initial
+		}
 	}
 	if err != nil {
 		v.Status, v.Diagnostic = demandErrorStatus(err), err.Error()
@@ -204,7 +179,7 @@ func Inspect(metadata, payload json.RawMessage) View {
 	if v.Demand != nil {
 		v.Source, v.Published = "yield", true
 	} else if v.Initial != nil {
-		v.Demand, v.Source = v.Initial, "submission"
+		v.Demand, v.Source = &v.Initial.Demand, "submission"
 	}
 	if v.Demand != nil && v.Demand.RecipeResolution == "resolved" {
 		v.Status = "specified"

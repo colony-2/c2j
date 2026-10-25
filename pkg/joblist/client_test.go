@@ -51,7 +51,7 @@ func client(t *testing.T, s *httptest.Server, tenant string) *joblist.Client {
 
 func demandJob(t *testing.T, id, memory string) jobdb.JobSummary {
 	t.Helper()
-	d, err := execution.Initial(nil, "pinned", execution.Requirements{Resources: execution.Resources{Memory: &memory}})
+	d, err := execution.Initial(nil, true, execution.Requirements{Resources: execution.Resources{Memory: &memory}})
 	require.NoError(t, err)
 	meta, err := json.Marshal(map[string]any{"repo": "https://github.com/acme/app.git", "execution": d})
 	require.NoError(t, err)
@@ -64,10 +64,9 @@ func demandJob(t *testing.T, id, memory string) jobdb.JobSummary {
 func TestRemoteProjectionAndWaitingOnlyExecution(t *testing.T) {
 	job := demandJob(t, "job", "2Gi")
 	memory := "8Gi"
-	d, err := execution.Initial(nil, "pinned", execution.Requirements{Resources: execution.Resources{Memory: &memory}})
+	d, err := execution.Initial(nil, true, execution.Requirements{Resources: execution.Resources{Memory: &memory}})
 	require.NoError(t, err)
-	d.Revision = 3
-	job.ClientPayload, err = execution.PayloadWithDemand(nil, d)
+	job.ClientPayload, err = execution.PayloadWithDemand(nil, d.Demand)
 	require.NoError(t, err)
 	job.ClientPayloadRevision = 7
 	job.NextRoute = &jobdb.Route{JobType: "recipe", TaskType: "recipe:two-step:next"}
@@ -97,7 +96,6 @@ func TestRemoteProjectionAndWaitingOnlyExecution(t *testing.T) {
 				require.Equal(t, "specified", got.Execution.Status)
 				require.Equal(t, "yield", got.Execution.Source)
 				require.Equal(t, "8Gi", *got.Execution.Demand.Effective.Resources.Memory)
-				require.Equal(t, uint64(3), got.Execution.Demand.Revision)
 			} else {
 				require.Nil(t, got.Execution.Demand)
 				require.Nil(t, got.Execution.Initial)
@@ -113,7 +111,7 @@ func TestRemoteProjectionAndWaitingOnlyExecution(t *testing.T) {
 }
 
 func TestExecutionDiagnosticsAndUnspecified(t *testing.T) {
-	empty, err := execution.Initial(nil, "pinned", execution.Requirements{})
+	empty, err := execution.Initial(nil, true, execution.Requirements{})
 	require.NoError(t, err)
 	meta, err := json.Marshal(map[string]any{"execution": empty})
 	require.NoError(t, err)

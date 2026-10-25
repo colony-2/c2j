@@ -8,9 +8,9 @@ import (
 
 func TestDemandPayloadAndViews(t *testing.T) {
 	b := Requirements{Resources: Resources{CPU: ptr("1000m"), Memory: ptr("2Gi")}}
-	d, err := Initial(&b, "pinned", Requirements{Resources: Resources{Memory: ptr("16Gi")}})
+	d, err := Initial(&b, true, Requirements{Resources: Resources{Memory: ptr("16Gi")}})
 	require.NoError(t, err)
-	raw, err := PayloadWithDemand(json.RawMessage(`{"large":9007199254740993,"c2j":{"other":{"x":null}}}`), d)
+	raw, err := PayloadWithDemand(json.RawMessage(`{"large":9007199254740993,"c2j":{"other":{"x":null}}}`), d.Demand)
 	require.NoError(t, err)
 	require.Contains(t, string(raw), `9007199254740993`)
 	require.Contains(t, string(raw), `"x":null`)
@@ -36,6 +36,6 @@ func TestDemandPayloadAndViews(t *testing.T) {
 		_, err := f.Match(v)
 		require.Error(t, err)
 	}
-	d.Effective.Resources.Memory = ptr("1Gi")
+	d.Effective.Resources.Memory = ptr("invalid")
 	require.Error(t, d.Validate())
 }

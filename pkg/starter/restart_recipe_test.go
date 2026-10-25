@@ -15,30 +15,34 @@ import (
 
 type captureEngine struct {
 	last *jobdb.SubmitRestartJob
-	info jobdb.JobInfo
+	info jobdb.JobSummary
 }
 
-func (c *captureEngine) GetJob(context.Context, jobdb.JobKey) (jobdb.JobInfo, error) {
-	return c.info, nil
+func (c *captureEngine) ListJobs(_ context.Context, req jobdb.ListJobsRequest) (jobdb.ListJobsResponse, error) {
+	return jobdb.ListJobsResponse{Jobs: []jobdb.JobSummary{c.info}}, nil
 }
 
-func TestRestartPreservesPublishedExecutionRequirements(t *testing.T) {
-	memory := "16Gi"
-	d, err := execution.Initial(nil, "recipe-digest", execution.Requirements{Resources: execution.Resources{Memory: &memory}})
+func TestRestartUsesInitialRequirementsNotLatestPayload(t *testing.T) {
+	initial, err := execution.Initial(nil, true, execution.Requirements{Resources: execution.Resources{Memory: stringPtr("4Gi")}})
 	require.NoError(t, err)
-	d.Revision = 2
-	d.Checkpoints = map[string]string{"1:activity:inspect": "hash"}
-	raw, err := execution.PayloadWithDemand(json.RawMessage(`{"unrelated":"not inherited"}`), d)
+	metadata, err := json.Marshal(JobMetadata{Execution: &initial})
 	require.NoError(t, err)
-	engine := &captureEngine{info: jobdb.JobInfo{ClientPayload: raw}}
-	_, err = RestartRecipeJob(context.Background(), engine, jobdb.JobKey{TenantId: "t", JobId: "prior"}, "scope-id", nil, RestartOptions{RequestID: "test-restart"})
-	require.NoError(t, err)
-	require.NotNil(t, engine.last.ClientPayloadUpdate)
-	got, err := execution.PayloadDemand(engine.last.ClientPayloadUpdate.Value)
-	require.NoError(t, err)
-	require.Equal(t, &d, got)
-	require.NotContains(t, string(engine.last.ClientPayloadUpdate.Value), "unrelated")
+	for _, payload := range []json.RawMessage{
+		json.RawMessage(`{"unrelated":"not inherited","c2j":{"execution":{"schema_version":3,"recipe_resolution":"resolved","effective":{"resources":{"memory":"16Gi"}}}}}`),
+		json.RawMessage(`{"c2j":{"execution":"invalid latest state is irrelevant"}}`),
+	} {
+		engine := &captureEngine{info: jobdb.JobSummary{Metadata: metadata, ClientPayload: payload}}
+		_, err = RestartRecipeJob(context.Background(), engine, jobdb.JobKey{TenantId: "t", JobId: "prior"}, "scope-id", nil, RestartOptions{RequestID: "test-restart"})
+		require.NoError(t, err)
+		require.NotNil(t, engine.last.ClientPayloadUpdate)
+		got, err := execution.PayloadDemand(engine.last.ClientPayloadUpdate.Value)
+		require.NoError(t, err)
+		require.Equal(t, &initial.Demand, got)
+		require.NotContains(t, string(engine.last.ClientPayloadUpdate.Value), "unrelated")
+	}
 }
+
+func stringPtr(s string) *string { return &s }
 
 func (c *captureEngine) SubmitRestartJobRef(_ context.Context, request jobdb.SubmitRestartJobRequest) (jobref.Ref, error) {
 	req := request.Job

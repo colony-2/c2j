@@ -3,15 +3,15 @@
 ## Contract
 
 A job keeps its identity, pinned recipe, durable results, and artifacts when
-execution requirements change. An executor makes progress while it supports
-the pending task and environment. An explicit job-wide requirement change, or
-an unmet scoped task need, yields a client-payload snapshot; another invocation
-resumes the same job. Satisfied node-scope changes can remain ephemeral.
+execution requirements change. Before unfinished work, c2j compares the current
+requirements with the actual executor. If satisfied, execution proceeds. If
+unsatisfied, c2j records the effective requirements in client payload and yields.
+A requirement change alone does not require suspension.
 
-An explicit `ops.SuspendExecution` change always yields, even when the current allocation is already
-sufficient. There is no non-suspending publication requirement, projection
-store, or new JobDB API. The existing revision-checked client-payload update on
-reschedule is sufficient. The earlier publication feature request is withdrawn.
+Recipe execution reconstructs requirements from original inputs and cached task
+results on each invocation. The client payload is a disposable scheduling hint,
+not authoritative execution state. No checkpoint map, publication service, or
+additional JobDB API is required.
 
 JobDB owns scheduling and leases; c2j owns the meaning of its client JSON.
 Typed routes identify job/task work. Execution requirements are not lease
@@ -58,53 +58,40 @@ compensate for an incompatible image or platform.
 
 ## State and ownership
 
-`pkg/execution.Demand` is the versioned full snapshot. It contains:
+`pkg/execution.Demand` version 3 contains schema version, recipe resolution
+status, and effective requirements. It contains no digest, base/node overlays,
+directive checkpoints, demand revision, or last allocation. Handoff events
+separately include the actual allocation and mismatches for diagnosis.
 
-- Recipe resolution status, canonical pinned-recipe digest, and recipe base.
-- Job override requirements and the validated effective overlay.
-- A requirement revision and checkpoint hashes for accepted directives.
-- The actual allocation at the last publishing handoff, when available.
+`pkg/execution.Submission` adds the original job overrides to the initial hint.
+It is saved in metadata and immutable job input. If the submitter has an
+unscoped recipe, the hint includes its base requirements. Deferred and scoped
+recipes remain unresolved, with explicit submission overrides as known hints.
+Submission does not resolve deferred recipes merely to fill metadata.
 
-Initial demand is in submission metadata and immutable start input. When the
-submitter already has the recipe, it records the base and digest. Otherwise it
-records unresolved demand with any explicit submission overrides. Submission
-does not resolve a deferred recipe merely to fill metadata.
-
-The latest yielded snapshot lives at `client_payload.c2j.execution` and takes
-precedence over submission metadata. c2j replaces its namespace while preserving
-unrelated client JSON, including large numbers and nulls. Publication uses a
-reset with the observed payload revision; conflicts do not cause blind retries
-of stale updates. JobDB internal state is never copied into client payload.
-
-The requirement revision is distinct from the JobDB payload revision, which
-also covers other client state. Neither counts execution attempts. The last
-handoff allocation is historical, not a live lease or utilization record.
-Completion need not publish a snapshot.
+The latest scheduling hint lives at `client_payload.c2j.execution` and takes
+precedence over metadata for listings. c2j replaces this namespace while
+preserving unrelated client JSON. Publication uses a reset with the observed
+JobDB client-payload revision; conflicts do not cause blind retries. JobDB's
+revision handles concurrency and does not count execution attempts.
 
 ## Bootstrap and execution
 
-1. The provisioner reads initial metadata or the latest yielded snapshot.
-   For unresolved demand it may start its default environment, honoring any
-   known overrides. It does not interpret or advance the recipe.
-2. Actual allocation is supplied through arguments, environment variables, or
-   Go options. The runtime adapter checks published demand before admitting
-   either recipe or pending-task leases.
-3. Recipe execution resolves and pins its root through the existing durable
-   resolution path. It derives the base and checks it against the current
-   allocation before executing recipe work.
-4. Sufficient allocation permits execution. Resolving a compatible recipe
-   alone does not require publication or suspension.
-5. Insufficient allocation yields the resolved demand and stops execution.
-   The CLI emits `environment_required`; the provisioner can launch a
-   compatible replacement for the same job.
+1. A provisioner reads the initial metadata or latest scheduling hint. It may
+   start a default environment for unresolved demand, honoring known overrides.
+2. The worker loads the pinned recipe and starts from original job overrides.
+3. Replay walks retained results, applying requirement directives in order.
+   Cached tasks need no environment checks or activity execution.
+4. The compiler stages effective requirements for the next unfinished task.
+5. A guarded task worker compares these requirements with actual allocation.
+   If satisfied, it runs. Otherwise it publishes the hint and yields, reporting
+   an `environment_required` event after JobDB acknowledges the handoff.
 
-Already-published incompatible demand is rescheduled without rewriting the
-payload or bumping its revision. Pending tasks retain their exact typed route
-and task coordinates. An insufficient environment is not a recipe failure.
-
-Ordinary task/time reschedules also carry a staged resolved base if no snapshot
-has been published yet. A later task executor therefore sees the same
-constraints. This remains publication on reschedule, not an independent write.
+An identical incompatible hint need not be rewritten. A mismatch resumes through
+the recipe route so stale task coordinates cannot determine future requirements.
+Ordinary task/time reschedules also publish changed staged requirements, allowing
+the next worker to be provisioned for pending work. Compatible execution and
+completion do not require publication or an extra invocation.
 
 ## Dynamic requirements and replay
 
@@ -122,18 +109,15 @@ No task-input format or cache key changes are needed. Cached tasks therefore
 replay without requiring their old environment, including partial operations,
 repeated state occurrences, and recovery through a stale task route.
 
-Scoped recipes skip the job-wide root/lease preflight: a saved snapshot may
+All recipes skip job-wide root/lease preflight: a saved snapshot may
 describe completed work, and a child's override may replace a root default.
 The next live task is authoritative. Metadata marks scoped submission demand
 unresolved, retaining explicit submission overrides, rather than guessing a
 pending scope.
 
-At a yield, `Demand.NodeRequirements` records the lexical overlay separately
-from permanent job overrides. Ordinary task/time handoffs also publish the
-staged scope when it changes. Active scope changes do not write scheduler rows;
-an oversized allocation does not trigger a shrink handoff. An incompatible
-live task resumes via the recipe route so completed task coordinates on the
-original lease cannot pin recovery to an obsolete task.
+At a yield, only the effective requirements are published. Node overlays and
+job overrides stay in the compiler's reconstructed state. No automatic downsizing
+occurs while the executor remains sufficient.
 
 ### Explicit job-wide changes
 
@@ -143,17 +127,15 @@ output. It does not interrupt the function or migrate a Go stack.
 Resource-dependent work belongs in a subsequent durable step, not after the
 helper call in the same function.
 
-After the result is durable and before dependent work, the compiler overlays
-the directive, records a checkpoint hash, increments the requirement revision,
-and yields the full snapshot. Every explicit new directive yields, including
-on an already-sufficient executor. Multiple patches within one activity compose
-into that activity's single directive.
+After the result is durable, the compiler overlays its directive in memory.
+Multiple patches within one activity compose into that activity's single
+directive. Only subsequent unfinished work checks allocation. A final directive
+with no dependent work does not cause a needless suspension.
 
-Replay consumes the recorded output. Matching accepted checkpoints are skipped
-without restoring older patches over newer requirements. A changed directive
-at the same checkpoint is an error. Successive increases and decreases
-therefore survive replay without endless yields. Changes to source recipes do
-not alter an already-pinned job.
+Replay reapplies every retained directive in order, including increases and
+decreases, without requiring historical environments. Recipe source resolution
+and activity results already provide the durable record; no separate payload
+checkpoints are needed. Changes to source recipes do not alter a pinned job.
 
 Legacy inline `execution` declarations become boundary directives in the containing job.
 A nonempty declaration overlays job requirements before entering the included
@@ -161,9 +143,12 @@ body; it does not allocate another executor or automatically restore old
 requirements on exit. Empty declarations are no-ops. Separately submitted
 children use their own recipe and overrides, without implicit parent demand.
 
-Explicit restarts copy only the execution namespace, including accepted
-checkpoints. Unrelated client state is not implicitly inherited. Normal
-resumption always retains the current snapshot.
+Explicit restarts initialize their payload from the original submission hint
+in job metadata. They do not copy the latest execution snapshot or unrelated
+client namespaces. The worker reconstructs only retained history before the
+selected scope, so restarting chapter 4 cannot inherit changes from chapter 20.
+Restart submission needs no recipe loading or compilation. Repeated submissions
+with the same request ID use the same original hint, preserving idempotency.
 
 ## Failure semantics
 
