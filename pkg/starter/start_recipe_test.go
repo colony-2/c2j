@@ -41,7 +41,7 @@ func TestStartRecipeJobDoesNotAddTimeouts(t *testing.T) {
 			require.NoError(t, err)
 			require.Nil(t, engine.job.RunPolicy.TotalTimeout)
 			require.Nil(t, engine.job.RunPolicy.InvocationTimeout)
-			require.Equal(t, jobdb.DefaultRunPolicy().Retry, engine.job.RunPolicy.Retry)
+			require.Equal(t, int32(1), engine.job.RunPolicy.Retry.MaximumAttempts)
 		})
 	}
 }

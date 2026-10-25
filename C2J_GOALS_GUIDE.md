@@ -11,6 +11,13 @@ result. The first successful candidate wins permanently. Failing or cancelling
 a candidate leaves its goal open. Explicitly failing a goal is permanent and
 does not cancel candidate jobs.
 
+c2j submits jobs with one attempt by default (zero automatic retries). Tasks
+and recipe scopes also default to one attempt. To retry a recipe, set its
+root `retry.maximum_attempts` explicitly; the count includes the initial attempt.
+The recipe's root scope enforces that budget without an additional outer job
+retry multiplying it. Exhausting retries fails the candidate and leaves its
+goal open for another candidate or explicit goal failure.
+
 ## Waiting and collecting results
 
 Child recipe operations and child groups wait for goal success by default.
