@@ -100,6 +100,24 @@ func TestRestartReconstructsRequirementsAtSelectedScope(t *testing.T) {
 				again, err := starter.RestartRecipeJob(ctx, submitter, prior, scopeID, nil, opts)
 				require.NoError(t, err)
 				require.Equal(t, ref, again, "idempotent restart must keep its original initialization")
+
+				// JobDB must preserve submission metadata across every restart,
+				// so restarting this candidate also starts from the original hint.
+				restartedRun, err := jobdb.GetJobRun(ctx, f.runtime, jobdb.GetJobRunRequest{JobKey: f.key})
+				require.NoError(t, err)
+				require.JSONEq(t, string(run.Job.Metadata), string(restartedRun.Job.Metadata))
+				next, err := starter.RestartRecipeJob(ctx, submitter, f.key, scopeID, nil, starter.RestartOptions{Goal: "new", RequestID: "restart-again"})
+				require.NoError(t, err)
+				f.key = next.Key()
+				nextInfo, err := f.runtime.GetJob(ctx, f.key)
+				require.NoError(t, err)
+				nextInitial, err := execution.PayloadDemand(nextInfo.ClientPayload)
+				require.NoError(t, err)
+				require.Equal(t, initial, nextInitial, "repeated restart must retain original requirements")
+				out, event = f.run(t, "32Gi", f.tasks)
+				require.Equal(t, jobworkflow.JobRunCompleted, out.Status)
+				require.Nil(t, event)
+
 			})
 		}
 	}

@@ -2,11 +2,15 @@
 
 ## Dependency
 
-This tree pins `github.com/colony-2/jobdb` to
-`v0.0.19-0.20260919034646-71b6668a65db` (commit
-`71b6668a65dbcc08ae46119412c559f54d8a4b32`). This was the latest `main`
-revision checked on 2026-09-19. The latest tag, `v0.0.18`, does not include the
-typed-route migration. No local module replacement or JobDB fork is used.
+This tree pins `github.com/colony-2/jobdb` to `v0.0.55`, commit
+`9c9d68441990b0a5de42363c1bfef248175ddd5f`. The tag and `main` pointed to this
+same commit when checked on 2026-10-25. No local module replacement or JobDB
+fork is used.
+
+This revision copies application metadata when restarting a job. Consequently,
+restarted c2j jobs retain their original submission metadata, including initial
+execution requirements, and subsequent restarts can initialize from the same
+original requirements. Client payload initialization remains explicit.
 
 The upstream [client-payload guide](MIGRATION-CLIENT-PAYLOAD.md) and
 [typed-route guide](MIGRATION-TYPED-ROUTES.md) describe the new contract.
