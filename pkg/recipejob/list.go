@@ -82,6 +82,7 @@ type RecipeJob struct {
 	Store                 jobdb.JobStore     `json:"store"`
 	JobType               string             `json:"job_type"`
 	RecipeName            string             `json:"recipe"`
+	Prompt                string             `json:"prompt,omitempty"`
 	RepositorySource      string             `json:"repo,omitempty"`
 	CellID                string             `json:"cell_id,omitempty"`
 	CellName              string             `json:"cell_name,omitempty"`
@@ -383,6 +384,7 @@ func RecipeJobFromSummary(summary jobdb.JobSummary) (RecipeJob, bool, error) {
 		job.InputHash = meta.InputHash
 		job.SubmittedAt = meta.SubmittedAt
 		job.RecipeName = meta.RecipeName
+		job.Prompt = meta.Prompt
 		job.CellID = meta.CellID
 		job.CellName = meta.CellName
 		job.RepositorySource = meta.RepositorySource

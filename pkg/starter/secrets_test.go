@@ -26,3 +26,20 @@ func TestSubmissionRejectsPlaintextSecretBeforeStoring(t *testing.T) {
 	require.Contains(t, string(raw), `"$c2j_secret":"github_token"`)
 	require.Equal(t, "${{ context.secrets.github_token }}", start.Inputs["token"], "submission does not mutate caller inputs")
 }
+
+func TestSubmissionDoesNotIndexSecretPrompt(t *testing.T) {
+	r := recipe.Recipe{RecipeImpl: &recipe.RecipeSequence{RecipeMetadata: recipe.RecipeMetadata{
+		NodeMetadata: recipe.NodeMetadata{ID: "secret-prompt"},
+		InputSchema:  map[string]recipe.InputSchema{"prompt": {Type: "string", Secret: true}},
+	}}}
+	submit := &captureSubmitter{}
+	start := workflowctl.StartJob{TenantId: "tenant", RecipeName: "secret-prompt", Inputs: map[string]any{"prompt": "private-plaintext"}}
+	_, err := StartRecipeJob(context.Background(), start, submit, r)
+	require.ErrorContains(t, err, "requires a reference")
+	require.Nil(t, submit.job.Data)
+	start.Inputs["prompt"] = "${{ context.secrets.private_prompt }}"
+	_, err = StartRecipeJob(context.Background(), start, submit, r)
+	require.NoError(t, err)
+	require.NotContains(t, string(submit.job.Metadata), "private_prompt")
+	require.NotContains(t, string(submit.job.Metadata), `"prompt":`)
+}

@@ -29,6 +29,7 @@ const (
 
 	MetaFieldVersion  jobdb.FieldName = "v"
 	MetaFieldRecipe   jobdb.FieldName = "recipe"
+	MetaFieldPrompt   jobdb.FieldName = "prompt"
 	MetaFieldCellID   jobdb.FieldName = "cell_id"
 	MetaFieldCellName jobdb.FieldName = "cell_name"
 	MetaFieldRepo     jobdb.FieldName = "repo"
@@ -54,6 +55,7 @@ type JobMetadata struct {
 	SubmittedAt      *time.Time        `json:"submitted_at,omitempty"`
 	Version          int               `json:"v"`
 	RecipeName       string            `json:"recipe,omitempty"`
+	Prompt           string            `json:"prompt,omitempty"`
 	CellID           string            `json:"cell_id,omitempty"`
 	CellName         string            `json:"cell_name,omitempty"`
 	RepositorySource string            `json:"repo,omitempty"`
@@ -89,6 +91,14 @@ func JobMetadataFromStartJob(startJob workflowctl.StartJob) JobMetadata {
 		CellName:         startJob.JobContext.Workflow.CellName,
 		RepositorySource: repo,
 		GitRef:           startJob.GitRef,
+	}
+	// Index only submitted text. Secret references remain in the input payload
+	// and are never resolved for metadata. Marked embedded inputs are validated
+	// and converted to references before this function is called.
+	if prompt, ok := startJob.Inputs["prompt"].(string); ok && strings.TrimSpace(prompt) != "" {
+		if _, secret := secrets.Template(prompt); !secret {
+			meta.Prompt = prompt
+		}
 	}
 	if startJob.Parent != nil {
 		applyParentMetadata(&meta, *startJob.Parent)

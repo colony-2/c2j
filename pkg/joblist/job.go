@@ -30,6 +30,7 @@ type Job struct {
 	TenantID              string          `json:"tenant_id"`
 	JobID                 string          `json:"job_id"`
 	RepositorySource      string          `json:"repo,omitempty"`
+	Prompt                string          `json:"prompt,omitempty"`
 	Status                jobdb.JobStatus `json:"status"`
 	Store                 jobdb.JobStore  `json:"store"`
 	JobType               string          `json:"job_type"`
@@ -49,12 +50,14 @@ type Job struct {
 func JobFromSummary(job jobdb.JobSummary) Job {
 	var meta struct {
 		RepositorySource string `json:"repo"`
+		Prompt           string `json:"prompt"`
 	}
 	// Unrelated metadata does not prevent projecting job state. ExecutionView
 	// independently reports malformed execution metadata for waiting jobs.
 	_ = json.Unmarshal(job.Metadata, &meta)
 	return Job{
 		BlockingWait: job.BlockingWait,
+		Prompt:       meta.Prompt,
 		GoalID:       job.GoalID, OtherGoalIDs: append([]string(nil), job.OtherGoalIDs...),
 		CompletionStatus: job.CompletionStatus,
 		CompletionDetail: job.CompletionDetail,

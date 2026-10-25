@@ -397,6 +397,11 @@ c2j submit "Summarize the repo" --advanced-recipe my-prompt-recipe --embed
 
 The positional argument is merged as `inputs.prompt`.
 
+When provided as nonblank text, `inputs.prompt` is also stored verbatim in job
+metadata as `prompt` and exposed in job and recipe listing JSON. Empty values,
+non-string values, and secret references are omitted from this metadata field.
+This records the submitted prompt; it does not evaluate recipe defaults or templates.
+
 Rules:
 
 - `--inputs-json` and `--inputs-file` are mutually exclusive
