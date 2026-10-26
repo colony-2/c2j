@@ -20,6 +20,7 @@ type loadFailureContext struct {
 	err       error
 	reloadErr error
 	calls     int
+	policies  []jobdb.RunPolicy
 }
 
 func (c *loadFailureContext) GetJobKey() jobdb.JobKey {
@@ -39,6 +40,7 @@ func (c *loadFailureContext) DoTask(call testTaskCall, build func(testContext) (
 		panic("execution continued after recipe load failure")
 	}
 	c.calls++
+	c.policies = append(c.policies, call.Policy)
 	if c.calls > 1 && c.reloadErr != nil {
 		return nil, c.reloadErr
 	}
@@ -98,6 +100,10 @@ func TestRecipeJobWorkerLoadFailuresStopBeforeExecution(t *testing.T) {
 				worker := NewRecipeJobWorker(RecipeJobWorkerOptions{ReadOnlyReplay: replay, RootSourceResolver: loader, OnRecipeSourceResolved: func(RecipeSourceResolution) { t.Fatal("reported an unloaded recipe as resolved") }, ExecutorFactory: func() RecipeExecutor { t.Fatal("created executor after failed load"); return nil }})
 				require.NotPanics(t, func() { _, err = worker.Execute(ctx, start) })
 				require.ErrorContains(t, err, tc.want)
+				for _, policy := range ctx.policies {
+					require.Nil(t, policy.TotalTimeout, "source resolution must not impose a timeout")
+					require.Nil(t, policy.InvocationTimeout)
+				}
 				if tc.loadErr != nil {
 					require.ErrorIs(t, err, tc.loadErr)
 				}

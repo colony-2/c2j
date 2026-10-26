@@ -46,15 +46,18 @@ func (i JobDBIssuer) IssueRestrictedLease(ctx context.Context, task TaskDelegato
 	if child == nil {
 		return nil, fmt.Errorf("delegation issuer returned no lease")
 	}
-	// Restricted recipes have finite execution budgets. Never hand out an
-	// unbounded credential if an integration path lost that budget.
+	// JobDB supplies all applicable bounds. Without a hard deadline the child
+	// remains restricted by its permissions and the exact parent lease's lifetime.
 	info, ok := child.(interface{ Delegation() *jobdb.DelegationInfo })
 	if !ok {
 		return nil, fmt.Errorf("restricted lease is missing delegation metadata")
 	}
 	bounds := info.Delegation()
-	if bounds == nil || bounds.NotAfter == nil || !bounds.NotAfter.After(time.Now()) {
-		return nil, fmt.Errorf("restricted lease requires a live finite task deadline")
+	if bounds == nil {
+		return nil, fmt.Errorf("restricted lease is missing delegation metadata")
+	}
+	if bounds.NotAfter != nil && !bounds.NotAfter.After(time.Now()) {
+		return nil, fmt.Errorf("restricted lease deadline has expired")
 	}
 	return child, nil
 }

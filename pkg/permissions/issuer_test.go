@@ -59,14 +59,38 @@ func TestCentralIssuerUsesTaskBoundsNotCallTimeout(t *testing.T) {
 	require.Zero(t, child.renewals, "issuance is local and must not call renewal")
 }
 
-func TestCentralIssuerRejectsMissingTaskCapabilityAndUnboundedChild(t *testing.T) {
+func TestCentralIssuerRejectsMissingTaskCapability(t *testing.T) {
 	issuer := JobDBIssuer{}
 	_, err := issuer.IssueRestrictedLease(context.Background(), jobworkflow.TaskContext{}, JobDB{}, time.Time{})
 	require.ErrorIs(t, err, jobdb.ErrLeaseDelegationUnsupported)
-	_, err = issuer.IssueRestrictedLease(context.Background(), creatorFunc(func(context.Context, jobdb.CreateDelegationRequest) (jobdb.RenewableExecutionLease, error) {
-		return &issuedLease{info: &jobdb.DelegationInfo{}}, nil
-	}), JobDB{}, time.Time{})
-	require.ErrorContains(t, err, "finite task deadline")
+}
+
+func TestCentralIssuerAcceptsParentBoundLeaseAndRejectsInvalidMetadata(t *testing.T) {
+	past := time.Now().Add(-time.Minute)
+	for _, tc := range []struct {
+		name string
+		info *jobdb.DelegationInfo
+		want string
+	}{
+		{name: "parent bound", info: &jobdb.DelegationInfo{}},
+		{name: "missing metadata", want: "missing delegation metadata"},
+		{name: "expired", info: &jobdb.DelegationInfo{NotAfter: &past}, want: "deadline has expired"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			child := &issuedLease{info: tc.info}
+			got, err := (JobDBIssuer{}).IssueRestrictedLease(context.Background(), creatorFunc(func(_ context.Context, req jobdb.CreateDelegationRequest) (jobdb.RenewableExecutionLease, error) {
+				require.Nil(t, req.NotAfter)
+				return child, nil
+			}), JobDB{}, time.Time{})
+			if tc.want != "" {
+				require.ErrorContains(t, err, tc.want)
+				require.Nil(t, got)
+			} else {
+				require.NoError(t, err)
+				require.Same(t, child, got)
+			}
+		})
+	}
 }
 
 func TestLocalAttenuationAndRenewalRespectHardDeadline(t *testing.T) {

@@ -123,6 +123,62 @@ func TestRuntimeDelegationUnsupported(t *testing.T) {
 	require.ErrorIs(t, err, jobdb.ErrLeaseDelegationUnsupported)
 }
 
+func TestTaskWithoutTimeoutUsesParentBoundRestrictedLease(t *testing.T) {
+	for _, bounded := range []bool{false, true} {
+		name := "parent lease only"
+		if bounded {
+			name = "job timeout"
+		}
+		t.Run(name, func(t *testing.T) {
+			ctx := context.Background()
+			base := toy.New(toy.WithSecretProvider(&freshGitProvider{}))
+			server := httptest.NewServer(remote.NewServer(base))
+			defer server.Close()
+			client, err := remote.New(server.URL, server.Client())
+			require.NoError(t, err)
+			rt := New(client, execution.Allocation{})
+			grant := permissions.JobDB{Secrets: permissions.SecretPermissions{Resolve: []string{"model"}}}
+			var child jobdb.ExecutionLease
+			task := delegationTask(func(local context.Context, tc wf.TaskContext, _ jobdb.TaskData) (jobdb.TaskData, error) {
+				access := permissions.FromContext(local)
+				values, err := access.Resolve(local, []string{"model"})
+				require.NoError(t, err)
+				require.NotEmpty(t, values.Secrets["model"].Value)
+				_, err = access.Resolve(local, []string{"rw"})
+				require.ErrorIs(t, err, jobdb.ErrLeasePermissionDenied)
+				child, err = (permissions.JobDBIssuer{}).IssueRestrictedLease(local, tc, grant, time.Time{})
+				require.NoError(t, err)
+				info := child.(interface{ Delegation() *jobdb.DelegationInfo }).Delegation()
+				if bounded {
+					require.NotNil(t, info.NotAfter)
+					require.WithinDuration(t, time.Now().Add(5*time.Minute), *info.NotAfter, 10*time.Second)
+				} else {
+					require.Nil(t, info.NotAfter, "no task or enclosing timeout was configured")
+				}
+				return jobdb.NewTaskDataOrPanic(true), nil
+			})
+			worker := wf.ExecutionWorker{JobType: "unbounded", Execute: func(c wf.ExecutionContext, in jobdb.JobData) (jobdb.JobData, error) {
+				return c.DoTask(wf.TaskCall{Site: "root-source", TaskType: task.Name(), ContractVersion: 1, Command: json.RawMessage(`{}`)}, func(context.Context) (jobdb.TaskData, error) { return in, nil })
+			}}
+			policy := jobdb.RunPolicy{}
+			if bounded {
+				policy.TotalTimeout = jobdb.AsDuration(5 * time.Minute)
+			}
+			input := jobdb.NewTaskDataOrPanic(map[string]any{"permissions": permissions.State{Version: permissions.Version, Grant: &grant}})
+			h, err := client.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "test", JobType: worker.Name(), Data: input, RunPolicy: policy}})
+			require.NoError(t, err)
+			run, err := wf.GetJobForRun(ctx, rt, wf.GetJobForRunRequest{JobKey: h.JobKey, JobWorker: worker, TaskWorkers: []wf.TaskWorker{rt.WrapTaskWorker(task)}, WorkerID: "test", LeaseDuration: time.Minute})
+			require.NoError(t, err)
+			out, err := run.Run(nil)
+			require.NoError(t, err)
+			require.Equal(t, wf.JobRunCompleted, out.Status, "%v", out.JobError)
+			require.NotNil(t, child)
+			_, err = child.ResolveSecrets(ctx, []string{"model"})
+			require.ErrorIs(t, err, jobdb.ErrExecutionLeaseLost, "completion of the parent lease invalidates the credential")
+		})
+	}
+}
+
 func TestTaskRequestsCannotOmitPermissionEnforcement(t *testing.T) {
 	for _, tc := range []struct {
 		name, input, wantError string

@@ -104,12 +104,15 @@ JobDB applies execution and parent bounds during local attenuation, without an
 HTTP creation call. The operation never receives the owner lease. Child renewal
 validates existing authority; it extends neither `notAfter` nor the parent lease.
 
-Every issued token has `notAfter` bounded by the engine's effective task
-and enclosing deadlines, any parent delegation deadline, and any shorter known
-operation timeout. It cannot gain time when refreshed. Tasks without an explicit
-or built-in timeout receive a one-hour scope timeout. The
-engine may impose a shorter deadline. Extension manifest timeouts narrow the
-operation and its helpers once resolved, before installation and input secrets.
+When deadlines apply, the issued token has `notAfter` bounded by the engine's
+effective task and enclosing deadlines, any parent delegation deadline, and any
+shorter known operation timeout. It cannot gain time when refreshed. Recipe nodes
+without an explicit or built-in timeout receive a one-hour scope timeout. Internal root-source
+resolution adds no timeout; it inherits any applicable JobDB execution bounds.
+When all bounds are absent, the restricted token lasts only while its exact
+parent lease remains live. The engine may impose a shorter deadline. Extension
+manifest timeouts narrow the operation and its helpers once resolved, before
+installation and input secrets.
 Preparatory source reads happen in the preceding node-bounded scope.
 
 JobDB supplies task-scoped delegation.
@@ -119,8 +122,8 @@ from the current clock or execution history. Helper/RPC request timeouts control
 cancellation of that call, not credential lifetime. Credential creation is lazy;
 a new operation limit obtains a narrower credential held by the helper.
 The runtime wrapper forwards JobDB's optional `LeaseDelegator` capability and
-preserves parent delegation metadata. Unsupported issuance or a missing finite
-deadline fails without using an owner token as a fallback.
+preserves parent delegation metadata. Unsupported issuance or missing delegation
+metadata fails without using an owner token as a fallback.
 Embedded runtimes use the same per-call permission checks and engine cancellation
 without minting a bearer token.
 

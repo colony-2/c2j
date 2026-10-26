@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
-	"time"
 
 	recipeartifacts "github.com/colony-2/c2j/pkg/artifacts"
 	"github.com/colony-2/c2j/pkg/contextual"
@@ -183,7 +182,7 @@ func (j recipeJobWorker) Run(ctx jobworkflow.ExecutionContext, jobData jobdb.Job
 			LookupRepo: rootRecipeLookupRepo(input.JobContext), LookupRef: rootRecipeLookupRef(input.JobContext),
 		}
 
-		taskOutput, err := workflow.ValueCall(ctx, "root-source", RootSourceResolutionTaskType, jobdb.RunPolicy{TotalTimeout: jobdb.AsDuration(time.Hour)}, req)
+		taskOutput, err := workflow.ValueCall(ctx, "root-source", RootSourceResolutionTaskType, jobdb.RunPolicy{}, req)
 		if err != nil {
 			if logReplayCacheMiss(logger, "recipe job: root recipe source resolution replay cache miss", err) {
 				return nil, err
@@ -208,7 +207,7 @@ func (j recipeJobWorker) Run(ctx jobworkflow.ExecutionContext, jobData jobdb.Job
 		} else {
 			// Older source outcomes lack embedded YAML. Reload through a task so
 			// even this recovery path gets the current lease's Git environment.
-			reload, e := workflow.ValueCall(ctx, "root-source-load", RootSourceResolutionTaskType, jobdb.RunPolicy{TotalTimeout: jobdb.AsDuration(time.Hour)}, rootSourceResolutionTaskInput{
+			reload, e := workflow.ValueCall(ctx, "root-source-load", RootSourceResolutionTaskType, jobdb.RunPolicy{}, rootSourceResolutionTaskInput{
 				GitProfile: input.JobContext.GitProfile, ProjectID: strings.TrimSpace(input.TenantId),
 				Selector: resolution.EffectiveSelector(), LookupRepo: req.LookupRepo, LookupRef: req.LookupRef,
 			})
