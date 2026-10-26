@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -28,8 +27,10 @@ const (
 )
 
 type Handle struct {
-	Runtime jobdb.WorkflowRuntime
-	Engine  jobworkflow.Engine
+	Runtime       jobdb.WorkflowRuntime
+	Engine        jobworkflow.Engine
+	Configuration jobdb.ConfigurationAdmin
+	Secrets       SecretAdmin
 	// ImportLease is available for remote runtimes. It never claims work.
 	ImportLease func(context.Context, remoteruntime.LeaseCapability) (jobdb.RenewableExecutionLease, error)
 	cleanup     func() error
@@ -76,7 +77,8 @@ func open(ctx context.Context, swfURL string, workerTenantID string) (*Handle, e
 }
 
 func openRemote(swfURL string, workerTenantID string) (*Handle, error) {
-	baseRuntime, err := remoteruntime.New(swfURL, &http.Client{Timeout: defaultHTTPTimeout})
+	client := newHTTPClient()
+	baseRuntime, err := remoteruntime.New(swfURL, client)
 	if err != nil {
 		return nil, fmt.Errorf("create remote runtime: %w", err)
 	}
@@ -96,10 +98,12 @@ func openRemote(swfURL string, workerTenantID string) (*Handle, error) {
 	}
 
 	return &Handle{
-		Runtime:     runtime,
-		Engine:      engine,
-		ImportLease: baseRuntime.ImportLease,
-		cleanup:     func() error { return nil },
+		Runtime:       runtime,
+		Engine:        engine,
+		ImportLease:   baseRuntime.ImportLease,
+		Configuration: baseRuntime,
+		Secrets:       &remoteSecretAdmin{client: client, base: strings.TrimRight(swfURL, "/")},
+		cleanup:       func() error { return nil },
 	}, nil
 }
 
@@ -169,8 +173,10 @@ func openEmbed(ctx context.Context, parsed *url.URL, rawURL string, workerTenant
 	}
 
 	return &Handle{
-		Runtime: runtime,
-		Engine:  engine,
+		Runtime:       runtime,
+		Engine:        engine,
+		Configuration: baseRuntime,
+		Secrets:       baseRuntime,
 		cleanup: func() error {
 			shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), defaultShutdownTimeout)
 			defer shutdownCancel()

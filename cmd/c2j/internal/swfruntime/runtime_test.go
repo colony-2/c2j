@@ -2,6 +2,7 @@ package swfruntime
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"sync"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/colony-2/c2j/cmd/c2j/internal/defaults"
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	"github.com/stretchr/testify/require"
 )
 
 func TestOpenEmbedPersistsJobsAcrossReopen(t *testing.T) {
@@ -25,6 +27,9 @@ func TestOpenEmbedPersistsJobsAcrossReopen(t *testing.T) {
 		t.Fatalf("Open(embed): %v", err)
 	}
 
+	_, err = handle.Configuration.SetTenantConfigurationValue(ctx, jobdb.SetTenantConfigurationValueRequest{TenantID: "tenant-embed-test", Name: "profile", Value: json.RawMessage(`"read"`)})
+	require.NoError(t, err)
+	require.NoError(t, handle.Secrets.SetDevSecret(ctx, "tenant-embed-test", "token", "fixture-value"))
 	data := jobdb.NewTaskDataOrPanic(map[string]any{"job_id": "job-1"})
 	jobKeyHandle, err := handle.Engine.SubmitJob(ctx, jobdb.SubmitJob{
 		TenantId:  "tenant-embed-test",
@@ -61,6 +66,18 @@ func TestOpenEmbedPersistsJobsAcrossReopen(t *testing.T) {
 	if info.Status != jobdb.JobStatusReady {
 		t.Fatalf("job status = %s, want %s", info.Status, jobdb.JobStatusReady)
 	}
+	snapshot, err := reopened.Configuration.GetTenantConfiguration(ctx, "tenant-embed-test")
+	require.NoError(t, err)
+	require.JSONEq(t, `"read"`, string(snapshot.Values["profile"]))
+	lease, err := reopened.Runtime.GetJobLease(ctx, jobdb.GetJobLeaseRequest{JobKey: jobKey, WorkerID: "admin-test", Routes: []jobdb.Route{{JobType: "alpha"}}, LeaseDuration: time.Minute})
+	require.NoError(t, err)
+	require.NotNil(t, lease)
+	values, err := lease.ResolveSecrets(ctx, []string{"token"})
+	require.NoError(t, err)
+	require.Equal(t, "fixture-value", values.Secrets["token"].Value)
+	lease.StopKeepAlive()
+	require.NoError(t, reopened.Secrets.RemoveDevSecret(ctx, "tenant-embed-test", "token"))
+
 }
 
 func TestOpenEmbedRejectsConcurrentOpenOnSameRoot(t *testing.T) {

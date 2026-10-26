@@ -102,36 +102,86 @@ func TestGitInvokesScopedCredentialHelper(t *testing.T) {
 	require.NotContains(t, string(out), "private-value")
 }
 func TestGitProfileManagement(t *testing.T) {
-	rt := toy.New()
-	server := httptest.NewServer(remote.NewServer(rt))
-	defer server.Close()
-	file := filepath.Join(t.TempDir(), "profile.yaml")
-	require.NoError(t, os.WriteFile(file, []byte("version: 1\nentries:\n  - url: https://git.example/team/\n    username: bot\n    secret_ref: externally-managed\n"), 0600))
-	run := func(args ...string) (string, error) {
-		root := newRootCmd(buildinfo.Info{})
-		var out bytes.Buffer
-		root.SetOut(&out)
-		root.SetArgs(append([]string{"git", "--tenant", "test", "--url", server.URL}, args...))
-		err := root.Execute()
-		return out.String(), err
+	for _, source := range []string{"project", "environment", "flag"} {
+		t.Run(source, func(t *testing.T) {
+			t.Setenv(gitprofile.SocketEnv, "")
+			t.Setenv("C2J_JOBDB", "")
+			t.Setenv("C2J_TENANT_ID", "ignored")
+			t.Setenv("JOBDB_BEARER_TOKEN", "test-token")
+			rt := toy.New()
+			handler := remote.NewServer(rt)
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Header.Get("Authorization") != "Bearer test-token" {
+					http.Error(w, "unauthorized", http.StatusUnauthorized)
+					return
+				}
+				handler.ServeHTTP(w, r)
+			}))
+			defer server.Close()
+			project := t.TempDir()
+			require.NoError(t, os.MkdirAll(filepath.Join(project, ".c2"), 0700))
+			require.NoError(t, os.WriteFile(filepath.Join(project, ".c2", "config.yaml"), []byte("jobdb: "+server.URL+"/project\n"), 0600))
+			nested := filepath.Join(project, "nested")
+			require.NoError(t, os.Mkdir(nested, 0700))
+			t.Chdir(nested)
+			if source != "project" {
+				t.Setenv("C2J_JOBDB", server.URL+"/environment")
+			}
+			file := filepath.Join(project, "profile.yaml")
+			require.NoError(t, os.WriteFile(file, []byte("version: 1\nentries:\n  - url: https://git.example/team/\n    username: bot\n    secret_ref: externally-managed\n"), 0600))
+			run := func(args ...string) (string, error) {
+				root := newRootCmd(buildinfo.Info{})
+				var out bytes.Buffer
+				root.SetOut(&out)
+				argv := append([]string{"git"}, args...)
+				if source == "flag" {
+					argv = append(argv, "--jobdb", server.URL+"/flag")
+				}
+				root.SetArgs(argv)
+				err := root.Execute()
+				return out.String(), err
+			}
+			_, err := run("set", "work", "--file", file)
+			require.NoError(t, err)
+			out, err := run("get", "work")
+			require.NoError(t, err)
+			require.Contains(t, out, "externally-managed")
+			require.NotContains(t, out, "secret_file")
+			out, err = run("list")
+			require.NoError(t, err)
+			require.JSONEq(t, `["work"]`, out)
+			snapshot, err := rt.GetTenantConfiguration(context.Background(), source)
+			require.NoError(t, err)
+			require.Contains(t, snapshot.Values, "_c2j_git_profile_work")
+			_, err = run("remove", "work")
+			require.NoError(t, err)
+			out, err = run("list")
+			require.NoError(t, err)
+			require.JSONEq(t, `[]`, out)
+		})
 	}
-	_, err := run("set", "work", "--file", file)
-	require.NoError(t, err)
-	out, err := run("get", "work")
-	require.NoError(t, err)
-	require.Contains(t, out, "externally-managed")
-	require.NotContains(t, out, "secret_file")
-	out, err = run("list")
-	require.NoError(t, err)
-	require.JSONEq(t, `["work"]`, out)
-	snapshot, err := rt.GetTenantConfiguration(context.Background(), "test")
-	require.NoError(t, err)
-	require.Contains(t, snapshot.Values, "_c2j_git_profile_work")
-	_, err = run("remove", "work")
-	require.NoError(t, err)
-	out, err = run("list")
-	require.NoError(t, err)
-	require.JSONEq(t, `[]`, out)
+}
+
+func TestGitManagementUsesStandardTargetValidation(t *testing.T) {
+	t.Chdir(t.TempDir())
+	t.Setenv(gitprofile.SocketEnv, "")
+	t.Setenv("C2J_JOBDB", "")
+	for _, tc := range []struct {
+		args []string
+		want string
+	}{
+		{[]string{"git", "list"}, "--jobdb is required"},
+		{[]string{"git", "list", "--url", "http://localhost"}, "unknown flag: --url"},
+		{[]string{"git", "list", "--tenant", "test"}, "unknown flag: --tenant"},
+		{[]string{"git", "list", "--jobdb", "http://localhost"}, "requires tenant path"},
+		{[]string{"git", "list", "--jobdb", "http://user:private@localhost/test"}, "must not include user info"},
+	} {
+		root := newRootCmd(buildinfo.Info{})
+		root.SetArgs(tc.args)
+		err := root.Execute()
+		require.ErrorContains(t, err, tc.want)
+		require.NotContains(t, err.Error(), "private")
+	}
 }
 func TestExecutionCommandsRequireLiveScope(t *testing.T) {
 	t.Setenv(gitprofile.SocketEnv, "")
@@ -154,12 +204,20 @@ func TestSuppliedCredentialStoredSeparately(t *testing.T) {
 	rt, err := sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: filepath.Join(t.TempDir(), "jobs.db")})
 	require.NoError(t, err)
 	defer rt.Close(ctx)
-	server := httptest.NewServer(remote.NewServer(rt))
+	t.Setenv("JOBDB_BEARER_TOKEN", "test-token")
+	handler := remote.NewServer(rt)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer test-token" {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		handler.ServeHTTP(w, r)
+	}))
 	defer server.Close()
 	file := filepath.Join(t.TempDir(), "profile.yaml")
 	require.NoError(t, os.WriteFile(file, []byte("version: 1\nentries:\n  - url: https://git.example/\n    username: bot\n    secret_file: '-'\n"), 0600))
 	root := newRootCmd(buildinfo.Info{})
-	root.SetArgs([]string{"git", "set", "work", "--file", file, "--tenant", "test", "--url", server.URL})
+	root.SetArgs([]string{"git", "set", "work", "--file", file, "--jobdb", server.URL + "/test"})
 	root.SetIn(strings.NewReader("supplied-private-value"))
 	var out bytes.Buffer
 	root.SetOut(&out)

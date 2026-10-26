@@ -2,14 +2,11 @@ package cmd
 
 import (
 	"bufio"
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
-	"net/http"
-	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
@@ -17,10 +14,11 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/colony-2/c2j/cmd/c2j/internal/defaults"
+	"github.com/colony-2/c2j/cmd/c2j/internal/swfruntime"
 	"github.com/colony-2/c2j/pkg/gitprofile"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	jobconfiguration "github.com/colony-2/jobdb/pkg/jobdb/configuration"
-	"github.com/colony-2/jobdb/pkg/jobdb/runtime/remote"
 	"github.com/google/uuid"
 	"github.com/spf13/cobra"
 )
@@ -122,61 +120,12 @@ func runCredentialHelper(cmd *cobra.Command, operation string) error {
 	return err
 }
 
-type profileAdmin struct {
-	config       jobdb.ConfigurationAdmin
-	client       *http.Client
-	base, tenant string
-}
-type profileAuthTransport struct{ token string }
-
-func (t profileAuthTransport) RoundTrip(r *http.Request) (*http.Response, error) {
-	c := r.Clone(r.Context())
-	if t.token != "" {
-		c.Header.Set("Authorization", "Bearer "+t.token)
-	}
-	return http.DefaultTransport.RoundTrip(c)
-}
-func openProfileAdmin(base, tenant string) (*profileAdmin, error) {
-	u, err := url.Parse(base)
-	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
-		return nil, errors.New("--url must be an HTTP(S) JobDB server URL without credentials, query, or fragment")
-	}
-	if tenant == "" || !utf8.ValidString(tenant) {
-		return nil, errors.New("--tenant is required")
-	}
-	client := &http.Client{Timeout: 30 * time.Second, Transport: profileAuthTransport{os.Getenv("JOBDB_BEARER_TOKEN")}, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
-	r, err := remote.New(strings.TrimRight(base, "/"), client)
-	if err != nil {
-		return nil, errors.New("cannot initialize configuration client")
-	}
-	return &profileAdmin{r, client, strings.TrimRight(base, "/"), tenant}, nil
-}
-func (a *profileAdmin) secret(ctx context.Context, op, name, value string) error {
-	body := map[string]string{"name": name}
-	if op == "set" {
-		body["value"] = value
-	}
-	raw, _ := json.Marshal(body)
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, a.base+"/dev/v1/tenants/"+url.PathEscape(a.tenant)+"/secrets/"+op, bytes.NewReader(raw))
-	if err != nil {
-		return errors.New("invalid secret administration request")
-	}
-	req.Header.Set("Content-Type", "application/json")
-	response, err := a.client.Do(req)
-	if err != nil {
-		return errors.New("secret administration unavailable")
-	}
-	defer response.Body.Close()
-	if response.StatusCode != http.StatusNoContent {
-		return fmt.Errorf("supplied-secret storage failed (HTTP %d); this server must support JobDB's secret administration API, otherwise use secret_ref", response.StatusCode)
-	}
-	return nil
-}
 func newGitCmd() *cobra.Command {
-	var base, tenant string
+	var uri string
+	var useEmbed bool
 	c := &cobra.Command{Use: "git", Short: "Manage and activate Git profiles"}
-	c.PersistentFlags().StringVar(&base, "url", os.Getenv("C2J_JOBDB"), "JobDB HTTP(S) server URL for management commands")
-	c.PersistentFlags().StringVar(&tenant, "tenant", os.Getenv("C2J_TENANT_ID"), "Tenant for management commands")
+	c.PersistentFlags().StringVar(&uri, "jobdb", "", "JobDB URI (http(s)://host/tenant or embed:///)")
+	c.PersistentFlags().BoolVar(&useEmbed, "embed", false, "Use embedded JobDB (equivalent to --jobdb "+defaults.EmbedURL+")")
 	for _, op := range []string{"activate", "clear"} {
 		args := cobra.ExactArgs(1)
 		use := op + " NAME"
@@ -259,13 +208,26 @@ func newGitCmd() *cobra.Command {
 					return err
 				}
 			}
-			a, err := openProfileAdmin(base, tenant)
+			jobdbURI := uri
+			if useEmbed {
+				jobdbURI = defaults.EmbedURL
+			}
+			target, err := defaults.ResolveJobDBTarget(cmd.Context(), "", jobdbURI)
 			if err != nil {
 				return err
 			}
+			if target.RuntimeURL == "" {
+				return fmt.Errorf("--jobdb is required (or %s, or project jobdb)", defaults.JobDBEnv)
+			}
+			h, err := swfruntime.Open(cmd.Context(), target.RuntimeURL)
+			if err != nil {
+				return err
+			}
+			defer h.Cleanup()
+			tenant := target.TenantID
 			ctx, cancel := context.WithTimeout(cmd.Context(), 30*time.Second)
 			defer cancel()
-			snapshot, err := a.config.GetTenantConfiguration(ctx, tenant)
+			snapshot, err := h.Configuration.GetTenantConfiguration(ctx, tenant)
 			if err != nil {
 				return errors.New("configuration administration read failed")
 			}
@@ -286,7 +248,7 @@ func newGitCmd() *cobra.Command {
 				sort.Strings(names)
 				return json.NewEncoder(cmd.OutOrStdout()).Encode(names)
 			case "remove":
-				_, err = a.config.RemoveTenantConfigurationValue(ctx, jobdb.RemoveTenantConfigurationValueRequest{TenantID: tenant, Name: key, ExpectedRevision: &snapshot.Revision})
+				_, err = h.Configuration.RemoveTenantConfigurationValue(ctx, jobdb.RemoveTenantConfigurationValueRequest{TenantID: tenant, Name: key, ExpectedRevision: &snapshot.Revision})
 			case "set":
 				raw, _ := json.Marshal(p)
 				if err = jobconfiguration.ValidateValue(raw, jobdb.ConfigurationLimits{}); err != nil {
@@ -297,19 +259,19 @@ func newGitCmd() *cobra.Command {
 					cleanupCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 					defer cancel()
 					for _, name := range created {
-						if e := a.secret(cleanupCtx, "remove", name, ""); e != nil {
+						if e := h.Secrets.RemoveDevSecret(cleanupCtx, tenant, name); e != nil {
 							fmt.Fprintln(cmd.ErrOrStderr(), "managed secret cleanup failed:", name)
 						}
 					}
 				}
 				for name, value := range values {
 					created = append(created, name)
-					if err = a.secret(ctx, "set", name, value); err != nil {
+					if err = h.Secrets.SetDevSecret(ctx, tenant, name, value); err != nil {
 						cleanup()
 						return err
 					}
 				}
-				_, err = a.config.SetTenantConfigurationValue(ctx, jobdb.SetTenantConfigurationValueRequest{TenantID: tenant, Name: key, Value: raw, ExpectedRevision: &snapshot.Revision})
+				_, err = h.Configuration.SetTenantConfigurationValue(ctx, jobdb.SetTenantConfigurationValueRequest{TenantID: tenant, Name: key, Value: raw, ExpectedRevision: &snapshot.Revision})
 				// On uncertain publication keep credentials: the server may have
 				// committed the profile even if its response was lost.
 				if errors.Is(err, jobdb.ErrConfigurationRevisionMismatch) {

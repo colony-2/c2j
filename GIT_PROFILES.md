@@ -14,12 +14,12 @@ entries:
 ```
 
 ```sh
-c2j git set read --file read.yaml --url "$JOBDB_URL" --tenant team
-c2j git get read --url "$JOBDB_URL" --tenant team
-c2j git list --url "$JOBDB_URL" --tenant team
+c2j git set read --file read.yaml --jobdb "$JOBDB_URL/team"
+c2j git get read --jobdb "$JOBDB_URL/team"
+c2j git list --jobdb "$JOBDB_URL/team"
 ```
 
-Use `JOBDB_BEARER_TOKEN` when the management endpoint requires authentication. `C2J_JOBDB` and `C2J_TENANT_ID` provide defaults for the management flags. `set` validates the entire document and uses the configuration revision to reject concurrent updates. `get` outputs the definition, never a credential value.
+Use `JOBDB_BEARER_TOKEN` when the management endpoint requires authentication. Management commands use the standard `--jobdb` → `C2J_JOBDB` → `.c2/config.yaml` `jobdb` setting, with the tenant in the URL path. They also support `--embed` (tenant `0`). For example, `jobdb: http://192.168.1.195:9047/c2` makes `c2j git list` use tenant `c2` without extra flags. `set` validates the entire document and uses the configuration revision to reject concurrent updates. `get` outputs the definition, never a credential value.
 
 An entry may omit routing or credentials. Credential entries require both `username` and `secret_ref`. Multiple entries support different hosts or repository paths. The most specific destination path selects credentials; equally specific duplicates, malformed URLs, and rewrite chains/cycles are rejected. Credentials are matched after rewriting.
 
