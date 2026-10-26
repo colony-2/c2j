@@ -12,7 +12,7 @@ c2j submit "Run the requested task" --advanced-recipe-file ./recipes/my-recipe.y
 
 This loads the local YAML file, embeds it into the submitted job, starts an embedded runtime, submits the job, and runs it immediately.
 
-For ordinary jobs, use `c2j submit "your prompt"` to submit the build recipe. The existing resolver looks up `build` in the target cell, with missing-file fallback to the same-named root YAML on `main` in `colony-2/recipes`. Custom files/selectors use `--advanced-recipe-file`/`--advanced-recipe`; these flags are mutually exclusive.
+For ordinary jobs, use `c2j submit "your prompt"` to submit the build recipe. The default selector is `git+https://github.com/colony-2/recipes.git//build.yaml@main`, which skips target-cell recipe lookup. Explicit bare names still resolve in the target cell; use `--advanced-recipe build` for its `.c2/recipes/build.yaml` (with the existing missing-file shared fallback). Custom files/selectors use `--advanced-recipe-file`/`--advanced-recipe`; these flags are mutually exclusive.
 
 Build recipes receive `{"prompt":"your prompt","type":"build"}`. Declare both as required strings in `input_schema`, and bind them in root `inputs` when using them in recipe logic. This also applies to explicit selection of the name `build`; custom names, Git selectors, and files have no automatic type injection. For build submissions, a user-provided type must be `"build"`.
 

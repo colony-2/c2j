@@ -16,8 +16,8 @@ func newSubmitCmd() *cobra.Command {
 		Short: "Submit a build job",
 		Long: `Submit a build job for the target cell.
 
-Uses the target cell's .c2/recipes/build.yaml, falling back
-to build.yaml on main in github.com/colony-2/recipes.
+Uses build.yaml on main in github.com/colony-2/recipes directly.
+Explicit bare recipe names look in the target cell's .c2/recipes directory.
 The prompt becomes inputs.prompt; if omitted, it is requested interactively.
 Build submissions also set inputs.type to "build".
 Custom recipes are an advanced use case: use --advanced-recipe[-file].`,

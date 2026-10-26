@@ -67,7 +67,7 @@ func TestSubmitConventionsWithInteractivePromptAndJSON(t *testing.T) {
 			args := []string{"--cell", root, "--jobdb", server.URL + "/tenant", "--json"}
 			want := mode
 			if mode == "default" {
-				want = "build"
+				want = "git+https://github.com/colony-2/recipes.git//build.yaml@main"
 			} else {
 				args = append(args, "--advanced-recipe", mode)
 			}

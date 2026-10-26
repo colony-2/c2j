@@ -31,6 +31,27 @@ func (r *conventionResolver) LoadYAML(_ context.Context, _ string, res RecipeSou
 	return r.load(res)
 }
 
+func TestSharedBuildRecipeSkipsTargetLookup(t *testing.T) {
+	resolver := &conventionResolver{}
+	resolver.resolve = func(selector string) (RecipeSourceResolution, error) {
+		require.Equal(t, SharedBuildRecipeSelector, selector, "bootstrap must not access the private target")
+		return RecipeSourceResolution{SourceKind: RecipeSourceKindGit, SubmittedSelector: selector, ResolvedSelector: selector}, nil
+	}
+	resolver.load = func(RecipeSourceResolution) ([]byte, error) {
+		return []byte("id: shared_build\nversion: '1'\nsequence: []\n"), nil
+	}
+	input := jobdb.NewTaskDataOrPanic(rootSourceResolutionTaskInput{
+		ProjectID: "tenant", Selector: SharedBuildRecipeSelector,
+		LookupRepo: "https://private.invalid/team/repo.git", LookupRef: "release",
+	})
+	output, err := newRootSourceResolutionTaskWorker(resolver).Run(jobworkflow.TaskContext{}, input)
+	require.NoError(t, err)
+	source, err := ParseResolvedRecipeSourceTaskData(output)
+	require.NoError(t, err)
+	require.Equal(t, SharedBuildRecipeSelector, source.SubmittedSelector)
+	require.Equal(t, []string{SharedBuildRecipeSelector}, resolver.selectors)
+}
+
 func TestConventionalRecipeFallbackRules(t *testing.T) {
 	for _, tt := range []struct {
 		name, selector                 string

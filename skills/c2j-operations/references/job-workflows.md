@@ -8,7 +8,7 @@
 c2j submit "Implement the endpoint" --run --embed
 ```
 
-This resolves `build` in the target cell, falling back to the shared build recipe when absent. Embedded runtime avoids a remote JobDB. For custom local recipe authoring, use `--advanced-recipe-file ./recipes/my-recipe.yaml` and declare `prompt` in the recipe's input schema.
+This resolves `git+https://github.com/colony-2/recipes.git//build.yaml@main` directly, without looking in the target cell for a recipe. Use `--advanced-recipe build` to select the target cell’s build recipe explicitly. Embedded runtime avoids a remote JobDB. For custom local recipe authoring, use `--advanced-recipe-file ./recipes/my-recipe.yaml` and declare `prompt` in the recipe's input schema.
 
 ## Submit Then Continue Later
 

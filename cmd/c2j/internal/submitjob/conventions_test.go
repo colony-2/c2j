@@ -15,7 +15,8 @@ func TestSubmissionRecipeConventions(t *testing.T) {
 		opts Options
 		want string
 	}{
-		{"default", Options{}, "build"},
+		{"default", Options{}, "git+https://github.com/colony-2/recipes.git//build.yaml@main"},
+		{"blank selection", Options{Recipe: "  "}, "git+https://github.com/colony-2/recipes.git//build.yaml@main"},
 		{"explicit build", Options{Recipe: "build"}, "build"},
 		{"evolve is a custom name", Options{Recipe: "evolve"}, "evolve"},
 		{"advanced", Options{Recipe: "custom"}, "custom"},

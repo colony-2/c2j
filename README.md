@@ -157,7 +157,7 @@ That does all of the following:
 
 - starts an embedded JobDB runtime
 - submits the job
-- resolves the named recipe in the target cell, falling back to the shared recipe if absent
+- resolves the shared build recipe directly from `colony-2/recipes`
 - immediately executes it against the target cell
 
 See [submitting jobs](#submitting-jobs) for the hosted recipe names and [advanced recipe selection](#advanced-recipe-selection) for custom local files.
@@ -298,13 +298,13 @@ Submit a build job:
 c2j submit "Implement the new endpoint" --embed
 ```
 
-Submissions use the name `build` through the existing recipe resolution system. At execution time, c2j first looks for `.c2/recipes/build.yaml` in the **target cell's repository**, at its configured ref. This also applies to `--cell`; the submitting project's recipes do not override another target cell's recipes. As with other named recipes, uncommitted files are not used.
-
-If that recipe file is absent, c2j resolves the shared recipe instead:
+With no recipe option, c2j uses the shared build recipe directly:
 
 - `git+https://github.com/colony-2/recipes.git//build.yaml@main`
 
-The shared repository must provide `build.yaml` at its root on `main`. This recipe is not bundled with c2j; until published, jobs needing the fallback cannot execute. Missing refs, authentication/network failures, and invalid recipes remain errors rather than triggering fallback. Resolution is pinned and cached by the existing job execution machinery. A shared recipe still operates on the target cell's worktree.
+Bootstrap does not look for a recipe in the target repository. This allows the shared recipe to configure credentials before accessing a private target. A local `.c2/recipes/build.yaml` does not override the default. The shared recipe still operates on the target cell's worktree, and its source is pinned and cached by the job execution machinery.
+
+Use `--advanced-recipe build` to explicitly select `.c2/recipes/build.yaml` in the target cell's repository at its configured Git ref. Bare names keep the existing target-cell lookup behavior (including the missing-file shared fallback for `build`); uncommitted files are not used. With `--cell`, lookup uses the target cell, not the submitting project's recipes.
 
 Every submission requires a non-empty prompt, passed as `inputs.prompt`. Omit the argument in a terminal to enter it interactively:
 
@@ -322,7 +322,7 @@ Build submissions include `type: build` alongside the prompt:
 {"prompt": "Implement the new endpoint", "type": "build"}
 ```
 
-`type` is fixed to `"build"` for build submissions; it does not select a recipe. A matching `type` in `--inputs-json` or `--inputs-file` is accepted; a conflicting or non-string value is rejected before submission. The same contract applies to target-cell recipes and shared fallbacks, including explicit selection of the name `build`.
+`type` is fixed to `"build"` for build submissions; it does not select a recipe. A matching `type` in `--inputs-json` or `--inputs-file` is accepted; a conflicting or non-string value is rejected before submission. The same contract applies to the default shared build and explicit selection of the name `build`.
 
 The build recipe must declare these inputs and bind them for recipe logic:
 

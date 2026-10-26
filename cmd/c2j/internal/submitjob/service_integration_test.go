@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http/httptest"
 	"os"
 	"os/exec"
@@ -17,6 +18,7 @@ import (
 	"github.com/colony-2/c2j/cmd/c2j/internal/swfruntime"
 	"github.com/colony-2/c2j/pkg/swfutil"
 	"github.com/colony-2/c2j/pkg/worker/compiler"
+	"github.com/colony-2/c2j/pkg/workflowctl"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	remoteruntime "github.com/colony-2/jobdb/pkg/jobdb/runtime/remote"
 	toyruntime "github.com/colony-2/jobdb/pkg/jobdb/runtime/toy"
@@ -512,7 +514,59 @@ outputs:
 	}
 }
 
-func TestRun_SubmitsCurrentCellByDefaultUsingBuildRecipe(t *testing.T) {
+func TestRun_DefaultBuildUsesSharedRecipe(t *testing.T) {
+	t.Parallel()
+	for _, privateTarget := range []bool{false, true} {
+		t.Run(fmt.Sprintf("private=%v", privateTarget), func(t *testing.T) {
+			ctx := context.Background()
+			root, _ := createGitRepo(t)
+			mustWriteRepoFile(t, root, ".c2/recipes/build.yaml", "invalid: [")
+			mustWriteRepoFile(t, root, ".c2/config.yaml", "self:\n  repo: "+root+"\n  ref: main\n")
+			commitRepo(t, root, "local recipe must not override default")
+			base := toyruntime.New()
+			server := httptest.NewServer(remoteruntime.NewServer(base))
+			defer server.Close()
+			var stdout bytes.Buffer
+			opts := Options{JobDBURI: testJobDBURI(server.URL, "default-build"), WorkingDir: root, Prompt: "build it", JSONOutput: true, Stdout: &stdout}
+			if privateTarget {
+				opts.Cell = "https://private.invalid/team/repo.git"
+			}
+			if err := Run(ctx, opts); err != nil {
+				t.Fatal(err)
+			}
+			var submitted submitResult
+			if err := json.Unmarshal(stdout.Bytes(), &submitted); err != nil {
+				t.Fatal(err)
+			}
+			if submitted.Recipe != compiler.SharedBuildRecipeSelector {
+				t.Fatalf("recipe = %q", submitted.Recipe)
+			}
+			run, err := jobdb.GetJobRun(ctx, base, jobdb.GetJobRunRequest{JobKey: jobdb.JobKey{TenantId: submitted.TenantID, JobId: submitted.JobID}, IncludeInputs: true})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if run.Start.Input == nil {
+				t.Fatal("missing submitted inputs")
+			}
+			var start workflowctl.StartJob
+			if err := json.Unmarshal(run.Start.Input.Data, &start); err != nil {
+				t.Fatal(err)
+			}
+			if start.RecipeName != compiler.SharedBuildRecipeSelector || start.Inputs["type"] != "build" || start.Inputs["prompt"] != "build it" {
+				t.Fatalf("unexpected submitted inputs: %+v", start)
+			}
+			wantRepo := "file://" + root
+			if privateTarget {
+				wantRepo = opts.Cell
+			}
+			if start.JobContext.GitBase.BaseRepo != wantRepo {
+				t.Fatalf("target = %q, want %q", start.JobContext.GitBase.BaseRepo, wantRepo)
+			}
+		})
+	}
+}
+
+func TestRun_SubmitsCurrentCellUsingExplicitBuildRecipe(t *testing.T) {
 	t.Parallel()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
@@ -554,6 +608,7 @@ outputs:
 		WorkingDir: baseRepo,
 		JSONOutput: true,
 		Prompt:     "build the current cell",
+		Recipe:     "build",
 		Stdout:     &submitStdout,
 	}); err != nil {
 		t.Fatalf("submit job: %v", err)
@@ -617,7 +672,7 @@ outputs:
 
 func TestRun_ConventionsUseTargetCellNotSubmittingCell(t *testing.T) {
 	t.Parallel()
-	for _, selection := range []string{"", "build"} {
+	for _, selection := range []string{"build"} {
 		t.Run("recipe="+selection, func(t *testing.T) {
 			const kind = "build"
 			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)

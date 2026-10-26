@@ -228,7 +228,7 @@ func selectedRecipeName(opts Options) string {
 	if name := strings.TrimSpace(opts.Recipe); name != "" {
 		return name
 	}
-	return compiler.DefaultRecipeName
+	return compiler.SharedBuildRecipeSelector
 }
 
 func loadInputs(opts Options) (map[string]interface{}, error) {
@@ -270,8 +270,9 @@ mergePrompt:
 		inputs["prompt"] = opts.Prompt
 	}
 	if strings.TrimSpace(opts.RecipeFile) == "" {
-		name := selectedRecipeName(opts)
-		if name == compiler.DefaultRecipeName {
+		name := strings.TrimSpace(opts.Recipe)
+		if name == "" || name == compiler.DefaultRecipeName {
+			name = compiler.DefaultRecipeName
 			if value, exists := inputs["type"]; exists {
 				if supplied, ok := value.(string); !ok || supplied != name {
 					return nil, fmt.Errorf("inputs.type must be %q for this submission", name)
