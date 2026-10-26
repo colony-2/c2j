@@ -120,7 +120,9 @@ func runWorkspaceRecipe(t *testing.T, ws *jobworkflow.WorkSet, yaml string, job 
 	keyRef, err := starter.StartRecipeJob(context.Background(), workflowctl.StartJob{TenantId: "workspace-tests", RecipeName: "workspace-test", JobContext: job, GitRef: job.GitBase.BaseRef}, eng, *rec)
 	key := keyRef.Key()
 	require.NoError(t, err)
-	require.NoError(t, jobworkflow.WaitForJobToComplete(context.Background(), 10*time.Second, key, eng))
+	// These correctness tests restore and publish workspaces through many Git
+	// subprocesses. Use a generous safety deadline to allow for slow CI hosts.
+	require.NoError(t, jobworkflow.WaitForJobToComplete(context.Background(), time.Minute, key, eng))
 	result, err := swfutil.JobResult(context.Background(), eng, key)
 	require.NoError(t, err)
 	raw, err := result.GetData()
