@@ -242,8 +242,9 @@ task result.
 
 c2j requests the current task's secret names through JobDB, in batches of up to
 64, and clears its transient input values after each task attempt. It does not
-prefetch future tasks' secrets or cache values across tasks. Only execution-wide
-redaction tracking remains in c2j, to protect later logs/errors/outputs.
+prefetch future tasks' secrets or cache values across tasks. Each task invocation
+owns a redactor shared by its ordinary secret reads and Git credential helper.
+Redaction state is not shared with other tasks, retries, or JobDB connections.
 
 JobDB v0.0.32 caches secrets and configuration for the live job execution.
 Available secrets and missing/denied names are cached; known omissions are not
@@ -268,10 +269,12 @@ currently omit the secret name and underlying provider reason.
 
 Config values are public and are recorded under the task outcome's
 `configuration` metadata, alongside the revision used. Secrets remain references
-in durable inputs. c2j masks known secret values in its default logs and returned
+in durable inputs. c2j masks known secret values in its task-scoped logs and returned
 errors, including extension stderr, and rejects structured outputs containing
 them. Ops must not write credentials into artifacts or workspaces, or encode them
 into outputs; masking does not protect arbitrary files or transformed values.
+Global loggers are not modified; native task code must use its scoped redactor
+when constructing a logger for secret-bearing messages.
 
 Offline recipe tests can use mocked op results without retrieving secrets or
 config. Passthrough requiring either needs a lease-backed job execution.

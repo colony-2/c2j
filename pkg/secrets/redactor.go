@@ -1,6 +1,7 @@
 package secrets
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -12,25 +13,27 @@ import (
 	"github.com/colony-2/jobdb/pkg/jobdb"
 )
 
-// Redactor remembers secret material only to prevent disclosure across tasks.
-// It has no name-to-value lookup and is cleared when the local execution ends.
+// Redactor remembers secret material only for one task invocation.
+// It has no name-to-value lookup and is never shared between task attempts.
 type Redactor struct {
-	mu     sync.Mutex
-	masks  map[string]bool
-	closed bool
-	tasks  int
+	mu       sync.Mutex
+	masks    map[string]bool
+	closed   bool
+	sessions int
 }
 
-func newRedactor() *Redactor { return &Redactor{masks: map[string]bool{}} }
+func NewRedactor() *Redactor { return &Redactor{masks: map[string]bool{}} }
 func (*Redactor) MarshalJSON() ([]byte, error) {
 	return nil, errors.New("secret redactors cannot be serialized")
 }
 func (*Redactor) String() string   { return "secret redactor (redacted)" }
 func (*Redactor) GoString() string { return "secret redactor (redacted)" }
-func (s *Redactor) NewTask() *Session {
+
+// NewSession retains the masks and provides a private value cache within this invocation.
+func (s *Redactor) NewSession() *Session {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.tasks++
+	s.sessions++
 	return &Session{values: map[string]jobdb.SecretValue{}, redactor: s}
 }
 func (s *Redactor) Close() {
@@ -39,19 +42,18 @@ func (s *Redactor) Close() {
 	s.closed = true
 	s.clearClosed()
 }
-func (s *Redactor) releaseTask() {
+func (s *Redactor) releaseSession() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.tasks--
+	s.sessions--
 	s.clearClosed()
 }
 
 // Cancelled tasks may still log while unwinding. Retain their masks until the
-// last task releases them, while preventing any new secret materialization.
+// last local session releases them, while preventing any new secret materialization.
 func (s *Redactor) clearClosed() {
-	if s.closed && s.tasks == 0 {
+	if s.closed && s.sessions == 0 {
 		clear(s.masks)
-		activeMasks.Delete(s)
 	}
 }
 func (s *Redactor) isClosed() bool {
@@ -145,4 +147,14 @@ func (s *Redactor) CheckOutput(v any) error {
 		return errors.New("op output contains secret material")
 	}
 	return nil
+}
+
+type redactorKey struct{}
+
+func WithRedactor(ctx context.Context, redactor *Redactor) context.Context {
+	return context.WithValue(ctx, redactorKey{}, redactor)
+}
+func RedactorFromContext(ctx context.Context) *Redactor {
+	r, _ := ctx.Value(redactorKey{}).(*Redactor)
+	return r
 }

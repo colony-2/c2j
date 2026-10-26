@@ -12,7 +12,6 @@ import (
 
 	openapi "github.com/colony-2/c2j/pkg/input/openapi"
 	"github.com/colony-2/c2j/pkg/ops"
-	"github.com/colony-2/c2j/pkg/secrets"
 	ops2 "github.com/colony-2/c2j/pkg/worker/ops"
 	"github.com/colony-2/c2j/pkg/workflowctl"
 	"github.com/colony-2/jobdb/pkg/jobdb"
@@ -37,7 +36,11 @@ func newInputManagementService() *inputManagementService {
 
 // Initialize sets up the service with dependencies
 func (s *inputManagementService) Initialize(deps ops.ServiceDependencies2) error {
-	s.logger = secrets.MaskLogger(deps.Logger()).With("component", "input")
+	s.logger = deps.Logger()
+	if s.logger == nil {
+		s.logger = slog.Default()
+	}
+	s.logger = s.logger.With("component", "input")
 	runtime, err := NewRuntimeFromDeps(deps)
 	if err != nil {
 		return err
@@ -55,7 +58,7 @@ func (s *inputManagementService) log() *slog.Logger {
 	if s.logger != nil {
 		return s.logger
 	}
-	return secrets.MaskLogger(nil).With("component", "input")
+	return slog.Default().With("component", "input")
 }
 
 func (s *inputManagementService) Close() {

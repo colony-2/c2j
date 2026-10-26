@@ -68,6 +68,12 @@ These commands require a live execution socket. JSON is the default; raw configu
 
 Activation and clearing normally happen internally. Manual `clear` removes profile routing and credential access while retaining settings that prevent helper/prompt fallback. `activate` can restore only the profile authorized for that scope. Neither command mutates global Git configuration or persistent profiles. Parallel nodes use separate files and sockets; cancellation and completion close access. This is execution configuration, not an OS sandbox against code with broader authority.
 
+Each task creates its own Git scope before preparation. The scope is passed directly
+to task code, with no process-wide task lookup. Its credentials share that task's
+redactor with ordinary secret inputs. A later task creates fresh files, a new
+socket, and a new redactor, even when its job or task identifiers match another
+execution. Clearing one task's profile does not change another task's selection.
+
 ## Backing names
 
 | Store | Key |

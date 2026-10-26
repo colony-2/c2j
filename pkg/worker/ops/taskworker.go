@@ -9,7 +9,6 @@ import (
 
 	"github.com/colony-2/c2j/pkg/configuration"
 	"github.com/colony-2/c2j/pkg/contextual"
-	"github.com/colony-2/c2j/pkg/gitprofile"
 	"github.com/colony-2/c2j/pkg/ops"
 	extops "github.com/colony-2/c2j/pkg/ops/extensions"
 	"github.com/colony-2/c2j/pkg/ops/process"
@@ -21,18 +20,30 @@ import (
 )
 
 type taskWorker struct {
-	sessions *secrets.Sessions
-	name     string
-	reg      ActivityRegistration
-	doer     *opExecutor
+	name string
+	reg  ActivityRegistration
+	doer *opExecutor
 }
 
 func (t *taskWorker) Name() string {
 	return t.name
 }
 
-func (t *taskWorker) Run(ctx jobworkflow.TaskContext, input jobdb.TaskData) (result jobdb.TaskData, runErr error) {
-	logger := secrets.MaskLogger(ctx.Logger).With("component", "worker", "purpose", "run",
+func (t *taskWorker) Run(tc jobworkflow.TaskContext, input jobdb.TaskData) (jobdb.TaskData, error) {
+	return t.RunTask(tc.Context(), tc, input)
+}
+
+func (t *taskWorker) RunTask(local context.Context, ctx jobworkflow.TaskContext, input jobdb.TaskData) (result jobdb.TaskData, runErr error) {
+	redactor := secrets.RedactorFromContext(local)
+	if redactor == nil {
+		redactor = secrets.NewRedactor()
+		defer redactor.Close()
+		local = secrets.WithRedactor(local, redactor)
+	}
+	session := redactor.NewSession()
+	defer session.Close()
+
+	logger := secrets.MaskLogger(ctx.Logger, redactor).With("component", "worker", "purpose", "run",
 		"tenant_id", ctx.JobKey.TenantId, "job_id", ctx.JobKey.JobId,
 		"task_type", t.name, "op_type", t.reg.Metadata.Type, "step", t.reg.Step.Name,
 		"chapter_ordinal", ctx.Step, "invocation_id", ctx.InvocationID)
@@ -56,12 +67,6 @@ func (t *taskWorker) Run(ctx jobworkflow.TaskContext, input jobdb.TaskData) (res
 	}()
 	if err := ctx.Context().Err(); err != nil {
 		return nil, err
-	}
-	redactor := t.sessions.GetExecution(ctx.Context(), ctx.JobKey)
-	var session *secrets.Session
-	if redactor != nil {
-		session = redactor.NewTask()
-		defer session.Close()
 	}
 	d, err := input.GetData()
 	if err != nil {
@@ -94,12 +99,10 @@ func (t *taskWorker) Run(ctx jobworkflow.TaskContext, input jobdb.TaskData) (res
 			diagnostic.Setup = &air.Setup.Diagnostics
 		}
 		// Keep preparation evidence attached to the consuming failed outcome.
-		if session != nil {
-			runErr = session.Error(runErr)
-			if err := session.CheckOutput(diagnostic); err != nil {
-				runErr = errors.Join(runErr, err)
-				return
-			}
+		runErr = session.Error(runErr)
+		if err := session.CheckOutput(diagnostic); err != nil {
+			runErr = errors.Join(runErr, err)
+			return
 		}
 		raw, err := json.Marshal(diagnostic)
 		if err != nil {
@@ -124,7 +127,7 @@ func (t *taskWorker) Run(ctx jobworkflow.TaskContext, input jobdb.TaskData) (res
 		result, err = jobdb.NewTaskData(payload, artifacts...)
 		runErr = errors.Join(runErr, err)
 	}()
-	opCtx, cancel := NewTaskExecutionContext(ctx)
+	opCtx, cancel := context.WithCancel(local)
 	defer cancel()
 	access := permissions.FromContext(opCtx)
 	if access == nil {
@@ -182,18 +185,13 @@ func (t *taskWorker) Run(ctx jobworkflow.TaskContext, input jobdb.TaskData) (res
 	}
 	secretStart := time.Now()
 	if len(refs) > 0 {
-		if session == nil {
-			return nil, errors.New("secret setup requires a local job execution")
-		}
 		err := session.PrepareReferences(opCtx, refs, access.Resolve)
 		air.SecretSetupMS = time.Since(secretStart).Milliseconds()
 		if err != nil {
 			return nil, session.Error(err)
 		}
 	}
-	if session != nil {
-		opCtx = secrets.WithSession(opCtx, session)
-	}
+	opCtx = secrets.WithSession(opCtx, session)
 	if air.Setup != nil {
 		if air.Setup.Environment != nil {
 			opCtx = process.WithToolPath(opCtx, air.Setup.Environment.Path)
@@ -208,7 +206,7 @@ func (t *taskWorker) Run(ctx jobworkflow.TaskContext, input jobdb.TaskData) (res
 		return nil, err
 	}
 	jobTool := &ops.TaskBasedJobTool{TaskContext: ctx, Restricted: access}
-	out, outArt, err := t.doer.doLogged(opCtx, jobTool, air, inArt, ctx.Logger)
+	out, outArt, err := t.doer.doLogged(opCtx, jobTool, air, inArt, logger)
 	out.PreparationMS = prepMS
 	out.SecretSetupMS = air.SecretSetupMS
 	out.Configuration = configDiag
@@ -217,11 +215,9 @@ func (t *taskWorker) Run(ctx jobworkflow.TaskContext, input jobdb.TaskData) (res
 		air.Setup.Diagnostics.TaskOrdinal = &ctx.Step
 		out.Setup = &air.Setup.Diagnostics
 	}
-	if session != nil {
-		err = session.Error(err)
-		if e := session.CheckOutput(out); e != nil {
-			return nil, e
-		}
+	err = session.Error(err)
+	if e := session.CheckOutput(out); e != nil {
+		return nil, e
 	}
 	if air.Setup != nil {
 		out.Setup = &air.Setup.Diagnostics
@@ -244,11 +240,6 @@ func (t *taskWorker) Run(ctx jobworkflow.TaskContext, input jobdb.TaskData) (res
 }
 
 var _ jobworkflow.TaskWorker = &taskWorker{}
-
-// NewTaskExecutionContext follows JobDB's invocation cancellation directly.
-func NewTaskExecutionContext(taskCtx jobworkflow.TaskContext) (context.Context, context.CancelFunc) {
-	return context.WithCancel(gitprofile.TaskContext(taskCtx))
-}
 
 func failedTaskData(output ActivityInvocationOutput, artifacts []jobdb.Artifact) (jobdb.TaskData, error) {
 	if !hasFailedActivityPayload(output, artifacts) {

@@ -2,6 +2,7 @@ package executionruntime
 
 import (
 	"context"
+	coretask "github.com/colony-2/c2j/pkg/task"
 	"testing"
 	"time"
 
@@ -20,7 +21,10 @@ type gatedYieldTask struct {
 }
 
 func (w gatedYieldTask) Run(ctx jobworkflow.TaskContext, input jobdb.TaskData) (jobdb.TaskData, error) {
-	out, err := w.TaskWorker.Run(ctx, input)
+	return w.RunTask(ctx.Context(), ctx, input)
+}
+func (w gatedYieldTask) RunTask(local context.Context, ctx jobworkflow.TaskContext, input jobdb.TaskData) (jobdb.TaskData, error) {
+	out, err := coretask.RunLocal(w.TaskWorker, local, ctx, input)
 	if jobworkflow.IsExecutionSuspended(err) {
 		close(w.yielded)
 		<-w.release

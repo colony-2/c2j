@@ -16,7 +16,6 @@ import (
 	"github.com/colony-2/c2j/pkg/jobdbschema"
 	"github.com/colony-2/c2j/pkg/jobref"
 	"github.com/colony-2/c2j/pkg/recipe"
-	"github.com/colony-2/c2j/pkg/secrets"
 	"github.com/colony-2/c2j/pkg/starter"
 	workflowapi "github.com/colony-2/c2j/pkg/story/api"
 	"github.com/colony-2/c2j/pkg/story/internal/model"
@@ -93,7 +92,7 @@ func New(cfg Config) (*Service, error) {
 		recipes:      cfg.Recipes,
 		rootResolver: cfg.RootSourceResolver,
 		celProvider:  cfg.CELOptionsProvider,
-		logger:       secrets.MaskLogger(logger),
+		logger:       logger,
 	}, nil
 }
 

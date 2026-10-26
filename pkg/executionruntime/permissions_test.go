@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/colony-2/c2j/pkg/execution"
-	"github.com/colony-2/c2j/pkg/gitprofile"
 	"github.com/colony-2/c2j/pkg/permissions"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/remote"
@@ -17,11 +16,15 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-type delegationTask func(wf.TaskContext, jobdb.TaskData) (jobdb.TaskData, error)
+type delegationTask func(context.Context, wf.TaskContext, jobdb.TaskData) (jobdb.TaskData, error)
 
 func (delegationTask) Name() string { return "delegate" }
 func (f delegationTask) Run(tc wf.TaskContext, in jobdb.TaskData) (jobdb.TaskData, error) {
-	return f(tc, in)
+	return f(tc.Context(), tc, in)
+}
+
+func (f delegationTask) RunTask(ctx context.Context, tc wf.TaskContext, in jobdb.TaskData) (jobdb.TaskData, error) {
+	return f(ctx, tc, in)
 }
 
 func TestRestrictedAccessUsesTaskDelegationAndOperationLimit(t *testing.T) {
@@ -37,13 +40,13 @@ func TestRestrictedAccessUsesTaskDelegationAndOperationLimit(t *testing.T) {
 	var saved wf.TaskContext
 	var delegated jobdb.ExecutionLease
 	var preparedAt time.Time
-	task := delegationTask(func(tc wf.TaskContext, in jobdb.TaskData) (jobdb.TaskData, error) {
+	task := delegationTask(func(local context.Context, tc wf.TaskContext, in jobdb.TaskData) (jobdb.TaskData, error) {
 		saved = tc
 		rt.mu.Lock()
 		owner := rt.leases[tc.JobKey]
 		rt.mu.Unlock()
 		grant := permissions.JobDB{Secrets: permissions.SecretPermissions{Resolve: []string{"model"}}, Jobs: permissions.JobPermissions{Submit: true}}
-		access, _, cancel, err := rt.restrictedAccess(tc, owner, grant, nil)
+		access, _, cancel, err := rt.restrictedAccess(local, tc, owner, grant, nil)
 		require.NoError(t, err)
 		defer cancel()
 		call, stop := context.WithTimeout(ctx, time.Second)
@@ -143,9 +146,9 @@ func TestTaskRequestsCannotOmitPermissionEnforcement(t *testing.T) {
 				rt.Issuer = nil
 			}
 			called := false
-			task := delegationTask(func(taskCtx wf.TaskContext, in jobdb.TaskData) (jobdb.TaskData, error) {
+			task := delegationTask(func(local context.Context, taskCtx wf.TaskContext, in jobdb.TaskData) (jobdb.TaskData, error) {
 				called = true
-				scope := gitprofile.TaskContext(taskCtx)
+				scope := local
 				access := permissions.FromContext(scope)
 				require.NotNil(t, access)
 				_, err := access.Resolve(ctx, []string{"model", "rw"})

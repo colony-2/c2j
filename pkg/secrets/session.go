@@ -12,7 +12,7 @@ import (
 type Resolver func(context.Context, []string) (jobdb.SecretResolveResult, error)
 
 // Session contains only one task attempt's transient secret values.
-// Cross-task reuse belongs to JobDB; the shared Redactor cannot resolve names.
+// Its redactor is shared only within that invocation and cannot resolve names.
 type Session struct {
 	mu           sync.Mutex
 	values       map[string]jobdb.SecretValue
@@ -23,7 +23,7 @@ type Session struct {
 }
 
 func NewSession() *Session {
-	s := newRedactor().NewTask()
+	s := NewRedactor().NewSession()
 	s.ownsRedactor = true
 	return s
 }
@@ -41,7 +41,7 @@ func (s *Session) Close() {
 	s.released = true
 	clear(s.values)
 	s.closed = true
-	s.redactor.releaseTask()
+	s.redactor.releaseSession()
 	if s.ownsRedactor {
 		s.redactor.Close()
 	}
@@ -76,7 +76,7 @@ func (s *Session) Prepare(ctx context.Context, names []string, resolve Resolver)
 }
 
 // PrepareReferences batches only the current task's names. Every preparation
-// calls the task-context API; JobDB owns execution-scoped caching and coalescing.
+// calls the supplied resolver; any underlying caching belongs to JobDB.
 func (s *Session) PrepareReferences(ctx context.Context, refs []Reference, resolve Resolver) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -206,94 +206,8 @@ func (s *Session) CheckOutput(value any) error {
 type contextKey struct{}
 
 func WithSession(ctx context.Context, s *Session) context.Context {
-	return context.WithValue(ctx, contextKey{}, s)
+	return context.WithValue(WithRedactor(ctx, s.redactor), contextKey{}, s)
 }
 func FromContext(ctx context.Context) *Session { s, _ := ctx.Value(contextKey{}).(*Session); return s }
-
-// Sessions shares redaction tracking across a local job execution. It never
-// stores names or values for materializing task inputs.
-type Sessions struct {
-	mu     sync.Mutex
-	active map[jobdb.JobKey]executionRedactor
-}
-
-type executionRedactor struct {
-	ctx      context.Context
-	redactor *Redactor
-	done     chan struct{}
-}
-
-func NewSessions() *Sessions { return &Sessions{active: map[jobdb.JobKey]executionRedactor{}} }
-func (m *Sessions) Open(key jobdb.JobKey) (*Redactor, error) {
-	return m.OpenExecution(context.Background(), key)
-}
-
-// OpenExecution waits for the previous activation to finish or be cancelled.
-// A scheduler handoff can make the job runnable before the old worker receives
-// its response and cancels its context. This overlap is not a recipe failure.
-// Once cancelled, abandoned callbacks may keep unwinding independently.
-func (m *Sessions) OpenExecution(ctx context.Context, key jobdb.JobKey) (*Redactor, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	for {
-		if err := ctx.Err(); err != nil {
-			return nil, err
-		}
-		prior, ok := m.active[key]
-		if !ok || prior.ctx.Err() != nil {
-			break
-		}
-		m.mu.Unlock()
-		select {
-		case <-ctx.Done():
-		case <-prior.ctx.Done():
-		case <-prior.done:
-		}
-		m.mu.Lock()
-	}
-	s := newRedactor()
-	m.active[key] = executionRedactor{ctx: ctx, redactor: s, done: make(chan struct{})}
-	registerMask(s)
-	return s, nil
-}
-func (m *Sessions) Get(key jobdb.JobKey) *Redactor {
-	return m.GetExecution(context.Background(), key)
-}
-
-func (m *Sessions) GetExecution(ctx context.Context, key jobdb.JobKey) *Redactor {
-	if m == nil {
-		return nil
-	}
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if ctx.Err() != nil {
-		return nil
-	}
-	entry, ok := m.active[key]
-	if !ok || entry.ctx.Err() != nil {
-		return nil
-	}
-	return entry.redactor
-}
-func (m *Sessions) Close(key jobdb.JobKey) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if entry, ok := m.active[key]; ok {
-		entry.redactor.Close()
-		close(entry.done)
-		delete(m.active, key)
-	}
-}
-
-// CloseExecution cannot close a newer activation of the same job.
-func (m *Sessions) CloseExecution(key jobdb.JobKey, redactor *Redactor) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	redactor.Close()
-	if entry := m.active[key]; entry.redactor == redactor {
-		close(entry.done)
-		delete(m.active, key)
-	}
-}
 
 func expired(v jobdb.SecretValue) bool { return v.ExpiresAt != nil && !time.Now().Before(*v.ExpiresAt) }

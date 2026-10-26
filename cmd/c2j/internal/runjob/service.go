@@ -16,7 +16,6 @@ import (
 	"github.com/colony-2/c2j/cmd/c2j/internal/swfruntime"
 	"github.com/colony-2/c2j/pkg/input"
 	coreops "github.com/colony-2/c2j/pkg/ops"
-	"github.com/colony-2/c2j/pkg/secrets"
 	storylive "github.com/colony-2/c2j/pkg/story/live"
 	"github.com/colony-2/c2j/pkg/template"
 	"github.com/colony-2/c2j/pkg/template/colonycel"
@@ -126,7 +125,6 @@ type runnerDeps struct {
 	runtime          jobdb.WorkflowRuntime
 	engine           jobworkflow.Engine
 	taskWorkers      []jobworkflow.TaskWorker
-	secretSessions   *secrets.Sessions
 	celProvider      template.CELOptionsProvider
 	rootResolver     compiler.RecipeSourceResolver
 	inputRuntime     *input.Runtime
@@ -195,16 +193,15 @@ func buildDeps(ctx context.Context, opts Options) (*runnerDeps, func(), error) {
 	}
 
 	deps := &runnerDeps{
-		importLease:    handle.ImportLease,
-		runtime:        handle.Runtime,
-		engine:         handle.Engine,
-		taskWorkers:    taskWorkersFromWorkSet(workset),
-		secretSessions: activityRegistry.SecretSessions,
-		celProvider:    celProvider,
-		rootResolver:   recipeSourceResolver,
-		inputRuntime:   inputRuntime,
-		stopRegistry:   stopRegistry,
-		stopRuntime:    handle.Cleanup,
+		importLease:  handle.ImportLease,
+		runtime:      handle.Runtime,
+		engine:       handle.Engine,
+		taskWorkers:  taskWorkersFromWorkSet(workset),
+		celProvider:  celProvider,
+		rootResolver: recipeSourceResolver,
+		inputRuntime: inputRuntime,
+		stopRegistry: stopRegistry,
+		stopRuntime:  handle.Cleanup,
 	}
 	deps.executionRuntime = executionruntime.New(handle.Runtime, opts.Allocation)
 	for i, worker := range deps.taskWorkers {
@@ -235,7 +232,6 @@ func taskWorkersFromWorkSet(workset *jobworkflow.WorkSet) []jobworkflow.TaskWork
 
 func newStoryJobWorker(deps *runnerDeps, recorder *storylive.Recorder, replay ...bool) jobworkflow.JobWorker {
 	return compiler.NewRecipeJobWorker(compiler.RecipeJobWorkerOptions{
-		SecretSessions:         deps.secretSessions,
 		Allocation:             deps.executionRuntime.Allocation,
 		StageExecution:         deps.executionRuntime.Stage,
 		WrapTaskWorker:         deps.executionRuntime.WrapTaskWorker,

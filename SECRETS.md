@@ -119,28 +119,34 @@ available names together; known omissions are not retried within that execution.
 Expired values fail resolution. Resumed executions and child jobs use fresh
 JobDB caches. Cached task results and replay perform no reads.
 
-c2j retains an in-memory redaction set for the local execution so later tasks'
-logs, errors, and outputs cannot disclose a secret fetched by an earlier task.
-This set cannot resolve names or supply input values and is cleared when the
-execution exits.
+c2j creates a separate in-memory redactor for each task invocation. Ordinary
+secret reads and Git credential-helper reads register values with that same
+redactor. Tasks, retries, and independent JobDB connections do not share masks.
+Cancellation closes secret access; masks remain while that task's callbacks
+unwind and are cleared when their local resources are released.
 
 History stores reserved reference objects containing names and any public
 fallbacks, never secret plaintext or secret hashes. Rotating a value does not invalidate recorded task outcomes.
 Values are registered for masking before invocation. c2j masks known values in
-its default logs and returned errors, including extension stderr, and rejects
+its task-scoped logs and returned errors, including extension stderr, and rejects
 structured op outputs containing them. Ops must not write credentials into
 artifacts/workspaces, bypass c2j logging, or encode them into outputs: masking is
 not isolation from untrusted code.
+Process-global loggers are not modified. Native task code that logs secret-bearing
+data must use a logger bound to its task's redactor, not `slog.Default()` or
+the standard library's global logger.
 
 Configure the server-side provider using JobDB's
 [secrets guide](https://github.com/colony-2/jobdb/blob/v0.0.30/docs/GUIDE-SQLITE-SECRETS.md).
 The SQLite development provider grants tenant-wide access to valid leases;
 per-job authorization belongs in a custom JobDB provider.
 
-Use `NewRecipeWorkerWithOptions` to wire the session lifecycle automatically.
-Hosts registering workers separately must pass the activity registry's
-`SecretSessions` to `RecipeJobWorkerOptions`. Offline recipe tests can mock ops
-using references; secret-consuming passthrough requires a lease-backed job run.
+Use `executionruntime.WrapTaskWorker` for task admission, scoped Git setup,
+and redaction. c2j workers implement `task.LocalWorker` to receive transient
+dependencies in a Go context, separately from recorded task inputs. Task
+decorators must forward that context with `task.RunLocal`. No job-level secret
+session registration is needed. Offline recipe tests can mock ops using
+references; secret-consuming passthrough requires a lease-backed job run.
 
 ## Node permissions
 

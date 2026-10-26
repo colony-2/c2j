@@ -341,8 +341,11 @@ func (l loggingTaskWorker) Name() string {
 }
 
 func (l loggingTaskWorker) Run(ctx jobworkflow.TaskContext, input jobdb.TaskData) (jobdb.TaskData, error) {
+	return l.RunTask(ctx.Context(), ctx, input)
+}
+func (l loggingTaskWorker) RunTask(local context.Context, ctx jobworkflow.TaskContext, input jobdb.TaskData) (jobdb.TaskData, error) {
 	dbg := extractWorkerDebug(l.inner)
-	out, err := l.inner.Run(ctx, input)
+	out, err := coretask.RunLocal(l.inner, local, ctx, input)
 	if err != nil {
 		return out, err
 	}

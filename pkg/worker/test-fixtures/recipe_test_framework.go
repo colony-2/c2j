@@ -3,6 +3,7 @@ package testfixtures
 import (
 	"context"
 	"fmt"
+	coretask "github.com/colony-2/c2j/pkg/task"
 	"os"
 	"os/exec"
 	"path"
@@ -640,7 +641,10 @@ func (c *capturingTaskWorker) Name() string {
 }
 
 func (c *capturingTaskWorker) Run(ctx jobworkflow.TaskContext, input jobdb.TaskData) (jobdb.TaskData, error) {
-	output, err := c.inner.Run(ctx, input)
+	return c.RunTask(ctx.Context(), ctx, input)
+}
+func (c *capturingTaskWorker) RunTask(local context.Context, ctx jobworkflow.TaskContext, input jobdb.TaskData) (jobdb.TaskData, error) {
+	output, err := coretask.RunLocal(c.inner, local, ctx, input)
 	if output != nil {
 		if artifacts, artErr := output.GetArtifacts(); artErr == nil {
 			c.capture.add(artifacts)

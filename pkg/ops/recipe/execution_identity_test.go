@@ -11,6 +11,7 @@ import (
 	"github.com/colony-2/c2j/pkg/executionruntime"
 	"github.com/colony-2/c2j/pkg/jobdbschema"
 	coreops "github.com/colony-2/c2j/pkg/ops"
+	"github.com/colony-2/c2j/pkg/permissions"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/toy"
 	workflow "github.com/colony-2/jobdb/pkg/workflow"
@@ -26,14 +27,17 @@ type childIdentityTask struct {
 }
 
 func (*childIdentityTask) Name() string { return "submit-child" }
-func (w *childIdentityTask) Run(ctx workflow.TaskContext, _ jobdb.TaskData) (jobdb.TaskData, error) {
-	deps := coreops.NewOpDependenciesBuilder().WithJobTool(&coreops.TaskBasedJobTool{TaskContext: ctx}).Build()
+func (w *childIdentityTask) Run(tc workflow.TaskContext, input jobdb.TaskData) (jobdb.TaskData, error) {
+	return w.RunTask(tc.Context(), tc, input)
+}
+func (w *childIdentityTask) RunTask(local context.Context, ctx workflow.TaskContext, _ jobdb.TaskData) (jobdb.TaskData, error) {
+	deps := coreops.NewOpDependenciesBuilder().WithJobTool(&coreops.TaskBasedJobTool{TaskContext: ctx, Restricted: permissions.FromContext(local)}).Build()
 	input := SingleRecipeWithRef{SingleRecipe: SingleRecipe{Name: "child", CellName: "cell", Git: SingleRecipeGit{BaseRepo: "github.com/example/repo", BaseRef: "main"}}, GitRef: "main"}
-	child, err := startSingleJob(deps, ctx.Context(), input)
+	child, err := startSingleJob(deps, local, input)
 	if err != nil {
 		return nil, err
 	}
-	repeated, err := startSingleJob(deps, ctx.Context(), input)
+	repeated, err := startSingleJob(deps, local, input)
 	if err != nil {
 		return nil, err
 	}

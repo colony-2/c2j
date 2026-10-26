@@ -18,6 +18,7 @@ import (
 	"github.com/colony-2/c2j/pkg/jobdbschema"
 	coreops "github.com/colony-2/c2j/pkg/ops"
 	"github.com/colony-2/c2j/pkg/recipe"
+	"github.com/colony-2/c2j/pkg/secrets"
 	"github.com/colony-2/c2j/pkg/starter"
 	"github.com/colony-2/c2j/pkg/swfutil"
 	"github.com/colony-2/c2j/pkg/worker/commandop"
@@ -87,7 +88,7 @@ func TestSecretsAcrossTasksReplayAndFailures(t *testing.T) {
 		if !strings.HasSuffix(in.Token, "-private-value\n") {
 			return output{}, fmt.Errorf("secret not materialized")
 		}
-		slog.Info("probe", "value", in.Token)
+		secrets.MaskLogger(slog.Default(), secrets.RedactorFromContext(ctx)).Info("probe", "value", in.Token)
 		switch in.Mode {
 		case "echo":
 			return output{in.Token}, nil
@@ -160,7 +161,6 @@ func TestSecretsAcrossTasksReplayAndFailures(t *testing.T) {
 			require.NoError(t, err)
 			require.NotContains(t, string(raw), "private-value")
 			require.Contains(t, string(raw), "$c2j_secret")
-			require.Nil(t, registry.SecretSessions.Get(key))
 			_, err = engine.ReplayJobRun(ctx, jobworkflow.ReplayRunRequest{JobKey: key, JobWorker: NewRecipeJobWorker(RecipeJobWorkerOptions{ReadOnlyReplay: true})})
 			if mode == "ok" {
 				require.NoError(t, err)

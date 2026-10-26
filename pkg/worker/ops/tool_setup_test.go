@@ -32,8 +32,8 @@ func TestExtensionResolutionFailure(t *testing.T) {
 
 func TestPreparationFailureAttachesOutcomeDiagnostics(t *testing.T) {
 	inv := ActivityInvocationRequest{Input: map[string]any{}, Preparation: PreparationRequest{Scopes: []toolenv.Scope{{ID: "test", Packages: []string{"unsupported:tool"}}}}}
-	worker := taskWorker{sessions: secrets.NewSessions()}
-	data, err := worker.Run(bindDeniedTask(t, jobworkflow.TaskContext{Step: 7}), jobdb.NewTaskDataOrPanic(inv))
+	worker := taskWorker{}
+	data, err := worker.RunTask(deniedTaskContext(t, jobworkflow.TaskContext{Step: 7}), jobworkflow.TaskContext{Step: 7}, jobdb.NewTaskDataOrPanic(inv))
 	require.ErrorContains(t, err, "unsupported package prefix")
 	require.NotNil(t, data)
 	artifacts, err := data.GetArtifacts()

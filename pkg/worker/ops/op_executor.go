@@ -184,7 +184,7 @@ func (t opExecutor) doLogged(ctx context.Context, jobTool ops.JobTool, req Activ
 
 	var zero ActivityInvocationOutput
 
-	logger := secrets.MaskLogger(baseLogger).With(
+	logger := secrets.MaskLogger(baseLogger, secrets.RedactorFromContext(ctx)).With(
 		"component", "worker", "purpose", "run",
 		"task_type", reg.TaskType,
 		"op_type", reg.Metadata.Type,

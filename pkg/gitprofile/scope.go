@@ -21,7 +21,6 @@ import (
 
 	"github.com/colony-2/c2j/pkg/secrets"
 	"github.com/colony-2/jobdb/pkg/jobdb"
-	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
 )
 
 const SocketEnv = "C2J_EXECUTION_SOCKET"
@@ -43,23 +42,24 @@ type Response struct {
 }
 
 type Scope struct {
-	ctx        context.Context
-	cancel     context.CancelFunc
-	dir        string
-	namespace  string
-	server     *http.Server
-	mu         sync.Mutex
-	active     bool
-	cleared    bool
-	generation uint64
-	name       string
-	profile    Profile
-	snapshot   jobdb.ConfigurationSnapshot
-	resolve    Resolver
-	selection  Selection
-	additional map[string]bool
-	redactor   *secrets.Redactor
-	once       sync.Once
+	ctx          context.Context
+	cancel       context.CancelFunc
+	dir          string
+	namespace    string
+	server       *http.Server
+	mu           sync.Mutex
+	active       bool
+	cleared      bool
+	generation   uint64
+	name         string
+	profile      Profile
+	snapshot     jobdb.ConfigurationSnapshot
+	resolve      Resolver
+	selection    Selection
+	additional   map[string]bool
+	redactor     *secrets.Redactor
+	ownsRedactor bool
+	once         sync.Once
 }
 
 func NewScope(ctx context.Context, selection Selection, snapshot jobdb.ConfigurationSnapshot, resolve Resolver, executable string, namespace ...string) (*Scope, error) {
@@ -105,12 +105,11 @@ func NewScope(ctx context.Context, selection Selection, snapshot jobdb.Configura
 	if len(namespace) > 0 {
 		s.namespace = namespace[0]
 	}
-	manager := secrets.NewSessions()
-	s.redactor, err = manager.OpenExecution(ctx, jobdb.JobKey{TenantId: "git", JobId: filepath.Base(dir)})
-	if err != nil {
-		cancel()
-		os.RemoveAll(dir)
-		return nil, err
+	s.redactor = secrets.RedactorFromContext(ctx)
+	if s.redactor == nil {
+		s.redactor = secrets.NewRedactor()
+		s.ownsRedactor = true
+		s.ctx = secrets.WithRedactor(ctx, s.redactor)
 	}
 	helper := "'" + strings.ReplaceAll(executable, "'", "'\\''") + "' secret git-credential"
 	// A leading ! makes the shell quoting unambiguous even for paths with spaces.
@@ -168,12 +167,16 @@ func (s *Scope) Close() {
 		if s.server != nil {
 			_ = s.server.Close()
 		}
-		if s.redactor != nil {
+		if s.ownsRedactor {
 			s.redactor.Close()
 		}
 		_ = os.RemoveAll(s.dir)
 	})
 }
+
+// Context carries this invocation's dependencies and cancellation directly.
+func (s *Scope) Context() context.Context { return WithScope(s.ctx, s) }
+
 func (s *Scope) CheckOutput(v any) error {
 	if raw, ok := v.([]byte); ok {
 		v = json.RawMessage(raw)
@@ -186,7 +189,7 @@ func (s *Scope) Redact(text string) string { return s.redactor.Redact(text) }
 // RetainRedaction keeps masks until a running task finishes unwinding, even
 // when cancellation has already closed its resolver socket.
 func (s *Scope) RetainRedaction() func() {
-	session := s.redactor.NewTask()
+	session := s.redactor.NewSession()
 	return session.Close
 }
 
@@ -394,35 +397,6 @@ func Command(ctx context.Context, args ...string) *exec.Cmd {
 	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.Env = Env(ctx, os.Environ())
 	return cmd
-}
-
-// JobDB TaskContext is immutable; bind the invocation context without changing
-// process-global environment or sharing credentials between parallel tasks.
-type taskKey struct {
-	Context context.Context
-	Job     jobdb.JobKey
-	Step    int64
-	ID      string
-	Attempt int
-}
-
-var taskScopes sync.Map
-
-func key(tc jobworkflow.TaskContext) taskKey {
-	return taskKey{tc.Context(), tc.JobKey, tc.Step, tc.InvocationID, tc.AttemptNumber}
-}
-func BindTask(tc jobworkflow.TaskContext, s *Scope) func() {
-	k := key(tc)
-	taskScopes.Store(k, s)
-	return func() { taskScopes.Delete(k) }
-}
-func TaskContext(tc jobworkflow.TaskContext) context.Context {
-	ctx := tc.Context()
-	if s, ok := taskScopes.Load(key(tc)); ok {
-		scope := s.(*Scope)
-		return WithScope(scope.ctx, scope)
-	}
-	return ctx
 }
 
 type secretLimitKey struct{}

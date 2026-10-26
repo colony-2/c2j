@@ -7,7 +7,6 @@ import (
 
 	recipeartifacts "github.com/colony-2/c2j/pkg/artifacts"
 	"github.com/colony-2/c2j/pkg/execution"
-	"github.com/colony-2/c2j/pkg/gitprofile"
 	"github.com/colony-2/c2j/pkg/jobcontext"
 	"github.com/colony-2/c2j/pkg/jobref"
 	"github.com/colony-2/c2j/pkg/objects"
@@ -62,11 +61,10 @@ func (j *TaskBasedJobTool) AwaitJobs(jobIds ...string) error {
 }
 
 func (j *TaskBasedJobTool) SubmitJobRef(ctx context.Context, job jobdb.SubmitJob) (jobref.Ref, error) {
-	scope, ok := jobref.FromContext(gitprofile.TaskContext(j.TaskContext))
-	if !ok || scope.Submit == nil {
+	if j.Restricted == nil {
 		return jobref.Ref{}, fmt.Errorf("task submission scope is unavailable")
 	}
-	return scope.Submit(ctx, job)
+	return j.Restricted.Submit(ctx, job)
 }
 func (j *TaskBasedJobTool) GetJobRef() jobref.Ref {
 	h := j.TaskContext.Job()
@@ -268,8 +266,8 @@ func (b *OpDependenciesBuilder) WithDatabase(db *gorm.DB) *OpDependenciesBuilder
 	return b
 }
 
-func (b *OpDependenciesBuilder) WithTaskContext(tc jobworkflow.TaskContext) *OpDependenciesBuilder {
-	b.jobTool = &TaskBasedJobTool{TaskContext: tc}
+func (b *OpDependenciesBuilder) WithTaskContext(ctx context.Context, tc jobworkflow.TaskContext) *OpDependenciesBuilder {
+	b.jobTool = &TaskBasedJobTool{TaskContext: tc, Restricted: permissions.FromContext(ctx)}
 	return b
 }
 

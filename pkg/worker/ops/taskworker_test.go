@@ -57,7 +57,8 @@ func TestTaskWorkerRunReturnsTaskDataOnFailure(t *testing.T) {
 		},
 	})
 
-	td, err := worker.Run(bindDeniedTask(t, jobworkflow.NewTaskContext(jobdb.JobKey{TenantId: "tenant", JobId: "job"}, 1, nil, nil, nil)), input)
+	tc := jobworkflow.NewTaskContext(jobdb.JobKey{TenantId: "tenant", JobId: "job"}, 1, nil, nil, nil)
+	td, err := worker.RunTask(deniedTaskContext(t, tc), tc, input)
 	require.Error(t, err)
 	require.NotNil(t, td)
 
@@ -210,13 +211,6 @@ func requireArtifactNamed(t *testing.T, artifacts []jobdb.Artifact, name string)
 	t.Fatalf("expected artifact %q in %#v", name, names)
 }
 
-func TestTaskExecutionContextDoesNotPollWaits(t *testing.T) {
-	ctx, cancel := NewTaskExecutionContext(jobworkflow.NewTaskContext(jobdb.JobKey{}, 1, nil, func(time.Time) error { t.Error("unexpected wait polling"); return nil }, nil))
-	require.NoError(t, ctx.Err())
-	cancel()
-	require.ErrorIs(t, ctx.Err(), context.Canceled)
-}
-
 // Observe completion explicitly: engine cancellation may return before worker cleanup.
 type taskWorkerResult struct {
 	data jobdb.TaskData
@@ -228,7 +222,10 @@ type observingTaskWorker struct {
 }
 
 func (w observingTaskWorker) Run(ctx jobworkflow.TaskContext, input jobdb.TaskData) (jobdb.TaskData, error) {
-	out, err := w.TaskWorker.Run(ctx, input)
+	return w.RunTask(ctx.Context(), ctx, input)
+}
+func (w observingTaskWorker) RunTask(local context.Context, ctx jobworkflow.TaskContext, input jobdb.TaskData) (jobdb.TaskData, error) {
+	out, err := coretask.RunLocal(w.TaskWorker, local, ctx, input)
 	w.finished <- taskWorkerResult{out, err}
 	return out, err
 }

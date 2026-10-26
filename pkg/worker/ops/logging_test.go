@@ -105,7 +105,8 @@ func TestTaskLoggingDistinguishesPreparationAndOpExecution(t *testing.T) {
 				repo = filepath.Join(t.TempDir(), "missing-repo")
 			}
 			input := jobdb.NewTaskDataOrPanic(ActivityInvocationRequest{Const: true, Input: map[string]interface{}{}, GitTaskContext: gitstate.GlobalGitTaskContext{BaseRepo: repo, BaseRef: hash, NodePath: "root/probe"}})
-			_, err = worker.Run(bindDeniedTask(t, jobworkflow.NewTaskContext(jobdb.JobKey{TenantId: "tenant", JobId: "job"}, 1, logger, nil, nil)), input)
+			tc := jobworkflow.NewTaskContext(jobdb.JobKey{TenantId: "tenant", JobId: "job"}, 1, logger, nil, nil)
+			_, err = worker.RunTask(deniedTaskContext(t, tc), tc, input)
 			if failRestore {
 				require.Error(t, err)
 			} else {

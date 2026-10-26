@@ -6,7 +6,6 @@ import (
 	"os"
 
 	"github.com/colony-2/c2j/pkg/logging"
-	"github.com/colony-2/c2j/pkg/secrets"
 	"github.com/spf13/cobra"
 )
 
@@ -50,7 +49,7 @@ func bindLoggingFlags(root *cobra.Command) {
 		if err != nil {
 			return err
 		}
-		slog.SetDefault(secrets.MaskLogger(logger))
+		slog.SetDefault(logger)
 		return nil
 	}
 }

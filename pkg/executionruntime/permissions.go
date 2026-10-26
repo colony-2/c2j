@@ -8,14 +8,15 @@ import (
 
 	"github.com/colony-2/c2j/pkg/jobref"
 	"github.com/colony-2/c2j/pkg/permissions"
+	"github.com/colony-2/c2j/pkg/secrets"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
 )
 
-func (r *Runtime) restrictedAccess(tc jobworkflow.TaskContext, original *lease, grant permissions.JobDB, fresh permissions.ResolveFunc) (*permissions.Access, context.Context, context.CancelFunc, error) {
+func (r *Runtime) restrictedAccess(parent context.Context, tc jobworkflow.TaskContext, original *lease, grant permissions.JobDB, fresh permissions.ResolveFunc) (*permissions.Access, context.Context, context.CancelFunc, error) {
 	// Keep the live TaskContext: JobDB attaches its authoritative execution
 	// bounds when creating a child. Embedded execution uses in-process guards.
-	ctx, cancel := context.WithCancel(tc.Context())
+	ctx, cancel := context.WithCancel(parent)
 	var access *permissions.Access
 	resolve := fresh
 	submit := permissions.SubmitFunc(func(call context.Context, job jobdb.SubmitJob) (jobref.Ref, error) {
@@ -76,6 +77,23 @@ func (r *Runtime) restrictedAccess(tc jobworkflow.TaskContext, original *lease, 
 		}
 		// Embedded runtimes are trusted in-process APIs. They use the same
 		// per-call guard, but do not claim to mint or isolate a bearer credential.
+	}
+	if redactor := secrets.RedactorFromContext(parent); redactor != nil && resolve != nil {
+		inner := resolve
+		resolve = func(ctx context.Context, names []string) (jobdb.SecretResolveResult, error) {
+			result, err := inner(ctx, names)
+			if err != nil {
+				return jobdb.SecretResolveResult{}, err
+			}
+			for _, name := range names {
+				if value, ok := result.Secrets[name]; ok {
+					if err := redactor.Register(value.Value); err != nil {
+						return jobdb.SecretResolveResult{}, err
+					}
+				}
+			}
+			return result, nil
+		}
 	}
 	access = permissions.NewAccess(ctx, grant, resolve, submit)
 	return access, permissions.WithAccess(ctx, access), cancel, nil

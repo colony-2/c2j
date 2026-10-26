@@ -12,7 +12,6 @@ import (
 	"github.com/colony-2/c2j/pkg/gitprofile"
 	extops "github.com/colony-2/c2j/pkg/ops/extensions"
 	"github.com/colony-2/c2j/pkg/recipe"
-	workerops "github.com/colony-2/c2j/pkg/worker/ops"
 	"github.com/colony-2/c2j/pkg/workflow"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
@@ -44,12 +43,16 @@ func (w withinRecipeResolutionTaskWorker) Name() string {
 }
 
 func (w withinRecipeResolutionTaskWorker) Run(taskCtx jobworkflow.TaskContext, input jobdb.TaskData) (jobdb.TaskData, error) {
+	return w.RunTask(taskCtx.Context(), taskCtx, input)
+}
+
+func (w withinRecipeResolutionTaskWorker) RunTask(local context.Context, taskCtx jobworkflow.TaskContext, input jobdb.TaskData) (jobdb.TaskData, error) {
 	req, err := parseWithinRecipeResolutionTaskInput(input)
 	if err != nil {
 		return nil, err
 	}
 
-	ctx, cancel := workerops.NewTaskExecutionContext(taskCtx)
+	ctx, cancel := context.WithCancel(local)
 	defer cancel()
 	resolved, err := resolveSelectors(ctx, req.Selectors, extops.ResolveOptions{
 		RepositorySource: strings.TrimSpace(req.RepositorySource),

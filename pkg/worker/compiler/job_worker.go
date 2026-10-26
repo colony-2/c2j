@@ -13,7 +13,6 @@ import (
 	"github.com/colony-2/c2j/pkg/execution"
 	"github.com/colony-2/c2j/pkg/ops"
 	"github.com/colony-2/c2j/pkg/recipe"
-	"github.com/colony-2/c2j/pkg/secrets"
 	"github.com/colony-2/c2j/pkg/starter"
 	"github.com/colony-2/c2j/pkg/template"
 	workerops "github.com/colony-2/c2j/pkg/worker/ops"
@@ -25,10 +24,8 @@ import (
 
 type RecipeJobWorkerOptions struct {
 	// Logger optionally overrides the runtime logger (for request-scoped replay).
-	Logger           *slog.Logger
-	ConsumerVersions map[string]string
-	// SecretSessions is shared with the activity registry when registering workers individually.
-	SecretSessions     *secrets.Sessions
+	Logger             *slog.Logger
+	ConsumerVersions   map[string]string
 	Allocation         execution.Allocation
 	ReadOnlyReplay     bool
 	StageExecution     func(jobdb.JobKey, execution.Demand)
@@ -52,7 +49,6 @@ type RecipeJobWorkerOptions struct {
 
 type recipeJobWorker struct {
 	logger              *slog.Logger
-	secretSessions      *secrets.Sessions
 	taskGuardConfigured bool
 	readOnlyReplay      bool
 	stageExecution      func(jobdb.JobKey, execution.Demand)
@@ -68,7 +64,6 @@ type recipeJobWorker struct {
 func NewRecipeJobWorker(opts RecipeJobWorkerOptions) jobworkflow.ExecutionWorker {
 	j := &recipeJobWorker{
 		logger:              opts.Logger,
-		secretSessions:      opts.SecretSessions,
 		taskGuardConfigured: opts.WrapTaskWorker != nil,
 		readOnlyReplay:      opts.ReadOnlyReplay,
 		stageExecution:      opts.StageExecution,
@@ -92,7 +87,6 @@ func NewRecipeWorker(dependencies ops.ServiceDependencies2, activityRegistry *wo
 }
 
 func NewRecipeWorkerWithOptions(dependencies ops.ServiceDependencies2, activityRegistry *workerops.ActivityRegistry, opts RecipeJobWorkerOptions) (*jobworkflow.WorkSet, error) {
-	opts.SecretSessions = activityRegistry.SecretSessions
 	job := NewRecipeJobWorker(opts)
 	taskWorkers := activityRegistry.GetTaskWorkers(dependencies)
 	if resolutionWorker := newRootSourceResolutionTaskWorker(opts.RootSourceResolver); resolutionWorker != nil {
@@ -113,18 +107,10 @@ func (j recipeJobWorker) Name() string {
 
 func (j recipeJobWorker) Run(ctx jobworkflow.ExecutionContext, jobData jobdb.JobData) (jobdb.JobData, error) {
 	jobKey := ctx.GetJobKey()
-	if j.secretSessions != nil && !j.readOnlyReplay {
-		redactor, err := j.secretSessions.OpenExecution(ctx.Context(), jobKey)
-		if err != nil {
-			return nil, err
-		}
-		defer j.secretSessions.CloseExecution(jobKey, redactor)
-	}
 	logger := j.logger
 	if logger == nil {
 		logger = ctx.Logger()
 	}
-	logger = secrets.MaskLogger(logger)
 	if !j.readOnlyReplay {
 		logger = logger.With("purpose", "run")
 	}

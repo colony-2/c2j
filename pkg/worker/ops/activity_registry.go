@@ -16,7 +16,6 @@ import (
 	"github.com/colony-2/c2j/pkg/ops"
 	extops "github.com/colony-2/c2j/pkg/ops/extensions"
 	"github.com/colony-2/c2j/pkg/permissions"
-	"github.com/colony-2/c2j/pkg/secrets"
 	"github.com/colony-2/c2j/pkg/toolenv"
 	"github.com/colony-2/c2j/pkg/worker/activity"
 	"github.com/colony-2/jobdb/pkg/jobdb"
@@ -86,11 +85,10 @@ type ActivityRegistration struct {
 
 // ActivityRegistry manages all registered activities
 type ActivityRegistry struct {
-	SecretSessions *secrets.Sessions
-	activities     map[string]ActivityRegistration
-	generator      SchemaGenerator
-	gitController  *gitstate.Controller
-	deps           ops.ServiceDependencies2
+	activities    map[string]ActivityRegistration
+	generator     SchemaGenerator
+	gitController *gitstate.Controller
+	deps          ops.ServiceDependencies2
 }
 
 // SchemaGenerator validates struct tags and generates JSON schemas
@@ -103,11 +101,10 @@ type SchemaGenerator interface {
 // NewActivityRegistry creates a new activity registry
 func NewActivityRegistry() (*ActivityRegistry, error) {
 	a := &ActivityRegistry{
-		SecretSessions: secrets.NewSessions(),
-		activities:     make(map[string]ActivityRegistration),
-		generator:      NewDefaultSchemaGenerator(),
-		gitController:  gitstate.NewController(nil),
-		deps:           ops.NewServiceDepsBuilder().Build(),
+		activities:    make(map[string]ActivityRegistration),
+		generator:     NewDefaultSchemaGenerator(),
+		gitController: gitstate.NewController(nil),
+		deps:          ops.NewServiceDepsBuilder().Build(),
 	}
 	opsList := ops.List()
 	for _, op := range opsList {
@@ -139,7 +136,7 @@ func (r *ActivityRegistry) GetTaskWorkers(deps ops.ServiceDependencies2) []jobwo
 			gitstate.NewController(nil)
 		}
 		doer := &opExecutor{deps: deps, reg: registration, controller: controller}
-		workers = append(workers, &taskWorker{name: name, reg: registration, doer: doer, sessions: r.SecretSessions})
+		workers = append(workers, &taskWorker{name: name, reg: registration, doer: doer})
 	}
 	return workers
 }

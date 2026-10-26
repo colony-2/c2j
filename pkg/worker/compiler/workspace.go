@@ -15,7 +15,6 @@ import (
 	"github.com/colony-2/c2j/pkg/permissions"
 	"github.com/colony-2/c2j/pkg/recipe"
 	"github.com/colony-2/c2j/pkg/template"
-	workerops "github.com/colony-2/c2j/pkg/worker/ops"
 	"github.com/colony-2/c2j/pkg/workflow"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
@@ -41,8 +40,12 @@ type workspaceResolutionWorker struct{}
 
 func NewWorkspaceResolutionTaskWorker() jobworkflow.TaskWorker { return workspaceResolutionWorker{} }
 func (workspaceResolutionWorker) Name() string                 { return WorkspaceResolutionTaskType }
-func (workspaceResolutionWorker) Run(tc jobworkflow.TaskContext, data jobdb.TaskData) (jobdb.TaskData, error) {
-	ctx, cancel := workerops.NewTaskExecutionContext(tc)
+func (w workspaceResolutionWorker) Run(tc jobworkflow.TaskContext, data jobdb.TaskData) (jobdb.TaskData, error) {
+	return w.RunTask(tc.Context(), tc, data)
+}
+
+func (w workspaceResolutionWorker) RunTask(local context.Context, tc jobworkflow.TaskContext, data jobdb.TaskData) (jobdb.TaskData, error) {
+	ctx, cancel := context.WithCancel(local)
 	defer cancel()
 	return resolveWorkspaceTask(ctx, data)
 }

@@ -15,7 +15,6 @@ import (
 	"github.com/colony-2/c2j/pkg/git/selectorcache"
 	"github.com/colony-2/c2j/pkg/gitprofile"
 	"github.com/colony-2/c2j/pkg/recipe"
-	workerops "github.com/colony-2/c2j/pkg/worker/ops"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
 	"gopkg.in/yaml.v3"
@@ -348,10 +347,14 @@ func (w rootSourceResolutionTaskWorker) Name() string {
 }
 
 func (w rootSourceResolutionTaskWorker) Run(taskCtx jobworkflow.TaskContext, input jobdb.TaskData) (jobdb.TaskData, error) {
+	return w.RunTask(taskCtx.Context(), taskCtx, input)
+}
+
+func (w rootSourceResolutionTaskWorker) RunTask(local context.Context, taskCtx jobworkflow.TaskContext, input jobdb.TaskData) (jobdb.TaskData, error) {
 	if input == nil {
 		return nil, fmt.Errorf("recipe source resolution input is required")
 	}
-	ctx, cancel := workerops.NewTaskExecutionContext(taskCtx)
+	ctx, cancel := context.WithCancel(local)
 	defer cancel()
 
 	raw, err := input.GetData()

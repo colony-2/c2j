@@ -15,7 +15,6 @@ import (
 	"github.com/colony-2/c2j/pkg/contextual"
 	"github.com/colony-2/c2j/pkg/recipe"
 	"github.com/colony-2/c2j/pkg/redact"
-	"github.com/colony-2/c2j/pkg/secrets"
 	"github.com/colony-2/c2j/pkg/starter"
 	"github.com/colony-2/c2j/pkg/story/internal/model"
 	coretasks "github.com/colony-2/c2j/pkg/task"
@@ -151,7 +150,7 @@ func BuildJobRunStory(ctx context.Context, engine replayJobRunner, jobKey jobdb.
 	if logger == nil {
 		logger = slog.Default()
 	}
-	compilerLogger := secrets.MaskLogger(logger).With("purpose", "story")
+	compilerLogger := logger.With("purpose", "story")
 	logger = compilerLogger.With("tenant_id", jobKey.TenantId, "job_id", jobKey.JobId)
 	started := time.Now()
 	defer func() {

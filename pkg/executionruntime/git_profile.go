@@ -8,11 +8,22 @@ import (
 	"github.com/colony-2/c2j/pkg/gitprofile"
 	"github.com/colony-2/c2j/pkg/jobref"
 	"github.com/colony-2/c2j/pkg/permissions"
+	"github.com/colony-2/c2j/pkg/secrets"
+	"github.com/colony-2/c2j/pkg/task"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
 )
 
-func (w *guardedTask) runWithGitProfile(tc jobworkflow.TaskContext, input jobdb.TaskData, original *lease) (jobdb.TaskData, error) {
+func (w *guardedTask) runWithGitProfile(tc jobworkflow.TaskContext, input jobdb.TaskData, original *lease) (result jobdb.TaskData, runErr error) {
+	redactor := secrets.NewRedactor()
+	retain := redactor.NewSession()
+	defer retain.Close()
+	defer redactor.Close()
+	stop := context.AfterFunc(tc.Context(), redactor.Close)
+	defer stop()
+	defer func() { runErr = redactor.Error(runErr) }()
+	local := secrets.WithRedactor(tc.Context(), redactor)
+	tc.Logger = secrets.MaskLogger(tc.Logger, redactor)
 	var request struct {
 		Permissions *permissions.State   `json:"permissions,omitempty"`
 		GitProfile  gitprofile.Selection `json:"git_profile"`
@@ -67,7 +78,7 @@ func (w *guardedTask) runWithGitProfile(tc jobworkflow.TaskContext, input jobdb.
 	if err != nil {
 		return nil, err
 	}
-	access, scopeContext, cancel, err := w.runtime.restrictedAccess(tc, original, grant, resolve)
+	access, scopeContext, cancel, err := w.runtime.restrictedAccess(local, tc, original, grant, resolve)
 	if err != nil {
 		return nil, err
 	}
@@ -78,13 +89,9 @@ func (w *guardedTask) runWithGitProfile(tc jobworkflow.TaskContext, input jobdb.
 	if err != nil {
 		return nil, err
 	}
-	releaseRedaction := scope.RetainRedaction()
-	defer releaseRedaction()
 	defer scope.Close()
 	scope.AllowSecrets(access.Grant().Secrets.Resolve)
-	unbind := gitprofile.BindTask(tc, scope)
-	defer unbind()
-	out, err := w.TaskWorker.Run(tc, input)
+	out, err := task.RunLocal(w.TaskWorker, scope.Context(), tc, input)
 	err = scope.Error(err)
 	if out != nil {
 		raw, e := out.GetData()

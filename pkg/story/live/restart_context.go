@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/colony-2/c2j/pkg/redact"
-	"github.com/colony-2/c2j/pkg/secrets"
 	"github.com/colony-2/c2j/pkg/story/internal/model"
 	"github.com/colony-2/c2j/pkg/template"
 	"github.com/colony-2/c2j/pkg/worker/compiler"
@@ -73,7 +72,10 @@ func inspectRestartBoundary(ctx context.Context, engine replayJobRunner, key job
 	if len(loggers) > 0 {
 		logger = loggers[0]
 	}
-	compilerLogger := secrets.MaskLogger(logger).With("purpose", "restart_context")
+	if logger == nil {
+		logger = slog.Default()
+	}
+	compilerLogger := logger.With("purpose", "restart_context")
 	logger = compilerLogger.With("tenant_id", key.TenantId, "job_id", key.JobId)
 	started := time.Now()
 	defer func() {

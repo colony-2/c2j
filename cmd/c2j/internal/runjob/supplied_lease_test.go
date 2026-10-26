@@ -384,8 +384,8 @@ outputs:
 			require.NotContains(t, string(raw), credential)
 			require.NotContains(t, f.stdout.String()+f.stderr.String(), credential)
 			require.Zero(t, f.acquisitions.Load(), "secret resolution must use the supplied execution lease")
-			// The CLI's cached story replay must not resolve secrets or open
-			// another execution session. Exercise the same worker factory.
+			// The CLI's cached story replay must not resolve secrets.
+			// Exercise the same worker factory.
 			opts := f.opts
 			require.NoError(t, opts.Complete(context.Background()))
 			deps, cleanup, err := buildDeps(context.Background(), opts)
@@ -397,7 +397,6 @@ outputs:
 				JobKey: f.key, JobWorker: newStoryJobWorker(deps, recorder, true), Observer: recorder.Observer(),
 			})
 			require.NoError(t, err)
-			require.Nil(t, deps.secretSessions.Get(f.key))
 			require.EqualValues(t, 2, calls.Load(), "completed replay must not resolve secrets")
 			require.NotContains(t, f.stdout.String()+f.stderr.String(), credential)
 		})

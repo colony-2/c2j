@@ -19,7 +19,7 @@ func TestRestrictedInputsDeniedBeforeInstallationOrResolution(t *testing.T) {
 	type input struct {
 		Token string `json:"token" secret:"true"`
 	}
-	worker := taskWorker{sessions: secrets.NewSessions(), reg: ActivityRegistration{Step: coreops.TaskStep{InputType: reflect.TypeFor[input]()}}}
+	worker := taskWorker{reg: ActivityRegistration{Step: coreops.TaskStep{InputType: reflect.TypeFor[input]()}}}
 	tc := jobworkflow.TaskContext{JobKey: jobdb.JobKey{TenantId: "test", JobId: "denied"}, Step: 1}
 	state := permissions.State{Version: permissions.Version, Grant: &permissions.JobDB{}}
 	request := ActivityInvocationRequest{
@@ -41,20 +41,17 @@ func TestRestrictedInputsDeniedBeforeInstallationOrResolution(t *testing.T) {
 	scope, err := gitprofile.NewScope(ctx, gitprofile.Selection{}, jobdb.ConfigurationSnapshot{}, access.Resolve, "")
 	require.NoError(t, err)
 	defer scope.Close()
-	unbind := gitprofile.BindTask(tc, scope)
-	defer unbind()
-	_, err = worker.Run(tc, jobdb.NewTaskDataOrPanic(request))
+	_, err = worker.RunTask(scope.Context(), tc, jobdb.NewTaskDataOrPanic(request))
 	require.ErrorIs(t, err, jobdb.ErrLeasePermissionDenied)
 }
 
 // Unit tests of worker internals run with no capabilities. Runtime integration
 // tests exercise policy resolution and the lease-backed guard separately.
-func bindDeniedTask(t *testing.T, tc jobworkflow.TaskContext) jobworkflow.TaskContext {
+func deniedTaskContext(t *testing.T, tc jobworkflow.TaskContext) context.Context {
 	t.Helper()
 	access := permissions.NewAccess(tc.Context(), permissions.JobDB{}, nil, nil)
 	scope, err := gitprofile.NewScope(permissions.WithAccess(tc.Context(), access), gitprofile.Selection{}, jobdb.ConfigurationSnapshot{}, access.Resolve, "")
 	require.NoError(t, err)
 	t.Cleanup(scope.Close)
-	t.Cleanup(gitprofile.BindTask(tc, scope))
-	return tc
+	return scope.Context()
 }

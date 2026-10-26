@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"github.com/colony-2/c2j/pkg/execution"
 	"github.com/colony-2/c2j/pkg/executionruntime"
+	coretask "github.com/colony-2/c2j/pkg/task"
 	"os"
 	"path/filepath"
 	"strings"
@@ -35,7 +36,10 @@ type publicationFaultWorker struct {
 }
 
 func (w publicationFaultWorker) Run(ctx jobworkflow.TaskContext, input jobdb.TaskData) (jobdb.TaskData, error) {
-	result, err := w.TaskWorker.Run(ctx, input)
+	return w.RunTask(ctx.Context(), ctx, input)
+}
+func (w publicationFaultWorker) RunTask(local context.Context, ctx jobworkflow.TaskContext, input jobdb.TaskData) (jobdb.TaskData, error) {
+	result, err := coretask.RunLocal(w.TaskWorker, local, ctx, input)
 	if err == nil {
 		if err = w.after(result); err != nil {
 			// Simulate losing the entire outcome, including its workspace pack,

@@ -2,6 +2,7 @@ package executionruntime
 
 import (
 	"context"
+	coretask "github.com/colony-2/c2j/pkg/task"
 	"testing"
 	"time"
 
@@ -99,10 +100,13 @@ func TestRunSuppliedLeaseReplaysTaskRouteAndPreservesState(t *testing.T) {
 type delayedSuppliedTask struct{ jobworkflow.TaskWorker }
 
 func (w delayedSuppliedTask) Run(ctx jobworkflow.TaskContext, input jobdb.TaskData) (jobdb.TaskData, error) {
+	return w.RunTask(ctx.Context(), ctx, input)
+}
+func (w delayedSuppliedTask) RunTask(local context.Context, ctx jobworkflow.TaskContext, input jobdb.TaskData) (jobdb.TaskData, error) {
 	// Exceed the original SQLite lease lifetime so lost wrapper state/renewal
 	// support fails through actual scheduler mutations, not just mock assertions.
 	time.Sleep(250 * time.Millisecond)
-	return w.TaskWorker.Run(ctx, input)
+	return coretask.RunLocal(w.TaskWorker, local, ctx, input)
 }
 func TestRenewedSuppliedLeaseRetainsStagedDemand(t *testing.T) {
 	f := newFixture(t, "sqlite", "2Gi", nil)

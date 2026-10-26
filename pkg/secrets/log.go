@@ -4,113 +4,70 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
-	"log"
 	"log/slog"
-	"reflect"
-	"sync"
 )
 
-var activeMasks sync.Map // *Redactor -> struct{}; no material outside execution redactors
-var logMu sync.Mutex
-
-// MaskLogger protects injected and derived loggers using all active execution
-// redactors. Call before With/WithGroup so fields captured before secret setup
-// are still masked when emitted. It does not replace the process logger.
-func MaskLogger(logger *slog.Logger) *slog.Logger {
+// MaskLogger binds masking to one task's redactor. It never changes global
+// loggers. Bind before With/WithGroup so later-resolved values are also masked.
+func MaskLogger(logger *slog.Logger, redactor *Redactor) *slog.Logger {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	if _, ok := logger.Handler().(*maskHandler); ok {
+	if redactor == nil {
 		return logger
 	}
-	// The built-in default handler uses log.Default's writer. registerMask
-	// protects that writer; wrapping it and later calling SetDefault can recurse.
-	t := reflect.TypeOf(logger.Handler())
-	if t.Kind() == reflect.Pointer && t.Elem().PkgPath() == "log/slog" && t.Elem().Name() == "defaultHandler" {
+	if h, ok := logger.Handler().(*maskHandler); ok && h.redactor == redactor {
 		return logger
 	}
-	return slog.New(&maskHandler{base: logger.Handler()})
-}
-
-func registerMask(s *Redactor) {
-	activeMasks.Store(s, struct{}{})
-	logMu.Lock()
-	defer logMu.Unlock()
-	// The standard slog handler writes through log.Default. SetDefault with a
-	// wrapper around it would bridge log back into slog and deadlock. Mask its
-	// writer instead; this also covers loggers captured before the session.
-	t := reflect.TypeOf(slog.Default().Handler())
-	if t.Kind() == reflect.Pointer && t.Elem().PkgPath() == "log/slog" && t.Elem().Name() == "defaultHandler" {
-		if _, ok := log.Writer().(*maskWriter); !ok {
-			log.SetOutput(&maskWriter{log.Writer()})
-		}
-		return
-	}
-	if _, ok := slog.Default().Handler().(*maskHandler); !ok {
-		slog.SetDefault(slog.New(&maskHandler{base: slog.Default().Handler()}))
-	}
-}
-
-type maskWriter struct{ base io.Writer }
-
-func (w *maskWriter) Write(p []byte) (int, error) {
-	_, err := io.WriteString(w.base, redactLog(string(p)))
-	if err != nil {
-		return 0, err
-	}
-	return len(p), nil
-}
-func redactLog(s string) string {
-	activeMasks.Range(func(k, v any) bool { s = k.(*Redactor).Redact(s); return true })
-	return s
+	return slog.New(&maskHandler{base: logger.Handler(), redactor: redactor})
 }
 
 type maskHandler struct {
-	base   slog.Handler
-	attrs  []slog.Attr
-	groups []string
+	redactor *Redactor
+	base     slog.Handler
+	attrs    []slog.Attr
+	groups   []string
 }
 
 func (h *maskHandler) Enabled(ctx context.Context, l slog.Level) bool { return h.base.Enabled(ctx, l) }
-func maskAttr(a slog.Attr) slog.Attr {
-	a.Key = redactLog(a.Key)
+func (h *maskHandler) maskAttr(a slog.Attr) slog.Attr {
+	a.Key = h.redactor.Redact(a.Key)
 	v := a.Value.Resolve()
 	switch v.Kind() {
 	case slog.KindGroup:
 		attrs := v.Group()
 		out := make([]slog.Attr, len(attrs))
 		for i, a := range attrs {
-			out[i] = maskAttr(a)
+			out[i] = h.maskAttr(a)
 		}
 		a.Value = slog.GroupValue(out...)
 	case slog.KindString:
-		a.Value = slog.StringValue(redactLog(v.String()))
+		a.Value = slog.StringValue(h.redactor.Redact(v.String()))
 	case slog.KindAny:
 		if err, ok := v.Any().(error); ok {
-			a.Value = slog.StringValue(redactLog(err.Error()))
+			a.Value = slog.StringValue(h.redactor.Redact(err.Error()))
 		} else if value, ok := v.Any().(fmt.Stringer); ok {
-			a.Value = slog.StringValue(redactLog(value.String()))
+			a.Value = slog.StringValue(h.redactor.Redact(value.String()))
 		} else if b, err := json.Marshal(v.Any()); err == nil {
-			safe := redactLog(string(b))
+			safe := h.redactor.Redact(string(b))
 			if safe != string(b) {
 				a.Value = slog.StringValue(safe)
 			}
 		} else {
-			a.Value = slog.StringValue(redactLog(fmt.Sprint(v.Any())))
+			a.Value = slog.StringValue(h.redactor.Redact(fmt.Sprint(v.Any())))
 		}
 	}
 	return a
 }
 func (h *maskHandler) Handle(ctx context.Context, r slog.Record) error {
-	out := slog.NewRecord(r.Time, r.Level, redactLog(r.Message), r.PC)
+	out := slog.NewRecord(r.Time, r.Level, h.redactor.Redact(r.Message), r.PC)
 	attrs := make([]slog.Attr, 0, r.NumAttrs())
 	for _, a := range h.attrs {
-		out.AddAttrs(maskAttr(a))
+		out.AddAttrs(h.maskAttr(a))
 	}
-	r.Attrs(func(a slog.Attr) bool { attrs = append(attrs, maskAttr(a)); return true })
+	r.Attrs(func(a slog.Attr) bool { attrs = append(attrs, h.maskAttr(a)); return true })
 	for i := len(h.groups) - 1; i >= 0; i-- {
-		attrs = []slog.Attr{slog.Attr{Key: redactLog(h.groups[i]), Value: slog.GroupValue(attrs...)}}
+		attrs = []slog.Attr{slog.Attr{Key: h.redactor.Redact(h.groups[i]), Value: slog.GroupValue(attrs...)}}
 	}
 	out.AddAttrs(attrs...)
 	return h.base.Handle(ctx, out)
@@ -119,10 +76,10 @@ func (h *maskHandler) WithAttrs(a []slog.Attr) slog.Handler {
 	c := *h
 	attrs := make([]slog.Attr, len(a))
 	for i, v := range a {
-		attrs[i] = maskAttr(v)
+		attrs[i] = h.maskAttr(v)
 	}
 	for i := len(h.groups) - 1; i >= 0; i-- {
-		attrs = []slog.Attr{{Key: redactLog(h.groups[i]), Value: slog.GroupValue(attrs...)}}
+		attrs = []slog.Attr{{Key: h.redactor.Redact(h.groups[i]), Value: slog.GroupValue(attrs...)}}
 	}
 	c.attrs = append(append([]slog.Attr(nil), h.attrs...), attrs...)
 	return &c

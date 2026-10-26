@@ -10,7 +10,6 @@ import (
 
 	"github.com/colony-2/c2j/pkg/contextual"
 	"github.com/colony-2/c2j/pkg/recipe"
-	"github.com/colony-2/c2j/pkg/secrets"
 	"github.com/colony-2/c2j/pkg/workflow"
 	"github.com/colony-2/c2j/pkg/workflowctl"
 	"github.com/colony-2/jobdb/pkg/jobdb"
@@ -75,7 +74,7 @@ func (w goalHandoffTask) Run(ctx jobworkflow.TaskContext, _ jobdb.TaskData) (job
 	return jobdb.NewTaskDataOrPanic(true), err
 }
 
-func TestRecipeReplayWaitsForPreviousActivationHandoff(t *testing.T) {
+func TestRecipeReplayDoesNotWaitForPreviousActivationCleanup(t *testing.T) {
 	for _, mode := range []string{"workflow wait", "task wait"} {
 		t.Run(mode, func(t *testing.T) {
 			synctest.Test(t, func(t *testing.T) {
@@ -107,9 +106,8 @@ func TestRecipeReplayWaitsForPreviousActivationHandoff(t *testing.T) {
 						return r, nil
 					}),
 				})
-				sessions := secrets.NewSessions()
 				worker := NewRecipeJobWorker(RecipeJobWorkerOptions{
-					SecretSessions: sessions, RootSourceResolver: resolver, Executor: goalHandoffExecutor{goal: child.GoalID, inTask: mode == "task wait"},
+					RootSourceResolver: resolver, Executor: goalHandoffExecutor{goal: child.GoalID, inTask: mode == "task wait"},
 				})
 				// Keep the source unembedded so replay must consume root-source at ordinal 3.
 				parent, err := base.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{
@@ -137,14 +135,8 @@ func TestRecipeReplayWaitsForPreviousActivationHandoff(t *testing.T) {
 				require.Positive(t, resolvedBeforeResume)
 				next := acquire("next")
 				go func() { out, err := next.Run(nil); nextDone <- result{out, err} }()
-				synctest.Wait()
-				select {
-				case got := <-nextDone:
-					t.Fatalf("new activation finished before old handoff returned: status=%s jobError=%v error=%v", got.out.Status, got.out.JobError, got.err)
-				default:
-				}
-				// Release without a sleep; the next activation must now replay successfully.
-				rt.release <- struct{}{}
+				// The next activation must complete while the old reschedule
+				// response remains blocked. No consumer lifecycle lock.
 				got := <-nextDone
 				require.NoError(t, got.err)
 				require.NoError(t, got.out.JobError)
@@ -152,13 +144,13 @@ func TestRecipeReplayWaitsForPreviousActivationHandoff(t *testing.T) {
 				data, err := got.out.Output.GetData()
 				require.NoError(t, err)
 				require.JSONEq(t, `{"done":true}`, string(data))
+				rt.release <- struct{}{}
 				prior := <-firstDone
 				require.NoError(t, prior.err)
 				require.NoError(t, prior.out.JobError)
 				// Run classifies dependency handoffs from current scheduler state;
 				// the new activation may already have completed by that read.
 				require.Contains(t, []jobworkflow.JobRunStatus{jobworkflow.JobRunSuspended, jobworkflow.JobRunCompleted}, prior.out.Status)
-				require.Nil(t, sessions.Get(parent.JobKey))
 				require.Equal(t, resolvedBeforeResume, resolutions.Load(), "root-source must replay its cached result")
 			})
 		})

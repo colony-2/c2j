@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	coretask "github.com/colony-2/c2j/pkg/task"
 	"os"
 	"path/filepath"
 	"strings"
@@ -157,13 +158,16 @@ type loseToolsBeforeStep struct {
 }
 
 func (w loseToolsBeforeStep) Run(ctx jobworkflow.TaskContext, input jobdb.TaskData) (jobdb.TaskData, error) {
+	return w.RunTask(ctx.Context(), ctx, input)
+}
+func (w loseToolsBeforeStep) RunTask(local context.Context, ctx jobworkflow.TaskContext, input jobdb.TaskData) (jobdb.TaskData, error) {
 	if !*w.lost {
 		*w.lost = true
 		if err := os.RemoveAll(w.cache); err != nil {
 			return nil, err
 		}
 	}
-	return w.TaskWorker.Run(ctx, input)
+	return coretask.RunLocal(w.TaskWorker, local, ctx, input)
 }
 
 func TestToolRecoveryResumesCurrentStep(t *testing.T) {
