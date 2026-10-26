@@ -29,6 +29,7 @@ func TestProfileValidationAndMatching(t *testing.T) {
 		{"https", "git.example", "team/repo.git", "", "ro-token"},
 		{"https", "GIT.EXAMPLE:443", "team/special/repo.git", "other", "other-token"},
 		{"http", "git.example", "team/repo.git", "", ""},
+		{"http", "git.example:443", "team/repo.git", "", ""},
 		{"https", "git.example:444", "team/repo.git", "", ""},
 		{"https", "git.example.evil", "team/repo.git", "", ""},
 		{"https", "git.example", "teammate/repo.git", "", ""},
@@ -52,9 +53,45 @@ func TestProfileValidationAndMatching(t *testing.T) {
 		`{"version":1,"entries":[{"url":"https://x/","rewrite_from":["https://x/a/"]}]}`,
 		`{"version":1,"entries":[{"url":"https://x/"},{"url":"https://X:443/"}]}`,
 		`{"version":1,"entries":[{"url":"https://x/","username":"u\npassword=oops","secret_ref":"x"}]}`,
+		`{"version":1,"entries":[{"url":"http://user:password@x/"}]}`,
+		`{"version":1,"entries":[{"url":"http://x/?token=private"}]}`,
+		`{"version":1,"entries":[{"url":"http://x/#fragment"}]}`,
+		`{"version":1,"entries":[{"url":"http://x/"},{"url":"http://X:80/"}]}`,
+		`{"version":1,"entries":[{"url":"ssh://git@x/"}]}`,
 	} {
 		_, err := Decode([]byte(bad), false)
 		require.Error(t, err)
+	}
+}
+
+func TestHTTPProfileMatchingKeepsSchemesAndPortsSeparate(t *testing.T) {
+	p := Profile{Version: 1, Entries: []Entry{
+		{URL: "http://git.example/team/", Username: "git", SecretRef: "http-token"},
+		{URL: "https://git.example:80/team/", Username: "git", SecretRef: "https-token"},
+		{URL: "http://git.example:8080/team/", Username: "git", SecretRef: "test-token",
+			RewriteFrom: []string{"https://github.com/", "http://github.com/", "git@github.com:"}},
+	}}
+	require.NoError(t, p.Validate(false))
+	for _, tc := range []struct{ protocol, host, path, want string }{
+		{"http", "git.example", "team/repo.git", "http-token"},
+		{"http", "GIT.EXAMPLE:80", "team/repo.git", "http-token"},
+		{"https", "git.example:80", "team/repo.git", "https-token"},
+		{"http", "git.example:8080", "team/repo.git", "test-token"},
+		{"https", "git.example:8080", "team/repo.git", ""},
+		{"https", "git.example", "team/repo.git", ""},
+		{"http", "git.example:443", "team/repo.git", ""},
+		{"http", "git.example.evil", "team/repo.git", ""},
+		{"http", "git.example", "teammate/repo.git", ""},
+	} {
+		t.Run(tc.protocol+tc.host+tc.path, func(t *testing.T) {
+			entry, err := p.Match(tc.protocol, tc.host, tc.path, "")
+			if tc.want == "" {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+				require.Equal(t, tc.want, entry.SecretRef)
+			}
+		})
 	}
 }
 func TestDefaultSelection(t *testing.T) {

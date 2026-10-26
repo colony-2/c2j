@@ -61,8 +61,8 @@ func Decode(data []byte, provisioning bool) (Profile, error) {
 }
 func endpoint(raw string) (*url.URL, error) {
 	u, err := url.Parse(raw)
-	if err != nil || u.Scheme != "https" || u.Hostname() == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || !ProtocolValue(raw) || strings.ContainsAny(raw, "\\\t ") {
-		return nil, fmt.Errorf("Git destination must be an HTTPS URL without credentials, query, or fragment")
+	if err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Hostname() == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || !ProtocolValue(raw) || strings.ContainsAny(raw, "\\\t ") {
+		return nil, fmt.Errorf("Git destination must be an HTTP(S) URL without credentials, query, or fragment")
 	}
 	if strings.ContainsAny(u.Path, "\r\n\x00\\") || (u.Path != "" && path.Clean(u.Path) != strings.TrimSuffix(u.Path, "/") && u.Path != "/") {
 		return nil, fmt.Errorf("invalid Git destination path")
@@ -73,6 +73,9 @@ func authority(u *url.URL) string {
 	p := u.Port()
 	if p == "" {
 		p = "443"
+		if u.Scheme == "http" {
+			p = "80"
+		}
 	}
 	return strings.ToLower(u.Hostname()) + ":" + p
 }
@@ -92,7 +95,7 @@ func (p Profile) Validate(provisioning bool) error {
 		if err != nil {
 			return err
 		}
-		key := authority(u) + "/" + strings.Trim(u.Path, "/")
+		key := u.Scheme + "://" + authority(u) + "/" + strings.Trim(u.Path, "/")
 		if destinations[key] {
 			return fmt.Errorf("ambiguous Git destination scope")
 		}
@@ -113,7 +116,7 @@ func (p Profile) Validate(provisioning bool) error {
 			if strings.HasPrefix(s, "git@") && strings.Contains(s, ":") {
 				// Git's SCP-style SSH spelling is allowed as a source only.
 			} else if _, err := endpoint(s); err != nil {
-				return fmt.Errorf("rewrite source must be HTTPS or git@host:path")
+				return fmt.Errorf("rewrite source must be HTTP(S) or git@host:path")
 			}
 			if sources[s] {
 				return fmt.Errorf("ambiguous Git rewrite source")
@@ -151,7 +154,7 @@ func (p Profile) Match(protocol, host, requestPath, username string) (Entry, err
 	longest := -1
 	for _, e := range p.Entries {
 		d, _ := endpoint(e.URL)
-		if authority(d) == authority(u) && pathMatches(d.Path, requestPath) && len(d.Path) > longest {
+		if d.Scheme == u.Scheme && authority(d) == authority(u) && pathMatches(d.Path, requestPath) && len(d.Path) > longest {
 			copy := e
 			selected = &copy
 			longest = len(d.Path)

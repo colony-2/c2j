@@ -1,6 +1,6 @@
 # Git profiles
 
-Git profiles combine HTTPS credential scopes and optional URL rewrites. Profiles live in tenant configuration; credentials live in JobDB's secret store or provider. Provision them once, independently of execution containers:
+Git profiles combine HTTP(S) credential scopes and optional URL rewrites. Profiles live in tenant configuration; credentials live in JobDB's secret store or provider. Provision them once, independently of execution containers:
 
 ```yaml
 # read.yaml
@@ -20,6 +20,8 @@ c2j git list --jobdb "$JOBDB_URL/team"
 ```
 
 Use `JOBDB_BEARER_TOKEN` when the management endpoint requires authentication. Management commands use the standard `--jobdb` → `C2J_JOBDB` → `.c2/config.yaml` `jobdb` setting, with the tenant in the URL path. They also support `--embed` (tenant `0`). For example, `jobdb: http://192.168.1.195:9047/c2` makes `c2j git list` use tenant `c2` without extra flags. `set` validates the entire document and uses the configuration revision to reject concurrent updates. `get` outputs the definition, never a credential value.
+
+Destinations accept `https://` and `http://`, including HTTP test servers. Credential matching includes the scheme, host, port, and repository path; HTTP and HTTPS credentials are separate even on the same host and port. Rewrite sources accept HTTP(S) URLs or SCP-style SSH prefixes such as `git@github.com:`.
 
 An entry may omit routing or credentials. Credential entries require both `username` and `secret_ref`. Multiple entries support different hosts or repository paths. The most specific destination path selects credentials; equally specific duplicates, malformed URLs, and rewrite chains/cycles are rejected. Credentials are matched after rewriting.
 

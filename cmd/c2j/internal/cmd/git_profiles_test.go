@@ -128,7 +128,7 @@ func TestGitProfileManagement(t *testing.T) {
 				t.Setenv("C2J_JOBDB", server.URL+"/environment")
 			}
 			file := filepath.Join(project, "profile.yaml")
-			require.NoError(t, os.WriteFile(file, []byte("version: 1\nentries:\n  - url: https://git.example/team/\n    username: bot\n    secret_ref: externally-managed\n"), 0600))
+			require.NoError(t, os.WriteFile(file, []byte("version: 1\nentries:\n  - url: http://git.example/team/\n    username: bot\n    secret_ref: externally-managed\n"), 0600))
 			run := func(args ...string) (string, error) {
 				root := newRootCmd(buildinfo.Info{})
 				var out bytes.Buffer
@@ -146,6 +146,7 @@ func TestGitProfileManagement(t *testing.T) {
 			out, err := run("get", "work")
 			require.NoError(t, err)
 			require.Contains(t, out, "externally-managed")
+			require.Contains(t, out, "http://git.example/team/")
 			require.NotContains(t, out, "secret_file")
 			out, err = run("list")
 			require.NoError(t, err)
@@ -241,70 +242,81 @@ func TestSuppliedCredentialStoredSeparately(t *testing.T) {
 }
 
 func TestRoutedGitCloneFetchAndServerEnforcedReadOnly(t *testing.T) {
-	t.Setenv("C2J_GIT_HELPER_TEST", "1")
-	t.Setenv("GIT_SSL_NO_VERIFY", "true") // Local test server certificate only.
-	git, err := exec.LookPath("git")
-	require.NoError(t, err)
-	root := t.TempDir()
-	bare := filepath.Join(root, "repo.git")
-	seed := filepath.Join(t.TempDir(), "seed")
-	run := func(args ...string) {
-		t.Helper()
-		out, err := exec.Command(git, args...).CombinedOutput()
-		require.NoError(t, err, string(out))
+	for _, protocol := range []string{"http", "https"} {
+		t.Run(protocol, func(t *testing.T) {
+			t.Setenv("C2J_GIT_HELPER_TEST", "1")
+			if protocol == "https" {
+				t.Setenv("GIT_SSL_NO_VERIFY", "true") // Local test server certificate only.
+			}
+			git, err := exec.LookPath("git")
+			require.NoError(t, err)
+			root := t.TempDir()
+			bare := filepath.Join(root, "repo.git")
+			seed := filepath.Join(t.TempDir(), "seed")
+			run := func(args ...string) {
+				t.Helper()
+				out, err := exec.Command(git, args...).CombinedOutput()
+				require.NoError(t, err, string(out))
+			}
+			run("init", "--bare", bare)
+			run("--git-dir="+bare, "config", "http.receivepack", "true")
+			run("init", "-b", "main", seed)
+			run("-C", seed, "-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "--allow-empty", "-m", "initial")
+			run("-C", seed, "push", bare, "HEAD:refs/heads/main")
+			run("--git-dir="+bare, "symbolic-ref", "HEAD", "refs/heads/main")
+			backend := &cgi.Handler{Path: git, Args: []string{"http-backend"}, Dir: root, Env: []string{"GIT_PROJECT_ROOT=" + root, "GIT_HTTP_EXPORT_ALL=1"}}
+			server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				user, password, ok := r.BasicAuth()
+				if !ok || user != "bot" || (password != "ro-value" && password != "rw-value") {
+					w.Header().Set("WWW-Authenticate", `Basic realm="test"`)
+					w.WriteHeader(http.StatusUnauthorized)
+					return
+				}
+				if password == "ro-value" && (strings.HasSuffix(r.URL.Path, "git-receive-pack") || r.URL.Query().Get("service") == "git-receive-pack") {
+					w.WriteHeader(http.StatusForbidden)
+					return
+				}
+				backend.ServeHTTP(w, r)
+			}))
+			if protocol == "https" {
+				server.StartTLS()
+			} else {
+				server.Start()
+			}
+			defer server.Close()
+			wrapper := filepath.Join(t.TempDir(), "c2j")
+			require.NoError(t, os.WriteFile(wrapper, []byte("#!/bin/sh\nexec '"+strings.ReplaceAll(os.Args[0], "'", "'\\''")+"' -test.run=TestGitCredentialHelperProcess -- \"$@\"\n"), 0700))
+			snapshot := jobdb.ConfigurationSnapshot{Values: map[string]json.RawMessage{}}
+			for _, name := range []string{"ro", "rw"} {
+				raw, _ := json.Marshal(gitprofile.Profile{Version: 1, Entries: []gitprofile.Entry{{URL: server.URL + "/", RewriteFrom: []string{"https://source.invalid/", "http://source.invalid/", "git@source.invalid:"}, Username: "bot", SecretRef: name}}})
+				snapshot.Values[gitprofile.ProfilePrefix+name] = raw
+			}
+			resolve := func(_ context.Context, names []string) (jobdb.SecretResolveResult, error) {
+				return jobdb.SecretResolveResult{Secrets: map[string]jobdb.SecretValue{names[0]: {Value: names[0] + "-value"}}}, nil
+			}
+			ro, err := gitprofile.NewScope(context.Background(), gitprofile.Selection{Explicit: true, Value: "ro"}, snapshot, resolve, wrapper)
+			require.NoError(t, err)
+			defer ro.Close()
+			rw, err := gitprofile.NewScope(context.Background(), gitprofile.Selection{Explicit: true, Value: "rw"}, snapshot, resolve, wrapper)
+			require.NoError(t, err)
+			defer rw.Close()
+			roCtx, rwCtx := gitprofile.WithScope(context.Background(), ro), gitprofile.WithScope(context.Background(), rw)
+			clone := filepath.Join(t.TempDir(), "clone")
+			for _, args := range [][]string{{"ls-remote", "http://source.invalid/repo.git"}, {"ls-remote", "git@source.invalid:repo.git"}, {"ls-remote", "https://source.invalid/repo.git"}, {"clone", "https://source.invalid/repo.git", clone}, {"-C", clone, "fetch", "origin"}} {
+				out, err := gitprofile.Command(roCtx, args...).CombinedOutput()
+				require.NoError(t, err, string(out))
+			}
+			run("-C", clone, "-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "--allow-empty", "-m", "publish")
+			out, err := gitprofile.Command(roCtx, "-C", clone, "push", "origin", "HEAD:refs/heads/main").CombinedOutput()
+			require.Error(t, err)
+			require.NotContains(t, string(out), "ro-value")
+			out, err = gitprofile.Command(rwCtx, "-C", clone, "push", "origin", "HEAD:refs/heads/main").CombinedOutput()
+			require.NoError(t, err, string(out))
+			local, err := exec.Command(git, "-C", clone, "rev-parse", "HEAD").Output()
+			require.NoError(t, err)
+			published, err := exec.Command(git, "--git-dir="+bare, "rev-parse", "main").Output()
+			require.NoError(t, err)
+			require.Equal(t, string(local), string(published))
+		})
 	}
-	run("init", "--bare", bare)
-	run("--git-dir="+bare, "config", "http.receivepack", "true")
-	run("init", "-b", "main", seed)
-	run("-C", seed, "-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "--allow-empty", "-m", "initial")
-	run("-C", seed, "push", bare, "HEAD:refs/heads/main")
-	run("--git-dir="+bare, "symbolic-ref", "HEAD", "refs/heads/main")
-	backend := &cgi.Handler{Path: git, Args: []string{"http-backend"}, Dir: root, Env: []string{"GIT_PROJECT_ROOT=" + root, "GIT_HTTP_EXPORT_ALL=1"}}
-	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		user, password, ok := r.BasicAuth()
-		if !ok || user != "bot" || (password != "ro-value" && password != "rw-value") {
-			w.Header().Set("WWW-Authenticate", `Basic realm="test"`)
-			w.WriteHeader(http.StatusUnauthorized)
-			return
-		}
-		if password == "ro-value" && (strings.HasSuffix(r.URL.Path, "git-receive-pack") || r.URL.Query().Get("service") == "git-receive-pack") {
-			w.WriteHeader(http.StatusForbidden)
-			return
-		}
-		backend.ServeHTTP(w, r)
-	}))
-	defer server.Close()
-	wrapper := filepath.Join(t.TempDir(), "c2j")
-	require.NoError(t, os.WriteFile(wrapper, []byte("#!/bin/sh\nexec '"+strings.ReplaceAll(os.Args[0], "'", "'\\''")+"' -test.run=TestGitCredentialHelperProcess -- \"$@\"\n"), 0700))
-	snapshot := jobdb.ConfigurationSnapshot{Values: map[string]json.RawMessage{}}
-	for _, name := range []string{"ro", "rw"} {
-		raw, _ := json.Marshal(gitprofile.Profile{Version: 1, Entries: []gitprofile.Entry{{URL: server.URL + "/", RewriteFrom: []string{"https://source.invalid/"}, Username: "bot", SecretRef: name}}})
-		snapshot.Values[gitprofile.ProfilePrefix+name] = raw
-	}
-	resolve := func(_ context.Context, names []string) (jobdb.SecretResolveResult, error) {
-		return jobdb.SecretResolveResult{Secrets: map[string]jobdb.SecretValue{names[0]: {Value: names[0] + "-value"}}}, nil
-	}
-	ro, err := gitprofile.NewScope(context.Background(), gitprofile.Selection{Explicit: true, Value: "ro"}, snapshot, resolve, wrapper)
-	require.NoError(t, err)
-	defer ro.Close()
-	rw, err := gitprofile.NewScope(context.Background(), gitprofile.Selection{Explicit: true, Value: "rw"}, snapshot, resolve, wrapper)
-	require.NoError(t, err)
-	defer rw.Close()
-	roCtx, rwCtx := gitprofile.WithScope(context.Background(), ro), gitprofile.WithScope(context.Background(), rw)
-	clone := filepath.Join(t.TempDir(), "clone")
-	for _, args := range [][]string{{"ls-remote", "https://source.invalid/repo.git"}, {"clone", "https://source.invalid/repo.git", clone}, {"-C", clone, "fetch", "origin"}} {
-		out, err := gitprofile.Command(roCtx, args...).CombinedOutput()
-		require.NoError(t, err, string(out))
-	}
-	run("-C", clone, "-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "--allow-empty", "-m", "publish")
-	out, err := gitprofile.Command(roCtx, "-C", clone, "push", "origin", "HEAD:refs/heads/main").CombinedOutput()
-	require.Error(t, err)
-	require.NotContains(t, string(out), "ro-value")
-	out, err = gitprofile.Command(rwCtx, "-C", clone, "push", "origin", "HEAD:refs/heads/main").CombinedOutput()
-	require.NoError(t, err, string(out))
-	local, err := exec.Command(git, "-C", clone, "rev-parse", "HEAD").Output()
-	require.NoError(t, err)
-	published, err := exec.Command(git, "--git-dir="+bare, "rev-parse", "main").Output()
-	require.NoError(t, err)
-	require.Equal(t, string(local), string(published))
 }
