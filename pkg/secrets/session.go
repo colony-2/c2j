@@ -220,6 +220,7 @@ type Sessions struct {
 type executionRedactor struct {
 	ctx      context.Context
 	redactor *Redactor
+	done     chan struct{}
 }
 
 func NewSessions() *Sessions { return &Sessions{active: map[jobdb.JobKey]executionRedactor{}} }
@@ -227,19 +228,31 @@ func (m *Sessions) Open(key jobdb.JobKey) (*Redactor, error) {
 	return m.OpenExecution(context.Background(), key)
 }
 
-// OpenExecution allows recovery once the previous activation is cancelled,
-// even while its abandoned callbacks are still unwinding.
+// OpenExecution waits for the previous activation to finish or be cancelled.
+// A scheduler handoff can make the job runnable before the old worker receives
+// its response and cancels its context. This overlap is not a recipe failure.
+// Once cancelled, abandoned callbacks may keep unwinding independently.
 func (m *Sessions) OpenExecution(ctx context.Context, key jobdb.JobKey) (*Redactor, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if err := ctx.Err(); err != nil {
-		return nil, err
-	}
-	if prior, ok := m.active[key]; ok && prior.ctx.Err() == nil {
-		return nil, errors.New("job already executing locally")
+	for {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		prior, ok := m.active[key]
+		if !ok || prior.ctx.Err() != nil {
+			break
+		}
+		m.mu.Unlock()
+		select {
+		case <-ctx.Done():
+		case <-prior.ctx.Done():
+		case <-prior.done:
+		}
+		m.mu.Lock()
 	}
 	s := newRedactor()
-	m.active[key] = executionRedactor{ctx: ctx, redactor: s}
+	m.active[key] = executionRedactor{ctx: ctx, redactor: s, done: make(chan struct{})}
 	registerMask(s)
 	return s, nil
 }
@@ -267,6 +280,7 @@ func (m *Sessions) Close(key jobdb.JobKey) {
 	defer m.mu.Unlock()
 	if entry, ok := m.active[key]; ok {
 		entry.redactor.Close()
+		close(entry.done)
 		delete(m.active, key)
 	}
 }
@@ -276,7 +290,8 @@ func (m *Sessions) CloseExecution(key jobdb.JobKey, redactor *Redactor) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	redactor.Close()
-	if m.active[key].redactor == redactor {
+	if entry := m.active[key]; entry.redactor == redactor {
+		close(entry.done)
 		delete(m.active, key)
 	}
 }

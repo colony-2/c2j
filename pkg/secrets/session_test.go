@@ -150,8 +150,6 @@ func TestExecutionCloseDuringResolutionAndRestart(t *testing.T) {
 	key := jobdb.JobKey{TenantId: "tenant", JobId: "job"}
 	redactor, err := m.Open(key)
 	require.NoError(t, err)
-	_, err = m.Open(key)
-	require.Error(t, err)
 	task := redactor.NewTask()
 	defer task.Close()
 	err = task.Prepare(context.Background(), []string{"token"}, func(context.Context, []string) (jobdb.SecretResolveResult, error) {
@@ -222,4 +220,108 @@ func TestExecutionRecoveryBeforePriorCleanup(t *testing.T) {
 	require.Empty(t, prior.masks)
 	_, registered = activeMasks.Load(prior)
 	require.False(t, registered)
+}
+
+func TestExecutionHandoffWaitsForPreviousActivation(t *testing.T) {
+	for _, release := range []string{"cancel", "close", "close execution"} {
+		t.Run(release, func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				m := NewSessions()
+				key := jobdb.JobKey{TenantId: "tenant", JobId: "job"}
+				priorCtx, cancel := context.WithCancel(context.Background())
+				defer cancel()
+				prior, err := m.OpenExecution(priorCtx, key)
+				require.NoError(t, err)
+				defer m.CloseExecution(key, prior)
+				require.NoError(t, prior.Register("prior-secret"))
+				nextReady := make(chan *Redactor, 1)
+				go func() {
+					next, err := m.OpenExecution(context.Background(), key)
+					if err != nil {
+						t.Error(err)
+					}
+					nextReady <- next
+				}()
+				synctest.Wait()
+				require.Empty(t, nextReady, "the next activation must wait during handoff")
+				require.Same(t, prior, m.Get(key))
+				other := jobdb.JobKey{TenantId: "tenant", JobId: "other"}
+				_, err = m.Open(other)
+				require.NoError(t, err, "waiting must not block other jobs")
+				m.Close(other)
+				switch release {
+				case "cancel":
+					cancel()
+				case "close":
+					m.Close(key)
+				case "close execution":
+					m.CloseExecution(key, prior)
+				}
+				next := <-nextReady
+				require.NotNil(t, next)
+				defer m.CloseExecution(key, next)
+				require.NotSame(t, prior, next)
+				require.Empty(t, next.masks, "activations must not share secret state")
+				m.CloseExecution(key, prior)
+				require.Same(t, next, m.Get(key), "late cleanup must preserve the new activation")
+			})
+		})
+	}
+}
+
+func TestExecutionHandoffWaitCanBeCancelled(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		m := NewSessions()
+		key := jobdb.JobKey{TenantId: "tenant", JobId: "job"}
+		prior, err := m.Open(key)
+		require.NoError(t, err)
+		defer m.CloseExecution(key, prior)
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		done := make(chan error, 1)
+		go func() {
+			_, err := m.OpenExecution(ctx, key)
+			done <- err
+		}()
+		synctest.Wait()
+		require.Empty(t, done)
+		cancel()
+		require.ErrorIs(t, <-done, context.Canceled)
+		require.Same(t, prior, m.Get(key))
+		require.False(t, prior.isClosed())
+		_, err = m.OpenExecution(ctx, key)
+		require.ErrorIs(t, err, context.Canceled, "already cancelled requests must not acquire a session")
+	})
+}
+
+func TestExecutionHandoffSerializesMultipleWaiters(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		m := NewSessions()
+		key := jobdb.JobKey{TenantId: "tenant", JobId: "job"}
+		prior, err := m.Open(key)
+		require.NoError(t, err)
+		nextReady := make(chan *Redactor, 2)
+		for range 2 {
+			go func() {
+				next, err := m.Open(key)
+				if err != nil {
+					t.Error(err)
+				}
+				nextReady <- next
+			}()
+		}
+		synctest.Wait()
+		require.Empty(t, nextReady)
+		m.CloseExecution(key, prior)
+		first := <-nextReady
+		synctest.Wait()
+		require.Empty(t, nextReady, "only one waiting activation may acquire the session")
+		m.CloseExecution(key, first)
+		second := <-nextReady
+		require.NotSame(t, first, second)
+		m.CloseExecution(key, first)
+		require.Same(t, second, m.Get(key))
+		m.CloseExecution(key, second)
+		require.Nil(t, m.Get(key))
+	})
 }
