@@ -330,9 +330,17 @@ self:
 
 func TestProjectConfig_GoBaseDefaults(t *testing.T) {
 	t.Parallel()
+	for _, base := range []string{"go", "gocmd"} {
+		t.Run(base, func(t *testing.T) {
+			testGoBaseDefaults(t, base)
+		})
+	}
+}
 
+func testGoBaseDefaults(t *testing.T, base string) {
+	t.Helper()
 	root := t.TempDir()
-	mustWriteFile(t, filepath.Join(root, ".c2", "config.yaml"), []byte("base: go\n"))
+	mustWriteFile(t, filepath.Join(root, ".c2", "config.yaml"), []byte("base: "+base+"\n"))
 
 	monkeyDir := filepath.Join(root, "deps", "monkey")
 	zebraDir := filepath.Join(root, "deps", "zebra")

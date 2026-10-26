@@ -256,6 +256,10 @@ c2j init --with-op-skills
 
 The generated template can derive values from the Go module in the current repo when `base: go` is appropriate. `--stdout` prints only the config and does not install skills.
 
+`base: go` reads `go.mod` directly, with no Go installation or network access required. It derives the current repository from the `module` directive and discovers only direct dependencies: `require` entries without `// indirect`. Discovery uses declared module paths, not replacement destinations, and does not resolve versions or combine `go.work` modules. Keep `go.mod` current with `go mod tidy` during development.
+
+To retain the previous command-based discovery, use `base: gocmd`. It requires Go on `PATH` and runs `go list -m` for the current module and `go list -m all` for dependencies, including transitive dependencies. Both bases retain the same repository normalization, pattern inference, filtering, and explicit config overrides. Automatic Go project detection and `c2j init` default to `base: go`.
+
 Bundled skill install controls:
 
 ```bash

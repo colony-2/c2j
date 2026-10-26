@@ -9,11 +9,13 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 
 	"github.com/colony-2/c2j/internal/repository"
 	"github.com/colony-2/c2j/pkg/cellref"
 	"github.com/colony-2/c2j/pkg/shellcmd"
+	"golang.org/x/mod/modfile"
 	"gopkg.in/yaml.v3"
 )
 
@@ -261,10 +263,8 @@ func (c *ProjectConfig) dependentSourceRepos(ctx context.Context) ([]string, err
 			}
 		}
 		return values, nil
-	case strings.TrimSpace(c.raw.Base) == "go":
-		return c.baseDependentRepos(ctx)
 	default:
-		return nil, nil
+		return c.baseDependentRepos(ctx)
 	}
 }
 
@@ -482,7 +482,7 @@ func (c *ProjectConfig) dependentFilter(ctx context.Context) (*regexp.Regexp, er
 
 func (c *ProjectConfig) pattern(ctx context.Context) (*cellPattern, error) {
 	raw := strings.TrimSpace(c.raw.Pattern)
-	if raw == "" && strings.TrimSpace(c.raw.Base) == "go" {
+	if raw == "" && c.raw.hasGoBase() {
 		repo, err := c.baseSelfRepo(ctx)
 		if err != nil {
 			return nil, err
@@ -504,7 +504,9 @@ func (c *ProjectConfig) baseSelfRepo(ctx context.Context) (string, error) {
 	case "":
 		return "", nil
 	case "go":
-		return goCurrentRepoName(ctx, c.rootDir)
+		return goCurrentRepoName(c.rootDir)
+	case "gocmd":
+		return goCommandCurrentRepoName(ctx, c.rootDir)
 	default:
 		return "", fmt.Errorf("unsupported config base %q", c.raw.Base)
 	}
@@ -515,7 +517,9 @@ func (c *ProjectConfig) baseDependentRepos(ctx context.Context) ([]string, error
 	case "":
 		return nil, nil
 	case "go":
-		return goDependentRepoNames(ctx, c.rootDir)
+		return goDependentRepoNames(c.rootDir)
+	case "gocmd":
+		return goCommandDependentRepoNames(ctx, c.rootDir)
 	default:
 		return nil, fmt.Errorf("unsupported config base %q", c.raw.Base)
 	}
@@ -559,9 +563,14 @@ func (c *ProjectConfig) runMultiCommand(ctx context.Context, command string) ([]
 	return nonEmptyLines(stdout.String()), nil
 }
 
+func (c fileConfig) hasGoBase() bool {
+	base := strings.TrimSpace(c.Base)
+	return base == "go" || base == "gocmd"
+}
+
 func (c fileConfig) validate() error {
 	switch strings.TrimSpace(c.Base) {
-	case "", "go":
+	case "", "go", "gocmd":
 	default:
 		return fmt.Errorf("unsupported base %q", c.Base)
 	}
@@ -720,7 +729,49 @@ func derivePatternFromRepo(repo string) (string, bool) {
 	return repo[:idx] + replacement + repo[idx+len(name):], true
 }
 
-func goCurrentRepoName(ctx context.Context, rootDir string) (string, error) {
+func readGoModule(rootDir string) (*modfile.File, error) {
+	path, err := discoverAncestorFile(rootDir, "go.mod")
+	if err != nil {
+		return nil, fmt.Errorf("find go.mod in or above %s: %w", rootDir, err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("read %s: %w", path, err)
+	}
+	file, err := modfile.Parse(path, data, nil)
+	if err != nil {
+		return nil, fmt.Errorf("parse %s: %w", path, err)
+	}
+	if file.Module == nil || file.Module.Mod.Path == "" {
+		return nil, fmt.Errorf("%s: missing module directive", path)
+	}
+	return file, nil
+}
+
+func goCurrentRepoName(rootDir string) (string, error) {
+	file, err := readGoModule(rootDir)
+	if err != nil {
+		return "", err
+	}
+	return normalizeModuleRepoName(file.Module.Mod.Path), nil
+}
+
+func goDependentRepoNames(rootDir string) ([]string, error) {
+	file, err := readGoModule(rootDir)
+	if err != nil {
+		return nil, err
+	}
+	repos := make([]string, 0, len(file.Require))
+	for _, requirement := range file.Require {
+		if !requirement.Indirect {
+			repos = append(repos, normalizeModuleRepoName(requirement.Mod.Path))
+		}
+	}
+	sort.Strings(repos)
+	return uniqueStrings(repos), nil
+}
+
+func goCommandCurrentRepoName(ctx context.Context, rootDir string) (string, error) {
 	values, err := runGoList(ctx, rootDir, "{{.Path}}")
 	if err != nil {
 		return "", err
@@ -735,7 +786,7 @@ func goCurrentRepoName(ctx context.Context, rootDir string) (string, error) {
 	}
 }
 
-func goDependentRepoNames(ctx context.Context, rootDir string) ([]string, error) {
+func goCommandDependentRepoNames(ctx context.Context, rootDir string) ([]string, error) {
 	values, err := runGoList(ctx, rootDir, "{{if not .Main}}{{.Path}}{{end}}", "all")
 	if err != nil {
 		return nil, err

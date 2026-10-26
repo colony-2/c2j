@@ -62,7 +62,7 @@ func PrepareDependentEdit(ctx context.Context, startDir, value string, descripti
 	root := doc.Content[0]
 	deps := mappingValue(root, "dependents")
 	if cfg.raw.Dependents.mode != "list" {
-		if cfg.raw.Dependents.Command != "" || cfg.raw.Base == "go" {
+		if cfg.raw.Dependents.Command != "" || cfg.raw.hasGoBase() {
 			entries, err := cfg.AllowedDependentEntries(ctx)
 			if err != nil {
 				return nil, err

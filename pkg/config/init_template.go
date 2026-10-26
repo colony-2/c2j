@@ -17,7 +17,7 @@ type initTemplateData struct {
 func RenderInitConfigTemplate(ctx context.Context, rootDir string) ([]byte, error) {
 	data := initTemplateData{}
 
-	repo, err := goCurrentRepoName(ctx, rootDir)
+	repo, err := goCurrentRepoName(rootDir)
 	if err == nil && strings.TrimSpace(repo) != "" {
 		data.BaseGo = true
 		data.Repo = repo
@@ -45,8 +45,10 @@ func renderGenericInitTemplate() string {
 # Use ${{ cell }} exactly once in pattern.
 #
 # Uncomment base: go to derive:
-# - self.repo via: go list -m -f '{{.Path}}'
-# - dependents via: go list -m -f '{{if not .Main}}{{.Path}}{{end}}' all
+# - self.repo from the module directive in go.mod
+# - dependents from direct require entries (excluding // indirect) in go.mod
+# No Go installation is needed. Use base: gocmd for go list -m all discovery,
+# including transitive dependencies; gocmd requires Go to be installed.
 #
 # base: go
 #
@@ -87,8 +89,10 @@ func renderGoInitTemplate(data initTemplateData) string {
 	b.WriteString("# c2j project config\n")
 	b.WriteString("#\n")
 	b.WriteString("# `base: go` derives:\n")
-	b.WriteString("# - self.repo via: go list -m -f '{{.Path}}'\n")
-	b.WriteString("# - dependents via: go list -m -f '{{if not .Main}}{{.Path}}{{end}}' all\n")
+	b.WriteString("# - self.repo from the module directive in go.mod\n")
+	b.WriteString("# - dependents from direct require entries (excluding // indirect) in go.mod\n")
+	b.WriteString("# No Go installation is needed. Use base: gocmd for go list -m all discovery,\n")
+	b.WriteString("# including transitive dependencies; gocmd requires Go to be installed.\n")
 	b.WriteString("base: go\n\n")
 	b.WriteString("# Detected dependent cells are used directly; inspect them with c2j cells.\n")
 	b.WriteString("# To maintain an explicit list instead, uncomment and edit:\n")
