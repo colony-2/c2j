@@ -189,7 +189,7 @@ func mergeFrom(ctx context.Context, input MergeInput, emptyBase bool, source str
 }
 
 func requireCleanWorkspace(ctx context.Context, path string) error {
-	if err := common.ValidateRepository(path); err != nil {
+	if err := common.ValidateRepositoryContext(ctx, path); err != nil {
 		return err
 	}
 	status, err := common.ExecuteGitCommand(ctx, path, "status", "--porcelain")

@@ -38,7 +38,7 @@ func GitShallowClone(ctx context.Context, input GitShallowCloneInput) (*GitShall
 
 	// For local paths ensure the source is a git repository; remote URLs are validated by git clone itself.
 	if !common.IsRemoteRepository(input.SourceDir) {
-		if err := common.ValidateRepository(input.SourceDir); err != nil {
+		if err := common.ValidateRepositoryContext(ctx, input.SourceDir); err != nil {
 			return nil, fmt.Errorf("source directory validation failed: %w", err)
 		}
 	}
@@ -68,8 +68,8 @@ func GitShallowClone(ctx context.Context, input GitShallowCloneInput) (*GitShall
 
 	// Perform shallow clone with depth 1
 	cmd := gitprofile.Command(ctx, "clone", "--depth", "1", "--no-single-branch", input.SourceDir, input.TargetDir)
-	if err := cmd.Run(); err != nil {
-		return nil, fmt.Errorf("failed to clone repository: %w", err)
+	if output, err := gitprofile.CombinedOutput(ctx, cmd); err != nil {
+		return nil, fmt.Errorf("failed to clone repository: %w (output: %s)", err, output)
 	}
 
 	// Fetch the specific commit

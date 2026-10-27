@@ -67,3 +67,17 @@ retries are exhausted, the failure propagates without an automatic enclosing
 scope retry that would recreate the candidate. A recipe catch can handle the
 failure and explicitly choose further work. Use the managed worktree and do not
 mark the op `const`, since the durable boundary requires workspace persistence.
+
+## Git diagnostics
+
+Native Git commands attach their stderr to the task as `_c2j/git-stderr.txt`
+when they produce output on that stream. This includes workspace cloning and
+source preparation, even when they fail before the operation starts. The artifact
+retains command labels and stderr from successful and failed commands; stdout
+remains separate. Resolved secrets are redacted before publication. Diagnostics
+are bounded to 1 MiB plus an omission marker; oversized command records are
+omitted whole. The artifact is retained with the task outcome and during replay.
+Child-job results expose the original diagnostic artifact reference rather than
+copying the child log into the awaiting task's own diagnostics.
+Git commands launched inside shell or extension operations continue to use those
+operations' own output artifacts.

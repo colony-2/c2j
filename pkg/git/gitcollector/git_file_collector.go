@@ -103,12 +103,12 @@ func (a *gitFileCollectorActivity) Execute(
 	}
 
 	// Validate git repository using common utils
-	if err := common.ValidateRepository(input.ContextDir); err != nil {
+	if err := common.ValidateRepositoryContext(ctx, input.ContextDir); err != nil {
 		return GitFileCollectorOutput{}, fmt.Errorf("not a git repository: %w", err)
 	}
 
 	// Find the git root directory
-	gitRoot, err := common.FindGitRoot(input.ContextDir)
+	gitRoot, err := common.FindGitRootContext(ctx, input.ContextDir)
 	if err != nil {
 		return GitFileCollectorOutput{}, fmt.Errorf("failed to find git root: %w", err)
 	}

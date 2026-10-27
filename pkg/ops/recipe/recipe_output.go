@@ -7,6 +7,7 @@ import (
 	recipeartifacts "github.com/colony-2/c2j/pkg/artifacts"
 	"github.com/colony-2/c2j/pkg/contextual"
 	"github.com/colony-2/c2j/pkg/git/gitstate"
+	"github.com/colony-2/c2j/pkg/gitprofile"
 	"github.com/colony-2/c2j/pkg/objects"
 	"github.com/colony-2/c2j/pkg/ops"
 	"github.com/colony-2/jobdb/pkg/jobdb"
@@ -85,7 +86,9 @@ func decodeRecipeJobOutput(deps ops.OpDependencies, data jobdb.JobData) (recipeJ
 		// A child's snapshot belongs to that child, even when the awaiting
 		// node uses the implicit root workspace. Preserve its reference below,
 		// but never offer it as the awaiting task's automatic Git state.
-		internalGit := artifact.Name() == gitstate.ThinPackArtifactName || artifact.Name() == "diff_from_parent.diff" || artifact.Name() == "diff_from_base.diff"
+		// Git diagnostics also belong to the producing task. Retain the child
+		// reference without colliding with this task's own stderr artifact.
+		internalGit := artifact.Name() == gitstate.ThinPackArtifactName || artifact.Name() == "diff_from_parent.diff" || artifact.Name() == "diff_from_base.diff" || artifact.Name() == gitprofile.StderrArtifactName
 		if deps != nil && !internalGit {
 			if err := deps.AddOutputArtifact(artifact); err != nil {
 				return recipeJobOutput{}, err

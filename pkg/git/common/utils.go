@@ -14,7 +14,7 @@ import (
 func ExecuteGitCommand(ctx context.Context, repoPath string, args ...string) ([]byte, error) {
 	cmd := gitprofile.Command(ctx, args...)
 	cmd.Dir = repoPath
-	output, err := cmd.CombinedOutput()
+	output, err := gitprofile.CombinedOutput(ctx, cmd)
 	if err != nil {
 		if cause := context.Cause(ctx); cause != nil {
 			err = errors.Join(err, cause)
@@ -28,14 +28,19 @@ func ExecuteGitCommand(ctx context.Context, repoPath string, args ...string) ([]
 
 // ValidateRepository checks if path is within a valid Git repository
 func ValidateRepository(repoPath string) error {
+	return ValidateRepositoryContext(context.Background(), repoPath)
+}
+
+// ValidateRepositoryContext retains validation stderr in the task diagnostics.
+func ValidateRepositoryContext(ctx context.Context, repoPath string) error {
 	if repoPath == "" {
 		return fmt.Errorf("repository path cannot be empty")
 	}
 
 	// Use git rev-parse to find the git directory
-	cmd := exec.Command("git", "rev-parse", "--git-dir")
+	cmd := gitprofile.Command(ctx, "rev-parse", "--git-dir")
 	cmd.Dir = repoPath
-	output, err := cmd.CombinedOutput()
+	output, err := gitprofile.CombinedOutput(ctx, cmd)
 	if err != nil {
 		return fmt.Errorf("not a git repository (or any of the parent directories): %s", repoPath)
 	}
@@ -51,9 +56,14 @@ func ValidateRepository(repoPath string) error {
 
 // FindGitRoot returns the root directory of the git repository
 func FindGitRoot(path string) (string, error) {
-	cmd := exec.Command("git", "rev-parse", "--show-toplevel")
+	return FindGitRootContext(context.Background(), path)
+}
+
+// FindGitRootContext retains discovery stderr in the task diagnostics.
+func FindGitRootContext(ctx context.Context, path string) (string, error) {
+	cmd := gitprofile.Command(ctx, "rev-parse", "--show-toplevel")
 	cmd.Dir = path
-	output, err := cmd.CombinedOutput()
+	output, err := gitprofile.CombinedOutput(ctx, cmd)
 	if err != nil {
 		return "", fmt.Errorf("not in a git repository: %w", err)
 	}

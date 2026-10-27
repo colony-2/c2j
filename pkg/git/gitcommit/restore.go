@@ -21,7 +21,7 @@ func RestoreCommit(ctx context.Context, input RestoreCommitActivity) (*RestoreCo
 	}
 
 	// Validate repository
-	if err := common.ValidateRepository(input.RepoPath); err != nil {
+	if err := common.ValidateRepositoryContext(ctx, input.RepoPath); err != nil {
 		return nil, fmt.Errorf("invalid repository: %w", err)
 	}
 

@@ -1,7 +1,6 @@
 package commands
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"github.com/colony-2/c2j/pkg/gitprofile"
@@ -61,7 +60,7 @@ func New(defaultAuthor, defaultEmail string) *Repository {
 // GetStatus returns the current Git status of a node directory
 func (r *Repository) GetStatus(ctx context.Context, nodePath string) (*Status, error) {
 	// Check if it's a git repository
-	if !isGitRepo(nodePath) {
+	if !isGitRepoContext(ctx, nodePath) {
 		return nil, fmt.Errorf("not a git repository")
 	}
 
@@ -74,14 +73,14 @@ func (r *Repository) GetStatus(ctx context.Context, nodePath string) (*Status, e
 	// Get current branch
 	cmd := gitprofile.Command(ctx, "branch", "--show-current")
 	cmd.Dir = nodePath
-	if output, err := cmd.Output(); err == nil {
+	if output, err := gitprofile.Output(ctx, cmd); err == nil {
 		status.Branch = strings.TrimSpace(string(output))
 	}
 
 	// Get status
 	cmd = gitprofile.Command(ctx, "status", "--porcelain")
 	cmd.Dir = nodePath
-	output, err := cmd.Output()
+	output, err := gitprofile.Output(ctx, cmd)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get git status: %w", err)
 	}
@@ -123,13 +122,13 @@ func (r *Repository) GetStatus(ctx context.Context, nodePath string) (*Status, e
 	// Check if we have a remote
 	cmd = gitprofile.Command(ctx, "remote")
 	cmd.Dir = nodePath
-	if output, err := cmd.Output(); err == nil && len(output) > 0 {
+	if output, err := gitprofile.Output(ctx, cmd); err == nil && len(output) > 0 {
 		status.HasRemote = true
 
 		// Get ahead/behind info
 		cmd = gitprofile.Command(ctx, "rev-list", "--count", "--left-right", "@{upstream}...HEAD")
 		cmd.Dir = nodePath
-		if output, err := cmd.Output(); err == nil {
+		if output, err := gitprofile.Output(ctx, cmd); err == nil {
 			parts := strings.Fields(string(output))
 			if len(parts) == 2 {
 				if behind, err := strconv.Atoi(parts[0]); err == nil {
@@ -147,7 +146,7 @@ func (r *Repository) GetStatus(ctx context.Context, nodePath string) (*Status, e
 
 // GetDiff returns the diff of uncommitted changes
 func (r *Repository) GetDiff(ctx context.Context, nodePath string, staged bool) (string, error) {
-	if !isGitRepo(nodePath) {
+	if !isGitRepoContext(ctx, nodePath) {
 		return "", fmt.Errorf("not a git repository")
 	}
 
@@ -158,7 +157,7 @@ func (r *Repository) GetDiff(ctx context.Context, nodePath string, staged bool) 
 
 	cmd := gitprofile.Command(ctx, args...)
 	cmd.Dir = nodePath
-	output, err := cmd.Output()
+	output, err := gitprofile.Output(ctx, cmd)
 	if err != nil {
 		return "", fmt.Errorf("failed to get diff: %w", err)
 	}
@@ -168,14 +167,14 @@ func (r *Repository) GetDiff(ctx context.Context, nodePath string, staged bool) 
 
 // GetHistory returns the commit history for a node
 func (r *Repository) GetHistory(ctx context.Context, nodePath string, limit int) ([]Commit, error) {
-	if !isGitRepo(nodePath) {
+	if !isGitRepoContext(ctx, nodePath) {
 		return nil, fmt.Errorf("not a git repository")
 	}
 
 	args := []string{"log", fmt.Sprintf("--max-count=%d", limit), "--pretty=format:%H|%an|%ae|%at|%s"}
 	cmd := gitprofile.Command(ctx, args...)
 	cmd.Dir = nodePath
-	output, err := cmd.Output()
+	output, err := gitprofile.Output(ctx, cmd)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get history: %w", err)
 	}
@@ -208,7 +207,7 @@ func (r *Repository) GetHistory(ctx context.Context, nodePath string, limit int)
 
 // CreateCommit creates a new commit with the given message
 func (r *Repository) CreateCommit(ctx context.Context, nodePath, message string) error {
-	if !isGitRepo(nodePath) {
+	if !isGitRepoContext(ctx, nodePath) {
 		return fmt.Errorf("not a git repository")
 	}
 
@@ -247,7 +246,7 @@ func (r *Repository) CreateCommit(ctx context.Context, nodePath, message string)
 		)
 	}
 
-	if output, err := cmd.CombinedOutput(); err != nil {
+	if output, err := gitprofile.CombinedOutput(ctx, cmd); err != nil {
 		return fmt.Errorf("failed to create commit: %w\nOutput: %s", err, output)
 	}
 
@@ -256,7 +255,7 @@ func (r *Repository) CreateCommit(ctx context.Context, nodePath, message string)
 
 // StageFiles stages the specified files for commit
 func (r *Repository) StageFiles(ctx context.Context, nodePath string, files []string) error {
-	if !isGitRepo(nodePath) {
+	if !isGitRepoContext(ctx, nodePath) {
 		return fmt.Errorf("not a git repository")
 	}
 
@@ -268,7 +267,7 @@ func (r *Repository) StageFiles(ctx context.Context, nodePath string, files []st
 	cmd := gitprofile.Command(ctx, args...)
 	cmd.Dir = nodePath
 
-	if output, err := cmd.CombinedOutput(); err != nil {
+	if output, err := gitprofile.CombinedOutput(ctx, cmd); err != nil {
 		return fmt.Errorf("failed to stage files: %w\nOutput: %s", err, output)
 	}
 
@@ -277,7 +276,7 @@ func (r *Repository) StageFiles(ctx context.Context, nodePath string, files []st
 
 // UnstageFiles unstages the specified files
 func (r *Repository) UnstageFiles(ctx context.Context, nodePath string, files []string) error {
-	if !isGitRepo(nodePath) {
+	if !isGitRepoContext(ctx, nodePath) {
 		return fmt.Errorf("not a git repository")
 	}
 
@@ -289,7 +288,7 @@ func (r *Repository) UnstageFiles(ctx context.Context, nodePath string, files []
 	cmd := gitprofile.Command(ctx, args...)
 	cmd.Dir = nodePath
 
-	if output, err := cmd.CombinedOutput(); err != nil {
+	if output, err := gitprofile.CombinedOutput(ctx, cmd); err != nil {
 		return fmt.Errorf("failed to unstage files: %w\nOutput: %s", err, output)
 	}
 
@@ -326,7 +325,7 @@ func (r *Repository) Clone(ctx context.Context, url string, localPath string, br
 
 	// Execute clone
 	cmd := gitprofile.Command(ctx, args...)
-	if output, err := cmd.CombinedOutput(); err != nil {
+	if output, err := gitprofile.CombinedOutput(ctx, cmd); err != nil {
 		return fmt.Errorf("failed to clone repository: %w\nOutput: %s", err, output)
 	}
 
@@ -346,7 +345,7 @@ func (r *Repository) configureSparseCheckout(ctx context.Context, repoPath strin
 	// Initialize sparse checkout in cone mode
 	cmd := gitprofile.Command(ctx, "sparse-checkout", "init", "--cone")
 	cmd.Dir = repoPath
-	if output, err := cmd.CombinedOutput(); err != nil {
+	if output, err := gitprofile.CombinedOutput(ctx, cmd); err != nil {
 		return fmt.Errorf("failed to init sparse checkout: %w\nOutput: %s", err, output)
 	}
 
@@ -354,14 +353,14 @@ func (r *Repository) configureSparseCheckout(ctx context.Context, repoPath strin
 	args := append([]string{"sparse-checkout", "set"}, paths...)
 	cmd = gitprofile.Command(ctx, args...)
 	cmd.Dir = repoPath
-	if output, err := cmd.CombinedOutput(); err != nil {
+	if output, err := gitprofile.CombinedOutput(ctx, cmd); err != nil {
 		return fmt.Errorf("failed to set sparse checkout paths: %w\nOutput: %s", err, output)
 	}
 
 	// Checkout the files (this populates working directory with sparse paths)
 	cmd = gitprofile.Command(ctx, "checkout")
 	cmd.Dir = repoPath
-	if output, err := cmd.CombinedOutput(); err != nil {
+	if output, err := gitprofile.CombinedOutput(ctx, cmd); err != nil {
 		return fmt.Errorf("failed to checkout sparse paths: %w\nOutput: %s", err, output)
 	}
 
@@ -370,7 +369,7 @@ func (r *Repository) configureSparseCheckout(ctx context.Context, repoPath strin
 
 // Fetch downloads objects and refs from remote repository
 func (r *Repository) Fetch(ctx context.Context, nodePath string, remote string, branch string, prune bool, tags bool) error {
-	if !isGitRepo(nodePath) {
+	if !isGitRepoContext(ctx, nodePath) {
 		return fmt.Errorf("not a git repository")
 	}
 
@@ -396,7 +395,7 @@ func (r *Repository) Fetch(ctx context.Context, nodePath string, remote string, 
 	cmd := gitprofile.Command(ctx, args...)
 	cmd.Dir = nodePath
 
-	if output, err := cmd.CombinedOutput(); err != nil {
+	if output, err := gitprofile.CombinedOutput(ctx, cmd); err != nil {
 		return fmt.Errorf("failed to fetch: %w\nOutput: %s", err, output)
 	}
 
@@ -405,7 +404,7 @@ func (r *Repository) Fetch(ctx context.Context, nodePath string, remote string, 
 
 // Pull fetches from remote and integrates into current branch
 func (r *Repository) Pull(ctx context.Context, nodePath string, remote string, branch string, fastForward bool, rebase bool) (updated bool, oldCommit string, newCommit string, conflictFiles []string, err error) {
-	if !isGitRepo(nodePath) {
+	if !isGitRepoContext(ctx, nodePath) {
 		return false, "", "", nil, fmt.Errorf("not a git repository")
 	}
 
@@ -440,7 +439,7 @@ func (r *Repository) Pull(ctx context.Context, nodePath string, remote string, b
 	cmd := gitprofile.Command(ctx, args...)
 	cmd.Dir = nodePath
 
-	output, pullErr := cmd.CombinedOutput()
+	output, pullErr := gitprofile.CombinedOutput(ctx, cmd)
 	outputStr := string(output)
 
 	// Get new commit
@@ -452,7 +451,7 @@ func (r *Repository) Pull(ctx context.Context, nodePath string, remote string, b
 			// Parse conflict files
 			cmd := gitprofile.Command(ctx, "diff", "--name-only", "--diff-filter=U")
 			cmd.Dir = nodePath
-			if conflictOutput, err := cmd.Output(); err == nil {
+			if conflictOutput, err := gitprofile.Output(ctx, cmd); err == nil {
 				lines := strings.Split(string(conflictOutput), "\n")
 				for _, line := range lines {
 					if line != "" {
@@ -471,7 +470,7 @@ func (r *Repository) Pull(ctx context.Context, nodePath string, remote string, b
 
 // Push uploads local commits to remote repository
 func (r *Repository) Push(ctx context.Context, nodePath string, remote string, branch string, force bool, setUpstream bool) (pushed bool, rejected bool, commitsPushed int, err error) {
-	if !isGitRepo(nodePath) {
+	if !isGitRepoContext(ctx, nodePath) {
 		return false, false, 0, fmt.Errorf("not a git repository")
 	}
 
@@ -526,7 +525,7 @@ func (r *Repository) Push(ctx context.Context, nodePath string, remote string, b
 					if branch == originBranch {
 						cmd := gitprofile.Command(ctx, "config", "receive.denyCurrentBranch", "updateInstead")
 						cmd.Dir = originURL
-						if err := cmd.Run(); err != nil {
+						if err := gitprofile.Run(ctx, cmd); err != nil {
 							return false, false, 0, fmt.Errorf("failed to configure receive.denyCurrentBranch: %w", err)
 						}
 					}
@@ -565,7 +564,7 @@ func (r *Repository) Push(ctx context.Context, nodePath string, remote string, b
 	cmd := gitprofile.Command(ctx, args...)
 	cmd.Dir = nodePath
 
-	output, pushErr := cmd.CombinedOutput()
+	output, pushErr := gitprofile.CombinedOutput(ctx, cmd)
 	outputStr := string(output)
 
 	if pushErr != nil {
@@ -585,14 +584,14 @@ func (r *Repository) Push(ctx context.Context, nodePath string, remote string, b
 
 // IsAncestor determines if one commit is an ancestor of another
 func (r *Repository) IsAncestor(ctx context.Context, nodePath string, ancestor string, descendant string) (bool, error) {
-	if !isGitRepo(nodePath) {
+	if !isGitRepoContext(ctx, nodePath) {
 		return false, fmt.Errorf("not a git repository")
 	}
 
 	cmd := gitprofile.Command(ctx, "merge-base", "--is-ancestor", ancestor, descendant)
 	cmd.Dir = nodePath
 
-	err := cmd.Run()
+	err := gitprofile.Run(ctx, cmd)
 	if err == nil {
 		return true, nil
 	}
@@ -609,7 +608,7 @@ func (r *Repository) IsAncestor(ctx context.Context, nodePath string, ancestor s
 
 // GetRemoteHead retrieves the commit hash of a remote branch
 func (r *Repository) GetRemoteHead(ctx context.Context, nodePath string, remote string, branch string) (string, error) {
-	if !isGitRepo(nodePath) {
+	if !isGitRepoContext(ctx, nodePath) {
 		return "", fmt.Errorf("not a git repository")
 	}
 
@@ -620,7 +619,7 @@ func (r *Repository) GetRemoteHead(ctx context.Context, nodePath string, remote 
 	cmd := gitprofile.Command(ctx, "ls-remote", remote, branch)
 	cmd.Dir = nodePath
 
-	output, err := cmd.Output()
+	output, err := gitprofile.Output(ctx, cmd)
 	if err != nil {
 		return "", fmt.Errorf("failed to get remote head: %w", err)
 	}
@@ -642,14 +641,14 @@ func (r *Repository) GetRemoteHead(ctx context.Context, nodePath string, remote 
 
 // GetCurrentCommit returns the commit hash of the current HEAD
 func (r *Repository) GetCurrentCommit(ctx context.Context, nodePath string) (string, error) {
-	if !isGitRepo(nodePath) {
+	if !isGitRepoContext(ctx, nodePath) {
 		return "", fmt.Errorf("not a git repository")
 	}
 
 	cmd := gitprofile.Command(ctx, "rev-parse", "HEAD")
 	cmd.Dir = nodePath
 
-	output, err := cmd.Output()
+	output, err := gitprofile.Output(ctx, cmd)
 	if err != nil {
 		return "", fmt.Errorf("failed to get current commit: %w", err)
 	}
@@ -659,7 +658,7 @@ func (r *Repository) GetCurrentCommit(ctx context.Context, nodePath string) (str
 
 // Checkout switches to a different branch or commit
 func (r *Repository) Checkout(ctx context.Context, nodePath string, ref string, createBranch string, force bool, detach bool) error {
-	if !isGitRepo(nodePath) {
+	if !isGitRepoContext(ctx, nodePath) {
 		return fmt.Errorf("not a git repository")
 	}
 
@@ -682,7 +681,7 @@ func (r *Repository) Checkout(ctx context.Context, nodePath string, ref string, 
 	cmd := gitprofile.Command(ctx, args...)
 	cmd.Dir = nodePath
 
-	if output, err := cmd.CombinedOutput(); err != nil {
+	if output, err := gitprofile.CombinedOutput(ctx, cmd); err != nil {
 		return fmt.Errorf("failed to checkout: %w\nOutput: %s", err, output)
 	}
 
@@ -707,7 +706,7 @@ func (r *Repository) InitRepository(ctx context.Context, path string, bare bool,
 
 	cmd := gitprofile.Command(ctx, args...)
 
-	if output, err := cmd.CombinedOutput(); err != nil {
+	if output, err := gitprofile.CombinedOutput(ctx, cmd); err != nil {
 		return fmt.Errorf("failed to init repository: %w\nOutput: %s", err, output)
 	}
 
@@ -716,14 +715,14 @@ func (r *Repository) InitRepository(ctx context.Context, path string, bare bool,
 
 // AddRemote adds a remote repository reference
 func (r *Repository) AddRemote(ctx context.Context, nodePath string, name string, url string) error {
-	if !isGitRepo(nodePath) {
+	if !isGitRepoContext(ctx, nodePath) {
 		return fmt.Errorf("not a git repository")
 	}
 
 	cmd := gitprofile.Command(ctx, "remote", "add", name, url)
 	cmd.Dir = nodePath
 
-	if output, err := cmd.CombinedOutput(); err != nil {
+	if output, err := gitprofile.CombinedOutput(ctx, cmd); err != nil {
 		return fmt.Errorf("failed to add remote: %w\nOutput: %s", err, output)
 	}
 
@@ -739,7 +738,7 @@ type Remote struct {
 
 // ListRemotes returns all configured remotes
 func (r *Repository) ListRemotes(ctx context.Context, nodePath string) ([]Remote, error) {
-	if !isGitRepo(nodePath) {
+	if !isGitRepoContext(ctx, nodePath) {
 		return nil, fmt.Errorf("not a git repository")
 	}
 
@@ -747,7 +746,7 @@ func (r *Repository) ListRemotes(ctx context.Context, nodePath string) ([]Remote
 	cmd := gitprofile.Command(ctx, "remote")
 	cmd.Dir = nodePath
 
-	output, err := cmd.Output()
+	output, err := gitprofile.Output(ctx, cmd)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list remotes: %w", err)
 	}
@@ -765,7 +764,7 @@ func (r *Repository) ListRemotes(ctx context.Context, nodePath string) ([]Remote
 		// Using git config --get instead of git remote -v
 		urlCmd := gitprofile.Command(ctx, "config", "--get", "remote."+name+".url")
 		urlCmd.Dir = nodePath
-		urlOutput, err := urlCmd.Output()
+		urlOutput, err := gitprofile.Output(ctx, urlCmd)
 		if err == nil {
 			url := strings.TrimSpace(string(urlOutput))
 			remote.FetchURL = url
@@ -775,7 +774,7 @@ func (r *Repository) ListRemotes(ctx context.Context, nodePath string) ([]Remote
 		// Check if there's a separate pushurl configured
 		pushURLCmd := gitprofile.Command(ctx, "config", "--get", "remote."+name+".pushurl")
 		pushURLCmd.Dir = nodePath
-		pushURLOutput, err := pushURLCmd.Output()
+		pushURLOutput, err := gitprofile.Output(ctx, pushURLCmd)
 		if err == nil {
 			remote.PushURL = strings.TrimSpace(string(pushURLOutput))
 		}
@@ -788,14 +787,14 @@ func (r *Repository) ListRemotes(ctx context.Context, nodePath string) ([]Remote
 
 // GetFileAtCommit retrieves file content from a specific commit
 func (r *Repository) GetFileAtCommit(ctx context.Context, nodePath string, commit string, filePath string) ([]byte, error) {
-	if !isGitRepo(nodePath) {
+	if !isGitRepoContext(ctx, nodePath) {
 		return nil, fmt.Errorf("not a git repository")
 	}
 
 	cmd := gitprofile.Command(ctx, "show", fmt.Sprintf("%s:%s", commit, filePath))
 	cmd.Dir = nodePath
 
-	output, err := cmd.Output()
+	output, err := gitprofile.Output(ctx, cmd)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get file at commit: %w", err)
 	}
@@ -812,7 +811,7 @@ type FileInfo struct {
 
 // ListFilesAtCommit lists all files in a directory at a specific commit
 func (r *Repository) ListFilesAtCommit(ctx context.Context, nodePath string, commit string, dirPath string) ([]FileInfo, error) {
-	if !isGitRepo(nodePath) {
+	if !isGitRepoContext(ctx, nodePath) {
 		return nil, fmt.Errorf("not a git repository")
 	}
 
@@ -825,7 +824,7 @@ func (r *Repository) ListFilesAtCommit(ctx context.Context, nodePath string, com
 	cmd := gitprofile.Command(ctx, args...)
 	cmd.Dir = nodePath
 
-	output, err := cmd.Output()
+	output, err := gitprofile.Output(ctx, cmd)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list files at commit: %w", err)
 	}
@@ -875,7 +874,7 @@ func (r *Repository) ListFilesAtCommit(ctx context.Context, nodePath string, com
 func (r *Repository) IsRepoBare(ctx context.Context, repoPath string) (bool, error) {
 	cmd := gitprofile.Command(ctx, "rev-parse", "--is-bare-repository")
 	cmd.Dir = repoPath
-	output, err := cmd.Output()
+	output, err := gitprofile.Output(ctx, cmd)
 	if err != nil {
 		return false, fmt.Errorf("failed to check if repo is bare: %w", err)
 	}
@@ -887,7 +886,7 @@ func (r *Repository) IsRepoBare(ctx context.Context, repoPath string) (bool, err
 func (r *Repository) GetCurrentBranch(ctx context.Context, repoPath string) (string, error) {
 	cmd := gitprofile.Command(ctx, "rev-parse", "--abbrev-ref", "HEAD")
 	cmd.Dir = repoPath
-	output, err := cmd.Output()
+	output, err := gitprofile.Output(ctx, cmd)
 	if err != nil {
 		return "", fmt.Errorf("failed to get current branch: %w", err)
 	}
@@ -905,14 +904,14 @@ func (r *Repository) ConfigureUser(ctx context.Context, repoPath string, name st
 	// Set user.name
 	cmd := gitprofile.Command(ctx, "config", "user.name", name)
 	cmd.Dir = repoPath
-	if err := cmd.Run(); err != nil {
+	if err := gitprofile.Run(ctx, cmd); err != nil {
 		return fmt.Errorf("failed to set user.name: %w", err)
 	}
 
 	// Set user.email
 	cmd = gitprofile.Command(ctx, "config", "user.email", email)
 	cmd.Dir = repoPath
-	if err := cmd.Run(); err != nil {
+	if err := gitprofile.Run(ctx, cmd); err != nil {
 		return fmt.Errorf("failed to set user.email: %w", err)
 	}
 
@@ -923,7 +922,7 @@ func (r *Repository) ConfigureUser(ctx context.Context, repoPath string, name st
 func (r *Repository) UpdateRemoteURL(ctx context.Context, repoPath string, remoteName string, newURL string) error {
 	cmd := gitprofile.Command(ctx, "remote", "set-url", remoteName, newURL)
 	cmd.Dir = repoPath
-	if err := cmd.Run(); err != nil {
+	if err := gitprofile.Run(ctx, cmd); err != nil {
 		return fmt.Errorf("failed to update remote URL: %w", err)
 	}
 	return nil
@@ -931,12 +930,12 @@ func (r *Repository) UpdateRemoteURL(ctx context.Context, repoPath string, remot
 
 // isGitRepo checks if a directory is a git repository
 func isGitRepo(dirPath string) bool {
-	cmd := exec.Command("git", "rev-parse", "--git-dir")
+	return isGitRepoContext(context.Background(), dirPath)
+}
+
+func isGitRepoContext(ctx context.Context, dirPath string) bool {
+	cmd := gitprofile.Command(ctx, "rev-parse", "--git-dir")
 	cmd.Dir = dirPath
-
-	var out bytes.Buffer
-	cmd.Stdout = &out
-	cmd.Stderr = &out
-
-	return cmd.Run() == nil
+	_, err := gitprofile.CombinedOutput(ctx, cmd)
+	return err == nil
 }

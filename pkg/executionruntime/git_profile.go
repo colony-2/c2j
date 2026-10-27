@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 
 	"github.com/colony-2/c2j/pkg/gitprofile"
 	"github.com/colony-2/c2j/pkg/jobref"
@@ -23,6 +24,29 @@ func (w *guardedTask) runWithGitProfile(tc jobworkflow.TaskContext, input jobdb.
 	defer stop()
 	defer func() { runErr = redactor.Error(runErr) }()
 	local := secrets.WithRedactor(tc.Context(), redactor)
+	local, gitStderr := gitprofile.WithStderrLog(local)
+	defer func() {
+		stderr := gitStderr.Bytes()
+		if len(stderr) == 0 {
+			return
+		}
+		var payload json.RawMessage
+		var artifacts []jobdb.Artifact
+		var err error
+		if result != nil {
+			payload, err = result.GetData()
+			if err == nil {
+				artifacts, err = result.GetArtifacts()
+			}
+			if err != nil {
+				runErr = errors.Join(runErr, err)
+				return
+			}
+		}
+		artifacts = append(artifacts, jobdb.NewArtifactFromBytes(gitprofile.StderrArtifactName, stderr))
+		result, err = jobdb.NewTaskData(payload, artifacts...)
+		runErr = errors.Join(runErr, err)
+	}()
 	tc.Logger = secrets.MaskLogger(tc.Logger, redactor)
 	var request struct {
 		Permissions *permissions.State   `json:"permissions,omitempty"`

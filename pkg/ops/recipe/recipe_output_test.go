@@ -7,6 +7,7 @@ import (
 	recipeartifacts "github.com/colony-2/c2j/pkg/artifacts"
 	"github.com/colony-2/c2j/pkg/contextual"
 	"github.com/colony-2/c2j/pkg/git/gitstate"
+	"github.com/colony-2/c2j/pkg/gitprofile"
 	"github.com/colony-2/c2j/pkg/ops"
 	"github.com/colony-2/c2j/pkg/workflowctl"
 	"github.com/colony-2/jobdb/pkg/jobdb"
@@ -26,7 +27,7 @@ func TestChildResultsKeepSnapshotProvenanceWithoutForwardingChildState(t *testin
 				t.Run(method, func(t *testing.T) {
 					var artifacts []jobdb.Artifact
 					expected := map[string]recipeartifacts.Ref{}
-					for _, name := range []string{gitstate.ThinPackArtifactName, "diff_from_parent.diff", "diff_from_base.diff", "verification.txt"} {
+					for _, name := range []string{gitstate.ThinPackArtifactName, "diff_from_parent.diff", "diff_from_base.diff", gitprofile.StderrArtifactName, "verification.txt"} {
 						artifact := jobdb.NewArtifactFromBytes(name, []byte("child evidence"))
 						key := jobdb.ArtifactKey{JobId: "child", TaskOrdinal: 7, Name: name, SizeBytes: 14}
 						jobdb.AssignArtifactKey(artifact, key)

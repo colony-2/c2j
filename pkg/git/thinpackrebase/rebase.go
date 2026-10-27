@@ -40,7 +40,7 @@ func run(ctx context.Context, input ThinpackRebaseInput, minimumBase string) (*T
 		return nil, err
 	}
 
-	if err := common.ValidateRepository(snapshot.RepoPath); err != nil {
+	if err := common.ValidateRepositoryContext(ctx, snapshot.RepoPath); err != nil {
 		return nil, fmt.Errorf("validate repository: %w", err)
 	}
 
@@ -382,7 +382,7 @@ func rebaseOntoTarget(ctx context.Context, snapshot workspaceSnapshot, targetBas
 	cmd := gitprofile.Command(ctx, args...)
 	cmd.Dir = snapshot.RepoPath
 	cmd.Env = gitprofile.Env(ctx, env)
-	output, err := cmd.CombinedOutput()
+	output, err := gitprofile.CombinedOutput(ctx, cmd)
 	if err != nil {
 		_ = abortRebase(ctx, snapshot.RepoPath)
 		return fmt.Errorf("git rebase failed: %s", strings.TrimSpace(string(output)))

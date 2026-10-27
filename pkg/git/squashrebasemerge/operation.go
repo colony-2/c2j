@@ -293,7 +293,7 @@ func commitTree(ctx context.Context, repoPath, head, parent, author, message str
 		}
 		cmd.Env = append(cmd.Env, "GIT_AUTHOR_NAME="+name, "GIT_AUTHOR_EMAIL="+strings.TrimSuffix(email, ">"))
 	}
-	out, err := cmd.CombinedOutput()
+	out, err := gitprofile.CombinedOutput(ctx, cmd)
 	if err != nil {
 		return "", fmt.Errorf("create squash commit: %w: %s", err, out)
 	}

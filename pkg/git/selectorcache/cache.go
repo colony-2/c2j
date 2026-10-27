@@ -399,7 +399,7 @@ func runGitOutput(ctx context.Context, dir string, args ...string) (string, erro
 	if dir != "" {
 		cmd.Dir = dir
 	}
-	output, err := cmd.CombinedOutput()
+	output, err := gitprofile.CombinedOutput(ctx, cmd)
 	if err != nil {
 		return "", fmt.Errorf("git %s: %w\n%s", strings.Join(args, " "), err, strings.TrimSpace(string(output)))
 	}
