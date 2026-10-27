@@ -587,9 +587,8 @@ outputs:
 		t.Fatalf("expected op node running, got %#v", opNode)
 	}
 
-	step := findFirstKind(opNode.Children, model.JobRunStoryNodeKindOpStep)
-	if step == nil || step.Status != model.JobRunStoryNodeStatusRunning {
-		t.Fatalf("expected step running on cache miss, got %#v", step)
+	if len(opNode.Children) != 0 || opNode.TaskOrdinal == nil {
+		t.Fatalf("expected the same collapsed operation leaf used after completion, got %#v", opNode)
 	}
 }
 
@@ -653,12 +652,8 @@ outputs:
 		t.Fatalf("expected op node running, got %#v", opNode)
 	}
 
-	step := findFirstKind(opNode.Children, model.JobRunStoryNodeKindOpStep)
-	if step == nil || step.Status != model.JobRunStoryNodeStatusRunning {
-		t.Fatalf("expected synthesized running step on cache miss, got %#v", step)
-	}
-	if step.StepID != opType {
-		t.Fatalf("expected synthesized step %q, got %#v", opType, step)
+	if len(opNode.Children) != 0 || opNode.TaskOrdinal == nil {
+		t.Fatalf("expected synthesized task details on the collapsed operation leaf, got %#v", opNode)
 	}
 }
 

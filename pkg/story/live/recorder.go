@@ -13,6 +13,7 @@ import (
 
 	recipeartifacts "github.com/colony-2/c2j/pkg/artifacts"
 	"github.com/colony-2/c2j/pkg/contextual"
+	coreops "github.com/colony-2/c2j/pkg/ops"
 	"github.com/colony-2/c2j/pkg/recipe"
 	"github.com/colony-2/c2j/pkg/redact"
 	"github.com/colony-2/c2j/pkg/starter"
@@ -390,6 +391,9 @@ func (r *Recorder) OnTaskStart(event jobworkflow.TaskStartEvent) {
 	attNode.StepID = strings.TrimSpace(tr.stepID)
 	attNode.StepType = "other"
 	attNode.Status = model.JobRunStoryNodeStatusRunning
+	if event.Unfinished {
+		attNode.Status = statusFromTaskState(event.State)
+	}
 	attNode.Attempt = event.AttemptNumber
 	attNode.InvocationID = event.InvocationID
 	ord := event.Ordinal
@@ -402,6 +406,8 @@ func (r *Recorder) OnTaskStart(event jobworkflow.TaskStartEvent) {
 	applyTaskInputToNode(attNode, event.Input)
 	tr.attemptNodes = append(tr.attemptNodes, attNode)
 	tr.byAttempt[event.AttemptNumber] = attNode
+	copyAttemptIntoStep(tr.stepNode, attNode)
+	tr.stepNode.PriorAttempts = append([]*model.JobRunStoryNode(nil), tr.attemptNodes[:len(tr.attemptNodes)-1]...)
 	r.mu.Unlock()
 	r.notify()
 }
@@ -563,6 +569,9 @@ func (r *Recorder) handleRootSourceResolutionTaskStartLocked(event jobworkflow.T
 
 	attNode := tree.newNode(model.JobRunStoryNodeKindRecipeSourceResolution, "recipe source resolution")
 	attNode.Status = model.JobRunStoryNodeStatusRunning
+	if event.Unfinished {
+		attNode.Status = statusFromTaskState(event.State)
+	}
 	attNode.Attempt = event.AttemptNumber
 	attNode.InvocationID = event.InvocationID
 	ord := event.Ordinal
@@ -574,6 +583,8 @@ func (r *Recorder) handleRootSourceResolutionTaskStartLocked(event jobworkflow.T
 	applyTaskInputToNode(attNode, event.Input)
 	tracker.attemptNodes = append(tracker.attemptNodes, attNode)
 	tracker.byAttempt[event.AttemptNumber] = attNode
+	copyAttemptIntoStep(tracker.node, attNode)
+	tracker.node.PriorAttempts = append([]*model.JobRunStoryNode(nil), tracker.attemptNodes[:len(tracker.attemptNodes)-1]...)
 }
 
 func (r *Recorder) handleRootSourceResolutionTaskEndLocked(event jobworkflow.TaskEndEvent) {
@@ -1147,17 +1158,6 @@ func (e *recordingExecutor) ExecuteOp(ctx coreworkflow.Context, parentResolution
 
 	if err != nil {
 		e.ensureReplayMissStepNode(opNode, opID, err)
-		first := findFirstChildStep(opNode.Children)
-		last := findLastChildStep(opNode.Children)
-		if first != nil {
-			opNode.Input = first.Input
-		}
-		if last != nil {
-			opNode.Output = last.Output
-		}
-		opNode.Status = statusFromErr(err, opNode.Status)
-		e.tree.pop()
-		return err
 	}
 
 	first := findFirstChildStep(opNode.Children)
@@ -1169,7 +1169,11 @@ func (e *recordingExecutor) ExecuteOp(ctx coreworkflow.Context, parentResolution
 		opNode.Output = last.Output
 	}
 
-	if len(opNode.Children) == 1 {
+	// A partial replay can contain only the first step of a longer chain.
+	// Use the declared chain as well as the observed children so that a step
+	// does not move between the operation and a child as replay progresses.
+	registered, known := coreops.Get(opID)
+	if known && len(registered.TaskChain()) == 1 && len(opNode.Children) == 1 {
 		ch := opNode.Children[0]
 		if ch != nil && ch.Kind == model.JobRunStoryNodeKindOpStep && ch.StepID == opID {
 			opNode.Attempt = ch.Attempt
@@ -1188,18 +1192,21 @@ func (e *recordingExecutor) ExecuteOp(ctx coreworkflow.Context, parentResolution
 			opNode.Path = append([]string{}, ch.Path...)
 			opNode.InlineStack = cloneInlineBoundaryStack(ch.InlineStack)
 			opNode.Status = ch.Status
+			if err != nil && !isReplayCacheMissErr(err) {
+				opNode.Status = statusFromErr(err, ch.Status)
+			}
 			e.tree.pop()
-			return nil
+			return err
 		}
 	}
 
-	opNode.Status = deriveContainerStatus(opNode.Children)
-	if opNode.Status == model.JobRunStoryNodeStatusUnknown {
+	opNode.Status = statusFromErr(err, deriveContainerStatus(opNode.Children))
+	if err == nil && opNode.Status == model.JobRunStoryNodeStatusUnknown {
 		opNode.Status = model.JobRunStoryNodeStatusSucceeded
 	}
 
 	e.tree.pop()
-	return nil
+	return err
 }
 
 func (e *recordingExecutor) ExecuteChildGroup(ctx coreworkflow.Context, parent *template.ResolutionContext, metadata recipe.NodeMetadata, group recipe.ChildGroupData) error {
@@ -1227,6 +1234,11 @@ func (e *recordingExecutor) ensureReplayMissStepNode(opNode *model.JobRunStoryNo
 	for _, ch := range opNode.Children {
 		if ch == nil || ch.Kind != model.JobRunStoryNodeKindOpStep {
 			continue
+		}
+		if miss.InvocationID != "" && ch.InvocationID == taskInvocationID(miss.InvocationID, miss.Attempt) {
+			// JobDB already delivered the unfinished attempt, including its state
+			// and input. A replay miss is not an output or an execution error.
+			return
 		}
 		if ch.TaskOrdinal != nil && *ch.TaskOrdinal == miss.Ordinal {
 			applyTaskOutputToNode(ch, "", miss.TaskType, nil, miss)
@@ -1768,10 +1780,27 @@ func statusFromErr(err error, fallback model.JobRunStoryNodeStatus) model.JobRun
 	if err == nil {
 		return fallback
 	}
+	var miss jobworkflow.ReplayCacheMissError
+	if errors.As(err, &miss) && miss.State != "" {
+		return statusFromTaskState(miss.State)
+	}
 	if isReplayCacheMissErr(err) {
 		return model.JobRunStoryNodeStatusRunning
 	}
 	return model.JobRunStoryNodeStatusFailed
+}
+
+func statusFromTaskState(state jobworkflow.TaskState) model.JobRunStoryNodeStatus {
+	switch state {
+	case jobworkflow.TaskStateRunning:
+		return model.JobRunStoryNodeStatusRunning
+	case jobworkflow.TaskStateReady, jobworkflow.TaskStateWaiting:
+		return model.JobRunStoryNodeStatusPending
+	case jobworkflow.TaskStateCancelled:
+		return model.JobRunStoryNodeStatusCanceled
+	default:
+		return model.JobRunStoryNodeStatusUnknown
+	}
 }
 
 func isReplayCacheMissErr(err error) bool {
@@ -1790,8 +1819,8 @@ func deriveContainerStatus(children []*model.JobRunStoryNode) model.JobRunStoryN
 		return model.JobRunStoryNodeStatusUnknown
 	}
 	last := children[len(children)-1]
-	if last != nil && last.Status == model.JobRunStoryNodeStatusRunning {
-		return model.JobRunStoryNodeStatusRunning
+	if last != nil && !isTerminal(last.Status) {
+		return last.Status
 	}
 	for _, ch := range children {
 		if ch != nil && ch.Status == model.JobRunStoryNodeStatusFailed {
@@ -1905,6 +1934,16 @@ func applyTaskInputToNode(n *model.JobRunStoryNode, td jobdb.TaskData) {
 	}
 	raw, err := td.GetData()
 	if err != nil || len(raw) == 0 {
+		return
+	}
+	if n.Kind == model.JobRunStoryNodeKindRecipeSourceResolution {
+		// Source resolution receives a plain selector request, not an activity
+		// invocation envelope. Decoding it into that envelope silently drops
+		// all of its fields because encoding/json accepts unknown fields.
+		var input any
+		if json.Unmarshal(raw, &input) == nil {
+			n.Input = input
+		}
 		return
 	}
 
