@@ -22,7 +22,7 @@ func TestRecipeFailureFormatsOriginAndPreservesCause(t *testing.T) {
 	// Outer scopes must retain the original path and message, even when the
 	// underlying error has additional context.
 	err = newRecipeFailureError(failure, fmt.Errorf("outer scope: %w", err))
-	require.EqualError(t, err, "root.failed.command_execution: command execution failed: exit status 1")
+	require.EqualError(t, err, "[root.failed.command_execution] command execution failed: exit status 1")
 	require.ErrorIs(t, err, cause)
 	var app *jobdb.AppError
 	require.ErrorAs(t, err, &app)

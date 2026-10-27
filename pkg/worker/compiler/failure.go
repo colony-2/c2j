@@ -27,7 +27,7 @@ func (e *recipeFailureError) Error() string {
 		// scopes and JobDB serialization. Format it once; wrapping errors are
 		// still available through Unwrap for error classification.
 		if e.Failure.Node.Path != "" {
-			return strings.ReplaceAll(e.Failure.Node.Path, "/", ".") + ": " + e.Failure.Message
+			return "[" + strings.ReplaceAll(e.Failure.Node.Path, "/", ".") + "] " + e.Failure.Message
 		}
 		return e.Failure.Message
 	}
