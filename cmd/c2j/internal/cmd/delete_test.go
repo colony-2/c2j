@@ -8,8 +8,8 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/colony-2/c2j/cmd/c2j/internal/buildinfo"
 	"github.com/colony-2/c2j/cmd/c2j/internal/deletejobs"
+	"github.com/colony-2/c2j/internal/buildinfo"
 	"github.com/stretchr/testify/require"
 )
 

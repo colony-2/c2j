@@ -24,7 +24,7 @@ buildGoModule {
   vendorHash = "sha256-eH0q8Cg+Qqvwux2Zd0PkbDA20ezxdIDPXjrR0doURmI=";
   subPackages = [ "cmd/c2j" ];
   env.CGO_ENABLED = "0";
-  ldflags = [ "-s" "-w" "-X main.version=${version}" "-X main.commit=${revision}" ];
+  ldflags = [ "-s" "-w" "-X github.com/colony-2/c2j/internal/buildinfo.version=${version}" "-X github.com/colony-2/c2j/internal/buildinfo.commit=${revision}" ];
   # The full Go suite runs in the existing CI test job before publication.
   doCheck = false;
 

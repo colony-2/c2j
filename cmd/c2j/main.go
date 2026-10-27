@@ -4,23 +4,12 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/colony-2/c2j/cmd/c2j/internal/buildinfo"
 	"github.com/colony-2/c2j/cmd/c2j/internal/cmd"
-)
-
-var (
-	version = "dev"
-	commit  = ""
-	date    = ""
+	"github.com/colony-2/c2j/internal/buildinfo"
 )
 
 func main() {
-	info := buildinfo.Resolve(buildinfo.Settings{
-		Version: version,
-		Commit:  commit,
-		Date:    date,
-	})
-	code, err := cmd.Execute(info)
+	code, err := cmd.Execute(buildinfo.Current())
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 	}

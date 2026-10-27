@@ -211,7 +211,7 @@ Recommended build job shape:
 - Build the four targets with:
   - `CGO_ENABLED=0`
   - `GOOS`/`GOARCH` set per target
-  - `go build -buildvcs=false -ldflags "-s -w -X main.version=$VERSION -X main.commit=$COMMIT -X main.date=$DATE" -o ... ./cmd/c2j`
+  - `go build -buildvcs=false -ldflags "-s -w -X github.com/colony-2/c2j/internal/buildinfo.version=$VERSION -X github.com/colony-2/c2j/internal/buildinfo.commit=$COMMIT -X github.com/colony-2/c2j/internal/buildinfo.date=$DATE" -o ... ./cmd/c2j`
 - Sign/notarize Darwin binaries before packaging when Apple secrets are present.
 - Package each target as:
   - `c2j_${VERSION}_Linux_x86_64.tar.gz`

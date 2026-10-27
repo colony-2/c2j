@@ -6,7 +6,7 @@ import (
 	"log/slog"
 	"testing"
 
-	"github.com/colony-2/c2j/cmd/c2j/internal/buildinfo"
+	"github.com/colony-2/c2j/internal/buildinfo"
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/require"
 )

@@ -10,6 +10,18 @@ const (
 	defaultVersion = "dev"
 )
 
+// Release builds stamp these values once for both CLI output and execution
+// provenance. They remain empty for library consumers and ordinary Go builds.
+var (
+	version string
+	commit  string
+	date    string
+)
+
+func Current() Info {
+	return Resolve(Settings{Version: version, Commit: commit, Date: date})
+}
+
 type Settings struct {
 	Version string
 	Commit  string

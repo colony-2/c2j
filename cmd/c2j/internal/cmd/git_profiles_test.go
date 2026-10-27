@@ -15,7 +15,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/colony-2/c2j/cmd/c2j/internal/buildinfo"
+	"github.com/colony-2/c2j/internal/buildinfo"
 	"github.com/colony-2/c2j/pkg/gitprofile"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/remote"

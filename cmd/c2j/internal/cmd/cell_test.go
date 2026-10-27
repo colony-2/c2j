@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/colony-2/c2j/cmd/c2j/internal/buildinfo"
+	"github.com/colony-2/c2j/internal/buildinfo"
 )
 
 func TestCellAddDescriptionFlagPresence(t *testing.T) {

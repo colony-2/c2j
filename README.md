@@ -88,6 +88,12 @@ metadata, so untagged builds include the current git revision when it is
 available. Dirty suffixes are only included when Go reports that the worktree was
 modified at build time.
 
+JobDB execution headers and activation records use the same build information:
+`consumer_versions.c2j` records the version, and `consumer_versions["c2j.commit"]`
+records the full Git commit when known. Release and Nix builds stamp both values
+even with Go's VCS stamping disabled. Applications embedding c2j report its Go
+dependency version; they can supply provenance overrides when registering workers.
+
 See [Execution tools](EXECUTION_TOOLS.md) for lazy pnpm, Nix, and uv tool dependencies and provider-owned cache storage.
 See [Extension ops](EXTENSION_OPS.md) for authoring, publishing, and invoking prebuilt Nix ops.
 

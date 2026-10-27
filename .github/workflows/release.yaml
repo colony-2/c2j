@@ -167,7 +167,7 @@ jobs:
             echo "Building ${goos}/${goarch}"
             CGO_ENABLED=0 GOOS="$goos" GOARCH="$goarch" go build \
               -buildvcs=false \
-              -ldflags "-s -w -X main.version=${VERSION} -X main.commit=${COMMIT} -X main.date=${DATE}" \
+              -ldflags "-s -w -X github.com/colony-2/c2j/internal/buildinfo.version=${VERSION} -X github.com/colony-2/c2j/internal/buildinfo.commit=${COMMIT} -X github.com/colony-2/c2j/internal/buildinfo.date=${DATE}" \
               -o "${out_dir}/${BINARY_NAME}" \
               "${GO_MAIN_PACKAGE}"
 

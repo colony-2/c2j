@@ -7,8 +7,8 @@ import (
 	"testing"
 	"testing/fstest"
 
-	"github.com/colony-2/c2j/cmd/c2j/internal/buildinfo"
 	"github.com/colony-2/c2j/cmd/c2j/internal/skillinstall"
+	"github.com/colony-2/c2j/internal/buildinfo"
 	skillsbundle "github.com/colony-2/c2j/skills"
 	"github.com/stretchr/testify/require"
 )
