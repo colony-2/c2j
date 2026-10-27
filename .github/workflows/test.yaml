@@ -38,6 +38,9 @@ jobs:
           # 2. Force Git to use your PAT for HTTPS requests to GitHub
           git config --global url."https://x-access-token:${{ secrets.READ_ALL_C2_REPOS }}@github.com/".insteadOf "https://github.com/"
 
+      - name: Check module tidiness
+        run: make check-mod
+
       - name: Run tests (Unix)
         run: go test -v -tags=integration ./...
       - name: Check bundled skill discovery

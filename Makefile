@@ -1,14 +1,20 @@
 GO ?= go
 OAPI_CODEGEN ?= github.com/deepmap/oapi-codegen/v2/cmd/oapi-codegen@v2.1.0
 
-.PHONY: build test fmt openapi clean
+.PHONY: build test check-mod tidy fmt openapi clean
 
 build:
 	mkdir -p bin
 	$(GO) build -buildvcs=false -o bin/c2j ./cmd/c2j
 
-test:
+test: check-mod
 	$(GO) test ./...
+
+check-mod:
+	$(GO) mod tidy -diff
+
+tidy:
+	$(GO) mod tidy
 
 fmt:
 	gofmt -w $$(find cmd pkg -type f -name '*.go')
