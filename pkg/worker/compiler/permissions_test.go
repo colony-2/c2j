@@ -64,6 +64,30 @@ func TestGitRepositoryIdentityIsConservative(t *testing.T) {
 	require.False(t, sameRecipeRepository(inlineRecipeSourceContext{}, inlineRecipeSourceContext{}))
 }
 
+func TestNestedIncludeTrustStaysAnchoredToRootRepository(t *testing.T) {
+	root, foreign := t.TempDir(), t.TempDir()
+	for _, dir := range []string{root, foreign} {
+		require.NoError(t, os.Mkdir(filepath.Join(dir, ".git"), 0700))
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "leaf.yaml"), []byte("id: leaf\nsequence: []\n"), 0600))
+	}
+	require.NoError(t, os.WriteFile(filepath.Join(foreign, "child.yaml"), []byte("id: child\nsequence:\n- include: ./leaf.yaml\n"), 0600))
+	body := fmt.Sprintf("id: root\nsequence:\n- include: ./leaf.yaml\n- include: %q\n  perms: {jobdb: {secrets: {resolve: [foo]}}}\n", filepath.Join(foreign, "child.yaml"))
+	rootFile := filepath.Join(root, "root.yaml")
+	require.NoError(t, os.WriteFile(rootFile, []byte(body), 0600))
+	rec, err := recipe.LoadRecipeFromString([]byte(body))
+	require.NoError(t, err)
+	expanded, err := ResolveInlineRecipes(context.Background(), *rec, InlineResolutionOptions{RootFile: rootFile})
+	require.NoError(t, err)
+	nodes := expanded.Recipe.RecipeImpl.(*recipe.RecipeSequence).Sequence
+	require.True(t, nodes[0].GetMetadata().Internal.Inline.TrustedSource)
+	outer := nodes[1].NodeImpl.(*recipe.NodeSequence)
+	require.False(t, outer.Internal.Inline.TrustedSource)
+	child := outer.Sequence[0].NodeImpl.(*recipe.NodeSequence)
+	nested := child.Sequence[0].GetMetadata().Internal.Inline
+	require.False(t, nested.PermissionBoundary, "the two foreign files share a repo")
+	require.False(t, nested.TrustedSource, "sharing the caller repo does not make it the root repo")
+}
+
 type permissionSourceResolver struct{ *flippingGitResolver }
 
 func (r *permissionSourceResolver) LoadYAML(ctx context.Context, project string, resolution RecipeSourceResolution) ([]byte, error) {
@@ -80,36 +104,42 @@ func (r *permissionSourceResolver) LoadYAML(ctx context.Context, project string,
 }
 
 func TestIncludeCeilingBoundsNestedSourceReadsWithoutExplicitGitProfile(t *testing.T) {
-	for _, allowed := range []bool{false, true} {
-		t.Run(fmt.Sprint(allowed), func(t *testing.T) {
-			calls := 0
-			profile, _ := json.Marshal(gitprofile.Profile{Version: 1, Entries: []gitprofile.Entry{{URL: "https://example.com/", Username: "bot", SecretRef: "ro"}}})
-			snapshot := jobdb.ConfigurationSnapshot{Values: map[string]json.RawMessage{gitprofile.ReadOnlyKey: json.RawMessage(`"read"`), gitprofile.ProfilePrefix + "read": profile}}
-			scope, err := gitprofile.NewScope(context.Background(), gitprofile.Selection{}, snapshot, func(context.Context, []string) (jobdb.SecretResolveResult, error) {
-				calls++
-				return jobdb.SecretResolveResult{Secrets: map[string]jobdb.SecretValue{"ro": {Value: "source-read-secret"}}}, nil
-			}, "")
-			require.NoError(t, err)
-			defer scope.Close()
-			resolver := &permissionSourceResolver{&flippingGitResolver{commits: []string{strings.Repeat("1", 40)}, files: map[string]string{
-				"child.yaml":  "id: child\nsequence:\n- include: ./nested.yaml\n",
-				"nested.yaml": "id: nested\nsequence: []\n",
-			}}}
-			ceiling := "{}"
-			if allowed {
-				ceiling = "{secrets: {resolve: [ro]}}"
-			}
-			rec, err := recipe.LoadRecipeFromString([]byte("id: root\nsequence:\n- include: git+https://example.com/foreign.git//child.yaml@main\n  perms: {limit: {jobdb: " + ceiling + "}}\n"))
-			require.NoError(t, err)
-			_, err = ResolveInlineRecipes(gitprofile.WithScope(context.Background(), scope), *rec, InlineResolutionOptions{Resolver: resolver})
-			if allowed {
+	for _, useGrant := range []bool{false, true} {
+		for _, allowed := range []bool{false, true} {
+			t.Run(fmt.Sprintf("grant=%t/allowed=%t", useGrant, allowed), func(t *testing.T) {
+				calls := 0
+				profile, _ := json.Marshal(gitprofile.Profile{Version: 1, Entries: []gitprofile.Entry{{URL: "https://example.com/", Username: "bot", SecretRef: "ro"}}})
+				snapshot := jobdb.ConfigurationSnapshot{Values: map[string]json.RawMessage{gitprofile.ReadOnlyKey: json.RawMessage(`"read"`), gitprofile.ProfilePrefix + "read": profile}}
+				scope, err := gitprofile.NewScope(context.Background(), gitprofile.Selection{}, snapshot, func(context.Context, []string) (jobdb.SecretResolveResult, error) {
+					calls++
+					return jobdb.SecretResolveResult{Secrets: map[string]jobdb.SecretValue{"ro": {Value: "source-read-secret"}}}, nil
+				}, "")
 				require.NoError(t, err)
-				require.Equal(t, 2, calls)
-			} else {
-				require.Error(t, err)
-				require.Equal(t, 1, calls, "caller may bootstrap the external recipe; its nested source read must respect the ceiling")
-			}
-		})
+				defer scope.Close()
+				resolver := &permissionSourceResolver{&flippingGitResolver{commits: []string{strings.Repeat("1", 40)}, files: map[string]string{
+					"child.yaml":  "id: child\nsequence:\n- include: ./nested.yaml\n",
+					"nested.yaml": "id: nested\nsequence: []\n",
+				}}}
+				ceiling := "{}"
+				if allowed {
+					ceiling = "{secrets: {resolve: [ro]}}"
+				}
+				policy := "{limit: {jobdb: " + ceiling + "}}"
+				if useGrant {
+					policy = "{jobdb: " + ceiling + "}"
+				}
+				rec, err := recipe.LoadRecipeFromString([]byte("id: root\nsequence:\n- include: git+https://example.com/foreign.git//child.yaml@main\n  perms: " + policy + "\n"))
+				require.NoError(t, err)
+				_, err = ResolveInlineRecipes(gitprofile.WithScope(context.Background(), scope), *rec, InlineResolutionOptions{Resolver: resolver})
+				if allowed {
+					require.NoError(t, err)
+					require.Equal(t, 2, calls)
+				} else {
+					require.Error(t, err)
+					require.Equal(t, 1, calls, "caller may bootstrap the external recipe; its nested source read must respect the ceiling")
+				}
+			})
+		}
 	}
 }
 

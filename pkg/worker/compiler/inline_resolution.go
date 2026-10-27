@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"net/url"
 	"os"
 	"path"
 	"path/filepath"
@@ -51,6 +50,10 @@ func ResolveInlineRecipes(ctx context.Context, rec recipe.Recipe, opts InlineRes
 	if err != nil {
 		return InlineResolutionResult{}, err
 	}
+	r.rootRepository = sourceRepositoryIdentity(rootSource)
+	if m := rec.GetMetadata().Internal; m != nil && m.RootRepository != nil {
+		r.rootRepository = *m.RootRepository
+	}
 	expanded, err := r.expandRecipe(ctx, rec, rootSource)
 	if err != nil {
 		return InlineResolutionResult{}, err
@@ -58,14 +61,32 @@ func ResolveInlineRecipes(ctx context.Context, rec recipe.Recipe, opts InlineRes
 	if err := validateIncludePermissionBoundaries(expanded); err != nil {
 		return InlineResolutionResult{}, err
 	}
+	setRoot := func(meta *recipe.NodeMetadata) {
+		if meta.Internal == nil {
+			meta.Internal = &recipe.NodeInternalMetadata{}
+		}
+		root := r.rootRepository
+		meta.Internal.RootRepository = &root
+	}
+	switch v := expanded.RecipeImpl.(type) {
+	case *recipe.RecipeSequence:
+		setRoot(&v.NodeMetadata)
+	case *recipe.RecipeState:
+		setRoot(&v.NodeMetadata)
+	case *recipe.RecipeOp:
+		setRoot(&v.NodeMetadata)
+	case *recipe.RecipeChildGroup:
+		setRoot(&v.NodeMetadata)
+	}
 	return InlineResolutionResult{Recipe: expanded}, nil
 }
 
 type inlineRecipeResolver struct {
-	projectID  string
-	resolver   RecipeSourceResolver
-	gitRefs    map[string]string
-	extensions recipe.ExtensionImports
+	rootRepository string
+	projectID      string
+	resolver       RecipeSourceResolver
+	gitRefs        map[string]string
+	extensions     recipe.ExtensionImports
 }
 
 type inlineRecipeSourceContext struct {
@@ -79,6 +100,7 @@ type inlineRecipeSourceContext struct {
 }
 
 type loadedInlineRecipe struct {
+	TrustedSource      bool
 	PermissionBoundary bool
 	Recipe             recipe.Recipe
 	Raw                []byte
@@ -265,8 +287,12 @@ func (r *inlineRecipeResolver) expandInclude(ctx context.Context, include *recip
 		return recipe.Node{}, fmt.Errorf("resolve include %q at %s: %w", target, strings.Join(pathParts, "/"), err)
 	}
 	loaded.PermissionBoundary = !sameRecipeRepository(parentSource, loaded.SourceContext)
-	if _, err := (permissions.State{}).Enter(include.Perms, loaded.PermissionBoundary); err != nil {
+	loaded.TrustedSource = r.rootRepository != "" && r.rootRepository == sourceRepositoryIdentity(loaded.SourceContext)
+	if err := permissions.ValidateInclude(include.Perms, loaded.PermissionBoundary); err != nil {
 		return recipe.Node{}, fmt.Errorf("include %q at %s: %w", target, strings.Join(pathParts, "/"), err)
+	}
+	if include.Perms != nil && include.Perms.JobDB != nil {
+		ctx = gitprofile.WithSecretLimit(ctx, include.Perms.JobDB.Secrets.Resolve)
 	}
 	if include.Perms != nil && include.Perms.Limit != nil && include.Perms.Limit.JobDB != nil {
 		ctx = gitprofile.WithSecretLimit(ctx, include.Perms.Limit.JobDB.Secrets.Resolve)
@@ -477,6 +503,7 @@ func inlineWrapperNode(include *recipe.NodeInclude, rec recipe.Recipe, loaded lo
 	wrapperMeta.ID = wrapperID
 	wrapperMeta.Internal = &recipe.NodeInternalMetadata{
 		Inline: &recipe.InlineInclusionMetadata{
+			TrustedSource:      loaded.TrustedSource,
 			PermissionBoundary: loaded.PermissionBoundary,
 			Execution:          meta.Execution,
 			CallsitePath:       callsitePath,
@@ -501,36 +528,15 @@ func inlineWrapperNode(include *recipe.NodeInclude, rec recipe.Recipe, loaded lo
 // Compare source repositories, never workspace labels or recipe IDs. Local paths
 // must resolve inside the same actual checkout; symlinks cannot launder origin.
 func sameRecipeRepository(a, b inlineRecipeSourceContext) bool {
-	if a.GitRepositoryURL != "" && b.GitRepositoryURL != "" {
-		canonical := func(raw string) string {
-			u, err := url.Parse(raw)
-			if err != nil || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
-				return ""
-			}
-			return strings.ToLower(u.Scheme) + "://" + strings.ToLower(u.Host) + strings.TrimSuffix(strings.TrimSuffix(u.Path, "/"), ".git")
-		}
-		left := canonical(a.GitRepositoryURL)
-		return left != "" && left == canonical(b.GitRepositoryURL)
+	left := sourceRepositoryIdentity(a)
+	return left != "" && left == sourceRepositoryIdentity(b)
+}
+
+func sourceRepositoryIdentity(source inlineRecipeSourceContext) string {
+	if source.GitRepositoryURL != "" {
+		return permissions.RepositoryIdentity(source.GitRepositoryURL)
 	}
-	root := func(file string) string {
-		if file == "" {
-			return ""
-		}
-		real, err := filepath.EvalSymlinks(file)
-		if err != nil {
-			return ""
-		}
-		for dir := filepath.Dir(real); ; dir = filepath.Dir(dir) {
-			if _, err := os.Stat(filepath.Join(dir, ".git")); err == nil {
-				return dir
-			}
-			if filepath.Dir(dir) == dir {
-				return ""
-			}
-		}
-	}
-	left := root(a.LocalFile)
-	return left != "" && left == root(b.LocalFile)
+	return permissions.RepositoryIdentity(source.LocalFile)
 }
 
 func includedRecipeRootNode(rec recipe.Recipe) (recipe.Node, map[string]interface{}, recipe.RecipeMetadata, error) {
@@ -697,7 +703,7 @@ type permissionBoundaryVisitor struct{ recipe.BaseVisitor }
 
 func (v *permissionBoundaryVisitor) VisitNodeSequence(node *recipe.NodeSequence, path []string) (recipe.Node, error) {
 	if m := node.Internal; m != nil && m.Inline != nil && m.Inline.PermissionBoundary {
-		if _, err := (permissions.State{}).Enter(node.Perms, true); err != nil {
+		if err := permissions.ValidateInclude(node.Perms, true); err != nil {
 			return recipe.Node{}, fmt.Errorf("include at %s (%s): %w", strings.Join(path, "/"), m.Inline.Source.ResolvedSelector, err)
 		}
 	}

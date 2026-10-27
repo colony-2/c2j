@@ -38,6 +38,44 @@ Common references:
 
 Sequences can see prior siblings. State transitions can see the current state's sequence outputs during transition evaluation. Nested scopes inherit container inputs but cannot freely reach unrelated sibling internals.
 
+## Secret Inputs And Permissions
+
+Use whole-value references in secret-enabled input fields. Explicit references
+authored in the root recipe's repository need no `perms` grant. Op defaults from
+that repository are also trusted. References in foreign recipes and defaults
+from foreign ops require authorization; the target workspace does not determine
+the trust root.
+
+```yaml
+id: separate-authorities
+op: command_execution
+perms:
+  jobdb:
+    secrets:
+      resolve: [bar]
+inputs:
+  env:
+    SERVICE_TOKEN: '${{ context.secrets.foo }}'
+  run: ./worker
+```
+
+In a root-repo recipe, this supplies `foo` as an input while allowing only `bar`
+through the delegated lease and secret helper. Input resolution never enlarges
+the lease. A `jobdb` grant replaces the inherited delegated grant, independently
+of input authorization.
+
+On an include node, `perms.jobdb.secrets.resolve` authorizes the included recipe's
+input references and bounds the grants it can request; it does not grant all
+descendants runtime secret access. Descendants need explicit grants for lease
+retrieval. Foreign includes require a caller-authored `perms.jobdb` or
+`perms.limit.jobdb` policy. Limits intersect and cannot be enlarged downstream.
+
+A secret supplied through include `inputs` may be forwarded as `${{ inputs.token }}`
+to a secret-enabled destination. It does not authorize independent references to
+that secret's name or add it to any lease. Include permissions do not authorize
+defaults from another op repo automatically: bind the input explicitly or grant
+the secret on the invoking node.
+
 ## CEL Helpers
 
 Useful built-ins include:

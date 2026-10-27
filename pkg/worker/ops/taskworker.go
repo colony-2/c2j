@@ -177,7 +177,10 @@ func (t *taskWorker) RunTask(local context.Context, ctx jobworkflow.TaskContext,
 			names = append(names, ref.Name)
 		}
 	}
-	if err := access.CheckSecrets(names); err != nil {
+	authorized := append([]string(nil), air.InputSecrets...)
+	authorized = append(authorized, access.Grant().Secrets.Resolve...)
+	inputAccess := permissions.NewAccess(access.Context(), permissions.JobDB{Secrets: permissions.SecretPermissions{Resolve: authorized}}, nil, nil)
+	if err := inputAccess.CheckSecrets(names); err != nil {
 		return nil, err
 	}
 	if err := InstallInvocation(opCtx, &air, req, PrepareTools); err != nil {
@@ -185,7 +188,9 @@ func (t *taskWorker) RunTask(local context.Context, ctx jobworkflow.TaskContext,
 	}
 	secretStart := time.Now()
 	if len(refs) > 0 {
-		err := session.PrepareReferences(opCtx, refs, access.Resolve)
+		err := session.PrepareReferences(opCtx, refs, func(ctx context.Context, names []string) (jobdb.SecretResolveResult, error) {
+			return permissions.ResolveInputs(ctx, names, authorized)
+		})
 		air.SecretSetupMS = time.Since(secretStart).Milliseconds()
 		if err != nil {
 			return nil, session.Error(err)

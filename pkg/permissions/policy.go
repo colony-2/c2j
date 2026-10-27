@@ -15,7 +15,8 @@ import (
 
 const Version = 1
 
-// Spec is common node metadata. A nil JobDB inherits; a nonnil empty grant denies.
+// Spec is common node metadata. On ordinary nodes JobDB replaces the delegated
+// grant; on includes it authorizes callee inputs and bounds callee grants.
 type Spec struct {
 	JobDB *JobDB `yaml:"jobdb,omitempty" json:"jobdb,omitempty"`
 	Limit *Limit `yaml:"limit,omitempty" json:"limit,omitempty"`
@@ -147,24 +148,22 @@ func (Spec) JSONSchema() *jsonschema.Schema {
 
 func ptr[T any](v T) *T { return &v }
 
-// State is immutable lexical policy, serialized with each task invocation. It
-// preserves the distinction between explicit grants and automatic Git defaults.
+// State is immutable lexical policy, serialized with each task invocation.
+// Input authorization is independent of grants and automatic Git defaults.
 type State struct {
-	Version int    `json:"version"`
-	Grant   *JobDB `json:"grant,omitempty"`
-	Limit   *JobDB `json:"limit,omitempty"`
+	Version int          `json:"version"`
+	Grant   *JobDB       `json:"grant,omitempty"`
+	Limit   *JobDB       `json:"limit,omitempty"`
+	Inputs  *InputPolicy `json:"inputs,omitempty"`
 }
 
 func (s State) Enter(spec *Spec, boundary bool) (State, error) {
+	if boundary {
+		return s.EnterInclude(spec, true, false)
+	}
 	s.Version = Version
 	if err := spec.Validate(); err != nil {
 		return State{}, err
-	}
-	if boundary {
-		if spec == nil || spec.Limit == nil || spec.Limit.JobDB == nil {
-			return State{}, fmt.Errorf("cross-repository include requires perms.limit.jobdb")
-		}
-		s.Grant = nil
 	}
 	if spec != nil {
 		if spec.Limit != nil && spec.Limit.JobDB != nil {

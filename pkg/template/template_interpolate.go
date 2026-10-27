@@ -407,12 +407,17 @@ func (rc *ResolutionContext) ResolveValueWithMode(value interface{}, mode Render
 		}
 		return ref, nil
 	}
-	if _, ok, err := secrets.Parse(value); ok || err != nil {
+	if ref, ok, err := secrets.Parse(value); ok || err != nil {
 		if err != nil {
 			return nil, err
 		}
 		if !rc.allowSecrets {
 			return nil, fmt.Errorf("unresolved references are only allowed in permitted inputs")
+		}
+		if rc.Permissions.Inputs != nil {
+			if err := rc.Permissions.CheckInput(ref.Name); err != nil {
+				return nil, err
+			}
 		}
 		return value, nil
 	}

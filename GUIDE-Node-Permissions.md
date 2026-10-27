@@ -1,100 +1,220 @@
 # Recipe node permissions
 
-Use `perms.jobdb` to control the JobDB authority available to a node. Git profiles
-remain in the existing `git_profile` field; permission grants contain concrete
-secret names, never Git profile names.
+Secret inputs and delegated JobDB capabilities are separate authorities. Supplying
+an input value never adds its secret name to the operation's delegated lease.
 
-## Restricted defaults
+## Secret inputs: trust the root recipe repository
 
-Every recipe uses restricted defaults, including recipes with no `perms` fields.
-Use `perms` to change a node’s grants or limit its descendants. An empty
-`perms: {}` inherits the enclosing policy.
+The trust root is the repository containing the root recipe being executed. It is
+not the target cell's workspace repository. For a default build submission, for
+example, the root recipe comes from `colony-2/recipes`.
+
+| Where a secret reference originates | Driver may resolve the input without a grant? |
+| --- | --- |
+| Explicit input in the root recipe | Yes |
+| Explicit input in another recipe from the root recipe repo | Yes |
+| Default in an op from the root recipe repo | Yes |
+| Explicit input in a recipe from another repo | No; the caller must authorize it at the include boundary, or the node needs an explicit grant within the caller's ceiling |
+| Default in an op from another repo | No; the invoking scope needs an explicit grant for that secret |
+
+A foreign include never establishes a new trust root. An op located beside a
+foreign included recipe is still foreign to the original root recipe. Unknown
+origins count as foreign; local symlinks are checked against the actual checkout.
+Enclosing permission ceilings still apply to new secret references.
+
+The driver resolves authorized references only when the consuming task runs.
+Execution history contains the references, not their secret values. Replay uses
+recorded task outcomes without fetching the secrets again.
+
+### Input `foo`, delegated capability `bar`
+
+This node belongs to the root recipe repo:
 
 ```yaml
-id: edit-and-publish
+id: separate-authorities
+op: command_execution
+perms:
+  jobdb:
+    secrets:
+      resolve: [bar]
+inputs:
+  env:
+    SERVICE_TOKEN: '${{ context.secrets.foo }}'
+  run: ./worker
+```
+
+`SERVICE_TOKEN` receives the value of `foo`. The operation's delegated lease and
+`c2j secret get` helper can retrieve `bar`, but cannot retrieve `foo`. Adding the
+`bar` grant does not remove the trusted input's access to `foo`. The operation
+already receives `foo` through its environment; this distinction controls further
+secret retrieval, not what it can do with a supplied value.
+
+Using `perms: {jobdb: {}}` would deny all delegated JobDB capabilities while still
+allowing this trusted input reference to resolve. Omitting `perms` also permits
+the input reference, with the normal delegated defaults described below.
+
+### Explicit binding versus a foreign op default
+
+Suppose an external op's schema declares a secret input named `api_key`, defaulting
+to `${{ context.secrets.codex_api_key }}`. A trusted recipe can bind it explicitly:
+
+```yaml
+id: explicit-binding
+op: git+https://github.com/example/tools.git//worker@main
+inputs:
+  api_key: '${{ context.secrets.codex_api_key }}'
+```
+
+The driver resolves this recipe-authored reference without adding `codex_api_key`
+to the delegated lease. Use the actual input field defined by your op's schema.
+
+To use the default supplied by that foreign op instead:
+
+```yaml
+id: foreign-default
+op: git+https://github.com/example/tools.git//worker@main
+perms:
+  jobdb:
+    secrets:
+      resolve: [codex_api_key]
+```
+
+This explicit grant authorizes the foreign default and also permits runtime
+retrieval through the delegated lease. Without it, the default is rejected before
+secret retrieval or op installation. An optional/defaulted reference still needs
+authorization. Overriding the default with an explicit trusted reference avoids
+that grant; overriding it with `null` disables it only if the op schema permits.
+
+## Include permissions authorize the included recipe
+
+On an **include node**, `perms.jobdb` specifies authority entrusted to the included
+recipe. Secret names listed there become available for its input references and
+bound the grants it may request. They are **not** automatically added to its
+nodes' delegated leases.
+
+Caller in the root recipe repo:
+
+```yaml
+id: parent
 sequence:
-  - id: edit
-    op: command_execution
+  - id: review
+    include: git+https://github.com/example/reviews.git//review.yaml@main
     perms:
       jobdb:
         secrets:
-          resolve: [codex-key, repo-read-key]
-        jobs:
-          submit: true
+          resolve: [foo, bar]
+```
+
+The foreign `review.yaml` can then contain:
+
+```yaml
+id: review
+sequence:
+  - id: input-only
+    op: command_execution
     inputs:
       env:
-        OPENAI_API_KEY: '${{ context.secrets["codex-key"] }}'
-      run: codex exec 'Implement the requested change'
-  - id: publish
-    op: merge
-  - id: inspect
+        SERVICE_TOKEN: '${{ context.secrets.foo }}'
+      run: ./review
+  - id: input-and-lease
     op: command_execution
     perms:
-      jobdb: {}
-    inputs:
-      run: git status --short
-```
-
-Defaults allow job submission and the selected Git profile's concrete secrets.
-The root and ordinary nodes use the configured RO profile. Built-in `merge` and
-`squashrebasemerge` use the RW default unless an explicit enclosing `git_profile`
-overrides it. `git_profile: null` removes the automatic Git secret contribution.
-Other secrets require an explicit grant. Chapters, configuration mutation,
-restarts, and job lifecycle operations are not available to the operation.
-The trusted driver still prepares inputs and persists outcomes.
-
-An explicit `jobdb` mapping replaces the entire inherited grant. Omitted entries
-then deny access. Include the actual RO secret name if an explicit model-secret
-grant also needs authenticated Git reads. `jobdb: {}` denies all JobDB operation
-capabilities. Omitted `jobdb` inherits; empty `perms: {}` does not change a grant.
-On scope exit, siblings get the enclosing policy again.
-
-Permission names are literal, exact secret names. Wildcards, expressions, nulls,
-and unknown permission fields are rejected. A secret reference in an input or
-extension manifest does not authorize itself. Checks happen before resolving
-secrets or consulting caches. The same grant controls materialized inputs,
-`c2j secret get`, the Git credential helper, and submission through the child broker.
-
-## Include limits
-
-Use `perms.limit.jobdb` for a ceiling that descendants cannot enlarge. A ceiling
-never grants a secret by itself. Nested limits intersect. Implicit defaults are
-filtered by the ceiling; an explicit grant exceeding it fails.
-
-Cross-repository includes require an explicit caller-authored ceiling:
-
-```yaml
-- include: git+https://github.com/example/recipes.git//review.yaml@main
-  perms:
-    limit:
       jobdb:
         secrets:
-          resolve: [codex-key, repo-read-key]
-        jobs:
-          submit: false
+          resolve: [bar]
+    inputs:
+      env:
+        SERVICE_TOKEN: '${{ context.secrets.foo }}'
+      run: ./review
 ```
 
-At that boundary, inherited explicit grants reset; the included recipe receives
-bounded defaults and may request explicit grants within the ceiling. Same-repo
-includes inherit normally. Unknown repository origins and symlinks into another
-checkout count as external. Nested foreign includes need their own limits.
+Both nodes receive `foo` in their input environment. The first node has no
+model-secret retrieval capability. The second can retrieve `bar` through its
+lease; its explicit grant does not replace the include's input authorization for
+`foo`. Neither node can retrieve `foo` through its lease without its own grant.
+A request for another secret exceeds the caller's ceiling and fails.
 
-Submission is a queue permission: `jobs.submit: true` allows job types and IDs
-within the lease's tenant. Submitted jobs run under their own recipe policy and
-do not inherit the submitter's grants or limits. There are no target selectors
-in this first version.
+These input allowances follow same-repo includes within the authorized foreign
+recipe. A further cross-repository include requires another explicit callsite
+policy, and cannot enlarge the authority it received. Include allowances do not
+implicitly authorize defaults from foreign ops: bind the secret explicitly in
+the included recipe, or grant it on the invoking node.
 
-## Configuration and credentials
+### Passing a value is not granting a secret name
 
-There is no `config.read` permission. Direct config references and existing
-`c2j config get` reads remain driver-mediated, including inside foreign includes
-and deny-all scopes. Reading a Git profile definition does not authorize its
-secret references.
+An include can receive a specific secret input without receiving permission to
+look up that name elsewhere:
 
-Git RO/RW defaults resolve to the configured profile's `secret_ref` values in
-the task's configuration snapshot. Secret values are fetched lazily and are not
-serialized into recipes or policy metadata. A selected profile cannot override
-an explicit grant or enclosing limit.
+```yaml
+id: parent
+sequence:
+  - include: git+https://github.com/example/reviews.git//consume.yaml@main
+    perms:
+      limit:
+        jobdb: {}
+    inputs:
+      token: '${{ context.secrets.foo }}'
+```
+
+The foreign `consume.yaml` explicitly forwards that input:
+
+```yaml
+id: consume
+input_schema:
+  token:
+    type: string
+    secret: true
+inputs:
+  token: '${{ inputs.token }}'
+sequence:
+  - op: command_execution
+    inputs:
+      env:
+        SERVICE_TOKEN: '${{ inputs.token }}'
+      run: ./review
+```
+
+The consuming node receives the supplied value. Other nodes cannot independently
+reference `${{ context.secrets.foo }}`, and no delegated lease gains `foo`.
+Include inputs are evaluated in the caller's context before entering the included
+recipe's policy. Passing an input does not add that name to the include's grants.
+
+## Delegated defaults and ceilings
+
+Every recipe uses restricted delegated defaults, including recipes with no
+`perms`. Defaults allow job submission and the selected Git profile's concrete
+secrets. Root and ordinary nodes use the configured RO profile; built-in `merge`
+and `squashrebasemerge` use the RW default unless an enclosing `git_profile`
+overrides it. `git_profile: null` removes automatic Git-secret contributions.
+Resolving other secret inputs does not enlarge these defaults.
+
+On ordinary nodes and scopes, an explicit `perms.jobdb` mapping replaces the
+inherited **delegated grant**. Omitted entries deny operation access. If an explicit
+grant also needs authenticated Git reads, include the actual RO secret name.
+`jobdb: {}` denies all delegated capabilities. Omitted `jobdb` inherits; empty
+`perms: {}` preserves the policy. Siblings recover the enclosing policy on scope
+exit. These replacements do not replace trusted input-reference authorization.
+
+`perms.limit.jobdb` sets a ceiling descendants cannot enlarge. Nested limits
+intersect. A limit alone does not authorize a foreign input reference or create a
+lease grant. The included recipe can request an explicit node grant within it.
+Cross-repository includes must declare `perms.jobdb` or `perms.limit.jobdb` at the
+callsite, even if empty. Inherited lease grants reset at that boundary. A selected
+Git profile cannot override an explicit grant or ceiling.
+
+Permission lists contain literal, exact secret names. Wildcards, expressions,
+nulls, duplicate names, and unknown permission fields are rejected. Git profile
+names belong in `git_profile`, not in JobDB grants.
+
+Submission is a queue permission: `jobs.submit: true` permits submission within
+the lease's tenant. Child jobs run under their own root recipe policy, with their
+own trust root. They do not inherit the submitting job's grants or limits.
+Chapters, configuration mutation, restarts, and other job lifecycle operations
+remain unavailable through delegated defaults.
+
+There is no `config.read` permission. Config references and `c2j config get` remain
+driver-mediated, including inside foreign recipes and deny-all scopes. Reading a
+Git profile definition does not itself authorize its secret references.
 
 ## Runtime integration
 

@@ -115,6 +115,27 @@ func bound(caller, scope context.Context) (context.Context, context.CancelFunc) 
 
 type accessKey struct{}
 
+type inputResolverKey struct{}
+
+// WithInputResolver installs a driver-only resolver. Operation helpers continue
+// to use Access.Resolve and its delegated grant.
+func WithInputResolver(ctx context.Context, resolve ResolveFunc) context.Context {
+	return context.WithValue(ctx, inputResolverKey{}, resolve)
+}
+
+func ResolveInputs(ctx context.Context, names, authorized []string) (jobdb.SecretResolveResult, error) {
+	access := FromContext(ctx)
+	if access == nil {
+		return jobdb.SecretResolveResult{}, fmt.Errorf("input secret resolver requires a task permission scope")
+	}
+	resolve, _ := ctx.Value(inputResolverKey{}).(ResolveFunc)
+	if resolve == nil {
+		return access.Resolve(ctx, names)
+	}
+	input := NewAccess(access.Context(), JobDB{Secrets: SecretPermissions{Resolve: authorized}}, resolve, nil)
+	return input.Resolve(ctx, names)
+}
+
 func WithAccess(ctx context.Context, access *Access) context.Context {
 	return context.WithValue(ctx, accessKey{}, access)
 }

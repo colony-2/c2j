@@ -36,9 +36,12 @@ func executeNodeScope(ctx workflow.Context, parent *template.ResolutionContext, 
 		previous := state.GitProfile
 		previousPerms := state.Permissions
 		defer func() { state.GitProfile = previous; state.Permissions = previousPerms }()
-		boundary := meta.Internal != nil && meta.Internal.Inline != nil && meta.Internal.Inline.PermissionBoundary
 		var err error
-		state.Permissions, err = state.Permissions.Enter(meta.Perms, boundary)
+		// Include inputs belong to the caller. Enter the callee's authority only
+		// after resolving them, when NewChildContext creates the included scope.
+		if meta.Internal == nil || meta.Internal.Inline == nil {
+			state.Permissions, err = state.Permissions.Enter(meta.Perms, false)
+		}
 		if err != nil {
 			return err
 		}

@@ -626,6 +626,21 @@ support it (JobDB `20269bd` / `v0.0.46` or later, with a compatible backend).
 Unsupported backends return an error; c2j never falls back to listing and deleting
 jobs individually.
 
+### Secret inputs and delegated permissions
+
+Secret references authored in the root recipe's repository can be resolved into
+inputs without a `perms` grant. Defaults from ops in that repository are trusted
+too. Foreign recipes and foreign op defaults require authorization.
+
+Input resolution never adds a secret to the delegated lease. For example, a node
+can receive `foo` through `${{ context.secrets.foo }}` while its `perms.jobdb`
+grant allows only runtime retrieval of `bar`. On include nodes, `perms.jobdb`
+authorizes the included recipe's input references and bounds its possible grants;
+it does not give every descendant the corresponding lease capabilities.
+
+See [recipe node permissions](GUIDE-Node-Permissions.md) for examples of explicit
+inputs, foreign op defaults, include grants, and forwarding secret inputs.
+
 ### Recipe timeouts and recovery
 
 c2j does not set default job or built-in op timeouts. Set `timeout` on a recipe

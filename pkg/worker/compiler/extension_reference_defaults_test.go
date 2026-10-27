@@ -45,9 +45,14 @@ func TestExtensionReferenceDefaultsThroughWorkerAndReplay(t *testing.T) {
 	withRegisteredOps(t, extops.GetExecutionOp())
 	for _, tc := range []struct {
 		name, inputs, secret, config, want, wantErr string
-		noProvider, outage                          bool
+		noProvider, outage, foreign                 bool
+		perms                                       string
 		calls                                       int
 	}{
+		{name: "foreign default denied", foreign: true, wantErr: "lease permission denied"},
+		{name: "foreign default granted", foreign: true, perms: "perms: {jobdb: {secrets: {resolve: [api_key]}}}\n", secret: "private-credential", want: `{"api":{"api_key":"private-credential","base_url":null}}`, calls: 1},
+		{name: "foreign explicit input", foreign: true, secret: "private-credential", inputs: "inputs: {api: {api_key: '${{ context.secrets.api_key }}'}}", want: `{"api":{"api_key":"private-credential","base_url":null}}`, calls: 1},
+		{name: "unrelated grant", perms: "perms: {jobdb: {secrets: {resolve: [other]}}}\n", secret: "private-credential", want: `{"api":{"api_key":"private-credential","base_url":null}}`, calls: 1},
 		{name: "both", secret: "private-credential", config: `"https://example.test"`, want: `{"api":{"api_key":"private-credential","base_url":"https://example.test"}}`, calls: 1},
 		{name: "missing", want: `{"api":{"base_url":null}}`, calls: 1},
 		{name: "url only", config: `"https://example.test"`, want: `{"api":{"base_url":"https://example.test"}}`, calls: 1},
@@ -123,11 +128,19 @@ run: ` + fmt.Sprintf("%q\n", script)
 			engine, err := jobworkflow.NewEngineBuilder().WithRuntime(guard).WithWorkerTenantId("extension-defaults").PlusWorkers(ws.JobWorker).BuildEngine()
 			require.NoError(t, err)
 			engine = jobdbschema.WorkflowEngine{Engine: engine, Registry: rt}
-			rec, err := recipe.LoadRecipeFromString([]byte("id: reference-defaults\nperms: {jobdb: {secrets: {resolve: [api_key, caller]}}}\nop: git+file://" + filepath.ToSlash(root) + "//op@HEAD\n" + tc.inputs + "\n"))
+			rec, err := recipe.LoadRecipeFromString([]byte("id: reference-defaults\n" + tc.perms + "op: git+file://" + filepath.ToSlash(root) + "//op@HEAD\n" + tc.inputs + "\n"))
 			require.NoError(t, err)
+			recipeRoot := root
+			if tc.foreign {
+				recipeRoot = t.TempDir()
+				require.NoError(t, os.Mkdir(filepath.Join(recipeRoot, ".git"), 0700))
+			}
+			rootFile := filepath.Join(recipeRoot, "recipe.yaml")
+			require.NoError(t, os.WriteFile(rootFile, []byte("id: origin\nsequence: []\n"), 0600))
+			expanded, err := ResolveInlineRecipes(ctx, *rec, InlineResolutionOptions{RootFile: rootFile})
+			require.NoError(t, err)
+			*rec = expanded.Recipe
 			job, git := GenerateTestContext()
-			job.RecipeSource.Repo = root
-			job.RecipeSource.Ref = "HEAD"
 			keyRef, err := starter.StartRecipeJob(ctx, workflowctl.StartJob{TenantId: "extension-defaults", RecipeName: "reference-defaults", JobContext: job, GitRef: git.ParentRef}, engine, *rec)
 			key := keyRef.Key()
 			require.NoError(t, err)

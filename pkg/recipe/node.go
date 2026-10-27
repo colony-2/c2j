@@ -296,11 +296,13 @@ type NodeMetadata struct {
 }
 
 type NodeInternalMetadata struct {
+	RootRepository       *string                  `yaml:"root_repository,omitempty" json:"root_repository,omitempty"`
 	Inline               *InlineInclusionMetadata `yaml:"inline,omitempty" json:"inline,omitempty"`
 	CompositeInputSchema map[string]InputSchema   `yaml:"composite_input_schema,omitempty" json:"composite_input_schema,omitempty"`
 }
 
 type InlineInclusionMetadata struct {
+	TrustedSource      bool                    `yaml:"trusted_source,omitempty" json:"trusted_source,omitempty"`
 	PermissionBoundary bool                    `yaml:"permission_boundary,omitempty" json:"permission_boundary,omitempty"`
 	Execution          *execution.Requirements `yaml:"execution,omitempty" json:"execution,omitempty"`
 	CallsitePath       string                  `yaml:"callsite_path,omitempty" json:"callsite_path,omitempty"`

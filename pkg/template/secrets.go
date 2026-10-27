@@ -26,6 +26,11 @@ func (rc *ResolutionContext) secretScalar(text string) (any, bool, error) {
 	}
 	var value any
 	if ref, ok := secrets.Expression(expr); ok {
+		if rc.Permissions.Inputs != nil {
+			if err := rc.Permissions.CheckInput(ref.Name); err != nil {
+				return nil, true, err
+			}
+		}
 		value = ref
 	} else if strings.HasPrefix(expr, "inputs.") {
 		name := strings.TrimPrefix(expr, "inputs.")

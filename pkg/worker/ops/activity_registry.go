@@ -27,6 +27,8 @@ const thinPackSentinel = gitstate.ThinPackArtifactName
 
 // ActivityInvocationRequest wraps the invocation metadata and original input payload.
 type ActivityInvocationRequest struct {
+	// InputSecrets records compiler-authorized references, not lease grants.
+	InputSecrets     []string                       `json:"input_secrets,omitempty"`
 	Permissions      *permissions.State             `json:"permissions,omitempty"`
 	GitProfile       gitprofile.Selection           `json:"git_profile,omitzero"`
 	Preparation      PreparationRequest             `json:"preparation,omitzero"`

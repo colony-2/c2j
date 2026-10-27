@@ -19,6 +19,7 @@ import (
 	extops "github.com/colony-2/c2j/pkg/ops/extensions"
 	"github.com/colony-2/c2j/pkg/permissions"
 	"github.com/colony-2/c2j/pkg/recipe"
+	"github.com/colony-2/c2j/pkg/secrets"
 	coretask "github.com/colony-2/c2j/pkg/task"
 	"github.com/colony-2/c2j/pkg/template"
 	"github.com/colony-2/c2j/pkg/toolenv"
@@ -181,6 +182,11 @@ func (d DefaultRecipeExecutor) ExecuteRecipe(ctx workflow.Context, r recipe.Reci
 
 	metadata := r.GetMetadata().NodeMetadata
 	rCtx.Permissions.Version = permissions.Version
+	rootRepository := execCtx.RecipeSource.Repo
+	if metadata.Internal != nil && metadata.Internal.RootRepository != nil {
+		rootRepository = *metadata.Internal.RootRepository
+	}
+	rCtx.Permissions.Inputs = &permissions.InputPolicy{RootRepository: rootRepository}
 	if err := rCtx.SelectGitProfile(metadata.GitProfile, ""); err != nil {
 		return nil, nil, err
 	}
@@ -535,6 +541,10 @@ func (d DefaultRecipeExecutor) executeOpAttempt(ctx workflow.Context, parentReso
 				}
 				p := resCtx.Permissions
 				invocation.Permissions = &p
+				invocation.InputSecrets, err = secrets.Names(input)
+				if err != nil {
+					return nil, err
+				}
 
 				taskData, err := jobdb.NewTaskData(invocation)
 				if err != nil {

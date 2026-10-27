@@ -9,6 +9,7 @@ import (
 	"github.com/colony-2/c2j/pkg/configuration"
 	coreops "github.com/colony-2/c2j/pkg/ops"
 	extops "github.com/colony-2/c2j/pkg/ops/extensions"
+	"github.com/colony-2/c2j/pkg/permissions"
 	"github.com/colony-2/c2j/pkg/secrets"
 	"github.com/colony-2/c2j/pkg/template"
 	"github.com/colony-2/c2j/pkg/toolenv"
@@ -54,7 +55,9 @@ func ResolveInvocation(ctx context.Context, inv *ActivityInvocationRequest) (Too
 			if _, err := resolved.ApplyInvocationDefaults(withDefaults); err != nil {
 				return req, err
 			}
-			value, err := resolveAddedDefaults(extension.TemplateContext, extension.RawInputs, withDefaults, inputs, true)
+			value, err := resolveAddedDefaults(extension.TemplateContext, extension.RawInputs, withDefaults, inputs, true, func(value any) error {
+				return authorizeDefaultSecrets(inv, resolved, value)
+			})
 			if err != nil {
 				return req, err
 			}
@@ -64,9 +67,22 @@ func ResolveInvocation(ctx context.Context, inv *ActivityInvocationRequest) (Too
 			if inputs == nil {
 				inputs = map[string]any{}
 			}
+			raw, err := json.Marshal(inputs)
+			if err != nil {
+				return req, err
+			}
+			var original map[string]any
+			if err := json.Unmarshal(raw, &original); err != nil {
+				return req, err
+			}
 			if _, err := resolved.ApplyInvocationDefaults(inputs); err != nil {
 				return req, err
 			}
+			value, err := resolveAddedDefaults(nil, original, inputs, inputs, true, func(value any) error { return authorizeDefaultSecrets(inv, resolved, value) })
+			if err != nil {
+				return req, err
+			}
+			inputs = value.(map[string]any)
 		}
 		inv.Input["inputs"] = inputs
 
@@ -137,13 +153,22 @@ func materializeConfiguration(ctx context.Context, reg ActivityRegistration, inv
 
 // Only newly discovered defaults need evaluation. Supplied values were already
 // evaluated in the compiler (possibly using custom CEL functions).
-func resolveAddedDefaults(snapshot json.RawMessage, original, defaulted, resolved any, present bool) (any, error) {
+func resolveAddedDefaults(snapshot json.RawMessage, original, defaulted, resolved any, present bool, authorize ...func(any) error) (any, error) {
 	if !present {
-		values, err := template.ResolveDeferredInputs(snapshot, map[string]any{"value": defaulted})
-		if err != nil {
-			return nil, err
+		value := defaulted
+		if len(snapshot) > 0 {
+			values, err := template.ResolveDeferredInputs(snapshot, map[string]any{"value": defaulted})
+			if err != nil {
+				return nil, err
+			}
+			value = values["value"]
 		}
-		return values["value"], nil
+		for _, check := range authorize {
+			if err := check(value); err != nil {
+				return nil, err
+			}
+		}
+		return value, nil
 	}
 	switch d := defaulted.(type) {
 	case map[string]any:
@@ -158,7 +183,7 @@ func resolveAddedDefaults(snapshot json.RawMessage, original, defaulted, resolve
 		}
 		for k, v := range d {
 			old, exists := raw[k]
-			n, err := resolveAddedDefaults(snapshot, old, v, current[k], exists)
+			n, err := resolveAddedDefaults(snapshot, old, v, current[k], exists, authorize...)
 			if err != nil {
 				return nil, err
 			}
@@ -179,7 +204,7 @@ func resolveAddedDefaults(snapshot json.RawMessage, original, defaulted, resolve
 			if i >= len(raw) || i >= len(out) {
 				break
 			}
-			n, err := resolveAddedDefaults(snapshot, raw[i], v, current[i], true)
+			n, err := resolveAddedDefaults(snapshot, raw[i], v, current[i], true, authorize...)
 			if err != nil {
 				return nil, err
 			}
@@ -189,4 +214,34 @@ func resolveAddedDefaults(snapshot json.RawMessage, original, defaulted, resolve
 	default:
 		return resolved, nil
 	}
+}
+
+func authorizeDefaultSecrets(inv *ActivityInvocationRequest, op *extops.ResolvedOp, value any) error {
+	names, err := secrets.Names(value)
+	if err != nil {
+		return err
+	}
+	policy := permissions.State{Version: permissions.Version}
+	if inv.Permissions != nil {
+		policy = *inv.Permissions
+	}
+	trust := permissions.InputPolicy{Foreign: true}
+	if policy.Inputs != nil {
+		trust.RootRepository = policy.Inputs.RootRepository
+		origin := op.ResolvedSelector
+		if origin == "" {
+			origin = op.SpecPath
+		}
+		root := permissions.RepositoryIdentity(trust.RootRepository)
+		trust.Foreign = root == "" || root != permissions.RepositoryIdentity(origin)
+	}
+	// Include input allowances do not authorize defaults from another op repo.
+	policy.Inputs = &trust
+	for _, name := range names {
+		if err := policy.CheckInput(name); err != nil {
+			return fmt.Errorf("extension default: %w", err)
+		}
+	}
+	inv.InputSecrets = append(inv.InputSecrets, names...)
+	return nil
 }

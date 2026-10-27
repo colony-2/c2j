@@ -357,6 +357,13 @@ func (rc *ResolutionContext) NewChildContext(scopeType ScopeType, metadata recip
 	child.EffectiveConst = rc.EffectiveConst || metadata.Const
 	child.GitProfile = rc.GitProfile
 	child.Permissions = rc.Permissions
+	if metadata.Internal != nil && metadata.Internal.Inline != nil {
+		inline := metadata.Internal.Inline
+		child.Permissions, err = rc.Permissions.EnterInclude(metadata.Perms, inline.PermissionBoundary, inline.TrustedSource)
+		if err != nil {
+			return nil, err
+		}
+	}
 	child.ExecutionNeeds = execution.Overlay(rc.ExecutionNeeds, execution.Requirements{})
 	child.ToolScopes = append([]toolenv.Scope(nil), rc.ToolScopes...)
 	if metadata.Internal != nil && metadata.Internal.Inline != nil && metadata.Internal.Inline.Execution != nil {

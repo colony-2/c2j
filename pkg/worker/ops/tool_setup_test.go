@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"github.com/colony-2/c2j/pkg/contextual"
 	extops "github.com/colony-2/c2j/pkg/ops/extensions"
+	"github.com/colony-2/c2j/pkg/permissions"
 	"github.com/colony-2/c2j/pkg/secrets"
 	"github.com/colony-2/c2j/pkg/template"
 	"github.com/colony-2/c2j/pkg/toolenv"
@@ -71,7 +72,7 @@ run: unused
 	}
 	input, err := rc.ResolveInputs(raw)
 	require.NoError(t, err)
-	inv := ActivityInvocationRequest{Input: map[string]any{"inputs": input}, Preparation: PreparationRequest{Extension: &ExtensionResolutionRequest{
+	inv := ActivityInvocationRequest{Permissions: &permissions.State{Version: permissions.Version, Grant: &permissions.JobDB{Secrets: permissions.SecretPermissions{Resolve: []string{"bound"}}}}, Input: map[string]any{"inputs": input}, Preparation: PreparationRequest{Extension: &ExtensionResolutionRequest{
 		Selector: "./", Options: extops.ResolveOptions{BaseDir: root}, RawInputs: raw, TemplateContext: snapshot,
 	}}}
 	require.NoError(t, PrepareInvocation(context.Background(), &inv, func(_ context.Context, req ToolSetupRequest) ToolSetupResult {

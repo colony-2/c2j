@@ -83,6 +83,21 @@ func (w *guardedTask) runWithGitProfile(tc jobworkflow.TaskContext, input jobdb.
 		return nil, err
 	}
 	defer cancel()
+	fresh := resolve
+	scopeContext = permissions.WithInputResolver(scopeContext, func(ctx context.Context, names []string) (jobdb.SecretResolveResult, error) {
+		values, err := fresh(ctx, names)
+		if err != nil {
+			return values, err
+		}
+		for _, name := range names {
+			if value, ok := values.Secrets[name]; ok {
+				if err := redactor.Register(value.Value); err != nil {
+					return jobdb.SecretResolveResult{}, err
+				}
+			}
+		}
+		return values, nil
+	})
 	resolve = access.Resolve
 	scopeContext = jobref.WithScope(scopeContext, jobref.Scope{Submit: access.Submit})
 	scope, err := gitprofile.NewScope(scopeContext, request.GitProfile, snapshot, resolve, "", tc.JobKey.TenantId)
