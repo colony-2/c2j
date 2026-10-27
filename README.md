@@ -412,10 +412,27 @@ metadata as `prompt` and exposed in job and recipe listing JSON. Empty values,
 non-string values, and secret references are omitted from this metadata field.
 This records the submitted prompt; it does not evaluate recipe defaults or templates.
 
+Optional job title:
+
+```bash
+c2j submit "Update the review interface" --title "Improve review UI" --embed
+```
+
+`--title` inserts the supplied text as `inputs.title`. You can also supply `title`
+in `--inputs-json` or `--inputs-file`. Custom recipes should declare `title` in
+their input schema when accepting it. A nonblank string title is stored verbatim
+in job metadata and exposed as optional `title` in job, recipe-job, child-job,
+and goal-candidate responses. Empty or whitespace-only values, non-string values,
+and secret references are omitted from title metadata. Responses preserve stored
+titles verbatim and do not generate a title from the prompt or goal ID; display
+fallbacks belong to the client. Metadata captures submitted text, not evaluated
+recipe defaults or later changes to inputs.
+
 Rules:
 
 - `--inputs-json` and `--inputs-file` are mutually exclusive
 - the positional prompt cannot also be provided as `inputs.prompt`
+- `--title` cannot also be provided as `inputs.title`, even if either value is empty
 
 ### Attaching files
 

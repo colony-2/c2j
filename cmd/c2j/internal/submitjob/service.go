@@ -269,6 +269,12 @@ mergePrompt:
 		}
 		inputs["prompt"] = opts.Prompt
 	}
+	if opts.TitleSet || opts.Title != "" {
+		if _, exists := inputs["title"]; exists {
+			return nil, fmt.Errorf("title was provided both via --title and in recipe inputs")
+		}
+		inputs["title"] = opts.Title
+	}
 	if strings.TrimSpace(opts.RecipeFile) == "" {
 		name := strings.TrimSpace(opts.Recipe)
 		if name == "" || name == compiler.DefaultRecipeName {

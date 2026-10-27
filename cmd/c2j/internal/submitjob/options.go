@@ -24,6 +24,8 @@ type Options struct {
 
 	Prompt    string
 	PromptSet bool
+	Title     string
+	TitleSet  bool
 
 	InputsJSON string
 	InputsFile string

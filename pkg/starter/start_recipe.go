@@ -30,6 +30,7 @@ const (
 	MetaFieldVersion  jobdb.FieldName = "v"
 	MetaFieldRecipe   jobdb.FieldName = "recipe"
 	MetaFieldPrompt   jobdb.FieldName = "prompt"
+	MetaFieldTitle    jobdb.FieldName = "title"
 	MetaFieldCellID   jobdb.FieldName = "cell_id"
 	MetaFieldCellName jobdb.FieldName = "cell_name"
 	MetaFieldRepo     jobdb.FieldName = "repo"
@@ -56,6 +57,7 @@ type JobMetadata struct {
 	Version          int                   `json:"v"`
 	RecipeName       string                `json:"recipe,omitempty"`
 	Prompt           string                `json:"prompt,omitempty"`
+	Title            string                `json:"title,omitempty"`
 	CellID           string                `json:"cell_id,omitempty"`
 	CellName         string                `json:"cell_name,omitempty"`
 	RepositorySource string                `json:"repo,omitempty"`
@@ -98,6 +100,11 @@ func JobMetadataFromStartJob(startJob workflowctl.StartJob) JobMetadata {
 	if prompt, ok := startJob.Inputs["prompt"].(string); ok && strings.TrimSpace(prompt) != "" {
 		if _, secret := secrets.Template(prompt); !secret {
 			meta.Prompt = prompt
+		}
+	}
+	if title, ok := startJob.Inputs["title"].(string); ok && strings.TrimSpace(title) != "" {
+		if _, secret := secrets.Template(title); !secret {
+			meta.Title = title
 		}
 	}
 	if startJob.Parent != nil {

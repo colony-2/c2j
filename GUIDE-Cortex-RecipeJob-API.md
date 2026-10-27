@@ -20,6 +20,16 @@ New c2j recipe jobs persist the target repository in JobDB metadata:
 The value is the normalized repository source used by c2j submit semantics, for
 example `github.com/acme/app` becomes `https://github.com/acme/app.git`.
 
+Submitted nonblank string `inputs.title` is stored as optional metadata `title`
+(`starter.JobMetadata.Title`, `starter.MetaFieldTitle`). `RecipeJob.Title` and
+`joblist.Job.Title` expose it as optional JSON `title`, alongside the unchanged
+`prompt` and `goal_id`. List, single-job, child-job, and goal-candidate projections
+use the metadata already present on the summary, with no additional reads.
+Stored titles are preserved verbatim; missing or empty titles are omitted.
+Cortex owns the nonblank `title → prompt → goal_id` display fallback. Submission
+does not index whitespace-only titles, non-string values, or secret references.
+CLI users can populate the input with `c2j submit "prompt" --title "Job title"`.
+
 The public `pkg/recipejob` package exposes:
 
 - target resolution with c2j CLI-compatible cell rules

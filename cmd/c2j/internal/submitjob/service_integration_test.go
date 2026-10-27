@@ -41,8 +41,12 @@ id: nucleus_submit_recipe
 input_schema:
   prompt:
     type: string
+  title:
+    type: string
 desc: simple recipe used to verify c2j submission
 version: "1.0"
+inputs:
+  title: "${{ inputs.title }}"
 sequence:
   - id: echo
     op: command_execution
@@ -51,6 +55,7 @@ sequence:
       working_directory: "."
 outputs:
   result: "{{ sequence.echo.outputs.stdout }}"
+  title: "{{ inputs.title }}"
 `) + "\n"
 
 	recipePath := filepath.Join(t.TempDir(), "nucleus_submit_recipe.yaml")
@@ -71,6 +76,7 @@ outputs:
 		Cell:       baseRepo,
 		JSONOutput: true,
 		Prompt:     "run the test recipe",
+		Title:      "  Test recipe title  ",
 		Stdout:     &submitStdout,
 	}); err != nil {
 		t.Fatalf("submit job: %v", err)
@@ -133,6 +139,9 @@ outputs:
 	}
 	if got["result"] != "hello-from-submit" {
 		t.Fatalf("unexpected output: %#v", got)
+	}
+	if got["title"] != "  Test recipe title  " {
+		t.Fatalf("title was not preserved in recipe inputs: %#v", got)
 	}
 	if strings.Contains(runStderr.String(), "warning: replay unavailable") {
 		t.Fatalf("unexpected replay warning:\n%s", runStderr.String())

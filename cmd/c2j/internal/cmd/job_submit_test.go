@@ -2,13 +2,16 @@ package cmd
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
+	"github.com/colony-2/c2j/pkg/recipejob"
 	remoteruntime "github.com/colony-2/jobdb/pkg/jobdb/runtime/remote"
 	toyruntime "github.com/colony-2/jobdb/pkg/jobdb/runtime/toy"
+	"github.com/stretchr/testify/require"
 )
 
 func TestSubmitHelpPromotesConventions(t *testing.T) {
@@ -19,7 +22,7 @@ func TestSubmitHelpPromotesConventions(t *testing.T) {
 	if err := cmd.Execute(); err != nil {
 		t.Fatal(err)
 	}
-	for _, flag := range []string{"--advanced-recipe", "--advanced-recipe-file"} {
+	for _, flag := range []string{"--advanced-recipe", "--advanced-recipe-file", "--title"} {
 		if !strings.Contains(out.String(), flag) {
 			t.Fatalf("help missing %s: %s", flag, &out)
 		}
@@ -35,6 +38,39 @@ func TestSubmitHelpPromotesConventions(t *testing.T) {
 			t.Fatalf("legacy %s not hidden and deprecated", name)
 		}
 	}
+}
+
+func TestSubmitTitleFlag(t *testing.T) {
+	root := t.TempDir()
+	t.Chdir(root)
+	db := toyruntime.New()
+	server := httptest.NewServer(remoteruntime.NewServer(db))
+	defer server.Close()
+	for _, title := range []string{"  Improve café\nUI  ", "", "  "} {
+		cmd := newSubmitCmd()
+		var out bytes.Buffer
+		cmd.SetOut(&out)
+		cmd.SetErr(&bytes.Buffer{})
+		cmd.SetArgs([]string{"unchanged prompt", "--title", title, "--cell", root, "--jobdb", server.URL + "/tenant", "--json"})
+		require.NoError(t, cmd.Execute())
+		var submitted struct {
+			JobID string `json:"job_id"`
+		}
+		require.NoError(t, json.Unmarshal(out.Bytes(), &submitted))
+		job, err := recipejob.GetRecipeJob(context.Background(), db, recipejob.GetRecipeJobRequest{TenantID: "tenant", JobID: submitted.JobID})
+		require.NoError(t, err)
+		want := title
+		if strings.TrimSpace(want) == "" {
+			want = ""
+		}
+		require.Equal(t, want, job.Title)
+		require.Equal(t, "unchanged prompt", job.Prompt)
+	}
+	cmd := newSubmitCmd()
+	cmd.SetOut(&bytes.Buffer{})
+	cmd.SetErr(&bytes.Buffer{})
+	cmd.SetArgs([]string{"prompt", "--title", "", "--inputs-json", `{"title":"existing"}`, "--cell", root, "--jobdb", server.URL + "/tenant"})
+	require.ErrorContains(t, cmd.Execute(), "title was provided both")
 }
 
 func TestSubmitRejectsConflictingRecipeFlags(t *testing.T) {

@@ -44,6 +44,12 @@ Imports for this fragment: `context`, `fmt`, `time`,
 `github.com/colony-2/jobdb/pkg/jobdb`.
 See [the complete compilable application](../../examples/listjobs/main.go).
 
+`Job.Title` and `Job.Prompt` expose the optional JSON fields `title` and `prompt`
+from summary metadata, preserving stored strings verbatim. Empty fields are
+omitted. No additional job, history, recipe, artifact, or goal reads are needed.
+Clients may choose a display fallback such as nonblank title, then nonblank
+prompt, then goal ID; the API does not populate missing titles itself.
+
 ## Explicit configuration and selectors
 
 `Config.JobDBURI` has the same meaning as CLI `--jobdb`: the URL's sole path
