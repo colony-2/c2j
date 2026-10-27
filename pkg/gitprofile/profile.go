@@ -177,13 +177,19 @@ func (s Selection) Resolve(snapshot jobdb.ConfigurationSnapshot) (string, error)
 	v := s.Value
 	if !s.Explicit {
 		key := ReadOnlyKey
+		fallback := "read"
 		if s.Publish {
 			key = ReadWriteKey
+			fallback = "write"
 		}
-		if raw := snapshot.Values[key]; raw != nil {
+		if raw, exists := snapshot.Values[key]; exists {
 			if err := json.Unmarshal(raw, &v); err != nil {
 				return "", fmt.Errorf("invalid Git profile default")
 			}
+		} else if _, exists := snapshot.Values[ProfilePrefix+fallback]; exists {
+			// Conventional profiles need no mapping; an unconfigured tenant
+			// still runs without a profile. Explicit null disables the fallback.
+			v = fallback
 		}
 	} else if ref, ok, err := configuration.Parse(v); err != nil {
 		return "", err

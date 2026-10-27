@@ -98,7 +98,7 @@ func TestRecipeGitProfilesAcrossRenewalAndScopeChanges(t *testing.T) {
 		if access := permissions.FromContext(ctx); access == nil {
 			return nil, fmt.Errorf("missing permission guard")
 		} else {
-			if _, err := gitprofile.Call(ctx, socket, gitprofile.Request{Operation: "config", Name: gitprofile.ReadWriteKey}); err != nil {
+			if _, err := gitprofile.Call(ctx, socket, gitprofile.Request{Operation: "config", Name: gitprofile.ProfilePrefix + "ro"}); err != nil {
 				return nil, fmt.Errorf("config read denied in restricted scope: %w", err)
 			}
 			_, err := gitprofile.Call(ctx, socket, gitprofile.Request{Operation: "secret", Name: "model"})
@@ -122,7 +122,7 @@ func TestRecipeGitProfilesAcrossRenewalAndScopeChanges(t *testing.T) {
 		return map[string]any{"ok": true}, nil
 	}
 	coreops.Replace(coreops.NewActivityMappedOpV2[input, map[string]any](coreops.OpMetadata{Type: "git_profile_probe"}, probe), coreops.NewActivityMappedOpV2[input, map[string]any](coreops.OpMetadata{Type: "merge"}, probe), coreops.NewActivityMappedOpV2[input, map[string]any](coreops.OpMetadata{Type: "squashrebasemerge"}, probe))
-	for _, backend := range []string{"toy", "remote", "toy-permissions", "remote-permissions"} {
+	for _, backend := range []string{"toy", "remote", "toy-permissions", "remote-permissions", "toy-defaults", "remote-defaults"} {
 		t.Run(backend, func(t *testing.T) {
 			observed = nil
 			ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
@@ -137,13 +137,21 @@ func TestRecipeGitProfilesAcrossRenewalAndScopeChanges(t *testing.T) {
 				require.NoError(t, err)
 				runtime = remoteRT
 			}
-			for _, name := range []string{"ro", "rw"} {
-				p := gitprofile.Profile{Version: 1, Entries: []gitprofile.Entry{{URL: "https://git.example/", Username: "bot", SecretRef: name}}}
+			profiles := map[string]string{"ro": "ro", "rw": "rw"}
+			if strings.HasSuffix(backend, "defaults") {
+				profiles["read"] = "ro"
+				profiles["write"] = "rw"
+			}
+			for name, secret := range profiles {
+				p := gitprofile.Profile{Version: 1, Entries: []gitprofile.Entry{{URL: "https://git.example/", Username: "bot", SecretRef: secret}}}
 				raw, _ := json.Marshal(p)
 				_, err := base.SetTenantConfigurationValue(ctx, jobdb.SetTenantConfigurationValueRequest{TenantID: "test", Name: gitprofile.ProfilePrefix + name, Value: raw})
 				require.NoError(t, err)
 			}
 			for key, name := range map[string]string{gitprofile.ReadOnlyKey: "ro", gitprofile.ReadWriteKey: "rw"} {
+				if strings.HasSuffix(backend, "defaults") {
+					continue
+				}
 				raw, _ := json.Marshal(name)
 				_, err := base.SetTenantConfigurationValue(ctx, jobdb.SetTenantConfigurationValueRequest{TenantID: "test", Name: key, Value: raw})
 				require.NoError(t, err)

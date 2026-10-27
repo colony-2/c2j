@@ -29,7 +29,11 @@ For a supplied credential, replace `secret_ref` with `secret_file`, a path relat
 
 ## Recipe defaults
 
-Set ordinary tenant config keys to profile names:
+Profiles named `read` and `write` are used automatically when `git-profile-ro`
+and `git-profile-rw`, respectively, are absent. No mapping is needed for those
+names. If the corresponding profile is also absent, no profile is selected.
+
+To use other profile names, set ordinary tenant config keys:
 
 ```sh
 printf '%s' read | jobdb config set git-profile-ro --value-file - --url "$JOBDB_URL" --tenant team
@@ -53,7 +57,7 @@ sequence:
     sequence: []
 ```
 
-Use a name to override, `null` to select none, or a whole-value template such as `${{ context.config[?"git-profile-ro"].orValue(null) }}`. Omission inherits; a missing default selects none. Invalid names/configuration fail before Git work. The enclosing profile is restored after a node exits.
+Use a name to override, `null` to select none, or a whole-value template such as `${{ context.config[?"git-profile-ro"].orValue("read") }}`. Omission inherits the automatic selection. An explicit `null` in a node or tenant default disables profile selection, including the conventional fallback. Explicit names must exist; invalid names/configuration fail before Git work. The enclosing profile is restored after a node exits.
 
 c2j activates profiles before workspace and extension preparation, and carries selection into child jobs. Remote recipe bootstrap uses the inherited selection or RO default. A recipe's own declaration applies after that recipe is fetched. Includes are expanded before execution: profiles needed to fetch them must be literals or config references, not expressions depending on runtime inputs/outputs.
 

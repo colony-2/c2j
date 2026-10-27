@@ -110,6 +110,59 @@ func TestDefaultSelection(t *testing.T) {
 	_, err = Load(snapshot, "unknown")
 	require.Error(t, err)
 }
+
+func TestConventionalProfileDefaults(t *testing.T) {
+	for _, publish := range []bool{false, true} {
+		key, fallback := ReadOnlyKey, "read"
+		if publish {
+			key, fallback = ReadWriteKey, "write"
+		}
+		t.Run(fallback, func(t *testing.T) {
+			profile, err := json.Marshal(fixtureProfile())
+			require.NoError(t, err)
+			for _, tc := range []struct {
+				name      string
+				selection Selection
+				mapping   json.RawMessage
+				want      string
+			}{
+				{name: "absent mapping", selection: Selection{Publish: publish}, want: fallback},
+				{name: "configured mapping", selection: Selection{Publish: publish}, mapping: json.RawMessage(`"custom"`), want: "custom"},
+				{name: "null mapping", selection: Selection{Publish: publish}, mapping: json.RawMessage(`null`)},
+				{name: "explicit null", selection: Selection{Explicit: true, Publish: publish}},
+				{name: "explicit name", selection: Selection{Explicit: true, Publish: publish, Value: "custom"}, want: "custom"},
+			} {
+				t.Run(tc.name, func(t *testing.T) {
+					snapshot := jobdb.ConfigurationSnapshot{Values: map[string]json.RawMessage{
+						ProfilePrefix + fallback: profile,
+						ProfilePrefix + "custom": profile,
+					}}
+					if tc.mapping != nil {
+						snapshot.Values[key] = tc.mapping
+					}
+					name, err := tc.selection.Resolve(snapshot)
+					require.NoError(t, err)
+					require.Equal(t, tc.want, name)
+					names, err := CredentialNames(tc.selection, snapshot)
+					require.NoError(t, err)
+					if tc.want == "" {
+						require.Empty(t, names)
+					} else {
+						require.Equal(t, []string{"other-token", "ro-token"}, names)
+					}
+				})
+			}
+			selection := Selection{Publish: publish}
+			name, err := selection.Resolve(jobdb.ConfigurationSnapshot{})
+			require.NoError(t, err)
+			require.Empty(t, name)
+			// A present but invalid conventional profile must not be ignored.
+			_, err = CredentialNames(selection, jobdb.ConfigurationSnapshot{Values: map[string]json.RawMessage{ProfilePrefix + fallback: json.RawMessage(`{}`)}})
+			require.Error(t, err)
+		})
+	}
+}
+
 func TestScopeFreshnessClearAndIsolation(t *testing.T) {
 	var calls atomic.Int32
 	resolver := func(ctx context.Context, names []string) (jobdb.SecretResolveResult, error) {
