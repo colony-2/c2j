@@ -54,6 +54,20 @@ func TestRegisterableOp_PreservesOutputOnError(t *testing.T) {
 	assert.Equal(t, map[string]interface{}{"echo": "partial:yo"}, out)
 }
 
+func TestRegisterableOp_PreservesStepError(t *testing.T) {
+	cause := errors.New("command execution failed: exit status 1")
+	handler := func(_ OpDependencies, _ context.Context, _ rIn) (rOut, error) {
+		return rOut{Echo: "partial"}, cause
+	}
+	for _, provider := range []func() interface{}{nil, func() interface{} { return &rIn{} }} {
+		op := NewActivityMappedOpWithProviderV2(OpMetadata{Type: "failure"}, handler, provider)
+		out, err := op.TaskChain()[0].Invoke(&testDeps{}, context.Background(), map[string]interface{}{})
+		require.ErrorIs(t, err, cause)
+		require.EqualError(t, err, cause.Error())
+		require.Equal(t, map[string]interface{}{"echo": "partial"}, out)
+	}
+}
+
 func TestInvocation_HashDeterministic(t *testing.T) {
 	inv := contextual.Invocation{NodePath: "node/a", InvokeSeq: 3}
 	hash := contextual.GetInvocationHash(inv)

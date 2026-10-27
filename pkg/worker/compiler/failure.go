@@ -22,11 +22,17 @@ func (e *recipeFailureError) Error() string {
 	if e == nil {
 		return ""
 	}
+	if e.Failure != nil {
+		// The structured failure retains the originating node across enclosing
+		// scopes and JobDB serialization. Format it once; wrapping errors are
+		// still available through Unwrap for error classification.
+		if e.Failure.Node.Path != "" {
+			return strings.ReplaceAll(e.Failure.Node.Path, "/", ".") + ": " + e.Failure.Message
+		}
+		return e.Failure.Message
+	}
 	if e.Err != nil {
 		return e.Err.Error()
-	}
-	if e.Failure != nil {
-		return e.Failure.Message
 	}
 	return "recipe failure"
 }

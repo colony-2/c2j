@@ -271,7 +271,7 @@ func executeNodeScope(ctx workflow.Context, parent *template.ResolutionContext, 
 			// Exhausted task retries and scope timeouts must not trigger an
 			// enclosing retry that discards completed preparation. Rehydrate
 			// this marker after JobDB's serialized scope boundary on replay too.
-			failure := normalizeRuntimeFailure(err, parent, meta, failureNodeType(kind), fallback)
+			failure := normalizeScopeFailure(err, parent, meta, kind, fallback)
 			failure.Retryable = false
 			// Keep the normalized failure details, but do not unwrap the spent
 			// task error: JobDB prioritizes a TimeoutError's retryable flag over
@@ -307,8 +307,25 @@ func persistRecipeFailure(err error, state *template.ResolutionContext, meta rec
 	if isExecutionControlError(err) {
 		return err
 	}
-	failure := normalizeRuntimeFailure(err, state, meta, failureNodeType(kind), op)
+	failure := normalizeScopeFailure(err, state, meta, kind, op)
 	return newRecipeFailureError(failure, err)
+}
+
+// Scope callbacks receive the parent resolver. Failures raised before a task
+// starts (or by the scope itself) still belong to this node, not its parent.
+func normalizeScopeFailure(err error, parent *template.ResolutionContext, meta recipe.NodeMetadata, kind template.ScopeType, op string) *recipe.RuntimeFailure {
+	if failure, ok := failureFromError(err); ok {
+		return failure
+	}
+	failure := normalizeRuntimeFailure(err, parent, meta, failureNodeType(kind), op)
+	if failure != nil {
+		path := failureNodePath(parent)
+		if path != "" {
+			path += "/"
+		}
+		failure.Node.Path = path + template.ScopeID(meta, op, kind)
+	}
+	return failure
 }
 
 type machineCatchHandledError struct{}

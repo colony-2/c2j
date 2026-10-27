@@ -119,7 +119,7 @@ func NewStepWithDeps[In any, Out any](fn ActivityHandlerV2[In, Out]) Step {
 		objResult, err := fn(deps, ctx, input)
 		output := mapifyOutput(objResult)
 		if err != nil {
-			return output, fmt.Errorf("error executing step: %w", err)
+			return output, err
 		}
 		return output, nil
 	}
@@ -310,7 +310,7 @@ func NewActivityMappedOpWithProviderV2[In any, Out any](metadata OpMetadata, han
 			objResult, err := handler(deps, ctx, input)
 			output := mapifyOutput(objResult)
 			if err != nil {
-				return output, fmt.Errorf("error executing step: %w", err)
+				return output, err
 			}
 			return output, nil
 		}

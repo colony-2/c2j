@@ -659,7 +659,7 @@ func (d DefaultRecipeExecutor) innerSequence(ctx workflow.Context, parentCtx *te
 		return err
 	}
 
-	for i, node := range sequence {
+	for _, node := range sequence {
 		// Execute the node
 		err := d.self().ExecuteNode(ctx, resCtx, &node)
 		if isExecutionControlError(err) {
@@ -674,8 +674,7 @@ func (d DefaultRecipeExecutor) innerSequence(ctx workflow.Context, parentCtx *te
 			if !ok {
 				failure = normalizeRuntimeFailure(err, resCtx, metadata, recipe.FailureNodeSequence, "")
 			}
-			wrapped := fmt.Errorf("sequence node %d failed: %w", i, err)
-			return newRecipeFailureError(failure, wrapped)
+			return newRecipeFailureError(failure, err)
 		}
 	}
 
