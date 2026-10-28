@@ -78,10 +78,10 @@ func (r *lineStoryProgressRenderer) walk(node *storylive.JobRunStoryNode, depth 
 
 	seen[node.ID] = struct{}{}
 	prev, hadPrev := r.nodes[node.ID]
-	kind, label := renderNodeKindAndLabel(node)
+	_, label := renderNodeKindAndLabel(node)
 
 	if !hadPrev {
-		r.printLine(depth, kind, label)
+		r.printLine(depth, "", label)
 	}
 
 	for _, child := range node.Children {
@@ -96,13 +96,11 @@ func (r *lineStoryProgressRenderer) walk(node *storylive.JobRunStoryNode, depth 
 }
 
 func (r *lineStoryProgressRenderer) printLine(depth int, kind string, label string) {
-	if strings.TrimSpace(kind) == "" {
-		kind = "node"
+	text := strings.TrimSpace(kind + " " + label)
+	if text == "" {
+		text = "node"
 	}
-	if strings.TrimSpace(label) == "" {
-		label = kind
-	}
-	fmt.Fprintf(r.out, "%s%s%s %s\n", modePrefix(r.mode), strings.Repeat("  ", depth), kind, label)
+	fmt.Fprintf(r.out, "%s%s%s\n", modePrefix(r.mode), strings.Repeat("  ", depth), text)
 }
 
 type treeStoryProgressRenderer struct {
@@ -257,11 +255,7 @@ func renderTreeNodeTitle(node *storylive.JobRunStoryNode) string {
 		return "node"
 	}
 	kind, label := renderNodeKindAndLabel(node)
-	title := strings.TrimSpace(strings.TrimSpace(kind + " " + label))
-	if title == "" {
-		return "node"
-	}
-	return title
+	return firstNonEmpty(label, kind, "node")
 }
 
 func renderTreeNodeSuffix(node *storylive.JobRunStoryNode) string {
@@ -377,19 +371,19 @@ func treeModePrefix(mode string) string {
 func renderNodeKindAndLabel(node *storylive.JobRunStoryNode) (string, string) {
 	switch node.Kind {
 	case storylive.JobRunStoryNodeKindRecipe:
-		return "recipe", firstNonEmpty(node.RecipeID, trimNodeTitle(node.Title, "recipe"))
+		return "recipe", firstNonEmpty(node.Title, node.RecipeID, string(node.Kind))
 	case storylive.JobRunStoryNodeKindRecipeSourceResolution:
-		return "source", firstNonEmpty(trimNodeTitle(node.Title, "recipe source resolution"), "recipe source resolution")
+		return "source", firstNonEmpty(node.Title, "recipe source resolution")
 	case storylive.JobRunStoryNodeKindSequence:
-		return "sequence", firstNonEmpty(node.SequenceID, trimNodeTitle(node.Title, "sequence"))
+		return "sequence", firstNonEmpty(node.Title, node.SequenceID, string(node.Kind))
 	case storylive.JobRunStoryNodeKindOp:
-		return "op", firstNonEmpty(node.OpID, trimNodeTitle(node.Title, "op"))
+		return "op", firstNonEmpty(node.Title, node.OpID, string(node.Kind))
 	case storylive.JobRunStoryNodeKindOpStep:
-		return "step", firstNonEmpty(node.StepID, trimNodeTitle(node.Title, "step"))
+		return "step", firstNonEmpty(node.Title, node.StepID, string(node.Kind))
 	case storylive.JobRunStoryNodeKindStateMachine:
-		return "state-machine", firstNonEmpty(node.StateMachineID, trimNodeTitle(node.Title, "stateMachine"))
+		return "state-machine", firstNonEmpty(node.Title, node.StateMachineID, string(node.Kind))
 	case storylive.JobRunStoryNodeKindState:
-		return "state", firstNonEmpty(node.StateID, trimNodeTitle(node.Title, "state"))
+		return "state", firstNonEmpty(node.Title, node.StateID, string(node.Kind))
 	case storylive.JobRunStoryNodeKindTransitionEval:
 		if node.Decision != nil && node.Decision.Kind == "state" && node.Decision.ToStateID != nil && strings.TrimSpace(*node.Decision.ToStateID) != "" {
 			return "transition", "to " + strings.TrimSpace(*node.Decision.ToStateID)
@@ -397,7 +391,7 @@ func renderNodeKindAndLabel(node *storylive.JobRunStoryNode) (string, string) {
 		if node.Decision != nil && node.Decision.Kind == "fallthrough" {
 			return "transition", "fallthrough"
 		}
-		return "transition", firstNonEmpty(trimNodeTitle(node.Title, "evaluate transitions"), "evaluate transitions")
+		return "transition", firstNonEmpty(node.Title, "evaluate transitions")
 	default:
 		return "node", strings.TrimSpace(node.Title)
 	}
@@ -432,18 +426,6 @@ func isTerminalNodeStatus(status storylive.JobRunStoryNodeStatus) bool {
 	default:
 		return false
 	}
-}
-
-func trimNodeTitle(title string, prefix string) string {
-	title = strings.TrimSpace(title)
-	prefix = strings.TrimSpace(prefix)
-	if title == "" {
-		return ""
-	}
-	if prefix == "" {
-		return title
-	}
-	return strings.TrimSpace(strings.TrimPrefix(title, prefix))
 }
 
 func firstNonEmpty(values ...string) string {

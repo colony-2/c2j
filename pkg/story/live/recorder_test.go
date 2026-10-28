@@ -71,6 +71,10 @@ func TestTaskStartProjectsInputAndClearsPreviousAttempt(t *testing.T) {
 					r.OnTaskStart(jobworkflow.TaskStartEvent{Unfinished: true, State: tt.state, InvocationID: "work/attempt:2", TaskType: taskType, Ordinal: 42, AttemptNumber: 2, Input: input})
 					n := node()
 					require.Equal(t, id, n.ID)
+					if kind == "operation" {
+						require.Equal(t, "work", n.Title)
+						require.Equal(t, "work", n.PriorAttempts[0].Title)
+					}
 					require.Equal(t, "work", n.InvocationID)
 					require.Equal(t, int64(42), *n.TaskOrdinal)
 					require.Equal(t, 2, n.Attempt)
@@ -196,6 +200,8 @@ func TestRecorderSnapshot_DoesNotDuplicateSyntheticSourceResolutionNode(t *testi
 	if second == nil || second.Root == nil {
 		t.Fatalf("expected second snapshot root, got %#v", second)
 	}
+	require.Equal(t, "story-ref", first.Root.Title)
+	require.Equal(t, first.Root.Title, second.Root.Title)
 	if got := len(first.Root.Children); got != 1 {
 		t.Fatalf("expected first snapshot to have 1 child, got %d", got)
 	}

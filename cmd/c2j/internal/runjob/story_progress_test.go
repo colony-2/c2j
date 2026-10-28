@@ -9,6 +9,32 @@ import (
 	storylive "github.com/colony-2/c2j/pkg/story/live"
 )
 
+func TestStoryRenderersPreserveDisplayTitleAndUseOpFallback(t *testing.T) {
+	for _, tt := range []struct {
+		title string
+		want  string
+	}{
+		{"run_tests", "run_tests"},
+		{"op validation", "op validation"}, // An ID may itself start with a type name.
+		{"", "command_execution"},
+	} {
+		t.Run(tt.want, func(t *testing.T) {
+			node := &storylive.JobRunStoryNode{
+				ID: "n_1", Kind: storylive.JobRunStoryNodeKindOp,
+				Title: tt.title, OpID: "command_execution", Status: storylive.JobRunStoryNodeStatusRunning,
+			}
+			if got := renderTreeNodeTitle(node); got != tt.want {
+				t.Fatalf("tree label = %q, want %q", got, tt.want)
+			}
+			var out bytes.Buffer
+			newLineStoryProgressRenderer(&out, "live").Render(&storylive.JobRunStory{Root: node})
+			if got, want := out.String(), "[live] "+tt.want+"\n"; got != want {
+				t.Fatalf("line label = %q, want %q", got, want)
+			}
+		})
+	}
+}
+
 func TestStoryProgressRenderer_CachedToLiveHandoffDoesNotReprintStablePrefix(t *testing.T) {
 	var out bytes.Buffer
 	renderer := newStoryProgressRenderer(&out, "cached", false)
@@ -17,19 +43,19 @@ func TestStoryProgressRenderer_CachedToLiveHandoffDoesNotReprintStablePrefix(t *
 		Root: &storylive.JobRunStoryNode{
 			ID:     "n_1",
 			Kind:   storylive.JobRunStoryNodeKindRecipe,
-			Title:  "recipe nucleus_test_recipe",
+			Title:  "nucleus_test_recipe",
 			Status: storylive.JobRunStoryNodeStatusRunning,
 			Children: []*storylive.JobRunStoryNode{
 				{
 					ID:     "n_2",
 					Kind:   storylive.JobRunStoryNodeKindSequence,
-					Title:  "sequence main",
+					Title:  "main",
 					Status: storylive.JobRunStoryNodeStatusRunning,
 					Children: []*storylive.JobRunStoryNode{
 						{
 							ID:     "n_3",
 							Kind:   storylive.JobRunStoryNodeKindOp,
-							Title:  "op command_execution",
+							Title:  "command_execution",
 							Status: storylive.JobRunStoryNodeStatusRunning,
 						},
 					},
@@ -44,19 +70,19 @@ func TestStoryProgressRenderer_CachedToLiveHandoffDoesNotReprintStablePrefix(t *
 		Root: &storylive.JobRunStoryNode{
 			ID:     "n_1",
 			Kind:   storylive.JobRunStoryNodeKindRecipe,
-			Title:  "recipe nucleus_test_recipe",
+			Title:  "nucleus_test_recipe",
 			Status: storylive.JobRunStoryNodeStatusSucceeded,
 			Children: []*storylive.JobRunStoryNode{
 				{
 					ID:     "n_2",
 					Kind:   storylive.JobRunStoryNodeKindSequence,
-					Title:  "sequence main",
+					Title:  "main",
 					Status: storylive.JobRunStoryNodeStatusSucceeded,
 					Children: []*storylive.JobRunStoryNode{
 						{
 							ID:     "n_3",
 							Kind:   storylive.JobRunStoryNodeKindOp,
-							Title:  "op command_execution",
+							Title:  "command_execution",
 							Status: storylive.JobRunStoryNodeStatusSucceeded,
 						},
 					},
@@ -67,16 +93,16 @@ func TestStoryProgressRenderer_CachedToLiveHandoffDoesNotReprintStablePrefix(t *
 	renderer.Render(live)
 
 	got := out.String()
-	if strings.Count(got, "recipe nucleus_test_recipe") != 1 {
+	if strings.Count(got, "[cached] nucleus_test_recipe") != 1 {
 		t.Fatalf("expected recipe line once, got:\n%s", got)
 	}
-	if strings.Count(got, "[cached]   sequence main") != 1 || strings.Count(got, "[live]   done main") != 1 {
+	if strings.Count(got, "[cached]   main") != 1 || strings.Count(got, "[live]   done main") != 1 {
 		t.Fatalf("expected cached sequence enter plus live sequence completion, got:\n%s", got)
 	}
-	if strings.Count(got, "[cached]     op command_execution") != 1 || strings.Count(got, "[live]     done command_execution") != 1 {
+	if strings.Count(got, "[cached]     command_execution") != 1 || strings.Count(got, "[live]     done command_execution") != 1 {
 		t.Fatalf("expected cached op enter plus live op completion, got:\n%s", got)
 	}
-	if !strings.Contains(got, "[cached] recipe nucleus_test_recipe") {
+	if !strings.Contains(got, "[cached] nucleus_test_recipe") {
 		t.Fatalf("expected cached recipe line, got:\n%s", got)
 	}
 	if !strings.Contains(got, "[live]     done command_execution") {
@@ -85,7 +111,7 @@ func TestStoryProgressRenderer_CachedToLiveHandoffDoesNotReprintStablePrefix(t *
 	if !strings.Contains(got, "[live] done nucleus_test_recipe") {
 		t.Fatalf("expected live recipe completion line, got:\n%s", got)
 	}
-	if strings.Contains(got, "[live] recipe nucleus_test_recipe") {
+	if strings.Contains(got, "[live] nucleus_test_recipe") {
 		t.Fatalf("expected live handoff not to reprint recipe line, got:\n%s", got)
 	}
 }
@@ -100,13 +126,13 @@ func TestTreeStoryProgressRenderer_RedrawsSnapshotInPlace(t *testing.T) {
 		Root: &storylive.JobRunStoryNode{
 			ID:     "n_1",
 			Kind:   storylive.JobRunStoryNodeKindRecipe,
-			Title:  "recipe nucleus_test_recipe",
+			Title:  "nucleus_test_recipe",
 			Status: storylive.JobRunStoryNodeStatusRunning,
 			Children: []*storylive.JobRunStoryNode{
 				{
 					ID:     "n_2",
 					Kind:   storylive.JobRunStoryNodeKindOp,
-					Title:  "op command_execution",
+					Title:  "command_execution",
 					Status: storylive.JobRunStoryNodeStatusRunning,
 				},
 			},
@@ -120,13 +146,13 @@ func TestTreeStoryProgressRenderer_RedrawsSnapshotInPlace(t *testing.T) {
 		Root: &storylive.JobRunStoryNode{
 			ID:     "n_1",
 			Kind:   storylive.JobRunStoryNodeKindRecipe,
-			Title:  "recipe nucleus_test_recipe",
+			Title:  "nucleus_test_recipe",
 			Status: storylive.JobRunStoryNodeStatusSucceeded,
 			Children: []*storylive.JobRunStoryNode{
 				{
 					ID:     "n_2",
 					Kind:   storylive.JobRunStoryNodeKindOp,
-					Title:  "op command_execution",
+					Title:  "command_execution",
 					Status: storylive.JobRunStoryNodeStatusSucceeded,
 				},
 			},
@@ -138,10 +164,10 @@ func TestTreeStoryProgressRenderer_RedrawsSnapshotInPlace(t *testing.T) {
 	if !strings.Contains(got, "live job job-123 [running]") {
 		t.Fatalf("expected running header, got:\n%s", got)
 	}
-	if !strings.Contains(got, "recipe nucleus_test_recipe [running]") {
+	if !strings.Contains(got, "nucleus_test_recipe [running]") {
 		t.Fatalf("expected running recipe line, got:\n%s", got)
 	}
-	if !strings.Contains(got, "op command_execution [succeeded]") {
+	if !strings.Contains(got, "command_execution [succeeded]") {
 		t.Fatalf("expected completed op line, got:\n%s", got)
 	}
 	if !strings.Contains(got, "\x1b[3A\x1b[J") {
@@ -160,7 +186,7 @@ func TestTreeStoryProgressRenderer_DebouncesNonTerminalUpdatesUntilFlush(t *test
 		Root: &storylive.JobRunStoryNode{
 			ID:     "n_1",
 			Kind:   storylive.JobRunStoryNodeKindRecipe,
-			Title:  "recipe test_recipe",
+			Title:  "test_recipe",
 			Status: storylive.JobRunStoryNodeStatusRunning,
 		},
 	}
@@ -170,13 +196,13 @@ func TestTreeStoryProgressRenderer_DebouncesNonTerminalUpdatesUntilFlush(t *test
 		Root: &storylive.JobRunStoryNode{
 			ID:     "n_1",
 			Kind:   storylive.JobRunStoryNodeKindRecipe,
-			Title:  "recipe test_recipe",
+			Title:  "test_recipe",
 			Status: storylive.JobRunStoryNodeStatusRunning,
 			Children: []*storylive.JobRunStoryNode{
 				{
 					ID:     "n_2",
 					Kind:   storylive.JobRunStoryNodeKindOp,
-					Title:  "op command_execution",
+					Title:  "command_execution",
 					Status: storylive.JobRunStoryNodeStatusRunning,
 				},
 			},
@@ -190,7 +216,7 @@ func TestTreeStoryProgressRenderer_DebouncesNonTerminalUpdatesUntilFlush(t *test
 		t.Fatalf("expected second non-terminal update to be deferred, got:\n%s", got)
 	}
 	renderer.Flush()
-	if !strings.Contains(out.String(), "op command_execution [running]") {
+	if !strings.Contains(out.String(), "command_execution [running]") {
 		t.Fatalf("expected flushed output to include pending op, got:\n%s", out.String())
 	}
 }
@@ -202,27 +228,27 @@ func TestBuildTreeRenderLines_CollapsesCompletedBranchesAndShowsAttempts(t *test
 		Root: &storylive.JobRunStoryNode{
 			ID:         "n_1",
 			Kind:       storylive.JobRunStoryNodeKindRecipe,
-			Title:      "recipe nucleus_test_recipe",
+			Title:      "nucleus_test_recipe",
 			Status:     storylive.JobRunStoryNodeStatusRunning,
 			JobAttempt: 2,
 			PastAttempts: []*storylive.JobRunStoryNode{
-				{ID: "past_1", Kind: storylive.JobRunStoryNodeKindRecipe, Title: "recipe nucleus_test_recipe", Status: storylive.JobRunStoryNodeStatusFailed},
+				{ID: "past_1", Kind: storylive.JobRunStoryNodeKindRecipe, Title: "nucleus_test_recipe", Status: storylive.JobRunStoryNodeStatusFailed},
 			},
 			Children: []*storylive.JobRunStoryNode{
 				{
 					ID:      "n_2",
 					Kind:    storylive.JobRunStoryNodeKindSequence,
-					Title:   "sequence prepare",
+					Title:   "prepare",
 					Status:  storylive.JobRunStoryNodeStatusSucceeded,
 					Attempt: 2,
 					PriorAttempts: []*storylive.JobRunStoryNode{
-						{ID: "n_2_a1", Kind: storylive.JobRunStoryNodeKindSequence, Title: "sequence prepare", Status: storylive.JobRunStoryNodeStatusFailed},
+						{ID: "n_2_a1", Kind: storylive.JobRunStoryNodeKindSequence, Title: "prepare", Status: storylive.JobRunStoryNodeStatusFailed},
 					},
 					Children: []*storylive.JobRunStoryNode{
 						{
 							ID:     "n_3",
 							Kind:   storylive.JobRunStoryNodeKindOp,
-							Title:  "op git_clone",
+							Title:  "git_clone",
 							Status: storylive.JobRunStoryNodeStatusSucceeded,
 						},
 					},
@@ -230,7 +256,7 @@ func TestBuildTreeRenderLines_CollapsesCompletedBranchesAndShowsAttempts(t *test
 				{
 					ID:     "n_4",
 					Kind:   storylive.JobRunStoryNodeKindState,
-					Title:  "state check_approve",
+					Title:  "check_approve",
 					Status: storylive.JobRunStoryNodeStatusRunning,
 					IsInitial: func() *bool {
 						v := true
@@ -244,16 +270,16 @@ func TestBuildTreeRenderLines_CollapsesCompletedBranchesAndShowsAttempts(t *test
 	lines := buildTreeRenderLines("live", story)
 	got := strings.Join(lines, "\n")
 
-	if !strings.Contains(got, "recipe nucleus_test_recipe (job attempt 2, 1 prior) [running]") {
+	if !strings.Contains(got, "nucleus_test_recipe (job attempt 2, 1 prior) [running]") {
 		t.Fatalf("expected job attempt summary, got:\n%s", got)
 	}
-	if !strings.Contains(got, "sequence prepare (attempt 2) (1 child collapsed) [succeeded]") {
+	if !strings.Contains(got, "prepare (attempt 2) (1 child collapsed) [succeeded]") {
 		t.Fatalf("expected collapsed completed branch with retry summary, got:\n%s", got)
 	}
-	if strings.Contains(got, "op git_clone") {
+	if strings.Contains(got, "git_clone") {
 		t.Fatalf("expected collapsed child op to be hidden, got:\n%s", got)
 	}
-	if !strings.Contains(got, "state check_approve (initial) [running]") {
+	if !strings.Contains(got, "check_approve (initial) [running]") {
 		t.Fatalf("expected initial state marker, got:\n%s", got)
 	}
 }

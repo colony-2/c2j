@@ -452,6 +452,9 @@ outputs:
 	if len(opNode.Children) != 2 {
 		t.Fatalf("expected 2 step children, got %d", len(opNode.Children))
 	}
+	if opNode.Title != "run" || opNode.Children[0].Title != "first" || opNode.Children[1].Title != "second" {
+		t.Fatalf("unexpected op/step labels: %#v", opNode)
+	}
 	if opNode.Children[0].StepID != "first" || opNode.Children[0].Status != model.JobRunStoryNodeStatusSucceeded {
 		t.Fatalf("unexpected first step: %#v", opNode.Children[0])
 	}
@@ -583,7 +586,7 @@ outputs:
 
 	seq := findFirstKind(st.Root.Children, model.JobRunStoryNodeKindSequence)
 	opNode := findFirstKind(seq.Children, model.JobRunStoryNodeKindOp)
-	if opNode == nil || opNode.Status != model.JobRunStoryNodeStatusRunning {
+	if opNode == nil || opNode.Title != "run" || opNode.Status != model.JobRunStoryNodeStatusRunning {
 		t.Fatalf("expected op node running, got %#v", opNode)
 	}
 
@@ -648,7 +651,7 @@ outputs:
 
 	seq := findFirstKind(st.Root.Children, model.JobRunStoryNodeKindSequence)
 	opNode := findFirstKind(seq.Children, model.JobRunStoryNodeKindOp)
-	if opNode == nil || opNode.Status != model.JobRunStoryNodeStatusRunning {
+	if opNode == nil || opNode.Title != "run" || opNode.Status != model.JobRunStoryNodeStatusRunning {
 		t.Fatalf("expected op node running, got %#v", opNode)
 	}
 

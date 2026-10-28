@@ -370,7 +370,7 @@ func (r *Recorder) OnTaskStart(event jobworkflow.TaskStartEvent) {
 	tr, ok := r.currentOpSteps[taskInvocationID(event.InvocationID, event.AttemptNumber)]
 	if !ok || tr == nil {
 		stepID := strings.TrimSpace(stepIDFromTaskType(op.OpID, event.TaskType))
-		stepNode := tree.newNode(model.JobRunStoryNodeKindOpStep, "step "+stepID)
+		stepNode := tree.newNode(model.JobRunStoryNodeKindOpStep, stepID)
 		stepNode.StepID = stepID
 		stepNode.InvocationID = taskInvocationID(event.InvocationID, event.AttemptNumber)
 		stepNode.StepType = "other"
@@ -387,7 +387,7 @@ func (r *Recorder) OnTaskStart(event jobworkflow.TaskStartEvent) {
 		r.currentOpSteps[taskInvocationID(event.InvocationID, event.AttemptNumber)] = tr
 	}
 
-	attNode := tree.newNode(model.JobRunStoryNodeKindOpStep, "step "+strings.TrimSpace(tr.stepID))
+	attNode := tree.newNode(model.JobRunStoryNodeKindOpStep, strings.TrimSpace(tr.stepID))
 	attNode.StepID = strings.TrimSpace(tr.stepID)
 	attNode.StepType = "other"
 	attNode.Status = model.JobRunStoryNodeStatusRunning
@@ -784,7 +784,7 @@ func (r *Recorder) syntheticRootForAttemptLocked(attempt int, sourceNode *model.
 	root := &model.JobRunStoryNode{
 		ID:            fmt.Sprintf("synthetic_root_%d", attempt),
 		Kind:          model.JobRunStoryNodeKindRecipe,
-		Title:         "recipe " + recipeName,
+		Title:         recipeName,
 		Status:        sourceNode.Status,
 		Path:          make([]string, 0, 8),
 		Attempt:       1,
@@ -940,7 +940,7 @@ func (r *Recorder) unlockTree() {
 func (e *recordingExecutor) ExecuteRecipe(ctx coreworkflow.Context, r recipe.Recipe, rawRecipeInputs map[string]interface{}, execCtx contextual.JobContext, commitContext contextual.GitCommitContext, opts ...compiler.ExecutionOptions) (map[string]interface{}, []jobdb.Artifact, error) {
 	recipeID := strings.TrimSpace(r.GetMetadata().ID)
 	e.rec.lockTree()
-	root := e.tree.newNode(model.JobRunStoryNodeKindRecipe, "recipe "+recipeID)
+	root := e.tree.newNode(model.JobRunStoryNodeKindRecipe, template.ScopeID(r.GetMetadata().NodeMetadata, "", template.ScopeRecipe))
 	root.RecipeID = recipeID
 	root.Invocation = map[string]interface{}{"args": rawRecipeInputs}
 	root.Input = rawRecipeInputs
@@ -1003,7 +1003,7 @@ func (e *recordingExecutor) ExecuteNode(ctx coreworkflow.Context, parentResCtx *
 			seg = strings.TrimPrefix(seg, "state:")
 			seg = strings.TrimSpace(seg)
 			if seg != "" {
-				title = "state " + seg
+				title = seg
 			}
 		}
 
@@ -1053,7 +1053,7 @@ func (e *recordingExecutor) ExecuteNode(ctx coreworkflow.Context, parentResCtx *
 func (e *recordingExecutor) ExecuteSequence(ctx coreworkflow.Context, rCtx *template.ResolutionContext, metadata recipe.NodeMetadata, outputTemplate map[string]interface{}, sequence []recipe.Node) error {
 	seqID := template.ScopeID(metadata, "", template.ScopeSequence)
 	e.rec.lockTree()
-	node := e.tree.newNode(model.JobRunStoryNodeKindSequence, "sequence "+seqID)
+	node := e.tree.newNode(model.JobRunStoryNodeKindSequence, seqID)
 	node.SequenceID = seqID
 	node.Status = model.JobRunStoryNodeStatusRunning
 	node.InlineStack = storyInlineStack(rCtx, metadata, seqID)
@@ -1086,7 +1086,7 @@ func (e *recordingExecutor) ExecuteSequence(ctx coreworkflow.Context, rCtx *temp
 func (e *recordingExecutor) ExecuteStateMachine(ctx coreworkflow.Context, parentContext *template.ResolutionContext, metadata recipe.NodeMetadata, outputTemplate map[string]interface{}, stateMap *recipe.StateMap, opts ...compiler.ExecutionOptions) error {
 	smID := template.ScopeID(metadata, "", template.ScopeStateMachine)
 	e.rec.lockTree()
-	node := e.tree.newNode(model.JobRunStoryNodeKindStateMachine, "stateMachine "+smID)
+	node := e.tree.newNode(model.JobRunStoryNodeKindStateMachine, smID)
 	node.StateMachineID = smID
 	node.Status = model.JobRunStoryNodeStatusRunning
 	node.InlineStack = storyInlineStack(parentContext, metadata, smID)
@@ -1136,7 +1136,7 @@ func (e *recordingExecutor) ExecuteStateMachine(ctx coreworkflow.Context, parent
 func (e *recordingExecutor) ExecuteOp(ctx coreworkflow.Context, parentResolutionContext *template.ResolutionContext, metadata recipe.NodeMetadata, opID string) error {
 	opID = strings.TrimSpace(opID)
 	e.rec.lockTree()
-	opNode := e.tree.newNode(model.JobRunStoryNodeKindOp, "op "+opID)
+	opNode := e.tree.newNode(model.JobRunStoryNodeKindOp, template.ScopeID(metadata, opID, template.ScopeOp))
 	opNode.OpID = opID
 	opNode.OpType = "custom"
 	opNode.Status = model.JobRunStoryNodeStatusRunning
@@ -1246,7 +1246,7 @@ func (e *recordingExecutor) ensureReplayMissStepNode(opNode *model.JobRunStoryNo
 		}
 	}
 
-	stepNode := e.tree.newNode(model.JobRunStoryNodeKindOpStep, "step "+stepID)
+	stepNode := e.tree.newNode(model.JobRunStoryNodeKindOpStep, stepID)
 	stepNode.StepID = stepID
 	stepNode.StepType = "other"
 	if miss.Attempt > 0 {
@@ -1290,7 +1290,7 @@ func (o *storyStateObserver) StateEntered(stateName string) {
 	stateName = strings.TrimSpace(stateName)
 	title := "state"
 	if stateName != "" {
-		title = "state " + stateName
+		title = stateName
 	}
 	n := o.tree.newNode(model.JobRunStoryNodeKindState, title)
 	n.Status = model.JobRunStoryNodeStatusRunning
