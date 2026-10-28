@@ -56,6 +56,7 @@ type SelfConfig struct {
 }
 
 type fileConfig struct {
+	Packages   PackageList      `yaml:"packages"`
 	Base       string           `yaml:"base"`
 	JobDB      StringOrCommand  `yaml:"jobdb"`
 	Dependents DependentsConfig `yaml:"dependents"`

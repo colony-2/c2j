@@ -31,10 +31,21 @@ func RenderInitConfigTemplate(ctx context.Context, rootDir string) ([]byte, erro
 	}
 
 	if data.BaseGo {
-		return []byte(renderGoInitTemplate(data)), nil
+		return []byte(renderGoInitTemplate(data) + packageTemplate), nil
 	}
-	return []byte(renderGenericInitTemplate()), nil
+	return []byte(renderGenericInitTemplate() + packageTemplate), nil
 }
+
+const packageTemplate = `
+# Packages available to every live operation in this repository.
+# Use pinned registry versions or Nix revisions for repeatable resolution.
+# Nix supports executables and native libraries; pnpm/uv install CLI applications.
+# packages:
+#   - nix:nixpkgs#go
+#   - nix:nixpkgs#openssl
+#   - pnpm:playwright@1.51.1
+#   - uv:ruff==0.11.2
+`
 
 func renderGenericInitTemplate() string {
 	return strings.TrimSpace(`

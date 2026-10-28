@@ -178,6 +178,12 @@ func (t opExecutor) do(ctx context.Context, jobTool ops.JobTool, req ActivityInv
 }
 
 func (t opExecutor) doLogged(ctx context.Context, jobTool ops.JobTool, req ActivityInvocationRequest, inputArtifacts []jobdb.Artifact, baseLogger *slog.Logger) (output ActivityInvocationOutput, outputArtifacts []jobdb.Artifact, err error) {
+	return t.doPrepared(ctx, jobTool, req, inputArtifacts, baseLogger, nil)
+}
+
+// prepare runs after workspace restore. Its returned context belongs only to
+// the op body; persistence and other worker infrastructure keep the base tools.
+func (t opExecutor) doPrepared(ctx context.Context, jobTool ops.JobTool, req ActivityInvocationRequest, inputArtifacts []jobdb.Artifact, baseLogger *slog.Logger, prepare func(context.Context, *gitstate.GitTaskContext) (context.Context, error)) (output ActivityInvocationOutput, outputArtifacts []jobdb.Artifact, err error) {
 	deps := t.deps
 	controller := t.controller
 	reg := t.reg
@@ -412,6 +418,14 @@ func (t opExecutor) doLogged(ctx context.Context, jobTool ops.JobTool, req Activ
 	if err := controller.Restore(ctx, fullContext, thinPackArtifact); err != nil {
 		return zero, nil, err
 	}
+	opCtx := ctx
+	if prepare != nil {
+		phase = "prepare_packages"
+		opCtx, err = prepare(ctx, fullContext)
+		if err != nil {
+			return zero, nil, err
+		}
+	}
 	phase = "prepare_op_input"
 
 	hasGitExecutionReference := containsGitExecutionReference(req.Input)
@@ -449,6 +463,7 @@ func (t opExecutor) doLogged(ctx context.Context, jobTool ops.JobTool, req Activ
 		}
 		defer broker.Close()
 		ctx = childbroker.WithLocalSubmitter(ctx, broker)
+		opCtx = childbroker.WithLocalSubmitter(opCtx, broker)
 		protectedEnv = jobcontext.MergeProtectedEnv(protectedEnv, broker.Env())
 	}
 
@@ -511,11 +526,14 @@ func (t opExecutor) doLogged(ctx context.Context, jobTool ops.JobTool, req Activ
 			unset = append(unset, name)
 		}
 	}
-	ctx = process.WithUnsetEnv(ctx, unset)
+	opCtx = process.WithUnsetEnv(opCtx, unset)
 	// Execute operation with HYDRATED input (sentinels replaced)
 	phase = "invoke_op"
+	if err := opCtx.Err(); err != nil {
+		return zero, nil, err
+	}
 	logger.Debug("Op body started", "event", "op.body.started")
-	outputData, stepErr := reg.Step.Invoke(opDeps, ctx, hydratedInput)
+	outputData, stepErr := reg.Step.Invoke(opDeps, opCtx, hydratedInput)
 	phase = "process_op_output"
 	stepErr = session.Error(stepErr)
 	if err := session.CheckOutput(outputData); err != nil {

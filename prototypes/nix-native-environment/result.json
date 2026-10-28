@@ -1,0 +1,24 @@
+{
+  "image": "nixos/nix:2.35.1",
+  "nixpkgs_revision": "b6018f87da91d19d0ab4cf979885689b469cdd41",
+  "checks": {
+    "substitution_only_inputs": true,
+    "print_dev_env_requires_capture_build": true,
+    "activation_without_shell_build": true,
+    "compiler_hooks_without_pkg_config_flags": true,
+    "runtime_without_ld_library_path": true,
+    "library_without_bin": true,
+    "missing_rejected_without_build": true,
+    "missingLocal_rejected_without_build": true,
+    "warm_no_manager_calls": true,
+    "retained_outputs_survive_gc": true,
+    "no_ambient_environment_mutation": true
+  },
+  "system": "aarch64-linux",
+  "cold_probe": "3.6.2\n1.3.2\nPASS: OpenSSL=OpenSSL 3.6.2 7 Apr 2026; zlib=1.3.2; SHA256 bytes=32; compression round-trip OK\n",
+  "direct_link_probe": "PASS: OpenSSL=OpenSSL 3.6.2 7 Apr 2026; zlib=1.3.2; SHA256 bytes=32; compression round-trip OK\n",
+  "runtime_without_activation": "PASS: OpenSSL=OpenSSL 3.6.2 7 Apr 2026; zlib=1.3.2; SHA256 bytes=32; compression round-trip OK\n",
+  "warm_probe": "3.6.2\n1.3.2\nPASS: OpenSSL=OpenSSL 3.6.2 7 Apr 2026; zlib=1.3.2; SHA256 bytes=32; compression round-trip OK\n",
+  "after_gc_probe": "3.6.2\n1.3.2\nPASS: OpenSSL=OpenSSL 3.6.2 7 Apr 2026; zlib=1.3.2; SHA256 bytes=32; compression round-trip OK\n",
+  "seconds": 49.381
+}

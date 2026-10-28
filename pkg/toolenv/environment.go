@@ -1,5 +1,5 @@
-// Package toolenv prepares retained, version-isolated CLI installations. It never
-// installs tools from the timed operation path or changes the process environment.
+// Package toolenv prepares retained, version-isolated packages and native build
+// environments. Preparation never changes the worker's process environment.
 package toolenv
 
 import (
@@ -29,6 +29,7 @@ type Tool struct {
 	Executables []string `json:"executables"`
 	Main        string   `json:"main,omitempty"`
 	Identity    string   `json:"identity"`
+	Nix         *nixTool `json:"nix,omitempty"`
 }
 
 type ToolDiagnostic struct {
@@ -40,15 +41,24 @@ type ToolDiagnostic struct {
 }
 
 type Diagnostics struct {
-	TaskOrdinal *int64           `json:"task_ordinal,omitempty"`
-	WallMS      int64            `json:"wall_ms"`
-	Tools       []ToolDiagnostic `json:"tools,omitempty"`
-	Error       string           `json:"error,omitempty"`
+	TaskOrdinal *int64                `json:"task_ordinal,omitempty"`
+	WallMS      int64                 `json:"wall_ms"`
+	Tools       []ToolDiagnostic      `json:"tools,omitempty"`
+	Error       string                `json:"error,omitempty"`
+	Repository  *RepositoryDiagnostic `json:"repository,omitempty"`
+	Native      *NativeDiagnostic     `json:"native,omitempty"`
 }
 
 type Environment struct {
-	Path  string `json:"path"`
-	Tools []Tool `json:"tools"`
+	Path      string             `json:"path"`
+	Tools     []Tool             `json:"tools"`
+	Variables map[string]string  `json:"variables,omitempty"`
+	Native    *nativeEnvironment `json:"native,omitempty"`
+}
+
+// Bind applies both executable selection and native activation to one op.
+func (e Environment) Bind(ctx context.Context) context.Context {
+	return process.WithToolEnvironment(ctx, e.Path, e.Variables)
 }
 
 // Manager owns only a local cache. Providers can retain/mount Root at the same
@@ -122,6 +132,13 @@ func (m *Manager) Prepare(ctx context.Context, scopes []Scope) (env Environment,
 			bindings[name] = p
 		}
 	}
+	env.Native, diag.Native, err = m.prepareNative(ctx, env.Tools)
+	if err != nil {
+		return
+	}
+	if env.Native != nil {
+		env.Variables = env.Native.Variables
+	}
 	// Bindings have stable paths; publication is protected across worker processes.
 	dir := filepath.Join(m.Root, "bindings", key(struct {
 		Scopes []Scope
@@ -154,6 +171,14 @@ func (m *Manager) Prepare(ctx context.Context, scopes []Scope) (env Environment,
 }
 
 func toolReady(t Tool) bool {
+	if t.Nix != nil {
+		if !rootsReady(t.Nix.Roots) {
+			return false
+		}
+		if len(t.Executables) == 0 {
+			return true
+		}
+	}
 	if t.Bin == "" {
 		return false
 	}
@@ -182,6 +207,9 @@ func (e Environment) Ready() bool {
 			return false
 		}
 	}
+	if e.Native != nil && !e.Native.ready() {
+		return false
+	}
 	return true
 }
 
@@ -193,7 +221,11 @@ func (m *Manager) prepareTool(ctx context.Context, ref string) (Tool, bool, erro
 	if err != nil {
 		return Tool{}, false, err
 	}
-	id := key([]string{"v1", runtime.GOOS, runtime.GOARCH, ref})
+	version := "v1"
+	if manager == "nix" {
+		version = "nix-v2"
+	}
+	id := key([]string{version, runtime.GOOS, runtime.GOARCH, ref})
 	dir := filepath.Join(m.Root, "packages", id)
 	if err = os.MkdirAll(filepath.Dir(dir), 0700); err != nil {
 		return Tool{}, false, err
@@ -239,13 +271,15 @@ func (m *Manager) prepareTool(ctx context.Context, ref string) (Tool, bool, erro
 			_, err = run([]string{"pnpm", "add", "--save-exact", "--", spec}, map[string]string{"CI": "true"})
 		}
 	case "nix":
-		t.Bin = filepath.Join(dir, "result", "bin")
-		_, err = run(nixSetupCommand("build", "--out-link", filepath.Join(dir, "result"), "--", spec), nil)
+		err = prepareNixTool(ctx, dir, spec, &t)
 	}
 	if err != nil {
 		return Tool{}, false, err
 	}
 	entries, err := os.ReadDir(t.Bin)
+	if manager == "nix" && os.IsNotExist(err) {
+		entries, err = nil, nil
+	}
 	if err != nil {
 		return Tool{}, false, fmt.Errorf("%s exports no tool directory: %w", ref, err)
 	}
@@ -254,18 +288,13 @@ func (m *Manager) prepareTool(ctx context.Context, ref string) (Tool, bool, erro
 			t.Executables = append(t.Executables, entry.Name())
 		}
 	}
-	if len(t.Executables) == 0 {
+	if len(t.Executables) == 0 && manager != "nix" {
 		return Tool{}, false, fmt.Errorf("%s exports no executables", ref)
 	}
 	if manager == "nix" {
 		if len(t.Executables) == 1 {
 			t.Main = t.Executables[0]
 		} else {
-			// meta.mainProgram is the native nix run selection for multi-binary packages.
-			out, e := run(nixSetupCommand("eval", "--raw", spec+".meta.mainProgram"), nil)
-			if e == nil {
-				t.Main = strings.TrimSpace(string(out))
-			}
 			if t.Main == "" {
 				_, attr, _ := strings.Cut(spec, "#")
 				parts := strings.Split(attr, ".")
@@ -277,6 +306,7 @@ func (m *Manager) prepareTool(ctx context.Context, ref string) (Tool, bool, erro
 				}
 			}
 		}
+		t.Nix.Activate = t.Nix.Activate || len(t.Executables) == 0 || nativeLayout(t.Nix.Input)
 	}
 	if t.Main != "" {
 		found := false
@@ -306,6 +336,7 @@ func nixSetupCommand(args ...string) []string {
 	return append([]string{
 		"nix", "--extra-experimental-features", "nix-command flakes",
 		"--max-jobs", "0", "--builders", "",
+		"--option", "allow-import-from-derivation", "false",
 	}, args...)
 }
 

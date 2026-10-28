@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/colony-2/c2j/pkg/config"
 	"github.com/colony-2/c2j/pkg/configuration"
 	coreops "github.com/colony-2/c2j/pkg/ops"
 	extops "github.com/colony-2/c2j/pkg/ops/extensions"
@@ -99,6 +100,43 @@ func PrepareInvocation(ctx context.Context, inv *ActivityInvocationRequest, prep
 		return err
 	}
 	return InstallInvocation(ctx, inv, req, prepareTools)
+}
+
+// InstallWorkspaceInvocation is shared by live workers and recipe-test
+// passthrough. Call only after restoring/materializing the consuming workspace.
+func InstallWorkspaceInvocation(ctx context.Context, inv *ActivityInvocationRequest, req ToolSetupRequest, root string, prepareTools func(context.Context, ToolSetupRequest) ToolSetupResult) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	start := time.Now()
+	source, err := config.LoadWorkspacePackages(root)
+	scope := "repository:root"
+	if ws := inv.GitTaskContext.Workspace; ws != nil && ws.ScopeID != "" {
+		scope = "repository:" + ws.ScopeID
+	}
+	snapshot := inv.GitTaskContext.PersistHash
+	if snapshot == "" {
+		snapshot = inv.GitTaskContext.ResolvedBaseHash
+	}
+	provenance := &toolenv.RepositoryDiagnostic{PackageSource: source, Scope: scope, Repository: inv.GitTaskContext.BaseRepo, Snapshot: snapshot}
+	if err != nil {
+		inv.Setup = &ToolSetupResult{Diagnostics: toolenv.Diagnostics{Repository: provenance, Error: err.Error(), WallMS: time.Since(start).Milliseconds()}}
+		return fmt.Errorf("repository package setup failed: %w", err)
+	}
+	if len(source.Packages) > 0 {
+		req.Scopes = append([]toolenv.Scope{{ID: scope, Packages: source.Packages}}, req.Scopes...)
+	}
+	readMS := time.Since(start).Milliseconds()
+	err = InstallInvocation(ctx, inv, req, prepareTools)
+	if inv.Setup == nil {
+		inv.Setup = &ToolSetupResult{}
+	}
+	inv.Setup.Diagnostics.Repository = provenance
+	inv.Setup.Diagnostics.WallMS += readMS
+	if err == nil {
+		err = ctx.Err()
+	}
+	return err
 }
 
 func InstallInvocation(ctx context.Context, inv *ActivityInvocationRequest, req ToolSetupRequest, prepareTools func(context.Context, ToolSetupRequest) ToolSetupResult) error {

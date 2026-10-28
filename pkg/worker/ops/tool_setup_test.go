@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"github.com/colony-2/c2j/pkg/contextual"
+	"github.com/colony-2/c2j/pkg/git/gitstate"
+	coreops "github.com/colony-2/c2j/pkg/ops"
 	extops "github.com/colony-2/c2j/pkg/ops/extensions"
 	"github.com/colony-2/c2j/pkg/permissions"
 	"github.com/colony-2/c2j/pkg/secrets"
@@ -32,9 +34,13 @@ func TestExtensionResolutionFailure(t *testing.T) {
 }
 
 func TestPreparationFailureAttachesOutcomeDiagnostics(t *testing.T) {
+	baseRepo, baseHash, cleanup := setupGitRepo(t)
+	defer cleanup()
 	inv := ActivityInvocationRequest{Input: map[string]any{}, Preparation: PreparationRequest{Scopes: []toolenv.Scope{{ID: "test", Packages: []string{"unsupported:tool"}}}}}
-	worker := taskWorker{}
-	data, err := worker.RunTask(deniedTaskContext(t, jobworkflow.TaskContext{Step: 7}), jobworkflow.TaskContext{Step: 7}, jobdb.NewTaskDataOrPanic(inv))
+	inv.GitTaskContext = gitstate.GlobalGitTaskContext{BaseRepo: baseRepo, BaseRef: baseHash}
+	worker := taskWorker{doer: &opExecutor{deps: coreops.NewServiceDepsBuilder().Build(), controller: gitstate.NewController(nil)}}
+	tc := jobworkflow.NewTaskContext(jobdb.JobKey{TenantId: "test", JobId: "prep"}, 7, nil, nil, nil)
+	data, err := worker.RunTask(deniedTaskContext(t, tc), tc, jobdb.NewTaskDataOrPanic(inv))
 	require.ErrorContains(t, err, "unsupported package prefix")
 	require.NotNil(t, data)
 	artifacts, err := data.GetArtifacts()

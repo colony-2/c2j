@@ -94,7 +94,8 @@ records the full Git commit when known. Release and Nix builds stamp both values
 even with Go's VCS stamping disabled. Applications embedding c2j report its Go
 dependency version; they can supply provenance overrides when registering workers.
 
-See [Execution tools](EXECUTION_TOOLS.md) for lazy pnpm, Nix, and uv tool dependencies and provider-owned cache storage.
+See [Execution tools](EXECUTION_TOOLS.md) for repository `packages` in `.c2/config.yaml`,
+pnpm/uv tools, Nix native libraries, and provider-owned cache storage.
 See [Extension ops](EXTENSION_OPS.md) for authoring, publishing, and invoking prebuilt Nix ops.
 
 ## Nix package

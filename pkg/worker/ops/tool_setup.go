@@ -81,6 +81,7 @@ func PrepareTools(ctx context.Context, req ToolSetupRequest) ToolSetupResult {
 			result.Environment = &env
 			result.Diagnostics.Tools = append(result.Diagnostics.Tools, diag.Tools...)
 			result.Diagnostics.Error = diag.Error
+			result.Diagnostics.Native = diag.Native
 		}
 	}
 	result.Duration = time.Since(start)

@@ -103,9 +103,34 @@ Submission captures effective cell naming settings for node selectors. Workers d
 
 ## Operation Execution Environment
 
+Declare repository dependencies in the existing `.c2/config.yaml`:
+
+```yaml
+packages:
+  - nix:nixpkgs#go
+  - nix:nixpkgs#openssl
+  - pnpm:typescript@5.8.3
+  - uv:ruff==0.11.2
+```
+
+These use the same references as recipe `execution.packages`, node
+`execution_needs.packages`, and op `dependencies`. Pin versions and Nix revisions
+for repeatable resolution. c2j reads the active workspace's restored config
+before each live task, installs through the shared cache, and exposes executables
+and Nix native-library build variables to the operation and its subprocesses.
+Recipe/node/op declarations take precedence for executable selection. Cached
+replay and fully mocked recipe tests skip discovery and installation.
+
+Nix supports libraries with no executables, including development headers,
+compiler wrappers, and pkg-config discovery. pnpm/uv declarations supply isolated
+CLI applications, not project import environments. Repository specs must be
+portable registry or remote references; local paths and symlinked configs fail.
+See [Execution tools](https://github.com/colony-2/c2j/blob/main/EXECUTION_TOOLS.md)
+for scope rules, native-library support, and cache/provider requirements.
+
 Commands and extensions run directly in the worker environment. c2j does not
 read `.shai/config.yaml` or create a container per operation. Provision required
-images, tools, mounts, environment variables, and isolation externally before
+images, package managers, mounts, environment variables, and isolation externally before
 starting the worker. Remove former generic `sandbox` inputs and forwarding
 parameters when migrating recipes; see [breaking release notes](https://github.com/colony-2/c2j/blob/main/RELEASE-NOTES-Remove-Op-Sandboxing.md).
 

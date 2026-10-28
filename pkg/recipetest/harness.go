@@ -23,7 +23,6 @@ import (
 	"github.com/colony-2/c2j/pkg/input/formdefaults"
 	coreops "github.com/colony-2/c2j/pkg/ops"
 	extops "github.com/colony-2/c2j/pkg/ops/extensions"
-	"github.com/colony-2/c2j/pkg/ops/process"
 	recipecore "github.com/colony-2/c2j/pkg/recipe"
 	"github.com/colony-2/c2j/pkg/redact"
 	"github.com/colony-2/c2j/pkg/secrets"
@@ -1143,7 +1142,8 @@ func (j *testJobContext) runPassthroughTask(ctx context.Context, taskType string
 	if configuration.Contains(inv.Input) {
 		return passthroughRecord{}, fmt.Errorf("config inputs require a lease-backed job execution; use a mocked return for this recipe test")
 	}
-	if err := workerops.PrepareInvocation(ctx, &inv, j.prepareTools); err != nil {
+	setupRequest, err := workerops.ResolveInvocation(ctx, &inv)
+	if err != nil {
 		return passthroughRecord{}, err
 	}
 
@@ -1185,6 +1185,9 @@ func (j *testJobContext) runPassthroughTask(ctx context.Context, taskType string
 	if err := ensureRecipeTestOperationDirs(operationPaths); err != nil {
 		return passthroughRecord{}, err
 	}
+	if err := workerops.InstallWorkspaceInvocation(ctx, &inv, setupRequest, operationPaths.WorktreePath, j.prepareTools); err != nil {
+		return passthroughRecord{}, err
+	}
 	if err := resetRecipeTestDir(operationPaths.Inbox); err != nil {
 		return passthroughRecord{}, err
 	}
@@ -1222,7 +1225,7 @@ func (j *testJobContext) runPassthroughTask(ctx context.Context, taskType string
 
 	if inv.Setup != nil {
 		if inv.Setup.Environment != nil {
-			ctx = process.WithToolPath(ctx, inv.Setup.Environment.Path)
+			ctx = inv.Setup.Environment.Bind(ctx)
 		}
 		if inv.Setup.Extension != nil {
 			ctx = extops.WithPreparedOp(ctx, inv.Setup.Extension)

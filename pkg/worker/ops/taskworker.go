@@ -9,9 +9,9 @@ import (
 
 	"github.com/colony-2/c2j/pkg/configuration"
 	"github.com/colony-2/c2j/pkg/contextual"
+	"github.com/colony-2/c2j/pkg/git/gitstate"
 	"github.com/colony-2/c2j/pkg/ops"
 	extops "github.com/colony-2/c2j/pkg/ops/extensions"
-	"github.com/colony-2/c2j/pkg/ops/process"
 	"github.com/colony-2/c2j/pkg/permissions"
 	"github.com/colony-2/c2j/pkg/secrets"
 	coretask "github.com/colony-2/c2j/pkg/task"
@@ -87,7 +87,7 @@ func (t *taskWorker) RunTask(local context.Context, ctx jobworkflow.TaskContext,
 	var prepMS int64
 	var prepared bool
 	defer func() {
-		if runErr == nil || (air.Preparation.Extension == nil && len(air.Preparation.Scopes) == 0 && configDiag == nil && !configuration.Contains(air.Input) && !secrets.Contains(air.Input)) {
+		if runErr == nil || (air.Setup == nil && air.Preparation.Extension == nil && len(air.Preparation.Scopes) == 0 && configDiag == nil && !configuration.Contains(air.Input) && !secrets.Contains(air.Input)) {
 			return
 		}
 		if !prepared {
@@ -183,9 +183,6 @@ func (t *taskWorker) RunTask(local context.Context, ctx jobworkflow.TaskContext,
 	if err := inputAccess.CheckSecrets(names); err != nil {
 		return nil, err
 	}
-	if err := InstallInvocation(opCtx, &air, req, PrepareTools); err != nil {
-		return nil, err
-	}
 	secretStart := time.Now()
 	if len(refs) > 0 {
 		err := session.PrepareReferences(opCtx, refs, func(ctx context.Context, names []string) (jobdb.SecretResolveResult, error) {
@@ -197,21 +194,27 @@ func (t *taskWorker) RunTask(local context.Context, ctx jobworkflow.TaskContext,
 		}
 	}
 	opCtx = secrets.WithSession(opCtx, session)
-	if air.Setup != nil {
-		if air.Setup.Environment != nil {
-			opCtx = process.WithToolPath(opCtx, air.Setup.Environment.Path)
-		}
-		if air.Setup.Extension != nil {
-			opCtx = extops.WithPreparedOp(opCtx, air.Setup.Extension)
-		}
-	}
-	prepMS = time.Since(prepStart).Milliseconds()
-	prepared = true
 	if err := opCtx.Err(); err != nil {
 		return nil, err
 	}
 	jobTool := &ops.TaskBasedJobTool{TaskContext: ctx, Restricted: access}
-	out, outArt, err := t.doer.doLogged(opCtx, jobTool, air, inArt, logger)
+	out, outArt, err := t.doer.doPrepared(opCtx, jobTool, air, inArt, logger, func(bodyCtx context.Context, restored *gitstate.GitTaskContext) (context.Context, error) {
+		air.GitTaskContext = *restored.GlobalGitTaskContext
+		if err := InstallWorkspaceInvocation(bodyCtx, &air, req, restored.WorktreePath, PrepareTools); err != nil {
+			return bodyCtx, err
+		}
+		if air.Setup != nil {
+			if air.Setup.Environment != nil {
+				bodyCtx = air.Setup.Environment.Bind(bodyCtx)
+			}
+			if air.Setup.Extension != nil {
+				bodyCtx = extops.WithPreparedOp(bodyCtx, air.Setup.Extension)
+			}
+		}
+		prepMS = time.Since(prepStart).Milliseconds()
+		prepared = true
+		return bodyCtx, nil
+	})
 	out.PreparationMS = prepMS
 	out.SecretSetupMS = air.SecretSetupMS
 	out.Configuration = configDiag

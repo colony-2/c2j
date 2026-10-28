@@ -33,13 +33,15 @@ type CellInfo struct {
 }
 
 type SelfInfo struct {
-	ShortName string `json:"short_name"`
-	Repo      string `json:"repo"`
-	JobDB     string `json:"jobdb"`
-	Ref       string `json:"ref"`
-	RootRepo  string `json:"root_repo"`
-	RootRef   string `json:"root_ref"`
-	Pattern   string `json:"pattern"`
+	Packages   []string `json:"packages,omitempty"`
+	ConfigPath string   `json:"config_path,omitempty"`
+	ShortName  string   `json:"short_name"`
+	Repo       string   `json:"repo"`
+	JobDB      string   `json:"jobdb"`
+	Ref        string   `json:"ref"`
+	RootRepo   string   `json:"root_repo"`
+	RootRef    string   `json:"root_ref"`
+	Pattern    string   `json:"pattern"`
 }
 
 func RunCells(ctx context.Context, opts CellsOptions) error {
@@ -134,13 +136,15 @@ func RunSelf(ctx context.Context, opts SelfOptions) error {
 	shortName, _ := cfg.CellNameFromRepo(ctx, repo)
 
 	info := SelfInfo{
-		ShortName: strings.TrimSpace(shortName),
-		Repo:      strings.TrimSpace(repo),
-		JobDB:     strings.TrimSpace(jobdb),
-		Ref:       strings.TrimSpace(ref),
-		RootRepo:  strings.TrimSpace(rootRepo),
-		RootRef:   strings.TrimSpace(rootRef),
-		Pattern:   strings.TrimSpace(pattern),
+		Packages:   cfg.Packages(),
+		ConfigPath: cfg.Path(),
+		ShortName:  strings.TrimSpace(shortName),
+		Repo:       strings.TrimSpace(repo),
+		JobDB:      strings.TrimSpace(jobdb),
+		Ref:        strings.TrimSpace(ref),
+		RootRepo:   strings.TrimSpace(rootRepo),
+		RootRef:    strings.TrimSpace(rootRef),
+		Pattern:    strings.TrimSpace(pattern),
 	}
 
 	if opts.JSONOutput {
@@ -162,6 +166,8 @@ func RunSelf(ctx context.Context, opts SelfOptions) error {
 		{name: "root_repo", value: displayValue(info.RootRepo)},
 		{name: "root_ref", value: displayValue(info.RootRef)},
 		{name: "pattern", value: displayValue(info.Pattern)},
+		{name: "packages", value: displayValue(strings.Join(info.Packages, ", "))},
+		{name: "config_path", value: displayValue(info.ConfigPath)},
 	} {
 		if _, err := fmt.Fprintf(w, "%s\t%s\n", field.name, field.value); err != nil {
 			return err

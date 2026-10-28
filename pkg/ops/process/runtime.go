@@ -17,6 +17,9 @@ import (
 )
 
 type RunRequest struct {
+	// CleanEnv is for preparation subprocesses that must not inherit worker state.
+	// Commands in this mode must use an absolute executable path.
+	CleanEnv      bool
 	WorkspaceRoot string
 	WorkingDir    string
 	Shell         string
@@ -57,13 +60,24 @@ func ExecuteProcess(ctx context.Context, req RunRequest) (stdout, stderr []byte,
 }
 
 func executeOnHost(ctx context.Context, req RunRequest, workingDir string) ([]byte, []byte, error) {
-	req.Env = withContextEnv(ctx, req.Env)
+	if !req.CleanEnv {
+		req.Env = withContextEnv(ctx, req.Env)
+	}
 	cmd, err := buildExecCommand(req)
 	if err != nil {
 		return nil, nil, err
 	}
 	cmd.Dir = workingDir
 	cmd.Env = BuildProcessEnv(req.Env)
+	if req.CleanEnv {
+		if !filepath.IsAbs(cmd.Path) {
+			return nil, nil, fmt.Errorf("clean environment requires an absolute executable")
+		}
+		cmd.Env = []string{}
+		for k, v := range req.Env {
+			cmd.Env = append(cmd.Env, k+"="+v)
+		}
+	}
 	unset, _ := ctx.Value(unsetEnvKey{}).([]string)
 	for _, name := range unset {
 		filtered := cmd.Env[:0]
@@ -78,7 +92,9 @@ func executeOnHost(ctx context.Context, req RunRequest, workingDir string) ([]by
 		// Input bytes are independent of the protected execution environment.
 		cmd.Stdin = bytes.NewReader(req.Stdin)
 	}
-	cmd.Env = gitprofile.Env(ctx, cmd.Env)
+	if !req.CleanEnv {
+		cmd.Env = gitprofile.Env(ctx, cmd.Env)
+	}
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
@@ -145,6 +161,9 @@ func buildExecCommand(req RunRequest) (*exec.Cmd, error) {
 	if err != nil {
 		return nil, err
 	}
+	if req.CleanEnv && !filepath.IsAbs(argv[0]) {
+		return nil, fmt.Errorf("clean environment requires an absolute executable")
+	}
 	if !strings.ContainsRune(argv[0], os.PathSeparator) && req.Env["PATH"] != "" {
 		for _, dir := range filepath.SplitList(req.Env["PATH"]) {
 			if dir == "" {
@@ -198,18 +217,49 @@ func ContainsOpVisibleSentinel(value interface{}) bool {
 
 // WithToolPath binds tools to one invocation, without mutating os.Environ.
 func WithToolPath(ctx context.Context, path string) context.Context {
-	return context.WithValue(ctx, toolPathKey{}, path)
+	return WithToolEnvironment(ctx, path, nil)
 }
 
 type toolPathKey struct{}
 
+type toolEnvironment struct {
+	path      string
+	variables map[string]string
+}
+
+// WithToolEnvironment binds native activation and executable selection only to
+// this invocation. Explicit op variables override activation scalar defaults.
+func WithToolEnvironment(ctx context.Context, path string, variables map[string]string) context.Context {
+	copy := make(map[string]string, len(variables))
+	for k, v := range variables {
+		copy[k] = v
+	}
+	return context.WithValue(ctx, toolPathKey{}, toolEnvironment{path, copy})
+}
+
 func withContextEnv(ctx context.Context, env map[string]string) map[string]string {
-	path, _ := ctx.Value(toolPathKey{}).(string)
-	if path == "" {
+	tools, ok := ctx.Value(toolPathKey{}).(toolEnvironment)
+	if !ok {
 		return env
 	}
-	out := BuildProcessEnvMap(env)
-	out["PATH"] = path + string(os.PathListSeparator) + out["PATH"]
+	out := BuildProcessEnvMap(nil)
+	basePath := out["PATH"]
+	for k, v := range tools.variables {
+		out[k] = v
+	}
+	for k, v := range env {
+		out[k] = v
+	}
+	if path, ok := env["PATH"]; ok {
+		basePath = path
+	}
+	var paths []string
+	for _, path := range []string{tools.path, tools.variables["PATH"], basePath} {
+		if path != "" {
+			paths = append(paths, path)
+		}
+	}
+	out["PATH"] = strings.Join(paths, string(os.PathListSeparator))
 	return out
 }
 

@@ -25,13 +25,12 @@ printf '%s\n' "$spec" >> "$TOOL_INSTALL_LOG"
 case "${0##*/}" in
  uv) bin=$UV_TOOL_BIN_DIR;;
  pnpm) bin=$PWD/node_modules/.bin;;
- nix) while [ "$1" != --out-link ]; do shift; done; bin=$2/bin;;
 esac
 mkdir -p "$bin"
 printf '#!/bin/sh\nprintf "%%s\\n" %s\n' "'$spec'" > "$bin/tool"
 chmod +x "$bin/tool"
 `
-	for _, name := range []string{"uv", "pnpm", "nix"} {
+	for _, name := range []string{"uv", "pnpm"} {
 		require.NoError(t, os.WriteFile(filepath.Join(bin, name), []byte(script), 0700))
 	}
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
@@ -41,11 +40,11 @@ chmod +x "$bin/tool"
 func TestVersionsScopeSelectionAndOfflineReuse(t *testing.T) {
 	log := fakeManagers(t)
 	m := Manager{Root: t.TempDir()}
-	scopes := []Scope{{ID: "recipe", Packages: []string{"uv:tool==1"}}, {ID: "op", Packages: []string{"uv:tool==2", "pnpm:tool@3", "nix:nixpkgs#tool"}}}
+	scopes := []Scope{{ID: "recipe", Packages: []string{"uv:tool==1"}}, {ID: "op", Packages: []string{"uv:tool==2", "pnpm:tool@3"}}}
 	env, diag, err := m.Prepare(context.Background(), scopes)
 	require.NoError(t, err)
 	require.True(t, env.Ready())
-	require.Len(t, diag.Tools, 4)
+	require.Len(t, diag.Tools, 3)
 	ctx := process.WithToolPath(context.Background(), env.Path)
 	for _, tc := range []struct {
 		command []string
@@ -54,7 +53,6 @@ func TestVersionsScopeSelectionAndOfflineReuse(t *testing.T) {
 		{[]string{"uvx", "--from", "tool==1", "tool"}, "tool==1"},
 		{[]string{"uvx", "--from", "tool==2", "tool"}, "tool==2"},
 		{[]string{"pnpm", "--package=tool@3", "dlx", "tool"}, "tool@3"},
-		{[]string{"nix", "run", "nixpkgs#tool", "--"}, "nixpkgs#tool"},
 	} {
 		out, stderr, err := process.ExecuteProcess(ctx, process.RunRequest{Command: tc.command})
 		require.NoError(t, err, string(stderr))
@@ -116,30 +114,26 @@ func TestConcurrentPreparationFailureAndCacheLoss(t *testing.T) {
 	require.Equal(t, "failed", diag.Tools[0].Outcome)
 }
 
-func TestNixPrebuiltOnlySetup(t *testing.T) {
+func TestNixPrebuiltOnlyFailure(t *testing.T) {
 	bin := t.TempDir()
-	// Model a binary-cache hit and miss. Both realization and main-program
-	// evaluation must disable local and remote builds, including inherited ones.
+	// Both metadata evaluation and realization must override ambient build
+	// policy. Real binary-cache hits and qualified execution are tested in Docker.
 	script := `#!/bin/sh
 set -eu
 [ "$1" = --extra-experimental-features ]; shift 2
 [ "$1" = --max-jobs ] && [ "$2" = 0 ]; shift 2
 [ "$1" = --builders ] && [ -z "$2" ]; shift 2
+[ "$1" = --option ] && [ "$2" = allow-import-from-derivation ] && [ "$3" = false ]; shift 3
 case "$1" in
  build)
   [ "$2" = --out-link ]
-  if [ "$5" = 'nixpkgs#missing' ]; then
-   echo 'no prebuilt output available; builds disabled' >&2
-   exit 1
-  fi
-  mkdir -p "$3/bin"
-  printf '#!/bin/sh\necho prebuilt\n' > "$3/bin/tool"
-  cp "$3/bin/tool" "$3/bin/other"
-  chmod +x "$3/bin/tool" "$3/bin/other"
+  [ "$5" = '/nix/store/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-missing.drv^out' ]
+  echo 'no prebuilt output available; builds disabled' >&2
+  exit 1
   ;;
  eval)
-  [ "$2" = --raw ] && [ "$3" = 'nixpkgs#available.meta.mainProgram' ]
-  echo tool
+  [ "$2" = --json ] && [ "$3" = --apply ] && [ "$6" = 'nixpkgs#missing' ]
+  echo '{"drv":"/nix/store/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-missing.drv","input":"/nix/store/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-missing","bin":"/nix/store/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-missing","outputs":{"out":"/nix/store/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-missing"}}'
   ;;
  *) exit 2;;
 esac
@@ -147,16 +141,12 @@ esac
 	require.NoError(t, os.WriteFile(filepath.Join(bin, "nix"), []byte(script), 0700))
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 	m := Manager{Root: t.TempDir()}
-	env, _, err := m.Prepare(context.Background(), []Scope{{ID: "op", Packages: []string{"nix:nixpkgs#available"}}})
-	require.NoError(t, err)
-	require.True(t, env.Ready())
-	require.Equal(t, "tool", env.Tools[0].Main, "metadata evaluation must use the same no-build settings")
 	_, diag, err := m.Prepare(context.Background(), []Scope{{ID: "op", Packages: []string{"nix:nixpkgs#missing"}}})
 	require.ErrorContains(t, err, "no prebuilt output available")
 	require.Equal(t, "failed", diag.Tools[0].Outcome)
 	manifests, err := filepath.Glob(filepath.Join(m.Root, "packages", "*", "ready.json"))
 	require.NoError(t, err)
-	require.Len(t, manifests, 1, "failed setup must not publish an installation")
+	require.Empty(t, manifests, "failed setup must not publish an installation")
 }
 
 // Opt-in smoke test against the same manager commands used in the base image.

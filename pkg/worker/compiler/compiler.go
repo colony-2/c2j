@@ -465,7 +465,7 @@ func (d DefaultRecipeExecutor) executeOpAttempt(ctx workflow.Context, parentReso
 			if ctx.StageNodeExecution != nil {
 				ctx.StageNodeExecution(resCtx.ExecutionNeeds)
 			}
-			out, err := ctx.DoTask(jobworkflow.TaskCall{Site: taskType, TaskType: taskType, ContractVersion: 1, Command: command, Policy: runPolicy, Alternate: taskAlternate}, func(buildContext context.Context) (jobdb.TaskData, error) {
+			out, err := ctx.DoTask(jobworkflow.TaskCall{Site: taskType, TaskType: taskType, ContractVersion: 2, Command: command, Policy: runPolicy, Alternate: taskAlternate}, func(buildContext context.Context) (jobdb.TaskData, error) {
 				buildResolver, err := resCtx.CloneAttempt()
 				if err != nil {
 					return nil, err
