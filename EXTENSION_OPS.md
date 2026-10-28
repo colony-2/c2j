@@ -30,6 +30,32 @@ The attribute `analyze` selects the package for the Nix worker's system, such as
 compatible platforms; cross-platform handoff is not implemented. Explicitly
 selecting a different system's package fails before installation.
 
+### Following latest
+
+Omit the commit to follow the definition repository's default branch, or name
+a branch explicitly:
+
+```yaml
+op: "nix:github:example/op-packages#analyze"       # Default branch
+op: "nix:github:example/op-packages/main#analyze"  # Explicit branch
+```
+
+These are alternative `op:` values; use one in a recipe node. For "latest
+published release," maintain a `release` branch and advance it after publishing
+the packages for all supported architectures. There is no automatic highest
+version or newest-Cachix-upload selection. See [Nix flake reference syntax](https://nix.dev/manual/nix/2.33/command-ref/new-cli/nix3-flake.html).
+
+Each invocation records its resolved manifest and exact package output.
+Installation and replay use that identity even if the branch later moves;
+a fresh resolution can pick up an update.
+
+Nix normally caches mutable references for one hour. To check for updates on
+each fresh resolution, set `tarball-ttl = 0` in the worker's `nix.conf`. c2j uses
+Nix's configured policy; this setting does not invalidate recorded job results
+or downloaded package outputs. See [Nix cache settings](https://nix.dev/manual/nix/2.33/command-ref/conf-file.html#conf-tarball-ttl).
+
+### Other selectors and local execution
+
 Other selector forms are `./ops/analyze` and
 `git+https://github.com/example/ops.git//analyze@<commit>`.
 Use the selector directly in `op:`; Nix package preparation is not supported by
@@ -166,6 +192,35 @@ Even copying a prebuilt binary into a Nix output is a build step: CI must publis
 the finished Nix output. Publishing only the binary at its original release URL
 is insufficient for our prebuilt-only workers.
 
+### Using Cachix
+
+Cachix can host the finished op package and its runtime closure. In the package
+definition checkout, build and publish on each supported architecture's builder
+(with the Cachix CLI installed and a write token configured):
+
+```sh
+nix build .#analyze
+cachix push your-cache ./result
+```
+
+Configure Nix in each execution worker/container to use the cache:
+
+```sh
+cachix use your-cache
+```
+
+This configures the cache URL and trusted signing key. Private caches also need
+read credentials configured before `cachix use`. Alternatively, provision Nix's
+`extra-substituters` and `extra-trusted-public-keys` directly, with credentials
+for private caches. See [Cachix setup and authentication](https://docs.cachix.org/getting-started).
+
+The recipe still references the Nix definition, for example
+`op: "nix:github:example/op-packages/release#analyze"`. Nix obtains the matching
+output from the configured cache when execution needs it. The definition
+repository supplies the manifest through `passthru.c2j`; Cachix supplies the
+package contents. If the exact output is neither installed nor available from
+a configured cache, setup fails because execution workers cannot build it.
+
 ## Additional tools
 
 Declare Nix runtime dependencies in the package definition and bind them in its
@@ -206,8 +261,8 @@ Normal `go test ./...` includes real Nix integration tests in a disposable Docke
 container. They verify that metadata inspection does not fetch the binary,
 publish a package to a test cache, remove it locally, and execute through c2j
 using only the cache. They also cover missing outputs, manifest disagreement,
-invalid inputs, unused branches, setup timing, and replay after removing tools
-and definitions. Docker-dependent tests skip when unavailable or with `-short`.
+invalid inputs, unused branches, and replay after removing tools and definitions.
+Docker-dependent tests skip when unavailable or with `-short`.
 
 Run just the packaged-op integration test with:
 
