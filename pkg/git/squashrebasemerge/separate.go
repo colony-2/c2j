@@ -22,9 +22,10 @@ type SquashOutput struct {
 }
 
 type MergeInput struct {
-	RepoPath       string `json:"repo_path,omitempty" default:"{{ context.environment.worktree_path }}" validate:"required,dir"`
-	UpstreamRepo   string `json:"upstream_repo" default:"{{ context.git.repo }}" validate:"required"`
-	UpstreamBranch string `json:"upstream_branch" default:"{{ context.git.ref }}" validate:"required"`
+	RepoPath         string `json:"repo_path,omitempty" default:"{{ context.environment.worktree_path }}" validate:"required,dir"`
+	UpstreamRepo     string `json:"upstream_repo" default:"{{ context.git.repo }}" validate:"required"`
+	UpstreamBranch   string `json:"upstream_branch" default:"{{ context.git.ref }}" validate:"required"`
+	PreparedBaseHash string `json:"prepared_base_hash,omitempty" validate:"omitempty,hexadecimal,min=7,max=40"`
 }
 
 type MergeOutput struct {
@@ -114,6 +115,9 @@ func executeMerge(inv ops.OpDependencies, ctx context.Context, input MergeInput)
 	source := input.UpstreamRepo
 	if inv != nil && inv.WorktreePath() == input.RepoPath {
 		source = inv.GitContext().BaseRepo
+		if input.PreparedBaseHash == "" && !managedEmptyBase(inv, input.RepoPath) {
+			input.PreparedBaseHash = inv.GitContext().ResolvedBaseHash
+		}
 	}
 	result, err := mergeFrom(ctx, input, managedEmptyBase(inv, input.RepoPath), source)
 	if err != nil {
@@ -155,7 +159,7 @@ func mergeFrom(ctx context.Context, input MergeInput, emptyBase bool, source str
 	if err != nil {
 		return result, err
 	}
-	args := []string{"push"}
+	args := []string{"push", "--porcelain"}
 	if emptyBase {
 		// Receive-pack can create an empty repository on demand. Do not fetch
 		// first; insist the branch is absent (or already at this exact commit).
@@ -163,7 +167,7 @@ func mergeFrom(ctx context.Context, input MergeInput, emptyBase bool, source str
 	} else {
 		published, err := verifyMergeAncestry(ctx, input.RepoPath, source, input.UpstreamRepo, branch, head)
 		if err != nil {
-			return result, err
+			return result, classifyMergeAdvancement(ctx, input, source, "preflight", err)
 		}
 		if published {
 			return MergeOutput{MergedHash: head, TargetBranch: branch}, nil
@@ -173,7 +177,7 @@ func mergeFrom(ctx context.Context, input MergeInput, emptyBase bool, source str
 		args = append(args, "--no-force")
 	}
 	args = append(args, "--", input.UpstreamRepo, head+":"+branch)
-	if _, err := common.ExecuteGitCommand(ctx, input.RepoPath, args...); err != nil {
+	if stdout, stderr, err := pushMergeCandidate(ctx, input.RepoPath, args); err != nil {
 		// A rejected/lost response may follow successful publication. This also
 		// handles an initial publication followed by another writer's commit.
 		// Initial creation must reach receive-pack before any read-side lookup.
@@ -182,6 +186,15 @@ func mergeFrom(ctx context.Context, input MergeInput, emptyBase bool, source str
 		}
 		if emptyBase {
 			return result, fmt.Errorf("publish initial branch %s (destination must be absent or contain the saved candidate): %w", branch, err)
+		}
+		if ctx.Err() == nil && pushRejectedForAdvancement(stdout, stderr, head, branch) {
+			published, ancestryErr := verifyMergeAncestry(ctx, input.RepoPath, source, input.UpstreamRepo, branch, head)
+			if published && ancestryErr == nil {
+				return MergeOutput{MergedHash: head, TargetBranch: branch}, nil
+			}
+			if classified := classifyMergeAdvancement(ctx, input, source, "push", ancestryErr); isMergeAdvancement(classified) {
+				return result, classified
+			}
 		}
 		return result, fmt.Errorf("publish prepared commit to %s: %w", branch, err)
 	}

@@ -1,0 +1,4 @@
+interface:
+  display_name: "c2j Recipes"
+  short_description: "Author, validate, and run c2j recipes"
+  default_prompt: "Use $c2j-recipes to write and validate a c2j recipe."
