@@ -8,14 +8,13 @@ resources:
       - source: MOON_TOOLCHAIN_FORCE_GLOBALS
       - source: ANTHROPIC_API_KEY
       - source: GEMINI_API_KEY
-    options:
-      privileged: true
     calls:
       - name: uname
         command: uname -a
     mounts:
-      - source: /src/colony2
-        target: /colony2
+      - source: /src/recipes/
+        target: /recipes
+        mode: rw
       - source: ${{ env.HOME }}/shaihome
         target: /home/shai/
         mode: rw
@@ -25,33 +24,6 @@ resources:
       - source: ${{ env.HOME }}/.cache/go-mod
         target: /home/shai/go/mod
         mode: rw
-      - source: /src/recipes
-        target: /recipes
-    root-commands:
-      - |
-        socket="/var/run/docker.sock"
-
-        # Initial quick check
-        if [ ! -S "$socket" ]; then
-          sleep 0.2
-          if [ ! -S "$socket" ]; then
-            echo "Waiting for $socket..."
-
-            # Now loop for the remainder of the 2s (approx 1.7s left)
-            count=0
-            while [ ! -S "$socket" ] && [ $count -lt 18 ]; do
-              sleep 0.1
-              ((count++))
-            done
-          fi
-        fi
-
-        if [ -S "$socket" ]; then
-          chmod 666 "$socket"
-        else
-          echo "Docker socket not available within 2s" >&2
-          exit 1
-        fi
     http:
       - openai.com
       - api.openai.com
@@ -125,6 +97,33 @@ resources:
     ports:
       - host: github.com
         port: 22
+    options:
+      privileged: true
+    root-commands:
+      - |
+        socket="/var/run/docker.sock"
+
+        # Initial quick check
+        if [ ! -S "$socket" ]; then
+          sleep 0.2
+          if [ ! -S "$socket" ]; then
+            echo "Waiting for $socket..."
+
+            # Now loop for the remainder of the 2s (approx 1.7s left)
+            count=0
+            while [ ! -S "$socket" ] && [ $count -lt 18 ]; do
+              sleep 0.1
+              ((count++))
+            done
+          fi
+        fi
+
+        if [ -S "$socket" ]; then
+          chmod 666 "$socket"
+        else
+          echo "Docker socket not available within 2s" >&2
+          exit 1
+        fi
 apply:
   - path: ./
     resources:
