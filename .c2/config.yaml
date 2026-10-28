@@ -6,6 +6,10 @@
 base: go
 jobdb: http://localhost:9047/c2
 
+# Go 1.26, using the nixpkgs revision pinned in flake.lock.
+packages:
+  - nix:github:NixOS/nixpkgs/a033e66ab94a6bedf2c3d58d93a36319d3cbbbaf#go_1_26
+
 
 # Derived current repo: github.com/colony-2/c2j
 # Derived pattern: github.com/colony-2/${{ cell }}
