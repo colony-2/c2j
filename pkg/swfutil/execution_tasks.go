@@ -51,8 +51,14 @@ func ExecutionTasks(run jobdb.GetJobRunResponse) ([]ExecutionTask, error) {
 			return nil, fmt.Errorf("task attempt %s: %w", r.ID, err)
 		}
 		a := jobdb.TaskAttempt{Ordinal: entry.Ordinal, Attempt: attempt, CreatedAt: r.At, State: jobdb.TaskAttemptStateSucceeded}
-		a.Input = executionTaskIO(r.Input)
-		a.Output = executionTaskIO(r.Output)
+		a.Input, err = executionTaskIO(r.Input)
+		if err != nil {
+			return nil, fmt.Errorf("task attempt %s input: %w", r.ID, err)
+		}
+		a.Output, err = executionTaskIO(r.Output)
+		if err != nil {
+			return nil, fmt.Errorf("task attempt %s output: %w", r.ID, err)
+		}
 		if r.ErrorKind != "" {
 			a.State = jobdb.TaskAttemptStateFailed
 		}
@@ -60,17 +66,22 @@ func ExecutionTasks(run jobdb.GetJobRunResponse) ([]ExecutionTask, error) {
 	}
 	return tasks, nil
 }
-func executionTaskIO(s *jobdb.ExecutionSnapshot) *jobdb.TaskIO {
+func executionTaskIO(s *jobdb.ExecutionSnapshot) (*jobdb.TaskIO, error) {
 	if s == nil {
-		return nil
+		return nil, nil
 	}
 	out := &jobdb.TaskIO{Data: s.Data}
 	for _, a := range s.Artifacts {
-		size := int64(len(a.Data))
-		if a.Key != nil {
-			size = a.Key.SizeBytes
+		if a.Key == nil {
+			return nil, fmt.Errorf("execution artifact %q has no stored key", a.Name)
 		}
-		out.Artifacts = append(out.Artifacts, jobdb.ArtifactInfo{Name: a.Name, SizeBytes: size, Key: a.Key})
+		if err := a.Key.Validate(); err != nil {
+			return nil, fmt.Errorf("execution artifact %q: %w", a.Name, err)
+		}
+		if a.Key.SizeBytes < 0 {
+			return nil, fmt.Errorf("execution artifact %q has unknown stored size", a.Name)
+		}
+		out.Artifacts = append(out.Artifacts, jobdb.ArtifactInfo{Name: a.Name, SizeBytes: a.Key.SizeBytes, Key: a.Key})
 	}
-	return out
+	return out, nil
 }
