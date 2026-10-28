@@ -318,25 +318,44 @@ func (w scopeCancelTask) Run(ctx jobworkflow.TaskContext, _ jobdb.TaskData) (job
 }
 func TestExecutionScopesBlockBudgetCancelsWorker(t *testing.T) {
 	registerCatchOp(t, "scope_probe")
-	synctest.Test(t, func(t *testing.T) {
-		rt := toy.New()
-		rec := probeRecipe(probeNode("blocked"), probeNode("unreachable"))
-		// GetMetdata returns a value; set the concrete scope policy explicitly.
-		rec.RecipeImpl.(*recipe.RecipeSequence).Timeout = recipe.Duration(time.Minute)
-		w := probeWorker(t, rec)
-		key := probeSubmit(t, rt, w)
-		done := make(chan struct{})
-		out := probeRun(t, rt, key, w, scopeCancelTask{done})
-		require.Equal(t, jobworkflow.JobRunFailed, out.Status)
-		require.ErrorContains(t, out.JobError, "timed out")
-		<-done
-		require.Error(t, probeReplay(t, rt, key, w), "recorded failure remains a failure on replay")
-		run, err := jobdb.GetJobRun(context.Background(), rt, jobdb.GetJobRunRequest{JobKey: key})
-		require.NoError(t, err)
-		tasks, err := swfutil.ExecutionTasks(run)
-		require.NoError(t, err)
-		require.Len(t, tasks, 1, "expired blocks must not start the next child")
-	})
+	op, ok := coreops.Get("scope_probe")
+	require.True(t, ok)
+	require.Zero(t, op.GetMetadata().DefaultTimeout)
+	for _, parent := range []string{"sequence", "state-machine"} {
+		t.Run(parent, func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				rt := toy.New()
+				rec := probeRecipe(probeNode("blocked"), probeNode("unreachable"))
+				if parent == "sequence" {
+					rec.RecipeImpl.(*recipe.RecipeSequence).Timeout = recipe.Duration(time.Minute)
+				} else {
+					rec = recipe.Recipe{RecipeImpl: &recipe.RecipeState{
+						RecipeMetadata: recipe.RecipeMetadata{NodeMetadata: recipe.NodeMetadata{ID: "machine", Timeout: recipe.Duration(time.Minute)}},
+						StateMachineData: recipe.StateMachineData{States: &recipe.StateMap{
+							Initial: recipe.InitialState("start"),
+							States: map[string]recipe.State{"start": {Node: recipe.Node{NodeImpl: &recipe.NodeSequence{
+								NodeMetadata: recipe.NodeMetadata{ID: "block"},
+								SequenceData: recipe.SequenceData{Sequence: []recipe.Node{probeNode("blocked"), probeNode("unreachable")}},
+							}}}},
+						}},
+					}}
+				}
+				w := probeWorker(t, rec)
+				key := probeSubmit(t, rt, w)
+				done := make(chan struct{})
+				out := probeRun(t, rt, key, w, scopeCancelTask{done})
+				require.Equal(t, jobworkflow.JobRunFailed, out.Status)
+				require.ErrorContains(t, out.JobError, "timed out")
+				<-done
+				require.Error(t, probeReplay(t, rt, key, w), "recorded failure remains a failure on replay")
+				run, err := jobdb.GetJobRun(context.Background(), rt, jobdb.GetJobRunRequest{JobKey: key})
+				require.NoError(t, err)
+				tasks, err := swfutil.ExecutionTasks(run)
+				require.NoError(t, err)
+				require.Len(t, tasks, 1, "expired blocks must not start the next child")
+			})
+		})
+	}
 }
 
 func TestExecutionScopesStepRetryTimeoutDoesNotRestartParent(t *testing.T) {
@@ -506,4 +525,31 @@ sequence:
 			})
 		}
 	}
+}
+
+// The task worker observes the context delivered through the real JobDB engine.
+type scopeUntimedTask struct{}
+
+func (scopeUntimedTask) Name() string { return "scope_probe:run" }
+func (scopeUntimedTask) Run(ctx jobworkflow.TaskContext, _ jobdb.TaskData) (jobdb.TaskData, error) {
+	if _, hasDeadline := ctx.Context().Deadline(); hasDeadline {
+		return nil, fmt.Errorf("untimed op acquired a compiler deadline")
+	}
+	if ctx.Context().Done() == nil {
+		return nil, fmt.Errorf("worker context is not cancellable")
+	}
+	if err := ctx.Context().Err(); err != nil {
+		return nil, err
+	}
+	return scopeProbeOutput(map[string]any{"ok": true}, contextual.GitCommitContext{})
+}
+
+func TestExecutionScopesUntimedOpHasNoDeadline(t *testing.T) {
+	registerCatchOp(t, "scope_probe")
+	rt := toy.New()
+	w := probeWorker(t, probeRecipe(probeNode("untimed")))
+	key := probeSubmit(t, rt, w)
+	out := probeRun(t, rt, key, w, scopeUntimedTask{})
+	require.Equal(t, jobworkflow.JobRunCompleted, out.Status, "%v", out.JobError)
+	require.NoError(t, probeReplay(t, rt, key, w))
 }

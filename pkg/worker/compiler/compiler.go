@@ -305,9 +305,6 @@ func (d DefaultRecipeExecutor) ExecuteOp(ctx workflow.Context, parentResolutionC
 	if registered, ok := ops.Get(op); ok && metadata.Timeout == 0 {
 		metadata.Timeout = recipe.Duration(effectiveOpTimeout(metadata, registered))
 	}
-	if metadata.Timeout == 0 {
-		metadata.Timeout = recipe.Duration(time.Hour)
-	}
 	return executeNodeScope(ctx, parentResolutionContext, metadata, template.ScopeOp, op, func(inner workflow.Context, state *template.ResolutionContext, meta recipe.NodeMetadata) error {
 		return d.executeOpBody(inner, state, meta, op)
 	})

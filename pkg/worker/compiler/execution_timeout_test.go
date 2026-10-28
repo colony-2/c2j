@@ -98,7 +98,7 @@ func requireCapturedScopeTimeout(t *testing.T, stub *policyCaptureJobContext, wa
 	}
 }
 
-func TestBuiltInOpsUseFiniteDefaultTimeouts(t *testing.T) {
+func TestBuiltInOpsAddNoImplicitTimeout(t *testing.T) {
 	registered := []coreops.RegisterableOp{commandop.GetOp(), sleepop.GetOp(), extensions.GetExecutionOp()}
 	for _, op := range registered {
 		require.Zero(t, op.GetMetadata().DefaultTimeout, op.GetName())
@@ -128,11 +128,7 @@ func TestBuiltInOpsUseFiniteDefaultTimeouts(t *testing.T) {
 				require.Equal(t, 1, stub.calls)
 				require.NotEmpty(t, stub.scopes)
 				for _, scope := range stub.scopes {
-					want := timeout
-					if want == 0 {
-						want = time.Hour
-					}
-					require.Equal(t, want, scope.TotalTimeout)
+					require.Equal(t, timeout, scope.TotalTimeout)
 					require.Zero(t, scope.AttemptTimeout)
 				}
 				for _, policy := range stub.policies {
@@ -297,4 +293,73 @@ func (c *policyCaptureJobContext) ExecutionVersions() jobdb.ExecutionVersions {
 
 func (c *policyCaptureJobContext) Job() jobdb.JobHandle {
 	return jobdb.JobHandle{JobKey: c.GetJobKey()}
+}
+
+func TestExecuteOpWithoutRegisteredDefault(t *testing.T) {
+	const opType = "timeout-no-default-op"
+	withRegisteredOps(t, newTimeoutTestOp(t, opType, 0))
+	for _, timeout := range []time.Duration{0, 5 * time.Second} {
+		t.Run(timeout.String(), func(t *testing.T) {
+			jobCtx, gitCtx := GenerateTestContext()
+			stub, wfCtx := newTimeoutWorkflow(t, gitCtx, 0)
+			rec := recipe.Recipe{RecipeImpl: &recipe.RecipeOp{
+				RecipeMetadata: recipe.RecipeMetadata{NodeMetadata: recipe.NodeMetadata{ID: "root", Timeout: recipe.Duration(timeout)}},
+				OpData:         recipe.OpData{Op: opType},
+			}}
+			_, _, err := ExecuteRecipe(wfCtx, rec, nil, jobCtx, gitCtx)
+			require.NoError(t, err)
+			require.Equal(t, 1, stub.calls)
+			require.Len(t, stub.scopes, 1)
+			require.Equal(t, timeout, stub.scopes[0].TotalTimeout)
+			require.Zero(t, stub.scopes[0].AttemptTimeout)
+			for _, policy := range stub.policies {
+				require.Nil(t, policy.TotalTimeout)
+				require.Nil(t, policy.InvocationTimeout)
+			}
+		})
+	}
+}
+
+func TestUntimedOpPreservesEnclosingScopeBudget(t *testing.T) {
+	const opType = "timeout-untimed-child"
+	withRegisteredOps(t, newTimeoutTestOp(t, opType, 0))
+	child := recipe.Node{NodeImpl: &recipe.NodeOp{
+		NodeMetadata: recipe.NodeMetadata{ID: "child"},
+		OpData:       recipe.OpData{Op: opType},
+	}}
+	metadata := recipe.RecipeMetadata{NodeMetadata: recipe.NodeMetadata{ID: "parent", Timeout: recipe.Duration(time.Minute)}}
+	for name, rec := range map[string]recipe.Recipe{
+		"sequence": {RecipeImpl: &recipe.RecipeSequence{
+			RecipeMetadata: metadata,
+			SequenceData:   recipe.SequenceData{Sequence: []recipe.Node{child}},
+		}},
+		"state-machine": {RecipeImpl: &recipe.RecipeState{
+			RecipeMetadata: metadata,
+			StateMachineData: recipe.StateMachineData{States: &recipe.StateMap{
+				Initial: recipe.InitialState("start"),
+				States:  map[string]recipe.State{"start": {Node: child}},
+			}},
+		}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			jobCtx, gitCtx := GenerateTestContext()
+			stub, wfCtx := newTimeoutWorkflow(t, gitCtx, 0)
+			_, _, err := ExecuteRecipe(wfCtx, rec, nil, jobCtx, gitCtx)
+			require.NoError(t, err)
+			require.Equal(t, 1, stub.calls)
+			wantScopes := 2
+			if name == "state-machine" {
+				wantScopes = 3 // The state itself also has an untimed scope.
+			}
+			require.Len(t, stub.scopes, wantScopes)
+			require.Equal(t, time.Minute, stub.scopes[0].TotalTimeout)
+			for _, scope := range stub.scopes[1:] {
+				require.Zero(t, scope.TotalTimeout)
+			}
+			for _, policy := range stub.policies {
+				require.Nil(t, policy.TotalTimeout)
+				require.Nil(t, policy.InvocationTimeout)
+			}
+		})
+	}
 }

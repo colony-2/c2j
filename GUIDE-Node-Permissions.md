@@ -226,9 +226,11 @@ validates existing authority; it extends neither `notAfter` nor the parent lease
 
 When deadlines apply, the issued token has `notAfter` bounded by the engine's
 effective task and enclosing deadlines, any parent delegation deadline, and any
-shorter known operation timeout. It cannot gain time when refreshed. Recipe nodes
-without an explicit or built-in timeout receive a one-hour scope timeout. Internal root-source
-resolution adds no timeout; it inherits any applicable JobDB execution bounds.
+shorter known operation timeout. It cannot gain time when refreshed. Operations
+without an explicit node timeout or registered op default add no scope timeout; enclosing deadlines and JobDB execution bounds still apply.
+To retain a one-hour cap, specify `timeout: 1h` on the op or an enclosing scope.
+Internal root-source resolution adds no timeout; it inherits any applicable
+JobDB execution bounds.
 When all bounds are absent, the restricted token lasts only while its exact
 parent lease remains live. The engine may impose a shorter deadline. Extension
 manifest timeouts narrow the operation and its helpers once resolved, before
