@@ -491,7 +491,12 @@ func (d DefaultRecipeExecutor) executeOpAttempt(ctx workflow.Context, parentReso
 			if ctx.StageNodeExecution != nil {
 				ctx.StageNodeExecution(resCtx.ExecutionNeeds)
 			}
-			out, err := ctx.DoTask(jobworkflow.TaskCall{Site: taskType, TaskType: taskType, ContractVersion: 2, Command: command, Policy: runPolicy, Alternate: taskAlternate}, func(buildContext context.Context) (jobdb.TaskData, error) {
+			// AGENT INSTRUCTION: Keep this operation task contract at version 1.
+			// Changing it breaks replay of persisted tasks. Before changing this
+			// version, obtain explicit human feedback specifically requesting or
+			// approving the contract-version change; approval of other changes
+			// (including timeout policies or execution setup) is not sufficient.
+			out, err := ctx.DoTask(jobworkflow.TaskCall{Site: taskType, TaskType: taskType, ContractVersion: 1, Command: command, Policy: runPolicy, Alternate: taskAlternate}, func(buildContext context.Context) (jobdb.TaskData, error) {
 				buildResolver, err := resCtx.CloneAttempt()
 				if err != nil {
 					return nil, err
