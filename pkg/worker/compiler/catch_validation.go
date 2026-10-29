@@ -71,6 +71,8 @@ func validateStateMapCatchSemantics(smCtx *template.ResolutionContext, stateMap 
 
 func validateNodeCatchSemantics(parent *template.ResolutionContext, node recipe.Node, stateNames map[string]struct{}) error {
 	switch n := node.NodeImpl.(type) {
+	case *recipe.NodeInclude:
+		return validateCatchClauses(n.NodeMetadata.Catch, parent, stateNames)
 	case *recipe.NodeOp:
 		return validateCatchClauses(n.NodeMetadata.Catch, parent, stateNames)
 	case *recipe.NodeChildGroup:

@@ -7,6 +7,7 @@ import (
 	"github.com/colony-2/c2j/pkg/cellref"
 	"github.com/colony-2/c2j/pkg/gitprofile"
 	"github.com/colony-2/c2j/pkg/jobcontext"
+	"github.com/colony-2/c2j/pkg/permissions"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 )
 
@@ -68,16 +69,17 @@ type WorkflowContext struct {
 
 // ExecutionContext holds typed workflow context available to templates. It is created per task.
 type JobContext struct {
-	GitProfile      gitprofile.Selection     `json:"git_profile,omitzero"`
-	InitialCommit   *GitCommitContext        `json:"initial_commit,omitempty"`
-	RestoreArtifact *jobdb.ArtifactKey       `json:"restore_artifact,omitempty"`
-	Workspace       *WorkspaceContext        `json:"workspace,omitempty"`
-	CellResolution  *cellref.Context         `json:"cell_resolution,omitempty"`
-	Environment     EnvironmentContext       `json:"environment,omitempty"`
-	Artifacts       map[string]artifacts.Ref `json:"artifacts,omitempty"`
-	Workflow        WorkflowContext          `json:"workflow,omitempty"`
-	GitBase         GitBaseContext           `json:"git,omitempty"`
-	RecipeSource    RecipeSourceContext      `json:"recipe_source,omitempty"`
+	InheritedPermissions *permissions.State       `json:"inherited_permissions,omitempty"`
+	GitProfile           gitprofile.Selection     `json:"git_profile,omitzero"`
+	InitialCommit        *GitCommitContext        `json:"initial_commit,omitempty"`
+	RestoreArtifact      *jobdb.ArtifactKey       `json:"restore_artifact,omitempty"`
+	Workspace            *WorkspaceContext        `json:"workspace,omitempty"`
+	CellResolution       *cellref.Context         `json:"cell_resolution,omitempty"`
+	Environment          EnvironmentContext       `json:"environment,omitempty"`
+	Artifacts            map[string]artifacts.Ref `json:"artifacts,omitempty"`
+	Workflow             WorkflowContext          `json:"workflow,omitempty"`
+	GitBase              GitBaseContext           `json:"git,omitempty"`
+	RecipeSource         RecipeSourceContext      `json:"recipe_source,omitempty"`
 }
 
 type TaskContext struct {

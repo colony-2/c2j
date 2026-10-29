@@ -1,16 +1,10 @@
 package template
 
-import (
-	"github.com/google/cel-go/cel"
-	"github.com/google/cel-go/common/types"
-)
+import "github.com/colony-2/c2j/pkg/cel"
 
 // CELOptionsProvider supplies type options (must be applied at env creation)
 // and function options (require adapter) for CEL.
-type CELOptionsProvider interface {
-	TypeOptions() []cel.EnvOption
-	FunctionOptions(adapter types.Adapter) ([]cel.EnvOption, error)
-}
+type CELOptionsProvider = cel.OptionsProvider
 
 type ResolutionMode string
 

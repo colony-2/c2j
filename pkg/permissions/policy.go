@@ -151,10 +151,15 @@ func ptr[T any](v T) *T { return &v }
 // State is immutable lexical policy, serialized with each task invocation.
 // Input authorization is independent of grants and automatic Git defaults.
 type State struct {
-	Version int          `json:"version"`
-	Grant   *JobDB       `json:"grant,omitempty"`
-	Limit   *JobDB       `json:"limit,omitempty"`
-	Inputs  *InputPolicy `json:"inputs,omitempty"`
+	// ChildGrant excludes invocation-only grants from arbitrary child bodies.
+	ChildGrant *JobDB `json:"child_grant,omitempty"`
+	// ChildPolicy is controller-captured configuration. Its presence requires
+	// child submission through the runtime path that installs the ceiling.
+	ChildPolicy json.RawMessage `json:"child_policy,omitempty"`
+	Version     int             `json:"version"`
+	Grant       *JobDB          `json:"grant,omitempty"`
+	Limit       *JobDB          `json:"limit,omitempty"`
+	Inputs      *InputPolicy    `json:"inputs,omitempty"`
 }
 
 func (s State) Enter(spec *Spec, boundary bool) (State, error) {

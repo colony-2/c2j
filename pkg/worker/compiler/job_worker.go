@@ -91,7 +91,7 @@ func NewRecipeWorkerWithOptions(dependencies ops.ServiceDependencies2, activityR
 	if resolutionWorker := newRootSourceResolutionTaskWorker(opts.RootSourceResolver); resolutionWorker != nil {
 		taskWorkers = append(taskWorkers, resolutionWorker)
 	}
-	taskWorkers = append(taskWorkers, newWithinRecipeResolutionTaskWorker(), NewWorkspaceResolutionTaskWorker())
+	taskWorkers = append(taskWorkers, newWithinRecipeResolutionTaskWorker(), NewWorkspaceResolutionTaskWorker(), hookPolicyWorker{}, hookResolveWorker{})
 	if opts.WrapTaskWorker != nil {
 		for i, worker := range taskWorkers {
 			taskWorkers[i] = opts.WrapTaskWorker(worker)
@@ -177,8 +177,8 @@ func (j recipeJobWorker) Run(ctx jobworkflow.ExecutionContext, jobData jobdb.Job
 			return nil, err
 		}
 		req := rootSourceResolutionTaskInput{
-			GitProfile: input.JobContext.GitProfile,
-			ProjectID:  strings.TrimSpace(input.TenantId), Selector: input.RecipeName,
+			GitProfile: input.JobContext.GitProfile, Permissions: input.JobContext.InheritedPermissions,
+			ProjectID: strings.TrimSpace(input.TenantId), Selector: input.RecipeName,
 			LookupRepo: rootRecipeLookupRepo(input.JobContext), LookupRef: rootRecipeLookupRef(input.JobContext),
 		}
 
@@ -208,7 +208,7 @@ func (j recipeJobWorker) Run(ctx jobworkflow.ExecutionContext, jobData jobdb.Job
 			// Older source outcomes lack embedded YAML. Reload through a task so
 			// even this recovery path gets the current lease's Git environment.
 			reload, e := workflow.ValueCall(ctx, "root-source-load", RootSourceResolutionTaskType, jobdb.RunPolicy{}, rootSourceResolutionTaskInput{
-				GitProfile: input.JobContext.GitProfile, ProjectID: strings.TrimSpace(input.TenantId),
+				GitProfile: input.JobContext.GitProfile, Permissions: input.JobContext.InheritedPermissions, ProjectID: strings.TrimSpace(input.TenantId),
 				Selector: resolution.EffectiveSelector(), LookupRepo: req.LookupRepo, LookupRef: req.LookupRef,
 			})
 			if e != nil {

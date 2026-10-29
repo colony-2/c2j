@@ -665,6 +665,10 @@ it does not give every descendant the corresponding lease capabilities.
 See [recipe node permissions](GUIDE-Node-Permissions.md) for examples of explicit
 inputs, foreign op defaults, include grants, and forwarding secret inputs.
 
+Repository-local `cell://` includes resolve at hook entry and use per-hook JobDB
+configuration for permissions. See [local recipe hooks](GUIDE-Local-Recipe-Hooks.md)
+for contracts, snapshot behavior, and `c2j hooks perms` administration.
+
 ### Recipe timeouts and recovery
 
 c2j does not set default job or built-in op timeouts. Set `timeout` on a recipe

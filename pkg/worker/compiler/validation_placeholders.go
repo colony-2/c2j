@@ -60,6 +60,8 @@ func nodePlaceholder(resCtx *template.ResolutionContext, node recipe.Node) (stri
 		}
 		key := template.ScopeID(metadata, t.OpData.Op, template.ScopeOp)
 		return key, outputs, nil
+	case *recipe.NodeInclude:
+		return template.ScopeID(metadata, "", template.ScopeSequence), hookOutputPlaceholder(t), nil
 	case *recipe.NodeSequence:
 		outputs := zeroOutputsFromTemplateMap(t.Outputs)
 		key := template.ScopeID(metadata, "", template.ScopeSequence)
@@ -82,6 +84,8 @@ func nodeOutputPlaceholder(resCtx *template.ResolutionContext, node recipe.Node)
 	switch t := node.NodeImpl.(type) {
 	case *recipe.NodeOp:
 		return zeroOutputForOp(resolvedSelector(t.OpData.Op, resCtx.Options.ResolvedSelectors), selectorLoadResolveOptionsForResolution(resCtx))
+	case *recipe.NodeInclude:
+		return hookOutputPlaceholder(t), nil
 	case *recipe.NodeSequence:
 		return zeroOutputsFromTemplateMap(t.Outputs), nil
 	case *recipe.NodeState:
@@ -105,4 +109,42 @@ func selectorLoadResolveOptionsForResolution(resCtx *template.ResolutionContext)
 	resolveOpts := selectorLoadResolveOptions(resCtx.TaskExecutionContext().JobContext(), resCtx.GetGitCommitContext())
 	resolveOpts.ResolvedRefs = resCtx.Options.ResolvedGitRefs
 	return resolveOpts
+}
+
+// Static validation checks the callsite using its declared output shape. Actual
+// hook source and policy are deliberately unavailable until live node entry.
+func hookOutputPlaceholder(n *recipe.NodeInclude) map[string]any {
+	var zero func(map[string]any) any
+	zero = func(s map[string]any) any {
+		if v, ok := s["const"]; ok {
+			return v
+		}
+		if v, ok := s["enum"].([]any); ok && len(v) > 0 {
+			return v[0]
+		}
+		switch s["type"] {
+		case "string":
+			return ""
+		case "boolean":
+			return false
+		case "number", "integer":
+			return 0
+		case "array":
+			return []any{}
+		}
+		out := map[string]any{}
+		if props, ok := s["properties"].(map[string]any); ok {
+			for k, v := range props {
+				if schema, ok := v.(map[string]any); ok {
+					out[k] = zero(schema)
+				}
+			}
+		}
+		return out
+	}
+	out, _ := zero(n.ExpectOutputs).(map[string]any)
+	if n.Include.IfMissing != nil && len(out) == 0 {
+		return zeroOutputsFromTemplateMap(n.Include.IfMissing.Outputs)
+	}
+	return out
 }

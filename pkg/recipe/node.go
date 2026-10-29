@@ -171,7 +171,25 @@ func (n *NodeShared) GetMetadata() NodeMetadata {
 func (n *NodeShared) isNode() {}
 
 type IncludeData struct {
-	Recipe string `yaml:"recipe" json:"recipe"`
+	Recipe    string           `yaml:"recipe" json:"recipe"`
+	IfMissing *IncludeFallback `yaml:"if_missing,omitempty" json:"if_missing,omitempty"`
+}
+
+type IncludeFallback struct {
+	Outputs map[string]interface{} `yaml:"outputs" json:"outputs"`
+}
+
+// JSONSchema accepts both include authoring forms, including optional hooks.
+func (IncludeData) JSONSchema() *jsonschema.Schema {
+	fallback := jsonschema.NewProperties()
+	fallback.Set("outputs", &jsonschema.Schema{Type: "object", AdditionalProperties: &jsonschema.Schema{}})
+	fields := jsonschema.NewProperties()
+	fields.Set("recipe", &jsonschema.Schema{Type: "string"})
+	fields.Set("if_missing", &jsonschema.Schema{Type: "object", Properties: fallback, Required: []string{"outputs"}, AdditionalProperties: jsonschema.FalseSchema})
+	return &jsonschema.Schema{OneOf: []*jsonschema.Schema{
+		{Type: "string"},
+		{Type: "object", Properties: fields, Required: []string{"recipe"}, AdditionalProperties: jsonschema.FalseSchema},
+	}}
 }
 
 func (i *IncludeData) UnmarshalYAML(node *yamlv3.Node) error {
@@ -184,6 +202,17 @@ func (i *IncludeData) UnmarshalYAML(node *yamlv3.Node) error {
 		i.Recipe = strings.TrimSpace(recipeRef)
 		return nil
 	case yamlv3.MappingNode:
+		for j := 0; j < len(node.Content); j += 2 {
+			key, value := node.Content[j].Value, node.Content[j+1]
+			if key != "recipe" && key != "if_missing" {
+				return fmt.Errorf("unknown include field %q", key)
+			}
+			if key == "if_missing" {
+				if value.Kind != yamlv3.MappingNode || len(value.Content) != 2 || value.Content[0].Value != "outputs" || value.Content[1].Kind != yamlv3.MappingNode {
+					return fmt.Errorf("include.if_missing requires an outputs object")
+				}
+			}
+		}
 		type includeData IncludeData
 		var data includeData
 		if err := node.Decode(&data); err != nil {
@@ -278,6 +307,7 @@ func (NodeOp) JSONSchema() *jsonschema.Schema {
 func (n *NodeOp) isNode() {}
 
 type NodeMetadata struct {
+	ExpectOutputs  map[string]interface{} `yaml:"expect_outputs,omitempty" json:"expect_outputs,omitempty"`
 	Perms          *permissions.Spec      `yaml:"perms,omitempty" json:"perms,omitempty"`
 	GitProfile     *GitProfileSpec        `yaml:"git_profile,omitempty" json:"git_profile,omitempty"`
 	Workspace      *WorkspaceSpec         `yaml:"workspace,omitempty" json:"workspace,omitempty"`
@@ -296,6 +326,13 @@ type NodeMetadata struct {
 }
 
 type NodeInternalMetadata struct {
+	// CELProvider is installed at runtime when a deferred include is loaded.
+	CELProvider    cel.OptionsProvider `yaml:"-" json:"-" jsonschema:"-"`
+	HookSourceRepo string              `yaml:"hook_source_repo,omitempty" json:"hook_source_repo,omitempty"`
+	HookSourceRef  string              `yaml:"hook_source_ref,omitempty" json:"hook_source_ref,omitempty"`
+	// HookAuthority is installed only by the controller at invocation entry.
+	// It must never be accepted from even an internal recipe artifact.
+	HookAuthority        *permissions.State       `yaml:"-" json:"-" jsonschema:"-"`
 	RootRepository       *string                  `yaml:"root_repository,omitempty" json:"root_repository,omitempty"`
 	Inline               *InlineInclusionMetadata `yaml:"inline,omitempty" json:"inline,omitempty"`
 	CompositeInputSchema map[string]InputSchema   `yaml:"composite_input_schema,omitempty" json:"composite_input_schema,omitempty"`

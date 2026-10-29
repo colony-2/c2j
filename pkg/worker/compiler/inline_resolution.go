@@ -15,6 +15,7 @@ import (
 	"github.com/colony-2/c2j/pkg/configuration"
 	"github.com/colony-2/c2j/pkg/git/selectorcache"
 	"github.com/colony-2/c2j/pkg/gitprofile"
+	"github.com/colony-2/c2j/pkg/hookpolicy"
 	"github.com/colony-2/c2j/pkg/permissions"
 	"github.com/colony-2/c2j/pkg/recipe"
 )
@@ -87,6 +88,7 @@ type inlineRecipeResolver struct {
 	resolver       RecipeSourceResolver
 	gitRefs        map[string]string
 	extensions     recipe.ExtensionImports
+	depth          int
 }
 
 type inlineRecipeSourceContext struct {
@@ -255,6 +257,27 @@ func (r *inlineRecipeResolver) expandNode(ctx context.Context, node recipe.Node,
 }
 
 func (r *inlineRecipeResolver) expandInclude(ctx context.Context, include *recipe.NodeInclude, parentSource inlineRecipeSourceContext, pathParts []string, stateKey string) (recipe.Node, error) {
+	if r.depth >= 64 {
+		return recipe.Node{}, fmt.Errorf("include nesting exceeds 64; check for an include cycle")
+	}
+	r.depth++
+	defer func() { r.depth-- }()
+
+	if strings.HasPrefix(include.Include.Recipe, "cell://") {
+		if _, err := hookpolicy.Reference(include.Include.Recipe); err != nil {
+			return recipe.Node{}, err
+		}
+		out := *include
+		if stateKey != "" {
+			out.ID = stateKey
+		} else if out.ID == "" {
+			out.ID = generatedIncludeID("", include.Include.Recipe)
+		}
+		return recipe.Node{NodeImpl: &out}, nil
+	}
+	if include.Include.IfMissing != nil {
+		return recipe.Node{}, fmt.Errorf("include.if_missing is only supported for cell:// hooks")
+	}
 	if parent := gitprofile.FromContext(ctx); parent != nil {
 		selection := gitprofile.InheritedSelection(ctx)
 		if spec, ok := ctx.Value(inlineGitProfileKey{}).(*recipe.GitProfileSpec); ok {

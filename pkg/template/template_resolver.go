@@ -350,16 +350,28 @@ func (rc *ResolutionContext) NewChildContext(scopeType ScopeType, metadata recip
 	}
 
 	scopeId := scopeId(metadata, fallback, scopeType)
-	child, err := newResolutionContext(rc.commitContext, rc.tracker.child(scopeId), scopeType, scopeId, inputs, rc.TaskExecutionContext().JobContext(), rc.Options)
+	options := rc.Options
+	if scopeType != ScopeState && metadata.Internal != nil && metadata.Internal.CELProvider != nil {
+		options.CELOptionsProvider = metadata.Internal.CELProvider
+	}
+	child, err := newResolutionContext(rc.commitContext, rc.tracker.child(scopeId), scopeType, scopeId, inputs, rc.TaskExecutionContext().JobContext(), options)
 	if err != nil {
 		return nil, err
 	}
 	child.EffectiveConst = rc.EffectiveConst || metadata.Const
 	child.GitProfile = rc.GitProfile
 	child.Permissions = rc.Permissions
-	if metadata.Internal != nil && metadata.Internal.Inline != nil {
+	if scopeType != ScopeState && metadata.Internal != nil && metadata.Internal.Inline != nil {
 		inline := metadata.Internal.Inline
-		child.Permissions, err = rc.Permissions.EnterInclude(metadata.Perms, inline.PermissionBoundary, inline.TrustedSource)
+		if metadata.Internal.HookSourceRepo != "" {
+			child.TemplateData.Context.RecipeSource.Repo = metadata.Internal.HookSourceRepo
+			child.TemplateData.Context.RecipeSource.Ref = metadata.Internal.HookSourceRef
+		}
+		if metadata.Internal.HookAuthority != nil {
+			child.Permissions = *metadata.Internal.HookAuthority
+		} else {
+			child.Permissions, err = rc.Permissions.EnterInclude(metadata.Perms, inline.PermissionBoundary, inline.TrustedSource)
+		}
 		if err != nil {
 			return nil, err
 		}

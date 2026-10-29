@@ -11,6 +11,7 @@ import (
 	"github.com/colony-2/c2j/pkg/git/selectorcache"
 	"github.com/colony-2/c2j/pkg/gitprofile"
 	extops "github.com/colony-2/c2j/pkg/ops/extensions"
+	"github.com/colony-2/c2j/pkg/permissions"
 	"github.com/colony-2/c2j/pkg/recipe"
 	"github.com/colony-2/c2j/pkg/workflow"
 	"github.com/colony-2/jobdb/pkg/jobdb"
@@ -20,6 +21,7 @@ import (
 const WithinRecipeResolutionTaskType = "recipe_within_resolution"
 
 type withinRecipeResolutionTaskInput struct {
+	Permissions      *permissions.State   `json:"permissions,omitempty"`
 	GitProfile       gitprofile.Selection `json:"git_profile,omitzero"`
 	Selectors        []string             `json:"selectors,omitempty"`
 	RepositorySource string               `json:"repository_source,omitempty"`
@@ -154,6 +156,7 @@ func buildWithinRecipeResolutionTaskInput(rec *recipe.Recipe, execCtx contextual
 	repoSource, repoRef := selectorResolutionRepository(execCtx, commitContext)
 	return &withinRecipeResolutionTaskInput{
 		GitProfile:       execCtx.GitProfile,
+		Permissions:      execCtx.InheritedPermissions,
 		Selectors:        selectors,
 		RepositorySource: repoSource,
 		RepositoryRef:    repoRef,

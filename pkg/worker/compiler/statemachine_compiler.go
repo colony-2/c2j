@@ -112,6 +112,17 @@ func (d DefaultRecipeExecutor) executeStateMachineBody(ctx workflow.Context, par
 			return fmt.Errorf("state '%s' not found", currentState)
 		}
 
+		// Pin a direct hook before the state's retry scope. Retries execute the
+		// recorded definition; a later state visit prepares a new invocation.
+		if hook, ok := stateDef.NodeImpl.(*recipe.NodeInclude); ok {
+			call := *hook
+			call.ID = currentState
+			prepared, err := prepareHook(ctx, resCtx, &call)
+			if err != nil {
+				return err
+			}
+			stateDef.Node = prepared
+		}
 		observer.StateEntered(currentState)
 		var stateResult stateRunResult
 		var err error
@@ -430,6 +441,12 @@ func nodeWithoutVars(node recipe.Node) recipe.Node {
 		clone.NodeMetadata.Vars = nil
 		clone.NodeMetadata.Catch = nil
 		return recipe.Node{NodeImpl: &clone}
+	case *recipe.NodeInclude:
+		clone := *n
+		clone.NodeMetadata.Workspace = nil
+		clone.NodeMetadata.Vars = nil
+		clone.NodeMetadata.Catch = nil
+		return recipe.Node{NodeImpl: &clone}
 	case *recipe.NodeSequence:
 		clone := *n
 		clone.NodeMetadata.Workspace = nil
@@ -461,6 +478,12 @@ func nodeWithoutPolicy(node recipe.Node) recipe.Node {
 		v.Timeout = 0
 		v.Catch = nil
 		node.NodeImpl = &v
+	case *recipe.NodeInclude:
+		v := *n
+		v.Retry = nil
+		v.Timeout = 0
+		v.Catch = nil
+		node.NodeImpl = &v
 	case *recipe.NodeSequence:
 		v := *n
 		v.Retry = nil
@@ -486,6 +509,10 @@ func nodeWithoutPolicy(node recipe.Node) recipe.Node {
 func nodeWithoutRetry(node recipe.Node) recipe.Node {
 	switch n := node.NodeImpl.(type) {
 	case *recipe.NodeOp:
+		v := *n
+		v.Retry = nil
+		node.NodeImpl = &v
+	case *recipe.NodeInclude:
 		v := *n
 		v.Retry = nil
 		node.NodeImpl = &v

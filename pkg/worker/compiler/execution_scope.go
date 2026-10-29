@@ -177,6 +177,9 @@ func executeNodeScope(ctx workflow.Context, parent *template.ResolutionContext, 
 			out := scopeOutcome{Frame: id}
 			switch decision.Kind {
 			case catchDecisionContinue:
+				if err := validateExpectedOutputs(meta.ExpectOutputs, decision.Outputs); err != nil {
+					return jobworkflow.CatchResult{}, err
+				}
 				out.BlockHandled = ctx.CatchStateName != ""
 				if base.ScopeType == kind {
 					state.AddExecutionWithArtifactData(decision.Outputs, nil, nil)

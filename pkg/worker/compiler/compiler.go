@@ -128,6 +128,24 @@ func (d DefaultRecipeExecutor) ExecuteRecipe(ctx workflow.Context, r recipe.Reci
 	if execOpts.CELOptionsProvider == nil && d.celProvider != nil {
 		execOpts.CELOptionsProvider = d.celProvider
 	}
+	if execCtx.InheritedPermissions != nil && len(execCtx.InheritedPermissions.ChildPolicy) > 0 {
+		if err := json.Unmarshal(execCtx.InheritedPermissions.ChildPolicy, &ctx.HookPolicy); err != nil {
+			return nil, nil, err
+		}
+	}
+	if ctx.HookPolicy == nil && hasCellHooks(r) && execOpts.Mode != ExecutionModeValidate {
+		out, e := workflow.ValueCall(ctx.JobContext, "hook-policy", hookPolicyTaskType, jobdb.RunPolicy{}, map[string]string{"repository": execCtx.GitBase.BaseRepo})
+		if e != nil {
+			return nil, nil, e
+		}
+		raw, e := out.GetData()
+		if e != nil {
+			return nil, nil, e
+		}
+		if e = json.Unmarshal(raw, &ctx.HookPolicy); e != nil {
+			return nil, nil, e
+		}
+	}
 	// CEL imports are fetched before the body. Resolve the root's profile in
 	// the same caller-input context used by normal node entry.
 	profileInputs, err := prepareRecipeInputs(r.GetMetdata(), rawRecipeInputs, execOpts)
@@ -181,12 +199,17 @@ func (d DefaultRecipeExecutor) ExecuteRecipe(ctx workflow.Context, r recipe.Reci
 	}
 
 	metadata := r.GetMetadata().NodeMetadata
+	if execCtx.InheritedPermissions != nil {
+		rCtx.Permissions = *execCtx.InheritedPermissions
+	}
 	rCtx.Permissions.Version = permissions.Version
 	rootRepository := execCtx.RecipeSource.Repo
 	if metadata.Internal != nil && metadata.Internal.RootRepository != nil {
 		rootRepository = *metadata.Internal.RootRepository
 	}
-	rCtx.Permissions.Inputs = &permissions.InputPolicy{RootRepository: rootRepository}
+	if execCtx.InheritedPermissions == nil {
+		rCtx.Permissions.Inputs = &permissions.InputPolicy{RootRepository: rootRepository}
+	}
 	if err := rCtx.SelectGitProfile(metadata.GitProfile, ""); err != nil {
 		return nil, nil, err
 	}
@@ -290,6 +313,9 @@ func (d DefaultRecipeExecutor) ExecuteNode(ctx workflow.Context, parentResCtx *t
 	case *recipe.NodeChildGroup:
 		return d.self().ExecuteChildGroup(ctx, parentResCtx, metadata, t.ChildGroup)
 	case *recipe.NodeInclude:
+		if strings.HasPrefix(t.Include.Recipe, "cell://") {
+			return d.executeHook(ctx, parentResCtx, t)
+		}
 		return fmt.Errorf("include node %q reached execution; resolve inline recipes before execution", template.ScopeID(metadata, "", template.ScopeSequence))
 	default:
 		return fmt.Errorf("unsupported recipe type: %T", t)
@@ -678,6 +704,9 @@ func (d DefaultRecipeExecutor) innerSequence(ctx workflow.Context, parentCtx *te
 	outputs, err := resCtx.ResolveMap(outputTemplate)
 	if err != nil {
 		return fmt.Errorf("failed to resolve sequence outputs: %w", err)
+	}
+	if err := validateExpectedOutputs(metadata.ExpectOutputs, outputs); err != nil {
+		return err
 	}
 
 	// add resolved output to parent context.

@@ -102,7 +102,7 @@ func (w *guardedTask) runWithGitProfile(tc jobworkflow.TaskContext, input jobdb.
 	if err != nil {
 		return nil, err
 	}
-	access, scopeContext, cancel, err := w.runtime.restrictedAccess(local, tc, original, grant, resolve)
+	access, scopeContext, cancel, err := w.runtime.restrictedAccess(local, tc, original, grant, resolve, policy)
 	if err != nil {
 		return nil, err
 	}

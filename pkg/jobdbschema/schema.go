@@ -15,7 +15,7 @@ import (
 
 var c2jJobSchema = json.RawMessage(`{
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "description": "c2j recipe execution chapter schema v2",
+  "description": "c2j recipe execution chapter schema v3",
   "firstChapterShape": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "type": "object",
@@ -278,9 +278,39 @@ var c2jJobSchema = json.RawMessage(`{
         },
         "additionalProperties": false
       },
+      "jobdbPermissions": {
+        "type": "object",
+        "properties": {
+          "secrets": {"type": "object", "properties": {"resolve": {"type": "array", "items": {"type": "string"}}}, "additionalProperties": false},
+          "jobs": {"type": "object", "properties": {"submit": {"type": "boolean"}}, "additionalProperties": false}
+        },
+        "additionalProperties": false
+      },
+      "inheritedPermissions": {
+        "type": "object",
+        "required": ["version"],
+        "properties": {
+          "version": {"const": 1},
+          "grant": {"$ref": "#/$defs/jobdbPermissions"},
+          "limit": {"$ref": "#/$defs/jobdbPermissions"},
+          "child_grant": {"$ref": "#/$defs/jobdbPermissions"},
+          "child_policy": {"type": "object"},
+          "inputs": {
+            "type": "object",
+            "properties": {
+              "root_repository": {"type": "string"},
+              "foreign": {"type": "boolean"},
+              "allowed": {"type": "array", "items": {"type": "string"}}
+            },
+            "additionalProperties": false
+          }
+        },
+        "additionalProperties": false
+      },
       "jobContext": {
         "type": "object",
         "properties": {
+          "inherited_permissions": {"$ref": "#/$defs/inheritedPermissions"},
           "workspace": {
             "$ref": "#/$defs/workspaceContext"
           },

@@ -48,6 +48,7 @@ func newRootCmd(info buildinfo.Info) *cobra.Command {
 	root.AddCommand(newConfigCmd())
 	root.AddCommand(newSecretCmd())
 	root.AddCommand(newGitCmd())
+	root.AddCommand(newHooksCmd())
 
 	return root
 }
