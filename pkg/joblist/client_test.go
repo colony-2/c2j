@@ -92,12 +92,12 @@ func TestRemoteProjectionAndWaitingOnlyExecution(t *testing.T) {
 			require.Equal(t, job.AvailableAt, got.AvailableAt)
 			require.True(t, got.CancelRequested)
 			require.Equal(t, int64(7), got.ClientPayloadRevision)
+			require.Equal(t, job.ClientPayload, got.ClientPayload)
 			if status == jobdb.JobStatusReady || status == jobdb.JobStatusCrashConcern {
-				require.Equal(t, "not_loaded", got.Execution.Status)
-				require.Equal(t, "unavailable", got.Execution.Source)
-				require.Nil(t, got.Execution.Demand)
+				require.Equal(t, "specified", got.Execution.Status)
+				require.Equal(t, "yield", got.Execution.Source)
+				require.Equal(t, memory, *got.Execution.Demand.Effective.Resources.Memory)
 				require.Equal(t, "2Gi", *got.Execution.Initial.Effective.Resources.Memory)
-				require.Empty(t, got.ClientPayload)
 			} else {
 				require.Nil(t, got.Execution.Demand)
 				require.Nil(t, got.Execution.Initial)
@@ -135,15 +135,38 @@ func TestExecutionDiagnosticsAndUnspecified(t *testing.T) {
 	c := client(t, s, "tenant")
 	page, err := c.List(context.Background(), joblist.Query{Repository: "github.com/acme/app"})
 	require.NoError(t, err)
-	for i, status := range []string{"not_loaded", "not_loaded", "not_loaded", "not_loaded"} {
+	for i, status := range []string{"unspecified", "unresolved", "unsupported", "malformed"} {
 		require.Equal(t, status, page.Jobs[i].Execution.Status)
-		if i == 2 {
+		if i == 2 || i == 3 {
 			require.NotEmpty(t, page.Jobs[i].Execution.Diagnostic)
 		}
 	}
 	memory := "4Gi"
 	_, err = c.List(context.Background(), joblist.Query{Repository: "github.com/acme/app", ExecutionFilter: &execution.Filter{Allocation: execution.Allocation{SchemaVersion: 1, Resources: execution.Resources{Memory: &memory}}}})
 	require.ErrorIs(t, err, joblist.ErrExecutionDetailsRequired)
+}
+
+func TestMissingListPayloadUsesStoredAbsence(t *testing.T) {
+	job := demandJob(t, "job", "2Gi")
+	// A cleared payload can have a nonzero revision. Both cases use the
+	// established submission requirements, just like an explicit job read.
+	want := joblist.ExecutionViewFromInfo(job.Metadata, jobdb.JobInfo{Status: job.Status})
+	require.Equal(t, "specified", want.Status)
+	require.Equal(t, "submission", want.Source)
+	for _, revision := range []int64{0, 7} {
+		job.ClientPayloadRevision = revision
+		require.Equal(t, want, joblist.ExecutionView(job))
+	}
+	// Present null remains distinct in the raw payload but has no published demand.
+	job.ClientPayload = json.RawMessage(`null`)
+	require.Equal(t, want, joblist.ExecutionView(job))
+	job.ClientPayload = json.RawMessage(`[]`)
+	require.Equal(t, "malformed", joblist.ExecutionView(job).Status)
+	job.ClientPayload, job.Metadata = nil, nil
+	view := joblist.ExecutionView(job)
+	require.Equal(t, "unresolved", view.Status)
+	require.Equal(t, "absent", view.Source)
+	require.Nil(t, view.Demand)
 }
 
 func TestRemoteCompactPagination(t *testing.T) {

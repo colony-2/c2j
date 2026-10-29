@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -49,7 +50,20 @@ func checkCompletionJSON(t *testing.T, value any, want jobdb.JobSummary) {
 	var got map[string]any
 	require.NoError(t, json.Unmarshal(raw, &got))
 	require.Equal(t, string(want.Status), got["status"])
-	for key, value := range map[string]string{"completion_status": want.CompletionStatus, "completion_detail": ""} {
+	// Decode opaque state separately so large JSON integers never pass through
+	// float64 during the assertion or the public projection.
+	var stored struct {
+		ClientPayload         json.RawMessage `json:"client_payload"`
+		ClientPayloadRevision int64           `json:"client_payload_revision"`
+		TaskWait              *jobdb.TaskWait `json:"task_wait"`
+		WaitFor               []string        `json:"wait_for"`
+	}
+	require.NoError(t, json.Unmarshal(raw, &stored))
+	require.Equal(t, want.ClientPayload, stored.ClientPayload)
+	require.Equal(t, want.ClientPayloadRevision, stored.ClientPayloadRevision)
+	require.Equal(t, want.ExecutionState.TaskWait, stored.TaskWait)
+	require.Equal(t, append([]string(nil), want.WaitFor...), stored.WaitFor)
+	for key, value := range map[string]string{"completion_status": want.CompletionStatus, "completion_detail": want.CompletionDetail} {
 		if value == "" {
 			require.NotContains(t, got, key)
 		} else {
@@ -136,6 +150,47 @@ func TestCompletionProjectionsUseOnlySummaryFields(t *testing.T) {
 	}
 }
 
+func TestRestoredOpaqueFieldsAcrossListProjections(t *testing.T) {
+	for _, tc := range []struct{ name, payload string }{
+		{"absent", ""},
+		{"null", "null"},
+		{"array", `["opaque",9007199254740993,null]`},
+		{"namespaces", `{"application":{"large":9007199254740993},"c2j":{"other":[null,true]}}`},
+		{"maximum size", `"` + strings.Repeat("x", 65534) + `"`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var payload json.RawMessage
+			if tc.payload != "" {
+				payload = json.RawMessage(tc.payload)
+			}
+			summary := jobdb.JobSummary{
+				JobKey: jobdb.JobKey{TenantId: "tenant", JobId: "job"}, JobType: "recipe", GoalID: "goal", ParentJobID: "parent",
+				Status: jobdb.JobStatusCompleted, CompletionStatus: "future_status", CompletionDetail: "  exact detail\n☃\n",
+				Metadata:      json.RawMessage(`{"recipe":"fixture","repo":"https://github.com/acme/app.git"}`),
+				ClientPayload: payload, ClientPayloadRevision: 7, WaitFor: []string{"second", "first"},
+				ExecutionState: jobdb.ExecutionState{RunPolicy: jobdb.DefaultRunPolicy(), TaskWait: &jobdb.TaskWait{InputOrdinal: 2, OutputOrdinal: 3, InputHash: "hash", ResumeJobType: "recipe"}},
+			}
+			rt := &completionListOnly{list: func(context.Context, jobdb.ListJobsRequest) (jobdb.ListJobsResponse, error) {
+				return jobdb.ListJobsResponse{Jobs: []jobdb.JobSummary{summary}, NextPageToken: "unchanged"}, nil
+			}}
+			checkRecipeCompletionPaths(t, rt, summary, "unchanged")
+			server := httptest.NewServer(remote.NewServer(rt))
+			t.Cleanup(server.Close)
+			client, err := remote.New(server.URL, server.Client())
+			require.NoError(t, err)
+			checkRecipeCompletionPaths(t, client, summary, "unchanged")
+			standalone, err := joblist.New(joblist.Config{JobDBURI: server.URL + "/tenant", HTTPClient: server.Client()})
+			require.NoError(t, err)
+			page, err := standalone.List(context.Background(), joblist.Query{Repository: "github.com/acme/app", Statuses: []jobdb.JobStatus{jobdb.JobStatusCompleted}})
+			require.NoError(t, err)
+			require.Len(t, page.Jobs, 1)
+			require.Equal(t, "unchanged", page.NextPageToken)
+			checkCompletionJSON(t, page.Jobs[0], summary)
+			require.EqualValues(t, 7, rt.calls.Load(), "one list call per projection, no hydration")
+		})
+	}
+}
+
 func TestPersistedCompletionAcrossEmbeddedAndRemoteListings(t *testing.T) {
 	for _, backend := range []string{"embedded", "remote"} {
 		for _, status := range []string{"success", "failed_app", "failed_system", "failed_timeout", "cancelled", "retry"} {
@@ -156,11 +211,14 @@ func TestPersistedCompletionAcrossEmbeddedAndRemoteListings(t *testing.T) {
 				parentLease, err := rt.GetJobLease(ctx, jobdb.GetJobLeaseRequest{JobKey: parent.JobKey, WorkerID: "parent-test", Routes: []jobdb.Route{{JobType: "parent"}}})
 				require.NoError(t, err)
 				require.NotNil(t, parentLease)
-				submitted, err := parentLease.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "tenant", JobID: "child", JobType: "recipe", Metadata: json.RawMessage(`{"recipe":"not-installed"}`), Data: jobdb.NewTaskDataOrPanic(map[string]any{})}})
+				submitted, err := parentLease.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "tenant", JobID: "child", JobType: "recipe", Metadata: json.RawMessage(`{"recipe":"not-installed"}`), Data: jobdb.NewTaskDataOrPanic(map[string]any{}), ClientPayloadUpdate: &jobdb.ClientPayloadUpdate{Mode: "reset", Value: json.RawMessage(`{"application":"initial"}`)}}})
 				require.NoError(t, err)
 				lease, err := rt.GetJobLease(ctx, jobdb.GetJobLeaseRequest{JobKey: submitted.JobKey, WorkerID: "completion-test", Routes: []jobdb.Route{{JobType: "recipe"}}})
 				require.NoError(t, err)
 				require.NotNil(t, lease)
+				revision := lease.ClientPayloadRevision()
+				payload := json.RawMessage(`{"application":{"large":9007199254740993}}`)
+				update := &jobdb.ClientPayloadUpdate{Mode: "reset", Value: payload, ExpectedRevision: &revision}
 				chapter := jobdb.Chapter{Ordinal: 1, TaskType: "recipe", CreatedAt: time.Now().UTC(), Body: jobdb.JobAttemptOutcomeChapter{Outcome: jobdb.AppErrorOutcome{Error: jobdb.AppErrorPayload{Message: "earlier attempt failure"}}}}
 				detail := "  persisted detail\n☃\n"
 				if status == "success" {
@@ -172,21 +230,23 @@ func TestPersistedCompletionAcrossEmbeddedAndRemoteListings(t *testing.T) {
 						token = bearer.LeaseToken()
 					}
 					require.NoError(t, rt.PutChapter(ctx, jobdb.PutChapterRequest{Ref: jobdb.ChapterRef{JobKey: submitted.JobKey, Ordinal: 1}, LeaseID: lease.LeaseID(), LeaseToken: token, Chapter: chapter}))
-					require.NoError(t, lease.Reschedule(ctx, jobdb.RescheduleExecutionRequest{NextRoute: jobdb.Route{JobType: "recipe"}}))
+					require.NoError(t, lease.Reschedule(ctx, jobdb.RescheduleExecutionRequest{NextRoute: jobdb.Route{JobType: "recipe"}, ClientPayloadUpdate: update}))
 				} else {
-					require.NoError(t, lease.Complete(ctx, jobdb.CompleteExecutionRequest{Status: status, Detail: detail, Chapter: &chapter}))
+					require.NoError(t, lease.Complete(ctx, jobdb.CompleteExecutionRequest{Status: status, Detail: detail, Chapter: &chapter, ClientPayloadUpdate: update}))
 				}
 				listed, err := rt.ListJobs(ctx, jobdb.ListJobsRequest{TenantIds: []string{"tenant"}, JobKeys: []jobdb.JobKey{submitted.JobKey}, Stores: []jobdb.JobStore{jobdb.JobStoreActive, jobdb.JobStoreArchived}})
 				require.NoError(t, err)
 				require.Len(t, listed.Jobs, 1)
 				got := listed.Jobs[0]
+				require.Equal(t, payload, got.ClientPayload)
+				require.Equal(t, revision+1, got.ClientPayloadRevision)
 				if status == "retry" {
 					require.Empty(t, got.CompletionStatus)
 					require.Empty(t, got.CompletionDetail)
 					require.Equal(t, jobdb.JobStatusReady, got.Status)
 				} else {
 					require.Equal(t, status, got.CompletionStatus)
-					require.Empty(t, got.CompletionDetail)
+					require.Equal(t, detail, got.CompletionDetail)
 					inspected, err := recipejob.GetRecipeJob(ctx, rt, recipejob.GetRecipeJobRequest{TenantID: "tenant", JobID: "child"})
 					require.NoError(t, err)
 					require.Equal(t, detail, inspected.CompletionDetail)

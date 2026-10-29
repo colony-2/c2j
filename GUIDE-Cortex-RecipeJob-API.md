@@ -234,13 +234,19 @@ Set `BuildStartJobRequest.ExecutionRequirements` to a partial
 describe the actual executor. The starter records resolved initial requirements
 when supplied the root recipe; deferred submissions remain explicitly unresolved.
 
-Lists are compact: waiting rows report `execution.status: not_loaded` without
-current demand. `Initial` is only a submission hint from metadata, never proof
-of current requirements. Active rows report `in_flight`; terminal/unknown rows
-report `not_waiting`. Client payload revision remains available, but payload,
-task coordinates, completion detail, other memberships, and dependency details
-are not loaded by lists. `blocking_wait_summary` exposes only wait identity and
-deadline; all application metadata is retained as `metadata`.
+Lists make one JobDB call per page and preserve supplied completion detail,
+full client payload, task coordinates, and prerequisites. These stored fields
+need no per-row enrichment. Evaluated dependency explanations and additional
+goal memberships remain unloaded. `blocking_wait_summary` exposes wait identity
+and deadline; all application metadata is retained as `metadata`.
+
+Waiting rows interpret supplied payloads locally. Missing payloads are stored
+absence: c2j uses submission requirements when available, otherwise reports
+`unresolved` with source `absent`. Published demand takes priority. Active rows
+report `in_flight`; terminal/unknown rows report `not_waiting`. The old
+`not_loaded` fallback has been removed; remote backends must implement the
+[restored contract](MIGRATION-C2J-Restored-Job-List-Fields.md). See the
+[Cortex UI guide](GUIDE-Cortex-Restored-Job-List-Fields.md) for display behavior.
 
 `GetRecipeJob` explicitly reads one selected job's compact summary and `GetJob`
 details. It requires a backend implementing both `ListJobs` and `GetJob`. Use it
@@ -252,7 +258,7 @@ for a selected attempt or job page, never for every row during list rendering.
 return `joblist.ErrExecutionDetailsRequired` without backend calls. For scheduling,
 use the acquired lease's payload instead of adding a per-row detail loop.
 See [the compact migration](MIGRATION-C2J-Compact-Job-Lists.md) and
-[the Cortex feature request](FEATURE-REQUEST-Cortex-Compact-Job-Lists.md).
+[the restoration rollout requirements](MIGRATION-C2J-Restored-Job-List-Fields.md).
 
 To execute jobs, use the separate
 [`executionruntime` adapter](pkg/executionruntime/README.md) and compiler options.

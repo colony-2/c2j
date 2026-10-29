@@ -38,7 +38,11 @@ func TestPublicAPIAndCLIParity(t *testing.T) {
 			runtime := &parityRuntime{requests: make(chan jobdb.ListJobsRequest, 2), job: jobdb.JobSummary{GoalID: "goal", OtherGoalIDs: []string{},
 				JobKey: jobdb.JobKey{TenantId: "tenant", JobId: "job"}, Status: status, JobType: "recipe", Metadata: meta,
 				CreatedAt: time.Unix(10, 0).UTC(), AvailableAt: time.Unix(20, 0).UTC(), CancelRequested: true,
-				NextRoute: &jobdb.Route{JobType: "recipe", TaskType: "recipe:two-step:next"},
+				NextRoute:        &jobdb.Route{JobType: "recipe", TaskType: "recipe:two-step:next"},
+				CompletionDetail: "  exact detail\n☃\n",
+				ClientPayload:    json.RawMessage(`{"application":[9007199254740993,null],"c2j":{"other":true}}`), ClientPayloadRevision: 7,
+				WaitFor:        []string{"second", "first"},
+				ExecutionState: jobdb.ExecutionState{TaskWait: &jobdb.TaskWait{InputOrdinal: 2, OutputOrdinal: 3, InputHash: "hash", ResumeJobType: "recipe"}},
 			}}
 			s := httptest.NewServer(remote.NewServer(runtime))
 			defer s.Close()
@@ -54,6 +58,13 @@ func TestPublicAPIAndCLIParity(t *testing.T) {
 			var cliPage joblist.Page
 			require.NoError(t, json.Unmarshal(out.Bytes(), &cliPage))
 			require.Equal(t, cliPage, page)
+			require.Equal(t, "opaque-token", cliPage.NextPageToken)
+			require.Len(t, cliPage.Jobs, 1)
+			require.Equal(t, runtime.job.ClientPayload, cliPage.Jobs[0].ClientPayload)
+			require.Equal(t, runtime.job.ClientPayloadRevision, cliPage.Jobs[0].ClientPayloadRevision)
+			require.Equal(t, runtime.job.CompletionDetail, cliPage.Jobs[0].CompletionDetail)
+			require.Equal(t, runtime.job.WaitFor, cliPage.Jobs[0].WaitFor)
+			require.Equal(t, runtime.job.ExecutionState.TaskWait, cliPage.Jobs[0].TaskWait)
 			require.Equal(t, <-runtime.requests, <-runtime.requests, "CLI and public API must send equivalent backend queries")
 		})
 	}

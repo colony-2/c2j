@@ -19,13 +19,13 @@ func (e waitingTaskEngine) ListJobs(context.Context, jobdb.ListJobsRequest) (job
 }
 func TestListedTasksRequireExplicitDiscovery(t *testing.T) {
 	key := jobdb.JobKey{TenantId: "tenant", JobId: "job"}
-	summary := jobdb.JobSummary{JobKey: key, NextRoute: &jobdb.Route{JobType: "recipe:kind", TaskType: "input:collect"}, ExecutionState: jobdb.ExecutionState{TaskWait: &jobdb.TaskWait{OutputOrdinal: 9}}}
+	summary := jobdb.JobSummary{JobKey: key, NextRoute: &jobdb.Route{JobType: "recipe:kind", TaskType: "input:collect"}, ExecutionState: jobdb.ExecutionState{RunPolicy: jobdb.DefaultRunPolicy(), TaskWait: &jobdb.TaskWait{OutputOrdinal: 9}}}
 	// All methods except ListJobs are nil: unexpected detail reads panic.
 	control := &SWFWorkflowControl{Engine: waitingTaskEngine{summary: summary}}
 	jobs, _, err := control.ListJobs(context.Background(), jobdb.ListJobsRequest{})
 	require.NoError(t, err)
 	require.Len(t, jobs, 1)
 	require.Nil(t, jobs[0].TaskData)
-	require.Nil(t, jobs[0].ExecutionState.TaskWait)
+	require.Equal(t, summary.ExecutionState, jobs[0].ExecutionState)
 	require.Equal(t, summary.NextRoute, jobs[0].NextRoute)
 }

@@ -40,12 +40,13 @@ func TestExecutionVisibilityAndFilteringOnlyForWaitingJobs(t *testing.T) {
 	for _, status := range []jobdb.JobStatus{jobdb.JobStatusReady, jobdb.JobStatusPendingJobs, jobdb.JobStatusAwaitingFuture, jobdb.JobStatusExpired, jobdb.JobStatusCrashConcern} {
 		job.Status = status
 		view := ExecutionView(job)
-		require.Equal(t, "not_loaded", view.Status)
-		require.Nil(t, view.Demand)
+		require.Equal(t, "specified", view.Status)
+		require.Equal(t, "submission", view.Source)
+		require.Equal(t, "2Gi", *view.Demand.Effective.Resources.Memory)
 		require.NotNil(t, view.Initial)
 		match, err := f.Match(view)
-		require.ErrorContains(t, err, "not loaded")
-		require.False(t, match)
+		require.NoError(t, err)
+		require.True(t, match)
 	}
 	for _, status := range []jobdb.JobStatus{jobdb.JobStatusActive, jobdb.JobStatusCompleted, jobdb.JobStatusCancelled} {
 		job.Status = status

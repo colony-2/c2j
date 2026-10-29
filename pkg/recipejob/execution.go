@@ -11,7 +11,7 @@ import (
 // ExecutionDemandError identifies a job with unusable execution requirements.
 type ExecutionDemandError = joblist.ExecutionDemandError
 
-// ExecutionView marks current requirements as not_loaded on compact waiting rows.
+// ExecutionView uses the restored list projection, including stored absence.
 func ExecutionView(job jobdb.JobSummary) execution.View {
 	return joblist.ExecutionView(job)
 }

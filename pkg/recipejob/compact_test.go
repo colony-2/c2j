@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -15,52 +16,62 @@ import (
 )
 
 func TestCompactRecipePageDoesNotEnrichRows(t *testing.T) {
-	deadline := time.Now().UTC().Add(time.Hour)
-	row := jobdb.JobSummary{
-		JobKey: jobdb.JobKey{TenantId: "tenant", JobId: "job"}, JobType: "recipe", GoalID: "goal",
-		Status: jobdb.JobStatusPendingJobs, CompletionStatus: "future_status", SchemaHash: "schema",
-		Metadata:    json.RawMessage(`{"recipe":"fixture","title":"Title","custom":{"n":9007199254740993}}`),
-		ParentJobID: "parent", ClientPayloadRevision: 42,
-		BlockingWaitSummary: &jobdb.DependencyWaitSummary{WaitID: "wait", Deadline: &deadline},
-		// Simulate an older server still populating deprecated projections.
-		OtherGoalIDs: []string{"other"}, CompletionDetail: "large detail", WaitFor: []string{"dependency"},
-		ClientPayload: json.RawMessage(`{"large":"payload"}`), BlockingWait: &jobdb.DependencyWaitInfo{WaitID: "wait"},
-		ExecutionState: jobdb.ExecutionState{TaskWait: &jobdb.TaskWait{OutputOrdinal: 9}},
+	for _, pageSize := range []int{1, 200} {
+		t.Run(fmt.Sprint(pageSize), func(t *testing.T) {
+			deadline := time.Now().UTC().Add(time.Hour)
+			row := jobdb.JobSummary{
+				JobKey: jobdb.JobKey{TenantId: "tenant", JobId: "job"}, JobType: "recipe", GoalID: "goal",
+				Status: jobdb.JobStatusPendingJobs, CompletionStatus: "future_status", SchemaHash: "schema",
+				Metadata:    json.RawMessage(`{"recipe":"fixture","title":"Title","custom":{"n":9007199254740993}}`),
+				ParentJobID: "parent", ClientPayloadRevision: 42,
+				BlockingWaitSummary: &jobdb.DependencyWaitSummary{WaitID: "wait", Deadline: &deadline},
+				// Supplied stored fields must survive; evaluated waits and memberships do not.
+				OtherGoalIDs: []string{"other"}, CompletionDetail: "large detail", WaitFor: []string{"dependency"},
+				ClientPayload: json.RawMessage(`{"large":"payload"}`), BlockingWait: &jobdb.DependencyWaitInfo{WaitID: "wait"},
+				ExecutionState: jobdb.ExecutionState{TaskWait: &jobdb.TaskWait{OutputOrdinal: 9}},
+			}
+			rows := make([]jobdb.JobSummary, pageSize)
+			for i := range rows {
+				rows[i] = row
+			}
+			// All other runtime methods panic. Page size must not increase the call count.
+			rt := &completionListOnly{list: func(_ context.Context, req jobdb.ListJobsRequest) (jobdb.ListJobsResponse, error) {
+				require.Equal(t, pageSize, req.PageSize)
+				require.Equal(t, "before", req.PageToken)
+				return jobdb.ListJobsResponse{Jobs: rows, NextPageToken: "after"}, nil
+			}}
+			page, err := recipejob.ListRecipeJobs(context.Background(), rt, recipejob.ListRecipeJobsRequest{TenantID: "tenant", PageSize: pageSize, PageToken: "before"})
+			require.NoError(t, err)
+			require.EqualValues(t, 1, rt.calls.Load())
+			require.Equal(t, "after", page.NextPageToken)
+			require.Len(t, page.Jobs, pageSize)
+			for _, got := range page.Jobs {
+				require.Equal(t, row.BlockingWaitSummary, got.BlockingWaitSummary)
+				require.JSONEq(t, string(row.Metadata), string(got.Metadata))
+				require.Equal(t, "schema", got.SchemaHash)
+				require.Equal(t, "parent", got.Parent.JobID)
+				require.Equal(t, "Title", got.Title)
+				require.Equal(t, "future_status", got.CompletionStatus)
+				require.EqualValues(t, 42, got.ClientPayloadRevision)
+				require.Nil(t, got.BlockingWait)
+				require.Empty(t, got.OtherGoalIDs)
+				require.Equal(t, row.CompletionDetail, got.CompletionDetail)
+				require.Equal(t, row.WaitFor, got.WaitFor)
+				require.Equal(t, row.ClientPayload, got.ClientPayload)
+				require.Equal(t, row.ExecutionState.TaskWait, got.TaskWait)
+				require.Equal(t, "unresolved", got.Execution.Status)
+			}
+			page.Jobs[0].ClientPayload[0] = ' '
+			page.Jobs[0].WaitFor[0] = "changed"
+			page.Jobs[0].TaskWait.OutputOrdinal = 100
+			require.Equal(t, `{"large":"payload"}`, string(row.ClientPayload))
+			require.Equal(t, []string{"dependency"}, row.WaitFor)
+			require.EqualValues(t, 9, row.ExecutionState.TaskWait.OutputOrdinal)
+			*page.Jobs[0].BlockingWaitSummary.Deadline = time.Time{}
+			require.False(t, row.BlockingWaitSummary.Deadline.IsZero())
+			require.Equal(t, "large detail", rows[0].CompletionDetail, "projection must not mutate source rows")
+		})
 	}
-	rows := make([]jobdb.JobSummary, 200)
-	for i := range rows {
-		rows[i] = row
-	}
-	// All other runtime methods panic. Page size must not increase the call count.
-	rt := &completionListOnly{list: func(_ context.Context, req jobdb.ListJobsRequest) (jobdb.ListJobsResponse, error) {
-		require.Equal(t, 200, req.PageSize)
-		require.Equal(t, "before", req.PageToken)
-		return jobdb.ListJobsResponse{Jobs: rows, NextPageToken: "after"}, nil
-	}}
-	page, err := recipejob.ListRecipeJobs(context.Background(), rt, recipejob.ListRecipeJobsRequest{TenantID: "tenant", PageSize: 200, PageToken: "before"})
-	require.NoError(t, err)
-	require.EqualValues(t, 1, rt.calls.Load())
-	require.Equal(t, "after", page.NextPageToken)
-	require.Len(t, page.Jobs, 200)
-	for _, got := range page.Jobs {
-		require.Equal(t, row.BlockingWaitSummary, got.BlockingWaitSummary)
-		require.JSONEq(t, string(row.Metadata), string(got.Metadata))
-		require.Equal(t, "schema", got.SchemaHash)
-		require.Equal(t, "parent", got.Parent.JobID)
-		require.Equal(t, "Title", got.Title)
-		require.Equal(t, "future_status", got.CompletionStatus)
-		require.EqualValues(t, 42, got.ClientPayloadRevision)
-		require.Nil(t, got.BlockingWait)
-		require.Empty(t, got.OtherGoalIDs)
-		require.Empty(t, got.CompletionDetail)
-		require.Empty(t, got.WaitFor)
-		require.Empty(t, got.ClientPayload)
-		require.Nil(t, got.TaskWait)
-		require.Equal(t, "not_loaded", got.Execution.Status)
-	}
-	*page.Jobs[0].BlockingWaitSummary.Deadline = time.Time{}
-	require.False(t, row.BlockingWaitSummary.Deadline.IsZero())
-	require.Equal(t, "large detail", rows[0].CompletionDetail, "projection must not mutate source rows")
 }
 
 type selectedJobReader struct {

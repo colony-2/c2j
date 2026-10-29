@@ -51,7 +51,11 @@ func TestCompletionFieldsInOrdinaryAndChildCLIJSON(t *testing.T) {
 				} else {
 					require.Equal(t, completion, got["completion_status"])
 				}
-				require.NotContains(t, got, "completion_detail")
+				if detail == "" {
+					require.NotContains(t, got, "completion_detail")
+				} else {
+					require.Equal(t, detail, got["completion_detail"])
+				}
 			}
 			normalReq, childReq := <-rt.requests, <-rt.requests
 			require.Equal(t, []jobdb.JobStatus{status}, normalReq.Statuses)

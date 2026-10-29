@@ -38,7 +38,7 @@ func TestWaitingForRejectsAmbiguousOrInvalidRoutes(t *testing.T) {
 	}
 }
 
-func TestJobRowUsesTypedRouteWithoutTaskCoordinates(t *testing.T) {
+func TestJobRowPreservesTypedRouteAndTaskCoordinates(t *testing.T) {
 	summary := jobdb.JobSummary{
 		NextRoute: &jobdb.Route{JobType: "recipe:kind", TaskType: "input:collect"},
 		ExecutionState: jobdb.ExecutionState{TaskWait: &jobdb.TaskWait{
@@ -47,15 +47,16 @@ func TestJobRowUsesTypedRouteWithoutTaskCoordinates(t *testing.T) {
 	}
 	row := makeJobRow(summary)
 	require.Equal(t, summary.NextRoute, row.NextRoute)
-	require.Nil(t, row.TaskWait)
+	require.Equal(t, summary.ExecutionState.TaskWait, row.TaskWait)
 	require.JSONEq(t, `{"jobType":"recipe:kind","taskType":"input:collect"}`, displayNext(row))
 	raw, err := json.Marshal(row)
 	require.NoError(t, err)
 	require.Contains(t, string(raw), `"next_route":{"jobType":"recipe:kind","taskType":"input:collect"}`)
-	require.NotContains(t, string(raw), `"inputOrdinal"`)
-	require.NotContains(t, string(raw), `"task_wait"`)
+	require.Contains(t, string(raw), `"outputOrdinal":3`)
+	require.Contains(t, string(raw), `"task_wait"`)
 	require.NotContains(t, string(raw), `"next_need"`)
 	row.NextRoute.TaskType = "changed"
+	row.TaskWait.ResumeJobType = "changed"
 	require.Equal(t, "input:collect", summary.NextRoute.TaskType)
 	require.Equal(t, "recipe:kind", summary.ExecutionState.TaskWait.ResumeJobType)
 }
@@ -68,12 +69,12 @@ func TestExecutionRowDoesNotExposeInFlightNeeds(t *testing.T) {
 	require.NoError(t, err)
 	job := jobdb.JobSummary{Status: jobdb.JobStatusReady, ClientPayload: payload}
 	row := makeJobRow(job)
-	require.Equal(t, "not_loaded", row.Execution.Status)
-	require.Nil(t, row.Execution.Demand)
+	require.Equal(t, "specified", row.Execution.Status)
+	require.Equal(t, memory, *row.Execution.Demand.Effective.Resources.Memory)
 	job.Status = jobdb.JobStatusActive
 	row = makeJobRow(job)
 	require.Equal(t, "in_flight", row.Execution.Status)
 	require.Nil(t, row.Execution.Demand)
 	require.Nil(t, row.Execution.Initial)
-	require.Empty(t, row.ClientPayload)
+	require.Equal(t, payload, row.ClientPayload)
 }

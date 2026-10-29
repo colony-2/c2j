@@ -124,8 +124,9 @@ information, not a lease or a promise that a job remains runnable.
 ## Compact list contract
 
 Lists retain identity, primary goal, parent, schema hash, status, stored route,
-completion status, timestamps, cancellation flag, client-payload revision, and
-all application `Metadata`. c2j also projects familiar labels from metadata.
+completion status/detail, task coordinates, prerequisite IDs, timestamps,
+cancellation flag, full client payload and revision, and all application
+`Metadata` when supplied by JobDB. c2j also projects familiar labels from metadata.
 `BlockingWaitSummary` (`blocking_wait_summary`) contains `waitId` and an optional
 `deadline`; it does not explain dependency targets or enumerate goal candidates.
 
@@ -134,35 +135,46 @@ Unknown values pass through unchanged; an empty status means unavailable, not
 success. Query `COMPLETED` explicitly to include completed jobs. A failed attempt
 does not establish final failure while a job is retrying.
 
-Compatibility fields `BlockingWait`, `OtherGoalIDs`, `CompletionDetail`,
-`ClientPayload`, `TaskWait`, and `WaitFor` are always empty on list projections,
-even against older servers that still supply them. Empty means **not loaded**.
-Use JobDB `GetJob` for selected jobs or `GetDependencyWait` for one wait. Recipe
-clients can use `recipejob.GetRecipeJob`, which reads the selected job's summary
-and detail. Do not call these once per row on every refresh.
+`BlockingWait` and `OtherGoalIDs` remain unloaded because their construction
+requires dependency evaluation or membership reads. Use JobDB `GetJob` for a
+selected job or `GetDependencyWait` for one wait. Recipe clients can use
+`recipejob.GetRecipeJob`, which reads the selected job's summary and detail.
+Do not call these once per row on every refresh.
+
+c2j preserves supplied `CompletionDetail`, full `ClientPayload`, `TaskWait`, and
+`WaitFor` without enrichment. The pinned JobDB revision `9c44e3e3bfa1` restores
+these fields; remote servers need the corresponding JobDB/pgjobdb update. See
+[the restoration migration](../../MIGRATION-C2J-Restored-Job-List-Fields.md).
+These are stored fields on rows already read, so their removal was unnecessary
+for eliminating extra queries. Workflow summaries also retain supplied run policy
+in `ExecutionState`; task data still requires explicit access.
 
 ## Execution information
 
 Waiting rows (`READY`, `EXPIRED`, `PENDING_JOBS`, `AWAITING_FUTURE`,
-`CRASH_CONCERN`) report `Execution.Status = "not_loaded"`, `Source = "unavailable"`,
-no `Demand`, and `Published = false` (publication was not inspected).
-`Initial`, when present, is only the immutable metadata submission hint. It
-must not be used as current demand: a yield may have replaced the requirements.
-Metadata parsing diagnostics remain available. Active rows report `in_flight`;
-terminal/unknown rows report `not_waiting`, both without requirements.
+`CRASH_CONCERN`) interpret supplied client payloads locally with the usual
+execution-demand semantics. The entire raw payload passes through, including
+application data unrelated to execution. Active rows report `in_flight`;
+terminal/unknown rows report `not_waiting`, both without demand.
 
-`ExecutionFilter` is deprecated. A non-nil filter returns
+Missing payloads are stored absence: waiting rows use submission requirements
+when available, otherwise `Status = "unresolved"` and `Source = "absent"`. An
+empty resolved submission reports `unspecified`. Published demand takes priority
+over submission requirements. The old `not_loaded` fallback has been removed;
+remote backends must implement the restored list contract.
+
+`ExecutionFilter` remains deprecated. A non-nil filter returns
 `ErrExecutionDetailsRequired` before any backend call, including when
-`IncludeUnresolved` is true. This prevents silently matching stale requirements
-or moving the removed per-job payload reads into c2j. The CLI's
-`--compatible-with-execution` mode likewise returns this error.
+`IncludeUnresolved` is true. The CLI's `--compatible-with-execution` mode likewise
+returns this error. Restored payloads do not define filtered pagination;
+re-enabling filters still requires preserving the one-backend-page limit.
 
-For an explicitly selected job, use
+`execution.Filter.Match` can evaluate a view from a supplied payload or explicit
+inspection; it rejects `not_loaded` views. For selected-job inspection, use
 `ExecutionViewFromInfo(summary.Metadata, info)` with a JobDB `GetJob` response.
-The existing `execution.Filter.Match` can evaluate that loaded view; it rejects
-`not_loaded` views. A scheduler should instead calculate allocation from the
-acquired lease payload using `execution.Inspect(metadata, lease.ClientPayload())`.
-The lease remains authoritative if state changes after discovery.
+Schedulers can determine allocation after acquiring a lease using
+`execution.Inspect(metadata, lease.ClientPayload())`, without hydrating discovery
+rows. The lease remains authoritative if state changes after listing.
 
 See [migration and downstream audit](../../MIGRATION-C2J-Compact-Job-Lists.md).
 

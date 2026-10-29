@@ -15,7 +15,7 @@ type Page struct {
 }
 
 // Job is the CLI-compatible typed projection, with repository identity added.
-// Detail fields remain for source compatibility but are never loaded by lists.
+// Stored row fields pass through; evaluated waits and extra memberships are not loaded.
 type Job struct {
 	BlockingWaitSummary *jobdb.DependencyWaitSummary `json:"blocking_wait_summary,omitempty"`
 	Metadata            json.RawMessage              `json:"metadata,omitempty"`
@@ -29,10 +29,10 @@ type Job struct {
 	// Completion fields are persisted terminal results, separate from scheduler Status.
 	// Empty status means unavailable. Unknown statuses are preserved verbatim.
 	CompletionStatus string `json:"completion_status,omitempty"`
-	// Deprecated: not loaded in lists. Use explicit job inspection.
+	// Preserved from the list response without additional reads.
 	CompletionDetail string         `json:"completion_detail,omitempty"`
 	Execution        execution.View `json:"execution"`
-	// Deprecated: not loaded in lists. Use explicit job inspection.
+	// Preserved from the list response without additional reads.
 	ClientPayload         json.RawMessage `json:"client_payload,omitempty"`
 	ClientPayloadRevision int64           `json:"client_payload_revision"`
 	TenantID              string          `json:"tenant_id"`
@@ -49,21 +49,18 @@ type Job struct {
 	LeaseExpiresAt        *time.Time      `json:"lease_expires_at,omitempty"`
 	ExpiresAt             *time.Time      `json:"expires_at,omitempty"`
 	NextRoute             *jobdb.Route    `json:"next_route,omitempty"`
-	// Deprecated: not loaded in lists. Use explicit job inspection.
+	// Preserved from the list response without additional reads.
 	TaskWait *jobdb.TaskWait `json:"task_wait,omitempty"`
-	// Deprecated: not loaded in lists. Use explicit job inspection.
+	// Preserved from the list response without additional reads.
 	WaitFor         []string `json:"wait_for,omitempty"`
 	CancelRequested bool     `json:"cancel_requested,omitempty"`
 }
 
-// CompactSummary also enforces the compact contract against older servers.
+// CompactSummary excludes evaluated waits and additional goal memberships.
+// Stored fields are preserved, including the full client payload.
 func CompactSummary(job jobdb.JobSummary) jobdb.JobSummary {
 	job.BlockingWait = nil
 	job.OtherGoalIDs = nil
-	job.CompletionDetail = ""
-	job.ClientPayload = nil
-	job.ExecutionState = jobdb.ExecutionState{}
-	job.WaitFor = nil
 	return job
 }
 
@@ -97,6 +94,10 @@ func JobFromSummary(job jobdb.JobSummary) Job {
 		Title:               meta.Title,
 		GoalID:              job.GoalID,
 		CompletionStatus:    job.CompletionStatus,
+		CompletionDetail:    job.CompletionDetail,
+		ClientPayload:       append(json.RawMessage(nil), job.ClientPayload...),
+		TaskWait:            jobdb.CloneExecutionState(job.ExecutionState).TaskWait,
+		WaitFor:             append([]string(nil), job.WaitFor...),
 		Execution:           ExecutionView(job), RepositorySource: meta.RepositorySource,
 		ClientPayloadRevision: job.ClientPayloadRevision,
 		TenantID:              job.JobKey.TenantId, JobID: job.JobKey.JobId, Status: job.Status,

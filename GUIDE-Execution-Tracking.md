@@ -194,22 +194,29 @@ submission does not load or compile the recipe.
 
 ### Execution information in lists and inspection
 
-Ordinary and child listings use the compact JobDB contract. Waiting jobs report
-`execution.status: not_loaded` with no current demand; initial metadata is only
-a submission hint. Active jobs report `in_flight`, and terminal/unknown jobs
-report `not_waiting`. None of these views proves allocation compatibility.
+Ordinary and child listings preserve supplied client payloads and interpret
+waiting-job demand locally. Active jobs report `in_flight`, and terminal/unknown
+jobs report `not_waiting`. The full raw payload remains available in each case.
 
-Client payload revision, status, route, timestamps, metadata, and a compact
-blocking-wait identity remain available. Payloads and task coordinates require
-explicit inspection. Use `recipejob.GetRecipeJob` for one selected job, or
-JobDB `GetJob` plus `joblist.ExecutionViewFromInfo`. Loaded waiting views retain
-`submission`, `yield`, and `absent` sources and the existing demand semantics.
+The pinned JobDB restores payloads, completion detail, task coordinates, and
+prerequisites without additional queries. Missing payloads now mean stored
+absence: waiting jobs use submission requirements when available, otherwise
+remain unresolved. Published demand takes priority over submission requirements.
+The old `not_loaded` fallback is removed. Remote backends must implement the
+[restored list contract](MIGRATION-C2J-Restored-Job-List-Fields.md).
 
-`--compatible-with-execution` and its `--include-unresolved` mode are deprecated:
-compact lists return `joblist.ErrExecutionDetailsRequired` without fetching
-payloads per row. Apply `execution.Filter.Match` only to an explicitly loaded
-view. For scheduling, use the acquired lease payload to compute current demand;
-do not use stale submission requirements or hydrate every discovery row.
+Use `recipejob.GetRecipeJob` for one selected job, or JobDB `GetJob` plus
+`joblist.ExecutionViewFromInfo`, when explicit inspection is needed. Supplied
+payloads and explicit inspection retain the usual `submission`, `yield`, and
+`absent` sources and demand semantics.
+
+`--compatible-with-execution` and its `--include-unresolved` mode remain deprecated:
+list filters return `joblist.ErrExecutionDetailsRequired`. Restoring them needs
+pagination that does not scan additional
+pages to fill a filtered page. `execution.Filter.Match` can evaluate a view with
+loaded demand. For scheduling, the acquired lease payload can supply allocation
+requirements without per-row discovery reads; it remains authoritative before
+execution even when list payloads are available.
 
 See [the migration guide](MIGRATION-C2J-Compact-Job-Lists.md).
 

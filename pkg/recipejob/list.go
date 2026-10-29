@@ -77,10 +77,10 @@ type RecipeJob struct {
 	// Completion fields are persisted terminal results, separate from scheduler Status.
 	// Empty status means unavailable. Unknown statuses are preserved verbatim.
 	CompletionStatus string `json:"completion_status,omitempty"`
-	// Deprecated: not loaded in lists. Use explicit job inspection.
+	// Preserved from the list response without additional reads.
 	CompletionDetail string         `json:"completion_detail,omitempty"`
 	Execution        execution.View `json:"execution"`
-	// Deprecated: not loaded in lists. Use explicit job inspection.
+	// Preserved from the list response without additional reads.
 	ClientPayload         json.RawMessage    `json:"client_payload,omitempty"`
 	ClientPayloadRevision int64              `json:"client_payload_revision"`
 	TenantID              string             `json:"tenant_id"`
@@ -104,9 +104,9 @@ type RecipeJob struct {
 	LeaseExpiresAt        *time.Time         `json:"lease_expires_at,omitempty"`
 	ExpiresAt             *time.Time         `json:"expires_at,omitempty"`
 	NextRoute             *jobdb.Route       `json:"next_route,omitempty"`
-	// Deprecated: not loaded in lists. Use explicit job inspection.
+	// Preserved from the list response without additional reads.
 	TaskWait *jobdb.TaskWait `json:"task_wait,omitempty"`
-	// Deprecated: not loaded in lists. Use explicit job inspection.
+	// Preserved from the list response without additional reads.
 	WaitFor         []string `json:"wait_for,omitempty"`
 	CancelRequested bool     `json:"cancel_requested,omitempty"`
 }
@@ -402,6 +402,10 @@ func RecipeJobFromSummary(summary jobdb.JobSummary) (RecipeJob, bool, error) {
 		SchemaHash:            summary.SchemaHash,
 		GoalID:                summary.GoalID,
 		CompletionStatus:      summary.CompletionStatus,
+		CompletionDetail:      summary.CompletionDetail,
+		ClientPayload:         append(json.RawMessage(nil), summary.ClientPayload...),
+		TaskWait:              jobdb.CloneExecutionState(summary.ExecutionState).TaskWait,
+		WaitFor:               append([]string(nil), summary.WaitFor...),
 		Execution:             ExecutionView(summary),
 		ClientPayloadRevision: summary.ClientPayloadRevision,
 		TenantID:              summary.JobKey.TenantId,

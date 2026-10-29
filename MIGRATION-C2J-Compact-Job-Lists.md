@@ -1,9 +1,13 @@
 # c2j compact job list migration
 
-c2j now pins JobDB main `0bd5f2c1c456` (`v0.0.62-0.20261028213659-0bd5f2c1c456`).
-This propagates JobDB's compact list contract through `pkg/joblist`,
+c2j now pins JobDB main `9c44e3e3bfa1` (`v0.0.64-0.20261029043940-9c44e3e3bfa1`).
+The c2j list path covers `pkg/joblist`,
 `pkg/recipejob`, ordinary/child CLI JSON, goal candidate lists, and workflow
-control listing. It deliberately does not recreate removed enrichment in c2j.
+control listing. The corrected boundary preserves stored fields and removes
+extra reads/evaluation. The initial migration over-pruned completion detail,
+client payload, task coordinates, and prerequisites. c2j now passes those
+fields through, and the pinned JobDB restores them. See the
+[restoration migration](MIGRATION-C2J-Restored-Job-List-Fields.md).
 
 ## Cost and response contract
 
@@ -13,23 +17,23 @@ a logical page. Backend filters, page size, and continuation pass through.
 Explicit `--all` and child-context collection still traverse requested pages.
 
 Rows retain job identity/type, primary goal, parent, schema hash, status,
-completion status (including unknown values), stored route, cancellation,
-timestamps, client payload revision, and all application metadata. c2j's
+completion status/detail (including unknown status values), stored route and
+task coordinates, prerequisite IDs, cancellation, timestamps, full opaque client
+payload and revision, and all application metadata when supplied by JobDB. c2j's
 recipe/title/prompt/cell/repository labels remain derived from that metadata.
 `blocking_wait_summary` contains `waitId` and optional `deadline`, without target
 resolution. Additional goal membership still works as a backend filter.
 
-The following retained compatibility fields are empty on lists, even against
-older servers that still send details. Empty means **not loaded**:
+The pinned backend returns completion detail, client payload, execution state,
+and prerequisites. Remote endpoints also need the matching JobDB/pgjobdb
+restoration. c2j does not fetch missing fields with per-row reads.
+
+The following fields still require explicit inspection. Empty means **not loaded**:
 
 | List field | Explicit replacement |
 | --- | --- |
 | `blocking_wait` | `GetJob.BlockingWait` or `GetDependencyWait` using the summary wait ID |
 | `other_goal_ids` | `GetJob.OtherGoalIDs` |
-| `completion_detail` | `GetJob.CompletionDetail` |
-| `wait_for` | `GetJob.WaitFor` |
-| `client_payload` | `GetJob.ClientPayload` or the acquired lease payload |
-| `task_wait` / `ExecutionState` | `GetJob.ExecutionState` or `GetWaitingTask` |
 | `workflowctl.JobItem.TaskData` | `GetWaitingTask(...).Data()`; listed TaskData is nil |
 
 `recipejob.GetRecipeJob` is now an explicit inspection operation: one compact
@@ -41,18 +45,23 @@ Use a compact keyed list instead for existence checks that need no details.
 
 ## Execution demand
 
-Waiting rows report `Execution.Status = "not_loaded"`, `Source = "unavailable"`,
-no `Demand`, and `Published = false` (not inspected). `Initial`, when present,
-is only an immutable submission hint from metadata. Active jobs remain
-`in_flight`; terminal/unknown jobs remain `not_waiting`. A missing list payload
-must never imply that a job has no published demand or that initial requirements
-are current, including at payload revision zero.
+When a list supplies a client payload, c2j interprets waiting-job demand locally
+with the usual `submission`, `yield`, and `absent` semantics. No extra read is
+needed. Active jobs remain `in_flight`; terminal/unknown jobs remain `not_waiting`.
+The full payload is preserved regardless of execution status.
 
-A non-nil `ExecutionFilter` and CLI `--compatible-with-execution` are deprecated
+Missing payloads now mean stored absence, regardless of payload revision.
+Waiting jobs use submission requirements when available, otherwise report
+`unresolved` with source `absent`. Published demand takes priority. The old
+`not_loaded` fallback is removed; supported remote endpoints must implement the
+restored list contract.
+
+A non-nil `ExecutionFilter` and CLI `--compatible-with-execution` remain deprecated
 and rejected with `joblist.ErrExecutionDetailsRequired` before list dispatch.
-`IncludeUnresolved` cannot override this. This is an intentional behavioral
-change: automatically fetching payloads or silently matching old hints would
-violate either the list cost contract or placement correctness.
+`IncludeUnresolved` cannot override this. Re-enabling them requires
+pagination semantics that do not scan additional
+backend pages to fill one filtered page. Interpreting supplied payloads itself
+adds no query.
 
 For an explicitly selected job, evaluate
 `joblist.ExecutionViewFromInfo(summary.Metadata, info)` and then
@@ -70,8 +79,9 @@ no discovery enrichment loop.
   cover persisted completion detail. Metadata remains available without detail
   fetches for title/prompt projections.
 - Pending-input discovery already calls `GetWaitingTask` and reads form data for
-  each returned occurrence. It now uses the handle's coordinates rather than
-  omitted list coordinates. This existing specialized inspection loop remains;
+  each returned occurrence. It uses the current handle's coordinates to identify
+  the occurrence even when list coordinates are available. This existing
+  specialized inspection loop remains;
   **do not use it to enrich the ordinary jobs list or add per-row input badges**.
   Completed inputs are skipped; a replacement input uses its newly loaded
   occurrence identity. Submission retains task-handle stale-work protection.
@@ -82,24 +92,28 @@ no discovery enrichment loop.
 
 ## Downstream audit and rollout
 
-Audited on 2026-10-28:
+The original downstream audit used these revisions on 2026-10-28; the storage
+correction above was audited on 2026-10-29:
 
 - Cortex main `e7bfa71bcd91c9cfa5dbc8ce61874624d2ce71bf`: ordinary handlers already
-  delegate directly to c2j. The UI assumes list rows carry detail and additional
-  goal memberships. Move detail to selected attempts; keep collapsed rows
-  compact. See [Cortex feature request](FEATURE-REQUEST-Cortex-Compact-Job-Lists.md).
+  delegate directly to c2j. Completion detail, payload, task coordinates, and
+  prerequisites can remain in lists once the backend restores them. Additional
+  memberships and evaluated dependency explanations still need selected-job
+  inspection. Do not add per-row detail requests to render list rows.
 - Pulse main `071cf32f1ef5ae6e31644d051a85c3e6e3efe022`: discovery is one list call,
-  but the controller currently calculates allocation for each row before
-  admission. A per-row `GetJob` there would simply move the old enrichment loop
-  upward. The existing bounded claim/prepare phase already gets current demand
-  from the lease before provider submission. Remove its dependency on full
-  pre-claim demand. See [Pulse feature request](FEATURE-REQUEST-Pulse-Compact-Job-Lists.md).
+  but allocation is calculated before admission. With the current backend,
+  acquire leases before determining allocation requirements; the lease already
+  supplies current payload. This changes ordering, not intended allocation or
+  execution behavior. Restored list payloads remove the missing-data reason for
+  requiring this ordering change. The lease remains authoritative before
+  execution in either case. A per-row `GetJob` would move the unwanted loop up.
 
-Both repositories need coordinated updates. Old Pulse rejects `not_loaded` in
-`Job.Allocation`, so bumping its c2j dependency alone would stop scheduling.
-Old Cortex loses expanded details and secondary-membership grouping unless its
-UI is migrated. No downstream source changes are included in this c2j change.
+c2j no longer emits `not_loaded` for missing list payloads. Supported backends
+must return the restored projection; lease state remains authoritative for
+execution. No downstream source changes are included here. See the
+[restoration migration](MIGRATION-C2J-Restored-Job-List-Fields.md) for the
+corrected Cortex/Pulse expectations and rollout requirements.
 
-An external scheduler backend can still do enrichment internally. This c2j
-change does not certify pgjobdb's query cost; verify its compact-list migration
-separately. SQLite's compact path is supplied by the pinned JobDB change.
+An external scheduler backend can still do enrichment internally. c2j's tests
+prove its own call count; backend SQL/query-count tests must independently cover
+the JobDB and pgjobdb restoration.
