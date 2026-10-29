@@ -1,6 +1,7 @@
 package compiler
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -71,22 +72,60 @@ func gitRefPinsFromRecipeSource(resolution RecipeSourceResolution) map[string]st
 	return pins
 }
 
+// ResolvedRecipeYAMLArtifactName is a logical task-output name. JobDB owns its
+// durable key, including when the artifact is inherited from an earlier job.
+const ResolvedRecipeYAMLArtifactName = "_c2j/resolved-recipe.yaml"
+
 type ResolvedRecipeSource struct {
 	RecipeSourceResolution
+	RecipeYAMLArtifact string `json:"recipe_yaml_artifact,omitempty"`
+	// RecipeYAML is read compatibility for histories recorded before artifacts.
 	RecipeYAML string `json:"recipe_yaml,omitempty"`
+
+	recipeArtifact  jobdb.Artifact
+	artifactContext bool
+}
+
+func (r ResolvedRecipeSource) HasRecipeYAML() bool {
+	return r.recipeArtifact != nil || r.RecipeYAMLArtifact != "" || strings.TrimSpace(r.RecipeYAML) != ""
+}
+
+// RecipeYAMLBytes materializes source only when requested. Parsing metadata and
+// enumerating artifacts must not open their content or put it back into history.
+func (r ResolvedRecipeSource) RecipeYAMLBytes(ctx context.Context) ([]byte, error) {
+	if r.RecipeYAMLArtifact != "" && !r.artifactContext {
+		return nil, fmt.Errorf("resolved recipe artifact requires task data; use ParseResolvedRecipeSourceTaskData")
+	}
+	return readResolvedRecipeYAML(ctx, r.RecipeYAMLArtifact, r.RecipeYAML, r.recipeArtifact)
 }
 
 func (r ResolvedRecipeSource) LoadRecipe() (recipe.Recipe, error) {
-	if strings.TrimSpace(r.RecipeYAML) == "" {
-		return recipe.Recipe{}, fmt.Errorf("resolved recipe YAML is empty")
+	return r.LoadRecipeContext(context.Background())
+}
+
+func (r ResolvedRecipeSource) LoadRecipeContext(ctx context.Context) (recipe.Recipe, error) {
+	raw, err := r.RecipeYAMLBytes(ctx)
+	if err != nil {
+		return recipe.Recipe{}, err
 	}
-	rec, err := loadEmbeddedRecipeYAML([]byte(r.RecipeYAML))
+	var rec recipe.Recipe
+	if r.recipeArtifact != nil {
+		var parsed *recipe.Recipe
+		parsed, err = recipe.LoadInternalRecipeFromString(raw)
+		if err == nil {
+			rec = *parsed
+		}
+	} else {
+		rec, err = loadEmbeddedRecipeYAML(raw)
+	}
 	if err != nil {
 		return recipe.Recipe{}, fmt.Errorf("parse resolved recipe YAML: %w", err)
 	}
 	return rec, nil
 }
 
+// ParseResolvedRecipeSourceTaskData retains the artifact reader without fetching
+// content. ParseResolvedRecipeSourceJSON is sufficient only for metadata views.
 func ParseResolvedRecipeSourceTaskData(td jobdb.TaskData) (*ResolvedRecipeSource, error) {
 	if td == nil {
 		return nil, fmt.Errorf("resolved recipe source task data is required")
@@ -95,7 +134,56 @@ func ParseResolvedRecipeSourceTaskData(td jobdb.TaskData) (*ResolvedRecipeSource
 	if err != nil {
 		return nil, err
 	}
-	return ParseResolvedRecipeSourceJSON(raw)
+	source, err := ParseResolvedRecipeSourceJSON(raw)
+	if err != nil {
+		return nil, err
+	}
+	source.artifactContext = true
+	source.recipeArtifact, err = findResolvedRecipeYAMLArtifact(td, source.RecipeYAMLArtifact)
+	if err != nil {
+		return nil, err
+	}
+	return source, nil
+}
+
+func findResolvedRecipeYAMLArtifact(td jobdb.TaskData, name string) (jobdb.Artifact, error) {
+	if name == "" {
+		name = ResolvedRecipeYAMLArtifactName
+	}
+	artifacts, err := td.GetArtifacts()
+	if err != nil {
+		return nil, fmt.Errorf("list resolved recipe artifacts: %w", err)
+	}
+	var found jobdb.Artifact
+	for _, art := range artifacts {
+		if art == nil || art.Name() != name {
+			continue
+		}
+		if found != nil {
+			return nil, fmt.Errorf("duplicate resolved recipe artifact %q", name)
+		}
+		found = art
+	}
+	return found, nil
+}
+
+func readResolvedRecipeYAML(ctx context.Context, name, inline string, art jobdb.Artifact) ([]byte, error) {
+	var raw []byte
+	if art != nil {
+		var err error
+		raw, err = art.Bytes(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("read resolved recipe artifact %q: %w", art.Name(), err)
+		}
+	} else if strings.TrimSpace(inline) != "" {
+		raw = []byte(inline)
+	} else if name != "" {
+		return nil, fmt.Errorf("resolved recipe artifact %q is missing", name)
+	}
+	if len(bytes.TrimSpace(raw)) == 0 {
+		return nil, fmt.Errorf("resolved recipe YAML is empty")
+	}
+	return raw, nil
 }
 
 func ParseResolvedRecipeSourceJSON(raw []byte) (*ResolvedRecipeSource, error) {
@@ -104,20 +192,13 @@ func ParseResolvedRecipeSourceJSON(raw []byte) (*ResolvedRecipeSource, error) {
 	}
 
 	source := ResolvedRecipeSource{}
-	if err := json.Unmarshal(raw, &source); err == nil {
-		if source.SourceKind != "" || strings.TrimSpace(source.SubmittedSelector) != "" || strings.TrimSpace(source.ResolvedSelector) != "" || strings.TrimSpace(source.ResolvedCommit) != "" || strings.TrimSpace(source.ArtifactName) != "" || strings.TrimSpace(source.RecipeYAML) != "" {
-			return &source, nil
-		}
-	}
-
-	resolution := RecipeSourceResolution{}
-	if err := json.Unmarshal(raw, &resolution); err != nil {
+	if err := json.Unmarshal(raw, &source); err != nil {
 		return nil, fmt.Errorf("decode resolved recipe source payload: %w", err)
 	}
-	if resolution.SourceKind == "" && strings.TrimSpace(resolution.SubmittedSelector) == "" && strings.TrimSpace(resolution.ResolvedSelector) == "" && strings.TrimSpace(resolution.ResolvedCommit) == "" && strings.TrimSpace(resolution.ArtifactName) == "" {
+	if source.SourceKind == "" && strings.TrimSpace(source.SubmittedSelector) == "" && strings.TrimSpace(source.ResolvedSelector) == "" && strings.TrimSpace(source.ResolvedCommit) == "" && strings.TrimSpace(source.ArtifactName) == "" && !source.HasRecipeYAML() {
 		return nil, fmt.Errorf("decode resolved recipe source payload: missing resolution fields")
 	}
-	return &ResolvedRecipeSource{RecipeSourceResolution: resolution}, nil
+	return &source, nil
 }
 
 type RecipeSourceResolver interface {
@@ -413,9 +494,9 @@ func (w rootSourceResolutionTaskWorker) RunTask(local context.Context, taskCtx j
 
 	source := ResolvedRecipeSource{
 		RecipeSourceResolution: resolution,
-		RecipeYAML:             string(yamlBytes),
+		RecipeYAMLArtifact:     ResolvedRecipeYAMLArtifactName,
 	}
-	return jobdb.NewTaskData(source)
+	return jobdb.NewTaskData(source, jobdb.NewArtifactFromBytes(ResolvedRecipeYAMLArtifactName, yamlBytes))
 }
 
 func loadRootRecipe(ctx context.Context, resolver RecipeSourceResolver, projectID string, resolution RecipeSourceResolution) (recipe.Recipe, error) {

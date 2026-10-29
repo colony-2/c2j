@@ -134,7 +134,8 @@ type loadErrorReplayContext struct {
 func (*loadErrorReplayContext) GetJobKey() jobdb.JobKey {
 	return jobdb.JobKey{TenantId: "tenant", JobId: "job"}
 }
-func (*loadErrorReplayContext) Logger() *slog.Logger { return slog.Default() }
+func (*loadErrorReplayContext) Logger() *slog.Logger     { return slog.Default() }
+func (*loadErrorReplayContext) Context() context.Context { return context.Background() }
 func (c *loadErrorReplayContext) DoTask(call jobworkflow.TaskCall, build func(context.Context) (jobdb.TaskData, error)) (jobdb.TaskData, error) {
 	task := call.TaskType
 	input, err := build(context.Background())

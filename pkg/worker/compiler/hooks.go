@@ -105,13 +105,14 @@ func hasCellHooks(r recipe.Recipe) bool {
 }
 
 type hookResolution struct {
-	Path          string                       `json:"path"`
-	Candidate     string                       `json:"candidate"`
-	Absent        bool                         `json:"absent"`
-	RecipeYAML    string                       `json:"recipe_yaml,omitempty"`
-	ContentSHA256 string                       `json:"content_sha256,omitempty"`
-	Source        recipe.RecipeSourceSnapshot  `json:"source"`
-	Functions     WithinRecipeResolutionResult `json:"functions,omitempty"`
+	Path               string                       `json:"path"`
+	Candidate          string                       `json:"candidate"`
+	Absent             bool                         `json:"absent"`
+	RecipeYAMLArtifact string                       `json:"recipe_yaml_artifact,omitempty"`
+	RecipeYAML         string                       `json:"recipe_yaml,omitempty"`
+	ContentSHA256      string                       `json:"content_sha256,omitempty"`
+	Source             recipe.RecipeSourceSnapshot  `json:"source"`
+	Functions          WithinRecipeResolutionResult `json:"functions,omitempty"`
 }
 type hookResolveWorker struct{}
 
@@ -185,6 +186,7 @@ func (w hookResolveWorker) RunTask(ctx context.Context, tc jobworkflow.TaskConte
 	resolution := RecipeSourceResolution{SourceKind: RecipeSourceKindGit, SubmittedSelector: "cell://" + hook, ResolvedSelector: selector, ResolvedCommit: head, WasAlreadyPinned: true}
 	result.Source = recipeSourceSnapshot(resolution)
 	loader := &candidateRecipeResolver{RecipeSourceResolver: NewRecipeSourceResolver(RecipeSourceResolverOptions{}), dir: g.WorktreePath, repository: sourceRepo, commit: head}
+	var recipeArtifact jobdb.Artifact
 	phase, _ := req.Input["phase"].(string)
 	if phase == "load" {
 		if req.GitTaskContext.PersistHash == "" || head != req.GitTaskContext.PersistHash {
@@ -249,7 +251,8 @@ func (w hookResolveWorker) RunTask(ctx context.Context, tc jobworkflow.TaskConte
 			if err != nil {
 				return nil, err
 			}
-			result.RecipeYAML = string(yaml)
+			result.RecipeYAMLArtifact = ResolvedRecipeYAMLArtifactName
+			recipeArtifact = jobdb.NewArtifactFromBytes(ResolvedRecipeYAMLArtifactName, yaml)
 			result.ContentSHA256 = sha256Hex(contents)
 		}
 	} else if phase != "pin" {
@@ -260,6 +263,9 @@ func (w hookResolveWorker) RunTask(ctx context.Context, tc jobworkflow.TaskConte
 		commit.ParentHash = head
 	}
 	var outputArts []jobdb.Artifact
+	if recipeArtifact != nil {
+		outputArts = append(outputArts, recipeArtifact)
+	}
 	if pack != nil {
 		outputArts = append(outputArts, pack)
 	}
@@ -359,6 +365,7 @@ func prepareHook(ctx workflow.Context, parent *template.ResolutionContext, n *re
 	e, _ := ctx.HookPolicy.Select(hook)
 	req := workerops.ActivityInvocationRequest{Input: map[string]any{"hook": hook, "policy": e, "perms": n.Perms, "repository": ctx.HookPolicy.Repository, "policy_revision": ctx.HookPolicy.Revision}, Permissions: &p, GitProfile: parent.GitProfile, GitTaskContext: *gitstate.NewGlobalGitTaskContext(parent.TaskExecutionContext())}
 	var result hookResolution
+	var recipeArtifact jobdb.Artifact
 	// Pinning has its own durable outcome. A crash during source loading must
 	// not perform another floating-ref lookup.
 	for _, phase := range []string{"pin", "load"} {
@@ -389,6 +396,12 @@ func prepareHook(ctx workflow.Context, parent *template.ResolutionContext, n *re
 		if result.Path != hook || !isFullGitHash(result.Candidate) || decoded.Activity.GitResult.PersistHash != result.Candidate {
 			return recipe.Node{}, fmt.Errorf("invalid hook resolution result")
 		}
+		if phase == "load" && !result.Absent {
+			recipeArtifact, err = findResolvedRecipeYAMLArtifact(out, result.RecipeYAMLArtifact)
+			if err != nil {
+				return recipe.Node{}, err
+			}
+		}
 		parent.UpdateGitState(decoded.Activity.GitResult)
 	}
 	if result.Absent {
@@ -403,19 +416,24 @@ func prepareHook(ctx workflow.Context, parent *template.ResolutionContext, n *re
 		return recipe.Node{}, err
 	}
 	var rec recipe.Recipe
+	var recipeYAML []byte
 	if result.Absent {
 		if n.Include.IfMissing == nil {
 			return recipe.Node{}, fmt.Errorf("hook %s: %w", hook, os.ErrNotExist)
 		}
 		rec = recipe.Recipe{RecipeImpl: &recipe.RecipeSequence{RecipeMetadata: recipe.RecipeMetadata{NodeMetadata: recipe.NodeMetadata{ID: "absent_hook"}}, SequenceData: recipe.SequenceData{Outputs: n.Include.IfMissing.Outputs}}}
 	} else {
-		loaded, err := recipe.LoadInternalRecipeFromString([]byte(result.RecipeYAML))
+		recipeYAML, err = readResolvedRecipeYAML(ctx.JobContext.Context(), result.RecipeYAMLArtifact, result.RecipeYAML, recipeArtifact)
+		if err != nil {
+			return recipe.Node{}, err
+		}
+		loaded, err := recipe.LoadInternalRecipeFromString(recipeYAML)
 		if err != nil {
 			return recipe.Node{}, err
 		}
 		rec = *loaded
 	}
-	loaded := loadedInlineRecipe{Recipe: rec, Snapshot: result.Source, Raw: []byte(result.RecipeYAML)}
+	loaded := loadedInlineRecipe{Recipe: rec, Snapshot: result.Source, Raw: recipeYAML}
 	wrapper, err := inlineWrapperNode(n, rec, loaded, parent.TaskExecutionContext().Invocation.NodePath+"/"+n.ID, "")
 	if err != nil {
 		return recipe.Node{}, err

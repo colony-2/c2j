@@ -202,8 +202,8 @@ func (j recipeJobWorker) Run(ctx jobworkflow.ExecutionContext, jobData jobdb.Job
 		}
 		resolution = resolvedSource.RecipeSourceResolution
 
-		if strings.TrimSpace(resolvedSource.RecipeYAML) != "" {
-			r, loadErr = resolvedSource.LoadRecipe()
+		if resolvedSource.HasRecipeYAML() {
+			r, loadErr = resolvedSource.LoadRecipeContext(ctx.Context())
 		} else {
 			// Older source outcomes lack embedded YAML. Reload through a task so
 			// even this recovery path gets the current lease's Git environment.
@@ -218,7 +218,7 @@ func (j recipeJobWorker) Run(ctx jobworkflow.ExecutionContext, jobData jobdb.Job
 			if e != nil {
 				return nil, e
 			}
-			r, loadErr = loaded.LoadRecipe()
+			r, loadErr = loaded.LoadRecipeContext(ctx.Context())
 		}
 	}
 	if loadErr == nil && r.RecipeImpl == nil {

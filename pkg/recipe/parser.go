@@ -40,6 +40,9 @@ func resolve(recipe *Recipe, err error, allowInternalMetadata bool) (*Recipe, er
 		// Return decode errors as-is to preserve exact validation messages
 		return nil, err
 	}
+	if recipe == nil || recipe.RecipeImpl == nil {
+		return nil, fmt.Errorf("recipe is empty")
+	}
 	if requirements := recipe.GetMetdata().Execution; requirements != nil {
 		normalized, err := requirements.Normalize()
 		if err != nil {

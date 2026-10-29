@@ -72,13 +72,15 @@ type replayJobRunner interface {
 }
 
 type Options struct {
+	Context  context.Context
 	JobKey   jobdb.JobKey
 	Logger   *slog.Logger
 	OnChange func(*JobRunStory)
 }
 
 type Recorder struct {
-	mu sync.Mutex
+	ctx context.Context
+	mu  sync.Mutex
 
 	jobKey   jobdb.JobKey
 	logger   *slog.Logger
@@ -124,11 +126,16 @@ type rootSourceResolutionTracker struct {
 type replayRootSourceResolver struct{}
 
 func NewRecorder(opts Options) *Recorder {
+	ctx := opts.Context
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	logger := opts.Logger
 	if logger == nil {
 		logger = slog.Default()
 	}
 	return &Recorder{
+		ctx:               ctx,
 		jobKey:            opts.JobKey,
 		logger:            logger,
 		onChange:          opts.OnChange,
@@ -179,7 +186,7 @@ func BuildJobRunStory(ctx context.Context, engine replayJobRunner, jobKey jobdb.
 		}
 		recorded = &run
 	}
-	rec := NewRecorder(Options{JobKey: jobKey, Logger: logger})
+	rec := NewRecorder(Options{Context: ctx, JobKey: jobKey, Logger: logger})
 	events := newReplayEvents(rec.Observer())
 	workerOpts := compiler.RecipeJobWorkerOptions{
 		Logger:                 compilerLogger,
@@ -620,7 +627,10 @@ func (r *Recorder) handleRootSourceResolutionTaskEndLocked(event jobworkflow.Tas
 	tracker.node.PriorAttempts = prior
 
 	if event.Err == nil {
-		if source := parseResolvedRecipeSource(event.Output); source != nil {
+		source, err := parseResolvedRecipeSource(r.ctx, event.Output)
+		if err != nil {
+			r.logger.Warn("load story recipe source", "error", err)
+		} else if source != nil {
 			r.resolvedSources[attempt] = source
 		}
 	}
@@ -1893,15 +1903,24 @@ func findLastChildStep(children []*model.JobRunStoryNode) *model.JobRunStoryNode
 	return nil
 }
 
-func parseResolvedRecipeSource(td jobdb.TaskData) *compiler.ResolvedRecipeSource {
+func parseResolvedRecipeSource(ctx context.Context, td jobdb.TaskData) (*compiler.ResolvedRecipeSource, error) {
 	if td == nil {
-		return nil
+		return nil, nil
 	}
 	source, err := compiler.ParseResolvedRecipeSourceTaskData(td)
 	if err != nil {
-		return nil
+		return nil, err
 	}
-	return source
+	if source.HasRecipeYAML() {
+		raw, err := source.RecipeYAMLBytes(ctx)
+		if err != nil {
+			return nil, err
+		}
+		// Story detail intentionally includes source text. This copy is never
+		// written back to a task result or execution chapter.
+		source.RecipeYAML = string(raw)
+	}
+	return source, nil
 }
 
 func copyAttemptIntoStep(dst, src *model.JobRunStoryNode) {

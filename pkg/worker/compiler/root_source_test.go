@@ -274,8 +274,9 @@ outputs:
 	require.Equal(t, "resolved-at-runtime", got["result"])
 
 	run, err := engine.GetJobRun(context.Background(), jobdb.GetJobRunRequest{
-		JobKey:         jobKey,
-		IncludeOutputs: true,
+		JobKey:           jobKey,
+		IncludeOutputs:   true,
+		IncludeArtifacts: true,
 	})
 	require.NoError(t, err)
 	require.Len(t, run.Attempts, 1)
@@ -286,7 +287,7 @@ outputs:
 	resolvedSource, err := ParseResolvedRecipeSourceJSON(executionTaskRuns(run)[0].Attempts[0].Output.Data)
 	require.NoError(t, err)
 	require.Equal(t, "remote-root", resolvedSource.SubmittedSelector)
-	require.Contains(t, resolvedSource.RecipeYAML, "id: remote_root_recipe")
+	require.Contains(t, recordedRecipeYAML(t, engine, jobKey, executionTaskRuns(run)[0].Attempts[0].Output), "id: remote_root_recipe")
 }
 
 func TestRecipeJobWorker_ResolvesBareRootRecipeAgainstLookupContext(t *testing.T) {
@@ -349,8 +350,9 @@ outputs:
 	require.Equal(t, true, got["ok"])
 
 	run, err := engine.GetJobRun(context.Background(), jobdb.GetJobRunRequest{
-		JobKey:         jobKey,
-		IncludeOutputs: true,
+		JobKey:           jobKey,
+		IncludeOutputs:   true,
+		IncludeArtifacts: true,
 	})
 	require.NoError(t, err)
 	require.Len(t, run.Attempts, 1)
@@ -552,8 +554,9 @@ outputs:
 	require.Equal(t, "from-embedded", got["result"])
 
 	run, err := engine.GetJobRun(context.Background(), jobdb.GetJobRunRequest{
-		JobKey:         jobKey,
-		IncludeOutputs: true,
+		JobKey:           jobKey,
+		IncludeOutputs:   true,
+		IncludeArtifacts: true,
 	})
 	require.NoError(t, err)
 	require.Len(t, run.Attempts, 1)
@@ -674,8 +677,9 @@ outputs:
 	require.Equal(t, "hello-world", got["slug"])
 
 	run, err := engine.GetJobRun(context.Background(), jobdb.GetJobRunRequest{
-		JobKey:         jobKey,
-		IncludeOutputs: true,
+		JobKey:           jobKey,
+		IncludeOutputs:   true,
+		IncludeArtifacts: true,
 	})
 	require.NoError(t, err)
 	require.Len(t, run.Attempts, 1)
@@ -795,8 +799,9 @@ outputs:
 	require.Equal(t, "hello-world", got["slug"])
 
 	run, err := engine.GetJobRun(context.Background(), jobdb.GetJobRunRequest{
-		JobKey:         jobKey,
-		IncludeOutputs: true,
+		JobKey:           jobKey,
+		IncludeOutputs:   true,
+		IncludeArtifacts: true,
 	})
 	require.NoError(t, err)
 	require.Len(t, run.Attempts, 1)
@@ -929,8 +934,9 @@ outputs:
 	require.Equal(t, "hello-world", got["slug"])
 
 	run, err := engine.GetJobRun(context.Background(), jobdb.GetJobRunRequest{
-		JobKey:         jobKey,
-		IncludeOutputs: true,
+		JobKey:           jobKey,
+		IncludeOutputs:   true,
+		IncludeArtifacts: true,
 	})
 	require.NoError(t, err)
 	require.Len(t, run.Attempts, 1)
@@ -943,8 +949,8 @@ outputs:
 	resolvedSource, err := ParseResolvedRecipeSourceJSON(executionTaskRuns(run)[0].Attempts[0].Output.Data)
 	require.NoError(t, err)
 	require.Equal(t, fmt.Sprintf("git+%s//recipes/remote.yaml@%s", repoURL, commit), resolvedSource.ResolvedSelector)
-	require.Contains(t, resolvedSource.RecipeYAML, "selector: ./tools/cel/text-utils")
-	require.Contains(t, resolvedSource.RecipeYAML, "op: ./tools/ops/echo")
+	require.Contains(t, recordedRecipeYAML(t, engine, jobKey, executionTaskRuns(run)[0].Attempts[0].Output), "selector: ./tools/cel/text-utils")
+	require.Contains(t, recordedRecipeYAML(t, engine, jobKey, executionTaskRuns(run)[0].Attempts[0].Output), "op: ./tools/ops/echo")
 }
 
 func TestRecipeJobWorker_RootRepoRefPinsExplicitExtensionSelectorsAfterBranchMoves(t *testing.T) {
@@ -1044,8 +1050,9 @@ outputs:
 	require.Equal(t, "Hello World", got["echoed"])
 
 	run, err := engine.GetJobRun(context.Background(), jobdb.GetJobRunRequest{
-		JobKey:         jobKey,
-		IncludeOutputs: true,
+		JobKey:           jobKey,
+		IncludeOutputs:   true,
+		IncludeArtifacts: true,
 	})
 	require.NoError(t, err)
 	requireResolvedInvocation(t, run, fmt.Sprintf("git+%s//tools/ops/echo@%s", repoURL, rootCommit))
@@ -1179,8 +1186,9 @@ outputs:
 	require.Equal(t, "hello-world", got["slug"])
 
 	run, err := engine.GetJobRun(context.Background(), jobdb.GetJobRunRequest{
-		JobKey:         jobKey,
-		IncludeOutputs: true,
+		JobKey:           jobKey,
+		IncludeOutputs:   true,
+		IncludeArtifacts: true,
 	})
 	require.NoError(t, err)
 	require.Len(t, run.Attempts, 1)
@@ -1355,8 +1363,9 @@ outputs:
 	require.Equal(t, "remote-hello-world", got["remote_slug"])
 
 	run, err := engine.GetJobRun(context.Background(), jobdb.GetJobRunRequest{
-		JobKey:         jobKey,
-		IncludeOutputs: true,
+		JobKey:           jobKey,
+		IncludeOutputs:   true,
+		IncludeArtifacts: true,
 	})
 	require.NoError(t, err)
 	require.Len(t, run.Attempts, 1)
@@ -1377,8 +1386,8 @@ outputs:
 	resolvedSource, err := ParseResolvedRecipeSourceJSON(executionTaskRuns(run)[0].Attempts[0].Output.Data)
 	require.NoError(t, err)
 	require.Equal(t, fmt.Sprintf("git+%s//recipes/remote.yaml@%s", rootRepoURL, rootCommit), resolvedSource.ResolvedSelector)
-	require.Contains(t, resolvedSource.RecipeYAML, "selector: ./tools/cel/local-utils")
-	require.Contains(t, resolvedSource.RecipeYAML, "op: ./tools/ops/echo")
+	require.Contains(t, recordedRecipeYAML(t, engine, jobKey, executionTaskRuns(run)[0].Attempts[0].Output), "selector: ./tools/cel/local-utils")
+	require.Contains(t, recordedRecipeYAML(t, engine, jobKey, executionTaskRuns(run)[0].Attempts[0].Output), "op: ./tools/ops/echo")
 
 	resolved, err := ParseWithinRecipeResolutionJSON(withinOutput)
 	require.NoError(t, err)

@@ -3,6 +3,7 @@ package compiler
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"testing"
 
@@ -16,11 +17,12 @@ import (
 
 type loadFailureContext struct {
 	jobworkflow.ExecutionContext
-	output    jobdb.TaskData
-	err       error
-	reloadErr error
-	calls     int
-	policies  []jobdb.RunPolicy
+	output       jobdb.TaskData
+	err          error
+	reloadErr    error
+	reloadOutput jobdb.TaskData
+	calls        int
+	policies     []jobdb.RunPolicy
 }
 
 func (c *loadFailureContext) GetJobKey() jobdb.JobKey {
@@ -41,6 +43,9 @@ func (c *loadFailureContext) DoTask(call testTaskCall, build func(testContext) (
 	}
 	c.calls++
 	c.policies = append(c.policies, call.Policy)
+	if c.calls > 1 && c.reloadOutput != nil {
+		return c.reloadOutput, nil
+	}
 	if c.calls > 1 && c.reloadErr != nil {
 		return nil, c.reloadErr
 	}
@@ -132,3 +137,26 @@ func (c *loadFailureContext) ExecutionVersions() jobdb.ExecutionVersions {
 }
 
 func (c *loadFailureContext) Job() jobdb.JobHandle { return jobdb.JobHandle{JobKey: c.GetJobKey()} }
+
+func TestRecipeJobWorkerLoadsArtifactBeforeLegacyRecovery(t *testing.T) {
+	for _, recovery := range []bool{false, true} {
+		for _, replay := range []bool{false, true} {
+			t.Run(fmt.Sprintf("recovery=%t/replay=%t", recovery, replay), func(t *testing.T) {
+				resolution := RecipeSourceResolution{SourceKind: RecipeSourceKindGit, SubmittedSelector: "test"}
+				artifact := jobdb.NewArtifactFromBytes(ResolvedRecipeYAMLArtifactName, []byte("id: test\nop: deliberately_unregistered_load_test\n"))
+				output := jobdb.NewTaskDataOrPanic(ResolvedRecipeSource{RecipeSourceResolution: resolution, RecipeYAMLArtifact: ResolvedRecipeYAMLArtifactName}, artifact)
+				ctx := &loadFailureContext{output: output}
+				wantCalls := 1
+				if recovery {
+					ctx.output = jobdb.NewTaskDataOrPanic(resolution)
+					ctx.reloadOutput = output
+					wantCalls = 2
+				}
+				worker := NewRecipeJobWorker(RecipeJobWorkerOptions{ReadOnlyReplay: replay, RootSourceResolver: &failingRecipeLoader{}})
+				_, err := worker.Execute(ctx, jobdb.NewTaskDataOrPanic(workflowctl.StartJob{RecipeName: "test", TenantId: "tenant"}))
+				require.ErrorContains(t, err, "unknown op", "artifact source must reach recipe validation")
+				require.Equal(t, wantCalls, ctx.calls)
+			})
+		}
+	}
+}
