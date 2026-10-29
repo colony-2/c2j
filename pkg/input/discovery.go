@@ -48,8 +48,9 @@ func (r *Runtime) pendingJobs(ctx context.Context, tenantID string, options Pend
 }
 
 // ListPendingInputsPage lists a live page, not a snapshot. Occurrences completed
-// or replaced during reading are skipped. An empty page with a continuation
-// token is not the end of the list. Form data is read only within this page;
+// during reading are skipped; replacement forms use the loaded task identity.
+// An empty page with a continuation token is not the end of the list.
+// Form data is read only within this page;
 // document bytes are never loaded for discovery.
 func (r *Runtime) ListPendingInputsPage(ctx context.Context, tenantID string, options PendingInputOptions) (PendingInputPage, error) {
 	jobs, next, err := r.pendingJobs(ctx, tenantID, options)
@@ -64,10 +65,6 @@ func (r *Runtime) ListPendingInputsPage(ctx context.Context, tenantID string, op
 		if job.JobKey.TenantId != tenantID {
 			continue
 		}
-		wait := job.ExecutionState.TaskWait
-		if wait == nil {
-			continue
-		}
 		task, out, _, err := r.getOutput(ctx, tenantID, job.JobKey.JobId)
 		if errors.Is(err, ErrInputNotPending) {
 			continue
@@ -75,14 +72,11 @@ func (r *Runtime) ListPendingInputsPage(ctx context.Context, tenantID string, op
 		if err != nil {
 			return PendingInputPage{}, err
 		}
-		if task.TaskOrdinalToComplete() != wait.OutputOrdinal {
-			continue
-		}
 		var form InputForm
 		if err := ops.DecodeWithJsonTags(out.OpOutput, &form); err != nil {
 			return PendingInputPage{}, invalidFormError(err)
 		}
-		page.Inputs = append(page.Inputs, PendingInputOccurrence{JobID: job.JobKey.JobId, TaskOrdinal: wait.OutputOrdinal, RequestID: form.RequestID, RequestedAt: form.RequestedAt})
+		page.Inputs = append(page.Inputs, PendingInputOccurrence{JobID: job.JobKey.JobId, TaskOrdinal: task.TaskOrdinalToComplete(), RequestID: form.RequestID, RequestedAt: form.RequestedAt})
 	}
 	return page, nil
 }

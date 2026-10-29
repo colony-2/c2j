@@ -30,8 +30,8 @@ func newListChildrenCmd() *cobra.Command {
 
 	flags := cmd.Flags()
 	opts.ExecutionFlags.AddFlags(flags)
-	flags.BoolVar(&opts.CompatibleWithExecution, "compatible-with-execution", false, "Filter by the supplied actual execution allocation")
-	flags.BoolVar(&opts.IncludeUnresolved, "include-unresolved", false, "Also include unresolved bootstrap candidates (requires --compatible-with-execution)")
+	flags.BoolVar(&opts.CompatibleWithExecution, "compatible-with-execution", false, "Deprecated: compact listings require explicit job inspection for execution compatibility")
+	flags.BoolVar(&opts.IncludeUnresolved, "include-unresolved", false, "Deprecated with --compatible-with-execution; inspect selected jobs instead")
 	flags.StringVar(&opts.JobDBURI, "jobdb", "", "JobDB URI (http(s)://host/tenant or embed:///)")
 	flags.StringVar(&opts.ParentTenantID, "parent-tenant-id", "", "Parent tenant ID (defaults from current op env)")
 	flags.StringVar(&opts.ParentJobID, "parent-job-id", "", "Parent job ID (defaults from current op env)")

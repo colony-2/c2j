@@ -93,9 +93,11 @@ func TestRemoteProjectionAndWaitingOnlyExecution(t *testing.T) {
 			require.True(t, got.CancelRequested)
 			require.Equal(t, int64(7), got.ClientPayloadRevision)
 			if status == jobdb.JobStatusReady || status == jobdb.JobStatusCrashConcern {
-				require.Equal(t, "specified", got.Execution.Status)
-				require.Equal(t, "yield", got.Execution.Source)
-				require.Equal(t, "8Gi", *got.Execution.Demand.Effective.Resources.Memory)
+				require.Equal(t, "not_loaded", got.Execution.Status)
+				require.Equal(t, "unavailable", got.Execution.Source)
+				require.Nil(t, got.Execution.Demand)
+				require.Equal(t, "2Gi", *got.Execution.Initial.Effective.Resources.Memory)
+				require.Empty(t, got.ClientPayload)
 			} else {
 				require.Nil(t, got.Execution.Demand)
 				require.Nil(t, got.Execution.Initial)
@@ -133,20 +135,18 @@ func TestExecutionDiagnosticsAndUnspecified(t *testing.T) {
 	c := client(t, s, "tenant")
 	page, err := c.List(context.Background(), joblist.Query{Repository: "github.com/acme/app"})
 	require.NoError(t, err)
-	for i, status := range []string{"unspecified", "unresolved", "unsupported", "malformed"} {
+	for i, status := range []string{"not_loaded", "not_loaded", "not_loaded", "not_loaded"} {
 		require.Equal(t, status, page.Jobs[i].Execution.Status)
-		if i >= 2 {
+		if i == 2 {
 			require.NotEmpty(t, page.Jobs[i].Execution.Diagnostic)
 		}
 	}
 	memory := "4Gi"
 	_, err = c.List(context.Background(), joblist.Query{Repository: "github.com/acme/app", ExecutionFilter: &execution.Filter{Allocation: execution.Allocation{SchemaVersion: 1, Resources: execution.Resources{Memory: &memory}}}})
-	var demandErr *joblist.ExecutionDemandError
-	require.ErrorAs(t, err, &demandErr)
-	require.Equal(t, "2", demandErr.JobKey.JobId)
+	require.ErrorIs(t, err, joblist.ErrExecutionDetailsRequired)
 }
 
-func TestRemoteSparsePagination(t *testing.T) {
+func TestRemoteCompactPagination(t *testing.T) {
 	jobs := []jobdb.JobSummary{demandJob(t, "1", "8Gi"), demandJob(t, "2", "2Gi"), demandJob(t, "3", "8Gi"), demandJob(t, "4", "2Gi"), demandJob(t, "5", "2Gi")}
 	var calls atomic.Int32
 	s := serve(t, func(_ context.Context, req jobdb.ListJobsRequest) (jobdb.ListJobsResponse, error) {
@@ -169,16 +169,9 @@ func TestRemoteSparsePagination(t *testing.T) {
 	c := client(t, s, "tenant")
 	memory := "4Gi"
 	q := joblist.Query{Repository: "github.com/acme/app", PageSize: 2, ExecutionFilter: &execution.Filter{Allocation: execution.Allocation{SchemaVersion: 1, Resources: execution.Resources{Memory: &memory}}}}
-	first, err := c.List(context.Background(), q)
-	require.NoError(t, err)
-	require.Equal(t, []string{"2", "4"}, []string{first.Jobs[0].JobID, first.Jobs[1].JobID})
-	require.Greater(t, calls.Load(), int32(1))
-	q.PageToken = first.NextPageToken
-	last, err := c.List(context.Background(), q)
-	require.NoError(t, err)
-	require.Len(t, last.Jobs, 1)
-	require.Equal(t, "5", last.Jobs[0].JobID)
-	require.Empty(t, last.NextPageToken)
+	_, err := c.List(context.Background(), q)
+	require.ErrorIs(t, err, joblist.ErrExecutionDetailsRequired)
+	require.Zero(t, calls.Load(), "compatibility filtering must not start an enrichment loop")
 	q.ExecutionFilter, q.PageToken = nil, ""
 	calls.Store(0)
 	page, err := c.List(context.Background(), q)

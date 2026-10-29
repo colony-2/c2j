@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/colony-2/c2j/pkg/contextual"
+	"github.com/colony-2/c2j/pkg/joblist"
 	"github.com/colony-2/c2j/pkg/jobref"
 	"github.com/colony-2/c2j/pkg/recipe"
 	"github.com/colony-2/c2j/pkg/starter"
@@ -35,19 +36,7 @@ func (s *SWFWorkflowControl) ListJobs(ctx context.Context, request jobdb.ListJob
 
 	jobs = make([]workflowctl.JobItem, len(resp.Jobs))
 	for i, j := range resp.Jobs {
-		var outputOrdinal *int64
-		if wait := j.ExecutionState.TaskWait; wait != nil {
-			ordinal := wait.OutputOrdinal
-			outputOrdinal = &ordinal
-		}
-		jobs[i] = workflowctl.JobItem{
-			JobSummary: j,
-			TaskData: &taskDataGetter{
-				engine:        s.Engine,
-				jobKey:        j.JobKey,
-				outputOrdinal: outputOrdinal,
-			},
-		}
+		jobs[i] = workflowctl.JobItem{JobSummary: joblist.CompactSummary(j)}
 	}
 
 	return jobs, resp.NextPageToken, nil
@@ -182,64 +171,6 @@ func (s *SWFWorkflowControl) Cancel(ctx context.Context, jobKey jobdb.JobKey) er
 func (s *SWFWorkflowControl) GetArtifactLazy(ctx context.Context, tenantId string, key jobdb.ArtifactKey) jobdb.Artifact {
 	return key.ToLazyArtifact(s.Engine, tenantId)
 }
-
-type taskDataGetter struct {
-	loaded        bool
-	engine        jobworkflow.Engine
-	jobKey        jobdb.JobKey
-	outputOrdinal *int64
-	data          jobdb.TaskData
-}
-
-func (t *taskDataGetter) checkLoad() error {
-	if t.loaded {
-		return nil
-	}
-	if t.outputOrdinal == nil {
-		return fmt.Errorf("ordinal is required")
-	}
-	handle, err := (&SWFWorkflowControl{Engine: t.engine}).GetWaitingTask(context.Background(), t.jobKey)
-	if err != nil {
-		return err
-	}
-
-	targetCompletion := *t.outputOrdinal
-	if handle.TaskOrdinalToComplete() != targetCompletion {
-		return fmt.Errorf("unexpected task ordinal: %d (actual pending: %d)", targetCompletion, handle.TaskOrdinalToComplete())
-	}
-
-	data, err := handle.Data()
-	if err != nil {
-		return err
-	}
-	t.data = data
-	t.loaded = true
-	return nil
-}
-
-func (t *taskDataGetter) GetData() (jobdb.Data, error) {
-	if err := t.checkLoad(); err != nil {
-		return nil, err
-	}
-	return t.data.GetData()
-}
-
-func (t *taskDataGetter) GetDataOrPanic() jobdb.Data {
-	d, err := t.GetData()
-	if err != nil {
-		panic(err)
-	}
-	return d
-}
-
-func (t *taskDataGetter) GetArtifacts() ([]jobdb.Artifact, error) {
-	if err := t.checkLoad(); err != nil {
-		return nil, err
-	}
-	return t.data.GetArtifacts()
-}
-
-var _ jobdb.TaskData = &taskDataGetter{}
 
 var _ workflowctl.WorkflowControl = &SWFWorkflowControl{}
 var _ workflowctl.JobInspector = &SWFWorkflowControl{}

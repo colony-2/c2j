@@ -193,10 +193,10 @@ if errors.Is(err, recipejob.ErrJobNotFound) {
 
 ## Completion Results
 
-`RecipeJob.CompletionStatus` and `CompletionDetail` copy JobDB's persisted final
-result. They are available through ordinary listings, `GetRecipeJob`, child
-listings (including `ListChildRecipeJobsFromWorkflow`), and CLI JSON. For example,
-a failed job can have these fields:
+`RecipeJob.CompletionStatus` copies JobDB's persisted final result in all list
+and detail responses. `CompletionDetail` is loaded only by `GetRecipeJob` for
+one selected job. Ordinary/child lists and CLI JSON leave it empty. For example,
+a selected failed job can have these detail fields:
 
 ```json
 {
@@ -213,7 +213,7 @@ a failed job can have these fields:
 | --- | --- |
 | `status` | Scheduler state; `COMPLETED` alone does not establish success. |
 | `completion_status` | Persisted terminal result: `success`, `failed_app`, `failed_system`, `failed_timeout`, or `cancelled`. Unknown future values pass through unchanged. |
-| `completion_detail` | Original detail text, preserved verbatim; an empty detail is valid. |
+| `completion_detail` | Original text from explicit inspection; never loaded by lists. |
 | `execution.status` | Execution-requirement availability, such as `in_flight` or `not_waiting`; independent of completion. |
 
 An empty completion status means unavailable, including when an older server or
@@ -234,26 +234,25 @@ Set `BuildStartJobRequest.ExecutionRequirements` to a partial
 describe the actual executor. The starter records resolved initial requirements
 when supplied the root recipe; deferred submissions remain explicitly unresolved.
 
-`RecipeJob.Execution` exposes the submission/latest-yield view without resolving
-recipes or reading history for waiting jobs only. Active jobs report `in_flight`
-without requirements; terminal/unknown states report `not_waiting`. Neither
-state matches compatibility filters, including `IncludeUnresolved`.
-`ClientPayload` and `ClientPayloadRevision` remain
-separate from submission metadata. The current execution namespace takes
-precedence over the initial hint; the historical handoff allocation is not a
-live usage record.
+Lists are compact: waiting rows report `execution.status: not_loaded` without
+current demand. `Initial` is only a submission hint from metadata, never proof
+of current requirements. Active rows report `in_flight`; terminal/unknown rows
+report `not_waiting`. Client payload revision remains available, but payload,
+task coordinates, completion detail, other memberships, and dependency details
+are not loaded by lists. `blocking_wait_summary` exposes only wait identity and
+deadline; all application metadata is retained as `metadata`.
 
-Set `ListRecipeJobsRequest.ExecutionFilter` or
-`ListChildRecipeJobsRequest.ExecutionFilter` to `*execution.Filter` to opt into
-compatibility filtering. Supply a version-1 `Allocation` containing actual
-candidate facts. Unknown facts cannot satisfy explicit requirements.
-`IncludeUnresolved` admits bootstrap candidates while checking known overrides.
-A nil filter leaves the list unfiltered, including jobs with diagnostic state.
+`GetRecipeJob` explicitly reads one selected job's compact summary and `GetJob`
+details. It requires a backend implementing both `ListJobs` and `GetJob`. Use it
+for a selected attempt or job page, never for every row during list rendering.
+`ExecutionViewFromInfo` in `pkg/joblist` also interprets loaded details directly.
 
-Filtered pages scan underlying pages to fill the requested number of matches.
-Reuse the returned token with the same filters. Malformed/unsupported execution
-state produces `*recipejob.ExecutionDemandError`, not an unconstrained match.
-Filtering is advisory and does not reserve or acquire work.
+`ListRecipeJobsRequest.ExecutionFilter` and
+`ListChildRecipeJobsRequest.ExecutionFilter` are deprecated; non-nil filters
+return `joblist.ErrExecutionDetailsRequired` without backend calls. For scheduling,
+use the acquired lease's payload instead of adding a per-row detail loop.
+See [the compact migration](MIGRATION-C2J-Compact-Job-Lists.md) and
+[the Cortex feature request](FEATURE-REQUEST-Cortex-Compact-Job-Lists.md).
 
 To execute jobs, use the separate
 [`executionruntime` adapter](pkg/executionruntime/README.md) and compiler options.

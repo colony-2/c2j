@@ -27,7 +27,7 @@ func TestGoalCandidatesIncludeAdditionalArchivedNonRecipeMembers(t *testing.T) {
 	require.Equal(t, "next", out.NextPageToken)
 	require.Len(t, out.Jobs, 1)
 	require.Equal(t, "primary", out.Jobs[0].GoalID)
-	require.Equal(t, []string{"g"}, out.Jobs[0].OtherGoalIDs)
+	require.Empty(t, out.Jobs[0].OtherGoalIDs, "membership filtering remains server-side; lists omit memberships")
 	require.Equal(t, "external", out.Jobs[0].JobType)
 	_, err = ListGoalCandidates(context.Background(), nil, GoalCandidatesRequest{TenantID: "t"})
 	require.Error(t, err)

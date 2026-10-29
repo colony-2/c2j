@@ -58,6 +58,7 @@ type StartJob struct {
 }
 
 type JobItem struct {
+	// Deprecated: compact listings leave TaskData nil. Use GetWaitingTask explicitly.
 	TaskData jobdb.TaskData
 	jobdb.JobSummary
 }

@@ -49,7 +49,7 @@ func checkCompletionJSON(t *testing.T, value any, want jobdb.JobSummary) {
 	var got map[string]any
 	require.NoError(t, json.Unmarshal(raw, &got))
 	require.Equal(t, string(want.Status), got["status"])
-	for key, value := range map[string]string{"completion_status": want.CompletionStatus, "completion_detail": want.CompletionDetail} {
+	for key, value := range map[string]string{"completion_status": want.CompletionStatus, "completion_detail": ""} {
 		if value == "" {
 			require.NotContains(t, got, key)
 		} else {
@@ -76,9 +76,6 @@ func checkRecipeCompletionPaths(t *testing.T, lister recipejob.Lister, want jobd
 	require.Len(t, list.Jobs, 1)
 	require.Equal(t, next, list.NextPageToken)
 	checkCompletionJSON(t, list.Jobs[0], want)
-	single, err := recipejob.GetRecipeJob(ctx, lister, recipejob.GetRecipeJobRequest{TenantID: want.JobKey.TenantId, JobID: want.JobKey.JobId})
-	require.NoError(t, err)
-	checkCompletionJSON(t, single, want)
 	children := recipejob.ListChildRecipeJobsRequest{TenantID: want.JobKey.TenantId, ParentTenantID: want.JobKey.TenantId, ParentJobID: want.ParentJobID, AllParentInvocations: true, Stores: []jobdb.JobStore{jobdb.JobStoreActive, jobdb.JobStoreArchived}}
 	list, err = recipejob.ListChildRecipeJobs(ctx, lister, children)
 	require.NoError(t, err)
@@ -134,7 +131,7 @@ func TestCompletionProjectionsUseOnlySummaryFields(t *testing.T) {
 			require.Len(t, page.Jobs, 1)
 			require.Equal(t, "next", page.NextPageToken)
 			checkCompletionJSON(t, page.Jobs[0], summary)
-			require.Equal(t, int32(9), rt.calls.Load(), "each projection should use one listing, without fallback reads")
+			require.Equal(t, int32(7), rt.calls.Load(), "each projection should use one listing, without fallback reads")
 		})
 	}
 }
@@ -189,11 +186,15 @@ func TestPersistedCompletionAcrossEmbeddedAndRemoteListings(t *testing.T) {
 					require.Equal(t, jobdb.JobStatusReady, got.Status)
 				} else {
 					require.Equal(t, status, got.CompletionStatus)
-					require.Equal(t, detail, got.CompletionDetail)
+					require.Empty(t, got.CompletionDetail)
+					inspected, err := recipejob.GetRecipeJob(ctx, rt, recipejob.GetRecipeJobRequest{TenantID: "tenant", JobID: "child"})
+					require.NoError(t, err)
+					require.Equal(t, detail, inspected.CompletionDetail)
+					require.Equal(t, status, inspected.CompletionStatus)
 				}
 				guarded := &completionListOnly{list: rt.ListJobs}
 				checkRecipeCompletionPaths(t, guarded, got, "")
-				require.Equal(t, int32(4), guarded.calls.Load())
+				require.Equal(t, int32(3), guarded.calls.Load())
 			})
 		}
 	}

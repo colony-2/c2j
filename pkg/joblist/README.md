@@ -34,8 +34,8 @@ if err != nil {
 }
 for _, job := range page.Jobs {
     // TenantID, JobID, RepositorySource, Status, AvailableAt, CancelRequested,
-    // NextRoute, CompletionStatus, CompletionDetail, and Execution are typed fields.
-    fmt.Println(job.JobID, job.Status, job.CompletionStatus, job.CompletionDetail)
+    // NextRoute, CompletionStatus, and BlockingWaitSummary are typed fields.
+    fmt.Println(job.JobID, job.Status, job.CompletionStatus)
 }
 ```
 
@@ -79,7 +79,7 @@ configuration cannot change the connection or repository selected.
 ## Queries and pagination
 
 Available query fields include job types, statuses, job IDs, typed job/task
-routes, creation-time bounds, page size/token, and execution compatibility.
+routes, creation-time bounds, and page size/token.
 Job and task type identifiers are literal, case-sensitive strings; colons have
 no separator meaning. Empty `JobTypes` includes all types, not only recipes.
 Empty `Statuses` uses the CLI defaults: `READY`, `EXPIRED`, `PENDING_JOBS`,
@@ -100,7 +100,7 @@ for page.NextPageToken != "" {
     if err != nil {
         return err
     }
-    // Process this page, including item-level execution diagnostics.
+    // Render this compact page without fetching details for each row.
 }
 ```
 
@@ -113,92 +113,58 @@ replacement. An invalid/rejected token returns an error; restart with an empty
 token when appropriate. Consistency between a token and its query is the
 caller's responsibility, not a validation guarantee.
 
-With the pinned JobDB backend, page size zero defaults to 100 and an unfiltered
-backend page is capped at 200. Negative sizes are invalid. With an execution
-filter, a positive page size instead bounds the logical matching result page:
-multiple backend pages may be scanned to fill it, including for sizes above
-200. Sparse matches may require scanning the entire remainder. There is no
-separate scan budget; use context deadlines to limit remote work. The filtered
-helper rejects a non-advancing backend cursor.
+With the pinned JobDB backend, page size zero defaults to 100 and a page is
+capped at 200. Negative sizes are invalid. Each successful `List` makes exactly
+one JobDB `ListJobs` call. It never reads jobs, waits, histories, or artifacts to
+enrich the returned page, including when the page is empty with a continuation.
 
-Pagination does not create a transactional snapshot. Job states and demands
-can change between calls. A listing is discovery information, not a lease or
-a promise that a job remains runnable.
+Pagination does not create a transactional snapshot. A listing is discovery
+information, not a lease or a promise that a job remains runnable.
 
-## Completion information
+## Compact list contract
 
-`Job.Status` is the scheduler state. For terminal results, read
-`Job.CompletionStatus` and `Job.CompletionDetail`, copied directly from JobDB's
-persisted summary. Query completed jobs explicitly:
+Lists retain identity, primary goal, parent, schema hash, status, stored route,
+completion status, timestamps, cancellation flag, client-payload revision, and
+all application `Metadata`. c2j also projects familiar labels from metadata.
+`BlockingWaitSummary` (`blocking_wait_summary`) contains `waitId` and an optional
+`deadline`; it does not explain dependency targets or enumerate goal candidates.
 
-```go
-query.Statuses = []jobdb.JobStatus{jobdb.JobStatusCompleted}
-page, err = client.List(ctx, query)
-```
+`CompletionStatus` is the persisted outcome, independent of scheduler `Status`.
+Unknown values pass through unchanged; an empty status means unavailable, not
+success. Query `COMPLETED` explicitly to include completed jobs. A failed attempt
+does not establish final failure while a job is retrying.
 
-A job can have scheduler status `COMPLETED` and completion status `failed_system`.
-Other known completion categories are `success`, `failed_app`, `failed_timeout`,
-and `cancelled`. Unknown categories and detail text are preserved verbatim.
-An empty status means unavailable, not success; an empty detail is valid. Empty
-fields are omitted from JSON as `completion_status` and `completion_detail`.
-Older servers and records without completion information remain usable.
-
-Failed tasks or attempts do not imply final failure while a job is retrying.
-Likewise, `CancelRequested` is independent of terminal cancellation.
-`Job.Execution.Status` continues to describe the execution-requirement view;
-for a completed job it is `not_waiting`, regardless of the completion category.
-No history, story, or recipe reads are made to infer a missing result.
-
-These fields also appear in ordinary and child CLI JSON listings and the
-[`recipejob` APIs](../../GUIDE-Cortex-RecipeJob-API.md#completion-results).
-Filters, pagination, and store selection keep their existing behavior.
+Compatibility fields `BlockingWait`, `OtherGoalIDs`, `CompletionDetail`,
+`ClientPayload`, `TaskWait`, and `WaitFor` are always empty on list projections,
+even against older servers that still supply them. Empty means **not loaded**.
+Use JobDB `GetJob` for selected jobs or `GetDependencyWait` for one wait. Recipe
+clients can use `recipejob.GetRecipeJob`, which reads the selected job's summary
+and detail. Do not call these once per row on every refresh.
 
 ## Execution information
 
-Use `Job.Execution`; do not interpret `ClientPayload` or merge requirements
-yourself. `Execution.Demand.Effective` is c2j's recorded effective snapshot,
-including already-published overrides. Image/platform, CPU, memory, and
-ephemeral-storage values retain their existing `pkg/execution` types and
-units. Schema version and demand revision are on `Demand`; these differ from
-the job's client-payload revision.
+Waiting rows (`READY`, `EXPIRED`, `PENDING_JOBS`, `AWAITING_FUTURE`,
+`CRASH_CONCERN`) report `Execution.Status = "not_loaded"`, `Source = "unavailable"`,
+no `Demand`, and `Published = false` (publication was not inspected).
+`Initial`, when present, is only the immutable metadata submission hint. It
+must not be used as current demand: a yield may have replaced the requirements.
+Metadata parsing diagnostics remain available. Active rows report `in_flight`;
+terminal/unknown rows report `not_waiting`, both without requirements.
 
-| View status | Meaning and handling |
-| --- | --- |
-| `specified` | Resolved demand with at least one requirement; use `Demand.Effective`. |
-| `unspecified` | Resolved demand with no requirements; caller defaults may apply. |
-| `unresolved` | Recipe requirements are not fully known; not equivalent to an empty resolved demand. Known overrides may still be present. |
-| `malformed`, `unsupported` | Unusable data or schema; inspect `Diagnostic`, never silently default. |
-| `in_flight` | `ACTIVE` job; requirements are unavailable, not an old snapshot presented as current. |
-| `not_waiting` | Terminal/non-waiting job; requirements are unavailable. |
+`ExecutionFilter` is deprecated. A non-nil filter returns
+`ErrExecutionDetailsRequired` before any backend call, including when
+`IncludeUnresolved` is true. This prevents silently matching stale requirements
+or moving the removed per-job payload reads into c2j. The CLI's
+`--compatible-with-execution` mode likewise returns this error.
 
-Demand is exposed only for waiting statuses (`READY`, `EXPIRED`, `PENDING_JOBS`,
-`AWAITING_FUTURE`, `CRASH_CONCERN`). In-flight lexical requirements may not be
-published, so active/terminal views have neither `Demand` nor `Initial`.
-`Source` identifies `submission`, `yield`, `absent`, or `unavailable` as
-applicable. No recipe is resolved and no history is replayed during listing.
+For an explicitly selected job, use
+`ExecutionViewFromInfo(summary.Metadata, info)` with a JobDB `GetJob` response.
+The existing `execution.Filter.Match` can evaluate that loaded view; it rejects
+`not_loaded` views. A scheduler should instead calculate allocation from the
+acquired lease payload using `execution.Inspect(metadata, lease.ClientPayload())`.
+The lease remains authoritative if state changes after discovery.
 
-Optional compatibility filtering uses the same existing execution model:
-
-```go
-memory := "8Gi"
-query.ExecutionFilter = &execution.Filter{
-    Allocation: execution.Allocation{
-        SchemaVersion: execution.SchemaVersion,
-        Resources: execution.Resources{Memory: &memory},
-    },
-    IncludeUnresolved: false,
-}
-```
-
-Import `github.com/colony-2/c2j/pkg/execution` for this fragment. At least one
-allocation fact is required. `IncludeUnresolved` admits unresolved jobs only
-when their known requirements match; it never admits active/terminal jobs.
-
-Without compatibility filtering, malformed/unsupported execution information
-is an item diagnostic and does not discard the page. With compatibility
-filtering, unusable demand fails the page with `*joblist.ExecutionDemandError`,
-which identifies the job. No partial page is returned on error. This matches
-the CLI's respective modes.
+See [migration and downstream audit](../../MIGRATION-C2J-Compact-Job-Lists.md).
 
 ## Authentication, cancellation, and lifecycle
 
@@ -249,7 +215,8 @@ shutdown. Returned data is owned by the caller.
 Errors preserve `errors.Is(err, context.Canceled)` and
 `errors.Is(err, context.DeadlineExceeded)`, including cancellation during HTTP
 work. Use `errors.Is(err, joblist.ErrInvalidInput)` for invalid connection/query
-configuration and `errors.As` for `*joblist.ExecutionDemandError`. Other remote
+configuration and `errors.Is(err, joblist.ErrExecutionDetailsRequired)` for
+unsupported list filtering. Other remote
 errors are wrapped with operation context; JobDB HTTP failures include status
 information. Do not depend on error-message text as a stable machine API.
 There are no automatic retries or job-state mutations.
@@ -257,9 +224,10 @@ There are no automatic retries or job-state mutations.
 ## Compatibility and packaging
 
 The supported primary surface is `Config`, `New`, `Client.List`, `Query`,
-`Page`, `Job`, `ErrInvalidInput`, and `ExecutionDemandError`. Public advanced
+`Page`, `Job`, `ErrInvalidInput`, and `ErrExecutionDetailsRequired`. Public advanced
 helpers (`BuildRequest`, `Lister`, `ListExecutionJobs`, `JobFromSummary`,
-`ExecutionView`, and status/store helpers) are also supported. Existing
+`ExecutionView`, `ExecutionViewFromInfo`, and status/store helpers) are also
+supported. Existing
 `pkg/recipejob` listing entry points remain available and delegate their shared
 execution/status behavior here. They still serve broader recipe workflows;
 read-only applications should import `pkg/joblist`.

@@ -82,9 +82,10 @@ func TestSubmittedTitleMetadataAndListings(t *testing.T) {
 						require.Equal(t, tc.want, metadata["title"])
 					}
 					guard := &completionListOnly{list: rt.ListJobs}
-					job, err := recipejob.GetRecipeJob(ctx, guard, recipejob.GetRecipeJobRequest{TenantID: "t", JobID: ref.JobID})
+					page, err := recipejob.ListRecipeJobs(ctx, guard, recipejob.ListRecipeJobsRequest{TenantID: "t", JobIDs: []string{ref.JobID}})
 					require.NoError(t, err)
-					checkTitleJSON(t, job, tc.want, ref.GoalID)
+					require.Len(t, page.Jobs, 1)
+					checkTitleJSON(t, page.Jobs[0], tc.want, ref.GoalID)
 					checkTitleJSON(t, joblist.JobFromSummary(listed.Jobs[0]), tc.want, ref.GoalID)
 					candidates, err := recipejob.ListGoalCandidates(ctx, guard, recipejob.GoalCandidatesRequest{TenantID: "t", GoalID: ref.GoalID})
 					require.NoError(t, err)
@@ -119,9 +120,6 @@ func TestTitleProjectionsUseOnlySummaryMetadata(t *testing.T) {
 				require.Len(t, page.Jobs, 1)
 				require.Equal(t, "next", page.NextPageToken)
 				checkTitleJSON(t, page.Jobs[0], title, "goal")
-				job, err := recipejob.GetRecipeJob(ctx, lister, recipejob.GetRecipeJobRequest{TenantID: "tenant", JobID: "job"})
-				require.NoError(t, err)
-				checkTitleJSON(t, job, title, "goal")
 				children := recipejob.ListChildRecipeJobsRequest{TenantID: "tenant", ParentTenantID: "tenant", ParentJobID: "parent", AllParentInvocations: true}
 				page, err = recipejob.ListChildRecipeJobs(ctx, lister, children)
 				require.NoError(t, err)
@@ -138,7 +136,7 @@ func TestTitleProjectionsUseOnlySummaryMetadata(t *testing.T) {
 				require.Equal(t, "next", candidates.NextPageToken)
 				checkTitleJSON(t, candidates.Jobs[0], title, "goal")
 			}
-			require.EqualValues(t, 10, guard.calls.Load(), "one summary query per response; all other runtime reads are unavailable")
+			require.EqualValues(t, 8, guard.calls.Load(), "one summary query per response; all other runtime reads are unavailable")
 		})
 	}
 }

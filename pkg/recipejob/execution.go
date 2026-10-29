@@ -11,12 +11,12 @@ import (
 // ExecutionDemandError identifies a job with unusable execution requirements.
 type ExecutionDemandError = joblist.ExecutionDemandError
 
-// ExecutionView exposes scheduling requirements only while a job is waiting.
+// ExecutionView marks current requirements as not_loaded on compact waiting rows.
 func ExecutionView(job jobdb.JobSummary) execution.View {
 	return joblist.ExecutionView(job)
 }
 
-// ListExecutionJobs fills one logical page, scanning backend pages as needed.
+// ListExecutionJobs returns one compact backend page; compatibility filters require details.
 func ListExecutionJobs(ctx context.Context, lister Lister, req jobdb.ListJobsRequest, filter *execution.Filter) (jobdb.ListJobsResponse, error) {
 	return joblist.ListExecutionJobs(ctx, lister, req, filter)
 }

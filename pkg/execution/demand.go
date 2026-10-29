@@ -204,6 +204,9 @@ type Filter struct {
 }
 
 func (f Filter) Match(v View) (bool, error) {
+	if v.Status == "not_loaded" {
+		return false, fmt.Errorf("execution demand is not loaded; inspect job details or the acquired lease")
+	}
 	if v.Status == "in_flight" || v.Status == "not_waiting" {
 		return false, nil
 	}

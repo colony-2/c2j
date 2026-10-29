@@ -15,16 +15,24 @@ type Page struct {
 }
 
 // Job is the CLI-compatible typed projection, with repository identity added.
-// ClientPayload is optional raw data; execution consumers should use Execution.
+// Detail fields remain for source compatibility but are never loaded by lists.
 type Job struct {
+	BlockingWaitSummary *jobdb.DependencyWaitSummary `json:"blocking_wait_summary,omitempty"`
+	Metadata            json.RawMessage              `json:"metadata,omitempty"`
+	SchemaHash          string                       `json:"schema_hash,omitempty"`
+	ParentJobID         string                       `json:"parent_job_id,omitempty"`
+	// Deprecated: not loaded in lists. Use explicit job inspection.
 	BlockingWait *jobdb.DependencyWaitInfo `json:"blocking_wait,omitempty"`
 	GoalID       string                    `json:"goal_id"`
-	OtherGoalIDs []string                  `json:"other_goal_ids"`
+	// Deprecated: not loaded in lists. Use explicit job inspection.
+	OtherGoalIDs []string `json:"other_goal_ids"`
 	// Completion fields are persisted terminal results, separate from scheduler Status.
-	// Empty status means unavailable; empty detail is valid. Both are preserved verbatim.
-	CompletionStatus      string          `json:"completion_status,omitempty"`
-	CompletionDetail      string          `json:"completion_detail,omitempty"`
-	Execution             execution.View  `json:"execution"`
+	// Empty status means unavailable. Unknown statuses are preserved verbatim.
+	CompletionStatus string `json:"completion_status,omitempty"`
+	// Deprecated: not loaded in lists. Use explicit job inspection.
+	CompletionDetail string         `json:"completion_detail,omitempty"`
+	Execution        execution.View `json:"execution"`
+	// Deprecated: not loaded in lists. Use explicit job inspection.
 	ClientPayload         json.RawMessage `json:"client_payload,omitempty"`
 	ClientPayloadRevision int64           `json:"client_payload_revision"`
 	TenantID              string          `json:"tenant_id"`
@@ -41,9 +49,32 @@ type Job struct {
 	LeaseExpiresAt        *time.Time      `json:"lease_expires_at,omitempty"`
 	ExpiresAt             *time.Time      `json:"expires_at,omitempty"`
 	NextRoute             *jobdb.Route    `json:"next_route,omitempty"`
-	TaskWait              *jobdb.TaskWait `json:"task_wait,omitempty"`
-	WaitFor               []string        `json:"wait_for,omitempty"`
-	CancelRequested       bool            `json:"cancel_requested,omitempty"`
+	// Deprecated: not loaded in lists. Use explicit job inspection.
+	TaskWait *jobdb.TaskWait `json:"task_wait,omitempty"`
+	// Deprecated: not loaded in lists. Use explicit job inspection.
+	WaitFor         []string `json:"wait_for,omitempty"`
+	CancelRequested bool     `json:"cancel_requested,omitempty"`
+}
+
+// CompactSummary also enforces the compact contract against older servers.
+func CompactSummary(job jobdb.JobSummary) jobdb.JobSummary {
+	job.BlockingWait = nil
+	job.OtherGoalIDs = nil
+	job.CompletionDetail = ""
+	job.ClientPayload = nil
+	job.ExecutionState = jobdb.ExecutionState{}
+	job.WaitFor = nil
+	return job
+}
+
+// CloneBlockingWaitSummary copies the compact wait and its optional deadline.
+func CloneBlockingWaitSummary(wait *jobdb.DependencyWaitSummary) *jobdb.DependencyWaitSummary {
+	if wait == nil {
+		return nil
+	}
+	copy := *wait
+	copy.Deadline = cloneTime(wait.Deadline)
+	return &copy
 }
 
 // JobFromSummary applies c2j's execution interpretation without resolving a
@@ -58,19 +89,20 @@ func JobFromSummary(job jobdb.JobSummary) Job {
 	// independently reports malformed execution metadata for waiting jobs.
 	_ = json.Unmarshal(job.Metadata, &meta)
 	return Job{
-		BlockingWait: job.BlockingWait,
-		Prompt:       meta.Prompt,
-		Title:        meta.Title,
-		GoalID:       job.GoalID, OtherGoalIDs: append([]string(nil), job.OtherGoalIDs...),
-		CompletionStatus: job.CompletionStatus,
-		CompletionDetail: job.CompletionDetail,
-		Execution:        ExecutionView(job), RepositorySource: meta.RepositorySource,
-		ClientPayload:         append(json.RawMessage(nil), job.ClientPayload...),
+		BlockingWaitSummary: CloneBlockingWaitSummary(job.BlockingWaitSummary),
+		Metadata:            append(json.RawMessage(nil), job.Metadata...),
+		SchemaHash:          job.SchemaHash,
+		ParentJobID:         job.ParentJobID,
+		Prompt:              meta.Prompt,
+		Title:               meta.Title,
+		GoalID:              job.GoalID,
+		CompletionStatus:    job.CompletionStatus,
+		Execution:           ExecutionView(job), RepositorySource: meta.RepositorySource,
 		ClientPayloadRevision: job.ClientPayloadRevision,
 		TenantID:              job.JobKey.TenantId, JobID: job.JobKey.JobId, Status: job.Status,
 		Store: StoreForJob(job), JobType: job.JobType, CreatedAt: job.CreatedAt, AvailableAt: job.AvailableAt,
 		ArchivedAt: cloneTime(job.ArchivedAt), LeaseExpiresAt: cloneTime(job.LeaseExpiresAt), ExpiresAt: cloneTime(job.ExpiresAt),
-		NextRoute: jobdb.CloneRoute(job.NextRoute), TaskWait: jobdb.CloneExecutionState(job.ExecutionState).TaskWait,
-		WaitFor: append([]string(nil), job.WaitFor...), CancelRequested: job.CancelRequested,
+		NextRoute:       jobdb.CloneRoute(job.NextRoute),
+		CancelRequested: job.CancelRequested,
 	}
 }

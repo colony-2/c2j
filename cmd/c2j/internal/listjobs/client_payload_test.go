@@ -8,13 +8,13 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestJobRowPreservesClientPayloadAndRevision(t *testing.T) {
+func TestJobRowPreservesRevisionWithoutPayload(t *testing.T) {
 	summary := jobdb.JobSummary{ClientPayload: json.RawMessage(`{"large":9007199254740993}`), ClientPayloadRevision: 9}
 	row := makeJobRow(summary)
 	data, err := json.Marshal(row)
 	require.NoError(t, err)
-	require.Contains(t, string(data), `"client_payload":{"large":9007199254740993}`)
+	require.NotContains(t, string(data), `"client_payload":`)
 	require.Contains(t, string(data), `"client_payload_revision":9`)
-	row.ClientPayload[0] = ' '
+	require.Empty(t, row.ClientPayload)
 	require.Equal(t, `{"large":9007199254740993}`, string(summary.ClientPayload))
 }

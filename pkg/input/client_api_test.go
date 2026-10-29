@@ -62,7 +62,7 @@ func apiTask(t *testing.T, id string, ordinal int64, form InputForm) *clientTask
 	return &clientTask{key: jobdb.JobKey{TenantId: "tenant", JobId: id}, ordinal: ordinal, data: jobdb.NewTaskDataOrPanic(env)}
 }
 func taskListing(task *clientTask) workflowctl.JobItem {
-	return workflowctl.JobItem{JobSummary: jobdb.JobSummary{JobKey: task.key, ExecutionState: jobdb.ExecutionState{TaskWait: &jobdb.TaskWait{OutputOrdinal: task.ordinal}}}}
+	return workflowctl.JobItem{JobSummary: jobdb.JobSummary{JobKey: task.key}}
 }
 
 func TestPendingInputPagesAndLegacyListing(t *testing.T) {
@@ -122,14 +122,18 @@ func TestPendingInputPageConcurrentCompletionAndStorageError(t *testing.T) {
 		return []workflowctl.JobItem{taskListing(old)}, "continue", nil
 	}}
 	runtime, _ := NewRuntime(control, nil)
-	for _, wait := range []func(jobdb.JobKey) (workflowctl.TaskHandle, error){
+	for i, wait := range []func(jobdb.JobKey) (workflowctl.TaskHandle, error){
 		func(jobdb.JobKey) (workflowctl.TaskHandle, error) { return nil, jobdb.ErrJobNotFound },
 		func(jobdb.JobKey) (workflowctl.TaskHandle, error) { return newer, nil },
 	} {
 		control.waiting = wait
 		page, err := runtime.ListPendingInputsPage(context.Background(), "tenant", PendingInputOptions{})
 		require.NoError(t, err)
-		require.Empty(t, page.Inputs)
+		if i == 0 {
+			require.Empty(t, page.Inputs)
+		} else {
+			require.Equal(t, []PendingInputOccurrence{{JobID: "job", TaskOrdinal: 8, RequestID: "new"}}, page.Inputs, "discovery returns the explicitly loaded occurrence, never stale list coordinates")
+		}
 		require.Equal(t, "continue", page.NextPageToken)
 	}
 	unavailable := errors.New("database offline")

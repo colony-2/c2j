@@ -192,52 +192,26 @@ The restarted worker reconstructs changes only from retained history before the
 selected scope, then checks the requirements of unfinished work. Restart
 submission does not load or compile the recipe.
 
-### Read and filter requirements
+### Execution information in lists and inspection
 
-For waiting jobs, ordinary and child-job JSON listings include an `execution` view with `status`,
-`source`, `published`, `demand`, and the initial snapshot when available.
-`demand.effective` is the current known requirement overlay. Sources distinguish
-`submission`, `yield`, and `absent`. Status distinguishes `specified`,
-`unspecified`, `unresolved`, `malformed`, and `unsupported`.
+Ordinary and child listings use the compact JobDB contract. Waiting jobs report
+`execution.status: not_loaded` with no current demand; initial metadata is only
+a submission hint. Active jobs report `in_flight`, and terminal/unknown jobs
+report `not_waiting`. None of these views proves allocation compatibility.
 
-These are submission/latest-handoff snapshots, not live telemetry. Waiting
-statuses are `READY`, `PENDING_JOBS`, `AWAITING_FUTURE`, `EXPIRED`, and
-`CRASH_CONCERN`. The snapshot contains effective requirements and resolution
-status, without recipe digests, node overlays, directive checkpoints, or saved
-allocations. Recovery reconstructs the unfinished task's requirements.
+Client payload revision, status, route, timestamps, metadata, and a compact
+blocking-wait identity remain available. Payloads and task coordinates require
+explicit inspection. Use `recipejob.GetRecipeJob` for one selected job, or
+JobDB `GetJob` plus `joblist.ExecutionViewFromInfo`. Loaded waiting views retain
+`submission`, `yield`, and `absent` sources and the existing demand semantics.
 
-Running jobs report `execution.status: in_flight` without a demand or initial
-snapshot, because their scope needs may have changed without publication.
-Completed, cancelled, or unrecognized states report `not_waiting`. Neither
-means unconstrained. Compatibility filtering excludes these jobs, even with
-`--include-unresolved`. Raw `client_payload` remains available as historical
-client state, but must not be treated as a running job's current requirements.
+`--compatible-with-execution` and its `--include-unresolved` mode are deprecated:
+compact lists return `joblist.ErrExecutionDetailsRequired` without fetching
+payloads per row. Apply `execution.Filter.Match` only to an explicitly loaded
+view. For scheduling, use the acquired lease payload to compute current demand;
+do not use stale submission requirements or hydrate every discovery row.
 
-Filter explicitly against a candidate environment:
-
-```bash
-c2j list --self --compatible-with-execution \
-  --execution-memory 16Gi --json --all --embed
-c2j list children --compatible-with-execution \
-  --execution-memory 16Gi --include-unresolved --json --embed
-```
-
-The child example runs inside a recipe operation; see parent-selection options
-below for use outside one. Supply every fact needed by a job: memory alone will
-not match a job also requiring an unknown image or CPU allocation.
-
-Filtering is opt-in. Without `--compatible-with-execution`, inherited
-`C2J_EXECUTION_*` variables do not hide jobs, and explicit allocation arguments
-are rejected. At least one compatibility fact is required; image ID alone does
-not count. `--include-unresolved` includes default-environment bootstrap
-candidates, still checking known overrides, not proven compatible jobs.
-
-Malformed/unsupported demand is shown diagnostically in ordinary JSON and
-causes a filtered-list error instead of silently treating it as unconstrained.
-Filtering fills logical pages across underlying pages (default size 100), and
-works with existing cell, status, parent, and route filters. Pass continuation
-tokens back with the same filters. Matching does not reserve a job or imply
-that it is ready; execution checks again under a lease.
+See [the migration guide](MIGRATION-C2J-Compact-Job-Lists.md).
 
 ## Choose the runtime and job
 

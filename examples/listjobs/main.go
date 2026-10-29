@@ -59,18 +59,8 @@ func run() error {
 		if err != nil {
 			return err
 		}
-		for _, job := range page.Jobs {
-			view := job.Execution
-			if view.Diagnostic != "" {
-				fmt.Fprintf(os.Stderr, "job %s: %s\n", job.JobID, view.Diagnostic)
-				continue // Never treat an invalid or unsupported demand as empty.
-			}
-			if view.Status == "specified" && view.Demand != nil {
-				// A scheduler can inspect view.Demand.Effective here. This example
-				// only reports the snapshot; it never provisions or claims jobs.
-				fmt.Fprintf(os.Stderr, "job %s: execution requirements from %s\n", job.JobID, view.Source)
-			}
-		}
+		// Compact rows report current execution demand as not_loaded. Inspect a
+		// selected job explicitly, or use its acquired lease payload for placement.
 		if err := json.NewEncoder(os.Stdout).Encode(page); err != nil {
 			return err
 		}

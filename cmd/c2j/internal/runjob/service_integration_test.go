@@ -136,8 +136,8 @@ outputs:
 		t.Fatalf("unexpected output: %#v", got)
 	}
 
-	if out := liveStdout.String(); !strings.Contains(out, "[live]") || !strings.Contains(out, "command_execution") {
-		t.Fatalf("expected live execution output, got:\n%s", out)
+	if out := liveStdout.String(); !strings.Contains(out, "[live]     echo\n") {
+		t.Fatalf("expected live execution output labeled with the node ID, got:\n%s", out)
 	}
 
 	var cachedStdout bytes.Buffer

@@ -100,7 +100,8 @@ func TestGoalDiscovery(t *testing.T) {
 			jobs, err := rt.ListJobs(ctx, jobdb.ListJobsRequest{TenantIds: []string{"t"}, GoalIDs: []string{consumer.GoalID}})
 			require.NoError(t, err)
 			require.Len(t, jobs.Jobs, 1)
-			require.Equal(t, info.BlockingWait, joblist.JobFromSummary(jobs.Jobs[0]).BlockingWait)
+			require.Nil(t, joblist.JobFromSummary(jobs.Jobs[0]).BlockingWait)
+			require.Equal(t, info.BlockingWait.WaitID, joblist.JobFromSummary(jobs.Jobs[0]).BlockingWaitSummary.WaitID)
 			_, err = recipejob.ListDependencyWaits(ctx, engine, jobdb.ListDependencyWaitsRequest{TenantId: "t", Target: &goalTarget, States: []jobdb.DependencyState{jobdb.DependencySatisfied}})
 			require.Error(t, err)
 			run := func(h jobdb.JobHandle) {

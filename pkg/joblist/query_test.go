@@ -52,25 +52,19 @@ func (f listerFunc) ListJobs(ctx context.Context, req jobdb.ListJobsRequest) (jo
 	return f(ctx, req)
 }
 
-func TestFilteredEmptyPagesAndNonAdvancingCursor(t *testing.T) {
-	memory := "4Gi"
-	filter := &execution.Filter{Allocation: execution.Allocation{SchemaVersion: 1, Resources: execution.Resources{Memory: &memory}}}
-	item := demandJob(t, "matching", "2Gi")
+func TestCompactListingPassesEmptyPageThrough(t *testing.T) {
 	calls := 0
 	lister := listerFunc(func(_ context.Context, req jobdb.ListJobsRequest) (jobdb.ListJobsResponse, error) {
 		calls++
-		if req.PageToken == "" {
-			return jobdb.ListJobsResponse{NextPageToken: "second"}, nil
-		}
-		return jobdb.ListJobsResponse{Jobs: []jobdb.JobSummary{item}}, nil
+		require.Equal(t, 1, req.PageSize)
+		return jobdb.ListJobsResponse{NextPageToken: "second"}, nil
 	})
-	page, err := joblist.ListExecutionJobs(context.Background(), lister, jobdb.ListJobsRequest{PageSize: 1}, filter)
+	page, err := joblist.ListExecutionJobs(context.Background(), lister, jobdb.ListJobsRequest{PageSize: 1}, nil)
 	require.NoError(t, err)
-	require.Len(t, page.Jobs, 1)
-	require.Equal(t, 2, calls)
-	stuck := listerFunc(func(context.Context, jobdb.ListJobsRequest) (jobdb.ListJobsResponse, error) {
-		return jobdb.ListJobsResponse{NextPageToken: "same"}, nil
-	})
-	_, err = joblist.ListExecutionJobs(context.Background(), stuck, jobdb.ListJobsRequest{PageToken: "same", PageSize: 1}, filter)
-	require.ErrorContains(t, err, "cursor did not advance")
+	require.Empty(t, page.Jobs)
+	require.Equal(t, "second", page.NextPageToken)
+	require.Equal(t, 1, calls)
+	_, err = joblist.ListExecutionJobs(context.Background(), lister, jobdb.ListJobsRequest{}, &execution.Filter{IncludeUnresolved: true})
+	require.ErrorIs(t, err, joblist.ErrExecutionDetailsRequired)
+	require.Equal(t, 1, calls)
 }

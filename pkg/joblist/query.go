@@ -34,8 +34,8 @@ type Query struct {
 	CreatedBefore *time.Time
 	PageSize      int
 	PageToken     string
-	// ExecutionFilter optionally fills a logical page by scanning backend pages.
-	// Invalid demands fail the page in this mode; otherwise they are item diagnostics.
+	// Deprecated: compact lists cannot filter current execution demand.
+	// A non-nil filter returns ErrExecutionDetailsRequired.
 	ExecutionFilter *execution.Filter
 }
 
@@ -78,13 +78,7 @@ func BuildRequest(tenantID string, query Query) (jobdb.ListJobsRequest, error) {
 		}
 	}
 	if query.ExecutionFilter != nil {
-		allocation, err := query.ExecutionFilter.Allocation.Normalize()
-		if err != nil {
-			return invalid(err)
-		}
-		if !allocation.HasCompatibilityFacts() {
-			return invalid(fmt.Errorf("execution filter requires an allocation fact"))
-		}
+		return jobdb.ListJobsRequest{}, fmt.Errorf("%w: %w", ErrInvalidInput, ErrExecutionDetailsRequired)
 	}
 	metadata, err := jobdb.Metadata().EqualFilter("repo", repo)
 	if err != nil {

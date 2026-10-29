@@ -66,14 +66,21 @@ type GetRecipeJobRequest struct {
 }
 
 type RecipeJob struct {
+	BlockingWaitSummary *jobdb.DependencyWaitSummary `json:"blocking_wait_summary,omitempty"`
+	Metadata            json.RawMessage              `json:"metadata,omitempty"`
+	SchemaHash          string                       `json:"schema_hash,omitempty"`
+	// Deprecated: not loaded in lists. Use explicit job inspection.
 	BlockingWait *jobdb.DependencyWaitInfo `json:"blocking_wait,omitempty"`
 	GoalID       string                    `json:"goal_id"`
-	OtherGoalIDs []string                  `json:"other_goal_ids"`
+	// Deprecated: not loaded in lists. Use explicit job inspection.
+	OtherGoalIDs []string `json:"other_goal_ids"`
 	// Completion fields are persisted terminal results, separate from scheduler Status.
-	// Empty status means unavailable; empty detail is valid. Both are preserved verbatim.
-	CompletionStatus      string             `json:"completion_status,omitempty"`
-	CompletionDetail      string             `json:"completion_detail,omitempty"`
-	Execution             execution.View     `json:"execution"`
+	// Empty status means unavailable. Unknown statuses are preserved verbatim.
+	CompletionStatus string `json:"completion_status,omitempty"`
+	// Deprecated: not loaded in lists. Use explicit job inspection.
+	CompletionDetail string         `json:"completion_detail,omitempty"`
+	Execution        execution.View `json:"execution"`
+	// Deprecated: not loaded in lists. Use explicit job inspection.
 	ClientPayload         json.RawMessage    `json:"client_payload,omitempty"`
 	ClientPayloadRevision int64              `json:"client_payload_revision"`
 	TenantID              string             `json:"tenant_id"`
@@ -97,9 +104,11 @@ type RecipeJob struct {
 	LeaseExpiresAt        *time.Time         `json:"lease_expires_at,omitempty"`
 	ExpiresAt             *time.Time         `json:"expires_at,omitempty"`
 	NextRoute             *jobdb.Route       `json:"next_route,omitempty"`
-	TaskWait              *jobdb.TaskWait    `json:"task_wait,omitempty"`
-	WaitFor               []string           `json:"wait_for,omitempty"`
-	CancelRequested       bool               `json:"cancel_requested,omitempty"`
+	// Deprecated: not loaded in lists. Use explicit job inspection.
+	TaskWait *jobdb.TaskWait `json:"task_wait,omitempty"`
+	// Deprecated: not loaded in lists. Use explicit job inspection.
+	WaitFor         []string `json:"wait_for,omitempty"`
+	CancelRequested bool     `json:"cancel_requested,omitempty"`
 }
 
 type workflowLister interface {
@@ -323,7 +332,16 @@ func StartedJobsContextFromRecipeJobs(jobs []RecipeJob) jobcontext.StartedJobsCo
 	return out
 }
 
+// GetRecipeJob explicitly inspects one selected job. It uses one compact list
+// query for metadata/timestamps and one GetJob for details; never call it per
+// row to enrich an ordinary list. The lister must also implement GetJob.
 func GetRecipeJob(ctx context.Context, lister Lister, req GetRecipeJobRequest) (RecipeJob, error) {
+	reader, ok := lister.(interface {
+		GetJob(context.Context, jobdb.JobKey) (jobdb.JobInfo, error)
+	})
+	if !ok {
+		return RecipeJob{}, fmt.Errorf("job detail reader is required")
+	}
 	jobID := strings.TrimSpace(req.JobID)
 	if jobID == "" {
 		return RecipeJob{}, fmt.Errorf("job ID is required")
@@ -340,7 +358,32 @@ func GetRecipeJob(ctx context.Context, lister Lister, req GetRecipeJobRequest) (
 	if len(resp.Jobs) == 0 {
 		return RecipeJob{}, ErrJobNotFound
 	}
-	return resp.Jobs[0], nil
+	job := resp.Jobs[0]
+	info, err := reader.GetJob(ctx, jobdb.JobKey{TenantId: job.TenantID, JobId: job.JobID})
+	if errors.Is(err, jobdb.ErrJobNotFound) {
+		return RecipeJob{}, ErrJobNotFound
+	}
+	if err != nil {
+		return RecipeJob{}, err
+	}
+	job.Status = info.Status
+	job.GoalID = info.GoalID
+	job.OtherGoalIDs = append([]string(nil), info.OtherGoalIDs...)
+	job.BlockingWait = info.BlockingWait
+	job.BlockingWaitSummary = nil
+	if info.BlockingWait != nil {
+		job.BlockingWaitSummary = joblist.CloneBlockingWaitSummary(&jobdb.DependencyWaitSummary{WaitID: info.BlockingWait.WaitID, Deadline: info.BlockingWait.Deadline})
+	}
+	job.CompletionStatus = info.CompletionStatus
+	job.CompletionDetail = info.CompletionDetail
+	job.WaitFor = append([]string(nil), info.WaitFor...)
+	job.NextRoute = jobdb.CloneRoute(info.NextRoute)
+	job.TaskWait = jobdb.CloneExecutionState(info.ExecutionState).TaskWait
+	job.ClientPayload = append(json.RawMessage(nil), info.ClientPayload...)
+	job.ClientPayloadRevision = info.ClientPayloadRevision
+	job.SchemaHash = info.SchemaHash
+	job.Execution = joblist.ExecutionViewFromInfo(job.Metadata, info)
+	return job, nil
 }
 
 func RecipeJobFromSummary(summary jobdb.JobSummary) (RecipeJob, bool, error) {
@@ -354,13 +397,12 @@ func RecipeJobFromSummary(summary jobdb.JobSummary) (RecipeJob, bool, error) {
 	}
 
 	job := RecipeJob{
-		BlockingWait:          summary.BlockingWait,
+		BlockingWaitSummary:   joblist.CloneBlockingWaitSummary(summary.BlockingWaitSummary),
+		Metadata:              append(json.RawMessage(nil), summary.Metadata...),
+		SchemaHash:            summary.SchemaHash,
 		GoalID:                summary.GoalID,
-		OtherGoalIDs:          append([]string(nil), summary.OtherGoalIDs...),
 		CompletionStatus:      summary.CompletionStatus,
-		CompletionDetail:      summary.CompletionDetail,
 		Execution:             ExecutionView(summary),
-		ClientPayload:         append(json.RawMessage(nil), summary.ClientPayload...),
 		ClientPayloadRevision: summary.ClientPayloadRevision,
 		TenantID:              summary.JobKey.TenantId,
 		JobID:                 summary.JobKey.JobId,
@@ -373,8 +415,6 @@ func RecipeJobFromSummary(summary jobdb.JobSummary) (RecipeJob, bool, error) {
 		LeaseExpiresAt:        summary.LeaseExpiresAt,
 		ExpiresAt:             summary.ExpiresAt,
 		NextRoute:             jobdb.CloneRoute(summary.NextRoute),
-		TaskWait:              jobdb.CloneExecutionState(summary.ExecutionState).TaskWait,
-		WaitFor:               append([]string(nil), summary.WaitFor...),
 		CancelRequested:       summary.CancelRequested,
 	}
 	if job.JobType == "" {
