@@ -5,7 +5,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"regexp"
 	"strings"
 
 	"github.com/colony-2/c2j/pkg/git/common"
@@ -59,12 +58,10 @@ func isMergeAdvancement(err error) bool {
 	return errors.As(err, &app) && app.Payload.Attrs["code"] == MergeUpstreamAdvancedCode
 }
 
-// Keep porcelain stdout separate from stderr: hook messages are not ref status.
-// A fixed locale makes Git's finite set of rejection reasons comparable.
-func pushMergeCandidate(ctx context.Context, repo string, args []string) (string, string, error) {
+// Push output is retained for diagnostics; classification uses repository state.
+func pushMergeCandidate(ctx context.Context, repo string, args []string) error {
 	cmd := gitprofile.Command(ctx, args...)
 	cmd.Dir = repo
-	cmd.Env = append(cmd.Environ(), "LC_ALL=C")
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	err := gitprofile.Run(ctx, cmd)
@@ -74,29 +71,5 @@ func pushMergeCandidate(ctx context.Context, repo string, args []string) (string
 		}
 		err = fmt.Errorf("git push failed: %w (stdout: %s; stderr: %s)", err, stdout.String(), stderr.String())
 	}
-	return stdout.String(), stderr.String(), err
-}
-
-var refUpdateRace = regexp.MustCompile(`cannot lock ref '([^']+)': is at ([0-9a-f]{40,64}) but expected ([0-9a-f]{40,64})`)
-
-func pushRejectedForAdvancement(stdout, stderr, candidate, branch string) bool {
-	for _, line := range strings.Split(stdout, "\n") {
-		fields := strings.Split(line, "\t")
-		if len(fields) != 3 || fields[0] != "!" || fields[1] != candidate+":"+branch {
-			continue
-		}
-		switch fields[2] {
-		case "[rejected] (non-fast-forward)", "[rejected] (fetch first)", "[remote rejected] (non-fast-forward)":
-			return true
-		case "[remote rejected] (failed to update ref)":
-			// This status also covers permissions and lock failures. Only an
-			// explicit old-value mismatch establishes a concurrent ref update.
-			for _, match := range refUpdateRace.FindAllStringSubmatch(stderr, -1) {
-				if match[1] == branch && match[2] != match[3] {
-					return true
-				}
-			}
-		}
-	}
-	return false
+	return err
 }

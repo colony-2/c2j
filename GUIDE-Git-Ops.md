@@ -85,6 +85,7 @@ through persistence and resume:
 | `upstream_hash` | Full hash of the observed target tip |
 | `target_branch` | Full branch ref, such as `refs/heads/main` |
 | `phase` | `preflight` or `push` |
+| `push_error` | Original push failure diagnostics; present for `push` failures |
 
 A catch on the enclosing merge state can route this failure to your recipe's
 existing `rebase` state. This is a state definition to insert under
@@ -150,11 +151,15 @@ inputs:
 This node fragment expects those inputs in its enclosing scope. In the managed
 task worktree, omit `prepared_base_hash` to use its execution base automatically.
 
-Push races receive the code only when Git reports a non-fast-forward rejection
-or a proven concurrent ref update, followed by fresh ancestry verification.
-Hook, permission, transport, timeout, and other errors retain their diagnostics.
+After a failed push, merge probes the current upstream hash and verifies
+ancestry. Proven advancement beyond the prepared base is sufficient to receive
+the code, even when a hook, permission, or transport failure coincides with it.
+The code describes the need to rebase; it does not identify the cause of the
+push failure. The original push error remains available for diagnostics.
 If the target already contains the candidate, publication succeeds, including
-after a lost push response.
+after a lost push response. An unchanged target, failed probe, or unproven
+ancestry preserves the original push failure. Cancellation and timeout stop
+further probing.
 
 The failure preserves the candidate and workspace base for subsequent work.
 The recipe owns catch routing, chase limits, rebasing, verification, and fresh

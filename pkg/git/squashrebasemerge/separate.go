@@ -2,11 +2,13 @@ package squashrebasemerge
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
 	"github.com/colony-2/c2j/pkg/git/common"
 	"github.com/colony-2/c2j/pkg/ops"
+	"github.com/colony-2/jobdb/pkg/jobdb"
 )
 
 type SquashInput struct {
@@ -159,7 +161,7 @@ func mergeFrom(ctx context.Context, input MergeInput, emptyBase bool, source str
 	if err != nil {
 		return result, err
 	}
-	args := []string{"push", "--porcelain"}
+	args := []string{"push"}
 	if emptyBase {
 		// Receive-pack can create an empty repository on demand. Do not fetch
 		// first; insist the branch is absent (or already at this exact commit).
@@ -177,26 +179,36 @@ func mergeFrom(ctx context.Context, input MergeInput, emptyBase bool, source str
 		args = append(args, "--no-force")
 	}
 	args = append(args, "--", input.UpstreamRepo, head+":"+branch)
-	if stdout, stderr, err := pushMergeCandidate(ctx, input.RepoPath, args); err != nil {
-		// A rejected/lost response may follow successful publication. This also
-		// handles an initial publication followed by another writer's commit.
-		// Initial creation must reach receive-pack before any read-side lookup.
-		if published, checkErr := publicationPresent(ctx, input.RepoPath, input.UpstreamRepo, branch, head); checkErr == nil && published {
-			return MergeOutput{MergedHash: head, TargetBranch: branch}, nil
-		}
+	if err := pushMergeCandidate(ctx, input.RepoPath, args); err != nil {
 		if emptyBase {
+			// Initial creation must reach receive-pack before any read-side
+			// lookup. A lost response can still follow successful publication.
+			if published, checkErr := publicationPresent(ctx, input.RepoPath, input.UpstreamRepo, branch, head); checkErr == nil && published {
+				return MergeOutput{MergedHash: head, TargetBranch: branch}, nil
+			}
 			return result, fmt.Errorf("publish initial branch %s (destination must be absent or contain the saved candidate): %w", branch, err)
 		}
-		if ctx.Err() == nil && pushRejectedForAdvancement(stdout, stderr, head, branch) {
+		pushErr := fmt.Errorf("publish prepared commit to %s: %w", branch, err)
+		if ctx.Err() == nil {
+			// Probe the current target after any failed push. Proven advancement
+			// is sufficient: it need not have caused the push failure. Never
+			// infer advancement from Git's human-readable rejection messages.
 			published, ancestryErr := verifyMergeAncestry(ctx, input.RepoPath, source, input.UpstreamRepo, branch, head)
 			if published && ancestryErr == nil {
 				return MergeOutput{MergedHash: head, TargetBranch: branch}, nil
 			}
-			if classified := classifyMergeAdvancement(ctx, input, source, "push", ancestryErr); isMergeAdvancement(classified) {
-				return result, classified
+			classified := classifyMergeAdvancement(ctx, input, source, "push", ancestryErr)
+			var app *jobdb.AppError
+			if errors.As(classified, &app) && app.Payload.Attrs["code"] == MergeUpstreamAdvancedCode {
+				// Keep diagnostics in the payload as well as the Go error chain
+				// so they survive task persistence and recipe catch routing.
+				app.Payload.Attrs["push_error"] = pushErr.Error()
+				return result, errors.Join(classified, pushErr)
 			}
 		}
-		return result, fmt.Errorf("publish prepared commit to %s: %w", branch, err)
+		// An unchanged target, failed probe, or incomplete ancestry leaves
+		// the original push failure intact, including cancellation causes.
+		return result, pushErr
 	}
 	return MergeOutput{MergedHash: head, TargetBranch: branch}, nil
 }

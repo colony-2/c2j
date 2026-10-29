@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -50,11 +51,16 @@ func requireAdvancement(t *testing.T, err error, f advancementFixture, phase str
 	t.Helper()
 	var app *jobdb.AppError
 	require.ErrorAs(t, err, &app)
-	require.Equal(t, map[string]any{
+	attrs := map[string]any{
 		"code": MergeUpstreamAdvancedCode, "candidate_hash": f.candidate,
 		"prepared_base_hash": f.base, "upstream_hash": f.upstream,
 		"target_branch": "refs/heads/main", "phase": phase,
-	}, app.Payload.Attrs)
+	}
+	if phase == "push" {
+		require.Contains(t, app.Payload.Attrs["push_error"], "git push failed")
+		attrs["push_error"] = app.Payload.Attrs["push_error"]
+	}
+	require.Equal(t, attrs, app.Payload.Attrs)
 	require.Equal(t, f.candidate, revParse(t, f.repo, "HEAD"))
 	require.Equal(t, f.upstream, revParse(t, f.remote, "main"))
 }
@@ -118,7 +124,7 @@ func TestMergeDoesNotMisclassifyOtherFailures(t *testing.T) {
 				require.NoError(t, os.WriteFile(filepath.Join(f.repo, ".git/shallow"), []byte(f.candidate+"\n"), 0600))
 			case "hook rejection", "lock failure":
 				runGit(t, f.remote, "git", "update-ref", "refs/heads/main", f.base)
-				hook := fmt.Sprintf("#!/bin/sh\ngit --git-dir='%s' update-ref refs/heads/main %s\n", f.remote, f.upstream)
+				hook := "#!/bin/sh\n"
 				if mode == "hook rejection" {
 					hook += "exit 1\n"
 				} else {
@@ -134,24 +140,55 @@ func TestMergeDoesNotMisclassifyOtherFailures(t *testing.T) {
 	}
 }
 
-func TestPushRejectionClassificationRequiresRefStatus(t *testing.T) {
-	f := advancementFixture{candidate: strings.Repeat("a", 40), upstream: strings.Repeat("b", 40), base: strings.Repeat("c", 40)}
-	for _, tt := range []struct {
-		status, stderr string
-		want           bool
-	}{
-		{"[rejected] (fetch first)", "", true},
-		{"[rejected] (non-fast-forward)", "", true},
-		{"[remote rejected] (non-fast-forward)", "", true},
-		{"[remote rejected] (pre-receive hook declined)", "", false},
-		{"[remote failure] (remote failed to report status)", "", false},
-		{"[remote rejected] (failed to update ref)", "permission denied", false},
-		{"[remote rejected] (failed to update ref)", fmt.Sprintf("cannot lock ref 'refs/heads/main': is at %s but expected %s", f.upstream, f.base), true},
-		{"[remote rejected] (failed to update ref)", fmt.Sprintf("cannot lock ref 'refs/heads/other': is at %s but expected %s", f.upstream, f.base), false},
-	} {
-		stdout := "!\t" + f.candidate + ":refs/heads/main\t" + tt.status + "\n"
-		require.Equal(t, tt.want, pushRejectedForAdvancement(stdout, tt.stderr, f.candidate, "refs/heads/main"), tt.status)
-		require.False(t, pushRejectedForAdvancement("", stdout+tt.stderr, f.candidate, "refs/heads/main"), "stderr cannot supply ref status")
-		require.False(t, pushRejectedForAdvancement(stdout, tt.stderr, f.candidate, "refs/heads/other"), "status must name the target")
+func TestMergeClassifiesAdvancementDespiteOtherPushFailures(t *testing.T) {
+	for _, mode := range []string{"hook rejection", "lock failure"} {
+		t.Run(mode, func(t *testing.T) {
+			f := newAdvancementFixture(t)
+			hook := fmt.Sprintf("#!/bin/sh\ngit --git-dir='%s' update-ref refs/heads/main %s\n", f.remote, f.upstream)
+			if mode == "hook rejection" {
+				hook += "echo 'arbitrary hook rejection' >&2\nexit 1\n"
+			} else {
+				hook += fmt.Sprintf("touch '%s/refs/heads/main.lock'\n", f.remote)
+			}
+			require.NoError(t, os.WriteFile(filepath.Join(f.repo, ".git/hooks/pre-push"), []byte(hook), 0700))
+			_, err := merge(context.Background(), f.input(), false)
+			requireAdvancement(t, err, f, "push")
+			var exitErr *exec.ExitError
+			require.ErrorAs(t, err, &exitErr, "retain the original push failure")
+			if mode == "hook rejection" {
+				require.ErrorContains(t, err, "arbitrary hook rejection")
+				var app *jobdb.AppError
+				require.ErrorAs(t, err, &app)
+				require.Contains(t, app.Payload.Attrs["push_error"], "arbitrary hook rejection")
+			}
+		})
+	}
+}
+
+func TestMergePushProbeRequiresPreparedBaseAncestry(t *testing.T) {
+	for _, mode := range []string{"no base", "wrong base", "unknown base", "rewritten"} {
+		t.Run(mode, func(t *testing.T) {
+			f := newAdvancementFixture(t)
+			input := f.input()
+			target := f.upstream
+			switch mode {
+			case "no base":
+				input.PreparedBaseHash = ""
+			case "wrong base":
+				input.PreparedBaseHash = f.candidate
+			case "unknown base":
+				input.PreparedBaseHash = strings.Repeat("a", 40)
+			case "rewritten":
+				tree := revParse(t, f.remote, "main^{tree}")
+				target = strings.TrimSpace(runGitOutput(t, f.remote, "git", "-c", "user.name=Test", "-c", "user.email=test@example.test", "commit-tree", tree, "-p", f.root, "-m", "rewritten"))
+			}
+			hook := fmt.Sprintf("#!/bin/sh\ngit --git-dir='%s' update-ref refs/heads/main %s\necho 'original push failure' >&2\nexit 1\n", f.remote, target)
+			require.NoError(t, os.WriteFile(filepath.Join(f.repo, ".git/hooks/pre-push"), []byte(hook), 0700))
+			_, err := merge(context.Background(), input, false)
+			require.ErrorContains(t, err, "original push failure")
+			require.False(t, isMergeAdvancement(err), "%v", err)
+			require.Equal(t, target, revParse(t, f.remote, "main"))
+			require.Equal(t, f.candidate, revParse(t, f.repo, "HEAD"))
+		})
 	}
 }

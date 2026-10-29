@@ -69,7 +69,7 @@ func (r *mergeOutcomeInterruption) PutChapter(ctx context.Context, req jobdb.Put
 
 func TestNativeMergeFailureCatchAndResume(t *testing.T) {
 	for _, backend := range []string{"sqlite", "remote"} {
-		for _, scenario := range []string{"advanced", "resume", "other node", "hook", "squash"} {
+		for _, scenario := range []string{"advanced", "push race", "resume", "other node", "hook", "squash"} {
 			t.Run(backend+"/"+scenario, func(t *testing.T) {
 				ctx := context.Background()
 				root := t.TempDir()
@@ -84,6 +84,15 @@ func TestNativeMergeFailureCatchAndResume(t *testing.T) {
 					}
 					var err error
 					advanced, err = advancePublicationTarget(c, remote, baseHash, "concurrent publication")
+					if err == nil && scenario == "push race" {
+						if _, err = common.ExecuteGitCommand(c, remote, "update-ref", "refs/heads/main", baseHash); err != nil {
+							return nil, err
+						}
+						// The upstream object already exists outside quarantine. Move
+						// the branch during push, then reject for an unrelated reason.
+						hook := fmt.Sprintf("#!/bin/sh\nunset GIT_QUARANTINE_PATH\ngit update-ref refs/heads/main %s\necho 'simultaneous hook failure' >&2\nexit 1\n", advanced)
+						err = os.WriteFile(filepath.Join(remote, "hooks/pre-receive"), []byte(hook), 0700)
+					}
 					return nil, err
 				})
 				var captures atomic.Int32
@@ -236,7 +245,13 @@ outputs:
 				require.Equal(t, "merge_reviewed_candidate", failure.Node.ID)
 				require.Equal(t, "merge", failure.Node.Op)
 				require.Contains(t, failure.Node.Path, "nested/merge_reviewed_candidate")
-				require.Equal(t, map[string]any{"code": squashrebasemerge.MergeUpstreamAdvancedCode, "candidate_hash": output.Captured.Head, "prepared_base_hash": baseHash, "upstream_hash": advanced, "target_branch": "refs/heads/main", "phase": "preflight"}, failure.Attrs)
+				attrs := map[string]any{"code": squashrebasemerge.MergeUpstreamAdvancedCode, "candidate_hash": output.Captured.Head, "prepared_base_hash": baseHash, "upstream_hash": advanced, "target_branch": "refs/heads/main", "phase": "preflight"}
+				if scenario == "push race" {
+					attrs["phase"] = "push"
+					require.Contains(t, failure.Attrs["push_error"], "simultaneous hook failure")
+					attrs["push_error"] = failure.Attrs["push_error"]
+				}
+				require.Equal(t, attrs, failure.Attrs)
 				require.Equal(t, baseHash, output.Captured.Base)
 				// Read-only replay must use persisted errors even without Git access.
 				require.NoError(t, os.RemoveAll(remote))

@@ -34,10 +34,11 @@ Source inspected: c2j commit
   application errors. There is no mapping here from `NotFastForwardError` to a
   dedicated code that recipes can match consistently across both paths.
 
-Matching text such as `rejected` or `not a fast-forward` is insufficient:
-authentication, branch protection, transport errors, and history rewrites must
-not enter the chase loop. Recipe-side Git checks also duplicate the op's
-publication and race-handling responsibilities.
+Matching text such as `rejected` or `not a fast-forward` is insufficient.
+Probe the upstream hash and prove advancement through ancestry instead. Proven
+advancement is sufficient even when another failure coincides with it; the code
+describes repository state, not the cause of the push failure. Recipe-side Git
+checks duplicate the op's publication and race-handling responsibilities.
 
 ## Required merge failure contract
 
@@ -63,6 +64,7 @@ failure:
     upstream_hash: <full observed upstream commit hash>
     target_branch: refs/heads/main
     phase: preflight # or push
+    # push_error: <original push diagnostics; present for phase=push>
 ```
 
 The code is the routing API; message wording is diagnostic. The failure kind,
@@ -89,13 +91,18 @@ repeat Git inspection in shell commands.
    candidate nor upstream contains the other. Fetch sufficient history to prove
    these facts; incomplete history is not proof of advancement.
 4. Cover both advancement visible during preflight and advancement racing the
-   push. Use structured Git push rejection information and a fresh ancestry
-   check for a non-fast-forward/ref-update race. A generic rejection or a
-   transport failure followed by observation of a new tip is not sufficient to
-   attribute that rejection to advancement.
-5. Authentication, authorization, branch protection, hooks, invalid refs,
-   dirty worktrees, transport failures, timeouts, cancellations, and failures
-   to fetch or establish ancestry retain their actual failure classification.
+   push. After any failed push with a live context, probe the current upstream
+   hash and verify ancestry. Proof of the state in rule 3 is sufficient to emit
+   the code, even if a permission, protection, hook, lock, or transport failure
+   coincides with advancement. Do not parse Git rejection messages or require
+   proof that advancement caused the push failure. Retain the original push
+   error alongside the structured application error and in its `push_error`
+   attribute so diagnostics survive persistence.
+5. Without proven advancement, preserve the original push failure. An unchanged
+   target or a failed probe, fetch, or ancestry check is not proof. Respect
+   cancellation and timeout; do not start a probe with a canceled context.
+   Validation failures such as invalid refs and dirty worktrees still fail
+   before attempting publication.
 6. Upstream history rewritten away from the prepared base is not eligible.
    Initial publication colliding with an existing unrelated branch is not
    eligible. Neither case should receive the new code.
@@ -171,7 +178,7 @@ recipe targets; the c2j owner may choose the corresponding test filenames.
 | Critical | Integration / Git | Upstream advancement before publication exposes the stable code and exact candidate, base, branch, and upstream hashes. | c2j: `pkg/git/squashrebasemerge/merge_ancestry.go`, `separate.go` |
 | Critical | Integration / Git | Advancement between ancestry inspection and push yields the same classified failure without publishing or modifying the candidate. | c2j: `pkg/git/squashrebasemerge/separate.go` |
 | Critical | Integration / Git | An already-published candidate succeeds after a lost response, even when upstream contains additional commits. | c2j: `pkg/git/squashrebasemerge/separate.go` |
-| Critical | Integration / Git | Permission, protection, hook, transport, and timeout failures never produce the upstream-advanced code, including when the branch concurrently moves. | c2j: `pkg/git/squashrebasemerge/separate.go` |
+| Critical | Integration / Git | Permission, protection, hook, lock, and transport failures produce the code when a fresh probe proves advancement, retaining the push error. Unchanged targets, failed probes, cancellation, and timeout preserve the original failure. | c2j: `pkg/git/squashrebasemerge/separate.go` |
 | Critical | Integration / Git | Rewritten history, initial-publication collisions, and unprovable ancestry do not trigger ordinary advancement recovery. | c2j: `pkg/git/squashrebasemerge/merge_ancestry.go`, `separate.go` |
 | Critical | Integration / durable runtime | Existing catch matches task_error, MERGE_UPSTREAM_ADVANCED, and the original merge node, and reads exact attributes after task persistence, enclosing scopes, and resume. | c2j: `pkg/worker/compiler/failure.go` |
 | Critical | Integration / durable runtime | The same catch does not match unrelated merge errors or squash failures; unmatched failures propagate with their original diagnostics. | c2j: `pkg/worker/compiler/failure.go` |
