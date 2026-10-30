@@ -2,6 +2,7 @@ package recipetest
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	coreops "github.com/colony-2/c2j/pkg/ops"
@@ -28,5 +29,7 @@ outputs:
 	testCase := Case{ID: "values", Type: "recipe_case", Mocks: Mocks{Ops: []OpMock{{Match: OpMockMatch{Op: "command_execution"}, Behavior: MockBehavior{Mode: "passthrough"}}}}}
 	resp := RunCase(context.Background(), HarnessOptions{Deps: coreops.NewServiceDepsBuilder().Build(), WorkRoot: t.TempDir()}, "test", target, testCase, ExecutionOptions{ArtifactMode: "inline"})
 	require.Equal(t, "passed", resp.Status, resp.FailureReason)
-	require.Equal(t, "524288", resp.Outputs["size"])
+	require.IsType(t, "", resp.Outputs["size"])
+	// BSD wc pads the count with spaces; GNU wc does not.
+	require.Equal(t, "524288", strings.TrimSpace(resp.Outputs["size"].(string)))
 }
