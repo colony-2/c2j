@@ -85,7 +85,7 @@ outputs:
  rebased: '{{ sequence.rebase.outputs.new_persist_hash }}'
 `, contextual.JobContext{Workflow: contextual.WorkflowContext{CellName: "A"}, GitBase: contextual.GitBaseContext{BaseRepo: repo, BaseRef: "main"}})
 				marker := "upstream"
-				if mode == "from_current" {
+				if mode == "" || mode == "from_current" {
 					marker = "job"
 				}
 				for _, step := range []string{"before", "unchanged", "after"} {

@@ -226,7 +226,7 @@ func (w hookResolveWorker) RunTask(ctx context.Context, tc jobworkflow.TaskConte
 			return nil, err
 		}
 		switch recipe.HookSource(mode) {
-		case recipe.HooksFromCurrent:
+		case "", recipe.HooksFromCurrent:
 			source = head
 		case recipe.HooksFromBase:
 			source, _ = req.Input["initial_base"].(string)

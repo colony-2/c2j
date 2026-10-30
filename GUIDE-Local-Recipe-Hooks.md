@@ -4,13 +4,13 @@ A shared recipe can call a recipe in its consuming repository with `cell://`.
 The call resolves when execution reaches it. It pins the current candidate before
 binding inputs, then records the selected hook source and definition (including
 relative includes), or its absence. By default, the definition comes from the
-workspace's upstream base, following explicit rebases. The hook executes against
-the candidate, including current job changes. Read-only and absent hooks also pin
-the candidate. Existing non-cell includes keep their eager expansion behavior.
+current candidate workspace, including the job's own hook edits. The hook executes
+against that candidate. Read-only and absent hooks also pin the candidate.
+Existing non-cell includes keep their eager expansion behavior.
 
 ```yaml
 id: build
-source_hooks: from_base_with_rebase # Default; may be omitted.
+source_hooks: from_current # Default; may be omitted.
 sequence:
   - id: project_check
     include:
@@ -65,8 +65,8 @@ Set `source_hooks` on the consuming recipe root:
 | Value | Definition source at a new hook invocation |
 | --- | --- |
 | `from_base` | The initial upstream base, retained across rebases. |
-| `from_base_with_rebase` (default) | The current execution base, advancing when the workspace rebases. |
-| `from_current` | The current candidate, including job edits saved in unpushed thin-pack artifacts. |
+| `from_base_with_rebase` | The current execution base, advancing when the workspace rebases. |
+| `from_current` (default) | The current candidate, including job edits saved in unpushed thin-pack artifacts. |
 
 For example, after rebasing a candidate from upstream A onto upstream B,
 `from_base` continues loading hooks from A, `from_base_with_rebase` loads them
@@ -97,8 +97,8 @@ containing node, and use the consuming repository.
 
 ### Updating hooks through a child job
 
-`from_base_with_rebase` supports keeping hook improvements separate from the work
-being checked:
+Set `source_hooks: from_base_with_rebase` to keep hook improvements separate from
+the work being checked:
 
 1. The parent starts on upstream A and runs A's hooks against its candidate.
 2. If a hook needs fixing, the parent starts a child job to make and validate the
