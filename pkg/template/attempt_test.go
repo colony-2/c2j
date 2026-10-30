@@ -8,15 +8,15 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestAttemptIsolatesStateAndPublishesSharedWorkspaceCounters(t *testing.T) {
+func TestRestartCloneIsolatesStateAndPublishesSharedWorkspaceCounters(t *testing.T) {
 	root, err := NewRecipeResolutionContext(&contextual.GitCommitContext{PersistHash: "initial"}, nil, contextual.JobContext{})
 	require.NoError(t, err)
 	root.TemplateData.Sequence["previous"] = StepOutput{Outputs: map[string]any{"value": "initial"}}
 	op, err := root.NewChildContext(ScopeOp, recipe.NodeMetadata{ID: "op"}, "", nil)
 	require.NoError(t, err)
-	attempt, err := op.CloneAttempt()
+	attempt, err := op.CloneForRestart()
 	require.NoError(t, err)
-	abandoned, err := op.CloneAttempt()
+	abandoned, err := op.CloneForRestart()
 	require.NoError(t, err)
 	attempt.TemplateData.Sequence["previous"].Outputs["value"] = "committed"
 	attempt.UpdateGitState(contextual.GitCommitContext{PersistHash: "committed"})
@@ -26,13 +26,13 @@ func TestAttemptIsolatesStateAndPublishesSharedWorkspaceCounters(t *testing.T) {
 	require.Equal(t, "initial", root.TemplateData.Sequence["previous"].Outputs["value"])
 	require.Equal(t, "initial", root.GetGitCommitContext().PersistHash)
 	require.Equal(t, "committed", attempt.Parent.TemplateData.Sequence["previous"].Outputs["value"])
-	op.AdoptAttempt(attempt)
+	op.AdoptRestart(attempt)
 	require.Equal(t, "committed", root.TemplateData.Sequence["previous"].Outputs["value"])
 	require.Equal(t, "committed", root.GetGitCommitContext().PersistHash)
 	repeated, err := root.NewChildContext(ScopeOp, recipe.NodeMetadata{ID: "op"}, "", nil)
 	require.NoError(t, err)
 	require.NotEqual(t, firstWorkspace, repeated.NextWorkspaceID("workspace"), "completed attempts publish counters to enclosing scopes")
-	// A canceled callback may finish late; its private graph cannot overwrite the winner.
+	// A discarded restart patch remains isolated from the installed graph.
 	abandoned.UpdateGitState(contextual.GitCommitContext{PersistHash: "late"})
 	abandoned.TemplateData.Sequence["previous"].Outputs["value"] = "late"
 	require.Equal(t, "committed", root.GetGitCommitContext().PersistHash)

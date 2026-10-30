@@ -35,7 +35,11 @@ func (rc *ResolutionContext) ResolveVars(vars map[string]interface{}) error {
 		resolved[name] = resolvedValue
 	}
 
-	next := cloneTemplateVars(rc.TemplateData.Vars)
+	// Build the new lexical binding once; inherited payloads are immutable.
+	next := make(map[string]interface{}, len(rc.TemplateData.Vars)+len(resolved))
+	for name, value := range rc.TemplateData.Vars {
+		next[name] = value
+	}
 	for name, value := range resolved {
 		next[name] = value
 	}

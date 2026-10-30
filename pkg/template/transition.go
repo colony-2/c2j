@@ -18,6 +18,7 @@ func NewTransitionData(from string, to string, payload map[string]interface{}) T
 	return NewFailureTransitionData(from, to, payload, nil)
 }
 
+// NewFailureTransitionData takes ownership of its immutable payload and failure.
 func NewFailureTransitionData(from string, to string, payload map[string]interface{}, failure *recipe.RuntimeFailure) TransitionData {
 	if payload == nil {
 		payload = map[string]interface{}{}
@@ -25,13 +26,13 @@ func NewFailureTransitionData(from string, to string, payload map[string]interfa
 	return TransitionData{
 		From:    from,
 		To:      to,
-		Payload: cloneTemplateVars(payload),
-		Failure: failure.Clone(),
+		Payload: payload,
+		Failure: failure,
 	}
 }
 
 func (td TransitionData) Clone() TransitionData {
-	return NewFailureTransitionData(td.From, td.To, td.Payload, td.Failure)
+	return NewFailureTransitionData(td.From, td.To, cloneTemplateVars(td.Payload), td.Failure.Clone())
 }
 
 func (td TransitionData) AsMap() map[string]interface{} {
@@ -42,7 +43,7 @@ func (td TransitionData) AsMap() map[string]interface{} {
 	out := map[string]interface{}{
 		"from":    td.From,
 		"to":      td.To,
-		"payload": cloneTemplateVars(payload),
+		"payload": payload,
 	}
 	if td.Failure != nil {
 		out["failure"] = flattenTemplateValue(td.Failure)

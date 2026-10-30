@@ -309,7 +309,7 @@ func TestTransitionPayloadRenderFailure(t *testing.T) {
 	require.NoError(t, err)
 	stateCtx, err := smCtx.NewChildContext(template.ScopeState, recipe.NodeMetadata{ID: "start"}, "start", nil)
 	require.NoError(t, err)
-	stateCtx.AddExecution(map[string]interface{}{"ok": true})
+	require.NoError(t, stateCtx.AddExecution(map[string]interface{}{"ok": true}))
 
 	_, err = evaluateTransitionsWithContext(NoOpStateObserver{}, []recipe.Transition{
 		{

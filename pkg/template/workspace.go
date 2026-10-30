@@ -38,7 +38,7 @@ func (rc *ResolutionContext) WithWorkspace(ws contextual.WorkspaceContext, base 
 	out.TemplateData.Context.Workspace = &ws
 	out.workspaceBase = &base
 	out.commitContext = &contextual.GitCommitContext{ParentRef: base.BaseRef}
-	out.TemplateData.Vars = cloneTemplateVars(rc.TemplateData.Vars)
+	out.TemplateData.Vars = rc.TemplateData.Vars
 	out.lastArtifacts = nil
 	out.lastArtifactRefs = nil
 	out.lastExecution = nil

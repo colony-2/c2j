@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"maps"
 	"strings"
 
 	"github.com/colony-2/c2j/pkg/git/gitstate"
@@ -27,12 +26,10 @@ func newThinPackForwardingJobContext(inner jobworkflow.ExecutionContext) *thinpa
 	return &thinpackForwarder{ExecutionContext: inner, workspaces: map[string]jobdb.Artifact{}}
 }
 
+// fork binds the serial scope context while sharing accepted task bookkeeping.
 func (a *thinpackForwarder) fork(inner jobworkflow.ExecutionContext) *thinpackForwarder {
 	copy := *a
 	copy.ExecutionContext = inner
-	copy.workspaces = maps.Clone(a.workspaces)
-	copy.initialRestore = maps.Clone(a.initialRestore)
-	copy.rootArtifacts = append([]jobdb.Artifact(nil), a.rootArtifacts...)
 	return &copy
 }
 func (a *thinpackForwarder) adopt(src *thinpackForwarder) {

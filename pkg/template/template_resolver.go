@@ -93,6 +93,8 @@ type ResolutionContext struct {
 
 	CurrentRunID string // Track current run for this scope
 
+	completion *completionPosition
+
 	tracker *invocationTracker
 
 	lastExecution    map[string]interface{}
@@ -134,6 +136,7 @@ func NewRecipeResolutionContext(commitContext *contextual.GitCommitContext, reci
 
 func newResolutionContext(commitContext *contextual.GitCommitContext, tracker *invocationTracker, scopeType ScopeType, scopeId string, containerInputs map[string]interface{}, execCtx contextual.JobContext, options ResolutionOptions) (*ResolutionContext, error) {
 	rc := &ResolutionContext{
+		completion:    &completionPosition{},
 		GitProfile:    execCtx.GitProfile,
 		commitContext: commitContext,
 		ScopeType:     scopeType,
@@ -383,10 +386,10 @@ func (rc *ResolutionContext) NewChildContext(scopeType ScopeType, metadata recip
 			child.ToolScopes = append(child.ToolScopes, toolenv.Scope{ID: "include:" + metadata.Internal.Inline.CallsitePath, Packages: packages})
 		}
 	}
-	child.TemplateData.Vars = cloneTemplateVars(rc.TemplateData.Vars)
-	child.TemplateData.Transition = rc.TemplateData.Transition.Clone()
-	child.TemplateData.Failure = rc.TemplateData.Failure.Clone()
-	child.TemplateData.Locals = cloneTemplateVars(rc.TemplateData.Locals)
+	child.TemplateData.Vars = rc.TemplateData.Vars
+	child.TemplateData.Transition = rc.TemplateData.Transition
+	child.TemplateData.Failure = rc.TemplateData.Failure
+	child.TemplateData.Locals = rc.TemplateData.Locals
 	child.TemplateData.Context.InlineStack = cloneInlineStack(rc.TemplateData.Context.InlineStack)
 	if metadata.Internal != nil && metadata.Internal.Inline != nil {
 		child.TemplateData.Context.InlineStack = append(child.TemplateData.Context.InlineStack, inlineBoundaryFrame(metadata.Internal.Inline, child.TemplateData.Context.Invocation.NodePath))
@@ -452,7 +455,7 @@ func (rc *ResolutionContext) WithFailure(f *recipe.RuntimeFailure) *ResolutionCo
 	}
 	out := *rc
 	out.TemplateData = rc.TemplateData
-	out.TemplateData.Failure = f.Clone()
+	out.TemplateData.Failure = f
 	return &out
 }
 
@@ -462,9 +465,9 @@ func (rc *ResolutionContext) WithLocals(locals map[string]interface{}) *Resoluti
 	}
 	out := *rc
 	out.TemplateData = rc.TemplateData
-	out.TemplateData.Locals = cloneTemplateVars(rc.TemplateData.Locals)
-	if out.TemplateData.Locals == nil {
-		out.TemplateData.Locals = make(map[string]interface{})
+	out.TemplateData.Locals = make(map[string]interface{}, len(rc.TemplateData.Locals)+len(locals))
+	for key, value := range rc.TemplateData.Locals {
+		out.TemplateData.Locals[key] = value
 	}
 	for key, value := range locals {
 		out.TemplateData.Locals[key] = value
@@ -594,15 +597,19 @@ func (rc *ResolutionContext) localValue(key string) interface{} {
 	return rc.TemplateData.Locals[key]
 }
 
-func (rc *ResolutionContext) AddExecution(output map[string]interface{}) {
-	rc.AddExecutionWithArtifacts(output, nil)
+func (rc *ResolutionContext) AddExecution(output map[string]interface{}) error {
+	return rc.AddExecutionWithArtifacts(output, nil)
 }
 
-func (rc *ResolutionContext) AddExecutionWithArtifactData(output map[string]interface{}, artifactRefs map[string]recipeartifacts.Ref, artifacts []jobdb.Artifact) {
-	rc.AddExecutionWithContextData(output, artifactRefs, artifacts, jobcontext.StartedJobsContext{})
+func (rc *ResolutionContext) AddExecutionWithArtifactData(output map[string]interface{}, artifactRefs map[string]recipeartifacts.Ref, artifacts []jobdb.Artifact) error {
+	return rc.AddExecutionWithContextData(output, artifactRefs, artifacts, jobcontext.StartedJobsContext{})
 }
 
-func (rc *ResolutionContext) AddExecutionWithContextData(output map[string]interface{}, artifactRefs map[string]recipeartifacts.Ref, artifacts []jobdb.Artifact, jobs jobcontext.StartedJobsContext) {
+func (rc *ResolutionContext) AddExecutionWithContextData(output map[string]interface{}, artifactRefs map[string]recipeartifacts.Ref, artifacts []jobdb.Artifact, jobs jobcontext.StartedJobsContext) error {
+	return rc.PublishExecution(ExecutionOutput{Outputs: output, ArtifactRefs: artifactRefs, Artifacts: artifacts, Jobs: jobs})
+}
+
+func (rc *ResolutionContext) appendExecution(output map[string]interface{}, artifactRefs map[string]recipeartifacts.Ref, artifacts []jobdb.Artifact, jobs jobcontext.StartedJobsContext) {
 	rc.lastExecution = output
 	if artifactRefs == nil {
 		artifactRefs = map[string]recipeartifacts.Ref{}
@@ -650,8 +657,8 @@ func (rc *ResolutionContext) AddExecutionWithContextData(output map[string]inter
 			break
 		}
 		rc.Parent.lastExecution = output
-		rc.Parent.lastArtifactRefs = append([]recipeartifacts.Ref(nil), refList...)
-		rc.Parent.lastArtifacts = append([]jobdb.Artifact(nil), artList...)
+		rc.Parent.lastArtifactRefs = refList
+		rc.Parent.lastArtifacts = artList
 		rc.Parent.lastJobs = jobs
 		switch rc.Parent.ScopeType {
 		case ScopeRecipe:
@@ -677,22 +684,22 @@ func (rc *ResolutionContext) AddExecutionWithContextData(output map[string]inter
 		case ScopeSequence:
 			container = rc.TemplateData.Sequence
 			rc.Parent.lastExecution = output
-			rc.Parent.lastArtifactRefs = append([]recipeartifacts.Ref(nil), refList...)
-			rc.Parent.lastArtifacts = append([]jobdb.Artifact(nil), artList...)
+			rc.Parent.lastArtifactRefs = refList
+			rc.Parent.lastArtifacts = artList
 			rc.Parent.lastJobs = jobs
 		case ScopeStateMachine, ScopeState:
 			container = rc.TemplateData.States
 			rc.Parent.lastExecution = output
-			rc.Parent.lastArtifactRefs = append([]recipeartifacts.Ref(nil), refList...)
-			rc.Parent.lastArtifacts = append([]jobdb.Artifact(nil), artList...)
+			rc.Parent.lastArtifactRefs = refList
+			rc.Parent.lastArtifacts = artList
 			rc.Parent.lastJobs = jobs
 			if rc.Parent.ScopeType == ScopeState {
 				key = rc.Parent.scopeId
 			}
 		case ScopeRecipe:
 			rc.Parent.lastExecution = output
-			rc.Parent.lastArtifactRefs = append([]recipeartifacts.Ref(nil), refList...)
-			rc.Parent.lastArtifacts = append([]jobdb.Artifact(nil), artList...)
+			rc.Parent.lastArtifactRefs = refList
+			rc.Parent.lastArtifacts = artList
 			rc.Parent.lastJobs = jobs
 			return
 		default:
@@ -737,8 +744,8 @@ func (rc *ResolutionContext) RememberArtifacts(artifacts []jobdb.Artifact) {
 	}
 }
 
-func (rc *ResolutionContext) AddExecutionWithArtifacts(output map[string]interface{}, artifactRefs map[string]recipeartifacts.Ref) {
-	rc.AddExecutionWithArtifactData(output, artifactRefs, nil)
+func (rc *ResolutionContext) AddExecutionWithArtifacts(output map[string]interface{}, artifactRefs map[string]recipeartifacts.Ref) error {
+	return rc.AddExecutionWithArtifactData(output, artifactRefs, nil)
 }
 
 func (rc *ResolutionContext) GetLastExecution() map[string]interface{} {

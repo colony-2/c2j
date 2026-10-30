@@ -497,10 +497,9 @@ func (d DefaultRecipeExecutor) executeOpAttempt(ctx workflow.Context, parentReso
 			// approving the contract-version change; approval of other changes
 			// (including timeout policies or execution setup) is not sufficient.
 			out, err := ctx.DoTask(jobworkflow.TaskCall{Site: taskType, TaskType: taskType, ContractVersion: 1, Command: command, Policy: runPolicy, Alternate: taskAlternate}, func(buildContext context.Context) (jobdb.TaskData, error) {
-				buildResolver, err := resCtx.CloneAttempt()
-				if err != nil {
-					return nil, err
-				}
+				// Input builders are serial orchestration; the worker receives
+				// only the serialized TaskData produced below.
+				buildResolver := resCtx
 				var artifactKeys []jobdb.ArtifactKey
 				input := stepInput
 				if i == 0 {
@@ -655,8 +654,7 @@ func (d DefaultRecipeExecutor) executeOpAttempt(ctx workflow.Context, parentReso
 		}
 		stepInput = normalizedOutput
 	}
-	resCtx.AddExecutionWithContextData(stepInput, stepArtifacts, stepOutputArtifacts, stepJobs)
-	return nil
+	return completeNodeScope(ctx, resCtx, template.ExecutionOutput{Outputs: stepInput, ArtifactRefs: stepArtifacts, Artifacts: stepOutputArtifacts, Jobs: stepJobs})
 }
 
 func (d DefaultRecipeExecutor) innerSequence(ctx workflow.Context, parentCtx *template.ResolutionContext, metadata recipe.NodeMetadata, outputTemplate map[string]interface{}, sequence []recipe.Node) error {
@@ -715,8 +713,7 @@ func (d DefaultRecipeExecutor) innerSequence(ctx workflow.Context, parentCtx *te
 	}
 
 	// add resolved output to parent context.
-	resCtx.AddExecutionWithArtifactData(outputs, lastSequenceArtifacts(resCtx, sequence), resCtx.GetLastArtifacts())
-	return nil
+	return completeNodeScope(ctx, resCtx, template.ExecutionOutput{Outputs: outputs, ArtifactRefs: lastSequenceArtifacts(resCtx, sequence), Artifacts: resCtx.GetLastArtifacts()})
 }
 
 func (d DefaultRecipeExecutor) ExecuteSequence(ctx workflow.Context, rCtx *template.ResolutionContext, metadata recipe.NodeMetadata, outputTemplate map[string]interface{}, sequence []recipe.Node) error {

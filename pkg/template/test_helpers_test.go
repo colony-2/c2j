@@ -41,11 +41,11 @@ func addOpOutput(t *testing.T, container *ResolutionContext, id string, outputs 
 	t.Helper()
 	opCtx, err := container.NewChildContext(ScopeOp, recipe.NodeMetadata{ID: id}, id, nil)
 	require.NoError(t, err)
-	opCtx.AddExecution(outputs)
+	require.NoError(t, opCtx.AddExecution(outputs))
 }
 
 func addStateOutput(t *testing.T, smCtx *ResolutionContext, id string, outputs map[string]interface{}) {
 	t.Helper()
 	stateCtx := newStateCtx(t, smCtx, id)
-	stateCtx.AddExecution(outputs)
+	require.NoError(t, stateCtx.AddExecution(outputs))
 }

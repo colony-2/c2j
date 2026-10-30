@@ -10,6 +10,7 @@ import (
 
 	"github.com/colony-2/c2j/pkg/recipe"
 	"github.com/colony-2/c2j/pkg/template"
+	"github.com/colony-2/c2j/pkg/workflow"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 )
 
@@ -348,7 +349,7 @@ func containingStateName(resCtx *template.ResolutionContext) string {
 	return ""
 }
 
-func recordSyntheticNodeOutput(parent *template.ResolutionContext, scopeType template.ScopeType, metadata recipe.NodeMetadata, fallback string, outputs map[string]interface{}) error {
+func recordSyntheticNodeOutput(ctx workflow.Context, parent *template.ResolutionContext, scopeType template.ScopeType, metadata recipe.NodeMetadata, fallback string, outputs map[string]interface{}) error {
 	childInputs := map[string]interface{}(nil)
 	if scopeType == template.ScopeSequence || scopeType == template.ScopeStateMachine {
 		childInputs = map[string]interface{}{}
@@ -357,8 +358,7 @@ func recordSyntheticNodeOutput(parent *template.ResolutionContext, scopeType tem
 	if err != nil {
 		return err
 	}
-	child.AddExecutionWithArtifactData(outputs, nil, nil)
-	return nil
+	return completeNodeScope(ctx, child, template.ExecutionOutput{Outputs: outputs})
 }
 
 func (e *recipeFailureError) NonRetryable() bool { return e.Failure != nil && !e.Failure.Retryable }

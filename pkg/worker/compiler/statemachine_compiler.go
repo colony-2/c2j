@@ -100,8 +100,7 @@ func (d DefaultRecipeExecutor) executeStateMachineBody(ctx workflow.Context, par
 			return fmt.Errorf("failed to resolve state machine outputs: %w", err)
 		}
 
-		resCtx.AddExecutionWithArtifactData(resolvedOutputs, stateArtifacts(resCtx, lastStateName, lastStateDef), resCtx.GetLastArtifacts())
-		return nil
+		return completeNodeScope(ctx, resCtx, template.ExecutionOutput{Outputs: resolvedOutputs, ArtifactRefs: stateArtifacts(resCtx, lastStateName, lastStateDef), Artifacts: resCtx.GetLastArtifacts()})
 	}
 
 	// Execute state machine. Always run the current state at least once, even if it is terminal.
@@ -163,7 +162,7 @@ func (d DefaultRecipeExecutor) executeStateMachineBody(ctx workflow.Context, par
 				return fmt.Errorf("catch target state %q not found", stateResult.Route.To)
 			}
 			currentState = stateResult.Route.To
-			currentTransition = stateResult.Route.Clone()
+			currentTransition = *stateResult.Route
 			continue
 		}
 		// Terminal states end the machine after they run.
@@ -196,9 +195,7 @@ func (d DefaultRecipeExecutor) executeStateMachineBody(ctx workflow.Context, par
 		return fmt.Errorf("failed to resolve state machine outputs: %w", err)
 	}
 
-	resCtx.AddExecutionWithArtifactData(resolvedOutputs, stateArtifacts(resCtx, currentState, finalState), resCtx.GetLastArtifacts())
-
-	return nil
+	return completeNodeScope(ctx, resCtx, template.ExecutionOutput{Outputs: resolvedOutputs, ArtifactRefs: stateArtifacts(resCtx, currentState, finalState), Artifacts: resCtx.GetLastArtifacts()})
 }
 
 type validationIncomingEdges struct {
@@ -292,11 +289,8 @@ func isTerminalState(stateName string, states map[string]recipe.State) bool {
 
 // evaluateTransitionsWithContext evaluates transitions using resolution context
 func evaluateTransitionsWithContext(obs StateObserver, transitions []recipe.Transition, resCtx *template.ResolutionContext, stateName string) (transitionDecision, error) {
-	// Create a temporary context for transition evaluation
-	evalCtx := transitionSourceContext(resCtx, stateName, "")
-
 	for idx, transition := range transitions {
-		evalCtx.TemplateData.Transition = template.NewTransitionData(stateName, transition.To, nil)
+		evalCtx := transitionSourceContext(resCtx, stateName, transition.To)
 		expr := transition.When.String()
 		shouldTransition, err := evalCtx.EvaluateCEL(expr)
 		obs.TransitionEvalauted(transition.When.String(), shouldTransition, transition.To)
@@ -393,7 +387,7 @@ func (d DefaultRecipeExecutor) runStateAttempt(ctx workflow.Context, resCtx *tem
 	if ctx.ScopeState != nil {
 		ctx.ScopeState(stateResCtx)
 	}
-	stateResCtx.TemplateData.Transition = transition.Clone()
+	stateResCtx.TemplateData.Transition = transition
 	if node.GetMetadata().Workspace != nil {
 		var result stateRunResult
 		err := withNodeWorkspace(ctx, stateResCtx, node.GetMetadata(), func(inner workflow.Context, scoped *template.ResolutionContext, _ recipe.NodeMetadata) error {
@@ -403,7 +397,7 @@ func (d DefaultRecipeExecutor) runStateAttempt(ctx workflow.Context, resCtx *tem
 		})
 		var route *catchRouteError
 		if errors.As(err, &route) {
-			transition := route.Transition.Clone()
+			transition := route.Transition
 			return stateRunResult{Route: &transition}, nil
 		}
 		return result, err
@@ -426,7 +420,7 @@ func (d DefaultRecipeExecutor) runStateBody(ctx workflow.Context, stateResCtx *t
 
 	var routeErr *catchRouteError
 	if errors.As(err, &routeErr) {
-		route := routeErr.Transition.Clone()
+		route := routeErr.Transition
 		return stateRunResult{Route: &route}, nil
 	}
 

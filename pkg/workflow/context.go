@@ -20,6 +20,9 @@ type Context struct {
 	RecipeDigest   string
 	CatchStateName string
 	ScopeState     func(*template.ResolutionContext)
+	// ScopeOutput returns a prepared result to the owning scope executor.
+	// The callback does not publish to the enclosing template context.
+	ScopeOutput func(*template.ResolutionContext, template.ExecutionOutput) error
 	// BeforeScope observes the resolver that a restart patch will modify.
 	// Returning an error stops before entering the durable scope.
 	BeforeScope        func(context.Context, string, *template.ResolutionContext) error

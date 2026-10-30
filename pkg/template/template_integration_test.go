@@ -290,8 +290,9 @@ func TestIntegration_ComplexCELExpressions(t *testing.T) {
 
 	// State runs tracking
 	stateCtx := newStateCtx(t, smCtx, "loop-state")
-	stateCtx.AddExecution(map[string]interface{}{"count": 1})
-	stateCtx.AddExecution(map[string]interface{}{"count": 2})
+	require.NoError(t, stateCtx.AddExecution(map[string]interface{}{"count": 1}))
+	stateCtx = newStateCtx(t, smCtx, "loop-state")
+	require.NoError(t, stateCtx.AddExecution(map[string]interface{}{"count": 2}))
 	runCount, err := stateCtx.resolveTemplate(`${{ states["loop-state"].runs[0].outputs.count }}`)
 	require.NoError(t, err)
 	assert.Equal(t, int64(1), runCount)

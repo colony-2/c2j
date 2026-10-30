@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"sync"
 	"time"
 
 	"github.com/colony-2/c2j/pkg/ops"
@@ -21,15 +20,30 @@ type scopeOutcome struct {
 	Frame        int                      `json:"frame"`
 	Route        *template.TransitionData `json:"route,omitempty"`
 }
-type scopeFrame struct {
-	resolver  *template.ResolutionContext
-	lexical   *template.ResolutionContext
-	forwarder *thinpackForwarder
+type scopeCompletion struct {
+	scope  *template.ResolutionContext
+	output template.ExecutionOutput
 }
 
-// executeNodeScope delegates durable policy to JobDB. Callback state is private
-// to each invocation, including callbacks which outlive cancellation. Only a
-// frame identified by the committed scope outcome is published to the caller.
+// completeNodeScope hands the result to the executor. Callers without a durable
+// scope, including validation, publish directly into their own context.
+func completeNodeScope(ctx workflow.Context, scope *template.ResolutionContext, output template.ExecutionOutput) error {
+	if ctx.ScopeOutput != nil {
+		return ctx.ScopeOutput(scope, output)
+	}
+	return scope.PublishExecution(output)
+}
+
+type scopeFrame struct {
+	completion *scopeCompletion
+	resolver   *template.ResolutionContext
+	lexical    *template.ResolutionContext
+	forwarder  *thinpackForwarder
+}
+
+// executeNodeScope delegates durable policy to JobDB. Scope bodies, handlers,
+// and input builders run serially. They share context data; only the accepted
+// scope outcome publishes its prepared completion to the enclosing context.
 func executeNodeScope(ctx workflow.Context, parent *template.ResolutionContext, meta recipe.NodeMetadata, kind template.ScopeType, fallback string, body func(workflow.Context, *template.ResolutionContext, recipe.NodeMetadata) error) error {
 	innerBody := body
 	body = func(ctx workflow.Context, state *template.ResolutionContext, meta recipe.NodeMetadata) error {
@@ -57,16 +71,11 @@ func executeNodeScope(ctx workflow.Context, parent *template.ResolutionContext, 
 	if parent.Options.Mode == template.ModeValidate {
 		return body(ctx, parent, meta)
 	}
-	original, err := parent.CloneAttempt()
-	if err != nil {
-		return err
-	}
+	original := parent
 	entry := original
-	var mu sync.Mutex
 	frames := map[int]scopeFrame{}
 	next := 0
 	last := 0
-	active := 0
 	var forwarding *thinpackForwarder
 	if f, ok := ctx.JobContext.(*thinpackForwarder); ok {
 		forwarding = f
@@ -82,7 +91,7 @@ func executeNodeScope(ctx workflow.Context, parent *template.ResolutionContext, 
 		options.Retry = *meta.Retry
 	}
 	options.OnRestart = func(raw json.RawMessage) error {
-		fresh, e := original.CloneAttempt()
+		fresh, e := original.CloneForRestart()
 		if e != nil {
 			return e
 		}
@@ -95,42 +104,42 @@ func executeNodeScope(ctx workflow.Context, parent *template.ResolutionContext, 
 		if e = fresh.ApplyContextPatch(patch); e != nil {
 			return e
 		}
-		mu.Lock()
 		entry = fresh
-		mu.Unlock()
 		return nil
 	}
-	newFrame := func(exec jobworkflow.ExecutionContext, base *template.ResolutionContext) (workflow.Context, *template.ResolutionContext, *thinpackForwarder, int, error) {
-		mu.Lock()
+	newFrame := func(exec jobworkflow.ExecutionContext, base *template.ResolutionContext) (workflow.Context, *template.ResolutionContext, *thinpackForwarder, *scopeCompletion, int) {
 		next++
 		id := next
-		active = id
 		last = 0
-		mu.Unlock()
-		copy, e := base.CloneAttempt()
-		if e != nil {
-			return ctx, nil, nil, id, e
-		}
+		view := base.ExecutionView()
 		inner := ctx
 		inner.JobContext = exec
 		inner.CatchStateName = ""
+		completion := &scopeCompletion{}
+		inner.ScopeOutput = func(scope *template.ResolutionContext, output template.ExecutionOutput) error {
+			if err := exec.Context().Err(); err != nil {
+				return err
+			}
+			if completion.scope != nil {
+				return template.ErrAlreadyWritten
+			}
+			completion.scope = scope
+			completion.output = output
+			return nil
+		}
 		var f *thinpackForwarder
 		if forwarding != nil {
 			f = forwarding.fork(exec)
 			inner.JobContext = f
 		}
 		if len(meta.Catch) > 0 {
-			copy.Options.CatchBeforeRetry = true
+			view.Options.CatchBeforeRetry = true
 		}
-		return inner, copy, f, id, nil
+		return inner, view, f, completion, id
 	}
-	save := func(id int, r, lexical *template.ResolutionContext, f *thinpackForwarder) {
-		mu.Lock()
-		frames[id] = scopeFrame{r, lexical, f}
-		if id == active {
-			last = id
-		}
-		mu.Unlock()
+	save := func(id int, r, lexical *template.ResolutionContext, f *thinpackForwarder, completion *scopeCompletion) {
+		frames[id] = scopeFrame{resolver: r, lexical: lexical, forwarder: f, completion: completion}
+		last = id
 	}
 	clauses := meta.Catch
 	if kind == template.ScopeStateMachine && ctx.CatchStateName == "" {
@@ -142,12 +151,10 @@ func executeNodeScope(ctx workflow.Context, parent *template.ResolutionContext, 
 			id = fmt.Sprintf("catch-%d", index)
 		}
 		failureContext := func(e error) (*template.ResolutionContext, *recipe.RuntimeFailure) {
-			mu.Lock()
 			base := entry
 			if frame, ok := frames[last]; ok {
 				base = frame.lexical
 			}
-			mu.Unlock()
 			return base, normalizeRuntimeFailure(e, base, meta, failureNodeType(kind), fallback)
 		}
 		options.Catch = append(options.Catch, jobworkflow.CatchRule{ID: id, Match: func(e error) bool {
@@ -156,15 +163,10 @@ func executeNodeScope(ctx workflow.Context, parent *template.ResolutionContext, 
 			return matched || evalErr != nil
 		}, Handle: func(exec jobworkflow.ExecutionContext, e error) (jobworkflow.CatchResult, error) {
 			base, failure := failureContext(e)
-			mu.Lock()
 			prior := frames[last].forwarder
-			mu.Unlock()
-			_, state, f, id, err := newFrame(exec, base)
+			inner, state, f, completion, id := newFrame(exec, base)
 			if f != nil && prior != nil {
 				f.adopt(prior)
-			}
-			if err != nil {
-				return jobworkflow.CatchResult{}, err
 			}
 			sourceState := containingStateName(state)
 			if ctx.CatchStateName != "" {
@@ -182,8 +184,10 @@ func executeNodeScope(ctx workflow.Context, parent *template.ResolutionContext, 
 				}
 				out.BlockHandled = ctx.CatchStateName != ""
 				if base.ScopeType == kind {
-					state.AddExecutionWithArtifactData(decision.Outputs, nil, nil)
-				} else if err = recordSyntheticNodeOutput(state, kind, meta, fallback, decision.Outputs); err != nil {
+					if err = completeNodeScope(inner, state, template.ExecutionOutput{Outputs: decision.Outputs}); err != nil {
+						return jobworkflow.CatchResult{}, err
+					}
+				} else if err = recordSyntheticNodeOutput(inner, state, kind, meta, fallback, decision.Outputs); err != nil {
 					return jobworkflow.CatchResult{}, err
 				}
 			case catchDecisionRoute:
@@ -198,7 +202,7 @@ func executeNodeScope(ctx workflow.Context, parent *template.ResolutionContext, 
 			for root.Parent != nil && root.TaskExecutionContext().Invocation.NodePath != parent.TaskExecutionContext().Invocation.NodePath {
 				root = root.Parent
 			}
-			save(id, root, state, f)
+			save(id, root, state, f, completion)
 			data, err := jobdb.NewTaskData(out)
 			return jobworkflow.CatchResult{Disposition: jobworkflow.CatchHandled, Output: data}, err
 		}})
@@ -210,13 +214,8 @@ func executeNodeScope(ctx workflow.Context, parent *template.ResolutionContext, 
 		}
 	}
 	out, err := ctx.JobContext.DoScope(site, options, func(exec jobworkflow.ExecutionContext) (jobdb.JobData, error) {
-		mu.Lock()
 		base := entry
-		mu.Unlock()
-		inner, state, f, id, e := newFrame(exec, base)
-		if e != nil {
-			return nil, e
-		}
+		inner, state, f, completion, id := newFrame(exec, base)
 		clean := meta
 		clean.Catch = nil
 		if kind == template.ScopeStateMachine && ctx.CatchStateName == "" {
@@ -228,7 +227,7 @@ func executeNodeScope(ctx workflow.Context, parent *template.ResolutionContext, 
 		clean.Timeout = 0
 		lexical := state
 		inner.ScopeState = func(value *template.ResolutionContext) { lexical = value }
-		e = body(inner, state, clean)
+		e := body(inner, state, clean)
 		result := scopeOutcome{Frame: id}
 		var route *catchRouteError
 		if errors.As(e, &route) {
@@ -238,9 +237,8 @@ func executeNodeScope(ctx workflow.Context, parent *template.ResolutionContext, 
 		if e != nil {
 			e = persistRecipeFailure(e, state, meta, kind, fallback)
 		}
-		// Failure normalization updates resolver views. Publish only after all
-		// mutations finish: cancellation may let the caller adopt immediately.
-		save(id, state, lexical, f)
+		// Save the completed callback before JobDB selects its outcome.
+		save(id, state, lexical, f, completion)
 		if e != nil {
 			return nil, e
 		}
@@ -256,15 +254,23 @@ func executeNodeScope(ctx workflow.Context, parent *template.ResolutionContext, 
 			return e
 		}
 	} else {
-		mu.Lock()
 		result.Frame = last
-		mu.Unlock()
 	}
-	mu.Lock()
 	frame, ok := frames[result.Frame]
-	mu.Unlock()
+	// A child node within a state returns its output to that state. Only the
+	// accepted state outcome publishes to the machine's states map.
+	deferToState := parent.ScopeType == template.ScopeState && kind != template.ScopeState && ctx.ScopeOutput != nil
 	if ok {
-		parent.AdoptAttempt(frame.resolver)
+		if err == nil && frame.completion.scope != nil && !deferToState {
+			if e := frame.completion.scope.PublishExecution(frame.completion.output); e != nil {
+				return e
+			}
+		}
+		if entry != original {
+			parent.AdoptRestart(frame.resolver)
+		} else {
+			parent.AdoptExecution(frame.resolver)
+		}
 		if forwarding != nil && frame.forwarder != nil {
 			forwarding.adopt(frame.forwarder)
 		}
@@ -285,6 +291,11 @@ func executeNodeScope(ctx workflow.Context, parent *template.ResolutionContext, 
 	}
 	if !ok {
 		return fmt.Errorf("scope %s outcome has no reconstructed frame %d", site, result.Frame)
+	}
+	if deferToState && frame.completion.scope != nil {
+		if e := completeNodeScope(ctx, parent, frame.completion.output); e != nil {
+			return e
+		}
 	}
 	if result.BlockHandled {
 		return &machineCatchHandledError{}

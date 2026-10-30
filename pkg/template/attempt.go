@@ -8,8 +8,9 @@ import (
 	"github.com/colony-2/c2j/pkg/toolenv"
 )
 
-// CloneAttempt isolates the mutable resolver graph while retaining immutable services.
-func (rc *ResolutionContext) CloneAttempt() (*ResolutionContext, error) {
+// CloneForRestart isolates the resolver graph before applying a restart patch.
+// Ordinary scope execution uses ExecutionView and never clones stored data.
+func (rc *ResolutionContext) CloneForRestart() (*ResolutionContext, error) {
 	nodes := map[*ResolutionContext]*ResolutionContext{}
 	commits := map[*contextual.GitCommitContext]*contextual.GitCommitContext{}
 	counters := maps.Clone(rc.tracker.counters)
@@ -23,6 +24,8 @@ func (rc *ResolutionContext) CloneAttempt() (*ResolutionContext, error) {
 			return v, nil
 		}
 		dst := *src
+		position := *src.completion
+		dst.completion = &position
 		nodes[src] = &dst
 		raw, err := json.Marshal(src.TemplateData)
 		if err != nil {
@@ -85,13 +88,13 @@ func (rc *ResolutionContext) CloneAttempt() (*ResolutionContext, error) {
 	return clone(rc)
 }
 
-// AdoptAttempt publishes a finished attempt on the orchestration goroutine.
-// Copy shared maps in place so enclosing resolver views remain connected.
-func (rc *ResolutionContext) AdoptAttempt(src *ResolutionContext) {
+// AdoptRestart installs the patched graph while keeping enclosing native map
+// views connected. This copying is confined to restart patch preparation.
+func (rc *ResolutionContext) AdoptRestart(src *ResolutionContext) {
 	if rc == nil || src == nil {
 		return
 	}
-	rc.Parent.AdoptAttempt(src.Parent)
+	rc.Parent.AdoptRestart(src.Parent)
 	copyMap := func(dst, source map[string]StepOutput) map[string]StepOutput {
 		if dst == nil {
 			dst = map[string]StepOutput{}
@@ -112,6 +115,26 @@ func (rc *ResolutionContext) AdoptAttempt(src *ResolutionContext) {
 	maps.Copy(rc.tracker.counters, src.tracker.counters)
 	clear(rc.workspaceCounters)
 	maps.Copy(rc.workspaceCounters, src.workspaceCounters)
+	rc.completion = src.completion
+	rc.lastExecution = src.lastExecution
+	rc.lastArtifacts = src.lastArtifacts
+	rc.lastArtifactRefs = src.lastArtifactRefs
+	rc.lastJobs = src.lastJobs
+	rc.artifactCache = src.artifactCache
+}
+
+// ExecutionView creates a lexical resolver header for serial orchestration.
+// All context maps, payloads, and execution bookkeeping are shared. Only the
+// header's temporary permissions/profile/options and last-result bindings vary.
+func (rc *ResolutionContext) ExecutionView() *ResolutionContext {
+	view := *rc
+	return &view
+}
+
+// AdoptExecution keeps the completed view's bindings. Ancestors and execution
+// bookkeeping are already shared; there is no graph traversal or map copying.
+func (rc *ResolutionContext) AdoptExecution(src *ResolutionContext) {
+	rc.TemplateData = src.TemplateData
 	rc.lastExecution = src.lastExecution
 	rc.lastArtifacts = src.lastArtifacts
 	rc.lastArtifactRefs = src.lastArtifactRefs
