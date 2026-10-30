@@ -13,7 +13,7 @@ New CEL helpers make it easy to query structured data and emit JSON from templat
   - The `string()` overload JSON-encodes maps/lists instead of Go’s `map[...]` formatting for nicer interpolation output.
 
 ## jq Behavior
-- Input: accepts maps, lists, primitives, or `null`. CEL-native types are unwrapped automatically.
+- Input: accepts maps, lists, primitives, or `null`. CEL-native types are unwrapped automatically. Typed artifact maps and references are queryable objects, including nested `stored.key`, `external`, and `value` fields. Empty artifact maps behave as empty objects. This conversion is local to jq and leaves recipe context unchanged; integer values retain their precision.
 - Output mapping:
   - 0 results → `null`
   - 1 result → that value (string/number/bool/map/list)

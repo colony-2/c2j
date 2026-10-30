@@ -184,7 +184,11 @@ func defaultTemplateBuiltins() map[string]TemplateFuncFactory {
 				if err != nil {
 					return nil, fmt.Errorf("jq: compile failed: %w", err)
 				}
-				results, err := drainIter(prog.Run(input))
+				native, err := jqInput(input)
+				if err != nil {
+					return nil, fmt.Errorf("jq: invalid input: %w", err)
+				}
+				results, err := drainIter(prog.Run(native))
 				if err != nil {
 					return nil, fmt.Errorf("jq: execution failed: %w", err)
 				}
@@ -471,7 +475,11 @@ func jqBinding(adapter types.Adapter) func(ref.Val, ref.Val) ref.Val {
 			return types.NewErr("jq: compile failed: %v", err)
 		}
 
-		results, err := drainIter(prog.Run(normalizeJQInput(input)))
+		native, err := jqInput(input)
+		if err != nil {
+			return types.NewErr("jq: invalid input: %v", err)
+		}
+		results, err := drainIter(prog.Run(native))
 		if err != nil {
 			return types.NewErr("jq: execution failed: %v", err)
 		}
