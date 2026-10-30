@@ -28,10 +28,31 @@ type FormSubmission struct {
 
 func buildReviewForm(deps ops.OpDependencies, ctx context.Context, config Config) (InputForm, error) {
 	b := newArtifactBinder(ctx, deps, nil)
+	transferred := false
+	defer func() {
+		if !transferred {
+			b.cleanup()
+		}
+	}()
 	documents := make(map[string]artifacts.Ref, len(config.Documents))
 	for id, value := range config.Documents {
 		if strings.TrimSpace(id) == "" {
 			return InputForm{}, fmt.Errorf("form.documents: document ID is required")
+		}
+		if source, ok, err := artifacts.ParseValue(value); ok {
+			if err != nil {
+				return InputForm{}, fmt.Errorf("form.documents.%s: %w", id, err)
+			}
+			if source.Name == "" {
+				source.Name = id
+			}
+			data, err := source.ValueBytes()
+			if err == nil {
+				value, err = b.bind(jobdb.NewArtifactFromBytes(source.NameValue(), data))
+			}
+			if err != nil {
+				return InputForm{}, fmt.Errorf("form.documents.%s: %w", id, err)
+			}
 		}
 		ref, err := storedDocument(value)
 		if err == nil {
@@ -57,6 +78,15 @@ func buildReviewForm(deps ops.OpDependencies, ctx context.Context, config Config
 	}
 	form = InputForm{}
 	err = json.Unmarshal(raw, &form)
+	if err != nil {
+		return form, err
+	}
+	for _, artifact := range b.artifacts {
+		if err := deps.AddOutputArtifact(artifact); err != nil {
+			return InputForm{}, err
+		}
+	}
+	transferred = true
 	return form, err
 }
 

@@ -37,6 +37,7 @@ type ActivityInvocationRequest struct {
 	WorkspaceManaged bool                           `json:"workspace_managed,omitempty"`
 	RestoreArtifact  *jobdb.ArtifactKey             `json:"restore_artifact,omitempty"`
 	Input            map[string]interface{}         `json:"input"`
+	InputArtifact    string                         `json:"input_artifact,omitempty"`
 	Const            bool                           `json:"const,omitempty"`
 	GitTaskContext   gitstate.GlobalGitTaskContext  `json:"context"`
 	ArtifactKeys     []jobdb.ArtifactKey            `json:"artifact_keys,omitempty"`

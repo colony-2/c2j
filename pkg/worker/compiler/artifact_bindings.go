@@ -22,6 +22,11 @@ func resolveArtifactBindings(resCtx *template.ResolutionContext, bindings map[st
 	if err != nil {
 		return nil, fmt.Errorf("failed to resolve templates op artifacts: %w", err)
 	}
+	return bindResolvedArtifacts(resolved)
+}
+
+// Values have already been rendered; never interpret document contents again.
+func bindResolvedArtifacts(resolved map[string]interface{}) (map[string]recipeartifacts.Ref, error) {
 	acc := newArtifactBindingAccumulator(len(resolved))
 	names := sortedMapKeys(resolved)
 	for _, name := range names {
@@ -31,6 +36,9 @@ func resolveArtifactBindings(resCtx *template.ResolutionContext, bindings map[st
 		}
 		artifactRef, err := coerceArtifactRef(value)
 		if err == nil {
+			if artifactRef.Kind == recipeartifacts.RefKindValue && artifactRef.Name == "" {
+				artifactRef.Name = name
+			}
 			materializedName, err := materializedExplicitBindingName(name, artifactRef)
 			if err != nil {
 				return nil, fmt.Errorf("artifact binding %q is invalid: %w", name, err)
@@ -63,6 +71,9 @@ func resolveArtifactBindings(resCtx *template.ResolutionContext, bindings map[st
 }
 
 func coerceArtifactRef(value interface{}) (recipeartifacts.Ref, error) {
+	if r, ok, err := recipeartifacts.ParseValue(value); ok {
+		return r, err
+	}
 	switch v := value.(type) {
 	case recipeartifacts.Ref:
 		if err := v.Validate(); err != nil {
@@ -194,6 +205,9 @@ func coerceArtifactSet(value interface{}) ([]recipeartifacts.Ref, error) {
 		out := make([]recipeartifacts.Ref, 0, len(v))
 		for _, key := range sortedRefMapKeys(v) {
 			item := v[key]
+			if item.Kind == recipeartifacts.RefKindValue && item.Name == "" {
+				item.Name = key
+			}
 			if err := item.Validate(); err != nil {
 				return nil, err
 			}
@@ -242,6 +256,9 @@ func coerceArtifactSet(value interface{}) ([]recipeartifacts.Ref, error) {
 			artifactRef, err := coerceArtifactRef(v[key])
 			if err != nil {
 				return nil, err
+			}
+			if artifactRef.Kind == recipeartifacts.RefKindValue && artifactRef.Name == "" {
+				artifactRef.Name = key
 			}
 			out = append(out, artifactRef)
 		}
@@ -324,6 +341,9 @@ func refValString(value ref.Val) (string, bool) {
 }
 
 func materializedExplicitBindingName(name string, artifactRef recipeartifacts.Ref) (string, error) {
+	if artifactRef.Kind == recipeartifacts.RefKindValue && (hasTrailingSlash(name) || normalizeArtifactBindingName(name) == ".") {
+		return "", fmt.Errorf("value artifact requires an explicit file destination")
+	}
 	if hasTrailingSlash(name) {
 		prefix, err := artifactBindingPrefix(name)
 		if err != nil {

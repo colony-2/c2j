@@ -419,16 +419,16 @@ func (d DefaultRecipeExecutor) executeOpAttempt(ctx workflow.Context, parentReso
 
 	}
 
-	resolveNormalizedInputs := func(resCtx *template.ResolutionContext, inputs map[string]interface{}) (map[string]interface{}, []jobdb.ArtifactKey, error) {
+	resolveNormalizedInputs := func(resCtx *template.ResolutionContext, inputs map[string]interface{}) (NormalizedOpInput, error) {
 		resolvedNodeInputs, err := resCtx.ResolveInputs(inputs)
 		if err != nil {
-			return nil, nil, fmt.Errorf("failed to resolve templates op inputs: %w", err)
+			return NormalizedOpInput{}, fmt.Errorf("failed to resolve templates op inputs: %w", err)
 		}
 
 		if extensionRequest != nil {
 			if selectorOp != nil && !configuration.Contains(resolvedNodeInputs) {
 				if err := selectorOp.ValidateInvocationInputs(resolvedNodeInputs); err != nil {
-					return nil, nil, fmt.Errorf("failed to validate selector inputs: %w", err)
+					return NormalizedOpInput{}, fmt.Errorf("failed to validate selector inputs: %w", err)
 				}
 			}
 			invocationRepoSource, invocationRepoRef := selectorInvocationRepository(resCtx.TaskExecutionContext())
@@ -439,25 +439,25 @@ func (d DefaultRecipeExecutor) executeOpAttempt(ctx workflow.Context, parentReso
 				invocationRepoRef,
 			))
 			if err != nil {
-				return nil, nil, fmt.Errorf("failed to normalize selector op inputs: %w", err)
+				return NormalizedOpInput{}, fmt.Errorf("failed to normalize selector op inputs: %w", err)
 			}
 			allowNulls := resCtx.Options.Mode == template.ModeValidate
 			if err := validateOpInputType(chain[0].InputType, normalizedInput.Data, allowNulls); err != nil {
-				return nil, nil, fmt.Errorf("op input validation failed: %w", err)
+				return NormalizedOpInput{}, fmt.Errorf("op input validation failed: %w", err)
 			}
-			return normalizedInput.Data, normalizedInput.StoredArtifactKeys, nil
+			return normalizedInput, nil
 		}
 
 		normalizedInput, err := NormalizeOpInput(chain[0].InputType, resolvedNodeInputs)
 		if err != nil {
-			return nil, nil, fmt.Errorf("failed to normalize op inputs: %w", err)
+			return NormalizedOpInput{}, fmt.Errorf("failed to normalize op inputs: %w", err)
 		}
 
 		allowNulls := resCtx.Options.Mode == template.ModeValidate
 		if err := validateOpInputType(chain[0].InputType, normalizedInput.Data, allowNulls); err != nil {
-			return nil, nil, fmt.Errorf("op input validation failed: %w", err)
+			return NormalizedOpInput{}, fmt.Errorf("op input validation failed: %w", err)
 		}
-		return normalizedInput.Data, normalizedInput.StoredArtifactKeys, nil
+		return normalizedInput, nil
 	}
 
 	var stepInput, initialStepInput map[string]interface{}
@@ -500,7 +500,7 @@ func (d DefaultRecipeExecutor) executeOpAttempt(ctx workflow.Context, parentReso
 				// Input builders are serial orchestration; the worker receives
 				// only the serialized TaskData produced below.
 				buildResolver := resCtx
-				var artifactKeys []jobdb.ArtifactKey
+				var normalized NormalizedOpInput
 				input := stepInput
 				if i == 0 {
 					raw, e := json.Marshal(metadata.Inputs)
@@ -516,12 +516,37 @@ func (d DefaultRecipeExecutor) executeOpAttempt(ctx workflow.Context, parentReso
 							return nil, e
 						}
 					}
-					input, artifactKeys, e = resolveNormalizedInputs(buildResolver, declared)
+					normalized, e = resolveNormalizedInputs(buildResolver, declared)
 					if e != nil {
 						return nil, e
 					}
+				} else {
+					for _, step := range chain {
+						if taskType == taskPrefix+":"+step.Name {
+							var err error
+							normalized, err = NormalizeOpInput(step.InputType, input)
+							if err != nil {
+								return nil, err
+							}
+							break
+						}
+					}
 				}
-				resolvedArtifacts, e := resolveArtifactBindings(buildResolver, map[string]interface{}(metadata.Artifacts))
+				if normalized.Data != nil {
+					input = normalized.Data
+				}
+				artifactKeys, valueBindings := normalized.StoredArtifactKeys, normalized.ValueArtifacts
+				bindings := make(map[string]any, len(metadata.Artifacts)+len(valueBindings))
+				for name, value := range metadata.Artifacts {
+					bindings[name] = value
+				}
+				for name, value := range valueBindings {
+					if _, exists := bindings[name]; exists {
+						return nil, fmt.Errorf("duplicate artifact binding %q", name)
+					}
+					bindings[name] = value
+				}
+				resolvedArtifacts, e := resolveArtifactBindings(buildResolver, bindings)
 				if e != nil {
 					return nil, e
 				}
@@ -573,7 +598,11 @@ func (d DefaultRecipeExecutor) executeOpAttempt(ctx workflow.Context, parentReso
 					return nil, err
 				}
 
-				taskData, err := jobdb.NewTaskData(invocation)
+				newTaskData := workerops.NewInvocationTaskData
+				if resCtx.Options.Mode == template.ModeValidate {
+					newTaskData = func(in workerops.ActivityInvocationRequest) (jobdb.TaskData, error) { return jobdb.NewTaskData(in) }
+				}
+				taskData, err := newTaskData(invocation)
 				if err != nil {
 					return nil, err
 				}

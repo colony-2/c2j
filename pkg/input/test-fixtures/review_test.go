@@ -43,6 +43,15 @@ func TestReviewRecipeWithAttachmentsAndWorkspace(t *testing.T) {
 	require.NoError(t, err)
 	// Completing the review in a fresh cell workspace must preserve that scope.
 	yaml = []byte(strings.Replace(string(yaml), "  - id: review\n", fmt.Sprintf("  - id: review\n    workspace: {cell: %q, ref: %q}\n", betaRepo, betaHash), 1))
+	// A generated review document must use the same independently readable
+	// attachment API as the pre-existing stored document.
+	yaml = []byte(strings.Replace(string(yaml), "        documents:\n", `        documents:
+          generated:
+            kind: value
+            name: generated.txt
+            format: text
+            value: '${{ jq(0, "\"x\" * 524288") }}'
+`, 1))
 	// Consume the returned reference in an actual later op, after persistence.
 	yaml = []byte(strings.Replace(string(yaml), "outputs:\n", `  - id: consume
     op: command_execution
@@ -119,6 +128,13 @@ outputs:
 	require.NoError(t, err)
 	require.NoError(t, opened.Close())
 	require.Equal(t, "# Design\nRecovery is explicit.\n", string(originalBytes))
+	generated, err := runtime.OpenReviewDocument(ctx, jobKey.TenantId, jobKey.JobId, form.RequestID, "generated")
+	require.NoError(t, err)
+	generatedBytes, err := io.ReadAll(generated)
+	require.NoError(t, err)
+	require.NoError(t, generated.Close())
+	require.Equal(t, strings.Repeat("x", 524288), string(generatedBytes))
+	require.Equal(t, "generated.txt", generated.Ref.NameValue())
 	details, err := runtime.GetDetails(ctx, jobKey.TenantId, jobKey.JobId)
 	require.NoError(t, err)
 	require.Equal(t, "review", *details.Form.Kind)

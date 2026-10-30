@@ -463,6 +463,8 @@ sequence:
       run: 'cat "${{ context.environment.op.inbox }}/brief.md"'
 ```
 
+To create an inbox file from a string or JSON value, use a [value artifact](pkg/artifacts/guides/VALUES.md).
+
 ### Choosing the target cell
 
 Use the current cell:

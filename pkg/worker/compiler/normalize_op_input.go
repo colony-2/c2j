@@ -21,15 +21,18 @@ var (
 type NormalizedOpInput struct {
 	Data               map[string]interface{}
 	StoredArtifactKeys []jobdb.ArtifactKey
+	ValueArtifacts     map[string]recipeartifacts.Ref
 }
 
 type artifactKeyAccumulator struct {
-	seen map[string]jobdb.ArtifactKey
+	seen   map[string]jobdb.ArtifactKey
+	values map[string]recipeartifacts.Ref
 }
 
 func newArtifactKeyAccumulator() *artifactKeyAccumulator {
 	return &artifactKeyAccumulator{
-		seen: make(map[string]jobdb.ArtifactKey),
+		seen:   make(map[string]jobdb.ArtifactKey),
+		values: make(map[string]recipeartifacts.Ref),
 	}
 }
 
@@ -44,6 +47,15 @@ func (a *artifactKeyAccumulator) Add(key jobdb.ArtifactKey) error {
 func (a *artifactKeyAccumulator) AddRef(ref recipeartifacts.Ref) error {
 	if err := ref.Validate(); err != nil {
 		return err
+	}
+	if ref.Kind == recipeartifacts.RefKindValue {
+		if ref.NameValue() == "" {
+			return fmt.Errorf("typed value artifact requires name")
+		}
+		if old, ok := a.values[ref.NameValue()]; ok && !reflect.DeepEqual(old, ref) {
+			return fmt.Errorf("duplicate value artifact name %q", ref.NameValue())
+		}
+		a.values[ref.NameValue()] = ref
 	}
 	key, ok := ref.StoredKey()
 	if !ok {
@@ -87,6 +99,7 @@ func NormalizeOpInput(inputType reflect.Type, raw map[string]interface{}) (Norma
 		return NormalizedOpInput{
 			Data:               normalized,
 			StoredArtifactKeys: acc.Keys(),
+			ValueArtifacts:     acc.values,
 		}, nil
 	}
 
@@ -97,6 +110,7 @@ func NormalizeOpInput(inputType reflect.Type, raw map[string]interface{}) (Norma
 	return NormalizedOpInput{
 		Data:               out,
 		StoredArtifactKeys: acc.Keys(),
+		ValueArtifacts:     acc.values,
 	}, nil
 }
 
@@ -286,6 +300,12 @@ func normalizeMapValue(elemType reflect.Type, value interface{}, acc *artifactKe
 	}
 	out := make(map[string]interface{}, len(rawMap))
 	for key, item := range rawMap {
+		if derefType(elemType) == artifactRefType {
+			if r, ok, err := recipeartifacts.ParseValue(item); ok && err == nil && r.Name == "" {
+				r.Name = key
+				item = r
+			}
+		}
 		normalized, err := normalizeValueForType(elemType, item, acc, joinFieldPath(path, key))
 		if err != nil {
 			return nil, err

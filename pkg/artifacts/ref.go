@@ -1,6 +1,8 @@
 package artifacts
 
 import (
+	"crypto/sha256"
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -12,13 +14,19 @@ type RefKind string
 const (
 	RefKindStored   RefKind = "stored"
 	RefKindExternal RefKind = "external"
+	RefKindValue    RefKind = "value"
+	// RefKindAttached names a file attached to the containing job result.
+	// Child-result readers replace it with the artifact's stored reference.
+	RefKindAttached RefKind = "attached"
 )
 
 type Ref struct {
-	Kind     RefKind      `json:"kind"`
-	Name     string       `json:"name,omitempty"`
-	Stored   *StoredRef   `json:"stored,omitempty"`
-	External *ExternalRef `json:"external,omitempty"`
+	Kind     RefKind         `json:"kind"`
+	Name     string          `json:"name,omitempty"`
+	Stored   *StoredRef      `json:"stored,omitempty"`
+	External *ExternalRef    `json:"external,omitempty"`
+	Format   string          `json:"format,omitempty"`
+	Value    json.RawMessage `json:"value,omitempty"`
 }
 
 type StoredRef struct {
@@ -65,7 +73,18 @@ func RefFromArtifact(artifact jobdb.Artifact) (Ref, error) {
 }
 
 func (r Ref) Validate() error {
+	if r.Kind != RefKindValue && (r.Format != "" || r.Value != nil) {
+		return fmt.Errorf("only value refs can have format/value fields")
+	}
 	switch r.Kind {
+	case RefKindAttached:
+		if r.Stored != nil || r.External != nil || r.NameValue() == "" {
+			return fmt.Errorf("attached ref requires only a filename")
+		}
+		return nil
+	case RefKindValue:
+		_, err := r.ValueBytes()
+		return err
 	case RefKindStored:
 		if r.Stored == nil {
 			return fmt.Errorf("stored ref missing payload")
@@ -124,6 +143,12 @@ func (r Ref) SizeBytes() int64 {
 }
 
 func (r Ref) Identity() string {
+	if r.Kind == RefKindAttached {
+		return "attached:" + r.NameValue()
+	}
+	if r.Kind == RefKindValue {
+		return fmt.Sprintf("value:%s:%s:%x", r.NameValue(), r.Format, sha256.Sum256(r.Value))
+	}
 	if key, ok := r.StoredKey(); ok {
 		return fmt.Sprintf("stored:%s:%d:%s", key.JobId, key.TaskOrdinal, key.Name)
 	}
@@ -134,5 +159,5 @@ func (r Ref) Identity() string {
 }
 
 func (r Ref) IsZero() bool {
-	return r.Kind == "" && r.Name == "" && r.Stored == nil && r.External == nil
+	return r.Kind == "" && r.Name == "" && r.Stored == nil && r.External == nil && r.Format == "" && r.Value == nil
 }

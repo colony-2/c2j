@@ -108,12 +108,24 @@ func decodeRecipeJobOutput(deps ops.OpDependencies, data jobdb.JobData) (recipeJ
 		out.Artifacts[name] = ref
 	}
 	for name, artifactRef := range out.Artifacts {
+		if artifactRef.Kind == recipeartifacts.RefKindAttached {
+			return recipeJobOutput{}, fmt.Errorf("missing result artifact %q", name)
+		}
 		if artifactRef.External == nil {
 			continue
 		}
 		if deps != nil {
 			if err := deps.AddExternalArtifact(name, artifactRef.External.URL, artifactRef.External.Expand); err != nil {
 				return recipeJobOutput{}, err
+			}
+		}
+	}
+	// Raw recipe outputs retain the declaration as well as the public artifact
+	// map. Resolve transport markers there before returning to the parent.
+	if refs, ok := out.Outputs["artifact_refs"].(map[string]any); ok {
+		for name, value := range refs {
+			if ref, ok := value.(map[string]any); ok && ref["kind"] == string(recipeartifacts.RefKindAttached) {
+				refs[name] = out.Artifacts[name]
 			}
 		}
 	}

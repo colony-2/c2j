@@ -296,6 +296,28 @@ func (j recipeJobWorker) Run(ctx jobworkflow.ExecutionContext, jobData jobdb.Job
 	if err != nil {
 		return nil, err
 	}
+	if refs, ok := out["artifact_refs"].(map[string]recipeartifacts.Ref); ok {
+		out = cloneStringMap(out)
+		exported := make(map[string]recipeartifacts.Ref, len(refs))
+		out["artifact_refs"] = exported
+		for name, ref := range refs {
+			exported[name] = ref
+			if ref.Kind != recipeartifacts.RefKindValue {
+				continue
+			}
+			data, err := ref.ValueBytes()
+			if err != nil {
+				return nil, fmt.Errorf("result artifact %q: %w", name, err)
+			}
+			for _, prior := range artifacts {
+				if prior.Name() == name {
+					return nil, fmt.Errorf("result artifact %q conflicts with an existing artifact", name)
+				}
+			}
+			artifacts = append(artifacts, jobdb.NewArtifactFromBytes(name, data))
+			exported[name] = recipeartifacts.Ref{Kind: recipeartifacts.RefKindAttached, Name: name}
+		}
+	}
 	taskData, err := jobdb.NewTaskData(out, artifacts...)
 	if err != nil {
 		logger.Debug("recipe job: failed to create task data",

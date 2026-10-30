@@ -81,6 +81,10 @@ func (t *taskWorker) RunTask(local context.Context, ctx jobworkflow.TaskContext,
 	if err != nil {
 		return nil, err
 	}
+	inArt, err = air.RestoreInput(local, inArt)
+	if err != nil {
+		return nil, err
+	}
 	prepStart := time.Now()
 	var configDiag *configuration.Diagnostics
 	var resolved *extops.ResolvedOp

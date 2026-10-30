@@ -757,6 +757,16 @@ func materializeArtifactBindings(ctx context.Context, inbox string, bindings map
 			}
 			continue
 		}
+		if artifactRef.Kind == recipeartifacts.RefKindValue {
+			data, err := artifactRef.ValueBytes()
+			if err != nil {
+				return fmt.Errorf("artifact binding %q: %w", name, err)
+			}
+			if err := materializeStoredArtifactBinding(ctx, inbox, name, jobdb.NewArtifactFromBytes(artifactRef.NameValue(), data)); err != nil {
+				return fmt.Errorf("artifact binding %q: %w", name, err)
+			}
+			continue
+		}
 
 		if artifactRef.External != nil {
 			if err := materializeExternalArtifactBinding(ctx, inbox, name, artifactRef); err != nil {

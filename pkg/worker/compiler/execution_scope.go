@@ -28,6 +28,14 @@ type scopeCompletion struct {
 // completeNodeScope hands the result to the executor. Callers without a durable
 // scope, including validation, publish directly into their own context.
 func completeNodeScope(ctx workflow.Context, scope *template.ResolutionContext, output template.ExecutionOutput) error {
+	if declared, ok := output.Outputs["artifact_refs"].(map[string]any); ok {
+		refs, err := bindResolvedArtifacts(declared)
+		if err != nil {
+			return fmt.Errorf("result artifact_refs: %w", err)
+		}
+		output.Outputs["artifact_refs"] = refs
+		output.ArtifactRefs = mergeArtifactRefs(output.ArtifactRefs, refs)
+	}
 	if ctx.ScopeOutput != nil {
 		return ctx.ScopeOutput(scope, output)
 	}

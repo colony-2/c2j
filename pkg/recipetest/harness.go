@@ -18,6 +18,7 @@ import (
 	"strings"
 	"time"
 
+	recipeartifacts "github.com/colony-2/c2j/pkg/artifacts"
 	"github.com/colony-2/c2j/pkg/configuration"
 	"github.com/colony-2/c2j/pkg/contextual"
 	"github.com/colony-2/c2j/pkg/input/formdefaults"
@@ -990,6 +991,13 @@ func (j *testJobContext) doMockedTask(parent context.Context, runPolicy jobdb.Ru
 	if err := json.Unmarshal(raw, &inv); err != nil {
 		return nil, false, err
 	}
+	attachments, err := data.GetArtifacts()
+	if err != nil {
+		return nil, false, err
+	}
+	if _, err := inv.RestoreInput(ctx, attachments); err != nil {
+		return nil, false, err
+	}
 	opName := taskType
 	if idx := strings.Index(opName, ":"); idx >= 0 {
 		opName = opName[:idx]
@@ -1284,16 +1292,25 @@ func resetRecipeTestDir(dir string) error {
 
 func (j *testJobContext) materializePassthroughArtifacts(paths coreops.OperationPaths, inv workerops.ActivityInvocationRequest) error {
 	for destName, ref := range inv.Artifacts {
-		key, ok := ref.StoredKey()
-		if !ok {
-			continue
-		}
-		content, ok := j.artifactContents[key.Name]
-		if !ok {
-			content, ok = j.artifactContents[ref.NameValue()]
-		}
-		if !ok {
-			return fmt.Errorf("passthrough artifact content not found for %q", ref.NameValue())
+		var content []byte
+		if ref.Kind == recipeartifacts.RefKindValue {
+			var err error
+			content, err = ref.ValueBytes()
+			if err != nil {
+				return err
+			}
+		} else {
+			key, ok := ref.StoredKey()
+			if !ok {
+				continue
+			}
+			content, ok = j.artifactContents[key.Name]
+			if !ok {
+				content, ok = j.artifactContents[ref.NameValue()]
+			}
+			if !ok {
+				return fmt.Errorf("passthrough artifact content not found for %q", ref.NameValue())
+			}
 		}
 		dest := filepath.Join(paths.Inbox, filepath.FromSlash(destName))
 		if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {

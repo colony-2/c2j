@@ -88,3 +88,26 @@ func TestChildResultsKeepSnapshotProvenanceWithoutForwardingChildState(t *testin
 		})
 	}
 }
+
+func TestValueArtifactResultReference(t *testing.T) {
+	artifact := jobdb.NewArtifactFromBytes("conversation.json", []byte("{\"turns\":[]}\n"))
+	key := jobdb.ArtifactKey{JobId: "child", TaskOrdinal: 9, Name: artifact.Name(), SizeBytes: 13}
+	jobdb.AssignArtifactKey(artifact, key)
+	marker := recipeartifacts.Ref{Kind: recipeartifacts.RefKindAttached, Name: artifact.Name()}
+	for _, wrapped := range []bool{false, true} {
+		data := map[string]any{"artifact_refs": map[string]recipeartifacts.Ref{artifact.Name(): marker}}
+		if wrapped {
+			data["output"] = map[string]any{"artifact_refs": data["artifact_refs"]}
+		}
+		result, err := jobdb.NewTaskData(data, artifact)
+		require.NoError(t, err)
+		out, err := decodeRecipeJobOutput(nil, result)
+		require.NoError(t, err)
+		require.Equal(t, recipeartifacts.NewStoredRef(key), out.Artifacts[artifact.Name()])
+		require.Equal(t, recipeartifacts.NewStoredRef(key), out.Outputs["artifact_refs"].(map[string]any)[artifact.Name()])
+		missing, err := jobdb.NewTaskData(data)
+		require.NoError(t, err)
+		_, err = decodeRecipeJobOutput(nil, missing)
+		require.ErrorContains(t, err, "missing result artifact")
+	}
+}

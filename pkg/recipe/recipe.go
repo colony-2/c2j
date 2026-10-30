@@ -316,6 +316,9 @@ func (def InputSchema) validate(key string, value interface{}) error {
 // Artifact inputs cross a JSON boundary when a job is persisted. Accept both
 // native values and their serialized references without changing producer keys.
 func isArtifactValue(value interface{}) bool {
+	if _, ok, err := recipeartifacts.ParseValue(value); ok {
+		return err == nil
+	}
 	switch v := value.(type) {
 	case jobdb.ArtifactKey:
 		return v.Validate() == nil
