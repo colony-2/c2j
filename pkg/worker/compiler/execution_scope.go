@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	recipeartifacts "github.com/colony-2/c2j/pkg/artifacts"
 	"github.com/colony-2/c2j/pkg/ops"
 	"github.com/colony-2/c2j/pkg/recipe"
 	coretask "github.com/colony-2/c2j/pkg/task"
@@ -32,6 +33,11 @@ func completeNodeScope(ctx workflow.Context, scope *template.ResolutionContext, 
 		refs, err := bindResolvedArtifacts(declared)
 		if err != nil {
 			return fmt.Errorf("result artifact_refs: %w", err)
+		}
+		// Binding no artifacts returns nil, but an explicitly declared output
+		// object must remain {} for callers and their output contracts.
+		if refs == nil && declared != nil {
+			refs = map[string]recipeartifacts.Ref{}
 		}
 		output.Outputs["artifact_refs"] = refs
 		output.ArtifactRefs = mergeArtifactRefs(output.ArtifactRefs, refs)

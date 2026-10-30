@@ -2,6 +2,7 @@ package compiler
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -111,6 +112,41 @@ func TestHookOutputContract(t *testing.T) {
 	require.NoError(t, validateExpectedOutputs(schema, map[string]any{"decision": "continue"}))
 	require.Error(t, validateExpectedOutputs(schema, map[string]any{"decision": "skip"}))
 	require.Error(t, validateExpectedOutputs(map[string]any{"$ref": "https://example.com/schema"}, map[string]any{}))
+}
+
+func TestHookEmptyArtifactRefsRemainObject(t *testing.T) {
+	for _, present := range []bool{false, true} {
+		for _, bindings := range []string{"{}", "{'./': []}"} {
+			t.Run(fmt.Sprintf("present=%t/bindings=%s", present, bindings), func(t *testing.T) {
+				repo := filepath.Join(t.TempDir(), "repo")
+				workspaceRepo(t, repo, "A")
+				if present {
+					commitHookFile(t, repo, ".c2/hooks/check.yaml", "id: check\nsequence: []\noutputs: {status: skipped, artifact_refs: "+bindings+"}\n")
+				}
+				out, _ := runWorkspaceRecipe(t, workspaceTestWorker(t), fmt.Sprintf(`id: workspace-test
+sequence:
+ - id: check
+   include:
+     recipe: cell://.c2/hooks/check.yaml
+     if_missing:
+       outputs: {status: skipped, artifact_refs: %s}
+   expect_outputs:
+     type: object
+     required: [status, artifact_refs]
+     properties:
+       status: {enum: [skipped]}
+       artifact_refs: {type: object, maxProperties: 0}
+outputs:
+ status: '${{ sequence.check.outputs.status }}'
+ refs: '${{ sequence.check.outputs.artifact_refs }}'
+`, bindings), contextual.JobContext{Workflow: contextual.WorkflowContext{CellName: "A"}, GitBase: contextual.GitBaseContext{BaseRepo: repo, BaseRef: "main"}})
+				require.Equal(t, "skipped", out["status"])
+				raw, err := json.Marshal(out["refs"])
+				require.NoError(t, err)
+				require.JSONEq(t, `{}`, string(raw))
+			})
+		}
+	}
 }
 
 func TestHookSeesUnpushedEditsOnStateRevisit(t *testing.T) {
