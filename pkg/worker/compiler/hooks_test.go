@@ -3,14 +3,15 @@ package compiler
 import (
 	"context"
 	"fmt"
-	coreops "github.com/colony-2/c2j/pkg/ops"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"testing"
 
 	"github.com/colony-2/c2j/pkg/contextual"
 	"github.com/colony-2/c2j/pkg/git/common"
+	coreops "github.com/colony-2/c2j/pkg/ops"
 	"github.com/colony-2/c2j/pkg/recipe"
 	"github.com/stretchr/testify/require"
 )
@@ -123,6 +124,7 @@ func TestHookSeesUnpushedEditsOnStateRevisit(t *testing.T) {
 	})
 	ws := workspaceTestWorker(t, edit)
 	out, _ := runWorkspaceRecipe(t, ws, `id: workspace-test
+source_hooks: from_current
 state:
  initial: check
  states:
@@ -178,8 +180,15 @@ outputs:
 }
 
 func TestHookRetryReusesDefinition(t *testing.T) {
-	for _, state := range []bool{false, true} {
-		t.Run(fmt.Sprint("state=", state), func(t *testing.T) {
+	for _, tc := range []struct {
+		mode  string
+		state bool
+	}{
+		{"from_base", false}, {"from_base", true},
+		{"from_base_with_rebase", false}, {"from_base_with_rebase", true},
+		{"from_current", false}, {"from_current", true},
+	} {
+		t.Run(fmt.Sprintf("%s/state=%t", tc.mode, tc.state), func(t *testing.T) {
 			repo := filepath.Join(t.TempDir(), "repo")
 			workspaceRepo(t, repo, "A")
 			hook := ".c2/hooks/check.yaml"
@@ -199,7 +208,7 @@ sequence:
    retry: {maximum_attempts: 2, initial_interval: 1ms}
 outputs: {decision: '{{ sequence.hook.outputs.decision }}'}
 `
-			if state {
+			if tc.state {
 				body = `id: workspace-test
 state:
  initial: hook
@@ -210,6 +219,7 @@ state:
 outputs: {decision: '{{ states.hook.outputs.decision }}'}
 `
 			}
+			body = strings.Replace(body, "id: workspace-test\n", "id: workspace-test\nsource_hooks: "+tc.mode+"\n", 1)
 			out, _ := runWorkspaceRecipe(t, workspaceTestWorker(t, op), body, contextual.JobContext{Workflow: contextual.WorkflowContext{CellName: "A"}, GitBase: contextual.GitBaseContext{BaseRepo: repo, BaseRef: "main"}})
 			require.Equal(t, "original", out["decision"])
 			require.Equal(t, int32(2), calls.Load())

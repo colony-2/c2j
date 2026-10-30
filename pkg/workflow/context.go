@@ -8,13 +8,16 @@ import (
 	"github.com/colony-2/c2j/pkg/execution"
 	"github.com/colony-2/c2j/pkg/hookpolicy"
 	"github.com/colony-2/c2j/pkg/ops"
+	"github.com/colony-2/c2j/pkg/recipe"
 	"github.com/colony-2/c2j/pkg/template"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
 )
 
 type Context struct {
-	HookPolicy *hookpolicy.Snapshot
+	SourceHooks recipe.HookSource
+	HookBase    string
+	HookPolicy  *hookpolicy.Snapshot
 	// Logger carries request-scoped metadata through nested recipe evaluation.
 	Logger         *slog.Logger
 	RecipeDigest   string

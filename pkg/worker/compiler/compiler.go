@@ -97,6 +97,10 @@ func ExecuteRecipeWithExecutor(exec RecipeExecutor, ctx workflow.Context, r reci
 }
 
 func (d DefaultRecipeExecutor) ExecuteRecipe(ctx workflow.Context, r recipe.Recipe, rawRecipeInputs map[string]interface{}, execCtx contextual.JobContext, commitContext contextual.GitCommitContext, opts ...ExecutionOptions) (map[string]interface{}, []jobdb.Artifact, error) {
+	ctx.SourceHooks = r.GetMetadata().SourceHooks
+	if err := ctx.SourceHooks.Validate(); err != nil {
+		return nil, nil, err
+	}
 
 	jobKey := ctx.GetJobKey()
 	execCtx.Workflow.JobID = jobKey.JobId
@@ -212,6 +216,12 @@ func (d DefaultRecipeExecutor) ExecuteRecipe(ctx workflow.Context, r recipe.Reci
 	}
 	if err := rCtx.SelectGitProfile(metadata.GitProfile, ""); err != nil {
 		return nil, nil, err
+	}
+	if ctx.SourceHooks == recipe.HooksFromBase && hasCellHooks(r) && metadata.Workspace == nil {
+		ctx.HookBase, err = initialHookBase(ctx, rCtx)
+		if err != nil {
+			return nil, nil, err
+		}
 	}
 	body := func(inner workflow.Context, scoped *template.ResolutionContext, meta recipe.NodeMetadata) error {
 		if err := scoped.ResolveVars(meta.Vars); err != nil {

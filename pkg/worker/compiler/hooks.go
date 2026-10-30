@@ -10,6 +10,7 @@ import (
 	"reflect"
 	"strings"
 
+	"github.com/colony-2/c2j/pkg/cellref"
 	"github.com/colony-2/c2j/pkg/contextual"
 	"github.com/colony-2/c2j/pkg/git/common"
 	"github.com/colony-2/c2j/pkg/git/gitstate"
@@ -29,6 +30,45 @@ import (
 
 const hookPolicyTaskType = "recipe_hook_policy"
 const hookResolveTaskType = "recipe_hook:resolve"
+
+// Implicit workspaces can start with a floating ref. Record the initial base
+// before recipe operations can advance it, even if the first hook follows a rebase.
+func initialHookBase(ctx workflow.Context, parent *template.ResolutionContext) (string, error) {
+	g := parent.TaskExecutionContext().GitTask
+	if ws := parent.TaskExecutionContext().Workspace; ws != nil && ws.ScopeID != "" {
+		return ws.InitialHash, nil
+	}
+	if g.ParentHash != "" {
+		return g.ParentHash, nil
+	}
+	if g.ResolvedBaseHash != "" {
+		return g.ResolvedBaseHash, nil
+	}
+	if parent.Options.Mode == template.ModeValidate {
+		return strings.Repeat("0", 40), nil
+	}
+	p := parent.Permissions
+	out, err := workflow.ValueCall(ctx.JobContext, "hook-initial-base", WorkspaceResolutionTaskType, jobdb.RunPolicy{}, WorkspaceResolutionInput{
+		Cell: g.BaseRepo, Ref: g.BaseRef, ScopeID: "hook-initial-base",
+		Resolution: cellref.Context{SelfRepo: g.BaseRepo, SelfRef: g.BaseRef},
+		GitProfile: parent.GitProfile, Permissions: &p,
+	})
+	if err != nil {
+		return "", err
+	}
+	raw, err := out.GetData()
+	if err != nil {
+		return "", err
+	}
+	var result WorkspaceResolutionOutput
+	if err := json.Unmarshal(raw, &result); err != nil {
+		return "", err
+	}
+	if !isFullGitHash(result.Workspace.InitialHash) {
+		return "", fmt.Errorf("invalid initial hook base")
+	}
+	return result.Workspace.InitialHash, nil
+}
 
 type hookPolicyWorker struct{}
 
@@ -178,19 +218,52 @@ func (w hookResolveWorker) RunTask(ctx context.Context, tc jobworkflow.TaskConte
 		return nil, err
 	}
 	result := hookResolution{Path: hook, Candidate: head}
+	source, _ := req.Input["source_commit"].(string)
+	phase, _ := req.Input["phase"].(string)
+	if source == "" && phase == "pin" {
+		mode, _ := req.Input["source_hooks"].(string)
+		if err := recipe.HookSource(mode).Validate(); err != nil {
+			return nil, err
+		}
+		switch recipe.HookSource(mode) {
+		case recipe.HooksFromCurrent:
+			source = head
+		case recipe.HooksFromBase:
+			source, _ = req.Input["initial_base"].(string)
+			if g.Workspace != nil {
+				source = g.Workspace.InitialHash
+			}
+		default:
+			source = g.ResolvedBaseHash
+		}
+	}
+	if !isFullGitHash(source) {
+		return nil, fmt.Errorf("hook source requires a recorded base commit; use from_current for an empty-base workspace")
+	}
 	sourceRepo := req.GitTaskContext.BaseRepo
 	if !strings.Contains(sourceRepo, "://") {
 		sourceRepo = "file://" + sourceRepo
 	}
-	selector := fmt.Sprintf("git+%s//%s@%s", sourceRepo, hook, head)
-	resolution := RecipeSourceResolution{SourceKind: RecipeSourceKindGit, SubmittedSelector: "cell://" + hook, ResolvedSelector: selector, ResolvedCommit: head, WasAlreadyPinned: true}
+	selector := fmt.Sprintf("git+%s//%s@%s", sourceRepo, hook, source)
+	resolution := RecipeSourceResolution{SourceKind: RecipeSourceKindGit, SubmittedSelector: "cell://" + hook, ResolvedSelector: selector, ResolvedCommit: source, WasAlreadyPinned: true}
 	result.Source = recipeSourceSnapshot(resolution)
-	loader := &candidateRecipeResolver{RecipeSourceResolver: NewRecipeSourceResolver(RecipeSourceResolverOptions{}), dir: g.WorktreePath, repository: sourceRepo, commit: head}
+	loader := &candidateRecipeResolver{RecipeSourceResolver: NewRecipeSourceResolver(RecipeSourceResolverOptions{}), dir: g.WorktreePath, repository: sourceRepo, commit: source}
 	var recipeArtifact jobdb.Artifact
-	phase, _ := req.Input["phase"].(string)
 	if phase == "load" {
 		if req.GitTaskContext.PersistHash == "" || head != req.GitTaskContext.PersistHash {
 			return nil, fmt.Errorf("hook load requires the recorded candidate")
+		}
+		// Only this disposable source checkout changes. The returned Git state and
+		// thin pack still describe the candidate that will execute the hook.
+		if source != head {
+			if !common.CommitExists(ctx, g.WorktreePath, source) {
+				if _, err := common.ExecuteGitCommand(ctx, g.WorktreePath, "fetch", "origin", source); err != nil {
+					return nil, err
+				}
+			}
+			if _, err := common.ExecuteGitCommand(ctx, g.WorktreePath, "checkout", "--detach", source); err != nil {
+				return nil, err
+			}
 		}
 		contents, err := loader.read(hook)
 		if errors.Is(err, os.ErrNotExist) {
@@ -227,7 +300,7 @@ func (w hookResolveWorker) RunTask(ctx context.Context, tc jobworkflow.TaskConte
 			if err != nil {
 				return nil, err
 			}
-			// Source expansion reads only the pinned candidate for relative includes.
+			// Relative includes follow the pinned hook source, not the candidate.
 			expanded, err := ResolveInlineRecipes(ctx, *rec, InlineResolutionOptions{RootSource: &resolution, Resolver: loader})
 			if err != nil {
 				return nil, err
@@ -243,7 +316,7 @@ func (w hookResolveWorker) RunTask(ctx context.Context, tc jobworkflow.TaskConte
 					selectors = append(selectors, imp.Selector)
 				}
 			}
-			result.Functions, err = resolveSelectors(ctx, selectors, extops.ResolveOptions{RepositorySource: sourceRepo, RepositoryRef: head})
+			result.Functions, err = resolveSelectors(ctx, selectors, extops.ResolveOptions{RepositorySource: sourceRepo, RepositoryRef: source})
 			if err != nil {
 				return nil, err
 			}
@@ -364,6 +437,8 @@ func prepareHook(ctx workflow.Context, parent *template.ResolutionContext, n *re
 	p := parent.Permissions
 	e, _ := ctx.HookPolicy.Select(hook)
 	req := workerops.ActivityInvocationRequest{Input: map[string]any{"hook": hook, "policy": e, "perms": n.Perms, "repository": ctx.HookPolicy.Repository, "policy_revision": ctx.HookPolicy.Revision}, Permissions: &p, GitProfile: parent.GitProfile, GitTaskContext: *gitstate.NewGlobalGitTaskContext(parent.TaskExecutionContext())}
+	req.Input["source_hooks"] = ctx.SourceHooks
+	req.Input["initial_base"] = ctx.HookBase
 	var result hookResolution
 	var recipeArtifact jobdb.Artifact
 	// Pinning has its own durable outcome. A crash during source loading must
@@ -396,6 +471,13 @@ func prepareHook(ctx workflow.Context, parent *template.ResolutionContext, n *re
 		if result.Path != hook || !isFullGitHash(result.Candidate) || decoded.Activity.GitResult.PersistHash != result.Candidate {
 			return recipe.Node{}, fmt.Errorf("invalid hook resolution result")
 		}
+		if !isFullGitHash(result.Source.ResolvedCommit) {
+			return recipe.Node{}, fmt.Errorf("invalid hook source commit")
+		}
+		if phase == "load" && result.Source.ResolvedCommit != req.Input["source_commit"] {
+			return recipe.Node{}, fmt.Errorf("hook source changed after pinning")
+		}
+		req.Input["source_commit"] = result.Source.ResolvedCommit
 		if phase == "load" && !result.Absent {
 			recipeArtifact, err = findResolvedRecipeYAMLArtifact(out, result.RecipeYAMLArtifact)
 			if err != nil {

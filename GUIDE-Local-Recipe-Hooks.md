@@ -2,12 +2,15 @@
 
 A shared recipe can call a recipe in its consuming repository with `cell://`.
 The call resolves when execution reaches it. It pins the current candidate before
-binding inputs, then records the hook definition (including relative includes)
-or its absence. Read-only and absent hooks also pin the candidate. Existing
-non-cell includes keep their eager expansion behavior.
+binding inputs, then records the selected hook source and definition (including
+relative includes), or its absence. By default, the definition comes from the
+workspace's upstream base, following explicit rebases. The hook executes against
+the candidate, including current job changes. Read-only and absent hooks also pin
+the candidate. Existing non-cell includes keep their eager expansion behavior.
 
 ```yaml
 id: build
+source_hooks: from_base_with_rebase # Default; may be omitted.
 sequence:
   - id: project_check
     include:
@@ -55,12 +58,61 @@ self-contained JSON Schema; external schema references are rejected. The schema
 is checked before hook execution and outputs are checked before publication or
 parent transitions, including optional fallback and catch-continue outputs.
 
-Pinning and loading are separate durable tasks. Resume uses the recorded pin,
-source, and policy. Hook retries reuse that definition. A later visit to the
-checkpoint resolves again from the then-current candidate, including edits saved
-in thin-pack artifacts that have not been pushed. Relative includes use their
-source recipe's repository and commit. The hook runs in the consuming workspace;
-put workspace selection on a containing node, and use the consuming repository.
+## Choosing the hook source
+
+Set `source_hooks` on the consuming recipe root:
+
+| Value | Definition source at a new hook invocation |
+| --- | --- |
+| `from_base` | The initial upstream base, retained across rebases. |
+| `from_base_with_rebase` (default) | The current execution base, advancing when the workspace rebases. |
+| `from_current` | The current candidate, including job edits saved in unpushed thin-pack artifacts. |
+
+For example, after rebasing a candidate from upstream A onto upstream B,
+`from_base` continues loading hooks from A, `from_base_with_rebase` loads them
+from B, and `from_current` loads them from B plus the job's changes. Advancing
+the upstream branch alone does not change an already established execution base.
+An implicit workspace with a floating ref establishes its execution base when
+it first pins a candidate; `from_base` records its source base before recipe
+operations begin. Explicit workspaces use their own initial and execution bases.
+Base-source modes require a base commit; an empty-base workspace must use
+`from_current` after creating its first candidate commit.
+
+The consuming recipe controls this setting throughout its included recipes and
+nested hooks. A loaded hook's own `source_hooks` does not override it. A separate
+child job uses its own recipe's setting.
+
+All modes run the hook against the current candidate workspace. Relative recipe
+includes and local selector ops/CEL packages use the selected hook source commit.
+A command such as `./scripts/project-checks.sh` still reads that script from the
+candidate workspace, so source selection alone does not isolate executed code
+from job edits.
+
+Pinning and loading are separate durable tasks. Resume uses the recorded candidate,
+source, and permission policy. Hook retries reuse that definition, even if the
+workspace rebases during the invocation. A later invocation selects its source
+again using the recipe's mode. Missing-hook fallback is also evaluated against
+that selected source, not against the candidate. Put workspace selection on a
+containing node, and use the consuming repository.
+
+### Updating hooks through a child job
+
+`from_base_with_rebase` supports keeping hook improvements separate from the work
+being checked:
+
+1. The parent starts on upstream A and runs A's hooks against its candidate.
+2. If a hook needs fixing, the parent starts a child job to make and validate the
+   hook change. That child's recipe can use `from_current` to test its edited hook.
+3. After those changes pass review and are published upstream as B, the parent
+   explicitly rebases onto B.
+4. The parent's next hook invocation uses B's updated definition against its
+   rebased candidate.
+
+Completing a child job does not automatically adopt its changes. Publication and
+the parent's rebase are explicit steps. This is the recommended pattern when a
+job needs improved checks: it can adopt reviewed hook changes without using its
+own unreviewed hook edits to approve itself. Use `from_base` when checks must stay
+fixed for the whole job, or `from_current` when testing candidate hook changes.
 
 Static validation checks the caller's contract and uses its output shape as a
 placeholder. It does not fetch a hook or predict whether it will exist at runtime.
@@ -110,8 +162,9 @@ Tenant defaults are not a mandatory ceiling. Job-wide and callsite limits still
 apply. Writes compare the configuration revision and fail on concurrent edits.
 
 `add` requires either `--trust-candidate-code` or `--candidate-commit FULL_SHA`.
-The latter requires the invocation's candidate to equal that commit; it never
-loads older hook code against a newer candidate. Trust is stored separately for
+The latter still requires the invocation's **candidate** to equal that commit,
+regardless of `source_hooks`; choosing upstream hook code does not broaden the
+permission grant to other candidates. Trust is stored separately for
 each granted capability. Changing existing trust through `add` requires
 `--replace`. `set` replaces the complete entry, for example:
 
@@ -163,7 +216,7 @@ Hooks and their included recipes may declare `extensions.functions` using the
 same CEL package loader as other recipes. Floating package references are resolved
 when the hook definition is loaded and recorded for retries and replay. Imports
 are available inside that hook invocation alongside inherited CEL functions.
-Local package selectors use the hook source repository and recorded candidate;
+Local package selectors use the hook source repository and recorded source commit;
 like local selector ops, the package loader currently requires a fetchable commit.
 CEL package execution keeps its existing behavior; any future changes should
 apply to ordinary includes and hooks alike. Provider-side hook identity

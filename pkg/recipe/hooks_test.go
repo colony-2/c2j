@@ -1,9 +1,33 @@
 package recipe
 
 import (
-	"github.com/stretchr/testify/require"
+	"fmt"
 	"testing"
+
+	"github.com/stretchr/testify/require"
+	"gopkg.in/yaml.v3"
 )
+
+func TestHookSourceConfiguration(t *testing.T) {
+	for _, mode := range []string{"from_base", "from_base_with_rebase", "from_current"} {
+		body := fmt.Sprintf("id: parent\nsource_hooks: %s\nsequence: []\n", mode)
+		rec, err := LoadRecipeFromString([]byte(body))
+		require.NoError(t, err)
+		require.NoError(t, Validate(body))
+		require.Equal(t, HookSource(mode), rec.GetMetadata().SourceHooks)
+		raw, err := yaml.Marshal(rec)
+		require.NoError(t, err)
+		round, err := LoadInternalRecipeFromString(raw)
+		require.NoError(t, err)
+		require.Equal(t, rec.GetMetadata().SourceHooks, round.GetMetadata().SourceHooks)
+	}
+	for _, mode := range []string{"from_main", "typo", "[from_base]", "42"} {
+		body := fmt.Sprintf("id: parent\nsource_hooks: %s\nsequence: []\n", mode)
+		_, err := LoadRecipeFromString([]byte(body))
+		require.Error(t, err)
+		require.Error(t, Validate(body))
+	}
+}
 
 func TestHookAuthoringSchemaAndFallbackParser(t *testing.T) {
 	for _, inc := range []string{"cell://.c2/hooks/check.yaml", "{recipe: 'cell://.c2/hooks/check.yaml', if_missing: {outputs: {decision: continue}}}"} {

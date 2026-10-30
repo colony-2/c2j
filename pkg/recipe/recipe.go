@@ -90,6 +90,9 @@ func (n *Recipe) UnmarshalYAML(node *yamlv3.Node) error {
 	}
 
 	n.RecipeImpl = impl
+	if err := n.GetMetadata().SourceHooks.Validate(); err != nil {
+		return err
+	}
 	for name, def := range n.GetMetdata().InputSchema {
 		if err := def.ValidateSecretDeclaration(); err != nil {
 			return fmt.Errorf("input %q: %w", name, err)
@@ -99,12 +102,31 @@ func (n *Recipe) UnmarshalYAML(node *yamlv3.Node) error {
 }
 
 type RecipeMetadata struct {
+	SourceHooks  HookSource              `yaml:"source_hooks,omitempty" json:"source_hooks,omitempty" jsonschema:"enum=from_base,enum=from_base_with_rebase,enum=from_current"`
 	Execution    *execution.Requirements `yaml:"execution,omitempty" json:"execution,omitempty"`
 	Version      string                  `yaml:"version"`
 	NodeMetadata `yaml:",inline"`
 	Defs         map[string]Node        `yaml:"defs,omitempty"`         // Shared node definitions
 	InputSchema  map[string]InputSchema `yaml:"input_schema,omitempty"` // Optional schema for inputs
 	Extensions   ExtensionImports       `yaml:"extensions,omitempty"`
+}
+
+// HookSource selects code for cell:// hooks, independently of their workspace.
+type HookSource string
+
+const (
+	HooksFromBase           HookSource = "from_base"
+	HooksFromBaseWithRebase HookSource = "from_base_with_rebase"
+	HooksFromCurrent        HookSource = "from_current"
+)
+
+func (s HookSource) Validate() error {
+	switch s {
+	case "", HooksFromBase, HooksFromBaseWithRebase, HooksFromCurrent:
+		return nil
+	default:
+		return fmt.Errorf("invalid source_hooks %q: expected from_base, from_base_with_rebase, or from_current", s)
+	}
 }
 
 type ExtensionImports struct {
