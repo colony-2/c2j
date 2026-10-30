@@ -201,5 +201,5 @@ func TestValueArtifactGuide(t *testing.T) {
 	workspaceRepo(t, repo, "A")
 	out := runObjectRecipeValue(t, objectEngine(t), rec, contextual.JobContext{Workflow: contextual.WorkflowContext{CellName: "A"}, GitBase: contextual.GitBaseContext{BaseRepo: repo, BaseRef: "main"}}, inputs)
 	stdout := out["result"].(map[string]any)["stdout"]
-	require.Equal(t, fmt.Sprintf("%d context.txt", len(inputs["document"].(string))), stdout)
+	require.Equal(t, fmt.Sprint(len(inputs["document"].(string))), stdout)
 }

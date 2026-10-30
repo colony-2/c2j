@@ -4,7 +4,8 @@ Create inbox files directly from recipe values with `kind: value`. This requires
 
 ## Writing a document into an op's inbox
 
-Use a value source in an explicit artifact binding:
+Use a value source in an explicit artifact binding. This example uses Python 3
+to report the file's byte count:
 
 ```yaml
 id: value-document-example
@@ -25,7 +26,8 @@ sequence:
         value: ${{ inputs.document }}
     inputs:
       working_directory: ${{ context.environment.op.inbox }}
-      run: wc -c context.txt
+      run: |
+        python3 -c 'import sys; print(len(sys.stdin.buffer.read()))' < context.txt
 outputs:
   result: ${{ sequence.inspect.outputs }}
 ```
