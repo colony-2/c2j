@@ -18,7 +18,9 @@ type Lister interface {
 
 // Query selects jobs within the client's tenant and one repository.
 type Query struct {
-	GoalIDs []string
+	// IncludeHidden includes mark-deleted jobs within the other filters.
+	IncludeHidden bool
+	GoalIDs       []string
 	// Repository is an explicit remote repository URL, SCP-style Git remote,
 	// or host/owner/repository identity. Configured short names and local paths
 	// are not resolved by this library. An absolute file URL can identify jobs
@@ -91,7 +93,8 @@ func BuildRequest(tenantID string, query Query) (jobdb.ListJobsRequest, error) {
 		}
 	}
 	req := jobdb.ListJobsRequest{
-		TenantIds: []string{tenantID}, Statuses: statuses, Stores: StoresForStatuses(statuses),
+		IncludeHidden: query.IncludeHidden,
+		TenantIds:     []string{tenantID}, Statuses: statuses, Stores: StoresForStatuses(statuses),
 		JobTypes: append([]string(nil), query.JobTypes...), GoalIDs: append([]string(nil), query.GoalIDs...),
 		JobKeys:  keys,
 		JobTasks: append([]jobdb.JobTaskFilter(nil), query.JobTasks...), MetadataFilter: metadata,

@@ -270,3 +270,14 @@ Current jobs use metadata for repository and submission identity, typed routes
 for scheduling, and separate opaque client payload. No legacy-payload fallback
 or stored-job migration is provided. Deploy with matching versions and fresh
 format-3 storage as described in the [upgrade notes](JOBDB_UPGRADE_NOTES.md).
+
+## Including mark-deleted jobs
+
+`ListRecipeJobsRequest.IncludeHidden` and `ListChildRecipeJobsRequest.IncludeHidden`
+default to false. Set true to include hidden and visible jobs within the existing
+filters, including parent/invocation scope. Recipe builders preserve caller
+statuses/stores without imposing the visible-status defaults of `joblist.Query`.
+When supplied, those filters must also match hidden terminal jobs. This uses JobDB's existing `includeHidden` server contract;
+it does not restore jobs or return purged records. Keep the option and other
+filters fixed throughout pagination. The read-only `joblist.Query` exposes the
+same boolean. No API is deprecated by this addition.

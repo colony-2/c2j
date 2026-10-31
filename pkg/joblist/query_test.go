@@ -68,3 +68,36 @@ func TestCompactListingPassesEmptyPageThrough(t *testing.T) {
 	require.ErrorIs(t, err, joblist.ErrExecutionDetailsRequired)
 	require.Equal(t, 1, calls)
 }
+
+func TestIncludeHiddenRequestAndValidation(t *testing.T) {
+	for _, include := range []bool{false, true} {
+		q := joblist.Query{Repository: "github.com/acme/app", IncludeHidden: include, GoalIDs: []string{"goal"}, JobIDs: []string{"job"}, JobTasks: []jobdb.JobTaskFilter{{JobType: "recipe", TaskType: "step"}}, PageSize: 2, PageToken: " token "}
+		req, err := joblist.BuildRequest("tenant", q)
+		require.NoError(t, err)
+		require.Equal(t, include, req.IncludeHidden)
+		require.Equal(t, []string{"goal"}, req.GoalIDs)
+		require.Equal(t, q.JobTasks, req.JobTasks)
+		require.Equal(t, 2, req.PageSize)
+		require.Equal(t, "token", req.PageToken)
+		require.Equal(t, joblist.DefaultVisibleStatuses(), req.Statuses)
+	}
+	calls := 0
+	s := serve(t, func(context.Context, jobdb.ListJobsRequest) (jobdb.ListJobsResponse, error) {
+		calls++
+		return jobdb.ListJobsResponse{}, nil
+	})
+	c := client(t, s, "tenant")
+	later, earlier := time.Unix(20, 0), time.Unix(10, 0)
+	for _, q := range []joblist.Query{
+		{Repository: "", IncludeHidden: true},
+		{Repository: "github.com/acme/app", IncludeHidden: true, PageSize: -1},
+		{Repository: "github.com/acme/app", IncludeHidden: true, Statuses: []jobdb.JobStatus{"invalid"}},
+		{Repository: "github.com/acme/app", IncludeHidden: true, CreatedAfter: &later, CreatedBefore: &earlier},
+	} {
+		_, err := c.List(context.Background(), q)
+		require.ErrorIs(t, err, joblist.ErrInvalidInput)
+	}
+	_, err := joblist.BuildRequest("", joblist.Query{Repository: "github.com/acme/app", IncludeHidden: true})
+	require.ErrorIs(t, err, joblist.ErrInvalidInput)
+	require.Zero(t, calls)
+}

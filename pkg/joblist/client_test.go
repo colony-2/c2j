@@ -393,3 +393,21 @@ func TestValidationAndEmptyContinuation(t *testing.T) {
 	require.ErrorIs(t, err, context.Canceled)
 	require.Equal(t, int32(1), calls.Load())
 }
+
+func TestIncludeHiddenRemoteForwarding(t *testing.T) {
+	for _, include := range []bool{false, true} {
+		calls := 0
+		s := serve(t, func(_ context.Context, req jobdb.ListJobsRequest) (jobdb.ListJobsResponse, error) {
+			calls++
+			require.Equal(t, include, req.IncludeHidden)
+			require.Equal(t, "opaque", req.PageToken)
+			return jobdb.ListJobsResponse{NextPageToken: "next"}, nil
+		})
+		page, err := client(t, s, "tenant").List(context.Background(), joblist.Query{Repository: "github.com/acme/app", IncludeHidden: include, PageToken: "opaque"})
+		require.NoError(t, err)
+		require.NotNil(t, page.Jobs)
+		require.Empty(t, page.Jobs)
+		require.Equal(t, "next", page.NextPageToken)
+		require.Equal(t, 1, calls)
+	}
+}

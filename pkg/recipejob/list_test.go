@@ -200,6 +200,43 @@ func TestListChildRecipeJobsFiltersByParentInvocation(t *testing.T) {
 	if len(resp.Jobs) != 2 {
 		t.Fatalf("len(all ops children) = %d, jobs = %#v", len(resp.Jobs), resp.Jobs)
 	}
+
+	// Hiding one child must preserve parent/invocation scoping when included.
+	if _, err := runtime.DeleteJobs(ctx, jobdb.DeleteJobsRequest{TenantID: tenantID, JobIDs: []string{"child-one"}}); err != nil {
+		t.Fatal(err)
+	}
+	for _, include := range []bool{false, true} {
+		for _, invocation := range []string{"hash-one", "hash-two"} {
+			result, err := ListChildRecipeJobs(ctx, engine, ListChildRecipeJobsRequest{
+				TenantID: tenantID, ParentTenantID: tenantID, ParentJobID: "parent-job",
+				ParentInvocationHash: invocation, IncludeHidden: include,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := 1
+			if invocation == "hash-one" && !include {
+				want = 0
+			}
+			if len(result.Jobs) != want {
+				t.Fatalf("include=%v invocation=%s: got %v", include, invocation, result.Jobs)
+			}
+		}
+		result, err := ListChildRecipeJobs(ctx, engine, ListChildRecipeJobsRequest{
+			TenantID: tenantID, ParentTenantID: tenantID, ParentJobID: "parent-job",
+			AllParentInvocations: true, IncludeHidden: include,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := 1
+		if include {
+			want = 2
+		}
+		if len(result.Jobs) != want {
+			t.Fatalf("include=%v: got %v", include, result.Jobs)
+		}
+	}
 }
 
 func newListTestEngine(t *testing.T) jobworkflow.Engine {

@@ -24,6 +24,8 @@ type Lister interface {
 }
 
 type ListRecipeJobsRequest struct {
+	// IncludeHidden includes mark-deleted jobs within the other filters.
+	IncludeHidden    bool
 	GoalIDs          []string
 	ExecutionFilter  *execution.Filter
 	TenantID         string
@@ -46,6 +48,8 @@ type ListRecipeJobsResponse struct {
 }
 
 type ListChildRecipeJobsRequest struct {
+	// IncludeHidden includes mark-deleted jobs within the other filters.
+	IncludeHidden        bool
 	ExecutionFilter      *execution.Filter
 	TenantID             string
 	ParentTenantID       string
@@ -158,6 +162,7 @@ func BuildListJobsRequest(req ListRecipeJobsRequest) (jobdb.ListJobsRequest, err
 	}
 
 	return jobdb.ListJobsRequest{
+		IncludeHidden:  req.IncludeHidden,
 		TenantIds:      []string{tenantID},
 		Statuses:       append([]jobdb.JobStatus(nil), req.Statuses...),
 		Stores:         append([]jobdb.JobStore(nil), req.Stores...),
@@ -205,6 +210,7 @@ func BuildListChildJobsRequest(req ListChildRecipeJobsRequest) (jobdb.ListJobsRe
 	}
 
 	return jobdb.ListJobsRequest{
+		IncludeHidden:  req.IncludeHidden,
 		TenantIds:      []string{tenantID},
 		Statuses:       append([]jobdb.JobStatus(nil), req.Statuses...),
 		Stores:         append([]jobdb.JobStore(nil), req.Stores...),

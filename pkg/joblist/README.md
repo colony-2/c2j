@@ -78,6 +78,12 @@ configuration cannot change the connection or repository selected.
 
 ## Queries and pagination
 
+`Query.IncludeHidden` defaults to false, excluding mark-deleted jobs. Set it to
+true to include both hidden and visible jobs within the other filters. This uses
+JobDB's existing `includeHidden` contract; the server must support that contract.
+It does not restore jobs or return purged records. Hidden terminal jobs still
+require matching terminal statuses. Keep this option fixed during pagination.
+
 Available query fields include job types, statuses, job IDs, typed job/task
 routes, creation-time bounds, and page size/token.
 Job and task type identifiers are literal, case-sensitive strings; colons have
