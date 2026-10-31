@@ -32,7 +32,7 @@ import (
 func TestUnansweredRecipeLifecycle(t *testing.T) {
 	ensureFixtureOps()
 	for _, backend := range []string{"sqlite", "remote"} {
-		for _, mode := range []string{"before-fallback", "fallback", "human-late", "review", "structured"} {
+		for _, mode := range []string{"before-fallback", "fallback", "human-late", "review", "annotated-review", "structured"} {
 			t.Run(backend+"/"+mode, func(t *testing.T) {
 				ctx := context.Background()
 				source := `id: unanswered
@@ -71,7 +71,7 @@ outputs:
   answers: '${{ sequence.decision.outputs.fields }}'
   preserved: '${{ sequence.after.outputs.stdout }}'
 `
-				if mode == "review" {
+				if mode == "review" || mode == "annotated-review" {
 					source = strings.Replace(source, "        title: Decision", `        kind: review
         documents:
           design: '${{ sequence.write.artifacts["review.md"] }}'
@@ -88,6 +88,12 @@ outputs:
     artifacts:
       review.md: '${{ sequence.decision.outputs.fields.annotated }}'`, 1)
 					source = strings.Replace(source, "run: cat proof.txt", `run: 'cat proof.txt; cat "${{ context.environment.op.inbox }}/review.md"'`, 1)
+				}
+				if mode == "annotated-review" {
+					source = strings.Replace(source, "        documents:", `        overview_document_id: design
+        document_metadata:
+          design: {title: Original, role: primary, order: 0}
+        documents:`, 1)
 				}
 				if mode == "structured" {
 					start := strings.Index(source, "        title: Decision")
@@ -209,7 +215,7 @@ outputs:
 				require.NoError(t, err)
 				require.Equal(t, expected, result["answers"].(map[string]any)["decision"])
 				preserved := "preserved"
-				if mode == "review" {
+				if mode == "review" || mode == "annotated-review" {
 					preserved += "\ndocument"
 				}
 				require.Equal(t, preserved, strings.TrimSpace(fmt.Sprint(result["preserved"])))

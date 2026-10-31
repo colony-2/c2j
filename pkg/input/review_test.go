@@ -3,6 +3,7 @@ package input
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"path/filepath"
 	"testing"
 	"time"
@@ -26,8 +27,23 @@ func reviewConfig() Config {
 }
 
 func TestReviewFormAndAutofill(t *testing.T) {
+	for _, annotated := range []bool{false, true} {
+		t.Run(fmt.Sprintf("annotated=%v", annotated), func(t *testing.T) { testReviewFormAndAutofill(t, annotated) })
+	}
+}
+func testReviewFormAndAutofill(t *testing.T, annotated bool) {
 	deps := coreops.NewOpDependenciesBuilder().Build()
 	cfg := reviewConfig()
+	if annotated {
+		metadata := metadataConfig()
+		cfg.DocumentMetadata = metadata.DocumentMetadata
+		cfg.OverviewDocumentID = metadata.OverviewDocumentID
+		ref := recipeartifacts.NewStoredRef(jobdb.ArtifactKey{JobId: "producer", TaskOrdinal: 1, Name: "original.md", SizeBytes: 8})
+		cfg.Documents = map[string]any{"brief": ref, "design": ref, "checks": ref}
+		deps = coreops.NewOpDependenciesBuilder().WithWorkflowControl(&clientControl{artifact: func(string, jobdb.ArtifactKey) jobdb.Artifact {
+			return jobdb.NewArtifactFromBytes("original.md", []byte("original"))
+		}}).Build()
+	}
 	form, err := buildForm(deps, context.Background(), Input{Form: cfg})
 	require.NoError(t, err)
 	require.Equal(t, "review", form.Kind)
@@ -80,6 +96,11 @@ func TestReviewConfigurationValidation(t *testing.T) {
 }
 
 func TestReviewSQLiteAttachmentsReplayAndStaleSubmission(t *testing.T) {
+	for _, annotated := range []bool{false, true} {
+		t.Run(fmt.Sprintf("annotated=%v", annotated), func(t *testing.T) { testReviewSQLiteAttachmentsReplayAndStaleSubmission(t, annotated) })
+	}
+}
+func testReviewSQLiteAttachmentsReplayAndStaleSubmission(t *testing.T, annotated bool) {
 	ctx := context.Background()
 	dbPath := filepath.Join(t.TempDir(), "jobs.db")
 	rt, err := sqliteruntime.NewFromConfig(ctx, sqliteruntime.Config{DBPath: dbPath})
@@ -92,11 +113,27 @@ func TestReviewSQLiteAttachmentsReplayAndStaleSubmission(t *testing.T) {
 		require.NoError(t, err)
 		return runtime, engine
 	}
-	r, _ := makeRuntime()
+	r, initialEngine := makeRuntime()
 	deps := coreops.NewOpDependenciesBuilder().Build()
-	first, err := buildForm(deps, ctx, Input{Form: reviewConfig()})
+	cfg := reviewConfig()
+	if annotated {
+		original := jobdb.NewArtifactFromBytes("original.md", []byte("original"))
+		_, err = rt.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "tenant", JobID: "producer", JobType: "artifact-source", Data: jobdb.NewTaskDataOrPanic(nil, original)}})
+		require.NoError(t, err)
+		key, err := original.ArtifactKey()
+		require.NoError(t, err)
+		ref := recipeartifacts.NewStoredRef(key)
+		cfg.Documents = map[string]any{"brief": ref, "design": ref, "checks": ref}
+		metadata := metadataConfig()
+		cfg.DocumentMetadata = metadata.DocumentMetadata
+		cfg.OverviewDocumentID = metadata.OverviewDocumentID
+		deps = coreops.NewOpDependenciesBuilder().WithWorkflowControl(&clientControl{artifact: func(_ string, key jobdb.ArtifactKey) jobdb.Artifact {
+			return (&c2workflow.SWFWorkflowControl{Engine: initialEngine}).GetArtifactLazy(ctx, "tenant", key)
+		}}).Build()
+	}
+	first, err := buildForm(deps, ctx, Input{Form: cfg})
 	require.NoError(t, err)
-	second, err := buildForm(deps, ctx, Input{Form: reviewConfig()})
+	second, err := buildForm(deps, ctx, Input{Form: cfg})
 	require.NoError(t, err)
 	w := structuredWorker{forms: []InputForm{first, second}}
 	handle, err := rt.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "tenant", JobID: "review", JobType: "recipe", Data: jobdb.NewTaskDataOrPanic(map[string]any{}), RunPolicy: jobdb.DefaultRunPolicy()}})

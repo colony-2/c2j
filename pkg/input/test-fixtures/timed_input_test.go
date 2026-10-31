@@ -117,7 +117,7 @@ func timedInputSource(scope, mode, timeout string, documents bool) string {
 		form = "        response_schema:\n          type: object\n          required: [decision]\n          properties:\n            decision: {type: string}\n"
 		answer = "response.decision"
 	}
-	if mode == "review" {
+	if mode == "review" || mode == "annotated-review" {
 		form = `        kind: review
         documents:
           design: '${{ sequence.prepare.artifacts["design.md"] }}'
@@ -125,6 +125,9 @@ func timedInputSource(scope, mode, timeout string, documents bool) string {
           - {id: decision, type: short_answer, question: 'Continue?', required: true}
           - {id: annotated, type: file_upload, question: Annotation}
 `
+		if mode == "annotated-review" {
+			form = "        overview_document_id: design\n        document_metadata:\n          design: {title: Original, role: primary, order: 0}\n" + form
+		}
 		answer = "fields.decision"
 	}
 	prepare, after, outputs := "", "", ""
@@ -139,7 +142,7 @@ func timedInputSource(scope, mode, timeout string, documents bool) string {
     inputs:
       run: cat proof.txt
 `
-		if mode == "review" {
+		if mode == "review" || mode == "annotated-review" {
 			after = `  - id: after
     op: command_execution
     artifacts:
@@ -203,7 +206,7 @@ func TestTimedInputPublicAPIs(t *testing.T) {
 				case "structured":
 					_, err = client.SubmitStructuredResponse(ctx, f.key.TenantId, f.key.JobId, input.StructuredSubmission{RequestID: form.RequestID, SubmissionID: "answer", Response: map[string]any{"decision": "yes"}}, actor)
 					require.NoError(t, err)
-				case "review":
+				case "review", "annotated-review":
 					doc, err := client.OpenReviewDocument(ctx, f.key.TenantId, f.key.JobId, form.RequestID, "design")
 					require.NoError(t, err)
 					content, err := io.ReadAll(doc)
@@ -220,7 +223,7 @@ func TestTimedInputPublicAPIs(t *testing.T) {
 				require.NoError(t, err)
 				require.Equal(t, "yes", result["answer"])
 				preserved := "preserved"
-				if mode == "review" {
+				if mode == "review" || mode == "annotated-review" {
 					preserved += "\nannotated"
 				}
 				require.Equal(t, preserved, strings.TrimSpace(fmt.Sprint(result["preserved"])))
@@ -237,11 +240,11 @@ func TestTimedInputPublicAPIs(t *testing.T) {
 func TestTimedInputExpiryPublicAPIs(t *testing.T) {
 	for _, tc := range []struct{ scope, mode string }{
 		{"preloaded-root", "ordinary"}, {"runtime-root", "ordinary"},
-		{"input-op", "ordinary"}, {"input-op", "structured"}, {"input-op", "review"},
+		{"input-op", "ordinary"}, {"input-op", "structured"}, {"input-op", "review"}, {"input-op", "annotated-review"},
 	} {
 		t.Run(tc.scope+"/"+tc.mode, func(t *testing.T) {
 			ctx := context.Background()
-			f := newTimedInputFixture(t, timedInputSource(tc.scope, tc.mode, "3s", tc.mode == "review"), tc.scope)
+			f := newTimedInputFixture(t, timedInputSource(tc.scope, tc.mode, "3s", (tc.mode == "review" || tc.mode == "annotated-review")), tc.scope)
 			require.Equal(t, jobworkflow.JobRunSuspended, f.run().Status)
 			client, err := input.NewRuntime(f.ctl, nil)
 			require.NoError(t, err)
@@ -263,7 +266,7 @@ func TestTimedInputExpiryPublicAPIs(t *testing.T) {
 				err = client.SubmitResponse(ctx, f.key.TenantId, f.key.JobId, input.FormResponse{Response: &answer})
 			case "structured":
 				_, err = client.SubmitStructuredResponse(ctx, f.key.TenantId, f.key.JobId, input.StructuredSubmission{RequestID: form.RequestID, SubmissionID: "late", Response: map[string]any{"decision": "late"}}, actor)
-			case "review":
+			case "review", "annotated-review":
 				_, err = client.SubmitFormResponse(ctx, f.key.TenantId, f.key.JobId, input.FormSubmission{RequestID: form.RequestID, SubmissionID: "late", Fields: map[string]any{"decision": "late"}}, actor)
 			}
 			require.ErrorIs(t, err, input.ErrInputNotPending)

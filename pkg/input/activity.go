@@ -10,8 +10,10 @@ import (
 
 // Config represents the configuration for the input activity
 type Config struct {
-	Kind      string         `json:"kind,omitempty" jsonschema:"enum=review,description=Optional review marker"`
-	Documents map[string]any `json:"documents,omitempty"`
+	Kind               string                      `json:"kind,omitempty" jsonschema:"enum=review,description=Optional review marker"`
+	Documents          map[string]any              `json:"documents,omitempty"`
+	DocumentMetadata   map[string]DocumentMetadata `json:"document_metadata,omitempty" jsonschema:"description=Optional review-only presentation keyed by attached document ID"`
+	OverviewDocumentID string                      `json:"overview_document_id,omitempty" jsonschema:"description=Optional attached review document selected initially"`
 	// Structured mode. Schemas and request are frozen in the generate_form outcome.
 	Request        any            `json:"request,omitempty"`
 	RequestSchema  map[string]any `json:"request_schema,omitempty"`

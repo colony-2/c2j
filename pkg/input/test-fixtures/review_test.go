@@ -33,6 +33,12 @@ import (
 )
 
 func TestReviewRecipeWithAttachmentsAndWorkspace(t *testing.T) {
+	for _, annotated := range []bool{false, true} {
+		t.Run(fmt.Sprintf("annotated=%v", annotated), func(t *testing.T) { testReviewRecipeWithAttachmentsAndWorkspace(t, annotated) })
+	}
+}
+
+func testReviewRecipeWithAttachmentsAndWorkspace(t *testing.T, annotated bool) {
 	ensureFixtureOps()
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
@@ -41,6 +47,14 @@ func TestReviewRecipeWithAttachmentsAndWorkspace(t *testing.T) {
 	betaRepo, betaHash := createFixtureRepo(t, primary, nil)
 	yaml, err := os.ReadFile(primary)
 	require.NoError(t, err)
+	if !annotated {
+		start := strings.Index(string(yaml), "        # Requires a runtime")
+		end := strings.Index(string(yaml), "        documents:")
+		yaml = append(append([]byte{}, yaml[:start]...), yaml[end:]...)
+	} else {
+		yaml = []byte(strings.Replace(string(yaml), "            order: 0", `            order: '${{ jq(0, ".") }}'
+            source_document_ids: [generated]`, 1))
+	}
 	// Completing the review in a fresh cell workspace must preserve that scope.
 	yaml = []byte(strings.Replace(string(yaml), "  - id: review\n", fmt.Sprintf("  - id: review\n    workspace: {cell: %q, ref: %q}\n", betaRepo, betaHash), 1))
 	// A generated review document must use the same independently readable
@@ -139,6 +153,17 @@ outputs:
 	require.NoError(t, err)
 	require.Equal(t, "review", *details.Form.Kind)
 	require.Contains(t, *details.Form.Documents, "design")
+	if annotated {
+		require.Equal(t, "design", form.OverviewDocumentID)
+		require.Equal(t, []string{"generated"}, form.DocumentMetadata["design"].SourceDocumentIDs)
+		require.Zero(t, *form.DocumentMetadata["design"].Order)
+		require.Equal(t, "design", *details.Form.OverviewDocumentId)
+		require.Zero(t, *(*details.Form.DocumentMetadata)["design"].Order)
+	} else {
+		require.Empty(t, form.DocumentMetadata)
+		require.Nil(t, details.Form.DocumentMetadata)
+		require.Nil(t, details.Form.OverviewDocumentId)
+	}
 	actor := input.Actor{ID: "reviewer", Kind: "human"}
 	_, err = runtime.SubmitFormResponse(ctx, jobKey.TenantId, jobKey.JobId, input.FormSubmission{RequestID: form.RequestID, SubmissionID: "invalid", Fields: map[string]any{"decision": "unknown"}}, actor)
 	require.Error(t, err)
@@ -163,4 +188,70 @@ outputs:
 	require.NoError(t, err)
 	require.Equal(t, annotation, bytes)
 	require.Equal(t, "child-producer", doc.Stored.Key.JobId)
+}
+
+// Invalid evaluated annotations must fail before the review wait is published.
+func TestReviewRecipeRejectsEvaluatedMetadata(t *testing.T) {
+	for _, test := range []struct{ name, metadata string }{
+		{"fractional", `order: '${{ jq(0, "0.5") }}'`},
+		{"overflow", `order: '${{ jq(0, "1e30") }}'`},
+		{"negative", `order: '${{ jq(0, "-1") }}'`},
+		{"role", `role: '${{ jq(0, "\"invalid\"") }}'`},
+		{"source", `source_document_ids: [missing]`},
+		{"title", `title: '${{ jq(0, "\"x\" * 121") }}'`},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			source := timedInputSource("none", "review", "", true)
+			source = strings.Replace(source, "        documents:\n", "        document_metadata:\n          design:\n            "+test.metadata+"\n        documents:\n", 1)
+			fixture := newTimedInputFixture(t, source, "none")
+			result := fixture.run()
+			require.Equal(t, jobworkflow.JobRunFailed, result.Status, "%+v", result)
+			client, err := input.NewRuntime(fixture.ctl, nil)
+			require.NoError(t, err)
+			page, err := client.ListPendingInputsPage(context.Background(), fixture.key.TenantId, input.PendingInputOptions{})
+			require.NoError(t, err)
+			require.Empty(t, page.Inputs)
+		})
+	}
+}
+
+func TestAnnotatedReviewCheckpointRecovery(t *testing.T) {
+	source := timedInputSource("none", "review", "", true)
+	source = strings.Replace(source, "        documents:", `        overview_document_id: design
+        document_metadata:
+          design:
+            title: Frozen proposal
+            role: primary
+            order: 0
+            source_document_ids: [source]
+        documents:
+          source: '${{ sequence.prepare.artifacts["design.md"] }}'`, 1)
+	fixture := newTimedInputFixture(t, source, "none")
+	require.Equal(t, jobworkflow.JobRunSuspended, fixture.run().Status)
+	client, err := input.NewRuntime(fixture.ctl, nil)
+	require.NoError(t, err)
+	first, err := client.GetForm(context.Background(), fixture.key.TenantId, fixture.key.JobId)
+	require.NoError(t, err)
+	frozen, err := json.Marshal(first)
+	require.NoError(t, err)
+	// Mutating a returned form cannot edit the persisted generate_form outcome.
+	metadata := first.DocumentMetadata["design"]
+	*metadata.Order = 77
+	metadata.SourceDocumentIDs[0] = "changed"
+	first.DocumentMetadata["design"] = metadata
+	fixture.reopen()
+	restored, err := client.GetForm(context.Background(), fixture.key.TenantId, fixture.key.JobId)
+	require.NoError(t, err)
+	raw, err := json.Marshal(restored)
+	require.NoError(t, err)
+	require.JSONEq(t, string(frozen), string(raw))
+	_, err = client.SubmitFormResponse(context.Background(), fixture.key.TenantId, fixture.key.JobId, input.FormSubmission{RequestID: restored.RequestID, SubmissionID: "recovered", Fields: map[string]any{"decision": "approved", "annotated": jobdb.NewArtifactFromBytes("annotation.md", []byte("annotation"))}}, input.Actor{ID: "reviewer", Kind: "human"})
+	require.NoError(t, err)
+	require.Equal(t, jobworkflow.JobRunCompleted, fixture.run().Status)
+	result, err := fixture.ctl.JobResult(context.Background(), fixture.key)
+	require.NoError(t, err)
+	output, err := readJobOutputAsMap(result)
+	require.NoError(t, err)
+	require.Equal(t, "approved", output["answer"])
+	require.Contains(t, output["preserved"], "preserved\nannotation")
 }

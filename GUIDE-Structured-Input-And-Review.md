@@ -240,3 +240,27 @@ Run the input and review tests with `go test ./pkg/input/... ./pkg/recipe`.
 They cover ordinary forms, generic schemas, reviews, autofill, artifact round
 trips, stale responses, SQLite reopen, and a review recipe using another
 producer's artifacts in a contextualized cell workspace.
+
+### Review document presentation v1 (unreleased)
+
+Review forms may optionally expose `document_metadata` keyed by existing document
+ID and `overview_document_id`. `GetForm`, details transport, frozen checkpoints,
+and `InputRequestSignal` retain these fields. Go `DocumentMetadata.Order` is an
+optional `*int`: test for nil before reading it; zero is an explicit order.
+`documents` remains `map[document_id]ArtifactRef`, and response APIs are unchanged.
+See [the author contract and activation guidance](GUIDE-Review-Recipe-Authors.md#optional-review-document-presentation-v1-unreleased)
+for validation limits, neutral fallbacks, and selection rules.
+
+All originals must remain reachable. Metadata grants no authorization or approval
+and belongs neither in answers nor structured `presentation`. Native pending SSE
+snapshots remain summaries containing the job ID; this feature adds no form event
+or discovery behavior. Embeddings that serialize existing forms/signals retain
+the additive fields through their normal JSON payloads.
+
+Existing jobs and reviews must continue across upgrades without migrations,
+regeneration, new identities, or client upgrades solely for unannotated forms.
+Activate annotated producers only after the release workflow identifies the first
+supporting module tag and commit and workers/form-serving integrations meet it.
+Upgrade strict clients first; tolerant older clients may ignore additions. Old
+runtimes may discard annotations; downgrades cannot promise retention. There is
+no capability-discovery API or universal old-client compatibility claim.

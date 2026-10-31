@@ -287,6 +287,33 @@ components:
           items:
             $ref: '#/components/schemas/GlobPattern'
 
+    DocumentMetadata:
+      type: object
+      description: Optional untrusted review presentation. References resolve only within attached documents; source lists must not be recursively expanded.
+      properties:
+        title:
+          type: string
+          maxLength: 120
+          description: Plain UTF-8 text without control characters; empty falls back to document ID.
+        description:
+          type: string
+          maxLength: 300
+          description: Plain UTF-8 text without control characters.
+        role:
+          type: string
+          enum: ['', primary, supporting, diagnostic]
+        order:
+          type: integer
+          minimum: 0
+          maximum: 1000000
+          description: Explicit orders precede omission; ties use document ID byte order.
+        source_document_ids:
+          type: array
+          maxItems: 128
+          uniqueItems: true
+          items:
+            type: string
+
     InputFormConfig:
       type: object
       description: Configuration for an ordinary form, document review, or schema-driven structured input.
@@ -298,6 +325,14 @@ components:
           type: object
           description: Review document IDs mapped to existing stored artifact references.
           additionalProperties: {}
+        document_metadata:
+          type: object
+          description: Review-only metadata keyed by attached document ID; combined presentation is bounded to 65536 compact Go JSON bytes.
+          additionalProperties:
+            $ref: '#/components/schemas/DocumentMetadata'
+        overview_document_id:
+          type: string
+          description: Optional attached review document selected initially, with or without metadata.
         fallback_at:
           type: string
           format: date-time

@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/colony-2/c2j/pkg/artifacts"
+	"github.com/colony-2/c2j/pkg/input/openapi"
 	coreops "github.com/colony-2/c2j/pkg/ops"
 	"github.com/colony-2/c2j/pkg/recipe"
 	"github.com/colony-2/c2j/pkg/starter"
@@ -16,6 +18,7 @@ import (
 	"github.com/colony-2/c2j/pkg/worker/ops"
 	"github.com/colony-2/c2j/pkg/worker/workflow"
 	"github.com/colony-2/c2j/pkg/workflowctl"
+	"github.com/colony-2/jobdb/pkg/jobdb"
 	"github.com/gorilla/mux"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -180,4 +183,35 @@ func TestMissingProjectIdParameter(t *testing.T) {
 
 	require.Equal(t, http.StatusBadRequest, w.Code)
 	require.Contains(t, w.Body.String(), "projectId is required")
+}
+
+func TestReviewMetadataDetailsAndPendingStream(t *testing.T) {
+	zero := 0
+	form := InputForm{Kind: "review", RequestID: "frozen", Question: "Proceed?", Documents: map[string]artifacts.Ref{"brief": artifacts.NewStoredRef(jobdb.ArtifactKey{JobId: "producer", TaskOrdinal: 1, Name: "brief.md", SizeBytes: 1})}, DocumentMetadata: map[string]DocumentMetadata{"brief": {Title: "Brief", Order: &zero}}, OverviewDocumentID: "brief"}
+	task := apiTask(t, "job", 8, form)
+	control := &clientControl{list: func(jobdb.ListJobsRequest) ([]workflowctl.JobItem, string, error) {
+		return []workflowctl.JobItem{taskListing(task)}, "", nil
+	}, waiting: func(jobdb.JobKey) (workflowctl.TaskHandle, error) { return task, nil }}
+	service := newInputManagementService()
+	require.NoError(t, service.Initialize(coreops.NewServiceDepsBuilder().WithWorkflowControl(control).WithSSEManager(NewSimpleSSEManager()).Build()))
+	router := mux.NewRouter()
+	router.HandleFunc("/projects/{projectId}/user-inputs/{jobId}", service.GetDetails)
+	req := httptest.NewRequest("GET", "/projects/tenant/user-inputs/job", nil)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK, w.Code)
+	var details openapi.UserInputDetails
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &details))
+	require.Equal(t, "brief", *details.Form.OverviewDocumentId)
+	require.Zero(t, *(*details.Form.DocumentMetadata)["brief"].Order)
+	// Native pending events are summaries, not form-bearing events. Keep their
+	// actual snapshot shape; do not invent a new form event or selection path.
+	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Millisecond)
+	defer cancel()
+	req = mux.SetURLVars(httptest.NewRequest("GET", "/stream", nil).WithContext(ctx), map[string]string{"projectId": "tenant"})
+	w = httptest.NewRecorder()
+	service.SSEStream(w, req)
+	require.Contains(t, w.Body.String(), "event: input_pending\ndata: {\"id\":\"job\"}")
+	require.NotContains(t, w.Body.String(), "document_metadata")
+	require.NotContains(t, w.Body.String(), "overview_document_id")
 }

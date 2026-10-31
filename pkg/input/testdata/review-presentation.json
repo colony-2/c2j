@@ -1,0 +1,399 @@
+[
+  {
+    "name": "overview-without-metadata",
+    "form": {
+      "kind": "review",
+      "request_id": "fixture-overview-without-metadata",
+      "question": "Proceed?",
+      "type": "boolean",
+      "documents": {
+        "brief": {
+          "kind": "stored",
+          "name": "brief.md",
+          "stored": {
+            "key": {
+              "jobId": "fixture-producer",
+              "taskOrdinal": 1,
+              "name": "brief.md",
+              "sizeBytes": 1
+            }
+          }
+        },
+        "primary": {
+          "kind": "stored",
+          "name": "primary.md",
+          "stored": {
+            "key": {
+              "jobId": "fixture-producer",
+              "taskOrdinal": 1,
+              "name": "primary.md",
+              "sizeBytes": 1
+            }
+          }
+        }
+      },
+      "response_schema": null,
+      "document_metadata": {
+        "primary": {
+          "role": "primary",
+          "order": 0
+        }
+      },
+      "overview_document_id": "brief"
+    },
+    "expected_initial_document_id": "brief",
+    "expected_groups": {
+      "primary": [
+        "primary"
+      ],
+      "supporting": [],
+      "diagnostic": [],
+      "neutral": [
+        "brief"
+      ]
+    }
+  },
+  {
+    "name": "primary-order-ties-and-missing",
+    "form": {
+      "kind": "review",
+      "request_id": "fixture-primary-order-ties-and-missing",
+      "question": "Proceed?",
+      "type": "boolean",
+      "documents": {
+        "z": {
+          "kind": "stored",
+          "name": "z.md",
+          "stored": {
+            "key": {
+              "jobId": "fixture-producer",
+              "taskOrdinal": 1,
+              "name": "z.md",
+              "sizeBytes": 1
+            }
+          }
+        },
+        "a": {
+          "kind": "stored",
+          "name": "a.md",
+          "stored": {
+            "key": {
+              "jobId": "fixture-producer",
+              "taskOrdinal": 1,
+              "name": "a.md",
+              "sizeBytes": 1
+            }
+          }
+        },
+        "b": {
+          "kind": "stored",
+          "name": "b.md",
+          "stored": {
+            "key": {
+              "jobId": "fixture-producer",
+              "taskOrdinal": 1,
+              "name": "b.md",
+              "sizeBytes": 1
+            }
+          }
+        },
+        "c": {
+          "kind": "stored",
+          "name": "c.md",
+          "stored": {
+            "key": {
+              "jobId": "fixture-producer",
+              "taskOrdinal": 1,
+              "name": "c.md",
+              "sizeBytes": 1
+            }
+          }
+        },
+        "s": {
+          "kind": "stored",
+          "name": "s.md",
+          "stored": {
+            "key": {
+              "jobId": "fixture-producer",
+              "taskOrdinal": 1,
+              "name": "s.md",
+              "sizeBytes": 1
+            }
+          }
+        },
+        "d": {
+          "kind": "stored",
+          "name": "d.md",
+          "stored": {
+            "key": {
+              "jobId": "fixture-producer",
+              "taskOrdinal": 1,
+              "name": "d.md",
+              "sizeBytes": 1
+            }
+          }
+        },
+        "neutral": {
+          "kind": "stored",
+          "name": "neutral.md",
+          "stored": {
+            "key": {
+              "jobId": "fixture-producer",
+              "taskOrdinal": 1,
+              "name": "neutral.md",
+              "sizeBytes": 1
+            }
+          }
+        }
+      },
+      "response_schema": null,
+      "document_metadata": {
+        "z": {
+          "role": "primary"
+        },
+        "a": {
+          "role": "primary",
+          "order": 0,
+          "title": "A"
+        },
+        "b": {
+          "role": "primary",
+          "order": 0
+        },
+        "c": {
+          "role": "primary",
+          "order": 10
+        },
+        "s": {
+          "role": "supporting"
+        },
+        "d": {
+          "role": "diagnostic"
+        }
+      }
+    },
+    "expected_initial_document_id": "a",
+    "expected_groups": {
+      "primary": [
+        "a",
+        "b",
+        "c",
+        "z"
+      ],
+      "supporting": [
+        "s"
+      ],
+      "diagnostic": [
+        "d"
+      ],
+      "neutral": [
+        "neutral"
+      ]
+    }
+  },
+  {
+    "name": "legacy-byte-order",
+    "form": {
+      "kind": "review",
+      "request_id": "fixture-legacy-byte-order",
+      "question": "Proceed?",
+      "type": "boolean",
+      "documents": {
+        "é": {
+          "kind": "stored",
+          "name": "é.md",
+          "stored": {
+            "key": {
+              "jobId": "fixture-producer",
+              "taskOrdinal": 1,
+              "name": "é.md",
+              "sizeBytes": 1
+            }
+          }
+        },
+        "a": {
+          "kind": "stored",
+          "name": "a.md",
+          "stored": {
+            "key": {
+              "jobId": "fixture-producer",
+              "taskOrdinal": 1,
+              "name": "a.md",
+              "sizeBytes": 1
+            }
+          }
+        },
+        "Z": {
+          "kind": "stored",
+          "name": "Z.md",
+          "stored": {
+            "key": {
+              "jobId": "fixture-producer",
+              "taskOrdinal": 1,
+              "name": "Z.md",
+              "sizeBytes": 1
+            }
+          }
+        }
+      },
+      "response_schema": null
+    },
+    "expected_initial_document_id": "Z",
+    "expected_groups": {
+      "primary": [],
+      "supporting": [],
+      "diagnostic": [],
+      "neutral": [
+        "Z",
+        "a",
+        "é"
+      ]
+    }
+  },
+  {
+    "name": "partial-neutral-fallback",
+    "form": {
+      "kind": "review",
+      "request_id": "fixture-partial-neutral-fallback",
+      "question": "Proceed?",
+      "type": "boolean",
+      "documents": {
+        "a": {
+          "kind": "stored",
+          "name": "a.md",
+          "stored": {
+            "key": {
+              "jobId": "fixture-producer",
+              "taskOrdinal": 1,
+              "name": "a.md",
+              "sizeBytes": 1
+            }
+          }
+        },
+        "b": {
+          "kind": "stored",
+          "name": "b.md",
+          "stored": {
+            "key": {
+              "jobId": "fixture-producer",
+              "taskOrdinal": 1,
+              "name": "b.md",
+              "sizeBytes": 1
+            }
+          }
+        },
+        "c": {
+          "kind": "stored",
+          "name": "c.md",
+          "stored": {
+            "key": {
+              "jobId": "fixture-producer",
+              "taskOrdinal": 1,
+              "name": "c.md",
+              "sizeBytes": 1
+            }
+          }
+        }
+      },
+      "response_schema": null,
+      "document_metadata": {
+        "a": {},
+        "b": {
+          "role": "supporting",
+          "order": 0,
+          "source_document_ids": [
+            "a",
+            "c"
+          ]
+        }
+      }
+    },
+    "expected_initial_document_id": "a",
+    "expected_groups": {
+      "primary": [],
+      "supporting": [
+        "b"
+      ],
+      "diagnostic": [],
+      "neutral": [
+        "a",
+        "c"
+      ]
+    }
+  },
+  {
+    "name": "overview-nonprimary",
+    "form": {
+      "kind": "review",
+      "request_id": "fixture-overview-nonprimary",
+      "question": "Proceed?",
+      "type": "boolean",
+      "documents": {
+        "a": {
+          "kind": "stored",
+          "name": "a.md",
+          "stored": {
+            "key": {
+              "jobId": "fixture-producer",
+              "taskOrdinal": 1,
+              "name": "a.md",
+              "sizeBytes": 1
+            }
+          }
+        },
+        "b": {
+          "kind": "stored",
+          "name": "b.md",
+          "stored": {
+            "key": {
+              "jobId": "fixture-producer",
+              "taskOrdinal": 1,
+              "name": "b.md",
+              "sizeBytes": 1
+            }
+          }
+        }
+      },
+      "response_schema": null,
+      "document_metadata": {
+        "a": {
+          "role": "primary"
+        },
+        "b": {
+          "role": "diagnostic",
+          "order": 0
+        }
+      },
+      "overview_document_id": "b"
+    },
+    "expected_initial_document_id": "b",
+    "expected_groups": {
+      "primary": [
+        "a"
+      ],
+      "supporting": [],
+      "diagnostic": [
+        "b"
+      ],
+      "neutral": []
+    }
+  },
+  {
+    "name": "zero-documents",
+    "form": {
+      "kind": "review",
+      "request_id": "fixture-zero-documents",
+      "question": "Proceed?",
+      "type": "boolean",
+      "documents": {},
+      "response_schema": null
+    },
+    "expected_initial_document_id": "",
+    "expected_groups": {
+      "primary": [],
+      "supporting": [],
+      "diagnostic": [],
+      "neutral": []
+    }
+  }
+]

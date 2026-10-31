@@ -122,6 +122,12 @@ func zeroStructMap(outputType reflect.Type, validation bool) map[string]interfac
 		if field.PkgPath != "" {
 			continue
 		}
+		// Additive frozen-output fields must not be synthesized during replay:
+		// even an empty value changes the next persisted task's command hash.
+		// Validation placeholders still expose them to recipe expressions.
+		if !validation && field.Tag.Get("output") == "preserve_absence" {
+			continue
+		}
 		if !validation && field.Type.Kind() == reflect.Pointer && strings.Contains(field.Tag.Get("json"), ",omitempty") {
 			continue
 		}

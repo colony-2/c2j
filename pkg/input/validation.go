@@ -37,6 +37,9 @@ func (in Input) ValidateOpInput() error {
 }
 
 func (c Config) ValidateOpInput() error {
+	if err := c.validateDocumentPresentation(); err != nil {
+		return err
+	}
 	if c.Kind != "" && c.Kind != "review" {
 		return ValidationError{Field: "form.kind", Message: "must be review when supplied"}
 	}

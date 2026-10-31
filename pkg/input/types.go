@@ -83,14 +83,16 @@ type InputForm struct {
 	FallbackAt string           `json:"fallback_at,omitempty"`
 	Fallback   *FallbackAnswers `json:"fallback,omitempty"`
 	// RequestedAt is recorded when the form is prepared, not when its job starts.
-	RequestedAt    string                         `json:"requested_at,omitempty"`
-	Kind           string                         `json:"kind,omitempty"`
-	Documents      map[string]recipeartifacts.Ref `json:"documents,omitempty"`
-	RequestID      string                         `json:"request_id,omitempty"`
-	Request        any                            `json:"request,omitempty"`
-	RequestSchema  map[string]any                 `json:"request_schema,omitempty"`
-	ResponseSchema map[string]any                 `json:"response_schema"`
-	Presentation   map[string]any                 `json:"presentation,omitempty"`
+	RequestedAt        string                         `json:"requested_at,omitempty"`
+	Kind               string                         `json:"kind,omitempty"`
+	Documents          map[string]recipeartifacts.Ref `json:"documents,omitempty"`
+	DocumentMetadata   map[string]DocumentMetadata    `json:"document_metadata,omitempty" output:"preserve_absence" jsonschema:"description=Optional review-only presentation keyed by attached document ID"`
+	OverviewDocumentID string                         `json:"overview_document_id,omitempty" output:"preserve_absence" jsonschema:"description=Optional attached review document selected initially"`
+	RequestID          string                         `json:"request_id,omitempty"`
+	Request            any                            `json:"request,omitempty"`
+	RequestSchema      map[string]any                 `json:"request_schema,omitempty"`
+	ResponseSchema     map[string]any                 `json:"response_schema"`
+	Presentation       map[string]any                 `json:"presentation,omitempty"`
 	// Single question fields
 	Question string       `json:"question,omitempty" jsonschema:"description=Single question text"`
 	Type     FieldType    `json:"type,omitempty" jsonschema:"enum=short_answer|paragraph_text|multiple_choice|checkboxes|dropdown|linear_scale|boolean|date|time,description=Field type for single question"`

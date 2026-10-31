@@ -151,3 +151,103 @@ correlation identifiers, not an idempotency guarantee. Historical receipt lookup
 is not implemented, and the separate
 [JobDB completion investigation](JOBDB_EXTERNAL_TASK_COMPLETION_DISCUSSION.md)
 remains deferred.
+
+## Optional review document presentation (v1, unreleased)
+
+`documents` remains a map from document ID to the existing stored ArtifactRef.
+Two optional sibling fields describe those attachments without changing answers:
+
+```yaml
+form:
+  kind: review
+  question: Proceed?
+  type: boolean
+  documents:
+    brief: '${{ sequence.brief.artifacts["brief.md"] }}'
+    design: '${{ sequence.draft.artifacts["design.md"] }}'
+  overview_document_id: brief
+  document_metadata:
+    brief:
+      title: Decision brief
+      description: Change, evidence, and verification limits.
+      role: primary
+      order: 0
+      source_document_ids: [design]
+    design:
+      title: Original proposal
+      role: supporting
+```
+
+An overview is an ordinary attached artifact. It may have no metadata or role.
+Every metadata key, overview ID, and source ID must exactly match a key in the
+same documents map. IDs are case-sensitive and opaque: there is no trimming,
+path normalization, artifact-name matching, or external lookup. Sources declare
+provenance; they do not prove accuracy or approval. Cycles between distinct
+documents are allowed; consumers must not recursively expand source graphs.
+Metadata is untrusted descriptive input and grants no access or authority.
+
+All entry properties are optional. Empty metadata maps and overview strings mean
+omission. Empty title falls back to document ID; empty description adds no text.
+Role is empty/absent (neutral), `primary`, `supporting`, or `diagnostic`; consumers
+do not infer it from filenames or content. Explicit `order: 0` differs from no
+order. Bounds are checked after expressions resolve, before publishing a review:
+
+| Property | Bound |
+| --- | --- |
+| Title | 120 Unicode code points |
+| Description | 300 Unicode code points |
+| Text encoding | Valid UTF-8; no U+0000–U+001F or U+007F controls |
+| Order | Integer from 0 through 1000000, inclusive |
+| Source list | At most 128 exact document IDs; no duplicates or self-reference |
+| Combined presentation | At most 65536 bytes of compact Go encoding/json for the typed optional fields, omitting absent fields |
+
+The combined bound counts keys, sources, overview, and JSON escaping. It does not
+limit document maps, artifact bytes, or answers. Invalid supplied metadata fails
+with a field-specific error; c2j does not truncate, prune, normalize, or interpret
+text as Markdown/HTML. Nonempty additions require `kind: review`; they are not
+structured `presentation` and do not enable structured schemas on reviews.
+
+Consumers initially select the overview, otherwise the first primary document,
+otherwise the first document ID in ascending UTF-8 byte order. Display groups are
+primary, supporting, diagnostic, then neutral. Within each group, explicit orders
+sort numerically before omitted orders; ties use document ID byte order. All
+documents remain reachable, including unannotated originals and downloads.
+[Serialized integration fixtures](pkg/input/testdata/review-presentation.json)
+provide expected selections and grouping for downstream consumers.
+
+c2j freezes annotations with the form and original refs in the existing
+`generate_form` outcome. Replay preserves source-list order, request identity,
+and original bytes; changing producer values does not edit an existing review.
+Use a new review occurrence for changed content. Presentation fields are never
+answers, `Output.Metadata`, routing rules, or approval actions.
+
+### Existing jobs and activation
+
+Upgrading must preserve existing queued, executing, pending, recovered, and
+completed jobs and reviews. Missing additions remain absent. Existing forms do
+not require regeneration, migration, new identities, recipe edits, copied
+artifacts, or resubmitted answers. Previously permitted missing legacy identity,
+timing, and fallback fields remain permitted. No existing document source or
+answer format is deprecated, and no legacy variant removal date is proposed.
+
+**Annotated producer activation remains disabled until release identification.**
+The minimum supporting module tag and delivered commit must be published by the
+release workflow after this implementation and its acceptance tests are released.
+No current tag, inspected baseline commit, or older consumer pin proves support.
+This unreleased source does not invent a version or capability-discovery API.
+Both executing workers and form-serving c2j integrations must meet that minimum;
+Cortex must pin it or a later compatible release before annotated activation.
+
+Use a legacy recipe variant that omits `document_metadata` and
+`overview_document_id` entirely on unsupported runtimes. Keep briefs as ordinary
+attached documents on that branch. Do not switch to structured input to bypass
+version requirements. Existing unannotated reviews continue without a client
+upgrade; older strict clients must upgrade or be explicitly excluded before
+receiving annotated forms. Tolerant older clients can ignore the additive fields
+and continue using the unchanged documents map and answer protocol.
+
+Annotated producers on old runtimes are unsupported: decoding might reject or
+silently discard additions. Downgrading after annotated forms have been persisted
+may lose metadata; retain a compatible runtime/reader while relying on those
+forms. This change does not add historical lookup, pending-list fields, receipt
+idempotency, rendering, or automatic approval.

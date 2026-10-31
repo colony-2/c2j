@@ -66,11 +66,13 @@ func buildReviewForm(deps ops.OpDependencies, ctx context.Context, config Config
 	// Use the existing form construction and internal wait, without another op.
 	ordinary := config
 	ordinary.Kind, ordinary.Documents = "", nil
+	ordinary.DocumentMetadata, ordinary.OverviewDocumentID = nil, ""
 	form, err := buildForm(deps, ctx, Input{Form: ordinary})
 	if err != nil {
 		return InputForm{}, err
 	}
 	form.Kind, form.RequestID, form.Documents = "review", uuid.NewString(), documents
+	form.DocumentMetadata, form.OverviewDocumentID = config.DocumentMetadata, config.OverviewDocumentID
 	// Freeze caller-owned field definitions and references before publication.
 	raw, err := json.Marshal(form)
 	if err != nil {

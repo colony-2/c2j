@@ -604,6 +604,38 @@ func toOpenAPIInputFormConfig(form InputForm) openapi.InputFormConfig {
 		}
 		out.Documents = &docs
 	}
+	if form.OverviewDocumentID != "" {
+		out.OverviewDocumentId = &form.OverviewDocumentID
+	}
+	if len(form.DocumentMetadata) > 0 {
+		metadata := make(map[string]openapi.DocumentMetadata, len(form.DocumentMetadata))
+		for id, value := range form.DocumentMetadata {
+			entry := openapi.DocumentMetadata{}
+			if value.Title != "" {
+				title := value.Title
+				entry.Title = &title
+			}
+			if value.Description != "" {
+				description := value.Description
+				entry.Description = &description
+			}
+			if value.Role != "" {
+				role := openapi.DocumentMetadataRole(value.Role)
+				entry.Role = &role
+			}
+			if value.Order != nil {
+				order := *value.Order
+				entry.Order = &order
+			}
+			if len(value.SourceDocumentIDs) > 0 {
+				sources := append([]string(nil), value.SourceDocumentIDs...)
+				entry.SourceDocumentIds = &sources
+			}
+			metadata[id] = entry
+		}
+		out.DocumentMetadata = &metadata
+	}
+
 	if form.ResponseSchema != nil {
 		out.RequestId = &form.RequestID
 		out.Request = &form.Request

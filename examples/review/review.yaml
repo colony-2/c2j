@@ -12,6 +12,14 @@ sequence:
       form:
         kind: review
         title: Review the design
+        # Requires a runtime supporting review document presentation v1.
+        overview_document_id: design
+        document_metadata:
+          design:
+            title: Design proposal
+            description: Read the original proposal before answering.
+            role: primary
+            order: 0
         documents:
           design: '${{ context.artifacts["design.md"] }}'
         fields:

@@ -10,6 +10,14 @@ import (
 	"github.com/oapi-codegen/runtime"
 )
 
+// Defines values for DocumentMetadataRole.
+const (
+	Diagnostic DocumentMetadataRole = "diagnostic"
+	Empty      DocumentMetadataRole = ""
+	Primary    DocumentMetadataRole = "primary"
+	Supporting DocumentMetadataRole = "supporting"
+)
+
 // Defines values for FieldType.
 const (
 	FieldTypeBoolean            FieldType = "boolean"
@@ -45,6 +53,23 @@ type CancelRequest struct {
 	// Reason Human-readable cancellation reason
 	Reason *string `json:"reason,omitempty"`
 }
+
+// DocumentMetadata Optional untrusted review presentation. References resolve only within attached documents; source lists must not be recursively expanded.
+type DocumentMetadata struct {
+	// Description Plain UTF-8 text without control characters.
+	Description *string `json:"description,omitempty"`
+
+	// Order Explicit orders precede omission; ties use document ID byte order.
+	Order             *int                  `json:"order,omitempty"`
+	Role              *DocumentMetadataRole `json:"role,omitempty"`
+	SourceDocumentIds *[]string             `json:"source_document_ids,omitempty"`
+
+	// Title Plain UTF-8 text without control characters; empty falls back to document ID.
+	Title *string `json:"title,omitempty"`
+}
+
+// DocumentMetadataRole defines model for DocumentMetadata.Role.
+type DocumentMetadataRole string
 
 // FieldType defines model for FieldType.
 type FieldType string
@@ -109,6 +134,9 @@ type InputFormConfig struct {
 	// DefaultOnTimeout Default value to return if input times out
 	DefaultOnTimeout *interface{} `json:"default_on_timeout,omitempty"`
 
+	// DocumentMetadata Review-only metadata keyed by attached document ID; combined presentation is bounded to 65536 compact Go JSON bytes.
+	DocumentMetadata *map[string]DocumentMetadata `json:"document_metadata,omitempty"`
+
 	// Documents Review document IDs mapped to existing stored artifact references.
 	Documents *map[string]interface{} `json:"documents,omitempty"`
 
@@ -117,10 +145,13 @@ type InputFormConfig struct {
 	Fields     *[]FormField `json:"fields,omitempty"`
 
 	// Kind Review marker; questions use the ordinary form fields.
-	Kind         *string                 `json:"kind,omitempty"`
-	Options      *[]Option               `json:"options,omitempty"`
-	Presentation *map[string]interface{} `json:"presentation,omitempty"`
-	Question     *string                 `json:"question,omitempty"`
+	Kind    *string   `json:"kind,omitempty"`
+	Options *[]Option `json:"options,omitempty"`
+
+	// OverviewDocumentId Optional attached review document selected initially, with or without metadata.
+	OverviewDocumentId *string                 `json:"overview_document_id,omitempty"`
+	Presentation       *map[string]interface{} `json:"presentation,omitempty"`
+	Question           *string                 `json:"question,omitempty"`
 
 	// Request Frozen structured request data
 	Request       *interface{}            `json:"request,omitempty"`
