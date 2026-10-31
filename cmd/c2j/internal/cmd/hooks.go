@@ -28,8 +28,10 @@ func newHooksCmd() *cobra.Command {
 	root.AddCommand(group)
 	var uri string
 	var embed bool
+	var jsonOutput bool
 	group.PersistentFlags().StringVar(&uri, "jobdb", "", "JobDB URI selecting the tenant")
 	group.PersistentFlags().BoolVar(&embed, "embed", false, "Use embedded JobDB")
+	group.PersistentFlags().BoolVar(&jsonOutput, "json", false, "Emit hook permissions as JSON")
 	for _, operation := range []string{"add", "remove", "clear", "inherit", "set", "get", "list"} {
 		var cell, commit, policy string
 		var tenant, all, submit, candidate, replace bool
@@ -140,7 +142,7 @@ func newHooksCmd() *cobra.Command {
 					}
 					out[k] = d
 				}
-				return json.NewEncoder(cmd.OutOrStdout()).Encode(map[string]any{"tenant": target.TenantID, "revision": snapshot.Revision, "policies": out})
+				return writeAllHookPolicies(cmd.OutOrStdout(), target.TenantID, snapshot.Revision, out, jsonOutput)
 			}
 			s, err := hookpolicy.Capture(snapshot, repository)
 			if err != nil {
@@ -192,16 +194,16 @@ func newHooksCmd() *cobra.Command {
 				}
 				sort.Strings(paths)
 			}
-			entries := map[string]any{}
+			entries := map[string]hookPolicyView{}
 			for _, p := range paths {
 				e, source := s.Select(p)
-				entries[p] = map[string]any{"effective": e, "source": source}
+				entries[p] = hookPolicyView{Effective: e, Source: source}
 			}
 			scope := "tenant-defaults"
 			if cell != "" {
 				scope = "cell"
 			}
-			return json.NewEncoder(cmd.OutOrStdout()).Encode(map[string]any{"tenant": target.TenantID, "scope": scope, "repository": repository, "revision": snapshot.Revision, "hooks": entries, "note": "Cell entries replace defaults for this hook. Updates affect new jobs; tenant edits do not change cell overrides or running jobs."})
+			return writeHookPolicies(cmd.OutOrStdout(), operation, target.TenantID, scope, repository, snapshot.Revision, entries, jsonOutput)
 		}}
 		c.Flags().StringVar(&cell, "cell", "", "Configured cell name or explicit repository")
 		c.Flags().BoolVar(&tenant, "tenant-wide", false, "Edit this hook's tenant default across cells")

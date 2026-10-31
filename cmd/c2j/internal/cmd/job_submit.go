@@ -18,7 +18,8 @@ func newSubmitCmd() *cobra.Command {
 
 Uses build.yaml on main in github.com/colony-2/recipes directly.
 Explicit bare recipe names look in the target cell's .c2/recipes directory.
-The prompt becomes inputs.prompt; if omitted, it is requested interactively.
+The prompt becomes inputs.prompt. Use --prompt-file to read it from a text file;
+if no prompt is supplied, it is requested interactively.
 The optional --title becomes inputs.title and is included in job metadata.
 Build submissions also set inputs.type to "build".
 Custom recipes are an advanced use case: use --advanced-recipe[-file].`,
@@ -30,6 +31,7 @@ Custom recipes are an advanced use case: use --advanced-recipe[-file].`,
 			runOpts.Stderr = cmd.ErrOrStderr()
 			runOpts.Prompt = ""
 			runOpts.PromptSet = false
+			runOpts.PromptFileSet = cmd.Flags().Changed("prompt-file")
 			runOpts.TitleSet = cmd.Flags().Changed("title")
 			if useEmbed {
 				runOpts.JobDBURI = defaults.EmbedURL
@@ -55,6 +57,7 @@ Custom recipes are an advanced use case: use --advanced-recipe[-file].`,
 	cmd.MarkFlagsMutuallyExclusive("advanced-recipe", "advanced-recipe-file", "recipe", "recipe-file")
 	flags.StringVar(&opts.InputsJSON, "inputs-json", "", "Inline JSON object for recipe inputs")
 	flags.StringVar(&opts.InputsFile, "inputs-file", "", "Path to a JSON or YAML file containing recipe inputs")
+	flags.StringVar(&opts.PromptFile, "prompt-file", "", "Read the prompt from a UTF-8 text file (exclusive with positional prompt or inputs.prompt)")
 	flags.StringVar(&opts.Title, "title", "", "Optional job title, inserted as inputs.title")
 	flags.StringArrayVar(&opts.ArtifactSpecs, "artifact", nil, "Attach a local file as a job artifact; repeatable, accepts PATH or NAME=PATH")
 	flags.BoolVar(&opts.Self, "self", false, "Target the current cell explicitly (also the default when --cell is omitted)")

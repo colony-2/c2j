@@ -145,6 +145,22 @@ c2j hooks perms clear .c2/recipes/hooks/check.yaml --cell service
 c2j hooks perms inherit .c2/recipes/hooks/check.yaml --cell service
 ```
 
+All commands default to human-readable output showing the tenant, scope,
+configuration revision, permission source, grants, trust conditions, and limits.
+Edits also print a confirmation. `list --all-cells` groups stored policies by
+repository; individual cell queries show effective entries, including inherited
+tenant defaults. Empty overrides are shown as having no grants.
+
+For scripts, add `--json` to retain the JSON response format:
+
+```sh
+c2j hooks perms list --all-cells --json
+c2j hooks perms get .c2/recipes/hooks/check.yaml --cell service --json
+```
+
+`--json` also applies to `add`, `remove`, `set`, `clear`, and `inherit`; JSON
+stdout contains only the response, without the human-readable confirmation.
+
 | Command | Effect |
 | --- | --- |
 | `add HOOK --secret NAME` / `add HOOK --submit-jobs` | Add selected grants with explicit source trust. Repeat `--secret` for more names. |

@@ -766,14 +766,16 @@ outputs:
 
 func TestRun_SubmitsPromptAndRunsJobImmediately(t *testing.T) {
 	t.Parallel()
+	for _, source := range []string{"positional", "relative file", "absolute file"} {
+		t.Run(source, func(t *testing.T) {
 
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-	defer cancel()
+			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+			defer cancel()
 
-	tenantID := "tenant-submit-prompt-test"
-	recipeYAML := strings.TrimSpace(`
+			tenantID := "tenant-submit-prompt-test"
+			recipeYAML := strings.TrimSpace(`
 id: prompt_submit_recipe
-desc: verifies positional prompt input and immediate execution
+desc: verifies prompt input and immediate execution
 version: "1.0"
 input_schema:
   prompt:
@@ -786,70 +788,88 @@ outputs:
   received_prompt: "{{ inputs.prompt }}"
 `) + "\n"
 
-	recipePath := filepath.Join(t.TempDir(), "prompt_submit_recipe.yaml")
-	if err := os.WriteFile(recipePath, []byte(recipeYAML), 0o644); err != nil {
-		t.Fatalf("write recipe: %v", err)
-	}
+			recipePath := filepath.Join(t.TempDir(), "prompt_submit_recipe.yaml")
+			if err := os.WriteFile(recipePath, []byte(recipeYAML), 0o644); err != nil {
+				t.Fatalf("write recipe: %v", err)
+			}
 
-	baseRepo, _ := createGitRepo(t)
+			baseRepo, _ := createGitRepo(t)
 
-	underlying := toyruntime.New()
-	server := httptest.NewServer(remoteruntime.NewServer(underlying))
-	defer server.Close()
+			underlying := toyruntime.New()
+			server := httptest.NewServer(remoteruntime.NewServer(underlying))
+			defer server.Close()
 
-	var submitStdout bytes.Buffer
-	var submitStderr bytes.Buffer
-	if err := Run(ctx, Options{
-		JobDBURI:       testJobDBURI(server.URL, tenantID),
-		RecipeFile:     recipePath,
-		Cell:           baseRepo,
-		Prompt:         "hello from positional prompt",
-		PromptSet:      true,
-		RunAfterSubmit: true,
-		Stdin:          bytes.NewBuffer(nil),
-		Stdout:         &submitStdout,
-		Stderr:         &submitStderr,
-	}); err != nil {
-		t.Fatalf("submit and run job: %v\nstderr:\n%s", err, submitStderr.String())
-	}
+			var submitStdout bytes.Buffer
+			var submitStderr bytes.Buffer
+			opts := Options{
+				JobDBURI:       testJobDBURI(server.URL, tenantID),
+				RecipeFile:     recipePath,
+				Cell:           baseRepo,
+				Prompt:         "hello from positional prompt",
+				PromptSet:      true,
+				RunAfterSubmit: true,
+				Stdin:          bytes.NewBuffer(nil),
+				Stdout:         &submitStdout,
+				Stderr:         &submitStderr,
+			}
+			prompt := "hello from positional prompt"
+			if source != "positional" {
+				prompt = "  Multiline prompt — preserve whitespace.\nSecond line.\n"
+				opts.WorkingDir = t.TempDir()
+				opts.PromptFile = "prompt.md"
+				path := filepath.Join(opts.WorkingDir, opts.PromptFile)
+				if err := os.WriteFile(path, []byte(prompt), 0o600); err != nil {
+					t.Fatal(err)
+				}
+				if source == "absolute file" {
+					opts.PromptFile = path
+				}
+				opts.Prompt, opts.PromptSet = "", false
+				opts.PromptFileSet = true
+			}
+			if err := Run(ctx, opts); err != nil {
+				t.Fatalf("submit and run job: %v\nstderr:\n%s", err, submitStderr.String())
+			}
 
-	firstLine, _, _ := strings.Cut(submitStdout.String(), "\n")
-	jobID := extractSubmittedJobID(firstLine)
-	if jobID == "" {
-		t.Fatalf("expected job id in submit output: %q", submitStdout.String())
-	}
+			firstLine, _, _ := strings.Cut(submitStdout.String(), "\n")
+			jobID := extractSubmittedJobID(firstLine)
+			if jobID == "" {
+				t.Fatalf("expected job id in submit output: %q", submitStdout.String())
+			}
 
-	runtime, err := remoteruntime.New(server.URL, server.Client())
-	if err != nil {
-		t.Fatalf("create remote runtime: %v", err)
-	}
-	engine, err := jobworkflow.NewEngineBuilder().WithRuntime(runtime).BuildEngine()
-	if err != nil {
-		t.Fatalf("build engine: %v", err)
-	}
+			runtime, err := remoteruntime.New(server.URL, server.Client())
+			if err != nil {
+				t.Fatalf("create remote runtime: %v", err)
+			}
+			engine, err := jobworkflow.NewEngineBuilder().WithRuntime(runtime).BuildEngine()
+			if err != nil {
+				t.Fatalf("build engine: %v", err)
+			}
 
-	run, err := engine.GetJobRun(ctx, jobdb.GetJobRunRequest{
-		JobKey:         jobdb.JobKey{TenantId: tenantID, JobId: jobID},
-		IncludeOutputs: true,
-	})
-	if err != nil {
-		t.Fatalf("get job run: %v", err)
-	}
-	output, err := run.GetOutput(engine, tenantID)
-	if err != nil {
-		t.Fatalf("get output: %v", err)
-	}
-	raw, err := output.GetData()
-	if err != nil {
-		t.Fatalf("get output data: %v", err)
-	}
+			run, err := engine.GetJobRun(ctx, jobdb.GetJobRunRequest{
+				JobKey:         jobdb.JobKey{TenantId: tenantID, JobId: jobID},
+				IncludeOutputs: true,
+			})
+			if err != nil {
+				t.Fatalf("get job run: %v", err)
+			}
+			output, err := run.GetOutput(engine, tenantID)
+			if err != nil {
+				t.Fatalf("get output: %v", err)
+			}
+			raw, err := output.GetData()
+			if err != nil {
+				t.Fatalf("get output data: %v", err)
+			}
 
-	got := map[string]any{}
-	if err := json.Unmarshal(raw, &got); err != nil {
-		t.Fatalf("decode output: %v", err)
-	}
-	if got["received_prompt"] != "hello from positional prompt" {
-		t.Fatalf("unexpected output: %#v", got)
+			got := map[string]any{}
+			if err := json.Unmarshal(raw, &got); err != nil {
+				t.Fatalf("decode output: %v", err)
+			}
+			if got["received_prompt"] != prompt {
+				t.Fatalf("unexpected output: %#v", got)
+			}
+		})
 	}
 }
 

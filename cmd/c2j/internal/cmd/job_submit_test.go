@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 
@@ -22,7 +24,7 @@ func TestSubmitHelpPromotesConventions(t *testing.T) {
 	if err := cmd.Execute(); err != nil {
 		t.Fatal(err)
 	}
-	for _, flag := range []string{"--advanced-recipe", "--advanced-recipe-file", "--title"} {
+	for _, flag := range []string{"--advanced-recipe", "--advanced-recipe-file", "--title", "--prompt-file"} {
 		if !strings.Contains(out.String(), flag) {
 			t.Fatalf("help missing %s: %s", flag, &out)
 		}
@@ -138,6 +140,68 @@ func TestSubmitRejectsRemovedModeFlags(t *testing.T) {
 			if err := cmd.Execute(); err == nil || !strings.Contains(err.Error(), "unknown flag: "+flag) {
 				t.Fatalf("error = %v, want unknown flag", err)
 			}
+		})
+	}
+}
+
+func TestSubmitPromptFile(t *testing.T) {
+	root := t.TempDir()
+	t.Chdir(root)
+	prompt := "  Implement café support.\n\nKeep `code` and $VARIABLE literal.\n"
+	require.NoError(t, os.WriteFile("prompt.md", []byte(prompt), 0600))
+	require.NoError(t, os.WriteFile("inputs.yaml", []byte("extra: retained\n"), 0600))
+	db := toyruntime.New()
+	server := httptest.NewServer(remoteruntime.NewServer(db))
+	defer server.Close()
+	cmd := newSubmitCmd()
+	var stdout, stderr bytes.Buffer
+	stdin := strings.NewReader("subsequent input\n")
+	cmd.SetIn(stdin)
+	cmd.SetOut(&stdout)
+	cmd.SetErr(&stderr)
+	cmd.SetArgs([]string{"--prompt-file", "prompt.md", "--inputs-file", "inputs.yaml", "--cell", root, "--jobdb", server.URL + "/tenant", "--json"})
+	require.NoError(t, cmd.Execute())
+	require.Empty(t, stderr.String())
+	remaining, err := io.ReadAll(stdin)
+	require.NoError(t, err)
+	require.Equal(t, "subsequent input\n", string(remaining))
+	var submitted struct {
+		JobID string `json:"job_id"`
+	}
+	require.NoError(t, json.Unmarshal(stdout.Bytes(), &submitted))
+	job, err := recipejob.GetRecipeJob(context.Background(), db, recipejob.GetRecipeJobRequest{TenantID: "tenant", JobID: submitted.JobID})
+	require.NoError(t, err)
+	require.Equal(t, prompt, job.Prompt)
+}
+
+func TestSubmitPromptFileErrors(t *testing.T) {
+	root := t.TempDir()
+	t.Chdir(root)
+	require.NoError(t, os.WriteFile("prompt.md", []byte("file prompt\n"), 0600))
+	require.NoError(t, os.WriteFile("empty.md", []byte(" \n\t"), 0600))
+	require.NoError(t, os.WriteFile("invalid.md", []byte{0xff}, 0600))
+	require.NoError(t, os.WriteFile("inputs.yaml", []byte("prompt: from inputs\n"), 0600))
+	for _, tc := range []struct {
+		name string
+		args []string
+		want string
+	}{
+		{"positional conflict", []string{"positional", "--prompt-file", "prompt.md"}, "mutually exclusive"},
+		{"empty positional conflict", []string{"", "--prompt-file", "prompt.md"}, "mutually exclusive"},
+		{"json conflict", []string{"--prompt-file", "prompt.md", "--inputs-json", `{"prompt":"existing"}`}, "both via --prompt-file"},
+		{"file conflict", []string{"--prompt-file", "prompt.md", "--inputs-file", "inputs.yaml"}, "both via --prompt-file"},
+		{"missing", []string{"--prompt-file", "missing.md"}, "read prompt file"},
+		{"directory", []string{"--prompt-file", root}, "read prompt file"},
+		{"empty path", []string{"--prompt-file", ""}, "path is required"},
+		{"blank content", []string{"--prompt-file", "empty.md"}, "non-empty prompt"},
+		{"invalid encoding", []string{"--prompt-file", "invalid.md"}, "UTF-8"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cmd := newSubmitCmd()
+			cmd.SetOut(&bytes.Buffer{})
+			cmd.SetErr(&bytes.Buffer{})
+			cmd.SetArgs(append(tc.args, "--cell", root, "--jobdb", "http://127.0.0.1:1/tenant"))
+			require.ErrorContains(t, cmd.Execute(), tc.want)
 		})
 	}
 }

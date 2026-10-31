@@ -323,7 +323,19 @@ Every submission requires a non-empty prompt, passed as `inputs.prompt`. Omit th
 c2j submit --embed
 ```
 
-For automation, provide the positional prompt or a string `prompt` in `--inputs-json`/`--inputs-file`; missing prompts with non-terminal stdin fail immediately. Interactive prompts go to stderr, so `--json` stdout stays machine-readable.
+For automation, provide the positional prompt, `--prompt-file PATH`, or a string `prompt` in `--inputs-json`/`--inputs-file`; missing prompts with non-terminal stdin fail immediately. Interactive prompts go to stderr, so `--json` stdout stays machine-readable.
+
+To submit a prompt saved in a text file:
+
+```bash
+c2j submit --self --prompt-file prompt.md
+```
+
+`--prompt-file` reads a non-empty UTF-8 text file, preserving its whitespace and
+line breaks. Relative paths are resolved from the current working directory.
+It cannot be combined with a positional prompt or `inputs.prompt`, but other
+inputs can still be supplied through `--inputs-json` or `--inputs-file`. It
+leaves stdin available for subsequent interaction with `--run`.
 
 ### Build input contract
 

@@ -22,10 +22,12 @@ type Options struct {
 	Recipe                string
 	RecipeFile            string
 
-	Prompt    string
-	PromptSet bool
-	Title     string
-	TitleSet  bool
+	Prompt        string
+	PromptSet     bool
+	PromptFile    string
+	PromptFileSet bool
+	Title         string
+	TitleSet      bool
 
 	InputsJSON string
 	InputsFile string

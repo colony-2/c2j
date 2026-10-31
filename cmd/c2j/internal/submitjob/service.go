@@ -263,6 +263,19 @@ mergePrompt:
 	if inputs == nil {
 		return nil, fmt.Errorf("decode inputs: expected a JSON or YAML object, not null")
 	}
+	if opts.PromptFileSet || opts.PromptFile != "" {
+		if opts.PromptSet || opts.Prompt != "" {
+			return nil, fmt.Errorf("--prompt-file and a positional prompt are mutually exclusive")
+		}
+		if _, exists := inputs["prompt"]; exists {
+			return nil, fmt.Errorf("prompt was provided both via --prompt-file and in recipe inputs")
+		}
+		prompt, err := readPromptFile(opts)
+		if err != nil {
+			return nil, err
+		}
+		inputs["prompt"] = prompt
+	}
 	if opts.PromptSet || opts.Prompt != "" {
 		if _, exists := inputs["prompt"]; exists {
 			return nil, fmt.Errorf("prompt was provided both positionally and in recipe inputs")
