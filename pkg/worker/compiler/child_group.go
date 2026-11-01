@@ -62,7 +62,8 @@ func (d DefaultRecipeExecutor) ExecuteChildGroup(ctx workflow.Context, parent *t
 	}
 	needs := renderCtx.ExecutionNeeds
 	internalMetadata.ExecutionNeeds = &recipe.ExecutionNeeds{
-		Image: value(needs.Image), Platform: value(needs.Platform),
+		Capabilities: append([]string(nil), needs.Capabilities...),
+		Image:        value(needs.Image), Platform: value(needs.Platform),
 		Resources: recipe.ExecutionNeedResources{CPU: value(needs.Resources.CPU), Memory: value(needs.Resources.Memory), EphemeralStorage: value(needs.Resources.EphemeralStorage)},
 	}
 	return d.self().ExecuteOp(ctx, parent, internalMetadata, opType)

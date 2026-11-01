@@ -16,6 +16,7 @@ import (
 	"github.com/colony-2/c2j/cmd/c2j/internal/defaults"
 	"github.com/colony-2/c2j/cmd/c2j/internal/runjob"
 	"github.com/colony-2/c2j/cmd/c2j/internal/swfruntime"
+	"github.com/colony-2/c2j/pkg/execution"
 	"github.com/colony-2/c2j/pkg/swfutil"
 	"github.com/colony-2/c2j/pkg/worker/compiler"
 	"github.com/colony-2/c2j/pkg/workflowctl"
@@ -881,6 +882,7 @@ func TestRun_SubmitsAndExecutesWithEmbeddedRuntime(t *testing.T) {
 
 	recipeYAML := strings.TrimSpace(`
 id: embed_submit_recipe
+execution: {capabilities: [synthetic.recipe]}
 input_schema:
   prompt:
     type: string
@@ -905,13 +907,14 @@ outputs:
 
 	var submitStdout bytes.Buffer
 	if err := Run(ctx, Options{
-		JobDBURI:   "embed:///",
-		RecipeFile: recipePath,
-		Prompt:     "run the embedded test recipe",
-		Cell:       baseRepo,
-		JSONOutput: true,
-		Stdout:     &submitStdout,
-		Stderr:     &bytes.Buffer{},
+		JobDBURI:              "embed:///",
+		RecipeFile:            recipePath,
+		ExecutionRequirements: execution.Requirements{Capabilities: []string{"synthetic.job"}},
+		Prompt:                "run the embedded test recipe",
+		Cell:                  baseRepo,
+		JSONOutput:            true,
+		Stdout:                &submitStdout,
+		Stderr:                &bytes.Buffer{},
 	}); err != nil {
 		t.Fatalf("submit job: %v", err)
 	}
@@ -935,6 +938,7 @@ outputs:
 	var runStderr bytes.Buffer
 	if err := runjob.Run(ctx, runjob.Options{
 		JobID:        submitted.JobID,
+		Allocation:   execution.Allocation{SchemaVersion: 1, Capabilities: []string{"synthetic.job", "synthetic.recipe"}},
 		JobDBURI:     "embed:///",
 		WaitTimeout:  15 * time.Second,
 		PollInterval: 10 * time.Millisecond,

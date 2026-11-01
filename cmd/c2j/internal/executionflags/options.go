@@ -3,6 +3,7 @@
 package executionflags
 
 import (
+	"encoding/json"
 	"fmt"
 
 	"github.com/colony-2/c2j/pkg/execution"
@@ -12,6 +13,7 @@ import (
 // Options preserves presence so an explicit empty argument cannot fall back to
 // an environment value. Environment lookup happens at execution, not binding.
 type Options struct {
+	Capabilities     []string
 	CPU              *string
 	Memory           *string
 	EphemeralStorage *string
@@ -39,6 +41,7 @@ func (o *Options) bindings() []binding {
 }
 
 func (o *Options) AddFlags(flags *pflag.FlagSet) {
+	flags.StringArrayVar(&o.Capabilities, "execution-capability", nil, "Actual usable execution capability (repeatable; or C2J_EXECUTION_CAPABILITIES JSON array)")
 	for _, b := range o.bindings() {
 		flags.Var(optionalString{b.target}, b.flag, b.help+" (or "+b.env+")")
 	}
@@ -47,6 +50,9 @@ func (o *Options) AddFlags(flags *pflag.FlagSet) {
 // HasArguments reports explicit allocation arguments, without inspecting the
 // environment. Submission uses this to reject allocation-only flags without run.
 func (o Options) HasArguments() bool {
+	if o.Capabilities != nil {
+		return true
+	}
 	for _, b := range o.bindings() {
 		if *b.target != nil {
 			return true
@@ -76,7 +82,18 @@ func (o Options) Parse(lookupEnv func(string) (string, bool)) (execution.Allocat
 			}
 		}
 	}
+	if o.Capabilities == nil && lookupEnv != nil {
+		if value, exists := lookupEnv("C2J_EXECUTION_CAPABILITIES"); exists {
+			if err := json.Unmarshal([]byte(value), &o.Capabilities); err != nil {
+				return execution.Allocation{}, fmt.Errorf("C2J_EXECUTION_CAPABILITIES: expected a JSON string array: %w", err)
+			}
+			if o.Capabilities == nil {
+				return execution.Allocation{}, fmt.Errorf("C2J_EXECUTION_CAPABILITIES: expected a JSON string array")
+			}
+		}
+	}
 	a := execution.Allocation{
+		Capabilities:  o.Capabilities,
 		SchemaVersion: execution.SchemaVersion,
 		Platform:      o.Platform,
 		Resources:     execution.Resources{CPU: o.CPU, Memory: o.Memory, EphemeralStorage: o.EphemeralStorage},
@@ -102,6 +119,9 @@ type Filter = execution.Filter
 // hide children that require a different environment.
 func (o Options) ParseFilter(enabled, includeUnresolved bool, lookupEnv func(string) (string, bool)) (*Filter, error) {
 	if !enabled {
+		if o.Capabilities != nil {
+			return nil, fmt.Errorf("--execution-capability requires --compatible-with-execution when listing jobs")
+		}
 		if includeUnresolved {
 			return nil, fmt.Errorf("--include-unresolved requires --compatible-with-execution")
 		}

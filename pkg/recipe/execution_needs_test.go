@@ -26,3 +26,26 @@ func TestExecutionNeedsParsingRoundTripAndSchema(t *testing.T) {
 	require.NoError(t, err)
 	require.Contains(t, schema, `"execution_needs"`)
 }
+
+func TestCapabilitiesRecipeAndNodeParsing(t *testing.T) {
+	for _, field := range []string{"execution", "execution_needs"} {
+		for _, value := range []string{"[true]", "[123]", "[null]", "[Docker]", "docker", "[a..b]"} {
+			_, err := LoadRecipeFromString([]byte("id: bad\n" + field + ": {capabilities: " + value + "}\nsequence: []\n"))
+			require.Error(t, err, field+value)
+		}
+		r, err := LoadRecipeFromString([]byte("id: good\n" + field + ": {capabilities: [unknown.feature, vendor/device]}\nsequence: []\n"))
+		require.NoError(t, err)
+		if field == "execution_needs" {
+			require.True(t, HasExecutionConstraints(*r))
+		}
+		raw, err := yaml.Marshal(r)
+		require.NoError(t, err)
+		again, err := LoadRecipeFromString(raw)
+		require.NoError(t, err)
+		require.Equal(t, r.GetMetadata().Execution, again.GetMetadata().Execution)
+		require.Equal(t, r.GetMetadata().ExecutionNeeds, again.GetMetadata().ExecutionNeeds)
+	}
+	schema, err := GenerateSchemaString()
+	require.NoError(t, err)
+	require.Contains(t, schema, `"capabilities"`)
+}

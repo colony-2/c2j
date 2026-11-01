@@ -31,7 +31,7 @@ func TestPublicAPIAndCLIParity(t *testing.T) {
 	for _, status := range []jobdb.JobStatus{jobdb.JobStatusReady, jobdb.JobStatusCrashConcern, jobdb.JobStatusActive, jobdb.JobStatusCompleted} {
 		t.Run(string(status), func(t *testing.T) {
 			memory := "8Gi"
-			demand, err := execution.Initial(nil, true, execution.Requirements{Resources: execution.Resources{Memory: &memory}})
+			demand, err := execution.Initial(nil, true, execution.Requirements{Resources: execution.Resources{Memory: &memory}, Capabilities: []string{"synthetic.worker"}})
 			require.NoError(t, err)
 			meta, err := json.Marshal(map[string]any{"repo": "https://github.com/acme/app.git", "execution": demand})
 			require.NoError(t, err)
@@ -58,6 +58,9 @@ func TestPublicAPIAndCLIParity(t *testing.T) {
 			var cliPage joblist.Page
 			require.NoError(t, json.Unmarshal(out.Bytes(), &cliPage))
 			require.Equal(t, cliPage, page)
+			if status == jobdb.JobStatusReady || status == jobdb.JobStatusCrashConcern {
+				require.Contains(t, out.String(), `"synthetic.worker"`)
+			}
 			require.Equal(t, "opaque-token", cliPage.NextPageToken)
 			require.Len(t, cliPage.Jobs, 1)
 			require.Equal(t, runtime.job.ClientPayload, cliPage.Jobs[0].ClientPayload)

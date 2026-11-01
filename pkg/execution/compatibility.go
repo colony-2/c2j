@@ -25,6 +25,15 @@ func Compare(required Requirements, allocated Allocation) ([]Mismatch, error) {
 		return nil, err
 	}
 	var result []Mismatch
+	supplied := make(map[string]bool, len(a.Capabilities))
+	for _, name := range a.Capabilities {
+		supplied[name] = true
+	}
+	for _, name := range r.Capabilities {
+		if !supplied[name] {
+			result = append(result, Mismatch{Field: "capabilities", Required: name, Reason: "missing_capability"})
+		}
+	}
 	check := func(field string, required *string, actual string, compatible bool) {
 		if required == nil || compatible {
 			return

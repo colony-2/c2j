@@ -402,3 +402,35 @@ outputs:
 		})
 	}
 }
+
+func TestRunWithLeaseCapabilityHandoffAndOldEncoding(t *testing.T) {
+	for _, capabilities := range []bool{false, true} {
+		t.Run(fmt.Sprint(capabilities), func(t *testing.T) {
+			declaration := ""
+			if capabilities {
+				declaration = "execution: {capabilities: [synthetic.worker]}\n"
+			}
+			marker := filepath.Join(t.TempDir(), "ran")
+			f := newSuppliedCLI(t, "id: capability\n"+declaration+"op: command_execution\ninputs:\n  run: 'touch "+marker+"'\n", time.Minute)
+			if capabilities {
+				require.NoError(t, f.run(t, false))
+				require.NoFileExists(t, marker, "missing capability must yield before side effects")
+				require.Contains(t, f.stdout.String(), `"required":"synthetic.worker"`)
+				require.Contains(t, f.stdout.String(), `"capabilities":["synthetic.worker"]`)
+				f.claim(t, jobdb.Route{JobType: "recipe"}, time.Minute)
+				f.opts.ExecutionFlags.Capabilities = []string{"synthetic.worker", "extra"}
+			} else {
+				// Literal pre-change allocation encoding; the old recipe also omits
+				// capabilities. The supplied-lease runner must accept both unchanged.
+				require.NoError(t, json.Unmarshal([]byte(`{"schema_version":1,"resources":{}}`), &f.opts.Allocation))
+			}
+			f.stdout.Reset()
+			require.NoError(t, f.run(t, true))
+			require.FileExists(t, marker)
+			require.NotContains(t, f.stdout.String(), `"kind":"environment_required"`)
+			info, err := f.backend.GetJob(context.Background(), f.key)
+			require.NoError(t, err)
+			require.Equal(t, jobdb.JobStatusCompleted, info.Status)
+		})
+	}
+}

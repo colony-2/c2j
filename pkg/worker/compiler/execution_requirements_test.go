@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/colony-2/c2j/pkg/execution"
+	"github.com/colony-2/c2j/pkg/recipe"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
 	"github.com/stretchr/testify/require"
@@ -62,4 +63,19 @@ func (c *failingExecutionContext) ResolveSecretsFresh(ctx context.Context, names
 
 func (c *failingExecutionContext) Job() jobdb.JobHandle {
 	return jobdb.JobHandle{JobKey: c.GetJobKey()}
+}
+
+func TestCapabilityOnlyRequirementsRequireGuardedRuntime(t *testing.T) {
+	ctx := &failingExecutionContext{}
+	for _, source := range []string{
+		"id: base\nexecution: {capabilities: [synthetic]}\nsequence: []\n",
+		"id: node\nexecution_needs: {capabilities: [synthetic]}\nsequence: []\n",
+	} {
+		r, err := recipe.LoadRecipeFromString([]byte(source))
+		require.NoError(t, err)
+		_, err = (recipeJobWorker{}).executionSession(ctx, *r, nil)
+		require.ErrorContains(t, err, "guarded task workers")
+	}
+	s := executionSession{}
+	require.ErrorContains(t, s.apply(execution.Requirements{Capabilities: []string{"synthetic"}}), "guarded task workers")
 }

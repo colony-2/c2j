@@ -7,6 +7,7 @@ import (
 
 // AddRequirementFlags binds job overrides, never actual allocation facts.
 func AddRequirementFlags(flags *pflag.FlagSet, r *execution.Requirements) {
+	flags.StringArrayVar(&r.Capabilities, "require-capability", nil, "Required execution capability (repeatable; not actual allocation)")
 	for _, b := range []struct {
 		name   string
 		target **string

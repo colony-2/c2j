@@ -13,6 +13,7 @@ host capacity or use recipe requests as evidence of allocation.
 
 | Argument | Environment | Meaning |
 | --- | --- | --- |
+| `--execution-capability` | `C2J_EXECUTION_CAPABILITIES` | Repeatable capability name; environment is a JSON string array |
 | `--execution-cpu` | `C2J_EXECUTION_CPU` | Usable cores/millicores |
 | `--execution-memory` | `C2J_EXECUTION_MEMORY` | Usable memory |
 | `--execution-ephemeral-storage` | `C2J_EXECUTION_EPHEMERAL_STORAGE` | Usable scratch |
@@ -31,3 +32,7 @@ This package parses the candidate; it does not perform listing or pagination.
 
 Run `go test ./cmd/c2j/internal/executionflags` for precedence, unknown-input,
 validation, image-identity, and list opt-in tests.
+
+Capability flags replace the whole environment-provided set when present. Names
+are validated, deduplicated, and sorted. Use repeatable `--require-capability`
+for submission requirements; these never establish supplied allocation facts.

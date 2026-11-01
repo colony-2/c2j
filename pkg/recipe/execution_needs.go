@@ -3,16 +3,18 @@ package recipe
 import (
 	"fmt"
 
+	"github.com/colony-2/c2j/pkg/execution"
 	"gopkg.in/yaml.v3"
 )
 
 // ExecutionNeeds contains literal or templated node properties. Validation of
 // resolved values uses the existing execution.Requirements model.
 type ExecutionNeeds struct {
-	Packages  []string               `yaml:"packages,omitempty" json:"packages,omitempty"`
-	Resources ExecutionNeedResources `yaml:"resources,omitempty" json:"resources,omitempty"`
-	Image     any                    `yaml:"image,omitempty" json:"image,omitempty"`
-	Platform  any                    `yaml:"platform,omitempty" json:"platform,omitempty"`
+	Capabilities []string               `yaml:"capabilities,omitempty" json:"capabilities,omitempty"`
+	Packages     []string               `yaml:"packages,omitempty" json:"packages,omitempty"`
+	Resources    ExecutionNeedResources `yaml:"resources,omitempty" json:"resources,omitempty"`
+	Image        any                    `yaml:"image,omitempty" json:"image,omitempty"`
+	Platform     any                    `yaml:"platform,omitempty" json:"platform,omitempty"`
 }
 
 type ExecutionNeedResources struct {
@@ -29,6 +31,10 @@ func (n *ExecutionNeeds) UnmarshalYAML(node *yaml.Node) error {
 		key := node.Content[i].Value
 		switch key {
 		case "image", "platform", "packages":
+		case "capabilities":
+			if err := execution.ValidateCapabilitiesYAML(node.Content[i+1]); err != nil {
+				return err
+			}
 		case "resources":
 			r := node.Content[i+1]
 			if r.Kind != yaml.MappingNode {
@@ -45,7 +51,15 @@ func (n *ExecutionNeeds) UnmarshalYAML(node *yaml.Node) error {
 		}
 	}
 	type plain ExecutionNeeds
-	return node.Decode((*plain)(n))
+	if err := node.Decode((*plain)(n)); err != nil {
+		return err
+	}
+	normalized, err := (execution.Requirements{Capabilities: n.Capabilities}).Normalize()
+	if err != nil {
+		return err
+	}
+	n.Capabilities = normalized.Capabilities
+	return nil
 }
 
 // HasExecutionNeeds includes inline-expanded nodes and state bodies. It does
@@ -55,10 +69,10 @@ func HasExecutionNeeds(r Recipe) bool {
 }
 
 // HasExecutionConstraints excludes packages: local setup does not require a
-// resource-admission runtime when there are no image/capacity declarations.
+// resource-admission runtime when there are no capability/image/capacity declarations.
 func HasExecutionConstraints(r Recipe) bool {
 	return hasExecutionNeeds(r, func(n *ExecutionNeeds) bool {
-		return n != nil && (n.Image != nil || n.Platform != nil || n.Resources.CPU != nil || n.Resources.Memory != nil || n.Resources.EphemeralStorage != nil)
+		return n != nil && (len(n.Capabilities) > 0 || n.Image != nil || n.Platform != nil || n.Resources.CPU != nil || n.Resources.Memory != nil || n.Resources.EphemeralStorage != nil)
 	})
 }
 func hasExecutionNeeds(r Recipe, matches func(*ExecutionNeeds) bool) bool {

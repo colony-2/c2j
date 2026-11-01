@@ -25,6 +25,10 @@ func (r *Requirements) UnmarshalYAML(node *yaml.Node) error {
 		name := node.Content[i].Value
 		switch name {
 		case "image", "platform", "packages":
+		case "capabilities":
+			if err := ValidateCapabilitiesYAML(node.Content[i+1]); err != nil {
+				return err
+			}
 		case "resources":
 			resources := node.Content[i+1]
 			if resources.Kind != yaml.MappingNode {

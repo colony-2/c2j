@@ -7,6 +7,8 @@ import (
 	recipeartifacts "github.com/colony-2/c2j/pkg/artifacts"
 	"github.com/colony-2/c2j/pkg/recipe"
 	"github.com/colony-2/c2j/pkg/template"
+	"github.com/colony-2/c2j/pkg/workflow"
+	"github.com/stretchr/testify/require"
 )
 
 func newChildGroupRenderContext(t *testing.T, inputs map[string]interface{}, artifacts map[string]recipeartifacts.Ref) *template.ResolutionContext {
@@ -112,4 +114,26 @@ func TestChildGroupInternalOpModes(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected unsupported mode error")
 	}
+}
+
+type capabilityChildGroupExecutor struct {
+	DefaultRecipeExecutor
+	needs *recipe.ExecutionNeeds
+}
+
+func (d *capabilityChildGroupExecutor) ExecuteOp(_ workflow.Context, _ *template.ResolutionContext, metadata recipe.NodeMetadata, _ string) error {
+	d.needs = metadata.ExecutionNeeds
+	return nil
+}
+
+func TestChildGroupPreservesLexicalCapabilities(t *testing.T) {
+	parent := newChildGroupRenderContext(t, nil, nil)
+	require.NoError(t, parent.ResolveExecutionNeeds(&recipe.ExecutionNeeds{Capabilities: []string{"parent"}}))
+	delegate := &capabilityChildGroupExecutor{}
+	executor := (DefaultRecipeExecutor{}).WithDelegate(delegate)
+	require.NoError(t, executor.ExecuteChildGroup(workflow.Context{}, parent, recipe.NodeMetadata{ID: "children", ExecutionNeeds: &recipe.ExecutionNeeds{Capabilities: []string{"group"}}}, recipe.ChildGroupData{Children: []recipe.ChildGroupChild{{Key: "child", Recipe: "child-recipe"}}}))
+	require.Equal(t, []string{"group", "parent"}, delegate.needs.Capabilities)
+	require.Equal(t, []string{"parent"}, parent.ExecutionNeeds.Capabilities)
+	separate := newChildGroupRenderContext(t, nil, nil)
+	require.Empty(t, separate.ExecutionNeeds.Capabilities, "a separately submitted recipe starts its own execution scope")
 }

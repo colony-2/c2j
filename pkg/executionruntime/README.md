@@ -16,7 +16,7 @@ Cached tasks never request historical environments, including when recovery
 starts through a stale task route.
 
 Wrap every task worker with `WrapTaskWorker` and supply that same function in
-the recipe worker options. Resource and image constraints require this guard;
+the recipe worker options. Capability, resource, and image constraints require this guard;
 staging alone cannot enforce a live-task boundary.
 
 Node scopes are ephemeral. An ordinary task/time reschedule publishes the staged

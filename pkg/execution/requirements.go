@@ -16,12 +16,14 @@ import (
 const SchemaVersion = 1
 
 // Requirements is also the partial override format: nil preserves the base
-// property. Explicit empty values are invalid; version 1 does not support clear.
+// property. Capabilities are additive; an empty list adds nothing. Scalar
+// empty values are invalid; version 1 does not support clear.
 type Requirements struct {
-	Packages  []string  `json:"packages,omitempty" yaml:"packages,omitempty"`
-	Image     *string   `json:"image,omitempty" yaml:"image,omitempty"`
-	Platform  *string   `json:"platform,omitempty" yaml:"platform,omitempty"`
-	Resources Resources `json:"resources,omitempty" yaml:"resources,omitempty"`
+	Capabilities []string  `json:"capabilities,omitempty" yaml:"capabilities,omitempty"`
+	Packages     []string  `json:"packages,omitempty" yaml:"packages,omitempty"`
+	Image        *string   `json:"image,omitempty" yaml:"image,omitempty"`
+	Platform     *string   `json:"platform,omitempty" yaml:"platform,omitempty"`
+	Resources    Resources `json:"resources,omitempty" yaml:"resources,omitempty"`
 }
 
 type Resources struct {
@@ -39,6 +41,7 @@ type Image struct {
 // Allocation contains simultaneous usable capacities reported by the trusted
 // provisioner, not requested limits or capacities discovered from the host.
 type Allocation struct {
+	Capabilities  []string  `json:"capabilities,omitempty"`
 	SchemaVersion int       `json:"schema_version"`
 	Image         Image     `json:"image,omitempty"`
 	Platform      *string   `json:"platform,omitempty"`
@@ -49,9 +52,10 @@ type Allocation struct {
 // the returned pointers. Validate patches before overlaying them.
 func Overlay(base, override Requirements) Requirements {
 	return Requirements{
-		Packages: mergePackages(base.Packages, override.Packages),
-		Image:    choose(base.Image, override.Image),
-		Platform: choose(base.Platform, override.Platform),
+		Packages:     mergePackages(base.Packages, override.Packages),
+		Capabilities: mergeCapabilities(base.Capabilities, override.Capabilities),
+		Image:        choose(base.Image, override.Image),
+		Platform:     choose(base.Platform, override.Platform),
 		Resources: Resources{
 			CPU:              choose(base.Resources.CPU, override.Resources.CPU),
 			Memory:           choose(base.Resources.Memory, override.Resources.Memory),
@@ -72,12 +76,15 @@ func choose(base, override *string) *string {
 }
 
 func (r Requirements) Empty() bool {
-	return r.Image == nil && r.Platform == nil && r.Resources == (Resources{}) && len(r.Packages) == 0
+	return r.Image == nil && r.Platform == nil && r.Resources == (Resources{}) && len(r.Packages) == 0 && len(r.Capabilities) == 0
 }
 
 // Normalize validates all supplied fields and returns canonical values.
 func (r Requirements) Normalize() (Requirements, error) {
 	out := Overlay(r, Requirements{})
+	if err := validateCapabilities(out.Capabilities); err != nil {
+		return Requirements{}, err
+	}
 	for _, ref := range out.Packages {
 		if _, _, err := ParsePackage(ref); err != nil {
 			return Requirements{}, err
@@ -110,7 +117,7 @@ func (a Allocation) Normalize() (Allocation, error) {
 	if a.SchemaVersion != SchemaVersion {
 		return Allocation{}, fmt.Errorf("unsupported allocation schema version %d", a.SchemaVersion)
 	}
-	r := Requirements{Platform: a.Platform, Resources: a.Resources}
+	r := Requirements{Platform: a.Platform, Resources: a.Resources, Capabilities: a.Capabilities}
 	if a.Image.Reference != "" {
 		r.Image = &a.Image.Reference
 	}
@@ -119,6 +126,7 @@ func (a Allocation) Normalize() (Allocation, error) {
 		return Allocation{}, err
 	}
 	a.Platform, a.Resources = normalized.Platform, normalized.Resources
+	a.Capabilities = normalized.Capabilities
 	if normalized.Image != nil {
 		a.Image.Reference = *normalized.Image
 	}
@@ -142,7 +150,7 @@ func (a Allocation) Normalize() (Allocation, error) {
 
 // HasCompatibilityFacts excludes image IDs, which are diagnostic only.
 func (a Allocation) HasCompatibilityFacts() bool {
-	return a.Image.Reference != "" || a.Image.ManifestDigest != "" || a.Platform != nil || a.Resources != (Resources{})
+	return a.Image.Reference != "" || a.Image.ManifestDigest != "" || a.Platform != nil || a.Resources != (Resources{}) || len(a.Capabilities) > 0
 }
 
 func normalizeReference(value string) (string, error) {

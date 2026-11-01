@@ -35,7 +35,12 @@ Reviews use one `input` op with `form.kind: review`, ordinary questions, and
 stored document references. No review extension or preparation recipe is needed.
 
 Recipes can declare an `execution` block for CPU, memory, scratch, platform,
-and image. Node-level `execution_needs` adds templatable, scoped overrides that
+image, and capabilities such as `docker` or `virtualization.kvm`. Capability
+requirements combine by union; providers report actual capabilities separately.
+Use repeatable `--require-capability NAME` for submission and
+`--execution-capability NAME` for supplied facts. See the
+[capability contracts](pkg/execution/README.md#execution-capabilities).
+Node-level `execution_needs` adds scoped requirements and templatable resource/image overrides that
 inherit within a job and restore the parent on exit. Completed tasks replay
 without requesting their historical environments. Pass actual executor facts using individual `--execution-*` flags
 or `C2J_EXECUTION_*` variables. If requirements change or the environment is
