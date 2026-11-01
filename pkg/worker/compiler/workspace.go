@@ -86,7 +86,7 @@ func resolveWorkspaceTask(ctx context.Context, data jobdb.TaskData) (jobdb.TaskD
 	}
 	policy := ""
 	if !isFullGitHash(target.Ref) {
-		policy = contextual.WorkspaceFollowUntilChange
+		policy = contextual.WorkspaceFollowPerTask
 	}
 	return jobdb.NewTaskData(WorkspaceResolutionOutput{
 		Workspace: contextual.WorkspaceContext{Cell: target.Cell, ScopeID: req.ScopeID, ParentScopeID: req.ParentScopeID, InitialHash: resolved.Commit, RefPolicy: policy},
@@ -94,13 +94,12 @@ func resolveWorkspaceTask(ctx context.Context, data jobdb.TaskData) (jobdb.TaskD
 	})
 }
 
-// Record each fresh operation's branch observation as a durable task. Replay
-// and retries reuse it; a later operation observes again until a commit/base
-// is accepted. Legacy descriptors deliberately retain their recorded pin.
+// Preserve the base tasks in existing histories. New workspaces resolve refs
+// within their task workers, so unpinned tasks and retries select independently.
 func observeWorkspaceBase(ctx workflow.Context, parent *template.ResolutionContext, site string) (*template.ResolutionContext, error) {
 	ec := parent.TaskExecutionContext()
 	ws := ec.Workspace
-	if !ws.FollowsRef() || ec.GitTask.PersistHash != "" || ws.TaskBaseHash != "" || parent.Options.Mode == template.ModeValidate {
+	if !ws.UsesBaseTasks() || ec.GitTask.PersistHash != "" || ws.TaskBaseHash != "" || parent.Options.Mode == template.ModeValidate {
 		return parent, nil
 	}
 	if ctx.OperationBase != nil && *ctx.OperationBase != "" {

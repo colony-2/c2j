@@ -19,6 +19,8 @@ hash. For op inputs requiring the prepared workspace's hashes, use the execution
 references instead. Reading them does not itself pin the job. Use completed op
 outputs when recipe routing needs concrete hashes.
 
+Before a symbolic workspace is pinned, every task attempt may use a different valid hash, including retries. Use `context.git.execution.base_hash` and `context.git.execution.head_hash` for the actual restored task in op inputs; a prior observation is not a pin. Persisted changes pin the candidate and active base. Explicit rebase advances both, so the diff from the active base to HEAD contains the patch changes rather than incorporated upstream changes.
+
 ## Scoped Workspaces
 
 A node with `workspace` has an independent Git snapshot lineage; descendants inherit it, and the enclosing workspace resumes on exit. `context.git.*` always describes the active workspace. See [workspaces.md](workspaces.md) before passing hashes or thin packs across cell boundaries.

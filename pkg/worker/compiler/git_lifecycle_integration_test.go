@@ -33,10 +33,11 @@ import (
 // it. The replacement must reconstruct everything from durable history.
 type gitOutcomeInterruption struct {
 	jobdb.WorkflowRuntime
-	lease  jobdb.ExecutionLease
-	match  string
-	fired  bool
-	cancel context.CancelFunc
+	lease       jobdb.ExecutionLease
+	match       string
+	includeBase bool
+	fired       bool
+	cancel      context.CancelFunc
 }
 
 func (r *gitOutcomeInterruption) GetJobLease(ctx context.Context, req jobdb.GetJobLeaseRequest) (jobdb.ExecutionLease, error) {
@@ -53,7 +54,7 @@ func (r *gitOutcomeInterruption) PutChapter(ctx context.Context, req jobdb.PutCh
 		if err != nil {
 			return err
 		}
-		if record.Kind == "result" && strings.Contains(record.ID, r.match) && !strings.Contains(record.ID, "workspace-base") {
+		if record.Kind == "result" && strings.Contains(record.ID, r.match) && (r.includeBase || !strings.Contains(record.ID, "workspace-base")) {
 			r.fired = true
 			if err := r.lease.Reschedule(ctx, jobdb.RescheduleExecutionRequest{NextRoute: jobdb.Route{JobType: "recipe"}}); err != nil {
 				return err
@@ -65,7 +66,7 @@ func (r *gitOutcomeInterruption) PutChapter(ctx context.Context, req jobdb.PutCh
 	return nil
 }
 
-func runGitLifecycle(t *testing.T, rt jobdb.WorkflowRuntime, key jobdb.JobKey) (jobworkflow.JobRunOutcome, error) {
+func runGitLifecycle(t *testing.T, rt jobdb.WorkflowRuntime, key jobdb.JobKey, recordedPolicy ...string) (jobworkflow.JobRunOutcome, error) {
 	t.Helper()
 	reg, err := workerops.NewActivityRegistry()
 	require.NoError(t, err)
@@ -83,6 +84,9 @@ func runGitLifecycle(t *testing.T, rt jobdb.WorkflowRuntime, key jobdb.JobKey) (
 	guard.Issuer = permissions.JobDBIssuer{}
 	var tasks []jobworkflow.TaskWorker
 	for _, task := range ws.TaskWorkers {
+		if len(recordedPolicy) != 0 && task.Name() == WorkspaceResolutionTaskType {
+			task = workspacePolicyWorker{TaskWorker: task, policy: recordedPolicy[0]}
+		}
 		tasks = append(tasks, guard.WrapTaskWorker(task))
 	}
 	r, err := jobworkflow.GetJobForRun(ctx, guard, jobworkflow.GetJobForRunRequest{JobKey: key, JobWorker: ws.JobWorker, TaskWorkers: tasks, WorkerID: "git-lifecycle", LeaseDuration: time.Minute})

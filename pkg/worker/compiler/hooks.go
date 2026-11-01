@@ -401,7 +401,7 @@ func (r *candidateRecipeResolver) LoadYAML(ctx context.Context, project string, 
 }
 
 func (d DefaultRecipeExecutor) executeHook(ctx workflow.Context, parent *template.ResolutionContext, n *recipe.NodeInclude) error {
-	if parent.TaskExecutionContext().Workspace.FollowsRef() {
+	if parent.TaskExecutionContext().Workspace.UsesBaseTasks() {
 		observed, err := observeWorkspaceBase(ctx, parent, "hook-base:"+parent.NextWorkspaceID(n.ID))
 		if err != nil {
 			return err
@@ -417,7 +417,8 @@ func (d DefaultRecipeExecutor) executeHook(ctx workflow.Context, parent *templat
 
 func prepareHook(ctx workflow.Context, parent *template.ResolutionContext, n *recipe.NodeInclude) (recipe.Node, error) {
 	// Source loading needs a stable candidate but does not accept repository work.
-	// The enclosing hook invocation keeps its observation while its operations run.
+	// Only legacy histories keep an operation-wide observation. New unpinned
+	// hook-body tasks select independently after the source has been loaded.
 	observing := parent.TaskExecutionContext().Workspace.FollowsRef() && parent.GetGitCommitContext().PersistHash == ""
 	if observing {
 		original := parent.GetGitCommitContext()
