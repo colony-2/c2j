@@ -32,6 +32,11 @@ Outputs and user artifacts cross the boundary normally. Git commits, thin packs,
 
 Explicit child jobs default to the active cell and can inherit its synthetic snapshot; their returned changes are not adopted by the parent. Changing a child's cell label alone does not retarget its Git repository.
 
+For CLI submissions from a task, choose between its incoming snapshot and live
+workspace contents using the flags documented in
+[Starting From Workspace State](testing-and-cli.md#starting-from-workspace-state).
+Parent-job linkage alone does not make `c2j submit` inherit the workspace snapshot.
+
 Workspace entry/exit never pushes or merges to the selected cell. Existing explicit publishing ops and external access controls keep their normal behavior. No additional approval or read-only mode is implied.
 
 Use isolated recipe tests for templates and mocked flow; use a real embedded/deployed runtime for checkout and snapshot assertions. Upgrade recipe compilers and task workers together before using the field; old workers may ignore unknown YAML fields.

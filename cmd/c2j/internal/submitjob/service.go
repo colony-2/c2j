@@ -20,6 +20,7 @@ import (
 	"github.com/colony-2/c2j/pkg/recipejob"
 	"github.com/colony-2/c2j/pkg/starter"
 	"github.com/colony-2/c2j/pkg/worker/compiler"
+	"github.com/colony-2/c2j/pkg/workspacesubmit"
 	"gopkg.in/yaml.v3"
 )
 
@@ -49,7 +50,30 @@ func Run(ctx context.Context, opts Options) error {
 
 	c2jops.Register()
 
-	target, err := resolveTargetCell(ctx, opts)
+	parentContext, err := parentContextFromEnv(opts.TenantID)
+	if err != nil {
+		return err
+	}
+	broker, hasBroker, err := jobcontext.ChildJobBrokerFromEnv(os.Getenv)
+	if err != nil {
+		return err
+	}
+	if hasBroker && parentContext == nil {
+		return fmt.Errorf("child job broker context requires current job context env")
+	}
+
+	if opts.FromWorkspace && !hasBroker {
+		return fmt.Errorf("--from-workspace requires current task workspace context; use --from-workspace-now outside a running task")
+	}
+	var workspaceInfo *childbroker.WorkspaceInfo
+	if hasBroker && (opts.FromWorkspace || opts.FromWorkspaceNow) {
+		info, err := childbroker.Workspace(ctx, broker)
+		if err != nil {
+			return err
+		}
+		workspaceInfo = &info
+	}
+	target, workspaceSource, err := resolveSubmissionWorkspace(ctx, opts, workspaceInfo)
 	if err != nil {
 		return err
 	}
@@ -63,18 +87,6 @@ func Run(ctx context.Context, opts Options) error {
 	submitArtifacts, err := loadSubmitArtifacts(opts, recipeName, embeddedRecipe != nil)
 	if err != nil {
 		return err
-	}
-
-	parentContext, err := parentContextFromEnv(opts.TenantID)
-	if err != nil {
-		return err
-	}
-	broker, hasBroker, err := jobcontext.ChildJobBrokerFromEnv(os.Getenv)
-	if err != nil {
-		return err
-	}
-	if hasBroker && parentContext == nil {
-		return fmt.Errorf("child job broker context requires current job context env")
 	}
 
 	submittedAt := time.Now().UTC()
@@ -92,16 +104,29 @@ func Run(ctx context.Context, opts Options) error {
 		return err
 	}
 
+	if workspaceSource != nil {
+		start, err = workspaceSource.Apply(ctx, start, workspacesubmit.Now, strings.TrimSpace(opts.Cell) != "")
+		if err != nil {
+			return err
+		}
+	}
 	var result submitResult
 	if hasBroker {
 		var recipes []recipe.Recipe
 		if embeddedRecipe != nil {
 			recipes = append(recipes, *embeddedRecipe)
 		}
-		req, err := childbroker.NewSubmitRequest(ctx, start, submitArtifacts, recipes...)
+		req, err := childbroker.NewSubmitRequest(ctx, start, start.Artifacts, recipes...)
 		if err != nil {
 			return err
 		}
+		if opts.FromWorkspace {
+			req.WorkspaceMode = workspacesubmit.Start
+		}
+		if opts.FromWorkspaceNow {
+			req.WorkspaceMode = workspacesubmit.Now
+		}
+		req.ExplicitTarget = strings.TrimSpace(opts.Cell) != ""
 		resp, err := childbroker.Submit(ctx, broker, req)
 		if err != nil {
 			return err

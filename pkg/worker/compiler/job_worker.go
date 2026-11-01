@@ -241,6 +241,27 @@ func (j recipeJobWorker) Run(ctx jobworkflow.ExecutionContext, jobData jobdb.Job
 	)
 
 	runContext := input.JobContext
+	if name := runContext.RestoreArtifactName; name != "" {
+		if runContext.RestoreArtifact != nil {
+			return nil, fmt.Errorf("workspace restore cannot specify both artifact name and key")
+		}
+		for _, artifact := range artifacts {
+			if artifact.Name() != name {
+				continue
+			}
+			if runContext.RestoreArtifact != nil {
+				return nil, fmt.Errorf("duplicate workspace snapshot artifact %q", name)
+			}
+			key, err := artifact.ArtifactKey()
+			if err != nil {
+				return nil, err
+			}
+			runContext.RestoreArtifact = &key
+		}
+		if runContext.RestoreArtifact == nil {
+			return nil, fmt.Errorf("workspace snapshot artifact %q is missing", name)
+		}
+	}
 	runContext.Workflow.GoalID = ctx.Job().GoalID
 	submittedRefs, err := submittedArtifactRefs(input, artifacts, hasEmbeddedRecipeArtifact)
 	if err != nil {
@@ -349,7 +370,7 @@ func submittedArtifactRefs(input workflowctl.StartJob, jobArtifacts []jobdb.Arti
 		if artifact == nil {
 			continue
 		}
-		if hasEmbeddedRecipeArtifact && artifact.Name() == internalRecipeArtifactName {
+		if artifact.Name() == input.JobContext.RestoreArtifactName || (hasEmbeddedRecipeArtifact && artifact.Name() == internalRecipeArtifactName) {
 			continue
 		}
 		artifactRef, err := recipeartifacts.RefFromArtifact(artifact)

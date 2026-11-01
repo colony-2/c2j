@@ -34,8 +34,10 @@ type Options struct {
 
 	ArtifactSpecs []string
 
-	Self bool
-	Cell string
+	FromWorkspace    bool
+	FromWorkspaceNow bool
+	Self             bool
+	Cell             string
 
 	RunAfterSubmit bool
 	JSONOutput     bool
@@ -86,6 +88,9 @@ func (o *Options) Complete(ctx context.Context) error {
 }
 
 func (o Options) Validate() error {
+	if o.FromWorkspace && o.FromWorkspaceNow {
+		return fmt.Errorf("--from-workspace and --from-workspace-now are mutually exclusive")
+	}
 	if !o.RunAfterSubmit && o.ExecutionFlags.HasArguments() {
 		return fmt.Errorf("allocation flags require --run on submit; use --require-* to override job requirements")
 	}

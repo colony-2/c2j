@@ -80,6 +80,8 @@ type JobContext struct {
 	Workflow             WorkflowContext          `json:"workflow,omitempty"`
 	GitBase              GitBaseContext           `json:"git,omitempty"`
 	RecipeSource         RecipeSourceContext      `json:"recipe_source,omitempty"`
+	// RestoreArtifactName selects an attached job-start artifact before it has a stored key.
+	RestoreArtifactName string `json:"restore_artifact_name,omitempty"`
 }
 
 type TaskContext struct {

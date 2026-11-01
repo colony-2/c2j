@@ -338,6 +338,7 @@ var c2jJobSchema = json.RawMessage(`{
             },
             "additionalProperties": false
           },
+          "restore_artifact_name": {"type": "string"},
           "restore_artifact": {
             "$ref": "#/$defs/artifactKey"
           },

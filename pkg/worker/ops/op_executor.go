@@ -36,6 +36,7 @@ import (
 	"github.com/colony-2/c2j/pkg/secrets"
 	"github.com/colony-2/c2j/pkg/starter"
 	"github.com/colony-2/c2j/pkg/workflowctl"
+	"github.com/colony-2/c2j/pkg/workspacesubmit"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
 )
@@ -456,6 +457,7 @@ func (t opExecutor) doPrepared(ctx context.Context, jobTool ops.JobTool, req Act
 	if submitter, ok := jobTool.(leaseChildJobSubmitter); ok {
 		broker, err = childbroker.Start(ctx, childbroker.Options{
 			Current:   currentJob,
+			Workspace: &workspacesubmit.Source{Git: *fullContext.GlobalGitTaskContext, Worktree: worktreePath, Artifact: thinPackArtifact, RestoreArtifact: req.RestoreArtifact},
 			Submitter: submitter,
 		})
 		if err != nil {

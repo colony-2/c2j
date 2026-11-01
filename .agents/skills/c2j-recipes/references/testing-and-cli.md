@@ -1,4 +1,4 @@
-<!-- Sources: README.md; cmd/c2j/internal/cmd/*.go; cmd/c2j/internal/submitjob/options.go; cmd/c2j/internal/runjob/options.go; cmd/c2j/internal/testjob/options.go. -->
+<!-- Sources: README.md; cmd/c2j/internal/cmd/*.go; cmd/c2j/internal/submitjob/options.go; cmd/c2j/internal/submitjob/workspace.go; pkg/workspacesubmit/*.go; pkg/childbroker/workspace.go; cmd/c2j/internal/runjob/options.go; cmd/c2j/internal/testjob/options.go. -->
 
 # Testing And CLI
 
@@ -11,6 +11,45 @@ c2j submit --recipe-file ./recipes/my-recipe.yaml --run --embed
 ```
 
 This loads the local YAML file, embeds it into the submitted job, starts an embedded runtime, submits the job, and runs it immediately.
+
+## Starting From Workspace State
+
+Choose the starting state explicitly; `--self` selects a cell and does not capture
+workspace changes. Without either workspace flag, `submit` uses the target cell's
+configured ref, usually `main`.
+
+- `--from-workspace` reuses the immutable incoming snapshot of the current task
+  invocation's active workspace. It includes prior tasks' persisted changes and
+  excludes commits or edits made during this task. It does not inspect the live
+  worktree. This requires a running c2j task with a workspace-aware broker.
+- `--from-workspace-now` uses current HEAD and file contents. It includes unpublished
+  commits, staged and unstaged tracked changes, deletions, and non-ignored untracked
+  files. It reuses an unchanged incoming snapshot and captures changed contents
+  when needed. A clean worktree with a newer HEAD uses that commit without creating
+  an extra commit. Staging boundaries are not preserved in the submitted snapshot.
+
+```bash
+# Inside a running task: start from the state supplied to that task.
+c2j submit "Review this task's starting state" --from-workspace
+
+# Inside a task or from a local Git worktree: include current changes.
+c2j submit "Continue with these changes" --from-workspace-now
+```
+
+The flags are mutually exclusive and work with default and custom recipes. Outside
+a running task, use `--from-workspace-now`; `--from-workspace` fails because there
+is no task-start snapshot. Inside a task, both modes use its active workspace,
+including a workspace override, rather than inferring it from the CLI's directory.
+An omitted target or `--self` selects that workspace's cell; an explicit `--cell`
+must match its repository and cell identity.
+
+Neither mode pushes changes or changes the submitting worktree, index, HEAD, or
+branch refs. Submitted state stays fixed across later local edits and retries.
+Live capture rejects unresolved merge conflicts and requires a worktree that is
+not being concurrently modified; task-start reuse can proceed despite live edits
+or conflicts. Missing context or snapshots and target mismatches fail without
+falling back to the configured ref. Upgrade the CLI and workers together; the CLI
+checks broker support before submitting with either flag inside a task.
 
 ## Inputs
 

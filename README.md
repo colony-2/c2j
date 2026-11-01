@@ -477,6 +477,32 @@ sequence:
 
 To create an inbox file from a string or JSON value, use a [value artifact](pkg/artifacts/guides/VALUES.md).
 
+### Starting from workspace state
+
+Inside a running c2j task, reuse the immutable workspace state from the start of
+that task:
+
+```bash
+c2j submit "Review this task's starting state" --from-workspace
+```
+
+To include changes made during the task, or submit from a local Git worktree:
+
+```bash
+c2j submit "Continue with these changes" --from-workspace-now
+```
+
+`--from-workspace-now` includes local commits, staged and unstaged tracked changes,
+deletions, and non-ignored new files. It reuses an unchanged incoming snapshot and
+captures changed contents without modifying your index, HEAD, or branch refs.
+Neither flag pushes changes. Submitted state stays fixed if you edit files later.
+
+The flags are mutually exclusive. `--from-workspace` requires a running task with
+workspace-aware worker support. With either flag, the default target is the active
+workspace's cell; an explicit `--cell` must match it. Without these flags, submission
+continues to use the target cell's configured ref. Upgrade workers along with the
+CLI to use workspace submissions.
+
 ### Choosing the target cell
 
 Use the current cell:

@@ -22,6 +22,7 @@ import (
 	"github.com/colony-2/c2j/pkg/recipe"
 	"github.com/colony-2/c2j/pkg/starter"
 	"github.com/colony-2/c2j/pkg/workflowctl"
+	"github.com/colony-2/c2j/pkg/workspacesubmit"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	"gopkg.in/yaml.v3"
 )
@@ -38,11 +39,13 @@ type Submitter interface {
 }
 
 type Options struct {
+	Workspace *workspacesubmit.Source
 	Current   jobcontext.Current
 	Submitter Submitter
 }
 
 type Server struct {
+	workspace        *workspacesubmit.Source
 	executionContext context.Context
 	current          jobcontext.Current
 	submitter        Submitter
@@ -77,6 +80,8 @@ type EmbeddedRecipePayload struct {
 }
 
 type SubmitRequest struct {
+	WorkspaceMode   string                  `json:"workspace_mode,omitempty"`
+	ExplicitTarget  bool                    `json:"explicit_target,omitempty"`
 	Start           workflowctl.StartJob    `json:"start"`
 	Artifacts       []ArtifactPayload       `json:"artifacts,omitempty"`
 	EmbeddedRecipes []EmbeddedRecipePayload `json:"embedded_recipes,omitempty"`
@@ -127,6 +132,7 @@ func start(ctx context.Context, opts Options, openListener func() (net.Listener,
 	}
 	broker := &Server{
 		executionContext: ctx,
+		workspace:        opts.Workspace,
 		localEndpoint:    "http://" + net.JoinHostPort(localIP.String(), fmt.Sprint(tcpAddr.Port)) + submitPath,
 		current:          opts.Current,
 		submitter:        opts.Submitter,
@@ -139,6 +145,7 @@ func start(ctx context.Context, opts Options, openListener func() (net.Listener,
 
 	mux := http.NewServeMux()
 	mux.HandleFunc(submitPath, broker.handleSubmit)
+	mux.HandleFunc(submitPath+"/workspace", broker.handleWorkspace)
 	broker.server = &http.Server{
 		Handler:           mux,
 		ReadHeaderTimeout: 5 * time.Second,
@@ -300,6 +307,21 @@ func (s *Server) submit(ctx context.Context, req SubmitRequest) (SubmitResponse,
 		recipes = append(recipes, *rec)
 	}
 
+	if req.WorkspaceMode != "" {
+		if s.workspace == nil {
+			return SubmitResponse{}, fmt.Errorf("task-start workspace context is unavailable; upgrade the worker to use workspace submission")
+		}
+		var err error
+		// Preserve the worker's Git profile while honoring RPC cancellation.
+		captureCtx, cancel := context.WithCancel(s.executionContext)
+		stop := context.AfterFunc(ctx, cancel)
+		start, err = s.workspace.Apply(captureCtx, start, req.WorkspaceMode, req.ExplicitTarget)
+		stop()
+		cancel()
+		if err != nil {
+			return SubmitResponse{}, err
+		}
+	}
 	key, err := starter.StartRecipeJob(ctx, start, s.submitter, recipes...)
 	if err != nil {
 		return SubmitResponse{}, fmt.Errorf("submit child job: %w", err)
