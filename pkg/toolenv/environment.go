@@ -132,7 +132,7 @@ func (m *Manager) Prepare(ctx context.Context, scopes []Scope) (env Environment,
 			bindings[name] = p
 		}
 	}
-	env.Native, diag.Native, err = m.prepareNative(ctx, env.Tools)
+	env.Native, diag.Native, err = m.prepareNative(ctx, nativeToolsByScope(scopes, all))
 	if err != nil {
 		return
 	}

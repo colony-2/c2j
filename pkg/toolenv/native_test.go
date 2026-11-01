@@ -54,7 +54,7 @@ func TestNativeDerivationFormatsAndUnsupportedInputs(t *testing.T) {
 	require.ErrorContains(t, err, "dynamic")
 }
 
-func TestNativeLibraryAndCompilerConflicts(t *testing.T) {
+func TestNativeLibraryCoexistenceAndCompilerConflicts(t *testing.T) {
 	makeTool := func() Tool {
 		root := t.TempDir()
 		require.NoError(t, os.MkdirAll(filepath.Join(root, "lib/pkgconfig"), 0700))
@@ -62,12 +62,33 @@ func TestNativeLibraryAndCompilerConflicts(t *testing.T) {
 		return Tool{Nix: &nixTool{Input: root}}
 	}
 	a, b := makeTool(), makeTool()
-	_, _, err := nativeInputs([]Tool{a, b})
-	require.ErrorContains(t, err, "conflicting Nix library module zlib.pc")
-	inputs, _, err := nativeInputs([]Tool{a, a})
+	inputs, _, err := nativeInputs([]Tool{a, b})
+	require.NoError(t, err)
+	require.Equal(t, []string{a.Nix.Input, b.Nix.Input}, inputs)
+	inputs, _, err = nativeInputs([]Tool{a, a})
 	require.NoError(t, err)
 	require.Len(t, inputs, 1)
 	a.Nix.Compiler, b.Nix.Compiler = true, true
 	_, _, err = nativeInputs([]Tool{a, b})
 	require.ErrorContains(t, err, "conflicting Nix compilers")
+}
+
+func TestNativeScopeOrderKeepsClosestStoreInput(t *testing.T) {
+	prepared := map[string]Tool{}
+	for _, ref := range []string{"outer", "middle", "first", "second"} {
+		prepared[ref] = Tool{Reference: ref, Nix: &nixTool{Input: "/nix/store/" + ref}}
+	}
+	prepared["alias"] = Tool{Reference: "alias", Nix: &nixTool{Input: prepared["outer"].Nix.Input}}
+	prepared["uv:helper"] = Tool{Reference: "uv:helper"}
+	scopes := []Scope{
+		{ID: "repo", Packages: []string{"outer", "second"}},
+		{ID: "recipe", Packages: []string{"middle"}},
+		{ID: "op", Packages: []string{"first", "alias", "second", "first", "uv:helper"}},
+	}
+	tools := nativeToolsByScope(scopes, prepared)
+	var refs []string
+	for _, tool := range tools {
+		refs = append(refs, tool.Reference)
+	}
+	require.Equal(t, []string{"first", "alias", "second", "middle"}, refs)
 }

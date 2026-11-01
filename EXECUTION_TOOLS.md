@@ -84,8 +84,8 @@ packages:
 ```
 
 An operation can then run `cc probe.c -o probe $(pkg-config --cflags --libs
-openssl zlib)` and execute the result. Use a common pinned nixpkgs revision for
-the toolchain and libraries. The shared Nix adapter provides this behavior at
+openssl zlib)` and execute the result. Packages may use different pinned nixpkgs
+revisions. The shared Nix adapter provides this behavior at
 every declaration site, including recipe/node packages and op dependencies.
 
 c2j retains development, runtime, and executable outputs, including libraries
@@ -102,10 +102,15 @@ pkg-config support. It supplies a default C compiler when none is declared;
 a declared compiler wrapper such as `stdenv.cc` selects the compiler instead.
 CLI packages that need no native activation retain the lightweight PATH setup.
 
-Distinct declared compiler wrappers or conflicting `pkg-config` modules fail
-preparation. Executable scope precedence does not isolate incompatible native
-libraries; use separate invocations for those. Other header/ABI conflicts cannot
-all be detected automatically. Cross-compilation and arbitrary prebuilt binaries
+Duplicate `pkg-config` metadata is allowed, including metadata from propagated
+dependencies. Native inputs use closest-scope precedence, with declaration order
+within a scope (first declared first). Identical store inputs are retained at
+their closest occurrence. Nix setup hooks construct the resulting metadata,
+header, and library search paths in that order; both package versions remain
+available. No additional precedence setting is required.
+
+Distinct declared compiler wrappers still fail preparation. Search precedence
+does not prove ABI compatibility. Cross-compilation and arbitrary prebuilt binaries
 requiring a different libc/loader are outside this contract. Nix-linked programs
 use their runtime paths; c2j does not inject a global `LD_LIBRARY_PATH`. Software
 loading plugins by bare name may need an explicit loader path or package wrapper.

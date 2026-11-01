@@ -254,8 +254,8 @@ compilation without Nix on PATH and after garbage collection. See the
 
 Production integration defines the activation-variable contract and supports
 legacy and version-4 derivation JSON. It rejects structured attributes and
-dynamic outputs explicitly, detects duplicate pkg-config providers (including
-propagated search paths) and multiple declared compiler wrappers, and includes
+dynamic outputs explicitly, permits duplicate pkg-config providers (including
+propagated search paths), rejects multiple declared compiler wrappers, and includes
 real task-worker coverage. Additional platforms/toolchains still need validation.
 
 Extend `toolenv.Environment` from a PATH-only result to retained package outputs
@@ -274,14 +274,14 @@ scopes, resolved output identities, platform, and activation-runtime version.
 Retain GC roots for all referenced outputs, including development outputs, not
 only the original default output. Bump the cache format for this richer record.
 
-Executable precedence stays as documented above. Library compatibility needs
-different treatment: a qualified executable runner cannot isolate headers or
-ABIs. Compose one coherent native environment per invocation. Detect conflicting
-providers of the same `pkg-config` module or incompatible toolchains and fail
-preparation rather than choosing by incidental path order; isolate such demands
-in different invocations. Arbitrary header/ABI conflicts cannot all be detected
-upfront, so successful preparation is not proof of compatibility. Prefer one
-consistent Nix package set and test compilation and runtime behavior.
+Executable precedence stays as documented above. Native inputs are ordered by
+closest scope first and declaration order within each scope. Deduplicate identical
+store inputs at their closest occurrence. Duplicate `pkg-config` modules are not
+errors: Nix's normal search paths select among coexisting package versions,
+including propagated dependencies. The native cache identity includes the ordered
+inputs and activation version. Multiple declared compiler wrappers still fail
+preparation. Search precedence does not isolate ABIs or prove compatibility;
+test compilation and runtime behavior.
 
 For runtime linking, use the selected Nix toolchain's linker/runtime-path
 behavior and package wrappers. Do not inject a blanket `LD_LIBRARY_PATH` into

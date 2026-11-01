@@ -18,7 +18,7 @@ import (
 // Pin the activation ABI independently of user package selectors. Changing
 // this revision or the capture/export contract changes the native cache key.
 const nativeNixpkgs = "github:NixOS/nixpkgs/b6018f87da91d19d0ab4cf979885689b469cdd41"
-const nativeVersion = "native-v1"
+const nativeVersion = "native-v2"
 
 type RepositoryDiagnostic struct {
 	config.PackageSource
@@ -169,11 +169,29 @@ func nativeLayout(input string) bool {
 	return false
 }
 
-// A coherent library environment cannot use executable precedence to resolve
-// duplicate pkg-config modules. Fail instead of depending on incidental order.
+// Nix adds native inputs to search paths in order. Preserve lexical precedence
+// instead of the preparation order: closest scope first, declaration order
+// within each scope. Aliases of the same store input keep their closest slot.
+func nativeToolsByScope(scopes []Scope, prepared map[string]Tool) []Tool {
+	var tools []Tool
+	seen := map[string]bool{}
+	for i := len(scopes) - 1; i >= 0; i-- {
+		for _, ref := range scopes[i].Packages {
+			tool := prepared[ref]
+			if tool.Nix == nil || seen[tool.Nix.Input] {
+				continue
+			}
+			seen[tool.Nix.Input] = true
+			tools = append(tools, tool)
+		}
+	}
+	return tools
+}
+
+// Duplicate library metadata is resolved by Nix's ordered search paths, just
+// like headers and libraries. Coexisting store outputs are not a setup error.
 func nativeInputs(tools []Tool) (inputs []string, compiler bool, err error) {
 	seen := map[string]bool{}
-	var moduleDirs []string
 	compilerPath := ""
 	for _, tool := range tools {
 		if tool.Nix == nil || seen[tool.Nix.Input] {
@@ -188,39 +206,8 @@ func nativeInputs(tools []Tool) (inputs []string, compiler bool, err error) {
 			}
 			compiler, compilerPath = true, input
 		}
-		for _, sub := range []string{"lib/pkgconfig", "share/pkgconfig"} {
-			moduleDirs = append(moduleDirs, filepath.Join(input, sub))
-		}
 	}
-	err = checkNativeModules(moduleDirs)
 	return
-}
-
-func checkNativeModules(dirs []string) error {
-	modules := map[string]string{}
-	for _, dir := range dirs {
-		entries, e := os.ReadDir(dir)
-		if os.IsNotExist(e) {
-			continue
-		}
-		if e != nil {
-			return e
-		}
-		for _, entry := range entries {
-			if !strings.HasSuffix(entry.Name(), ".pc") {
-				continue
-			}
-			path, e := filepath.EvalSymlinks(filepath.Join(dir, entry.Name()))
-			if e != nil {
-				return e
-			}
-			if prior, ok := modules[entry.Name()]; ok && prior != path {
-				return fmt.Errorf("conflicting Nix library module %s: %s and %s; use separate invocations", entry.Name(), prior, path)
-			}
-			modules[entry.Name()] = path
-		}
-	}
-	return nil
 }
 
 func (m *Manager) prepareNative(ctx context.Context, tools []Tool) (env *nativeEnvironment, diag *NativeDiagnostic, err error) {
@@ -298,10 +285,6 @@ in pkgs.%s { nativeBuildInputs = [ pkgs.pkg-config ]; buildInputs = [ %s ]; }`, 
 	}
 	variables, err := captureNative(ctx, dir, drv)
 	if err != nil {
-		return nil, diag, err
-	}
-	// Setup hooks may introduce propagated libraries beyond the direct inputs.
-	if err := checkNativeModules(filepath.SplitList(variables["PKG_CONFIG_PATH"])); err != nil {
 		return nil, diag, err
 	}
 	env = &nativeEnvironment{Identity: id, Roots: roots, Variables: variables}
