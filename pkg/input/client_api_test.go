@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strings"
 	"testing"
 	"time"
 
@@ -59,13 +60,20 @@ func apiTask(t *testing.T, id string, ordinal int64, form InputForm) *clientTask
 	value, err := jsonValue(form)
 	require.NoError(t, err)
 	env := workerops.ActivityInvocationRequest{Input: value.(map[string]any)}
-	return &clientTask{key: jobdb.JobKey{TenantId: "tenant", JobId: id}, ordinal: ordinal, data: jobdb.NewTaskDataOrPanic(env)}
+	data, err := workerops.NewInvocationTaskData(env)
+	require.NoError(t, err)
+	return &clientTask{key: jobdb.JobKey{TenantId: "tenant", JobId: id}, ordinal: ordinal, data: data}
 }
 func taskListing(task *clientTask) workflowctl.JobItem {
 	return workflowctl.JobItem{JobSummary: jobdb.JobSummary{JobKey: task.key}}
 }
 
 func TestPendingInputPagesAndLegacyListing(t *testing.T) {
+	for _, size := range []int{0, 65536} {
+		t.Run(fmt.Sprint(size), func(t *testing.T) { testPendingInputPagesAndLegacyListing(t, size) })
+	}
+}
+func testPendingInputPagesAndLegacyListing(t *testing.T, size int) {
 	ctx := context.Background()
 	forms := []InputForm{
 		{Question: "legacy"},
@@ -74,6 +82,7 @@ func TestPendingInputPagesAndLegacyListing(t *testing.T) {
 	}
 	tasks := make([]*clientTask, len(forms))
 	for i, form := range forms {
+		form.Title = strings.Repeat("<", size)
 		tasks[i] = apiTask(t, fmt.Sprint(i), int64(i+1), form)
 	}
 	control := &clientControl{
@@ -116,8 +125,13 @@ func TestPendingInputPagesAndLegacyListing(t *testing.T) {
 }
 
 func TestPendingInputPageConcurrentCompletionAndStorageError(t *testing.T) {
-	old := apiTask(t, "job", 5, InputForm{Kind: "review", RequestID: "old"})
-	newer := apiTask(t, "job", 8, InputForm{Kind: "review", RequestID: "new"})
+	for _, size := range []int{0, 65536} {
+		t.Run(fmt.Sprint(size), func(t *testing.T) { testPendingInputPageConcurrentCompletionAndStorageError(t, size) })
+	}
+}
+func testPendingInputPageConcurrentCompletionAndStorageError(t *testing.T, size int) {
+	old := apiTask(t, "job", 5, InputForm{Kind: "review", RequestID: "old", Title: strings.Repeat("<", size)})
+	newer := apiTask(t, "job", 8, InputForm{Kind: "review", RequestID: "new", Title: strings.Repeat("<", size)})
 	control := &clientControl{list: func(jobdb.ListJobsRequest) ([]workflowctl.JobItem, string, error) {
 		return []workflowctl.JobItem{taskListing(old)}, "continue", nil
 	}}
@@ -144,10 +158,15 @@ func TestPendingInputPageConcurrentCompletionAndStorageError(t *testing.T) {
 }
 
 func TestReviewDocumentAccessAndOccurrenceLifetime(t *testing.T) {
+	for _, size := range []int{0, 65536} {
+		t.Run(fmt.Sprint(size), func(t *testing.T) { testReviewDocumentAccessAndOccurrenceLifetime(t, size) })
+	}
+}
+func testReviewDocumentAccessAndOccurrenceLifetime(t *testing.T, size int) {
 	ctx := context.Background()
 	ref := artifacts.NewStoredRef(jobdb.ArtifactKey{JobId: "child", TaskOrdinal: 7, Name: "design.md", SizeBytes: 4})
 	other := artifacts.NewStoredRef(jobdb.ArtifactKey{JobId: "another-child", TaskOrdinal: 9, Name: "rollout.md", SizeBytes: 4})
-	form := InputForm{Kind: "review", RequestID: "first", Documents: map[string]artifacts.Ref{"design": ref, "rollout": other}}
+	form := InputForm{Kind: "review", Title: strings.Repeat("<", size), RequestID: "first", Documents: map[string]artifacts.Ref{"design": ref, "rollout": other}}
 	current := apiTask(t, "job", 11, form)
 	reads := 0
 	control := &clientControl{

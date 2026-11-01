@@ -140,41 +140,18 @@ func (s *inputManagementService) GetDetails(w http.ResponseWriter, r *http.Reque
 }
 
 func (s *inputManagementService) getOutput(ctx context.Context, projectID string, jobId string) (workflowctl.TaskHandle, ops2.ActivityInvocationOutput, []jobdb.Artifact, error) {
+	if s.runtime != nil && s.runtime.ctl != nil {
+		return s.runtime.getOutput(ctx, projectID, jobId)
+	}
 	if s.ctl == nil {
 		return nil, ops2.ActivityInvocationOutput{}, nil, errors.New("workflow control unavailable")
 	}
-
-	task, err := s.ctl.GetWaitingTask(ctx, jobdb.JobKey{
-		TenantId: projectID,
-		JobId:    jobId,
-	})
-
+	// Preserve control-only callers without maintaining a second decoder.
+	runtime, err := NewRuntime(s.ctl, s.sse)
 	if err != nil {
-		return nil, ops2.ActivityInvocationOutput{}, nil, fmt.Errorf("failed to find job: %w", err)
+		return nil, ops2.ActivityInvocationOutput{}, nil, err
 	}
-
-	td, err := task.Data()
-	if err != nil {
-		return nil, ops2.ActivityInvocationOutput{}, nil, fmt.Errorf("failed to get task data: %w", err)
-	}
-
-	data, err := td.GetData()
-	if err != nil {
-		return nil, ops2.ActivityInvocationOutput{}, nil, fmt.Errorf("failed to get task data: %w", err)
-	}
-
-	artifacts, err := td.GetArtifacts()
-	if err != nil {
-		return nil, ops2.ActivityInvocationOutput{}, nil, fmt.Errorf("failed to get task artifacts: %w", err)
-	}
-
-	var request ops2.ActivityInvocationRequest
-	if err := json.Unmarshal(data, &request); err != nil {
-		return nil, ops2.ActivityInvocationOutput{}, nil, fmt.Errorf("decode pending input snapshot: %w", err)
-	}
-	out := request.ExternalOutput()
-
-	return task, out, artifacts, nil
+	return runtime.getOutput(ctx, projectID, jobId)
 }
 
 // GetDetails returns details about a specific input request

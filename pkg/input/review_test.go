@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -97,13 +98,15 @@ func TestReviewConfigurationValidation(t *testing.T) {
 
 func TestReviewSQLiteAttachmentsReplayAndStaleSubmission(t *testing.T) {
 	for _, annotated := range []bool{false, true} {
-		t.Run(fmt.Sprintf("annotated=%v", annotated), func(t *testing.T) { testReviewSQLiteAttachmentsReplayAndStaleSubmission(t, annotated) })
+		for _, offloaded := range []bool{false, true} {
+			t.Run(fmt.Sprintf("annotated=%v/offloaded=%v", annotated, offloaded), func(t *testing.T) { testReviewSQLiteAttachmentsReplayAndStaleSubmission(t, annotated, offloaded) })
+		}
 	}
 }
-func testReviewSQLiteAttachmentsReplayAndStaleSubmission(t *testing.T, annotated bool) {
+func testReviewSQLiteAttachmentsReplayAndStaleSubmission(t *testing.T, annotated, offloaded bool) {
 	ctx := context.Background()
 	dbPath := filepath.Join(t.TempDir(), "jobs.db")
-	rt, err := sqliteruntime.NewFromConfig(ctx, sqliteruntime.Config{DBPath: dbPath})
+	rt, err := sqliteruntime.NewFromConfig(ctx, sqliteruntime.Config{DBPath: dbPath, MaxChapterApplicationPayloadBytes: 4 * 1024 * 1024})
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = rt.Close(ctx) })
 	makeRuntime := func() (*Runtime, workflow.Engine) {
@@ -116,6 +119,9 @@ func testReviewSQLiteAttachmentsReplayAndStaleSubmission(t *testing.T, annotated
 	r, initialEngine := makeRuntime()
 	deps := coreops.NewOpDependenciesBuilder().Build()
 	cfg := reviewConfig()
+	if offloaded {
+		cfg.Title = strings.Repeat("<", 65536)
+	}
 	if annotated {
 		original := jobdb.NewArtifactFromBytes("original.md", []byte("original"))
 		_, err = rt.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "tenant", JobID: "producer", JobType: "artifact-source", Data: jobdb.NewTaskDataOrPanic(nil, original)}})
@@ -148,12 +154,22 @@ func testReviewSQLiteAttachmentsReplayAndStaleSubmission(t *testing.T, annotated
 	form, err := r.GetForm(ctx, "tenant", "review")
 	require.NoError(t, err)
 	require.Equal(t, first.RequestID, form.RequestID)
+	task, err := r.ctl.GetWaitingTask(ctx, handle.JobKey)
+	require.NoError(t, err)
+	td, err := task.Data()
+	require.NoError(t, err)
+	raw, err := td.GetData()
+	require.NoError(t, err)
+	var request workerops.ActivityInvocationRequest
+	require.NoError(t, json.Unmarshal(raw, &request))
+	require.Equal(t, offloaded, request.InputArtifact != "")
+
 	pageBefore, err := r.ListPendingInputsPage(ctx, "tenant", PendingInputOptions{PageSize: 1})
 	require.NoError(t, err)
 	require.Len(t, pageBefore.Inputs, 1)
 	require.Equal(t, first.RequestedAt, pageBefore.Inputs[0].RequestedAt)
 	require.NoError(t, rt.Close(ctx))
-	rt, err = sqliteruntime.NewFromConfig(ctx, sqliteruntime.Config{DBPath: dbPath})
+	rt, err = sqliteruntime.NewFromConfig(ctx, sqliteruntime.Config{DBPath: dbPath, MaxChapterApplicationPayloadBytes: 4 * 1024 * 1024})
 	require.NoError(t, err)
 	r, engine := makeRuntime()
 	restored, err := r.GetForm(ctx, "tenant", "review")

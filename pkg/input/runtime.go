@@ -231,6 +231,10 @@ func (r *Runtime) getOutput(ctx context.Context, projectID string, jobID string)
 	if err := json.Unmarshal(data, &request); err != nil {
 		return nil, workerops.ActivityInvocationOutput{}, nil, fmt.Errorf("decode pending input snapshot: %w", err)
 	}
+	artifacts, err = request.RestoreInput(ctx, artifacts)
+	if err != nil {
+		return nil, workerops.ActivityInvocationOutput{}, nil, runtimeError(ErrStorage, "restore pending input", err)
+	}
 	out := request.ExternalOutput()
 
 	return task, out, artifacts, nil
