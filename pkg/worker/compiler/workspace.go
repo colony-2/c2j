@@ -84,10 +84,54 @@ func resolveWorkspaceTask(ctx context.Context, data jobdb.TaskData) (jobdb.TaskD
 	if err != nil {
 		return nil, fmt.Errorf("resolve workspace %q: %w", req.Cell, err)
 	}
+	policy := ""
+	if !isFullGitHash(target.Ref) {
+		policy = contextual.WorkspaceFollowUntilChange
+	}
 	return jobdb.NewTaskData(WorkspaceResolutionOutput{
-		Workspace: contextual.WorkspaceContext{Cell: target.Cell, ScopeID: req.ScopeID, ParentScopeID: req.ParentScopeID, InitialHash: resolved.Commit},
+		Workspace: contextual.WorkspaceContext{Cell: target.Cell, ScopeID: req.ScopeID, ParentScopeID: req.ParentScopeID, InitialHash: resolved.Commit, RefPolicy: policy},
 		Git:       contextual.GitBaseContext{BaseRepo: target.Repository, BaseRef: target.Ref, ResolvedBaseHash: resolved.Commit},
 	})
+}
+
+// Record each fresh operation's branch observation as a durable task. Replay
+// and retries reuse it; a later operation observes again until a commit/base
+// is accepted. Legacy descriptors deliberately retain their recorded pin.
+func observeWorkspaceBase(ctx workflow.Context, parent *template.ResolutionContext, site string) (*template.ResolutionContext, error) {
+	ec := parent.TaskExecutionContext()
+	ws := ec.Workspace
+	if !ws.FollowsRef() || ec.GitTask.PersistHash != "" || ws.TaskBaseHash != "" || parent.Options.Mode == template.ModeValidate {
+		return parent, nil
+	}
+	if ctx.OperationBase != nil && *ctx.OperationBase != "" {
+		return parent.WithWorkspaceObservation(*ctx.OperationBase)
+	}
+	if ctx.StageNodeExecution != nil {
+		ctx.StageNodeExecution(parent.ExecutionNeeds)
+	}
+	p := parent.Permissions
+	req := WorkspaceResolutionInput{Cell: ec.GitTask.BaseRepo, Ref: ec.GitTask.BaseRef, ScopeID: ws.ScopeID,
+		Resolution:  cellref.Context{SelfRepo: ec.GitTask.BaseRepo, SelfRef: ec.GitTask.BaseRef},
+		Permissions: &p, GitProfile: parent.GitProfile}
+	out, err := workflow.ValueCall(ctx.JobContext, site, WorkspaceResolutionTaskType, jobdb.RunPolicy{}, req)
+	if err != nil {
+		return nil, err
+	}
+	raw, err := out.GetData()
+	if err != nil {
+		return nil, err
+	}
+	var result WorkspaceResolutionOutput
+	if err := json.Unmarshal(raw, &result); err != nil {
+		return nil, err
+	}
+	if !isFullGitHash(result.Git.ResolvedBaseHash) || result.Workspace.ScopeID != ws.ScopeID || result.Git.BaseRepo != ec.GitTask.BaseRepo {
+		return nil, fmt.Errorf("invalid workspace base observation")
+	}
+	if ctx.OperationBase != nil {
+		*ctx.OperationBase = result.Git.ResolvedBaseHash
+	}
+	return parent.WithWorkspaceObservation(result.Git.ResolvedBaseHash)
 }
 
 func enterWorkspace(ctx workflow.Context, parent *template.ResolutionContext, meta recipe.NodeMetadata) (*template.ResolutionContext, error) {

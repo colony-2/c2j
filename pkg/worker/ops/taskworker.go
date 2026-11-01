@@ -220,6 +220,10 @@ func (t *taskWorker) RunTask(local context.Context, ctx jobworkflow.TaskContext,
 		return bodyCtx, nil
 	})
 	out.PreparationMS = prepMS
+	var diagnostic interface{ FailureAttributes() map[string]any }
+	if errors.As(err, &diagnostic) {
+		out.FailureAttrs = diagnostic.FailureAttributes()
+	}
 	out.SecretSetupMS = air.SecretSetupMS
 	out.Configuration = configDiag
 	if air.Setup != nil {
@@ -265,6 +269,9 @@ func failedTaskData(output ActivityInvocationOutput, artifacts []jobdb.Artifact)
 }
 
 func hasFailedActivityPayload(output ActivityInvocationOutput, artifacts []jobdb.Artifact) bool {
+	if len(output.FailureAttrs) != 0 {
+		return true
+	}
 	if output.Configuration != nil || output.Extension != nil || output.Setup != nil || output.SecretSetupMS != 0 {
 		return true
 	}

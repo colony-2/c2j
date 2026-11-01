@@ -401,6 +401,13 @@ func (r *candidateRecipeResolver) LoadYAML(ctx context.Context, project string, 
 }
 
 func (d DefaultRecipeExecutor) executeHook(ctx workflow.Context, parent *template.ResolutionContext, n *recipe.NodeInclude) error {
+	if parent.TaskExecutionContext().Workspace.FollowsRef() {
+		observed, err := observeWorkspaceBase(ctx, parent, "hook-base:"+parent.NextWorkspaceID(n.ID))
+		if err != nil {
+			return err
+		}
+		parent = observed
+	}
 	wrapper, err := prepareHook(ctx, parent, n)
 	if err != nil {
 		return err
@@ -409,6 +416,13 @@ func (d DefaultRecipeExecutor) executeHook(ctx workflow.Context, parent *templat
 }
 
 func prepareHook(ctx workflow.Context, parent *template.ResolutionContext, n *recipe.NodeInclude) (recipe.Node, error) {
+	// Source loading needs a stable candidate but does not accept repository work.
+	// The enclosing hook invocation keeps its observation while its operations run.
+	observing := parent.TaskExecutionContext().Workspace.FollowsRef() && parent.GetGitCommitContext().PersistHash == ""
+	if observing {
+		original := parent.GetGitCommitContext()
+		defer parent.UpdateGitState(original)
+	}
 	hook, err := hookpolicy.Reference(n.Include.Recipe)
 	if err != nil {
 		return recipe.Node{}, err
@@ -543,6 +557,14 @@ func prepareHook(ctx workflow.Context, parent *template.ResolutionContext, n *re
 		}
 	}
 	seq.Internal.Inline.ContentSHA256 = result.ContentSHA256
+	if observing {
+		// Bind caller inputs while the hook candidate is visible. Loading the
+		// definition is an observation and must not publish its synthetic pin.
+		seq.Inputs, err = parent.ResolveCompositeInputs(seq.Inputs)
+		if err != nil {
+			return recipe.Node{}, err
+		}
+	}
 	return wrapper, nil
 }
 

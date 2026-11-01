@@ -194,6 +194,30 @@ func jsonCompatibleMap(in map[string]interface{}) map[string]interface{} {
 	return out
 }
 
+// Native diagnostics also travel with failed task data, so timeout,
+// cancellation and system errors need not be converted into application errors.
+func attachTaskFailureAttributes(failure *recipe.RuntimeFailure, out jobdb.TaskData) {
+	if failure == nil || out == nil {
+		return
+	}
+	raw, err := out.GetData()
+	if err != nil {
+		return
+	}
+	decoded, err := decodeTaskOutput(raw)
+	if err != nil || len(decoded.Activity.FailureAttrs) == 0 {
+		return
+	}
+	if failure.Attrs == nil {
+		failure.Attrs = map[string]any{}
+	}
+	for k, v := range jsonCompatibleMap(decoded.Activity.FailureAttrs) {
+		if _, exists := failure.Attrs[k]; !exists {
+			failure.Attrs[k] = v
+		}
+	}
+}
+
 type catchDecisionKind int
 
 const (

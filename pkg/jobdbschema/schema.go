@@ -79,6 +79,12 @@ var c2jJobSchema = json.RawMessage(`{
           },
           "initial_hash": {
             "type": "string"
+          },
+          "ref_policy": {
+            "type": "string"
+          },
+          "task_base_hash": {
+            "type": "string"
           }
         },
         "additionalProperties": false

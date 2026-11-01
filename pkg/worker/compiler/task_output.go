@@ -56,6 +56,7 @@ func decodeActivityInvocationOutput(payload []byte) (workerops.ActivityInvocatio
 		coerced = m
 	}
 	return workerops.ActivityInvocationOutput{
+		FailureAttrs:      raw.FailureAttrs,
 		WorkspaceScopeID:  raw.WorkspaceScopeID,
 		Execution:         raw.Execution,
 		GitResult:         raw.GitResult,

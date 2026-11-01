@@ -62,6 +62,19 @@ func TestFailureScopeRejectsUnknownCELField(t *testing.T) {
 	require.Contains(t, err.Error(), "knd")
 }
 
+func TestFailureAttributesSupportCELRouting(t *testing.T) {
+	failure := testFailure()
+	failure.Attrs = map[string]any{"rebase": map[string]any{"version": 1, "workspace_restored": true}}
+	ctx := newRecipeCtx(t, nil).WithFailure(failure)
+	ok, err := ctx.EvaluateCEL(`has(failure.attrs) && failure.attrs.rebase.version == 1 && failure.attrs.rebase.workspace_restored`)
+	require.NoError(t, err)
+	require.True(t, ok)
+	ctx.TemplateData.Transition = NewFailureTransitionData("work", "repair", nil, failure)
+	resolved, err := ctx.ResolveMap(map[string]any{"version": "${{ transition.failure.attrs.rebase.version }}"})
+	require.NoError(t, err)
+	require.EqualValues(t, 1, resolved["version"])
+}
+
 func TestTransitionFailureVisibleToTargetState(t *testing.T) {
 	ctx := newStateCtx(t, newStateMachineCtx(t, newRecipeCtx(t, nil), "sm", map[string]interface{}{}), "review")
 	ctx.TemplateData.Transition = NewFailureTransitionData("work", "review", map[string]interface{}{

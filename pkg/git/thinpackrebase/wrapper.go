@@ -55,7 +55,7 @@ func (a *ThinpackRebaseActivity) GetMetadata() ops.OpMetadata {
 	return ops.OpMetadata{
 		Type:        "thinpackrebase",
 		Description: "Rebases a thin-pack backed workspace onto a new base commit and refreshes git context metadata",
-		Version:     "1.0.0",
+		Version:     "1.1.0",
 	}
 }
 
@@ -65,17 +65,20 @@ func (a *ThinpackRebaseActivity) Execute(inv ops.OpDependencies, ctx context.Con
 	if inv != nil && input.RepoPath == inv.WorktreePath() {
 		g := inv.GitContext()
 		minimumBase = g.ResolvedBaseHash
-		if g.Workspace != nil && g.Workspace.InitialHash != "" {
+		if g.Workspace != nil && g.Workspace.InitialHash != "" && !g.Workspace.FollowsRef() {
 			minimumBase = g.Workspace.InitialHash
 		}
 	}
 	output, err := run(ctx, input, minimumBase)
 	if err != nil {
+		attachFailureEvidence(ctx, inv, err)
 		return ThinpackRebaseOutput{}, err
 	}
 	// Only update the managed workspace when this operation used that workspace.
 	if inv != nil && input.RepoPath == inv.WorktreePath() {
 		if err := ops.SetWorkspaceBase(inv, output.NewBaseHash); err != nil {
+			err = captureFailure(ctx, err, workspaceSnapshot{RepoPath: input.RepoPath, BaseHash: output.RebasedFrom.BaseHash, PersistHash: output.RebasedFrom.PersistHash}, output.TargetBaseHash, "adopt_base", true, true)
+			attachFailureEvidence(ctx, inv, err)
 			return ThinpackRebaseOutput{}, err
 		}
 	}

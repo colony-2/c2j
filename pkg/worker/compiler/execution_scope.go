@@ -95,6 +95,7 @@ func executeNodeScope(ctx workflow.Context, parent *template.ResolutionContext, 
 		forwarding = f
 	}
 	options := jobworkflow.ScopeOptions{TotalTimeout: time.Duration(meta.Timeout)}
+	operationBase := ""
 	retrySteps := false
 	if kind == template.ScopeOp {
 		if op, ok := ops.Get(fallback); ok {
@@ -105,6 +106,7 @@ func executeNodeScope(ctx workflow.Context, parent *template.ResolutionContext, 
 		options.Retry = *meta.Retry
 	}
 	options.OnRestart = func(raw json.RawMessage) error {
+		operationBase = ""
 		fresh, e := original.CloneForRestart()
 		if e != nil {
 			return e
@@ -127,6 +129,9 @@ func executeNodeScope(ctx workflow.Context, parent *template.ResolutionContext, 
 		last = 0
 		view := base.ExecutionView()
 		inner := ctx
+		if kind == template.ScopeOp {
+			inner.OperationBase = &operationBase
+		}
 		inner.JobContext = exec
 		inner.CatchStateName = ""
 		completion := &scopeCompletion{}

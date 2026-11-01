@@ -68,7 +68,26 @@ func (rc *ResolutionContext) syncWorkspace() {
 		g.PersistHash = rc.commitContext.PersistHash
 		g.ParentHash = rc.commitContext.ParentHash
 		g.ParentRef = rc.commitContext.ParentRef
+		if rc.commitContext.ParentHash != "" && rc.TemplateData.Context.Workspace.FollowsRef() {
+			g.ResolvedBaseHash = rc.commitContext.ParentHash
+		}
 	}
+}
+
+// WithWorkspaceObservation selects a stable operation base without accepting it
+// into the enclosing workspace. Descendants share accepted commits as usual.
+func (rc *ResolutionContext) WithWorkspaceObservation(hash string) (*ResolutionContext, error) {
+	out := *rc
+	out.TemplateData = rc.TemplateData
+	out.TemplateData.Context = rc.TaskExecutionContext()
+	ws := *out.TemplateData.Context.Workspace
+	ws.TaskBaseHash = hash
+	out.TemplateData.Context.Workspace = &ws
+	base := out.TemplateData.Context.JobContext().GitBase
+	base.ResolvedBaseHash = hash
+	out.workspaceBase = &base
+	out.syncWorkspace()
+	return out.initializeCEL()
 }
 
 // Composite bindings are evaluated in the calling workspace, before the override.

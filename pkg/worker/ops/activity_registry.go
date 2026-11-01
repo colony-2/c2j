@@ -47,6 +47,9 @@ type ActivityInvocationRequest struct {
 
 // ActivityInvocationOutput wraps the raw op output alongside workspace results.
 type ActivityInvocationOutput struct {
+	// FailureAttrs carries native diagnostics without changing error kind or
+	// exposing a failed operation's normal output to recipes.
+	FailureAttrs      map[string]any                  `json:"failure_attrs,omitempty"`
 	PreparationMS     int64                           `json:"preparation_ms,omitempty"`
 	Configuration     *configuration.Diagnostics      `json:"configuration,omitempty"`
 	Extension         *extops.ResolvedOp              `json:"extension,omitempty"`
@@ -64,6 +67,7 @@ type ActivityInvocationOutput struct {
 
 // variation of ActivityInvocationOutput that allows arbitrary output types to avoid double serialization
 type ActivityInvocationOutputRaw struct {
+	FailureAttrs      map[string]any                  `json:"failure_attrs,omitempty"`
 	WorkspaceScopeID  string                          `json:"workspace_scope_id,omitempty"`
 	Execution         *execution.Requirements         `json:"execution,omitempty"`
 	GitResult         contextual.GitCommitContext     `json:"git,omitempty"`

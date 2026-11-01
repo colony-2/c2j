@@ -109,13 +109,13 @@ outputs:
 	first, _, err := ExecuteRecipe(newWorkflowContext(stub), *rec, nil, job, commit)
 	require.NoError(t, err)
 	require.Equal(t, base, first["head"])
-	require.Equal(t, 1, stub.resolves)
+	require.Equal(t, 3, stub.resolves)
 	require.NoError(t, os.Rename(b, b+"-removed"))
 	stub.position = 0
 	second, _, err := ExecuteRecipe(newWorkflowContext(stub), *rec, nil, job, commit)
 	require.NoError(t, err)
 	require.Equal(t, first, second)
-	require.Equal(t, 1, stub.resolves)
+	require.Equal(t, 3, stub.resolves)
 }
 func TestWorkspaceValidationDoesNotAccessTarget(t *testing.T) {
 	workspaceTestWorker(t)

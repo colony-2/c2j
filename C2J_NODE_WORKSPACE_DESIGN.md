@@ -2,7 +2,7 @@
 
 Status: implemented, 2026-09-29. See [GUIDE-Node-Workspaces.md](GUIDE-Node-Workspaces.md) for the supported API and [FEATURE-ANNOUNCEMENT-Node-Workspaces.md](FEATURE-ANNOUNCEMENT-Node-Workspaces.md) for the announcement.
 
-Implementation notes: workspace state uses a shared Git-base pointer and commit pointer in `ResolutionContext`, plus a lexical overlay that preserves output paths. Cell resolution is factored into `pkg/cellref`, and the worker uses the existing selector cache to pin the base. Explicit child submissions carry an initial commit and restore-artifact reference, resolved by the task worker. Deployment requires upgrading compiler/task-worker fleets together; this change does not add a fleet-wide capability negotiation service.
+Implementation notes: workspace state uses a shared Git-base pointer and commit pointer in `ResolutionContext`, plus a lexical overlay that preserves output paths. Cell resolution is factored into `pkg/cellref`, and the worker uses the existing selector cache to resolve durable operation observations. Explicit child submissions carry an initial commit and restore-artifact reference, resolved by the task worker. Deployment requires upgrading compiler/task-worker fleets together; this change does not add a fleet-wide capability negotiation service.
 
 A job owned by cellA should be able to execute a node against cellB's repository in a separate, writable workspace. The existing restore, snapshot, thin-pack, diff, retry, and replay mechanisms continue to apply. When the node finishes, execution resumes against cellA's existing workspace state. Results and artifacts can cross the boundary; workspace changes do not cross it implicitly.
 
@@ -77,7 +77,7 @@ The confirmed behavior is a fresh workspace per explicit node invocation, shared
 | Situation | Behavior |
 | --- | --- |
 | Node omits `workspace` | Inherit its enclosing workspace and current snapshot. |
-| Node declares `workspace` | Create an independent workspace for that node invocation, starting from the target ref resolved at entry. |
+| Node declares `workspace` | Create an independent workspace for that node invocation; symbolic refs follow until accepted changes or explicit base adoption. |
 | Descendants omit `workspace` | Share the enclosing node's workspace state. |
 | Two sibling nodes select cellB | Independent workspaces; the second does not inherit the first's changes. |
 | Nested selection of cellC inside cellB | Create cellC state, then resume cellB state on exit. |
@@ -89,7 +89,7 @@ The confirmed behavior is a fresh workspace per explicit node invocation, shared
 
 Sharing cellB changes across several operations is expressed by placing those operations in a sequence or state machine with one declaration. There is no job-wide registry keyed only by cell name.
 
-A workspace boundary belongs to a logical invocation, not a task attempt. Worker retries and workflow replay reuse its pinned target and snapshot history. A composite retry retains the same boundary and follows existing retry semantics for successful inner task state; it does not resolve a new target ref on every attempt. Failed task snapshots remain diagnostic unless the existing runtime explicitly accepts that task's result. The feature must not introduce an implicit “commit on failure” policy.
+A workspace boundary belongs to a logical invocation, not a task attempt. Worker and operation retries reuse their durably observed base, and workflow replay reuses recorded results. Fresh operations follow a symbolic ref until changes or an explicit base selection are accepted. Composite retries retain existing successful-inner-task semantics. Failed task snapshots remain diagnostic unless the runtime explicitly accepts the result; observing a hash must not introduce an implicit “commit on failure” policy.
 
 Logical state is discarded from active execution when the boundary closes. Snapshot artifacts remain under existing job retention rules. Physical work directories use existing cleanup behavior.
 
@@ -155,7 +155,7 @@ type WorkspaceDescriptor struct {
 
 This is a proposed shape, not a new persisted database entity. Keep descriptors and commit/artifact references serializable in ordinary task inputs/outputs; reconstruct in-memory sharing during replay. No worker-local path belongs in the durable descriptor.
 
-`InitialHash` records the immutable entry point. `GitBase` and `Commit` hold the active state, including legitimate rebase/context-patch updates. Update template context from the shared workspace state so same-workspace descendants cannot observe stale copies of the Git base.
+`InitialHash` records the immutable entry observation. `RefPolicy` distinguishes new floating workspaces from legacy pins, and `TaskBaseHash` records an operation observation. `GitBase` and `Commit` hold active state, including legitimate rebase/context-patch updates. Update template context from the shared workspace state so same-workspace descendants cannot observe stale copies of an accepted Git base.
 
 The existing job workspace is the root state. An absent scope field in legacy task data means that root, preserving existing serialized inputs and replay identities. New boundary IDs derive from the job identity and a deterministic boundary-entry identity: node path plus logical entry ordinal. Do not use random `CurrentRunID`, timestamps, local directory names, cell names alone, or per-task attempt numbers. Nested boundary IDs include the parent scope ID. Allocate the entry ordinal once outside the node's retry envelope.
 
@@ -167,7 +167,7 @@ Resolve cell names relative to a stable resolution configuration for the owning 
 
 1. Capture a portable resolution context when preparing the job: the effective naming pattern, self/root repositories and refs, and explicit configuration values needed by the existing resolver. Resolve local auto-detection at this point. API submitters must provide an equivalent context or use an explicit repository target. Do not put credentials in the snapshot.
 2. At boundary entry, evaluate `workspace.cell` and optional `workspace.ref` against the incoming template context. Parent inputs, prior visible outputs, transition data, and inherited vars are available. The node's own vars are evaluated after entry and cannot define its selector. Composite input bindings keep their current caller-side evaluation semantics.
-3. Execute an internal durable task, proposed name `recipe_workspace_resolve`, to normalize the target, select its ref, and resolve the ref to a full commit hash. Record the result before any target operation executes. Ordinary replay reuses this result without resolving the branch again.
+3. Execute an internal durable task, `recipe_workspace_resolve`, to normalize the target and record its entry observation. New symbolic descriptors carry `ref_policy: follow-until-change`. Before each fresh operation without accepted work, record another durable resolution; retries and replay reuse that operation's observation without fetching again.
 4. Create a new workspace state with the resolved base and no inherited commit or thin pack. Enter it before resolving node vars, op defaults, op inputs, artifact bindings, or execution requirements that should see the target context.
 5. Execute the node normally. Publish outputs/artifacts using normal scope rules. Returning to the enclosing context resumes its existing workspace state.
 
@@ -199,9 +199,9 @@ Fix job-result assembly as well as next-task forwarding: if the last executed no
 
 Today `Restore` follows `BaseRef` when `PersistHash` is empty, and cloning can overwrite `ResolvedBaseHash`. Merely setting `resolved_hash` is therefore insufficient to pin cellB.
 
-Add an explicit pinned-base restoration mode for workspace descriptors. The initial checkout must fetch/checkout `InitialHash`, preserve the requested ref for context/defaults, and require no thin pack. Subsequent tasks restore their accepted snapshot using existing persistence mechanics. A const or no-change task remains pinned even when it has no `PersistHash`; it must never regress to following the branch tip. Explicit Git operations may advance/rebase the workspace's active base without rewriting its entry descriptor.
+Keep entry observation, operation observation, and accepted candidate state distinct. `InitialHash` is historical provenance; `TaskBaseHash` fixes a fresh operation's checkout without accepting it. Const and no-change tasks leave symbolic workspaces following the branch. Accepted writes preserve their candidate and base through ordinary snapshots. Explicit Git operations may adopt/advance a base even without local changes; full commit refs stay fixed. Neither case is inferred merely from observing a hash. Hook preparation holds its invocation's observation without accepting a candidate. Preserve explicit hook source policies: `from_base` selects the historical entry source, while current/base-with-rebase policies use the observed candidate/active base. Rebase ancestry uses the active operation/candidate base, not an obsolete entry observation.
 
-Legacy tasks without the new descriptor keep existing ref-following behavior. If a pinned commit becomes unavailable, fail the node instead of silently using a newer commit.
+Legacy tasks without a workspace descriptor keep their existing behavior. Old explicit descriptors without the new ref policy retain their recorded pins: missing packs or equal hashes are insufficient evidence that accepted work is disposable. Restart reconstructs retained history; a discarded first write in a new floating workspace cannot pin subsequent fresh operations. If a selected commit becomes unavailable, fail instead of silently using another commit.
 
 ## Context patches, catches, and compiler entry points
 
@@ -257,8 +257,8 @@ Additional required coverage:
 - Root op/sequence/state/child-group, nested nodes, individual states, include wrappers, and shared definitions; declarations survive schema validation, normalization, hashing, and serialization.
 - Sibling B scopes are independent; B → C → B restores the enclosing B snapshot; explicitly selecting the same cell starts fresh.
 - A B machine shares state across loops; a B state gets fresh state on re-entry. Node vars/defaults see B; selectors and caller-side composite bindings see the incoming context.
-- Worker retry, composite retry, replay, restart, and execution handoff preserve scope identity, target pin, and accepted snapshots. Move B's branch after resolver completion, then resume on another worker.
-- No-change and `const` tasks remain pinned without advancing snapshots. Missing pinned commit/pack and mismatched scope/restore references fail clearly.
+- Worker/operation retry and replay preserve the recorded operation base. Resume and restart refresh symbolic refs only without retained accepted work; exact commits and accepted candidates stay fixed. Move B's branch after a no-change operation, then resume on another worker.
+- No-change and `const` tasks do not pin subsequent fresh operations. Explicit no-change base adoption does. Missing selected commits/packs and mismatched scope/restore references fail clearly.
 - Failure/catch/timeout paths resume A; B Git patches never alter A; unrelated job-global patches retain their existing behavior.
 - Last-node-is-B and root-override results cannot advertise B's thin pack as A's primary Git state. User artifacts and diagnostic diffs remain accessible with correct provenance.
 - User artifacts with internal-looking names cannot replace the active restore pack. Resolver/checkpoint tasks do not consume or change any scope's pack.
@@ -273,4 +273,4 @@ Run focused suites in `pkg/recipe`, `pkg/template`, `pkg/worker/compiler`, `pkg/
 
 The user confirmed **a fresh workspace per explicit node invocation, shared by its descendants**, and **support for literal and runtime-templated cell selectors**. Optional ref selection and ref templates are proposed alongside that API. Job-wide shared cellB state is outside this design; keying snapshots by cell name would violate the confirmed isolation requirement.
 
-Other proposed choices are `workspace: {cell, ref}` as the syntax, pinning at first entry, and retaining owning-job identity while exposing active workspace identity separately. These can be adjusted without changing the central requirement: each workspace has its own durable Git state and automatic artifact forwarding.
+The implemented syntax is `workspace: {cell, ref}`. Symbolic refs now follow until accepted changes or explicit base adoption; the earlier entry-pinning choice was corrected on 2026-11-01. Owning-job identity remains separate from workspace identity. Each workspace still has its own durable Git state and automatic artifact forwarding.

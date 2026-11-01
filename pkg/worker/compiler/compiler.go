@@ -357,6 +357,11 @@ func (d DefaultRecipeExecutor) executeOpBody(ctx workflow.Context, parentResolut
 
 // executeOperation executes a single operation node attempt.
 func (d DefaultRecipeExecutor) executeOpAttempt(ctx workflow.Context, parentResolutionContext *template.ResolutionContext, metadata recipe.NodeMetadata, op string) error {
+	observed, err := observeWorkspaceBase(ctx, parentResolutionContext, "workspace-base")
+	if err != nil {
+		return err
+	}
+	parentResolutionContext = observed
 	if metadata.Inputs == nil {
 		metadata.Inputs = map[string]interface{}{}
 	}
@@ -624,7 +629,9 @@ func (d DefaultRecipeExecutor) executeOpAttempt(ctx workflow.Context, parentReso
 			})
 
 			if err != nil {
-				return newRecipeFailureError(normalizeRuntimeFailure(err, resCtx, metadata, recipe.FailureNodeOp, op), err)
+				failure := normalizeRuntimeFailure(err, resCtx, metadata, recipe.FailureNodeOp, op)
+				attachTaskFailureAttributes(failure, out)
+				return newRecipeFailureError(failure, err)
 			}
 
 			outputData, err := out.GetData()

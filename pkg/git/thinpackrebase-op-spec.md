@@ -67,6 +67,45 @@ Outputs: `target_base_hash`, `new_base_hash`, `new_persist_hash`, `updated_ref`,
 workspace persistence uses an explicit runtime update, not arbitrary output
 fields named `git_context_patch`.
 
+## Structured failures (operation metadata version 1.1.0)
+
+The public `rebase` and `thinpackrebase` selectors emit native task failures;
+successful outputs and Git context updates are unchanged. This contract does
+not apply to the composite `squashrebasemerge` selector.
+
+Recipe catches can route on `failure.kind == 'task_error'` and
+`failure.code == 'REBASE_CONFLICT'`. `failure.attrs.rebase` contains:
+
+| Field | Meaning |
+| --- | --- |
+| `version` | `1` |
+| `phase` | `prepare`, `fetch`, `ancestry`, `fast_forward`, `replay`, `update_ref`, or `adopt_base` |
+| `base_hash`, `candidate_hash`, `target_base_hash` | Available hashes, or explicit null when unavailable; values resolved during execution use full hashes. |
+| `conflicts` | List of `{path, status}` from Git's NUL-delimited porcelain status, collected before abort. |
+| `workspace_restored` | True when the workspace was untouched, or cleanup verified the original candidate and clean index/worktree. |
+| `diagnostics` | Map of durable artifact refs, usable as inputs/artifact bindings in later operations. |
+| `cleanup_error` | Present if restoration failed. |
+| `diagnostic_errors` | Collection/publication errors, if any; these do not replace the original failure. |
+
+`REBASE_CONFLICT` requires confirmed unmerged index state. Other application
+errors use `REBASE_FAILED`, preserving an existing more specific native code.
+Cancellation, timeout, and system errors keep their native classification and
+are never made repairable by text matching. Diagnostic artifacts are also
+attached to failed outcomes when available.
+
+Conflict evidence includes Git stderr and combined output, the unmerged index
+(`conflict-index.z`), a conflict diff, and the stopped commit's patch under
+`_c2j/rebase/`. Diffs live in artifacts, not error attributes. Failed rebase
+does not adopt a new base or candidate. Cleanup failure leaves
+`workspace_restored: false`; automatic repair must require true.
+
+Catch recovery uses the retained pre-operation candidate, the recorded target
+hash, and these durable references on a fresh worker. The rebase session has
+been aborted: do not depend on `git rebase --continue` or on a worker-local
+directory. Resolve the changes in a subsequent operation, then explicitly
+rebase and verify again. Enclosing catches and `transition.failure` preserve
+the originating node and versioned data, including on completed replay.
+
 ## Coverage
 
 Tests cover real child merge → refresh → next task; omitted defaults; shallow

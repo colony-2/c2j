@@ -1,16 +1,54 @@
 package compiler
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"testing"
 
 	"github.com/colony-2/c2j/pkg/recipe"
+	coretask "github.com/colony-2/c2j/pkg/task"
+	workerops "github.com/colony-2/c2j/pkg/worker/ops"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
 	"github.com/stretchr/testify/require"
 )
+
+func TestNativeFailureDiagnosticsDoNotChangeErrorKind(t *testing.T) {
+	for _, tc := range []struct {
+		err  error
+		kind recipe.FailureKind
+	}{
+		{context.Canceled, recipe.FailureKindCancellation},
+		{context.DeadlineExceeded, recipe.FailureKindTimeout},
+		{&jobdb.SystemError{Payload: jobdb.SystemErrorPayload{Code: "transport", Message: "unavailable"}}, recipe.FailureKindSystemError},
+	} {
+		t.Run(string(tc.kind), func(t *testing.T) {
+			failure := normalizeRuntimeFailure(tc.err, nil, recipe.NodeMetadata{}, recipe.FailureNodeOp, "rebase")
+			env, err := coretask.NewOutputEnvelope(coretask.OutputKindActivityInvocationOutput, workerops.ActivityInvocationOutput{FailureAttrs: map[string]any{"rebase": map[string]any{"version": 1, "workspace_restored": false, "base_hash": nil}}})
+			require.NoError(t, err)
+			attachTaskFailureAttributes(failure, jobdb.NewTaskDataOrPanic(env))
+			require.Equal(t, tc.kind, failure.Kind)
+			require.NotEqual(t, "REBASE_CONFLICT", failure.Code)
+			details := failure.Attrs["rebase"].(map[string]any)
+			require.Contains(t, details, "base_hash")
+			require.Nil(t, details["base_hash"])
+			require.Equal(t, false, details["workspace_restored"])
+			// The same attributes survive an enclosing serialized recipe failure.
+			wrapped := newRecipeFailureError(failure, tc.err)
+			var app *jobdb.AppError
+			require.ErrorAs(t, wrapped, &app)
+			raw, err := json.Marshal(app)
+			require.NoError(t, err)
+			var restored jobdb.AppError
+			require.NoError(t, json.Unmarshal(raw, &restored))
+			got, ok := failureFromError(&restored)
+			require.True(t, ok)
+			require.Equal(t, failure, got)
+		})
+	}
+}
 
 func TestRecipeFailureFormatsOriginAndPreservesCause(t *testing.T) {
 	cause := errors.New("command execution failed: exit status 1")

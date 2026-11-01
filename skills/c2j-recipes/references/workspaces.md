@@ -19,7 +19,7 @@ The selector uses the incoming scope's visible inputs, prior outputs, inherited 
 
 Each explicit declaration creates a fresh workspace, including repeated declarations of the same cell. Descendants without declarations share that workspace's changes through ordinary snapshots. To share changes across several operations, put one declaration on their containing sequence or state machine. A declaration on an individual state starts fresh each time that state is entered; a machine declaration lasts across its states and loops.
 
-The target ref is pinned on first entry and reused for retries and replay. Omitted refs follow cell resolution defaults: configured self/root refs, otherwise `main`. Configured short names use the submitting project's captured naming pattern. Explicit Git repository locations work without that configuration. Local paths require access on the worker.
+Symbolic refs follow the branch until the first accepted repository change or explicit Git base adoption. Each fresh operation records a stable base; retries and replay reuse that observation. Const/no-change tasks do not pin later operations. Full commit refs remain fixed. Restart reconstructs the retained prefix: discarded writes do not pin future work, retained writes remain durable. Old histories without `ref_policy: follow-until-change` retain their original pins. Omitted refs follow cell resolution defaults: configured self/root refs, otherwise `main`. Configured short names use the submitting project's captured naming pattern. Explicit Git repository locations work without that configuration. Local paths require access on the worker.
 
 Inside an override:
 

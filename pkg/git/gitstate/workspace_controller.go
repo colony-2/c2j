@@ -109,6 +109,12 @@ func (c *Controller) Restore(ctx context.Context, task *GitTaskContext, thinPack
 		if targetRef == "" {
 			targetRef = task.Workspace.InitialHash
 		}
+		if task.Workspace.FollowsRef() && task.PersistHash == "" {
+			targetRef = task.Workspace.TaskBaseHash
+			if targetRef == "" {
+				return fmt.Errorf("floating workspace requires a durable operation base")
+			}
+		}
 	}
 	targetHash := strings.TrimSpace(task.GetPersistHash())
 
@@ -599,6 +605,12 @@ func (c *Controller) cloneIfNeeded(ctx context.Context, task *GitTaskContext) er
 		cloneRef = task.ResolvedBaseHash
 		if cloneRef == "" {
 			cloneRef = task.Workspace.InitialHash
+		}
+		if task.Workspace.FollowsRef() && task.PersistHash == "" {
+			cloneRef = task.Workspace.TaskBaseHash
+			if cloneRef == "" {
+				return fmt.Errorf("floating workspace requires a durable operation base")
+			}
 		}
 	}
 	if task.ParentHash != "" && task.ParentHash == task.PersistHash {

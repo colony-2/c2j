@@ -228,6 +228,10 @@ func (rc *ResolutionContext) initializeCEL() (*ResolutionContext, error) {
 		return nil, fmt.Errorf("failed to create CEL environment: %w", err)
 	}
 	adapter := newResolutionTypeAdapter(env.CELTypeAdapter(), options)
+	env, err = cel.CustomTypeProvider(failureTypeProvider{env.CELTypeProvider()})(env)
+	if err != nil {
+		return nil, fmt.Errorf("failed to configure failure attributes: %w", err)
+	}
 	env, err = cel.CustomTypeAdapter(adapter)(env)
 	if err != nil {
 		return nil, fmt.Errorf("failed to configure CEL adapter: %w", err)

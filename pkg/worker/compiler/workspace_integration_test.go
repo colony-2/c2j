@@ -203,7 +203,7 @@ outputs:
 	_, err = os.Stat(filepath.Join(restore.WorktreePath, "fresh.txt"))
 	require.True(t, os.IsNotExist(err))
 }
-func TestWorkspaceConstPinsBaseAndRootVars(t *testing.T) {
+func TestWorkspaceConstFollowsBranchAndPreservesRootVars(t *testing.T) {
 	root := t.TempDir()
 	a := filepath.Join(root, "A")
 	b := filepath.Join(root, "B")
@@ -230,7 +230,10 @@ outputs:
 `, b, b)
 	out, arts := runWorkspaceRecipe(t, ws, yaml, job)
 	require.Equal(t, initial, out["first"])
-	require.Equal(t, initial, out["next"])
+	advanced, err := common.GetCommitHash(context.Background(), b, "HEAD")
+	require.NoError(t, err)
+	require.NotEqual(t, initial, advanced)
+	require.Equal(t, advanced, out["next"])
 	require.Equal(t, "B", out["selected"])
 	require.Nil(t, findThinPack(arts))
 }

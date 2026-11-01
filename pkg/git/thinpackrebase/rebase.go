@@ -1,6 +1,7 @@
 package thinpackrebase
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -29,13 +30,22 @@ func Run(ctx context.Context, input ThinpackRebaseInput) (*ThinpackRebaseOutput,
 	return run(ctx, input, "")
 }
 
-func run(ctx context.Context, input ThinpackRebaseInput, minimumBase string) (*ThinpackRebaseOutput, error) {
+func run(ctx context.Context, input ThinpackRebaseInput, minimumBase string) (out *ThinpackRebaseOutput, runErr error) {
+	snapshot := workspaceSnapshot{RepoPath: input.RepoPath, BaseHash: input.BaseHash, PersistHash: input.PersistHash}
+	phase := "prepare"
+	clean, mutated := false, false
+	defer func() {
+		if runErr != nil {
+			runErr = captureFailure(ctx, runErr, snapshot, input.TargetBaseHash, phase, clean, mutated)
+		}
+	}()
 	targetBase := strings.TrimSpace(input.TargetBaseHash)
 	if targetBase == "" {
 		return nil, fmt.Errorf("target_base_hash is required")
 	}
 
-	snapshot, err := resolveWorkspaceSnapshot(input)
+	var err error
+	snapshot, err = resolveWorkspaceSnapshot(input)
 	if err != nil {
 		return nil, err
 	}
@@ -61,10 +71,12 @@ func run(ctx context.Context, input ThinpackRebaseInput, minimumBase string) (*T
 		return nil, err
 	}
 
+	phase = "fetch"
 	if err := ensureTargetAvailable(ctx, snapshot.RepoPath, remoteName, targetBase); err != nil {
 		return nil, err
 	}
 
+	phase = "ancestry"
 	if minimumBase != "" {
 		if err := ensureLinearHistory(ctx, snapshot.RepoPath, remoteName, minimumBase, targetBase); err != nil {
 			return nil, fmt.Errorf("workspace base constraint: %w", err)
@@ -75,11 +87,13 @@ func run(ctx context.Context, input ThinpackRebaseInput, minimumBase string) (*T
 		return nil, err
 	}
 
+	phase = "prepare"
 	// Resolve abbreviations before comparing or publishing metadata.
 	targetBase, err = common.GetCommitHash(ctx, snapshot.RepoPath, targetBase+"^{commit}")
 	if err != nil {
 		return nil, err
 	}
+	input.TargetBaseHash = targetBase
 	snapshot.BaseHash, err = common.GetCommitHash(ctx, snapshot.RepoPath, snapshot.BaseHash+"^{commit}")
 	if err != nil {
 		return nil, err
@@ -103,6 +117,7 @@ func run(ctx context.Context, input ThinpackRebaseInput, minimumBase string) (*T
 	if len(strings.TrimSpace(string(status))) != 0 {
 		return nil, fmt.Errorf("thinpackrebase requires a clean workspace; commit pending changes first")
 	}
+	clean = true
 
 	rebasedFrom := RebasedFromSummary{BaseHash: snapshot.BaseHash, PersistHash: snapshot.PersistHash}
 
@@ -120,11 +135,13 @@ func run(ctx context.Context, input ThinpackRebaseInput, minimumBase string) (*T
 	if commitCount == 0 {
 		// Nothing to reapply; align HEAD with the target base if needed.
 		if !hashesEqual(snapshot.PersistHash, targetBase) {
+			phase, mutated = "fast_forward", true
 			if _, err := common.ExecuteGitCommand(ctx, snapshot.RepoPath, "reset", "--hard", targetBase); err != nil {
 				return nil, fmt.Errorf("fast-forward to target base %s: %w", shortHash(targetBase), err)
 			}
 		}
 	} else if !equalBase {
+		phase, mutated = "replay", true
 		if err := rebaseOntoTarget(ctx, snapshot, targetBase, input.PreserveAuthor); err != nil {
 			return nil, err
 		}
@@ -136,6 +153,7 @@ func run(ctx context.Context, input ThinpackRebaseInput, minimumBase string) (*T
 	}
 
 	if strings.TrimSpace(input.UpdateRefs) != "" {
+		phase = "update_ref"
 		ref := strings.TrimSpace(input.UpdateRefs)
 		if _, err := common.ExecuteGitCommand(ctx, snapshot.RepoPath, "update-ref", ref, newHead); err != nil {
 			return nil, fmt.Errorf("update ref %s: %w", ref, err)
@@ -382,10 +400,12 @@ func rebaseOntoTarget(ctx context.Context, snapshot workspaceSnapshot, targetBas
 	cmd := gitprofile.Command(ctx, args...)
 	cmd.Dir = snapshot.RepoPath
 	cmd.Env = gitprofile.Env(ctx, env)
-	output, err := gitprofile.CombinedOutput(ctx, cmd)
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &stdout, &stderr
+	err := gitprofile.Run(ctx, cmd)
 	if err != nil {
-		_ = abortRebase(ctx, snapshot.RepoPath)
-		return fmt.Errorf("git rebase failed: %s", strings.TrimSpace(string(output)))
+		output := append(stdout.Bytes(), stderr.Bytes()...)
+		return &replayError{cause: errors.Join(err, context.Cause(ctx)), output: output, stderr: stderr.Bytes()}
 	}
 	return nil
 }

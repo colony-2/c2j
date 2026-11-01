@@ -83,6 +83,16 @@ pending work. See [the op specification](https://github.com/colony-2/c2j/blob/ma
 
 Outputs include `target_base_hash`, `new_base_hash`, `new_persist_hash`, `updated_ref`, `rebased_from`, and `git_context_patch`.
 
+`thinpackrebase` and the separate `rebase` op (operation metadata version 1.1.0)
+emit `failure.code == 'REBASE_CONFLICT'` only for confirmed Git conflicts.
+`failure.attrs.rebase` version 1 carries phase, input hashes, conflict paths/status,
+`workspace_restored`, and a `diagnostics` artifact map. Require restored state
+before automatic repair. Other application errors use `REBASE_FAILED`; native
+cancellation/timeout/system kinds remain intact. Catch and `transition.failure`
+provide the data without reading failed sibling outputs. Recovery restores the
+saved candidate on a fresh worker; it does not continue an active rebase session.
+The composite publication op has a separate failure contract.
+
 ## Standalone `squash`, `rebase`, and `merge`
 
 Use these when recipe checks, approvals, or other work belong between Git transformations. They are independent built-ins:
