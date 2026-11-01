@@ -19,12 +19,24 @@ import (
 )
 
 func TestEmptyWorkspaceRecipePublicationAndParentIsolation(t *testing.T) {
+	t.Setenv("GIT_CONFIG_GLOBAL", os.DevNull)
+	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
 	for _, separate := range []bool{false, true} {
-		t.Run(fmt.Sprintf("separate=%t", separate), func(t *testing.T) { testEmptyWorkspacePublication(t, separate) })
+		for _, explicitCommitter := range []bool{false, true} {
+			t.Run(fmt.Sprintf("separate=%t/explicit_committer=%t", separate, explicitCommitter), func(t *testing.T) {
+				committer := "Recipe Test <recipe-test@example.com>"
+				if explicitCommitter {
+					t.Setenv("GIT_COMMITTER_NAME", "Publisher")
+					t.Setenv("GIT_COMMITTER_EMAIL", "publisher@example.com")
+					committer = "Publisher <publisher@example.com>"
+				}
+				testEmptyWorkspacePublication(t, separate, committer)
+			})
+		}
 	}
 }
 
-func testEmptyWorkspacePublication(t *testing.T, separate bool) {
+func testEmptyWorkspacePublication(t *testing.T, separate bool, committer string) {
 	root := t.TempDir()
 	a := filepath.Join(root, "A")
 	b := filepath.Join(root, "B.git")
@@ -37,7 +49,8 @@ func testEmptyWorkspacePublication(t *testing.T, separate bool) {
 	}
 	probe := coreops.NewActivityMappedOpV2[hashes, hashes](coreops.OpMetadata{Type: "execution_hash_probe"}, func(_ coreops.OpDependencies, _ context.Context, in hashes) (hashes, error) { return in, nil })
 	ws := workspaceTestWorker(t, squashrebasemerge.GetOp(), squashrebasemerge.GetSquashOp(), squashrebasemerge.GetMergeOp(), probe)
-	job := contextual.JobContext{Workflow: contextual.WorkflowContext{CellName: "A"}, GitBase: contextual.GitBaseContext{BaseRepo: a, BaseRef: "main"}}
+	const identity = "Recipe Test <recipe-test@example.com>"
+	job := contextual.JobContext{Workflow: contextual.WorkflowContext{CellName: "A"}, GitBase: contextual.GitBaseContext{BaseRepo: a, BaseRef: "main", GitAuthor: identity}}
 	text := fmt.Sprintf(`id: workspace-test
 version: "1"
 sequence:
@@ -115,6 +128,11 @@ outputs:
 	roots, err := common.ExecuteGitCommand(context.Background(), b, "rev-list", "--max-parents=0", "main")
 	require.NoError(t, err)
 	require.Equal(t, out["first"].(string)+"\n", string(roots))
+	for _, hash := range []string{out["first"].(string), head} {
+		identities, err := common.ExecuteGitCommand(context.Background(), b, "show", "-s", "--format=%an <%ae>|%cn <%ce>", hash)
+		require.NoError(t, err)
+		require.Equal(t, identity+"|"+committer, strings.TrimSpace(string(identities)))
+	}
 }
 
 func TestEmptyWorkspaceResolutionAndReplay(t *testing.T) {

@@ -99,6 +99,31 @@ func TestSquashRejectsUnsafeInputs(t *testing.T) {
 	require.Equal(t, "dirty", string(content))
 }
 
+func TestSquashUsesExplicitAuthorAsMissingIdentityFallback(t *testing.T) {
+	t.Setenv("GIT_CONFIG_GLOBAL", os.DevNull)
+	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
+	for _, empty := range []bool{false, true} {
+		t.Run(fmt.Sprintf("empty=%t", empty), func(t *testing.T) {
+			repo := t.TempDir()
+			runGit(t, repo, "git", "init", "-b", "main")
+			// Temporary command config leaves the checkout without an identity.
+			commit := func() {
+				runGit(t, repo, "git", "-c", "user.name=Original", "-c", "user.email=original@example.com", "commit", "--allow-empty", "-m", "original")
+			}
+			base := ""
+			if !empty {
+				commit()
+				base = revParse(t, repo, "HEAD")
+			}
+			commit()
+			const author = "Recipe Test <recipe-test@example.com>"
+			_, err := squash(context.Background(), SquashInput{RepoPath: repo, BaseHash: base, Author: author, CommitMessage: "Prepared"}, empty)
+			require.NoError(t, err)
+			require.Equal(t, author+"|"+author, strings.TrimSpace(runGitOutput(t, repo, "git", "show", "-s", "--format=%an <%ae>|%cn <%ce>", "HEAD")))
+		})
+	}
+}
+
 func TestMergeRejectsDivergenceAndConcurrentUpdates(t *testing.T) {
 	for _, concurrent := range []bool{false, true} {
 		t.Run(fmt.Sprintf("concurrent=%t", concurrent), func(t *testing.T) {

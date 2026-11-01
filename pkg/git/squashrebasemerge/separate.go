@@ -92,7 +92,7 @@ func squash(ctx context.Context, input SquashInput, emptyBase bool) (SquashOutpu
 	if base == head {
 		return result, nil
 	}
-	if err := common.EnsureGitIdentity(ctx, input.RepoPath); err != nil {
+	if err := common.EnsureGitIdentityWithFallback(ctx, input.RepoPath, input.Author); err != nil {
 		return result, err
 	}
 	details, err := collectCommitDetails(ctx, input.RepoPath, base, head)

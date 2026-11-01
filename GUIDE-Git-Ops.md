@@ -19,6 +19,12 @@ workspace ancestry restrictions as `thinpackrebase`: its target must descend
 from the current base and the job's initial commit. It fetches missing history
 as necessary, including for shallow workspaces.
 
+`squash.author` selects authorship. Managed workspaces fill missing Git identity
+fields from `context.git.author`; a standalone squash uses its explicit `author`
+as the fallback. Existing Git identity configuration and `GIT_COMMITTER_*`
+overrides remain in effect. Preserving an original commit's author does not
+change the committer identity. See [workspace identity defaults](GUIDE-Empty-Workspaces.md).
+
 ```yaml
 input_schema:
   target_base_hash:

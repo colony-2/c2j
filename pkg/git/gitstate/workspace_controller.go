@@ -60,7 +60,7 @@ func (c *Controller) prepareWorkspace(ctx context.Context, task *GitTaskContext)
 		}
 	}
 
-	return common.EnsureGitIdentity(ctx, task.GetWorktreePath())
+	return common.EnsureGitIdentityWithFallback(ctx, task.GetWorktreePath(), task.GetGitAuthor())
 }
 
 // Restore replays thin packs when the target persist hash differs from the workspace state. It also prepares the workspace if it doesn't yet have a local copy of the repo.

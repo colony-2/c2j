@@ -71,10 +71,13 @@ c2j submit "Create the approved cell" --advanced-recipe-file ./create.yaml \
   inherit this workspace without redeclaring it; another explicit `workspace`
   declaration creates a fresh independent workspace.
 
-Across all workspaces, c2j fills missing Git identity fields with
-`colony2.com <col2bot@colony2.com>`. Configured identities and explicit overrides
-are honored; preserved original authorship remains distinct from the committer.
-Defaults are repository-local, never written to global Git configuration.
+Across all workspaces, c2j fills missing Git identity fields from the task's
+configured `context.git.author`, falling back to
+`colony2.com <col2bot@colony2.com>` when none is supplied. Existing Git identity
+configuration and explicit committer environment overrides are honored;
+preserved original authorship remains distinct from the committer. Defaults
+are repository-local, never written to global Git configuration. Fresh workers
+apply the same task identity when restoring a workspace.
 
 `squashrebasemerge` persists the prepared root commit before its internal
 publication task runs. If the push succeeds but its response or task outcome is
