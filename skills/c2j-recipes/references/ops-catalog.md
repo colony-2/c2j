@@ -19,6 +19,13 @@ Inputs:
 
 Outputs: `stdout`, `stderr`, `exit_code`, `success`, `timed_out`, `error_message`.
 
+Native command failures expose `failure.attrs.command` with `version: 1`,
+`exit_code`, `timed_out`, and `diagnostics`. The diagnostic map contains durable
+stdout/stderr refs under `_c2j/command/stdout.txt` and `_c2j/command/stderr.txt`.
+Forward these refs through enclosing catches and bind them into the next op
+without enabling `continue_on_error`. See [Command failure diagnostics](../../../GUIDE-Command-Failure-Diagnostics.md)
+for the contract and a complete example.
+
 ```yaml
 op: command_execution
 inputs:

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"reflect"
 	"time"
 
 	recipeartifacts "github.com/colony-2/c2j/pkg/artifacts"
@@ -53,6 +54,26 @@ type scopeFrame struct {
 	resolver   *template.ResolutionContext
 	lexical    *template.ResolutionContext
 	forwarder  *thinpackForwarder
+	failure    error
+}
+
+// JobDB persists native timeouts ahead of application attributes. Scope bodies
+// are reconstructed on replay, so recover the originating recipe failure from
+// this attempt's callback when its native timeout matches the accepted outcome.
+// A timeout of the enclosing scope itself must not inherit a child's evidence.
+func restoreScopeTimeoutFailure(err, bodyErr error) error {
+	if _, ok := failureFromError(err); ok {
+		return err
+	}
+	failure, ok := failureFromError(bodyErr)
+	if !ok {
+		return err
+	}
+	var accepted, body *jobdb.TimeoutError
+	if errors.As(err, &accepted) && errors.As(bodyErr, &body) && reflect.DeepEqual(accepted.Payload, body.Payload) {
+		return newRecipeFailureError(failure, err)
+	}
+	return err
 }
 
 // executeNodeScope delegates durable policy to JobDB. Scope bodies, handlers,
@@ -173,6 +194,7 @@ func executeNodeScope(ctx workflow.Context, parent *template.ResolutionContext, 
 			base := entry
 			if frame, ok := frames[last]; ok {
 				base = frame.lexical
+				e = restoreScopeTimeoutFailure(e, frame.failure)
 			}
 			return base, normalizeRuntimeFailure(e, base, meta, failureNodeType(kind), fallback)
 		}
@@ -259,6 +281,9 @@ func executeNodeScope(ctx workflow.Context, parent *template.ResolutionContext, 
 		// Save the completed callback before JobDB selects its outcome.
 		save(id, state, lexical, f, completion)
 		if e != nil {
+			frame := frames[id]
+			frame.failure = e
+			frames[id] = frame
 			return nil, e
 		}
 		return jobdb.NewTaskData(result)
@@ -295,6 +320,9 @@ func executeNodeScope(ctx workflow.Context, parent *template.ResolutionContext, 
 		}
 	}
 	if err != nil {
+		if ok {
+			err = restoreScopeTimeoutFailure(err, frame.failure)
+		}
 		if retrySteps && !isExecutionControlError(err) {
 			// Exhausted task retries and scope timeouts must not trigger an
 			// enclosing retry that discards completed preparation. Rehydrate

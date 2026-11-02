@@ -154,3 +154,26 @@ sequence:
 		}
 	}
 }
+
+func TestRestoreScopeTimeoutFailureDoesNotReuseUnrelatedEvidence(t *testing.T) {
+	native := &jobdb.TimeoutError{Payload: jobdb.TimeoutPayload{Kind: "task", Scope: "invocation", Message: "command execution timed out", Retryable: true}}
+	failure := &recipe.RuntimeFailure{Kind: recipe.FailureKindTimeout, Node: recipe.FailureNode{ID: "failed-command"}, Attrs: map[string]any{"command": map[string]any{"version": 1}}}
+	bodyErr := newRecipeFailureError(failure, native)
+	raw, err := json.Marshal(native)
+	require.NoError(t, err)
+	var persisted jobdb.TimeoutError
+	require.NoError(t, json.Unmarshal(raw, &persisted))
+	restored := restoreScopeTimeoutFailure(&persisted, bodyErr)
+	got, ok := failureFromError(restored)
+	require.True(t, ok)
+	require.Equal(t, failure, got)
+	require.ErrorIs(t, restored, &persisted)
+	for _, unrelated := range []error{
+		context.Canceled,
+		errors.New("other failure"),
+		&jobdb.TimeoutError{Payload: jobdb.TimeoutPayload{Kind: "scope", Scope: "total", Message: "scope timed out"}},
+	} {
+		require.Same(t, unrelated, restoreScopeTimeoutFailure(unrelated, bodyErr))
+	}
+	require.Same(t, &persisted, restoreScopeTimeoutFailure(&persisted, nil), "a fresh attempt cannot inherit the previous callback's evidence")
+}

@@ -13,6 +13,7 @@ import (
 	"github.com/colony-2/c2j/pkg/ops"
 	"github.com/colony-2/c2j/pkg/ops/process"
 	"github.com/colony-2/c2j/pkg/shellcmd"
+	"github.com/colony-2/jobdb/pkg/jobdb"
 )
 
 // CommandExecutionConfig defines the configuration for command execution activities - ALL fields MUST have json tags
@@ -132,14 +133,23 @@ func execute(deps ops.OpDependencies, ctx context.Context, input CommandExecutio
 		output.Success = false
 		output.ErrorMessage = "command execution timed out"
 		if !input.ContinueOnError {
-			return output, fmt.Errorf("command execution timed out")
+			cause := errors.Join(err, context.Cause(ctx), context.DeadlineExceeded)
+			var nativeTimeout *jobdb.TimeoutError
+			if !errors.As(cause, &nativeTimeout) {
+				cause = errors.Join(cause, &jobdb.TimeoutError{Payload: jobdb.TimeoutPayload{
+					Kind: "task", Scope: jobdb.TimeoutScopeInvocation, After: jobdb.Duration(timeout),
+					Code: "timeout_invocation", Message: output.ErrorMessage, Retryable: true,
+				}})
+			}
+			return output, captureFailure(ctx, deps, cause, output.ErrorMessage, -1, true, stdoutBytes, stderrBytes)
 		}
 		return output, nil
 	}
 
 	// Handle execution error
 	if err != nil {
-		if exitError, ok := err.(*exec.ExitError); ok {
+		var exitError *exec.ExitError
+		if errors.As(err, &exitError) {
 			output.ExitCode = exitError.ExitCode()
 		} else {
 			output.ExitCode = -1
@@ -148,7 +158,7 @@ func execute(deps ops.OpDependencies, ctx context.Context, input CommandExecutio
 		output.ErrorMessage = err.Error()
 
 		if !input.ContinueOnError {
-			return output, fmt.Errorf("command execution failed: %w", err)
+			return output, captureFailure(ctx, deps, errors.Join(err, context.Cause(ctx)), fmt.Sprintf("command execution failed: %s", err), output.ExitCode, false, stdoutBytes, stderrBytes)
 		}
 	}
 
@@ -156,6 +166,10 @@ func execute(deps ops.OpDependencies, ctx context.Context, input CommandExecutio
 }
 
 func executionTimedOut(ctx context.Context, err error) bool {
+	var timeout *jobdb.TimeoutError
+	if errors.As(err, &timeout) || errors.As(context.Cause(ctx), &timeout) {
+		return true
+	}
 	if errors.Is(err, context.DeadlineExceeded) {
 		return true
 	}
