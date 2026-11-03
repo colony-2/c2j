@@ -5,12 +5,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/colony-2/c2j/pkg/hookpolicy"
 	"github.com/colony-2/c2j/pkg/jobref"
 	"github.com/colony-2/c2j/pkg/permissions"
 	"github.com/colony-2/c2j/pkg/secrets"
+	"github.com/colony-2/c2j/pkg/selfinfo"
 	"github.com/colony-2/c2j/pkg/workflowctl"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
@@ -21,6 +23,9 @@ func (r *Runtime) restrictedAccess(parent context.Context, tc jobworkflow.TaskCo
 	// bounds when creating a child. Embedded execution uses in-process guards.
 	ctx, cancel := context.WithCancel(parent)
 	var access *permissions.Access
+	var delegationMu sync.Mutex
+	var child jobdb.ExecutionLease
+	var issuedDelegation atomic.Pointer[jobdb.DelegationInfo]
 	resolve := fresh
 	var hookPolicy json.RawMessage
 	if len(policies) > 0 {
@@ -46,12 +51,10 @@ func (r *Runtime) restrictedAccess(parent context.Context, tc jobworkflow.TaskCo
 	})
 	if len(grant.Secrets.Resolve) != 0 || grant.Jobs.Submit {
 		if r.Issuer != nil {
-			var mu sync.Mutex
-			var child jobdb.ExecutionLease
 			var issuedDeadline time.Time
 			get := func(call context.Context) (jobdb.ExecutionLease, error) {
-				mu.Lock()
-				defer mu.Unlock()
+				delegationMu.Lock()
+				defer delegationMu.Unlock()
 				// Only the operation scope can narrow the credential. A short
 				// helper/RPC call deadline controls that call's cancellation.
 				d, _ := access.Context().Deadline()
@@ -74,6 +77,9 @@ func (r *Runtime) restrictedAccess(parent context.Context, tc jobworkflow.TaskCo
 						return nil, err
 					}
 					issuedDeadline = d
+					if metadata, ok := child.(interface{ Delegation() *jobdb.DelegationInfo }); ok {
+						issuedDelegation.Store(metadata.Delegation())
+					}
 				}
 				return child, nil
 			}
@@ -122,7 +128,10 @@ func (r *Runtime) restrictedAccess(parent context.Context, tc jobworkflow.TaskCo
 		}
 	}
 	access = permissions.NewAccess(ctx, grant, resolve, submit)
-	return access, permissions.WithAccess(ctx, access), cancel, nil
+	// Inspection must not wait for an in-flight delegation RPC. The issuer
+	// publishes only completed, noncredential metadata.
+	provider := r.selfProvider(tc, original, access, policies, issuedDelegation.Load)
+	return access, selfinfo.WithProvider(permissions.WithAccess(ctx, access), provider), cancel, nil
 }
 
 func constrainHookChild(job jobdb.SubmitJob, grant permissions.JobDB, policy json.RawMessage) (jobdb.SubmitJob, error) {

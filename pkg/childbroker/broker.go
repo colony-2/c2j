@@ -20,6 +20,7 @@ import (
 	"github.com/colony-2/c2j/pkg/jobcontext"
 	"github.com/colony-2/c2j/pkg/jobref"
 	"github.com/colony-2/c2j/pkg/recipe"
+	"github.com/colony-2/c2j/pkg/selfinfo"
 	"github.com/colony-2/c2j/pkg/starter"
 	"github.com/colony-2/c2j/pkg/workflowctl"
 	"github.com/colony-2/c2j/pkg/workspacesubmit"
@@ -39,12 +40,14 @@ type Submitter interface {
 }
 
 type Options struct {
+	Self      selfinfo.Provider
 	Workspace *workspacesubmit.Source
 	Current   jobcontext.Current
 	Submitter Submitter
 }
 
 type Server struct {
+	self             selfinfo.Provider
 	workspace        *workspacesubmit.Source
 	executionContext context.Context
 	current          jobcontext.Current
@@ -99,7 +102,7 @@ func Start(ctx context.Context, opts Options) (*Server, error) {
 }
 
 func start(ctx context.Context, opts Options, openListener func() (net.Listener, string, error)) (*Server, error) {
-	if opts.Submitter == nil {
+	if opts.Submitter == nil && opts.Self == nil {
 		return nil, fmt.Errorf("child job broker submitter is required")
 	}
 	if !opts.Current.HasJob() {
@@ -131,6 +134,7 @@ func start(ctx context.Context, opts Options, openListener func() (net.Listener,
 		localIP = net.IPv4(127, 0, 0, 1)
 	}
 	broker := &Server{
+		self:             opts.Self,
 		executionContext: ctx,
 		workspace:        opts.Workspace,
 		localEndpoint:    "http://" + net.JoinHostPort(localIP.String(), fmt.Sprint(tcpAddr.Port)) + submitPath,
@@ -146,6 +150,7 @@ func start(ctx context.Context, opts Options, openListener func() (net.Listener,
 	mux := http.NewServeMux()
 	mux.HandleFunc(submitPath, broker.handleSubmit)
 	mux.HandleFunc(submitPath+"/workspace", broker.handleWorkspace)
+	mux.HandleFunc(submitPath+"/self", broker.handleSelf)
 	broker.server = &http.Server{
 		Handler:           mux,
 		ReadHeaderTimeout: 5 * time.Second,
@@ -268,6 +273,9 @@ func (s *Server) authorized(r *http.Request) bool {
 }
 
 func (s *Server) submit(ctx context.Context, req SubmitRequest) (SubmitResponse, error) {
+	if s.submitter == nil {
+		return SubmitResponse{}, fmt.Errorf("submission unavailable for this invocation")
+	}
 	start := req.Start
 	start.JobContext.GitProfile = gitprofile.InheritedSelection(s.executionContext)
 	if strings.TrimSpace(start.TenantId) != strings.TrimSpace(s.current.TenantID) {

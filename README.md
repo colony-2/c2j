@@ -192,21 +192,49 @@ c2j run --job-id <job-id> --embed
 
 ### `c2j self`
 
-Shows how `c2j` resolves the current cell from `.c2/config.yaml` or supported auto-detection.
+Run this at the start of an agent task to discover the current execution and
+available c2j actions:
 
 ```bash
 c2j self
 c2j self --json
 ```
 
-Fields include:
+Inside a command or extension operation, it reports job/tenant/goal identity,
+engine task ID and task attempt, invocation, active workspace and paths, lease
+state, renewable expiry, operation deadline, effective permissions, and inherited
+child restrictions. Extension authors need no additional setup. Recipe operation
+retries can create a new engine task ID with task attempt 1; the task attempt is
+not the recipe retry count.
 
-- `short_name`
-- `repo`
-- `ref`
-- `root_repo`
-- `root_ref`
-- `pattern`
+The action table distinguishes permission (`granted`, `denied`, `unknown`) from
+availability (`ready`, `unavailable`, `unknown`) for submission, both workspace
+submission modes, and `c2j secret get NAME`. Follow the reported routes and
+restrictions. Recheck after a lease or permission failure. `ready` means the
+runtime has the grant and route; it does not guarantee that a particular request
+or secret lookup will succeed.
+
+Outside a running task, the report explicitly says **standalone**: no current
+job, task, lease, or task workspace is detected. Standalone JobDB permissions
+remain **unknown**, even when a connection is configured. Without cell config,
+`self` still returns a useful report and exits successfully. Advertised execution
+context with a missing, old, or unreachable helper reports unknown authority;
+it never falls back to treating the process as standalone.
+
+JSON retains the existing cell keys (`short_name`, `repo`, `ref`, `root_repo`,
+`root_ref`, `pattern`, `packages`, `config_path`, `jobdb`) and adds
+`schema_version: 1`, `observed_at`, `execution`, `workspace`, `lease`,
+`permissions`, `capabilities`, and `diagnostics`. Unknown identifiers are `null`.
+The cell resolved from the working directory is distinct from the task workspace,
+so changing directories does not change the reported job. Parent identity is
+currently `null` because operation context does not carry that metadata.
+
+Inspection reads runtime metadata without resolving secrets, issuing credentials,
+renewing leases, or probing authorization. Lease validity is `last_known`, not a
+fresh JobDB validation. Helper requests time out after two seconds. Configuration
+commands receive a separate two-second context deadline. URLs and registered secret values are
+redacted. Use structured statuses, rather than exit status, to decide what is
+known: a useful partial report also exits successfully.
 
 ### `c2j cells`
 
@@ -943,7 +971,7 @@ c2j submit "Run the requested task" \
 - `--inputs-json` and `--inputs-file` are mutually exclusive
 - `--self` and `--cell` are mutually exclusive
 - `--artifact` names must be unique relative paths; directories are not supported yet
-- `self`, `cells`, and implicit current-cell submission depend on config or supported auto-detection succeeding
+- `cells` and implicit current-cell submission depend on config or supported auto-detection succeeding; `self` also reports missing configuration
 - short cell names require a config pattern; without config, use an explicit repo or path
 - `submit --advanced-recipe-file` is clearer than passing a local file path through `--advanced-recipe`
 

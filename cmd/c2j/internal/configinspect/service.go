@@ -21,6 +21,7 @@ type CellsOptions struct {
 }
 
 type SelfOptions struct {
+	Getenv     func(string) string
 	WorkingDir string
 	JSONOutput bool
 	Stdout     io.Writer
@@ -101,79 +102,6 @@ func displayDescription(value string) string {
 		}
 	}
 	return out.String()
-}
-
-func RunSelf(ctx context.Context, opts SelfOptions) error {
-	cfg, stdout, err := loadConfigAndOutput(opts.WorkingDir, opts.Stdout)
-	if err != nil {
-		return err
-	}
-
-	repo, err := cfg.SelfRepo(ctx)
-	if err != nil {
-		return err
-	}
-	jobdb, err := cfg.JobDBURI(ctx)
-	if err != nil {
-		return err
-	}
-	ref, err := cfg.SelfRef(ctx)
-	if err != nil {
-		return err
-	}
-	rootRepo, err := cfg.RootRepo(ctx)
-	if err != nil {
-		return err
-	}
-	rootRef, err := cfg.RootRef(ctx)
-	if err != nil {
-		return err
-	}
-	pattern, err := cfg.Pattern(ctx)
-	if err != nil {
-		return err
-	}
-	shortName, _ := cfg.CellNameFromRepo(ctx, repo)
-
-	info := SelfInfo{
-		Packages:   cfg.Packages(),
-		ConfigPath: cfg.Path(),
-		ShortName:  strings.TrimSpace(shortName),
-		Repo:       strings.TrimSpace(repo),
-		JobDB:      strings.TrimSpace(jobdb),
-		Ref:        strings.TrimSpace(ref),
-		RootRepo:   strings.TrimSpace(rootRepo),
-		RootRef:    strings.TrimSpace(rootRef),
-		Pattern:    strings.TrimSpace(pattern),
-	}
-
-	if opts.JSONOutput {
-		return json.NewEncoder(stdout).Encode(info)
-	}
-
-	w := tabwriter.NewWriter(stdout, 0, 0, 2, ' ', 0)
-	if _, err := fmt.Fprintln(w, "FIELD\tVALUE"); err != nil {
-		return err
-	}
-	for _, field := range []struct {
-		name  string
-		value string
-	}{
-		{name: "short_name", value: displayValue(info.ShortName)},
-		{name: "repo", value: displayValue(info.Repo)},
-		{name: "jobdb", value: displayValue(info.JobDB)},
-		{name: "ref", value: displayValue(info.Ref)},
-		{name: "root_repo", value: displayValue(info.RootRepo)},
-		{name: "root_ref", value: displayValue(info.RootRef)},
-		{name: "pattern", value: displayValue(info.Pattern)},
-		{name: "packages", value: displayValue(strings.Join(info.Packages, ", "))},
-		{name: "config_path", value: displayValue(info.ConfigPath)},
-	} {
-		if _, err := fmt.Fprintf(w, "%s\t%s\n", field.name, field.value); err != nil {
-			return err
-		}
-	}
-	return w.Flush()
 }
 
 func loadConfigAndOutput(workingDir string, stdout io.Writer) (*configpkg.ProjectConfig, io.Writer, error) {

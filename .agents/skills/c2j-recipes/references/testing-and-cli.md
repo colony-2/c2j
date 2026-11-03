@@ -2,6 +2,20 @@
 
 # Testing And CLI
 
+## Discover Current Execution
+
+Run `c2j self` at the start of a task to discover job/task identity, workspace,
+lease status, effective permissions, and available c2j actions. Use
+`c2j self --json` for complete identifiers and structured details. Follow the
+reported routes and restrictions; recheck after a lease or permission failure.
+Unknown means unverified, not allowed or denied. Permission and route availability
+are separate, and lease validity is last known rather than freshly validated.
+
+Outside a task the report says standalone; configured JobDB credentials are not
+inspected. A missing or incompatible helper inside a task reports unknown
+authority without falling back to standalone credentials. Normal absence of both
+cell and task context returns a partial report with exit status 0.
+
 ## Local Authoring Loop
 
 Use embedded JobDB for local smoke tests:

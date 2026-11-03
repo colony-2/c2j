@@ -14,6 +14,7 @@ import (
 	"github.com/colony-2/c2j/pkg/ops"
 	"github.com/colony-2/c2j/pkg/ops/executiondiag"
 	"github.com/colony-2/c2j/pkg/ops/process"
+	"github.com/colony-2/c2j/pkg/permissions"
 	"github.com/colony-2/c2j/pkg/secrets"
 	"github.com/colony-2/c2j/pkg/shellcmd"
 	"github.com/colony-2/jobdb/pkg/jobdb"
@@ -123,6 +124,12 @@ func execute(deps ops.OpDependencies, ctx context.Context, input CommandExecutio
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, timeout)
 		defer cancel()
+		if access := permissions.FromContext(ctx); access != nil {
+			deadline, _ := ctx.Deadline()
+			// The enclosing task owns cleanup of this authority scope. Do not
+			// cancel it on command return: workspace finalization still uses it.
+			access.LimitDeadline(deadline)
+		}
 	}
 
 	// Determine working directory

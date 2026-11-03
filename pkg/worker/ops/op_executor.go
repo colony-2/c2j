@@ -454,11 +454,13 @@ func (t opExecutor) doPrepared(ctx context.Context, jobTool ops.JobTool, req Act
 		protectedEnv["C2J_WORKSPACE_SCOPE_ID"] = req.GitTaskContext.Workspace.ScopeID
 	}
 	var broker *childbroker.Server
-	if submitter, ok := jobTool.(leaseChildJobSubmitter); ok {
+	if currentJob.HasJob() {
+		submitter, _ := jobTool.(leaseChildJobSubmitter)
 		broker, err = childbroker.Start(ctx, childbroker.Options{
 			Current:   currentJob,
 			Workspace: &workspacesubmit.Source{Git: *fullContext.GlobalGitTaskContext, Worktree: worktreePath, Artifact: thinPackArtifact, RestoreArtifact: req.RestoreArtifact},
 			Submitter: submitter,
+			Self:      invocationSelf(opCtx, currentJob, operationPaths, *fullContext.GlobalGitTaskContext, submitter != nil),
 		})
 		if err != nil {
 			return zero, nil, fmt.Errorf("start child job broker: %w", err)
