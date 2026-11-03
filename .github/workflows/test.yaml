@@ -22,6 +22,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          # Upgrade tests archive historical revisions to produce legacy state.
+          fetch-depth: 0
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
