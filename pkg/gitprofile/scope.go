@@ -186,6 +186,10 @@ func (s *Scope) CheckOutput(v any) error {
 func (s *Scope) Error(err error) error     { return s.redactor.Error(err) }
 func (s *Scope) Redact(text string) string { return s.redactor.Redact(text) }
 
+// Redactor exposes the invocation's masker, never its credential values, so
+// process diagnostics can combine Git and operation masks before rendering.
+func (s *Scope) Redactor() *secrets.Redactor { return s.redactor }
+
 // RetainRedaction keeps masks until a running task finishes unwinding, even
 // when cancellation has already closed its resolver socket.
 func (s *Scope) RetainRedaction() func() {

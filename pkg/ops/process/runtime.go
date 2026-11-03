@@ -27,6 +27,7 @@ type RunRequest struct {
 	Command       []string
 	Env           map[string]string
 	Stdin         []byte
+	Capture       *Capture
 }
 
 func ExecuteProcess(ctx context.Context, req RunRequest) (stdout, stderr []byte, runErr error) {
@@ -38,6 +39,9 @@ func ExecuteProcess(ctx context.Context, req RunRequest) (stdout, stderr []byte,
 			stderr = []byte(scope.Redact(string(stderr)))
 			runErr = scope.Error(runErr)
 		}()
+	}
+	if req.Capture != nil {
+		defer func() { req.Capture.Err = runErr; req.Capture.seal() }()
 	}
 	workspaceRoot := strings.TrimSpace(req.WorkspaceRoot)
 	workingDir := strings.TrimSpace(req.WorkingDir)
@@ -56,6 +60,9 @@ func ExecuteProcess(ctx context.Context, req RunRequest) (stdout, stderr []byte,
 		workingDir = wd
 	}
 
+	if req.Capture != nil {
+		req.Capture.Request = RunRequest{WorkingDir: workingDir, Shell: req.Shell, Run: req.Run, Command: append([]string(nil), req.Command...)}
+	}
 	return executeOnHost(ctx, req, workingDir)
 }
 
@@ -66,6 +73,9 @@ func executeOnHost(ctx context.Context, req RunRequest, workingDir string) ([]by
 	cmd, err := buildExecCommand(req)
 	if err != nil {
 		return nil, nil, err
+	}
+	if req.Capture != nil && len(req.Command) == 0 {
+		req.Capture.Request.Shell = cmd.Args[0]
 	}
 	cmd.Dir = workingDir
 	cmd.Env = BuildProcessEnv(req.Env)
@@ -98,9 +108,25 @@ func executeOnHost(ctx context.Context, req RunRequest, workingDir string) ([]by
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
+	results := func() ([]byte, []byte) { return stdout.Bytes(), stderr.Bytes() }
+	if req.Capture != nil {
+		cmd.Stdout = req.Capture.writer(0)
+		cmd.Stderr = req.Capture.writer(1)
+		results = func() ([]byte, []byte) { return req.Capture.RawBytes(0), req.Capture.RawBytes(1) }
+	}
+	finish := func(err error) ([]byte, []byte, error) { out, diagnostic := results(); return out, diagnostic, err }
 	configureProcessTree(cmd)
+	if req.Capture != nil {
+		req.Capture.LaunchAttempted = true
+	}
+	started := time.Now()
 	if err := cmd.Start(); err != nil {
-		return stdout.Bytes(), stderr.Bytes(), err
+		return finish(err)
+	}
+	if req.Capture != nil {
+		req.Capture.Started = started.UTC()
+		req.Capture.Launched = true
+		defer func() { req.Capture.Duration = time.Since(started) }()
 	}
 
 	waitCh := make(chan error, 1)
@@ -110,7 +136,7 @@ func executeOnHost(ctx context.Context, req RunRequest, workingDir string) ([]by
 
 	select {
 	case err := <-waitCh:
-		return stdout.Bytes(), stderr.Bytes(), err
+		return finish(err)
 	case <-ctx.Done():
 		terminateProcessTree(cmd)
 		select {
@@ -123,7 +149,7 @@ func executeOnHost(ctx context.Context, req RunRequest, workingDir string) ([]by
 		if cause == nil {
 			cause = ctx.Err()
 		}
-		return stdout.Bytes(), stderr.Bytes(), fmt.Errorf("process canceled: %w", cause)
+		return finish(fmt.Errorf("process canceled: %w", cause))
 	}
 }
 

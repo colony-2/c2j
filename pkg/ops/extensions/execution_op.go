@@ -4,7 +4,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"github.com/colony-2/c2j/pkg/ops/executiondiag"
+	"os/exec"
 	"strings"
 
 	recipeartifacts "github.com/colony-2/c2j/pkg/artifacts"
@@ -13,6 +16,7 @@ import (
 	"github.com/colony-2/c2j/pkg/ops"
 	"github.com/colony-2/c2j/pkg/ops/process"
 	"github.com/colony-2/c2j/pkg/secrets"
+	"github.com/colony-2/jobdb/pkg/jobdb"
 )
 
 const ExecutionOpType = "extension_execution"
@@ -42,7 +46,33 @@ func GetExecutionOp() ops.RegisterableOp {
 	)
 }
 
-func executeExtension(deps ops.OpDependencies, ctx context.Context, input ExecutionInput) (map[string]interface{}, error) {
+func executeExtension(deps ops.OpDependencies, ctx context.Context, input ExecutionInput) (result map[string]interface{}, runErr error) {
+	report := executiondiag.New(ctx, deps)
+	defer report.Close()
+	report.Selector = input.Selector
+	defer func() {
+		exit := 0
+		if !report.Capture.Launched || report.Capture.Err != nil {
+			exit = -1
+			var ee *exec.ExitError
+			if errors.As(report.Capture.Err, &ee) {
+				exit = ee.ExitCode()
+			}
+		}
+		timedOut := errors.Is(report.Capture.Err, context.DeadlineExceeded)
+		var native *jobdb.TimeoutError
+		timedOut = timedOut || errors.As(report.Capture.Err, &native)
+		details := report.Publish(runErr, exit, timedOut)
+		if runErr != nil {
+			message := executiondiag.Short(secrets.RedactorFromContext(ctx).Redact(runErr.Error()))
+			if len(details.Diagnostics) > 0 {
+				message += "; execution log: " + report.Name
+			} else {
+				message += "; execution log unavailable"
+			}
+			runErr = &executiondiag.Failure{Cause: runErr, Message: message, Attribute: "extension", Details: details}
+		}
+	}()
 	gitCtx := deps.GitContext()
 	repoSource := strings.TrimSpace(input.RepositorySource)
 	repoRef := strings.TrimSpace(input.RepositoryRef)
@@ -80,6 +110,9 @@ func executeExtension(deps ops.OpDependencies, ctx context.Context, input Execut
 	if err != nil {
 		return nil, err
 	}
+	report.ResolvedSelector, report.ResolvedCommit = resolved.ResolvedSelector, resolved.ResolvedCommit
+	report.Roots = append(report.Roots, executiondiag.Root{Name: "extension_source", Path: resolved.ProjectRoot})
+	report.Capture.Request = extensionRunRequest(resolved, nil, nil)
 	if input.Inputs == nil {
 		input.Inputs = map[string]interface{}{}
 	}
@@ -124,14 +157,21 @@ func executeExtension(deps ops.OpDependencies, ctx context.Context, input Execut
 	}
 
 	runReq := extensionRunRequest(resolved, env, inJSON)
-	stdout, stderr, err := process.ExecuteProcess(ctx, runReq)
+	runReq = report.Prepare(runReq)
+	stdout, _, err := process.ExecuteProcess(ctx, runReq)
 	if err != nil {
-		return nil, fmt.Errorf("extension op %q failed: %w; stderr: %s", input.Selector, err, strings.TrimSpace(string(stderr)))
+		return nil, fmt.Errorf("extension op %q failed: %w; stderr: %s", input.Selector, err, executiondiag.Short(strings.TrimSpace(string(report.Capture.Bytes(1)))))
 	}
 
+	if report.Capture.Truncated(0) {
+		return nil, fmt.Errorf("extension stdout exceeded execution capture limit; JSON result was not decoded")
+	}
 	outputs, artifactRefs, err := decodeExecutionEnvelope(stdout)
 	if err != nil {
-		return nil, fmt.Errorf("extension op %q produced invalid JSON on stdout: %w; raw: %s", input.Selector, err, strings.TrimSpace(string(stdout)))
+		return nil, fmt.Errorf("extension op %q produced invalid JSON on stdout: %w; raw: %s", input.Selector, err, executiondiag.Short(secrets.RedactorFromContext(ctx).Redact(strings.TrimSpace(string(stdout)))))
+	}
+	if err := executiondiag.CheckOutput(executionEnvelope{Output: outputs, ArtifactRefs: artifactRefs}); err != nil {
+		return nil, err
 	}
 	if len(bytes.TrimSpace(stdout)) > 0 {
 		outputs, err = publishExtensionObjects(ctx, deps, stdout, outputs)
@@ -143,6 +183,9 @@ func executeExtension(deps ops.OpDependencies, ctx context.Context, input Execut
 		if err := resolved.compiledOutput.Validate(outputs); err != nil {
 			return nil, fmt.Errorf("extension op %q output failed schema validation: %w", input.Selector, err)
 		}
+	}
+	if err := executiondiag.CheckOutput(executionEnvelope{Output: outputs, ArtifactRefs: artifactRefs}); err != nil {
+		return nil, err
 	}
 	for name, ref := range artifactRefs {
 		if ref.External == nil {

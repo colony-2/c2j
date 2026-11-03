@@ -6,10 +6,12 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/colony-2/c2j/pkg/artifacts"
 	coreops "github.com/colony-2/c2j/pkg/ops"
+	extops "github.com/colony-2/c2j/pkg/ops/extensions"
 	"github.com/colony-2/c2j/pkg/worker/commandop"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
@@ -46,15 +48,11 @@ func TestCommandDiagnosticsNestedCatchResumeAndReplay(t *testing.T) {
 				commitHookFile(t, repo, ".c2/hooks/leaf.yaml", fmt.Sprintf("id: leaf\nversion: '1'\ninput_schema: {}\nsequence:\n - id: failed_command\n   op: command_execution\n%s   inputs:\n     run: %q\n%soutputs: {}\n", policy, run, timeout))
 				commitHookFile(t, repo, ".c2/hooks/check.yaml", "id: check\nversion: '1'\ninput_schema: {}\nsequence:\n - id: nested_hook\n   include: ./leaf.yaml\noutputs: {}\n")
 				capture := coreops.NewActivityMappedOpV2[commandCaptureInput, map[string]any](coreops.OpMetadata{Type: "command_test_capture", AcceptsArtifacts: true}, func(_ coreops.OpDependencies, _ context.Context, in commandCaptureInput) (map[string]any, error) {
-					stdout, err := os.ReadFile(filepath.Join(in.Inbox, "stdout.txt"))
+					log, err := os.ReadFile(filepath.Join(in.Inbox, "execution.log"))
 					if err != nil {
 						return nil, err
 					}
-					stderr, err := os.ReadFile(filepath.Join(in.Inbox, "stderr.txt"))
-					if err != nil {
-						return nil, err
-					}
-					return map[string]any{"failure": in.Failure, "stdout": string(stdout), "stderr": string(stderr)}, nil
+					return map[string]any{"failure": in.Failure, "log": string(log)}, nil
 				})
 				workspaceTestWorker(t, commandop.GetOp(), capture)
 				catch := `   catch:
@@ -94,8 +92,7 @@ state:
 ` + catch + `  recover:
    op: command_test_capture
    artifacts:
-     stdout.txt: '${{ transition.payload.diagnostics["_c2j/command/stdout.txt"] }}'
-     stderr.txt: '${{ transition.payload.diagnostics["_c2j/command/stderr.txt"] }}'
+     execution.log: '${{ transition.payload.diagnostics["_c2j/execution/failed_command.log"] }}'
    inputs:
      failure: '${{ transition.payload.failure }}'
      inbox: '${{ context.environment.inbox }}'
@@ -110,8 +107,8 @@ outputs: {captured: '${{ states.recover.outputs }}'}
 				out, err := runGitLifecycle(t, rt, key)
 				require.NoError(t, err)
 				captured := gitLifecycleOutput(t, out)["captured"].(map[string]any)
-				require.Equal(t, expectedStdout, captured["stdout"])
-				require.Equal(t, expectedStderr, captured["stderr"])
+				require.Contains(t, captured["log"], strings.TrimSpace(expectedStdout))
+				require.Contains(t, captured["log"], strings.TrimSpace(expectedStderr))
 				failure := captured["failure"].(map[string]any)
 				kind, exit := "task_error", float64(7)
 				if scenario == "timeout" {
@@ -122,7 +119,7 @@ outputs: {captured: '${{ states.recover.outputs }}'}
 				require.Equal(t, "failed_command", node["id"])
 				require.Equal(t, "command_execution", node["op"])
 				details := failure["attrs"].(map[string]any)["command"].(map[string]any)
-				require.Equal(t, float64(1), details["version"])
+				require.Equal(t, float64(2), details["version"])
 				require.Equal(t, exit, details["exit_code"])
 				require.Equal(t, scenario == "timeout", details["timed_out"])
 				require.NotContains(t, details, "diagnostic_errors")
@@ -139,11 +136,8 @@ outputs: {captured: '${{ states.recover.outputs }}'}
 					// Read the persisted artifact independently of the consuming op.
 					data, err := stored.ToLazyArtifact(engine, key.TenantId).Bytes(context.Background())
 					require.NoError(t, err)
-					expected := expectedStdout
-					if name == commandop.StderrArtifactName {
-						expected = expectedStderr
-					}
-					require.Equal(t, expected, string(data))
+					require.Equal(t, "_c2j/execution/failed_command.log", name)
+					require.Equal(t, captured["log"], string(data))
 				}
 
 				if scenario == "retry" {
@@ -160,7 +154,7 @@ outputs: {captured: '${{ states.recover.outputs }}'}
 							require.NotNil(t, attempt.Output)
 							streamCount := 0
 							for _, artifact := range attempt.Output.Artifacts {
-								if artifact.Name != commandop.StdoutArtifactName && artifact.Name != commandop.StderrArtifactName {
+								if artifact.Name != "_c2j/execution/failed_command.log" {
 									continue
 								}
 								streamCount++
@@ -168,13 +162,10 @@ outputs: {captured: '${{ states.recover.outputs }}'}
 								ordinals[artifact.Key.TaskOrdinal] = true
 								data, err := artifact.Key.ToLazyArtifact(engine, key.TenantId).Bytes(context.Background())
 								require.NoError(t, err)
-								prefix := "attempt"
-								if artifact.Name == commandop.StderrArtifactName {
-									prefix = "error"
-								}
-								require.Equal(t, fmt.Sprintf("%s %d\n", prefix, attemptNumber), string(data))
+								require.Contains(t, string(data), fmt.Sprintf("attempt %d", attemptNumber))
+								require.Contains(t, string(data), fmt.Sprintf("error %d", attemptNumber))
 							}
-							require.Equal(t, 2, streamCount)
+							require.Equal(t, 1, streamCount)
 						}
 					}
 					require.Equal(t, 2, attemptNumber)
@@ -191,6 +182,80 @@ outputs: {captured: '${{ states.recover.outputs }}'}
 					expectedRuns += "run\n"
 				}
 				require.Equal(t, expectedRuns, string(runs))
+			})
+		}
+	}
+}
+
+func TestExtensionExecutionLogCatchAndReplay(t *testing.T) {
+	for _, backend := range []string{"sqlite", "remote"} {
+		for _, scenario := range []string{"success", "schema", "oversized"} {
+			t.Run(backend+"/"+scenario, func(t *testing.T) {
+				repo := filepath.Join(t.TempDir(), "repo")
+				workspaceRepo(t, repo, "source")
+				counter := filepath.Join(t.TempDir(), "runs")
+				run := fmt.Sprintf(`printf 'run\n' >> %q; printf '{"value":"ok"}'`, counter)
+				if scenario == "schema" {
+					run = fmt.Sprintf(`printf 'run\n' >> %q; printf '{"value":42}'`, counter)
+				}
+				if scenario == "oversized" {
+					run = fmt.Sprintf(`printf 'run\n' >> %q; printf '{"value":"'; head -c 200000 /dev/zero | tr '\000' x; printf '"}'`, counter)
+				}
+				commitHookFile(t, repo, "op/op.yaml", fmt.Sprintf("name: check\nshell: sh\nrun: %q\ninput_schema: {type: object}\noutput_schema: {type: object, additionalProperties: false, properties: {value: {type: string}}}\n", run))
+				capture := coreops.NewActivityMappedOpV2[commandCaptureInput, map[string]any](coreops.OpMetadata{Type: "extension_log_capture", AcceptsArtifacts: true}, func(_ coreops.OpDependencies, _ context.Context, in commandCaptureInput) (map[string]any, error) {
+					raw, err := os.ReadFile(filepath.Join(in.Inbox, "execution.log"))
+					if err != nil {
+						return nil, err
+					}
+					// Keep the consumer's result small, including the oversized-result case.
+					return map[string]any{"failed": strings.Contains(string(raw), "Operation result: failed:"), "exited_zero": strings.Contains(string(raw), "Result: exited with code 0"), "failure": in.Failure}, nil
+				})
+				workspaceTestWorker(t, extops.GetExecutionOp(), capture)
+				recipe := `id: extension-log
+version: '1'
+input_schema: {}
+sequence:
+ - id: check
+   op: ./op
+   catch:
+    - when: true
+      continue:
+        outputs:
+          failure: '${{ failure }}'
+          diagnostics: '${{ failure.attrs.extension.diagnostics }}'
+ - id: inspect
+   op: extension_log_capture
+   artifacts:
+     execution.log: '${{ sequence.check.artifacts["_c2j/execution/check.log"] }}'
+   inputs:
+     inbox: '${{ context.environment.op.inbox }}'
+outputs:
+ result: '${{ sequence.inspect.outputs }}'
+`
+				if scenario != "success" {
+					recipe = strings.Replace(recipe, `sequence.check.artifacts["_c2j/execution/check.log"]`, `sequence.check.outputs.diagnostics["_c2j/execution/check.log"]`, 1)
+					recipe = strings.Replace(recipe, "     inbox:", "     failure: '${{ sequence.check.outputs.failure }}'\n     inbox:", 1)
+				}
+				rt := newTimeoutReproRuntime(t, backend)
+				key := submitGitLifecycle(t, rt, repo, recipe)
+				out, err := runGitLifecycle(t, rt, key)
+				require.NoError(t, err)
+				result := gitLifecycleOutput(t, out)["result"].(map[string]any)
+				require.Equal(t, scenario != "success", result["failed"])
+				require.Equal(t, true, result["exited_zero"])
+				if scenario != "success" {
+					failure := result["failure"].(map[string]any)
+					require.Equal(t, "check", failure["node"].(map[string]any)["id"])
+				}
+				engine, err := jobworkflow.NewEngineBuilder().WithRuntime(rt).WithWorkerTenantId(key.TenantId).PlusWorkers(NewRecipeJobWorker(RecipeJobWorkerOptions{})).BuildEngine()
+				require.NoError(t, err)
+				require.NoError(t, os.Rename(repo, repo+"-offline"))
+				replayed, err := engine.ReplayJobRun(context.Background(), jobworkflow.ReplayRunRequest{JobKey: key, JobWorker: NewRecipeJobWorker(RecipeJobWorkerOptions{ReadOnlyReplay: true})})
+				require.NoError(t, err)
+				require.JSONEq(t, string(out.Output.GetDataOrPanic()), string(replayed.GetDataOrPanic()))
+				runs, err := os.ReadFile(counter)
+				require.NoError(t, err)
+				require.Equal(t, "run\n", string(runs))
 			})
 		}
 	}

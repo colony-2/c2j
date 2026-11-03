@@ -1,6 +1,7 @@
 package process
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -32,12 +33,19 @@ func TestExecuteProcessMasksDynamicallyResolvedGitCredentials(t *testing.T) {
 			socket = value
 		}
 	}
+	capture := NewCapture(ctx)
 	_, err = gitprofile.Call(ctx, socket, gitprofile.Request{Operation: "secret", Name: "token"})
 	require.NoError(t, err)
-	stdout, stderr, err := ExecuteProcess(ctx, RunRequest{WorkingDir: t.TempDir(), Shell: "sh", Run: "printf private-git-token; printf private-git-token >&2"})
-	require.NoError(t, err)
-	require.Equal(t, "[REDACTED]", string(stdout))
-	require.Equal(t, "[REDACTED]", string(stderr))
+	for _, collector := range []*Capture{nil, capture} {
+		stdout, stderr, err := ExecuteProcess(ctx, RunRequest{Capture: collector, WorkingDir: t.TempDir(), Shell: "sh", Run: "printf private-git-token; printf private-git-token >&2"})
+		require.NoError(t, err)
+		require.Equal(t, "[REDACTED]", string(stdout))
+		require.Equal(t, "[REDACTED]", string(stderr))
+	}
+	var log bytes.Buffer
+	capture.WriteLog(&log)
+	require.NotContains(t, log.String(), "private-git-token")
+	require.Contains(t, log.String(), "[REDACTED]")
 }
 
 func TestExecuteProcessTimeoutKillsHostProcessTree(t *testing.T) {

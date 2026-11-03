@@ -158,3 +158,72 @@ func RedactorFromContext(ctx context.Context) *Redactor {
 	r, _ := ctx.Value(redactorKey{}).(*Redactor)
 	return r
 }
+
+// RedactParts preserves observation boundaries while matching secrets across
+// them. At a capture limit, a suffix that could be the beginning of a secret is
+// also masked. No unredacted parts should be persisted by the caller.
+func (s *Redactor) RedactParts(parts []string, incomplete bool, additional ...*Redactor) []string {
+	out := append([]string(nil), parts...)
+	values := map[string]bool{}
+	for _, redactor := range append([]*Redactor{s}, additional...) {
+		if redactor == nil {
+			continue
+		}
+		redactor.mu.Lock()
+		for value := range redactor.masks {
+			values[value] = true
+		}
+		redactor.mu.Unlock()
+	}
+	if len(values) == 0 {
+		return out
+	}
+	text := strings.Join(parts, "")
+	masked := make([]bool, len(text))
+	for value := range values {
+		if value == "" {
+			continue
+		}
+		quoted := strconv.Quote(value)
+		encoded, _ := json.Marshal(value)
+		for _, v := range []string{value, quoted[1 : len(quoted)-1], string(encoded[1 : len(encoded)-1])} {
+			for offset := 0; offset < len(text); {
+				i := strings.Index(text[offset:], v)
+				if i < 0 {
+					break
+				}
+				i += offset
+				for j := i; j < i+len(v); j++ {
+					masked[j] = true
+				}
+				offset = i + 1
+			}
+			if incomplete {
+				for n := min(len(v)-1, len(text)); n > 0; n-- {
+					if strings.HasSuffix(text, v[:n]) {
+						for j := len(text) - n; j < len(text); j++ {
+							masked[j] = true
+						}
+						break
+					}
+				}
+			}
+		}
+	}
+	offset := 0
+	for i, part := range parts {
+		var b strings.Builder
+		for j := range len(part) {
+			if masked[offset+j] {
+				if offset+j == 0 || !masked[offset+j-1] {
+					b.WriteString("[REDACTED]")
+				}
+			} else {
+				b.WriteByte(part[j])
+			}
+		}
+		out[i] = b.String()
+		offset += len(part)
+	}
+	return out
+}

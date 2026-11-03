@@ -41,7 +41,8 @@ func TestExtensionObjectsRoundTripAndBranch(t *testing.T) {
 		deps := ops.NewOpDependenciesBuilder().WithWorktreePath(root).WithObjects(store).WithOperationPaths(ops.OperationPaths{Workdir: dir}).Build()
 		out, err := executeExtension(deps, context.Background(), ExecutionInput{Selector: "./session", Inputs: input})
 		require.NoError(t, err)
-		require.Empty(t, deps.GetOutputArtifacts())
+		require.Len(t, deps.GetOutputArtifacts(), 1)
+		require.Equal(t, "_c2j/execution/execution.log", deps.GetOutputArtifacts()[0].Name())
 		return out
 	}
 	first := invoke(1, map[string]any{"text": "original"})

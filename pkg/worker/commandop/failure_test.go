@@ -2,7 +2,10 @@ package commandop
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"github.com/colony-2/c2j/pkg/ops/executiondiag"
+	"strings"
 	"testing"
 	"time"
 
@@ -57,16 +60,21 @@ func TestCommandFailureDiagnostics(t *testing.T) {
 			require.Equal(t, tc.canceled, errors.Is(err, context.Canceled))
 			require.False(t, jobdb.IsAppError(err), "diagnostics must not coerce native failures to application errors")
 			require.False(t, output.Success)
-			require.Len(t, failure.details.Diagnostics, 2)
+			require.Len(t, failure.details.Diagnostics, 1)
 			require.Empty(t, failure.details.DiagnosticErrors)
 			for _, artifact := range deps.GetOutputArtifacts() {
 				data, e := artifact.Bytes(context.Background())
 				require.NoError(t, e)
-				expected := tc.stdout
-				if artifact.Name() == StderrArtifactName {
-					expected = tc.stderr
+				require.Equal(t, "_c2j/execution/execution.log", artifact.Name())
+				require.Contains(t, string(data), "Working directory:")
+				require.Contains(t, string(data), "Result:")
+				if tc.stdout != "" {
+					require.Contains(t, string(data), strings.TrimSpace(tc.stdout))
 				}
-				require.Equal(t, expected, string(data))
+				if tc.stderr != "" {
+					require.Contains(t, string(data), strings.TrimSpace(tc.stderr))
+				}
+
 				ref := failure.details.Diagnostics[artifact.Name()]
 				require.NoError(t, ref.Validate())
 				key, ok := ref.StoredKey()
@@ -93,7 +101,7 @@ func TestCommandDiagnosticsPreserveNativeTimeoutCause(t *testing.T) {
 	var failure *commandFailure
 	require.ErrorAs(t, err, &failure)
 	require.True(t, failure.details.TimedOut)
-	require.Len(t, failure.details.Diagnostics, 2)
+	require.Len(t, failure.details.Diagnostics, 1)
 }
 
 func TestCommandDiagnosticsDoNotChangeSuccessOrContinue(t *testing.T) {
@@ -120,12 +128,75 @@ func TestCommandDiagnosticCollectionFailureAndRedaction(t *testing.T) {
 	for _, artifact := range deps.GetOutputArtifacts() {
 		raw, e := artifact.Bytes(ctx)
 		require.NoError(t, e)
-		require.Equal(t, "[REDACTED]", string(raw))
+		require.Contains(t, string(raw), "[REDACTED]")
+		require.NotContains(t, string(raw), "private-credential")
 	}
 	_, err = execute(rejectingArtifacts{deps}, ctx, CommandExecutionInput{Run: "exit 7"})
 	require.EqualError(t, err, "command execution failed: exit status 7")
 	var failure *commandFailure
 	require.ErrorAs(t, err, &failure)
-	require.Len(t, failure.details.DiagnosticErrors, 2)
+	require.Len(t, failure.details.DiagnosticErrors, 1)
 	require.Empty(t, failure.details.Diagnostics)
+}
+
+func TestCommandPreviewsAndAutomaticLogs(t *testing.T) {
+	for _, continued := range []bool{false, true} {
+		deps := ops.NewOpDependenciesBuilder().WithJobTool(diagnosticJobTool{}).WithGitContext(ops.GitExecutionContext{NodePath: "checks/large"}).Build()
+		script := `head -c 20000 /dev/zero | tr '\000' x; head -c 20000 /dev/zero | tr '\000' y >&2`
+		if continued {
+			script += "; exit 7"
+		}
+		out, err := execute(deps, context.Background(), CommandExecutionInput{Run: script, ContinueOnError: continued})
+		require.NoError(t, err)
+		require.Equal(t, !continued, out.Success)
+		require.True(t, out.StdoutTruncated)
+		require.True(t, out.StderrTruncated)
+		for _, preview := range []string{out.Stdout, out.Stderr} {
+			require.LessOrEqual(t, len(preview), executiondiag.PreviewLimit)
+			require.True(t, strings.HasSuffix(preview, "[Output truncated. See execution log: _c2j/execution/large.log]"))
+		}
+		require.Len(t, out.Diagnostics, 1)
+		require.Len(t, deps.GetOutputArtifacts(), 1)
+		raw, e := deps.GetOutputArtifacts()[0].Bytes(context.Background())
+		require.NoError(t, e)
+		counts := [2]int{}
+		for _, line := range strings.Split(string(raw), "\n") {
+			if strings.Contains(line, "[stdout]") {
+				counts[0] += strings.Count(line, "x")
+			}
+			if strings.Contains(line, "[stderr]") {
+				counts[1] += strings.Count(line, "y")
+			}
+		}
+		require.Equal(t, [2]int{20000, 20000}, counts)
+		encoded, e := json.Marshal(out)
+		require.NoError(t, e)
+		require.Less(t, len(encoded), executiondiag.OutputLimit)
+	}
+}
+func TestCommandAlwaysAndUnavailableLog(t *testing.T) {
+	deps := ops.NewOpDependenciesBuilder().WithJobTool(diagnosticJobTool{}).Build()
+	out, err := execute(deps, context.Background(), CommandExecutionInput{Run: "printf ok", CaptureDiagnostics: "always"})
+	require.NoError(t, err)
+	require.Equal(t, "ok", out.Stdout)
+	require.Len(t, out.Diagnostics, 1)
+	out, err = execute(rejectingArtifacts{deps}, context.Background(), CommandExecutionInput{Run: `head -c 20000 /dev/zero | tr '\000' x`})
+	require.NoError(t, err)
+	require.True(t, out.Success)
+	require.True(t, out.StdoutTruncated)
+	require.Contains(t, out.Stdout, "Execution log unavailable")
+	require.NotEmpty(t, out.DiagnosticErrors)
+}
+
+func TestCommandRejectedInvocationHasNoExecutionClaim(t *testing.T) {
+	deps := ops.NewOpDependenciesBuilder().WithJobTool(diagnosticJobTool{}).Build()
+	_, err := execute(deps, context.Background(), CommandExecutionInput{Run: "echo should-not-run", Timeout: "invalid"})
+	require.ErrorContains(t, err, "invalid timeout format")
+	require.Len(t, deps.GetOutputArtifacts(), 1)
+	raw, e := deps.GetOutputArtifacts()[0].Bytes(context.Background())
+	require.NoError(t, e)
+	require.Contains(t, string(raw), "Result: rejected before launch")
+	require.Contains(t, string(raw), "Started: not launched")
+	require.NotContains(t, string(raw), "[stdout]")
+	require.NotContains(t, string(raw), "Duration:")
 }

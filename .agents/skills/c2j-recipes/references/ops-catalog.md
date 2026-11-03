@@ -17,8 +17,9 @@ Inputs:
 - `sandbox`: optional sandbox config.
 - `continue_on_error`: keep output instead of failing on non-zero exit.
 - `timeout`: Go duration string.
+- `capture_diagnostics`: `failure` (default) or `always`. Truncated previews always retain a log.
 
-Outputs: `stdout`, `stderr`, `exit_code`, `success`, `timed_out`, `error_message`.
+Outputs: `stdout`, `stderr`, `exit_code`, `success`, `timed_out`, `error_message`; optional `stdout_truncated`, `stderr_truncated`, `diagnostics`, and `diagnostic_errors`. Stream previews are capped at 10 KiB each including JSON encoding and truncation notice. Execution logs use `_c2j/execution/<node-id>.log`; version-2 failure details replace the old raw stream artifacts. See `GUIDE-Command-Failure-Diagnostics.md`.
 
 ```yaml
 op: command_execution
@@ -51,7 +52,7 @@ inputs:
     prompt: "{{ inputs.prompt }}"
 ```
 
-Inputs: `selector`, nested `inputs`, optional `repository_source`, and optional `repository_ref`. Selector manifests must include `input_schema` and `output_schema`.
+Inputs: `selector`, nested `inputs`, optional `repository_source`, and optional `repository_ref`. Selector manifests must include `input_schema` and `output_schema`. The runtime automatically attaches an execution log on every outcome without changing extension outputs. JSON results remain intact; oversized results fail with evidence. Failure references are in `failure.attrs.extension.diagnostics`; successful logs are in the normal node artifact map.
 
 ## Recipe Child Ops
 
