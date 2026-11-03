@@ -39,5 +39,11 @@ func Validate(recipex string) error {
 		return err
 	}
 
-	return schema.Validate(data)
+	if err := schema.Validate(data); err != nil {
+		return err
+	}
+	// Version-specific input semantics (including recursive defaults) are
+	// checked by the same loader used for submission and execution.
+	_, err = LoadRecipeFromString([]byte(recipex))
+	return err
 }

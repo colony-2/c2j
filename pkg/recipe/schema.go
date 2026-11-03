@@ -33,6 +33,7 @@ func GenerateSchemaString() (string, error) {
 		return "", err
 	}
 	schema.Definitions["Node"] = nodeSchema
+	schema.Definitions["RecipeInputSchema"] = recipeInputJSONSchema()
 	s, err := json.MarshalIndent(schema, "", "  ")
 	if err != nil {
 		return "", err

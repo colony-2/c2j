@@ -1,0 +1,36 @@
+version: release-17
+id: legacy-input-contract
+input_schema:
+    count:
+        type: number
+        default_value: 3
+    document:
+        type: artifact
+    documents:
+        type: artifact_map
+    enabled:
+        type: boolean
+        default_value: false
+    session:
+        object_type: test.session/v1
+        type: object
+        required: true
+    title:
+        type: string
+        default_value: Design
+    token:
+        secret: true
+        type: string
+sequence:
+    - id: included
+      __c2j_internal:
+        composite_input_schema:
+            session:
+                object_type: test.session/v1
+                type: object
+            title:
+                type: string
+                default_value: Design
+      sequence: []
+outputs:
+    ok: true

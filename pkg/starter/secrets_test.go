@@ -47,3 +47,34 @@ func TestSubmissionDoesNotIndexSecretText(t *testing.T) {
 		})
 	}
 }
+
+func TestSubmissionChecksNestedStructuredSecrets(t *testing.T) {
+	r, err := recipe.LoadRecipeFromString([]byte(`schema_version: 2
+id: structured-secrets
+input_schema:
+  accounts:
+    type: array
+    items:
+      type: object
+      properties:
+        token: {type: string, secret: true}
+sequence: []
+`))
+	require.NoError(t, err)
+	for _, token := range []string{"private-plaintext", "${{ context.secrets.token }}"} {
+		submit := &captureSubmitter{}
+		input := map[string]any{"accounts": []any{map[string]any{"token": token}}}
+		_, err := StartRecipeJob(context.Background(), workflowctl.StartJob{TenantId: "tenant", RecipeName: "structured-secrets", Inputs: input}, submit, *r)
+		if token == "private-plaintext" {
+			require.ErrorContains(t, err, "accounts[0].token")
+			require.NotContains(t, err.Error(), token)
+			require.Nil(t, submit.job.Data)
+		} else {
+			require.NoError(t, err)
+			raw, err := submit.job.Data.GetData()
+			require.NoError(t, err)
+			require.Contains(t, string(raw), `"$c2j_secret":"token"`)
+		}
+		require.Equal(t, token, input["accounts"].([]any)[0].(map[string]any)["token"])
+	}
+}

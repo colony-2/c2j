@@ -1,51 +1,14 @@
 package compiler
 
-import (
-	"fmt"
-
-	"github.com/colony-2/c2j/pkg/objects"
-	"github.com/colony-2/c2j/pkg/recipe"
-	"github.com/colony-2/c2j/pkg/secrets"
-)
+import "github.com/colony-2/c2j/pkg/recipe"
 
 func prepareRecipeInputs(meta recipe.RecipeMetadata, raw map[string]interface{}, opts ExecutionOptions) (map[string]interface{}, error) {
+	contract, err := recipe.CompileInputSchema(meta.SchemaVersion, meta.InputSchema)
+	if err != nil {
+		return nil, err
+	}
 	if opts.Mode == ExecutionModeValidate && raw == nil {
-		return validationDefaultsFromSchema(meta.InputSchema)
+		return contract.ValidationDefaults()
 	}
-	return meta.ValidateInputShapeAndFillDefaults(raw)
-}
-
-func validationDefaultsFromSchema(schema map[string]recipe.InputSchema) (map[string]interface{}, error) {
-	inputs := make(map[string]interface{}, len(schema))
-	for key, def := range schema {
-		if def.Secret {
-			if err := def.ValidateSecretDeclaration(); err != nil {
-				return nil, err
-			}
-			inputs[key] = secrets.WithDefault(secrets.Reference{Name: key}, def.Default)
-			continue
-		}
-		if def.Default != nil {
-			inputs[key] = def.Default
-			continue
-		}
-
-		switch def.Type {
-		case "object":
-			typ := def.ObjectType
-			if typ == "" {
-				typ = "c2j.validation/v1"
-			}
-			inputs[key] = objects.ValidationRef(typ)
-		case "string":
-			inputs[key] = ""
-		case "number":
-			inputs[key] = 0
-		case "boolean":
-			inputs[key] = false
-		default:
-			return nil, fmt.Errorf("unsupported input type for %s: %s", key, def.Type)
-		}
-	}
-	return inputs, nil
+	return contract.Apply(raw)
 }

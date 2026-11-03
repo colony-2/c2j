@@ -161,34 +161,14 @@ func StartRecipeJobWithOptions(ctx context.Context, startJob workflowctl.StartJo
 	}
 	for _, r := range recipes {
 		if r.GetMetdata().ID == startJob.RecipeName {
-			// Validate marked fields before persisting embedded recipe inputs.
-			var inputs map[string]interface{}
-			if startJob.Inputs != nil {
-				inputs = make(map[string]interface{}, len(startJob.Inputs))
-				for k, v := range startJob.Inputs {
-					inputs[k] = v
-				}
+			// Validate nested marked fields before persisting embedded inputs.
+			contract, err := recipe.CompileInputSchema(r.GetMetdata().SchemaVersion, r.GetMetdata().InputSchema)
+			if err != nil {
+				return jobref.Ref{}, err
 			}
-			for k, def := range r.GetMetdata().InputSchema {
-				if !def.Secret {
-					continue
-				}
-				if err := def.ValidateSecretDeclaration(); err != nil {
-					return jobref.Ref{}, fmt.Errorf("secret input %q: %w", k, err)
-				}
-				v, exists := inputs[k]
-				if !exists {
-					continue
-				}
-				if text, ok := v.(string); ok {
-					if ref, ok := secrets.Template(text); ok {
-						v = ref
-						inputs[k] = v
-					}
-				}
-				if _, ok, err := secrets.Parse(v); err != nil || !ok {
-					return jobref.Ref{}, fmt.Errorf("secret input %q requires a reference, not plaintext", k)
-				}
+			inputs, err := contract.PrepareSubmittedSecrets(startJob.Inputs)
+			if err != nil {
+				return jobref.Ref{}, err
 			}
 			startJob.Inputs = inputs
 

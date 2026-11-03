@@ -332,10 +332,11 @@ type NodeInternalMetadata struct {
 	HookSourceRef  string              `yaml:"hook_source_ref,omitempty" json:"hook_source_ref,omitempty"`
 	// HookAuthority is installed only by the controller at invocation entry.
 	// It must never be accepted from even an internal recipe artifact.
-	HookAuthority        *permissions.State       `yaml:"-" json:"-" jsonschema:"-"`
-	RootRepository       *string                  `yaml:"root_repository,omitempty" json:"root_repository,omitempty"`
-	Inline               *InlineInclusionMetadata `yaml:"inline,omitempty" json:"inline,omitempty"`
-	CompositeInputSchema map[string]InputSchema   `yaml:"composite_input_schema,omitempty" json:"composite_input_schema,omitempty"`
+	HookAuthority          *permissions.State       `yaml:"-" json:"-" jsonschema:"-"`
+	RootRepository         *string                  `yaml:"root_repository,omitempty" json:"root_repository,omitempty"`
+	Inline                 *InlineInclusionMetadata `yaml:"inline,omitempty" json:"inline,omitempty"`
+	CompositeSchemaVersion int                      `yaml:"composite_schema_version,omitempty" json:"composite_schema_version,omitempty"`
+	CompositeInputSchema   map[string]InputSchema   `yaml:"composite_input_schema,omitempty" json:"composite_input_schema,omitempty"`
 }
 
 type InlineInclusionMetadata struct {

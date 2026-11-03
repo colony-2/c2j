@@ -153,7 +153,13 @@ inputs:
 
 An object bundles op-owned metadata and files behind a typed immutable reference. Every consumer restores a fresh writable copy. Multiple nodes may reference the same earlier checkpoint without impacting each other; no special fork declaration or `object_bindings` is needed. To continue a branch, explicitly select that branch's output. There is no automatic latest-session slot.
 
-Objects can travel through outputs, nested maps/lists, states, includes, child jobs and later jobs in the same tenant. A recipe accepting a checkpoint declares `type: object` and optionally `object_type: c2ops.codex.session/v1` in its `input_schema`, then binds the submitted input into root `inputs` as usual. Use `${{ ... }}` for the complete value; `{{ ... }}` string rendering is unsuitable for object maps.
+Objects can travel through outputs, nested maps/lists, states, includes, child
+jobs and later jobs in the same tenant. A recipe accepting a checkpoint declares
+`type: checkpoint` under root `schema_version: 2` (`type: object` in v1 or
+unversioned recipes) and optionally `object_type: c2ops.codex.session/v1` in its
+`input_schema`, then binds the submitted input into root `inputs` as usual. Use
+`${{ ... }}` for the complete value; `{{ ... }}` string rendering is unsuitable
+for object maps.
 
 Checkpoint backing files are excluded from recipe artifact maps. Do not manually route the object archive, session ID or rollout as separate artifacts. The originating JobDB task artifacts must remain retained while references are needed. Existing Git snapshot forwarding is unchanged.
 

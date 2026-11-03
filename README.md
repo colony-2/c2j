@@ -983,6 +983,7 @@ c2j submit "Run the requested task" \
 
 - command entrypoint: [main.go](main.go)
 - embedded runtime notes: [embed-swf-mode-spec.md](embed-swf-mode-spec.md)
+- recipe schema versions and structured inputs: [v1 compatibility and v2 authoring](GUIDE-Recipe-Schema-Versions.md)
 - recipe authoring docs: [RECIPE_AUTHORING_GUIDE.md](../../recipes/guides/RECIPE_AUTHORING_GUIDE.md)
 
 ## Op object checkpoints

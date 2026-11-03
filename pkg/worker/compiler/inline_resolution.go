@@ -536,7 +536,8 @@ func inlineWrapperNode(include *recipe.NodeInclude, rec recipe.Recipe, loaded lo
 			ContentSHA256:      sha256Hex(loaded.Raw),
 			ResolvedSelectors:  nil,
 		},
-		CompositeInputSchema: cloneInputSchema(meta.InputSchema),
+		CompositeInputSchema:   cloneInputSchema(meta.InputSchema),
+		CompositeSchemaVersion: meta.SchemaVersion,
 	}
 
 	return recipe.Node{NodeImpl: &recipe.NodeSequence{

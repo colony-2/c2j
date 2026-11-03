@@ -3,12 +3,13 @@ package compiler
 import "github.com/colony-2/c2j/pkg/recipe"
 
 func prepareCompositeInputs(metadata recipe.NodeMetadata, raw map[string]interface{}) (map[string]interface{}, error) {
-	if metadata.Internal == nil || len(metadata.Internal.CompositeInputSchema) == 0 {
+	internal := metadata.Internal
+	if internal == nil || (internal.Inline == nil && internal.CompositeInputSchema == nil && internal.CompositeSchemaVersion == 0) {
 		return raw, nil
 	}
-	if raw == nil {
-		raw = map[string]interface{}{}
+	contract, err := recipe.CompileInputSchema(internal.CompositeSchemaVersion, internal.CompositeInputSchema)
+	if err != nil {
+		return nil, err
 	}
-	meta := recipe.RecipeMetadata{InputSchema: metadata.Internal.CompositeInputSchema}
-	return meta.ValidateInputShapeAndFillDefaults(raw)
+	return contract.ApplyIncluded(raw)
 }

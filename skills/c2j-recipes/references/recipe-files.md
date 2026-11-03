@@ -22,18 +22,28 @@ sequence: []
 outputs: {}
 ```
 
-Supported root metadata includes `version`, `id`, `desc`, `input_schema`, `defs`, and `extensions`.
+Supported root metadata includes `schema_version`, `version`, `id`, `desc`, `input_schema`, `defs`, and `extensions`.
 
 ## Inputs
 
-Declare submitted inputs with `input_schema`. Supported schema types in this checkout are:
+Declare submitted inputs with `input_schema`. Set root `schema_version: 2` for
+structured inputs; omission or version 1 keeps legacy behavior. The recipe
+release `version` is independent. Common types are:
 
 - `string`
 - `number`
 - `boolean`
 - `artifact`
 - `artifact_map`
-- `object` (an immutable checkpoint; optional `object_type` constrains its versioned contract)
+- In v1, `object` is an immutable checkpoint.
+- In v2, `checkpoint` is an immutable checkpoint, `object` is ordinary data, and
+  `array` is a list. Optional `object_type` constrains a checkpoint contract.
+
+V2 objects support `properties` and boolean-or-schema `additionalProperties`
+(default true); arrays support `items`. Nested declarations use the same
+`required` and `default_value` fields. Each include keeps its own schema version.
+See [schema versions](../../../../GUIDE-Recipe-Schema-Versions.md) for migration,
+default semantics, and replay behavior.
 
 Use `required: true` for required values and `default_value` for defaults:
 

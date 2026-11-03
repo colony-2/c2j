@@ -1,16 +1,9 @@
 package recipe
 
 import (
-	"encoding/json"
 	"fmt"
-	"reflect"
 
-	recipeartifacts "github.com/colony-2/c2j/pkg/artifacts"
-	"github.com/colony-2/c2j/pkg/configuration"
 	"github.com/colony-2/c2j/pkg/execution"
-	"github.com/colony-2/c2j/pkg/objects"
-	"github.com/colony-2/c2j/pkg/secrets"
-	"github.com/colony-2/jobdb/pkg/jobdb"
 	yamlv3 "gopkg.in/yaml.v3"
 )
 
@@ -47,6 +40,9 @@ func (n *Recipe) MarshalYAML() (interface{}, error) {
 }
 
 func (n *Recipe) UnmarshalYAML(node *yamlv3.Node) error {
+	if err := validateSchemaVersionField(node); err != nil {
+		return err
+	}
 	if err := validateWorkspaceField(node); err != nil {
 		return err
 	}
@@ -93,22 +89,22 @@ func (n *Recipe) UnmarshalYAML(node *yamlv3.Node) error {
 	if err := n.GetMetadata().SourceHooks.Validate(); err != nil {
 		return err
 	}
-	for name, def := range n.GetMetdata().InputSchema {
-		if err := def.ValidateSecretDeclaration(); err != nil {
-			return fmt.Errorf("input %q: %w", name, err)
-		}
+	_, err := CompileInputSchema(n.GetMetdata().SchemaVersion, n.GetMetdata().InputSchema)
+	if err != nil {
+		return err
 	}
 	return nil
 }
 
 type RecipeMetadata struct {
-	SourceHooks  HookSource              `yaml:"source_hooks,omitempty" json:"source_hooks,omitempty" jsonschema:"enum=from_base,enum=from_base_with_rebase,enum=from_current"`
-	Execution    *execution.Requirements `yaml:"execution,omitempty" json:"execution,omitempty"`
-	Version      string                  `yaml:"version"`
-	NodeMetadata `yaml:",inline"`
-	Defs         map[string]Node        `yaml:"defs,omitempty"`         // Shared node definitions
-	InputSchema  map[string]InputSchema `yaml:"input_schema,omitempty"` // Optional schema for inputs
-	Extensions   ExtensionImports       `yaml:"extensions,omitempty"`
+	SchemaVersion int                     `yaml:"schema_version,omitempty" json:"schema_version,omitempty" jsonschema:"enum=1,enum=2"`
+	SourceHooks   HookSource              `yaml:"source_hooks,omitempty" json:"source_hooks,omitempty" jsonschema:"enum=from_base,enum=from_base_with_rebase,enum=from_current"`
+	Execution     *execution.Requirements `yaml:"execution,omitempty" json:"execution,omitempty"`
+	Version       string                  `yaml:"version"`
+	NodeMetadata  `yaml:",inline"`
+	Defs          map[string]Node        `yaml:"defs,omitempty"`         // Shared node definitions
+	InputSchema   map[string]InputSchema `yaml:"input_schema,omitempty"` // Optional schema for inputs
+	Extensions    ExtensionImports       `yaml:"extensions,omitempty"`
 }
 
 // HookSource selects code for cell:// hooks, independently of their workspace.
@@ -140,89 +136,11 @@ type ExtensionFunctionImport struct {
 }
 
 func (n RecipeMetadata) ValidateInputShapeAndFillDefaults(data map[string]interface{}) (map[string]interface{}, error) {
-
-	resolved := make(map[string]interface{})
-	for key, value := range data {
-		resolved[key] = value
+	contract, err := CompileInputSchema(n.SchemaVersion, n.InputSchema)
+	if err != nil {
+		return nil, err
 	}
-
-	// 1. Check for missing required fields and apply defaults
-	for key, def := range n.InputSchema {
-		if err := def.ValidateSecretDeclaration(); err != nil {
-			return nil, fmt.Errorf("input %q: %w", key, err)
-		}
-		_, exists := data[key]
-
-		if !exists {
-			err := def.validateMissing(key)
-			if err != nil {
-				return nil, err
-			}
-		}
-
-		// Apply default value if field is missing and a default is provided
-		if !exists && def.Default != nil {
-			resolved[key] = def.Default
-			if def.Secret {
-				resolved[key] = secrets.WithDefault(secrets.Reference{}, def.Default)
-			}
-		}
-	}
-
-	// 2. Check types and handle fields present in data but not in schema
-	for key, value := range resolved {
-		def, schemaExists := n.InputSchema[key]
-		if def.Secret {
-			if text, ok := value.(string); ok {
-				if ref, ok := secrets.Template(text); ok {
-					value = ref
-				}
-			}
-		}
-		if def.Secret {
-			if ref, ok, err := secrets.Parse(value); ok || err != nil {
-				if err != nil {
-					return nil, err
-				}
-				if ref.OmitIfUnavailable && def.Required {
-					ref.Required = true
-				}
-				value = secrets.WithDefault(ref, def.Default)
-			}
-		}
-		if !def.Secret {
-			if text, ok := value.(string); ok {
-				if ref, ok := configuration.Template(text); ok {
-					value = ref
-				}
-			}
-			if ref, ok, err := configuration.Parse(value); ok || err != nil {
-				if err != nil {
-					return nil, err
-				}
-				if def.Type != "string" && def.Type != "number" && def.Type != "boolean" {
-					return nil, fmt.Errorf("config input %q requires a simple value schema", key)
-				}
-				if ref.ExpectedType != "" && ref.ExpectedType != def.Type {
-					return nil, fmt.Errorf("conflicting config type for input %q", key)
-				}
-				ref.ExpectedType = def.Type
-				value = ref
-			}
-		}
-		resolved[key] = value
-
-		if !schemaExists {
-			return nil, fmt.Errorf("field '%s' is present in data but not defined in schema", key)
-		}
-
-		err := def.validate(key, value)
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	return resolved, nil
+	return contract.Apply(data)
 }
 
 type RecipeSequence struct {
@@ -257,152 +175,3 @@ func (r *RecipeOp) GetMetadata() RecipeMetadata {
 }
 
 func (r *RecipeOp) isRecipe() {}
-
-// InputSchema defines the schema for an input parameter
-type InputSchema struct {
-	Secret      bool        `yaml:"secret,omitempty"`
-	ObjectType  string      `yaml:"object_type,omitempty"`
-	Type        string      `yaml:"type,omitempty"`                                                // Type of the input (string, number, boolean, etc.)
-	Description string      `yaml:"description,omitempty"`                                         // Description of the input
-	Required    bool        `yaml:"required,omitempty"`                                            // Whether the input is required
-	Default     interface{} `yaml:"default_value,omitempty" jsonschema:"oneof_type=string;number"` // Default value if not provided
-}
-
-func (def InputSchema) validate(key string, value interface{}) error {
-	if def.Secret {
-		if _, ok, err := secrets.Parse(value); ok || err != nil {
-			return err
-		}
-		return fmt.Errorf("secret input %q requires a reference, not plaintext", key)
-	}
-	if _, ok, err := configuration.Parse(value); ok || err != nil {
-		return err
-	}
-	if secrets.Contains(value) {
-		return fmt.Errorf("input %q is not marked secret", key)
-	}
-
-	if value == nil {
-		return fmt.Errorf("field '%s' is nil", key)
-	}
-
-	// Get the Go type name of the value provided in the data
-	valueType := reflect.TypeOf(value).Kind().String()
-
-	var expectedGoType string
-	switch def.Type {
-	case "string":
-		expectedGoType = "string"
-	case "number":
-		// Go unmarshaling often uses float64 for generic numbers,
-		// so we check for both float64 and int/int64
-		if valueType == "float64" || valueType == "int" || valueType == "int64" {
-			return nil
-		}
-		expectedGoType = "number (float64, int, or int64)"
-	case "boolean":
-		expectedGoType = "bool"
-	case "object":
-		ref, ok, err := objects.Parse(value)
-		if err != nil {
-			return fmt.Errorf("field %q: %w", key, err)
-		}
-		if !ok {
-			return fmt.Errorf("field %q requires an object checkpoint", key)
-		}
-		if def.ObjectType != "" && ref.Type != def.ObjectType {
-			return fmt.Errorf("field %q expects object type %q, got %q", key, def.ObjectType, ref.Type)
-		}
-		return nil
-	case "artifact":
-		if isArtifactValue(value) {
-			return nil
-		}
-		expectedGoType = "swf.ArtifactKey"
-	case "artifact_map":
-		if isArtifactMapValue(value) {
-			return nil
-		}
-		expectedGoType = "map[string]swf.ArtifactKey"
-	default:
-		return fmt.Errorf("field '%s' has an unsupported schema type: %s", key, def.Type)
-	}
-
-	if valueType == expectedGoType {
-		return nil
-	}
-	return fmt.Errorf("field '%s' has wrong type: expected '%s' (Go type: %s) but got '%s' (Go type: %s)",
-		key, def.Type, expectedGoType, value, valueType)
-}
-
-// Artifact inputs cross a JSON boundary when a job is persisted. Accept both
-// native values and their serialized references without changing producer keys.
-func isArtifactValue(value interface{}) bool {
-	if _, ok, err := recipeartifacts.ParseValue(value); ok {
-		return err == nil
-	}
-	switch v := value.(type) {
-	case jobdb.ArtifactKey:
-		return v.Validate() == nil
-	case *jobdb.ArtifactKey:
-		return v != nil && v.Validate() == nil
-	case recipeartifacts.Ref:
-		return v.Validate() == nil
-	case *recipeartifacts.Ref:
-		return v != nil && v.Validate() == nil
-	case map[string]interface{}:
-		raw, err := json.Marshal(v)
-		if err != nil {
-			return false
-		}
-		if _, ok := v["kind"]; ok {
-			var ref recipeartifacts.Ref
-			return json.Unmarshal(raw, &ref) == nil && ref.Validate() == nil
-		}
-		if _, ok := v["taskOrdinal"]; !ok {
-			return false
-		}
-		var key jobdb.ArtifactKey
-		return json.Unmarshal(raw, &key) == nil && key.Validate() == nil
-	default:
-		return false
-	}
-}
-
-func isArtifactMapValue(value interface{}) bool {
-	if value == nil {
-		return false
-	}
-	v := reflect.ValueOf(value)
-	if v.Kind() != reflect.Map || v.Type().Key().Kind() != reflect.String {
-		return false
-	}
-	iter := v.MapRange()
-	for iter.Next() {
-		if !isArtifactValue(iter.Value().Interface()) {
-			return false
-		}
-	}
-	return true
-}
-
-func (def InputSchema) validateMissing(key string) error {
-	if def.Required && def.Default == nil {
-		return fmt.Errorf("required field '%s' is missing", key)
-	}
-	return nil
-}
-
-// ValidateSecretDeclaration checks the public default without resolving it.
-func (def InputSchema) ValidateSecretDeclaration() error {
-	if !def.Secret {
-		return nil
-	}
-	if def.Type != "string" {
-		return fmt.Errorf("secret input requires string type")
-	}
-	if def.Default != nil {
-		return secrets.ValidateDefault(def.Default)
-	}
-	return nil
-}

@@ -35,16 +35,23 @@ Both explorations start from `start`. To continue the first exploration instead,
 A recipe accepting a submitted object declares its schema and binds the input into its root scope:
 
 ```yaml
+schema_version: 2
 input_schema:
   session:
-    type: object
+    type: checkpoint
     object_type: c2ops.codex.session/v1
     required: true
 inputs:
   session: "${{ inputs.session }}"
 ```
 
-`object_type` is optional for recipes that forward objects without knowing their type. `type: object` here means an object checkpoint, not an arbitrary JSON map. In an extension's JSON Schema, ordinary `type: object` keeps its usual meaning; the annotation below identifies checkpoint inputs.
+`object_type` is optional for recipes that forward objects without knowing
+their type. In schema version 2, `type: checkpoint` selects an object checkpoint and
+`type: object` selects ordinary data. Legacy recipes with no `schema_version`
+(or version 1) continue to use `type: object` for checkpoints. See
+[recipe schema versions](GUIDE-Recipe-Schema-Versions.md) for migration and replay.
+In an extension's JSON Schema, ordinary `type: object` keeps its usual meaning;
+the annotation below identifies checkpoint inputs.
 
 ## Extension op API
 
