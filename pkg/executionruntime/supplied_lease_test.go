@@ -2,11 +2,12 @@ package executionruntime
 
 import (
 	"context"
+	"fmt"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/colony-2/c2j/internal/celltest"
-	coretask "github.com/colony-2/c2j/pkg/task"
 	"github.com/colony-2/c2j/pkg/worker/compiler"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
@@ -98,24 +99,71 @@ func TestRunSuppliedLeaseReplaysTaskRouteAndPreservesState(t *testing.T) {
 	}
 }
 
-type delayedSuppliedTask struct{ jobworkflow.TaskWorker }
+type observedRenewal struct {
+	started chan struct{}
+	renewed chan struct{}
+	once    sync.Once
+}
 
-func (w delayedSuppliedTask) Run(ctx jobworkflow.TaskContext, input jobdb.TaskData) (jobdb.TaskData, error) {
+type observedSuppliedLease struct {
+	jobdb.RenewableExecutionLease
+	observation *observedRenewal
+}
+
+func (l observedSuppliedLease) LeaseSchemaHash() string {
+	return l.RenewableExecutionLease.(interface{ LeaseSchemaHash() string }).LeaseSchemaHash()
+}
+
+func (l observedSuppliedLease) Renew(ctx context.Context) (jobdb.RenewableExecutionLease, error) {
+	next, err := l.RenewableExecutionLease.Renew(ctx)
+	if err != nil {
+		return nil, err
+	}
+	select {
+	case <-l.observation.started:
+		l.observation.once.Do(func() { close(l.observation.renewed) })
+	default:
+	}
+	return observedSuppliedLease{next, l.observation}, nil
+}
+
+type renewalWaitingTask struct {
+	jobworkflow.TaskWorker
+	observation *observedRenewal
+}
+
+func (w renewalWaitingTask) Run(ctx jobworkflow.TaskContext, input jobdb.TaskData) (jobdb.TaskData, error) {
 	return w.RunTask(ctx.Context(), ctx, input)
 }
-func (w delayedSuppliedTask) RunTask(local context.Context, ctx jobworkflow.TaskContext, input jobdb.TaskData) (jobdb.TaskData, error) {
-	// Exceed the original SQLite lease lifetime so lost wrapper state/renewal
-	// support fails through actual scheduler mutations, not just mock assertions.
-	time.Sleep(250 * time.Millisecond)
-	return coretask.RunLocal(w.TaskWorker, local, ctx, input)
+func (w renewalWaitingTask) RunTask(local context.Context, ctx jobworkflow.TaskContext, input jobdb.TaskData) (jobdb.TaskData, error) {
+	// Demand is staged before the task runs. Wait for a real SQLite renewal
+	// after that point, so the subsequent reschedule uses a refreshed snapshot.
+	close(w.observation.started)
+	timer := time.NewTimer(30 * time.Second)
+	defer timer.Stop()
+	select {
+	case <-w.observation.renewed:
+	case <-local.Done():
+		return nil, local.Err()
+	case <-timer.C:
+		return nil, fmt.Errorf("no lease renewal observed after task started")
+	}
+	// Yield before returning a task result: a later node must not get a chance
+	// to stage demand again and hide state lost during renewal.
+	return nil, ctx.Yield(local, jobworkflow.YieldRequest{
+		Reschedule: jobdb.RescheduleExecutionRequest{NextRoute: jobdb.Route{JobType: "recipe"}},
+	})
 }
 func TestRenewedSuppliedLeaseRetainsStagedDemand(t *testing.T) {
 	f := newFixture(t, "sqlite", "2Gi", nil)
-	supplied, err := f.runtime.GetJobLease(celltest.Context(context.Background()), jobdb.GetJobLeaseRequest{JobKey: f.key, WorkerID: "dispatcher", Routes: []jobdb.Route{{JobType: "recipe"}}, LeaseDuration: 100 * time.Millisecond})
+	// Allow CI scheduling and SQLite I/O delays without making expiry the test's clock.
+	supplied, err := f.runtime.GetJobLease(celltest.Context(context.Background()), jobdb.GetJobLeaseRequest{JobKey: f.key, WorkerID: "dispatcher", Routes: []jobdb.Route{{JobType: "recipe"}}, LeaseDuration: 10 * time.Second})
 	require.NoError(t, err)
 	require.NotNil(t, supplied)
+	observation := &observedRenewal{started: make(chan struct{}), renewed: make(chan struct{})}
+	observed := observedSuppliedLease{supplied.(jobdb.RenewableExecutionLease), observation}
 	rt := New(f.runtime, allocation("2Gi"))
-	out, err := runFixtureLease(t, f, rt, supplied, []jobworkflow.TaskWorker{delayedSuppliedTask{f.tasks[0]}})
+	out, err := runFixtureLease(t, f, rt, observed, []jobworkflow.TaskWorker{renewalWaitingTask{f.tasks[0], observation}})
 	require.NoError(t, err)
 	require.Equal(t, jobworkflow.JobRunSuspended, out.Status)
 	info, err := f.runtime.GetJob(celltest.Context(context.Background()), f.key)

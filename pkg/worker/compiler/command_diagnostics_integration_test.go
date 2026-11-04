@@ -39,7 +39,8 @@ func TestCommandDiagnosticsNestedCatchResumeAndReplay(t *testing.T) {
 					// An inner catch gives this op's retry policy precedence over
 					// the enclosing catch; the clause itself never handles failure.
 					policy = "   retry: {maximum_attempts: 2, initial_interval: 1ms}\n   catch:\n    - when: false\n      continue: {outputs: {unused: true}}\n"
-					run = fmt.Sprintf(`printf 'run\n' >> %q; n=$(wc -l < %q); printf 'attempt %%s\n' "$n"; printf 'error %%s\n' "$n" >&2; exit 7`, counter, counter)
+					// BSD wc pads its count; arithmetic expansion keeps fixture output portable.
+					run = fmt.Sprintf(`printf 'run\n' >> %q; n=$(( $(wc -l < %q) )); printf 'attempt %%s\n' "$n"; printf 'error %%s\n' "$n" >&2; exit 7`, counter, counter)
 					expectedStdout, expectedStderr = "attempt 2\n", "error 2\n"
 				}
 				if scenario == "timeout" {
