@@ -85,6 +85,7 @@ func TestChildSubmissionIdentityAcrossExecutionRetries(t *testing.T) {
 						return scoped.DoTask(workflow.TaskCall{Site: "child", TaskType: task.Name(), ContractVersion: 1, Command: []byte(`{}`), Policy: jobdb.RunPolicy{Retry: taskPolicy}}, func(context.Context) (jobdb.TaskData, error) { return jobdb.NewTaskData(nil) })
 					})
 				}}
+				celltest.Create(t, rt, "test", "test", "github.com/example/repo")
 				parent, err := rt.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "test", JobType: worker.Name(), Data: jobdb.NewTaskDataOrPanic(nil), RunPolicy: jobdb.RunPolicy{Retry: jobPolicy}, Cell: "test", CellRepo: "github.com/example/repo"}})
 				require.NoError(t, err)
 				h, err := workflow.GetJobForRun(ctx, rt, workflow.GetJobForRunRequest{JobKey: parent.JobKey, JobWorker: worker, TaskWorkers: []workflow.TaskWorker{rt.WrapTaskWorker(task)}, WorkerID: "test", LeaseDuration: time.Minute})
@@ -125,6 +126,7 @@ func TestChildSubmissionIdentityAcrossSuspension(t *testing.T) {
 	worker := workflow.ExecutionWorker{JobType: "parent", Execute: func(c workflow.ExecutionContext, _ jobdb.JobData) (jobdb.JobData, error) {
 		return c.DoTask(workflow.TaskCall{Site: "child", TaskType: task.Name(), ContractVersion: 1, Command: []byte(`{}`)}, func(context.Context) (jobdb.TaskData, error) { return jobdb.NewTaskData(nil) })
 	}}
+	celltest.Create(t, rt, "test", "test", "github.com/example/repo")
 	parent, err := rt.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "test", JobType: worker.Name(), Data: jobdb.NewTaskDataOrPanic(nil), Cell: "test", CellRepo: "github.com/example/repo"}})
 	require.NoError(t, err)
 	run := func() workflow.JobRunOutcome {

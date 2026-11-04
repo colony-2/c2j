@@ -125,6 +125,7 @@ func testReviewSQLiteAttachmentsReplayAndStaleSubmission(t *testing.T, annotated
 	}
 	if annotated {
 		original := jobdb.NewArtifactFromBytes("original.md", []byte("original"))
+		celltest.Create(t, rt, "tenant", "test", "example.test/test")
 		_, err = rt.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "tenant", JobID: "producer", JobType: "artifact-source", Data: jobdb.NewTaskDataOrPanic(nil, original), Cell: "test", CellRepo: "example.test/test"}})
 		require.NoError(t, err)
 		key, err := original.ArtifactKey()
@@ -143,6 +144,7 @@ func testReviewSQLiteAttachmentsReplayAndStaleSubmission(t *testing.T, annotated
 	second, err := buildForm(deps, ctx, Input{Form: cfg})
 	require.NoError(t, err)
 	w := structuredWorker{forms: []InputForm{first, second}}
+	celltest.Create(t, rt, "tenant", "test", "example.test/test")
 	handle, err := rt.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "tenant", JobID: "review", JobType: "recipe", Data: jobdb.NewTaskDataOrPanic(map[string]any{}), RunPolicy: jobdb.DefaultRunPolicy(), Cell: "test", CellRepo: "example.test/test"}})
 	require.NoError(t, err)
 	run := func() {

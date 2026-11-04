@@ -118,6 +118,7 @@ func runWorkspaceRecipe(t *testing.T, ws *jobworkflow.WorkSet, yaml string, job 
 	rec, err := recipe.LoadRecipeFromString([]byte(yaml))
 	require.NoError(t, err)
 	eng := newToyEngineWithWorkSet(t, "workspace-tests", ws, nil, workspaceFixtureCells(t, job))
+	celltest.Create(t, eng, "workspace-tests", job.Workflow.CellName, celltest.Repo(job.GitBase.BaseRepo))
 	keyRef, err := starter.StartRecipeJob(celltest.Context(context.Background()), workflowctl.StartJob{TenantId: "workspace-tests", RecipeName: "workspace-test", JobContext: job, GitRef: job.GitBase.BaseRef, Cell: job.Workflow.CellName, CellRepo: celltest.Repo(job.GitBase.BaseRepo)}, eng, *rec)
 	key := keyRef.Key()
 	require.NoError(t, err)
@@ -352,6 +353,7 @@ outputs:
 `, celltest.Repo(b), initial)))
 			require.NoError(t, err)
 			job := contextual.JobContext{Workflow: contextual.WorkflowContext{CellName: "A"}, GitBase: contextual.GitBaseContext{BaseRepo: a, BaseRef: "main"}, CellResolution: &cellref.Context{SelfCell: "A", SelfRepo: celltest.Repo(a)}}
+			celltest.Create(t, eng, "workspace-tests", job.Workflow.CellName, celltest.Repo(job.GitBase.BaseRepo))
 			keyRef, err := starter.StartRecipeJob(celltest.Context(context.Background()), workflowctl.StartJob{TenantId: "workspace-tests", RecipeName: "parent", JobContext: job, GitRef: "main", Cell: job.Workflow.CellName, CellRepo: celltest.Repo(job.GitBase.BaseRepo)}, eng, *parent)
 			key := keyRef.Key()
 			require.NoError(t, err)

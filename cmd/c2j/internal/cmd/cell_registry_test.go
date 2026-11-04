@@ -36,7 +36,6 @@ func TestCellCreateAndList(t *testing.T) {
 		require.NotEmpty(t, cell.ID)
 		require.Equal(t, name, cell.Name)
 		require.Equal(t, "example.com/team/"+name, cell.Repo)
-		require.Equal(t, name == "root", cell.IsRoot)
 	}
 	raw, err := run("list", "--all")
 	require.NoError(t, err)

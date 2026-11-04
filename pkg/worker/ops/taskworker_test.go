@@ -86,6 +86,7 @@ func TestTaskWorkerRunReturnsTaskDataOnFailure(t *testing.T) {
 		orchestrator := jobworkflow.ExecutionWorker{JobType: "diagnostics", Execute: func(c jobworkflow.ExecutionContext, data jobdb.JobData) (jobdb.JobData, error) {
 			return c.DoTask(jobworkflow.TaskCall{Site: "failure", TaskType: worker.Name(), ContractVersion: 1, Command: json.RawMessage(`{}`), Policy: jobdb.RunPolicy{Retry: jobdb.RetryPolicy{MaximumAttempts: 1}}}, func(context.Context) (jobdb.TaskData, error) { return data, nil })
 		}}
+		celltest.Create(t, rt, "test", "test", "example.test/test")
 		job, err := rt.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "test", JobType: orchestrator.Name(), Data: input, RunPolicy: jobdb.RunPolicy{Retry: jobdb.RetryPolicy{MaximumAttempts: 1}}, Cell: "test", CellRepo: "example.test/test"}})
 		require.NoError(t, err)
 		h, err := jobworkflow.GetJobForRun(ctx, rt, jobworkflow.GetJobForRunRequest{JobKey: job.JobKey, JobWorker: orchestrator, TaskWorkers: []jobworkflow.TaskWorker{rt.WrapTaskWorker(worker)}, WorkerID: "test", LeaseDuration: time.Minute})
@@ -172,6 +173,7 @@ func TestTaskWorkerRunCancelsStepWithExecutionContext(t *testing.T) {
 	})
 
 	rt := executionruntime.New(toy.New(), execution.Allocation{SchemaVersion: 1})
+	celltest.Create(t, rt, "tenant", "test", "example.test/test")
 	job, err := rt.SubmitJob(executionCtx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "tenant", JobType: "cancel-step", Data: input, Cell: "test", CellRepo: "example.test/test"}})
 	require.NoError(t, err)
 	finished := make(chan taskWorkerResult, 1)

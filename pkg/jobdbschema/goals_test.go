@@ -28,11 +28,13 @@ func TestSubmitReferencePreservesIdentityWithoutRead(t *testing.T) {
 	require.NoError(t, err)
 	engine := WorkflowEngine{Engine: sdk, Registry: rt}
 	request := jobdb.SubmitJob{TenantId: "t", JobID: "stable-child", JobType: "recipe", Data: jobdb.NewTaskDataOrPanic(map[string]any{"cell": "test", "tenantId": "t", "recipe": "test", "context": map[string]any{}}), Cell: "test", CellRepo: "example.test/test"}
+	celltest.Create(t, engine, request.TenantId, request.Cell, request.CellRepo)
 	first, err := engine.SubmitJobRef(celltest.Context(context.Background()), request)
 	require.NoError(t, err)
 	require.NotEmpty(t, first.GoalID)
 	require.Equal(t, "stable-child", first.JobID)
 	require.Equal(t, "t", first.TenantID)
+	celltest.Create(t, engine, request.TenantId, request.Cell, request.CellRepo)
 	retry, err := engine.SubmitJobRef(celltest.Context(context.Background()), request)
 	require.NoError(t, err)
 	require.Equal(t, first, retry)

@@ -174,6 +174,7 @@ outputs:
 				first := newWorker()
 				job := contextual.JobContext{Workflow: contextual.WorkflowContext{CellName: "source"}, GitBase: contextual.GitBaseContext{BaseRepo: remote, BaseRef: "main"}}
 				data := jobdb.NewTaskDataOrPanic(workflowctl.StartJob{TenantId: "merge-tests", RecipeName: "merge-catch", JobContext: job, GitRef: "main", Cell: "test", CellRepo: celltest.Repo(job.GitBase.BaseRepo)}, jobdb.NewArtifactFromBytes("merge-catch"+starter.RecipeArtifactSuffix, []byte(yaml)))
+				celltest.Create(t, rt, "merge-tests", "test", celltest.Repo(job.GitBase.BaseRepo))
 				handle, err := rt.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "merge-tests", JobType: "recipe", Data: data, RunPolicy: jobdb.RunPolicy{Retry: jobdb.RetryPolicy{MaximumAttempts: 1}}, Cell: "test", CellRepo: celltest.Repo(job.GitBase.BaseRepo)}})
 				require.NoError(t, err)
 				key := handle.JobKey

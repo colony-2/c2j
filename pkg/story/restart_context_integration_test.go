@@ -98,6 +98,7 @@ func newRestartFixture(t *testing.T, backend, recipe string, failFirst ...bool) 
 	require.NoError(t, err)
 	data, err := jobdb.NewTaskData(workflowctl.StartJob{TenantId: "restart-tests", RecipeName: "fixture", Cell: "test", CellRepo: celltest.Repo("")}, jobdb.NewArtifactFromBytes("fixture"+starter.RecipeArtifactSuffix, []byte(recipe)))
 	require.NoError(t, err)
+	celltest.Create(t, rt, "restart-tests", "test", "example.test/test")
 	keyHandle, err := engine.SubmitJob(ctx, jobdb.SubmitJob{TenantId: "restart-tests", JobType: "recipe", Data: data, Cell: "test", CellRepo: "example.test/test"})
 	key := keyHandle.JobKey
 	require.NoError(t, err)

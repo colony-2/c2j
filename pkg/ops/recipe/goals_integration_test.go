@@ -68,6 +68,7 @@ func TestGoalWinnerCollectionRecoveryAndExplicitFailure(t *testing.T) {
 					return jobdb.NewTaskDataOrPanic(map[string]any{"output": map[string]any{"winner": c.GetJobKey().JobId}, "git": map[string]any{"hash": "winner-hash"}}, jobdb.NewArtifactFromBytes("result.txt", []byte(c.GetJobKey().JobId))), nil
 				}}
 				submit := func(w wf.ExecutionWorker) jobdb.JobHandle {
+					celltest.Create(t, rt, "tenant", "test", "example.test/test")
 					h, e := rt.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "tenant", JobType: w.Name(), Data: jobdb.NewTaskDataOrPanic(nil), Cell: "test", CellRepo: "example.test/test"}})
 					require.NoError(t, e)
 					return h

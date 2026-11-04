@@ -104,6 +104,7 @@ sequence:
 				} else {
 					embedded = []recipe.Recipe{*rec}
 				}
+				celltest.Create(t, rt.WorkflowRuntime, start.TenantId, start.Cell, start.CellRepo)
 				keyRef, err := starter.StartRecipeJob(celltest.Context(context.Background()), start, submitter, embedded...)
 				key := keyRef.Key()
 				require.NoError(t, err)

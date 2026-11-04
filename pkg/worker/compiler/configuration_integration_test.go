@@ -69,6 +69,7 @@ outputs:
 `))
 	require.NoError(t, err)
 	job, git := GenerateTestContext()
+	celltest.Create(t, rt, "config", "test", celltest.Repo(job.GitBase.BaseRepo))
 	keyRef, err := starter.StartRecipeJob(ctx, workflowctl.StartJob{TenantId: "config", RecipeName: "config", JobContext: job, GitRef: git.ParentRef, Cell: "test", CellRepo: celltest.Repo(job.GitBase.BaseRepo)}, engine, *rec)
 	key := keyRef.Key()
 	require.NoError(t, err)

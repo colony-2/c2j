@@ -27,7 +27,7 @@ type Resolver func(context.Context, string) (jobdb.ResolvedCell, error)
 // Assertion captures routing configuration, never ownership or registration.
 func (c Context) Assertion(name string) string {
 	switch {
-	case name == "root":
+	case name == "root" && c.RootRepo != "":
 		return c.RootRepo
 	case name == c.SelfCell:
 		return c.SelfRepo
@@ -51,7 +51,7 @@ func (c Context) Resolve(value, ref string) (Target, error) {
 		}
 	}
 	if ref == "" {
-		if value == "root" {
+		if value == "root" && c.RootRef != "" {
 			ref = c.RootRef
 		} else if value == c.SelfCell {
 			ref = c.SelfRef
@@ -63,8 +63,8 @@ func (c Context) Resolve(value, ref string) (Target, error) {
 	return Target{Cell: value, Repository: repo, Ref: ref}, nil
 }
 
-// ResolveTarget retains the registry repo as an assertion through submission.
-// Missing ordinary cells are registered only by the eventual SubmitJob transaction.
+// ResolveTarget retains the registered repo as an assertion through submission.
+// Registration is always a separate administrative action.
 func ResolveTarget(ctx context.Context, resolve Resolver, name, repo string) (jobdb.ResolvedCell, error) {
 	if err := jobdb.ValidateCellName(name); err != nil {
 		return jobdb.ResolvedCell{}, fmt.Errorf("cell must be a name: %w", err)
@@ -81,8 +81,8 @@ func ResolveTarget(ctx context.Context, resolve Resolver, name, repo string) (jo
 	}
 	cell, err := resolve(ctx, name)
 	if err != nil {
-		if errors.Is(err, jobdb.ErrCellNotFound) && repo != "" && name != "root" {
-			return jobdb.ResolvedCell{Cell: name, CellRepo: repo}, nil
+		if errors.Is(err, jobdb.ErrCellNotFound) {
+			return jobdb.ResolvedCell{}, fmt.Errorf("cell %q is not registered or is not accessible; create it with c2j cell create or check access: %w", name, err)
 		}
 		return jobdb.ResolvedCell{}, err
 	}

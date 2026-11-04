@@ -260,6 +260,7 @@ outputs:
 		GitRef:     gitCtx.ParentRef, Cell: "test", CellRepo: celltest.Repo(jobCtx.GitBase.BaseRepo),
 	}
 
+	celltest.Create(t, engine, job.TenantId, job.Cell, job.CellRepo)
 	jobKeyRef, err := starter.StartRecipeJob(celltest.Context(context.Background()), job, engine)
 
 	jobKey := jobKeyRef.Key()
@@ -336,6 +337,7 @@ outputs:
 		GitRef:     commit, Cell: "test", CellRepo: celltest.Repo(jobCtx.GitBase.BaseRepo),
 	}
 
+	celltest.Create(t, engine, job.TenantId, job.Cell, job.CellRepo)
 	jobKeyRef, err := starter.StartRecipeJob(celltest.Context(context.Background()), job, engine)
 
 	jobKey := jobKeyRef.Key()
@@ -540,6 +542,7 @@ outputs:
 		GitRef:     gitCtx.ParentRef, Cell: "test", CellRepo: celltest.Repo(jobCtx.GitBase.BaseRepo),
 	}
 
+	celltest.Create(t, engine, job.TenantId, job.Cell, job.CellRepo)
 	jobKeyRef, err := starter.StartRecipeJob(celltest.Context(context.Background()), job, engine, *rec)
 
 	jobKey := jobKeyRef.Key()
@@ -663,6 +666,7 @@ outputs:
 		GitRef:     commit, Cell: "test", CellRepo: celltest.Repo(jobCtx.GitBase.BaseRepo),
 	}
 
+	celltest.Create(t, engine, job.TenantId, job.Cell, job.CellRepo)
 	jobKeyRef, err := starter.StartRecipeJob(celltest.Context(context.Background()), job, engine, *rec)
 
 	jobKey := jobKeyRef.Key()
@@ -785,6 +789,7 @@ outputs:
 		JobContext: jobCtx, Cell: "test", CellRepo: celltest.Repo(jobCtx.GitBase.BaseRepo),
 	}
 
+	celltest.Create(t, engine, job.TenantId, job.Cell, job.CellRepo)
 	jobKeyRef, err := starter.StartRecipeJob(celltest.Context(context.Background()), job, engine, *rec)
 
 	jobKey := jobKeyRef.Key()
@@ -920,6 +925,7 @@ outputs:
 		JobContext: jobCtx, Cell: "test", CellRepo: celltest.Repo(jobCtx.GitBase.BaseRepo),
 	}
 
+	celltest.Create(t, engine, job.TenantId, job.Cell, job.CellRepo)
 	jobKeyRef, err := starter.StartRecipeJob(celltest.Context(context.Background()), job, engine)
 
 	jobKey := jobKeyRef.Key()
@@ -1035,6 +1041,7 @@ outputs:
 		JobContext: jobCtx, Cell: "test", CellRepo: celltest.Repo(jobCtx.GitBase.BaseRepo),
 	}
 
+	celltest.Create(t, engine, job.TenantId, job.Cell, job.CellRepo)
 	jobKeyRef, err := starter.StartRecipeJob(celltest.Context(context.Background()), job, engine)
 
 	jobKey := jobKeyRef.Key()
@@ -1172,6 +1179,7 @@ outputs:
 		JobContext: jobCtx, Cell: "test", CellRepo: celltest.Repo(jobCtx.GitBase.BaseRepo),
 	}
 
+	celltest.Create(t, engine, job.TenantId, job.Cell, job.CellRepo)
 	jobKeyRef, err := starter.StartRecipeJob(celltest.Context(context.Background()), job, engine)
 
 	jobKey := jobKeyRef.Key()
@@ -1348,6 +1356,7 @@ outputs:
 		JobContext: jobCtx, Cell: "test", CellRepo: celltest.Repo(jobCtx.GitBase.BaseRepo),
 	}
 
+	celltest.Create(t, engine, job.TenantId, job.Cell, job.CellRepo)
 	jobKeyRef, err := starter.StartRecipeJob(celltest.Context(context.Background()), job, engine)
 
 	jobKey := jobKeyRef.Key()

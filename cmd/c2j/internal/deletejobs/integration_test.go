@@ -87,6 +87,7 @@ func TestDeletionSelectionAcrossRuntimes(t *testing.T) {
 			} {
 				metadata, err := json.Marshal(map[string]string{"repo": "https://github.com/acme/" + row.repo + ".git", "recipe": row.recipe})
 				require.NoError(t, err)
+				celltest.Create(t, h.Runtime, row.tenant, row.repo, "github.com/acme/"+row.repo)
 				_, err = h.Runtime.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{
 					TenantId: row.tenant, JobID: row.id, JobType: "test", Metadata: metadata, Data: jobdb.NewTaskDataOrPanic("input"), Cell: row.repo, CellRepo: "github.com/acme/" + row.repo,
 				}})

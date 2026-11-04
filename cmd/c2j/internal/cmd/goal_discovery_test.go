@@ -27,6 +27,7 @@ func TestGoalDiscoveryCommands(t *testing.T) {
 		t.Helper()
 		meta, err := json.Marshal(map[string]string{"repo": repo, "cell_name": "root"})
 		require.NoError(t, err)
+		celltest.Create(t, db, "t", repo, "example.test/"+repo)
 		out, err := db.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "t", JobID: id, JobType: "external", Metadata: meta, Data: jobdb.NewTaskDataOrPanic(map[string]any{}), Dependencies: deps, Cell: repo, CellRepo: "example.test/" + repo}})
 		require.NoError(t, err)
 		return out

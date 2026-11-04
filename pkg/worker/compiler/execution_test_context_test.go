@@ -38,6 +38,9 @@ func (c mockScopeContext) DoScope(site string, opts jobworkflow.ScopeOptions, bo
 func runMockScope(tasks jobworkflow.ExecutionContext, site string, opts jobworkflow.ScopeOptions, body func(jobworkflow.ExecutionContext) (jobdb.JobData, error)) (jobdb.JobData, error) {
 	rt := toy.New()
 	ctx := celltest.Context(context.Background())
+	if _, err := celltest.Register(ctx, rt, "scope-tests", "test", "example.test/test"); err != nil {
+		return nil, err
+	}
 	key, err := rt.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "scope-tests", JobType: "scope", Data: jobdb.NewTaskDataOrPanic(nil), Cell: "test", CellRepo: "example.test/test"}})
 	if err != nil {
 		return nil, err

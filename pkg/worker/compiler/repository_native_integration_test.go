@@ -56,6 +56,7 @@ inputs:
 	ctx, cancel := context.WithTimeout(celltest.Context(t.Context()), 5*time.Minute)
 	defer cancel()
 	job := contextual.JobContext{Workflow: contextual.WorkflowContext{CellName: "native"}, GitBase: contextual.GitBaseContext{BaseRepo: repo, BaseRef: "main"}}
+	celltest.Create(t, eng, "repository-native", "test", celltest.Repo(job.GitBase.BaseRepo))
 	ref, err := starter.StartRecipeJob(ctx, workflowctl.StartJob{TenantId: "repository-native", RecipeName: "repository-native", JobContext: job, GitRef: "main", Cell: "test", CellRepo: celltest.Repo(job.GitBase.BaseRepo)}, eng, *rec)
 	require.NoError(t, err)
 	require.NoError(t, jobworkflow.WaitForJobToComplete(ctx, 5*time.Minute, ref.Key(), eng))

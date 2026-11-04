@@ -47,6 +47,7 @@ func TestSubmitTitleFlag(t *testing.T) {
 	root := t.TempDir()
 	t.Chdir(root)
 	db := toyruntime.New()
+	celltest.Create(t, db, "tenant", "app", celltest.Repo(root))
 	server := httptest.NewServer(celltest.Handler(remoteruntime.NewServer(db)))
 	defer server.Close()
 	for _, title := range []string{"  Improve café\nUI  ", "", "  "} {
@@ -94,7 +95,9 @@ func TestSubmitRejectsConflictingRecipeFlags(t *testing.T) {
 func TestSubmitConventionsWithInteractivePromptAndJSON(t *testing.T) {
 	root := t.TempDir()
 	t.Chdir(root)
-	server := httptest.NewServer(celltest.Handler(remoteruntime.NewServer(toyruntime.New())))
+	db := toyruntime.New()
+	celltest.Create(t, db, "tenant", "app", celltest.Repo(root))
+	server := httptest.NewServer(celltest.Handler(remoteruntime.NewServer(db)))
 	defer server.Close()
 	for _, mode := range []string{"default", "build", "custom"} {
 		t.Run(mode, func(t *testing.T) {
@@ -152,6 +155,7 @@ func TestSubmitPromptFile(t *testing.T) {
 	require.NoError(t, os.WriteFile("prompt.md", []byte(prompt), 0600))
 	require.NoError(t, os.WriteFile("inputs.yaml", []byte("extra: retained\n"), 0600))
 	db := toyruntime.New()
+	celltest.Create(t, db, "tenant", "app", celltest.Repo(root))
 	server := httptest.NewServer(celltest.Handler(remoteruntime.NewServer(db)))
 	defer server.Close()
 	cmd := newSubmitCmd()

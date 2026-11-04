@@ -25,6 +25,7 @@ func TestInputSubmissionRacesTimeoutPickup(t *testing.T) {
 				worker := workflow.ExecutionWorker{JobType: "recipe", Execute: func(c workflow.ExecutionContext, d jobdb.JobData) (jobdb.JobData, error) {
 					return c.DoScope("input", workflow.ScopeOptions{TotalTimeout: time.Minute}, func(scoped workflow.ExecutionContext) (jobdb.JobData, error) { return inner.Execute(scoped, d) })
 				}}
+				celltest.Create(t, rt, "test", "test", "example.test/test")
 				submitted, err := rt.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "test", JobType: "recipe", Data: jobdb.NewTaskDataOrPanic(nil), Cell: "test", CellRepo: "example.test/test"}})
 				require.NoError(t, err)
 				run := func() workflow.JobRunOutcome {

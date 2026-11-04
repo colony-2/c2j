@@ -47,6 +47,10 @@ func TestGoalDiscovery(t *testing.T) {
 				t.Helper()
 				metadata, err := json.Marshal(map[string]string{"repo": repo, "cell_name": "root"})
 				require.NoError(t, err)
+				celltest.Create(t, struct {
+					jobdb.WorkflowRuntime
+					jobdb.JobSchemaRegistry
+				}{wrapped, rt.(jobdb.JobSchemaRegistry)}, "t", "test", "example.test/test")
 				h, err := engine.SubmitJob(ctx, jobdb.SubmitJob{TenantId: "t", JobID: id, JobType: "candidate", Data: jobdb.NewTaskDataOrPanic(map[string]any{}), Metadata: metadata, Dependencies: deps, Cell: "test", CellRepo: "example.test/test"})
 				require.NoError(t, err)
 				require.NotEmpty(t, h.GoalID)

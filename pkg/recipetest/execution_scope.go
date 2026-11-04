@@ -81,6 +81,9 @@ func (g *callbackGate) close() {
 func runIsolatedScope(tasks *testJobContext, site string, opts jobworkflow.ScopeOptions, body func(jobworkflow.ExecutionContext) (jobdb.JobData, error)) (jobdb.JobData, error) {
 	rt := toy.New()
 	ctx := celltest.Context(tasks.Context())
+	if _, err := celltest.Register(ctx, rt, tasks.jobKey.TenantId, "test", "example.test/test"); err != nil {
+		return nil, err
+	}
 	key, err := rt.SubmitJob(celltest.Context(ctx), jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: tasks.jobKey.TenantId, JobType: "recipe-test", Data: jobdb.NewTaskDataOrPanic(nil)}})
 	if err != nil {
 		return nil, err

@@ -53,6 +53,7 @@ func TestSubmittedPromptMetadataAndListings(t *testing.T) {
 					if tc.input != nil {
 						start.Inputs = map[string]any{"prompt": tc.input}
 					}
+					celltest.Create(t, rt.(jobdb.JobSchemaRegistry), start.TenantId, start.Cell, start.CellRepo)
 					ref, err := starter.StartRecipeJob(ctx, start, engine)
 					require.NoError(t, err)
 					listed, err := rt.ListJobs(ctx, jobdb.ListJobsRequest{TenantIds: []string{"t"}, JobKeys: []jobdb.JobKey{ref.Key()}})

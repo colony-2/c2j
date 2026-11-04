@@ -52,6 +52,7 @@ func TestExecutionDirectiveFromRealOperationReachesSuppliedLeaseOutcome(t *testi
 	require.NoError(t, err)
 	engine, err := jobworkflow.NewEngineBuilder().WithRuntime(rt).BuildEngine()
 	require.NoError(t, err)
+	celltest.Create(t, rt, "test", "test", celltest.Repo(jobCtx.GitBase.BaseRepo))
 	keyRef, err := starter.StartRecipeJob(celltest.Context(context.Background()), workflowctl.StartJob{TenantId: "test", RecipeName: r.GetMetadata().ID, JobContext: jobCtx, GitRef: base, Cell: "test", CellRepo: celltest.Repo(jobCtx.GitBase.BaseRepo)}, jobdbschema.WorkflowEngine{Engine: engine, Registry: rt}, *r)
 	key := keyRef.Key()
 	require.NoError(t, err)

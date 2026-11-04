@@ -27,8 +27,21 @@ func TestNamedCellSubmissionAndLeaseCeilings(t *testing.T) {
 	require.NoError(t, err)
 	start := workflowctl.StartJob{TenantId: "tenant", JobID: "root-job", Cell: "root", CellRepo: "example.com/root", RecipeName: "empty"}
 	_, err = starter.StartRecipeJob(ctx, start, submitter, *rec)
-	require.ErrorIs(t, err, jobdb.ErrRootCellRequired)
-	root, err := rt.CreateCell(ctx, jobdb.CreateCellRequest{TenantID: "tenant", Name: "root", Repo: "example.com/root"})
+	require.ErrorIs(t, err, jobdb.ErrCellNotFound)
+	create := jobdb.CreateCellRequest{TenantID: "tenant", Name: "root", Repo: "example.com/root", RequestID: "create-root"}
+	root, err := rt.CreateCell(ctx, create)
+	require.NoError(t, err)
+	retry, err := rt.CreateCell(ctx, create)
+	require.NoError(t, err)
+	require.Equal(t, root.ID, retry.ID)
+	ordinaryStart := start
+	ordinaryStart.Cell = "payments"
+	ordinaryStart.CellRepo = "example.com/team/payments"
+	_, err = starter.StartRecipeJob(ctx, ordinaryStart, submitter, *rec)
+	require.ErrorIs(t, err, jobdb.ErrCellNotFound)
+	pageBefore, err := rt.ListCells(ctx, jobdb.ListCellsRequest{TenantID: "tenant"})
+	require.NoError(t, err)
+	require.Len(t, pageBefore.Cells, 1, "submission must not register a cell")
 	require.NoError(t, err)
 	rootJob, err := starter.StartRecipeJob(ctx, start, submitter, *rec)
 	require.NoError(t, err)
@@ -37,6 +50,15 @@ func TestNamedCellSubmissionAndLeaseCeilings(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, root.ID, lease.Job().CellID)
 	child := jobdb.SubmitJob{TenantId: "tenant", JobID: "child", JobType: "recipe", Cell: "payments", CellRepo: "git@EXAMPLE.com:team/payments.git", Data: jobdb.NewTaskDataOrPanic(nil)}
+	_, err = lease.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: child})
+	require.ErrorIs(t, err, jobdb.ErrCellNotFound, "a repo assertion cannot create a missing cell")
+	payments, err := rt.CreateCell(ctx, jobdb.CreateCellRequest{TenantID: "tenant", Name: "payments", Repo: "example.com/team/payments"})
+	require.NoError(t, err)
+	_, err = lease.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: child})
+	require.ErrorIs(t, err, jobdb.ErrCellNotFound, "root has no special cross-cell authority")
+	authority, _ := jobdb.CellAuthorityFromContext(ctx)
+	authority.LeaseSubmitCells = map[string]bool{payments.ID: true}
+	ctx = jobdb.WithCellAuthority(ctx, authority)
 	h, err := lease.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: child})
 	require.NoError(t, err)
 	require.Equal(t, "payments", h.Cell)
@@ -78,4 +100,34 @@ func TestNamedCellSubmissionAndLeaseCeilings(t *testing.T) {
 	summary, err := rt.ListJobs(ctx, jobdb.ListJobsRequest{TenantIds: []string{"tenant"}, CellNames: []string{"payments"}})
 	require.NoError(t, err)
 	require.Len(t, summary.Jobs, 2)
+
+	// Root is an ordinary name: rename it and submit through its alias.
+	newName, newRepo := "orchestrator", "example.com/root-v2"
+	renamed, err := rt.UpdateCell(ctx, jobdb.UpdateCellRequest{CellKey: jobdb.CellKey{TenantID: "tenant", CellID: root.ID}, IfMatch: "\"" + root.Revision + "\"", Name: &newName, Repo: &newRepo})
+	require.NoError(t, err)
+	require.Contains(t, renamed.Aliases, "root")
+	start.JobID = "alias-job"
+	start.CellRepo = ""
+	aliasJob, err := starter.StartRecipeJob(ctx, start, submitter, *rec)
+	require.NoError(t, err)
+	require.Equal(t, root.ID, aliasJob.CellID)
+	require.Equal(t, newName, aliasJob.Cell)
+	require.Equal(t, newRepo, aliasJob.CellRepo)
+	prior, err := rt.GetJob(ctx, rootJob.Key())
+	require.NoError(t, err)
+	require.Equal(t, root.Repo, prior.CellRepo, "existing jobs retain their repository snapshot")
+	_, err = rt.RetireCell(ctx, jobdb.RetireCellRequest{CellKey: jobdb.CellKey{TenantID: "tenant", CellID: root.ID}, IfMatch: "\"" + renamed.Revision + "\""})
+	require.ErrorIs(t, err, jobdb.ErrCellBusy, "ordinary busy-cell rules still apply")
+}
+
+func TestRootCanBeRetired(t *testing.T) {
+	ctx := celltest.Context(context.Background())
+	rt := toy.New()
+	root, err := rt.CreateCell(ctx, jobdb.CreateCellRequest{TenantID: "tenant", Name: "root", Repo: "example.com/root"})
+	require.NoError(t, err)
+	retired, err := rt.RetireCell(ctx, jobdb.RetireCellRequest{CellKey: jobdb.CellKey{TenantID: "tenant", CellID: root.ID}, IfMatch: "\"" + root.Revision + "\""})
+	require.NoError(t, err)
+	require.Equal(t, jobdb.CellRetired, retired.State)
+	_, err = rt.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "tenant", JobType: "recipe", Cell: "root", Data: jobdb.NewTaskDataOrPanic(nil)}})
+	require.ErrorIs(t, err, jobdb.ErrCellRetired)
 }

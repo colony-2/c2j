@@ -273,6 +273,10 @@ func startListTestRuntime(ctx context.Context) (*httptest.Server, string, jobdb.
 			server.Close()
 			return nil, "", "", err
 		}
+		if _, err := celltest.Register(ctx, runtime, tenantID, job.cellName, job.repo); err != nil {
+			server.Close()
+			return nil, "", "", err
+		}
 		if _, err := engine.SubmitJob(ctx, jobdb.SubmitJob{
 			TenantId:  tenantID,
 			JobID:     job.id,

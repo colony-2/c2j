@@ -77,6 +77,7 @@ func newSuppliedCLI(t *testing.T, yaml string, duration time.Duration, providers
 	rec, err := recipe.LoadRecipeFromString([]byte(yaml))
 	require.NoError(t, err)
 	repo, hash := createGitRepo(t)
+	celltest.Create(t, rt, "tenant", "test", celltest.Repo(repo))
 	fkeyRef, err := starter.StartRecipeJob(ctx, workflowctl.StartJob{
 		TenantId: "tenant", RecipeName: rec.GetMetadata().ID, GitRef: hash,
 		JobContext: contextual.JobContext{

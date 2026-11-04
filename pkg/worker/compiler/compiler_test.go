@@ -145,6 +145,7 @@ func (s *CompilerTestSuite) testRecipe(recipeYaml string, input map[string]inter
 		GitRef:     gitCtx.ParentRef, Cell: "test", CellRepo: celltest.Repo(jobCtx.GitBase.BaseRepo),
 	}
 
+	celltest.Create(s.T(), s.eng, job.TenantId, job.Cell, job.CellRepo)
 	jobKeyRef, err := starter.StartRecipeJob(celltest.Context(context.Background()), job, s.eng, *testRecipe)
 
 	jobKey := jobKeyRef.Key()
@@ -557,6 +558,7 @@ func (s *CompilerTestSuite) TestSequenceRecipeCompilation() {
 		GitRef:     gitCtx.ParentRef, Cell: "test", CellRepo: celltest.Repo(jobCtx.GitBase.BaseRepo),
 	}
 
+	celltest.Create(s.T(), s.eng, job.TenantId, job.Cell, job.CellRepo)
 	jobIdRef, err := starter.StartRecipeJob(celltest.Context(context.Background()), job, s.eng, *testRecipe)
 
 	jobId := jobIdRef.Key()
@@ -615,6 +617,8 @@ type guardedTestEngine struct {
 	jobworkflow.Engine
 	guard *executionruntime.Runtime
 }
+
+func (e *guardedTestEngine) CellRegistry() jobdb.CellRuntime { return e.guard }
 
 func (e *guardedTestEngine) SubmitJobRef(ctx context.Context, job jobdb.SubmitJob) (jobref.Ref, error) {
 	return e.Engine.(jobref.Submitter).SubmitJobRef(ctx, job)

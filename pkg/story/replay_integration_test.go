@@ -124,6 +124,7 @@ func TestStoryAPIReplaysAllPersistedAttemptsAfterDeadlines(t *testing.T) {
 				policy := jobdb.DefaultRunPolicy()
 				policy.Retry.MaximumAttempts = 3
 				policy.Retry.InitialInterval = jobdb.Duration(time.Millisecond)
+				celltest.Create(t, rt, "story", "test", "example.test/test")
 				keyHandle, err := engine.SubmitJob(ctx, jobdb.SubmitJob{TenantId: "story", JobType: "recipe", Data: data, RunPolicy: policy, Cell: "test", CellRepo: "example.test/test"})
 				key := keyHandle.JobKey
 				require.NoError(t, err)

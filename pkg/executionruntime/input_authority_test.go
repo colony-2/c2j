@@ -139,6 +139,7 @@ func TestRecipeInputAuthorityAndRemoteLeaseIsolation(t *testing.T) {
 			engine, err := jobworkflow.NewEngineBuilder().WithRuntime(client).BuildEngine()
 			require.NoError(t, err)
 			start := workflowctl.StartJob{TenantId: "test", RecipeName: "root", JobContext: contextual.JobContext{Workflow: contextual.WorkflowContext{CellName: "root"}, GitBase: contextual.GitBaseContext{BaseRepo: root, BaseRef: "main"}}, Cell: "test", CellRepo: celltest.Repo(root)}
+			celltest.Create(t, client, start.TenantId, start.Cell, start.CellRepo)
 			ref, err := starter.StartRecipeJob(ctx, start, jobdbschema.WorkflowEngine{Engine: engine, Registry: client}, expanded.Recipe)
 			require.NoError(t, err)
 			rt := New(client, execution.Allocation{SchemaVersion: 1})

@@ -78,6 +78,7 @@ outputs:
 `))
 	require.NoError(t, err)
 	job := contextual.JobContext{Workflow: contextual.WorkflowContext{CellName: "root"}, GitBase: contextual.GitBaseContext{BaseRepo: repo, BaseRef: "main"}}
+	celltest.Create(t, eng, "object-tests", "test", celltest.Repo(job.GitBase.BaseRepo))
 	keyRef, err := starter.StartRecipeJob(ctx, workflowctl.StartJob{TenantId: "object-tests", RecipeName: "parent", JobContext: job, GitRef: "main", Cell: "test", CellRepo: celltest.Repo(job.GitBase.BaseRepo)}, eng, *rec)
 	key := keyRef.Key()
 	require.NoError(t, err)
@@ -133,6 +134,7 @@ func TestAwaitAlreadyFinishedChildAfterWorkerReplacement(t *testing.T) {
 	job := contextual.JobContext{Workflow: contextual.WorkflowContext{CellName: "root"}, GitBase: contextual.GitBaseContext{BaseRepo: repo, BaseRef: "main"}}
 	child, err := recipe.LoadRecipeFromString([]byte("id: child\nversion: '1'\nsequence: []\noutputs: {value: retained}\n"))
 	require.NoError(t, err)
+	celltest.Create(t, eng, "object-tests", "test", celltest.Repo(job.GitBase.BaseRepo))
 	keyRef, err := starter.StartRecipeJob(ctx, workflowctl.StartJob{TenantId: "object-tests", RecipeName: "child", JobContext: job, GitRef: "main", Cell: "test", CellRepo: celltest.Repo(job.GitBase.BaseRepo)}, eng, *child)
 	key := keyRef.Key()
 	require.NoError(t, err)

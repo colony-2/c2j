@@ -28,6 +28,7 @@ func TestIncludeHiddenSQLiteHTTP(t *testing.T) {
 	} {
 		meta, err := json.Marshal(map[string]string{"repo": "https://github.com/acme/" + row.repo + ".git", "title": "stored title"})
 		require.NoError(t, err)
+		celltest.Create(t, rt, row.tenant, row.repo, "github.com/acme/"+row.repo)
 		_, err = rt.SubmitJob(ctx, jobdb.SubmitJobRequest{RequestTime: created, Job: jobdb.SubmitJob{TenantId: row.tenant, JobID: row.id, JobType: "recipe", Metadata: meta, Data: jobdb.NewTaskDataOrPanic("input"), Cell: row.repo, CellRepo: "github.com/acme/" + row.repo}})
 		require.NoError(t, err)
 	}

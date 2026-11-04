@@ -20,10 +20,11 @@ records. `--dependencies` reads project routing configuration, without connectin
 to JobDB. These routes do not register cells or grant permission to submit jobs.
 `c2j cell add REPO` still edits that dependency configuration.
 
-Creation registers the cell; it does not create a Git repository. Creating `root`
-requires JobDB's `cells.create` and `cells.bootstrapRoot` administrative permissions.
-Submitting a job never implicitly creates root. Ordinary missing cells can be
-registered atomically with their first job when JobDB authorizes that submission.
+Creation registers the cell; it does not create a Git repository. Every cell must
+be explicitly registered with JobDB's `cells.create` administrative permission
+before submitting work. A repository assertion cannot create a missing cell.
+`root` is an ordinary name: it can be renamed or retired and grants no special
+authority. Cell creation is never inherited from a job lease.
 
 ## Submission and configuration
 
@@ -61,10 +62,10 @@ uninitialized repository without registering a cell. Child recipes and child-gro
 entries accept `cell_name` and optional `cell_repo` separately. A child starting
 from the active workspace carries its repository assertion and snapshot.
 
-A job's owning cell is independent of its active workspace. Root-owned jobs can
-submit across the tenant; non-root jobs retain JobDB's own-cell ceiling plus
-explicit administrative targets. Merely working in a root workspace grants no
-root authority. Recipe grants can narrow submission further:
+A job's owning cell is independent of its active workspace. Every lease defaults
+to its own cell, including jobs owned by `root`. Trusted server policy can grant
+additional existing target cells. Selecting another workspace never expands
+that authority. Recipe grants can narrow submission further:
 
 ```yaml
 perms:
@@ -86,9 +87,10 @@ identity before executing the recipe, so renames cannot change template inputs
 when resuming or replaying. Inspection shows JobDB's current canonical name and
 stable ID. Recipe schema versions 1 and 2 remain supported on fresh jobs.
 
-This upgrade requires JobDB v0.0.68 and a coordinated fresh-storage cutover. Old
-JobDB stores, jobs, supplied leases, captured execution contexts and compiled
+This upgrade uses JobDB main commit `e199a54304e7` and requires a coordinated
+fresh-storage cutover. Old JobDB stores, jobs, supplied leases, captured execution
+contexts and compiled
 histories are incompatible; there is no old-server or metadata-identity adapter.
-Keep source repositories and edited configuration, bootstrap the registry, and
+Keep source repositories and edited configuration, explicitly register cells, and
 submit fresh work. Do not reuse old embedded databases. Upgrade workers and clients
 together.

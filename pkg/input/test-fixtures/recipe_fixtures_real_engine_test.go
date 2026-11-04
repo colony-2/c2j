@@ -141,6 +141,7 @@ func TestRecipeFixturesRealEngine(t *testing.T) {
 						GitRef:     gitCtx.ParentRef, Cell: recipeName, CellRepo: celltest.Repo(jobCtx.GitBase.BaseRepo),
 					}
 
+					celltest.Create(t, embedded.Runtime, start.TenantId, start.Cell, start.CellRepo)
 					jobKeyRef, err := starter.StartRecipeJob(ctx, start, engine, *primary)
 
 					jobKey := jobKeyRef.Key()

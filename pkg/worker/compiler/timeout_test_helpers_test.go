@@ -120,6 +120,7 @@ func submitTimeoutRepro(t *testing.T, rt jobdb.WorkflowRuntime, id string, p job
 	t.Helper()
 	data, err := jobdb.NewTaskData(map[string]any{"id": id})
 	require.NoError(t, err)
+	celltest.Create(t, rt, "timeout-repro", "test", "example.test/test")
 	h, err := rt.SubmitJob(celltest.Context(context.Background()), jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "timeout-repro", JobID: id, JobType: "repro", Data: data, RunPolicy: p, Cell: "test", CellRepo: "example.test/test"}})
 	require.NoError(t, err)
 	return h.JobKey

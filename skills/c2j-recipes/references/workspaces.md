@@ -43,4 +43,4 @@ Use isolated recipe tests for templates and mocked flow; use a real embedded/dep
 
 Use separate [`squash`, `rebase`, and `merge` tasks](https://github.com/colony-2/c2j/blob/main/GUIDE-Git-Ops.md) to persist preparation before publication. `merge` is fast-forward only. For an empty workspace, use `squash` then `merge` without `rebase`.
 
-See [named cells](https://github.com/colony-2/c2j/blob/main/GUIDE-Named-Cells.md) for registration, root bootstrap, permissions, and the storage cutover.
+See [named cells](https://github.com/colony-2/c2j/blob/main/GUIDE-Named-Cells.md) for explicit registration, permissions, and the storage cutover.

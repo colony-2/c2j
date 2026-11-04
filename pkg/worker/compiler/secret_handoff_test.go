@@ -81,6 +81,7 @@ func TestRecipeReplayDoesNotWaitForPreviousActivationCleanup(t *testing.T) {
 			synctest.Test(t, func(t *testing.T) {
 				ctx := celltest.Context(context.Background())
 				base := toy.New()
+				celltest.Create(t, base, "handoff", "test", "example.test/test")
 				child, err := base.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{
 					TenantId: "handoff", JobType: "child", Data: jobdb.NewTaskDataOrPanic(nil), Cell: "test", CellRepo: "example.test/test",
 				}})
@@ -111,6 +112,7 @@ func TestRecipeReplayDoesNotWaitForPreviousActivationCleanup(t *testing.T) {
 					RootSourceResolver: resolver, Executor: goalHandoffExecutor{goal: child.GoalID, inTask: mode == "task wait"},
 				})
 				// Keep the source unembedded so replay must consume root-source at ordinal 3.
+				celltest.Create(t, base, "handoff", "test", "example.test/test")
 				parent, err := base.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{
 					TenantId: "handoff", JobType: worker.Name(), Data: jobdb.NewTaskDataOrPanic(workflowctl.StartJob{RecipeName: "parent", TenantId: "handoff", Cell: "test", CellRepo: celltest.Repo("")}), Cell: "test", CellRepo: "example.test/test",
 				}})

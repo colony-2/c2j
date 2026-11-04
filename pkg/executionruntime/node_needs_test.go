@@ -84,6 +84,7 @@ func submitNodeRecipe(t *testing.T, f *fixture, r recipe.Recipe, options ...star
 	if len(options) > 0 {
 		opts = options[0]
 	}
+	celltest.Create(t, f.runtime.(jobdb.JobSchemaRegistry), "tenant", "test", celltest.Repo(jobContext.GitBase.BaseRepo))
 	fkeyRef, err := starter.StartRecipeJobWithOptions(celltest.Context(context.Background()), workflowctl.StartJob{TenantId: "tenant", RecipeName: r.GetMetadata().ID, JobContext: jobContext, GitRef: git.ParentRef, Cell: "test", CellRepo: celltest.Repo(jobContext.GitBase.BaseRepo)}, jobdbschema.WorkflowEngine{Engine: engine, Registry: f.runtime.(jobdb.JobSchemaRegistry)}, opts, r)
 	f.key = fkeyRef.Key()
 	require.NoError(t, err)

@@ -69,6 +69,7 @@ outputs:
 
 	baseRepo, baseHash := createGitRepo(t)
 
+	celltest.Create(t, underlying, tenantID, "test", celltest.Repo(baseRepo))
 	jobKeyRef, err := starter.StartRecipeJob(ctx, workflowctl.StartJob{
 		TenantId:   tenantID,
 		RecipeName: rec.GetMetadata().ID,

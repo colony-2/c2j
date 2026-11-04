@@ -143,6 +143,7 @@ outputs:
 
 	errCh := make(chan error)
 	go func() {
+		celltest.Create(t, eng, job.TenantId, job.Cell, job.CellRepo)
 		_, err := starter.StartRecipeJob(celltest.Context(context.Background()), job, eng, *testRecipe)
 		errCh <- err
 	}()
@@ -270,6 +271,7 @@ inputs:
 		GitRef:     gitCtx.ParentRef, Cell: "test", CellRepo: celltest.Repo(jobCtx.GitBase.BaseRepo),
 	}
 
+	celltest.Create(t, embedded.Runtime, job.TenantId, job.Cell, job.CellRepo)
 	jobKeyRef, err := starter.StartRecipeJob(ctx, job, engine, *testRecipe)
 
 	jobKey := jobKeyRef.Key()

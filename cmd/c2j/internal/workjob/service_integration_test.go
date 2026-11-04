@@ -93,6 +93,7 @@ func submitRecipeJob(t *testing.T, ctx context.Context, engine jobworkflow.Engin
 		t.Fatalf("load recipe: %v\n%s", err, recipeYAML)
 	}
 	baseRepo, baseHash := workCreateGitRepo(t)
+	celltest.Create(t, engine, tenantID, strings.TrimPrefix(celltest.Repo(baseRepo), "example.test/"), celltest.Repo(baseRepo))
 	keyRef, err := starter.StartRecipeJob(ctx, workflowctl.StartJob{
 		TenantId:   tenantID,
 		RecipeName: rec.GetMetadata().ID,

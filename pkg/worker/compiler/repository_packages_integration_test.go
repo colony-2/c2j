@@ -134,6 +134,7 @@ outputs:
 `))
 	require.NoError(t, err)
 	job := contextual.JobContext{Workflow: contextual.WorkflowContext{CellName: "A"}, GitBase: contextual.GitBaseContext{BaseRepo: a, BaseRef: "main"}, CellResolution: &cellref.Context{SelfCell: "A", SelfRepo: celltest.Repo(a), SelfRef: "main"}}
+	celltest.Create(t, eng, "repository-packages", "A", celltest.Repo(job.GitBase.BaseRepo))
 	ref, err := starter.StartRecipeJob(ctx, workflowctl.StartJob{TenantId: "repository-packages", RecipeName: "repository-packages", JobContext: job, GitRef: "main", Cell: "A", CellRepo: celltest.Repo(job.GitBase.BaseRepo)}, eng, *rec)
 	require.NoError(t, err)
 	key := ref.Key()

@@ -136,6 +136,7 @@ outputs:
 	require.NoError(t, err)
 	history := strings.Repeat("<", 65536)
 	jobCtx, gitCtx := generateTestContext(repo, hash, nil, nil)
+	celltest.Create(t, db, "test-tenant", "test", celltest.Repo(jobCtx.GitBase.BaseRepo))
 	ref, err := starter.StartRecipeJob(ctx, workflowctl.StartJob{TenantId: "test-tenant", RecipeName: primary.GetMetadata().ID, Inputs: map[string]any{"history": history}, JobContext: jobCtx, GitRef: gitCtx.ParentRef, Cell: "test", CellRepo: celltest.Repo(jobCtx.GitBase.BaseRepo)}, engine, *primary)
 	require.NoError(t, err)
 	key := ref.Key()

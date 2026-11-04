@@ -35,6 +35,7 @@ func TestClientPayloadSurvivesYieldAndExternalTaskCompletion(t *testing.T) {
 				rt = db
 			}
 			worker := asExecutionTestWorker(payloadLifecycleWorker{})
+			celltest.Create(t, rt, "tenant", "test", "example.test/test")
 			handle, err := rt.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{
 				TenantId: "tenant", JobID: "payload", JobType: worker.Name(),
 				Data:                jobdb.NewTaskDataOrPanic(map[string]any{"input": true}),

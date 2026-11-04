@@ -112,6 +112,7 @@ func newFixture(t *testing.T, backend, memory string, patch *execution.Requireme
 	if len(submissions) > 0 {
 		initial = submissions[0]
 	}
+	celltest.Create(t, registry, "tenant", "test", celltest.Repo(jobContext.GitBase.BaseRepo))
 	keyRef, err := starter.StartRecipeJob(ctx, workflowctl.StartJob{Execution: initial, TenantId: "tenant", RecipeName: "resources", JobContext: jobContext, GitRef: git.ParentRef, Cell: "test", CellRepo: celltest.Repo(jobContext.GitBase.BaseRepo)}, jobdbschema.WorkflowEngine{Engine: engine, Registry: registry}, *r)
 	key := keyRef.Key()
 	require.NoError(t, err)
@@ -303,6 +304,7 @@ func TestDeferredResolutionPinsRequirementsWithoutProvisionerResolution(t *testi
 			require.NoError(t, err)
 			resolver := &mutableResolver{rec: *r}
 			jobContext, git := compiler.GenerateTestContext()
+			celltest.Create(t, rt, "tenant", "test", celltest.Repo(jobContext.GitBase.BaseRepo))
 			keyRef, err := starter.StartRecipeJob(ctx, workflowctl.StartJob{TenantId: "tenant", RecipeName: "deferred", JobContext: jobContext, GitRef: git.ParentRef, Cell: "test", CellRepo: celltest.Repo(jobContext.GitBase.BaseRepo)}, jobdbschema.WorkflowEngine{Engine: engine, Registry: rt})
 			key := keyRef.Key()
 			require.NoError(t, err)
@@ -367,6 +369,7 @@ func TestInlineDeclarationIsRetainedAndYieldsBeforeIncludedBody(t *testing.T) {
 	engine, err := jobworkflow.NewEngineBuilder().WithRuntime(rt).BuildEngine()
 	require.NoError(t, err)
 	jobContext, git := compiler.GenerateTestContext()
+	celltest.Create(t, rt, "tenant", "test", celltest.Repo(jobContext.GitBase.BaseRepo))
 	keyRef, err := starter.StartRecipeJob(ctx, workflowctl.StartJob{TenantId: "tenant", RecipeName: "parent", JobContext: jobContext, GitRef: git.ParentRef, Cell: "test", CellRepo: celltest.Repo(jobContext.GitBase.BaseRepo)}, jobdbschema.WorkflowEngine{Engine: engine, Registry: rt}, expanded.Recipe)
 	key := keyRef.Key()
 	require.NoError(t, err)

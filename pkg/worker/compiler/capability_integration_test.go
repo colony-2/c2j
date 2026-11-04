@@ -160,6 +160,7 @@ func TestMultiStepWithCapabilityClaim(t *testing.T) {
 		GitRef: baseHash, Cell: "test", CellRepo: celltest.Repo(repoPath),
 	}
 
+	celltest.Create(t, engine, start.TenantId, start.Cell, start.CellRepo)
 	submittedJobKeyRef, err := starter.StartRecipeJob(celltest.Context(context.Background()), start, engine, rec)
 
 	submittedJobKey := submittedJobKeyRef.Key()

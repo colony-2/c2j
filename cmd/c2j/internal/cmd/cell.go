@@ -41,7 +41,7 @@ func newCellCmd() *cobra.Command {
 func newCellCreateCmd() *cobra.Command {
 	var uri, repo, description string
 	var jsonOutput bool
-	cmd := &cobra.Command{Use: "create NAME", Short: "Register a cell, including the reserved root cell", Args: cobra.ExactArgs(1)}
+	cmd := &cobra.Command{Use: "create NAME", Short: "Register a cell before submitting work", Args: cobra.ExactArgs(1)}
 	cmd.RunE = func(cmd *cobra.Command, args []string) error {
 		if err := jobdb.ValidateCellName(args[0]); err != nil {
 			return fmt.Errorf("invalid cell name %q: %w", args[0], err)

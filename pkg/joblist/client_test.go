@@ -213,6 +213,7 @@ func TestConcurrentTenantRepositoryIsolationWithRealBackend(t *testing.T) {
 				require.NoError(t, err)
 				meta, err := json.Marshal(map[string]string{"repo": "https://github.com/acme/" + repo + ".git"})
 				require.NoError(t, err)
+				celltest.Create(t, runtime, tenant, repo, "github.com/acme/"+repo)
 				_, err = runtime.SubmitJob(celltest.Context(context.Background()), jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: tenant, JobID: repo + strconv.Itoa(i), JobType: "recipe", Metadata: meta, Data: data, RunPolicy: jobdb.DefaultRunPolicy(), Cell: repo, CellRepo: "github.com/acme/" + repo}})
 				require.NoError(t, err)
 			}

@@ -137,6 +137,7 @@ func TestTaskStateIsolatedAcrossConnectionsAndSuccessiveTasks(t *testing.T) {
 		client, err := remote.New(server.URL, server.Client())
 		require.NoError(t, err)
 		runtime := New(client, execution.Allocation{})
+		celltest.Create(t, client, "same", "test", "example.test/test")
 		job, err := client.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "same", JobID: "same", JobType: orchestrator.Name(), Data: jobdb.NewTaskDataOrPanic(nil), Cell: "test", CellRepo: "example.test/test"}})
 		require.NoError(t, err)
 		run, err := wf.GetJobForRun(ctx, runtime, wf.GetJobForRunRequest{JobKey: job.JobKey, JobWorker: orchestrator,

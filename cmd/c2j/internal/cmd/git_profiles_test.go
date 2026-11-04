@@ -232,6 +232,7 @@ func TestSuppliedCredentialStoredSeparately(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, strings.HasPrefix(p.Entries[0].SecretRef, gitprofile.SecretPrefix))
 	require.NotContains(t, string(snapshot.Values[gitprofile.ProfilePrefix+"work"]), "supplied-private-value")
+	celltest.Create(t, rt, "test", "test", "example.test/test")
 	handle, err := rt.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "test", JobType: "probe", Data: jobdb.NewTaskDataOrPanic(nil), Cell: "test", CellRepo: "example.test/test"}})
 	require.NoError(t, err)
 	lease, err := rt.GetJobLease(ctx, jobdb.GetJobLeaseRequest{JobKey: handle.JobKey, WorkerID: "test", Routes: []jobdb.Route{{JobType: "probe"}}, LeaseDuration: time.Minute})

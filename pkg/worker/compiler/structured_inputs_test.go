@@ -153,6 +153,7 @@ outputs: {title: '${{ inputs.title }}'}
 					},
 				}
 				data := jobdb.NewTaskDataOrPanic(workflowctl.StartJob{TenantId: "schema-replay", RecipeName: "root", Cell: "test", CellRepo: celltest.Repo("")})
+				celltest.Create(t, rt, "schema-replay", "test", "example.test/test")
 				handle, err := rt.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "schema-replay", JobType: "recipe", Data: data, RunPolicy: jobdb.RunPolicy{Retry: jobdb.RetryPolicy{MaximumAttempts: 1}}, Cell: "test", CellRepo: "example.test/test"}})
 				require.NoError(t, err)
 				worker := NewRecipeJobWorker(RecipeJobWorkerOptions{RootSourceResolver: resolver})
@@ -243,6 +244,7 @@ outputs:
 	dbPath := filepath.Join(t.TempDir(), "jobs.db")
 	eng, stop := objectEngineAt(t, dbPath)
 	job := contextual.JobContext{Workflow: contextual.WorkflowContext{CellName: "root"}, GitBase: contextual.GitBaseContext{BaseRepo: repo, BaseRef: "main"}}
+	celltest.Create(t, eng, "object-tests", "test", celltest.Repo(job.GitBase.BaseRepo))
 	ref, err := starter.StartRecipeJob(ctx, workflowctl.StartJob{TenantId: "object-tests", RecipeName: "parent", JobContext: job, GitRef: "main", Inputs: map[string]any{
 		"annotations": []any{map[string]any{"path": "design.md"}},
 		"labels":      map[string]any{"component": "api"},

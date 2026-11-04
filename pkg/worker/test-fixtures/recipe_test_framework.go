@@ -734,6 +734,9 @@ func executeRecipeWithArtifacts(
 		GitRef:     gitRef, Cell: "test", CellRepo: celltest.Repo(jobCtx.GitBase.BaseRepo),
 	}
 
+	if _, err := celltest.Register(ctx, runtime, job.TenantId, job.Cell, job.CellRepo); err != nil {
+		return nil, nil, nil, err
+	}
 	jobKey, err := control.StartJob(ctx, job)
 	if err != nil {
 		return nil, nil, nil, err

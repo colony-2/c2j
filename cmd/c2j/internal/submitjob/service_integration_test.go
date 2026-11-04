@@ -68,6 +68,7 @@ outputs:
 	baseRepo, _ := createGitRepo(t)
 
 	underlying := toyruntime.New()
+	celltest.Create(t, underlying, tenantID, "app", celltest.Repo(baseRepo))
 	server := httptest.NewServer(celltest.Handler(remoteruntime.NewServer(underlying)))
 	defer server.Close()
 
@@ -189,6 +190,7 @@ outputs:
 	baseRepo, _ := createGitRepo(t)
 
 	underlying := toyruntime.New()
+	celltest.Create(t, underlying, tenantID, "app", celltest.Repo(baseRepo))
 	server := httptest.NewServer(celltest.Handler(remoteruntime.NewServer(underlying)))
 	defer server.Close()
 
@@ -316,6 +318,7 @@ outputs:
 	}
 
 	underlying := toyruntime.New()
+	celltest.Create(t, underlying, tenantID, "app", celltest.Repo(baseRepo))
 	server := httptest.NewServer(celltest.Handler(remoteruntime.NewServer(underlying)))
 	defer server.Close()
 
@@ -456,6 +459,7 @@ outputs:
 	commitRepo(t, baseRepo, "add bare recipe")
 
 	underlying := toyruntime.New()
+	celltest.Create(t, underlying, tenantID, "app", celltest.Repo(baseRepo))
 	server := httptest.NewServer(celltest.Handler(remoteruntime.NewServer(underlying)))
 	defer server.Close()
 
@@ -543,6 +547,11 @@ func TestRun_DefaultBuildUsesSharedRecipe(t *testing.T) {
 				opts.Cell = "private"
 				opts.CellRepo = "https://private.invalid/team/repo.git"
 			}
+			if privateTarget {
+				celltest.Create(t, base, "default-build", opts.Cell, opts.CellRepo)
+			} else {
+				celltest.Create(t, base, "default-build", "app", celltest.Repo(root))
+			}
 			if err := Run(ctx, opts); err != nil {
 				t.Fatal(err)
 			}
@@ -611,6 +620,7 @@ outputs:
 	commitRepo(t, baseRepo, "add self config and default recipe")
 
 	underlying := toyruntime.New()
+	celltest.Create(t, underlying, tenantID, "app", celltest.Repo(baseRepo))
 	server := httptest.NewServer(celltest.Handler(remoteruntime.NewServer(underlying)))
 	defer server.Close()
 
@@ -715,6 +725,7 @@ outputs:
 			mustWriteRepoFile(t, submittingRepo, ".c2/config.yaml", "self:\n  cell: app\n  repo: "+celltest.Repo(submittingRepo)+"\n  ref: main\n")
 			commitRepo(t, submittingRepo, "unrelated submitting cell")
 			underlying := toyruntime.New()
+			celltest.Create(t, underlying, "target-conventions", "app", celltest.Repo(targetRepo))
 			server := httptest.NewServer(celltest.Handler(remoteruntime.NewServer(underlying)))
 			defer server.Close()
 			var stdout, stderr bytes.Buffer
@@ -799,6 +810,7 @@ outputs:
 			baseRepo, _ := createGitRepo(t)
 
 			underlying := toyruntime.New()
+			celltest.Create(t, underlying, tenantID, "app", celltest.Repo(baseRepo))
 			server := httptest.NewServer(celltest.Handler(remoteruntime.NewServer(underlying)))
 			defer server.Close()
 
@@ -907,6 +919,15 @@ outputs:
 
 	baseRepo, _ := createGitRepo(t)
 
+	handle, err := swfruntime.Open(ctx, defaults.EmbedURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	celltest.Create(t, handle.Runtime, defaults.EmbeddedTenantID, "app", celltest.Repo(baseRepo))
+	if err := handle.Cleanup(); err != nil {
+		t.Fatal(err)
+	}
+
 	var submitStdout bytes.Buffer
 	if err := Run(ctx, Options{
 		JobDBURI:              "embed:///",
@@ -951,7 +972,7 @@ outputs:
 		t.Fatalf("run submitted job: %v\nstderr:\n%s", err, runStderr.String())
 	}
 
-	handle, err := swfruntime.Open(ctx, "embed:///")
+	handle, err = swfruntime.Open(ctx, "embed:///")
 	if err != nil {
 		t.Fatalf("Open(embed): %v", err)
 	}
@@ -1020,9 +1041,18 @@ output_schema:
 `)+"\n")
 	commitRepo(t, baseRepo, "add failing extension recipe")
 
+	handle, err := swfruntime.Open(ctx, defaults.EmbedURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	celltest.Create(t, handle.Runtime, defaults.EmbeddedTenantID, "app", celltest.Repo(baseRepo))
+	if err := handle.Cleanup(); err != nil {
+		t.Fatal(err)
+	}
+
 	var submitStdout bytes.Buffer
 	var submitStderr bytes.Buffer
-	err := Run(ctx, Options{
+	err = Run(ctx, Options{
 		JobDBURI: "embed:///",
 		Recipe:   "failing_extension_recipe",
 		Prompt:   "exercise the failing extension",
@@ -1049,7 +1079,7 @@ output_schema:
 		t.Fatalf("expected job id in submit output: %q", submitStdout.String())
 	}
 
-	handle, err := swfruntime.Open(ctx, "embed:///")
+	handle, err = swfruntime.Open(ctx, "embed:///")
 	if err != nil {
 		t.Fatalf("Open(embed): %v", err)
 	}

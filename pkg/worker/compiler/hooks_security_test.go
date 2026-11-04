@@ -50,6 +50,7 @@ func startHookTest(t *testing.T, ctx context.Context, eng jobworkflow.Engine, re
 	t.Helper()
 	rec, err := recipe.LoadRecipeFromString([]byte(body))
 	require.NoError(t, err)
+	celltest.Create(t, eng, "hooks", "test", celltest.Repo(repo))
 	ref, err := starter.StartRecipeJob(ctx, workflowctl.StartJob{TenantId: "hooks", RecipeName: rec.GetMetadata().ID, JobContext: contextual.JobContext{Workflow: contextual.WorkflowContext{CellName: "A"}, GitBase: contextual.GitBaseContext{BaseRepo: repo, BaseRef: "main"}}, GitRef: "main", Cell: "test", CellRepo: celltest.Repo(repo)}, eng, *rec)
 	require.NoError(t, err)
 	require.NoError(t, jobworkflow.WaitForJobToComplete(ctx, time.Minute, ref.Key(), eng))

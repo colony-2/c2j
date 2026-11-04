@@ -133,6 +133,7 @@ func TestSecretsAcrossTasksReplayAndFailures(t *testing.T) {
 			rec, err := recipe.LoadRecipeFromString([]byte(source.String()))
 			require.NoError(t, err)
 			job, git := GenerateTestContext()
+			celltest.Create(t, runtime, "secrets", "test", celltest.Repo(job.GitBase.BaseRepo))
 			keyRef, err := starter.StartRecipeJob(ctx, workflowctl.StartJob{TenantId: "secrets", RecipeName: "secrets", JobContext: job, GitRef: git.ParentRef, Cell: "test", CellRepo: celltest.Repo(job.GitBase.BaseRepo)}, engine, *rec)
 			key := keyRef.Key()
 			require.NoError(t, err)
@@ -245,6 +246,7 @@ sequence:
 	rec, err := recipe.LoadRecipeFromString([]byte(source))
 	require.NoError(t, err)
 	job, git := GenerateTestContext()
+	celltest.Create(t, runtime, "fallbacks", "test", celltest.Repo(job.GitBase.BaseRepo))
 	keyRef, err := starter.StartRecipeJob(ctx, workflowctl.StartJob{
 		TenantId: "fallbacks", RecipeName: "fallbacks", JobContext: job, GitRef: git.ParentRef,
 		Inputs: map[string]any{"token": "${{ context.secrets.missing }}"}, Cell: "test", CellRepo: celltest.Repo(job.GitBase.BaseRepo),

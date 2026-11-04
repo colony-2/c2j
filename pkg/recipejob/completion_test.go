@@ -207,6 +207,7 @@ func TestPersistedCompletionAcrossEmbeddedAndRemoteListings(t *testing.T) {
 					rt, err = remote.New(server.URL, server.Client())
 					require.NoError(t, err)
 				}
+				celltest.Create(t, rt, "tenant", "test", "example.test/test")
 				parent, err := rt.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "tenant", JobID: "parent", JobType: "parent", Data: jobdb.NewTaskDataOrPanic(map[string]any{}), Cell: "test", CellRepo: "example.test/test"}})
 				require.NoError(t, err)
 				parentLease, err := rt.GetJobLease(ctx, jobdb.GetJobLeaseRequest{JobKey: parent.JobKey, WorkerID: "parent-test", Routes: []jobdb.Route{{JobType: "parent"}}})

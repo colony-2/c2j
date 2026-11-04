@@ -51,6 +51,7 @@ func TestResumedJobLogsOnlyNewTaskExecution(t *testing.T) {
 		return result, nil
 	}}
 	rt := executionruntime.New(toy.New(), execution.Allocation{SchemaVersion: 1})
+	celltest.Create(t, rt, "test", "test", "example.test/test")
 	job, err := rt.SubmitJob(celltest.Context(context.Background()), jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "test", JobType: orchestrator.Name(), Data: input, Cell: "test", CellRepo: "example.test/test"}})
 	require.NoError(t, err)
 	for i, worker := range workers {

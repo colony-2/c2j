@@ -171,6 +171,7 @@ outputs:
 				rec, err := recipe.LoadRecipeFromString([]byte(yaml))
 				require.NoError(t, err)
 				eng := newToyEngineWithWorkSet(t, "publication-tests", ws, nil)
+				celltest.Create(t, eng, "publication-tests", "test", celltest.Repo(job.GitBase.BaseRepo))
 				keyRef, err := starter.StartRecipeJob(ctx, workflowctl.StartJob{TenantId: "publication-tests", RecipeName: "workspace-test", JobContext: job, GitRef: "main", Cell: "test", CellRepo: celltest.Repo(job.GitBase.BaseRepo)}, eng, *rec)
 				key := keyRef.Key()
 				require.NoError(t, err)
@@ -336,6 +337,7 @@ outputs:
 			}
 			rec, err := recipe.LoadRecipeFromString([]byte(yaml))
 			require.NoError(t, err)
+			celltest.Create(t, base, "recovery", "test", celltest.Repo(job.GitBase.BaseRepo))
 			keyRef, err := starter.StartRecipeJob(ctx, workflowctl.StartJob{TenantId: "recovery", RecipeName: "recover-publication", JobContext: job, GitRef: "main", Cell: "test", CellRepo: celltest.Repo(job.GitBase.BaseRepo)}, eng, *rec)
 			key := keyRef.Key()
 			require.NoError(t, err)

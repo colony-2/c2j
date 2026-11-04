@@ -42,6 +42,7 @@ func TestSubmittedRecipeRetryBudget(t *testing.T) {
 				sdk, err := wf.NewEngineBuilder().WithRuntime(rt).BuildEngine()
 				require.NoError(t, err)
 				engine := jobdbschema.WorkflowEngine{Engine: sdk, Registry: rt.WorkflowRuntime.(jobdb.JobSchemaRegistry)}
+				celltest.Create(t, rt.WorkflowRuntime.(jobdb.JobSchemaRegistry), "retry-tests", "test", celltest.Repo(""))
 				ref, err := starter.StartRecipeJob(ctx, workflowctl.StartJob{TenantId: "retry-tests", RecipeName: "root", Cell: "test", CellRepo: celltest.Repo("")}, engine, rec)
 				require.NoError(t, err)
 				stored, err := engine.GetJob(ctx, ref.Key())

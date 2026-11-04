@@ -37,6 +37,7 @@ func TestGoalManagementLifecycle(t *testing.T) {
 			engine := jobdbschema.WorkflowEngine{Engine: sdk, Registry: rt.(jobdb.JobSchemaRegistry)}
 			submit := func(id string, deps ...jobdb.Dependency) jobdb.JobHandle {
 				t.Helper()
+				celltest.Create(t, rt.(jobdb.JobSchemaRegistry), "tenant", "test", "example.test/test")
 				h, err := engine.SubmitJob(ctx, jobdb.SubmitJob{TenantId: "tenant", JobID: id, JobType: "candidate", Data: jobdb.NewTaskDataOrPanic(nil), Dependencies: deps, Cell: "test", CellRepo: "example.test/test"})
 				require.NoError(t, err)
 				return h

@@ -44,6 +44,7 @@ func TestDeletionPreservesCompletedOutcomeAndCloneArtifacts(t *testing.T) {
 				require.Equal(t, wf.JobRunCompleted, outcome.Status)
 				require.NoError(t, outcome.JobError)
 			}
+			celltest.Create(t, h.Runtime, f.tenant, "test", "example.test/test")
 			source, err := h.Runtime.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{
 				TenantId: f.tenant, JobID: "source", JobType: worker.Name(),
 				Data: &jobdb.SimpleTaskData{Data: json.RawMessage(`"output"`), Artifacts: []jobdb.Artifact{jobdb.NewArtifactFromBytes("shared.txt", []byte("shared contents"))}}, Cell: "test", CellRepo: "example.test/test",

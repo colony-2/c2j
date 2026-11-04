@@ -70,6 +70,7 @@ inputs:
 		GitRef:     gitCtx.ParentRef, Cell: "test", CellRepo: celltest.Repo(jobCtx.GitBase.BaseRepo),
 	}
 
+	celltest.Create(t, eng, job.TenantId, job.Cell, job.CellRepo)
 	_, err = starter.StartRecipeJob(celltest.Context(context.Background()), job, eng, *testRecipe)
 	require.NoError(t, err)
 

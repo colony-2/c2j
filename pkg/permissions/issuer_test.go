@@ -101,6 +101,7 @@ func TestLocalAttenuationAndRenewalRespectHardDeadline(t *testing.T) {
 	defer server.Close()
 	client, err := remote.New(server.URL, server.Client())
 	require.NoError(t, err)
+	celltest.Create(t, client, "test", "test", "example.test/test")
 	job, err := client.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "test", JobID: "parent", JobType: "test", Data: jobdb.NewTaskDataOrPanic(map[string]any{}), Cell: "test", CellRepo: "example.test/test"}})
 	require.NoError(t, err)
 	owner, err := client.GetJobLease(ctx, jobdb.GetJobLeaseRequest{JobKey: job.JobKey, WorkerID: "test", Routes: []jobdb.Route{{JobType: "test"}}, LeaseDuration: time.Minute})

@@ -87,6 +87,7 @@ func probeRun(t *testing.T, rt jobdb.WorkflowRuntime, key jobdb.JobKey, w jobwor
 }
 func probeSubmit(t *testing.T, rt jobdb.WorkflowRuntime, w jobworkflow.ExecutionWorker) jobdb.JobKey {
 	t.Helper()
+	celltest.Create(t, rt, "scope-tests", "test", "example.test/test")
 	h, err := rt.SubmitJob(celltest.Context(context.Background()), jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "scope-tests", JobType: w.Name(), Data: jobdb.NewTaskDataOrPanic(nil), RunPolicy: jobdb.RunPolicy{Retry: jobdb.RetryPolicy{MaximumAttempts: 1}}, Cell: "test", CellRepo: "example.test/test"}})
 	require.NoError(t, err)
 	return h.JobKey

@@ -90,6 +90,7 @@ func TestStoryAPIExposesUnfinishedTask(t *testing.T) {
 				yaml := "id: unfinished\ninput_schema: {value: {type: string}}\nsequence:\n - id: outer\n   inputs: {value: resolved}\n   sequence:\n    - id: work\n      op: " + unfinishedOp + "\n      inputs: {value: '${{ inputs.value }}'}\n      retry: {maximum_attempts: 2, initial_interval: 1ms}\n      timeout: 5m\n"
 				data, err := jobdb.NewTaskData(workflowctl.StartJob{TenantId: "story", RecipeName: "unfinished", Inputs: map[string]any{"value": "resolved"}, Cell: "test", CellRepo: celltest.Repo("")}, jobdb.NewArtifactFromBytes("unfinished"+starter.RecipeArtifactSuffix, []byte(yaml)))
 				require.NoError(t, err)
+				celltest.Create(t, rt, "story", "test", "example.test/test")
 				h, err := engine.SubmitJob(ctx, jobdb.SubmitJob{TenantId: "story", JobType: "recipe", Data: data, Cell: "test", CellRepo: "example.test/test"})
 				require.NoError(t, err)
 				request := story.GetJobRunStoryRequest{ProjectID: h.JobKey.TenantId, JobID: h.JobKey.JobId}
@@ -285,6 +286,7 @@ func TestStoryAPIPreservesMultiStepLeaves(t *testing.T) {
 				second, releaseSecond := newStoryBarrierTask(t, opType+":second", output("second", ""))
 				yaml := "id: chain\nsequence:\n - id: work\n   op: " + opType + "\n   inputs: {value: resolved}\n"
 				data := jobdb.NewTaskDataOrPanic(workflowctl.StartJob{TenantId: "story", RecipeName: "chain", Cell: "test", CellRepo: celltest.Repo("")}, jobdb.NewArtifactFromBytes("chain"+starter.RecipeArtifactSuffix, []byte(yaml)))
+				celltest.Create(t, rt, "story", "test", "example.test/test")
 				h, err := engine.SubmitJob(ctx, jobdb.SubmitJob{TenantId: "story", JobType: "recipe", Data: data, Cell: "test", CellRepo: "example.test/test"})
 				require.NoError(t, err)
 				inspect := func() *story.JobRunStoryNode {
@@ -369,6 +371,7 @@ func TestStoryAPIExposesUnfinishedSourceResolution(t *testing.T) {
 			require.NoError(t, err)
 			result := compiler.ResolvedRecipeSource{RecipeSourceResolution: compiler.RecipeSourceResolution{SourceKind: compiler.RecipeSourceKindServerRef, SubmittedSelector: "source-ref", ResolvedSelector: "source-ref@v1"}, RecipeYAML: "id: resolved\nsequence: []\n"}
 			task, release := newStoryBarrierTask(t, compiler.RootSourceResolutionTaskType, jobdb.NewTaskDataOrPanic(result))
+			celltest.Create(t, rt, "story", "test", "example.test/test")
 			h, err := engine.SubmitJob(ctx, jobdb.SubmitJob{TenantId: "story", JobType: "recipe", Data: jobdb.NewTaskDataOrPanic(workflowctl.StartJob{TenantId: "story", RecipeName: "source-ref", Cell: "test", CellRepo: celltest.Repo("")}), Cell: "test", CellRepo: "example.test/test"})
 			require.NoError(t, err)
 			inspect := func(status string) *story.JobRunStoryNode {

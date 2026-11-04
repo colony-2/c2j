@@ -25,14 +25,13 @@ func TestRoutingAssertions(t *testing.T) {
 		require.Error(t, err)
 	}
 }
-func TestMissingCellRequiresAssertionAndNeverBootstrapsRoot(t *testing.T) {
+func TestMissingCellRequiresExplicitRegistration(t *testing.T) {
 	missing := func(context.Context, string) (jobdb.ResolvedCell, error) {
 		return jobdb.ResolvedCell{}, jobdb.ErrCellNotFound
 	}
-	cell, err := ResolveTarget(celltest.Context(context.Background()), missing, "payments", "git@example.com:team/payments.git")
-	require.NoError(t, err)
-	require.Empty(t, cell.CellID)
-	require.Equal(t, "example.com/team/payments", cell.CellRepo)
+	_, err := ResolveTarget(celltest.Context(context.Background()), missing, "payments", "git@example.com:team/payments.git")
+	require.ErrorIs(t, err, jobdb.ErrCellNotFound)
+	require.ErrorContains(t, err, "c2j cell create")
 	_, err = ResolveTarget(celltest.Context(context.Background()), missing, "payments", "")
 	require.ErrorIs(t, err, jobdb.ErrCellNotFound)
 	_, err = ResolveTarget(celltest.Context(context.Background()), missing, "root", "example.com/root")
@@ -42,4 +41,20 @@ func TestMissingCellRequiresAssertionAndNeverBootstrapsRoot(t *testing.T) {
 	}
 	_, err = ResolveTarget(celltest.Context(context.Background()), denied, "payments", "example.com/payments")
 	require.ErrorIs(t, err, jobdb.ErrCellForbidden)
+}
+
+func TestRootUsesOrdinaryRoutingWithoutExplicitRootConfig(t *testing.T) {
+	for _, cfg := range []Context{
+		{SelfCell: "root", SelfRepo: "example.com/team/root", SelfRef: "dev"},
+		{Pattern: "example.com/team/${{ cell }}"},
+	} {
+		target, err := cfg.Resolve("root", "")
+		require.NoError(t, err)
+		require.Equal(t, "example.com/team/root", target.Repository)
+		if cfg.SelfRef != "" {
+			require.Equal(t, cfg.SelfRef, target.Ref)
+		} else {
+			require.Equal(t, DefaultRef, target.Ref)
+		}
+	}
 }

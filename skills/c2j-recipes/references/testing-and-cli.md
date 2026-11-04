@@ -168,7 +168,7 @@ Use the current cell:
 c2j submit "Run the requested task" --advanced-recipe-file ./recipes/my-recipe.yaml --self --embed
 ```
 
-Use an already registered cell (bootstrap `root` with `c2j cell create root --repo REPO` first):
+Register the target cell before submission, for example with `c2j cell create root --repo REPO`. Every cell requires explicit creation; `root` is an ordinary name:
 
 ```bash
 c2j submit "Run the requested task" --advanced-recipe-file ./recipes/my-recipe.yaml --cell root --embed

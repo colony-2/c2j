@@ -155,11 +155,18 @@ c2j init --stdout
 If the current directory does not resolve as a cell, either:
 
 - create `.c2/config.yaml`, or
-- pass `--cell NAME (with --cell-repo REPO for first use)` explicitly to `submit` or `list`
+- pass `--cell NAME` explicitly to `submit` or `list`; `submit` also accepts an optional `--cell-repo REPO` assertion
 
-### 2. Submit and run a build job
+### 2. Register the cell, then submit and run a build job
 
-Submissions use the build recipe:
+Register the `self.cell` name and repository shown by `c2j self` in the target
+JobDB before first submission. For an embedded runtime:
+
+```bash
+c2j cell create <cell-name> --repo <repository> --jobdb embed:///
+```
+
+Configuration alone does not register a cell. Submissions use the build recipe:
 
 ```bash
 c2j submit "Implement the new endpoint" --run --embed
@@ -238,7 +245,7 @@ known: a useful partial report also exits successfully.
 
 ### `c2j cell create` and `c2j cell list`
 
-Create a registered cell, including the reserved root cell:
+Explicitly register each cell before submitting work (`root` is an ordinary name):
 
 ```bash
 c2j cell create root --repo github.com/acme/root
@@ -558,8 +565,8 @@ c2j submit "Improve retry behavior" \
 ```
 
 `--cell` accepts a JobDB cell name. Use `--cell-repo REPO` for an optional
-repository assertion or first-use registration of an ordinary cell. Root must
-be created explicitly with `c2j cell create root --repo REPO`.
+repository assertion. Every cell must be created explicitly with
+`c2j cell create NAME --repo REPO` before submission, including `root`.
 
 Rules:
 

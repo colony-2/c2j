@@ -144,4 +144,4 @@ C2J_TEST_LOG_DIR=/tmp/c2j-recipe-regression-logs \
   /absolute/path/to/recipes/recipe-tests/run-defaults.sh
 ```
 
-See [named cells](https://github.com/colony-2/c2j/blob/main/GUIDE-Named-Cells.md) for registration, root bootstrap, permissions, and the storage cutover.
+See [named cells](https://github.com/colony-2/c2j/blob/main/GUIDE-Named-Cells.md) for explicit registration, permissions, and the storage cutover.

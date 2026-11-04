@@ -105,6 +105,7 @@ func TestRestrictedAccessUsesTaskDelegationAndOperationLimit(t *testing.T) {
 			})
 		})
 	}}
+	celltest.Create(t, client, "test", "test", "example.test/test")
 	handle, err := client.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "test", JobType: worker.Name(), Data: jobdb.NewTaskDataOrPanic(nil), Cell: "test", CellRepo: "example.test/test"}})
 	require.NoError(t, err)
 	run, err := wf.GetJobForRun(ctx, rt, wf.GetJobForRunRequest{JobKey: handle.JobKey, JobWorker: worker, TaskWorkers: []wf.TaskWorker{task}, WorkerID: "owner", LeaseDuration: time.Minute})
@@ -166,6 +167,7 @@ func TestTaskWithoutTimeoutUsesParentBoundRestrictedLease(t *testing.T) {
 				policy.TotalTimeout = jobdb.AsDuration(5 * time.Minute)
 			}
 			input := jobdb.NewTaskDataOrPanic(map[string]any{"permissions": permissions.State{Version: permissions.Version, Grant: &grant}})
+			celltest.Create(t, client, "test", "test", "example.test/test")
 			h, err := client.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "test", JobType: worker.Name(), Data: input, RunPolicy: policy, Cell: "test", CellRepo: "example.test/test"}})
 			require.NoError(t, err)
 			run, err := wf.GetJobForRun(ctx, rt, wf.GetJobForRunRequest{JobKey: h.JobKey, JobWorker: worker, TaskWorkers: []wf.TaskWorker{rt.WrapTaskWorker(task)}, WorkerID: "test", LeaseDuration: time.Minute})
@@ -218,6 +220,7 @@ func TestTaskRequestsCannotOmitPermissionEnforcement(t *testing.T) {
 			worker := wf.ExecutionWorker{JobType: "default-policy", Execute: func(c wf.ExecutionContext, in jobdb.JobData) (jobdb.JobData, error) {
 				return c.DoTask(wf.TaskCall{Site: "probe", TaskType: task.Name(), ContractVersion: 1, Command: json.RawMessage(`{}`), Policy: jobdb.RunPolicy{TotalTimeout: jobdb.AsDuration(time.Minute)}}, func(context.Context) (jobdb.TaskData, error) { return in, nil })
 			}}
+			celltest.Create(t, client, "test", "test", "example.test/test")
 			h, err := client.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "test", JobType: worker.Name(), Data: jobdb.NewTaskDataOrPanic(json.RawMessage(tc.input)), Cell: "test", CellRepo: "example.test/test"}})
 			require.NoError(t, err)
 			run, err := wf.GetJobForRun(ctx, rt, wf.GetJobForRunRequest{JobKey: h.JobKey, JobWorker: worker, TaskWorkers: []wf.TaskWorker{rt.WrapTaskWorker(task)}, WorkerID: "test", LeaseDuration: time.Minute})

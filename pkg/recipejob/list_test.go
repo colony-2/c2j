@@ -139,6 +139,7 @@ func TestListChildRecipeJobsFiltersByParentInvocation(t *testing.T) {
 	if err := jobdbschema.Register(ctx, runtime, tenantID); err != nil {
 		t.Fatalf("Register schema: %v", err)
 	}
+	celltest.Create(t, runtime, tenantID, "alpha", "github.com/acme/boo-alpha")
 	parentHandle, err := runtime.SubmitJob(ctx, jobdb.SubmitJobRequest{
 		Job: jobdb.SubmitJob{
 			TenantId: tenantID,
@@ -253,6 +254,7 @@ func newListTestEngine(t *testing.T) jobworkflow.Engine {
 
 func submitRecipeJob(t *testing.T, ctx context.Context, engine jobworkflow.Engine, tenantID string, jobID string, repo string, cellName string, submittedAt time.Time) {
 	t.Helper()
+	celltest.Create(t, engine, tenantID, cellName, repo)
 	submitRecipeJobWithParent(t, ctx, engine.(jobref.Submitter), tenantID, jobID, repo, cellName, submittedAt, jobcontext.Parent{})
 }
 

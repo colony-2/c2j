@@ -99,6 +99,7 @@ func TestResolvedRecipeArtifactDurableReplay(t *testing.T) {
 					},
 				}
 				data := jobdb.NewTaskDataOrPanic(workflowctl.StartJob{TenantId: "recipe-artifacts", RecipeName: "root", Cell: "test", CellRepo: celltest.Repo("")})
+				celltest.Create(t, rt, "recipe-artifacts", "test", "example.test/test")
 				handle, err := rt.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "recipe-artifacts", JobType: "recipe", Data: data, RunPolicy: jobdb.RunPolicy{Retry: jobdb.RetryPolicy{MaximumAttempts: 1}}, Cell: "test", CellRepo: "example.test/test"}})
 				require.NoError(t, err)
 				worker := NewRecipeJobWorker(RecipeJobWorkerOptions{RootSourceResolver: resolver})

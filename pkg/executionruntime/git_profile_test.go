@@ -210,6 +210,7 @@ sequence:
 			require.NoError(t, err)
 			engine, err := jobworkflow.NewEngineBuilder().WithRuntime(runtime).BuildEngine()
 			require.NoError(t, err)
+			celltest.Create(t, runtime.(jobdb.JobSchemaRegistry), "test", "test", celltest.Repo(repo))
 			keyRef, err := starter.StartRecipeJob(ctx, workflowctl.StartJob{TenantId: "test", RecipeName: "profiles", JobContext: contextual.JobContext{Workflow: contextual.WorkflowContext{CellName: "repo"}, GitBase: contextual.GitBaseContext{BaseRepo: repo, BaseRef: "main"}}, Cell: "test", CellRepo: celltest.Repo(repo)}, jobdbschema.WorkflowEngine{Engine: engine, Registry: runtime.(jobdb.JobSchemaRegistry)}, *rec)
 			key := keyRef.Key()
 			require.NoError(t, err)

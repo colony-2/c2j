@@ -86,6 +86,7 @@ func newTimedInputFixture(t *testing.T, source, scope string) *timedInputFixture
 	if scope != "runtime-root" {
 		embedded = []recipe.Recipe{*rec}
 	}
+	celltest.Create(t, f.rt, "timed-input", "test", celltest.Repo(jobCtx.GitBase.BaseRepo))
 	fkeyRef, err := starter.StartRecipeJob(ctx, workflowctl.StartJob{TenantId: "timed-input", RecipeName: rec.GetMetadata().ID, JobContext: jobCtx, GitRef: gitCtx.ParentRef, Cell: "test", CellRepo: celltest.Repo(jobCtx.GitBase.BaseRepo)}, f.engine, embedded...)
 	f.key = fkeyRef.Key()
 	require.NoError(t, err)

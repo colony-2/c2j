@@ -101,6 +101,7 @@ func submitGitLifecycle(t *testing.T, rt jobdb.WorkflowRuntime, repo, yaml strin
 	t.Helper()
 	job := contextual.JobContext{Workflow: contextual.WorkflowContext{CellName: "source"}, GitBase: contextual.GitBaseContext{BaseRepo: repo, BaseRef: "main"}}
 	data := jobdb.NewTaskDataOrPanic(workflowctl.StartJob{TenantId: "git-tests", RecipeName: "git-lifecycle", JobContext: job, GitRef: "main", Cell: "test", CellRepo: celltest.Repo(job.GitBase.BaseRepo)}, jobdb.NewArtifactFromBytes("git-lifecycle"+starter.RecipeArtifactSuffix, []byte(yaml)))
+	celltest.Create(t, rt, "git-tests", "test", celltest.Repo(repo))
 	h, err := rt.SubmitJob(celltest.Context(context.Background()), jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "git-tests", JobType: "recipe", Data: data, RunPolicy: jobdb.RunPolicy{Retry: jobdb.RetryPolicy{MaximumAttempts: 1}}, Cell: "test", CellRepo: celltest.Repo(repo)}})
 	require.NoError(t, err)
 	return h.JobKey

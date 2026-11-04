@@ -86,6 +86,7 @@ func TestHookRemoteTokenCannotBypassControllerOrReadConfiguration(t *testing.T) 
 	worker := wf.ExecutionWorker{JobType: "hook-delegation", Execute: func(c wf.ExecutionContext, in jobdb.JobData) (jobdb.JobData, error) {
 		return c.DoTask(wf.TaskCall{Site: "probe", TaskType: task.Name(), ContractVersion: 1, Command: json.RawMessage(`{}`)}, func(context.Context) (jobdb.TaskData, error) { return in, nil })
 	}}
+	celltest.Create(t, client, "test", "test", "example.test/test")
 	h, err := client.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "test", JobType: worker.Name(), Data: jobdb.NewTaskDataOrPanic(nil), Cell: "test", CellRepo: "example.test/test"}})
 	require.NoError(t, err)
 	run, err := wf.GetJobForRun(ctx, rt, wf.GetJobForRunRequest{JobKey: h.JobKey, JobWorker: worker, TaskWorkers: []wf.TaskWorker{task}, WorkerID: "test", LeaseDuration: time.Minute})

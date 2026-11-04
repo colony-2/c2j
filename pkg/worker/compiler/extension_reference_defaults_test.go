@@ -142,6 +142,7 @@ run: ` + fmt.Sprintf("%q\n", script)
 			require.NoError(t, err)
 			*rec = expanded.Recipe
 			job, git := GenerateTestContext()
+			celltest.Create(t, rt, "extension-defaults", "test", celltest.Repo(job.GitBase.BaseRepo))
 			keyRef, err := starter.StartRecipeJob(ctx, workflowctl.StartJob{TenantId: "extension-defaults", RecipeName: "reference-defaults", JobContext: job, GitRef: git.ParentRef, Cell: "test", CellRepo: celltest.Repo(job.GitBase.BaseRepo)}, engine, *rec)
 			key := keyRef.Key()
 			require.NoError(t, err)

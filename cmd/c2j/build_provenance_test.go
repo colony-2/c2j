@@ -82,6 +82,7 @@ func testStampedBuildProvenance(t *testing.T, flags string) {
 			server := httptest.NewServer(celltest.Handler(remote.NewServer(rt)))
 			defer server.Close()
 			uri := server.URL + "/provenance"
+			cli(t, "cell", "create", "app", "--repo", celltest.Repo(repo), "--jobdb", uri)
 			args := []string{"submit", "--jobdb", uri, "--cell", "app", "--cell-repo", celltest.Repo(repo), "--advanced-recipe-file", recipeFile}
 			key := jobdb.JobKey{TenantId: "provenance"}
 			if mode == "submit --run" {

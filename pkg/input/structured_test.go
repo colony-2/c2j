@@ -158,6 +158,7 @@ func testStructuredInputSQLite(t *testing.T, offloaded bool) {
 	second, err := buildForm(deps, ctx, Input{Form: cfg})
 	require.NoError(t, err)
 	w := structuredWorker{forms: []InputForm{first, second}, retainArtifacts: true}
+	celltest.Create(t, rt, "tenant", "test", "example.test/test")
 	handle, err := rt.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "tenant", JobID: "review", JobType: "recipe", Data: jobdb.NewTaskDataOrPanic(map[string]any{}), RunPolicy: jobdb.DefaultRunPolicy(), Cell: "test", CellRepo: "example.test/test"}})
 	require.NoError(t, err)
 	run := func() {

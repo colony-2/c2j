@@ -39,6 +39,7 @@ func TestGoalWaitTimeoutAndConsumerCancellation(t *testing.T) {
 				sdk, err := wf.NewEngineBuilder().WithRuntime(rt).BuildEngine()
 				require.NoError(t, err)
 				engine := jobdbschema.WorkflowEngine{Engine: sdk, Registry: rt.(jobdb.JobSchemaRegistry)}
+				celltest.Create(t, rt, "t", "test", "example.test/test")
 				child, err := sdk.SubmitJob(ctx, jobdb.SubmitJob{TenantId: "t", JobType: "producer", Data: jobdb.NewTaskDataOrPanic(nil), Cell: "test", CellRepo: "example.test/test"})
 				require.NoError(t, err)
 				task := &goalWaitTask{ctl: &workerworkflow.SWFWorkflowControl{Engine: engine}, input: StartedJob{JobID: child.JobKey.JobId, GoalID: child.GoalID}, soft: true}
@@ -50,6 +51,7 @@ func TestGoalWaitTimeoutAndConsumerCancellation(t *testing.T) {
 					call := wf.TaskCall{Site: "wait", TaskType: task.Name(), ContractVersion: 1, Command: []byte(`{}`), Policy: jobdb.RunPolicy{InvocationTimeout: jobdb.AsDuration(timeout)}}
 					return c.DoTask(call, func(context.Context) (jobdb.TaskData, error) { return in, nil })
 				}}
+				celltest.Create(t, rt, "t", "test", "example.test/test")
 				parent, err := sdk.SubmitJob(ctx, jobdb.SubmitJob{TenantId: "t", JobType: worker.Name(), Data: jobdb.NewTaskDataOrPanic(nil), Cell: "test", CellRepo: "example.test/test"})
 				require.NoError(t, err)
 				run := func() wf.JobRunOutcome {

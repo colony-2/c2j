@@ -111,6 +111,7 @@ outputs:
 	job.GitBase.ResolvedBaseHash = commit
 	git.ParentRef = commit
 	engine := newToyEngineWithWorkSet(t, "tools", ws, nil)
+	celltest.Create(t, engine, "tools", "test", celltest.Repo(job.GitBase.BaseRepo))
 	keyRef, err := starter.StartRecipeJob(celltest.Context(context.Background()), workflowctl.StartJob{TenantId: "tools", RecipeName: "tools", JobContext: job, GitRef: git.ParentRef, Cell: "test", CellRepo: celltest.Repo(job.GitBase.BaseRepo)}, engine, *rec)
 	key := keyRef.Key()
 	require.NoError(t, err)
@@ -227,6 +228,7 @@ sequence:
 	require.NoError(t, err)
 	job, git := GenerateTestContext()
 	engine := newToyEngineWithWorkSet(t, "tools", ws, nil)
+	celltest.Create(t, engine, "tools", "test", celltest.Repo(job.GitBase.BaseRepo))
 	keyRef, err := starter.StartRecipeJob(celltest.Context(context.Background()), workflowctl.StartJob{TenantId: "tools", RecipeName: "recovery", JobContext: job, GitRef: git.ParentRef, Cell: "test", CellRepo: celltest.Repo(job.GitBase.BaseRepo)}, engine, *rec)
 	key := keyRef.Key()
 	require.NoError(t, err)

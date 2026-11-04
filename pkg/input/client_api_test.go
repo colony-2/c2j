@@ -322,6 +322,7 @@ func TestPendingInputSQLitePaginationBeyondBackendPageLimit(t *testing.T) {
 		form, err := buildForm(ops.NewOpDependenciesBuilder().Build(), ctx, Input{Form: Config{Question: "ordinary", Type: FieldTypeShortAnswer}})
 		require.NoError(t, err)
 		worker := structuredWorker{forms: []InputForm{form}}
+		celltest.Create(t, db, "tenant", "test", "example.test/test")
 		handle, err := db.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "tenant", JobID: fmt.Sprintf("job-%03d", i), JobType: "recipe", Data: jobdb.NewTaskDataOrPanic(map[string]any{}), RunPolicy: jobdb.DefaultRunPolicy(), Cell: "test", CellRepo: "example.test/test"}})
 		require.NoError(t, err)
 		runnable, err := workflow.GetJobForRun(ctx, db, workflow.GetJobForRunRequest{JobKey: handle.JobKey, JobWorker: worker.executionWorker(), TaskWorkers: []workflow.TaskWorker{structuredPrepareTask{}}, WorkerID: "test", LeaseDuration: time.Minute})

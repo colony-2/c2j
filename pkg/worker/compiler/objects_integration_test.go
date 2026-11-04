@@ -201,6 +201,7 @@ func runObjectRecipe(t *testing.T, eng jobworkflow.Engine, source string, job co
 }
 func runObjectRecipeValue(t *testing.T, eng jobworkflow.Engine, rec *recipe.Recipe, job contextual.JobContext, inputs ...map[string]any) map[string]any {
 	t.Helper()
+	celltest.Create(t, eng, "object-tests", "test", celltest.Repo(job.GitBase.BaseRepo))
 	keyRef, err := starter.StartRecipeJob(celltest.Context(context.Background()), workflowctl.StartJob{TenantId: "object-tests", RecipeName: rec.GetMetadata().ID, Inputs: firstObjectInputs(inputs), JobContext: job, GitRef: job.GitBase.BaseRef, Cell: "test", CellRepo: celltest.Repo(job.GitBase.BaseRepo)}, eng, *rec)
 	key := keyRef.Key()
 	require.NoError(t, err)

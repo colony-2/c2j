@@ -149,6 +149,7 @@ outputs:
 			if tc.scoped {
 				job.Workspace = &contextual.WorkspaceContext{Cell: "root", ScopeID: "refresh-scope", InitialHash: initial}
 			}
+			celltest.Create(t, rt, "refresh", "test", celltest.Repo(job.GitBase.BaseRepo))
 			keyRef, e := starter.StartRecipeJob(ctx, workflowctl.StartJob{TenantId: "refresh", RecipeName: "refresh", GitRef: "main", JobContext: job, Cell: "test", CellRepo: celltest.Repo(job.GitBase.BaseRepo)}, eng, *rec)
 			key := keyRef.Key()
 			require.NoError(t, e)

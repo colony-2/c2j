@@ -32,6 +32,7 @@ func TestOpenEmbedPersistsJobsAcrossReopen(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, handle.Secrets.SetDevSecret(ctx, "tenant-embed-test", "token", "fixture-value"))
 	data := jobdb.NewTaskDataOrPanic(map[string]any{"job_id": "job-1"})
+	celltest.Create(t, handle.Engine, "tenant-embed-test", "test", "example.test/test")
 	jobKeyHandle, err := handle.Engine.SubmitJob(ctx, jobdb.SubmitJob{
 		TenantId:  "tenant-embed-test",
 		JobID:     "job-1",

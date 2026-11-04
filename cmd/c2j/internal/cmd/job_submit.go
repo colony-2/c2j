@@ -64,7 +64,7 @@ Custom recipes are an advanced use case: use --advanced-recipe[-file].`,
 	flags.BoolVar(&opts.FromWorkspaceNow, "from-workspace-now", false, "Start from the workspace's current commits and file contents")
 	cmd.MarkFlagsMutuallyExclusive("from-workspace", "from-workspace-now")
 	flags.BoolVar(&opts.Self, "self", false, "Target the current cell explicitly (also the default when --cell is omitted)")
-	flags.StringVar(&opts.CellRepo, "cell-repo", "", "Repository assertion for the target cell (required on first use)")
+	flags.StringVar(&opts.CellRepo, "cell-repo", "", "Optional repository assertion for an already registered cell")
 	flags.StringVar(&opts.Cell, "cell", "", "Target cell name")
 	flags.BoolVarP(&opts.RunAfterSubmit, "run", "r", false, "Run the submitted job immediately after submission")
 	flags.BoolVar(&useEmbed, "embed", false, "Use embedded JobDB (equivalent to --jobdb "+defaults.EmbedURL+")")

@@ -91,6 +91,7 @@ outputs:
 				}
 				rec, err := recipe.LoadRecipeFromString([]byte(yaml))
 				require.NoError(t, err)
+				celltest.Create(t, eng, "workspace-tests", "A", celltest.Repo(root))
 				ref, err := starter.StartRecipeJob(celltest.Context(context.Background()), workflowctl.StartJob{TenantId: "workspace-tests", RecipeName: "workspace-test", GitRef: "main", JobContext: contextual.JobContext{CellResolution: &cellref.Context{}, Workflow: contextual.WorkflowContext{CellName: "A"}, GitBase: contextual.GitBaseContext{BaseRepo: root, BaseRef: "main"}}, Cell: "A", CellRepo: celltest.Repo(root)}, eng, *rec)
 				require.NoError(t, err)
 				require.NoError(t, jobworkflow.WaitForJobToComplete(celltest.Context(context.Background()), 20*time.Second, ref.Key(), eng))

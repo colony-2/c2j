@@ -152,6 +152,7 @@ outputs:
 					// complete the fallback when CI takes longer than 600ms.
 					delay = "1h"
 				}
+				celltest.Create(t, rt, "alternate", "test", celltest.Repo(jobCtx.GitBase.BaseRepo))
 				keyRef, err := starter.StartRecipeJob(ctx, workflowctl.StartJob{TenantId: "alternate", RecipeName: rec.GetMetadata().ID, Inputs: map[string]any{"fallback": "defer", "delay": delay}, JobContext: jobCtx, GitRef: gitCtx.ParentRef, Cell: "test", CellRepo: celltest.Repo(jobCtx.GitBase.BaseRepo)}, engine, *rec)
 				key := keyRef.Key()
 				require.NoError(t, err)
