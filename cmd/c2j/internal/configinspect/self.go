@@ -123,7 +123,7 @@ func inspectCell(ctx context.Context, dir string, getenv func(string) string) (S
 			*field.target = strings.TrimSpace(value)
 		}
 		if info.Repo != "" {
-			info.ShortName, _ = cfg.CellNameFromRepo(ctx, info.Repo)
+			info.ShortName = cfg.SelfCell()
 		}
 	}
 	info.JobDB = strings.TrimSpace(getenv(defaults.JobDBEnv))

@@ -4,16 +4,18 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"github.com/colony-2/jobdb/pkg/jobdb"
-	remoteruntime "github.com/colony-2/jobdb/pkg/jobdb/runtime/remote"
-	toyruntime "github.com/colony-2/jobdb/pkg/jobdb/runtime/toy"
-	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/colony-2/c2j/internal/celltest"
+	"github.com/colony-2/jobdb/pkg/jobdb"
+	remoteruntime "github.com/colony-2/jobdb/pkg/jobdb/runtime/remote"
+	toyruntime "github.com/colony-2/jobdb/pkg/jobdb/runtime/toy"
+	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
 )
 
 func testJobDBURI(serverURL string, tenantID string) string {
@@ -23,13 +25,14 @@ func testJobDBURI(serverURL string, tenantID string) string {
 func TestRunDefaultsToCurrentCell(t *testing.T) {
 	t.Parallel()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(celltest.Context(context.Background()), 10*time.Second)
 	defer cancel()
 
 	root := t.TempDir()
 	writeListConfig(t, root, `
 pattern: 'github.com/acme/boo-${{ cell }}'
 self:
+  cell: alpha
   repo: alpha
 `)
 
@@ -64,13 +67,14 @@ self:
 func TestRunJSONSupportsPagination(t *testing.T) {
 	t.Parallel()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(celltest.Context(context.Background()), 10*time.Second)
 	defer cancel()
 
 	root := t.TempDir()
 	writeListConfig(t, root, `
 pattern: 'github.com/acme/boo-${{ cell }}'
 self:
+  cell: alpha
   repo: alpha
 `)
 
@@ -107,13 +111,14 @@ self:
 func TestRunAllJSONFetchesEveryPage(t *testing.T) {
 	t.Parallel()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(celltest.Context(context.Background()), 10*time.Second)
 	defer cancel()
 
 	root := t.TempDir()
 	writeListConfig(t, root, `
 pattern: 'github.com/acme/boo-${{ cell }}'
 self:
+  cell: alpha
   repo: alpha
 `)
 
@@ -152,13 +157,14 @@ self:
 func TestRunExplicitCellAcceptsLongRepo(t *testing.T) {
 	t.Parallel()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(celltest.Context(context.Background()), 10*time.Second)
 	defer cancel()
 
 	root := t.TempDir()
 	writeListConfig(t, root, `
 pattern: 'github.com/acme/boo-${{ cell }}'
 self:
+  cell: alpha
   repo: alpha
 `)
 
@@ -172,7 +178,7 @@ self:
 	if err := Run(ctx, Options{
 		JobDBURI:   testJobDBURI(server.URL, tenantID),
 		WorkingDir: root,
-		Cell:       "github.com/acme/boo-beta",
+		Cell:       "beta",
 		JSONOutput: true,
 		Stdout:     &stdout,
 		Stderr:     &bytes.Buffer{},
@@ -192,13 +198,14 @@ self:
 func TestRunExplicitCellAcceptsShortName(t *testing.T) {
 	t.Parallel()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(celltest.Context(context.Background()), 10*time.Second)
 	defer cancel()
 
 	root := t.TempDir()
 	writeListConfig(t, root, `
 pattern: 'github.com/acme/boo-${{ cell }}'
 self:
+  cell: alpha
   repo: alpha
 `)
 
@@ -232,7 +239,7 @@ self:
 func startListTestRuntime(ctx context.Context) (*httptest.Server, string, jobdb.JobStatus, error) {
 	tenantID := "tenant-list-test"
 	underlying := toyruntime.New()
-	server := httptest.NewServer(remoteruntime.NewServer(underlying))
+	server := httptest.NewServer(celltest.Handler(remoteruntime.NewServer(underlying)))
 
 	runtime, err := remoteruntime.New(server.URL, server.Client())
 	if err != nil {
@@ -272,7 +279,7 @@ func startListTestRuntime(ctx context.Context) (*httptest.Server, string, jobdb.
 			JobType:   job.jobType,
 			Data:      data,
 			RunPolicy: jobdb.DefaultRunPolicy(),
-			Metadata:  metadata,
+			Metadata:  metadata, Cell: job.cellName, CellRepo: job.repo,
 		}); err != nil {
 			server.Close()
 			return nil, "", "", err

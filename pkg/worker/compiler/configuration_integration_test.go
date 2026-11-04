@@ -3,11 +3,12 @@ package compiler
 import (
 	"context"
 	"encoding/json"
-	"github.com/colony-2/c2j/pkg/execution"
-	"github.com/colony-2/c2j/pkg/executionruntime"
 	"testing"
 	"time"
 
+	"github.com/colony-2/c2j/internal/celltest"
+	"github.com/colony-2/c2j/pkg/execution"
+	"github.com/colony-2/c2j/pkg/executionruntime"
 	"github.com/colony-2/c2j/pkg/jobdbschema"
 	coreops "github.com/colony-2/c2j/pkg/ops"
 	"github.com/colony-2/c2j/pkg/recipe"
@@ -22,7 +23,7 @@ import (
 )
 
 func TestConfigurationResumeUsesLiveTaskReadsAndRecordedRouting(t *testing.T) {
-	ctx := context.Background()
+	ctx := celltest.Context(context.Background())
 	type input struct {
 		Value   bool `json:"value"`
 		Missing any  `json:"missing"`
@@ -68,7 +69,7 @@ outputs:
 `))
 	require.NoError(t, err)
 	job, git := GenerateTestContext()
-	keyRef, err := starter.StartRecipeJob(ctx, workflowctl.StartJob{TenantId: "config", RecipeName: "config", JobContext: job, GitRef: git.ParentRef}, engine, *rec)
+	keyRef, err := starter.StartRecipeJob(ctx, workflowctl.StartJob{TenantId: "config", RecipeName: "config", JobContext: job, GitRef: git.ParentRef, Cell: "test", CellRepo: celltest.Repo(job.GitBase.BaseRepo)}, engine, *rec)
 	key := keyRef.Key()
 	require.NoError(t, err)
 	var first, all []jobworkflow.TaskWorker

@@ -15,7 +15,7 @@ import (
 
 var c2jJobSchema = json.RawMessage(`{
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "description": "c2j recipe execution chapter schema v3",
+  "description": "c2j recipe execution chapter schema v4 (named cells)",
   "firstChapterShape": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "type": "object",
@@ -75,15 +75,14 @@ var c2jJobSchema = json.RawMessage(`{
           },
           "initial": {
             "type": "string",
-            "enum": ["empty"]
+            "enum": [
+              "empty"
+            ]
           },
           "initial_hash": {
             "type": "string"
           },
           "ref_policy": {
-            "type": "string"
-          },
-          "task_base_hash": {
             "type": "string"
           }
         },
@@ -107,7 +106,7 @@ var c2jJobSchema = json.RawMessage(`{
           "root_ref": {
             "type": "string"
           },
-          "base_dir": {
+          "self_cell": {
             "type": "string"
           }
         },
@@ -238,7 +237,9 @@ var c2jJobSchema = json.RawMessage(`{
           "cell": {
             "type": "string"
           },
-          "goal_id": {"type":"string"},
+          "goal_id": {
+            "type": "string"
+          },
           "job_id": {
             "type": "string"
           },
@@ -287,26 +288,67 @@ var c2jJobSchema = json.RawMessage(`{
       "jobdbPermissions": {
         "type": "object",
         "properties": {
-          "secrets": {"type": "object", "properties": {"resolve": {"type": "array", "items": {"type": "string"}}}, "additionalProperties": false},
-          "jobs": {"type": "object", "properties": {"submit": {"type": "boolean"}}, "additionalProperties": false}
+          "secrets": {
+            "type": "object",
+            "properties": {
+              "resolve": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "additionalProperties": false
+          },
+          "jobs": {
+            "type": "object",
+            "properties": {
+              "submit": {
+                "type": "boolean"
+              },
+              "cellNames": {"type":"array","minItems":1,"uniqueItems":true,"items":{"type":"string"}}
+            },
+            "additionalProperties": false
+          }
         },
         "additionalProperties": false
       },
       "inheritedPermissions": {
         "type": "object",
-        "required": ["version"],
+        "required": [
+          "version"
+        ],
         "properties": {
-          "version": {"const": 1},
-          "grant": {"$ref": "#/$defs/jobdbPermissions"},
-          "limit": {"$ref": "#/$defs/jobdbPermissions"},
-          "child_grant": {"$ref": "#/$defs/jobdbPermissions"},
-          "child_policy": {"type": "object"},
+          "version": {
+            "const": 1
+          },
+          "grant": {
+            "$ref": "#/$defs/jobdbPermissions"
+          },
+          "limit": {
+            "$ref": "#/$defs/jobdbPermissions"
+          },
+          "child_grant": {
+            "$ref": "#/$defs/jobdbPermissions"
+          },
+          "child_policy": {
+            "type": "object"
+          },
           "inputs": {
             "type": "object",
             "properties": {
-              "root_repository": {"type": "string"},
-              "foreign": {"type": "boolean"},
-              "allowed": {"type": "array", "items": {"type": "string"}}
+              "root_repository": {
+                "type": "string"
+              },
+              "foreign": {
+                "type": "boolean"
+              },
+              "allowed": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
             },
             "additionalProperties": false
           }
@@ -316,7 +358,9 @@ var c2jJobSchema = json.RawMessage(`{
       "jobContext": {
         "type": "object",
         "properties": {
-          "inherited_permissions": {"$ref": "#/$defs/inheritedPermissions"},
+          "inherited_permissions": {
+            "$ref": "#/$defs/inheritedPermissions"
+          },
           "workspace": {
             "$ref": "#/$defs/workspaceContext"
           },
@@ -338,7 +382,9 @@ var c2jJobSchema = json.RawMessage(`{
             },
             "additionalProperties": false
           },
-          "restore_artifact_name": {"type": "string"},
+          "restore_artifact_name": {
+            "type": "string"
+          },
           "restore_artifact": {
             "$ref": "#/$defs/artifactKey"
           },
@@ -366,10 +412,14 @@ var c2jJobSchema = json.RawMessage(`{
       "parentJobContext": {
         "type": "object",
         "properties": {
+          "cell_id": {"type":"string"},
+          "cell_repo": {"type":"string"},
           "tenant_id": {
             "type": "string"
           },
-          "goal_id": {"type":"string"},
+          "goal_id": {
+            "type": "string"
+          },
           "job_id": {
             "type": "string"
           },
@@ -411,7 +461,8 @@ var c2jJobSchema = json.RawMessage(`{
         "required": [
           "tenantId",
           "recipe",
-          "context"
+          "context",
+          "cell"
         ],
         "properties": {
           "execution": {
@@ -421,7 +472,12 @@ var c2jJobSchema = json.RawMessage(`{
             "type": "string",
             "minLength": 1
           },
-          "dependencies": {"type":"array", "items":{"type":"object"}},
+          "dependencies": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
           "job_id": {
             "type": "string"
           },
@@ -452,6 +508,13 @@ var c2jJobSchema = json.RawMessage(`{
             "format": "date-time"
           },
           "input_hash": {
+            "type": "string"
+          },
+          "cell": {
+            "type": "string",
+            "minLength": 1
+          },
+          "cell_repo": {
             "type": "string"
           }
         },
@@ -1037,4 +1100,44 @@ func (e WorkflowEngine) ListDependencyWaits(ctx context.Context, req jobdb.ListD
 		return jobdb.ListDependencyWaitsResponse{}, fmt.Errorf("goal runtime unavailable")
 	}
 	return rt.ListDependencyWaits(ctx, req)
+}
+
+func (e WorkflowEngine) CreateCell(ctx context.Context, req jobdb.CreateCellRequest) (jobdb.Cell, error) {
+	rt, ok := e.Registry.(jobdb.CellRuntime)
+	if !ok {
+		return jobdb.Cell{}, fmt.Errorf("cell registry unavailable")
+	}
+	return rt.CreateCell(ctx, req)
+}
+
+func (e WorkflowEngine) GetCell(ctx context.Context, req jobdb.CellKey) (jobdb.Cell, error) {
+	rt, ok := e.Registry.(jobdb.CellRuntime)
+	if !ok {
+		return jobdb.Cell{}, fmt.Errorf("cell registry unavailable")
+	}
+	return rt.GetCell(ctx, req)
+}
+
+func (e WorkflowEngine) ListCells(ctx context.Context, req jobdb.ListCellsRequest) (jobdb.ListCellsResponse, error) {
+	rt, ok := e.Registry.(jobdb.CellRuntime)
+	if !ok {
+		return jobdb.ListCellsResponse{}, fmt.Errorf("cell registry unavailable")
+	}
+	return rt.ListCells(ctx, req)
+}
+
+func (e WorkflowEngine) UpdateCell(ctx context.Context, req jobdb.UpdateCellRequest) (jobdb.Cell, error) {
+	rt, ok := e.Registry.(jobdb.CellRuntime)
+	if !ok {
+		return jobdb.Cell{}, fmt.Errorf("cell registry unavailable")
+	}
+	return rt.UpdateCell(ctx, req)
+}
+
+func (e WorkflowEngine) RetireCell(ctx context.Context, req jobdb.RetireCellRequest) (jobdb.Cell, error) {
+	rt, ok := e.Registry.(jobdb.CellRuntime)
+	if !ok {
+		return jobdb.Cell{}, fmt.Errorf("cell registry unavailable")
+	}
+	return rt.RetireCell(ctx, req)
 }

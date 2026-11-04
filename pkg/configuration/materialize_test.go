@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	"github.com/stretchr/testify/require"
 )
@@ -20,7 +21,7 @@ func TestMaterializeUsesTaskAPIAndPreservesInput(t *testing.T) {
 		return jobdb.ConfigurationSnapshot{Revision: "rev", Values: map[string]json.RawMessage{"flag": json.RawMessage(`true`), "null": json.RawMessage(`null`), "unused": json.RawMessage(`42`)}}, nil
 	}
 	for range 2 {
-		out, diag, err := MaterializeInput(context.Background(), nil, input, fetch)
+		out, diag, err := MaterializeInput(celltest.Context(context.Background()), nil, input, fetch)
 		require.NoError(t, err)
 		require.Equal(t, map[string]any{"a": true, "b": []any{true, nil}}, out)
 		require.Len(t, diag.Values, 2)
@@ -34,18 +35,18 @@ func TestMaterializeMissingProviderFailureAndForwarding(t *testing.T) {
 	type forward struct {
 		Inputs map[string]any `json:"inputs" secret:"forward"`
 	}
-	_, diag, err := MaterializeInput(context.Background(), reflect.TypeFor[forward](), map[string]any{"inputs": map[string]any{"flag": Ref("flag")}}, func(context.Context) (jobdb.ConfigurationSnapshot, error) {
+	_, diag, err := MaterializeInput(celltest.Context(context.Background()), reflect.TypeFor[forward](), map[string]any{"inputs": map[string]any{"flag": Ref("flag")}}, func(context.Context) (jobdb.ConfigurationSnapshot, error) {
 		t.Fatal("forwarding must not fetch")
 		return jobdb.ConfigurationSnapshot{}, nil
 	})
 	require.NoError(t, err)
 	require.Nil(t, diag)
 	failure := errors.New("unavailable")
-	_, _, err = MaterializeInput(context.Background(), nil, Ref("flag"), func(context.Context) (jobdb.ConfigurationSnapshot, error) {
+	_, _, err = MaterializeInput(celltest.Context(context.Background()), nil, Ref("flag"), func(context.Context) (jobdb.ConfigurationSnapshot, error) {
 		return jobdb.ConfigurationSnapshot{}, failure
 	})
 	require.ErrorIs(t, err, failure)
-	out, diag, err := MaterializeInput(context.Background(), nil, Ref("missing"), func(context.Context) (jobdb.ConfigurationSnapshot, error) { return jobdb.ConfigurationSnapshot{}, nil })
+	out, diag, err := MaterializeInput(celltest.Context(context.Background()), nil, Ref("missing"), func(context.Context) (jobdb.ConfigurationSnapshot, error) { return jobdb.ConfigurationSnapshot{}, nil })
 	require.NoError(t, err)
 	require.Nil(t, out)
 	require.Empty(t, diag.Values)
@@ -69,7 +70,7 @@ func TestReferenceRoundTripAndValidation(t *testing.T) {
 		require.Error(t, err)
 	}
 	for _, raw := range []string{`"wrong type"`, `{"$c2j_secret":"password"}`, `{"$c2j_ref":{"kind":"config","name":"other"}}`} {
-		_, _, err := MaterializeInput(context.Background(), nil, ref, func(context.Context) (jobdb.ConfigurationSnapshot, error) {
+		_, _, err := MaterializeInput(celltest.Context(context.Background()), nil, ref, func(context.Context) (jobdb.ConfigurationSnapshot, error) {
 			return jobdb.ConfigurationSnapshot{Values: map[string]json.RawMessage{"flag": json.RawMessage(raw)}}, nil
 		})
 		require.Error(t, err)

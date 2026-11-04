@@ -16,6 +16,7 @@ import (
 
 // RecipeInput defines the input for recipe activities
 type SingleRecipe struct {
+	CellRepo  string                 `json:"cell_repo,omitempty"`
 	Wait      WaitPolicy             `json:"wait,omitempty"`
 	Name      string                 `json:"name" validate:"required"`
 	CellName  string                 `json:"cell_name,omitempty" default:"{{ context.workspace.cell }}"`
@@ -297,11 +298,12 @@ func parentContextFromDeps(deps ops.OpDependencies) jobcontext.Parent {
 		parent.JobID = strings.TrimSpace(key.JobId)
 		parent.JobType = starter.RecipeJobType
 		if tool, ok := jobTool.(interface{ GetJobRef() jobref.Ref }); ok {
-			parent.GoalID = tool.GetJobRef().GoalID
+			ref := tool.GetJobRef()
+			parent.GoalID = ref.GoalID
+			parent.CellID, parent.CellName, parent.CellRepo = ref.CellID, ref.Cell, ref.CellRepo
 		}
 	}
 	gitContext := deps.GitContext()
-	parent.CellName = strings.TrimSpace(gitContext.CellName)
 	parent.RepositorySource, parent.GitRef = currentRecipeSource(deps)
 	parent.InvocationPath = strings.TrimSpace(gitContext.NodePath)
 	parent.InvocationSequence = gitContext.InvokeSeq

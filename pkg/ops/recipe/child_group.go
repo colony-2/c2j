@@ -30,6 +30,7 @@ type ChildGroupStartInput struct {
 }
 
 type ChildGroupChildSpec struct {
+	CellRepo   string                 `json:"cell_repo,omitempty"`
 	Wait       *WaitPolicy            `json:"wait,omitempty"`
 	Key        string                 `json:"key,omitempty"`
 	Index      int                    `json:"index,omitempty"`
@@ -212,6 +213,7 @@ func startChildGroup(deps ops.OpDependencies, ctx context.Context, input ChildGr
 		job, err := recipeToStart(parentJobKey.TenantId, SingleRecipe{
 			Name:      record.Recipe,
 			CellName:  cellName,
+			CellRepo:  child.CellRepo,
 			Inputs:    cloneMap(child.Inputs),
 			Artifacts: append([]recipeartifacts.Ref(nil), child.Artifacts...),
 			Git: SingleRecipeGit{

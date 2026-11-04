@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/c2j/pkg/contextual"
 	"github.com/colony-2/c2j/pkg/recipe"
 	"github.com/colony-2/c2j/pkg/template"
@@ -62,7 +63,7 @@ outputs:
 	parsed, err := recipe.LoadRecipeFromString(mustReadFile(t, rootPath))
 	require.NoError(t, err)
 
-	expanded, err := ResolveInlineRecipes(context.Background(), *parsed, InlineResolutionOptions{RootFile: rootPath})
+	expanded, err := ResolveInlineRecipes(celltest.Context(context.Background()), *parsed, InlineResolutionOptions{RootFile: rootPath})
 	require.NoError(t, err)
 	requireNoIncludeNodes(t, expanded.Recipe)
 
@@ -129,7 +130,7 @@ outputs:
 `) + "\n"))
 	require.NoError(t, err)
 
-	expanded, err := ResolveInlineRecipes(context.Background(), *root, InlineResolutionOptions{Resolver: resolver})
+	expanded, err := ResolveInlineRecipes(celltest.Context(context.Background()), *root, InlineResolutionOptions{Resolver: resolver})
 	require.NoError(t, err)
 	require.Equal(t, 1, resolver.resolveCalls, "same repo/ref should resolve once even when two recipe paths are included")
 	requireNoIncludeNodes(t, expanded.Recipe)
@@ -175,7 +176,7 @@ outputs:
 `) + "\n"))
 	require.NoError(t, err)
 
-	expanded, err := ResolveInlineRecipes(context.Background(), *root, InlineResolutionOptions{
+	expanded, err := ResolveInlineRecipes(celltest.Context(context.Background()), *root, InlineResolutionOptions{
 		Resolver: resolver,
 		RootSource: &RecipeSourceResolution{
 			SourceKind:        RecipeSourceKindGit,
@@ -259,7 +260,7 @@ func (r *flippingGitResolver) Resolve(_ context.Context, _ string, selector stri
 }
 
 func (r *flippingGitResolver) Load(_ context.Context, _ string, resolution RecipeSourceResolution) (recipe.Recipe, error) {
-	raw, err := r.LoadYAML(context.Background(), "", resolution)
+	raw, err := r.LoadYAML(celltest.Context(context.Background()), "", resolution)
 	if err != nil {
 		return recipe.Recipe{}, err
 	}

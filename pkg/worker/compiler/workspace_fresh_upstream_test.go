@@ -18,7 +18,7 @@ func TestFreshConsultationSeesAdvancedUpstreamWithoutLosingCandidate(t *testing.
 	workspaceRepo(t, a, "A")
 	initial := workspaceRepo(t, b, "B")
 	ws := workspaceTestWorker(t)
-	job := contextual.JobContext{Workflow: contextual.WorkflowContext{CellName: "A"}, GitBase: contextual.GitBaseContext{BaseRepo: a, BaseRef: "main"}, CellResolution: &cellref.Context{Pattern: root + "/${{ cell }}"}}
+	job := contextual.JobContext{Workflow: contextual.WorkflowContext{CellName: "A"}, GitBase: contextual.GitBaseContext{BaseRepo: a, BaseRef: "main"}, CellResolution: &cellref.Context{}}
 	out, _ := runWorkspaceRecipe(t, ws, fmt.Sprintf(`id: workspace-test
 version: "1"
 sequence:

@@ -9,6 +9,9 @@ import (
 )
 
 type Ref struct {
+	Cell     string `json:"cell"`
+	CellID   string `json:"cell_id"`
+	CellRepo string `json:"cell_repo"`
 	TenantID string `json:"tenant_id"`
 	GoalID   string `json:"goal_id"`
 	JobID    string `json:"job_id"`
@@ -22,7 +25,7 @@ func (r Ref) Validate() error {
 	return nil
 }
 func FromHandle(h jobdb.JobHandle) (Ref, error) {
-	r := Ref{TenantID: h.JobKey.TenantId, JobID: h.JobKey.JobId, GoalID: h.GoalID}
+	r := Ref{Cell: h.Cell, CellID: h.CellID, CellRepo: h.CellRepo, TenantID: h.JobKey.TenantId, JobID: h.JobKey.JobId, GoalID: h.GoalID}
 	return r, r.Validate()
 }
 
@@ -36,7 +39,8 @@ type RestartSubmitter interface {
 // Scope is supplied by the trusted execution runtime, preserving the current
 // lease-bound submission authority. Identity comes from the native SDK context.
 type Scope struct {
-	Submit func(context.Context, jobdb.SubmitJob) (Ref, error)
+	ResolveCell func(context.Context, string) (jobdb.ResolvedCell, error)
+	Submit      func(context.Context, jobdb.SubmitJob) (Ref, error)
 }
 type scopeKey struct{}
 

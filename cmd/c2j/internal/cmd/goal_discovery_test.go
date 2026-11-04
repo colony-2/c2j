@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/c2j/pkg/joblist"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/remote"
@@ -16,17 +17,17 @@ import (
 )
 
 func TestGoalDiscoveryCommands(t *testing.T) {
-	ctx := context.Background()
+	ctx := celltest.Context(context.Background())
 	db, err := sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: filepath.Join(t.TempDir(), "jobs.db")})
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close(ctx)) })
-	server := httptest.NewServer(remote.NewServer(db))
+	server := httptest.NewServer(celltest.Handler(remote.NewServer(db)))
 	t.Cleanup(server.Close)
 	submit := func(id, repo string, deps ...jobdb.Dependency) jobdb.JobHandle {
 		t.Helper()
 		meta, err := json.Marshal(map[string]string{"repo": repo, "cell_name": "root"})
 		require.NoError(t, err)
-		out, err := db.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "t", JobID: id, JobType: "external", Metadata: meta, Data: jobdb.NewTaskDataOrPanic(map[string]any{}), Dependencies: deps}})
+		out, err := db.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "t", JobID: id, JobType: "external", Metadata: meta, Data: jobdb.NewTaskDataOrPanic(map[string]any{}), Dependencies: deps, Cell: repo, CellRepo: "example.test/" + repo}})
 		require.NoError(t, err)
 		return out
 	}
@@ -42,7 +43,7 @@ func TestGoalDiscoveryCommands(t *testing.T) {
 		err := cmd.ExecuteContext(ctx)
 		return out.Bytes(), err
 	}
-	raw, err := run("list", "--repo", "repo-one", "--cell", "root", "--job-type", "external", "--state", "open", "--created-after", "2020-01-01T00:00:00Z")
+	raw, err := run("list", "--cell", "repo-one", "--job-type", "external", "--state", "open", "--created-after", "2020-01-01T00:00:00Z")
 	require.NoError(t, err)
 	var goals jobdb.ListGoalsResponse
 	require.NoError(t, json.Unmarshal(raw, &goals))

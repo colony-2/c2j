@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/colony-2/c2j/cmd/c2j/internal/childjobs"
+	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/remote"
 	"github.com/stretchr/testify/require"
@@ -29,13 +30,13 @@ func TestCompletionFieldsInOrdinaryAndChildCLIJSON(t *testing.T) {
 				status = jobdb.JobStatusCancelled
 			}
 			rt := &parityRuntime{requests: make(chan jobdb.ListJobsRequest, 2), job: jobdb.JobSummary{GoalID: "goal", OtherGoalIDs: []string{}, JobKey: jobdb.JobKey{TenantId: "tenant", JobId: "child"}, JobType: "recipe", Status: status, CompletionStatus: completion, CompletionDetail: detail, ParentJobID: "parent", Metadata: json.RawMessage(`{"recipe":"not-installed","repo":"https://github.com/acme/app.git"}`)}}
-			server := httptest.NewServer(remote.NewServer(rt))
+			server := httptest.NewServer(celltest.Handler(remote.NewServer(rt)))
 			defer server.Close()
 			root := t.TempDir()
-			writeListConfig(t, root, "self:\n  repo: github.com/acme/app\n")
+			writeListConfig(t, root, "self:\n  cell: app\n  repo: github.com/acme/app\n")
 			var ordinary, children bytes.Buffer
-			require.NoError(t, Run(context.Background(), Options{JobDBURI: server.URL + "/tenant", WorkingDir: root, Cell: "github.com/acme/app", Statuses: []string{string(status)}, PageSize: 1, PageToken: "previous", JSONOutput: true, Stdout: &ordinary}))
-			require.NoError(t, childjobs.Run(context.Background(), childjobs.Options{JobDBURI: server.URL + "/tenant", WorkingDir: root, ParentTenantID: "tenant", ParentJobID: "parent", AllParentInvocations: true, Statuses: []string{string(status)}, PageSize: 1, PageToken: "previous", JSONOutput: true, Stdout: &children}))
+			require.NoError(t, Run(celltest.Context(context.Background()), Options{JobDBURI: server.URL + "/tenant", WorkingDir: root, Cell: "app", Statuses: []string{string(status)}, PageSize: 1, PageToken: "previous", JSONOutput: true, Stdout: &ordinary}))
+			require.NoError(t, childjobs.Run(celltest.Context(context.Background()), childjobs.Options{JobDBURI: server.URL + "/tenant", WorkingDir: root, ParentTenantID: "tenant", ParentJobID: "parent", AllParentInvocations: true, Statuses: []string{string(status)}, PageSize: 1, PageToken: "previous", JSONOutput: true, Stdout: &children}))
 			for _, out := range []*bytes.Buffer{&ordinary, &children} {
 				var page struct {
 					Jobs []map[string]any `json:"jobs"`

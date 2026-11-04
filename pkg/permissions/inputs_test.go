@@ -4,12 +4,13 @@ import (
 	"context"
 	"testing"
 
+	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	"github.com/stretchr/testify/require"
 )
 
 func TestInputResolverChecksNamesAndTaskLifetime(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(celltest.Context(context.Background()))
 	access := NewAccess(ctx, JobDB{Secrets: SecretPermissions{Resolve: []string{"bar"}}}, nil, nil)
 	calls := 0
 	ctx = WithInputResolver(WithAccess(ctx, access), func(context.Context, []string) (jobdb.SecretResolveResult, error) {

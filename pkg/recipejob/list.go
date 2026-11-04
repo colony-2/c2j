@@ -12,7 +12,6 @@ import (
 	"github.com/colony-2/c2j/pkg/jobcontext"
 	"github.com/colony-2/c2j/pkg/joblist"
 	"github.com/colony-2/c2j/pkg/starter"
-	"github.com/colony-2/c2j/pkg/worker/compiler"
 	"github.com/colony-2/c2j/pkg/workflowctl"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 )
@@ -25,21 +24,21 @@ type Lister interface {
 
 type ListRecipeJobsRequest struct {
 	// IncludeHidden includes mark-deleted jobs within the other filters.
-	IncludeHidden    bool
-	GoalIDs          []string
-	ExecutionFilter  *execution.Filter
-	TenantID         string
-	RepositorySource string
-	Statuses         []jobdb.JobStatus
-	Stores           []jobdb.JobStore
-	JobTasks         []jobdb.JobTaskFilter
-	JobIDs           []string
-	JobKeys          []jobdb.JobKey
-	MetadataFilter   jobdb.MetadataFilter
-	CreatedAfter     *time.Time
-	CreatedBefore    *time.Time
-	PageSize         int
-	PageToken        string
+	IncludeHidden   bool
+	GoalIDs         []string
+	ExecutionFilter *execution.Filter
+	TenantID        string
+	CellNames       []string
+	Statuses        []jobdb.JobStatus
+	Stores          []jobdb.JobStore
+	JobTasks        []jobdb.JobTaskFilter
+	JobIDs          []string
+	JobKeys         []jobdb.JobKey
+	MetadataFilter  jobdb.MetadataFilter
+	CreatedAfter    *time.Time
+	CreatedBefore   *time.Time
+	PageSize        int
+	PageToken       string
 }
 
 type ListRecipeJobsResponse struct {
@@ -126,25 +125,6 @@ func BuildListJobsRequest(req ListRecipeJobsRequest) (jobdb.ListJobsRequest, err
 	}
 
 	metadataFilter := req.MetadataFilter
-	repositorySource := strings.TrimSpace(req.RepositorySource)
-	if repositorySource != "" {
-		normalized, err := compiler.NormalizeGitRepositorySource(repositorySource)
-		if err != nil {
-			return jobdb.ListJobsRequest{}, err
-		}
-		repoFilter, err := jobdb.Metadata().EqualFilter(starter.MetaFieldRepo, normalized)
-		if err != nil {
-			return jobdb.ListJobsRequest{}, err
-		}
-		if metadataFilter == nil {
-			metadataFilter = repoFilter
-		} else {
-			metadataFilter, err = metadataFilter.AndFilter(repoFilter)
-			if err != nil {
-				return jobdb.ListJobsRequest{}, err
-			}
-		}
-	}
 
 	jobKeys := make([]jobdb.JobKey, 0, len(req.JobKeys)+len(req.JobIDs))
 	for _, key := range req.JobKeys {
@@ -171,6 +151,7 @@ func BuildListJobsRequest(req ListRecipeJobsRequest) (jobdb.ListJobsRequest, err
 		JobKeys:        jobKeys,
 		GoalIDs:        append([]string(nil), req.GoalIDs...),
 		MetadataFilter: metadataFilter,
+		CellNames:      req.CellNames,
 		CreatedAfter:   req.CreatedAfter,
 		CreatedBefore:  req.CreatedBefore,
 		PageSize:       req.PageSize,
@@ -403,6 +384,7 @@ func RecipeJobFromSummary(summary jobdb.JobSummary) (RecipeJob, bool, error) {
 	}
 
 	job := RecipeJob{
+		CellID: summary.CellID, CellName: summary.Cell, RepositorySource: summary.CellRepo,
 		BlockingWaitSummary:   joblist.CloneBlockingWaitSummary(summary.BlockingWaitSummary),
 		Metadata:              append(json.RawMessage(nil), summary.Metadata...),
 		SchemaHash:            summary.SchemaHash,
@@ -437,9 +419,6 @@ func RecipeJobFromSummary(summary jobdb.JobSummary) (RecipeJob, bool, error) {
 		job.RecipeName = meta.RecipeName
 		job.Prompt = meta.Prompt
 		job.Title = meta.Title
-		job.CellID = meta.CellID
-		job.CellName = meta.CellName
-		job.RepositorySource = meta.RepositorySource
 		job.GitRef = meta.GitRef
 		if parent := parentFromMetadata(meta); parent.HasJob() {
 			job.Parent = &parent
@@ -450,9 +429,6 @@ func RecipeJobFromSummary(summary jobdb.JobSummary) (RecipeJob, bool, error) {
 			TenantID: strings.TrimSpace(summary.JobKey.TenantId),
 			JobID:    strings.TrimSpace(summary.ParentJobID),
 		}
-	}
-	if normalized, err := compiler.NormalizeGitRepositorySource(job.RepositorySource); err == nil {
-		job.RepositorySource = normalized
 	}
 
 	return job, true, nil
@@ -487,7 +463,6 @@ func parentFromMetadata(meta *starter.JobMetadata) jobcontext.Parent {
 		OpType:             meta.ParentOpType,
 		OpStep:             meta.ParentOpStep,
 		OpTaskType:         meta.ParentOpTaskType,
-		CellName:           meta.ParentCellName,
 		RepositorySource:   meta.ParentRepositorySource,
 		GitRef:             meta.ParentGitRef,
 		InvocationPath:     meta.ParentInvocationPath,

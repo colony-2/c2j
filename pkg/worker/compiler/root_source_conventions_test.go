@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/c2j/pkg/contextual"
 	"github.com/colony-2/c2j/pkg/git/selectorcache"
 	"github.com/colony-2/jobdb/pkg/jobdb"
@@ -112,7 +113,7 @@ func TestConventionalRecipeFallbackRules(t *testing.T) {
 
 func TestConventionalFallbackUsesExistingGitResolutionAndPreservesTarget(t *testing.T) {
 	t.Parallel()
-	ctx := context.Background()
+	ctx := celltest.Context(context.Background())
 	newRepo := func() string {
 		dir := t.TempDir()
 		require.NoError(t, runGit(dir, "git", "init", "-b", "main"))

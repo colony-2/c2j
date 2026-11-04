@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/c2j/pkg/objects"
 	"github.com/colony-2/c2j/pkg/ops"
 	"github.com/colony-2/jobdb/pkg/jobdb"
@@ -29,7 +30,7 @@ func TestExtensionObjectsRoundTripAndBranch(t *testing.T) {
 		store := objects.NewStore(objects.Config{JobKey: jobdb.JobKey{TenantId: "tenant", JobId: "job"}, TaskOrdinal: ordinal, Workdir: dir,
 			AddArtifact: func(a jobdb.Artifact) error {
 				defer a.Cleanup()
-				b, err := a.Bytes(context.Background())
+				b, err := a.Bytes(celltest.Context(context.Background()))
 				if err != nil {
 					return err
 				}
@@ -39,7 +40,7 @@ func TestExtensionObjectsRoundTripAndBranch(t *testing.T) {
 			GetArtifact: func(k jobdb.ArtifactKey) (jobdb.Artifact, error) { return artifacts[k.Name], nil },
 		})
 		deps := ops.NewOpDependenciesBuilder().WithWorktreePath(root).WithObjects(store).WithOperationPaths(ops.OperationPaths{Workdir: dir}).Build()
-		out, err := executeExtension(deps, context.Background(), ExecutionInput{Selector: "./session", Inputs: input})
+		out, err := executeExtension(deps, celltest.Context(context.Background()), ExecutionInput{Selector: "./session", Inputs: input})
 		require.NoError(t, err)
 		require.Len(t, deps.GetOutputArtifacts(), 1)
 		require.Equal(t, "_c2j/execution/execution.log", deps.GetOutputArtifacts()[0].Name())
@@ -102,7 +103,7 @@ func TestExtensionObjectPathsAndInvalidDrafts(t *testing.T) {
 	for _, tc := range cases {
 		raw, err := json.Marshal(map[string]any{"output": tc.output, "objects": tc.drafts})
 		require.NoError(t, err)
-		_, err = publishExtensionObjects(context.Background(), deps, raw, tc.output)
+		_, err = publishExtensionObjects(celltest.Context(context.Background()), deps, raw, tc.output)
 		require.ErrorContains(t, err, tc.message)
 	}
 }

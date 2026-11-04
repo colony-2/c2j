@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/remote"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/toy"
@@ -42,7 +43,7 @@ func TestReleaseBuildRecordsConsumerVersions(t *testing.T) {
 
 func testStampedBuildProvenance(t *testing.T, flags string) {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	ctx, cancel := context.WithTimeout(celltest.Context(context.Background()), 3*time.Minute)
 	defer cancel()
 	const version = "1.2.3-provenance-test"
 	const commit = "abcdef1234567890abcdef1234567890abcdef1234"
@@ -78,10 +79,10 @@ func testStampedBuildProvenance(t *testing.T, flags string) {
 	for _, mode := range []string{"run", "run one", "run with-lease", "submit --run"} {
 		t.Run(mode, func(t *testing.T) {
 			rt := toy.New()
-			server := httptest.NewServer(remote.NewServer(rt))
+			server := httptest.NewServer(celltest.Handler(remote.NewServer(rt)))
 			defer server.Close()
 			uri := server.URL + "/provenance"
-			args := []string{"submit", "--jobdb", uri, "--cell", repo, "--advanced-recipe-file", recipeFile}
+			args := []string{"submit", "--jobdb", uri, "--cell", "app", "--cell-repo", celltest.Repo(repo), "--advanced-recipe-file", recipeFile}
 			key := jobdb.JobKey{TenantId: "provenance"}
 			if mode == "submit --run" {
 				out := cli(t, append(args, "--run", "check provenance")...)

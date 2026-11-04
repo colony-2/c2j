@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"slices"
 
+	"github.com/colony-2/jobdb/pkg/jobdb"
 	"github.com/invopop/jsonschema"
 	"gopkg.in/yaml.v3"
 )
@@ -36,12 +37,25 @@ type SecretPermissions struct {
 }
 
 type JobPermissions struct {
-	Submit bool `yaml:"submit,omitempty" json:"submit,omitempty"`
+	CellNames []string `yaml:"cellNames,omitempty" json:"cellNames,omitempty"`
+	Submit    bool     `yaml:"submit,omitempty" json:"submit,omitempty"`
 }
 
 var secretName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_-]{0,255}$`)
 
 func (p JobDB) Validate() error {
+	if p.Jobs.CellNames != nil {
+		if !p.Jobs.Submit || len(p.Jobs.CellNames) == 0 {
+			return fmt.Errorf("cellNames requires jobs.submit and a nonempty list")
+		}
+		seen := map[string]bool{}
+		for _, name := range p.Jobs.CellNames {
+			if jobdb.ValidateCellName(name) != nil || seen[name] {
+				return fmt.Errorf("invalid or duplicate cell name %q", name)
+			}
+			seen[name] = true
+		}
+	}
 	if len(p.Secrets.Resolve) > 256 {
 		return fmt.Errorf("perms.jobdb.secrets.resolve accepts at most 256 names")
 	}
@@ -87,7 +101,7 @@ func (p *Spec) UnmarshalYAML(n *yaml.Node) error {
 }
 
 func grantShape() map[string]any {
-	return map[string]any{"secrets": map[string]any{"resolve": "names"}, "jobs": map[string]any{"submit": "bool"}}
+	return map[string]any{"secrets": map[string]any{"resolve": "names"}, "jobs": map[string]any{"submit": "bool", "cellNames": "names"}}
 }
 
 func validateYAML(n *yaml.Node, shape any, path string) error {
@@ -141,7 +155,7 @@ func (Spec) JSONSchema() *jsonschema.Schema {
 	}
 	grant := object(map[string]*jsonschema.Schema{
 		"secrets": object(map[string]*jsonschema.Schema{"resolve": {Type: "array", Items: &jsonschema.Schema{Type: "string", Pattern: secretName.String()}, UniqueItems: true, MaxItems: ptr(uint64(256))}}),
-		"jobs":    object(map[string]*jsonschema.Schema{"submit": {Type: "boolean"}}),
+		"jobs":    object(map[string]*jsonschema.Schema{"submit": {Type: "boolean"}, "cellNames": {Type: "array", Items: &jsonschema.Schema{Type: "string"}, MinItems: ptr(uint64(1)), UniqueItems: true}}),
 	})
 	return object(map[string]*jsonschema.Schema{"jobdb": grant, "limit": object(map[string]*jsonschema.Schema{"jobdb": grant})})
 }
@@ -230,9 +244,30 @@ func (s *State) UnmarshalJSON(raw []byte) error {
 	return err
 }
 
-func clone(g JobDB) JobDB { g.Secrets.Resolve = slices.Clone(g.Secrets.Resolve); return g }
+func clone(g JobDB) JobDB {
+	g.Secrets.Resolve = slices.Clone(g.Secrets.Resolve)
+	g.Jobs.CellNames = slices.Clone(g.Jobs.CellNames)
+	return g
+}
 func intersect(a, b JobDB) JobDB {
 	out := JobDB{Jobs: JobPermissions{Submit: a.Jobs.Submit && b.Jobs.Submit}}
+	if out.Jobs.Submit {
+		switch {
+		case a.Jobs.CellNames == nil:
+			out.Jobs.CellNames = slices.Clone(b.Jobs.CellNames)
+		case b.Jobs.CellNames == nil:
+			out.Jobs.CellNames = slices.Clone(a.Jobs.CellNames)
+		default:
+			for _, name := range a.Jobs.CellNames {
+				if slices.Contains(b.Jobs.CellNames, name) {
+					out.Jobs.CellNames = append(out.Jobs.CellNames, name)
+				}
+			}
+			if len(out.Jobs.CellNames) == 0 {
+				out.Jobs.Submit = false
+			}
+		}
+	}
 	for _, name := range a.Secrets.Resolve {
 		if slices.Contains(b.Secrets.Resolve, name) {
 			out.Secrets.Resolve = append(out.Secrets.Resolve, name)
@@ -241,6 +276,16 @@ func intersect(a, b JobDB) JobDB {
 	return out
 }
 func subset(a, b JobDB) bool {
+	if a.Jobs.Submit && b.Jobs.CellNames != nil {
+		if a.Jobs.CellNames == nil {
+			return false
+		}
+		for _, name := range a.Jobs.CellNames {
+			if !slices.Contains(b.Jobs.CellNames, name) {
+				return false
+			}
+		}
+	}
 	if a.Jobs.Submit && !b.Jobs.Submit {
 		return false
 	}
@@ -251,3 +296,6 @@ func subset(a, b JobDB) bool {
 	}
 	return true
 }
+
+// Intersect narrows both secret and cell submission permissions.
+func Intersect(a, b JobDB) JobDB { return intersect(a, b) }

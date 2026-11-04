@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/c2j/pkg/workflowctl"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	"github.com/stretchr/testify/require"
@@ -29,10 +30,10 @@ func (l *hiddenWorkflowLister) ListJobs(_ context.Context, req jobdb.ListJobsReq
 	return nil, "next", nil
 }
 func TestIncludeHiddenRecipeRequests(t *testing.T) {
-	ctx := context.Background()
+	ctx := celltest.Context(context.Background())
 	for _, include := range []bool{false, true} {
 		start, end := time.Unix(1, 0), time.Unix(2, 0)
-		r := ListRecipeJobsRequest{TenantID: "tenant", RepositorySource: "github.com/acme/app", IncludeHidden: include, GoalIDs: []string{"goal"}, JobIDs: []string{"job"}, Statuses: []jobdb.JobStatus{jobdb.JobStatusCancelled}, Stores: []jobdb.JobStore{jobdb.JobStoreArchived}, CreatedAfter: &start, CreatedBefore: &end, PageSize: 2, PageToken: "cursor"}
+		r := ListRecipeJobsRequest{TenantID: "tenant", CellNames: []string{"test"}, IncludeHidden: include, GoalIDs: []string{"goal"}, JobIDs: []string{"job"}, Statuses: []jobdb.JobStatus{jobdb.JobStatusCancelled}, Stores: []jobdb.JobStore{jobdb.JobStoreArchived}, CreatedAfter: &start, CreatedBefore: &end, PageSize: 2, PageToken: "cursor"}
 		req, err := BuildListJobsRequest(r)
 		require.NoError(t, err)
 		require.Equal(t, include, req.IncludeHidden)
@@ -81,11 +82,11 @@ func TestIncludeHiddenDoesNotBypassChildValidation(t *testing.T) {
 		{TenantID: "tenant", ParentTenantID: "tenant", ParentJobID: "parent", IncludeHidden: true},
 	} {
 		l := &hiddenLister{}
-		_, err := ListChildRecipeJobs(context.Background(), l, r)
+		_, err := ListChildRecipeJobs(celltest.Context(context.Background()), l, r)
 		require.Error(t, err)
 		require.Zero(t, l.calls)
 		w := &hiddenWorkflowLister{}
-		_, err = ListChildRecipeJobsFromWorkflow(context.Background(), w, r)
+		_, err = ListChildRecipeJobsFromWorkflow(celltest.Context(context.Background()), w, r)
 		require.Error(t, err)
 		require.Zero(t, w.calls)
 	}
@@ -95,7 +96,7 @@ func TestRawIncludeHiddenPassThrough(t *testing.T) {
 	for _, include := range []bool{false, true} {
 		l := &hiddenLister{}
 		req := jobdb.ListJobsRequest{TenantIds: []string{"tenant"}, IncludeHidden: include, PageToken: "cursor"}
-		page, err := ListExecutionJobs(context.Background(), l, req, nil)
+		page, err := ListExecutionJobs(celltest.Context(context.Background()), l, req, nil)
 		require.NoError(t, err)
 		require.Equal(t, req, l.req)
 		require.Equal(t, 1, l.calls)

@@ -5,9 +5,10 @@ import (
 	"fmt"
 	"net/url"
 	"os"
-	"path"
 	"path/filepath"
 	"strings"
+
+	"github.com/colony-2/jobdb/pkg/jobdb"
 )
 
 func Normalize(source string) (string, error) {
@@ -35,7 +36,12 @@ func Normalize(source string) (string, error) {
 		}
 		return (&url.URL{Scheme: "file", Path: filepath.ToSlash(absPath)}).String(), nil
 	}
-	return NormalizeIdentity(source)
+	id, err := NormalizeIdentity(source)
+	if err != nil {
+		return "", err
+	}
+	// Transport is distinct from the canonical registry identity.
+	return "https://" + id + ".git", nil
 }
 
 func isLikelyLocalPath(source string) bool {
@@ -54,62 +60,5 @@ func isLikelyLocalPath(source string) bool {
 	return false
 }
 
-func looksLikeCanonicalRepositoryRef(source string) bool {
-	source = strings.TrimSpace(source)
-	parts := strings.Split(source, "/")
-	if len(parts) < 3 {
-		return false
-	}
-	return strings.Contains(parts[0], ".")
-}
-
-func normalizeSCPGitRemote(source string) (string, error) {
-	colonIdx := strings.Index(source, ":")
-	if colonIdx <= 0 || colonIdx >= len(source)-1 {
-		return "", fmt.Errorf("unsupported git repository source %q", source)
-	}
-
-	host := source[:colonIdx]
-	repoPath := path.Clean(source[colonIdx+1:])
-	if repoPath == "." || repoPath == ".." || strings.HasPrefix(repoPath, "../") {
-		return "", fmt.Errorf("unsupported git repository source %q", source)
-	}
-	return "ssh://" + host + "/" + repoPath, nil
-}
-
-// NormalizeIdentity normalizes explicit repository identities without filesystem
-// access. Local identities must already be absolute file URLs.
-func NormalizeIdentity(source string) (string, error) {
-	source = strings.TrimSpace(source)
-	if source == "" {
-		return "", fmt.Errorf("git repository source is required")
-	}
-	if source == "." || source == ".." || strings.HasPrefix(source, "/") || strings.HasPrefix(source, "./") || strings.HasPrefix(source, "../") {
-		return "", fmt.Errorf("repository identity must not be a local path")
-	}
-	if strings.HasPrefix(source, "git@") {
-		return normalizeSCPGitRemote(source)
-	}
-
-	parsed, err := url.Parse(source)
-	if err == nil && parsed.Scheme != "" {
-		switch parsed.Scheme {
-		case "file":
-			if !filepath.IsAbs(parsed.Path) {
-				return "", fmt.Errorf("file repository identity must be absolute")
-			}
-			return (&url.URL{Scheme: "file", Path: filepath.ToSlash(filepath.Clean(parsed.Path))}).String(), nil
-		case "http", "https", "ssh":
-			return source, nil
-		default:
-			return "", fmt.Errorf("unsupported git repository scheme %q", parsed.Scheme)
-		}
-	}
-
-	if looksLikeCanonicalRepositoryRef(source) {
-		trimmed := strings.TrimSuffix(source, ".git")
-		return "https://" + trimmed + ".git", nil
-	}
-
-	return "", fmt.Errorf("unsupported git repository source %q", source)
-}
+// NormalizeIdentity uses JobDB's portable repository identity contract.
+func NormalizeIdentity(source string) (string, error) { return jobdb.NormalizeCellRepo(source) }

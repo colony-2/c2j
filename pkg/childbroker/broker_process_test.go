@@ -13,10 +13,12 @@ import (
 	"time"
 
 	"github.com/colony-2/c2j/pkg/jobcontext"
+	"github.com/colony-2/c2j/pkg/jobref"
 	"github.com/colony-2/c2j/pkg/ops/process"
 	"github.com/colony-2/c2j/pkg/recipe"
 	"github.com/colony-2/c2j/pkg/starter"
 	"github.com/colony-2/c2j/pkg/workflowctl"
+	"github.com/colony-2/jobdb/pkg/jobdb"
 )
 
 const workerBrokerChildRecipeYAML = `
@@ -89,6 +91,9 @@ func TestBrokerSubmitFromC2JInWorkerEnvironment(t *testing.T) {
 		InvocationHash:     "invoke-worker",
 	}
 	submitter := &captureSubmitter{}
+	ctx = jobref.WithScope(ctx, jobref.Scope{ResolveCell: func(context.Context, string) (jobdb.ResolvedCell, error) {
+		return jobdb.ResolvedCell{Cell: "app", CellID: "cell-app", CellRepo: "example.test/app"}, nil
+	}})
 	broker, err := Start(ctx, Options{
 		Current:   current,
 		Submitter: submitter,
@@ -106,7 +111,7 @@ func TestBrokerSubmitFromC2JInWorkerEnvironment(t *testing.T) {
 	stdout, stderr, err := process.ExecuteProcess(ctx, process.RunRequest{
 		WorkspaceRoot: workspace,
 		WorkingDir:    workspace,
-		Command:       []string{c2jPath, "submit", "Run the child broker fixture", "--embed", "--cell", workspace, "--advanced-recipe-file", "child.yaml", "--json"},
+		Command:       []string{c2jPath, "submit", "Run the child broker fixture", "--embed", "--cell", "app", "--cell-repo", "example.test/app", "--advanced-recipe-file", "child.yaml", "--json"},
 		Env:           env,
 	})
 	if err != nil {

@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/c2j/pkg/git/selectorcache"
 	ops2 "github.com/colony-2/c2j/pkg/ops"
 	extops "github.com/colony-2/c2j/pkg/ops/extensions"
@@ -112,7 +113,7 @@ outputs:
 	selector := fmt.Sprintf("git+%s//.colony2/recipes/git-file.recipe.yaml@HEAD", repoURL)
 
 	resolver := NewRecipeSourceResolver(RecipeSourceResolverOptions{})
-	resolution, err := resolver.Resolve(context.Background(), "tenant", selector)
+	resolution, err := resolver.Resolve(celltest.Context(context.Background()), "tenant", selector)
 	require.NoError(t, err)
 	require.Equal(t, RecipeSourceKindGit, resolution.SourceKind)
 	require.Equal(t, selector, resolution.SubmittedSelector)
@@ -120,7 +121,7 @@ outputs:
 	require.Contains(t, resolution.ResolvedSelector, "@"+resolution.ResolvedCommit)
 	require.False(t, resolution.WasAlreadyPinned)
 
-	rec, err := resolver.Load(context.Background(), "tenant", resolution)
+	rec, err := resolver.Load(celltest.Context(context.Background()), "tenant", resolution)
 	require.NoError(t, err)
 	require.Equal(t, "git_file_recipe", strings.TrimSpace(rec.GetMetadata().ID))
 }
@@ -143,7 +144,7 @@ func TestRecipeSourceResolver_GitSelectorUsesSharedCacheForPinnedOfflineLoad(t *
 	cache := &selectorcache.Cache{Root: t.TempDir()}
 	resolver := NewRecipeSourceResolver(RecipeSourceResolverOptions{SelectorCache: cache})
 
-	resolution, err := resolver.Resolve(context.Background(), "tenant", selector)
+	resolution, err := resolver.Resolve(celltest.Context(context.Background()), "tenant", selector)
 	require.NoError(t, err)
 	require.Len(t, resolution.ResolvedCommit, 40)
 	require.Equal(t, fmt.Sprintf("git+%s//.c2/recipes/cached.yaml@%s", repoURL, resolution.ResolvedCommit), resolution.ResolvedSelector)
@@ -151,11 +152,11 @@ func TestRecipeSourceResolver_GitSelectorUsesSharedCacheForPinnedOfflineLoad(t *
 	// The source tree has been materialized once. Loading the pinned resolution
 	// should not need the remote repository anymore.
 	require.NoError(t, os.Rename(repoDir, repoDir+".gone"))
-	rec, err := resolver.Load(context.Background(), "tenant", resolution)
+	rec, err := resolver.Load(celltest.Context(context.Background()), "tenant", resolution)
 	require.NoError(t, err)
 	require.Equal(t, "cached_recipe", strings.TrimSpace(rec.GetMetadata().ID))
 
-	pinnedResolution, err := resolver.Resolve(context.Background(), "tenant", resolution.ResolvedSelector)
+	pinnedResolution, err := resolver.Resolve(celltest.Context(context.Background()), "tenant", resolution.ResolvedSelector)
 	require.NoError(t, err)
 	require.True(t, pinnedResolution.WasAlreadyPinned)
 	require.Equal(t, resolution.ResolvedCommit, pinnedResolution.ResolvedCommit)
@@ -180,10 +181,10 @@ func TestRecipeSourceResolver_MutableGitSelectorTracksMovedBranchInCache(t *test
 	cache := &selectorcache.Cache{Root: t.TempDir()}
 	resolver := NewRecipeSourceResolver(RecipeSourceResolverOptions{SelectorCache: cache})
 
-	firstResolution, err := resolver.Resolve(context.Background(), "tenant", selector)
+	firstResolution, err := resolver.Resolve(celltest.Context(context.Background()), "tenant", selector)
 	require.NoError(t, err)
 	require.Equal(t, firstCommit, firstResolution.ResolvedCommit)
-	firstRecipe, err := resolver.Load(context.Background(), "tenant", firstResolution)
+	firstRecipe, err := resolver.Load(celltest.Context(context.Background()), "tenant", firstResolution)
 	require.NoError(t, err)
 	require.Equal(t, "moving_recipe_v1", strings.TrimSpace(firstRecipe.GetMetadata().ID))
 
@@ -193,10 +194,10 @@ func TestRecipeSourceResolver_MutableGitSelectorTracksMovedBranchInCache(t *test
 	secondCommit := gitHead(t, repoDir)
 	require.NotEqual(t, firstCommit, secondCommit)
 
-	secondResolution, err := resolver.Resolve(context.Background(), "tenant", selector)
+	secondResolution, err := resolver.Resolve(celltest.Context(context.Background()), "tenant", selector)
 	require.NoError(t, err)
 	require.Equal(t, secondCommit, secondResolution.ResolvedCommit)
-	secondRecipe, err := resolver.Load(context.Background(), "tenant", secondResolution)
+	secondRecipe, err := resolver.Load(celltest.Context(context.Background()), "tenant", secondResolution)
 	require.NoError(t, err)
 	require.Equal(t, "moving_recipe_v2", strings.TrimSpace(secondRecipe.GetMetadata().ID))
 
@@ -256,16 +257,16 @@ outputs:
 		RecipeName: "remote-root",
 		Inputs:     map[string]interface{}{},
 		JobContext: jobCtx,
-		GitRef:     gitCtx.ParentRef,
+		GitRef:     gitCtx.ParentRef, Cell: "test", CellRepo: celltest.Repo(jobCtx.GitBase.BaseRepo),
 	}
 
-	jobKeyRef, err := starter.StartRecipeJob(context.Background(), job, engine)
+	jobKeyRef, err := starter.StartRecipeJob(celltest.Context(context.Background()), job, engine)
 
 	jobKey := jobKeyRef.Key()
 	require.NoError(t, err)
-	require.NoError(t, jobworkflow.WaitForJobToComplete(context.Background(), 30*time.Second, jobKey, engine))
+	require.NoError(t, jobworkflow.WaitForJobToComplete(celltest.Context(context.Background()), 30*time.Second, jobKey, engine))
 
-	out, err := swfutil.JobResult(context.Background(), engine, jobKey)
+	out, err := swfutil.JobResult(celltest.Context(context.Background()), engine, jobKey)
 	require.NoError(t, err)
 	raw, err := out.GetData()
 	require.NoError(t, err)
@@ -273,7 +274,7 @@ outputs:
 	require.NoError(t, json.Unmarshal(raw, &got))
 	require.Equal(t, "resolved-at-runtime", got["result"])
 
-	run, err := engine.GetJobRun(context.Background(), jobdb.GetJobRunRequest{
+	run, err := engine.GetJobRun(celltest.Context(context.Background()), jobdb.GetJobRunRequest{
 		JobKey:           jobKey,
 		IncludeOutputs:   true,
 		IncludeArtifacts: true,
@@ -332,16 +333,16 @@ outputs:
 		RecipeName: "remote-root",
 		Inputs:     map[string]interface{}{},
 		JobContext: jobCtx,
-		GitRef:     commit,
+		GitRef:     commit, Cell: "test", CellRepo: celltest.Repo(jobCtx.GitBase.BaseRepo),
 	}
 
-	jobKeyRef, err := starter.StartRecipeJob(context.Background(), job, engine)
+	jobKeyRef, err := starter.StartRecipeJob(celltest.Context(context.Background()), job, engine)
 
 	jobKey := jobKeyRef.Key()
 	require.NoError(t, err)
-	require.NoError(t, jobworkflow.WaitForJobToComplete(context.Background(), 30*time.Second, jobKey, engine))
+	require.NoError(t, jobworkflow.WaitForJobToComplete(celltest.Context(context.Background()), 30*time.Second, jobKey, engine))
 
-	out, err := swfutil.JobResult(context.Background(), engine, jobKey)
+	out, err := swfutil.JobResult(celltest.Context(context.Background()), engine, jobKey)
 	require.NoError(t, err)
 	raw, err := out.GetData()
 	require.NoError(t, err)
@@ -349,7 +350,7 @@ outputs:
 	require.NoError(t, json.Unmarshal(raw, &got))
 	require.Equal(t, true, got["ok"])
 
-	run, err := engine.GetJobRun(context.Background(), jobdb.GetJobRunRequest{
+	run, err := engine.GetJobRun(celltest.Context(context.Background()), jobdb.GetJobRunRequest{
 		JobKey:           jobKey,
 		IncludeOutputs:   true,
 		IncludeArtifacts: true,
@@ -425,14 +426,14 @@ func TestWithinRecipeResolutionUsesRepoRefPinAcrossDifferentSelectorPaths(t *tes
 
 	firstSelector := fmt.Sprintf("git+%s//tools/ops/first@HEAD", repoURL)
 	secondSelector := fmt.Sprintf("git+%s//tools/ops/second@HEAD", repoURL)
-	first, err := resolveSelectors(context.Background(), []string{firstSelector}, extops.ResolveOptions{})
+	first, err := resolveSelectors(celltest.Context(context.Background()), []string{firstSelector}, extops.ResolveOptions{})
 	require.NoError(t, err)
 	require.Equal(t, map[string]string{
 		selectorcache.RepoRefKey(repoURL, "HEAD"): commit,
 	}, first.ResolvedGitRefs)
 
 	require.NoError(t, os.Rename(repoDir, repoDir+".gone"))
-	second, err := resolveSelectors(context.Background(), []string{secondSelector}, extops.ResolveOptions{
+	second, err := resolveSelectors(celltest.Context(context.Background()), []string{secondSelector}, extops.ResolveOptions{
 		ResolvedRefs: first.ResolvedGitRefs,
 	})
 	require.NoError(t, err)
@@ -536,16 +537,16 @@ outputs:
 		RecipeName: rec.GetMetadata().ID,
 		Inputs:     map[string]interface{}{},
 		JobContext: jobCtx,
-		GitRef:     gitCtx.ParentRef,
+		GitRef:     gitCtx.ParentRef, Cell: "test", CellRepo: celltest.Repo(jobCtx.GitBase.BaseRepo),
 	}
 
-	jobKeyRef, err := starter.StartRecipeJob(context.Background(), job, engine, *rec)
+	jobKeyRef, err := starter.StartRecipeJob(celltest.Context(context.Background()), job, engine, *rec)
 
 	jobKey := jobKeyRef.Key()
 	require.NoError(t, err)
-	require.NoError(t, jobworkflow.WaitForJobToComplete(context.Background(), 30*time.Second, jobKey, engine))
+	require.NoError(t, jobworkflow.WaitForJobToComplete(celltest.Context(context.Background()), 30*time.Second, jobKey, engine))
 
-	out, err := swfutil.JobResult(context.Background(), engine, jobKey)
+	out, err := swfutil.JobResult(celltest.Context(context.Background()), engine, jobKey)
 	require.NoError(t, err)
 	raw, err := out.GetData()
 	require.NoError(t, err)
@@ -553,7 +554,7 @@ outputs:
 	require.NoError(t, json.Unmarshal(raw, &got))
 	require.Equal(t, "from-embedded", got["result"])
 
-	run, err := engine.GetJobRun(context.Background(), jobdb.GetJobRunRequest{
+	run, err := engine.GetJobRun(celltest.Context(context.Background()), jobdb.GetJobRunRequest{
 		JobKey:           jobKey,
 		IncludeOutputs:   true,
 		IncludeArtifacts: true,
@@ -659,16 +660,16 @@ outputs:
 			"title": "Hello World",
 		},
 		JobContext: jobCtx,
-		GitRef:     commit,
+		GitRef:     commit, Cell: "test", CellRepo: celltest.Repo(jobCtx.GitBase.BaseRepo),
 	}
 
-	jobKeyRef, err := starter.StartRecipeJob(context.Background(), job, engine, *rec)
+	jobKeyRef, err := starter.StartRecipeJob(celltest.Context(context.Background()), job, engine, *rec)
 
 	jobKey := jobKeyRef.Key()
 	require.NoError(t, err)
-	require.NoError(t, jobworkflow.WaitForJobToComplete(context.Background(), 30*time.Second, jobKey, engine))
+	require.NoError(t, jobworkflow.WaitForJobToComplete(celltest.Context(context.Background()), 30*time.Second, jobKey, engine))
 
-	out, err := swfutil.JobResult(context.Background(), engine, jobKey)
+	out, err := swfutil.JobResult(celltest.Context(context.Background()), engine, jobKey)
 	require.NoError(t, err)
 	raw, err := out.GetData()
 	require.NoError(t, err)
@@ -676,7 +677,7 @@ outputs:
 	require.NoError(t, json.Unmarshal(raw, &got))
 	require.Equal(t, "hello-world", got["slug"])
 
-	run, err := engine.GetJobRun(context.Background(), jobdb.GetJobRunRequest{
+	run, err := engine.GetJobRun(celltest.Context(context.Background()), jobdb.GetJobRunRequest{
 		JobKey:           jobKey,
 		IncludeOutputs:   true,
 		IncludeArtifacts: true,
@@ -781,16 +782,16 @@ outputs:
 		Inputs: map[string]interface{}{
 			"title": "Hello World",
 		},
-		JobContext: jobCtx,
+		JobContext: jobCtx, Cell: "test", CellRepo: celltest.Repo(jobCtx.GitBase.BaseRepo),
 	}
 
-	jobKeyRef, err := starter.StartRecipeJob(context.Background(), job, engine, *rec)
+	jobKeyRef, err := starter.StartRecipeJob(celltest.Context(context.Background()), job, engine, *rec)
 
 	jobKey := jobKeyRef.Key()
 	require.NoError(t, err)
-	require.NoError(t, jobworkflow.WaitForJobToComplete(context.Background(), 30*time.Second, jobKey, engine))
+	require.NoError(t, jobworkflow.WaitForJobToComplete(celltest.Context(context.Background()), 30*time.Second, jobKey, engine))
 
-	out, err := swfutil.JobResult(context.Background(), engine, jobKey)
+	out, err := swfutil.JobResult(celltest.Context(context.Background()), engine, jobKey)
 	require.NoError(t, err)
 	raw, err := out.GetData()
 	require.NoError(t, err)
@@ -798,7 +799,7 @@ outputs:
 	require.NoError(t, json.Unmarshal(raw, &got))
 	require.Equal(t, "hello-world", got["slug"])
 
-	run, err := engine.GetJobRun(context.Background(), jobdb.GetJobRunRequest{
+	run, err := engine.GetJobRun(celltest.Context(context.Background()), jobdb.GetJobRunRequest{
 		JobKey:           jobKey,
 		IncludeOutputs:   true,
 		IncludeArtifacts: true,
@@ -916,16 +917,16 @@ outputs:
 		Inputs: map[string]interface{}{
 			"title": "Hello World",
 		},
-		JobContext: jobCtx,
+		JobContext: jobCtx, Cell: "test", CellRepo: celltest.Repo(jobCtx.GitBase.BaseRepo),
 	}
 
-	jobKeyRef, err := starter.StartRecipeJob(context.Background(), job, engine)
+	jobKeyRef, err := starter.StartRecipeJob(celltest.Context(context.Background()), job, engine)
 
 	jobKey := jobKeyRef.Key()
 	require.NoError(t, err)
-	require.NoError(t, jobworkflow.WaitForJobToComplete(context.Background(), 30*time.Second, jobKey, engine))
+	require.NoError(t, jobworkflow.WaitForJobToComplete(celltest.Context(context.Background()), 30*time.Second, jobKey, engine))
 
-	out, err := swfutil.JobResult(context.Background(), engine, jobKey)
+	out, err := swfutil.JobResult(celltest.Context(context.Background()), engine, jobKey)
 	require.NoError(t, err)
 	raw, err := out.GetData()
 	require.NoError(t, err)
@@ -933,7 +934,7 @@ outputs:
 	require.NoError(t, json.Unmarshal(raw, &got))
 	require.Equal(t, "hello-world", got["slug"])
 
-	run, err := engine.GetJobRun(context.Background(), jobdb.GetJobRunRequest{
+	run, err := engine.GetJobRun(celltest.Context(context.Background()), jobdb.GetJobRunRequest{
 		JobKey:           jobKey,
 		IncludeOutputs:   true,
 		IncludeArtifacts: true,
@@ -1031,17 +1032,17 @@ outputs:
 		Inputs: map[string]interface{}{
 			"title": "Hello World",
 		},
-		JobContext: jobCtx,
+		JobContext: jobCtx, Cell: "test", CellRepo: celltest.Repo(jobCtx.GitBase.BaseRepo),
 	}
 
-	jobKeyRef, err := starter.StartRecipeJob(context.Background(), job, engine)
+	jobKeyRef, err := starter.StartRecipeJob(celltest.Context(context.Background()), job, engine)
 
 	jobKey := jobKeyRef.Key()
 	require.NoError(t, err)
-	require.NoError(t, jobworkflow.WaitForJobToComplete(context.Background(), 30*time.Second, jobKey, engine))
+	require.NoError(t, jobworkflow.WaitForJobToComplete(celltest.Context(context.Background()), 30*time.Second, jobKey, engine))
 	require.NotEqual(t, rootCommit, gitHead(t, repoDir))
 
-	out, err := swfutil.JobResult(context.Background(), engine, jobKey)
+	out, err := swfutil.JobResult(celltest.Context(context.Background()), engine, jobKey)
 	require.NoError(t, err)
 	raw, err := out.GetData()
 	require.NoError(t, err)
@@ -1049,7 +1050,7 @@ outputs:
 	require.NoError(t, json.Unmarshal(raw, &got))
 	require.Equal(t, "Hello World", got["echoed"])
 
-	run, err := engine.GetJobRun(context.Background(), jobdb.GetJobRunRequest{
+	run, err := engine.GetJobRun(celltest.Context(context.Background()), jobdb.GetJobRunRequest{
 		JobKey:           jobKey,
 		IncludeOutputs:   true,
 		IncludeArtifacts: true,
@@ -1168,16 +1169,16 @@ outputs:
 		Inputs: map[string]interface{}{
 			"title": "Hello World",
 		},
-		JobContext: jobCtx,
+		JobContext: jobCtx, Cell: "test", CellRepo: celltest.Repo(jobCtx.GitBase.BaseRepo),
 	}
 
-	jobKeyRef, err := starter.StartRecipeJob(context.Background(), job, engine)
+	jobKeyRef, err := starter.StartRecipeJob(celltest.Context(context.Background()), job, engine)
 
 	jobKey := jobKeyRef.Key()
 	require.NoError(t, err)
-	require.NoError(t, jobworkflow.WaitForJobToComplete(context.Background(), 30*time.Second, jobKey, engine))
+	require.NoError(t, jobworkflow.WaitForJobToComplete(celltest.Context(context.Background()), 30*time.Second, jobKey, engine))
 
-	out, err := swfutil.JobResult(context.Background(), engine, jobKey)
+	out, err := swfutil.JobResult(celltest.Context(context.Background()), engine, jobKey)
 	require.NoError(t, err)
 	raw, err := out.GetData()
 	require.NoError(t, err)
@@ -1185,7 +1186,7 @@ outputs:
 	require.NoError(t, json.Unmarshal(raw, &got))
 	require.Equal(t, "hello-world", got["slug"])
 
-	run, err := engine.GetJobRun(context.Background(), jobdb.GetJobRunRequest{
+	run, err := engine.GetJobRun(celltest.Context(context.Background()), jobdb.GetJobRunRequest{
 		JobKey:           jobKey,
 		IncludeOutputs:   true,
 		IncludeArtifacts: true,
@@ -1344,16 +1345,16 @@ outputs:
 		Inputs: map[string]interface{}{
 			"title": "Hello World",
 		},
-		JobContext: jobCtx,
+		JobContext: jobCtx, Cell: "test", CellRepo: celltest.Repo(jobCtx.GitBase.BaseRepo),
 	}
 
-	jobKeyRef, err := starter.StartRecipeJob(context.Background(), job, engine)
+	jobKeyRef, err := starter.StartRecipeJob(celltest.Context(context.Background()), job, engine)
 
 	jobKey := jobKeyRef.Key()
 	require.NoError(t, err)
-	require.NoError(t, jobworkflow.WaitForJobToComplete(context.Background(), 30*time.Second, jobKey, engine))
+	require.NoError(t, jobworkflow.WaitForJobToComplete(celltest.Context(context.Background()), 30*time.Second, jobKey, engine))
 
-	out, err := swfutil.JobResult(context.Background(), engine, jobKey)
+	out, err := swfutil.JobResult(celltest.Context(context.Background()), engine, jobKey)
 	require.NoError(t, err)
 	raw, err := out.GetData()
 	require.NoError(t, err)
@@ -1362,7 +1363,7 @@ outputs:
 	require.Equal(t, "local-hello-world", got["local_slug"])
 	require.Equal(t, "remote-hello-world", got["remote_slug"])
 
-	run, err := engine.GetJobRun(context.Background(), jobdb.GetJobRunRequest{
+	run, err := engine.GetJobRun(celltest.Context(context.Background()), jobdb.GetJobRunRequest{
 		JobKey:           jobKey,
 		IncludeOutputs:   true,
 		IncludeArtifacts: true,

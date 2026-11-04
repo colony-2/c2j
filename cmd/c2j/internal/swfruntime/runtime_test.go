@@ -10,12 +10,13 @@ import (
 	"time"
 
 	"github.com/colony-2/c2j/cmd/c2j/internal/defaults"
+	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	"github.com/stretchr/testify/require"
 )
 
 func TestOpenEmbedPersistsJobsAcrossReopen(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	ctx, cancel := context.WithTimeout(celltest.Context(context.Background()), 90*time.Second)
 	defer cancel()
 
 	home := t.TempDir()
@@ -36,7 +37,7 @@ func TestOpenEmbedPersistsJobsAcrossReopen(t *testing.T) {
 		JobID:     "job-1",
 		JobType:   "alpha",
 		Data:      data,
-		RunPolicy: jobdb.DefaultRunPolicy(),
+		RunPolicy: jobdb.DefaultRunPolicy(), Cell: "test", CellRepo: "example.test/test",
 	})
 	jobKey := jobKeyHandle.JobKey
 	cleanupErr := handle.Cleanup()
@@ -81,7 +82,7 @@ func TestOpenEmbedPersistsJobsAcrossReopen(t *testing.T) {
 }
 
 func TestOpenEmbedRejectsConcurrentOpenOnSameRoot(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	ctx, cancel := context.WithTimeout(celltest.Context(context.Background()), 90*time.Second)
 	defer cancel()
 
 	t.Setenv("HOME", t.TempDir())
@@ -123,7 +124,7 @@ func TestChapterVisibilityRuntimeWaitsUntilWrittenChapterCanBeRead(t *testing.T)
 		visibilityPollInterval: time.Millisecond,
 	}
 
-	err := runtime.PutChapter(context.Background(), jobdb.PutChapterRequest{
+	err := runtime.PutChapter(celltest.Context(context.Background()), jobdb.PutChapterRequest{
 		Ref:     ref,
 		Chapter: chapter,
 	})

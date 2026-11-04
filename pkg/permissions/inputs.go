@@ -92,7 +92,7 @@ func ValidateInclude(spec *Spec, boundary bool) error {
 
 // RepositoryIdentity is computed only while loading sources, never by replay.
 // Unknown origins cannot establish trust. Local paths follow symlinks to the
-// actual checkout; URL comparison deliberately does not alias SSH with HTTPS.
+// actual checkout; hosted origins use JobDB's canonical repository contract.
 func RepositoryIdentity(source string) string {
 	if strings.HasPrefix(source, "git+") {
 		source = strings.TrimPrefix(source, "git+")
@@ -102,15 +102,12 @@ func RepositoryIdentity(source string) string {
 			}
 		}
 	}
-	u, err := url.Parse(source)
-	if err != nil || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
-		return ""
+	if id, err := jobdb.NormalizeCellRepo(source); err == nil {
+		return id
 	}
-	if u.Scheme != "" && u.Scheme != "file" {
-		if u.Host == "" {
-			return ""
-		}
-		return strings.ToLower(u.Scheme) + "://" + strings.ToLower(u.Host) + strings.TrimSuffix(strings.TrimSuffix(u.Path, "/"), ".git")
+	u, err := url.Parse(source)
+	if err != nil || u.User != nil || u.RawQuery != "" || u.Fragment != "" || (u.Scheme != "" && u.Scheme != "file") {
+		return ""
 	}
 	path := source
 	if u.Scheme == "file" {

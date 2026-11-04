@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/c2j/pkg/execution"
 	"github.com/colony-2/c2j/pkg/jobdbschema"
 	"github.com/colony-2/c2j/pkg/recipe"
@@ -29,7 +30,7 @@ func TestRestartReconstructsRequirementsAtSelectedScope(t *testing.T) {
 	for _, backend := range []string{"sqlite", "remote"} {
 		for _, scope := range []string{"increase", "decrease", "finish"} {
 			t.Run(backend+"/"+scope, func(t *testing.T) {
-				ctx := context.Background()
+				ctx := celltest.Context(context.Background())
 				f, tasks := newNodeFixture(t, backend, restartRequirementsRecipe)
 				r, err := recipe.LoadRecipeFromString([]byte(restartRequirementsRecipe))
 				require.NoError(t, err)

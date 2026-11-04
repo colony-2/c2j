@@ -73,7 +73,7 @@ func renderGenericInitTemplate() string {
 #     description: Monkey service
 #
 # Strings and mappings are the simple and detailed forms of a manual entry.
-# A manual list replaces discovery. Detected cells can be used directly.
+# A manual list replaces discovery. Routes do not register cells.
 # Edit manual lists with: c2j cell add <repo> --description 'Service description'
 # Add --stdout to preview the proposed config without writing.
 #
@@ -86,6 +86,7 @@ func renderGenericInitTemplate() string {
 #   filter: '^github\\.com/acme/boo-([A-Za-z0-9._-]+)$'
 #
 # self:
+#   cell: choose-a-cell-name
 #   repo: github.com/acme/boo-self
 #   ref: main
 #
@@ -105,7 +106,8 @@ func renderGoInitTemplate(data initTemplateData) string {
 	b.WriteString("# No Go installation is needed. Use base: gocmd for go list -m all discovery,\n")
 	b.WriteString("# including transitive dependencies; gocmd requires Go to be installed.\n")
 	b.WriteString("base: go\n\n")
-	b.WriteString("# Detected dependent cells are used directly; inspect them with c2j cells.\n")
+	b.WriteString("# Set self.cell explicitly before submitting; repository basenames do not define identity.\n")
+	b.WriteString("# Detected dependent cells are used directly; inspect routes with c2j cell list --dependencies.\n")
 	b.WriteString("# To maintain an explicit list instead, uncomment and edit:\n")
 	b.WriteString("# dependents:\n")
 	b.WriteString("#   - github.com/acme/shared\n")
@@ -124,7 +126,7 @@ func renderGoInitTemplate(data initTemplateData) string {
 		b.WriteString("#\n")
 		b.WriteString("# Uncomment to override:\n")
 		b.WriteString(fmt.Sprintf("# pattern: '%s'\n", data.Pattern))
-		b.WriteString("# self:\n")
+		b.WriteString("# self:\n#   cell: choose-a-cell-name\n")
 		if name, ok := shortNameFromRepoPattern(data.Repo, data.Pattern); ok {
 			b.WriteString(fmt.Sprintf("#   repo: %s\n", name))
 		} else {
@@ -144,7 +146,7 @@ func renderGoInitTemplate(data initTemplateData) string {
 	b.WriteString("# `root.repo` must also be set explicitly before you can submit a root ticket.\n")
 	b.WriteString("#\n")
 	b.WriteString("# pattern: 'github.com/acme/boo-${{ cell }}'\n")
-	b.WriteString("# self:\n")
+	b.WriteString("# self:\n#   cell: choose-a-cell-name\n")
 	b.WriteString(fmt.Sprintf("#   repo: %s\n", data.Repo))
 	b.WriteString("#   ref: main\n")
 	b.WriteString("# root:\n")

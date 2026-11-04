@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	"github.com/stretchr/testify/require"
 )
@@ -168,10 +169,10 @@ func TestScopeFreshnessClearAndIsolation(t *testing.T) {
 	resolver := func(ctx context.Context, names []string) (jobdb.SecretResolveResult, error) {
 		return jobdb.SecretResolveResult{Secrets: map[string]jobdb.SecretValue{names[0]: {Value: fmt.Sprintf("token-%d", calls.Add(1))}}}, nil
 	}
-	s, err := NewScope(context.Background(), Selection{}, fixtureSnapshot(), resolver, "/usr/bin/c2j")
+	s, err := NewScope(celltest.Context(context.Background()), Selection{}, fixtureSnapshot(), resolver, "/usr/bin/c2j")
 	require.NoError(t, err)
 	defer s.Close()
-	ctx := WithScope(context.Background(), s)
+	ctx := WithScope(celltest.Context(context.Background()), s)
 	socket := filepath.Join(s.dir, "resolver.sock")
 	req := Request{Operation: "credential", Protocol: "https", Host: "git.example", Path: "team/repo.git"}
 	a, err := Call(ctx, socket, req)
@@ -212,7 +213,7 @@ func TestScopeFreshnessClearAndIsolation(t *testing.T) {
 }
 
 func TestRedactionSurvivesCancellationUntilTaskReturns(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(celltest.Context(context.Background()))
 	defer cancel()
 	s, err := NewScope(ctx, Selection{}, fixtureSnapshot(), nil, "/usr/bin/c2j")
 	require.NoError(t, err)
@@ -226,7 +227,7 @@ func TestRedactionSurvivesCancellationUntilTaskReturns(t *testing.T) {
 }
 func TestClearSuppressesInFlightReply(t *testing.T) {
 	entered, release := make(chan struct{}), make(chan struct{})
-	s, err := NewScope(context.Background(), Selection{}, fixtureSnapshot(), func(ctx context.Context, n []string) (jobdb.SecretResolveResult, error) {
+	s, err := NewScope(celltest.Context(context.Background()), Selection{}, fixtureSnapshot(), func(ctx context.Context, n []string) (jobdb.SecretResolveResult, error) {
 		close(entered)
 		<-release
 		return jobdb.SecretResolveResult{Secrets: map[string]jobdb.SecretValue{n[0]: {Value: "late-secret"}}}, nil
@@ -236,7 +237,7 @@ func TestClearSuppressesInFlightReply(t *testing.T) {
 	socket := filepath.Join(s.dir, "resolver.sock")
 	done := make(chan error, 1)
 	go func() {
-		_, err := Call(context.Background(), socket, Request{Operation: "secret", Name: "ro-token"})
+		_, err := Call(celltest.Context(context.Background()), socket, Request{Operation: "secret", Name: "ro-token"})
 		done <- err
 	}()
 	select {
@@ -244,7 +245,7 @@ func TestClearSuppressesInFlightReply(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("resolver not entered")
 	}
-	_, err = Call(context.Background(), socket, Request{Operation: "clear"})
+	_, err = Call(celltest.Context(context.Background()), socket, Request{Operation: "clear"})
 	require.NoError(t, err)
 	close(release)
 	select {

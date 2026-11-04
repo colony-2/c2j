@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/colony-2/c2j/cmd/c2j/internal/defaults"
+	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 )
 
@@ -24,7 +25,7 @@ func TestOptionsCompleteUsesProjectJobDB(t *testing.T) {
 	}
 
 	opts := Options{WorkingDir: root}
-	if err := opts.Complete(context.Background()); err != nil {
+	if err := opts.Complete(celltest.Context(context.Background())); err != nil {
 		t.Fatalf("Complete(): %v", err)
 	}
 
@@ -35,7 +36,7 @@ func TestOptionsCompleteUsesProjectJobDB(t *testing.T) {
 
 func TestOptionsCompleteUsesTenantZeroInEmbeddedMode(t *testing.T) {
 	opts := Options{WorkingDir: t.TempDir(), JobDBURI: defaults.EmbedURL}
-	if err := opts.Complete(context.Background()); err != nil {
+	if err := opts.Complete(celltest.Context(context.Background())); err != nil {
 		t.Fatalf("Complete(): %v", err)
 	}
 
@@ -48,7 +49,7 @@ func TestOptionsCompleteUsesJobDBEnvironment(t *testing.T) {
 	t.Setenv(defaults.JobDBEnv, "http://localhost:9047/dev")
 
 	opts := Options{WorkingDir: t.TempDir()}
-	if err := opts.Complete(context.Background()); err != nil {
+	if err := opts.Complete(celltest.Context(context.Background())); err != nil {
 		t.Fatalf("Complete(): %v", err)
 	}
 
@@ -61,7 +62,7 @@ func TestOptionsCompleteLeavesJobDBEmptyWhenUnknown(t *testing.T) {
 	t.Setenv(defaults.JobDBEnv, "")
 
 	opts := Options{WorkingDir: t.TempDir()}
-	if err := opts.Complete(context.Background()); err != nil {
+	if err := opts.Complete(celltest.Context(context.Background())); err != nil {
 		t.Fatalf("Complete(): %v", err)
 	}
 
@@ -77,10 +78,11 @@ func TestBuildRequestDefaultsToCurrentCellAndVisibleStatuses(t *testing.T) {
 	writeListConfig(t, root, `
 pattern: 'github.com/acme/boo-${{ cell }}'
 self:
+  cell: alpha
   repo: alpha
 `)
 
-	req, err := buildRequest(context.Background(), Options{
+	req, err := buildRequest(celltest.Context(context.Background()), Options{
 		TenantID:   "tenant",
 		WorkingDir: root,
 	})
@@ -98,12 +100,8 @@ self:
 		t.Fatalf("Stores = %#v, want %#v", req.Stores, wantStores)
 	}
 
-	predicates, err := jobdb.MetadataPredicates(req.MetadataFilter)
-	if err != nil {
-		t.Fatalf("MetadataPredicates(): %v", err)
-	}
-	if len(predicates) != 1 || len(predicates[0].Path) != 1 || predicates[0].Path[0] != "repo" || len(predicates[0].Values) != 1 || predicates[0].Values[0] != "https://github.com/acme/boo-alpha.git" {
-		t.Fatalf("unexpected metadata predicates: %#v", predicates)
+	if !reflect.DeepEqual(req.CellNames, []string{"alpha"}) || req.MetadataFilter != nil {
+		t.Fatalf("unexpected cell selector: %#v", req)
 	}
 }
 
@@ -114,10 +112,11 @@ func TestBuildRequestDefaultsToArchivedStoreForArchivedStatuses(t *testing.T) {
 	writeListConfig(t, root, `
 pattern: 'github.com/acme/boo-${{ cell }}'
 self:
+  cell: alpha
   repo: alpha
 `)
 
-	req, err := buildRequest(context.Background(), Options{
+	req, err := buildRequest(celltest.Context(context.Background()), Options{
 		TenantID:   "tenant",
 		WorkingDir: root,
 		Statuses:   []string{"completed,cancelled"},
@@ -139,24 +138,21 @@ func TestBuildRequestUsesExplicitCellRepo(t *testing.T) {
 	writeListConfig(t, root, `
 pattern: 'github.com/acme/boo-${{ cell }}'
 self:
+  cell: alpha
   repo: alpha
 `)
 
-	req, err := buildRequest(context.Background(), Options{
+	req, err := buildRequest(celltest.Context(context.Background()), Options{
 		TenantID:   "tenant",
 		WorkingDir: root,
-		Cell:       "github.com/acme/boo-beta",
+		Cell:       "beta",
 	})
 	if err != nil {
 		t.Fatalf("buildRequest(): %v", err)
 	}
 
-	predicates, err := jobdb.MetadataPredicates(req.MetadataFilter)
-	if err != nil {
-		t.Fatalf("MetadataPredicates(): %v", err)
-	}
-	if len(predicates) != 1 || len(predicates[0].Values) != 1 || predicates[0].Values[0] != "https://github.com/acme/boo-beta.git" {
-		t.Fatalf("unexpected metadata predicates: %#v", predicates)
+	if !reflect.DeepEqual(req.CellNames, []string{"beta"}) || req.MetadataFilter != nil {
+		t.Fatalf("unexpected cell selector: %#v", req)
 	}
 }
 
@@ -179,9 +175,9 @@ func TestParseWaitingForSupportsTaskTypesWithColons(t *testing.T) {
 
 func TestBuildRequestKeepsJobTypeIdentifiersIntact(t *testing.T) {
 	root := t.TempDir()
-	writeListConfig(t, root, "pattern: 'github.com/acme/boo-${{ cell }}'\nself:\n  repo: alpha\n")
+	writeListConfig(t, root, "pattern: 'github.com/acme/boo-${{ cell }}'\nself:\n  cell: app\n  repo: alpha\n")
 	names := []string{" recipe:Kind,Ω ", "Other"}
-	req, err := buildRequest(context.Background(), Options{TenantID: "tenant", WorkingDir: root, JobTypes: names})
+	req, err := buildRequest(celltest.Context(context.Background()), Options{TenantID: "tenant", WorkingDir: root, JobTypes: names})
 	if err != nil {
 		t.Fatal(err)
 	}

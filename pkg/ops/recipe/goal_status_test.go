@@ -5,6 +5,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/c2j/pkg/ops"
 	"github.com/colony-2/c2j/pkg/workflowctl"
 	"github.com/colony-2/jobdb/pkg/jobdb"
@@ -44,7 +45,7 @@ func TestSoftGoalCurrentStatusAndResultLookup(t *testing.T) {
 				return jobdb.NewTaskDataOrPanic(map[string]any{"output": map[string]any{"value": "winner"}}), nil
 			}
 			deps := ops.NewOpDependenciesBuilder().WithJobTool(tool).WithWorkflowControl(ctl).Build()
-			out, err := awaitResultSoft(deps, context.Background(), AwaitResultSoftInput{Target: WaitTarget{Job: "original"}, ReturnWhen: "current_status"})
+			out, err := awaitResultSoft(deps, celltest.Context(context.Background()), AwaitResultSoftInput{Target: WaitTarget{Job: "original"}, ReturnWhen: "current_status"})
 			require.NoError(t, err)
 			require.Equal(t, state, out.GoalState)
 			require.Equal(t, state != jobdb.GoalOpen, out.Terminal)
@@ -58,7 +59,7 @@ func TestSoftGoalCurrentStatusAndResultLookup(t *testing.T) {
 				require.Equal(t, ctl.goal.Failure, out.GoalFailure)
 			}
 			// Explicit result retrieval must choose the winner, and reject open/failed goals.
-			result, err := getRecipeOutput(deps, context.Background(), StartedJob{Target: WaitTarget{Goal: "goal"}})
+			result, err := getRecipeOutput(deps, celltest.Context(context.Background()), StartedJob{Target: WaitTarget{Goal: "goal"}})
 			if state == jobdb.GoalSucceeded {
 				require.NoError(t, err)
 				require.Equal(t, ResultSource{Goal: "goal", Job: "replacement"}, result.Result)
@@ -79,7 +80,7 @@ func TestSoftGoalWaitPropagatesControlAndStorageErrors(t *testing.T) {
 			ctl := &goalStatusControl{err: failure}
 			deps := ops.NewOpDependenciesBuilder().WithJobTool(tool).WithWorkflowControl(ctl).Build()
 			for _, when := range []string{"terminal", "current_status"} {
-				_, err := awaitResultSoft(deps, context.Background(), AwaitResultSoftInput{Target: WaitTarget{Goal: "goal"}, ReturnWhen: when})
+				_, err := awaitResultSoft(deps, celltest.Context(context.Background()), AwaitResultSoftInput{Target: WaitTarget{Goal: "goal"}, ReturnWhen: when})
 				require.ErrorIs(t, err, failure)
 			}
 			require.Zero(t, ctl.jobResultCalls)

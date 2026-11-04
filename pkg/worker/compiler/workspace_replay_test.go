@@ -4,13 +4,15 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/colony-2/c2j/pkg/permissions"
 	"log/slog"
 	"os"
 	"path/filepath"
 	"testing"
 
+	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/c2j/pkg/contextual"
+	"github.com/colony-2/c2j/pkg/jobref"
+	"github.com/colony-2/c2j/pkg/permissions"
 	"github.com/colony-2/c2j/pkg/recipe"
 	coretask "github.com/colony-2/c2j/pkg/task"
 	workerops "github.com/colony-2/c2j/pkg/worker/ops"
@@ -61,7 +63,14 @@ func (c *workspaceReplayContext) DoTask(call testTaskCall, build func(testContex
 	var out jobdb.TaskData
 	if task == WorkspaceResolutionTaskType {
 		c.resolves++
-		out, err = resolveWorkspaceTask(permissions.WithAccess(context.Background(), permissions.NewAccess(context.Background(), permissions.JobDB{}, nil, nil)), data)
+		var req WorkspaceResolutionInput
+		if err = json.Unmarshal(raw, &req); err != nil {
+			return nil, err
+		}
+		ctx := jobref.WithScope(celltest.Context(context.Background()), jobref.Scope{ResolveCell: func(context.Context, string) (jobdb.ResolvedCell, error) {
+			return jobdb.ResolvedCell{Cell: "B", CellID: "B-id", CellRepo: req.Repo}, nil
+		}})
+		out, err = resolveWorkspaceTask(permissions.WithAccess(ctx, permissions.NewAccess(celltest.Context(context.Background()), permissions.JobDB{}, nil, nil)), data)
 	} else {
 		var req workerops.ActivityInvocationRequest
 		if err = json.Unmarshal(raw, &req); err != nil {
@@ -92,7 +101,7 @@ func TestWorkspaceReplayReusesResolutionAfterSourceDisappears(t *testing.T) {
 	workspaceTestWorker(t)
 	text := fmt.Sprintf(`id: replay
 version: "1"
-workspace: {cell: %q}
+workspace: {cell: B, repo: %q}
 sequence:
  - id: first
    op: workspace_probe
@@ -101,7 +110,7 @@ sequence:
 outputs:
  scope: "{{ sequence.second.outputs.scope }}"
  head: "{{ sequence.second.outputs.head }}"
-`, b)
+`, celltest.Repo(b))
 	rec, err := recipe.LoadRecipeFromString([]byte(text))
 	require.NoError(t, err)
 	job, commit := GenerateTestContext()

@@ -3,7 +3,6 @@ package cmd
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -14,7 +13,6 @@ import (
 	"github.com/colony-2/c2j/cmd/c2j/internal/defaults"
 	"github.com/colony-2/c2j/cmd/c2j/internal/swfruntime"
 	"github.com/colony-2/c2j/pkg/cellref"
-	"github.com/colony-2/c2j/pkg/config"
 	"github.com/colony-2/c2j/pkg/gitprofile"
 	"github.com/colony-2/c2j/pkg/hookpolicy"
 	"github.com/colony-2/jobdb/pkg/jobdb"
@@ -96,12 +94,6 @@ func newHooksCmd() *cobra.Command {
 				}
 			}
 			repository := ""
-			if cell != "" {
-				repository, err = hookCellIdentity(cmd.Context(), cell)
-				if err != nil {
-					return err
-				}
-			}
 			targetURI := uri
 			if embed {
 				targetURI = defaults.EmbedURL
@@ -118,6 +110,14 @@ func newHooksCmd() *cobra.Command {
 				return err
 			}
 			defer h.Cleanup()
+			if cell != "" {
+				resolved, err := cellref.Registry(h.Runtime, target.TenantID)(cmd.Context(), cell)
+				if err != nil {
+					return err
+				}
+				repository = resolved.CellRepo
+			}
+
 			ctx, cancel := context.WithTimeout(cmd.Context(), 30*time.Second)
 			defer cancel()
 			snapshot, err := h.Configuration.GetTenantConfiguration(ctx, target.TenantID)
@@ -225,30 +225,4 @@ func newHooksCmd() *cobra.Command {
 		group.AddCommand(c)
 	}
 	return root
-}
-
-func hookCellIdentity(ctx context.Context, cell string) (string, error) {
-	cwd, err := os.Getwd()
-	if err != nil {
-		return "", err
-	}
-	resolution := &cellref.Context{BaseDir: cwd}
-	// Explicit repository references need no project configuration or commands.
-	if !strings.ContainsAny(cell, "/:\\") {
-		cfg, e := config.LoadProjectConfig(cwd)
-		if e != nil && !errors.Is(e, config.ErrConfigNotFound) {
-			return "", e
-		}
-		if e == nil {
-			resolution, e = cfg.CellResolution(ctx)
-			if e != nil {
-				return "", e
-			}
-		}
-	}
-	target, err := resolution.Resolve(cell, "")
-	if err != nil {
-		return "", err
-	}
-	return hookpolicy.Identity(target.Repository)
 }

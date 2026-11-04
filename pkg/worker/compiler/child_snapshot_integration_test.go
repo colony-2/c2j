@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/colony-2/c2j/internal/celltest"
 	recipeartifacts "github.com/colony-2/c2j/pkg/artifacts"
 	"github.com/colony-2/c2j/pkg/cellref"
 	"github.com/colony-2/c2j/pkg/contextual"
@@ -58,9 +59,9 @@ outputs:
 				require.NoError(t, os.WriteFile(filepath.Join(a, ".c2", "recipes", "child.yaml"), []byte(child), 0644))
 				require.NoError(t, runGit(a, "git", "add", "."))
 				require.NoError(t, runGit(a, "git", "commit", "-m", "Install child"))
-				aBase, err := common.GetCommitHash(context.Background(), a, "HEAD")
+				aBase, err := common.GetCommitHash(celltest.Context(context.Background()), a, "HEAD")
 				require.NoError(t, err)
-				eng := newToyEngine(t, "snapshot-tests", nil)
+				eng := newToyEngine(t, "snapshot-tests", nil, map[string]string{"A": a, "B": b})
 				ctl := &workerworkflow.SWFWorkflowControl{Engine: eng}
 				deps := coreops.NewServiceDepsBuilder().WithWorkflowControl(ctl).Build()
 				registry, err := workerops.NewActivityRegistry()
@@ -89,6 +90,7 @@ sequence:
     recipes:
      - name: child
        cell_name: B
+       cell_repo: %q
        git: {base_repo: %q, base_ref: main, base_hash: %q}
  - id: await
    const: %t
@@ -102,14 +104,14 @@ outputs:
  parent_head: "{{ sequence.after.outputs.head }}"
  child_id: "${{ sequence.submit.outputs.job_ids[0] }}"
  dependency: "${{ sequence.await.outputs }}"
-`, consultation, bBase, b, bBase, constant)))
+`, consultation, bBase, celltest.Repo(b), b, bBase, constant)))
 				require.NoError(t, err)
-				job := contextual.JobContext{Workflow: contextual.WorkflowContext{CellName: "A"}, GitBase: contextual.GitBaseContext{BaseRepo: a, BaseRef: "main"}, CellResolution: &cellref.Context{Pattern: root + "/${{ cell }}"}}
-				keyRef, err := starter.StartRecipeJob(context.Background(), workflowctl.StartJob{TenantId: "snapshot-tests", RecipeName: "parent", JobContext: job, GitRef: "main"}, eng, *parent)
+				job := contextual.JobContext{Workflow: contextual.WorkflowContext{CellName: "A"}, GitBase: contextual.GitBaseContext{BaseRepo: a, BaseRef: "main"}, CellResolution: &cellref.Context{SelfCell: "A", SelfRepo: celltest.Repo(a)}}
+				keyRef, err := starter.StartRecipeJob(celltest.Context(context.Background()), workflowctl.StartJob{TenantId: "snapshot-tests", RecipeName: "parent", JobContext: job, GitRef: "main", Cell: "A", CellRepo: celltest.Repo(job.GitBase.BaseRepo)}, eng, *parent)
 				key := keyRef.Key()
 				require.NoError(t, err)
-				require.NoError(t, jobworkflow.WaitForJobToComplete(context.Background(), 20*time.Second, key, eng))
-				result, err := swfutil.JobResult(context.Background(), eng, key)
+				require.NoError(t, jobworkflow.WaitForJobToComplete(celltest.Context(context.Background()), 20*time.Second, key, eng))
+				result, err := swfutil.JobResult(celltest.Context(context.Background()), eng, key)
 				require.NoError(t, err)
 				var out struct {
 					Candidate  string `json:"candidate"`
@@ -127,14 +129,14 @@ outputs:
 				require.Equal(t, "A data", out.Candidate)
 				require.Equal(t, "completed", out.Dependency.Status)
 				require.Equal(t, "B", out.Dependency.Outputs["cell"])
-				merged, err := common.GetCommitHash(context.Background(), b, "main")
+				merged, err := common.GetCommitHash(celltest.Context(context.Background()), b, "main")
 				require.NoError(t, err)
 				require.NotEqual(t, bBase, merged)
 				require.Equal(t, merged, out.Dependency.Outputs["merged_hash"])
 				childPack, ok := out.Dependency.Artifacts[gitstate.ThinPackArtifactName].StoredKey()
 				require.True(t, ok, "child snapshot remains available as dependency evidence")
 				require.Equal(t, out.ChildID, childPack.JobId)
-				artifact := ctl.GetArtifactLazy(context.Background(), key.TenantId, childPack)
+				artifact := ctl.GetArtifactLazy(celltest.Context(context.Background()), key.TenantId, childPack)
 				reader, err := artifact.Open()
 				require.NoError(t, err, "child evidence must remain retrievable")
 				require.NoError(t, reader.Close())
@@ -146,7 +148,7 @@ outputs:
 				require.NoError(t, err)
 				require.Equal(t, key.JobId, packKey.JobId, "implicit snapshot belongs to the parent")
 				restore := &gitstate.GitTaskContext{GlobalGitTaskContext: &gitstate.GlobalGitTaskContext{BaseRepo: a, BaseRef: "main", PersistHash: out.ParentHead, ParentHash: aBase}, WorktreePath: filepath.Join(t.TempDir(), "restore")}
-				require.NoError(t, gitstate.NewController(nil).Restore(context.Background(), restore, pack))
+				require.NoError(t, gitstate.NewController(nil).Restore(celltest.Context(context.Background()), restore, pack))
 				contents, err := os.ReadFile(filepath.Join(restore.WorktreePath, "candidate.txt"))
 				require.NoError(t, err)
 				require.Equal(t, "A data", string(contents))

@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/c2j/pkg/cellref"
 	"github.com/colony-2/c2j/pkg/contextual"
 	coreops "github.com/colony-2/c2j/pkg/ops"
@@ -34,7 +35,7 @@ type repositoryPackageOutput struct {
 }
 
 func TestRepositoryPackagesSnapshotsWorkspacesChildrenAndReplay(t *testing.T) {
-	ctx := context.Background()
+	ctx := celltest.Context(context.Background())
 	root, bin, cache := t.TempDir(), t.TempDir(), t.TempDir()
 	log := filepath.Join(root, "installs")
 	t.Setenv("C2J_TOOL_CACHE_DIR", cache)
@@ -82,7 +83,7 @@ chmod +x "$UV_TOOL_BIN_DIR/repo-tool"
 	require.NoError(t, os.WriteFile(filepath.Join(a, ".c2/recipes/child.yaml"), []byte("id: child\nversion: '1'\nop: repository_package_probe\n"), 0600))
 	require.NoError(t, runGit(a, "git", "add", "."))
 	require.NoError(t, runGit(a, "git", "commit", "-m", "child"))
-	eng := newToyEngine(t, "repository-packages", nil)
+	eng := newToyEngine(t, "repository-packages", nil, map[string]string{"A": a, "B": b})
 	deps := coreops.NewServiceDepsBuilder().WithWorkflowControl(&workerworkflow.SWFWorkflowControl{Engine: eng}).Build()
 	registry, err := workerops.NewActivityRegistry()
 	require.NoError(t, err)
@@ -112,7 +113,7 @@ sequence:
    execution_needs: {packages: [uv:repo-tool==node]}
    op: repository_package_probe
  - id: empty
-   workspace: {cell: E, initial: empty}
+   workspace: {cell: E, repo: example.test/empty, initial: empty}
    sequence:
     - id: seed
       op: repository_package_probe
@@ -132,8 +133,8 @@ outputs:
  empty: "{{ sequence.empty.outputs.version }}"
 `))
 	require.NoError(t, err)
-	job := contextual.JobContext{Workflow: contextual.WorkflowContext{CellName: "A"}, GitBase: contextual.GitBaseContext{BaseRepo: a, BaseRef: "main"}, CellResolution: &cellref.Context{Pattern: root + "/${{ cell }}", SelfRepo: a, SelfRef: "main"}}
-	ref, err := starter.StartRecipeJob(ctx, workflowctl.StartJob{TenantId: "repository-packages", RecipeName: "repository-packages", JobContext: job, GitRef: "main"}, eng, *rec)
+	job := contextual.JobContext{Workflow: contextual.WorkflowContext{CellName: "A"}, GitBase: contextual.GitBaseContext{BaseRepo: a, BaseRef: "main"}, CellResolution: &cellref.Context{SelfCell: "A", SelfRepo: celltest.Repo(a), SelfRef: "main"}}
+	ref, err := starter.StartRecipeJob(ctx, workflowctl.StartJob{TenantId: "repository-packages", RecipeName: "repository-packages", JobContext: job, GitRef: "main", Cell: "A", CellRepo: celltest.Repo(job.GitBase.BaseRepo)}, eng, *rec)
 	require.NoError(t, err)
 	key := ref.Key()
 	require.NoError(t, jobworkflow.WaitForJobToComplete(ctx, time.Minute, key, eng))

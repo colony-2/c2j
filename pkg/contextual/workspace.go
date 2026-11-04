@@ -7,26 +7,15 @@ type WorkspaceContext struct {
 	ParentScopeID string `json:"parent_scope_id,omitempty"`
 	Initial       string `json:"initial,omitempty"`
 	InitialHash   string `json:"initial_hash,omitempty"`
-	// RefPolicy is recorded at entry. An absent policy retains legacy pinning.
+	// RefPolicy is recorded at entry. An absent policy pins the snapshot.
 	RefPolicy string `json:"ref_policy,omitempty"`
-	// TaskBaseHash is a legacy operation observation, not an accepted snapshot.
-	TaskBaseHash string `json:"task_base_hash,omitempty"`
 }
 
-const WorkspaceFollowUntilChange = "follow-until-change"
-
-// WorkspaceFollowPerTask resolves unpinned refs in existing task workers.
-// Keep the old policy distinct: its histories contain base-resolution tasks.
+// WorkspaceFollowPerTask resolves unpinned refs in each task worker.
 const WorkspaceFollowPerTask = "follow-per-task-until-change"
 
 func (w *WorkspaceContext) FollowsRef() bool {
-	return w != nil && (w.RefPolicy == WorkspaceFollowUntilChange || w.RefPolicy == WorkspaceFollowPerTask) && w.Initial != "empty"
-}
-
-// UsesBaseTasks preserves the task sequence of histories emitted before
-// per-task resolution, including their operation retry and hook IDs.
-func (w *WorkspaceContext) UsesBaseTasks() bool {
-	return w.FollowsRef() && w.RefPolicy == WorkspaceFollowUntilChange
+	return w != nil && w.RefPolicy == WorkspaceFollowPerTask && w.Initial != "empty"
 }
 
 // HasEmptyBase distinguishes intentionally absent history from an unresolved ref.

@@ -111,9 +111,6 @@ func (c *Controller) Restore(ctx context.Context, task *GitTaskContext, thinPack
 		}
 		if task.Workspace.FollowsRef() && task.PersistHash == "" {
 			targetRef = task.BaseRef
-			if task.Workspace.UsesBaseTasks() {
-				targetRef = task.Workspace.TaskBaseHash
-			}
 			if targetRef == "" {
 				return fmt.Errorf("floating workspace requires a durable operation base")
 			}
@@ -611,9 +608,6 @@ func (c *Controller) cloneIfNeeded(ctx context.Context, task *GitTaskContext) er
 		}
 		if task.Workspace.FollowsRef() && task.PersistHash == "" {
 			cloneRef = task.BaseRef
-			if task.Workspace.UsesBaseTasks() {
-				cloneRef = task.Workspace.TaskBaseHash
-			}
 			if cloneRef == "" {
 				return fmt.Errorf("floating workspace requires a durable operation base")
 			}

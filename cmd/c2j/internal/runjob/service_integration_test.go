@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/c2j/pkg/contextual"
 	"github.com/colony-2/c2j/pkg/jobdbschema"
 	"github.com/colony-2/c2j/pkg/recipe"
@@ -30,7 +31,7 @@ func testJobDBURI(serverURL string, tenantID string) string {
 func TestRun_CompletesJobAndReplaysCachedHistory(t *testing.T) {
 	t.Parallel()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	ctx, cancel := context.WithTimeout(celltest.Context(context.Background()), 20*time.Second)
 	defer cancel()
 
 	tenantID := "tenant-c2j-test"
@@ -83,7 +84,7 @@ outputs:
 				ResolvedBaseHash: baseHash,
 			},
 		},
-		GitRef: baseHash,
+		GitRef: baseHash, Cell: "test", CellRepo: celltest.Repo(baseRepo),
 	}, submitEngine, *rec)
 
 	jobKey := jobKeyRef.Key()
@@ -91,7 +92,7 @@ outputs:
 		t.Fatalf("start recipe job: %v", err)
 	}
 
-	server := httptest.NewServer(remoteruntime.NewServer(underlying))
+	server := httptest.NewServer(celltest.Handler(remoteruntime.NewServer(underlying)))
 	defer server.Close()
 
 	var liveStdout bytes.Buffer

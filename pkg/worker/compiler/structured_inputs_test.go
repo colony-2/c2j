@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/c2j/pkg/contextual"
 	"github.com/colony-2/c2j/pkg/objects"
 	"github.com/colony-2/c2j/pkg/recipe"
@@ -77,7 +78,7 @@ outputs:
   session: '${{ sequence.modern.outputs.session }}'
 `, sessionType)))
 			require.NoError(t, err)
-			expanded, err := ResolveInlineRecipes(context.Background(), *root, InlineResolutionOptions{RootFile: filepath.Join(dir, "root.yaml")})
+			expanded, err := ResolveInlineRecipes(celltest.Context(context.Background()), *root, InlineResolutionOptions{RootFile: filepath.Join(dir, "root.yaml")})
 			require.NoError(t, err)
 			raw, err := marshalRecipeYAML(expanded.Recipe)
 			require.NoError(t, err)
@@ -106,7 +107,7 @@ func TestSchemaVersionDurableReplay(t *testing.T) {
 	for _, version := range []string{"", "schema_version: 1\n", "schema_version: 2\n"} {
 		for _, inlineHistory := range []bool{false, true} {
 			t.Run(fmt.Sprintf("%s/inline=%t", strings.TrimSpace(version), inlineHistory), func(t *testing.T) {
-				ctx := context.Background()
+				ctx := celltest.Context(context.Background())
 				rt := newTimeoutReproRuntime(t, "sqlite")
 				root := version + `id: root
 input_schema:
@@ -151,8 +152,8 @@ outputs: {title: '${{ inputs.title }}'}
 						return []byte(root), nil
 					},
 				}
-				data := jobdb.NewTaskDataOrPanic(workflowctl.StartJob{TenantId: "schema-replay", RecipeName: "root"})
-				handle, err := rt.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "schema-replay", JobType: "recipe", Data: data, RunPolicy: jobdb.RunPolicy{Retry: jobdb.RetryPolicy{MaximumAttempts: 1}}}})
+				data := jobdb.NewTaskDataOrPanic(workflowctl.StartJob{TenantId: "schema-replay", RecipeName: "root", Cell: "test", CellRepo: celltest.Repo("")})
+				handle, err := rt.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "schema-replay", JobType: "recipe", Data: data, RunPolicy: jobdb.RunPolicy{Retry: jobdb.RetryPolicy{MaximumAttempts: 1}}, Cell: "test", CellRepo: "example.test/test"}})
 				require.NoError(t, err)
 				worker := NewRecipeJobWorker(RecipeJobWorkerOptions{RootSourceResolver: resolver})
 				sourceTask := newRootSourceResolutionTaskWorker(resolver)
@@ -162,7 +163,7 @@ outputs: {title: '${{ inputs.title }}'}
 				firstCtx, cancel := context.WithCancel(ctx)
 				defer cancel()
 				interrupted := &rootSourceInterruption{WorkflowRuntime: rt, cancel: cancel}
-				first, err := jobworkflow.GetJobForRun(firstCtx, interrupted, jobworkflow.GetJobForRunRequest{JobKey: handle.JobKey, JobWorker: worker, TaskWorkers: []jobworkflow.TaskWorker{sourceTask}, WorkerID: "first", LeaseDuration: time.Minute})
+				first, err := jobworkflow.GetJobForRun(firstCtx, interrupted, jobworkflow.GetJobForRunRequest{JobKey: handle.JobKey, JobWorker: worker, TaskWorkers: []jobworkflow.TaskWorker{NewCellContextTaskWorker(), sourceTask}, WorkerID: "first", LeaseDuration: time.Minute})
 				require.NoError(t, err)
 				_, err = first.Run(nil)
 				require.Error(t, err)
@@ -190,7 +191,7 @@ outputs: {title: '${{ inputs.title }}'}
 }
 
 func TestStructuredInputsThroughChildJobAndWorkerReplacement(t *testing.T) {
-	ctx := context.Background()
+	ctx := celltest.Context(context.Background())
 	workspaceTestWorker(t)
 	repo := t.TempDir()
 	workspaceRepo(t, repo, "root")
@@ -245,7 +246,8 @@ outputs:
 	ref, err := starter.StartRecipeJob(ctx, workflowctl.StartJob{TenantId: "object-tests", RecipeName: "parent", JobContext: job, GitRef: "main", Inputs: map[string]any{
 		"annotations": []any{map[string]any{"path": "design.md"}},
 		"labels":      map[string]any{"component": "api"},
-	}}, eng, *parent)
+	}, Cell: "test", CellRepo: celltest.Repo(job.GitBase.BaseRepo),
+	}, eng, *parent)
 	require.NoError(t, err)
 	key := ref.Key()
 	require.NoError(t, jobworkflow.WaitForJobToComplete(ctx, 15*time.Second, key, eng))

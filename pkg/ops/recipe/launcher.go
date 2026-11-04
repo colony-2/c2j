@@ -7,7 +7,9 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/colony-2/c2j/internal/repository"
 	recipeartifacts "github.com/colony-2/c2j/pkg/artifacts"
+	"github.com/colony-2/c2j/pkg/cellref"
 	"github.com/colony-2/c2j/pkg/contextual"
 	"github.com/colony-2/c2j/pkg/gitprofile"
 	"github.com/colony-2/c2j/pkg/jobcontext"
@@ -64,6 +66,7 @@ func recipeToStart(tenantId string, recipe SingleRecipe, recipeSourceRepo string
 	}
 
 	return workflowctl.StartJob{
+		Cell: recipe.CellName, CellRepo: recipe.CellRepo,
 		TenantId:     tenantId,
 		JobID:        jobID,
 		RecipeName:   recipeName,
@@ -133,6 +136,22 @@ func startJobs(ctx context.Context, deps ops.OpDependencies, parentJobKey jobdb.
 }
 
 func startRecipeChildJob(ctx context.Context, deps ops.OpDependencies, ctl workflowctl.WorkflowControl, start workflowctl.StartJob) (jobref.Ref, error) {
+	if scope, ok := jobref.FromContext(ctx); ok {
+		assertion := start.CellRepo
+		if assertion == "" && deps != nil && start.Cell == workspaceCell(deps.GitContext()) {
+			assertion = deps.GitContext().BaseRepo
+		}
+		cell, err := cellref.ResolveTarget(ctx, scope.ResolveCell, start.Cell, assertion)
+		if err != nil {
+			return jobref.Ref{}, err
+		}
+		start.Cell, start.CellRepo = cell.Cell, cell.CellRepo
+		start.JobContext.Workflow.CellName = cell.Cell
+		start.JobContext.GitBase.BaseRepo, err = repository.Normalize(cell.CellRepo)
+		if err != nil {
+			return jobref.Ref{}, err
+		}
+	}
 	start.JobContext.GitProfile = gitprofile.InheritedSelection(ctx)
 	if deps != nil {
 		var err error
@@ -147,4 +166,11 @@ func startRecipeChildJob(ctx context.Context, deps ops.OpDependencies, ctl workf
 		}
 	}
 	return ctl.StartJob(ctx, start)
+}
+
+func workspaceCell(g ops.GitExecutionContext) string {
+	if g.Workspace != nil {
+		return g.Workspace.Cell
+	}
+	return g.CellName
 }

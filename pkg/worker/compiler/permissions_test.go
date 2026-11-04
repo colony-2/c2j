@@ -4,14 +4,15 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/colony-2/c2j/pkg/gitprofile"
-	"github.com/colony-2/jobdb/pkg/jobdb"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/colony-2/c2j/internal/celltest"
+	"github.com/colony-2/c2j/pkg/gitprofile"
 	"github.com/colony-2/c2j/pkg/recipe"
+	"github.com/colony-2/jobdb/pkg/jobdb"
 	"github.com/stretchr/testify/require"
 )
 
@@ -29,7 +30,7 @@ func TestIncludePermissionsUseRepositoryBoundaries(t *testing.T) {
 	expand := func(body string) (InlineResolutionResult, error) {
 		rec, err := recipe.LoadRecipeFromString([]byte(body))
 		require.NoError(t, err)
-		return ResolveInlineRecipes(context.Background(), *rec, InlineResolutionOptions{RootFile: filepath.Join(root, "root.yaml")})
+		return ResolveInlineRecipes(celltest.Context(context.Background()), *rec, InlineResolutionOptions{RootFile: filepath.Join(root, "root.yaml")})
 	}
 	_, err := expand("id: root\nsequence:\n- include: ./child.yaml\n")
 	require.NoError(t, err)
@@ -58,7 +59,8 @@ func TestIncludePermissionsUseRepositoryBoundaries(t *testing.T) {
 func TestGitRepositoryIdentityIsConservative(t *testing.T) {
 	source := func(url string) inlineRecipeSourceContext { return inlineRecipeSourceContext{GitRepositoryURL: url} }
 	require.True(t, sameRecipeRepository(source("https://EXAMPLE.com/team/repo.git"), source("https://example.com/team/repo")))
-	for _, url := range []string{"https://example.com/team/other.git", "https://other.example/team/repo.git", "https://example.com/team/repo.git?alias=1", "ssh://example.com/team/repo.git", "https://user@example.com/team/repo.git"} {
+	require.True(t, sameRecipeRepository(source("https://example.com/team/repo.git"), source("ssh://git@example.com/team/repo.git")))
+	for _, url := range []string{"https://example.com/team/other.git", "https://other.example/team/repo.git", "https://example.com/team/repo.git?alias=1", "https://user@example.com/team/repo.git"} {
 		require.False(t, sameRecipeRepository(source("https://example.com/team/repo.git"), source(url)), url)
 	}
 	require.False(t, sameRecipeRepository(inlineRecipeSourceContext{}, inlineRecipeSourceContext{}))
@@ -76,7 +78,7 @@ func TestNestedIncludeTrustStaysAnchoredToRootRepository(t *testing.T) {
 	require.NoError(t, os.WriteFile(rootFile, []byte(body), 0600))
 	rec, err := recipe.LoadRecipeFromString([]byte(body))
 	require.NoError(t, err)
-	expanded, err := ResolveInlineRecipes(context.Background(), *rec, InlineResolutionOptions{RootFile: rootFile})
+	expanded, err := ResolveInlineRecipes(celltest.Context(context.Background()), *rec, InlineResolutionOptions{RootFile: rootFile})
 	require.NoError(t, err)
 	nodes := expanded.Recipe.RecipeImpl.(*recipe.RecipeSequence).Sequence
 	require.True(t, nodes[0].GetMetadata().Internal.Inline.TrustedSource)
@@ -110,7 +112,7 @@ func TestIncludeCeilingBoundsNestedSourceReadsWithoutExplicitGitProfile(t *testi
 				calls := 0
 				profile, _ := json.Marshal(gitprofile.Profile{Version: 1, Entries: []gitprofile.Entry{{URL: "https://example.com/", Username: "bot", SecretRef: "ro"}}})
 				snapshot := jobdb.ConfigurationSnapshot{Values: map[string]json.RawMessage{gitprofile.ReadOnlyKey: json.RawMessage(`"read"`), gitprofile.ProfilePrefix + "read": profile}}
-				scope, err := gitprofile.NewScope(context.Background(), gitprofile.Selection{}, snapshot, func(context.Context, []string) (jobdb.SecretResolveResult, error) {
+				scope, err := gitprofile.NewScope(celltest.Context(context.Background()), gitprofile.Selection{}, snapshot, func(context.Context, []string) (jobdb.SecretResolveResult, error) {
 					calls++
 					return jobdb.SecretResolveResult{Secrets: map[string]jobdb.SecretValue{"ro": {Value: "source-read-secret"}}}, nil
 				}, "")
@@ -130,7 +132,7 @@ func TestIncludeCeilingBoundsNestedSourceReadsWithoutExplicitGitProfile(t *testi
 				}
 				rec, err := recipe.LoadRecipeFromString([]byte("id: root\nsequence:\n- include: git+https://example.com/foreign.git//child.yaml@main\n  perms: " + policy + "\n"))
 				require.NoError(t, err)
-				_, err = ResolveInlineRecipes(gitprofile.WithScope(context.Background(), scope), *rec, InlineResolutionOptions{Resolver: resolver})
+				_, err = ResolveInlineRecipes(gitprofile.WithScope(celltest.Context(context.Background()), scope), *rec, InlineResolutionOptions{Resolver: resolver})
 				if allowed {
 					require.NoError(t, err)
 					require.Equal(t, 2, calls)
@@ -145,7 +147,7 @@ func TestIncludeCeilingBoundsNestedSourceReadsWithoutExplicitGitProfile(t *testi
 
 func TestWorkspaceRequiresGuardWithOrWithoutPolicy(t *testing.T) {
 	for _, raw := range []string{`{}`, `{"permissions":{"version":1}}`} {
-		_, err := resolveWorkspaceTask(context.Background(), jobdb.NewTaskDataOrPanic(json.RawMessage(raw)))
+		_, err := resolveWorkspaceTask(celltest.Context(context.Background()), jobdb.NewTaskDataOrPanic(json.RawMessage(raw)))
 		require.ErrorContains(t, err, "requires executionruntime.WrapTaskWorker")
 	}
 }

@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/c2j/pkg/contextual"
 	"github.com/colony-2/c2j/pkg/git/common"
 	"github.com/colony-2/c2j/pkg/git/thinpackrebase"
@@ -20,7 +21,7 @@ func TestFloatingWorkspaceExplicitRefreshAdoptsBaseWithoutChanges(t *testing.T) 
 	ws := workspaceTestWorker(t, thinpackrebase.GetRebaseOp())
 	job := contextual.JobContext{Workflow: contextual.WorkflowContext{CellName: "repo"}, GitBase: contextual.GitBaseContext{BaseRepo: repo, BaseRef: "main"}}
 	out, _ := runWorkspaceRecipe(t, ws, fmt.Sprintf(`id: workspace-test
-workspace: {cell: %q}
+workspace: {cell: repo, repo: %q}
 sequence:
  - id: select
    op: rebase
@@ -31,7 +32,7 @@ sequence:
  - id: next
    op: workspace_probe
 outputs: {head: '${{ sequence.next.outputs.head }}'}
-`, repo, initial, repo), job)
+`, celltest.Repo(repo), initial, repo), job)
 	require.Equal(t, initial, out["head"])
 	advanced, err := common.GetCommitHash(context.Background(), repo, "HEAD")
 	require.NoError(t, err)
@@ -78,7 +79,7 @@ func testWorkspaceTaskRetry(t *testing.T, pinned bool) {
 		write = " - id: write\n   op: workspace_probe\n   inputs: {write: candidate}\n"
 	}
 	out, _ := runWorkspaceRecipe(t, ws, fmt.Sprintf(`id: workspace-test
-workspace: {cell: %q}
+workspace: {cell: repo, repo: %q}
 sequence:
 %s - id: retried
    op: retry_workspace
@@ -86,7 +87,7 @@ sequence:
  - id: fresh
    op: workspace_probe
 outputs: {head: '${{ sequence.fresh.outputs.head }}'}
-`, repo, write), job)
+`, celltest.Repo(repo), write), job)
 	require.Len(t, heads, 2)
 	if pinned {
 		require.NotEqual(t, initial, heads[0])
@@ -141,12 +142,12 @@ func TestFloatingWorkspaceTaskChainPinsOnlyAfterWrite(t *testing.T) {
 			ws := workspaceTestWorker(t, op.(coreops.RegisterableOp))
 			job := contextual.JobContext{Workflow: contextual.WorkflowContext{CellName: "repo"}, GitBase: contextual.GitBaseContext{BaseRepo: repo, BaseRef: "main"}}
 			out, _ := runWorkspaceRecipe(t, ws, fmt.Sprintf(`id: workspace-test
-workspace: {cell: %q}
+workspace: {cell: repo, repo: %q}
 sequence:
  - id: chain
    op: workspace_chain
 outputs: {result: '${{ sequence.chain.outputs }}'}
-`, repo), job)
+`, celltest.Repo(repo)), job)
 			result := out["result"].(map[string]any)
 			require.Equal(t, initial, result["first"])
 			advanced, err := common.GetCommitHash(context.Background(), repo, "HEAD")
@@ -177,7 +178,7 @@ outputs: {head: '${{ sequence.inspect.outputs.head }}', candidate: '${{ inputs.c
 	ws := workspaceTestWorker(t)
 	job := contextual.JobContext{Workflow: contextual.WorkflowContext{CellName: "repo"}, GitBase: contextual.GitBaseContext{BaseRepo: repo, BaseRef: "main"}}
 	out, _ := runWorkspaceRecipe(t, ws, fmt.Sprintf(`id: workspace-test
-workspace: {cell: %q}
+workspace: {cell: repo, repo: %q}
 sequence:
  - id: hook
    include: cell://.c2/hooks/check.yaml
@@ -188,7 +189,7 @@ sequence:
  - id: fresh
    op: workspace_probe
 outputs: {hook: '${{ sequence.hook.outputs }}', head: '${{ sequence.fresh.outputs.head }}'}
-`, repo, repo), job)
+`, celltest.Repo(repo), repo), job)
 	hook := out["hook"].(map[string]any)
 	require.Equal(t, initial, hook["head"])
 	require.Equal(t, initial, hook["candidate"])
@@ -216,14 +217,14 @@ outputs: {first: '${{ sequence.advance.outputs.head }}', second: '${{ sequence.i
 			ws := workspaceTestWorker(t)
 			job := contextual.JobContext{Workflow: contextual.WorkflowContext{CellName: "repo"}, GitBase: contextual.GitBaseContext{BaseRepo: repo, BaseRef: "main"}}
 			out, _ := runWorkspaceRecipe(t, ws, fmt.Sprintf(`id: workspace-test
-workspace: {cell: %q}
+workspace: {cell: repo, repo: %q}
 sequence:
  - id: hook
    include: cell://.c2/hooks/check.yaml
  - id: after
    op: workspace_probe
 outputs: {hook: '${{ sequence.hook.outputs }}', after: '${{ sequence.after.outputs.head }}'}
-`, repo), job)
+`, celltest.Repo(repo)), job)
 			hook := out["hook"].(map[string]any)
 			require.Equal(t, initial, hook["first"])
 			require.NotEqual(t, initial, hook["second"])

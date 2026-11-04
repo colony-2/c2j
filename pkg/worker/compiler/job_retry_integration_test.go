@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/c2j/pkg/jobdbschema"
 	"github.com/colony-2/c2j/pkg/recipe"
 	"github.com/colony-2/c2j/pkg/starter"
@@ -31,7 +32,7 @@ func TestSubmittedRecipeRetryBudget(t *testing.T) {
 			{"explicit-three-recovers", 3, true, 2, wf.JobRunCompleted},
 		} {
 			t.Run(backend+"/"+tc.name, func(t *testing.T) {
-				ctx := context.Background()
+				ctx := celltest.Context(context.Background())
 				rt := newTimeoutReproRuntime(t, backend)
 				rec := probeRecipe(probeNode("work"))
 				if tc.attempts > 0 {
@@ -41,7 +42,7 @@ func TestSubmittedRecipeRetryBudget(t *testing.T) {
 				sdk, err := wf.NewEngineBuilder().WithRuntime(rt).BuildEngine()
 				require.NoError(t, err)
 				engine := jobdbschema.WorkflowEngine{Engine: sdk, Registry: rt.WorkflowRuntime.(jobdb.JobSchemaRegistry)}
-				ref, err := starter.StartRecipeJob(ctx, workflowctl.StartJob{TenantId: "retry-tests", RecipeName: "root"}, engine, rec)
+				ref, err := starter.StartRecipeJob(ctx, workflowctl.StartJob{TenantId: "retry-tests", RecipeName: "root", Cell: "test", CellRepo: celltest.Repo("")}, engine, rec)
 				require.NoError(t, err)
 				stored, err := engine.GetJob(ctx, ref.Key())
 				require.NoError(t, err)

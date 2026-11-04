@@ -160,10 +160,10 @@ Use the current cell:
 c2j submit "Run the requested task" --advanced-recipe-file ./recipes/my-recipe.yaml --self --embed
 ```
 
-Use another cell:
+Use an already registered cell (bootstrap `root` with `c2j cell create root --repo REPO` first):
 
 ```bash
-c2j submit "Run the requested task" --advanced-recipe-file ./recipes/my-recipe.yaml --cell github.com/colony-2/root --embed
+c2j submit "Run the requested task" --advanced-recipe-file ./recipes/my-recipe.yaml --cell root --embed
 ```
 
 `--self` and `--cell` are mutually exclusive.
@@ -197,3 +197,5 @@ cell-relative files in `calls[].worktree` before each invocation. Absent files
 are absent map keys; regular files up to 64 KiB are included. Compare a resumed
 session input with `calls[].outputs.session` from the intended earlier call;
 checking only the object type does not establish correct checkpoint routing.
+
+`--cell` accepts a name only. `--cell-repo` is a portable hosted repository assertion. Set `self.cell` explicitly in project configuration; see [named cells](https://github.com/colony-2/c2j/blob/main/GUIDE-Named-Cells.md).

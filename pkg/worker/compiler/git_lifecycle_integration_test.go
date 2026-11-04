@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/c2j/pkg/artifacts"
 	"github.com/colony-2/c2j/pkg/contextual"
 	"github.com/colony-2/c2j/pkg/execution"
@@ -75,7 +76,7 @@ func runGitLifecycle(t *testing.T, rt jobdb.WorkflowRuntime, key jobdb.JobKey, r
 	deps := coreops.NewServiceDepsBuilder().WithWorkflowControl(&workerworkflow.SWFWorkflowControl{Engine: engine}).Build()
 	ws, err := NewRecipeWorker(deps, reg)
 	require.NoError(t, err)
-	ctx := context.Background()
+	ctx := celltest.Context(context.Background())
 	if fault, ok := rt.(*gitOutcomeInterruption); ok {
 		ctx, fault.cancel = context.WithCancel(ctx)
 		defer fault.cancel()
@@ -99,8 +100,8 @@ func runGitLifecycle(t *testing.T, rt jobdb.WorkflowRuntime, key jobdb.JobKey, r
 func submitGitLifecycle(t *testing.T, rt jobdb.WorkflowRuntime, repo, yaml string) jobdb.JobKey {
 	t.Helper()
 	job := contextual.JobContext{Workflow: contextual.WorkflowContext{CellName: "source"}, GitBase: contextual.GitBaseContext{BaseRepo: repo, BaseRef: "main"}}
-	data := jobdb.NewTaskDataOrPanic(workflowctl.StartJob{TenantId: "git-tests", RecipeName: "git-lifecycle", JobContext: job, GitRef: "main"}, jobdb.NewArtifactFromBytes("git-lifecycle"+starter.RecipeArtifactSuffix, []byte(yaml)))
-	h, err := rt.SubmitJob(context.Background(), jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "git-tests", JobType: "recipe", Data: data, RunPolicy: jobdb.RunPolicy{Retry: jobdb.RetryPolicy{MaximumAttempts: 1}}}})
+	data := jobdb.NewTaskDataOrPanic(workflowctl.StartJob{TenantId: "git-tests", RecipeName: "git-lifecycle", JobContext: job, GitRef: "main", Cell: "test", CellRepo: celltest.Repo(job.GitBase.BaseRepo)}, jobdb.NewArtifactFromBytes("git-lifecycle"+starter.RecipeArtifactSuffix, []byte(yaml)))
+	h, err := rt.SubmitJob(celltest.Context(context.Background()), jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "git-tests", JobType: "recipe", Data: data, RunPolicy: jobdb.RunPolicy{Retry: jobdb.RetryPolicy{MaximumAttempts: 1}}, Cell: "test", CellRepo: celltest.Repo(repo)}})
 	require.NoError(t, err)
 	return h.JobKey
 }
@@ -133,7 +134,7 @@ func TestWorkspaceFloatingResumeAndRestart(t *testing.T) {
 					ref = initial
 				}
 				yaml := fmt.Sprintf(`id: git-lifecycle
-workspace: {cell: %q, ref: %q}
+workspace: {cell: test, repo: %q, ref: %q}
 sequence:
  - id: plan
    op: workspace_probe
@@ -149,7 +150,7 @@ outputs:
  base: '${{ sequence.implement.outputs.head }}'
  candidate: '${{ sequence.inspect.outputs.head }}'
  text: '${{ sequence.inspect.outputs.text }}'
-`, repo, ref, plan)
+`, celltest.Repo(repo), ref, plan)
 				rt := newTimeoutReproRuntime(t, backend)
 				key := submitGitLifecycle(t, rt, repo, yaml)
 				fault := &gitOutcomeInterruption{WorkflowRuntime: rt, match: `scope:"op:plan"`}
@@ -160,7 +161,7 @@ outputs:
 					require.NoError(t, os.WriteFile(filepath.Join(repo, name), []byte(name), 0600))
 					require.NoError(t, runGit(repo, "git", "add", "."))
 					require.NoError(t, runGit(repo, "git", "commit", "-m", name))
-					hash, e := common.GetCommitHash(context.Background(), repo, "HEAD")
+					hash, e := common.GetCommitHash(celltest.Context(context.Background()), repo, "HEAD")
 					require.NoError(t, e)
 					return hash
 				}
@@ -175,8 +176,8 @@ outputs:
 				if mode == "exact-commit" {
 					require.Equal(t, initial, first["base"])
 				}
-				require.Equal(t, "repo data", first["text"])
-				history, err := jobdb.GetJobRun(context.Background(), rt, jobdb.GetJobRunRequest{JobKey: key})
+				require.Equal(t, "test data", first["text"])
+				history, err := jobdb.GetJobRun(celltest.Context(context.Background()), rt, jobdb.GetJobRunRequest{JobKey: key})
 				require.NoError(t, err)
 				var scope string
 				for _, entry := range history.Execution {
@@ -188,7 +189,7 @@ outputs:
 				engine, err := jobworkflow.NewEngineBuilder().WithRuntime(rt).BuildEngine()
 				require.NoError(t, err)
 				submitter := jobdbschema.WorkflowEngine{Engine: engine, Registry: rt.WorkflowRuntime.(jobdb.JobSchemaRegistry)}
-				restarted, err := starter.RestartRecipeJob(context.Background(), submitter, key, scope, nil, starter.RestartOptions{Goal: "new", RequestID: "git-restart"})
+				restarted, err := starter.RestartRecipeJob(celltest.Context(context.Background()), submitter, key, scope, nil, starter.RestartOptions{Goal: "new", RequestID: "git-restart"})
 				require.NoError(t, err)
 				latest := advance("upstream-c")
 				out, err = runGitLifecycle(t, rt, restarted.Key())
@@ -304,7 +305,7 @@ outputs: {captured: '${{ sequence.integration.outputs.captured }}'}
 			engine, err := jobworkflow.NewEngineBuilder().WithRuntime(rt).WithWorkerTenantId(key.TenantId).PlusWorkers(NewRecipeJobWorker(RecipeJobWorkerOptions{})).BuildEngine()
 			require.NoError(t, err)
 			require.NoError(t, os.Rename(repo, repo+"-offline"))
-			replayed, err := engine.ReplayJobRun(context.Background(), jobworkflow.ReplayRunRequest{JobKey: key, JobWorker: NewRecipeJobWorker(RecipeJobWorkerOptions{ReadOnlyReplay: true})})
+			replayed, err := engine.ReplayJobRun(celltest.Context(context.Background()), jobworkflow.ReplayRunRequest{JobKey: key, JobWorker: NewRecipeJobWorker(RecipeJobWorkerOptions{ReadOnlyReplay: true})})
 			require.NoError(t, err)
 			raw, err := replayed.GetData()
 			require.NoError(t, err)

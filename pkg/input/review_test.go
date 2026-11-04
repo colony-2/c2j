@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/colony-2/c2j/internal/celltest"
 	recipeartifacts "github.com/colony-2/c2j/pkg/artifacts"
 	coreops "github.com/colony-2/c2j/pkg/ops"
 	coretask "github.com/colony-2/c2j/pkg/task"
@@ -45,7 +46,7 @@ func testReviewFormAndAutofill(t *testing.T, annotated bool) {
 			return jobdb.NewArtifactFromBytes("original.md", []byte("original"))
 		}}).Build()
 	}
-	form, err := buildForm(deps, context.Background(), Input{Form: cfg})
+	form, err := buildForm(deps, celltest.Context(context.Background()), Input{Form: cfg})
 	require.NoError(t, err)
 	require.Equal(t, "review", form.Kind)
 	require.NotEmpty(t, form.RequestID)
@@ -53,14 +54,14 @@ func testReviewFormAndAutofill(t *testing.T, annotated bool) {
 	cfg.Fields[0].Question = "changed"
 	require.Equal(t, "Proceed?", form.Fields[0].Question)
 	form.Output = &Output{Fields: map[string]any{"decision": "approve"}}
-	out, err := autoFillInputWithDeps(deps, context.Background(), form)
+	out, err := autoFillInputWithDeps(deps, celltest.Context(context.Background()), form)
 	require.NoError(t, err)
 	require.Equal(t, "approve", out.Fields["decision"])
 	require.NotContains(t, out.Fields, "document")
 	require.Equal(t, "automation", out.Receipt.Actor.Kind)
 	raw, err := jsonValue(form)
 	require.NoError(t, err)
-	mapped, err := GetAutoFillOp().TaskChain()[0].Invoke(deps, context.Background(), raw.(map[string]any))
+	mapped, err := GetAutoFillOp().TaskChain()[0].Invoke(deps, celltest.Context(context.Background()), raw.(map[string]any))
 	require.NoError(t, err)
 	encoded, err := json.Marshal(mapped)
 	require.NoError(t, err)
@@ -73,7 +74,7 @@ func testReviewFormAndAutofill(t *testing.T, annotated bool) {
 		{"decision": "approve", "document": recipeartifacts.NewExternalRef("x", "https://example.invalid/x", false)},
 	} {
 		form.Output = &Output{Fields: fields}
-		_, err = autoFillInputWithDeps(deps, context.Background(), form)
+		_, err = autoFillInputWithDeps(deps, celltest.Context(context.Background()), form)
 		require.Error(t, err)
 	}
 }
@@ -91,7 +92,7 @@ func TestReviewConfigurationValidation(t *testing.T) {
 	} {
 		cfg := reviewConfig()
 		mutate(&cfg)
-		_, err := buildForm(coreops.NewOpDependenciesBuilder().Build(), context.Background(), Input{Form: cfg})
+		_, err := buildForm(coreops.NewOpDependenciesBuilder().Build(), celltest.Context(context.Background()), Input{Form: cfg})
 		require.Error(t, err)
 	}
 }
@@ -104,7 +105,7 @@ func TestReviewSQLiteAttachmentsReplayAndStaleSubmission(t *testing.T) {
 	}
 }
 func testReviewSQLiteAttachmentsReplayAndStaleSubmission(t *testing.T, annotated, offloaded bool) {
-	ctx := context.Background()
+	ctx := celltest.Context(context.Background())
 	dbPath := filepath.Join(t.TempDir(), "jobs.db")
 	rt, err := sqliteruntime.NewFromConfig(ctx, sqliteruntime.Config{DBPath: dbPath, MaxChapterApplicationPayloadBytes: 4 * 1024 * 1024})
 	require.NoError(t, err)
@@ -124,7 +125,7 @@ func testReviewSQLiteAttachmentsReplayAndStaleSubmission(t *testing.T, annotated
 	}
 	if annotated {
 		original := jobdb.NewArtifactFromBytes("original.md", []byte("original"))
-		_, err = rt.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "tenant", JobID: "producer", JobType: "artifact-source", Data: jobdb.NewTaskDataOrPanic(nil, original)}})
+		_, err = rt.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "tenant", JobID: "producer", JobType: "artifact-source", Data: jobdb.NewTaskDataOrPanic(nil, original), Cell: "test", CellRepo: "example.test/test"}})
 		require.NoError(t, err)
 		key, err := original.ArtifactKey()
 		require.NoError(t, err)
@@ -142,7 +143,7 @@ func testReviewSQLiteAttachmentsReplayAndStaleSubmission(t *testing.T, annotated
 	second, err := buildForm(deps, ctx, Input{Form: cfg})
 	require.NoError(t, err)
 	w := structuredWorker{forms: []InputForm{first, second}}
-	handle, err := rt.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "tenant", JobID: "review", JobType: "recipe", Data: jobdb.NewTaskDataOrPanic(map[string]any{}), RunPolicy: jobdb.DefaultRunPolicy()}})
+	handle, err := rt.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "tenant", JobID: "review", JobType: "recipe", Data: jobdb.NewTaskDataOrPanic(map[string]any{}), RunPolicy: jobdb.DefaultRunPolicy(), Cell: "test", CellRepo: "example.test/test"}})
 	require.NoError(t, err)
 	run := func() {
 		runnable, err := workflow.GetJobForRun(ctx, rt, workflow.GetJobForRunRequest{JobKey: handle.JobKey, JobWorker: w.executionWorker(), TaskWorkers: []workflow.TaskWorker{structuredPrepareTask{}}, WorkerID: "test", LeaseDuration: time.Minute})

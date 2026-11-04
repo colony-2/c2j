@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/colony-2/c2j/internal/celltest"
 	coreops "github.com/colony-2/c2j/pkg/ops"
 	extops "github.com/colony-2/c2j/pkg/ops/extensions"
 	recipeops "github.com/colony-2/c2j/pkg/ops/recipe"
@@ -72,7 +73,7 @@ run: %q
 				yaml = "id: parent\nop: recipe.run_and_get_result\ninputs: {name: child, cell_name: root, git_ref: main}\n"
 			}
 			c := Case{ID: tc.name, Type: "integration_case", Runtime: runtime, Mocks: Mocks{Ops: []OpMock{{Repeat: true, Match: OpMockMatch{Selector: selector}, Behavior: MockBehavior{Mode: "return", Outputs: map[string]any{"ok": true}}}}}}
-			result := RunCase(context.Background(), HarnessOptions{Deps: coreops.NewServiceDepsBuilder().Build(), WorkRoot: t.TempDir()}, "runtime-secrets", TargetRecipe{Mode: "inline_recipe", Format: "yaml", Content: yaml}, c, ExecutionOptions{})
+			result := RunCase(celltest.Context(context.Background()), HarnessOptions{Deps: coreops.NewServiceDepsBuilder().Build(), WorkRoot: t.TempDir()}, "runtime-secrets", TargetRecipe{Mode: "inline_recipe", Format: "yaml", Content: yaml}, c, ExecutionOptions{})
 			require.NoFileExists(t, marker, "a mocked model must never execute")
 			if tc.wantErr != "" {
 				require.Equal(t, "failed", result.Status)
@@ -106,10 +107,10 @@ run: %q
 
 func TestRuntimeSecretProviderIsIsolated(t *testing.T) {
 	p := runtimeSecretProvider{tenant: "fixture", values: map[string]string{"key": "value", "other": "unused"}}
-	got, err := p.ResolveSecrets(context.Background(), jobdb.SecretResolveRequest{TenantID: "fixture", Names: []string{"key", "missing"}})
+	got, err := p.ResolveSecrets(celltest.Context(context.Background()), jobdb.SecretResolveRequest{TenantID: "fixture", Names: []string{"key", "missing"}})
 	require.NoError(t, err)
 	require.Equal(t, map[string]jobdb.SecretValue{"key": {Value: "value"}}, got.Secrets)
-	_, err = p.ResolveSecrets(context.Background(), jobdb.SecretResolveRequest{TenantID: "other", Names: []string{"key"}})
+	_, err = p.ResolveSecrets(celltest.Context(context.Background()), jobdb.SecretResolveRequest{TenantID: "other", Names: []string{"key"}})
 	require.ErrorIs(t, err, jobdb.ErrSecretResolutionFailed)
 }
 
@@ -128,7 +129,7 @@ func TestRuntimeNativeSecretFixturesAreMaterializedButNotReported(t *testing.T) 
 		if value != "" {
 			runtime.Secrets = map[string]string{"api_key": value}
 		}
-		result := RunCase(context.Background(), HarnessOptions{Deps: coreops.NewServiceDepsBuilder().Build(), WorkRoot: t.TempDir()}, "fixture", TargetRecipe{Mode: "inline_recipe", Format: "yaml", Content: "id: test\nperms: {jobdb: {secrets: {resolve: [api_key]}}}\nop: secret_fixture_probe\n"}, Case{ID: "native-secret", Type: "integration_case", Runtime: runtime}, ExecutionOptions{})
+		result := RunCase(celltest.Context(context.Background()), HarnessOptions{Deps: coreops.NewServiceDepsBuilder().Build(), WorkRoot: t.TempDir()}, "fixture", TargetRecipe{Mode: "inline_recipe", Format: "yaml", Content: "id: test\nperms: {jobdb: {secrets: {resolve: [api_key]}}}\nop: secret_fixture_probe\n"}, Case{ID: "native-secret", Type: "integration_case", Runtime: runtime}, ExecutionOptions{})
 		require.Equal(t, "passed", result.Status, result.FailureReason)
 		require.Equal(t, value, received[len(received)-1])
 		require.Len(t, result.Runtime.Calls, 1)

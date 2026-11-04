@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/c2j/pkg/contextual"
 	"github.com/colony-2/c2j/pkg/execution"
 	"github.com/colony-2/c2j/pkg/executionruntime"
@@ -39,7 +40,7 @@ import (
 func TestRecipeFixturesRealEngine(t *testing.T) {
 	fixture := ensureFixtureOps()
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(celltest.Context(context.Background()))
 	t.Cleanup(cancel)
 
 	wf := &workflow.SWFWorkflowControl{
@@ -137,7 +138,7 @@ func TestRecipeFixturesRealEngine(t *testing.T) {
 						RecipeName: primary.GetMetadata().ID,
 						Inputs:     tc.Inputs,
 						JobContext: jobCtx,
-						GitRef:     gitCtx.ParentRef,
+						GitRef:     gitCtx.ParentRef, Cell: recipeName, CellRepo: celltest.Repo(jobCtx.GitBase.BaseRepo),
 					}
 
 					jobKeyRef, err := starter.StartRecipeJob(ctx, start, engine, *primary)

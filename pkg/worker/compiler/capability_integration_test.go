@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/c2j/pkg/contextual"
 	coreops "github.com/colony-2/c2j/pkg/ops"
 	"github.com/colony-2/c2j/pkg/recipe"
@@ -156,10 +157,10 @@ func TestMultiStepWithCapabilityClaim(t *testing.T) {
 				ResolvedBaseHash: baseHash,
 			},
 		},
-		GitRef: baseHash,
+		GitRef: baseHash, Cell: "test", CellRepo: celltest.Repo(repoPath),
 	}
 
-	submittedJobKeyRef, err := starter.StartRecipeJob(context.Background(), start, engine, rec)
+	submittedJobKeyRef, err := starter.StartRecipeJob(celltest.Context(context.Background()), start, engine, rec)
 
 	submittedJobKey := submittedJobKeyRef.Key()
 	require.NoError(t, err)
@@ -167,7 +168,7 @@ func TestMultiStepWithCapabilityClaim(t *testing.T) {
 	// Wait for the second step to become pending (disallowed as task).
 	var handles []jobworkflow.TaskHandle
 	for i := 0; i < 400; i++ {
-		handles, err = engine.FindTasksWaitingForRoute(context.Background(), starter.RecipeJobType, opType+":second", []string{"test-tenant"})
+		handles, err = engine.FindTasksWaitingForRoute(celltest.Context(context.Background()), starter.RecipeJobType, opType+":second", []string{"test-tenant"})
 		require.NoError(t, err)
 		if len(handles) > 0 {
 			break
@@ -186,8 +187,8 @@ func TestMultiStepWithCapabilityClaim(t *testing.T) {
 		var jobRunsLocal int
 		var jobErrLocal error
 		jobWorkerTypeLocal := jobWorkerType
-		status, _ = swfutil.JobStatus(context.Background(), engine, submittedJobKey)
-		if result, err := swfutil.JobResult(context.Background(), engine, submittedJobKey); err == nil {
+		status, _ = swfutil.JobStatus(celltest.Context(context.Background()), engine, submittedJobKey)
+		if result, err := swfutil.JobResult(celltest.Context(context.Background()), engine, submittedJobKey); err == nil {
 			if raw, err := result.GetData(); err == nil {
 				rawResult = string(raw)
 				_ = json.Unmarshal(raw, &outputs)
@@ -226,16 +227,16 @@ func TestMultiStepWithCapabilityClaim(t *testing.T) {
 	}
 	outEnv, err := coretask.NewOutputEnvelope(coretask.OutputKindActivityInvocationOutput, envelope)
 	require.NoError(t, err)
-	err = handles[0].Finish(context.Background(), jobdb.NewTaskDataOrPanic(outEnv))
+	err = handles[0].Finish(celltest.Context(context.Background()), jobdb.NewTaskDataOrPanic(outEnv))
 	require.NoError(t, err)
 
-	require.NoError(t, jobworkflow.WaitForJobToComplete(context.Background(), 20*time.Second, jobKey, engine))
+	require.NoError(t, jobworkflow.WaitForJobToComplete(celltest.Context(context.Background()), 20*time.Second, jobKey, engine))
 	firstEnvelopeMu.Lock()
 	jobRunsMu.Lock()
 	t.Logf("post-completion: captured=%t runs=%d env=%+v workerDbg=%+v jobRuns=%d jobErr=%v", firstEnvelopeSet, workerRunCount, firstEnvelope, workerDebugInfo, jobRuns, jobErr)
 	jobRunsMu.Unlock()
 	firstEnvelopeMu.Unlock()
-	resultData, err := swfutil.JobResult(context.Background(), engine, jobKey)
+	resultData, err := swfutil.JobResult(celltest.Context(context.Background()), engine, jobKey)
 	require.NoError(t, err)
 	outRaw, err := resultData.GetData()
 	require.NoError(t, err)

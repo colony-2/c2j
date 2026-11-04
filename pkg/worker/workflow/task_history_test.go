@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
 	"github.com/stretchr/testify/require"
@@ -43,7 +44,7 @@ func TestCachedTaskOutputChecksHistoryIdentity(t *testing.T) {
 			}
 			run.Attempts = []jobdb.JobAttempt{{Tasks: []jobdb.TaskRun{{TaskType: taskType, Attempts: []jobdb.TaskAttempt{attempt}}}}}
 			control := &SWFWorkflowControl{Engine: historyEngine{run: run}}
-			output, err := control.CachedTaskOutput(context.Background(), key, "op:run", 3, "hash")
+			output, err := control.CachedTaskOutput(celltest.Context(context.Background()), key, "op:run", 3, "hash")
 			if name != "valid" {
 				require.Error(t, err)
 				require.Nil(t, output)

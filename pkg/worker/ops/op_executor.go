@@ -258,7 +258,9 @@ func (t opExecutor) doPrepared(ctx context.Context, jobTool ops.JobTool, req Act
 	}
 	currentJob := currentJobContext(jobTool.GetJobKey(), reg, req.GitTaskContext)
 	if refTool, ok := jobTool.(interface{ GetJobRef() jobref.Ref }); ok {
-		currentJob.GoalID = refTool.GetJobRef().GoalID
+		ref := refTool.GetJobRef()
+		currentJob.GoalID = ref.GoalID
+		currentJob.CellID, currentJob.CellName, currentJob.CellRepo = ref.CellID, ref.Cell, ref.CellRepo
 	}
 	if id := jobTool.InvocationID(); id != "" {
 		currentJob.InvocationHash = fmt.Sprintf("%x", sha256.Sum256([]byte(id)))

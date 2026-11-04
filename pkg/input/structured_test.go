@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/colony-2/c2j/internal/celltest"
 	recipeartifacts "github.com/colony-2/c2j/pkg/artifacts"
 	"github.com/colony-2/c2j/pkg/contextual"
 	coreops "github.com/colony-2/c2j/pkg/ops"
@@ -30,7 +31,7 @@ func structuredConfig() Config {
 }
 
 func TestStructuredPublicationAndAutofill(t *testing.T) {
-	ctx := context.Background()
+	ctx := celltest.Context(context.Background())
 	deps := coreops.NewOpDependenciesBuilder().Build()
 	cfg := structuredConfig()
 	form, err := buildForm(deps, ctx, Input{Form: cfg})
@@ -67,10 +68,10 @@ func TestStructuredSchemasAndModeValidation(t *testing.T) {
 	} {
 		cfg := structuredConfig()
 		mutate(&cfg)
-		_, err := buildForm(coreops.NewOpDependenciesBuilder().Build(), context.Background(), Input{Form: cfg})
+		_, err := buildForm(coreops.NewOpDependenciesBuilder().Build(), celltest.Context(context.Background()), Input{Form: cfg})
 		require.Error(t, err)
 	}
-	_, err := buildForm(coreops.NewOpDependenciesBuilder().Build(), context.Background(), Input{Form: Config{Request: "missing schema"}})
+	_, err := buildForm(coreops.NewOpDependenciesBuilder().Build(), celltest.Context(context.Background()), Input{Form: Config{Request: "missing schema"}})
 	require.ErrorContains(t, err, "response_schema")
 }
 
@@ -134,7 +135,7 @@ func TestStructuredInputSQLiteAttachmentsReplayAndStaleSubmission(t *testing.T) 
 }
 
 func testStructuredInputSQLite(t *testing.T, offloaded bool) {
-	ctx := context.Background()
+	ctx := celltest.Context(context.Background())
 	dbPath := filepath.Join(t.TempDir(), "jobs.db")
 	rt, err := sqliteruntime.NewFromConfig(ctx, sqliteruntime.Config{DBPath: dbPath, MaxChapterApplicationPayloadBytes: 4 * 1024 * 1024})
 	require.NoError(t, err)
@@ -157,7 +158,7 @@ func testStructuredInputSQLite(t *testing.T, offloaded bool) {
 	second, err := buildForm(deps, ctx, Input{Form: cfg})
 	require.NoError(t, err)
 	w := structuredWorker{forms: []InputForm{first, second}, retainArtifacts: true}
-	handle, err := rt.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "tenant", JobID: "review", JobType: "recipe", Data: jobdb.NewTaskDataOrPanic(map[string]any{}), RunPolicy: jobdb.DefaultRunPolicy()}})
+	handle, err := rt.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "tenant", JobID: "review", JobType: "recipe", Data: jobdb.NewTaskDataOrPanic(map[string]any{}), RunPolicy: jobdb.DefaultRunPolicy(), Cell: "test", CellRepo: "example.test/test"}})
 	require.NoError(t, err)
 	run := func() {
 		runnable, err := workflow.GetJobForRun(ctx, rt, workflow.GetJobForRunRequest{JobKey: handle.JobKey, JobWorker: w.executionWorker(), TaskWorkers: []workflow.TaskWorker{structuredPrepareTask{}}, WorkerID: "test", LeaseDuration: time.Minute})
@@ -306,14 +307,14 @@ func TestStructuredEmptySchemaAndOutputNormalization(t *testing.T) {
 	cfg := Config{Request: map[string]any{"question": "Anything"}, ResponseSchema: map[string]any{}}
 	deps := coreops.NewOpDependenciesBuilder().Build()
 	// Go op mapping must preserve the explicit empty schema, too.
-	mapped, err := GetOp().TaskChain()[0].Invoke(deps, context.Background(), map[string]any{"form": map[string]any{"request": cfg.Request, "response_schema": cfg.ResponseSchema}})
+	mapped, err := GetOp().TaskChain()[0].Invoke(deps, celltest.Context(context.Background()), map[string]any{"form": map[string]any{"request": cfg.Request, "response_schema": cfg.ResponseSchema}})
 	require.NoError(t, err)
 	require.Contains(t, mapped, "response_schema")
 	var form InputForm
 	require.NoError(t, coreops.DecodeWithJsonTags(mapped, &form))
 	require.NotNil(t, form.ResponseSchema)
 	form.Output = &Output{Response: false}
-	accepted, err := autoFillInputWithDeps(deps, context.Background(), form)
+	accepted, err := autoFillInputWithDeps(deps, celltest.Context(context.Background()), form)
 	require.NoError(t, err)
 	raw, err := jsonValue(accepted)
 	require.NoError(t, err)
@@ -324,10 +325,10 @@ func TestStructuredEmptySchemaAndOutputNormalization(t *testing.T) {
 
 func TestStructuredNullResponseIsPreserved(t *testing.T) {
 	deps := coreops.NewOpDependenciesBuilder().Build()
-	form, err := buildForm(deps, context.Background(), Input{Form: Config{Request: "Optional response", ResponseSchema: map[string]any{"type": "null"}}})
+	form, err := buildForm(deps, celltest.Context(context.Background()), Input{Form: Config{Request: "Optional response", ResponseSchema: map[string]any{"type": "null"}}})
 	require.NoError(t, err)
 	form.Output = &Output{Response: nil}
-	out, err := autoFillInputWithDeps(deps, context.Background(), form)
+	out, err := autoFillInputWithDeps(deps, celltest.Context(context.Background()), form)
 	require.NoError(t, err)
 	raw, err := jsonValue(out)
 	require.NoError(t, err)

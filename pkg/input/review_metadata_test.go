@@ -4,18 +4,19 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	workerops "github.com/colony-2/c2j/pkg/worker/ops"
-	"gopkg.in/yaml.v3"
 	"os"
 	"reflect"
 	"strings"
 	"testing"
 
+	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/c2j/pkg/artifacts"
 	"github.com/colony-2/c2j/pkg/input/openapi"
 	"github.com/colony-2/c2j/pkg/ops"
+	workerops "github.com/colony-2/c2j/pkg/worker/ops"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	"github.com/stretchr/testify/require"
+	"gopkg.in/yaml.v3"
 )
 
 func metadataConfig() Config {
@@ -251,7 +252,7 @@ func TestDocumentMetadataFreezeAndTransport(t *testing.T) {
 	ctl := &clientControl{artifact: func(string, jobdb.ArtifactKey) jobdb.Artifact {
 		return jobdb.NewArtifactFromBytes("original.md", []byte("original"))
 	}}
-	form, err := buildForm(ops.NewOpDependenciesBuilder().WithWorkflowControl(ctl).Build(), context.Background(), Input{Form: c})
+	form, err := buildForm(ops.NewOpDependenciesBuilder().WithWorkflowControl(ctl).Build(), celltest.Context(context.Background()), Input{Form: c})
 	require.NoError(t, err)
 	original, err := json.Marshal(form)
 	require.NoError(t, err)
@@ -393,10 +394,10 @@ func TestDocumentMetadataTypedUTF8AndLegacyBounds(t *testing.T) {
 	c := Config{Kind: "review", Question: "Legacy", Documents: map[string]any{strings.Repeat("x", 70000): nil}}
 	require.NoError(t, c.ValidateOpInput(), "presentation-size limit does not bound legacy document IDs")
 	c = Config{Title: strings.Repeat("界", 1000), Fields: []FormField{{ID: "text", Type: FieldTypeParagraphText}}, Output: &Output{Fields: map[string]any{"text": strings.Repeat("x", 70000)}}}
-	form, err := buildForm(ops.NewOpDependenciesBuilder().Build(), context.Background(), Input{Form: c})
+	form, err := buildForm(ops.NewOpDependenciesBuilder().Build(), celltest.Context(context.Background()), Input{Form: c})
 	require.NoError(t, err)
 	require.Equal(t, c.Title, form.Title)
-	out, err := autoFillInputWithDeps(ops.NewOpDependenciesBuilder().Build(), context.Background(), form)
+	out, err := autoFillInputWithDeps(ops.NewOpDependenciesBuilder().Build(), celltest.Context(context.Background()), form)
 	require.NoError(t, err)
 	require.Len(t, out.Fields["text"], 70000)
 }
@@ -406,7 +407,7 @@ func TestInvalidDocumentMetadataPublishesNothing(t *testing.T) {
 	c := metadataConfig()
 	c.Documents = map[string]any{"brief": map[string]any{"kind": "value", "name": "brief.md", "format": "text", "value": "original"}}
 	c.DocumentMetadata["brief"] = DocumentMetadata{Role: "invalid"}
-	form, err := buildForm(deps, context.Background(), Input{Form: c})
+	form, err := buildForm(deps, celltest.Context(context.Background()), Input{Form: c})
 	require.ErrorContains(t, err, ".role")
 	require.Empty(t, form.RequestID)
 	require.Empty(t, deps.GetOutputArtifacts())
@@ -434,7 +435,7 @@ func TestReviewMetadataConfigJSONAndLegacyDocumentForms(t *testing.T) {
 			require.NoError(t, json.Unmarshal(raw, &restored))
 			require.Equal(t, cfg.DocumentMetadata, restored.DocumentMetadata)
 			require.Equal(t, cfg.OverviewDocumentID, restored.OverviewDocumentID)
-			form, err := buildForm(ops.NewOpDependenciesBuilder().WithWorkflowControl(ctl).Build(), context.Background(), Input{Form: restored})
+			form, err := buildForm(ops.NewOpDependenciesBuilder().WithWorkflowControl(ctl).Build(), celltest.Context(context.Background()), Input{Form: restored})
 			require.NoError(t, err)
 			require.Equal(t, ref, form.Documents["brief"])
 		}
@@ -447,7 +448,7 @@ func TestReviewMetadataConfigJSONAndLegacyDocumentForms(t *testing.T) {
 				cfg.DocumentMetadata = nil
 				cfg.OverviewDocumentID = ""
 			}
-			_, err := buildForm(ops.NewOpDependenciesBuilder().WithWorkflowControl(ctl).Build(), context.Background(), Input{Form: cfg})
+			_, err := buildForm(ops.NewOpDependenciesBuilder().WithWorkflowControl(ctl).Build(), celltest.Context(context.Background()), Input{Form: cfg})
 			require.Error(t, err)
 		}
 	}

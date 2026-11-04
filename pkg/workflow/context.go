@@ -23,9 +23,6 @@ type Context struct {
 	RecipeDigest   string
 	CatchStateName string
 	ScopeState     func(*template.ResolutionContext)
-	// OperationBase is reconstructed from the first attempt's durable resolver
-	// outcome, shared by retries, and cleared when that scope is restarted.
-	OperationBase *string
 	// ScopeOutput returns a prepared result to the owning scope executor.
 	// The callback does not publish to the enclosing template context.
 	ScopeOutput func(*template.ResolutionContext, template.ExecutionOutput) error

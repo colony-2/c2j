@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/c2j/pkg/artifacts"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	"github.com/stretchr/testify/require"
@@ -34,7 +35,7 @@ func TestValueInvocationTransport(t *testing.T) {
 			}
 			// Preserve unrelated input attachments, and remove only the private bundle.
 			extra := jobdb.NewArtifactFromBytes("ordinary.txt", []byte("existing input"))
-			remaining, err := restored.RestoreInput(context.Background(), append(append([]jobdb.Artifact{}, attached...), extra))
+			remaining, err := restored.RestoreInput(celltest.Context(context.Background()), append(append([]jobdb.Artifact{}, attached...), extra))
 			require.NoError(t, err)
 			require.Equal(t, []jobdb.Artifact{extra}, remaining)
 			require.Equal(t, original, restored)
@@ -42,7 +43,7 @@ func TestValueInvocationTransport(t *testing.T) {
 	}
 	for _, attached := range [][]jobdb.Artifact{nil, {jobdb.NewArtifactFromBytes("bulk.json", []byte("not JSON"))}} {
 		req := ActivityInvocationRequest{InputArtifact: "bulk.json"}
-		_, err := req.RestoreInput(context.Background(), attached)
+		_, err := req.RestoreInput(celltest.Context(context.Background()), attached)
 		require.Error(t, err)
 	}
 }

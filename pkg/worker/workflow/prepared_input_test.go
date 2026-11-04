@@ -5,6 +5,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
 	"github.com/stretchr/testify/require"
@@ -44,7 +45,7 @@ func (h *preparedDataHandle) Finish(_ context.Context, d jobdb.TaskData) error {
 
 func TestWaitingInputUsesOwnSnapshot(t *testing.T) {
 	e := &preparedDataEngine{handle: &preparedDataHandle{data: jobdb.NewTaskDataOrPanic(map[string]any{"input": map[string]any{"question": "Continue?"}})}, err: errors.New("history must not be read")}
-	h, err := (&SWFWorkflowControl{Engine: e}).GetWaitingTask(context.Background(), e.handle.JobKey())
+	h, err := (&SWFWorkflowControl{Engine: e}).GetWaitingTask(celltest.Context(context.Background()), e.handle.JobKey())
 	require.NoError(t, err)
 	data, err := h.Data()
 	require.NoError(t, err)
@@ -52,6 +53,6 @@ func TestWaitingInputUsesOwnSnapshot(t *testing.T) {
 	require.Equal(t, int64(6), h.TaskOrdinalToComplete())
 	e.handle.finishErr = jobdb.ErrConflict
 	reply := jobdb.NewTaskDataOrPanic(map[string]any{"response": "yes"})
-	require.ErrorIs(t, h.Finish(context.Background(), reply), jobdb.ErrConflict)
+	require.ErrorIs(t, h.Finish(celltest.Context(context.Background()), reply), jobdb.ErrConflict)
 	require.Same(t, reply, e.handle.finished)
 }

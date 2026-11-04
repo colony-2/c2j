@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/colony-2/c2j/internal/celltest"
 	coreops "github.com/colony-2/c2j/pkg/ops"
 	"github.com/colony-2/c2j/pkg/recipe"
 	"github.com/colony-2/c2j/pkg/starter"
@@ -66,14 +67,14 @@ func TestStoryAPIExposesUnfinishedTask(t *testing.T) {
 	for _, backend := range []string{"sqlite", "remote"} {
 		for _, mode := range []string{"local", "external", "retry", "external-retry"} {
 			t.Run(backend+"/"+mode, func(t *testing.T) {
-				ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+				ctx, cancel := context.WithTimeout(celltest.Context(context.Background()), 15*time.Second)
 				defer cancel()
 				db, err := sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: filepath.Join(t.TempDir(), "jobs.db")})
 				require.NoError(t, err)
-				defer db.Close(context.Background())
+				defer db.Close(celltest.Context(context.Background()))
 				var rt jobdb.WorkflowRuntime = db
 				if backend == "remote" {
-					server := httptest.NewServer(remote.NewServer(db))
+					server := httptest.NewServer(celltest.Handler(remote.NewServer(db)))
 					defer server.Close()
 					rt, err = remote.New(server.URL, server.Client())
 					require.NoError(t, err)
@@ -87,9 +88,9 @@ func TestStoryAPIExposesUnfinishedTask(t *testing.T) {
 				svc, err := story.New(story.ServiceConfig{Engine: engine})
 				require.NoError(t, err)
 				yaml := "id: unfinished\ninput_schema: {value: {type: string}}\nsequence:\n - id: outer\n   inputs: {value: resolved}\n   sequence:\n    - id: work\n      op: " + unfinishedOp + "\n      inputs: {value: '${{ inputs.value }}'}\n      retry: {maximum_attempts: 2, initial_interval: 1ms}\n      timeout: 5m\n"
-				data, err := jobdb.NewTaskData(workflowctl.StartJob{TenantId: "story", RecipeName: "unfinished", Inputs: map[string]any{"value": "resolved"}}, jobdb.NewArtifactFromBytes("unfinished"+starter.RecipeArtifactSuffix, []byte(yaml)))
+				data, err := jobdb.NewTaskData(workflowctl.StartJob{TenantId: "story", RecipeName: "unfinished", Inputs: map[string]any{"value": "resolved"}, Cell: "test", CellRepo: celltest.Repo("")}, jobdb.NewArtifactFromBytes("unfinished"+starter.RecipeArtifactSuffix, []byte(yaml)))
 				require.NoError(t, err)
-				h, err := engine.SubmitJob(ctx, jobdb.SubmitJob{TenantId: "story", JobType: "recipe", Data: data})
+				h, err := engine.SubmitJob(ctx, jobdb.SubmitJob{TenantId: "story", JobType: "recipe", Data: data, Cell: "test", CellRepo: "example.test/test"})
 				require.NoError(t, err)
 				request := story.GetJobRunStoryRequest{ProjectID: h.JobKey.TenantId, JobID: h.JobKey.JobId}
 				inspect := func(status string, attempt int) *story.JobRunStoryNode {
@@ -126,7 +127,7 @@ func TestStoryAPIExposesUnfinishedTask(t *testing.T) {
 				}
 				var pending *story.JobRunStoryNode
 				if mode == "external" || mode == "external-retry" {
-					run, err := wf.GetJobForRun(ctx, rt, wf.GetJobForRunRequest{JobKey: h.JobKey, JobWorker: w, WorkerID: "queue", LeaseDuration: time.Minute})
+					run, err := wf.GetJobForRun(ctx, rt, wf.GetJobForRunRequest{JobKey: h.JobKey, JobWorker: w, TaskWorkers: []wf.TaskWorker{compiler.NewCellContextTaskWorker()}, WorkerID: "queue", LeaseDuration: time.Minute})
 					require.NoError(t, err)
 					out, err := run.Run(nil)
 					require.NoError(t, err)
@@ -135,7 +136,7 @@ func TestStoryAPIExposesUnfinishedTask(t *testing.T) {
 					require.Equal(t, pending, inspect("pending", 1))
 					require.Zero(t, task.calls.Load())
 				}
-				run, err := wf.GetJobForRun(ctx, rt, wf.GetJobForRunRequest{JobKey: h.JobKey, JobWorker: w, TaskWorkers: []wf.TaskWorker{task}, WorkerID: "live", LeaseDuration: time.Minute})
+				run, err := wf.GetJobForRun(ctx, rt, wf.GetJobForRunRequest{JobKey: h.JobKey, JobWorker: w, TaskWorkers: []wf.TaskWorker{compiler.NewCellContextTaskWorker(), task}, WorkerID: "live", LeaseDuration: time.Minute})
 				require.NoError(t, err)
 				done := make(chan error, 1)
 				go func() { out, err := run.Run(nil); done <- errors.Join(err, out.JobError) }()
@@ -212,11 +213,13 @@ func storyTestRuntime(t *testing.T, ctx context.Context, backend string) jobdb.W
 	t.Helper()
 	db, err := sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: filepath.Join(t.TempDir(), "jobs.db")})
 	require.NoError(t, err)
-	t.Cleanup(func() { require.NoError(t, db.Close(context.Background())) })
+	t.Cleanup(func() {
+		require.NoError(t, db.Close(celltest.Context(context.Background())))
+	})
 	if backend == "sqlite" {
 		return db
 	}
-	server := httptest.NewServer(remote.NewServer(db))
+	server := httptest.NewServer(celltest.Handler(remote.NewServer(db)))
 	t.Cleanup(server.Close)
 	rt, err := remote.New(server.URL, server.Client())
 	require.NoError(t, err)
@@ -261,7 +264,7 @@ func TestStoryAPIPreservesMultiStepLeaves(t *testing.T) {
 				name = backend + "/stop-after-first"
 			}
 			t.Run(name, func(t *testing.T) {
-				ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+				ctx, cancel := context.WithTimeout(celltest.Context(context.Background()), 15*time.Second)
 				defer cancel()
 				rt := storyTestRuntime(t, ctx, backend)
 				w := compiler.NewRecipeJobWorker(compiler.RecipeJobWorkerOptions{})
@@ -281,8 +284,8 @@ func TestStoryAPIPreservesMultiStepLeaves(t *testing.T) {
 				first, releaseFirst := newStoryBarrierTask(t, opType+":"+opType, output("first", next))
 				second, releaseSecond := newStoryBarrierTask(t, opType+":second", output("second", ""))
 				yaml := "id: chain\nsequence:\n - id: work\n   op: " + opType + "\n   inputs: {value: resolved}\n"
-				data := jobdb.NewTaskDataOrPanic(workflowctl.StartJob{TenantId: "story", RecipeName: "chain"}, jobdb.NewArtifactFromBytes("chain"+starter.RecipeArtifactSuffix, []byte(yaml)))
-				h, err := engine.SubmitJob(ctx, jobdb.SubmitJob{TenantId: "story", JobType: "recipe", Data: data})
+				data := jobdb.NewTaskDataOrPanic(workflowctl.StartJob{TenantId: "story", RecipeName: "chain", Cell: "test", CellRepo: celltest.Repo("")}, jobdb.NewArtifactFromBytes("chain"+starter.RecipeArtifactSuffix, []byte(yaml)))
+				h, err := engine.SubmitJob(ctx, jobdb.SubmitJob{TenantId: "story", JobType: "recipe", Data: data, Cell: "test", CellRepo: "example.test/test"})
 				require.NoError(t, err)
 				inspect := func() *story.JobRunStoryNode {
 					t.Helper()
@@ -298,7 +301,7 @@ func TestStoryAPIPreservesMultiStepLeaves(t *testing.T) {
 					require.Equal(t, before, after)
 					return nodes[0]
 				}
-				run, err := wf.GetJobForRun(ctx, rt, wf.GetJobForRunRequest{JobKey: h.JobKey, JobWorker: w, TaskWorkers: []wf.TaskWorker{first, second}, WorkerID: "live", LeaseDuration: time.Minute})
+				run, err := wf.GetJobForRun(ctx, rt, wf.GetJobForRunRequest{JobKey: h.JobKey, JobWorker: w, TaskWorkers: []wf.TaskWorker{compiler.NewCellContextTaskWorker(), first, second}, WorkerID: "live", LeaseDuration: time.Minute})
 				require.NoError(t, err)
 				done := make(chan error, 1)
 				go func() { out, err := run.Run(nil); done <- errors.Join(err, out.JobError) }()
@@ -351,7 +354,7 @@ func TestStoryAPIPreservesMultiStepLeaves(t *testing.T) {
 func TestStoryAPIExposesUnfinishedSourceResolution(t *testing.T) {
 	for _, backend := range []string{"sqlite", "remote"} {
 		t.Run(backend, func(t *testing.T) {
-			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+			ctx, cancel := context.WithTimeout(celltest.Context(context.Background()), 15*time.Second)
 			defer cancel()
 			rt := storyTestRuntime(t, ctx, backend)
 			resolver := compiler.NewRecipeSourceResolver(compiler.RecipeSourceResolverOptions{
@@ -366,7 +369,7 @@ func TestStoryAPIExposesUnfinishedSourceResolution(t *testing.T) {
 			require.NoError(t, err)
 			result := compiler.ResolvedRecipeSource{RecipeSourceResolution: compiler.RecipeSourceResolution{SourceKind: compiler.RecipeSourceKindServerRef, SubmittedSelector: "source-ref", ResolvedSelector: "source-ref@v1"}, RecipeYAML: "id: resolved\nsequence: []\n"}
 			task, release := newStoryBarrierTask(t, compiler.RootSourceResolutionTaskType, jobdb.NewTaskDataOrPanic(result))
-			h, err := engine.SubmitJob(ctx, jobdb.SubmitJob{TenantId: "story", JobType: "recipe", Data: jobdb.NewTaskDataOrPanic(workflowctl.StartJob{TenantId: "story", RecipeName: "source-ref"})})
+			h, err := engine.SubmitJob(ctx, jobdb.SubmitJob{TenantId: "story", JobType: "recipe", Data: jobdb.NewTaskDataOrPanic(workflowctl.StartJob{TenantId: "story", RecipeName: "source-ref", Cell: "test", CellRepo: celltest.Repo("")}), Cell: "test", CellRepo: "example.test/test"})
 			require.NoError(t, err)
 			inspect := func(status string) *story.JobRunStoryNode {
 				t.Helper()
@@ -393,7 +396,7 @@ func TestStoryAPIExposesUnfinishedSourceResolution(t *testing.T) {
 				require.Equal(t, before, after)
 				return n
 			}
-			queued, err := wf.GetJobForRun(ctx, rt, wf.GetJobForRunRequest{JobKey: h.JobKey, JobWorker: w, WorkerID: "queue", LeaseDuration: time.Minute})
+			queued, err := wf.GetJobForRun(ctx, rt, wf.GetJobForRunRequest{JobKey: h.JobKey, JobWorker: w, TaskWorkers: []wf.TaskWorker{compiler.NewCellContextTaskWorker()}, WorkerID: "queue", LeaseDuration: time.Minute})
 			require.NoError(t, err)
 			out, err := queued.Run(nil)
 			require.NoError(t, err)
@@ -401,7 +404,7 @@ func TestStoryAPIExposesUnfinishedSourceResolution(t *testing.T) {
 			pending := inspect("pending")
 			require.Equal(t, pending, inspect("pending"))
 			require.Zero(t, task.calls.Load())
-			run, err := wf.GetJobForRun(ctx, rt, wf.GetJobForRunRequest{JobKey: h.JobKey, JobWorker: w, TaskWorkers: []wf.TaskWorker{task}, WorkerID: "live", LeaseDuration: time.Minute})
+			run, err := wf.GetJobForRun(ctx, rt, wf.GetJobForRunRequest{JobKey: h.JobKey, JobWorker: w, TaskWorkers: []wf.TaskWorker{compiler.NewCellContextTaskWorker(), task}, WorkerID: "live", LeaseDuration: time.Minute})
 			require.NoError(t, err)
 			done := make(chan error, 1)
 			go func() { out, err := run.Run(nil); done <- errors.Join(err, out.JobError) }()

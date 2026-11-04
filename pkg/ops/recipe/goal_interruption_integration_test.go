@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/c2j/pkg/jobdbschema"
-
 	workerworkflow "github.com/colony-2/c2j/pkg/worker/workflow"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/remote"
@@ -25,13 +25,13 @@ func TestGoalWaitTimeoutAndConsumerCancellation(t *testing.T) {
 				name = backend + "/cancel"
 			}
 			t.Run(name, func(t *testing.T) {
-				ctx := context.Background()
+				ctx := celltest.Context(context.Background())
 				db, err := sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: filepath.Join(t.TempDir(), "jobs.db")})
 				require.NoError(t, err)
 				t.Cleanup(func() { require.NoError(t, db.Close(ctx)) })
 				var rt jobdb.WorkflowRuntime = db
 				if backend == "http" {
-					s := httptest.NewServer(remote.NewServer(db))
+					s := httptest.NewServer(celltest.Handler(remote.NewServer(db)))
 					t.Cleanup(s.Close)
 					rt, err = remote.New(s.URL, s.Client())
 					require.NoError(t, err)
@@ -39,7 +39,7 @@ func TestGoalWaitTimeoutAndConsumerCancellation(t *testing.T) {
 				sdk, err := wf.NewEngineBuilder().WithRuntime(rt).BuildEngine()
 				require.NoError(t, err)
 				engine := jobdbschema.WorkflowEngine{Engine: sdk, Registry: rt.(jobdb.JobSchemaRegistry)}
-				child, err := sdk.SubmitJob(ctx, jobdb.SubmitJob{TenantId: "t", JobType: "producer", Data: jobdb.NewTaskDataOrPanic(nil)})
+				child, err := sdk.SubmitJob(ctx, jobdb.SubmitJob{TenantId: "t", JobType: "producer", Data: jobdb.NewTaskDataOrPanic(nil), Cell: "test", CellRepo: "example.test/test"})
 				require.NoError(t, err)
 				task := &goalWaitTask{ctl: &workerworkflow.SWFWorkflowControl{Engine: engine}, input: StartedJob{JobID: child.JobKey.JobId, GoalID: child.GoalID}, soft: true}
 				worker := wf.ExecutionWorker{JobType: "consumer", Execute: func(c wf.ExecutionContext, in wf.JobData) (wf.JobData, error) {
@@ -50,7 +50,7 @@ func TestGoalWaitTimeoutAndConsumerCancellation(t *testing.T) {
 					call := wf.TaskCall{Site: "wait", TaskType: task.Name(), ContractVersion: 1, Command: []byte(`{}`), Policy: jobdb.RunPolicy{InvocationTimeout: jobdb.AsDuration(timeout)}}
 					return c.DoTask(call, func(context.Context) (jobdb.TaskData, error) { return in, nil })
 				}}
-				parent, err := sdk.SubmitJob(ctx, jobdb.SubmitJob{TenantId: "t", JobType: worker.Name(), Data: jobdb.NewTaskDataOrPanic(nil)})
+				parent, err := sdk.SubmitJob(ctx, jobdb.SubmitJob{TenantId: "t", JobType: worker.Name(), Data: jobdb.NewTaskDataOrPanic(nil), Cell: "test", CellRepo: "example.test/test"})
 				require.NoError(t, err)
 				run := func() wf.JobRunOutcome {
 					t.Helper()

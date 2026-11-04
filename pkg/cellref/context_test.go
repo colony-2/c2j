@@ -1,36 +1,45 @@
 package cellref
 
 import (
+	"context"
 	"testing"
 
+	"github.com/colony-2/c2j/internal/celltest"
+	"github.com/colony-2/jobdb/pkg/jobdb"
 	"github.com/stretchr/testify/require"
 )
 
-func TestPortableCellResolution(t *testing.T) {
-	ctx := Context{Pattern: "https://example.com/cell-${{ cell }}.git", SelfRepo: "https://example.com/cell-A.git", SelfRef: "dev", RootRepo: "https://example.com/root.git", RootRef: "trunk"}
-	for _, tt := range []struct{ cell, ref, repo, wantRef string }{
-		{"B", "", "https://example.com/cell-B.git", "main"},
-		{"B", "release", "https://example.com/cell-B.git", "release"},
-		{"A", "", "https://example.com/cell-A.git", "dev"},
-		{"root", "", "https://example.com/root.git", "trunk"},
-	} {
-		got, err := ctx.Resolve(tt.cell, tt.ref)
+func TestRoutingAssertions(t *testing.T) {
+	c := Context{Pattern: "https://example.com/cell-${{ cell }}.git", SelfCell: "A", SelfRepo: "example.com/cell-A", SelfRef: "dev", RootRepo: "example.com/root", RootRef: "trunk"}
+	for _, tt := range []struct{ name, repo, ref string }{{"A", "example.com/cell-A", "dev"}, {"B", "example.com/cell-B", "main"}, {"root", "example.com/root", "trunk"}} {
+		got, err := c.Resolve(tt.name, "")
 		require.NoError(t, err)
 		require.Equal(t, tt.repo, got.Repository)
-		require.Equal(t, tt.wantRef, got.Ref)
-	}
-	_, err := (Context{}).Resolve("B", "")
-	require.Error(t, err)
-	_, err = (Context{}).Resolve("./B", "")
-	require.Error(t, err)
-}
-
-func TestRelativeCellDefaultsUseCapturedDirectory(t *testing.T) {
-	ctx := Context{BaseDir: "/submitter/project", Pattern: "../${{ cell }}", SelfRepo: "../A", SelfRef: "dev", RootRepo: "../root", RootRef: "trunk"}
-	for _, tt := range []struct{ cell, ref string }{{"A", "dev"}, {"root", "trunk"}} {
-		got, err := ctx.Resolve(tt.cell, "")
-		require.NoError(t, err)
-		require.Equal(t, "file:///submitter/"+tt.cell, got.Repository)
 		require.Equal(t, tt.ref, got.Ref)
 	}
+	target, err := (Context{}).Resolve("payments", "")
+	require.NoError(t, err)
+	require.Empty(t, target.Repository)
+	for _, name := range []string{"./repo", "https://example.com/repo", ".", ".."} {
+		_, err := (Context{}).Resolve(name, "")
+		require.Error(t, err)
+	}
+}
+func TestMissingCellRequiresAssertionAndNeverBootstrapsRoot(t *testing.T) {
+	missing := func(context.Context, string) (jobdb.ResolvedCell, error) {
+		return jobdb.ResolvedCell{}, jobdb.ErrCellNotFound
+	}
+	cell, err := ResolveTarget(celltest.Context(context.Background()), missing, "payments", "git@example.com:team/payments.git")
+	require.NoError(t, err)
+	require.Empty(t, cell.CellID)
+	require.Equal(t, "example.com/team/payments", cell.CellRepo)
+	_, err = ResolveTarget(celltest.Context(context.Background()), missing, "payments", "")
+	require.ErrorIs(t, err, jobdb.ErrCellNotFound)
+	_, err = ResolveTarget(celltest.Context(context.Background()), missing, "root", "example.com/root")
+	require.ErrorIs(t, err, jobdb.ErrCellNotFound)
+	denied := func(context.Context, string) (jobdb.ResolvedCell, error) {
+		return jobdb.ResolvedCell{}, jobdb.ErrCellForbidden
+	}
+	_, err = ResolveTarget(celltest.Context(context.Background()), denied, "payments", "example.com/payments")
+	require.ErrorIs(t, err, jobdb.ErrCellForbidden)
 }

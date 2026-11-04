@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/c2j/pkg/contextual"
 	coretask "github.com/colony-2/c2j/pkg/task"
 	"github.com/colony-2/jobdb/pkg/jobdb"
@@ -16,9 +17,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Emit the workspace-entry descriptor used by earlier compilers. All task
-// identities, commands, results, and interrupted continuations are real JobDB
-// history; only selection of the historical policy is controlled by the test.
+// Exercise explicit pinned snapshots as well as per-task branch resolution.
 type workspacePolicyWorker struct {
 	jobworkflow.TaskWorker
 	policy string
@@ -45,14 +44,11 @@ func (w workspacePolicyWorker) RunTask(local context.Context, ctx jobworkflow.Ta
 	return jobdb.NewTaskData(result)
 }
 
-func TestWorkspaceHistoryCompatibility(t *testing.T) {
+func TestWorkspaceSnapshotResumeAndReplay(t *testing.T) {
 	for _, tc := range []struct {
 		name, policy, interrupt string
 	}{
 		{"entry-pinned", "", `scope:"op:first"`},
-		{"legacy-workspace-base", contextual.WorkspaceFollowUntilChange, `task:"workspace-base"`},
-		{"legacy-hook-base", contextual.WorkspaceFollowUntilChange, `task:"hook-base:`},
-		{"legacy-hook-pin", contextual.WorkspaceFollowUntilChange, `:pin"`},
 		{"per-task-hook-pin", contextual.WorkspaceFollowPerTask, `:pin"`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -66,7 +62,7 @@ sequence:
 outputs: {head: '${{ sequence.inspect.outputs.head }}'}
 `)
 			yaml := fmt.Sprintf(`id: git-lifecycle
-workspace: {cell: %q}
+workspace: {cell: test, repo: %q}
 sequence:
  - id: first
    op: workspace_probe
@@ -77,7 +73,7 @@ sequence:
  - id: last
    op: workspace_probe
 outputs: {head: '${{ sequence.last.outputs.head }}'}
-`, repo)
+`, celltest.Repo(repo))
 			rt := newTimeoutReproRuntime(t, "sqlite")
 			key := submitGitLifecycle(t, rt, repo, yaml)
 			fault := &gitOutcomeInterruption{WorkflowRuntime: rt, match: tc.interrupt, includeBase: true}
@@ -85,12 +81,11 @@ outputs: {head: '${{ sequence.last.outputs.head }}'}
 			require.Error(t, err, "status=%s job error=%v", interrupted.Status, interrupted.JobError)
 			require.True(t, fault.fired)
 			require.NoError(t, runGit(repo, "git", "commit", "--allow-empty", "-m", "advance"))
-			// Resume with ordinary, corrected workers. The recorded entry must
-			// select its old execution path even at the unfinished frontier.
+			// Resume from the recorded snapshot policy at the unfinished frontier.
 			out, err := runGitLifecycle(t, rt, key)
 			require.NoError(t, err)
 			gitLifecycleOutput(t, out)
-			history, err := jobdb.GetJobRun(context.Background(), rt, jobdb.GetJobRunRequest{JobKey: key})
+			history, err := jobdb.GetJobRun(celltest.Context(context.Background()), rt, jobdb.GetJobRunRequest{JobKey: key})
 			require.NoError(t, err)
 			var workspaceBases, hookBases int
 			for _, entry := range history.Execution {
@@ -104,17 +99,12 @@ outputs: {head: '${{ sequence.last.outputs.head }}'}
 					hookBases++
 				}
 			}
-			if tc.policy == contextual.WorkspaceFollowUntilChange {
-				require.Equal(t, 2, workspaceBases)
-				require.Equal(t, 2, hookBases)
-			} else {
-				require.Zero(t, workspaceBases)
-				require.Zero(t, hookBases)
-			}
+			require.Zero(t, workspaceBases)
+			require.Zero(t, hookBases)
 			require.NoError(t, os.Rename(repo, repo+"-offline"))
 			engine, err := jobworkflow.NewEngineBuilder().WithRuntime(rt).WithWorkerTenantId(key.TenantId).PlusWorkers(NewRecipeJobWorker(RecipeJobWorkerOptions{})).BuildEngine()
 			require.NoError(t, err)
-			replayed, err := engine.ReplayJobRun(context.Background(), jobworkflow.ReplayRunRequest{JobKey: key, JobWorker: NewRecipeJobWorker(RecipeJobWorkerOptions{ReadOnlyReplay: true})})
+			replayed, err := engine.ReplayJobRun(celltest.Context(context.Background()), jobworkflow.ReplayRunRequest{JobKey: key, JobWorker: NewRecipeJobWorker(RecipeJobWorkerOptions{ReadOnlyReplay: true})})
 			require.NoError(t, err)
 			raw, err := replayed.GetData()
 			require.NoError(t, err)

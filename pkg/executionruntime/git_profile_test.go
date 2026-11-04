@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/c2j/pkg/contextual"
 	"github.com/colony-2/c2j/pkg/execution"
 	"github.com/colony-2/c2j/pkg/gitprofile"
@@ -106,13 +107,13 @@ func TestRecipeGitProfilesAcrossRenewalAndScopeChanges(t *testing.T) {
 				return nil, fmt.Errorf("unexpected model secret access: %v", err)
 			}
 			if !in.Deny {
-				_, err = deps.JobTool().(*coreops.TaskBasedJobTool).SubmitJobRef(ctx, jobdb.SubmitJob{TenantId: "test", JobType: "child", Data: jobdb.NewTaskDataOrPanic(nil)})
+				_, err = deps.JobTool().(*coreops.TaskBasedJobTool).SubmitJobRef(ctx, jobdb.SubmitJob{TenantId: "test", JobType: "child", Data: jobdb.NewTaskDataOrPanic(nil), Cell: "test", CellRepo: ""})
 				if err != nil {
 					return nil, fmt.Errorf("default submission denied: %w", err)
 				}
 			}
 			if in.Deny {
-				_, err = deps.JobTool().(*coreops.TaskBasedJobTool).SubmitJobRef(ctx, jobdb.SubmitJob{TenantId: "test", JobType: "child", Data: jobdb.NewTaskDataOrPanic(nil)})
+				_, err = deps.JobTool().(*coreops.TaskBasedJobTool).SubmitJobRef(ctx, jobdb.SubmitJob{TenantId: "test", JobType: "child", Data: jobdb.NewTaskDataOrPanic(nil), Cell: "test", CellRepo: ""})
 				if !errors.Is(err, jobdb.ErrLeasePermissionDenied) {
 					return nil, fmt.Errorf("submission was not denied: %v", err)
 				}
@@ -125,13 +126,13 @@ func TestRecipeGitProfilesAcrossRenewalAndScopeChanges(t *testing.T) {
 	for _, backend := range []string{"toy", "remote", "toy-permissions", "remote-permissions", "toy-defaults", "remote-defaults"} {
 		t.Run(backend, func(t *testing.T) {
 			observed = nil
-			ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+			ctx, cancel := context.WithTimeout(celltest.Context(context.Background()), time.Minute)
 			defer cancel()
 			provider := &freshGitProvider{}
 			base := toy.New(toy.WithSecretProvider(provider))
 			var runtime jobdb.WorkflowRuntime = base
 			if strings.HasPrefix(backend, "remote") {
-				server := httptest.NewServer(remote.NewServer(base))
+				server := httptest.NewServer(celltest.Handler(remote.NewServer(base)))
 				defer server.Close()
 				remoteRT, err := remote.New(server.URL, server.Client())
 				require.NoError(t, err)
@@ -209,7 +210,7 @@ sequence:
 			require.NoError(t, err)
 			engine, err := jobworkflow.NewEngineBuilder().WithRuntime(runtime).BuildEngine()
 			require.NoError(t, err)
-			keyRef, err := starter.StartRecipeJob(ctx, workflowctl.StartJob{TenantId: "test", RecipeName: "profiles", JobContext: contextual.JobContext{Workflow: contextual.WorkflowContext{CellName: "repo"}, GitBase: contextual.GitBaseContext{BaseRepo: repo, BaseRef: "main"}}}, jobdbschema.WorkflowEngine{Engine: engine, Registry: runtime.(jobdb.JobSchemaRegistry)}, *rec)
+			keyRef, err := starter.StartRecipeJob(ctx, workflowctl.StartJob{TenantId: "test", RecipeName: "profiles", JobContext: contextual.JobContext{Workflow: contextual.WorkflowContext{CellName: "repo"}, GitBase: contextual.GitBaseContext{BaseRepo: repo, BaseRef: "main"}}, Cell: "test", CellRepo: celltest.Repo(repo)}, jobdbschema.WorkflowEngine{Engine: engine, Registry: runtime.(jobdb.JobSchemaRegistry)}, *rec)
 			key := keyRef.Key()
 			require.NoError(t, err)
 			rt := New(runtime, execution.Allocation{SchemaVersion: 1})

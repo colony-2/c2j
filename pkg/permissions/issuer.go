@@ -34,6 +34,9 @@ func (i JobDBIssuer) IssueRestrictedLease(ctx context.Context, task TaskDelegato
 	perms := jobdb.DelegationPermissions{Secrets: append([]string(nil), grant.Secrets.Resolve...)}
 	if grant.Jobs.Submit {
 		perms.Submit = &jobdb.DelegationSubmitPermission{JobTypes: jobdb.DelegationNames{Any: true}, JobIDs: jobdb.DelegationNames{Any: true}}
+		if grant.Jobs.CellNames != nil {
+			perms.Submit.CellNames = &jobdb.DelegationNames{Names: append([]string(nil), grant.Jobs.CellNames...)}
+		}
 	}
 	req := jobdb.CreateDelegationRequest{Permissions: perms}
 	if !deadline.IsZero() {

@@ -3,6 +3,7 @@ package compiler
 import (
 	"testing"
 
+	"github.com/colony-2/c2j/internal/celltest"
 	recipeartifacts "github.com/colony-2/c2j/pkg/artifacts"
 	"github.com/colony-2/c2j/pkg/contextual"
 	"github.com/colony-2/c2j/pkg/workflowctl"
@@ -70,7 +71,7 @@ func TestSubmittedArtifactRefsExcludesEmbeddedRecipeArtifact(t *testing.T) {
 	})
 
 	refs, err := submittedArtifactRefs(workflowctl.StartJob{
-		RecipeName: "review_docs",
+		RecipeName: "review_docs", Cell: "test", CellRepo: celltest.Repo(""),
 	}, []jobdb.Artifact{recipeArtifact, briefArtifact}, true)
 	if err != nil {
 		t.Fatalf("submittedArtifactRefs(): %v", err)
@@ -102,7 +103,7 @@ func TestSubmittedArtifactRefsRejectsDuplicateNames(t *testing.T) {
 
 	_, err := submittedArtifactRefs(workflowctl.StartJob{
 		RecipeName:   "review_docs",
-		ArtifactRefs: []recipeartifacts.Ref{existing},
+		ArtifactRefs: []recipeartifacts.Ref{existing}, Cell: "test", CellRepo: celltest.Repo(""),
 	}, []jobdb.Artifact{briefArtifact}, false)
 	if err == nil {
 		t.Fatal("expected duplicate submitted artifact name to fail")

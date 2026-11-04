@@ -13,7 +13,7 @@ func TestSubmissionRejectsPlaintextSecretBeforeStoring(t *testing.T) {
 	r, err := recipe.LoadRecipeFromString([]byte("id: secret\ninput_schema:\n  token: {type: string, secret: true, required: true}\nsequence: []\n"))
 	require.NoError(t, err)
 	submit := &captureSubmitter{}
-	start := workflowctl.StartJob{TenantId: "tenant", RecipeName: "secret", Inputs: map[string]any{"token": "private-plaintext"}}
+	start := workflowctl.StartJob{Cell: "test", CellRepo: "example.test/test", TenantId: "tenant", RecipeName: "secret", Inputs: map[string]any{"token": "private-plaintext"}}
 	_, err = StartRecipeJob(context.Background(), start, submit, *r)
 	require.ErrorContains(t, err, "requires a reference")
 	require.Nil(t, submit.job.Data)
@@ -35,7 +35,7 @@ func TestSubmissionDoesNotIndexSecretText(t *testing.T) {
 				InputSchema:  map[string]recipe.InputSchema{field: {Type: "string", Secret: true}},
 			}}}
 			submit := &captureSubmitter{}
-			start := workflowctl.StartJob{TenantId: "tenant", RecipeName: "secret-prompt", Inputs: map[string]any{field: "private-plaintext"}}
+			start := workflowctl.StartJob{Cell: "test", CellRepo: "example.test/test", TenantId: "tenant", RecipeName: "secret-prompt", Inputs: map[string]any{field: "private-plaintext"}}
 			_, err := StartRecipeJob(context.Background(), start, submit, r)
 			require.ErrorContains(t, err, "requires a reference")
 			require.Nil(t, submit.job.Data)
@@ -64,7 +64,7 @@ sequence: []
 	for _, token := range []string{"private-plaintext", "${{ context.secrets.token }}"} {
 		submit := &captureSubmitter{}
 		input := map[string]any{"accounts": []any{map[string]any{"token": token}}}
-		_, err := StartRecipeJob(context.Background(), workflowctl.StartJob{TenantId: "tenant", RecipeName: "structured-secrets", Inputs: input}, submit, *r)
+		_, err := StartRecipeJob(context.Background(), workflowctl.StartJob{Cell: "test", CellRepo: "example.test/test", TenantId: "tenant", RecipeName: "structured-secrets", Inputs: input}, submit, *r)
 		if token == "private-plaintext" {
 			require.ErrorContains(t, err, "accounts[0].token")
 			require.NotContains(t, err.Error(), token)

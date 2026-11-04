@@ -49,8 +49,8 @@ func initialHookBase(ctx workflow.Context, parent *template.ResolutionContext) (
 	}
 	p := parent.Permissions
 	out, err := workflow.ValueCall(ctx.JobContext, "hook-initial-base", WorkspaceResolutionTaskType, jobdb.RunPolicy{}, WorkspaceResolutionInput{
-		Cell: g.BaseRepo, Ref: g.BaseRef, ScopeID: "hook-initial-base",
-		Resolution: cellref.Context{SelfRepo: g.BaseRepo, SelfRef: g.BaseRef},
+		OwnerSnapshot: true, Cell: parent.TaskExecutionContext().Workflow.CellName, Repo: g.BaseRepo, Ref: g.BaseRef, ScopeID: "hook-initial-base",
+		Resolution: cellref.Context{SelfCell: parent.TaskExecutionContext().Workflow.CellName, SelfRepo: g.BaseRepo, SelfRef: g.BaseRef},
 		GitProfile: parent.GitProfile, Permissions: &p,
 	})
 	if err != nil {
@@ -401,13 +401,6 @@ func (r *candidateRecipeResolver) LoadYAML(ctx context.Context, project string, 
 }
 
 func (d DefaultRecipeExecutor) executeHook(ctx workflow.Context, parent *template.ResolutionContext, n *recipe.NodeInclude) error {
-	if parent.TaskExecutionContext().Workspace.UsesBaseTasks() {
-		observed, err := observeWorkspaceBase(ctx, parent, "hook-base:"+parent.NextWorkspaceID(n.ID))
-		if err != nil {
-			return err
-		}
-		parent = observed
-	}
 	wrapper, err := prepareHook(ctx, parent, n)
 	if err != nil {
 		return err
@@ -417,8 +410,7 @@ func (d DefaultRecipeExecutor) executeHook(ctx workflow.Context, parent *templat
 
 func prepareHook(ctx workflow.Context, parent *template.ResolutionContext, n *recipe.NodeInclude) (recipe.Node, error) {
 	// Source loading needs a stable candidate but does not accept repository work.
-	// Only legacy histories keep an operation-wide observation. New unpinned
-	// hook-body tasks select independently after the source has been loaded.
+	// Unpinned hook-body tasks select independently after the source has been loaded.
 	observing := parent.TaskExecutionContext().Workspace.FollowsRef() && parent.GetGitCommitContext().PersistHash == ""
 	if observing {
 		original := parent.GetGitCommitContext()
@@ -549,7 +541,7 @@ func prepareHook(ctx workflow.Context, parent *template.ResolutionContext, n *re
 		execCtx := parent.TaskExecutionContext().JobContext()
 		execCtx.RecipeSource.Repo = seq.Internal.HookSourceRepo
 		execCtx.RecipeSource.Ref = seq.Internal.HookSourceRef
-		seq.Internal.CELProvider, err = recipeCELOptionsProvider(rec, execCtx, parent.GetGitCommitContext(), ExecutionOptions{
+		seq.Internal.CELProvider, err = recipeCELOptionsProvider(ctx.JobContext.Context(), rec, execCtx, parent.GetGitCommitContext(), ExecutionOptions{
 			ResolvedSelectors: result.Functions.ResolvedSelectors,
 			ResolvedGitRefs:   result.Functions.ResolvedGitRefs,
 		}, parent.Options.CELOptionsProvider)

@@ -82,7 +82,7 @@ outputs:
   summary: "{{ sequence.inspect.outputs.stdout }}"
 ```
 
-Cell names use the submitting project's captured naming configuration. `root` and explicit repository locations are also supported. API clients using `recipejob.ResolveTarget` and `BuildStartJob` receive the portable resolution context automatically; clients constructing `StartJob` directly can supply `context.cell_resolution` or use explicit repository locations. A worker never reads its own current directory's project configuration to interpret a selector.
+Cell names resolve through JobDB's registry using the owning lease. Optional `workspace.repo` and captured naming configuration supply portable repository assertions, never identity. An assertion must match the registry. Repository URLs and local paths are not cell names. Clients using `recipejob.ResolveTarget` provide a registry resolver and use `BuildStartJob` to preserve the resolved assertion. Workers never consult their current directory's project configuration.
 
 The default ref follows target resolution: configured self/root refs when applicable, otherwise `main`. For a symbolic ref, entry records an initial observation. Until repository changes are accepted, each task attempt selects a valid hash for that ref during workspace preparation. Consecutive tasks, including steps of one operation and retries, may select different hashes. Const and no-change tasks do not pin later tasks. A running task keeps its selected checkout; completed replay uses recorded results without fetching again. Local paths require access from the worker; use portable Git repository locations for remote workers.
 
@@ -92,7 +92,7 @@ Restart reconstructs state from its retained prefix. Discarding the first write 
 
 `context.workspace.initial_hash` identifies the entry observation. `context.workspace.task_base_hash` is retained for legacy operation observations; `context.git.execution.base_hash` and `head_hash` describe the restored task. Accepted candidate bases take precedence over observations. Cell-hook pin/load tasks retain their selected recipe source without accepting it as workspace work. Unpinned hook-body tasks may select different hashes; accepted hook-body changes propagate normally. Hook source selection remains separate: `source_hooks: from_base` deliberately uses the historical entry observation, `from_base_with_rebase` uses the active base, and `from_current` uses the observed candidate. None of these source selections alone accepts repository changes.
 
-Compatibility: new symbolic workspace resolutions record `ref_policy: follow-per-task-until-change` and add no per-task base-resolution chapters. Histories with `ref_policy: follow-until-change` retain their `workspace-base`/`hook-base` tasks and operation observations for replay and unfinished continuation. Histories without a ref policy retain their original pinning, including on restart: equal base/persist hashes or missing thin packs cannot reliably distinguish an observation from explicit base adoption. Existing completed operations and accepted work are never rewritten or discarded. Upgrade replay readers, compiler, and task workers together; legacy histories can opt into the new behavior by starting a new workspace invocation. Missing selected commits fail rather than falling back to another revision.
+Symbolic workspace resolutions record `ref_policy: follow-per-task-until-change`. Tasks resolve their bases without separate `workspace-base` or `hook-base` chapters. The named-cell release requires fresh JobDB storage; old histories are incompatible. Exact snapshots stay pinned through replay and restart. Upgrade clients and workers together.
 
 The corrected reader supports existing histories. Unchanged older readers are not guaranteed to understand new hook-state handoffs even when task names are unchanged; upgrade embedded story/replay consumers such as Cortex as well as the CLI.
 
@@ -113,7 +113,7 @@ Normal node outputs and artifacts remain available through `sequence.<id>` or `s
 
 A workspace selection does not change the job's tenant, ownership, execution image, or node execution requirements. It does not reload the recipe from the selected cell. Use `execution_needs` when work needs different execution resources.
 
-Explicit child recipe operations and child groups default to the active workspace's cell and Git data. They receive the matching snapshot when inheriting unmerged changes, while maintaining an independent child lineage. Awaiting their result does not adopt child changes. An explicit child cell override must have a matching Git repository; changing the label alone cannot retarget inherited working data.
+Explicit child recipe operations and child groups default to the active workspace's cell and Git data. They receive the matching snapshot when inheriting unmerged changes, while maintaining an independent child lineage. Awaiting their result does not adopt child changes. An explicit child cell override resolves its repository through JobDB; `cell_repo` supplies an optional assertion.
 
 This isolation also applies at the implicit root, before or after a consultation, and to `const` await nodes. Child thin packs and diffs remain available through the result's `outputs.artifacts` references with their original child job/task keys; they are not attached as the awaiting task's automatic snapshot. Child user artifacts continue to propagate normally. For child groups, use each child's artifact map to distinguish evidence with the same filename.
 
@@ -143,3 +143,5 @@ C2OPS_REPOSITORY=/absolute/path/to/c2ops \
 C2J_TEST_LOG_DIR=/tmp/c2j-recipe-regression-logs \
   /absolute/path/to/recipes/recipe-tests/run-defaults.sh
 ```
+
+See [named cells](https://github.com/colony-2/c2j/blob/main/GUIDE-Named-Cells.md) for registration, root bootstrap, permissions, and the storage cutover.

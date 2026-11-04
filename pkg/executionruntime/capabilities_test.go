@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/c2j/pkg/execution"
 	"github.com/colony-2/c2j/pkg/jobdbschema"
 	"github.com/colony-2/c2j/pkg/recipe"
@@ -52,7 +53,7 @@ sequence:
 			require.Equal(t, outer.Capabilities, event.Allocation.Capabilities)
 			require.EqualValues(t, 1, tasks[0].runs.Load())
 			require.Zero(t, tasks[1].runs.Load())
-			info, err := f.runtime.GetJob(context.Background(), f.key)
+			info, err := f.runtime.GetJob(celltest.Context(context.Background()), f.key)
 			require.NoError(t, err)
 			view := execution.Inspect(nil, info.ClientPayload)
 			require.Equal(t, event.Demand.Effective.Capabilities, view.Demand.Effective.Capabilities)
@@ -62,7 +63,7 @@ sequence:
 			out, event = runNode(t, f, full, f.tasks[:2])
 			require.Equal(t, jobworkflow.JobRunSuspended, out.Status)
 			require.Nil(t, event, "missing sibling worker uses ordinary handoff")
-			info, err = f.runtime.GetJob(context.Background(), f.key)
+			info, err = f.runtime.GetJob(celltest.Context(context.Background()), f.key)
 			require.NoError(t, err)
 			view = execution.Inspect(nil, info.ClientPayload)
 			require.Equal(t, outer.Capabilities, view.Demand.Effective.Capabilities, "nested contributions must not leak")
@@ -74,7 +75,7 @@ sequence:
 			}
 			engine, err := jobworkflow.NewEngineBuilder().WithRuntime(f.runtime).WithWorkerTenantId("tenant").PlusWorkers(compiler.NewRecipeJobWorker(compiler.RecipeJobWorkerOptions{ReadOnlyReplay: true})).BuildEngine()
 			require.NoError(t, err)
-			_, err = engine.ReplayJobRun(context.Background(), jobworkflow.ReplayRunRequest{JobKey: f.key, JobWorker: compiler.NewRecipeJobWorker(compiler.RecipeJobWorkerOptions{ReadOnlyReplay: true})})
+			_, err = engine.ReplayJobRun(celltest.Context(context.Background()), jobworkflow.ReplayRunRequest{JobKey: f.key, JobWorker: compiler.NewRecipeJobWorker(compiler.RecipeJobWorkerOptions{ReadOnlyReplay: true})})
 			require.NoError(t, err, "fully cached replay needs no allocation")
 			for _, task := range tasks {
 				require.EqualValues(t, 1, task.runs.Load())
@@ -114,7 +115,7 @@ sequence:
 			out, event = runNode(t, f, capabilityAllocation("discovered"), f.tasks)
 			require.Equal(t, jobworkflow.JobRunCompleted, out.Status)
 			require.Nil(t, event)
-			run, err := jobdb.GetJobRun(context.Background(), f.runtime, jobdb.GetJobRunRequest{JobKey: f.key})
+			run, err := jobdb.GetJobRun(celltest.Context(context.Background()), f.runtime, jobdb.GetJobRunRequest{JobKey: f.key})
 			require.NoError(t, err)
 			var scopeID string
 			for _, e := range run.Execution {
@@ -125,7 +126,7 @@ sequence:
 			require.NotEmpty(t, scopeID)
 			engine, err := jobworkflow.NewEngineBuilder().WithRuntime(f.runtime).WithWorkerTenantId("tenant").PlusWorkers(compiler.NewRecipeJobWorker(compiler.RecipeJobWorkerOptions{ReadOnlyReplay: true})).BuildEngine()
 			require.NoError(t, err)
-			ref, err := starter.RestartRecipeJob(context.Background(), jobdbschema.WorkflowEngine{Engine: engine, Registry: f.runtime.(jobdb.JobSchemaRegistry)}, f.key, scopeID, nil, starter.RestartOptions{Goal: "new", RequestID: "capability-restart"})
+			ref, err := starter.RestartRecipeJob(celltest.Context(context.Background()), jobdbschema.WorkflowEngine{Engine: engine, Registry: f.runtime.(jobdb.JobSchemaRegistry)}, f.key, scopeID, nil, starter.RestartOptions{Goal: "new", RequestID: "capability-restart"})
 			require.NoError(t, err)
 			f.key = ref.Key()
 			out, event = runNode(t, f, capabilityAllocation(), f.tasks)
@@ -148,7 +149,7 @@ func TestCapabilitiesIncludeRestoresParent(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "child.yaml"), []byte("id: included\nexecution_needs: {capabilities: [included]}\nsequence:\n - id: inside\n   op: needs_a\n"), 0600))
 	r, err := recipe.LoadRecipeFromString([]byte("id: parent\nexecution_needs: {capabilities: [parent]}\nsequence:\n - id: include\n   include: ./child.yaml\n   perms: {limit: {jobdb: {}}}\n - id: sibling\n   op: needs_b\n"))
 	require.NoError(t, err)
-	expanded, err := compiler.ResolveInlineRecipes(context.Background(), *r, compiler.InlineResolutionOptions{RootFile: filepath.Join(dir, "root.yaml")})
+	expanded, err := compiler.ResolveInlineRecipes(celltest.Context(context.Background()), *r, compiler.InlineResolutionOptions{RootFile: filepath.Join(dir, "root.yaml")})
 	require.NoError(t, err)
 	submitNodeRecipe(t, f, expanded.Recipe)
 	_, event := runNode(t, f, capabilityAllocation("parent"), f.tasks)
@@ -173,9 +174,9 @@ func TestPreCapabilityJobsResumeAndReplay(t *testing.T) {
 			out, event := f.run(t, "2Gi", f.tasks)
 			require.Equal(t, jobworkflow.JobRunSuspended, out.Status)
 			require.Empty(t, event.Demand.Effective.Capabilities)
-			info, err := f.runtime.GetJob(context.Background(), f.key)
+			info, err := f.runtime.GetJob(celltest.Context(context.Background()), f.key)
 			require.NoError(t, err)
-			listed, err := f.runtime.ListJobs(context.Background(), jobdb.ListJobsRequest{TenantIds: []string{"tenant"}, JobKeys: []jobdb.JobKey{f.key}})
+			listed, err := f.runtime.ListJobs(celltest.Context(context.Background()), jobdb.ListJobsRequest{TenantIds: []string{"tenant"}, JobKeys: []jobdb.JobKey{f.key}})
 			require.NoError(t, err)
 			require.Len(t, listed.Jobs, 1)
 			require.NotContains(t, string(listed.Jobs[0].Metadata), "capabilities")
@@ -192,7 +193,7 @@ func TestPreCapabilityJobsResumeAndReplay(t *testing.T) {
 			require.EqualValues(t, 1, f.second.Load())
 			engine, err := jobworkflow.NewEngineBuilder().WithRuntime(f.runtime).WithWorkerTenantId("tenant").PlusWorkers(compiler.NewRecipeJobWorker(compiler.RecipeJobWorkerOptions{ReadOnlyReplay: true})).BuildEngine()
 			require.NoError(t, err)
-			_, err = engine.ReplayJobRun(context.Background(), jobworkflow.ReplayRunRequest{JobKey: f.key, JobWorker: compiler.NewRecipeJobWorker(compiler.RecipeJobWorkerOptions{ReadOnlyReplay: true})})
+			_, err = engine.ReplayJobRun(celltest.Context(context.Background()), jobworkflow.ReplayRunRequest{JobKey: f.key, JobWorker: compiler.NewRecipeJobWorker(compiler.RecipeJobWorkerOptions{ReadOnlyReplay: true})})
 			require.NoError(t, err)
 		})
 	}

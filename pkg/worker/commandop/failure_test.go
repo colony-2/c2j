@@ -4,12 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"github.com/colony-2/c2j/pkg/ops/executiondiag"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/c2j/pkg/ops"
+	"github.com/colony-2/c2j/pkg/ops/executiondiag"
 	"github.com/colony-2/c2j/pkg/secrets"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	"github.com/stretchr/testify/require"
@@ -44,7 +45,7 @@ func TestCommandFailureDiagnostics(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			deps := ops.NewOpDependenciesBuilder().WithJobTool(diagnosticJobTool{}).Build()
-			ctx := context.Background()
+			ctx := celltest.Context(context.Background())
 			if tc.canceled {
 				var cancel context.CancelFunc
 				ctx, cancel = context.WithCancel(ctx)
@@ -63,7 +64,7 @@ func TestCommandFailureDiagnostics(t *testing.T) {
 			require.Len(t, failure.details.Diagnostics, 1)
 			require.Empty(t, failure.details.DiagnosticErrors)
 			for _, artifact := range deps.GetOutputArtifacts() {
-				data, e := artifact.Bytes(context.Background())
+				data, e := artifact.Bytes(celltest.Context(context.Background()))
 				require.NoError(t, e)
 				require.Equal(t, "_c2j/execution/execution.log", artifact.Name())
 				require.Contains(t, string(data), "Working directory:")
@@ -88,7 +89,7 @@ func TestCommandFailureDiagnostics(t *testing.T) {
 
 func TestCommandDiagnosticsPreserveNativeTimeoutCause(t *testing.T) {
 	native := jobdb.NewTimeoutError("task", time.Second, jobdb.TimeoutScopeTotal, nil, false)
-	ctx, cancel := context.WithCancelCause(context.Background())
+	ctx, cancel := context.WithCancelCause(celltest.Context(context.Background()))
 	cancel(native)
 	deps := ops.NewOpDependenciesBuilder().WithJobTool(diagnosticJobTool{}).Build()
 	output, err := execute(deps, ctx, CommandExecutionInput{Run: "sleep 5"})
@@ -111,7 +112,7 @@ func TestCommandDiagnosticsDoNotChangeSuccessOrContinue(t *testing.T) {
 		{Run: "printf 'ok\n'; sleep 5", Timeout: "200ms", ContinueOnError: true},
 	} {
 		deps := ops.NewOpDependenciesBuilder().WithJobTool(diagnosticJobTool{}).Build()
-		output, err := execute(deps, context.Background(), input)
+		output, err := execute(deps, celltest.Context(context.Background()), input)
 		require.NoError(t, err)
 		require.Equal(t, "ok", output.Stdout)
 		require.Empty(t, deps.GetOutputArtifacts())
@@ -122,7 +123,7 @@ func TestCommandDiagnosticCollectionFailureAndRedaction(t *testing.T) {
 	deps := ops.NewOpDependenciesBuilder().WithJobTool(diagnosticJobTool{}).Build()
 	redactor := secrets.NewRedactor()
 	require.NoError(t, redactor.Register("private-credential"))
-	ctx := secrets.WithRedactor(context.Background(), redactor)
+	ctx := secrets.WithRedactor(celltest.Context(context.Background()), redactor)
 	_, err := execute(deps, ctx, CommandExecutionInput{Run: "printf private-credential; printf private-credential >&2; exit 7"})
 	require.EqualError(t, err, "command execution failed: exit status 7")
 	for _, artifact := range deps.GetOutputArtifacts() {
@@ -146,7 +147,7 @@ func TestCommandPreviewsAndAutomaticLogs(t *testing.T) {
 		if continued {
 			script += "; exit 7"
 		}
-		out, err := execute(deps, context.Background(), CommandExecutionInput{Run: script, ContinueOnError: continued})
+		out, err := execute(deps, celltest.Context(context.Background()), CommandExecutionInput{Run: script, ContinueOnError: continued})
 		require.NoError(t, err)
 		require.Equal(t, !continued, out.Success)
 		require.True(t, out.StdoutTruncated)
@@ -157,7 +158,7 @@ func TestCommandPreviewsAndAutomaticLogs(t *testing.T) {
 		}
 		require.Len(t, out.Diagnostics, 1)
 		require.Len(t, deps.GetOutputArtifacts(), 1)
-		raw, e := deps.GetOutputArtifacts()[0].Bytes(context.Background())
+		raw, e := deps.GetOutputArtifacts()[0].Bytes(celltest.Context(context.Background()))
 		require.NoError(t, e)
 		counts := [2]int{}
 		for _, line := range strings.Split(string(raw), "\n") {
@@ -176,11 +177,11 @@ func TestCommandPreviewsAndAutomaticLogs(t *testing.T) {
 }
 func TestCommandAlwaysAndUnavailableLog(t *testing.T) {
 	deps := ops.NewOpDependenciesBuilder().WithJobTool(diagnosticJobTool{}).Build()
-	out, err := execute(deps, context.Background(), CommandExecutionInput{Run: "printf ok", CaptureDiagnostics: "always"})
+	out, err := execute(deps, celltest.Context(context.Background()), CommandExecutionInput{Run: "printf ok", CaptureDiagnostics: "always"})
 	require.NoError(t, err)
 	require.Equal(t, "ok", out.Stdout)
 	require.Len(t, out.Diagnostics, 1)
-	out, err = execute(rejectingArtifacts{deps}, context.Background(), CommandExecutionInput{Run: `head -c 20000 /dev/zero | tr '\000' x`})
+	out, err = execute(rejectingArtifacts{deps}, celltest.Context(context.Background()), CommandExecutionInput{Run: `head -c 20000 /dev/zero | tr '\000' x`})
 	require.NoError(t, err)
 	require.True(t, out.Success)
 	require.True(t, out.StdoutTruncated)
@@ -190,10 +191,10 @@ func TestCommandAlwaysAndUnavailableLog(t *testing.T) {
 
 func TestCommandRejectedInvocationHasNoExecutionClaim(t *testing.T) {
 	deps := ops.NewOpDependenciesBuilder().WithJobTool(diagnosticJobTool{}).Build()
-	_, err := execute(deps, context.Background(), CommandExecutionInput{Run: "echo should-not-run", Timeout: "invalid"})
+	_, err := execute(deps, celltest.Context(context.Background()), CommandExecutionInput{Run: "echo should-not-run", Timeout: "invalid"})
 	require.ErrorContains(t, err, "invalid timeout format")
 	require.Len(t, deps.GetOutputArtifacts(), 1)
-	raw, e := deps.GetOutputArtifacts()[0].Bytes(context.Background())
+	raw, e := deps.GetOutputArtifacts()[0].Bytes(celltest.Context(context.Background()))
 	require.NoError(t, e)
 	require.Contains(t, string(raw), "Result: rejected before launch")
 	require.Contains(t, string(raw), "Started: not launched")

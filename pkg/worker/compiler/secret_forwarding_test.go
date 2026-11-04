@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/c2j/pkg/recipe"
 	"github.com/colony-2/c2j/pkg/secrets"
 	"github.com/colony-2/jobdb/pkg/jobdb"
@@ -25,7 +26,7 @@ func TestSecretIncludeBoundarySchemaAndOutputs(t *testing.T) {
 			require.NoError(t, os.WriteFile(included, []byte("id: included\ninput_schema:\n  token: {type: string, secret: "+flag+", required: true}\nsequence: []\n"), 0600))
 			r, err := recipe.LoadRecipeFromString([]byte("id: root\nsequence:\n  - include: ./included.yaml\n    perms: {limit: {jobdb: {}}}\n    inputs: {token: '${{ context.secrets.token }}'}\n"))
 			require.NoError(t, err)
-			expanded, err := ResolveInlineRecipes(context.Background(), *r, InlineResolutionOptions{RootFile: rootFile})
+			expanded, err := ResolveInlineRecipes(celltest.Context(context.Background()), *r, InlineResolutionOptions{RootFile: rootFile})
 			require.NoError(t, err)
 			job, git := GenerateTestContext()
 			c := newWorkflowContext(&countingJobContext{jobKey: jobdb.JobKey{TenantId: "tenant", JobId: "job"}})

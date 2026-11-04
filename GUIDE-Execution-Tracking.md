@@ -254,7 +254,7 @@ versions. There is no in-place migration of old jobs or execution history. See
 
 ```bash
 c2j list --self --embed
-c2j list --cell github.com/acme/app --json --embed
+c2j list --cell app --json --embed
 c2j list --self --job-id JOB_ID --json --embed
 ```
 

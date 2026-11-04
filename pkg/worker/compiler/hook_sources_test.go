@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/c2j/pkg/contextual"
 	"github.com/colony-2/c2j/pkg/git/thinpackrebase"
 	coreops "github.com/colony-2/c2j/pkg/ops"
@@ -61,7 +62,7 @@ outputs:
 					config += "source_hooks: " + mode + "\n"
 				}
 				if scoped {
-					config += fmt.Sprintf("workspace: {cell: %q, ref: %q}\n", repo, initial)
+					config += fmt.Sprintf("workspace: {cell: A, repo: %q, ref: %q}\n", celltest.Repo(repo), initial)
 				}
 				out, _ := runWorkspaceRecipe(t, workspaceTestWorker(t, edit, advance, thinpackrebase.GetRebaseOp()), `id: workspace-test
 `+config+`sequence:

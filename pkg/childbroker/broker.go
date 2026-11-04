@@ -91,6 +91,9 @@ type SubmitRequest struct {
 }
 
 type SubmitResponse struct {
+	Cell     string `json:"cell"`
+	CellID   string `json:"cell_id"`
+	CellRepo string `json:"cell_repo"`
 	GoalID   string `json:"goal_id"`
 	TenantID string `json:"tenant_id"`
 	JobID    string `json:"job_id"`
@@ -151,6 +154,7 @@ func start(ctx context.Context, opts Options, openListener func() (net.Listener,
 	mux.HandleFunc(submitPath, broker.handleSubmit)
 	mux.HandleFunc(submitPath+"/workspace", broker.handleWorkspace)
 	mux.HandleFunc(submitPath+"/self", broker.handleSelf)
+	mux.HandleFunc(submitPath+"/cell", broker.handleResolveCell)
 	broker.server = &http.Server{
 		Handler:           mux,
 		ReadHeaderTimeout: 5 * time.Second,
@@ -276,6 +280,13 @@ func (s *Server) submit(ctx context.Context, req SubmitRequest) (SubmitResponse,
 	if s.submitter == nil {
 		return SubmitResponse{}, fmt.Errorf("submission unavailable for this invocation")
 	}
+	// Embedded leases use worker-owned context for the deployment's cell policy.
+	// RPC context contributes cancellation, never authority or a different lease.
+	call, cancel := context.WithCancel(s.executionContext)
+	defer cancel()
+	stop := context.AfterFunc(ctx, cancel)
+	defer stop()
+	ctx = call
 	start := req.Start
 	start.JobContext.GitProfile = gitprofile.InheritedSelection(s.executionContext)
 	if strings.TrimSpace(start.TenantId) != strings.TrimSpace(s.current.TenantID) {
@@ -320,12 +331,7 @@ func (s *Server) submit(ctx context.Context, req SubmitRequest) (SubmitResponse,
 			return SubmitResponse{}, fmt.Errorf("task-start workspace context is unavailable; upgrade the worker to use workspace submission")
 		}
 		var err error
-		// Preserve the worker's Git profile while honoring RPC cancellation.
-		captureCtx, cancel := context.WithCancel(s.executionContext)
-		stop := context.AfterFunc(ctx, cancel)
-		start, err = s.workspace.Apply(captureCtx, start, req.WorkspaceMode, req.ExplicitTarget)
-		stop()
-		cancel()
+		start, err = s.workspace.Apply(ctx, start, req.WorkspaceMode, req.ExplicitTarget)
 		if err != nil {
 			return SubmitResponse{}, err
 		}
@@ -337,6 +343,7 @@ func (s *Server) submit(ctx context.Context, req SubmitRequest) (SubmitResponse,
 
 	s.record(key, start)
 	return SubmitResponse{
+		Cell: key.Cell, CellID: key.CellID, CellRepo: key.CellRepo,
 		TenantID: key.TenantID,
 		GoalID:   key.GoalID,
 		JobID:    key.JobID,

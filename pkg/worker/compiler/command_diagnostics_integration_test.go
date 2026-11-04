@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/c2j/pkg/artifacts"
 	coreops "github.com/colony-2/c2j/pkg/ops"
 	extops "github.com/colony-2/c2j/pkg/ops/extensions"
@@ -134,14 +135,14 @@ outputs: {captured: '${{ states.recover.outputs }}'}
 					require.True(t, ok)
 					require.Equal(t, key.JobId, stored.JobId)
 					// Read the persisted artifact independently of the consuming op.
-					data, err := stored.ToLazyArtifact(engine, key.TenantId).Bytes(context.Background())
+					data, err := stored.ToLazyArtifact(engine, key.TenantId).Bytes(celltest.Context(context.Background()))
 					require.NoError(t, err)
 					require.Equal(t, "_c2j/execution/failed_command.log", name)
 					require.Equal(t, captured["log"], string(data))
 				}
 
 				if scenario == "retry" {
-					history, err := jobdb.GetJobRun(context.Background(), rt, jobdb.GetJobRunRequest{JobKey: key, IncludeOutputs: true, IncludeArtifacts: true})
+					history, err := jobdb.GetJobRun(celltest.Context(context.Background()), rt, jobdb.GetJobRunRequest{JobKey: key, IncludeOutputs: true, IncludeArtifacts: true})
 					require.NoError(t, err)
 					ordinals := map[int64]bool{}
 					attemptNumber := 0
@@ -160,7 +161,7 @@ outputs: {captured: '${{ states.recover.outputs }}'}
 								streamCount++
 								require.NotNil(t, artifact.Key)
 								ordinals[artifact.Key.TaskOrdinal] = true
-								data, err := artifact.Key.ToLazyArtifact(engine, key.TenantId).Bytes(context.Background())
+								data, err := artifact.Key.ToLazyArtifact(engine, key.TenantId).Bytes(celltest.Context(context.Background()))
 								require.NoError(t, err)
 								require.Contains(t, string(data), fmt.Sprintf("attempt %d", attemptNumber))
 								require.Contains(t, string(data), fmt.Sprintf("error %d", attemptNumber))
@@ -172,7 +173,7 @@ outputs: {captured: '${{ states.recover.outputs }}'}
 					require.Len(t, ordinals, 2, "failed attempts must never overwrite each other's evidence")
 				}
 				require.NoError(t, os.Rename(repo, repo+"-offline"))
-				replayed, err := engine.ReplayJobRun(context.Background(), jobworkflow.ReplayRunRequest{JobKey: key, JobWorker: NewRecipeJobWorker(RecipeJobWorkerOptions{ReadOnlyReplay: true})})
+				replayed, err := engine.ReplayJobRun(celltest.Context(context.Background()), jobworkflow.ReplayRunRequest{JobKey: key, JobWorker: NewRecipeJobWorker(RecipeJobWorkerOptions{ReadOnlyReplay: true})})
 				require.NoError(t, err)
 				require.JSONEq(t, string(out.Output.GetDataOrPanic()), string(replayed.GetDataOrPanic()))
 				runs, err := os.ReadFile(counter)
@@ -250,7 +251,7 @@ outputs:
 				engine, err := jobworkflow.NewEngineBuilder().WithRuntime(rt).WithWorkerTenantId(key.TenantId).PlusWorkers(NewRecipeJobWorker(RecipeJobWorkerOptions{})).BuildEngine()
 				require.NoError(t, err)
 				require.NoError(t, os.Rename(repo, repo+"-offline"))
-				replayed, err := engine.ReplayJobRun(context.Background(), jobworkflow.ReplayRunRequest{JobKey: key, JobWorker: NewRecipeJobWorker(RecipeJobWorkerOptions{ReadOnlyReplay: true})})
+				replayed, err := engine.ReplayJobRun(celltest.Context(context.Background()), jobworkflow.ReplayRunRequest{JobKey: key, JobWorker: NewRecipeJobWorker(RecipeJobWorkerOptions{ReadOnlyReplay: true})})
 				require.NoError(t, err)
 				require.JSONEq(t, string(out.Output.GetDataOrPanic()), string(replayed.GetDataOrPanic()))
 				runs, err := os.ReadFile(counter)

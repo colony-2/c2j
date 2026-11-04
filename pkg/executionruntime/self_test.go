@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/c2j/pkg/permissions"
 	"github.com/colony-2/c2j/pkg/selfinfo"
 	"github.com/colony-2/jobdb/pkg/jobdb"
@@ -46,7 +47,7 @@ func TestSelfInspectionTracksLifetimeWithoutMintingAuthority(t *testing.T) {
 	rt := &Runtime{leases: map[jobdb.JobKey]*lease{}, Issuer: issuer}
 	original := rt.wrapLease(backing, &leaseState{}).(*lease)
 	tc := wf.TaskContext{JobKey: key, InvocationID: "logical-task", AttemptNumber: 2, Step: 47}
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(celltest.Context(context.Background()))
 	defer cancel()
 	grant := permissions.JobDB{Jobs: permissions.JobPermissions{Submit: true}, Secrets: permissions.SecretPermissions{Resolve: []string{"model"}}}
 	ceiling := permissions.JobDB{Secrets: permissions.SecretPermissions{Resolve: []string{"model"}}}
@@ -71,7 +72,7 @@ func TestSelfInspectionTracksLifetimeWithoutMintingAuthority(t *testing.T) {
 	limit := access.LimitDeadline(deadline)
 	defer limit()
 	require.WithinDuration(t, deadline, *inspect().Lease.OperationDeadline, time.Millisecond)
-	_, err = access.Resolve(context.Background(), []string{"model"})
+	_, err = access.Resolve(celltest.Context(context.Background()), []string{"model"})
 	require.NoError(t, err)
 	require.Equal(t, 1, issuer.calls)
 	after := inspect()
@@ -92,7 +93,7 @@ func TestSelfInspectionLostAndRestrictedParent(t *testing.T) {
 	rt := &Runtime{leases: map[jobdb.JobKey]*lease{}}
 	original := rt.wrapLease(backing, &leaseState{}).(*lease)
 	grant := permissions.JobDB{Jobs: permissions.JobPermissions{Submit: true}, Secrets: permissions.SecretPermissions{Resolve: []string{"allowed", "other"}}}
-	access := permissions.NewAccess(context.Background(), grant, nil, nil)
+	access := permissions.NewAccess(celltest.Context(context.Background()), grant, nil, nil)
 	inspect := rt.selfProvider(wf.TaskContext{JobKey: key}, original, access, nil, func() *jobdb.DelegationInfo { return nil })
 	info := inspect()
 	require.Nil(t, info.Execution.AttemptNumber)
@@ -124,7 +125,7 @@ func TestSelfInspectionDoesNotWaitForDelegation(t *testing.T) {
 	issuer := &blockingSelfIssuer{started: make(chan struct{}), release: make(chan struct{}), child: &selfLease{key: key}}
 	rt := &Runtime{leases: map[jobdb.JobKey]*lease{}, Issuer: issuer}
 	original := rt.wrapLease(&selfLease{key: key}, &leaseState{}).(*lease)
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(celltest.Context(context.Background()), 5*time.Second)
 	defer cancel()
 	access, local, stop, err := rt.restrictedAccess(ctx, wf.TaskContext{JobKey: key}, original, permissions.JobDB{Secrets: permissions.SecretPermissions{Resolve: []string{"model"}}}, nil)
 	require.NoError(t, err)
@@ -158,7 +159,7 @@ func TestSelfInspectionExpiredLifetime(t *testing.T) {
 			}
 			rt := &Runtime{leases: map[jobdb.JobKey]*lease{}}
 			original := rt.wrapLease(&selfLease{key: key, expiry: expiry}, &leaseState{}).(*lease)
-			access := permissions.NewAccess(context.Background(), permissions.JobDB{Jobs: permissions.JobPermissions{Submit: true}}, nil, nil)
+			access := permissions.NewAccess(celltest.Context(context.Background()), permissions.JobDB{Jobs: permissions.JobPermissions{Submit: true}}, nil, nil)
 			if operation {
 				cancel := access.LimitDeadline(time.Now().Add(-time.Second))
 				defer cancel()

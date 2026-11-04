@@ -91,7 +91,7 @@ func (a *Access) Submit(ctx context.Context, job jobdb.SubmitJob) (jobref.Ref, e
 	if err := a.Context().Err(); err != nil {
 		return jobref.Ref{}, err
 	}
-	if !a.grant.Jobs.Submit {
+	if !a.grant.Jobs.Submit || (a.grant.Jobs.CellNames != nil && !slices.Contains(a.grant.Jobs.CellNames, job.Cell)) {
 		return jobref.Ref{}, jobdb.ErrLeasePermissionDenied
 	}
 	if a.submit == nil {

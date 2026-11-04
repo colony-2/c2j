@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/c2j/pkg/artifacts"
 	"github.com/colony-2/c2j/pkg/input/openapi"
 	coreops "github.com/colony-2/c2j/pkg/ops"
@@ -66,16 +67,16 @@ inputs:
 		RecipeName: testRecipe.GetMetadata().ID,
 		Inputs:     map[string]interface{}{},
 		JobContext: jobCtx,
-		GitRef:     gitCtx.ParentRef,
+		GitRef:     gitCtx.ParentRef, Cell: "test", CellRepo: celltest.Repo(jobCtx.GitBase.BaseRepo),
 	}
 
-	_, err = starter.StartRecipeJob(context.Background(), job, eng, *testRecipe)
+	_, err = starter.StartRecipeJob(celltest.Context(context.Background()), job, eng, *testRecipe)
 	require.NoError(t, err)
 
 	// Wait for job to reach Ready status
 	var inputs []PendingInput
 	require.EventuallyWithT(t, func(c *assert.CollectT) {
-		inputs, err = mgmtService.collectPendingInputs(context.Background(), "test-project")
+		inputs, err = mgmtService.collectPendingInputs(celltest.Context(context.Background()), "test-project")
 		assert.NoError(c, err)
 		assert.Len(c, inputs, 1)
 	}, 20*time.Second, 100*time.Millisecond, "Expected 1 pending input after waiting")
@@ -96,7 +97,7 @@ inputs:
 	t.Run("ListPending", func(t *testing.T) {
 		req := httptest.NewRequest("GET", "/projects/test-project/user-inputs/pending", nil)
 		w := httptest.NewRecorder()
-		router.ServeHTTP(w, req)
+		celltest.Handler(router).ServeHTTP(w, req)
 
 		require.Equal(t, http.StatusOK, w.Code, "Expected 200 OK, got: %s", w.Body.String())
 
@@ -113,7 +114,7 @@ inputs:
 	t.Run("GetDetails", func(t *testing.T) {
 		req := httptest.NewRequest("GET", "/projects/test-project/user-inputs/"+jobID, nil)
 		w := httptest.NewRecorder()
-		router.ServeHTTP(w, req)
+		celltest.Handler(router).ServeHTTP(w, req)
 
 		require.Equal(t, http.StatusOK, w.Code, "Expected 200 OK, got: %s", w.Body.String())
 
@@ -136,7 +137,7 @@ inputs:
 		req := httptest.NewRequest("POST", "/projects/test-project/user-inputs/"+jobID+"/respond", bytes.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")
 		w := httptest.NewRecorder()
-		router.ServeHTTP(w, req)
+		celltest.Handler(router).ServeHTTP(w, req)
 
 		require.Equal(t, http.StatusOK, w.Code, "Expected 200 OK, got: %s", w.Body.String())
 	})
@@ -147,11 +148,11 @@ inputs:
 		w := httptest.NewRecorder()
 
 		// Create a context with timeout since SSE is long-lived
-		ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+		ctx, cancel := context.WithTimeout(celltest.Context(context.Background()), 100*time.Millisecond)
 		defer cancel()
 		req = req.WithContext(ctx)
 
-		router.ServeHTTP(w, req)
+		celltest.Handler(router).ServeHTTP(w, req)
 
 		// SSE should set proper headers
 		require.Equal(t, "text/event-stream", w.Header().Get("Content-Type"))
@@ -179,7 +180,7 @@ func TestMissingProjectIdParameter(t *testing.T) {
 
 	req := httptest.NewRequest("GET", "/projects/user-inputs/pending", nil)
 	w := httptest.NewRecorder()
-	router.ServeHTTP(w, req)
+	celltest.Handler(router).ServeHTTP(w, req)
 
 	require.Equal(t, http.StatusBadRequest, w.Code)
 	require.Contains(t, w.Body.String(), "projectId is required")
@@ -198,7 +199,7 @@ func TestReviewMetadataDetailsAndPendingStream(t *testing.T) {
 	router.HandleFunc("/projects/{projectId}/user-inputs/{jobId}", service.GetDetails)
 	req := httptest.NewRequest("GET", "/projects/tenant/user-inputs/job", nil)
 	w := httptest.NewRecorder()
-	router.ServeHTTP(w, req)
+	celltest.Handler(router).ServeHTTP(w, req)
 	require.Equal(t, http.StatusOK, w.Code)
 	var details openapi.UserInputDetails
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &details))
@@ -206,7 +207,7 @@ func TestReviewMetadataDetailsAndPendingStream(t *testing.T) {
 	require.Zero(t, *(*details.Form.DocumentMetadata)["brief"].Order)
 	// Native pending events are summaries, not form-bearing events. Keep their
 	// actual snapshot shape; do not invent a new form event or selection path.
-	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Millisecond)
+	ctx, cancel := context.WithTimeout(celltest.Context(context.Background()), 25*time.Millisecond)
 	defer cancel()
 	req = mux.SetURLVars(httptest.NewRequest("GET", "/stream", nil).WithContext(ctx), map[string]string{"projectId": "tenant"})
 	w = httptest.NewRecorder()

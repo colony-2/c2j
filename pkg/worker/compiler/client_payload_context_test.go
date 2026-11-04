@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
 	"github.com/stretchr/testify/require"
@@ -57,10 +58,10 @@ func TestClientPayloadContextForwarding(t *testing.T) {
 				NextRoute: jobdb.Route{JobType: "recipe"}, WaitForJobIDs: []string{"child"},
 				ClientPayloadUpdate: &jobdb.ClientPayloadUpdate{Mode: "reset", ExpectedRevision: &revision, Value: json.RawMessage(`{"cursor":"two"}`)},
 			}, Metadata: json.RawMessage(`{"kind":"probe"}`)}
-			require.NoError(t, wrapped.Yield(context.Background(), req))
+			require.NoError(t, wrapped.Yield(celltest.Context(context.Background()), req))
 			require.Equal(t, []jobworkflow.YieldRequest{req}, inner.yields)
 			inner.yieldErr = jobdb.ErrConflict
-			require.ErrorIs(t, wrapped.Yield(context.Background(), req), jobdb.ErrConflict)
+			require.ErrorIs(t, wrapped.Yield(celltest.Context(context.Background()), req), jobdb.ErrConflict)
 		})
 	}
 }
@@ -70,7 +71,7 @@ func TestValidationDoesNotExposeOrPublishLiveClientPayload(t *testing.T) {
 	for _, wrapped := range []*validationJobContext{{inner: inner}, {}} {
 		require.Nil(t, wrapped.ClientPayload())
 		require.Zero(t, wrapped.ClientPayloadRevision())
-		require.ErrorContains(t, wrapped.Yield(context.Background(), jobworkflow.YieldRequest{Reschedule: jobdb.RescheduleExecutionRequest{NextRoute: jobdb.Route{JobType: "recipe"}}}), "not supported during validation")
+		require.ErrorContains(t, wrapped.Yield(celltest.Context(context.Background()), jobworkflow.YieldRequest{Reschedule: jobdb.RescheduleExecutionRequest{NextRoute: jobdb.Route{JobType: "recipe"}}}), "not supported during validation")
 	}
 	require.Empty(t, inner.yields)
 }

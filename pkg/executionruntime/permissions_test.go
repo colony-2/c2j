@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/c2j/pkg/execution"
 	"github.com/colony-2/c2j/pkg/permissions"
 	"github.com/colony-2/jobdb/pkg/jobdb"
@@ -28,9 +29,9 @@ func (f delegationTask) RunTask(ctx context.Context, tc wf.TaskContext, in jobdb
 }
 
 func TestRestrictedAccessUsesTaskDelegationAndOperationLimit(t *testing.T) {
-	ctx := context.Background()
+	ctx := celltest.Context(context.Background())
 	base := toy.New(toy.WithSecretProvider(&freshGitProvider{}))
-	server := httptest.NewServer(remote.NewServer(base))
+	server := httptest.NewServer(celltest.Handler(remote.NewServer(base)))
 	defer server.Close()
 	client, err := remote.New(server.URL, server.Client())
 	require.NoError(t, err)
@@ -62,7 +63,7 @@ func TestRestrictedAccessUsesTaskDelegationAndOperationLimit(t *testing.T) {
 		require.Len(t, issued.deadlines, 1, "ordinary calls reuse the same child")
 		_, err = access.Resolve(ctx, []string{"rw"})
 		require.ErrorIs(t, err, jobdb.ErrLeasePermissionDenied)
-		_, err = access.Submit(ctx, jobdb.SubmitJob{TenantId: "test", JobType: "child", Data: jobdb.NewTaskDataOrPanic(nil)})
+		_, err = access.Submit(ctx, jobdb.SubmitJob{TenantId: "test", JobType: "child", Data: jobdb.NewTaskDataOrPanic(nil), Cell: "test", CellRepo: "example.test/test"})
 		require.NoError(t, err)
 
 		limit := time.Now().UTC().Add(10 * time.Second)
@@ -104,7 +105,7 @@ func TestRestrictedAccessUsesTaskDelegationAndOperationLimit(t *testing.T) {
 			})
 		})
 	}}
-	handle, err := client.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "test", JobType: worker.Name(), Data: jobdb.NewTaskDataOrPanic(nil)}})
+	handle, err := client.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "test", JobType: worker.Name(), Data: jobdb.NewTaskDataOrPanic(nil), Cell: "test", CellRepo: "example.test/test"}})
 	require.NoError(t, err)
 	run, err := wf.GetJobForRun(ctx, rt, wf.GetJobForRunRequest{JobKey: handle.JobKey, JobWorker: worker, TaskWorkers: []wf.TaskWorker{task}, WorkerID: "owner", LeaseDuration: time.Minute})
 	require.NoError(t, err)
@@ -119,7 +120,7 @@ func TestRestrictedAccessUsesTaskDelegationAndOperationLimit(t *testing.T) {
 
 func TestRuntimeDelegationUnsupported(t *testing.T) {
 	rt := New(toy.New(), execution.Allocation{})
-	_, err := rt.CreateDelegation(context.Background(), nil, jobdb.CreateDelegationRequest{})
+	_, err := rt.CreateDelegation(celltest.Context(context.Background()), nil, jobdb.CreateDelegationRequest{})
 	require.ErrorIs(t, err, jobdb.ErrLeaseDelegationUnsupported)
 }
 
@@ -130,9 +131,9 @@ func TestTaskWithoutTimeoutUsesParentBoundRestrictedLease(t *testing.T) {
 			name = "job timeout"
 		}
 		t.Run(name, func(t *testing.T) {
-			ctx := context.Background()
+			ctx := celltest.Context(context.Background())
 			base := toy.New(toy.WithSecretProvider(&freshGitProvider{}))
-			server := httptest.NewServer(remote.NewServer(base))
+			server := httptest.NewServer(celltest.Handler(remote.NewServer(base)))
 			defer server.Close()
 			client, err := remote.New(server.URL, server.Client())
 			require.NoError(t, err)
@@ -165,7 +166,7 @@ func TestTaskWithoutTimeoutUsesParentBoundRestrictedLease(t *testing.T) {
 				policy.TotalTimeout = jobdb.AsDuration(5 * time.Minute)
 			}
 			input := jobdb.NewTaskDataOrPanic(map[string]any{"permissions": permissions.State{Version: permissions.Version, Grant: &grant}})
-			h, err := client.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "test", JobType: worker.Name(), Data: input, RunPolicy: policy}})
+			h, err := client.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "test", JobType: worker.Name(), Data: input, RunPolicy: policy, Cell: "test", CellRepo: "example.test/test"}})
 			require.NoError(t, err)
 			run, err := wf.GetJobForRun(ctx, rt, wf.GetJobForRunRequest{JobKey: h.JobKey, JobWorker: worker, TaskWorkers: []wf.TaskWorker{rt.WrapTaskWorker(task)}, WorkerID: "test", LeaseDuration: time.Minute})
 			require.NoError(t, err)
@@ -190,10 +191,10 @@ func TestTaskRequestsCannotOmitPermissionEnforcement(t *testing.T) {
 		{name: "missing issuer", input: `{}`, missingIssuer: true, wantError: "delegation issuer"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			ctx := context.Background()
+			ctx := celltest.Context(context.Background())
 			provider := &freshGitProvider{}
 			base := toy.New(toy.WithSecretProvider(provider))
-			server := httptest.NewServer(remote.NewServer(base))
+			server := httptest.NewServer(celltest.Handler(remote.NewServer(base)))
 			defer server.Close()
 			client, err := remote.New(server.URL, server.Client())
 			require.NoError(t, err)
@@ -210,14 +211,14 @@ func TestTaskRequestsCannotOmitPermissionEnforcement(t *testing.T) {
 				_, err := access.Resolve(ctx, []string{"model", "rw"})
 				require.ErrorIs(t, err, jobdb.ErrLeasePermissionDenied)
 				require.Zero(t, provider.calls.Load(), "denied names must never reach the provider")
-				_, err = access.Submit(ctx, jobdb.SubmitJob{TenantId: "test", JobType: "child", Data: jobdb.NewTaskDataOrPanic(nil)})
+				_, err = access.Submit(ctx, jobdb.SubmitJob{TenantId: "test", JobType: "child", Data: jobdb.NewTaskDataOrPanic(nil), Cell: "test", CellRepo: "example.test/test"})
 				require.NoError(t, err, "omitted policy retains default submission authority")
 				return in, nil
 			})
 			worker := wf.ExecutionWorker{JobType: "default-policy", Execute: func(c wf.ExecutionContext, in jobdb.JobData) (jobdb.JobData, error) {
 				return c.DoTask(wf.TaskCall{Site: "probe", TaskType: task.Name(), ContractVersion: 1, Command: json.RawMessage(`{}`), Policy: jobdb.RunPolicy{TotalTimeout: jobdb.AsDuration(time.Minute)}}, func(context.Context) (jobdb.TaskData, error) { return in, nil })
 			}}
-			h, err := client.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "test", JobType: worker.Name(), Data: jobdb.NewTaskDataOrPanic(json.RawMessage(tc.input))}})
+			h, err := client.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "test", JobType: worker.Name(), Data: jobdb.NewTaskDataOrPanic(json.RawMessage(tc.input)), Cell: "test", CellRepo: "example.test/test"}})
 			require.NoError(t, err)
 			run, err := wf.GetJobForRun(ctx, rt, wf.GetJobForRunRequest{JobKey: h.JobKey, JobWorker: worker, TaskWorkers: []wf.TaskWorker{rt.WrapTaskWorker(task)}, WorkerID: "test", LeaseDuration: time.Minute})
 			require.NoError(t, err)

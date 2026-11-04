@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/c2j/pkg/git/gitstate"
 	coreops "github.com/colony-2/c2j/pkg/ops"
 	"github.com/colony-2/c2j/pkg/toolenv"
@@ -22,7 +23,7 @@ func TestRepositoryPackageScopePrecedesExistingScopes(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(root, ".c2/config.yaml"), []byte("packages: [uv:repo==1]"), 0600))
 	inv := ActivityInvocationRequest{}
 	req := ToolSetupRequest{Scopes: []toolenv.Scope{{ID: "recipe", Packages: []string{"uv:repo==2"}}, {ID: "op", Packages: []string{"uv:repo==3"}}}}
-	err := InstallWorkspaceInvocation(context.Background(), &inv, req, root, func(_ context.Context, got ToolSetupRequest) ToolSetupResult {
+	err := InstallWorkspaceInvocation(celltest.Context(context.Background()), &inv, req, root, func(_ context.Context, got ToolSetupRequest) ToolSetupResult {
 		require.Equal(t, []toolenv.Scope{{ID: "repository:root", Packages: []string{"uv:repo==1"}}, req.Scopes[0], req.Scopes[1]}, got.Scopes)
 		return ToolSetupResult{}
 	})
@@ -69,7 +70,7 @@ func TestRepositoryOnlyPreparationFailureAttachesDiagnostics(t *testing.T) {
 					continue
 				}
 				found = true
-				b, err := artifact.Bytes(context.Background())
+				b, err := artifact.Bytes(celltest.Context(context.Background()))
 				require.NoError(t, err)
 				var out ActivityInvocationOutput
 				require.NoError(t, json.Unmarshal(b, &out))

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
@@ -35,7 +36,7 @@ func TestFallbackRoundTripAndResolution(t *testing.T) {
 				require.NoError(t, err)
 				require.True(t, ok)
 				require.Equal(t, ref, got)
-				out, diag, err := MaterializeInput(context.Background(), nil, value, func(context.Context) (jobdb.ConfigurationSnapshot, error) {
+				out, diag, err := MaterializeInput(celltest.Context(context.Background()), nil, value, func(context.Context) (jobdb.ConfigurationSnapshot, error) {
 					return jobdb.ConfigurationSnapshot{Revision: "rev"}, nil
 				})
 				require.NoError(t, err)
@@ -57,7 +58,7 @@ func TestFallbackOnlyAppliesToAbsentName(t *testing.T) {
 	require.True(t, ok)
 	for _, raw := range []string{`null`, `false`, `0`, `""`, `"configured"`} {
 		t.Run(raw, func(t *testing.T) {
-			out, diag, err := MaterializeInput(context.Background(), nil, ref, func(context.Context) (jobdb.ConfigurationSnapshot, error) {
+			out, diag, err := MaterializeInput(celltest.Context(context.Background()), nil, ref, func(context.Context) (jobdb.ConfigurationSnapshot, error) {
 				return jobdb.ConfigurationSnapshot{Values: map[string]json.RawMessage{"setting": json.RawMessage(raw)}}, nil
 			})
 			require.NoError(t, err)
@@ -69,7 +70,7 @@ func TestFallbackOnlyAppliesToAbsentName(t *testing.T) {
 		})
 	}
 	failure := errors.New("provider unavailable")
-	_, _, err := MaterializeInput(context.Background(), nil, ref, func(context.Context) (jobdb.ConfigurationSnapshot, error) {
+	_, _, err := MaterializeInput(celltest.Context(context.Background()), nil, ref, func(context.Context) (jobdb.ConfigurationSnapshot, error) {
 		return jobdb.ConfigurationSnapshot{}, failure
 	})
 	require.ErrorIs(t, err, failure)
@@ -80,7 +81,7 @@ func TestMissingReferencesKeepPerInputDefaultsAndNullFields(t *testing.T) {
 	b, _ := Expression(`context.config.?setting.orValue("b")`)
 	input := map[string]any{"a": a, "b": b, "null": Ref("setting"), "list": []any{Ref("setting")}}
 	calls := 0
-	out, diag, err := MaterializeInput(context.Background(), nil, input, func(context.Context) (jobdb.ConfigurationSnapshot, error) {
+	out, diag, err := MaterializeInput(celltest.Context(context.Background()), nil, input, func(context.Context) (jobdb.ConfigurationSnapshot, error) {
 		calls++
 		return jobdb.ConfigurationSnapshot{}, nil
 	})
@@ -107,7 +108,7 @@ func TestFallbackValidation(t *testing.T) {
 		ref, ok := Expression(expr)
 		require.True(t, ok)
 		ref.ExpectedType = "string"
-		_, _, err := MaterializeInput(context.Background(), nil, ref, func(context.Context) (jobdb.ConfigurationSnapshot, error) {
+		_, _, err := MaterializeInput(celltest.Context(context.Background()), nil, ref, func(context.Context) (jobdb.ConfigurationSnapshot, error) {
 			return jobdb.ConfigurationSnapshot{}, nil
 		})
 		require.ErrorContains(t, err, `must be string`)

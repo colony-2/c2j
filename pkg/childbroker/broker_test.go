@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/c2j/pkg/contextual"
 	"github.com/colony-2/c2j/pkg/gitprofile"
 	"github.com/colony-2/c2j/pkg/jobcontext"
@@ -18,10 +19,10 @@ import (
 )
 
 func TestBrokerInheritsClearAndRejectsForgedProfile(t *testing.T) {
-	scope, err := gitprofile.NewScope(context.Background(), gitprofile.Selection{}, jobdb.ConfigurationSnapshot{}, nil, "/usr/bin/c2j")
+	scope, err := gitprofile.NewScope(celltest.Context(context.Background()), gitprofile.Selection{}, jobdb.ConfigurationSnapshot{}, nil, "/usr/bin/c2j")
 	require.NoError(t, err)
 	defer scope.Close()
-	ctx := gitprofile.WithScope(context.Background(), scope)
+	ctx := gitprofile.WithScope(celltest.Context(context.Background()), scope)
 	submitter := &captureSubmitter{}
 	broker, err := Start(ctx, Options{Current: jobcontext.Current{GoalID: "parent-goal", TenantID: "tenant", JobID: "parent"}, Submitter: submitter})
 	require.NoError(t, err)
@@ -35,7 +36,7 @@ func TestBrokerInheritsClearAndRejectsForgedProfile(t *testing.T) {
 	_, err = gitprofile.Call(ctx, socket, gitprofile.Request{Operation: "clear"})
 	require.NoError(t, err)
 	_, err = Submit(ctx, brokerConfig(t, broker), SubmitRequest{Start: workflowctl.StartJob{
-		TenantId: "tenant", RecipeName: "child", JobContext: contextual.JobContext{GitProfile: gitprofile.Selection{Explicit: true, Value: "forged-rw"}},
+		TenantId: "tenant", RecipeName: "child", JobContext: contextual.JobContext{GitProfile: gitprofile.Selection{Explicit: true, Value: "forged-rw"}}, Cell: "test", CellRepo: celltest.Repo(""),
 	}})
 	require.NoError(t, err)
 	raw, err := submitter.last.Data.GetData()
@@ -46,7 +47,7 @@ func TestBrokerInheritsClearAndRejectsForgedProfile(t *testing.T) {
 }
 
 func TestBrokerSubmitUsesLeaseSubmitterAndOverridesParent(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(celltest.Context(context.Background()), 5*time.Second)
 	defer cancel()
 
 	submitter := &captureSubmitter{}
@@ -78,7 +79,7 @@ func TestBrokerSubmitUsesLeaseSubmitterAndOverridesParent(t *testing.T) {
 		},
 		JobContext: contextual.JobContext{
 			Workflow: contextual.WorkflowContext{ProjectId: "tenant", CellName: "cell"},
-		},
+		}, Cell: "test", CellRepo: celltest.Repo(""),
 	}, []jobdb.Artifact{jobdb.NewArtifactFromBytes("input.txt", []byte("hello"))})
 	if err != nil {
 		t.Fatalf("NewSubmitRequest(): %v", err)
@@ -120,7 +121,7 @@ func TestBrokerSubmitUsesLeaseSubmitterAndOverridesParent(t *testing.T) {
 }
 
 func TestBrokerRejectsCrossTenantSubmit(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(celltest.Context(context.Background()), 5*time.Second)
 	defer cancel()
 
 	broker, err := Start(ctx, Options{
@@ -135,7 +136,7 @@ func TestBrokerRejectsCrossTenantSubmit(t *testing.T) {
 	_, err = Submit(ctx, brokerConfig(t, broker), SubmitRequest{
 		Start: workflowctl.StartJob{
 			TenantId:   "other",
-			RecipeName: "deploy",
+			RecipeName: "deploy", Cell: "test", CellRepo: celltest.Repo(""),
 		},
 	})
 	if err == nil {
@@ -144,7 +145,7 @@ func TestBrokerRejectsCrossTenantSubmit(t *testing.T) {
 }
 
 func TestBrokerSubmitReturnsAssignedJobIDWhenStartOmitsJobID(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(celltest.Context(context.Background()), 5*time.Second)
 	defer cancel()
 
 	submitter := &captureSubmitter{}
@@ -164,7 +165,7 @@ func TestBrokerSubmitReturnsAssignedJobIDWhenStartOmitsJobID(t *testing.T) {
 	resp, err := Submit(ctx, brokerConfig(t, broker), SubmitRequest{
 		Start: workflowctl.StartJob{
 			TenantId:   "tenant",
-			RecipeName: "deploy",
+			RecipeName: "deploy", Cell: "test", CellRepo: celltest.Repo(""),
 		},
 	})
 	if err != nil {

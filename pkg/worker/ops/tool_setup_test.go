@@ -3,6 +3,12 @@ package ops
 import (
 	"context"
 	"encoding/json"
+	"os"
+	"path/filepath"
+	"reflect"
+	"testing"
+
+	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/c2j/pkg/contextual"
 	"github.com/colony-2/c2j/pkg/git/gitstate"
 	coreops "github.com/colony-2/c2j/pkg/ops"
@@ -14,22 +20,18 @@ import (
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
 	"github.com/stretchr/testify/require"
-	"os"
-	"path/filepath"
-	"reflect"
-	"testing"
 )
 
 func TestToolSetupFailureDiagnostics(t *testing.T) {
 	t.Setenv("C2J_TOOL_CACHE_DIR", t.TempDir())
-	result := PrepareTools(context.Background(), ToolSetupRequest{Scopes: []toolenv.Scope{{ID: "recipe", Packages: []string{"unsupported:tool"}}}})
+	result := PrepareTools(celltest.Context(context.Background()), ToolSetupRequest{Scopes: []toolenv.Scope{{ID: "recipe", Packages: []string{"unsupported:tool"}}}})
 	require.Contains(t, result.Diagnostics.Error, "unsupported package prefix")
 	require.Len(t, result.Diagnostics.Tools, 1)
 	require.Equal(t, "failed", result.Diagnostics.Tools[0].Outcome)
 }
 func TestExtensionResolutionFailure(t *testing.T) {
 	inv := ActivityInvocationRequest{Preparation: PreparationRequest{Extension: &ExtensionResolutionRequest{Selector: "./missing", Options: extops.ResolveOptions{BaseDir: t.TempDir()}}}}
-	_, err := ResolveInvocation(context.Background(), &inv)
+	_, err := ResolveInvocation(celltest.Context(context.Background()), &inv)
 	require.ErrorContains(t, err, "extension setup failed")
 }
 
@@ -46,7 +48,7 @@ func TestPreparationFailureAttachesOutcomeDiagnostics(t *testing.T) {
 	artifacts, err := data.GetArtifacts()
 	require.NoError(t, err)
 	require.Len(t, artifacts, 1)
-	raw, err := artifacts[0].Bytes(context.Background())
+	raw, err := artifacts[0].Bytes(celltest.Context(context.Background()))
 	require.NoError(t, err)
 	var diagnostic ActivityInvocationOutput
 	require.NoError(t, json.Unmarshal(raw, &diagnostic))
@@ -81,7 +83,7 @@ run: unused
 	inv := ActivityInvocationRequest{Permissions: &permissions.State{Version: permissions.Version, Grant: &permissions.JobDB{Secrets: permissions.SecretPermissions{Resolve: []string{"bound"}}}}, Input: map[string]any{"inputs": input}, Preparation: PreparationRequest{Extension: &ExtensionResolutionRequest{
 		Selector: "./", Options: extops.ResolveOptions{BaseDir: root}, RawInputs: raw, TemplateContext: snapshot,
 	}}}
-	require.NoError(t, PrepareInvocation(context.Background(), &inv, func(_ context.Context, req ToolSetupRequest) ToolSetupResult {
+	require.NoError(t, PrepareInvocation(celltest.Context(context.Background()), &inv, func(_ context.Context, req ToolSetupRequest) ToolSetupResult {
 		return ToolSetupResult{Extension: req.Extension}
 	}))
 	refs, err := secrets.InvocationReferences(reflect.TypeFor[extops.ExecutionInput](), inv.Input)
@@ -89,7 +91,7 @@ run: unused
 	session := secrets.NewSession()
 	defer session.Close()
 	calls := 0
-	require.NoError(t, session.PrepareReferences(context.Background(), refs, func(_ context.Context, names []string) (jobdb.SecretResolveResult, error) {
+	require.NoError(t, session.PrepareReferences(celltest.Context(context.Background()), refs, func(_ context.Context, names []string) (jobdb.SecretResolveResult, error) {
 		calls++
 		require.ElementsMatch(t, []string{"missing", "bound"}, names)
 		return jobdb.SecretResolveResult{Secrets: map[string]jobdb.SecretValue{"bound": {Value: "resolved-value"}}}, nil

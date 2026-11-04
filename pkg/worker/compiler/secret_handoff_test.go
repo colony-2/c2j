@@ -8,6 +8,7 @@ import (
 	"testing/synctest"
 	"time"
 
+	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/c2j/pkg/contextual"
 	"github.com/colony-2/c2j/pkg/recipe"
 	"github.com/colony-2/c2j/pkg/workflow"
@@ -78,10 +79,10 @@ func TestRecipeReplayDoesNotWaitForPreviousActivationCleanup(t *testing.T) {
 	for _, mode := range []string{"workflow wait", "task wait"} {
 		t.Run(mode, func(t *testing.T) {
 			synctest.Test(t, func(t *testing.T) {
-				ctx := context.Background()
+				ctx := celltest.Context(context.Background())
 				base := toy.New()
 				child, err := base.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{
-					TenantId: "handoff", JobType: "child", Data: jobdb.NewTaskDataOrPanic(nil),
+					TenantId: "handoff", JobType: "child", Data: jobdb.NewTaskDataOrPanic(nil), Cell: "test", CellRepo: "example.test/test",
 				}})
 				require.NoError(t, err)
 				childWorker := jobworkflow.ExecutionWorker{JobType: "child", Execute: func(jobworkflow.ExecutionContext, jobdb.JobData) (jobdb.JobData, error) {
@@ -111,14 +112,14 @@ func TestRecipeReplayDoesNotWaitForPreviousActivationCleanup(t *testing.T) {
 				})
 				// Keep the source unembedded so replay must consume root-source at ordinal 3.
 				parent, err := base.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{
-					TenantId: "handoff", JobType: worker.Name(), Data: jobdb.NewTaskDataOrPanic(workflowctl.StartJob{RecipeName: "parent", TenantId: "handoff"}),
+					TenantId: "handoff", JobType: worker.Name(), Data: jobdb.NewTaskDataOrPanic(workflowctl.StartJob{RecipeName: "parent", TenantId: "handoff", Cell: "test", CellRepo: celltest.Repo("")}), Cell: "test", CellRepo: "example.test/test",
 				}})
 				require.NoError(t, err)
 				acquire := func(id string) *jobworkflow.JobRunnable {
 					t.Helper()
 					h, err := jobworkflow.GetJobForRun(ctx, rt, jobworkflow.GetJobForRunRequest{
 						JobKey: parent.JobKey, JobWorker: worker, WorkerID: id, LeaseDuration: time.Hour,
-						TaskWorkers: []jobworkflow.TaskWorker{newRootSourceResolutionTaskWorker(resolver), goalHandoffTask{goal: child.GoalID}},
+						TaskWorkers: []jobworkflow.TaskWorker{NewCellContextTaskWorker(), newRootSourceResolutionTaskWorker(resolver), goalHandoffTask{goal: child.GoalID}},
 					})
 					require.NoError(t, err)
 					return h

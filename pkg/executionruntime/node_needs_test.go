@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/c2j/pkg/contextual"
 	"github.com/colony-2/c2j/pkg/execution"
 	"github.com/colony-2/c2j/pkg/jobdbschema"
@@ -83,7 +84,7 @@ func submitNodeRecipe(t *testing.T, f *fixture, r recipe.Recipe, options ...star
 	if len(options) > 0 {
 		opts = options[0]
 	}
-	fkeyRef, err := starter.StartRecipeJobWithOptions(context.Background(), workflowctl.StartJob{TenantId: "tenant", RecipeName: r.GetMetadata().ID, JobContext: jobContext, GitRef: git.ParentRef}, jobdbschema.WorkflowEngine{Engine: engine, Registry: f.runtime.(jobdb.JobSchemaRegistry)}, opts, r)
+	fkeyRef, err := starter.StartRecipeJobWithOptions(celltest.Context(context.Background()), workflowctl.StartJob{TenantId: "tenant", RecipeName: r.GetMetadata().ID, JobContext: jobContext, GitRef: git.ParentRef, Cell: "test", CellRepo: celltest.Repo(jobContext.GitBase.BaseRepo)}, jobdbschema.WorkflowEngine{Engine: engine, Registry: f.runtime.(jobdb.JobSchemaRegistry)}, opts, r)
 	f.key = fkeyRef.Key()
 	require.NoError(t, err)
 }
@@ -96,7 +97,7 @@ func runNode(t *testing.T, f *fixture, alloc execution.Allocation, tasks []jobwo
 	for i, tw := range tasks {
 		wrapped[i] = rt.WrapTaskWorker(tw)
 	}
-	runnable, err := jobworkflow.GetJobForRun(context.Background(), rt, jobworkflow.GetJobForRunRequest{JobKey: f.key, JobWorker: worker, TaskWorkers: wrapped, WorkerID: "needs-test", LeaseDuration: time.Minute})
+	runnable, err := jobworkflow.GetJobForRun(celltest.Context(context.Background()), rt, jobworkflow.GetJobForRunRequest{JobKey: f.key, JobWorker: worker, TaskWorkers: append(wrapped, compiler.NewCellContextTaskWorker()), WorkerID: "needs-test", LeaseDuration: time.Minute})
 	require.NoError(t, err)
 	out, err := runnable.Run(nil)
 	require.NoError(t, err)
@@ -139,7 +140,7 @@ func TestNodeNeedsScopeTransitionsAndCachedTaskReplay(t *testing.T) {
 	for _, backend := range []string{"toy", "sqlite", "remote"} {
 		t.Run(backend, func(t *testing.T) {
 			f, tasks := newNodeFixture(t, backend, scopedRecipe)
-			listed, err := f.runtime.ListJobs(context.Background(), jobdb.ListJobsRequest{TenantIds: []string{"tenant"}, JobKeys: []jobdb.JobKey{f.key}})
+			listed, err := f.runtime.ListJobs(celltest.Context(context.Background()), jobdb.ListJobsRequest{TenantIds: []string{"tenant"}, JobKeys: []jobdb.JobKey{f.key}})
 			require.NoError(t, err)
 			require.Len(t, listed.Jobs, 1)
 			require.Equal(t, "unresolved", execution.Inspect(listed.Jobs[0].Metadata, listed.Jobs[0].ClientPayload).Status)
@@ -183,7 +184,7 @@ sequence:
 	out, event := runNode(t, f, allocation("32Gi"), f.tasks[:1])
 	require.Equal(t, jobworkflow.JobRunSuspended, out.Status)
 	require.Nil(t, event, "ordinary unsupported-task handoff, not an environment change")
-	info, err := f.runtime.GetJob(context.Background(), f.key)
+	info, err := f.runtime.GetJob(celltest.Context(context.Background()), f.key)
 	require.NoError(t, err)
 	d, err := execution.PayloadDemand(info.ClientPayload)
 	require.NoError(t, err)
@@ -218,7 +219,7 @@ sequence:
 	require.Nil(t, event)
 	require.EqualValues(t, 1, tasks[0].runs.Load())
 	require.EqualValues(t, 1, tasks[1].runs.Load())
-	info, err := f.runtime.GetJob(context.Background(), f.key)
+	info, err := f.runtime.GetJob(celltest.Context(context.Background()), f.key)
 	require.NoError(t, err)
 	require.Empty(t, info.ClientPayload, "live scope changes require no scheduler writes")
 }
@@ -230,22 +231,22 @@ func TestNodeNeedsRecoveryIgnoresStalePublishedScope(t *testing.T) {
 			a := nodeAllocation("16Gi", "linux/amd64", "example.com/runner:a")
 			b := nodeAllocation("8Gi", "linux/arm64", "example.com/runner:b")
 			_, _ = runNode(t, f, a, f.tasks[:1])
-			old, err := f.runtime.GetJob(context.Background(), f.key)
+			old, err := f.runtime.GetJob(celltest.Context(context.Background()), f.key)
 			require.NoError(t, err)
 			_, _ = runNode(t, f, b, f.tasks[:2])
 			// Model recovery with a saved B snapshot and durable B result, but no newer
 			// published scope. Scheduler data is deliberately not a live progress mirror.
-			l, err := f.runtime.GetJobLease(context.Background(), jobdb.GetJobLeaseRequest{JobKey: f.key, Routes: []jobdb.Route{{JobType: "recipe", TaskType: "needs_c:work"}}, WorkerID: "recovery-fixture", LeaseDuration: time.Minute})
+			l, err := f.runtime.GetJobLease(celltest.Context(context.Background()), jobdb.GetJobLeaseRequest{JobKey: f.key, Routes: []jobdb.Route{{JobType: "recipe", TaskType: "needs_c:work"}}, WorkerID: "recovery-fixture", LeaseDuration: time.Minute})
 			require.NoError(t, err)
 			require.NotNil(t, l)
 			revision := l.ClientPayloadRevision()
-			require.NoError(t, l.Reschedule(context.Background(), jobdb.RescheduleExecutionRequest{NextRoute: jobdb.Route{JobType: "recipe", TaskType: "needs_b:work"}, TaskWait: old.ExecutionState.TaskWait, ClientPayloadUpdate: &jobdb.ClientPayloadUpdate{Mode: "reset", Value: old.ClientPayload, ExpectedRevision: &revision}}))
+			require.NoError(t, l.Reschedule(celltest.Context(context.Background()), jobdb.RescheduleExecutionRequest{NextRoute: jobdb.Route{JobType: "recipe", TaskType: "needs_b:work"}, TaskWait: old.ExecutionState.TaskWait, ClientPayloadUpdate: &jobdb.ClientPayloadUpdate{Mode: "reset", Value: old.ClientPayload, ExpectedRevision: &revision}}))
 			out, event := runNode(t, f, a, f.tasks)
 			// The stale B lease cannot execute C's durable external wait. JobDB first
 			// republishes C's wait so it can be acquired with the correct identity.
 			require.Equal(t, jobworkflow.JobRunSuspended, out.Status)
 			require.Nil(t, event, "stale task coordinates must not request a new environment")
-			current, err := f.runtime.GetJob(context.Background(), f.key)
+			current, err := f.runtime.GetJob(celltest.Context(context.Background()), f.key)
 			require.NoError(t, err)
 			require.NotNil(t, current.ExecutionState.TaskWait)
 			require.NotEqual(t, old.ExecutionState.TaskWait.InputOrdinal, current.ExecutionState.TaskWait.InputOrdinal)
@@ -299,7 +300,7 @@ func TestNodeNeedsInlineScopeRestoresParent(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "child.yaml"), []byte("id: child\nexecution_needs: {resources: {memory: 16Gi}}\nsequence:\n  - id: inside\n    op: needs_a\n"), 0600))
 	r, err := recipe.LoadRecipeFromString([]byte("id: parent\nexecution_needs: {resources: {memory: 2Gi}}\nsequence:\n  - id: inline\n    include: ./child.yaml\n    perms: {limit: {jobdb: {}}}\n  - id: sibling\n    op: needs_b\n"))
 	require.NoError(t, err)
-	expanded, err := compiler.ResolveInlineRecipes(context.Background(), *r, compiler.InlineResolutionOptions{RootFile: filepath.Join(dir, "root.yaml")})
+	expanded, err := compiler.ResolveInlineRecipes(celltest.Context(context.Background()), *r, compiler.InlineResolutionOptions{RootFile: filepath.Join(dir, "root.yaml")})
 	require.NoError(t, err)
 	submitNodeRecipe(t, f, expanded.Recipe)
 	out, event := runNode(t, f, allocation("2Gi"), f.tasks)
@@ -309,7 +310,7 @@ func TestNodeNeedsInlineScopeRestoresParent(t *testing.T) {
 	out, event = runNode(t, f, allocation("16Gi"), f.tasks[:1])
 	require.Equal(t, jobworkflow.JobRunSuspended, out.Status)
 	require.Nil(t, event)
-	info, err := f.runtime.GetJob(context.Background(), f.key)
+	info, err := f.runtime.GetJob(celltest.Context(context.Background()), f.key)
 	require.NoError(t, err)
 	d, err := execution.PayloadDemand(info.ClientPayload)
 	require.NoError(t, err)
@@ -360,7 +361,7 @@ op: needs_a
 	base := f.runtime
 	rt := New(lostResponseRuntime{base}, allocation("2Gi"))
 	worker := compiler.NewRecipeJobWorker(compiler.RecipeJobWorkerOptions{Allocation: allocation("2Gi"), StageExecution: rt.Stage, WrapTaskWorker: rt.WrapTaskWorker})
-	runnable, err := jobworkflow.GetJobForRun(context.Background(), rt, jobworkflow.GetJobForRunRequest{JobKey: f.key, JobWorker: worker, TaskWorkers: []jobworkflow.TaskWorker{rt.WrapTaskWorker(tasks[0])}, WorkerID: "lost-response", LeaseDuration: time.Minute})
+	runnable, err := jobworkflow.GetJobForRun(celltest.Context(context.Background()), rt, jobworkflow.GetJobForRunRequest{JobKey: f.key, JobWorker: worker, TaskWorkers: []jobworkflow.TaskWorker{compiler.NewCellContextTaskWorker(), rt.WrapTaskWorker(tasks[0])}, WorkerID: "lost-response", LeaseDuration: time.Minute})
 	require.NoError(t, err)
 	uncertain, _ := runnable.Run(nil)
 	require.Nil(t, uncertain.Handoff)

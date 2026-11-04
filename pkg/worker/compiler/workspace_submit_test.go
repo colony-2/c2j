@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/c2j/pkg/cellref"
 	"github.com/colony-2/c2j/pkg/childbroker"
 	"github.com/colony-2/c2j/pkg/contextual"
@@ -54,7 +55,7 @@ outputs:
 					if err != nil {
 						return workspaceSubmitProbeOutput{}, err
 					}
-					req, err := childbroker.NewSubmitRequest(ctx, workflowctl.StartJob{TenantId: deps.JobTool().GetJobKey().TenantId, RecipeName: "workspace_child"}, nil, *child)
+					req, err := childbroker.NewSubmitRequest(ctx, workflowctl.StartJob{TenantId: deps.JobTool().GetJobKey().TenantId, RecipeName: "workspace_child", Cell: "test", CellRepo: celltest.Repo("")}, nil, *child)
 					if err != nil {
 						return workspaceSubmitProbeOutput{}, err
 					}
@@ -63,7 +64,7 @@ outputs:
 					return workspaceSubmitProbeOutput{JobID: resp.JobID}, err
 				})
 				workspaceTestWorker(t, op)
-				eng := newToyEngine(t, "workspace-tests", nil)
+				eng := newToyEngine(t, "workspace-tests", nil, map[string]string{"A": root, "B": other})
 				ctl := &workerworkflow.SWFWorkflowControl{Engine: eng}
 				registry, err := workerops.NewActivityRegistry()
 				require.NoError(t, err)
@@ -86,14 +87,14 @@ outputs:
  result: "${{ sequence.await.outputs }}"
 `, mode)
 				if scoped {
-					yaml += fmt.Sprintf("workspace: {cell: %q}\n", other)
+					yaml += fmt.Sprintf("workspace: {cell: B, repo: %q}\n", celltest.Repo(other))
 				}
 				rec, err := recipe.LoadRecipeFromString([]byte(yaml))
 				require.NoError(t, err)
-				ref, err := starter.StartRecipeJob(context.Background(), workflowctl.StartJob{TenantId: "workspace-tests", RecipeName: "workspace-test", GitRef: "main", JobContext: contextual.JobContext{CellResolution: &cellref.Context{}, Workflow: contextual.WorkflowContext{CellName: "A"}, GitBase: contextual.GitBaseContext{BaseRepo: root, BaseRef: "main"}}}, eng, *rec)
+				ref, err := starter.StartRecipeJob(celltest.Context(context.Background()), workflowctl.StartJob{TenantId: "workspace-tests", RecipeName: "workspace-test", GitRef: "main", JobContext: contextual.JobContext{CellResolution: &cellref.Context{}, Workflow: contextual.WorkflowContext{CellName: "A"}, GitBase: contextual.GitBaseContext{BaseRepo: root, BaseRef: "main"}}, Cell: "A", CellRepo: celltest.Repo(root)}, eng, *rec)
 				require.NoError(t, err)
-				require.NoError(t, jobworkflow.WaitForJobToComplete(context.Background(), 20*time.Second, ref.Key(), eng))
-				data, err := swfutil.JobResult(context.Background(), eng, ref.Key())
+				require.NoError(t, jobworkflow.WaitForJobToComplete(celltest.Context(context.Background()), 20*time.Second, ref.Key(), eng))
+				data, err := swfutil.JobResult(celltest.Context(context.Background()), eng, ref.Key())
 				require.NoError(t, err)
 				raw, err := data.GetData()
 				require.NoError(t, err)

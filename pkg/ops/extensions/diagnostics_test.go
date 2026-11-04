@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/c2j/pkg/ops"
 	"github.com/colony-2/c2j/pkg/ops/executiondiag"
 	"github.com/colony-2/c2j/pkg/secrets"
@@ -36,7 +37,7 @@ func readDiagnostic(t *testing.T, deps ops.OpDependencies) string {
 	require.Len(t, deps.GetOutputArtifacts(), 1)
 	artifact := deps.GetOutputArtifacts()[0]
 	require.Equal(t, "_c2j/execution/check.log", artifact.Name())
-	raw, err := artifact.Bytes(context.Background())
+	raw, err := artifact.Bytes(celltest.Context(context.Background()))
 	require.NoError(t, err)
 	return string(raw)
 }
@@ -51,7 +52,7 @@ func TestExtensionAutomaticDiagnostics(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			deps := diagnosticExtension(t, tc.run, tc.schema)
-			out, err := executeExtension(deps, context.Background(), ExecutionInput{Selector: "./check"})
+			out, err := executeExtension(deps, celltest.Context(context.Background()), ExecutionInput{Selector: "./check"})
 			if tc.wantError == "" {
 				require.NoError(t, err)
 				require.Equal(t, map[string]any{"value": "ok"}, out)
@@ -78,7 +79,7 @@ func TestExtensionAutomaticDiagnostics(t *testing.T) {
 }
 func TestExtensionJSONSurvivesLargeDiagnostics(t *testing.T) {
 	deps := diagnosticExtension(t, `head -c 5000000 /dev/zero | tr '\000' x >&2; printf '{"value":"'; head -c 20000 /dev/zero | tr '\000' y; printf '"}'`, "{type: object}")
-	out, err := executeExtension(deps, context.Background(), ExecutionInput{Selector: "./check"})
+	out, err := executeExtension(deps, celltest.Context(context.Background()), ExecutionInput{Selector: "./check"})
 	require.NoError(t, err)
 	require.Equal(t, strings.Repeat("y", 20000), out["value"])
 	require.Contains(t, readDiagnostic(t, deps), "Capture truncated")
@@ -87,7 +88,7 @@ func TestExtensionCancellationAndRedaction(t *testing.T) {
 	deps := diagnosticExtension(t, `printf private-; sleep .03; printf credential; printf private-credential >&2; sleep 5`, "{type: object}")
 	redactor := secrets.NewRedactor()
 	require.NoError(t, redactor.Register("private-credential"))
-	ctx, cancel := context.WithTimeout(secrets.WithRedactor(context.Background(), redactor), 150*time.Millisecond)
+	ctx, cancel := context.WithTimeout(secrets.WithRedactor(celltest.Context(context.Background()), redactor), 150*time.Millisecond)
 	defer cancel()
 	_, err := executeExtension(deps, ctx, ExecutionInput{Selector: "./check"})
 	require.ErrorIs(t, err, context.DeadlineExceeded)
@@ -109,7 +110,7 @@ func (rejectDiagnostic) AddOutputArtifact(jobdb.Artifact) error {
 func TestExtensionCollectionFailurePreservesOutcome(t *testing.T) {
 	for _, run := range []string{`printf '{"value":"ok"}'`, `exit 7`} {
 		deps := rejectDiagnostic{diagnosticExtension(t, run, "{type: object}")}
-		out, err := executeExtension(deps, context.Background(), ExecutionInput{Selector: "./check"})
+		out, err := executeExtension(deps, celltest.Context(context.Background()), ExecutionInput{Selector: "./check"})
 		if run == "exit 7" {
 			var failure *executiondiag.Failure
 			require.ErrorAs(t, err, &failure)

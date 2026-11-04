@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/toy"
 	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
@@ -26,13 +27,13 @@ func TestSubmitReferencePreservesIdentityWithoutRead(t *testing.T) {
 	sdk, err := jobworkflow.NewEngineBuilder().WithRuntime(rt).BuildEngine()
 	require.NoError(t, err)
 	engine := WorkflowEngine{Engine: sdk, Registry: rt}
-	request := jobdb.SubmitJob{TenantId: "t", JobID: "stable-child", JobType: "recipe", Data: jobdb.NewTaskDataOrPanic(map[string]any{"tenantId": "t", "recipe": "test", "context": map[string]any{}})}
-	first, err := engine.SubmitJobRef(context.Background(), request)
+	request := jobdb.SubmitJob{TenantId: "t", JobID: "stable-child", JobType: "recipe", Data: jobdb.NewTaskDataOrPanic(map[string]any{"cell": "test", "tenantId": "t", "recipe": "test", "context": map[string]any{}}), Cell: "test", CellRepo: "example.test/test"}
+	first, err := engine.SubmitJobRef(celltest.Context(context.Background()), request)
 	require.NoError(t, err)
 	require.NotEmpty(t, first.GoalID)
 	require.Equal(t, "stable-child", first.JobID)
 	require.Equal(t, "t", first.TenantID)
-	retry, err := engine.SubmitJobRef(context.Background(), request)
+	retry, err := engine.SubmitJobRef(celltest.Context(context.Background()), request)
 	require.NoError(t, err)
 	require.Equal(t, first, retry)
 	require.Zero(t, rt.reads)

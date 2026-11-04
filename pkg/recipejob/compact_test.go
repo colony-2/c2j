@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/c2j/pkg/execution"
 	"github.com/colony-2/c2j/pkg/joblist"
 	"github.com/colony-2/c2j/pkg/recipejob"
@@ -40,7 +41,7 @@ func TestCompactRecipePageDoesNotEnrichRows(t *testing.T) {
 				require.Equal(t, "before", req.PageToken)
 				return jobdb.ListJobsResponse{Jobs: rows, NextPageToken: "after"}, nil
 			}}
-			page, err := recipejob.ListRecipeJobs(context.Background(), rt, recipejob.ListRecipeJobsRequest{TenantID: "tenant", PageSize: pageSize, PageToken: "before"})
+			page, err := recipejob.ListRecipeJobs(celltest.Context(context.Background()), rt, recipejob.ListRecipeJobsRequest{TenantID: "tenant", PageSize: pageSize, PageToken: "before"})
 			require.NoError(t, err)
 			require.EqualValues(t, 1, rt.calls.Load())
 			require.Equal(t, "after", page.NextPageToken)
@@ -109,7 +110,7 @@ func TestSelectedRecipeJobLoadsDetailsExplicitly(t *testing.T) {
 			ExecutionState: jobdb.ExecutionState{TaskWait: &jobdb.TaskWait{InputOrdinal: 4, OutputOrdinal: 5, InputHash: "hash"}},
 		},
 	}
-	got, err := recipejob.GetRecipeJob(context.Background(), r, recipejob.GetRecipeJobRequest{TenantID: "tenant", JobID: "job"})
+	got, err := recipejob.GetRecipeJob(celltest.Context(context.Background()), r, recipejob.GetRecipeJobRequest{TenantID: "tenant", JobID: "job"})
 	require.NoError(t, err)
 	require.Equal(t, 1, r.lists)
 	require.Equal(t, 1, r.gets)
@@ -126,9 +127,9 @@ func TestSelectedRecipeJobLoadsDetailsExplicitly(t *testing.T) {
 	require.Equal(t, "yield", got.Execution.Source)
 	require.Equal(t, memory, *got.Execution.Demand.Effective.Resources.Memory)
 	r.err = jobdb.ErrJobNotFound
-	_, err = recipejob.GetRecipeJob(context.Background(), r, recipejob.GetRecipeJobRequest{TenantID: "tenant", JobID: "job"})
+	_, err = recipejob.GetRecipeJob(celltest.Context(context.Background()), r, recipejob.GetRecipeJobRequest{TenantID: "tenant", JobID: "job"})
 	require.ErrorIs(t, err, recipejob.ErrJobNotFound)
-	_, err = joblist.ListExecutionJobs(context.Background(), r, jobdb.ListJobsRequest{}, &execution.Filter{})
+	_, err = joblist.ListExecutionJobs(celltest.Context(context.Background()), r, jobdb.ListJobsRequest{}, &execution.Filter{})
 	require.ErrorIs(t, err, joblist.ErrExecutionDetailsRequired)
 	require.Equal(t, 2, r.lists)
 	require.Equal(t, 2, r.gets, "filter rejection must not fetch any job details")

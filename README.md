@@ -140,10 +140,10 @@ Inspect the resolved config:
 c2j self
 ```
 
-List allowed dependent cells:
+List configured dependency routes:
 
 ```bash
-c2j cells
+c2j cell list --dependencies
 ```
 
 Generate a starter config if needed:
@@ -155,7 +155,7 @@ c2j init --stdout
 If the current directory does not resolve as a cell, either:
 
 - create `.c2/config.yaml`, or
-- pass `--cell <repo-or-path>` explicitly to `submit` or `list`
+- pass `--cell NAME (with --cell-repo REPO for first use)` explicitly to `submit` or `list`
 
 ### 2. Submit and run a build job
 
@@ -236,19 +236,24 @@ commands receive a separate two-second context deadline. URLs and registered sec
 redacted. Use structured statuses, rather than exit status, to decide what is
 known: a useful partial report also exits successfully.
 
-### `c2j cells`
+### `c2j cell create` and `c2j cell list`
 
-Lists dependent cells allowed by the current config.
+Create a registered cell, including the reserved root cell:
 
 ```bash
-c2j cells
-c2j cells --json
+c2j cell create root --repo github.com/acme/root
+c2j cell create payments --repo github.com/acme/payments
+c2j cell list --all
+c2j cell list --state ALL --json
+c2j cell list --dependencies
 ```
 
-This is mainly useful when you want to target another cell by short name and need to verify how config expands it.
-
-The table includes a description column. JSON rows contain `short_name`, `repo`,
-and an optional `description`; multiline descriptions retain their newlines in JSON.
+`c2j cells` is also supported. The default lists active cells visible in JobDB;
+`--state ALL` includes retired cells. `--dependencies` displays configured routing
+entries with `short_name`, `repo`, and optional `description`. Routing entries do
+not grant authority or register cells. Creation registers a name and repository
+mapping; it does not create a Git repository. Root creation requires JobDB's
+administrative bootstrap permission. See [Named cells](GUIDE-Named-Cells.md).
 
 ### `c2j cell add`
 
@@ -548,16 +553,13 @@ Use another cell explicitly:
 
 ```bash
 c2j submit "Improve retry behavior" \
-  --cell github.com/colony-2/root \
+  --cell root \
   --embed
 ```
 
-`--cell` accepts:
-
-- a canonical repo string
-- a clone URL
-- a local repository path
-- a configured short name when `.c2/config.yaml` defines a pattern
+`--cell` accepts a JobDB cell name. Use `--cell-repo REPO` for an optional
+repository assertion or first-use registration of an ordinary cell. Root must
+be created explicitly with `c2j cell create root --repo REPO`.
 
 Rules:
 
@@ -700,7 +702,7 @@ c2j delete --all --embed --dry-run
 Use the usual `--jobdb`, environment, or project configuration to select a tenant;
 `--embed` uses local JobDB. Deletion requires an explicit selector or `--all`.
 It does not implicitly select the current cell: use `--self` for that.
-`--cell` matches the owning repository across all refs, as `c2j list` does;
+`--cell` matches the owning registered cell across all refs, as `c2j list` does;
 workspace overrides do not change job ownership. Repeat `--cell` or `--job-id`
 to select any of those values. Different selectors intersect.
 
@@ -837,7 +839,7 @@ c2j list --self --status pending_jobs --status active --embed
 List jobs for another cell:
 
 ```bash
-c2j list --cell github.com/colony-2/root --embed
+c2j list --cell root --embed
 ```
 
 Useful filters:
@@ -959,7 +961,7 @@ c2j submit "Run the requested task" \
 ```bash
 c2j submit "Run the requested task" \
   --advanced-recipe-file ./recipes/my-recipe.yaml \
-  --cell github.com/colony-2/root \
+  --cell root \
   --run \
   --embed
 ```
@@ -971,8 +973,8 @@ c2j submit "Run the requested task" \
 - `--inputs-json` and `--inputs-file` are mutually exclusive
 - `--self` and `--cell` are mutually exclusive
 - `--artifact` names must be unique relative paths; directories are not supported yet
-- `cells` and implicit current-cell submission depend on config or supported auto-detection succeeding; `self` also reports missing configuration
-- short cell names require a config pattern; without config, use an explicit repo or path
+- implicit current-cell submission requires `self.cell` in project configuration
+- cell names resolve through JobDB; repository URLs and local paths are not cell names
 - `submit --advanced-recipe-file` is clearer than passing a local file path through `--advanced-recipe`
 
 ## Related Files
@@ -989,3 +991,5 @@ c2j submit "Run the requested task" \
 ## Op object checkpoints
 
 Ops can publish immutable typed objects containing metadata and files, then accept an explicit reference to any earlier checkpoint. Each consumer receives a fresh writable copy. See [the API and Codex migration guide](GUIDE-Op-Object-Checkpoints.md) for recipe routing, extension manifests, native APIs, and compatibility details.
+
+See [Named cells](GUIDE-Named-Cells.md) for cell creation, registry and dependency listings, and the JobDB storage cutover.

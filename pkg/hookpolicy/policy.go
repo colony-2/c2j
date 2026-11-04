@@ -271,18 +271,13 @@ func (e Entry) Authority(commit string, parent permissions.State, call *permissi
 		}
 	}
 	child.Jobs.Submit = g.Jobs.Submit && e.Trust.Submit.Mode == "candidate"
+	if child.Jobs.Submit {
+		child.Jobs.CellNames = slices.Clone(g.Jobs.CellNames)
+	}
 	s.ChildGrant = &child
 	return s, nil
 }
-func Intersect(a, b permissions.JobDB) permissions.JobDB {
-	out := permissions.JobDB{Jobs: permissions.JobPermissions{Submit: a.Jobs.Submit && b.Jobs.Submit}}
-	for _, n := range a.Secrets.Resolve {
-		if slices.Contains(b.Secrets.Resolve, n) {
-			out.Secrets.Resolve = append(out.Secrets.Resolve, n)
-		}
-	}
-	return out
-}
+func Intersect(a, b permissions.JobDB) permissions.JobDB { return permissions.Intersect(a, b) }
 
 // Edit materializes inheritance for cell edits. An empty override remains explicit.
 func Edit(s Snapshot, cell bool, hook, operation string, names []string, submit bool, trust Trust, replace bool, entry *Entry) (Document, error) {

@@ -10,6 +10,7 @@ import (
 	"testing/synctest"
 	"time"
 
+	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/c2j/pkg/contextual"
 	coreops "github.com/colony-2/c2j/pkg/ops"
 	"github.com/colony-2/c2j/pkg/recipe"
@@ -78,7 +79,7 @@ func probeWorker(t *testing.T, rec recipe.Recipe) jobworkflow.ExecutionWorker {
 }
 func probeRun(t *testing.T, rt jobdb.WorkflowRuntime, key jobdb.JobKey, w jobworkflow.ExecutionWorker, tasks ...jobworkflow.TaskWorker) jobworkflow.JobRunOutcome {
 	t.Helper()
-	h, err := jobworkflow.GetJobForRun(context.Background(), rt, jobworkflow.GetJobForRunRequest{JobKey: key, JobWorker: w, TaskWorkers: tasks, WorkerID: "scope-test", LeaseDuration: time.Minute})
+	h, err := jobworkflow.GetJobForRun(celltest.Context(context.Background()), rt, jobworkflow.GetJobForRunRequest{JobKey: key, JobWorker: w, TaskWorkers: append(tasks, NewCellContextTaskWorker()), WorkerID: "scope-test", LeaseDuration: time.Minute})
 	require.NoError(t, err)
 	out, err := h.Run(nil)
 	require.NoError(t, err)
@@ -86,7 +87,7 @@ func probeRun(t *testing.T, rt jobdb.WorkflowRuntime, key jobdb.JobKey, w jobwor
 }
 func probeSubmit(t *testing.T, rt jobdb.WorkflowRuntime, w jobworkflow.ExecutionWorker) jobdb.JobKey {
 	t.Helper()
-	h, err := rt.SubmitJob(context.Background(), jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "scope-tests", JobType: w.Name(), Data: jobdb.NewTaskDataOrPanic(nil), RunPolicy: jobdb.RunPolicy{Retry: jobdb.RetryPolicy{MaximumAttempts: 1}}}})
+	h, err := rt.SubmitJob(celltest.Context(context.Background()), jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "scope-tests", JobType: w.Name(), Data: jobdb.NewTaskDataOrPanic(nil), RunPolicy: jobdb.RunPolicy{Retry: jobdb.RetryPolicy{MaximumAttempts: 1}}, Cell: "test", CellRepo: "example.test/test"}})
 	require.NoError(t, err)
 	return h.JobKey
 }
@@ -94,7 +95,7 @@ func probeReplay(t *testing.T, rt jobdb.WorkflowRuntime, key jobdb.JobKey, w job
 	t.Helper()
 	engine, err := jobworkflow.NewEngineBuilder().WithRuntime(rt).WithWorkerTenantId(key.TenantId).PlusWorkers(w).BuildEngine()
 	require.NoError(t, err)
-	_, err = engine.ReplayJobRun(context.Background(), jobworkflow.ReplayRunRequest{JobKey: key})
+	_, err = engine.ReplayJobRun(celltest.Context(context.Background()), jobworkflow.ReplayRunRequest{JobKey: key})
 	return err
 }
 func TestExecutionScopesRetryNestedBlockAndReplay(t *testing.T) {
@@ -110,14 +111,14 @@ func TestExecutionScopesRetryNestedBlockAndReplay(t *testing.T) {
 			outcome := probeRun(t, rt, key, w, task)
 			require.Equal(t, jobworkflow.JobRunCompleted, outcome.Status, "%v", outcome.JobError)
 			require.Equal(t, map[string]int{"prefix": 1, "a": 2, "b": 2, "suffix": 1}, task.calls)
-			before, err := rt.ListChapters(context.Background(), jobdb.ListChaptersRequest{JobKey: key})
+			before, err := rt.ListChapters(celltest.Context(context.Background()), jobdb.ListChaptersRequest{JobKey: key})
 			require.NoError(t, err)
 			require.NoError(t, probeReplay(t, rt, key, w))
-			after, err := rt.ListChapters(context.Background(), jobdb.ListChaptersRequest{JobKey: key})
+			after, err := rt.ListChapters(celltest.Context(context.Background()), jobdb.ListChaptersRequest{JobKey: key})
 			require.NoError(t, err)
 			require.Equal(t, before, after, "read-only replay must not append history")
 			require.Equal(t, map[string]int{"prefix": 1, "a": 2, "b": 2, "suffix": 1}, task.calls)
-			run, err := jobdb.GetJobRun(context.Background(), rt, jobdb.GetJobRunRequest{JobKey: key})
+			run, err := jobdb.GetJobRun(celltest.Context(context.Background()), rt, jobdb.GetJobRunRequest{JobKey: key})
 			require.NoError(t, err)
 			var aInvocations []string
 			for _, event := range run.Execution {
@@ -184,7 +185,7 @@ sequence:
 			key := probeSubmit(t, rt, w)
 			first := probeRun(t, rt, key, w, task)
 			require.Equal(t, jobworkflow.JobRunCompleted, first.Status, "%v", first.JobError)
-			run, err := jobdb.GetJobRun(context.Background(), rt, jobdb.GetJobRunRequest{JobKey: key})
+			run, err := jobdb.GetJobRun(celltest.Context(context.Background()), rt, jobdb.GetJobRunRequest{JobKey: key})
 			require.NoError(t, err)
 			var scope string
 			for _, e := range run.Execution {
@@ -195,7 +196,7 @@ sequence:
 			}
 			require.NotEmpty(t, scope)
 			payload := json.RawMessage(`{"job":{"git":{"author":"patched"}}}`)
-			restarted, err := rt.SubmitRestartJob(context.Background(), jobdb.SubmitRestartJobRequest{Job: jobdb.SubmitRestartJob{PriorJobKey: key, ExecutionRestart: &jobdb.ExecutionRestart{ScopeID: scope, Payload: payload}}})
+			restarted, err := rt.SubmitRestartJob(celltest.Context(context.Background()), jobdb.SubmitRestartJobRequest{Job: jobdb.SubmitRestartJob{PriorJobKey: key, ExecutionRestart: &jobdb.ExecutionRestart{ScopeID: scope, Payload: payload}, Cell: "test"}})
 			require.NoError(t, err)
 			outcome := probeRun(t, rt, restarted.JobKey, w, task)
 			require.Equal(t, jobworkflow.JobRunCompleted, outcome.Status, "%v", outcome.JobError)
@@ -287,7 +288,7 @@ sequence:
 			require.Equal(t, map[string]int{"prefix": 1, "a": 1}, task.calls)
 			engine, err := jobworkflow.NewEngineBuilder().WithRuntime(rt).BuildEngine()
 			require.NoError(t, err)
-			pending, err := engine.GetWaitingTask(context.Background(), key)
+			pending, err := engine.GetWaitingTask(celltest.Context(context.Background()), key)
 			require.NoError(t, err)
 			data, err := pending.Data()
 			require.NoError(t, err)
@@ -298,7 +299,7 @@ sequence:
 			require.Equal(t, "wait", invocation.Input["name"])
 			output, err := scopeProbeOutput(invocation.Input, git)
 			require.NoError(t, err)
-			require.NoError(t, pending.Finish(context.Background(), output))
+			require.NoError(t, pending.Finish(celltest.Context(context.Background()), output))
 			// A new worker resumes the inner block, using the recorded prefix outcomes.
 			outcome := probeRun(t, rt, key, probeWorker(t, *rec), task)
 			require.Equal(t, jobworkflow.JobRunCompleted, outcome.Status, "%v", outcome.JobError)
@@ -348,7 +349,7 @@ func TestExecutionScopesBlockBudgetCancelsWorker(t *testing.T) {
 				require.ErrorContains(t, out.JobError, "timed out")
 				<-done
 				require.Error(t, probeReplay(t, rt, key, w), "recorded failure remains a failure on replay")
-				run, err := jobdb.GetJobRun(context.Background(), rt, jobdb.GetJobRunRequest{JobKey: key})
+				run, err := jobdb.GetJobRun(celltest.Context(context.Background()), rt, jobdb.GetJobRunRequest{JobKey: key})
 				require.NoError(t, err)
 				tasks, err := swfutil.ExecutionTasks(run)
 				require.NoError(t, err)
@@ -378,7 +379,7 @@ func TestExecutionScopesStepRetryTimeoutDoesNotRestartParent(t *testing.T) {
 		require.ErrorContains(t, out.JobError, "timed out")
 		<-done
 		require.Error(t, probeReplay(t, rt, key, w))
-		run, err := jobdb.GetJobRun(context.Background(), rt, jobdb.GetJobRunRequest{JobKey: key})
+		run, err := jobdb.GetJobRun(celltest.Context(context.Background()), rt, jobdb.GetJobRunRequest{JobKey: key})
 		require.NoError(t, err)
 		tasks, err := swfutil.ExecutionTasks(run)
 		require.NoError(t, err)
@@ -505,7 +506,7 @@ sequence:
 				require.NoError(t, err)
 				w := probeWorker(t, *rec)
 				key := probeSubmit(t, rt, w)
-				h, err := jobworkflow.GetJobForRun(context.Background(), rt, jobworkflow.GetJobForRunRequest{JobKey: key, JobWorker: w, TaskWorkers: []jobworkflow.TaskWorker{task}, WorkerID: "interrupted", LeaseDuration: time.Minute})
+				h, err := jobworkflow.GetJobForRun(celltest.Context(context.Background()), rt, jobworkflow.GetJobForRunRequest{JobKey: key, JobWorker: w, TaskWorkers: []jobworkflow.TaskWorker{task}, WorkerID: "interrupted", LeaseDuration: time.Minute})
 				require.NoError(t, err)
 				_, err = h.Run(nil)
 				require.Error(t, err)

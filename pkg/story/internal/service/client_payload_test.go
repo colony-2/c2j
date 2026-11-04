@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"testing"
 
+	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/c2j/pkg/story/internal/model"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
@@ -33,12 +34,12 @@ func TestRawJobDataComesFromJobInputNotClientPayload(t *testing.T) {
 	svc, err := New(Config{Engine: engine})
 	require.NoError(t, err)
 	req := model.GetWorkflowRequest{ProjectID: "tenant", WorkflowID: "job"}
-	detail, err := svc.GetWorkflow(context.Background(), req)
+	detail, err := svc.GetWorkflow(celltest.Context(context.Background()), req)
 	require.NoError(t, err)
 	require.Nil(t, detail.RawJobData)
 	require.False(t, engine.requestedInput)
 	req.IncludeRawJobData = true
-	detail, err = svc.GetWorkflow(context.Background(), req)
+	detail, err = svc.GetWorkflow(celltest.Context(context.Background()), req)
 	require.NoError(t, err)
 	require.True(t, engine.requestedInput)
 	require.NotNil(t, detail.RawJobData)

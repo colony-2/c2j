@@ -8,6 +8,7 @@ import (
 
 	"github.com/colony-2/c2j/cmd/c2j/internal/c2jops"
 	"github.com/colony-2/c2j/cmd/c2j/internal/executionflags"
+	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/c2j/pkg/jobdbschema"
 	"github.com/colony-2/c2j/pkg/recipe"
 	"github.com/colony-2/c2j/pkg/starter"
@@ -22,16 +23,16 @@ import (
 func TestRunReportsEnvironmentHandoffAndResumes(t *testing.T) {
 	c2jops.Register()
 	rt := toy.New()
-	ctx := context.Background()
+	ctx := celltest.Context(context.Background())
 	engine, err := jobworkflow.NewEngineBuilder().WithRuntime(rt).BuildEngine()
 	require.NoError(t, err)
 	r, err := recipe.LoadRecipeFromString([]byte("id: resources\nexecution:\n  resources:\n    memory: 16Gi\nop: command_execution\ninputs: {run: 'true'}\n"))
 	require.NoError(t, err)
 	jobContext, git := compiler.GenerateTestContext()
-	keyRef, err := starter.StartRecipeJob(ctx, workflowctl.StartJob{TenantId: "tenant", RecipeName: "resources", JobContext: jobContext, GitRef: git.ParentRef}, jobdbschema.WorkflowEngine{Engine: engine, Registry: rt}, *r)
+	keyRef, err := starter.StartRecipeJob(ctx, workflowctl.StartJob{TenantId: "tenant", RecipeName: "resources", JobContext: jobContext, GitRef: git.ParentRef, Cell: "test", CellRepo: celltest.Repo(jobContext.GitBase.BaseRepo)}, jobdbschema.WorkflowEngine{Engine: engine, Registry: rt}, *r)
 	key := keyRef.Key()
 	require.NoError(t, err)
-	server := httptest.NewServer(remote.NewServer(rt))
+	server := httptest.NewServer(celltest.Handler(remote.NewServer(rt)))
 	defer server.Close()
 	var stdout, stderr bytes.Buffer
 	small := "2Gi"
@@ -61,16 +62,16 @@ func TestRunReportsEnvironmentHandoffAndResumes(t *testing.T) {
 func TestRunNodeExecutionNeedsGuardsRealOperation(t *testing.T) {
 	c2jops.Register()
 	rt := toy.New()
-	ctx := context.Background()
+	ctx := celltest.Context(context.Background())
 	engine, err := jobworkflow.NewEngineBuilder().WithRuntime(rt).BuildEngine()
 	require.NoError(t, err)
 	r, err := recipe.LoadRecipeFromString([]byte("id: node-needs\nexecution_needs: {resources: {memory: 16Gi}}\nop: command_execution\ninputs: {run: 'true'}\n"))
 	require.NoError(t, err)
 	jobContext, git := compiler.GenerateTestContext()
-	keyRef, err := starter.StartRecipeJob(ctx, workflowctl.StartJob{TenantId: "tenant", RecipeName: "node-needs", JobContext: jobContext, GitRef: git.ParentRef}, jobdbschema.WorkflowEngine{Engine: engine, Registry: rt}, *r)
+	keyRef, err := starter.StartRecipeJob(ctx, workflowctl.StartJob{TenantId: "tenant", RecipeName: "node-needs", JobContext: jobContext, GitRef: git.ParentRef, Cell: "test", CellRepo: celltest.Repo(jobContext.GitBase.BaseRepo)}, jobdbschema.WorkflowEngine{Engine: engine, Registry: rt}, *r)
 	key := keyRef.Key()
 	require.NoError(t, err)
-	server := httptest.NewServer(remote.NewServer(rt))
+	server := httptest.NewServer(celltest.Handler(remote.NewServer(rt)))
 	defer server.Close()
 	var stdout, stderr bytes.Buffer
 	memory := "2Gi"

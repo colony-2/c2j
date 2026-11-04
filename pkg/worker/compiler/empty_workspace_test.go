@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/c2j/pkg/contextual"
 	"github.com/colony-2/c2j/pkg/git/common"
 	"github.com/colony-2/c2j/pkg/git/squashrebasemerge"
@@ -55,7 +56,7 @@ func testEmptyWorkspacePublication(t *testing.T, separate bool, committer string
 version: "1"
 sequence:
  - id: create
-   workspace: {cell: %q, ref: main, initial: empty}
+   workspace: {cell: B, repo: %q, ref: main, initial: empty}
    sequence:
     - id: readonly
       op: execution_hash_probe
@@ -95,7 +96,7 @@ outputs:
  unborn: "{{ sequence.create.outputs.unborn }}"
  restored: "{{ sequence.create.outputs.restored }}"
  parent: "{{ sequence.parent.outputs.head }}"
-`, b)
+`, celltest.Repo(b))
 	if separate {
 		text = strings.Replace(text, `    - id: publish
       op: squashrebasemerge
@@ -119,17 +120,17 @@ outputs:
 	require.Empty(t, out["unborn"])
 	require.Equal(t, out["first"], out["restored"])
 	require.Equal(t, original, out["parent"])
-	head, err := common.GetCommitHash(context.Background(), b, "refs/heads/main")
+	head, err := common.GetCommitHash(celltest.Context(context.Background()), b, "refs/heads/main")
 	require.NoError(t, err)
 	require.Equal(t, out["second"], head)
-	parent, err := common.GetCommitHash(context.Background(), b, head+"^")
+	parent, err := common.GetCommitHash(celltest.Context(context.Background()), b, head+"^")
 	require.NoError(t, err)
 	require.Equal(t, out["first"], parent)
-	roots, err := common.ExecuteGitCommand(context.Background(), b, "rev-list", "--max-parents=0", "main")
+	roots, err := common.ExecuteGitCommand(celltest.Context(context.Background()), b, "rev-list", "--max-parents=0", "main")
 	require.NoError(t, err)
 	require.Equal(t, out["first"].(string)+"\n", string(roots))
 	for _, hash := range []string{out["first"].(string), head} {
-		identities, err := common.ExecuteGitCommand(context.Background(), b, "show", "-s", "--format=%an <%ae>|%cn <%ce>", hash)
+		identities, err := common.ExecuteGitCommand(celltest.Context(context.Background()), b, "show", "-s", "--format=%an <%ae>|%cn <%ce>", hash)
 		require.NoError(t, err)
 		require.Equal(t, identity+"|"+committer, strings.TrimSpace(string(identities)))
 	}
@@ -138,7 +139,7 @@ outputs:
 func TestEmptyWorkspaceResolutionAndReplay(t *testing.T) {
 	missing := filepath.Join(t.TempDir(), "missing.git")
 	workspaceTestWorker(t)
-	rec, err := recipe.LoadRecipeFromString([]byte(fmt.Sprintf("id: empty\nworkspace: {cell: %q, ref: main, initial: empty}\nop: workspace_probe\n", missing)))
+	rec, err := recipe.LoadRecipeFromString([]byte(fmt.Sprintf("id: empty\nworkspace: {cell: B, repo: %q, ref: main, initial: empty}\nop: workspace_probe\n", celltest.Repo(missing))))
 	require.NoError(t, err)
 	job, commit := GenerateTestContext()
 	stub := &workspaceReplayContext{}
@@ -152,9 +153,9 @@ func TestEmptyWorkspaceResolutionAndReplay(t *testing.T) {
 	_, err = os.Stat(missing)
 	require.True(t, os.IsNotExist(err))
 	for _, initial := range []string{"", "typo"} {
-		data, err := jobdb.NewTaskData(WorkspaceResolutionInput{Cell: missing, Ref: "main", ScopeID: "test", Initial: initial})
+		data, err := jobdb.NewTaskData(WorkspaceResolutionInput{Cell: "B", Repo: celltest.Repo(missing), Ref: "main", ScopeID: "test", Initial: initial})
 		require.NoError(t, err)
-		_, err = resolveWorkspaceTask(permissions.WithAccess(context.Background(), permissions.NewAccess(context.Background(), permissions.JobDB{}, nil, nil)), data)
+		_, err = resolveWorkspaceTask(permissions.WithAccess(celltest.Context(context.Background()), permissions.NewAccess(celltest.Context(context.Background()), permissions.JobDB{}, nil, nil)), data)
 		require.Error(t, err)
 	}
 }

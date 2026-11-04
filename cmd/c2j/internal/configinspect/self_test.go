@@ -86,6 +86,7 @@ func TestSelfRuntimeIdentityAndMismatch(t *testing.T) {
 func TestSelfURLRedactionAndStandaloneText(t *testing.T) {
 	dir := t.TempDir()
 	writeConfig(t, dir, `self:
+  cell: app
   repo: https://user:repo-password@example.test/repo?token=repo-secret
   ref: main
 jobdb: https://user:db-password@example.test/tenant?token=db-secret

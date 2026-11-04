@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/c2j/pkg/cellref"
 	"github.com/colony-2/c2j/pkg/contextual"
 	"github.com/colony-2/c2j/pkg/git/common"
@@ -53,7 +54,7 @@ func workspaceRepo(t *testing.T, dir, cell string) string {
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "identity"), []byte(cell), 0644))
 	require.NoError(t, runGit(dir, "git", "add", "."))
 	require.NoError(t, runGit(dir, "git", "commit", "-m", "initial"))
-	hash, err := common.GetCommitHash(context.Background(), dir, "HEAD")
+	hash, err := common.GetCommitHash(celltest.Context(context.Background()), dir, "HEAD")
 	require.NoError(t, err)
 	return hash
 }
@@ -116,14 +117,14 @@ func runWorkspaceRecipe(t *testing.T, ws *jobworkflow.WorkSet, yaml string, job 
 	t.Helper()
 	rec, err := recipe.LoadRecipeFromString([]byte(yaml))
 	require.NoError(t, err)
-	eng := newToyEngineWithWorkSet(t, "workspace-tests", ws, nil)
-	keyRef, err := starter.StartRecipeJob(context.Background(), workflowctl.StartJob{TenantId: "workspace-tests", RecipeName: "workspace-test", JobContext: job, GitRef: job.GitBase.BaseRef}, eng, *rec)
+	eng := newToyEngineWithWorkSet(t, "workspace-tests", ws, nil, workspaceFixtureCells(t, job))
+	keyRef, err := starter.StartRecipeJob(celltest.Context(context.Background()), workflowctl.StartJob{TenantId: "workspace-tests", RecipeName: "workspace-test", JobContext: job, GitRef: job.GitBase.BaseRef, Cell: job.Workflow.CellName, CellRepo: celltest.Repo(job.GitBase.BaseRepo)}, eng, *rec)
 	key := keyRef.Key()
 	require.NoError(t, err)
 	// These correctness tests restore and publish workspaces through many Git
 	// subprocesses. Use a generous safety deadline to allow for slow CI hosts.
-	require.NoError(t, jobworkflow.WaitForJobToComplete(context.Background(), time.Minute, key, eng))
-	result, err := swfutil.JobResult(context.Background(), eng, key)
+	require.NoError(t, jobworkflow.WaitForJobToComplete(celltest.Context(context.Background()), time.Minute, key, eng))
+	result, err := swfutil.JobResult(celltest.Context(context.Background()), eng, key)
 	require.NoError(t, err)
 	raw, err := result.GetData()
 	require.NoError(t, err)
@@ -140,7 +141,7 @@ func TestWorkspaceSnapshotsAndNestedScopes(t *testing.T) {
 	c := filepath.Join(root, "C")
 	hashes := map[string]string{a: workspaceRepo(t, a, "A"), b: workspaceRepo(t, b, "B"), c: workspaceRepo(t, c, "C")}
 	ws := workspaceTestWorker(t)
-	job := contextual.JobContext{Workflow: contextual.WorkflowContext{CellName: "A"}, GitBase: contextual.GitBaseContext{BaseRepo: a, BaseRef: "main"}, CellResolution: &cellref.Context{Pattern: root + "/${{ cell }}", SelfRepo: a, SelfRef: "main"}}
+	job := contextual.JobContext{Workflow: contextual.WorkflowContext{CellName: "A"}, GitBase: contextual.GitBaseContext{BaseRepo: a, BaseRef: "main"}, CellResolution: &cellref.Context{SelfCell: "A", SelfRepo: celltest.Repo(a), SelfRef: "main"}}
 	out, arts := runWorkspaceRecipe(t, ws, `id: workspace-test
 version: "1"
 sequence:
@@ -188,7 +189,7 @@ outputs:
 	require.Equal(t, out["initial_scope"], out["b_scope"])
 	require.NotEqual(t, out["b_scope"], out["fresh_scope"])
 	for repo, hash := range hashes {
-		head, err := common.GetCommitHash(context.Background(), repo, "HEAD")
+		head, err := common.GetCommitHash(celltest.Context(context.Background()), repo, "HEAD")
 		require.NoError(t, err)
 		require.Equal(t, hash, head)
 	}
@@ -196,7 +197,7 @@ outputs:
 	require.NotNil(t, pack)
 	// The last op was B. The implicit job pack must still restore A's a.txt.
 	restore := &gitstate.GitTaskContext{GlobalGitTaskContext: &gitstate.GlobalGitTaskContext{BaseRepo: a, BaseRef: "main", PersistHash: out["a_head"].(string), ParentHash: hashes[a]}, WorktreePath: filepath.Join(t.TempDir(), "a")}
-	require.NoError(t, gitstate.NewController(nil).Restore(context.Background(), restore, pack))
+	require.NoError(t, gitstate.NewController(nil).Restore(celltest.Context(context.Background()), restore, pack))
 	content, err := os.ReadFile(filepath.Join(restore.WorktreePath, "a.txt"))
 	require.NoError(t, err)
 	require.Equal(t, "A data", string(content))
@@ -213,7 +214,7 @@ func TestWorkspaceConstFollowsBranchAndPreservesRootVars(t *testing.T) {
 	job := contextual.JobContext{Workflow: contextual.WorkflowContext{CellName: "A"}, GitBase: contextual.GitBaseContext{BaseRepo: a, BaseRef: "main"}}
 	yaml := fmt.Sprintf(`id: workspace-test
 version: "1"
-workspace: {cell: %q}
+workspace: {cell: B, repo: %q}
 vars: {selected: "{{ context.workspace.cell }}"}
 sequence:
  - id: first
@@ -227,10 +228,10 @@ outputs:
  first: "{{ sequence.first.outputs.head }}"
  next: "{{ sequence.next.outputs.head }}"
  selected: "{{ vars.selected }}"
-`, b, b)
+`, celltest.Repo(b), b)
 	out, arts := runWorkspaceRecipe(t, ws, yaml, job)
 	require.Equal(t, initial, out["first"])
-	advanced, err := common.GetCommitHash(context.Background(), b, "HEAD")
+	advanced, err := common.GetCommitHash(celltest.Context(context.Background()), b, "HEAD")
 	require.NoError(t, err)
 	require.NotEqual(t, initial, advanced)
 	require.Equal(t, advanced, out["next"])
@@ -244,7 +245,7 @@ func TestWorkspaceStateReentryAndCatch(t *testing.T) {
 	workspaceRepo(t, a, "A")
 	workspaceRepo(t, b, "B")
 	ws := workspaceTestWorker(t)
-	job := contextual.JobContext{Workflow: contextual.WorkflowContext{CellName: "A"}, GitBase: contextual.GitBaseContext{BaseRepo: a, BaseRef: "main"}, CellResolution: &cellref.Context{Pattern: root + "/${{ cell }}"}}
+	job := contextual.JobContext{Workflow: contextual.WorkflowContext{CellName: "A"}, GitBase: contextual.GitBaseContext{BaseRepo: a, BaseRef: "main"}, CellResolution: &cellref.Context{SelfCell: "A", SelfRepo: celltest.Repo(a)}}
 	out, _ := runWorkspaceRecipe(t, ws, `id: workspace-test
 version: "1"
 state:
@@ -308,7 +309,7 @@ outputs:
 			require.NoError(t, os.WriteFile(filepath.Join(a, ".c2", "recipes", "inspect.yaml"), []byte("id: inspect\nop: workspace_probe\n"), 0644))
 			require.NoError(t, runGit(a, "git", "add", "."))
 			require.NoError(t, runGit(a, "git", "commit", "-m", "child recipe"))
-			eng := newToyEngine(t, "workspace-tests", nil)
+			eng := newToyEngine(t, "workspace-tests", nil, map[string]string{"A": a, "B": b})
 			ctl := &workerworkflow.SWFWorkflowControl{Engine: eng}
 			deps := coreops.NewServiceDepsBuilder().WithWorkflowControl(ctl).Build()
 			registry, err := workerops.NewActivityRegistry()
@@ -322,7 +323,7 @@ outputs:
 			}
 			parent, err := recipe.LoadRecipeFromString([]byte(fmt.Sprintf(`id: parent
 version: "1"
-workspace: {cell: B%s}
+workspace: {cell: B, repo: %q%s}
 sequence:
  - id: inspect_child
    op: recipe.run_and_get_result
@@ -348,14 +349,14 @@ outputs:
  child_cell: "{{ sequence.child.outputs.outputs.cell }}"
  ok: "${{ sequence.children.outputs.ok }}"
  initial_head: "{{ sequence.inspect_child.outputs.outputs.head }}"
-`, initial)))
+`, celltest.Repo(b), initial)))
 			require.NoError(t, err)
-			job := contextual.JobContext{Workflow: contextual.WorkflowContext{CellName: "A"}, GitBase: contextual.GitBaseContext{BaseRepo: a, BaseRef: "main"}, CellResolution: &cellref.Context{Pattern: root + "/${{ cell }}"}}
-			keyRef, err := starter.StartRecipeJob(context.Background(), workflowctl.StartJob{TenantId: "workspace-tests", RecipeName: "parent", JobContext: job, GitRef: "main"}, eng, *parent)
+			job := contextual.JobContext{Workflow: contextual.WorkflowContext{CellName: "A"}, GitBase: contextual.GitBaseContext{BaseRepo: a, BaseRef: "main"}, CellResolution: &cellref.Context{SelfCell: "A", SelfRepo: celltest.Repo(a)}}
+			keyRef, err := starter.StartRecipeJob(celltest.Context(context.Background()), workflowctl.StartJob{TenantId: "workspace-tests", RecipeName: "parent", JobContext: job, GitRef: "main", Cell: job.Workflow.CellName, CellRepo: celltest.Repo(job.GitBase.BaseRepo)}, eng, *parent)
 			key := keyRef.Key()
 			require.NoError(t, err)
-			require.NoError(t, jobworkflow.WaitForJobToComplete(context.Background(), 15*time.Second, key, eng))
-			result, err := swfutil.JobResult(context.Background(), eng, key)
+			require.NoError(t, jobworkflow.WaitForJobToComplete(celltest.Context(context.Background()), 15*time.Second, key, eng))
+			result, err := swfutil.JobResult(celltest.Context(context.Background()), eng, key)
 			require.NoError(t, err)
 			raw, err := result.GetData()
 			require.NoError(t, err)
@@ -373,4 +374,22 @@ outputs:
 			}
 		})
 	}
+}
+
+func workspaceFixtureCells(t *testing.T, job contextual.JobContext) map[string]string {
+	t.Helper()
+	cells := map[string]string{job.Workflow.CellName: job.GitBase.BaseRepo}
+	entries, err := os.ReadDir(filepath.Dir(job.GitBase.BaseRepo))
+	require.NoError(t, err)
+	for _, entry := range entries {
+		if entry.IsDir() {
+			path := filepath.Join(filepath.Dir(job.GitBase.BaseRepo), entry.Name())
+			if _, err := os.Stat(filepath.Join(path, ".git")); err == nil && path != job.GitBase.BaseRepo {
+				if _, exists := cells[entry.Name()]; !exists {
+					cells[entry.Name()] = path
+				}
+			}
+		}
+	}
+	return cells
 }

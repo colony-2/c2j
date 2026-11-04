@@ -4,8 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/colony-2/c2j/pkg/execution"
-	"github.com/colony-2/c2j/pkg/executionruntime"
 	"io"
 	"net/http/httptest"
 	"os"
@@ -14,6 +12,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/colony-2/c2j/internal/celltest"
+	"github.com/colony-2/c2j/pkg/execution"
+	"github.com/colony-2/c2j/pkg/executionruntime"
 	"github.com/colony-2/c2j/pkg/input"
 	"github.com/colony-2/c2j/pkg/jobdbschema"
 	coreops "github.com/colony-2/c2j/pkg/ops"
@@ -44,7 +45,7 @@ type timedInputFixture struct {
 func newTimedInputFixture(t *testing.T, source, scope string) *timedInputFixture {
 	t.Helper()
 	ensureFixtureOps()
-	ctx := context.Background()
+	ctx := celltest.Context(context.Background())
 	path := filepath.Join(t.TempDir(), "recipe.yaml")
 	require.NoError(t, os.WriteFile(path, []byte(source), 0600))
 	repo, hash := createFixtureRepo(t, path, nil)
@@ -62,7 +63,7 @@ func newTimedInputFixture(t *testing.T, source, scope string) *timedInputFixture
 	open := func() {
 		db, err := sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: dbPath})
 		require.NoError(t, err)
-		server := httptest.NewServer(remote.NewServer(db))
+		server := httptest.NewServer(celltest.Handler(remote.NewServer(db)))
 		closeStore = func() { server.Close(); require.NoError(t, db.Close(ctx)) }
 		rt, err := remote.New(server.URL, server.Client())
 		require.NoError(t, err)
@@ -85,7 +86,7 @@ func newTimedInputFixture(t *testing.T, source, scope string) *timedInputFixture
 	if scope != "runtime-root" {
 		embedded = []recipe.Recipe{*rec}
 	}
-	fkeyRef, err := starter.StartRecipeJob(ctx, workflowctl.StartJob{TenantId: "timed-input", RecipeName: rec.GetMetadata().ID, JobContext: jobCtx, GitRef: gitCtx.ParentRef}, f.engine, embedded...)
+	fkeyRef, err := starter.StartRecipeJob(ctx, workflowctl.StartJob{TenantId: "timed-input", RecipeName: rec.GetMetadata().ID, JobContext: jobCtx, GitRef: gitCtx.ParentRef, Cell: "test", CellRepo: celltest.Repo(jobCtx.GitBase.BaseRepo)}, f.engine, embedded...)
 	f.key = fkeyRef.Key()
 	require.NoError(t, err)
 	f.run = func() jobworkflow.JobRunOutcome {
@@ -160,7 +161,7 @@ func TestTimedInputPublicAPIs(t *testing.T) {
 	for _, scope := range []string{"untimed", "preloaded-root", "runtime-root", "input-op"} {
 		for _, mode := range []string{"ordinary", "structured", "review"} {
 			t.Run(scope+"/"+mode, func(t *testing.T) {
-				ctx := context.Background()
+				ctx := celltest.Context(context.Background())
 				f := newTimedInputFixture(t, timedInputSource(scope, mode, "30s", true), scope)
 				require.Equal(t, jobworkflow.JobRunSuspended, f.run().Status)
 				before, err := f.rt.ListChapters(ctx, jobdb.ListChaptersRequest{JobKey: f.key})
@@ -243,7 +244,7 @@ func TestTimedInputExpiryPublicAPIs(t *testing.T) {
 		{"input-op", "ordinary"}, {"input-op", "structured"}, {"input-op", "review"}, {"input-op", "annotated-review"},
 	} {
 		t.Run(tc.scope+"/"+tc.mode, func(t *testing.T) {
-			ctx := context.Background()
+			ctx := celltest.Context(context.Background())
 			f := newTimedInputFixture(t, timedInputSource(tc.scope, tc.mode, "3s", (tc.mode == "review" || tc.mode == "annotated-review")), tc.scope)
 			require.Equal(t, jobworkflow.JobRunSuspended, f.run().Status)
 			client, err := input.NewRuntime(f.ctl, nil)
@@ -279,7 +280,7 @@ func assertTimedPublicOutcome(t *testing.T, f *timedInputFixture, want story.Wor
 	t.Helper()
 	service, err := story.New(story.ServiceConfig{Engine: f.engine, SchemaRegistry: f.rt.(jobdb.JobSchemaRegistry), RootSourceResolver: f.resolver})
 	require.NoError(t, err)
-	out, err := service.GetWorkflowOutcome(context.Background(), story.GetWorkflowOutcomeRequest{ProjectID: f.key.TenantId, JobID: f.key.JobId})
+	out, err := service.GetWorkflowOutcome(celltest.Context(context.Background()), story.GetWorkflowOutcomeRequest{ProjectID: f.key.TenantId, JobID: f.key.JobId})
 	require.NoError(t, err)
 	require.Equal(t, want, out.Status)
 	if want == story.WorkflowStatusFailed {
@@ -293,7 +294,7 @@ func assertTimedPublicOutcome(t *testing.T, f *timedInputFixture, want story.Wor
 func TestTimedInputFallbackAfterRecovery(t *testing.T) {
 	for _, scope := range []string{"preloaded-root", "runtime-root", "input-op"} {
 		t.Run(scope, func(t *testing.T) {
-			ctx := context.Background()
+			ctx := celltest.Context(context.Background())
 			source := timedInputSource(scope, "ordinary", "30s", true)
 			source = strings.Replace(source, "        type: short_answer\n", "        type: short_answer\n      if_unanswered:\n        after: 600ms\n        response: fallback\n", 1)
 			f := newTimedInputFixture(t, source, scope)

@@ -11,14 +11,14 @@ import (
 	"github.com/colony-2/c2j/pkg/template/funcregistry"
 )
 
-func recipeCELOptionsProvider(rec recipe.Recipe, execCtx contextual.JobContext, commitContext contextual.GitCommitContext, execOpts ExecutionOptions, base template.CELOptionsProvider) (template.CELOptionsProvider, error) {
+func recipeCELOptionsProvider(ctx context.Context, rec recipe.Recipe, execCtx contextual.JobContext, commitContext contextual.GitCommitContext, execOpts ExecutionOptions, base template.CELOptionsProvider) (template.CELOptionsProvider, error) {
 	imports := resolvedFunctionImports(rec.GetMetdata().Extensions.Functions, execOpts.ResolvedSelectors)
 	if len(imports) == 0 {
 		return base, nil
 	}
 
 	resolveOpts := selectorLoadResolveOptions(execCtx, commitContext)
-	importedProvider, err := extensionfuncs.BuildProvider(context.Background(), imports, extensionfuncs.BuildOptions{
+	importedProvider, err := extensionfuncs.BuildProvider(ctx, imports, extensionfuncs.BuildOptions{
 		BaseDir:          normalizeExtensionBaseDir(resolveOpts.BaseDir),
 		RepositorySource: strings.TrimSpace(resolveOpts.RepositorySource),
 		RepositoryRef:    strings.TrimSpace(resolveOpts.RepositoryRef),

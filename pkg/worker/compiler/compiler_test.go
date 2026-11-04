@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/colony-2/c2j/internal/celltest"
 	recipecel "github.com/colony-2/c2j/pkg/cel"
 	"github.com/colony-2/c2j/pkg/contextual"
 	"github.com/colony-2/c2j/pkg/execution"
@@ -34,15 +35,16 @@ type CompilerTestSuite struct {
 	//eng *impl.EmbeddedEngine
 }
 
-func newToyEngine(t *testing.T, workerTenantID string, gen func(string) (jobdb.JobKey, error)) jobworkflow.Engine {
+func newToyEngine(t *testing.T, workerTenantID string, gen func(string) (jobdb.JobKey, error), cells ...map[string]string) jobworkflow.Engine {
 	t.Helper()
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(celltest.Context(context.Background()))
 	t.Cleanup(cancel)
 	opts := make([]toyruntime.Option, 0, 1)
 	if gen != nil {
 		opts = append(opts, toyruntime.WithJobIDGenerator(gen))
 	}
 	runtime := toyruntime.New(opts...)
+	ctx = seedTestCells(t, ctx, runtime, workerTenantID, cells...)
 	guard := executionruntime.New(runtime, execution.Allocation{SchemaVersion: 1})
 	builder := jobworkflow.NewEngineBuilder().WithRuntime(guard)
 	if workerTenantID != "" {
@@ -55,15 +57,16 @@ func newToyEngine(t *testing.T, workerTenantID string, gen func(string) (jobdb.J
 	return engine
 }
 
-func newToyEngineWithWorkSet(t *testing.T, workerTenantID string, ws *jobworkflow.WorkSet, gen func(string) (jobdb.JobKey, error)) jobworkflow.Engine {
+func newToyEngineWithWorkSet(t *testing.T, workerTenantID string, ws *jobworkflow.WorkSet, gen func(string) (jobdb.JobKey, error), cells ...map[string]string) jobworkflow.Engine {
 	t.Helper()
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(celltest.Context(context.Background()))
 	t.Cleanup(cancel)
 	opts := make([]toyruntime.Option, 0, 1)
 	if gen != nil {
 		opts = append(opts, toyruntime.WithJobIDGenerator(gen))
 	}
 	runtime := toyruntime.New(opts...)
+	ctx = seedTestCells(t, ctx, runtime, workerTenantID, cells...)
 	guard := executionruntime.New(runtime, execution.Allocation{SchemaVersion: 1})
 	builder := jobworkflow.NewEngineBuilder().WithRuntime(guard)
 	if workerTenantID != "" {
@@ -139,15 +142,15 @@ func (s *CompilerTestSuite) testRecipe(recipeYaml string, input map[string]inter
 		RecipeName: "test-recipe",
 		Inputs:     input,
 		JobContext: jobCtx,
-		GitRef:     gitCtx.ParentRef,
+		GitRef:     gitCtx.ParentRef, Cell: "test", CellRepo: celltest.Repo(jobCtx.GitBase.BaseRepo),
 	}
 
-	jobKeyRef, err := starter.StartRecipeJob(context.Background(), job, s.eng, *testRecipe)
+	jobKeyRef, err := starter.StartRecipeJob(celltest.Context(context.Background()), job, s.eng, *testRecipe)
 
 	jobKey := jobKeyRef.Key()
 	require.NoError(s.T(), err)
-	require.NoError(s.T(), jobworkflow.WaitForJobToComplete(context.Background(), 30*time.Second, jobKey, s.eng))
-	r, err := swfutil.JobResult(context.Background(), s.eng, jobKey)
+	require.NoError(s.T(), jobworkflow.WaitForJobToComplete(celltest.Context(context.Background()), 30*time.Second, jobKey, s.eng))
+	r, err := swfutil.JobResult(celltest.Context(context.Background()), s.eng, jobKey)
 	require.NoError(s.T(), err)
 	d, err := r.GetData()
 	require.NoError(s.T(), err)
@@ -551,15 +554,15 @@ func (s *CompilerTestSuite) TestSequenceRecipeCompilation() {
 		RecipeName: testRecipe.GetMetadata().ID,
 		Inputs:     in,
 		JobContext: jobCtx,
-		GitRef:     gitCtx.ParentRef,
+		GitRef:     gitCtx.ParentRef, Cell: "test", CellRepo: celltest.Repo(jobCtx.GitBase.BaseRepo),
 	}
 
-	jobIdRef, err := starter.StartRecipeJob(context.Background(), job, s.eng, *testRecipe)
+	jobIdRef, err := starter.StartRecipeJob(celltest.Context(context.Background()), job, s.eng, *testRecipe)
 
 	jobId := jobIdRef.Key()
 	require.NoError(s.T(), err)
-	require.NoError(s.T(), jobworkflow.WaitForJobToComplete(context.Background(), 30*time.Second, jobId, s.eng))
-	r, err := swfutil.JobResult(context.Background(), s.eng, jobId)
+	require.NoError(s.T(), jobworkflow.WaitForJobToComplete(celltest.Context(context.Background()), 30*time.Second, jobId, s.eng))
+	r, err := swfutil.JobResult(celltest.Context(context.Background()), s.eng, jobId)
 	require.NoError(s.T(), err)
 	d, err := r.GetData()
 	require.NoError(s.T(), err)
@@ -626,4 +629,19 @@ func (e *guardedTestEngine) RegisterWorkers(ws *jobworkflow.WorkSet) error {
 		copy.TaskWorkers[name] = e.guard.WrapTaskWorker(tw)
 	}
 	return e.Engine.RegisterWorkers(&copy)
+}
+
+// Cross-cell fixtures explicitly provision an administrative lease target policy.
+func seedTestCells(t *testing.T, ctx context.Context, rt jobdb.CellRuntime, tenant string, sets ...map[string]string) context.Context {
+	t.Helper()
+	authority, _ := jobdb.CellAuthorityFromContext(ctx)
+	authority.LeaseSubmitCells = map[string]bool{}
+	for _, cells := range sets {
+		for name, repo := range cells {
+			cell, err := rt.CreateCell(ctx, jobdb.CreateCellRequest{TenantID: tenant, Name: name, Repo: celltest.Repo(repo)})
+			require.NoError(t, err)
+			authority.LeaseSubmitCells[cell.ID] = true
+		}
+	}
+	return jobdb.WithCellAuthority(ctx, authority)
 }

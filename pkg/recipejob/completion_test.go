@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/c2j/pkg/joblist"
 	"github.com/colony-2/c2j/pkg/recipejob"
 	workerworkflow "github.com/colony-2/c2j/pkg/worker/workflow"
@@ -80,7 +81,7 @@ func checkCompletionJSON(t *testing.T, value any, want jobdb.JobSummary) {
 
 func checkRecipeCompletionPaths(t *testing.T, lister recipejob.Lister, want jobdb.JobSummary, next string) {
 	t.Helper()
-	ctx := context.Background()
+	ctx := celltest.Context(context.Background())
 	projected, ok, err := recipejob.RecipeJobFromSummary(want)
 	require.NoError(t, err)
 	require.True(t, ok)
@@ -133,14 +134,14 @@ func TestCompletionProjectionsUseOnlySummaryFields(t *testing.T) {
 				return jobdb.ListJobsResponse{Jobs: []jobdb.JobSummary{summary}, NextPageToken: "next"}, nil
 			}}
 			checkRecipeCompletionPaths(t, rt, summary, "next")
-			server := httptest.NewServer(remote.NewServer(rt))
+			server := httptest.NewServer(celltest.Handler(remote.NewServer(rt)))
 			defer server.Close()
 			client, err := remote.New(server.URL, server.Client())
 			require.NoError(t, err)
 			checkRecipeCompletionPaths(t, client, summary, "next")
 			standalone, err := joblist.New(joblist.Config{JobDBURI: server.URL + "/tenant", HTTPClient: server.Client()})
 			require.NoError(t, err)
-			page, err := standalone.List(context.Background(), joblist.Query{Repository: "github.com/acme/app", Statuses: []jobdb.JobStatus{tc.scheduler}})
+			page, err := standalone.List(celltest.Context(context.Background()), joblist.Query{CellNames: []string{"app"}, Statuses: []jobdb.JobStatus{tc.scheduler}})
 			require.NoError(t, err)
 			require.Len(t, page.Jobs, 1)
 			require.Equal(t, "next", page.NextPageToken)
@@ -174,14 +175,14 @@ func TestRestoredOpaqueFieldsAcrossListProjections(t *testing.T) {
 				return jobdb.ListJobsResponse{Jobs: []jobdb.JobSummary{summary}, NextPageToken: "unchanged"}, nil
 			}}
 			checkRecipeCompletionPaths(t, rt, summary, "unchanged")
-			server := httptest.NewServer(remote.NewServer(rt))
+			server := httptest.NewServer(celltest.Handler(remote.NewServer(rt)))
 			t.Cleanup(server.Close)
 			client, err := remote.New(server.URL, server.Client())
 			require.NoError(t, err)
 			checkRecipeCompletionPaths(t, client, summary, "unchanged")
 			standalone, err := joblist.New(joblist.Config{JobDBURI: server.URL + "/tenant", HTTPClient: server.Client()})
 			require.NoError(t, err)
-			page, err := standalone.List(context.Background(), joblist.Query{Repository: "github.com/acme/app", Statuses: []jobdb.JobStatus{jobdb.JobStatusCompleted}})
+			page, err := standalone.List(celltest.Context(context.Background()), joblist.Query{CellNames: []string{"app"}, Statuses: []jobdb.JobStatus{jobdb.JobStatusCompleted}})
 			require.NoError(t, err)
 			require.Len(t, page.Jobs, 1)
 			require.Equal(t, "unchanged", page.NextPageToken)
@@ -195,23 +196,23 @@ func TestPersistedCompletionAcrossEmbeddedAndRemoteListings(t *testing.T) {
 	for _, backend := range []string{"embedded", "remote"} {
 		for _, status := range []string{"success", "failed_app", "failed_system", "failed_timeout", "cancelled", "retry"} {
 			t.Run(backend+"/"+status, func(t *testing.T) {
-				ctx := context.Background()
+				ctx := celltest.Context(context.Background())
 				db, err := sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: filepath.Join(t.TempDir(), "jobs.db")})
 				require.NoError(t, err)
 				t.Cleanup(func() { require.NoError(t, db.Close(ctx)) })
 				var rt jobdb.WorkflowRuntime = db
 				if backend == "remote" {
-					server := httptest.NewServer(remote.NewServer(db))
+					server := httptest.NewServer(celltest.Handler(remote.NewServer(db)))
 					t.Cleanup(server.Close)
 					rt, err = remote.New(server.URL, server.Client())
 					require.NoError(t, err)
 				}
-				parent, err := rt.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "tenant", JobID: "parent", JobType: "parent", Data: jobdb.NewTaskDataOrPanic(map[string]any{})}})
+				parent, err := rt.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "tenant", JobID: "parent", JobType: "parent", Data: jobdb.NewTaskDataOrPanic(map[string]any{}), Cell: "test", CellRepo: "example.test/test"}})
 				require.NoError(t, err)
 				parentLease, err := rt.GetJobLease(ctx, jobdb.GetJobLeaseRequest{JobKey: parent.JobKey, WorkerID: "parent-test", Routes: []jobdb.Route{{JobType: "parent"}}})
 				require.NoError(t, err)
 				require.NotNil(t, parentLease)
-				submitted, err := parentLease.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "tenant", JobID: "child", JobType: "recipe", Metadata: json.RawMessage(`{"recipe":"not-installed"}`), Data: jobdb.NewTaskDataOrPanic(map[string]any{}), ClientPayloadUpdate: &jobdb.ClientPayloadUpdate{Mode: "reset", Value: json.RawMessage(`{"application":"initial"}`)}}})
+				submitted, err := parentLease.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "tenant", JobID: "child", JobType: "recipe", Metadata: json.RawMessage(`{"recipe":"not-installed"}`), Data: jobdb.NewTaskDataOrPanic(map[string]any{}), ClientPayloadUpdate: &jobdb.ClientPayloadUpdate{Mode: "reset", Value: json.RawMessage(`{"application":"initial"}`)}, Cell: "test", CellRepo: "example.test/test"}})
 				require.NoError(t, err)
 				lease, err := rt.GetJobLease(ctx, jobdb.GetJobLeaseRequest{JobKey: submitted.JobKey, WorkerID: "completion-test", Routes: []jobdb.Route{{JobType: "recipe"}}})
 				require.NoError(t, err)

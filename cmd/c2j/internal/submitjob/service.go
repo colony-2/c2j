@@ -3,7 +3,6 @@ package submitjob
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -13,6 +12,7 @@ import (
 	"github.com/colony-2/c2j/cmd/c2j/internal/c2jops"
 	"github.com/colony-2/c2j/cmd/c2j/internal/runjob"
 	"github.com/colony-2/c2j/cmd/c2j/internal/swfruntime"
+	"github.com/colony-2/c2j/pkg/cellref"
 	"github.com/colony-2/c2j/pkg/childbroker"
 	"github.com/colony-2/c2j/pkg/jobcontext"
 	"github.com/colony-2/c2j/pkg/jobref"
@@ -21,6 +21,8 @@ import (
 	"github.com/colony-2/c2j/pkg/starter"
 	"github.com/colony-2/c2j/pkg/worker/compiler"
 	"github.com/colony-2/c2j/pkg/workspacesubmit"
+	"github.com/colony-2/jobdb/pkg/jobdb"
+	"github.com/segmentio/ksuid"
 	"gopkg.in/yaml.v3"
 )
 
@@ -78,6 +80,27 @@ func Run(ctx context.Context, opts Options) error {
 		return err
 	}
 
+	var runtimeHandle *swfruntime.Handle
+	if hasBroker {
+		target, err = recipejob.ResolveRegisteredTarget(ctx, target, func(ctx context.Context, name string) (jobdb.ResolvedCell, error) {
+			return childbroker.ResolveCell(ctx, broker, name)
+		})
+	} else {
+		runtimeHandle, err = swfruntime.Open(ctx, opts.SWFURL)
+		if err != nil {
+			return err
+		}
+		defer func() {
+			if runtimeHandle != nil {
+				runtimeHandle.Cleanup()
+			}
+		}()
+		target, err = recipejob.ResolveRegisteredTarget(ctx, target, cellref.Registry(runtimeHandle.Runtime, opts.TenantID))
+	}
+	if err != nil {
+		return err
+	}
+
 	recipeName, embeddedRecipe, cleanup, err := loadRecipeStartContext(ctx, opts)
 	if err != nil {
 		return err
@@ -93,6 +116,7 @@ func Run(ctx context.Context, opts Options) error {
 	start, err := recipejob.BuildStartJob(recipejob.BuildStartJobRequest{
 		ExecutionRequirements: opts.ExecutionRequirements,
 		TenantID:              opts.TenantID,
+		JobID:                 ksuid.New().String(),
 		Target:                target,
 		Recipe:                recipeName,
 		Inputs:                inputs,
@@ -141,13 +165,8 @@ func Run(ctx context.Context, opts Options) error {
 			return err
 		}
 	} else if err := func() error {
-		handle, err := swfruntime.Open(ctx, opts.SWFURL)
-		if err != nil {
-			return fmt.Errorf("open JobDB runtime: %w", err)
-		}
-		closeHandle := func(err error) error {
-			return errors.Join(err, handle.Cleanup())
-		}
+		handle := runtimeHandle
+		closeHandle := func(err error) error { return err }
 
 		var jobKey jobref.Ref
 		if embeddedRecipe != nil {
@@ -174,6 +193,10 @@ func Run(ctx context.Context, opts Options) error {
 		return nil
 	}
 
+	if runtimeHandle != nil {
+		runtimeHandle.Cleanup()
+		runtimeHandle = nil
+	}
 	return runjob.Run(ctx, runjob.Options{
 		ExecutionFlags: opts.ExecutionFlags,
 		JobID:          result.JobID,
@@ -343,6 +366,7 @@ func resolveTargetCell(ctx context.Context, opts Options) (targetCell, error) {
 	return recipejob.ResolveTarget(ctx, recipejob.ResolveTargetRequest{
 		WorkingDir: opts.WorkingDir,
 		Cell:       opts.Cell,
+		CellRepo:   opts.CellRepo,
 		Self:       opts.Self,
 		TenantID:   opts.TenantID,
 	})

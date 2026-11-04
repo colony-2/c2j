@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	sqliteruntime "github.com/colony-2/jobdb/pkg/jobdb/runtime/sqlite"
 	toyruntime "github.com/colony-2/jobdb/pkg/jobdb/runtime/toy"
@@ -20,7 +21,7 @@ import (
 func TestClientPayloadSurvivesYieldAndExternalTaskCompletion(t *testing.T) {
 	for _, backend := range []string{"toy", "sqlite"} {
 		t.Run(backend, func(t *testing.T) {
-			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+			ctx, cancel := context.WithTimeout(celltest.Context(context.Background()), 15*time.Second)
 			defer cancel()
 			var rt jobdb.WorkflowRuntime
 			if backend == "toy" {
@@ -28,7 +29,9 @@ func TestClientPayloadSurvivesYieldAndExternalTaskCompletion(t *testing.T) {
 			} else {
 				db, err := sqliteruntime.NewFromConfig(ctx, sqliteruntime.Config{DBPath: filepath.Join(t.TempDir(), "jobs.db")})
 				require.NoError(t, err)
-				t.Cleanup(func() { require.NoError(t, db.Close(context.Background())) })
+				t.Cleanup(func() {
+					require.NoError(t, db.Close(celltest.Context(context.Background())))
+				})
 				rt = db
 			}
 			worker := asExecutionTestWorker(payloadLifecycleWorker{})
@@ -36,7 +39,7 @@ func TestClientPayloadSurvivesYieldAndExternalTaskCompletion(t *testing.T) {
 				TenantId: "tenant", JobID: "payload", JobType: worker.Name(),
 				Data:                jobdb.NewTaskDataOrPanic(map[string]any{"input": true}),
 				RunPolicy:           jobdb.DefaultRunPolicy(),
-				ClientPayloadUpdate: &jobdb.ClientPayloadUpdate{Mode: "reset", Value: json.RawMessage(`{"run_policy":"client-owned","large":9007199254740993}`)},
+				ClientPayloadUpdate: &jobdb.ClientPayloadUpdate{Mode: "reset", Value: json.RawMessage(`{"run_policy":"client-owned","large":9007199254740993}`)}, Cell: "test", CellRepo: "example.test/test",
 			}})
 			require.NoError(t, err)
 			run := func() jobworkflow.JobRunOutcome {
@@ -101,7 +104,7 @@ func (payloadLifecycleWorker) Name() string { return "payload:lifecycle" }
 func (w payloadLifecycleWorker) Run(ctx jobworkflow.ExecutionContext, _ jobdb.JobData) (jobdb.JobData, error) {
 	wrapped := newThinPackForwardingJobContext(ctx)
 	if revision := wrapped.ClientPayloadRevision(); revision == 1 {
-		if err := wrapped.Yield(context.Background(), jobworkflow.YieldRequest{Reschedule: jobdb.RescheduleExecutionRequest{
+		if err := wrapped.Yield(celltest.Context(context.Background()), jobworkflow.YieldRequest{Reschedule: jobdb.RescheduleExecutionRequest{
 			NextRoute:           jobdb.Route{JobType: w.Name()},
 			ClientPayloadUpdate: &jobdb.ClientPayloadUpdate{Mode: "patch", ExpectedRevision: &revision, Value: json.RawMessage(`{"phase":"resumed"}`)},
 		}}); err != nil {

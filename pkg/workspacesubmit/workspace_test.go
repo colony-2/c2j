@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/c2j/pkg/contextual"
 	"github.com/colony-2/c2j/pkg/git/gitstate"
 	"github.com/colony-2/c2j/pkg/workflowctl"
@@ -38,15 +39,15 @@ func repo(t *testing.T) (string, string) {
 	write(t, dir, ".gitignore", "ignored\n")
 	runGit(t, dir, "add", ".")
 	runGit(t, dir, "commit", "-m", "base")
-	head, err := git(context.Background(), dir, nil, "rev-parse", "HEAD")
+	head, err := git(celltest.Context(context.Background()), dir, nil, "rev-parse", "HEAD")
 	require.NoError(t, err)
 	return dir, head
 }
 func source(dir, base string) Source {
-	return Source{Worktree: dir, Git: gitstate.GlobalGitTaskContext{BaseRepo: dir, BaseRef: "main", ResolvedBaseHash: base, CellName: "cell", Workspace: &contextual.WorkspaceContext{Cell: "cell", ScopeID: "parent", InitialHash: base, RefPolicy: contextual.WorkspaceFollowUntilChange}}}
+	return Source{Worktree: dir, Git: gitstate.GlobalGitTaskContext{BaseRepo: celltest.Repo(dir), BaseRef: "main", ResolvedBaseHash: base, CellName: "cell", Workspace: &contextual.WorkspaceContext{Cell: "cell", ScopeID: "parent", InitialHash: base, RefPolicy: contextual.WorkspaceFollowPerTask}}}
 }
 func startJob() workflowctl.StartJob {
-	return workflowctl.StartJob{TenantId: "tenant", RecipeName: "child"}
+	return workflowctl.StartJob{TenantId: "tenant", RecipeName: "child", Cell: "test", CellRepo: celltest.Repo("")}
 }
 func restore(t *testing.T, start workflowctl.StartJob) string {
 	t.Helper()
@@ -58,11 +59,11 @@ func restore(t *testing.T, start workflowctl.StartJob) string {
 	if len(start.Artifacts) > 0 {
 		a = start.Artifacts[len(start.Artifacts)-1]
 	}
-	require.NoError(t, gitstate.NewController(nil).Restore(context.Background(), task, a))
+	require.NoError(t, gitstate.NewController(nil).Restore(celltest.Context(context.Background()), task, a))
 	return dir
 }
 func TestLiveSnapshotRestoresAllChangesWithoutMutatingSource(t *testing.T) {
-	ctx := context.Background()
+	ctx := celltest.Context(context.Background())
 	upstream, base := repo(t)
 	local := filepath.Join(t.TempDir(), "local")
 	runGit(t, upstream, "clone", upstream, local)
@@ -108,7 +109,7 @@ func TestTaskStartExcludesLiveEditsAndPinsFloatingBase(t *testing.T) {
 	dir, base := repo(t)
 	src := source(dir, base)
 	write(t, dir, "tracked", "during task")
-	start, err := src.Apply(context.Background(), startJob(), Start, false)
+	start, err := src.Apply(celltest.Context(context.Background()), startJob(), Start, false)
 	require.NoError(t, err)
 	require.Empty(t, start.Artifacts)
 	require.Empty(t, start.JobContext.Workspace.RefPolicy)
@@ -118,11 +119,11 @@ func TestTaskStartExcludesLiveEditsAndPinsFloatingBase(t *testing.T) {
 	require.Equal(t, "base", string(data))
 	// The starting mode does not even require the live worktree to exist.
 	src.Worktree = "/does/not/exist"
-	_, err = src.Apply(context.Background(), startJob(), Start, false)
+	_, err = src.Apply(celltest.Context(context.Background()), startJob(), Start, false)
 	require.NoError(t, err)
 }
 func TestSnapshotReuseAndCleanAdvancedHead(t *testing.T) {
-	ctx := context.Background()
+	ctx := celltest.Context(context.Background())
 	dir, base := repo(t)
 	src := source(dir, base)
 	clean, err := src.Apply(ctx, startJob(), Now, false)
@@ -161,7 +162,7 @@ func TestSnapshotReuseAndCleanAdvancedHead(t *testing.T) {
 	require.Equal(t, "current task", string(data))
 }
 func TestCaptureErrorsDoNotSubmitOrChangeWorktree(t *testing.T) {
-	ctx := context.Background()
+	ctx := celltest.Context(context.Background())
 	dir, base := repo(t)
 	src := source(dir, base)
 	bad := startJob()
@@ -187,7 +188,7 @@ func TestCaptureErrorsDoNotSubmitOrChangeWorktree(t *testing.T) {
 }
 
 func TestLiveSnapshotFromShallowWorktree(t *testing.T) {
-	ctx := context.Background()
+	ctx := celltest.Context(context.Background())
 	upstream, _ := repo(t)
 	write(t, upstream, "tracked", "next base")
 	runGit(t, upstream, "add", ".")
@@ -208,7 +209,7 @@ func TestLiveSnapshotFromShallowWorktree(t *testing.T) {
 }
 
 func TestEmptyTaskWorkspaceSnapshot(t *testing.T) {
-	ctx := context.Background()
+	ctx := celltest.Context(context.Background())
 	dir := t.TempDir()
 	runGit(t, dir, "init", "-b", "main")
 	src := source(dir, "")

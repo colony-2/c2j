@@ -171,6 +171,10 @@ func renderChildGroupChild(resCtx *template.ResolutionContext, child recipe.Chil
 	if err != nil {
 		return recipeops.ChildGroupChildSpec{}, fmt.Errorf("cell_name: %w", err)
 	}
+	cellRepo, err := renderOptionalString(resCtx, child.CellRepo, locals)
+	if err != nil {
+		return recipeops.ChildGroupChildSpec{}, fmt.Errorf("cell_repo: %w", err)
+	}
 	gitRef, err := renderOptionalString(resCtx, child.GitRef, locals)
 	if err != nil {
 		return recipeops.ChildGroupChildSpec{}, fmt.Errorf("git_ref: %w", err)
@@ -213,6 +217,7 @@ func renderChildGroupChild(resCtx *template.ResolutionContext, child recipe.Chil
 		Index:      index,
 		Recipe:     recipeName,
 		CellName:   cellName,
+		CellRepo:   cellRepo,
 		Required:   required,
 		Skipped:    skipped,
 		SkipReason: skipReason,

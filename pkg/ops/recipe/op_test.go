@@ -5,6 +5,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/c2j/pkg/ops"
 	workerops "github.com/colony-2/c2j/pkg/worker/ops"
 	"github.com/colony-2/jobdb/pkg/jobdb"
@@ -31,7 +32,7 @@ func TestGetRecipeOutputSuccess(t *testing.T) {
 		WithJobTool(&fakeJobTool{key: jobdb.JobKey{TenantId: "tenant"}}).
 		Build()
 
-	out, err := getRecipeOutput(deps, context.Background(), StartedJob{Wait: WaitPolicy{On: "job"}, JobID: "job-1"})
+	out, err := getRecipeOutput(deps, celltest.Context(context.Background()), StartedJob{Wait: WaitPolicy{On: "job"}, JobID: "job-1"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -54,7 +55,7 @@ func TestGetRecipeOutputJobResultError(t *testing.T) {
 		WithJobTool(&fakeJobTool{key: jobdb.JobKey{TenantId: "tenant"}}).
 		Build()
 
-	_, err := getRecipeOutput(deps, context.Background(), StartedJob{Wait: WaitPolicy{On: "job"}, JobID: "job-1"})
+	_, err := getRecipeOutput(deps, celltest.Context(context.Background()), StartedJob{Wait: WaitPolicy{On: "job"}, JobID: "job-1"})
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -71,7 +72,7 @@ func TestGetRecipeOutputDataError(t *testing.T) {
 		WithJobTool(&fakeJobTool{key: jobdb.JobKey{TenantId: "tenant"}}).
 		Build()
 
-	_, err := getRecipeOutput(deps, context.Background(), StartedJob{Wait: WaitPolicy{On: "job"}, JobID: "job-1"})
+	_, err := getRecipeOutput(deps, celltest.Context(context.Background()), StartedJob{Wait: WaitPolicy{On: "job"}, JobID: "job-1"})
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -88,7 +89,7 @@ func TestGetRecipeOutputUnmarshalError(t *testing.T) {
 		WithJobTool(&fakeJobTool{key: jobdb.JobKey{TenantId: "tenant"}}).
 		Build()
 
-	_, err := getRecipeOutput(deps, context.Background(), StartedJob{Wait: WaitPolicy{On: "job"}, JobID: "job-1"})
+	_, err := getRecipeOutput(deps, celltest.Context(context.Background()), StartedJob{Wait: WaitPolicy{On: "job"}, JobID: "job-1"})
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -110,7 +111,7 @@ func TestGetRecipeOutputArtifactsError(t *testing.T) {
 		WithJobTool(&fakeJobTool{key: jobdb.JobKey{TenantId: "tenant"}}).
 		Build()
 
-	_, err = getRecipeOutput(deps, context.Background(), StartedJob{Wait: WaitPolicy{On: "job"}, JobID: "job-1"})
+	_, err = getRecipeOutput(deps, celltest.Context(context.Background()), StartedJob{Wait: WaitPolicy{On: "job"}, JobID: "job-1"})
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -124,7 +125,7 @@ func TestWaitAndGetRecipeOutputAwaitError(t *testing.T) {
 		WithJobTool(jobTool).
 		Build()
 
-	_, err := waitAndGetRecipeOutput(deps, context.Background(), StartedJob{Wait: WaitPolicy{On: "job"}, JobID: "job-1"})
+	_, err := waitAndGetRecipeOutput(deps, celltest.Context(context.Background()), StartedJob{Wait: WaitPolicy{On: "job"}, JobID: "job-1"})
 	if err == nil {
 		t.Fatal("expected error")
 	}

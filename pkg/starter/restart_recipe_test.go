@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"testing"
 
+	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/c2j/pkg/execution"
 	"github.com/colony-2/c2j/pkg/jobdbschema"
 	"github.com/colony-2/c2j/pkg/jobref"
@@ -32,7 +33,7 @@ func TestRestartUsesInitialRequirementsNotLatestPayload(t *testing.T) {
 		json.RawMessage(`{"c2j":{"execution":"invalid latest state is irrelevant"}}`),
 	} {
 		engine := &captureEngine{info: jobdb.JobSummary{Metadata: metadata, ClientPayload: payload}}
-		_, err = RestartRecipeJob(context.Background(), engine, jobdb.JobKey{TenantId: "t", JobId: "prior"}, "scope-id", nil, RestartOptions{RequestID: "test-restart"})
+		_, err = RestartRecipeJob(celltest.Context(context.Background()), engine, jobdb.JobKey{TenantId: "t", JobId: "prior"}, "scope-id", nil, RestartOptions{RequestID: "test-restart"})
 		require.NoError(t, err)
 		require.NotNil(t, engine.last.ClientPayloadUpdate)
 		got, err := execution.PayloadDemand(engine.last.ClientPayloadUpdate.Value)
@@ -54,7 +55,7 @@ func TestRestartRecipeJob_NoPatch(t *testing.T) {
 	engine := &captureEngine{}
 	prior := jobdb.JobKey{TenantId: "t1", JobId: "j1"}
 
-	_, err := RestartRecipeJob(context.Background(), engine, prior, "scope-id", nil, RestartOptions{RequestID: "test-restart"})
+	_, err := RestartRecipeJob(celltest.Context(context.Background()), engine, prior, "scope-id", nil, RestartOptions{RequestID: "test-restart"})
 	if err != nil {
 		t.Fatalf("RestartRecipeJob: %v", err)
 	}
@@ -76,7 +77,7 @@ func TestRestartRecipeJob_WithPatch_UsesScopePayload(t *testing.T) {
 		Job: map[string]any{"git": map[string]any{"author": "new-author"}},
 	}
 
-	_, err := RestartRecipeJob(context.Background(), engine, prior, "scope-id", patch, RestartOptions{RequestID: "test-restart"})
+	_, err := RestartRecipeJob(celltest.Context(context.Background()), engine, prior, "scope-id", patch, RestartOptions{RequestID: "test-restart"})
 	if err != nil {
 		t.Fatalf("RestartRecipeJob: %v", err)
 	}

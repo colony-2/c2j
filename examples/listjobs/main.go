@@ -34,7 +34,7 @@ func main() {
 
 func run() error {
 	uri := flag.String("jobdb", "", "JobDB URI: https://host/tenant")
-	repo := flag.String("repo", "", "repository URL or host/owner/repository")
+	cell := flag.String("cell", "", "cell name")
 	pageSize := flag.Int("page-size", 50, "maximum jobs returned per page")
 	pageToken := flag.String("page-token", "", "opaque token from a previous page")
 	all := flag.Bool("all", false, "explicitly iterate every page (one JSON object per page)")
@@ -50,7 +50,7 @@ func run() error {
 	ctx, cancel := context.WithTimeout(ctx, *timeout)
 	defer cancel()
 	query := joblist.Query{
-		Repository: *repo, JobTypes: []string{"recipe"},
+		CellNames: []string{*cell}, JobTypes: []string{"recipe"},
 		Statuses: []jobdb.JobStatus{jobdb.JobStatusReady, jobdb.JobStatusCrashConcern},
 		PageSize: *pageSize, PageToken: *pageToken,
 	}

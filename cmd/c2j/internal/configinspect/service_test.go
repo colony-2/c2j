@@ -23,6 +23,7 @@ dependents:
       github.com/other/external \
       github.com/acme/boo-beta
 self:
+  cell: cheetah
   repo: cheetah
   ref: main
 `)
@@ -59,6 +60,7 @@ dependents:
       github.com/acme/boo-alpha \
       github.com/acme/boo-beta
 self:
+  cell: cheetah
   repo: cheetah
 `)
 
@@ -125,6 +127,7 @@ func TestRunSelfText(t *testing.T) {
 	writeConfig(t, root, `
 pattern: 'github.com/acme/boo-${{ cell }}'
 self:
+  cell: cheetah
   repo: cheetah
   ref: release
 jobdb: https://jobdb.example.com/acme-prod
@@ -154,6 +157,7 @@ func TestRunSelfJSON(t *testing.T) {
 	root := t.TempDir()
 	writeConfig(t, root, `
 self:
+  cell: app
   repo: github.com/acme/self
   ref: main
 jobdb: https://jobdb.example.com/acme-prod
@@ -201,7 +205,7 @@ func TestRunSelfAutoDetectsGoBaseWithoutConfig(t *testing.T) {
 	if err := json.Unmarshal(stdout.Bytes(), &info); err != nil {
 		t.Fatalf("decode json: %v", err)
 	}
-	if info.Repo != "github.com/acme/boo-cheetah" || info.JobDB != "" || info.ShortName != "cheetah" || info.RootRepo != "github.com/acme/boo-root" {
+	if info.Repo != "github.com/acme/boo-cheetah" || info.JobDB != "" || info.ShortName != "" || info.RootRepo != "github.com/acme/boo-root" {
 		t.Fatalf("unexpected autodetected self info: %#v", info)
 	}
 }

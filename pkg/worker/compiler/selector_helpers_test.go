@@ -37,7 +37,7 @@ func TestNormalizeGitRepositorySource(t *testing.T) {
 		{
 			name:   "ssh scp syntax",
 			source: "git@github.com:acme/demo.git",
-			want:   "ssh://git@github.com/acme/demo.git",
+			want:   "https://github.com/acme/demo.git",
 		},
 	}
 

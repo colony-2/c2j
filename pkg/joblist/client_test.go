@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/c2j/pkg/execution"
 	"github.com/colony-2/c2j/pkg/joblist"
 	"github.com/colony-2/jobdb/pkg/jobdb"
@@ -37,7 +38,7 @@ func (r readOnlyRuntime) ListJobs(ctx context.Context, req jobdb.ListJobsRequest
 
 func serve(t *testing.T, list func(context.Context, jobdb.ListJobsRequest) (jobdb.ListJobsResponse, error)) *httptest.Server {
 	t.Helper()
-	s := httptest.NewServer(remote.NewServer(readOnlyRuntime{list: list}))
+	s := httptest.NewServer(celltest.Handler(remote.NewServer(readOnlyRuntime{list: list})))
 	t.Cleanup(s.Close)
 	return s
 }
@@ -55,7 +56,7 @@ func demandJob(t *testing.T, id, memory string) jobdb.JobSummary {
 	require.NoError(t, err)
 	meta, err := json.Marshal(map[string]any{"repo": "https://github.com/acme/app.git", "execution": d})
 	require.NoError(t, err)
-	return jobdb.JobSummary{GoalID: "test-goal", OtherGoalIDs: []string{},
+	return jobdb.JobSummary{Cell: "app", CellID: "cell-app", CellRepo: "github.com/acme/app", GoalID: "test-goal", OtherGoalIDs: []string{},
 		JobKey: jobdb.JobKey{TenantId: "tenant", JobId: id}, JobType: "recipe", Status: jobdb.JobStatusReady,
 		Metadata: meta, CreatedAt: time.Unix(100, 0).UTC(), AvailableAt: time.Unix(200, 0).UTC(),
 	}
@@ -81,13 +82,13 @@ func TestRemoteProjectionAndWaitingOnlyExecution(t *testing.T) {
 				}
 				return jobdb.ListJobsResponse{Jobs: []jobdb.JobSummary{item}}, nil
 			})
-			page, err := client(t, s, "tenant").List(context.Background(), joblist.Query{Repository: "github.com/acme/app", Statuses: []jobdb.JobStatus{status}})
+			page, err := client(t, s, "tenant").List(celltest.Context(context.Background()), joblist.Query{CellNames: []string{"app"}, Statuses: []jobdb.JobStatus{status}})
 			require.NoError(t, err)
 			require.Len(t, page.Jobs, 1)
 			got := page.Jobs[0]
 			require.Equal(t, "tenant", got.TenantID)
 			require.Equal(t, "job", got.JobID)
-			require.Equal(t, "https://github.com/acme/app.git", got.RepositorySource)
+			require.Equal(t, "github.com/acme/app", got.RepositorySource)
 			require.Equal(t, job.NextRoute, got.NextRoute)
 			require.Equal(t, job.AvailableAt, got.AvailableAt)
 			require.True(t, got.CancelRequested)
@@ -133,7 +134,7 @@ func TestExecutionDiagnosticsAndUnspecified(t *testing.T) {
 		return jobdb.ListJobsResponse{Jobs: jobs}, nil
 	})
 	c := client(t, s, "tenant")
-	page, err := c.List(context.Background(), joblist.Query{Repository: "github.com/acme/app"})
+	page, err := c.List(celltest.Context(context.Background()), joblist.Query{CellNames: []string{"app"}})
 	require.NoError(t, err)
 	for i, status := range []string{"unspecified", "unresolved", "unsupported", "malformed"} {
 		require.Equal(t, status, page.Jobs[i].Execution.Status)
@@ -142,7 +143,7 @@ func TestExecutionDiagnosticsAndUnspecified(t *testing.T) {
 		}
 	}
 	memory := "4Gi"
-	_, err = c.List(context.Background(), joblist.Query{Repository: "github.com/acme/app", ExecutionFilter: &execution.Filter{Allocation: execution.Allocation{SchemaVersion: 1, Resources: execution.Resources{Memory: &memory}}}})
+	_, err = c.List(celltest.Context(context.Background()), joblist.Query{CellNames: []string{"app"}, ExecutionFilter: &execution.Filter{Allocation: execution.Allocation{SchemaVersion: 1, Resources: execution.Resources{Memory: &memory}}}})
 	require.ErrorIs(t, err, joblist.ErrExecutionDetailsRequired)
 }
 
@@ -191,13 +192,13 @@ func TestRemoteCompactPagination(t *testing.T) {
 	})
 	c := client(t, s, "tenant")
 	memory := "4Gi"
-	q := joblist.Query{Repository: "github.com/acme/app", PageSize: 2, ExecutionFilter: &execution.Filter{Allocation: execution.Allocation{SchemaVersion: 1, Resources: execution.Resources{Memory: &memory}}}}
-	_, err := c.List(context.Background(), q)
+	q := joblist.Query{CellNames: []string{"app"}, PageSize: 2, ExecutionFilter: &execution.Filter{Allocation: execution.Allocation{SchemaVersion: 1, Resources: execution.Resources{Memory: &memory}}}}
+	_, err := c.List(celltest.Context(context.Background()), q)
 	require.ErrorIs(t, err, joblist.ErrExecutionDetailsRequired)
 	require.Zero(t, calls.Load(), "compatibility filtering must not start an enrichment loop")
 	q.ExecutionFilter, q.PageToken = nil, ""
 	calls.Store(0)
-	page, err := c.List(context.Background(), q)
+	page, err := c.List(celltest.Context(context.Background()), q)
 	require.NoError(t, err)
 	require.Len(t, page.Jobs, 2)
 	require.Equal(t, int32(1), calls.Load(), "unfiltered listing must fetch only one backend page")
@@ -212,7 +213,7 @@ func TestConcurrentTenantRepositoryIsolationWithRealBackend(t *testing.T) {
 				require.NoError(t, err)
 				meta, err := json.Marshal(map[string]string{"repo": "https://github.com/acme/" + repo + ".git"})
 				require.NoError(t, err)
-				_, err = runtime.SubmitJob(context.Background(), jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: tenant, JobID: repo + strconv.Itoa(i), JobType: "recipe", Metadata: meta, Data: data, RunPolicy: jobdb.DefaultRunPolicy()}})
+				_, err = runtime.SubmitJob(celltest.Context(context.Background()), jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: tenant, JobID: repo + strconv.Itoa(i), JobType: "recipe", Metadata: meta, Data: data, RunPolicy: jobdb.DefaultRunPolicy(), Cell: repo, CellRepo: "github.com/acme/" + repo}})
 				require.NoError(t, err)
 			}
 		}
@@ -226,15 +227,15 @@ func TestConcurrentTenantRepositoryIsolationWithRealBackend(t *testing.T) {
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
-				q := joblist.Query{Repository: "github.com/acme/" + repo, PageSize: 1, JobTypes: []string{"recipe"}, Statuses: []jobdb.JobStatus{jobdb.JobStatusReady}}
+				q := joblist.Query{CellNames: []string{repo}, PageSize: 1, JobTypes: []string{"recipe"}, Statuses: []jobdb.JobStatus{jobdb.JobStatusReady}}
 				seen := map[string]bool{}
 				for {
-					page, err := c.List(context.Background(), q)
+					page, err := c.List(celltest.Context(context.Background()), q)
 					if !assertNoError(t, err) {
 						return
 					}
 					for _, item := range page.Jobs {
-						if item.TenantID != tenant || item.RepositorySource != "https://github.com/acme/"+repo+".git" || seen[item.JobID] {
+						if item.TenantID != tenant || item.RepositorySource != "github.com/acme/"+repo || seen[item.JobID] {
 							t.Errorf("isolation/pagination violation: %+v", item)
 							return
 						}
@@ -253,11 +254,9 @@ func TestConcurrentTenantRepositoryIsolationWithRealBackend(t *testing.T) {
 	}
 	wg.Wait()
 	c := clients["one"]
-	page, err := c.List(context.Background(), joblist.Query{Repository: "github.com/acme/missing"})
-	require.NoError(t, err)
-	require.NotNil(t, page.Jobs)
-	require.Empty(t, page.Jobs)
-	_, err = c.List(context.Background(), joblist.Query{Repository: "github.com/acme/app", PageToken: "invalid-token"})
+	_, err := c.List(celltest.Context(context.Background()), joblist.Query{CellNames: []string{"missing"}})
+	require.Error(t, err)
+	_, err = c.List(celltest.Context(context.Background()), joblist.Query{CellNames: []string{"app"}, PageToken: "invalid-token"})
 	require.Error(t, err)
 }
 
@@ -283,11 +282,7 @@ func TestExplicitInputsIgnoreProjectAndEnvironment(t *testing.T) {
 	t.Setenv("PATH", "")
 	t.Setenv("C2J_JOBDB", "https://wrong.invalid/wrong")
 	s := serve(t, func(_ context.Context, req jobdb.ListJobsRequest) (jobdb.ListJobsResponse, error) {
-		pred, err := jobdb.MetadataPredicates(req.MetadataFilter)
-		if err != nil {
-			return jobdb.ListJobsResponse{}, err
-		}
-		if req.TenantIds[0] != "tenant" || len(pred) != 1 || pred[0].Values[0] != "https://github.com/acme/app.git" {
+		if req.TenantIds[0] != "tenant" || len(req.CellNames) != 1 || req.CellNames[0] != "app" || req.MetadataFilter != nil {
 			return jobdb.ListJobsResponse{}, fmt.Errorf("wrong explicit scope: %+v", req)
 		}
 		return jobdb.ListJobsResponse{}, nil
@@ -295,7 +290,7 @@ func TestExplicitInputsIgnoreProjectAndEnvironment(t *testing.T) {
 	c := client(t, s, "tenant")
 	for _, dir := range []string{child, root} {
 		require.NoError(t, os.Chdir(dir))
-		page, err := c.List(context.Background(), joblist.Query{Repository: "github.com/acme/app"})
+		page, err := c.List(celltest.Context(context.Background()), joblist.Query{CellNames: []string{"app"}})
 		require.NoError(t, err)
 		require.Empty(t, page.Jobs)
 	}
@@ -307,17 +302,17 @@ type roundTripFunc func(*http.Request) (*http.Response, error)
 func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
 
 func TestAuthenticationRemoteErrorsAndCancellation(t *testing.T) {
-	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	s := httptest.NewServer(celltest.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != "Bearer test" {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"jobs":[]}`))
-	}))
+	})))
 	t.Cleanup(s.Close)
-	q := joblist.Query{Repository: "github.com/acme/app"}
-	_, err := client(t, s, "tenant").List(context.Background(), q)
+	q := joblist.Query{CellNames: []string{"app"}}
+	_, err := client(t, s, "tenant").List(celltest.Context(context.Background()), q)
 	require.ErrorContains(t, err, "401")
 	base := s.Client().Transport
 	auth := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
@@ -327,7 +322,7 @@ func TestAuthenticationRemoteErrorsAndCancellation(t *testing.T) {
 	})}
 	c, err := joblist.New(joblist.Config{JobDBURI: s.URL + "/tenant", HTTPClient: auth})
 	require.NoError(t, err)
-	_, err = c.List(context.Background(), q)
+	_, err = c.List(celltest.Context(context.Background()), q)
 	require.NoError(t, err)
 	for _, deadline := range []bool{false, true} {
 		started := make(chan struct{})
@@ -338,11 +333,11 @@ func TestAuthenticationRemoteErrorsAndCancellation(t *testing.T) {
 		})}
 		c, err := joblist.New(joblist.Config{JobDBURI: s.URL + "/tenant", HTTPClient: cancelClient})
 		require.NoError(t, err)
-		ctx, cancel := context.WithCancel(context.Background())
+		ctx, cancel := context.WithCancel(celltest.Context(context.Background()))
 		want := context.Canceled
 		if deadline {
 			cancel()
-			ctx, cancel = context.WithTimeout(context.Background(), 100*time.Millisecond)
+			ctx, cancel = context.WithTimeout(celltest.Context(context.Background()), 100*time.Millisecond)
 			want = context.DeadlineExceeded
 		}
 		if !deadline {
@@ -355,7 +350,7 @@ func TestAuthenticationRemoteErrorsAndCancellation(t *testing.T) {
 	connectionErr := errors.New("connection unavailable")
 	c, err = joblist.New(joblist.Config{JobDBURI: s.URL + "/tenant", HTTPClient: &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) { return nil, connectionErr })}})
 	require.NoError(t, err)
-	_, err = c.List(context.Background(), q)
+	_, err = c.List(celltest.Context(context.Background()), q)
 	require.ErrorIs(t, err, connectionErr)
 }
 
@@ -371,23 +366,23 @@ func TestValidationAndEmptyContinuation(t *testing.T) {
 	})
 	c := client(t, s, "tenant")
 	for _, q := range []joblist.Query{
-		{}, {Repository: "short-name"}, {Repository: "./local"},
-		{Repository: "github.com/acme/app", PageSize: -1},
-		{Repository: "github.com/acme/app", Statuses: []jobdb.JobStatus{"WRONG"}},
-		{Repository: "github.com/acme/app", JobTypes: []string{""}},
-		{Repository: "github.com/acme/app", ExecutionFilter: &execution.Filter{}},
-		{Repository: "github.com/acme/app", JobTasks: []jobdb.JobTaskFilter{{JobType: "recipe"}}},
+		{CellNames: []string{}}, {CellNames: []string{"."}}, {CellNames: []string{"./local"}},
+		{CellNames: []string{"app"}, PageSize: -1},
+		{CellNames: []string{"app"}, Statuses: []jobdb.JobStatus{"WRONG"}},
+		{CellNames: []string{"app"}, JobTypes: []string{""}},
+		{CellNames: []string{"app"}, ExecutionFilter: &execution.Filter{}},
+		{CellNames: []string{"app"}, JobTasks: []jobdb.JobTaskFilter{{JobType: "recipe"}}},
 	} {
-		_, err := c.List(context.Background(), q)
+		_, err := c.List(celltest.Context(context.Background()), q)
 		require.ErrorIs(t, err, joblist.ErrInvalidInput)
 	}
 	require.Zero(t, calls.Load())
-	q := joblist.Query{Repository: "github.com/acme/app"}
-	page, err := c.List(context.Background(), q)
+	q := joblist.Query{CellNames: []string{"app"}}
+	page, err := c.List(celltest.Context(context.Background()), q)
 	require.NoError(t, err)
 	require.Empty(t, page.Jobs)
 	require.Equal(t, "continue", page.NextPageToken)
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(celltest.Context(context.Background()))
 	cancel()
 	_, err = c.List(ctx, q)
 	require.ErrorIs(t, err, context.Canceled)
@@ -403,7 +398,7 @@ func TestIncludeHiddenRemoteForwarding(t *testing.T) {
 			require.Equal(t, "opaque", req.PageToken)
 			return jobdb.ListJobsResponse{NextPageToken: "next"}, nil
 		})
-		page, err := client(t, s, "tenant").List(context.Background(), joblist.Query{Repository: "github.com/acme/app", IncludeHidden: include, PageToken: "opaque"})
+		page, err := client(t, s, "tenant").List(celltest.Context(context.Background()), joblist.Query{CellNames: []string{"app"}, IncludeHidden: include, PageToken: "opaque"})
 		require.NoError(t, err)
 		require.NotNil(t, page.Jobs)
 		require.Empty(t, page.Jobs)

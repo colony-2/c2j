@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/c2j/pkg/contextual"
 	"github.com/colony-2/c2j/pkg/execution"
 	"github.com/colony-2/c2j/pkg/executionruntime"
@@ -71,7 +72,7 @@ func TestNativeMergeFailureCatchAndResume(t *testing.T) {
 	for _, backend := range []string{"sqlite", "remote"} {
 		for _, scenario := range []string{"advanced", "push race", "resume", "other node", "hook", "squash"} {
 			t.Run(backend+"/"+scenario, func(t *testing.T) {
-				ctx := context.Background()
+				ctx := celltest.Context(context.Background())
 				root := t.TempDir()
 				source, remote := filepath.Join(root, "source"), filepath.Join(root, "remote.git")
 				baseHash := workspaceRepo(t, source, "source")
@@ -172,8 +173,8 @@ outputs:
 				fault := &mergeOutcomeInterruption{WorkflowRuntime: rt}
 				first := newWorker()
 				job := contextual.JobContext{Workflow: contextual.WorkflowContext{CellName: "source"}, GitBase: contextual.GitBaseContext{BaseRepo: remote, BaseRef: "main"}}
-				data := jobdb.NewTaskDataOrPanic(workflowctl.StartJob{TenantId: "merge-tests", RecipeName: "merge-catch", JobContext: job, GitRef: "main"}, jobdb.NewArtifactFromBytes("merge-catch"+starter.RecipeArtifactSuffix, []byte(yaml)))
-				handle, err := rt.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "merge-tests", JobType: "recipe", Data: data, RunPolicy: jobdb.RunPolicy{Retry: jobdb.RetryPolicy{MaximumAttempts: 1}}}})
+				data := jobdb.NewTaskDataOrPanic(workflowctl.StartJob{TenantId: "merge-tests", RecipeName: "merge-catch", JobContext: job, GitRef: "main", Cell: "test", CellRepo: celltest.Repo(job.GitBase.BaseRepo)}, jobdb.NewArtifactFromBytes("merge-catch"+starter.RecipeArtifactSuffix, []byte(yaml)))
+				handle, err := rt.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "merge-tests", JobType: "recipe", Data: data, RunPolicy: jobdb.RunPolicy{Retry: jobdb.RetryPolicy{MaximumAttempts: 1}}, Cell: "test", CellRepo: celltest.Repo(job.GitBase.BaseRepo)}})
 				require.NoError(t, err)
 				key := handle.JobKey
 				run := func(runtime jobdb.WorkflowRuntime, ws *jobworkflow.WorkSet) (jobworkflow.JobRunOutcome, error) {

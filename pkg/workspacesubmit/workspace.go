@@ -32,6 +32,11 @@ func (s Source) Apply(ctx context.Context, start workflowctl.StartJob, mode stri
 		return start, fmt.Errorf("unknown workspace mode %q", mode)
 	}
 	g := s.Git
+	executionRepo, err := repository.Normalize(g.BaseRepo)
+	if err != nil {
+		return start, err
+	}
+	g.BaseRepo = executionRepo
 	if g.BaseRepo == "" || g.BaseRef == "" {
 		return start, fmt.Errorf("task-start workspace context is unavailable")
 	}
@@ -66,7 +71,6 @@ func (s Source) Apply(ctx context.Context, start workflowctl.StartJob, mode stri
 	}
 	ws.ScopeID = "child:" + start.JobID
 	ws.RefPolicy = "" // Explicit snapshot selection is pinned, even for floating parents.
-	ws.TaskBaseHash = ""
 	ws.InitialHash = g.ResolvedBaseHash
 	commit := contextual.GitCommitContext{PersistHash: g.PersistHash, ParentHash: g.ParentHash}
 	if commit.PersistHash == "" {
@@ -112,6 +116,13 @@ func (s Source) Apply(ctx context.Context, start workflowctl.StartJob, mode stri
 	if commit.PersistHash == "" && commit.ParentRef == "" && !ws.HasEmptyBase(g.ResolvedBaseHash, g.ParentHash) {
 		return start, fmt.Errorf("task-start workspace has no pinned commit")
 	}
+	start.Cell = cell
+	repo, err := jobdb.NormalizeCellRepo(g.BaseRepo)
+	if err != nil {
+		return start, err
+	}
+	start.CellRepo = repo
+
 	start.JobContext.Workflow.CellName = cell
 	start.JobContext.GitBase = contextual.GitBaseContext{BaseRepo: g.BaseRepo, BaseRef: g.BaseRef, ResolvedBaseHash: g.ResolvedBaseHash, GitAuthor: g.GitAuthor}
 	start.JobContext.CellResolution = g.CellResolution

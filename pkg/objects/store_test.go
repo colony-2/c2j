@@ -12,6 +12,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	"github.com/stretchr/testify/require"
 )
@@ -22,7 +23,7 @@ func testStore(t *testing.T) (*Store, *map[string]jobdb.Artifact) {
 	var mu sync.Mutex
 	store := NewStore(Config{JobKey: jobdb.JobKey{TenantId: "tenant", JobId: "job"}, TaskOrdinal: 2, Workdir: t.TempDir(),
 		AddArtifact: func(a jobdb.Artifact) error {
-			b, err := a.Bytes(context.Background())
+			b, err := a.Bytes(celltest.Context(context.Background()))
 			if err != nil {
 				return err
 			}
@@ -45,7 +46,7 @@ func testStore(t *testing.T) (*Store, *map[string]jobdb.Artifact) {
 	return store, &artifacts
 }
 func TestCheckpointIndependentCopiesAndConcurrentBranches(t *testing.T) {
-	ctx := context.Background()
+	ctx := celltest.Context(context.Background())
 	store, artifacts := testStore(t)
 	home := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(home, "rollout.jsonl"), []byte("original"), 0600))
@@ -110,7 +111,7 @@ func TestCheckpointIndependentCopiesAndConcurrentBranches(t *testing.T) {
 	require.Equal(t, "original", string(b))
 }
 func TestCheckpointRejectsWrongIdentityAndCorruption(t *testing.T) {
-	ctx := context.Background()
+	ctx := celltest.Context(context.Background())
 	s, arts := testStore(t)
 	ref, err := s.Publish(ctx, "test.session/v1", map[string]any{"id": 1}, nil)
 	require.NoError(t, err)
@@ -132,7 +133,7 @@ func TestCheckpointRejectsWrongIdentityAndCorruption(t *testing.T) {
 	require.Error(t, err)
 }
 func TestCheckpointRejectsLinksAndUnsafeArchivePaths(t *testing.T) {
-	ctx := context.Background()
+	ctx := celltest.Context(context.Background())
 	s, arts := testStore(t)
 	dir := t.TempDir()
 	require.NoError(t, os.Symlink("/etc/passwd", filepath.Join(dir, "link")))

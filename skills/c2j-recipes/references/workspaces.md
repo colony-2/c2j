@@ -19,7 +19,7 @@ The selector uses the incoming scope's visible inputs, prior outputs, inherited 
 
 Each explicit declaration creates a fresh workspace, including repeated declarations of the same cell. Descendants without declarations share that workspace's changes through ordinary snapshots. To share changes across several operations, put one declaration on their containing sequence or state machine. A declaration on an individual state starts fresh each time that state is entered; a machine declaration lasts across its states and loops.
 
-Symbolic refs remain unpinned until the first accepted repository change or explicit Git base adoption. Each task attempt selects a valid hash for the ref; consecutive tasks, internal steps, and retries may use different hashes. Const/no-change tasks do not pin later work. Accepted snapshots and exact commit refs stay fixed until explicit integration. Rebase advances the active snapshot base and HEAD, keeping patch changes separate from incorporated upstream changes. Completed replay uses recorded results. Restart reconstructs the retained prefix: discarded writes do not pin future work, retained writes remain durable. Older histories retain their recorded behavior, including `workspace-base`/`hook-base` tasks where present; new workspace entries need no such tasks. Omitted refs follow cell resolution defaults: configured self/root refs, otherwise `main`. Configured short names use the submitting project's captured naming pattern. Explicit Git repository locations work without that configuration. Local paths require access on the worker.
+Symbolic refs remain unpinned until the first accepted repository change or explicit Git base adoption. Each task attempt selects a valid hash for the ref; consecutive tasks, internal steps, and retries may use different hashes. Const/no-change tasks do not pin later work. Accepted snapshots and exact commit refs stay fixed until explicit integration. Rebase advances the active snapshot base and HEAD, keeping patch changes separate from incorporated upstream changes. Completed replay uses recorded results. Restart reconstructs the retained prefix: discarded writes do not pin future work, retained writes remain durable. Old execution stores are incompatible with the named-cell cutover. Fresh workspace entries resolve within task workers. Omitted refs follow cell resolution defaults: configured self/root refs, otherwise `main`. Cell names resolve through JobDB. Captured routing configuration and optional `workspace.repo` supply repository assertions; they must agree with the registry. Repository URLs and local paths are not cell names.
 
 Inside an override:
 
@@ -30,7 +30,7 @@ Inside an override:
 
 Outputs and user artifacts cross the boundary normally. Git commits, thin packs, and Git context patches do not automatically advance the enclosing workspace. Snapshots remain durable; “ephemeral” does not imply `const: true`. The implicit job-result snapshot remains the root workspace's snapshot, even when the final node runs elsewhere.
 
-Explicit child jobs default to the active cell and can inherit its synthetic snapshot; their returned changes are not adopted by the parent. Changing a child's cell label alone does not retarget its Git repository.
+Explicit child jobs default to the active cell and can inherit its synthetic snapshot; their returned changes are not adopted by the parent. Child target names resolve through JobDB; use optional `cell_repo` for a repository assertion.
 
 For CLI submissions from a task, choose between its incoming snapshot and live
 workspace contents using the flags documented in
@@ -42,3 +42,5 @@ Workspace entry/exit never pushes or merges to the selected cell. Existing expli
 Use isolated recipe tests for templates and mocked flow; use a real embedded/deployed runtime for checkout and snapshot assertions. Upgrade recipe compilers and task workers together before using the field; old workers may ignore unknown YAML fields.
 
 Use separate [`squash`, `rebase`, and `merge` tasks](https://github.com/colony-2/c2j/blob/main/GUIDE-Git-Ops.md) to persist preparation before publication. `merge` is fast-forward only. For an empty workspace, use `squash` then `merge` without `rebase`.
+
+See [named cells](https://github.com/colony-2/c2j/blob/main/GUIDE-Named-Cells.md) for registration, root bootstrap, permissions, and the storage cutover.

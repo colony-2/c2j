@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/c2j/pkg/childbroker"
 	"github.com/colony-2/c2j/pkg/jobcontext"
 	"github.com/colony-2/c2j/pkg/jobref"
@@ -30,7 +31,7 @@ func TestResolveSelfTargetRejectsEmptySelfRepo(t *testing.T) {
 		t.Fatalf("write config: %v", err)
 	}
 
-	_, err := resolveSelfTarget(context.Background(), root)
+	_, err := resolveSelfTarget(celltest.Context(context.Background()), root)
 	if err == nil {
 		t.Fatal("expected resolveSelfTarget to reject an empty self.repo")
 	}
@@ -47,6 +48,7 @@ func TestResolveSelfTargetUsesPatternShortName(t *testing.T) {
 	configYAML := `
 pattern: 'github.com/acme/boo-${{ cell }}'
 self:
+  cell: cheetah
   repo: cheetah
   ref: release
 `
@@ -54,11 +56,11 @@ self:
 		t.Fatalf("write config: %v", err)
 	}
 
-	target, err := resolveSelfTarget(context.Background(), root)
+	target, err := resolveSelfTarget(celltest.Context(context.Background()), root)
 	if err != nil {
 		t.Fatalf("resolveSelfTarget(): %v", err)
 	}
-	if target.RepositorySource != "https://github.com/acme/boo-cheetah.git" {
+	if target.RepositorySource != "github.com/acme/boo-cheetah" {
 		t.Fatalf("RepositorySource = %q", target.RepositorySource)
 	}
 	if target.DefaultRef != "release" {
@@ -69,26 +71,14 @@ self:
 	}
 }
 
-func TestResolveSelfTargetAutoDetectsGoBaseWithoutConfig(t *testing.T) {
-	t.Parallel()
-
+func TestResolveSelfTargetRequiresExplicitCellName(t *testing.T) {
 	root := t.TempDir()
-	if err := os.WriteFile(filepath.Join(root, "go.mod"), []byte("module github.com/acme/boo-cheetah\ngo 1.26\n"), 0o644); err != nil {
-		t.Fatalf("write go.mod: %v", err)
+	if err := os.WriteFile(filepath.Join(root, "go.mod"), []byte("module github.com/acme/app\ngo 1.26\n"), 0644); err != nil {
+		t.Fatal(err)
 	}
-
-	target, err := resolveSelfTarget(context.Background(), root)
-	if err != nil {
-		t.Fatalf("resolveSelfTarget(): %v", err)
-	}
-	if target.RepositorySource != "https://github.com/acme/boo-cheetah.git" {
-		t.Fatalf("RepositorySource = %q", target.RepositorySource)
-	}
-	if target.DefaultRef != "main" {
-		t.Fatalf("DefaultRef = %q", target.DefaultRef)
-	}
-	if target.CellName != "cheetah" {
-		t.Fatalf("CellName = %q", target.CellName)
+	_, err := resolveSelfTarget(celltest.Context(context.Background()), root)
+	if err == nil || !strings.Contains(err.Error(), "explicit self.cell") {
+		t.Fatalf("expected missing explicit identity: %v", err)
 	}
 }
 
@@ -103,6 +93,7 @@ func TestResolveExplicitTargetExpandsShortNameFromConfig(t *testing.T) {
 	configYAML := `
 pattern: 'github.com/acme/boo-${{ cell }}'
 self:
+  cell: cheetah
   repo: cheetah
   ref: release
 `
@@ -110,11 +101,11 @@ self:
 		t.Fatalf("write config: %v", err)
 	}
 
-	target, err := resolveExplicitTarget(context.Background(), root, "monkey")
+	target, err := resolveExplicitTarget(celltest.Context(context.Background()), root, "monkey")
 	if err != nil {
 		t.Fatalf("resolveExplicitTarget(): %v", err)
 	}
-	if target.RepositorySource != "https://github.com/acme/boo-monkey.git" {
+	if target.RepositorySource != "github.com/acme/boo-monkey" {
 		t.Fatalf("RepositorySource = %q", target.RepositorySource)
 	}
 	if target.DefaultRef != "main" {
@@ -135,6 +126,7 @@ func TestResolveExplicitTargetUsesRootConfigWithoutPattern(t *testing.T) {
 	}
 	configYAML := `
 self:
+  cell: app
   repo: github.com/acme/self
 root:
   repo: github.com/acme/root
@@ -144,11 +136,11 @@ root:
 		t.Fatalf("write config: %v", err)
 	}
 
-	target, err := resolveExplicitTarget(context.Background(), root, "root")
+	target, err := resolveExplicitTarget(celltest.Context(context.Background()), root, "root")
 	if err != nil {
 		t.Fatalf("resolveExplicitTarget(root): %v", err)
 	}
-	if target.RepositorySource != "https://github.com/acme/root.git" {
+	if target.RepositorySource != "github.com/acme/root" {
 		t.Fatalf("RepositorySource = %q", target.RepositorySource)
 	}
 	if target.DefaultRef != "release" {
@@ -158,16 +150,11 @@ root:
 		t.Fatalf("CellName = %q", target.CellName)
 	}
 
-	target, err = resolveExplicitTarget(context.Background(), root, "https://github.com/acme/root.git")
-	if err != nil {
-		t.Fatalf("resolveExplicitTarget(root url): %v", err)
+	_, err = resolveExplicitTarget(celltest.Context(context.Background()), root, "https://github.com/acme/root.git")
+	if err == nil {
+		t.Fatal("repository URLs are not cell names")
 	}
-	if target.DefaultRef != "release" {
-		t.Fatalf("DefaultRef(url) = %q", target.DefaultRef)
-	}
-	if target.CellName != "root" {
-		t.Fatalf("CellName(url) = %q", target.CellName)
-	}
+
 }
 
 func TestLoadRecipeStartTreatsRecipeFlagLocalFileAsEmbeddedRecipe(t *testing.T) {
@@ -241,7 +228,7 @@ func TestLoadRecipeStartPassesThroughGitSelector(t *testing.T) {
 }
 
 func TestRunSubmitsThroughChildJobBrokerWhenPresent(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(celltest.Context(context.Background()), 5*time.Second)
 	defer cancel()
 
 	root := t.TempDir()
@@ -273,6 +260,9 @@ outputs:
 		InvocationHash:     "submitjob-hash",
 	}
 	submitter := &submitjobCaptureSubmitter{}
+	ctx = jobref.WithScope(ctx, jobref.Scope{ResolveCell: func(context.Context, string) (jobdb.ResolvedCell, error) {
+		return jobdb.ResolvedCell{Cell: "app", CellID: "cell-app", CellRepo: celltest.Repo(root)}, nil
+	}})
 	broker, err := childbroker.Start(ctx, childbroker.Options{
 		Current:   current,
 		Submitter: submitter,
@@ -291,8 +281,8 @@ outputs:
 
 	var stdout bytes.Buffer
 	if err := Run(ctx, Options{
-		JobDBURI:   "embed:///",
-		Cell:       root,
+		JobDBURI: "embed:///",
+		Cell:     "app", CellRepo: celltest.Repo(root),
 		RecipeFile: recipePath,
 		WorkingDir: root,
 		Prompt:     "run the child recipe",
@@ -431,14 +421,14 @@ func TestLoadSubmitArtifactsLoadsDefaultAndCustomNames(t *testing.T) {
 		t.Fatalf("second artifact name = %q", artifacts[1].Name())
 	}
 
-	firstBytes, err := artifacts[0].Bytes(context.Background())
+	firstBytes, err := artifacts[0].Bytes(celltest.Context(context.Background()))
 	if err != nil {
 		t.Fatalf("read first artifact: %v", err)
 	}
 	if string(firstBytes) != "brief body" {
 		t.Fatalf("first artifact bytes = %q", firstBytes)
 	}
-	secondBytes, err := artifacts[1].Bytes(context.Background())
+	secondBytes, err := artifacts[1].Bytes(celltest.Context(context.Background()))
 	if err != nil {
 		t.Fatalf("read second artifact: %v", err)
 	}

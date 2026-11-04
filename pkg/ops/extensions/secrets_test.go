@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/colony-2/c2j/internal/celltest"
 	coreops "github.com/colony-2/c2j/pkg/ops"
 	"github.com/colony-2/c2j/pkg/secrets"
 	"github.com/colony-2/jobdb/pkg/jobdb"
@@ -30,10 +31,10 @@ run: |
 `), 0600))
 	s := secrets.NewSession()
 	defer s.Close()
-	require.NoError(t, s.Prepare(context.Background(), []string{"token"}, func(context.Context, []string) (jobdb.SecretResolveResult, error) {
+	require.NoError(t, s.Prepare(celltest.Context(context.Background()), []string{"token"}, func(context.Context, []string) (jobdb.SecretResolveResult, error) {
 		return jobdb.SecretResolveResult{Secrets: map[string]jobdb.SecretValue{"token": {Value: "private-token\n"}}}, nil
 	}))
-	ctx := secrets.WithSession(context.Background(), s)
+	ctx := secrets.WithSession(celltest.Context(context.Background()), s)
 	deps := coreops.NewOpDependenciesBuilder().WithWorktreePath(root).Build()
 	out, err := executeExtension(deps, ctx, ExecutionInput{Selector: "./op", Inputs: map[string]any{"token": secrets.Reference{Name: "token"}}})
 	require.NoError(t, err)
@@ -120,7 +121,7 @@ run: |
 	session := secrets.NewSession()
 	defer session.Close()
 	deps := coreops.NewOpDependenciesBuilder().WithWorktreePath(root).Build()
-	out, err := executeExtension(deps, secrets.WithSession(context.Background(), session), ExecutionInput{Selector: "./", Inputs: map[string]any{"token": secrets.Reference{Name: "missing"}}})
+	out, err := executeExtension(deps, secrets.WithSession(celltest.Context(context.Background()), session), ExecutionInput{Selector: "./", Inputs: map[string]any{"token": secrets.Reference{Name: "missing"}}})
 	require.NoError(t, err)
 	require.Equal(t, true, out["ok"])
 }
@@ -161,7 +162,7 @@ func TestUnpreparedExtensionReferenceDefaultsFailBeforeExecution(t *testing.T) {
 		root := t.TempDir()
 		require.NoError(t, os.WriteFile(filepath.Join(root, "op.yaml"), []byte("name: unprepared\ninput_schema:\n  type: object\n  properties:\n    key: "+property+"\noutput_schema: {type: object}\nrun: touch executed\n"), 0600))
 		deps := coreops.NewOpDependenciesBuilder().WithWorktreePath(root).Build()
-		_, err := executeExtension(deps, context.Background(), ExecutionInput{Selector: "./"})
+		_, err := executeExtension(deps, celltest.Context(context.Background()), ExecutionInput{Selector: "./"})
 		require.ErrorContains(t, err, "directly with op:")
 		require.NoFileExists(t, filepath.Join(root, "executed"))
 	}

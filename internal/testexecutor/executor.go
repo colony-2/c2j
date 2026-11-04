@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/c2j/pkg/contextual"
 	"github.com/colony-2/c2j/pkg/execution"
 	"github.com/colony-2/c2j/pkg/executionruntime"
@@ -90,8 +91,10 @@ func (e *StandaloneExecutor) ExecuteWithRegistry(
 		WithSSEManager(e.deps.SSEManager()).
 		Build()
 
+	ctx = celltest.Context(ctx)
 	runCtx, stop := context.WithCancel(ctx)
 	defer stop()
+	ctx = celltest.Context(ctx)
 	runtime := toyruntime.New()
 	executionRuntime := executionruntime.New(runtime, e.allocation)
 	workset, err := compiler.NewRecipeWorkerWithOptions(deps, e.registry, compiler.RecipeJobWorkerOptions{
@@ -125,7 +128,7 @@ func (e *StandaloneExecutor) ExecuteWithRegistry(
 		RecipeName: r.GetMetadata().ID,
 		Inputs:     inputs,
 		JobContext: jobCtx,
-		GitRef:     gitRef,
+		GitRef:     gitRef, Cell: "test", CellRepo: celltest.Repo(jobCtx.GitBase.BaseRepo),
 	}
 
 	jobKey, err := control.StartJob(ctx, job)

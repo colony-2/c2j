@@ -23,6 +23,9 @@ func (r *Runtime) selfProvider(tc jobworkflow.TaskContext, original *lease, acce
 		i.Execution.ReasonCode = ""
 		i.Execution.TenantID = selfinfo.String(tc.JobKey.TenantId)
 		i.Execution.JobID = selfinfo.String(tc.JobKey.JobId)
+		i.Execution.CellName = selfinfo.String(tc.Job().Cell)
+		i.Execution.CellID = selfinfo.String(tc.Job().CellID)
+		i.Execution.CellRepo = selfinfo.String(tc.Job().CellRepo)
 		i.Execution.TaskID = selfinfo.String(tc.InvocationID)
 		if tc.AttemptNumber > 0 {
 			n := tc.AttemptNumber

@@ -71,6 +71,7 @@ func (r *Runtime) restrictedAccess(parent context.Context, tc jobworkflow.TaskCo
 					// path, which installs the ceiling. A raw token cannot bypass it.
 					if len(hookPolicy) > 0 {
 						delegatedGrant.Jobs.Submit = false
+						delegatedGrant.Jobs.CellNames = nil
 					}
 					child, err = r.Issuer.IssueRestrictedLease(call, tc, delegatedGrant, d)
 					if err != nil {

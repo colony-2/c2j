@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	"github.com/stretchr/testify/require"
 )
@@ -22,13 +23,13 @@ func (l goalCandidateLister) ListJobs(_ context.Context, r jobdb.ListJobsRequest
 	return jobdb.ListJobsResponse{Jobs: []jobdb.JobSummary{{JobKey: jobdb.JobKey{TenantId: "t", JobId: "external-candidate"}, JobType: "external", GoalID: "primary", OtherGoalIDs: []string{"g"}, Status: jobdb.JobStatusCompleted}}, NextPageToken: "next"}, nil
 }
 func TestGoalCandidatesIncludeAdditionalArchivedNonRecipeMembers(t *testing.T) {
-	out, err := ListGoalCandidates(context.Background(), goalCandidateLister{t}, GoalCandidatesRequest{TenantID: "t", GoalID: "g", PageSize: 7, PageToken: "cursor"})
+	out, err := ListGoalCandidates(celltest.Context(context.Background()), goalCandidateLister{t}, GoalCandidatesRequest{TenantID: "t", GoalID: "g", PageSize: 7, PageToken: "cursor"})
 	require.NoError(t, err)
 	require.Equal(t, "next", out.NextPageToken)
 	require.Len(t, out.Jobs, 1)
 	require.Equal(t, "primary", out.Jobs[0].GoalID)
 	require.Empty(t, out.Jobs[0].OtherGoalIDs, "membership filtering remains server-side; lists omit memberships")
 	require.Equal(t, "external", out.Jobs[0].JobType)
-	_, err = ListGoalCandidates(context.Background(), nil, GoalCandidatesRequest{TenantID: "t"})
+	_, err = ListGoalCandidates(celltest.Context(context.Background()), nil, GoalCandidatesRequest{TenantID: "t"})
 	require.Error(t, err)
 }

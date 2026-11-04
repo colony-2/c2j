@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/c2j/pkg/contextual"
 	coreops "github.com/colony-2/c2j/pkg/ops"
 	"github.com/colony-2/c2j/pkg/starter"
@@ -37,7 +38,7 @@ type fakeReplayEngine struct {
 
 func (e *fakeReplayEngine) ReplayJobRun(ctx context.Context, req jobworkflow.ReplayRunRequest) (jobdb.JobData, error) {
 	if ctx == nil {
-		ctx = context.Background()
+		ctx = celltest.Context(context.Background())
 	}
 	if req.JobWorker == nil {
 		return nil, jobworkflow.ReplayCacheMissError{JobKey: req.JobKey, Ordinal: 0, Attempt: 1, Reason: jobworkflow.ReplayCacheMissJobResultMissing}
@@ -101,6 +102,10 @@ type fakeTaskScript struct {
 }
 
 func (c *fakeReplayJobContext) DoTask(call jobworkflow.TaskCall, build func(context.Context) (jobdb.TaskData, error)) (jobdb.TaskData, error) {
+	if call.TaskType == compiler.CellContextTaskType {
+		h := c.Job()
+		return jobdb.NewTaskData(jobdb.ResolvedCell{Cell: h.Cell, CellID: h.CellID, CellRepo: h.CellRepo})
+	}
 	taskType := call.TaskType
 	input, err := build(c.Context())
 	if err != nil {
@@ -199,7 +204,9 @@ outputs:
 			Workflow: contextual.WorkflowContext{
 				CellName: "test",
 			},
-		},
+		}, Cell: "test", CellRepo: celltest.Repo(
+			"/src",
+		),
 	}
 	jobInput, err := jobdb.NewTaskData(start, recipeArt)
 	if err != nil {
@@ -226,7 +233,7 @@ outputs:
 	}
 
 	jobKey := jobdb.JobKey{TenantId: "tenant", JobId: "job"}
-	st, err := BuildJobRunStory(context.Background(), engine, jobKey, nil, nil)
+	st, err := BuildJobRunStory(celltest.Context(context.Background()), engine, jobKey, nil, nil)
 	if err != nil {
 		t.Fatalf("BuildJobRunStory: %v", err)
 	}
@@ -279,7 +286,9 @@ outputs:
 					Workflow: contextual.WorkflowContext{
 						CellName: "test",
 					},
-				},
+				}, Cell: "test", CellRepo: celltest.Repo(
+					"/src",
+				),
 			}
 			jobInput, err := jobdb.NewTaskData(start)
 			if err != nil {
@@ -329,7 +338,7 @@ outputs:
 				},
 			}
 
-			st, err := BuildJobRunStory(context.Background(), engine, jobdb.JobKey{TenantId: "tenant", JobId: "job"}, nil, nil)
+			st, err := BuildJobRunStory(celltest.Context(context.Background()), engine, jobdb.JobKey{TenantId: "tenant", JobId: "job"}, nil, nil)
 			if err != nil {
 				t.Fatalf("BuildJobRunStory: %v", err)
 			}
@@ -406,7 +415,9 @@ outputs:
 		RecipeName: "test",
 		GitRef:     "main",
 		Inputs:     map[string]any{},
-		JobContext: contextual.JobContext{},
+		JobContext: contextual.JobContext{}, Cell: "test", CellRepo: celltest.Repo(
+			"",
+		),
 	}
 	jobInput, err := jobdb.NewTaskData(start, recipeArt)
 	if err != nil {
@@ -444,7 +455,7 @@ outputs:
 	}
 
 	jobKey := jobdb.JobKey{TenantId: "tenant", JobId: "job"}
-	st, err := BuildJobRunStory(context.Background(), engine, jobKey, nil, nil)
+	st, err := BuildJobRunStory(celltest.Context(context.Background()), engine, jobKey, nil, nil)
 	if err != nil {
 		t.Fatalf("BuildJobRunStory: %v", err)
 	}
@@ -495,7 +506,10 @@ outputs:
   value: "{{ sequence.run.outputs.value }}"
 `
 	recipeArt := jobdb.NewArtifactFromBytes("test"+starter.RecipeArtifactSuffix, []byte(recipeYAML))
-	start := workflowctl.StartJob{RecipeName: "test", GitRef: "main", Inputs: map[string]any{}, JobContext: contextual.JobContext{}}
+	start := workflowctl.StartJob{RecipeName: "test", GitRef: "main", Inputs: map[string]any{}, JobContext: contextual.JobContext{}, Cell: "test", CellRepo: celltest.Repo(
+		"",
+	),
+	}
 	jobInput, err := jobdb.NewTaskData(start, recipeArt)
 	if err != nil {
 		t.Fatalf("NewTaskData(job start): %v", err)
@@ -523,7 +537,7 @@ outputs:
 	}
 
 	jobKey := jobdb.JobKey{TenantId: "tenant", JobId: "job"}
-	st, err := BuildJobRunStory(context.Background(), engine, jobKey, nil, nil)
+	st, err := BuildJobRunStory(celltest.Context(context.Background()), engine, jobKey, nil, nil)
 	if err != nil {
 		t.Fatalf("BuildJobRunStory: %v", err)
 	}
@@ -563,7 +577,10 @@ outputs:
   value: "{{ sequence.run.outputs.value }}"
 `
 	recipeArt := jobdb.NewArtifactFromBytes("test"+starter.RecipeArtifactSuffix, []byte(recipeYAML))
-	start := workflowctl.StartJob{RecipeName: "test", GitRef: "main", Inputs: map[string]any{}, JobContext: contextual.JobContext{}}
+	start := workflowctl.StartJob{RecipeName: "test", GitRef: "main", Inputs: map[string]any{}, JobContext: contextual.JobContext{}, Cell: "test", CellRepo: celltest.Repo(
+		"",
+	),
+	}
 	jobInput, err := jobdb.NewTaskData(start, recipeArt)
 	if err != nil {
 		t.Fatalf("NewTaskData(job start): %v", err)
@@ -587,7 +604,7 @@ outputs:
 	}
 
 	jobKey := jobdb.JobKey{TenantId: "tenant", JobId: "job"}
-	st, err := BuildJobRunStory(context.Background(), engine, jobKey, nil, nil)
+	st, err := BuildJobRunStory(celltest.Context(context.Background()), engine, jobKey, nil, nil)
 	if err != nil {
 		t.Fatalf("BuildJobRunStory: %v", err)
 	}
@@ -627,7 +644,10 @@ outputs:
   value: "{{ sequence.run.outputs.value }}"
 `
 	recipeArt := jobdb.NewArtifactFromBytes("test"+starter.RecipeArtifactSuffix, []byte(recipeYAML))
-	start := workflowctl.StartJob{RecipeName: "test", GitRef: "main", Inputs: map[string]any{}, JobContext: contextual.JobContext{}}
+	start := workflowctl.StartJob{RecipeName: "test", GitRef: "main", Inputs: map[string]any{}, JobContext: contextual.JobContext{}, Cell: "test", CellRepo: celltest.Repo(
+		"",
+	),
+	}
 	jobInput, err := jobdb.NewTaskData(start, recipeArt)
 	if err != nil {
 		t.Fatalf("NewTaskData(job start): %v", err)
@@ -652,7 +672,7 @@ outputs:
 	}
 
 	jobKey := jobdb.JobKey{TenantId: "tenant", JobId: "job"}
-	st, err := BuildJobRunStory(context.Background(), engine, jobKey, nil, nil)
+	st, err := BuildJobRunStory(celltest.Context(context.Background()), engine, jobKey, nil, nil)
 	if err != nil {
 		t.Fatalf("BuildJobRunStory: %v", err)
 	}
@@ -705,7 +725,9 @@ outputs:
 		RecipeName: "test",
 		GitRef:     "main",
 		Inputs:     map[string]any{},
-		JobContext: contextual.JobContext{},
+		JobContext: contextual.JobContext{}, Cell: "test", CellRepo: celltest.Repo(
+			"",
+		),
 	}
 	jobInput, err := jobdb.NewTaskData(start, recipeArt)
 	if err != nil {
@@ -714,7 +736,7 @@ outputs:
 
 	engine := &fakeReplayEngine{jobInput: jobdb.JobData(jobInput)}
 	jobKey := jobdb.JobKey{TenantId: "tenant", JobId: "job"}
-	st, err := BuildJobRunStory(context.Background(), engine, jobKey, builder, nil)
+	st, err := BuildJobRunStory(celltest.Context(context.Background()), engine, jobKey, builder, nil)
 	if err != nil {
 		t.Fatalf("BuildJobRunStory: %v", err)
 	}
@@ -750,7 +772,10 @@ sequence:
 outputs: {}
 `
 	recipeArt := jobdb.NewArtifactFromBytes("test"+starter.RecipeArtifactSuffix, []byte(recipeYAML))
-	start := workflowctl.StartJob{RecipeName: "test", GitRef: "main", Inputs: map[string]any{}, JobContext: contextual.JobContext{}}
+	start := workflowctl.StartJob{RecipeName: "test", GitRef: "main", Inputs: map[string]any{}, JobContext: contextual.JobContext{}, Cell: "test", CellRepo: celltest.Repo(
+		"",
+	),
+	}
 	jobInput, err := jobdb.NewTaskData(start, recipeArt)
 	if err != nil {
 		t.Fatalf("NewTaskData(job start): %v", err)
@@ -788,7 +813,7 @@ outputs: {}
 	}
 
 	jobKey := jobdb.JobKey{TenantId: "tenant", JobId: "job"}
-	st, err := BuildJobRunStory(context.Background(), engine, jobKey, nil, nil)
+	st, err := BuildJobRunStory(celltest.Context(context.Background()), engine, jobKey, nil, nil)
 	if err != nil {
 		t.Fatalf("BuildJobRunStory: %v", err)
 	}
@@ -851,7 +876,10 @@ sequence:
 outputs: {}
 `
 	recipeArt := jobdb.NewArtifactFromBytes("test"+starter.RecipeArtifactSuffix, []byte(recipeYAML))
-	start := workflowctl.StartJob{RecipeName: "test", GitRef: "main", Inputs: map[string]any{}, JobContext: contextual.JobContext{}}
+	start := workflowctl.StartJob{RecipeName: "test", GitRef: "main", Inputs: map[string]any{}, JobContext: contextual.JobContext{}, Cell: "test", CellRepo: celltest.Repo(
+		"",
+	),
+	}
 	jobInput, err := jobdb.NewTaskData(start, recipeArt)
 	if err != nil {
 		t.Fatalf("NewTaskData(job start): %v", err)
@@ -877,7 +905,7 @@ outputs: {}
 	}
 
 	jobKey := jobdb.JobKey{TenantId: "tenant", JobId: "job"}
-	st, err := BuildJobRunStory(context.Background(), engine, jobKey, nil, nil)
+	st, err := BuildJobRunStory(celltest.Context(context.Background()), engine, jobKey, nil, nil)
 	if err != nil {
 		t.Fatalf("BuildJobRunStory: %v", err)
 	}
@@ -953,7 +981,9 @@ func (*fakeReplayJobContext) GetConfiguration(context.Context) (jobdb.Configurat
 	return jobdb.ConfigurationSnapshot{}, jobdb.ErrConfigurationUnavailable
 }
 
-func (c *fakeReplayJobContext) Context() context.Context { return context.Background() }
+func (c *fakeReplayJobContext) Context() context.Context {
+	return celltest.Context(context.Background())
+}
 func (c *fakeReplayJobContext) ExecutionVersions() jobdb.ExecutionVersions {
 	return jobdb.ExecutionVersions{}
 }
@@ -973,4 +1003,6 @@ func (*fakeReplayJobContext) AwaitDependencies(...jobdb.Dependency) ([]jobdb.Dep
 	return nil, fmt.Errorf("unexpected AwaitDependencies in test context")
 }
 
-func (c *fakeReplayJobContext) Job() jobdb.JobHandle { return jobdb.JobHandle{JobKey: c.GetJobKey()} }
+func (c *fakeReplayJobContext) Job() jobdb.JobHandle {
+	return jobdb.JobHandle{JobKey: c.GetJobKey(), Cell: "test", CellID: "cell-test", CellRepo: "example.test/test"}
+}

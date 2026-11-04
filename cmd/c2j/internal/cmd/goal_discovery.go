@@ -39,7 +39,7 @@ func newGoalListCmd(uri *string) *cobra.Command {
 	var req jobdb.ListGoalsRequest
 	var candidate jobdb.GoalCandidateFilter
 	var states []string
-	var repo, cell, createdAfter, createdBefore, updatedAfter, updatedBefore string
+	var cell, createdAfter, createdBefore, updatedAfter, updatedBefore string
 	cmd := &cobra.Command{Use: "list", Short: "List authoritative goals and candidate counts (one JSON page)", Args: cobra.NoArgs}
 	cmd.RunE = func(cmd *cobra.Command, _ []string) error {
 		query := req
@@ -48,11 +48,6 @@ func newGoalListCmd(uri *string) *cobra.Command {
 			query.States = append(query.States, jobdb.GoalState(strings.ToUpper(state)))
 		}
 		filter := candidate
-		for _, selector := range []struct{ key, value string }{{"repo", repo}, {"cell_name", cell}} {
-			if selector.value != "" {
-				filter.MetadataEquals = append(filter.MetadataEquals, jobdb.MetadataPredicate{Path: []string{selector.key}, Values: []any{selector.value}})
-			}
-		}
 		if len(filter.JobIDs)+len(filter.JobTypes)+len(filter.MetadataEquals) > 0 {
 			query.Candidate = &filter
 		}
@@ -70,7 +65,11 @@ func newGoalListCmd(uri *string) *cobra.Command {
 		}
 		return withGoalRuntime(cmd, *uri, func(rt jobdb.WorkflowRuntime, tenant string) (any, error) {
 			query.TenantId = tenant
-			return recipejob.ListGoals(cmd.Context(), rt, query)
+			var cells []string
+			if cell != "" {
+				cells = []string{cell}
+			}
+			return recipejob.ListGoalsInCells(cmd.Context(), rt, query, cells)
 		})
 	}
 	f := cmd.Flags()
@@ -78,8 +77,7 @@ func newGoalListCmd(uri *string) *cobra.Command {
 	f.StringSliceVar(&states, "state", nil, "Goal states: OPEN, SUCCEEDED, FAILED (default all)")
 	f.StringSliceVar(&candidate.JobIDs, "candidate-job", nil, "Match candidate job IDs")
 	f.StringSliceVar(&candidate.JobTypes, "job-type", nil, "Match candidate job types")
-	f.StringVar(&repo, "repo", "", "Exact candidate repository metadata; counts still cover the whole goal")
-	f.StringVar(&cell, "cell", "", "Exact candidate cell-name metadata")
+	f.StringVar(&cell, "cell", "", "Candidate cell name")
 	f.StringVar(&createdAfter, "created-after", "", "Inclusive RFC3339 creation lower bound")
 	f.StringVar(&createdBefore, "created-before", "", "Inclusive RFC3339 creation upper bound")
 	f.StringVar(&updatedAfter, "updated-after", "", "Inclusive RFC3339 goal-record update lower bound")

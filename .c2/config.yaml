@@ -4,6 +4,8 @@
 # - self.repo via: go list -m -f '{{.Path}}'
 # - dependents via: go list -m -f '{{if not .Main}}{{.Path}}{{end}}' all
 base: go
+self:
+  cell: c2j
 jobdb: http://localhost:9047/c2
 
 # Go 1.26, using the nixpkgs revision pinned in flake.lock.

@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/c2j/pkg/jobdbschema"
 	"github.com/colony-2/c2j/pkg/joblist"
 	"github.com/colony-2/c2j/pkg/recipejob"
@@ -39,13 +40,13 @@ func checkTitleJSON(t *testing.T, value any, title, goal string) {
 func TestSubmittedTitleMetadataAndListings(t *testing.T) {
 	for _, backend := range []string{"embedded", "remote"} {
 		t.Run(backend, func(t *testing.T) {
-			ctx := context.Background()
+			ctx := celltest.Context(context.Background())
 			db, err := sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: filepath.Join(t.TempDir(), "jobs.db")})
 			require.NoError(t, err)
 			t.Cleanup(func() { require.NoError(t, db.Close(ctx)) })
 			var rt jobdb.WorkflowRuntime = db
 			if backend == "remote" {
-				server := httptest.NewServer(remote.NewServer(db))
+				server := httptest.NewServer(celltest.Handler(remote.NewServer(db)))
 				t.Cleanup(server.Close)
 				rt, err = remote.New(server.URL, server.Client())
 				require.NoError(t, err)
@@ -65,7 +66,7 @@ func TestSubmittedTitleMetadataAndListings(t *testing.T) {
 				{"secret-template", "${{ context.secrets.private_title }}", ""},
 			} {
 				t.Run(tc.name, func(t *testing.T) {
-					start := workflowctl.StartJob{TenantId: "t", JobID: tc.name, RecipeName: "fixture", Inputs: map[string]any{"prompt": "unchanged prompt"}}
+					start := workflowctl.StartJob{TenantId: "t", JobID: tc.name, RecipeName: "fixture", Inputs: map[string]any{"prompt": "unchanged prompt"}, Cell: "test", CellRepo: celltest.Repo("")}
 					if tc.input != nil {
 						start.Inputs["title"] = tc.input
 					}
@@ -102,20 +103,20 @@ func TestTitleProjectionsUseOnlySummaryMetadata(t *testing.T) {
 	// Even whitespace-only titles already stored by another client are preserved.
 	for _, title := range []string{"  Improve café\nUI  ", "", " \n "} {
 		t.Run(title, func(t *testing.T) {
-			meta, err := json.Marshal(starter.JobMetadata{Title: title, Prompt: "unchanged prompt", RecipeName: "not-installed", RepositorySource: "https://github.com/acme/app.git"})
+			meta, err := json.Marshal(starter.JobMetadata{Title: title, Prompt: "unchanged prompt", RecipeName: "not-installed"})
 			require.NoError(t, err)
 			summary := jobdb.JobSummary{JobKey: jobdb.JobKey{TenantId: "tenant", JobId: "job"}, JobType: "recipe", GoalID: "goal", ParentJobID: "parent", Metadata: meta}
 			guard := &completionListOnly{list: func(_ context.Context, req jobdb.ListJobsRequest) (jobdb.ListJobsResponse, error) {
 				require.Equal(t, []string{"tenant"}, req.TenantIds)
 				return jobdb.ListJobsResponse{Jobs: []jobdb.JobSummary{summary}, NextPageToken: "next"}, nil
 			}}
-			server := httptest.NewServer(remote.NewServer(guard))
+			server := httptest.NewServer(celltest.Handler(remote.NewServer(guard)))
 			defer server.Close()
 			client, err := remote.New(server.URL, server.Client())
 			require.NoError(t, err)
 			for _, lister := range []recipejob.Lister{guard, client} {
-				ctx := context.Background()
-				page, err := recipejob.ListRecipeJobs(ctx, lister, recipejob.ListRecipeJobsRequest{TenantID: "tenant", RepositorySource: "github.com/acme/app", PageSize: 1})
+				ctx := celltest.Context(context.Background())
+				page, err := recipejob.ListRecipeJobs(ctx, lister, recipejob.ListRecipeJobsRequest{TenantID: "tenant", CellNames: []string{"test"}, PageSize: 1})
 				require.NoError(t, err)
 				require.Len(t, page.Jobs, 1)
 				require.Equal(t, "next", page.NextPageToken)

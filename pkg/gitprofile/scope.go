@@ -19,6 +19,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/colony-2/c2j/internal/repository"
 	"github.com/colony-2/c2j/pkg/secrets"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 )
@@ -398,6 +399,12 @@ func Env(ctx context.Context, base []string) []string {
 	return out
 }
 func Command(ctx context.Context, args ...string) *exec.Cmd {
+	args = append([]string(nil), args...)
+	for i, arg := range args {
+		if mapped := repository.MappedTransport(ctx, arg); mapped != "" {
+			args[i] = mapped
+		}
+	}
 	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.Env = Env(ctx, os.Environ())
 	return cmd

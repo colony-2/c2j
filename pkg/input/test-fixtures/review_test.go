@@ -4,8 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/colony-2/c2j/pkg/execution"
-	"github.com/colony-2/c2j/pkg/executionruntime"
 	"io"
 	"log/slog"
 	"os"
@@ -15,7 +13,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/colony-2/c2j/internal/celltest"
 	recipeartifacts "github.com/colony-2/c2j/pkg/artifacts"
+	"github.com/colony-2/c2j/pkg/execution"
+	"github.com/colony-2/c2j/pkg/executionruntime"
 	"github.com/colony-2/c2j/pkg/input"
 	"github.com/colony-2/c2j/pkg/jobdbschema"
 	coreops "github.com/colony-2/c2j/pkg/ops"
@@ -40,7 +41,7 @@ func TestReviewRecipeWithAttachmentsAndWorkspace(t *testing.T) {
 
 func testReviewRecipeWithAttachmentsAndWorkspace(t *testing.T, annotated bool) {
 	ensureFixtureOps()
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(celltest.Context(context.Background()))
 	t.Cleanup(cancel)
 	primary := "../../../examples/review/review.yaml"
 	repo, _ := createFixtureRepo(t, primary, nil)
@@ -56,7 +57,7 @@ func testReviewRecipeWithAttachmentsAndWorkspace(t *testing.T, annotated bool) {
             source_document_ids: [generated]`, 1))
 	}
 	// Completing the review in a fresh cell workspace must preserve that scope.
-	yaml = []byte(strings.Replace(string(yaml), "  - id: review\n", fmt.Sprintf("  - id: review\n    workspace: {cell: %q, ref: %q}\n", betaRepo, betaHash), 1))
+	yaml = []byte(strings.Replace(string(yaml), "  - id: review\n", fmt.Sprintf("  - id: review\n    workspace: {cell: beta, repo: %q, ref: %q}\n", celltest.Repo(betaRepo), betaHash), 1))
 	// A generated review document must use the same independently readable
 	// attachment API as the pre-existing stored document.
 	yaml = []byte(strings.Replace(string(yaml), "        documents:\n", `        documents:
@@ -98,6 +99,11 @@ outputs:
 	embedded, err := sqliteruntime.StartEmbeddedRuntime(ctx)
 	require.NoError(t, err)
 	t.Cleanup(embedded.Shutdown)
+	beta, err := embedded.Runtime.CreateCell(ctx, jobdb.CreateCellRequest{TenantID: "test-tenant", Name: "beta", Repo: celltest.Repo(betaRepo)})
+	require.NoError(t, err)
+	authority, _ := jobdb.CellAuthorityFromContext(ctx)
+	authority.LeaseSubmitCells = map[string]bool{beta.ID: true}
+	ctx = jobdb.WithCellAuthority(ctx, authority)
 	guard := executionruntime.New(embedded.Runtime, execution.Allocation{SchemaVersion: 1})
 	tasks := make([]jobworkflow.TaskWorker, 0, len(workers.TaskWorkers))
 	for _, w := range workers.TaskWorkers {
@@ -112,13 +118,13 @@ outputs:
 	t.Cleanup(func() { cancel(); <-done })
 	// Store a document under a different producer job. Its key must survive review.
 	original := jobdb.NewArtifactFromBytes("design.md", []byte("# Design\nRecovery is explicit.\n"))
-	_, err = embedded.Runtime.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "test-tenant", JobID: "child-producer", JobType: "artifact-source", Data: jobdb.NewTaskDataOrPanic(map[string]any{}, original), RunPolicy: jobdb.DefaultRunPolicy()}})
+	_, err = embedded.Runtime.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "test-tenant", JobID: "child-producer", JobType: "artifact-source", Data: jobdb.NewTaskDataOrPanic(map[string]any{}, original), RunPolicy: jobdb.DefaultRunPolicy(), Cell: "test", CellRepo: celltest.Repo(repo)}})
 	require.NoError(t, err)
 	key, err := original.ArtifactKey()
 	require.NoError(t, err)
 	ref := recipeartifacts.NewStoredRef(key)
 	jobCtx, gitCtx := generateTestContext(repo, hash, nil, nil)
-	jobKeyRef, err := starter.StartRecipeJob(ctx, workflowctl.StartJob{TenantId: "test-tenant", RecipeName: rec.GetMetadata().ID, Inputs: map[string]any{"prompt": "Review the design"}, ArtifactRefs: []recipeartifacts.Ref{ref}, JobContext: jobCtx, GitRef: gitCtx.ParentRef}, engine, *rec)
+	jobKeyRef, err := starter.StartRecipeJob(ctx, workflowctl.StartJob{TenantId: "test-tenant", RecipeName: rec.GetMetadata().ID, Inputs: map[string]any{"prompt": "Review the design"}, ArtifactRefs: []recipeartifacts.Ref{ref}, JobContext: jobCtx, GitRef: gitCtx.ParentRef, Cell: "test", CellRepo: celltest.Repo(jobCtx.GitBase.BaseRepo)}, engine, *rec)
 	jobKey := jobKeyRef.Key()
 	require.NoError(t, err)
 	runtime, err := input.NewRuntime(wf, nil)
@@ -208,7 +214,7 @@ func TestReviewRecipeRejectsEvaluatedMetadata(t *testing.T) {
 			require.Equal(t, jobworkflow.JobRunFailed, result.Status, "%+v", result)
 			client, err := input.NewRuntime(fixture.ctl, nil)
 			require.NoError(t, err)
-			page, err := client.ListPendingInputsPage(context.Background(), fixture.key.TenantId, input.PendingInputOptions{})
+			page, err := client.ListPendingInputsPage(celltest.Context(context.Background()), fixture.key.TenantId, input.PendingInputOptions{})
 			require.NoError(t, err)
 			require.Empty(t, page.Inputs)
 		})
@@ -230,7 +236,7 @@ func TestAnnotatedReviewCheckpointRecovery(t *testing.T) {
 	require.Equal(t, jobworkflow.JobRunSuspended, fixture.run().Status)
 	client, err := input.NewRuntime(fixture.ctl, nil)
 	require.NoError(t, err)
-	first, err := client.GetForm(context.Background(), fixture.key.TenantId, fixture.key.JobId)
+	first, err := client.GetForm(celltest.Context(context.Background()), fixture.key.TenantId, fixture.key.JobId)
 	require.NoError(t, err)
 	frozen, err := json.Marshal(first)
 	require.NoError(t, err)
@@ -240,15 +246,15 @@ func TestAnnotatedReviewCheckpointRecovery(t *testing.T) {
 	metadata.SourceDocumentIDs[0] = "changed"
 	first.DocumentMetadata["design"] = metadata
 	fixture.reopen()
-	restored, err := client.GetForm(context.Background(), fixture.key.TenantId, fixture.key.JobId)
+	restored, err := client.GetForm(celltest.Context(context.Background()), fixture.key.TenantId, fixture.key.JobId)
 	require.NoError(t, err)
 	raw, err := json.Marshal(restored)
 	require.NoError(t, err)
 	require.JSONEq(t, string(frozen), string(raw))
-	_, err = client.SubmitFormResponse(context.Background(), fixture.key.TenantId, fixture.key.JobId, input.FormSubmission{RequestID: restored.RequestID, SubmissionID: "recovered", Fields: map[string]any{"decision": "approved", "annotated": jobdb.NewArtifactFromBytes("annotation.md", []byte("annotation"))}}, input.Actor{ID: "reviewer", Kind: "human"})
+	_, err = client.SubmitFormResponse(celltest.Context(context.Background()), fixture.key.TenantId, fixture.key.JobId, input.FormSubmission{RequestID: restored.RequestID, SubmissionID: "recovered", Fields: map[string]any{"decision": "approved", "annotated": jobdb.NewArtifactFromBytes("annotation.md", []byte("annotation"))}}, input.Actor{ID: "reviewer", Kind: "human"})
 	require.NoError(t, err)
 	require.Equal(t, jobworkflow.JobRunCompleted, fixture.run().Status)
-	result, err := fixture.ctl.JobResult(context.Background(), fixture.key)
+	result, err := fixture.ctl.JobResult(celltest.Context(context.Background()), fixture.key)
 	require.NoError(t, err)
 	output, err := readJobOutputAsMap(result)
 	require.NoError(t, err)

@@ -91,7 +91,7 @@ func NewRecipeWorkerWithOptions(dependencies ops.ServiceDependencies2, activityR
 	if resolutionWorker := newRootSourceResolutionTaskWorker(opts.RootSourceResolver); resolutionWorker != nil {
 		taskWorkers = append(taskWorkers, resolutionWorker)
 	}
-	taskWorkers = append(taskWorkers, newWithinRecipeResolutionTaskWorker(), NewWorkspaceResolutionTaskWorker(), hookPolicyWorker{}, hookResolveWorker{})
+	taskWorkers = append(taskWorkers, newWithinRecipeResolutionTaskWorker(), NewWorkspaceResolutionTaskWorker(), cellContextWorker{}, hookPolicyWorker{}, hookResolveWorker{})
 	if opts.WrapTaskWorker != nil {
 		for i, worker := range taskWorkers {
 			taskWorkers[i] = opts.WrapTaskWorker(worker)
@@ -142,6 +142,23 @@ func (j recipeJobWorker) Run(ctx jobworkflow.ExecutionContext, jobData jobdb.Job
 			"error", err,
 		)
 		return nil, err
+	}
+
+	owner, err := recordedCell(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if owner.Cell == "" || owner.CellID == "" || owner.CellRepo == "" {
+		return nil, fmt.Errorf("job is missing stored cell ownership")
+	}
+	input.JobContext.Workflow.CellName = owner.Cell
+	input.JobContext.Workflow.CellID = owner.CellID
+	// Execution uses the job's snapshot, never the registry's current mapping.
+	if input.JobContext.Workspace == nil {
+		input.JobContext.GitBase.BaseRepo, err = NormalizeGitRepositorySource(owner.CellRepo)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	if input.RecipeName == "" {
@@ -202,24 +219,7 @@ func (j recipeJobWorker) Run(ctx jobworkflow.ExecutionContext, jobData jobdb.Job
 		}
 		resolution = resolvedSource.RecipeSourceResolution
 
-		if resolvedSource.HasRecipeYAML() {
-			r, loadErr = resolvedSource.LoadRecipeContext(ctx.Context())
-		} else {
-			// Older source outcomes lack embedded YAML. Reload through a task so
-			// even this recovery path gets the current lease's Git environment.
-			reload, e := workflow.ValueCall(ctx, "root-source-load", RootSourceResolutionTaskType, jobdb.RunPolicy{}, rootSourceResolutionTaskInput{
-				GitProfile: input.JobContext.GitProfile, Permissions: input.JobContext.InheritedPermissions, ProjectID: strings.TrimSpace(input.TenantId),
-				Selector: resolution.EffectiveSelector(), LookupRepo: req.LookupRepo, LookupRef: req.LookupRef,
-			})
-			if e != nil {
-				return nil, e
-			}
-			loaded, e := ParseResolvedRecipeSourceTaskData(reload)
-			if e != nil {
-				return nil, e
-			}
-			r, loadErr = loaded.LoadRecipeContext(ctx.Context())
-		}
+		r, loadErr = resolvedSource.LoadRecipeContext(ctx.Context())
 	}
 	if loadErr == nil && r.RecipeImpl == nil {
 		loadErr = fmt.Errorf("recipe source returned an empty recipe")

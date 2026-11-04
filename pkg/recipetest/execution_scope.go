@@ -5,6 +5,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/toy"
 	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
@@ -79,8 +80,8 @@ func (g *callbackGate) close() {
 
 func runIsolatedScope(tasks *testJobContext, site string, opts jobworkflow.ScopeOptions, body func(jobworkflow.ExecutionContext) (jobdb.JobData, error)) (jobdb.JobData, error) {
 	rt := toy.New()
-	ctx := tasks.Context()
-	key, err := rt.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: tasks.jobKey.TenantId, JobType: "recipe-test", Data: jobdb.NewTaskDataOrPanic(nil)}})
+	ctx := celltest.Context(tasks.Context())
+	key, err := rt.SubmitJob(celltest.Context(ctx), jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test", TenantId: tasks.jobKey.TenantId, JobType: "recipe-test", Data: jobdb.NewTaskDataOrPanic(nil)}})
 	if err != nil {
 		return nil, err
 	}

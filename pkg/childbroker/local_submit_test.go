@@ -39,7 +39,7 @@ func TestLocalSubmitUsesBoundInterfaceAndDynamicPort(t *testing.T) {
 				}
 				require.Error(t, dialErr)
 			}
-			req, err := NewSubmitRequest(ctx, workflowctl.StartJob{TenantId: "tenant", JobID: "child", RecipeName: "child"}, nil)
+			req, err := NewSubmitRequest(ctx, workflowctl.StartJob{Cell: "test", CellRepo: "example.test/test", TenantId: "tenant", JobID: "child", RecipeName: "child"}, nil)
 			require.NoError(t, err)
 			localCtx := WithLocalSubmitter(ctx, broker)
 			result, err := SubmitLocal(localCtx, req)
@@ -69,7 +69,7 @@ func TestLocalSubmitDoesNotUseAmbientProxyOrAdvertisedHost(t *testing.T) {
 	broker, err := Start(ctx, Options{Current: jobcontext.Current{GoalID: "parent-goal", TenantID: "tenant", JobID: "parent"}, Submitter: &captureSubmitter{}})
 	require.NoError(t, err)
 	defer broker.Close()
-	req, err := NewSubmitRequest(ctx, workflowctl.StartJob{TenantId: "tenant", JobID: "child", RecipeName: "child"}, nil)
+	req, err := NewSubmitRequest(ctx, workflowctl.StartJob{Cell: "test", CellRepo: "example.test/test", TenantId: "tenant", JobID: "child", RecipeName: "child"}, nil)
 	require.NoError(t, err)
 	_, err = SubmitLocal(WithLocalSubmitter(ctx, broker), req)
 	require.NoError(t, err)

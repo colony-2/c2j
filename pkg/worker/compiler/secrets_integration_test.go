@@ -5,8 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/colony-2/c2j/pkg/execution"
-	"github.com/colony-2/c2j/pkg/executionruntime"
 	"log"
 	"log/slog"
 	"strings"
@@ -15,6 +13,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/colony-2/c2j/internal/celltest"
+	"github.com/colony-2/c2j/pkg/execution"
+	"github.com/colony-2/c2j/pkg/executionruntime"
 	"github.com/colony-2/c2j/pkg/jobdbschema"
 	coreops "github.com/colony-2/c2j/pkg/ops"
 	"github.com/colony-2/c2j/pkg/recipe"
@@ -112,7 +113,7 @@ func TestSecretsAcrossTasksReplayAndFailures(t *testing.T) {
 	engine, err := jobworkflow.NewEngineBuilder().WithRuntime(guard).WithWorkerTenantId("secrets").PlusWorkers(ws.JobWorker, workers...).BuildEngine()
 	require.NoError(t, err)
 	engine = jobdbschema.WorkflowEngine{Engine: engine, Registry: runtime}
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(celltest.Context(context.Background()))
 	defer cancel()
 	go engine.Run(ctx)
 	for _, mode := range []string{"ok", "echo", "fail"} {
@@ -132,7 +133,7 @@ func TestSecretsAcrossTasksReplayAndFailures(t *testing.T) {
 			rec, err := recipe.LoadRecipeFromString([]byte(source.String()))
 			require.NoError(t, err)
 			job, git := GenerateTestContext()
-			keyRef, err := starter.StartRecipeJob(ctx, workflowctl.StartJob{TenantId: "secrets", RecipeName: "secrets", JobContext: job, GitRef: git.ParentRef}, engine, *rec)
+			keyRef, err := starter.StartRecipeJob(ctx, workflowctl.StartJob{TenantId: "secrets", RecipeName: "secrets", JobContext: job, GitRef: git.ParentRef, Cell: "test", CellRepo: celltest.Repo(job.GitBase.BaseRepo)}, engine, *rec)
 			key := keyRef.Key()
 			require.NoError(t, err)
 			require.NoError(t, jobworkflow.WaitForJobToComplete(ctx, 30*time.Second, key, engine))
@@ -201,7 +202,7 @@ func TestSecretFallbacksInLiveTasksAndReplay(t *testing.T) {
 	engine, err := jobworkflow.NewEngineBuilder().WithRuntime(guard).WithWorkerTenantId("fallbacks").PlusWorkers(ws.JobWorker, workers...).BuildEngine()
 	require.NoError(t, err)
 	engine = jobdbschema.WorkflowEngine{Engine: engine, Registry: runtime}
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(celltest.Context(context.Background()))
 	defer cancel()
 	go engine.Run(ctx)
 	source := `id: fallbacks
@@ -246,7 +247,7 @@ sequence:
 	job, git := GenerateTestContext()
 	keyRef, err := starter.StartRecipeJob(ctx, workflowctl.StartJob{
 		TenantId: "fallbacks", RecipeName: "fallbacks", JobContext: job, GitRef: git.ParentRef,
-		Inputs: map[string]any{"token": "${{ context.secrets.missing }}"},
+		Inputs: map[string]any{"token": "${{ context.secrets.missing }}"}, Cell: "test", CellRepo: celltest.Repo(job.GitBase.BaseRepo),
 	}, engine, *rec)
 	key := keyRef.Key()
 	require.NoError(t, err)

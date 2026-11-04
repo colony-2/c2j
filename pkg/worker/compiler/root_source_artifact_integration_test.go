@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/c2j/pkg/workflowctl"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
@@ -73,7 +74,7 @@ func TestResolvedRecipeArtifactDurableReplay(t *testing.T) {
 	for _, backend := range []string{"sqlite", "remote"} {
 		for _, legacy := range []bool{false, true} {
 			t.Run(fmt.Sprintf("%s/legacy=%t", backend, legacy), func(t *testing.T) {
-				ctx := context.Background()
+				ctx := celltest.Context(context.Background())
 				rt := newTimeoutReproRuntime(t, backend)
 				size := 1_300_000
 				if legacy {
@@ -97,8 +98,8 @@ func TestResolvedRecipeArtifactDurableReplay(t *testing.T) {
 						return yaml, nil
 					},
 				}
-				data := jobdb.NewTaskDataOrPanic(workflowctl.StartJob{TenantId: "recipe-artifacts", RecipeName: "root"})
-				handle, err := rt.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "recipe-artifacts", JobType: "recipe", Data: data, RunPolicy: jobdb.RunPolicy{Retry: jobdb.RetryPolicy{MaximumAttempts: 1}}}})
+				data := jobdb.NewTaskDataOrPanic(workflowctl.StartJob{TenantId: "recipe-artifacts", RecipeName: "root", Cell: "test", CellRepo: celltest.Repo("")})
+				handle, err := rt.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "recipe-artifacts", JobType: "recipe", Data: data, RunPolicy: jobdb.RunPolicy{Retry: jobdb.RetryPolicy{MaximumAttempts: 1}}, Cell: "test", CellRepo: "example.test/test"}})
 				require.NoError(t, err)
 				worker := NewRecipeJobWorker(RecipeJobWorkerOptions{RootSourceResolver: resolver})
 				sourceTask := newRootSourceResolutionTaskWorker(resolver)
@@ -110,7 +111,7 @@ func TestResolvedRecipeArtifactDurableReplay(t *testing.T) {
 				firstCtx, cancel := context.WithCancel(ctx)
 				defer cancel()
 				interrupted := &rootSourceInterruption{WorkflowRuntime: rt, cancel: cancel}
-				first, err := jobworkflow.GetJobForRun(firstCtx, interrupted, jobworkflow.GetJobForRunRequest{JobKey: handle.JobKey, JobWorker: worker, TaskWorkers: []jobworkflow.TaskWorker{sourceTask}, WorkerID: "first-worker", LeaseDuration: time.Minute})
+				first, err := jobworkflow.GetJobForRun(firstCtx, interrupted, jobworkflow.GetJobForRunRequest{JobKey: handle.JobKey, JobWorker: worker, TaskWorkers: []jobworkflow.TaskWorker{NewCellContextTaskWorker(), sourceTask}, WorkerID: "first-worker", LeaseDuration: time.Minute})
 				require.NoError(t, err)
 				_, err = first.Run(nil)
 				require.Error(t, err)
@@ -166,7 +167,7 @@ func TestResolvedRecipeArtifactDurableReplay(t *testing.T) {
 					}
 				}
 				require.NotEmpty(t, scope)
-				continuation, err := rt.SubmitRestartJob(ctx, jobdb.SubmitRestartJobRequest{Job: jobdb.SubmitRestartJob{PriorJobKey: handle.JobKey, ExecutionRestart: &jobdb.ExecutionRestart{ScopeID: scope}}})
+				continuation, err := rt.SubmitRestartJob(ctx, jobdb.SubmitRestartJobRequest{Job: jobdb.SubmitRestartJob{PriorJobKey: handle.JobKey, ExecutionRestart: &jobdb.ExecutionRestart{ScopeID: scope}, Cell: "test"}})
 				require.NoError(t, err)
 				continued := probeRun(t, rt, continuation.JobKey, worker, sourceTask)
 				require.Equal(t, jobworkflow.JobRunCompleted, continued.Status, "%v", continued.JobError)

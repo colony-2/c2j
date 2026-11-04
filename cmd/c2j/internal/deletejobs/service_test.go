@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	"github.com/stretchr/testify/require"
 )
@@ -15,14 +16,14 @@ func cellConfig(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
 	require.NoError(t, os.MkdirAll(filepath.Join(dir, ".c2"), 0755))
-	require.NoError(t, os.WriteFile(filepath.Join(dir, ".c2", "config.yaml"), []byte("pattern: 'github.com/acme/${{ cell }}'\nself:\n  repo: backend\n"), 0644))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, ".c2", "config.yaml"), []byte("pattern: 'github.com/acme/${{ cell }}'\nself:\n  cell: backend\n  repo: backend\n"), 0644))
 	return dir
 }
 
 func TestBuildRequestCombinesSelectors(t *testing.T) {
 	now := time.Date(2026, 10, 19, 12, 0, 0, 0, time.UTC)
 	opts := Options{WorkingDir: cellConfig(t), Cells: []string{"backend", "frontend"}, Recipe: "build", JobIDs: []string{"one", "two"}, OlderThan: "720h", DryRun: true}
-	req, selection, err := buildRequest(context.Background(), opts, "tenant", now)
+	req, selection, err := buildRequest(celltest.Context(context.Background()), opts, "tenant", now)
 	require.NoError(t, err)
 	require.Equal(t, "tenant", req.TenantID)
 	require.Equal(t, opts.JobIDs, req.JobIDs)
@@ -32,18 +33,17 @@ func TestBuildRequestCombinesSelectors(t *testing.T) {
 	predicates, err := jobdb.MetadataPredicates(req.MetadataFilter)
 	require.NoError(t, err)
 	require.Equal(t, []jobdb.MetadataPredicate{
-		{Path: []string{"repo"}, Values: []any{"https://github.com/acme/backend.git", "https://github.com/acme/frontend.git"}},
 		{Path: []string{"recipe"}, Values: []any{"build"}},
 	}, predicates)
-	require.Equal(t, []string{"https://github.com/acme/backend.git", "https://github.com/acme/frontend.git"}, selection.Repositories)
+	require.Equal(t, []string{"backend", "frontend"}, selection.Cells)
 	require.Equal(t, req.CreatedBefore, selection.CreatedBefore)
 
-	req, selection, err = buildRequest(context.Background(), Options{WorkingDir: opts.WorkingDir, Self: true}, "tenant", now)
+	req, selection, err = buildRequest(celltest.Context(context.Background()), Options{WorkingDir: opts.WorkingDir, Self: true}, "tenant", now)
 	require.NoError(t, err)
-	require.Equal(t, []string{"https://github.com/acme/backend.git"}, selection.Repositories)
+	require.Equal(t, []string{"backend"}, selection.Cells)
 	predicates, err = jobdb.MetadataPredicates(req.MetadataFilter)
 	require.NoError(t, err)
-	require.Len(t, predicates, 1)
+	require.Empty(t, predicates)
 }
 
 func TestBuildRequestExplicitTenantWideSelection(t *testing.T) {
@@ -51,9 +51,9 @@ func TestBuildRequestExplicitTenantWideSelection(t *testing.T) {
 		{All: true}, {JobIDs: []string{" exact:id,with-comma "}},
 		{CreatedBefore: "2026-10-19T12:00:00+02:00"}, {Recipe: "build"},
 	} {
-		req, selection, err := buildRequest(context.Background(), opts, "tenant", time.Now())
+		req, selection, err := buildRequest(celltest.Context(context.Background()), opts, "tenant", time.Now())
 		require.NoError(t, err)
-		require.Empty(t, selection.Repositories, "must not infer current cell")
+		require.Empty(t, selection.Cells, "must not infer current cell")
 		require.Equal(t, opts.JobIDs, req.JobIDs, "IDs are opaque")
 		if req.CreatedBefore != nil {
 			require.Equal(t, "2026-10-19T10:00:00Z", req.CreatedBefore.Format(time.RFC3339))
@@ -74,7 +74,7 @@ func TestBuildRequestRejectsInvalidSelection(t *testing.T) {
 		"bad cutoff": {CreatedBefore: "yesterday"}, "overflow cutoff": {CreatedBefore: "9999-01-01T00:00:00Z"},
 	} {
 		t.Run(name, func(t *testing.T) {
-			_, _, err := buildRequest(context.Background(), opts, "tenant", time.Now())
+			_, _, err := buildRequest(celltest.Context(context.Background()), opts, "tenant", time.Now())
 			require.ErrorIs(t, err, jobdb.ErrInvalidJobDeletion)
 		})
 	}

@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/c2j/pkg/contextual"
 	"github.com/colony-2/c2j/pkg/execution"
 	"github.com/colony-2/c2j/pkg/jobdbschema"
@@ -85,7 +86,7 @@ func registerExecutionOps(t *testing.T) {
 
 func newFixture(t *testing.T, backend, memory string, patch *execution.Requirements) *fixture {
 	t.Helper()
-	ctx := context.Background()
+	ctx := celltest.Context(context.Background())
 	var rt jobdb.WorkflowRuntime = toy.New()
 	if backend == "sqlite" || backend == "remote" {
 		s, err := sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: filepath.Join(t.TempDir(), "jobs.db")})
@@ -94,7 +95,7 @@ func newFixture(t *testing.T, backend, memory string, patch *execution.Requireme
 		rt = s
 	}
 	if backend == "remote" {
-		server := httptest.NewServer(remote.NewServer(rt))
+		server := httptest.NewServer(celltest.Handler(remote.NewServer(rt)))
 		t.Cleanup(server.Close)
 		r, err := remote.New(server.URL, server.Client())
 		require.NoError(t, err)
@@ -107,7 +108,7 @@ func newFixture(t *testing.T, backend, memory string, patch *execution.Requireme
 	require.NoError(t, err)
 	registry := rt.(jobdb.JobSchemaRegistry)
 	jobContext, git := compiler.GenerateTestContext()
-	keyRef, err := starter.StartRecipeJob(ctx, workflowctl.StartJob{TenantId: "tenant", RecipeName: "resources", JobContext: jobContext, GitRef: git.ParentRef}, jobdbschema.WorkflowEngine{Engine: engine, Registry: registry}, *r)
+	keyRef, err := starter.StartRecipeJob(ctx, workflowctl.StartJob{TenantId: "tenant", RecipeName: "resources", JobContext: jobContext, GitRef: git.ParentRef, Cell: "test", CellRepo: celltest.Repo(jobContext.GitBase.BaseRepo)}, jobdbschema.WorkflowEngine{Engine: engine, Registry: registry}, *r)
 	key := keyRef.Key()
 	require.NoError(t, err)
 	f := &fixture{runtime: rt, key: key}
@@ -119,7 +120,7 @@ func (f *fixture) run(t *testing.T, memory string, tasks []jobworkflow.TaskWorke
 	t.Helper()
 	rt := New(f.runtime, allocation(memory))
 	worker := compiler.NewRecipeJobWorker(compiler.RecipeJobWorkerOptions{Allocation: allocation(memory), StageExecution: rt.Stage, WrapTaskWorker: rt.WrapTaskWorker})
-	runnable, err := jobworkflow.GetJobForRun(context.Background(), rt, jobworkflow.GetJobForRunRequest{JobKey: f.key, JobWorker: worker, TaskWorkers: guardTasks(rt, tasks), WorkerID: "test", LeaseDuration: time.Minute})
+	runnable, err := jobworkflow.GetJobForRun(celltest.Context(context.Background()), rt, jobworkflow.GetJobForRunRequest{JobKey: f.key, JobWorker: worker, TaskWorkers: append(guardTasks(rt, tasks), compiler.NewCellContextTaskWorker()), WorkerID: "test", LeaseDuration: time.Minute})
 	require.NoError(t, err)
 	out, err := runnable.Run(nil)
 	require.NoError(t, err)
@@ -139,7 +140,7 @@ func TestExecutionHandoffResumesDurableActivityAcrossRuntimes(t *testing.T) {
 			require.True(t, event.Published)
 			require.EqualValues(t, 1, f.first.Load())
 			require.Zero(t, f.second.Load())
-			info, err := f.runtime.GetJob(context.Background(), f.key)
+			info, err := f.runtime.GetJob(celltest.Context(context.Background()), f.key)
 			require.NoError(t, err)
 			d, err := execution.PayloadDemand(info.ClientPayload)
 			require.NoError(t, err)
@@ -147,7 +148,7 @@ func TestExecutionHandoffResumesDurableActivityAcrossRuntimes(t *testing.T) {
 			_, event = f.run(t, "2Gi", f.tasks)
 			require.NotNil(t, event)
 			require.False(t, event.Published)
-			after, err := f.runtime.GetJob(context.Background(), f.key)
+			after, err := f.runtime.GetJob(celltest.Context(context.Background()), f.key)
 			require.NoError(t, err)
 			require.Equal(t, info.ClientPayloadRevision, after.ClientPayloadRevision)
 			out, event = f.run(t, "16Gi", f.tasks)
@@ -175,7 +176,7 @@ func TestInitialRequirementsAndOrdinaryTaskHandoff(t *testing.T) {
 	out, event = f.run(t, "16Gi", nil)
 	require.Equal(t, jobworkflow.JobRunSuspended, out.Status)
 	require.Nil(t, event)
-	info, err := f.runtime.GetJob(context.Background(), f.key)
+	info, err := f.runtime.GetJob(celltest.Context(context.Background()), f.key)
 	require.NoError(t, err)
 	require.NotEmpty(t, info.ClientPayload)
 	_, event = f.run(t, "2Gi", f.tasks)
@@ -216,7 +217,7 @@ sequence:
 			out, event = f.run(t, "16Gi", f.tasks[:2])
 			require.Equal(t, jobworkflow.JobRunSuspended, out.Status)
 			require.Nil(t, event)
-			info, err := f.runtime.GetJob(context.Background(), f.key)
+			info, err := f.runtime.GetJob(celltest.Context(context.Background()), f.key)
 			require.NoError(t, err)
 			d, err := execution.PayloadDemand(info.ClientPayload)
 			require.NoError(t, err)
@@ -254,13 +255,13 @@ func TestLostHandoffResponseStopsAndRecoversWithoutRepeatingActivity(t *testing.
 	f := newFixture(t, "toy", "2Gi", &execution.Requirements{Resources: execution.Resources{Memory: str("16Gi")}})
 	rt := New(lostResponseRuntime{f.runtime}, allocation("2Gi"))
 	worker := compiler.NewRecipeJobWorker(compiler.RecipeJobWorkerOptions{Allocation: allocation("2Gi"), StageExecution: rt.Stage, WrapTaskWorker: rt.WrapTaskWorker})
-	runnable, err := jobworkflow.GetJobForRun(context.Background(), rt, jobworkflow.GetJobForRunRequest{JobKey: f.key, JobWorker: worker, TaskWorkers: guardTasks(rt, f.tasks), WorkerID: "test", LeaseDuration: time.Minute})
+	runnable, err := jobworkflow.GetJobForRun(celltest.Context(context.Background()), rt, jobworkflow.GetJobForRunRequest{JobKey: f.key, JobWorker: worker, TaskWorkers: append(guardTasks(rt, f.tasks), compiler.NewCellContextTaskWorker()), WorkerID: "test", LeaseDuration: time.Minute})
 	require.NoError(t, err)
 	uncertain, _ := runnable.Run(nil) // Finalization can also fail because the lease was surrendered.
 	require.Nil(t, uncertain.Handoff, "an uncertain response must not report an acknowledged handoff")
 	require.EqualValues(t, 1, f.first.Load())
 	require.Zero(t, f.second.Load())
-	info, err := f.runtime.GetJob(context.Background(), f.key)
+	info, err := f.runtime.GetJob(celltest.Context(context.Background()), f.key)
 	require.NoError(t, err)
 	demand, err := execution.PayloadDemand(info.ClientPayload)
 	require.NoError(t, err)
@@ -289,7 +290,7 @@ func (r *mutableResolver) Load(context.Context, string, compiler.RecipeSourceRes
 func TestDeferredResolutionPinsRequirementsWithoutProvisionerResolution(t *testing.T) {
 	for _, initialMemory := range []string{"2Gi", "16Gi"} {
 		t.Run(initialMemory, func(t *testing.T) {
-			ctx := context.Background()
+			ctx := celltest.Context(context.Background())
 			registerExecutionOps(t)
 			rt := toy.New()
 			engine, err := jobworkflow.NewEngineBuilder().WithRuntime(rt).BuildEngine()
@@ -298,7 +299,7 @@ func TestDeferredResolutionPinsRequirementsWithoutProvisionerResolution(t *testi
 			require.NoError(t, err)
 			resolver := &mutableResolver{rec: *r}
 			jobContext, git := compiler.GenerateTestContext()
-			keyRef, err := starter.StartRecipeJob(ctx, workflowctl.StartJob{TenantId: "tenant", RecipeName: "deferred", JobContext: jobContext, GitRef: git.ParentRef}, jobdbschema.WorkflowEngine{Engine: engine, Registry: rt})
+			keyRef, err := starter.StartRecipeJob(ctx, workflowctl.StartJob{TenantId: "tenant", RecipeName: "deferred", JobContext: jobContext, GitRef: git.ParentRef, Cell: "test", CellRepo: celltest.Repo(jobContext.GitBase.BaseRepo)}, jobdbschema.WorkflowEngine{Engine: engine, Registry: rt})
 			key := keyRef.Key()
 			require.NoError(t, err)
 			require.Zero(t, resolver.loads.Load())
@@ -347,7 +348,7 @@ func TestDeferredResolutionPinsRequirementsWithoutProvisionerResolution(t *testi
 }
 
 func TestInlineDeclarationIsRetainedAndYieldsBeforeIncludedBody(t *testing.T) {
-	ctx := context.Background()
+	ctx := celltest.Context(context.Background())
 	registerExecutionOps(t)
 	dir := t.TempDir()
 	childPath := filepath.Join(dir, "child.yaml")
@@ -362,7 +363,7 @@ func TestInlineDeclarationIsRetainedAndYieldsBeforeIncludedBody(t *testing.T) {
 	engine, err := jobworkflow.NewEngineBuilder().WithRuntime(rt).BuildEngine()
 	require.NoError(t, err)
 	jobContext, git := compiler.GenerateTestContext()
-	keyRef, err := starter.StartRecipeJob(ctx, workflowctl.StartJob{TenantId: "tenant", RecipeName: "parent", JobContext: jobContext, GitRef: git.ParentRef}, jobdbschema.WorkflowEngine{Engine: engine, Registry: rt}, expanded.Recipe)
+	keyRef, err := starter.StartRecipeJob(ctx, workflowctl.StartJob{TenantId: "tenant", RecipeName: "parent", JobContext: jobContext, GitRef: git.ParentRef, Cell: "test", CellRepo: celltest.Repo(jobContext.GitBase.BaseRepo)}, jobdbschema.WorkflowEngine{Engine: engine, Registry: rt}, expanded.Recipe)
 	key := keyRef.Key()
 	require.NoError(t, err)
 	f := &fixture{runtime: rt, key: key}

@@ -7,6 +7,7 @@ import (
 	"testing/synctest"
 	"time"
 
+	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/c2j/pkg/execution"
 	"github.com/colony-2/c2j/pkg/executionruntime"
 	"github.com/colony-2/c2j/pkg/jobdbschema"
@@ -32,7 +33,7 @@ func (w *childIdentityTask) Run(tc workflow.TaskContext, input jobdb.TaskData) (
 }
 func (w *childIdentityTask) RunTask(local context.Context, ctx workflow.TaskContext, _ jobdb.TaskData) (jobdb.TaskData, error) {
 	deps := coreops.NewOpDependenciesBuilder().WithJobTool(&coreops.TaskBasedJobTool{TaskContext: ctx, Restricted: permissions.FromContext(local)}).Build()
-	input := SingleRecipeWithRef{SingleRecipe: SingleRecipe{Name: "child", CellName: "cell", Git: SingleRecipeGit{BaseRepo: "github.com/example/repo", BaseRef: "main"}}, GitRef: "main"}
+	input := SingleRecipeWithRef{SingleRecipe: SingleRecipe{Name: "child", CellName: "test", Git: SingleRecipeGit{BaseRepo: "github.com/example/repo", BaseRef: "main"}}, GitRef: "main"}
 	child, err := startSingleJob(deps, local, input)
 	if err != nil {
 		return nil, err
@@ -62,7 +63,7 @@ func TestChildSubmissionIdentityAcrossExecutionRetries(t *testing.T) {
 	for _, boundary := range []string{"task", "scope", "job"} {
 		t.Run(boundary, func(t *testing.T) {
 			synctest.Test(t, func(t *testing.T) {
-				ctx := context.Background()
+				ctx := celltest.Context(context.Background())
 				raw := toy.New()
 				rt := executionruntime.New(raw, execution.Allocation{SchemaVersion: 1})
 				_, registerErr := raw.RegisterJobSchema(ctx, jobdb.RegisterJobSchemaRequest{TenantId: "test", Schema: jobdbschema.Schema()})
@@ -84,7 +85,7 @@ func TestChildSubmissionIdentityAcrossExecutionRetries(t *testing.T) {
 						return scoped.DoTask(workflow.TaskCall{Site: "child", TaskType: task.Name(), ContractVersion: 1, Command: []byte(`{}`), Policy: jobdb.RunPolicy{Retry: taskPolicy}}, func(context.Context) (jobdb.TaskData, error) { return jobdb.NewTaskData(nil) })
 					})
 				}}
-				parent, err := rt.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "test", JobType: worker.Name(), Data: jobdb.NewTaskDataOrPanic(nil), RunPolicy: jobdb.RunPolicy{Retry: jobPolicy}}})
+				parent, err := rt.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "test", JobType: worker.Name(), Data: jobdb.NewTaskDataOrPanic(nil), RunPolicy: jobdb.RunPolicy{Retry: jobPolicy}, Cell: "test", CellRepo: "github.com/example/repo"}})
 				require.NoError(t, err)
 				h, err := workflow.GetJobForRun(ctx, rt, workflow.GetJobForRunRequest{JobKey: parent.JobKey, JobWorker: worker, TaskWorkers: []workflow.TaskWorker{rt.WrapTaskWorker(task)}, WorkerID: "test", LeaseDuration: time.Minute})
 				require.NoError(t, err)
@@ -115,7 +116,7 @@ func TestChildSubmissionIdentityAcrossExecutionRetries(t *testing.T) {
 }
 
 func TestChildSubmissionIdentityAcrossSuspension(t *testing.T) {
-	ctx := context.Background()
+	ctx := celltest.Context(context.Background())
 	raw := toy.New()
 	rt := executionruntime.New(raw, execution.Allocation{SchemaVersion: 1})
 	_, err := raw.RegisterJobSchema(ctx, jobdb.RegisterJobSchemaRequest{TenantId: "test", Schema: jobdbschema.Schema()})
@@ -124,7 +125,7 @@ func TestChildSubmissionIdentityAcrossSuspension(t *testing.T) {
 	worker := workflow.ExecutionWorker{JobType: "parent", Execute: func(c workflow.ExecutionContext, _ jobdb.JobData) (jobdb.JobData, error) {
 		return c.DoTask(workflow.TaskCall{Site: "child", TaskType: task.Name(), ContractVersion: 1, Command: []byte(`{}`)}, func(context.Context) (jobdb.TaskData, error) { return jobdb.NewTaskData(nil) })
 	}}
-	parent, err := rt.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "test", JobType: worker.Name(), Data: jobdb.NewTaskDataOrPanic(nil)}})
+	parent, err := rt.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "test", JobType: worker.Name(), Data: jobdb.NewTaskDataOrPanic(nil), Cell: "test", CellRepo: "github.com/example/repo"}})
 	require.NoError(t, err)
 	run := func() workflow.JobRunOutcome {
 		h, err := workflow.GetJobForRun(ctx, rt, workflow.GetJobForRunRequest{JobKey: parent.JobKey, JobWorker: worker, TaskWorkers: []workflow.TaskWorker{rt.WrapTaskWorker(task)}, WorkerID: "test", LeaseDuration: time.Minute})

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"testing"
 
+	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/c2j/pkg/execution"
 	"github.com/colony-2/c2j/pkg/joblist"
 	"github.com/colony-2/jobdb/pkg/jobdb"
@@ -28,7 +29,7 @@ func summaryWithMemory(t *testing.T, id, memory string) jobdb.JobSummary {
 }
 func TestExecutionFilteringRequiresExplicitInspection(t *testing.T) {
 	l := &executionLister{}
-	_, err := ListExecutionJobs(context.Background(), l, jobdb.ListJobsRequest{}, &execution.Filter{IncludeUnresolved: true})
+	_, err := ListExecutionJobs(celltest.Context(context.Background()), l, jobdb.ListJobsRequest{}, &execution.Filter{IncludeUnresolved: true})
 	require.ErrorIs(t, err, joblist.ErrExecutionDetailsRequired)
 	require.Zero(t, l.calls)
 }

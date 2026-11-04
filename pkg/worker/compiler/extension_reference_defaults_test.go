@@ -4,8 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/colony-2/c2j/pkg/execution"
-	"github.com/colony-2/c2j/pkg/executionruntime"
 	"log"
 	"log/slog"
 	"os"
@@ -13,6 +11,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/colony-2/c2j/internal/celltest"
+	"github.com/colony-2/c2j/pkg/execution"
+	"github.com/colony-2/c2j/pkg/executionruntime"
 	"github.com/colony-2/c2j/pkg/jobdbschema"
 	coreops "github.com/colony-2/c2j/pkg/ops"
 	extops "github.com/colony-2/c2j/pkg/ops/extensions"
@@ -72,7 +73,7 @@ func TestExtensionReferenceDefaultsThroughWorkerAndReplay(t *testing.T) {
 		{name: "stderr redaction", secret: "private-credential", wantErr: "extension op", calls: 1},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			ctx := context.Background()
+			ctx := celltest.Context(context.Background())
 			root := t.TempDir()
 			marker := filepath.Join(root, "executed")
 			t.Setenv("C2J_DEFAULT_EXPECTED", tc.want)
@@ -141,7 +142,7 @@ run: ` + fmt.Sprintf("%q\n", script)
 			require.NoError(t, err)
 			*rec = expanded.Recipe
 			job, git := GenerateTestContext()
-			keyRef, err := starter.StartRecipeJob(ctx, workflowctl.StartJob{TenantId: "extension-defaults", RecipeName: "reference-defaults", JobContext: job, GitRef: git.ParentRef}, engine, *rec)
+			keyRef, err := starter.StartRecipeJob(ctx, workflowctl.StartJob{TenantId: "extension-defaults", RecipeName: "reference-defaults", JobContext: job, GitRef: git.ParentRef, Cell: "test", CellRepo: celltest.Repo(job.GitBase.BaseRepo)}, engine, *rec)
 			key := keyRef.Key()
 			require.NoError(t, err)
 			require.Zero(t, provider.calls, "submission must not retrieve defaults")

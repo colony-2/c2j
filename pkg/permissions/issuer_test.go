@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/remote"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/toy"
@@ -32,7 +33,7 @@ func (l *issuedLease) KeepAlive(context.Context) error { l.renewals++; return l.
 
 func TestCentralIssuerUsesTaskBoundsNotCallTimeout(t *testing.T) {
 	deadline := time.Now().UTC().Add(time.Minute)
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	ctx, cancel := context.WithTimeout(celltest.Context(context.Background()), time.Second)
 	defer cancel()
 	child := &issuedLease{info: &jobdb.DelegationInfo{NotAfter: &deadline}}
 	issuer := JobDBIssuer{}
@@ -61,7 +62,7 @@ func TestCentralIssuerUsesTaskBoundsNotCallTimeout(t *testing.T) {
 
 func TestCentralIssuerRejectsMissingTaskCapability(t *testing.T) {
 	issuer := JobDBIssuer{}
-	_, err := issuer.IssueRestrictedLease(context.Background(), jobworkflow.TaskContext{}, JobDB{}, time.Time{})
+	_, err := issuer.IssueRestrictedLease(celltest.Context(context.Background()), jobworkflow.TaskContext{}, JobDB{}, time.Time{})
 	require.ErrorIs(t, err, jobdb.ErrLeaseDelegationUnsupported)
 }
 
@@ -78,7 +79,7 @@ func TestCentralIssuerAcceptsParentBoundLeaseAndRejectsInvalidMetadata(t *testin
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			child := &issuedLease{info: tc.info}
-			got, err := (JobDBIssuer{}).IssueRestrictedLease(context.Background(), creatorFunc(func(_ context.Context, req jobdb.CreateDelegationRequest) (jobdb.RenewableExecutionLease, error) {
+			got, err := (JobDBIssuer{}).IssueRestrictedLease(celltest.Context(context.Background()), creatorFunc(func(_ context.Context, req jobdb.CreateDelegationRequest) (jobdb.RenewableExecutionLease, error) {
 				require.Nil(t, req.NotAfter)
 				return child, nil
 			}), JobDB{}, time.Time{})
@@ -94,13 +95,13 @@ func TestCentralIssuerAcceptsParentBoundLeaseAndRejectsInvalidMetadata(t *testin
 }
 
 func TestLocalAttenuationAndRenewalRespectHardDeadline(t *testing.T) {
-	ctx := context.Background()
+	ctx := celltest.Context(context.Background())
 	base := toy.New()
-	server := httptest.NewServer(remote.NewServer(base))
+	server := httptest.NewServer(celltest.Handler(remote.NewServer(base)))
 	defer server.Close()
 	client, err := remote.New(server.URL, server.Client())
 	require.NoError(t, err)
-	job, err := client.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "test", JobID: "parent", JobType: "test", Data: jobdb.NewTaskDataOrPanic(map[string]any{})}})
+	job, err := client.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "test", JobID: "parent", JobType: "test", Data: jobdb.NewTaskDataOrPanic(map[string]any{}), Cell: "test", CellRepo: "example.test/test"}})
 	require.NoError(t, err)
 	owner, err := client.GetJobLease(ctx, jobdb.GetJobLeaseRequest{JobKey: job.JobKey, WorkerID: "test", Routes: []jobdb.Route{{JobType: "test"}}, LeaseDuration: time.Minute})
 	require.NoError(t, err)
@@ -119,7 +120,7 @@ func TestLocalAttenuationAndRenewalRespectHardDeadline(t *testing.T) {
 	require.Equal(t, deadline, *narrow.(interface{ Delegation() *jobdb.DelegationInfo }).Delegation().NotAfter)
 	_, err = client.CreateDelegation(ctx, narrow, jobdb.CreateDelegationRequest{Permissions: info.Permissions, NotAfter: &deadline})
 	require.ErrorIs(t, err, jobdb.ErrLeasePermissionDenied)
-	jobReq := jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "test", JobType: "child", Data: jobdb.NewTaskDataOrPanic(nil)}}
+	jobReq := jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "test", JobType: "child", Data: jobdb.NewTaskDataOrPanic(nil), Cell: "test", CellRepo: "example.test/test"}}
 	_, err = narrow.SubmitJob(ctx, jobReq)
 	require.ErrorIs(t, err, jobdb.ErrLeasePermissionDenied)
 	_, err = child.SubmitJob(ctx, jobReq)

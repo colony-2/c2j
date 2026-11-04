@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/c2j/internal/nixtest"
 	"github.com/colony-2/c2j/pkg/contextual"
 	"github.com/colony-2/c2j/pkg/recipe"
@@ -52,10 +53,10 @@ inputs:
     ./probe
 `))
 	require.NoError(t, err)
-	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Minute)
+	ctx, cancel := context.WithTimeout(celltest.Context(t.Context()), 5*time.Minute)
 	defer cancel()
 	job := contextual.JobContext{Workflow: contextual.WorkflowContext{CellName: "native"}, GitBase: contextual.GitBaseContext{BaseRepo: repo, BaseRef: "main"}}
-	ref, err := starter.StartRecipeJob(ctx, workflowctl.StartJob{TenantId: "repository-native", RecipeName: "repository-native", JobContext: job, GitRef: "main"}, eng, *rec)
+	ref, err := starter.StartRecipeJob(ctx, workflowctl.StartJob{TenantId: "repository-native", RecipeName: "repository-native", JobContext: job, GitRef: "main", Cell: "test", CellRepo: celltest.Repo(job.GitBase.BaseRepo)}, eng, *rec)
 	require.NoError(t, err)
 	require.NoError(t, jobworkflow.WaitForJobToComplete(ctx, 5*time.Minute, ref.Key(), eng))
 	result, err := swfutil.JobResult(ctx, eng, ref.Key())

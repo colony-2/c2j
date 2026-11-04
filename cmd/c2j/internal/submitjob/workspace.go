@@ -6,7 +6,6 @@ import (
 	"strings"
 
 	"github.com/colony-2/c2j/pkg/childbroker"
-	configpkg "github.com/colony-2/c2j/pkg/config"
 	"github.com/colony-2/c2j/pkg/git/common"
 	"github.com/colony-2/c2j/pkg/git/gitstate"
 	"github.com/colony-2/c2j/pkg/git/selectorcache"
@@ -25,7 +24,7 @@ func resolveSubmissionWorkspace(ctx context.Context, opts Options, workspaceInfo
 			return t, nil, e
 		}
 		g := workspaceInfo.Git
-		return targetCell{RepositorySource: g.BaseRepo, DefaultRef: g.BaseRef, CellName: g.GetWorkspaceCellName(), CellResolution: g.CellResolution}, nil, nil
+		return targetCell{RepositorySource: g.BaseRepo, CellRepo: g.BaseRepo, DefaultRef: g.BaseRef, CellName: g.GetWorkspaceCellName(), CellResolution: g.CellResolution}, nil, nil
 	}
 	root, err := common.FindGitRootContext(ctx, opts.WorkingDir)
 	if err != nil {
@@ -33,18 +32,7 @@ func resolveSubmissionWorkspace(ctx context.Context, opts Options, workspaceInfo
 	}
 	self, err := resolveSelfTarget(ctx, root)
 	if err != nil {
-		if _, configErr := configpkg.LoadProjectConfig(root); configErr != configpkg.ErrConfigNotFound {
-			return targetCell{}, nil, err
-		}
-		// A plain repository without c2j configuration can use origin, or its local path.
-		repo := root
-		if origin, e := common.ExecuteGitCommand(ctx, root, "remote", "get-url", "origin"); e == nil && strings.TrimSpace(string(origin)) != "" {
-			repo = strings.TrimSpace(string(origin))
-		}
-		self, err = resolveExplicitTarget(ctx, root, repo)
-		if err != nil {
-			return targetCell{}, nil, err
-		}
+		return targetCell{}, nil, err
 	}
 	target := self
 	if strings.TrimSpace(opts.Cell) != "" {

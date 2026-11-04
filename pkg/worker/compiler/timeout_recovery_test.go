@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/c2j/pkg/jobdbschema"
 	"github.com/colony-2/c2j/pkg/jobref"
 	coreops "github.com/colony-2/c2j/pkg/ops"
@@ -94,7 +95,7 @@ sequence:
 				require.NoError(t, err)
 				submitter := &timeoutReproSubmitter{inner: jobdbschema.WorkflowEngine{Engine: engine, Registry: rt.WorkflowRuntime.(jobdb.JobSchemaRegistry)}}
 				jobCtx, gitCtx := GenerateTestContext()
-				start := workflowctl.StartJob{TenantId: "timeout-repro", RecipeName: "timeout_repro_recipe", JobContext: jobCtx, GitRef: gitCtx.ParentRef}
+				start := workflowctl.StartJob{TenantId: "timeout-repro", RecipeName: "timeout_repro_recipe", JobContext: jobCtx, GitRef: gitCtx.ParentRef, Cell: "test", CellRepo: celltest.Repo(jobCtx.GitBase.BaseRepo)}
 				var embedded []recipe.Recipe
 				var resolver RecipeSourceResolver
 				var loads atomic.Int32
@@ -103,7 +104,7 @@ sequence:
 				} else {
 					embedded = []recipe.Recipe{*rec}
 				}
-				keyRef, err := starter.StartRecipeJob(context.Background(), start, submitter, embedded...)
+				keyRef, err := starter.StartRecipeJob(celltest.Context(context.Background()), start, submitter, embedded...)
 				key := keyRef.Key()
 				require.NoError(t, err)
 				if scope == "preloaded-root" {
@@ -125,13 +126,13 @@ sequence:
 				require.Zero(t, finish.runs.Load())
 				h := rt.lastHandoff(t)
 				require.Equal(t, "timeout_repro_input:wait", h.req.NextRoute.TaskType)
-				task, err := engine.GetWaitingTask(context.Background(), key)
+				task, err := engine.GetWaitingTask(celltest.Context(context.Background()), key)
 				require.NoError(t, err)
 				// Spend part of the original budget waiting, then respond on time.
 				// Recovery must retain the enclosing deadline when admitting the
 				// next task, instead of granting it another full scope budget.
 				waitTimeoutRepro(t, h.at.Add(250*time.Millisecond))
-				require.NoError(t, task.Finish(context.Background(), output))
+				require.NoError(t, task.Finish(celltest.Context(context.Background()), output))
 				require.Less(t, time.Since(started), budget, "external response must precede the original scope deadline")
 				resolvedBeforeResume := loads.Load()
 				// No active worker exists during this interval. New worker below
@@ -142,7 +143,7 @@ sequence:
 				}
 				waitTimeoutRepro(t, h.at.Add(resumeAfter))
 				worker = NewRecipeJobWorker(RecipeJobWorkerOptions{RootSourceResolver: resolver})
-				runnable, err := jobworkflow.GetJobForRun(context.Background(), rt, jobworkflow.GetJobForRunRequest{JobKey: key, JobWorker: worker, TaskWorkers: tasks, WorkerID: "restart", LeaseDuration: time.Second})
+				runnable, err := jobworkflow.GetJobForRun(celltest.Context(context.Background()), rt, jobworkflow.GetJobForRunRequest{JobKey: key, JobWorker: worker, TaskWorkers: append(tasks, NewCellContextTaskWorker()), WorkerID: "restart", LeaseDuration: time.Second})
 				require.NoError(t, err)
 				out, runErr := runnable.Run(nil)
 				if scope == "preloaded-root" {
@@ -159,7 +160,7 @@ sequence:
 					require.ErrorContains(t, out.JobError, "timed out")
 					requireTimeoutCompletion(t, rt, key, out)
 					require.Zero(t, finish.runs.Load(), "unfinished task must not execute after the original deadline")
-					info, err := rt.GetJob(context.Background(), key)
+					info, err := rt.GetJob(celltest.Context(context.Background()), key)
 					require.NoError(t, err)
 					require.Equal(t, jobdb.JobStatusCompleted, info.Status)
 				}

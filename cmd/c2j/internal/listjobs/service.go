@@ -128,7 +128,7 @@ func buildRequest(ctx context.Context, opts Options) (jobdb.ListJobsRequest, err
 		jobIDs = append(jobIDs, splitCSV(value)...)
 	}
 	return joblist.BuildRequest(opts.TenantID, joblist.Query{GoalIDs: opts.GoalIDs,
-		Repository: target.RepositorySource, Statuses: statuses, JobTypes: opts.JobTypes,
+		CellNames: []string{target.CellName}, Statuses: statuses, JobTypes: opts.JobTypes,
 		JobTasks: waitingFor, JobIDs: jobIDs, CreatedAfter: createdAfter, CreatedBefore: createdBefore,
 		PageSize: opts.PageSize, PageToken: opts.PageToken, ExecutionFilter: opts.ExecutionFilter,
 	})

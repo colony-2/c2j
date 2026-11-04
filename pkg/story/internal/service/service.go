@@ -149,26 +149,17 @@ func (s *Service) ListWorkflows(ctx context.Context, req model.ListWorkflowsRequ
 	pageToken := ""
 	jobStatuses := workflowStatusesToJobStatuses(req.Statuses)
 
-	metaFilter := jobdb.Metadata()
-	metaFilterActive := false
+	var cellNames []string
 	if req.CellID != nil && strings.TrimSpace(*req.CellID) != "" {
-		cellID := strings.TrimSpace(*req.CellID)
-		field := starter.MetaFieldCellID
-		value := any(cellID)
-		if s.cells != nil {
-			cellRecord, err := s.cells.GetCell(ctx, cellID)
-			if err != nil || cellRecord == nil || cellRecord.ProjectID != req.ProjectID {
-				return []model.WorkflowSummary{}, nil
-			}
-			field = starter.MetaFieldCellName
-			value = cellRecord.Name
+		cells, ok := s.registry.(jobdb.CellRuntime)
+		if !ok {
+			return nil, fmt.Errorf("cell registry unavailable")
 		}
-		var err error
-		metaFilter, err = metaFilter.EqualFilter(field, value)
+		cell, err := cells.GetCell(ctx, jobdb.CellKey{TenantID: req.ProjectID, CellID: strings.TrimSpace(*req.CellID)})
 		if err != nil {
 			return nil, err
 		}
-		metaFilterActive = true
+		cellNames = []string{cell.Name}
 	}
 
 	for {
@@ -182,9 +173,7 @@ func (s *Service) ListWorkflows(ctx context.Context, req model.ListWorkflowsRequ
 			PageSize:      pageSize,
 			PageToken:     pageToken,
 		}
-		if metaFilterActive {
-			listReq.MetadataFilter = metaFilter
-		}
+		listReq.CellNames = cellNames
 
 		resp, err := s.engine.ListJobs(ctx, listReq)
 		if err != nil {
@@ -282,39 +271,30 @@ func (s *Service) StartWorkflow(ctx context.Context, req model.StartWorkflowRequ
 		return nil, err
 	}
 
-	if s.cells == nil {
-		return nil, ErrInvalidCell
+	cells, ok := s.registry.(jobdb.CellRuntime)
+	if !ok {
+		return nil, fmt.Errorf("cell registry unavailable")
 	}
-	cellRecord, err := s.cells.GetCell(ctx, cellID)
+	registered, err := cells.GetCell(ctx, jobdb.CellKey{TenantID: projectID, CellID: cellID})
 	if err != nil {
-		if errors.Is(err, workflowapi.ErrCellNotFound) {
-			return nil, ErrInvalidCell
-		}
 		return nil, err
 	}
-	if cellRecord.ProjectID != projectID {
-		return nil, ErrInvalidCell
+	if registered.State != jobdb.CellActive {
+		return nil, jobdb.ErrCellRetired
 	}
-
-	repo := strings.TrimSpace(projectRecord.GitRepoPath)
-	if repo == "" {
-		return nil, ErrInvalidProject
-	}
-	if cellRecord.GitRepoName != nil && strings.TrimSpace(*cellRecord.GitRepoName) != "" {
-		repo = strings.TrimSpace(*cellRecord.GitRepoName)
-	}
-
+	cellRecord := &workflowapi.Cell{ID: registered.ID, Name: registered.Name, ProjectID: projectID}
+	repo := registered.Repo
 	gitRef := resolveGitRef(req.GitRef, cellRecord, projectRecord)
 	submittedAt := time.Now().UTC()
 	inputHash := hashInputs(req.Inputs)
 
 	start := workflowctl.StartJob{
+		Cell: cellRecord.Name, CellRepo: repo,
 		TenantId:   projectID,
 		RecipeName: recipeName,
 		Inputs:     req.Inputs,
 		JobContext: contextual.JobContext{
 			Workflow: contextual.WorkflowContext{
-				CellID:    cellID,
 				CellName:  cellRecord.Name,
 				ProjectId: projectID,
 			},
@@ -339,8 +319,8 @@ func (s *Service) StartWorkflow(ctx context.Context, req model.StartWorkflowRequ
 		return nil, err
 	}
 
-	cellIDCopy := string(cellRecord.ID)
-	cellName := cellRecord.Name
+	cellIDCopy := jobKey.CellID
+	cellName := jobKey.Cell
 	summary := &model.WorkflowSummary{
 		WorkflowID:  jobKey.JobID,
 		RunID:       jobKey.JobID,
@@ -424,24 +404,8 @@ func (s *Service) GetWorkflow(ctx context.Context, req model.GetWorkflowRequest)
 		CreatedAt:  createdAt,
 	}
 
-	cellID := ""
-	cellName := ""
-	if meta != nil {
-		cellID = meta.CellID
-		cellName = meta.CellName
-	}
-	if strings.TrimSpace(cellName) != "" {
-		cellName = strings.TrimSpace(cellName)
-		detail.CellName = &cellName
-	}
-	if strings.TrimSpace(cellID) != "" {
-		cellID = strings.TrimSpace(cellID)
-		detail.CellID = &cellID
-	} else if detail.CellName != nil && s.cells != nil {
-		if resolved, err := s.findCellID(ctx, req.ProjectID, *detail.CellName); err == nil {
-			detail.CellID = resolved
-		}
-	}
+	cellID, cellName := job.CellID, job.Cell
+	detail.CellID, detail.CellName = &cellID, &cellName
 
 	gitRef := ""
 	if meta != nil {
@@ -981,20 +945,8 @@ func (s *Service) buildSummary(ctx context.Context, projectID string, job jobdb.
 		CreatedAt:  createdAt,
 	}
 	summary.SubmittedAt = &createdAt
-	if meta.CellName != "" {
-		cellName := meta.CellName
-		summary.CellName = &cellName
-	}
-	if meta.CellID != "" {
-		cellID := meta.CellID
-		summary.CellID = &cellID
-	}
-
-	if summary.CellID == nil && summary.CellName != nil && s.cells != nil {
-		if cellID, err := s.findCellID(ctx, projectID, *summary.CellName); err == nil {
-			summary.CellID = cellID
-		}
-	}
+	cellID, cellName := job.CellID, job.Cell
+	summary.CellID, summary.CellName = &cellID, &cellName
 
 	return summary, true, nil
 }
@@ -1295,29 +1247,6 @@ func jobMetadataFromRaw(raw json.RawMessage) (*starter.JobMetadata, error) {
 
 func actorFromJobMetadata(meta *starter.JobMetadata) model.Actor {
 	return model.Actor{Type: model.ActorTypeUser}
-}
-
-func (s *Service) findCellID(ctx context.Context, projectID string, cellName string) (*string, error) {
-	if s.cells == nil {
-		return nil, fmt.Errorf("cells service unavailable")
-	}
-	iter, err := s.cells.ListCells(ctx, workflowapi.SearchFilter{
-		ProjectIDs: []string{projectID},
-		Names:      []string{cellName},
-	})
-	if err != nil {
-		return nil, err
-	}
-	defer iter.Close(ctx)
-	c, err := iter.Next(ctx)
-	if err != nil {
-		return nil, err
-	}
-	if c == nil {
-		return nil, fmt.Errorf("cell not found")
-	}
-	id := string(c.ID)
-	return &id, nil
 }
 
 func (s *Service) GetWorkflowArtifact(

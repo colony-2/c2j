@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/c2j/pkg/joblist"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/sqlite"
@@ -15,7 +16,7 @@ import (
 )
 
 func TestIncludeHiddenSQLiteHTTP(t *testing.T) {
-	ctx := context.Background()
+	ctx := celltest.Context(context.Background())
 	dbPath := filepath.Join(t.TempDir(), "jobs.db")
 	rt, err := sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: dbPath})
 	require.NoError(t, err)
@@ -27,7 +28,7 @@ func TestIncludeHiddenSQLiteHTTP(t *testing.T) {
 	} {
 		meta, err := json.Marshal(map[string]string{"repo": "https://github.com/acme/" + row.repo + ".git", "title": "stored title"})
 		require.NoError(t, err)
-		_, err = rt.SubmitJob(ctx, jobdb.SubmitJobRequest{RequestTime: created, Job: jobdb.SubmitJob{TenantId: row.tenant, JobID: row.id, JobType: "recipe", Metadata: meta, Data: jobdb.NewTaskDataOrPanic("input")}})
+		_, err = rt.SubmitJob(ctx, jobdb.SubmitJobRequest{RequestTime: created, Job: jobdb.SubmitJob{TenantId: row.tenant, JobID: row.id, JobType: "recipe", Metadata: meta, Data: jobdb.NewTaskDataOrPanic("input"), Cell: row.repo, CellRepo: "github.com/acme/" + row.repo}})
 		require.NoError(t, err)
 	}
 	// Normalize persisted fixture timestamps: SQLite submissions use wall-clock creation,
@@ -67,7 +68,7 @@ func TestIncludeHiddenSQLiteHTTP(t *testing.T) {
 		t.Fatal("pagination did not terminate")
 		return nil
 	}
-	q := joblist.Query{Repository: "github.com/acme/app", PageSize: 1, Statuses: []jobdb.JobStatus{jobdb.JobStatusReady, jobdb.JobStatusCancelled}}
+	q := joblist.Query{CellNames: []string{"app"}, PageSize: 1, Statuses: []jobdb.JobStatus{jobdb.JobStatusReady, jobdb.JobStatusCancelled}}
 	require.Equal(t, []string{"c", "a"}, traverse(q))
 	q.IncludeHidden = true
 	require.Equal(t, []string{"c", "b", "a"}, traverse(q))

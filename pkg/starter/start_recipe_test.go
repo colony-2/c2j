@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/c2j/pkg/contextual"
 	"github.com/colony-2/c2j/pkg/jobcontext"
 	"github.com/colony-2/c2j/pkg/jobdbschema"
@@ -35,8 +36,8 @@ func TestStartRecipeJobDoesNotAddTimeouts(t *testing.T) {
 					OpData:         recipe.OpData{Op: "noop"},
 				}}}
 			}
-			_, err := StartRecipeJobWithOptions(context.Background(), workflowctl.StartJob{
-				TenantId: "tenant", RecipeName: "unbounded",
+			_, err := StartRecipeJobWithOptions(celltest.Context(context.Background()), workflowctl.StartJob{
+				TenantId: "tenant", RecipeName: "unbounded", Cell: "test", CellRepo: celltest.Repo(""),
 			}, engine, StartRecipeJobOptions{}, recipes...)
 			require.NoError(t, err)
 			require.Nil(t, engine.job.RunPolicy.TotalTimeout)
@@ -59,9 +60,9 @@ func TestStartRecipeJobUsesRecipeTimeoutAsDurableJobTotalTimeout(t *testing.T) {
 		OpData: recipe.OpData{Op: "noop"},
 	}}
 
-	_, err := StartRecipeJobWithOptions(context.Background(), workflowctl.StartJob{
+	_, err := StartRecipeJobWithOptions(celltest.Context(context.Background()), workflowctl.StartJob{
 		TenantId:   "tenant",
-		RecipeName: "recipe-name",
+		RecipeName: "recipe-name", Cell: "test", CellRepo: celltest.Repo(""),
 	}, engine, StartRecipeJobOptions{}, rec)
 	if err != nil {
 		t.Fatalf("StartRecipeJobWithOptions: %v", err)
@@ -107,7 +108,7 @@ func TestJobMetadataFromStartJob_JSONFields(t *testing.T) {
 			GitBase: contextual.GitBaseContext{
 				BaseRepo: "https://github.com/acme/alpha.git",
 			},
-		},
+		}, Cell: "test", CellRepo: celltest.Repo("https://github.com/acme/alpha.git"),
 	}
 
 	meta := JobMetadataFromStartJob(start)
@@ -127,14 +128,10 @@ func TestJobMetadataFromStartJob_JSONFields(t *testing.T) {
 	if got, _ := m[string(MetaFieldRecipe)].(string); got != "my-recipe" {
 		t.Fatalf("expected %q=%q, got %#v", MetaFieldRecipe, "my-recipe", m[string(MetaFieldRecipe)])
 	}
-	if got, _ := m[string(MetaFieldCellID)].(string); got != "cell-1" {
-		t.Fatalf("expected %q=%q, got %#v", MetaFieldCellID, "cell-1", m[string(MetaFieldCellID)])
-	}
-	if got, _ := m[string(MetaFieldCellName)].(string); got != "alpha" {
-		t.Fatalf("expected %q=%q, got %#v", MetaFieldCellName, "alpha", m[string(MetaFieldCellName)])
-	}
-	if got, _ := m[string(MetaFieldRepo)].(string); got != "https://github.com/acme/alpha.git" {
-		t.Fatalf("expected %q=%q, got %#v", MetaFieldRepo, "https://github.com/acme/alpha.git", m[string(MetaFieldRepo)])
+	for _, name := range []string{"cell_id", "cell_name", "repo"} {
+		if _, exists := m[name]; exists {
+			t.Fatalf("ownership metadata %s must be absent", name)
+		}
 	}
 	if got, _ := m[string(MetaFieldGitRef)].(string); got != "main" {
 		t.Fatalf("expected %q=%q, got %#v", MetaFieldGitRef, "main", m[string(MetaFieldGitRef)])
@@ -158,7 +155,7 @@ func TestJobMetadataFromStartJobIncludesParent(t *testing.T) {
 			InvocationPath:     "root/step",
 			InvocationSequence: 3,
 			InvocationHash:     "abc123",
-		},
+		}, Cell: "test", CellRepo: celltest.Repo(""),
 	}
 
 	meta := JobMetadataFromStartJob(start)
@@ -173,10 +170,10 @@ func TestJobMetadataFromStartJobIncludesParent(t *testing.T) {
 func TestStartRecipeJobWithOptions_ForwardsExplicitJobID(t *testing.T) {
 	engine := &captureSubmitter{}
 
-	_, err := StartRecipeJobWithOptions(context.Background(), workflowctl.StartJob{
+	_, err := StartRecipeJobWithOptions(celltest.Context(context.Background()), workflowctl.StartJob{
 		TenantId:   "tenant",
 		JobID:      "child-job-id",
-		RecipeName: "recipe-name",
+		RecipeName: "recipe-name", Cell: "test", CellRepo: celltest.Repo(""),
 	}, engine, StartRecipeJobOptions{
 		JobID: "child-job-id",
 	})
@@ -192,10 +189,10 @@ func TestStartRecipeJobWithOptions_ForwardsExplicitJobID(t *testing.T) {
 func TestStartRecipeJobUsesStartJobIDWhenOptionsJobIDEmpty(t *testing.T) {
 	engine := &captureSubmitter{}
 
-	_, err := StartRecipeJob(context.Background(), workflowctl.StartJob{
+	_, err := StartRecipeJob(celltest.Context(context.Background()), workflowctl.StartJob{
 		TenantId:   "tenant",
 		JobID:      "assembled-job-id",
-		RecipeName: "recipe-name",
+		RecipeName: "recipe-name", Cell: "test", CellRepo: celltest.Repo(""),
 	}, engine)
 	if err != nil {
 		t.Fatalf("StartRecipeJob: %v", err)
@@ -209,12 +206,12 @@ func TestStartRecipeJobUsesStartJobIDWhenOptionsJobIDEmpty(t *testing.T) {
 func TestStartRecipeJobAttachesArtifactsWithoutSerializingThemInPayload(t *testing.T) {
 	engine := &captureSubmitter{}
 
-	_, err := StartRecipeJobWithOptions(context.Background(), workflowctl.StartJob{
+	_, err := StartRecipeJobWithOptions(celltest.Context(context.Background()), workflowctl.StartJob{
 		TenantId:   "tenant",
 		RecipeName: "recipe-name",
 		Artifacts: []jobdb.Artifact{
 			jobdb.NewArtifactFromBytes("brief.md", []byte("brief")),
-		},
+		}, Cell: "test", CellRepo: celltest.Repo(""),
 	}, engine, StartRecipeJobOptions{})
 	if err != nil {
 		t.Fatalf("StartRecipeJobWithOptions: %v", err)

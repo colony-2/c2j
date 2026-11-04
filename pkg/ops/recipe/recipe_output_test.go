@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/colony-2/c2j/internal/celltest"
 	recipeartifacts "github.com/colony-2/c2j/pkg/artifacts"
 	"github.com/colony-2/c2j/pkg/contextual"
 	"github.com/colony-2/c2j/pkg/git/gitstate"
@@ -65,16 +66,16 @@ func TestChildResultsKeepSnapshotProvenanceWithoutForwardingChildState(t *testin
 						if method == "await_result" {
 							call = waitAndGetRecipeOutput
 						}
-						out, err := call(deps, context.Background(), StartedJob{Wait: WaitPolicy{On: "job"}, JobID: "child"})
+						out, err := call(deps, celltest.Context(context.Background()), StartedJob{Wait: WaitPolicy{On: "job"}, JobID: "child"})
 						require.NoError(t, err)
 						require.Equal(t, true, out.Outputs["merged"])
 						refs = out.Artifacts
 					case "child_group":
-						out, err := getChildGroupRecipeOutput(deps, context.Background(), "child")
+						out, err := getChildGroupRecipeOutput(deps, celltest.Context(context.Background()), "child")
 						require.NoError(t, err)
 						refs = out.Artifacts
 					default:
-						out, err := awaitResultSoft(deps, context.Background(), AwaitResultSoftInput{Wait: WaitPolicy{On: "job"}, Target: WaitTarget{Job: "child"}})
+						out, err := awaitResultSoft(deps, celltest.Context(context.Background()), AwaitResultSoftInput{Wait: WaitPolicy{On: "job"}, Target: WaitTarget{Job: "child"}})
 						require.NoError(t, err)
 						refs = out.Artifacts
 					}

@@ -5,13 +5,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/colony-2/c2j/pkg/workflowctl"
 	"log/slog"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/c2j/pkg/worker/compiler"
+	"github.com/colony-2/c2j/pkg/workflowctl"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
 	"github.com/stretchr/testify/require"
@@ -36,7 +37,7 @@ func TestStoryReplayPropagatesUnexpectedErrors(t *testing.T) {
 	for _, cause := range []error{readErr, fmt.Errorf("decode chapter: %w", readErr), jobdb.ErrWorkflowNotDeterministic, context.Canceled, context.DeadlineExceeded, jobdb.ErrJobNotFound} {
 		t.Run(cause.Error(), func(t *testing.T) {
 			engine := &scriptedStoryEngine{replay: func(jobworkflow.ReplayRunRequest) (jobdb.JobData, error) { return nil, cause }}
-			_, err := BuildJobRunStory(context.Background(), engine, jobdb.JobKey{TenantId: "tenant", JobId: "job"}, nil, nil)
+			_, err := BuildJobRunStory(celltest.Context(context.Background()), engine, jobdb.JobKey{TenantId: "tenant", JobId: "job"}, nil, nil)
 			require.ErrorIs(t, err, cause)
 		})
 	}
@@ -44,7 +45,7 @@ func TestStoryReplayPropagatesUnexpectedErrors(t *testing.T) {
 		t.Fatal("replayed without readable history")
 		return nil, nil
 	}}
-	_, err := BuildJobRunStory(context.Background(), engine, jobdb.JobKey{TenantId: "tenant", JobId: "job"}, nil, nil)
+	_, err := BuildJobRunStory(celltest.Context(context.Background()), engine, jobdb.JobKey{TenantId: "tenant", JobId: "job"}, nil, nil)
 	require.ErrorIs(t, err, readErr)
 }
 
@@ -86,7 +87,7 @@ func TestStoryReplayChecksEveryPersistedAttempt(t *testing.T) {
 				}
 				return nil, failure
 			}}
-			st, err := BuildJobRunStory(context.Background(), engine, key, nil, nil)
+			st, err := BuildJobRunStory(celltest.Context(context.Background()), engine, key, nil, nil)
 			if missing == "none" {
 				require.NoError(t, err)
 				require.Equal(t, WorkflowStatusFailed, st.Status)
@@ -108,7 +109,7 @@ func TestStoryReplayCacheMissRequiresAllRecordedEvents(t *testing.T) {
 			if persisted {
 				engine.run.Attempts = []jobdb.JobAttempt{{Attempt: 1, Tasks: []jobdb.TaskRun{{TaskType: "task", Attempts: []jobdb.TaskAttempt{{Ordinal: 1, Attempt: 1, State: jobdb.TaskAttemptStateSucceeded}}}}}}
 			}
-			st, err := BuildJobRunStory(context.Background(), engine, key, nil, nil)
+			st, err := BuildJobRunStory(celltest.Context(context.Background()), engine, key, nil, nil)
 			if persisted {
 				require.ErrorIs(t, err, ErrIncompleteReplay)
 			} else {
@@ -121,7 +122,7 @@ func TestStoryReplayCacheMissRequiresAllRecordedEvents(t *testing.T) {
 
 func TestStoryReplaySuccessfulReturnCannotHideMissingHistory(t *testing.T) {
 	engine := &scriptedStoryEngine{run: jobdb.GetJobRunResponse{Attempts: []jobdb.JobAttempt{{Attempt: 1, Outcome: jobdb.TaskOutcome{Status: jobdb.TaskOutcomeStatusSucceeded}}}}, replay: func(jobworkflow.ReplayRunRequest) (jobdb.JobData, error) { return nil, nil }}
-	_, err := BuildJobRunStory(context.Background(), engine, jobdb.JobKey{TenantId: "tenant", JobId: "job"}, nil, nil)
+	_, err := BuildJobRunStory(celltest.Context(context.Background()), engine, jobdb.JobKey{TenantId: "tenant", JobId: "job"}, nil, nil)
 	require.ErrorIs(t, err, ErrIncompleteReplay)
 }
 
@@ -134,11 +135,17 @@ type loadErrorReplayContext struct {
 func (*loadErrorReplayContext) GetJobKey() jobdb.JobKey {
 	return jobdb.JobKey{TenantId: "tenant", JobId: "job"}
 }
-func (*loadErrorReplayContext) Logger() *slog.Logger     { return slog.Default() }
-func (*loadErrorReplayContext) Context() context.Context { return context.Background() }
+func (*loadErrorReplayContext) Logger() *slog.Logger { return slog.Default() }
+func (*loadErrorReplayContext) Context() context.Context {
+	return celltest.Context(context.Background())
+}
 func (c *loadErrorReplayContext) DoTask(call jobworkflow.TaskCall, build func(context.Context) (jobdb.TaskData, error)) (jobdb.TaskData, error) {
+	if call.TaskType == compiler.CellContextTaskType {
+		h := c.Job()
+		return jobdb.NewTaskData(jobdb.ResolvedCell{Cell: h.Cell, CellID: h.CellID, CellRepo: h.CellRepo})
+	}
 	task := call.TaskType
-	input, err := build(context.Background())
+	input, err := build(celltest.Context(context.Background()))
 	if err != nil {
 		return nil, err
 	}
@@ -154,7 +161,9 @@ func TestStoryReplayRetainsRecipeLoadErrorWhenEngineReportsMismatch(t *testing.T
 	} {
 		t.Run(source.name, func(t *testing.T) {
 			engine := &scriptedStoryEngine{replay: func(req jobworkflow.ReplayRunRequest) (jobdb.JobData, error) {
-				start, err := jobdb.NewTaskData(workflowctl.StartJob{TenantId: "tenant", RecipeName: "test"})
+				start, err := jobdb.NewTaskData(workflowctl.StartJob{TenantId: "tenant", RecipeName: "test", Cell: "test", CellRepo: celltest.Repo(
+					""),
+				})
 				require.NoError(t, err)
 				resolved, err := jobdb.NewTaskData(compiler.ResolvedRecipeSource{RecipeSourceResolution: compiler.RecipeSourceResolution{SourceKind: compiler.RecipeSourceKindGit}, RecipeYAML: source.yaml})
 				require.NoError(t, err)
@@ -167,7 +176,7 @@ func TestStoryReplayRetainsRecipeLoadErrorWhenEngineReportsMismatch(t *testing.T
 				// The engine encounters a task chapter where it now expects a job outcome.
 				return nil, fmt.Errorf("unexpected chapter type at ordinal 2: %w", jobdb.ErrWorkflowNotDeterministic)
 			}}
-			_, err := BuildJobRunStory(context.Background(), engine, jobdb.JobKey{TenantId: "tenant", JobId: "job"}, nil, nil)
+			_, err := BuildJobRunStory(celltest.Context(context.Background()), engine, jobdb.JobKey{TenantId: "tenant", JobId: "job"}, nil, nil)
 			require.ErrorIs(t, err, jobdb.ErrWorkflowNotDeterministic)
 			require.ErrorContains(t, err, source.want)
 		})
@@ -180,7 +189,7 @@ func TestStoryReplayReportsMismatchBeforeUnemittedEvents(t *testing.T) {
 		run:    jobdb.GetJobRunResponse{Attempts: []jobdb.JobAttempt{{Attempt: 1, Tasks: []jobdb.TaskRun{{TaskType: "op:run", Attempts: []jobdb.TaskAttempt{{Ordinal: 4, Attempt: 1, State: jobdb.TaskAttemptStateSucceeded}}}}}}},
 		replay: func(jobworkflow.ReplayRunRequest) (jobdb.JobData, error) { return nil, mismatch },
 	}
-	_, err := BuildJobRunStory(context.Background(), engine, jobdb.JobKey{TenantId: "test", JobId: "job"}, nil, nil)
+	_, err := BuildJobRunStory(celltest.Context(context.Background()), engine, jobdb.JobKey{TenantId: "test", JobId: "job"}, nil, nil)
 	require.ErrorIs(t, err, jobworkflow.ErrWorkflowNotDeterministic)
 	require.ErrorIs(t, err, ErrIncompleteReplay)
 	require.Equal(t, mismatch.Error(), strings.SplitN(err.Error(), "\n", 2)[0])
@@ -222,4 +231,6 @@ func executionFixture(run jobdb.GetJobRunResponse) jobdb.GetJobRunResponse {
 	return run
 }
 
-func (c *loadErrorReplayContext) Job() jobdb.JobHandle { return jobdb.JobHandle{JobKey: c.GetJobKey()} }
+func (c *loadErrorReplayContext) Job() jobdb.JobHandle {
+	return jobdb.JobHandle{JobKey: c.GetJobKey(), Cell: "test", CellID: "fixture-cell", CellRepo: "example.test/test"}
+}

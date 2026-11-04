@@ -3,16 +3,17 @@ package compiler
 import (
 	"context"
 	"fmt"
-	"github.com/colony-2/c2j/pkg/recipe"
-	"github.com/colony-2/jobdb/pkg/jobdb"
-	"gopkg.in/yaml.v3"
 	"os"
 	"path/filepath"
 	"reflect"
 	"testing"
 
+	"github.com/colony-2/c2j/internal/celltest"
+	"github.com/colony-2/c2j/pkg/recipe"
 	"github.com/colony-2/c2j/pkg/worker/commandop"
+	"github.com/colony-2/jobdb/pkg/jobdb"
 	"github.com/stretchr/testify/require"
+	"gopkg.in/yaml.v3"
 )
 
 func TestCommandSandboxIsAnUnknownInput(t *testing.T) {
@@ -60,7 +61,7 @@ sequence:
 		t.Run(name, func(t *testing.T) {
 			rec, err := recipe.LoadRecipeFromString([]byte(source))
 			require.NoError(t, err)
-			expanded, err := ResolveInlineRecipes(context.Background(), *rec, InlineResolutionOptions{RootFile: filepath.Join(root, "root.yaml")})
+			expanded, err := ResolveInlineRecipes(celltest.Context(context.Background()), *rec, InlineResolutionOptions{RootFile: filepath.Join(root, "root.yaml")})
 			require.NoError(t, err)
 			snapshot, err := yaml.Marshal(&expanded.Recipe)
 			require.NoError(t, err)

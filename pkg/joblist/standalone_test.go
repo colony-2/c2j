@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/c2j/pkg/joblist"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	"github.com/stretchr/testify/require"
@@ -40,7 +41,7 @@ func TestStandaloneConsumer(t *testing.T) {
 	buildEnv := append(os.Environ(), "CGO_ENABLED=0", "GOWORK=off", "GOOS=linux")
 	for _, arch := range []string{"amd64", "arm64"} {
 		t.Run(arch, func(t *testing.T) {
-			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+			ctx, cancel := context.WithTimeout(celltest.Context(context.Background()), 3*time.Minute)
 			defer cancel()
 			binary := filepath.Join(t.TempDir(), "listjobs")
 			cmd := exec.CommandContext(ctx, goBin, "build", "-mod=mod", "-trimpath", "-buildvcs=false", "-o", binary, ".")
@@ -73,7 +74,7 @@ func TestStandaloneConsumer(t *testing.T) {
 				}
 			}
 			s := standaloneServer(t)
-			args := []string{"-jobdb", s.URL + "/tenant", "-repo", "github.com/acme/app"}
+			args := []string{"-jobdb", s.URL + "/tenant", "-cell", "app"}
 			if runner != "" {
 				args = append([]string{binary}, args...)
 				binary = runner

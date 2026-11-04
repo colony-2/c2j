@@ -800,49 +800,24 @@ func buildCurrentCellRecipeSelector(ctx context.Context, opts Options, recipeNam
 }
 
 func resolveTargetRepo(ctx context.Context, opts Options) (string, string, error) {
-	cfg, cfgErr := configpkg.LoadProjectConfig(opts.WorkingDir)
-	if cfgErr != nil && cfgErr != configpkg.ErrConfigNotFound {
-		return "", "", cfgErr
+	cfg, err := configpkg.LoadProjectConfig(opts.WorkingDir)
+	if err != nil {
+		return "", "", fmt.Errorf("local cell recipe lookup requires project configuration: %w", err)
 	}
-
-	if opts.Self || strings.TrimSpace(opts.Cell) == "" {
-		if cfgErr == configpkg.ErrConfigNotFound || cfg == nil {
-			return "", "", fmt.Errorf("current cell requires .c2/config.yaml or supported auto-detection")
-		}
-		repo, err := cfg.SelfRepo(ctx)
-		if err != nil {
-			return "", "", err
-		}
-		ref, err := cfg.SelfRef(ctx)
-		if err != nil {
-			return "", "", err
-		}
-		return repo, ref, nil
+	routing, err := cfg.CellResolution(ctx)
+	if err != nil {
+		return "", "", err
 	}
-
 	cell := strings.TrimSpace(opts.Cell)
-	repo := cell
-	var err error
-	if cfg != nil {
-		repo, err = cfg.ExpandCellName(ctx, cell)
-		if err != nil {
-			return "", "", err
-		}
-	} else if filepath.IsAbs(cell) || strings.HasPrefix(cell, "./") || strings.HasPrefix(cell, "../") {
-		repo, err = absPathFromWorkingDir(opts.WorkingDir, cell)
-		if err != nil {
-			return "", "", err
-		}
+	if opts.Self || cell == "" {
+		cell = routing.SelfCell
 	}
-	ref := compiler.DefaultRecipeRef
-	if cfg != nil {
-		if selfRepo, err := cfg.SelfRepo(ctx); err == nil {
-			selfSource, selfErr := compiler.NormalizeGitRepositorySource(selfRepo)
-			repoSource, repoErr := compiler.NormalizeGitRepositorySource(repo)
-			if selfErr == nil && repoErr == nil && selfSource == repoSource {
-				ref, _ = cfg.SelfRef(ctx)
-			}
-		}
+	target, err := routing.Resolve(cell, "")
+	if err != nil {
+		return "", "", err
 	}
-	return repo, ref, nil
+	if target.Repository == "" {
+		return "", "", fmt.Errorf("local cell recipe lookup requires a configured repository for %q", cell)
+	}
+	return target.Repository, target.Ref, nil
 }

@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/c2j/pkg/childbroker"
 	"github.com/colony-2/c2j/pkg/jobcontext"
 	"github.com/colony-2/c2j/pkg/jobref"
@@ -35,7 +36,7 @@ func TestBrokerCompiledIncludeRoundTrip(t *testing.T) {
 			name = "workspace-include"
 		}
 		t.Run(name, func(t *testing.T) {
-			ctx := context.Background()
+			ctx := celltest.Context(context.Background())
 			dir := t.TempDir()
 			source := "id: child\nsequence:\n  - id: phase\n    include: ./phase.yaml\n    perms: {limit: {jobdb: {}}}\n"
 			if workspace {
@@ -55,7 +56,7 @@ func TestBrokerCompiledIncludeRoundTrip(t *testing.T) {
 			broker, ok, err := jobcontext.ChildJobBrokerFromEnv(func(k string) string { return env[k] })
 			require.NoError(t, err)
 			require.True(t, ok)
-			req, err := childbroker.NewSubmitRequest(ctx, workflowctl.StartJob{TenantId: "test", JobID: "child", RecipeName: "child"}, nil, compiled.Recipe)
+			req, err := childbroker.NewSubmitRequest(ctx, workflowctl.StartJob{TenantId: "test", JobID: "child", RecipeName: "child", Cell: "test", CellRepo: celltest.Repo("")}, nil, compiled.Recipe)
 			require.NoError(t, err)
 			// The source parser must still reject compiler-owned metadata.
 			_, err = recipe.LoadRecipeFromReader(bytes.NewReader(req.EmbeddedRecipes[0].YAML))

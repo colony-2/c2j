@@ -6,8 +6,6 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"github.com/colony-2/c2j/pkg/execution"
-	"github.com/colony-2/c2j/pkg/executionruntime"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -18,7 +16,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/c2j/internal/nixtest"
+	"github.com/colony-2/c2j/pkg/execution"
+	"github.com/colony-2/c2j/pkg/executionruntime"
 	"github.com/colony-2/c2j/pkg/jobdbschema"
 	coreops "github.com/colony-2/c2j/pkg/ops"
 	extops "github.com/colony-2/c2j/pkg/ops/extensions"
@@ -38,7 +39,7 @@ func TestRealNixExtension(t *testing.T) {
 	if !nixtest.InContainer(t) {
 		return
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 7*time.Minute)
+	ctx, cancel := context.WithTimeout(celltest.Context(context.Background()), 7*time.Minute)
 	defer cancel()
 	run := func(command string, args ...string) string {
 		t.Helper()
@@ -66,10 +67,10 @@ case "$input" in *'token-private-value'*) ;; *) exit 11;; esac
 printf '{"output":{"message":"hello"}}'
 `)
 	var downloads atomic.Int32
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(celltest.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		downloads.Add(1)
 		_, _ = w.Write(payload)
-	}))
+	})))
 	t.Cleanup(server.Close)
 	hash := sha256.Sum256(payload)
 	manifest := []byte(`{"name":"echo","command":["bin/op"],"input_schema":{"type":"object","required":["message"],"properties":{"message":{"type":"string","default":"hello"},"api":{"type":"object","properties":{"enabled":{"type":"boolean","default":"${{ context.config.?enabled.orValue(false) }}"},"token":{"type":"string","x-secret":true,"default":"${{ context.secrets.token }}"}}}}},"output_schema":{"type":"object","required":["message"],"properties":{"message":{"type":"string"}}}}`)
@@ -154,7 +155,7 @@ printf '{"output":{"message":"hello"}}'
 	go engine.Run(ctx)
 	job, git := GenerateTestContext()
 	start := func(rec *recipe.Recipe) jobdb.JobKey {
-		keyRef, err := starter.StartRecipeJob(ctx, workflowctl.StartJob{TenantId: "nix-ops", RecipeName: rec.GetMetdata().ID, JobContext: job, GitRef: git.ParentRef}, engine, *rec)
+		keyRef, err := starter.StartRecipeJob(ctx, workflowctl.StartJob{TenantId: "nix-ops", RecipeName: rec.GetMetdata().ID, JobContext: job, GitRef: git.ParentRef, Cell: "test", CellRepo: celltest.Repo(job.GitBase.BaseRepo)}, engine, *rec)
 		key := keyRef.Key()
 		require.NoError(t, err)
 		require.NoError(t, jobworkflow.WaitForJobToComplete(ctx, 30*time.Second, key, engine))

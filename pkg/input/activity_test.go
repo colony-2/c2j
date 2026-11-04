@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/c2j/pkg/execution"
 	"github.com/colony-2/c2j/pkg/executionruntime"
 	"github.com/colony-2/c2j/pkg/jobdbschema"
@@ -41,7 +42,7 @@ func (g *gen) Generate(tenantId string) (jobdb.JobKey, error) {
 
 func newToyEngine(t *testing.T, workerTenantID string, gen func(string) (jobdb.JobKey, error)) jobworkflow.Engine {
 	t.Helper()
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(celltest.Context(context.Background()))
 	t.Cleanup(cancel)
 	opts := make([]toyruntime.Option, 0, 1)
 	if gen != nil {
@@ -49,7 +50,7 @@ func newToyEngine(t *testing.T, workerTenantID string, gen func(string) (jobdb.J
 	}
 	runtime := toyruntime.New(opts...)
 	if workerTenantID != "" {
-		require.NoError(t, jobdbschema.Register(context.Background(), runtime, workerTenantID))
+		require.NoError(t, jobdbschema.Register(celltest.Context(context.Background()), runtime, workerTenantID))
 	}
 	guard := executionruntime.New(runtime, execution.Allocation{SchemaVersion: 1})
 	builder := jobworkflow.NewEngineBuilder().WithRuntime(guard)
@@ -137,12 +138,12 @@ outputs:
 		RecipeName: testRecipe.GetMetadata().ID,
 		Inputs:     in,
 		JobContext: jobCtx,
-		GitRef:     gitCtx.ParentRef,
+		GitRef:     gitCtx.ParentRef, Cell: "test", CellRepo: celltest.Repo(jobCtx.GitBase.BaseRepo),
 	}
 
 	errCh := make(chan error)
 	go func() {
-		_, err := starter.StartRecipeJob(context.Background(), job, eng, *testRecipe)
+		_, err := starter.StartRecipeJob(celltest.Context(context.Background()), job, eng, *testRecipe)
 		errCh <- err
 	}()
 
@@ -150,7 +151,7 @@ outputs:
 	var inputs []PendingInput
 	for i := 0; i < 2000; i++ {
 		time.Sleep(100 * time.Millisecond)
-		inputs, err = opR.collectPendingInputs(context.Background(), "test-tenant")
+		inputs, err = opR.collectPendingInputs(celltest.Context(context.Background()), "test-tenant")
 		require.NoError(t, err)
 		if len(inputs) > 0 {
 			break
@@ -159,7 +160,7 @@ outputs:
 	require.Equal(t, 1, len(inputs), "Expected 1 pending input after waiting")
 	pending := inputs[0]
 
-	result := opR.getDetails(context.Background(), "test-tenant", pending.Id)
+	result := opR.getDetails(celltest.Context(context.Background()), "test-tenant", pending.Id)
 	if result.hasError() {
 		t.Fatalf("failed to get result: %v", result.err)
 	}
@@ -168,7 +169,7 @@ outputs:
 	require.Equal(t, "how old are you", *details.Form.Question)
 	resp := any("foolish")
 	hash := "abc123"
-	res2 := opR.submitResponse(context.Background(), "test-tenant", pending.Id, FormResponse{
+	res2 := opR.submitResponse(celltest.Context(context.Background()), "test-tenant", pending.Id, FormResponse{
 		Fields:   map[string]interface{}{},
 		Response: &resp,
 		Hash:     &hash,
@@ -178,12 +179,12 @@ outputs:
 	}
 	err = <-errCh
 	require.NoError(t, err)
-	require.NoError(t, jobworkflow.WaitForJobToComplete(context.Background(), 5*time.Second, jobdb.JobKey{
+	require.NoError(t, jobworkflow.WaitForJobToComplete(celltest.Context(context.Background()), 5*time.Second, jobdb.JobKey{
 		TenantId: "test-tenant",
 		JobId:    "job-1",
 	}, eng))
 
-	res3, err := swfutil.JobResult(context.Background(), eng, jobdb.JobKey{TenantId: "test-tenant", JobId: "job-1"})
+	res3, err := swfutil.JobResult(celltest.Context(context.Background()), eng, jobdb.JobKey{TenantId: "test-tenant", JobId: "job-1"})
 	require.NoError(t, err)
 
 	res4, err := res3.GetData()
@@ -197,7 +198,7 @@ outputs:
 }
 
 func TestSimpleInputRealEngineWaitRestart(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(celltest.Context(context.Background()))
 	defer cancel()
 
 	op := GetOp()
@@ -266,7 +267,7 @@ inputs:
 		RecipeName: testRecipe.GetMetadata().ID,
 		Inputs:     in,
 		JobContext: jobCtx,
-		GitRef:     gitCtx.ParentRef,
+		GitRef:     gitCtx.ParentRef, Cell: "test", CellRepo: celltest.Repo(jobCtx.GitBase.BaseRepo),
 	}
 
 	jobKeyRef, err := starter.StartRecipeJob(ctx, job, engine, *testRecipe)

@@ -42,6 +42,8 @@ type JobInspection struct {
 }
 
 type StartJob struct {
+	Cell         string                 `json:"cell"`
+	CellRepo     string                 `json:"cell_repo,omitempty"`
 	Dependencies []jobdb.Dependency     `json:"dependencies,omitempty"`
 	Execution    *execution.Submission  `json:"execution,omitempty"`
 	TenantId     string                 `json:"tenantId"`

@@ -46,6 +46,8 @@ type Execution struct {
 	InvocationHash     *string            `json:"invocation_hash"`
 	OpType             *string            `json:"op_type"`
 	OpStep             *string            `json:"op_step"`
+	CellID             *string            `json:"cell_id"`
+	CellRepo           *string            `json:"cell_repo"`
 	CellName           *string            `json:"cell_name"`
 	RecipeSource       *string            `json:"recipe_source"`
 	RecipeRef          *string            `json:"recipe_ref"`
@@ -211,6 +213,8 @@ func (i *Info) SetCurrent(c jobcontext.Current, source string) {
 	e.OpType = String(c.OpType)
 	e.OpStep = String(c.OpStep)
 	e.CellName = String(c.CellName)
+	e.CellID = String(c.CellID)
+	e.CellRepo = String(c.CellRepo)
 	e.RecipeSource = String(c.RepositorySource)
 	e.RecipeRef = String(c.GitRef)
 }
@@ -341,7 +345,11 @@ func (p Permissions) MarshalJSON() ([]byte, error) {
 		if names == nil {
 			names = []string{}
 		}
-		grant = map[string]any{"jobs": map[string]any{"submit": p.JobDB.Jobs.Submit}, "secrets": map[string]any{"resolve": names}}
+		jobs := map[string]any{"submit": p.JobDB.Jobs.Submit}
+		if p.JobDB.Jobs.CellNames != nil {
+			jobs["cellNames"] = p.JobDB.Jobs.CellNames
+		}
+		grant = map[string]any{"jobs": jobs, "secrets": map[string]any{"resolve": names}}
 	}
 	return json.Marshal(struct {
 		plain

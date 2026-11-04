@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/colony-2/c2j/internal/buildinfo"
+	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/c2j/pkg/gitprofile"
 	"github.com/colony-2/c2j/pkg/hookpolicy"
 	"github.com/colony-2/jobdb/pkg/jobdb"
@@ -20,10 +21,12 @@ import (
 func TestHookPermissionCLI(t *testing.T) {
 	t.Setenv(gitprofile.SocketEnv, "")
 	rt := toy.New()
-	server := httptest.NewServer(remote.NewServer(rt))
+	_, createErr := rt.CreateCell(celltest.Context(context.Background()), jobdb.CreateCellRequest{TenantID: "tenant", Name: "service", Repo: "example.com/service"})
+	require.NoError(t, createErr)
+	server := httptest.NewServer(celltest.Handler(remote.NewServer(rt)))
 	defer server.Close()
 	hook := ".c2/hooks/check.yaml"
-	repo := "https://example.com/service"
+	repo := "example.com/service"
 	run := func(args ...string) string {
 		t.Helper()
 		c := newRootCmd(buildinfo.Info{})
@@ -36,8 +39,8 @@ func TestHookPermissionCLI(t *testing.T) {
 		return out.String()
 	}
 	run("add", hook, "--tenant-wide", "--secret", "A", "--submit-jobs", "--trust-candidate-code")
-	run("remove", hook, "--cell", repo, "--secret", "A")
-	snapshot, err := rt.GetTenantConfiguration(context.Background(), "tenant")
+	run("remove", hook, "--cell", "service", "--secret", "A")
+	snapshot, err := rt.GetTenantConfiguration(celltest.Context(context.Background()), "tenant")
 	require.NoError(t, err)
 	s, err := hookpolicy.Capture(snapshot, repo)
 	require.NoError(t, err)
@@ -45,20 +48,20 @@ func TestHookPermissionCLI(t *testing.T) {
 	require.Equal(t, "cell", source)
 	require.Empty(t, e.Perms.JobDB.Secrets.Resolve)
 	require.True(t, e.Perms.JobDB.Jobs.Submit)
-	run("remove", hook, "--cell", repo, "--submit-jobs")
-	out := run("get", hook, "--cell", repo)
+	run("remove", hook, "--cell", "service", "--submit-jobs")
+	out := run("get", hook, "--cell", "service")
 	require.Contains(t, out, `"source":"cell"`)
-	run("inherit", hook, "--cell", repo)
-	out = run("get", hook, "--cell", repo)
+	run("inherit", hook, "--cell", "service")
+	out = run("get", hook, "--cell", "service")
 	require.Contains(t, out, `"source":"tenant"`)
 	entry := `{"perms":{"jobdb":{"jobs":{"submit":true}},"limit":{"jobdb":{"jobs":{"submit":true}}}},"source_trust":{"jobdb.jobs.submit":{"mode":"candidate"}}}`
-	run("set", hook, "--cell", repo, "--policy-json", entry)
+	run("set", hook, "--cell", "service", "--policy-json", entry)
 	out = run("list", "--all-cells")
 	require.Contains(t, out, hookpolicy.CellKey(repo))
 	var v any
 	require.NoError(t, json.Unmarshal([]byte(out), &v))
 	run("clear", hook, "--tenant-wide")
-	out = run("get", hook, "--cell", repo)
+	out = run("get", hook, "--cell", "service")
 	require.Contains(t, out, `"submit":true`)
 }
 func TestHookPermissionCLIRejectsAmbiguousScopeAndExecution(t *testing.T) {
@@ -89,14 +92,16 @@ func (r hookConflictRuntime) SetTenantConfigurationValue(ctx context.Context, re
 func TestHookPermissionCLIRejectsConcurrentEdit(t *testing.T) {
 	t.Setenv(gitprofile.SocketEnv, "")
 	rt := toy.New()
-	server := httptest.NewServer(remote.NewServer(hookConflictRuntime{rt}))
+	_, createErr := rt.CreateCell(celltest.Context(context.Background()), jobdb.CreateCellRequest{TenantID: "tenant", Name: "service", Repo: "example.com/service"})
+	require.NoError(t, createErr)
+	server := httptest.NewServer(celltest.Handler(remote.NewServer(hookConflictRuntime{rt})))
 	defer server.Close()
 	c := newRootCmd(buildinfo.Info{})
 	c.SetOut(&bytes.Buffer{})
 	c.SetErr(&bytes.Buffer{})
 	c.SetArgs([]string{"hooks", "perms", "add", "hook.yaml", "--tenant-wide", "--secret", "A", "--trust-candidate-code", "--jobdb", server.URL + "/tenant"})
 	require.ErrorContains(t, c.Execute(), "reread before retrying")
-	snapshot, err := rt.GetTenantConfiguration(context.Background(), "tenant")
+	snapshot, err := rt.GetTenantConfiguration(celltest.Context(context.Background()), "tenant")
 	require.NoError(t, err)
 	require.NotContains(t, snapshot.Values, hookpolicy.TenantKey)
 	require.Contains(t, snapshot.Values, "concurrent_edit")
@@ -104,7 +109,10 @@ func TestHookPermissionCLIRejectsConcurrentEdit(t *testing.T) {
 
 func TestHookPermissionCLITextOutput(t *testing.T) {
 	t.Setenv(gitprofile.SocketEnv, "")
-	server := httptest.NewServer(remote.NewServer(toy.New()))
+	rt := toy.New()
+	_, createErr := rt.CreateCell(celltest.Context(context.Background()), jobdb.CreateCellRequest{TenantID: "tenant", Name: "service", Repo: "example.com/service"})
+	require.NoError(t, createErr)
+	server := httptest.NewServer(celltest.Handler(remote.NewServer(rt)))
 	defer server.Close()
 	run := func(args ...string) string {
 		t.Helper()
@@ -119,7 +127,7 @@ func TestHookPermissionCLITextOutput(t *testing.T) {
 		return stdout.String()
 	}
 	hook := ".c2/hooks/check.yaml"
-	repo := "https://example.com/service"
+	repo := "example.com/service"
 	sha := strings.Repeat("a", 40)
 	require.Contains(t, run("list", "--all-cells"), "No hook policies configured.")
 	require.Contains(t, run("list", "--tenant-wide"), "No hook entries configured.")
@@ -129,21 +137,21 @@ func TestHookPermissionCLITextOutput(t *testing.T) {
 		require.Contains(t, out, want)
 	}
 	require.Less(t, strings.Index(out, "A_TOKEN"), strings.Index(out, "Z_TOKEN"))
-	require.Contains(t, run("get", hook, "--cell", repo), "Source: tenant default")
-	out = run("remove", hook, "--cell", repo, "--secret", "A_TOKEN")
+	require.Contains(t, run("get", hook, "--cell", "service"), "Source: tenant default")
+	out = run("remove", hook, "--cell", "service", "--secret", "A_TOKEN")
 	require.Contains(t, out, "Source: cell override")
 	require.NotContains(t, out, "A_TOKEN")
-	out = run("clear", hook, "--cell", repo)
+	out = run("clear", hook, "--cell", "service")
 	require.Contains(t, out, "explicit deny")
 	require.Contains(t, out, "Source: cell override")
 	require.Contains(t, out, "Secret resolution: none")
 	require.Contains(t, out, "Submit jobs: denied")
-	out = run("inherit", hook, "--cell", repo)
+	out = run("inherit", hook, "--cell", "service")
 	require.Contains(t, out, "tenant inheritance restored")
 	require.Contains(t, out, "Source: tenant default")
 	require.Contains(t, out, "A_TOKEN")
 	entry := `{"perms":{"jobdb":{"jobs":{"submit":true}},"limit":{"jobdb":{"jobs":{"submit":true}}}},"source_trust":{"jobdb.jobs.submit":{"mode":"candidate"}}}`
-	out = run("set", hook, "--cell", repo, "--policy-json", entry)
+	out = run("set", hook, "--cell", "service", "--policy-json", entry)
 	require.Contains(t, out, "Updated hook permissions.")
 	require.Contains(t, out, "Submit jobs: allowed (trust: candidate code)")
 	require.Contains(t, out, "Limits:\n    Secret resolution: none\n    Submit jobs: allowed")

@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/c2j/pkg/starter"
 	"github.com/colony-2/c2j/pkg/workflowctl"
 	"github.com/colony-2/jobdb/pkg/jobdb"
@@ -14,7 +15,7 @@ import (
 func TestRecipeJobSummarySeparatesClientPayloadFromSubmission(t *testing.T) {
 	submitted := time.Date(2026, 9, 19, 0, 0, 0, 0, time.UTC)
 	metadata := starter.JobMetadataFromStartJob(workflowctl.StartJob{
-		RecipeName: "declared-recipe", InputHash: "input-hash", SubmittedAt: &submitted,
+		RecipeName: "declared-recipe", InputHash: "input-hash", SubmittedAt: &submitted, Cell: "test", CellRepo: celltest.Repo(""),
 	})
 	raw, err := json.Marshal(metadata)
 	require.NoError(t, err)

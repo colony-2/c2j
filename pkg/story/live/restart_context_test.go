@@ -5,6 +5,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/c2j/pkg/story/internal/model"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
@@ -15,7 +16,7 @@ func TestRestartContextUnavailableIsNotEmptyContext(t *testing.T) {
 	history := []jobdb.ExecutionHistoryEntry{{Ordinal: 7, Record: jobdb.ExecutionRecord{Kind: "scope", ID: "scope", Descriptor: []byte(`{"restart":true}`)}}}
 	for _, cause := range []error{nil, jobworkflow.ReplayCacheMissError{Reason: jobworkflow.ReplayCacheMissTaskResultMissing}, jobdb.ErrWorkflowNotDeterministic, errors.New("artifact unavailable")} {
 		engine := &scriptedStoryEngine{replay: func(jobworkflow.ReplayRunRequest) (jobdb.JobData, error) { return nil, cause }}
-		result, err := InspectRestartContext(context.Background(), engine, jobdb.JobKey{TenantId: "tenant", JobId: "job"}, history, 7, nil, nil)
+		result, err := InspectRestartContext(celltest.Context(context.Background()), engine, jobdb.JobKey{TenantId: "tenant", JobId: "job"}, history, 7, nil, nil)
 		require.Nil(t, result)
 		require.ErrorIs(t, err, ErrRestartContextUnavailable)
 		if cause != nil {

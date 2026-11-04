@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	"github.com/stretchr/testify/require"
 )
@@ -28,7 +29,7 @@ func TestFallbackBindingsAndRefresh(t *testing.T) {
 			"empty": {Value: ""}, "present": {Value: "private"},
 		}}, nil
 	}
-	require.NoError(t, session.PrepareReferences(context.Background(), refs, resolve))
+	require.NoError(t, session.PrepareReferences(celltest.Context(context.Background()), refs, resolve))
 	for i, expected := range []string{"first", "second", "", "private"} {
 		got, err := session.Materialize(refs[i])
 		require.NoError(t, err)
@@ -40,7 +41,7 @@ func TestFallbackBindingsAndRefresh(t *testing.T) {
 	// A fallback is public, so it is neither masked nor stored as a secret.
 	require.Equal(t, "first second [REDACTED]", session.Redact("first second private"))
 	// Every preparation asks the resolver again; JobDB determines reuse.
-	require.NoError(t, session.PrepareReferences(context.Background(), refs, func(_ context.Context, names []string) (jobdb.SecretResolveResult, error) {
+	require.NoError(t, session.PrepareReferences(celltest.Context(context.Background()), refs, func(_ context.Context, names []string) (jobdb.SecretResolveResult, error) {
 		require.ElementsMatch(t, []string{"missing", "empty", "present"}, names)
 		return jobdb.SecretResolveResult{Secrets: map[string]jobdb.SecretValue{"missing": {Value: "new-private"}}}, nil
 	}))
@@ -67,7 +68,7 @@ func TestFallbackNeverHidesRequiredBindingsOrProviderErrors(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			session := NewSession()
 			defer session.Close()
-			err := session.PrepareReferences(context.Background(), tc.refs, func(context.Context, []string) (jobdb.SecretResolveResult, error) {
+			err := session.PrepareReferences(celltest.Context(context.Background()), tc.refs, func(context.Context, []string) (jobdb.SecretResolveResult, error) {
 				return jobdb.SecretResolveResult{}, tc.providerErr
 			})
 			require.ErrorContains(t, err, tc.want)
@@ -77,7 +78,7 @@ func TestFallbackNeverHidesRequiredBindingsOrProviderErrors(t *testing.T) {
 			require.NotContains(t, err.Error(), "private provider detail")
 		})
 	}
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(celltest.Context(context.Background()))
 	cancel()
 	err := NewSession().PrepareReferences(ctx, []Reference{optional}, func(context.Context, []string) (jobdb.SecretResolveResult, error) {
 		t.Fatal("canceled setup must not fetch")
@@ -151,10 +152,10 @@ func TestNoSecretResolverHasSpecificDiagnostic(t *testing.T) {
 		return jobdb.SecretResolveResult{}, errors.Join(errors.New("private provider detail"), jobdb.ErrNoSecretProvider)
 	}} {
 		s := NewSession()
-		err := s.PrepareReferences(context.Background(), []Reference{{Name: "optional", OmitIfUnavailable: true}}, resolve)
+		err := s.PrepareReferences(celltest.Context(context.Background()), []Reference{{Name: "optional", OmitIfUnavailable: true}}, resolve)
 		require.ErrorIs(t, err, jobdb.ErrNoSecretProvider)
 		require.EqualError(t, err, "no secret provider configured")
-		require.NoError(t, s.PrepareReferences(context.Background(), nil, resolve), "no provider is needed without references")
+		require.NoError(t, s.PrepareReferences(celltest.Context(context.Background()), nil, resolve), "no provider is needed without references")
 		s.Close()
 	}
 }

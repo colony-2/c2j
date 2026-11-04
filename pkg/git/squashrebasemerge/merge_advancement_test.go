@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/c2j/pkg/git/common"
 	"github.com/colony-2/c2j/pkg/ops"
 	"github.com/colony-2/jobdb/pkg/jobdb"
@@ -26,7 +27,7 @@ func newAdvancementFixture(t *testing.T) advancementFixture {
 	initBareRemote(t, f.remote)
 	require.NoError(t, os.Mkdir(f.repo, 0700))
 	runGit(t, f.repo, "git", "init", "-b", "main")
-	require.NoError(t, common.EnsureGitIdentity(context.Background(), f.repo))
+	require.NoError(t, common.EnsureGitIdentity(celltest.Context(context.Background()), f.repo))
 	commit := func(name string) string {
 		writeFile(t, f.repo, name, name)
 		runGit(t, f.repo, "git", "add", ".")
@@ -85,13 +86,13 @@ func TestMergeClassifiesPreparedBaseAdvancement(t *testing.T) {
 			if mode == "managed" {
 				input.PreparedBaseHash = ""
 				deps := ops.NewOpDependenciesBuilder().WithWorktreePath(f.repo).WithGitContext(ops.GitExecutionContext{BaseRepo: f.remote, ResolvedBaseHash: f.base}).Build()
-				_, err = executeMerge(deps, context.Background(), input)
+				_, err = executeMerge(deps, celltest.Context(context.Background()), input)
 				require.Equal(t, f.base, deps.GitContext().ResolvedBaseHash)
 			} else {
 				if mode == "abbreviated" {
 					input.PreparedBaseHash = f.base[:12]
 				}
-				_, err = merge(context.Background(), input, false)
+				_, err = merge(celltest.Context(context.Background()), input, false)
 			}
 			requireAdvancement(t, err, f, phase)
 		})
@@ -132,7 +133,7 @@ func TestMergeDoesNotMisclassifyOtherFailures(t *testing.T) {
 				}
 				require.NoError(t, os.WriteFile(filepath.Join(f.repo, ".git/hooks/pre-push"), []byte(hook), 0700))
 			}
-			_, err := merge(context.Background(), input, mode == "initial collision")
+			_, err := merge(celltest.Context(context.Background()), input, mode == "initial collision")
 			require.Error(t, err)
 			require.False(t, isMergeAdvancement(err), "%v", err)
 			require.Equal(t, f.candidate, revParse(t, f.repo, "HEAD"))
@@ -151,7 +152,7 @@ func TestMergeClassifiesAdvancementDespiteOtherPushFailures(t *testing.T) {
 				hook += fmt.Sprintf("touch '%s/refs/heads/main.lock'\n", f.remote)
 			}
 			require.NoError(t, os.WriteFile(filepath.Join(f.repo, ".git/hooks/pre-push"), []byte(hook), 0700))
-			_, err := merge(context.Background(), f.input(), false)
+			_, err := merge(celltest.Context(context.Background()), f.input(), false)
 			requireAdvancement(t, err, f, "push")
 			var exitErr *exec.ExitError
 			require.ErrorAs(t, err, &exitErr, "retain the original push failure")
@@ -184,7 +185,7 @@ func TestMergePushProbeRequiresPreparedBaseAncestry(t *testing.T) {
 			}
 			hook := fmt.Sprintf("#!/bin/sh\ngit --git-dir='%s' update-ref refs/heads/main %s\necho 'original push failure' >&2\nexit 1\n", f.remote, target)
 			require.NoError(t, os.WriteFile(filepath.Join(f.repo, ".git/hooks/pre-push"), []byte(hook), 0700))
-			_, err := merge(context.Background(), input, false)
+			_, err := merge(celltest.Context(context.Background()), input, false)
 			require.ErrorContains(t, err, "original push failure")
 			require.False(t, isMergeAdvancement(err), "%v", err)
 			require.Equal(t, target, revParse(t, f.remote, "main"))

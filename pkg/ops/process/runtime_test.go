@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/c2j/pkg/gitprofile"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	"github.com/stretchr/testify/require"
@@ -21,12 +22,12 @@ func TestExecuteProcessMasksDynamicallyResolvedGitCredentials(t *testing.T) {
 	profile := gitprofile.Profile{Version: 1, Entries: []gitprofile.Entry{{URL: "https://git.example/", Username: "bot", SecretRef: "token"}}}
 	raw, err := json.Marshal(profile)
 	require.NoError(t, err)
-	scope, err := gitprofile.NewScope(context.Background(), gitprofile.Selection{Explicit: true, Value: "test"}, jobdb.ConfigurationSnapshot{Values: map[string]json.RawMessage{gitprofile.ProfilePrefix + "test": raw}}, func(ctx context.Context, names []string) (jobdb.SecretResolveResult, error) {
+	scope, err := gitprofile.NewScope(celltest.Context(context.Background()), gitprofile.Selection{Explicit: true, Value: "test"}, jobdb.ConfigurationSnapshot{Values: map[string]json.RawMessage{gitprofile.ProfilePrefix + "test": raw}}, func(ctx context.Context, names []string) (jobdb.SecretResolveResult, error) {
 		return jobdb.SecretResolveResult{Secrets: map[string]jobdb.SecretValue{"token": {Value: "private-git-token"}}}, nil
 	}, "/usr/bin/c2j")
 	require.NoError(t, err)
 	defer scope.Close()
-	ctx := gitprofile.WithScope(context.Background(), scope)
+	ctx := gitprofile.WithScope(celltest.Context(context.Background()), scope)
 	var socket string
 	for _, v := range gitprofile.Env(ctx, nil) {
 		if value, ok := strings.CutPrefix(v, gitprofile.SocketEnv+"="); ok {
@@ -55,7 +56,7 @@ func TestExecuteProcessTimeoutKillsHostProcessTree(t *testing.T) {
 
 	root := t.TempDir()
 	marker := filepath.Join(root, "child-survived")
-	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	ctx, cancel := context.WithTimeout(celltest.Context(context.Background()), 100*time.Millisecond)
 	defer cancel()
 
 	started := time.Now()
@@ -94,7 +95,7 @@ eval "$1"
 	require.NoError(t, os.WriteFile(fakeBash, []byte(script), 0o755))
 	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
 
-	stdout, stderr, err := ExecuteProcess(context.Background(), RunRequest{
+	stdout, stderr, err := ExecuteProcess(celltest.Context(context.Background()), RunRequest{
 		WorkingDir: t.TempDir(),
 		Shell:      "bash",
 		Run:        "printf ok",
@@ -112,7 +113,7 @@ func TestExecuteProcessIgnoresShaiConfiguration(t *testing.T) {
 	require.NoError(t, os.MkdirAll(filepath.Join(root, ".shai"), 0700))
 	// Invalid configuration must not be discovered or parsed.
 	require.NoError(t, os.WriteFile(filepath.Join(root, ".shai", "config.yaml"), []byte("[invalid: yaml"), 0600))
-	stdout, stderr, err := ExecuteProcess(context.Background(), RunRequest{
+	stdout, stderr, err := ExecuteProcess(celltest.Context(context.Background()), RunRequest{
 		WorkingDir: root, Shell: "sh", Run: `cat; printf '%s' "$C2J_PROCESS_TEST"; printf diagnostic >&2`,
 		Stdin: []byte("input:"), Env: map[string]string{"C2J_PROCESS_TEST": "worker"},
 	})
@@ -123,7 +124,7 @@ func TestExecuteProcessIgnoresShaiConfiguration(t *testing.T) {
 
 func TestUnsetEnvironmentSuppressesInheritedAndConfiguredValues(t *testing.T) {
 	t.Setenv("C2J_OPTIONAL_SECRET_TEST", "inherited")
-	ctx := WithUnsetEnv(context.Background(), []string{"C2J_OPTIONAL_SECRET_TEST"})
+	ctx := WithUnsetEnv(celltest.Context(context.Background()), []string{"C2J_OPTIONAL_SECRET_TEST"})
 	out, _, err := ExecuteProcess(ctx, RunRequest{
 		WorkingDir: t.TempDir(), Shell: "sh",
 		Env: map[string]string{"C2J_OPTIONAL_SECRET_TEST": "configured", "C2J_EMPTY_SECRET_TEST": ""},

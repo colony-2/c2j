@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/c2j/pkg/execution"
 	"github.com/colony-2/c2j/pkg/executionruntime"
 	"github.com/colony-2/c2j/pkg/git/common"
@@ -28,7 +29,7 @@ func TestGitDiagnosticsSurviveFailedTaskAndReplay(t *testing.T) {
 	for _, backend := range []string{"toy", "remote"} {
 		for _, failure := range []string{"clone", "push"} {
 			t.Run(backend+"/"+failure, func(t *testing.T) {
-				ctx := context.Background()
+				ctx := celltest.Context(context.Background())
 				baseRepo, baseHash, cleanup := setupGitRepo(t)
 				defer cleanup()
 				missing := filepath.Join(t.TempDir(), "missing-repository")
@@ -46,7 +47,7 @@ func TestGitDiagnosticsSurviveFailedTaskAndReplay(t *testing.T) {
 					deps: recipeops.NewServiceDepsBuilder().Build(), reg: reg, controller: gitstate.NewController(nil),
 				}}
 				if failure == "clone" {
-					server := httptest.NewServer(http.NotFoundHandler())
+					server := httptest.NewServer(celltest.Handler(http.NotFoundHandler()))
 					defer server.Close()
 					baseRepo = server.URL + "/missing-repository.git"
 				}
@@ -55,7 +56,7 @@ func TestGitDiagnosticsSurviveFailedTaskAndReplay(t *testing.T) {
 				})
 				var base jobdb.WorkflowRuntime = toy.New()
 				if backend == "remote" {
-					server := httptest.NewServer(remote.NewServer(base))
+					server := httptest.NewServer(celltest.Handler(remote.NewServer(base)))
 					defer server.Close()
 					var err error
 					base, err = remote.New(server.URL, server.Client())
@@ -65,7 +66,7 @@ func TestGitDiagnosticsSurviveFailedTaskAndReplay(t *testing.T) {
 				orchestrator := jobworkflow.ExecutionWorker{JobType: "git-diagnostics", Execute: func(c jobworkflow.ExecutionContext, data jobdb.JobData) (jobdb.JobData, error) {
 					return c.DoTask(jobworkflow.TaskCall{Site: "git", TaskType: worker.Name(), ContractVersion: 1, Command: json.RawMessage(`{}`), Policy: jobdb.RunPolicy{Retry: jobdb.RetryPolicy{MaximumAttempts: 1}}}, func(context.Context) (jobdb.TaskData, error) { return data, nil })
 				}}
-				job, err := rt.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "test", JobType: orchestrator.Name(), Data: input, RunPolicy: jobdb.RunPolicy{Retry: jobdb.RetryPolicy{MaximumAttempts: 1}}}})
+				job, err := rt.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "test", JobType: orchestrator.Name(), Data: input, RunPolicy: jobdb.RunPolicy{Retry: jobdb.RetryPolicy{MaximumAttempts: 1}}, Cell: "test", CellRepo: "example.test/test"}})
 				require.NoError(t, err)
 				h, err := jobworkflow.GetJobForRun(ctx, rt, jobworkflow.GetJobForRunRequest{JobKey: job.JobKey, JobWorker: orchestrator, TaskWorkers: []jobworkflow.TaskWorker{rt.WrapTaskWorker(worker)}, WorkerID: "test", LeaseDuration: time.Minute})
 				require.NoError(t, err)

@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/c2j/pkg/execution"
 	"github.com/colony-2/c2j/pkg/joblist"
 	"github.com/colony-2/jobdb/pkg/jobdb"
@@ -44,16 +45,16 @@ func TestPublicAPIAndCLIParity(t *testing.T) {
 				WaitFor:        []string{"second", "first"},
 				ExecutionState: jobdb.ExecutionState{TaskWait: &jobdb.TaskWait{InputOrdinal: 2, OutputOrdinal: 3, InputHash: "hash", ResumeJobType: "recipe"}},
 			}}
-			s := httptest.NewServer(remote.NewServer(runtime))
+			s := httptest.NewServer(celltest.Handler(remote.NewServer(runtime)))
 			defer s.Close()
 			uri := s.URL + "/tenant"
 			root := t.TempDir()
-			writeListConfig(t, root, "self:\n  repo: github.com/acme/app\n")
+			writeListConfig(t, root, "self:\n  cell: app\n  repo: github.com/acme/app\n")
 			var out bytes.Buffer
-			require.NoError(t, Run(context.Background(), Options{JobDBURI: uri, WorkingDir: root, Cell: "github.com/acme/app", Statuses: []string{string(status)}, JobTypes: []string{"recipe"}, PageSize: 1, PageToken: "previous", JSONOutput: true, Stdout: &out}))
+			require.NoError(t, Run(celltest.Context(context.Background()), Options{JobDBURI: uri, WorkingDir: root, Cell: "app", Statuses: []string{string(status)}, JobTypes: []string{"recipe"}, PageSize: 1, PageToken: "previous", JSONOutput: true, Stdout: &out}))
 			c, err := joblist.New(joblist.Config{JobDBURI: uri, HTTPClient: s.Client()})
 			require.NoError(t, err)
-			page, err := c.List(context.Background(), joblist.Query{Repository: "github.com/acme/app", Statuses: []jobdb.JobStatus{status}, JobTypes: []string{"recipe"}, PageSize: 1, PageToken: "previous"})
+			page, err := c.List(celltest.Context(context.Background()), joblist.Query{CellNames: []string{"app"}, Statuses: []jobdb.JobStatus{status}, JobTypes: []string{"recipe"}, PageSize: 1, PageToken: "previous"})
 			require.NoError(t, err)
 			var cliPage joblist.Page
 			require.NoError(t, json.Unmarshal(out.Bytes(), &cliPage))

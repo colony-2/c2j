@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/c2j/pkg/contextual"
 	"github.com/colony-2/c2j/pkg/execution"
 	"github.com/colony-2/c2j/pkg/executionruntime"
@@ -160,7 +161,7 @@ func objectEngine(t *testing.T) jobworkflow.Engine {
 }
 func objectEngineAt(t *testing.T, dbPath string) (jobworkflow.Engine, func()) {
 	t.Helper()
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(celltest.Context(context.Background()))
 	rt, err := sqliteruntime.NewFromConfig(ctx, sqliteruntime.Config{DBPath: dbPath})
 	require.NoError(t, err)
 	guard := executionruntime.New(rt, execution.Allocation{SchemaVersion: 1})
@@ -185,7 +186,7 @@ func objectEngineAt(t *testing.T, dbPath string) (jobworkflow.Engine, func()) {
 			case <-time.After(5 * time.Second):
 				t.Error("engine failed to stop")
 			}
-			require.NoError(t, rt.Close(context.Background()))
+			require.NoError(t, rt.Close(celltest.Context(context.Background())))
 		})
 	}
 	t.Cleanup(stop)
@@ -200,11 +201,11 @@ func runObjectRecipe(t *testing.T, eng jobworkflow.Engine, source string, job co
 }
 func runObjectRecipeValue(t *testing.T, eng jobworkflow.Engine, rec *recipe.Recipe, job contextual.JobContext, inputs ...map[string]any) map[string]any {
 	t.Helper()
-	keyRef, err := starter.StartRecipeJob(context.Background(), workflowctl.StartJob{TenantId: "object-tests", RecipeName: rec.GetMetadata().ID, Inputs: firstObjectInputs(inputs), JobContext: job, GitRef: job.GitBase.BaseRef}, eng, *rec)
+	keyRef, err := starter.StartRecipeJob(celltest.Context(context.Background()), workflowctl.StartJob{TenantId: "object-tests", RecipeName: rec.GetMetadata().ID, Inputs: firstObjectInputs(inputs), JobContext: job, GitRef: job.GitBase.BaseRef, Cell: "test", CellRepo: celltest.Repo(job.GitBase.BaseRepo)}, eng, *rec)
 	key := keyRef.Key()
 	require.NoError(t, err)
-	require.NoError(t, jobworkflow.WaitForJobToComplete(context.Background(), 15*time.Second, key, eng))
-	result, err := swfutil.JobResult(context.Background(), eng, key)
+	require.NoError(t, jobworkflow.WaitForJobToComplete(celltest.Context(context.Background()), 15*time.Second, key, eng))
+	result, err := swfutil.JobResult(celltest.Context(context.Background()), eng, key)
 	require.NoError(t, err)
 	raw, err := result.GetData()
 	require.NoError(t, err)
@@ -381,7 +382,7 @@ outputs:
 `
 	parsed, err := recipe.LoadRecipeFromString([]byte(root))
 	require.NoError(t, err)
-	expanded, err := ResolveInlineRecipes(context.Background(), *parsed, InlineResolutionOptions{RootFile: filepath.Join(repo, "root.yaml")})
+	expanded, err := ResolveInlineRecipes(celltest.Context(context.Background()), *parsed, InlineResolutionOptions{RootFile: filepath.Join(repo, "root.yaml")})
 	require.NoError(t, err)
 	out := runObjectRecipeValue(t, eng, &expanded.Recipe, contextual.JobContext{Workflow: contextual.WorkflowContext{CellName: "A"}, GitBase: contextual.GitBaseContext{BaseRepo: repo, BaseRef: "main"}})
 	ref, ok, err := objects.Parse(out["session"])

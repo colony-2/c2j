@@ -4,8 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/colony-2/c2j/pkg/execution"
-	"github.com/colony-2/c2j/pkg/executionruntime"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
@@ -13,6 +11,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/colony-2/c2j/internal/celltest"
+	"github.com/colony-2/c2j/pkg/execution"
+	"github.com/colony-2/c2j/pkg/executionruntime"
 	"github.com/colony-2/c2j/pkg/input"
 	"github.com/colony-2/c2j/pkg/jobdbschema"
 	coreops "github.com/colony-2/c2j/pkg/ops"
@@ -34,7 +35,7 @@ func TestUnansweredRecipeLifecycle(t *testing.T) {
 	for _, backend := range []string{"sqlite", "remote"} {
 		for _, mode := range []string{"before-fallback", "fallback", "human-late", "review", "annotated-review", "structured"} {
 			t.Run(backend+"/"+mode, func(t *testing.T) {
-				ctx := context.Background()
+				ctx := celltest.Context(context.Background())
 				source := `id: unanswered
 version: "1.0.0"
 input_schema:
@@ -134,7 +135,7 @@ outputs:
 				t.Cleanup(func() { _ = store.Close(ctx) })
 				var rt jobdb.WorkflowRuntime = store
 				if backend == "remote" {
-					server := httptest.NewServer(remote.NewServer(store))
+					server := httptest.NewServer(celltest.Handler(remote.NewServer(store)))
 					t.Cleanup(server.Close)
 					rt, err = remote.New(server.URL, server.Client())
 					require.NoError(t, err)
@@ -151,7 +152,7 @@ outputs:
 					// complete the fallback when CI takes longer than 600ms.
 					delay = "1h"
 				}
-				keyRef, err := starter.StartRecipeJob(ctx, workflowctl.StartJob{TenantId: "alternate", RecipeName: rec.GetMetadata().ID, Inputs: map[string]any{"fallback": "defer", "delay": delay}, JobContext: jobCtx, GitRef: gitCtx.ParentRef}, engine, *rec)
+				keyRef, err := starter.StartRecipeJob(ctx, workflowctl.StartJob{TenantId: "alternate", RecipeName: rec.GetMetadata().ID, Inputs: map[string]any{"fallback": "defer", "delay": delay}, JobContext: jobCtx, GitRef: gitCtx.ParentRef, Cell: "test", CellRepo: celltest.Repo(jobCtx.GitBase.BaseRepo)}, engine, *rec)
 				key := keyRef.Key()
 				require.NoError(t, err)
 				run := func() jobworkflow.JobRunOutcome {

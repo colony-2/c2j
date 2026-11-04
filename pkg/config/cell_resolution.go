@@ -8,7 +8,7 @@ import (
 
 // CellResolution captures effective settings; workers never execute config commands.
 func (c *ProjectConfig) CellResolution(ctx context.Context) (*cellref.Context, error) {
-	out := &cellref.Context{BaseDir: c.RootDir()}
+	out := &cellref.Context{SelfCell: c.SelfCell()}
 	var err error
 	if out.Pattern, err = c.Pattern(ctx); err != nil {
 		return nil, err

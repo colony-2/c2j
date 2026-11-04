@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/remote"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/sqlite"
@@ -82,13 +83,15 @@ func newTimeoutReproRuntime(t *testing.T, backend string) *timeoutReproRuntime {
 	t.Helper()
 	var rt jobdb.WorkflowRuntime = toy.New()
 	if backend != "toy" {
-		s, err := sqlite.NewFromConfig(context.Background(), sqlite.Config{DBPath: filepath.Join(t.TempDir(), "jobs.db")})
+		s, err := sqlite.NewFromConfig(celltest.Context(context.Background()), sqlite.Config{DBPath: filepath.Join(t.TempDir(), "jobs.db")})
 		require.NoError(t, err)
-		t.Cleanup(func() { require.NoError(t, s.Close(context.Background())) })
+		t.Cleanup(func() {
+			require.NoError(t, s.Close(celltest.Context(context.Background())))
+		})
 		rt = s
 	}
 	if backend == "remote" {
-		s := httptest.NewServer(remote.NewServer(rt))
+		s := httptest.NewServer(celltest.Handler(remote.NewServer(rt)))
 		t.Cleanup(s.Close)
 		r, err := remote.New(s.URL, s.Client())
 		require.NoError(t, err)
@@ -117,14 +120,14 @@ func submitTimeoutRepro(t *testing.T, rt jobdb.WorkflowRuntime, id string, p job
 	t.Helper()
 	data, err := jobdb.NewTaskData(map[string]any{"id": id})
 	require.NoError(t, err)
-	h, err := rt.SubmitJob(context.Background(), jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "timeout-repro", JobID: id, JobType: "repro", Data: data, RunPolicy: p}})
+	h, err := rt.SubmitJob(celltest.Context(context.Background()), jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "timeout-repro", JobID: id, JobType: "repro", Data: data, RunPolicy: p, Cell: "test", CellRepo: "example.test/test"}})
 	require.NoError(t, err)
 	return h.JobKey
 }
 func runTimeoutRepro(t *testing.T, rt jobdb.WorkflowRuntime, key jobdb.JobKey, worker any, tasks ...jobworkflow.TaskWorker) jobworkflow.JobRunOutcome {
 	t.Helper()
 	// Use the real JobDB execution engine for both local and remote runtimes.
-	r, err := jobworkflow.GetJobForRun(context.Background(), rt, jobworkflow.GetJobForRunRequest{JobKey: key, JobWorker: asExecutionTestWorker(worker), TaskWorkers: tasks, WorkerID: "restarted-worker", LeaseDuration: time.Second, AwaitThreshold: time.Second})
+	r, err := jobworkflow.GetJobForRun(celltest.Context(context.Background()), rt, jobworkflow.GetJobForRunRequest{JobKey: key, JobWorker: asExecutionTestWorker(worker), TaskWorkers: append(tasks, NewCellContextTaskWorker()), WorkerID: "restarted-worker", LeaseDuration: time.Second, AwaitThreshold: time.Second})
 	require.NoError(t, err)
 	out, err := r.Run(nil)
 	require.NoError(t, err)
@@ -141,10 +144,10 @@ func requireTimeoutCompletion(t *testing.T, rt *timeoutReproRuntime, key jobdb.J
 	require.Equal(t, jobworkflow.JobRunFailed, out.Status)
 	var timeout jobdb.TimeoutError
 	require.ErrorAs(t, out.JobError, &timeout)
-	info, err := rt.GetJob(context.Background(), key)
+	info, err := rt.GetJob(celltest.Context(context.Background()), key)
 	require.NoError(t, err)
 	require.Equal(t, jobdb.JobStatusCompleted, info.Status)
-	run, err := jobdb.GetJobRun(context.Background(), rt, jobdb.GetJobRunRequest{JobKey: key, IncludeOutputs: true})
+	run, err := jobdb.GetJobRun(celltest.Context(context.Background()), rt, jobdb.GetJobRunRequest{JobKey: key, IncludeOutputs: true})
 	require.NoError(t, err)
 	require.NotEmpty(t, run.Attempts)
 	last := run.Attempts[len(run.Attempts)-1]

@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	"github.com/stretchr/testify/require"
 )
@@ -29,7 +30,7 @@ func TestChapterVisibilityPreservesDelegationCapability(t *testing.T) {
 	deadline := time.Now().Add(time.Minute)
 	req := jobdb.CreateDelegationRequest{NotAfter: &deadline, Permissions: jobdb.DelegationPermissions{Secrets: []string{"ro"}}}
 	parent := struct{ jobdb.ExecutionLease }{}
-	_, err := delegator.CreateDelegation(context.Background(), parent, req)
+	_, err := delegator.CreateDelegation(celltest.Context(context.Background()), parent, req)
 	require.ErrorIs(t, err, jobdb.ErrLeasePermissionDenied)
 	require.Equal(t, 1, base.calls)
 	require.Equal(t, parent, base.parent)

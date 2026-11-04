@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/c2j/pkg/artifacts"
 	"github.com/colony-2/c2j/pkg/contextual"
 	coreops "github.com/colony-2/c2j/pkg/ops"
@@ -75,17 +76,17 @@ outputs:
 `))
 	require.NoError(t, err)
 	job := contextual.JobContext{Workflow: contextual.WorkflowContext{CellName: "A"}, GitBase: contextual.GitBaseContext{BaseRepo: repo, BaseRef: "main"}}
-	keyRef, err := starter.StartRecipeJob(context.Background(), workflowctl.StartJob{TenantId: "object-tests", RecipeName: "root", JobContext: job, GitRef: "main"}, eng, *rec)
+	keyRef, err := starter.StartRecipeJob(celltest.Context(context.Background()), workflowctl.StartJob{TenantId: "object-tests", RecipeName: "root", JobContext: job, GitRef: "main", Cell: "test", CellRepo: celltest.Repo(job.GitBase.BaseRepo)}, eng, *rec)
 	require.NoError(t, err)
 	key := keyRef.Key()
-	require.NoError(t, jobworkflow.WaitForJobToComplete(context.Background(), 30*time.Second, key, eng))
+	require.NoError(t, jobworkflow.WaitForJobToComplete(celltest.Context(context.Background()), 30*time.Second, key, eng))
 	stop()
 	// Reopen the database and replay with a replacement engine. Completed ops
 	// must not execute, and the exported artifact must still be readable.
 	eng, _ = objectEngineAt(t, db)
-	_, err = eng.ReplayJobRun(context.Background(), jobworkflow.ReplayRunRequest{JobKey: key})
+	_, err = eng.ReplayJobRun(celltest.Context(context.Background()), jobworkflow.ReplayRunRequest{JobKey: key})
 	require.NoError(t, err)
-	result, err := swfutil.JobResult(context.Background(), eng, key)
+	result, err := swfutil.JobResult(celltest.Context(context.Background()), eng, key)
 	require.NoError(t, err)
 	raw, err := result.GetData()
 	require.NoError(t, err)
@@ -101,7 +102,7 @@ outputs:
 			stored, err := a.ArtifactKey()
 			require.NoError(t, err)
 			require.Equal(t, key.JobId, stored.JobId)
-			b, err := a.Bytes(context.Background())
+			b, err := a.Bytes(celltest.Context(context.Background()))
 			require.NoError(t, err)
 			require.Equal(t, strings.Repeat("y", 524288), string(b))
 			found = true
@@ -177,7 +178,7 @@ outputs:
 `
 	parsed, err := recipe.LoadRecipeFromString([]byte(root))
 	require.NoError(t, err)
-	expanded, err := ResolveInlineRecipes(context.Background(), *parsed, InlineResolutionOptions{RootFile: filepath.Join(repo, "root.yaml")})
+	expanded, err := ResolveInlineRecipes(celltest.Context(context.Background()), *parsed, InlineResolutionOptions{RootFile: filepath.Join(repo, "root.yaml")})
 	require.NoError(t, err)
 	out := runObjectRecipeValue(t, objectEngine(t), &expanded.Recipe, contextual.JobContext{Workflow: contextual.WorkflowContext{CellName: "A"}, GitBase: contextual.GitBaseContext{BaseRepo: repo, BaseRef: "main"}})
 	require.Equal(t, float64(2097152), out["size"])

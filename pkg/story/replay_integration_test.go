@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/c2j/pkg/logging"
 	coreops "github.com/colony-2/c2j/pkg/ops"
 	"github.com/colony-2/c2j/pkg/starter"
@@ -101,13 +102,13 @@ func TestStoryAPIReplaysAllPersistedAttemptsAfterDeadlines(t *testing.T) {
 			{"success", 1, 1, 0}, {"retry then success", 9, 3, 8}, {"exhausted retries", 100, 3, 9},
 		} {
 			t.Run(backend+"/"+mode.name, func(t *testing.T) {
-				ctx := context.Background()
+				ctx := celltest.Context(context.Background())
 				db, err := sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: filepath.Join(t.TempDir(), "jobs.db")})
 				require.NoError(t, err)
 				t.Cleanup(func() { require.NoError(t, db.Close(ctx)) })
 				var rt jobdb.WorkflowRuntime = db
 				if backend == "remote" {
-					server := httptest.NewServer(remote.NewServer(db))
+					server := httptest.NewServer(celltest.Handler(remote.NewServer(db)))
 					t.Cleanup(server.Close)
 					rt, err = remote.New(server.URL, server.Client())
 					require.NoError(t, err)
@@ -118,15 +119,15 @@ func TestStoryAPIReplaysAllPersistedAttemptsAfterDeadlines(t *testing.T) {
 				engine, err := jobworkflow.NewEngineBuilder().WithRuntime(rt).WithWorkerTenantId("story").PlusWorkers(recordingWorker, task).BuildEngine()
 				require.NoError(t, err)
 				recipe := "id: historical\nsequence:\n - id: outer\n   sequence:\n    - id: work\n      op: " + replayTestOp + "\n      retry: {maximum_attempts: 3, initial_interval: 1ms}\n      timeout: 5m\n"
-				data, err := jobdb.NewTaskData(workflowctl.StartJob{TenantId: "story", RecipeName: "historical"}, jobdb.NewArtifactFromBytes("historical"+starter.RecipeArtifactSuffix, []byte(recipe)))
+				data, err := jobdb.NewTaskData(workflowctl.StartJob{TenantId: "story", RecipeName: "historical", Cell: "test", CellRepo: celltest.Repo("")}, jobdb.NewArtifactFromBytes("historical"+starter.RecipeArtifactSuffix, []byte(recipe)))
 				require.NoError(t, err)
 				policy := jobdb.DefaultRunPolicy()
 				policy.Retry.MaximumAttempts = 3
 				policy.Retry.InitialInterval = jobdb.Duration(time.Millisecond)
-				keyHandle, err := engine.SubmitJob(ctx, jobdb.SubmitJob{TenantId: "story", JobType: "recipe", Data: data, RunPolicy: policy})
+				keyHandle, err := engine.SubmitJob(ctx, jobdb.SubmitJob{TenantId: "story", JobType: "recipe", Data: data, RunPolicy: policy, Cell: "test", CellRepo: "example.test/test"})
 				key := keyHandle.JobKey
 				require.NoError(t, err)
-				runnable, err := jobworkflow.GetJobForRun(ctx, rt, jobworkflow.GetJobForRunRequest{JobKey: key, JobWorker: recordingWorker, TaskWorkers: []jobworkflow.TaskWorker{task}, WorkerID: "story-fixture", LeaseDuration: time.Minute})
+				runnable, err := jobworkflow.GetJobForRun(ctx, rt, jobworkflow.GetJobForRunRequest{JobKey: key, JobWorker: recordingWorker, TaskWorkers: []jobworkflow.TaskWorker{compiler.NewCellContextTaskWorker(), task}, WorkerID: "story-fixture", LeaseDuration: time.Minute})
 				require.NoError(t, err)
 				_, err = runnable.Run(nil)
 				require.NoError(t, err)

@@ -35,7 +35,7 @@ func newListCmd() *cobra.Command {
 	flags.BoolVar(&opts.IncludeUnresolved, "include-unresolved", false, "Deprecated with --compatible-with-execution; inspect selected jobs instead")
 	flags.StringVar(&opts.JobDBURI, "jobdb", "", "JobDB URI (http(s)://host/tenant or embed:///)")
 	flags.BoolVar(&opts.Self, "self", false, "List jobs for the current cell")
-	flags.StringVar(&opts.Cell, "cell", "", "List jobs for a specific cell (short name or repo/path)")
+	flags.StringVar(&opts.Cell, "cell", "", "List jobs owned by the named cell")
 	flags.StringSliceVar(&opts.Statuses, "status", nil, "Filter by job status (repeatable)")
 	flags.StringArrayVar(&opts.JobTypes, "job-type", nil, "Filter by exact job type (repeatable; values are not comma-separated)")
 	flags.StringSliceVar(&opts.JobIDs, "job-id", nil, "Filter by job ID in the selected tenant (repeatable)")

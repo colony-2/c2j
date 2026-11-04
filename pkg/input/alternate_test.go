@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/c2j/pkg/ops"
 	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
 	"github.com/stretchr/testify/require"
@@ -30,7 +31,7 @@ func TestUnansweredPreparationAndAcceptance(t *testing.T) {
 				policy.Response = map[string]any{"decision": "revise"}
 			}
 			deps := ops.NewOpDependenciesBuilder().Build()
-			form, err := buildForm(deps, context.Background(), Input{Form: cfg, IfUnanswered: &policy})
+			form, err := buildForm(deps, celltest.Context(context.Background()), Input{Form: cfg, IfUnanswered: &policy})
 			require.NoError(t, err)
 			require.NotEmpty(t, form.RequestID)
 			require.Empty(t, form.FallbackAt, "due time is recorded by JobDB at the first wait")
@@ -43,20 +44,20 @@ func TestUnansweredPreparationAndAcceptance(t *testing.T) {
 				policy.Fields["decision"] = "changed"
 				require.Equal(t, "revise", form.Fallback.Fields["decision"])
 			}
-			out, err := completeUnanswered(deps, context.Background(), form)
+			out, err := completeUnanswered(deps, celltest.Context(context.Background()), form)
 			require.NoError(t, err)
 			raw, err := json.Marshal(form)
 			require.NoError(t, err)
 			var restored InputForm
 			require.NoError(t, json.Unmarshal(raw, &restored))
-			replay, err := completeUnanswered(deps, context.Background(), restored)
+			replay, err := completeUnanswered(deps, celltest.Context(context.Background()), restored)
 			require.NoError(t, err)
 			require.Equal(t, out["response"], replay["response"])
 			require.Equal(t, out["fields"], replay["fields"])
 			receipt := out["receipt"].(map[string]any)
 			require.Equal(t, "if-unanswered:"+form.RequestID, receipt["submission_id"])
 			require.Equal(t, "automation", receipt["actor"].(map[string]any)["kind"])
-			next, err := buildForm(ops.NewOpDependenciesBuilder().Build(), context.Background(), Input{Form: cfg, IfUnanswered: &UnansweredPolicy{After: "30m", Fields: restored.Fallback.Fields, Response: restored.Fallback.Response}})
+			next, err := buildForm(ops.NewOpDependenciesBuilder().Build(), celltest.Context(context.Background()), Input{Form: cfg, IfUnanswered: &UnansweredPolicy{After: "30m", Fields: restored.Fallback.Fields, Response: restored.Fallback.Response}})
 			require.NoError(t, err)
 			require.NotEqual(t, form.RequestID, next.RequestID)
 		})
@@ -88,7 +89,7 @@ func TestUnansweredRejectsInvalidConfigurationBeforePublication(t *testing.T) {
 			in := Input{Form: reviewConfig(), IfUnanswered: &UnansweredPolicy{After: "1m", Fields: map[string]any{"decision": "revise"}}}
 			test.modify(&in)
 			deps := ops.NewOpDependenciesBuilder().Build()
-			_, err := buildForm(deps, context.Background(), in)
+			_, err := buildForm(deps, celltest.Context(context.Background()), in)
 			require.Error(t, err)
 			require.Nil(t, deps.(interface {
 				NextTaskAlternate() *jobworkflow.TaskAlternateAfter

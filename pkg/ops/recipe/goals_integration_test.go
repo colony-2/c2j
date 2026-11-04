@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/c2j/pkg/jobdbschema"
 	"github.com/colony-2/c2j/pkg/ops"
 	workerworkflow "github.com/colony-2/c2j/pkg/worker/workflow"
@@ -50,7 +51,7 @@ func TestGoalWinnerCollectionRecoveryAndExplicitFailure(t *testing.T) {
 		for _, scenario := range []struct{ fail, soft bool }{{false, false}, {false, true}, {true, false}, {true, true}} {
 			fail, soft := scenario.fail, scenario.soft
 			t.Run(fmt.Sprintf("%s/fail=%v/soft=%v", backend, fail, soft), func(t *testing.T) {
-				ctx := context.Background()
+				ctx := celltest.Context(context.Background())
 				dbPath := filepath.Join(t.TempDir(), "jobs.db")
 				db, err := sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: dbPath})
 				require.NoError(t, err)
@@ -58,7 +59,7 @@ func TestGoalWinnerCollectionRecoveryAndExplicitFailure(t *testing.T) {
 				var rt jobdb.WorkflowRuntime = db
 				var server *httptest.Server
 				if backend == "remote" {
-					server = httptest.NewServer(remote.NewServer(db))
+					server = httptest.NewServer(celltest.Handler(remote.NewServer(db)))
 					t.Cleanup(server.Close)
 					rt, err = remote.New(server.URL, server.Client())
 					require.NoError(t, err)
@@ -67,7 +68,7 @@ func TestGoalWinnerCollectionRecoveryAndExplicitFailure(t *testing.T) {
 					return jobdb.NewTaskDataOrPanic(map[string]any{"output": map[string]any{"winner": c.GetJobKey().JobId}, "git": map[string]any{"hash": "winner-hash"}}, jobdb.NewArtifactFromBytes("result.txt", []byte(c.GetJobKey().JobId))), nil
 				}}
 				submit := func(w wf.ExecutionWorker) jobdb.JobHandle {
-					h, e := rt.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "tenant", JobType: w.Name(), Data: jobdb.NewTaskDataOrPanic(nil)}})
+					h, e := rt.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "tenant", JobType: w.Name(), Data: jobdb.NewTaskDataOrPanic(nil), Cell: "test", CellRepo: "example.test/test"}})
 					require.NoError(t, e)
 					return h
 				}
@@ -98,7 +99,7 @@ func TestGoalWinnerCollectionRecoveryAndExplicitFailure(t *testing.T) {
 				require.NoError(t, err)
 				rt = db
 				if backend == "remote" {
-					server = httptest.NewServer(remote.NewServer(db))
+					server = httptest.NewServer(celltest.Handler(remote.NewServer(db)))
 					t.Cleanup(server.Close)
 					rt, err = remote.New(server.URL, server.Client())
 					require.NoError(t, err)

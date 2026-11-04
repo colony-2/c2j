@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	"github.com/stretchr/testify/require"
 )
@@ -42,7 +43,7 @@ func TestNullFallbackMaterialization(t *testing.T) {
 	defer s.Close()
 	ref := Reference{Name: "missing", OmitIfUnavailable: true}
 	refs := []Reference{ref, {Name: "empty", OmitIfUnavailable: true}, {Name: "present", OmitIfUnavailable: true}}
-	require.NoError(t, s.PrepareReferences(context.Background(), refs, func(context.Context, []string) (jobdb.SecretResolveResult, error) {
+	require.NoError(t, s.PrepareReferences(celltest.Context(context.Background()), refs, func(context.Context, []string) (jobdb.SecretResolveResult, error) {
 		return jobdb.SecretResolveResult{Secrets: map[string]jobdb.SecretValue{"empty": {Value: ""}, "present": {Value: "private"}}}, nil
 	}))
 	input := map[string]any{
@@ -73,7 +74,7 @@ func TestNullFallbackMaterialization(t *testing.T) {
 	require.Equal(t, map[string]any{"env": map[string]any{"EMPTY": ""}, "child": map[string]any{"token": ref}}, actual)
 	// A required recipe binding must remain required when forwarded.
 	ref.Required = true
-	err = s.PrepareReferences(context.Background(), []Reference{ref}, func(context.Context, []string) (jobdb.SecretResolveResult, error) {
+	err = s.PrepareReferences(celltest.Context(context.Background()), []Reference{ref}, func(context.Context, []string) (jobdb.SecretResolveResult, error) {
 		return jobdb.SecretResolveResult{}, nil
 	})
 	require.ErrorContains(t, err, "required secret unavailable")
@@ -82,7 +83,7 @@ func TestNullFallbackMaterialization(t *testing.T) {
 func TestNullFallbackDoesNotHideProviderErrors(t *testing.T) {
 	for _, providerErr := range []error{errors.New("outage"), jobdb.ErrNoSecretProvider, context.Canceled, context.DeadlineExceeded, jobdb.ErrExecutionLeaseLost} {
 		s := NewSession()
-		err := s.PrepareReferences(context.Background(), []Reference{{Name: "missing", OmitIfUnavailable: true}},
+		err := s.PrepareReferences(celltest.Context(context.Background()), []Reference{{Name: "missing", OmitIfUnavailable: true}},
 			func(context.Context, []string) (jobdb.SecretResolveResult, error) {
 				return jobdb.SecretResolveResult{}, providerErr
 			})

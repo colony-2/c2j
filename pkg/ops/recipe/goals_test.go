@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/c2j/pkg/ops"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	"github.com/stretchr/testify/require"
@@ -28,19 +29,19 @@ func TestGoalWaitContractAndBindings(t *testing.T) {
 		require.Equal(t, []jobdb.Dependency{{Target: jobdb.DependencyTarget{GoalID: "g"}, Condition: jobdb.JobPrereqSuccess}}, d)
 		return []jobdb.DependencyResolution{{Target: d[0].Target, State: jobdb.DependencySatisfied, SatisfiedByJobID: "winner"}}, nil
 	}
-	out, err := waitAndGetRecipeOutput(deps, context.Background(), StartedJob{JobID: "original", GoalID: "g"})
+	out, err := waitAndGetRecipeOutput(deps, celltest.Context(context.Background()), StartedJob{JobID: "original", GoalID: "g"})
 	require.NoError(t, err)
 	require.Equal(t, ResultSource{Goal: "g", Job: "winner"}, out.Result)
-	joined, err := waitAndNoResult(deps, context.Background(), StartedJobs{Items: []StartedJob{{JobID: "original", GoalID: "g"}}})
+	joined, err := waitAndNoResult(deps, celltest.Context(context.Background()), StartedJobs{Items: []StartedJob{{JobID: "original", GoalID: "g"}}})
 	require.NoError(t, err)
 	require.Equal(t, "original", joined.Items[0].JobID)
 	require.Equal(t, &out.Result, joined.Items[0].Result)
 	for _, in := range []StartedJob{{GoalID: "g", Wait: WaitPolicy{Condition: "complete"}}, {Target: WaitTarget{Goal: "g"}, Wait: WaitPolicy{On: "job"}}, {Target: WaitTarget{Goal: "g", Job: "j"}}, {GoalID: "g", TenantID: "other"}, {GoalID: "g", Wait: WaitPolicy{On: "nonsense"}}} {
-		_, err = awaitChild(deps, context.Background(), in, false)
+		_, err = awaitChild(deps, celltest.Context(context.Background()), in, false)
 		require.Error(t, err)
 	}
 	tool.call = func(...jobdb.Dependency) ([]jobdb.DependencyResolution, error) { return nil, context.DeadlineExceeded }
-	_, err = awaitChild(deps, context.Background(), StartedJob{GoalID: "g"}, true)
+	_, err = awaitChild(deps, celltest.Context(context.Background()), StartedJob{GoalID: "g"}, true)
 	require.ErrorIs(t, err, context.DeadlineExceeded)
 }
 func TestChildGroupCollectsAfterExplicitGoalFailure(t *testing.T) {
@@ -56,7 +57,7 @@ func TestChildGroupCollectsAfterExplicitGoalFailure(t *testing.T) {
 		return []jobdb.DependencyResolution{{Target: d[0].Target, State: jobdb.DependencySatisfied, SatisfiedByJobID: "replacement"}}, nil
 	}
 	deps := ops.NewOpDependenciesBuilder().WithJobTool(tool).Build()
-	state, err := awaitChildGroup(deps, context.Background(), ChildGroupStepState{Children: []ChildGroupChildRecord{{Status: "started", JobID: "a", GoalID: "failed", Required: false}, {Status: "started", JobID: "b", GoalID: "open", Required: true}}})
+	state, err := awaitChildGroup(deps, celltest.Context(context.Background()), ChildGroupStepState{Children: []ChildGroupChildRecord{{Status: "started", JobID: "a", GoalID: "failed", Required: false}, {Status: "started", JobID: "b", GoalID: "open", Required: true}}})
 	require.NoError(t, err)
 	require.Equal(t, []string{"failed", "open"}, seen)
 	require.Equal(t, &failure, state.Children[0].GoalFailure)

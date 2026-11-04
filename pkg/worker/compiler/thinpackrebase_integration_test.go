@@ -4,14 +4,15 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/colony-2/c2j/pkg/execution"
-	"github.com/colony-2/c2j/pkg/executionruntime"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
 
+	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/c2j/pkg/contextual"
+	"github.com/colony-2/c2j/pkg/execution"
+	"github.com/colony-2/c2j/pkg/executionruntime"
 	"github.com/colony-2/c2j/pkg/git/common"
 	"github.com/colony-2/c2j/pkg/git/thinpackrebase"
 	"github.com/colony-2/c2j/pkg/jobdbschema"
@@ -30,7 +31,7 @@ func TestThinpackRefreshDefaultsPersistenceAndReplay(t *testing.T) {
 	for _, tc := range []struct{ pending, included, scoped bool }{{}, {pending: true}, {pending: true, included: true}, {pending: true, scoped: true}, {scoped: true}} {
 		t.Run(fmt.Sprintf("pending_%t_included_%t_scoped_%t", tc.pending, tc.included, tc.scoped), func(t *testing.T) {
 			pending := tc.pending
-			ctx := context.Background()
+			ctx := celltest.Context(context.Background())
 			repo := filepath.Join(t.TempDir(), "repo")
 			initial := workspaceRepo(t, repo, "root")
 			type probeInput struct {
@@ -148,7 +149,7 @@ outputs:
 			if tc.scoped {
 				job.Workspace = &contextual.WorkspaceContext{Cell: "root", ScopeID: "refresh-scope", InitialHash: initial}
 			}
-			keyRef, e := starter.StartRecipeJob(ctx, workflowctl.StartJob{TenantId: "refresh", RecipeName: "refresh", GitRef: "main", JobContext: job}, eng, *rec)
+			keyRef, e := starter.StartRecipeJob(ctx, workflowctl.StartJob{TenantId: "refresh", RecipeName: "refresh", GitRef: "main", JobContext: job, Cell: "test", CellRepo: celltest.Repo(job.GitBase.BaseRepo)}, eng, *rec)
 			key := keyRef.Key()
 			require.NoError(t, e)
 			var first, all []jobworkflow.TaskWorker

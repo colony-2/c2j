@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/c2j/pkg/jobdbschema"
 	"github.com/colony-2/c2j/pkg/joblist"
 	"github.com/colony-2/c2j/pkg/recipejob"
@@ -23,13 +24,13 @@ import (
 func TestSubmittedPromptMetadataAndListings(t *testing.T) {
 	for _, backend := range []string{"sqlite", "http"} {
 		t.Run(backend, func(t *testing.T) {
-			ctx := context.Background()
+			ctx := celltest.Context(context.Background())
 			db, err := sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: filepath.Join(t.TempDir(), "jobs.db")})
 			require.NoError(t, err)
 			t.Cleanup(func() { require.NoError(t, db.Close(ctx)) })
 			var rt jobdb.WorkflowRuntime = db
 			if backend == "http" {
-				s := httptest.NewServer(remote.NewServer(db))
+				s := httptest.NewServer(celltest.Handler(remote.NewServer(db)))
 				t.Cleanup(s.Close)
 				rt, err = remote.New(s.URL, s.Client())
 				require.NoError(t, err)
@@ -48,7 +49,7 @@ func TestSubmittedPromptMetadataAndListings(t *testing.T) {
 				{"secret-template", "${{ context.secrets.private_prompt }}", ""},
 			} {
 				t.Run(tc.name, func(t *testing.T) {
-					start := workflowctl.StartJob{TenantId: "t", JobID: tc.name, RecipeName: "fixture"}
+					start := workflowctl.StartJob{TenantId: "t", JobID: tc.name, RecipeName: "fixture", Cell: "test", CellRepo: celltest.Repo("")}
 					if tc.input != nil {
 						start.Inputs = map[string]any{"prompt": tc.input}
 					}

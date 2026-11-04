@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/c2j/pkg/execution"
 	"github.com/colony-2/c2j/pkg/executionruntime"
 	"github.com/colony-2/c2j/pkg/input"
@@ -62,7 +63,7 @@ func (restorationUnreadableArtifact) Bytes(context.Context) ([]byte, error) {
 // The two waits model send and finish without importing consumer policy.
 func TestPendingInputRestorationRealWorker(t *testing.T) {
 	ensureFixtureOps()
-	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	ctx, cancel := context.WithTimeout(celltest.Context(context.Background()), 45*time.Second)
 	defer cancel()
 	source := `id: pending-restoration
 version: "1.0"
@@ -115,7 +116,9 @@ outputs:
 	require.NoError(t, err)
 	db, err := sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: filepath.Join(t.TempDir(), "jobs.db"), MaxChapterApplicationPayloadBytes: 4 * 1024 * 1024})
 	require.NoError(t, err)
-	defer func() { require.NoError(t, db.Close(context.Background())) }()
+	defer func() {
+		require.NoError(t, db.Close(celltest.Context(context.Background())))
+	}()
 	guard := executionruntime.New(db, execution.Allocation{SchemaVersion: 1})
 	taskWorkers := make([]jobworkflow.TaskWorker, 0, len(workers.TaskWorkers))
 	for _, tw := range workers.TaskWorkers {
@@ -133,7 +136,7 @@ outputs:
 	require.NoError(t, err)
 	history := strings.Repeat("<", 65536)
 	jobCtx, gitCtx := generateTestContext(repo, hash, nil, nil)
-	ref, err := starter.StartRecipeJob(ctx, workflowctl.StartJob{TenantId: "test-tenant", RecipeName: primary.GetMetadata().ID, Inputs: map[string]any{"history": history}, JobContext: jobCtx, GitRef: gitCtx.ParentRef}, engine, *primary)
+	ref, err := starter.StartRecipeJob(ctx, workflowctl.StartJob{TenantId: "test-tenant", RecipeName: primary.GetMetadata().ID, Inputs: map[string]any{"history": history}, JobContext: jobCtx, GitRef: gitCtx.ParentRef, Cell: "test", CellRepo: celltest.Repo(jobCtx.GitBase.BaseRepo)}, engine, *primary)
 	require.NoError(t, err)
 	key := ref.Key()
 	actor := input.Actor{ID: "trusted", Kind: "human"}

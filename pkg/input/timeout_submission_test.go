@@ -6,6 +6,7 @@ import (
 	"testing/synctest"
 	"time"
 
+	"github.com/colony-2/c2j/internal/celltest"
 	c2workflow "github.com/colony-2/c2j/pkg/worker/workflow"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/toy"
@@ -17,14 +18,14 @@ func TestInputSubmissionRacesTimeoutPickup(t *testing.T) {
 	for _, scenario := range []string{"before_deadline", "late_response_first", "timeout_first"} {
 		t.Run(scenario, func(t *testing.T) {
 			synctest.Test(t, func(t *testing.T) {
-				ctx := context.Background()
+				ctx := celltest.Context(context.Background())
 				rt := toy.New()
 				form := InputForm{Question: "Continue?", Type: "short_answer"}
 				inner := (structuredWorker{forms: []InputForm{form}}).executionWorker()
 				worker := workflow.ExecutionWorker{JobType: "recipe", Execute: func(c workflow.ExecutionContext, d jobdb.JobData) (jobdb.JobData, error) {
 					return c.DoScope("input", workflow.ScopeOptions{TotalTimeout: time.Minute}, func(scoped workflow.ExecutionContext) (jobdb.JobData, error) { return inner.Execute(scoped, d) })
 				}}
-				submitted, err := rt.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "test", JobType: "recipe", Data: jobdb.NewTaskDataOrPanic(nil)}})
+				submitted, err := rt.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "test", JobType: "recipe", Data: jobdb.NewTaskDataOrPanic(nil), Cell: "test", CellRepo: "example.test/test"}})
 				require.NoError(t, err)
 				run := func() workflow.JobRunOutcome {
 					h, err := workflow.GetJobForRun(ctx, rt, workflow.GetJobForRunRequest{JobKey: submitted.JobKey, JobWorker: worker, WorkerID: "test", LeaseDuration: time.Minute})

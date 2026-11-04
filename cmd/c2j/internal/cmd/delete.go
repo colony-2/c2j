@@ -47,7 +47,7 @@ Use --dry-run to preview counts; a preview does not reserve the matching jobs.`,
 	f.StringVar(&opts.JobDBURI, "jobdb", "", "JobDB URI (http(s)://host/tenant or embed:///)")
 	f.BoolVar(&embed, "embed", false, "Use embedded JobDB")
 	f.BoolVar(&opts.Self, "self", false, "Select jobs owned by the current cell")
-	f.StringArrayVar(&opts.Cells, "cell", nil, "Select jobs owned by a cell (short name or repo/path; repeatable)")
+	f.StringArrayVar(&opts.Cells, "cell", nil, "Select jobs owned by a named cell (repeatable)")
 	f.StringArrayVar(&opts.JobIDs, "job-id", nil, "Select an exact job ID (repeatable)")
 	f.StringVar(&opts.Recipe, "recipe", "", "Select an exact recipe name")
 	f.StringVar(&opts.CreatedBefore, "created-before", "", "Exclusive creation-time cutoff (RFC3339)")

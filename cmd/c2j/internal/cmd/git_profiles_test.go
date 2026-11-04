@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/colony-2/c2j/internal/buildinfo"
+	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/c2j/pkg/gitprofile"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/remote"
@@ -52,12 +53,12 @@ func TestGitInvokesScopedCredentialHelper(t *testing.T) {
 	p := gitprofile.Profile{Version: 1, Entries: []gitprofile.Entry{{URL: "https://git.example/team/", RewriteFrom: []string{"https://source.example/team/"}, Username: "bot", SecretRef: "token"}}}
 	raw, err := json.Marshal(p)
 	require.NoError(t, err)
-	s, err := gitprofile.NewScope(context.Background(), gitprofile.Selection{}, jobdb.ConfigurationSnapshot{Values: map[string]json.RawMessage{gitprofile.ReadOnlyKey: json.RawMessage(`"work"`), gitprofile.ProfilePrefix + "work": raw}}, func(context.Context, []string) (jobdb.SecretResolveResult, error) {
+	s, err := gitprofile.NewScope(celltest.Context(context.Background()), gitprofile.Selection{}, jobdb.ConfigurationSnapshot{Values: map[string]json.RawMessage{gitprofile.ReadOnlyKey: json.RawMessage(`"work"`), gitprofile.ProfilePrefix + "work": raw}}, func(context.Context, []string) (jobdb.SecretResolveResult, error) {
 		return jobdb.SecretResolveResult{Secrets: map[string]jobdb.SecretValue{"token": {Value: "private-value"}}}, nil
 	}, wrapper)
 	require.NoError(t, err)
 	defer s.Close()
-	ctx := gitprofile.WithScope(context.Background(), s)
+	ctx := gitprofile.WithScope(celltest.Context(context.Background()), s)
 	for _, tc := range []struct {
 		host, path string
 		allow      bool
@@ -110,13 +111,13 @@ func TestGitProfileManagement(t *testing.T) {
 			t.Setenv("JOBDB_BEARER_TOKEN", "test-token")
 			rt := toy.New()
 			handler := remote.NewServer(rt)
-			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			server := httptest.NewServer(celltest.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				if r.Header.Get("Authorization") != "Bearer test-token" {
 					http.Error(w, "unauthorized", http.StatusUnauthorized)
 					return
 				}
 				handler.ServeHTTP(w, r)
-			}))
+			})))
 			defer server.Close()
 			project := t.TempDir()
 			require.NoError(t, os.MkdirAll(filepath.Join(project, ".c2"), 0700))
@@ -151,7 +152,7 @@ func TestGitProfileManagement(t *testing.T) {
 			out, err = run("list")
 			require.NoError(t, err)
 			require.JSONEq(t, `["work"]`, out)
-			snapshot, err := rt.GetTenantConfiguration(context.Background(), source)
+			snapshot, err := rt.GetTenantConfiguration(celltest.Context(context.Background()), source)
 			require.NoError(t, err)
 			require.Contains(t, snapshot.Values, "_c2j_git_profile_work")
 			_, err = run("remove", "work")
@@ -201,19 +202,19 @@ func TestExecutionCommandsRequireLiveScope(t *testing.T) {
 }
 
 func TestSuppliedCredentialStoredSeparately(t *testing.T) {
-	ctx := context.Background()
+	ctx := celltest.Context(context.Background())
 	rt, err := sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: filepath.Join(t.TempDir(), "jobs.db")})
 	require.NoError(t, err)
 	defer rt.Close(ctx)
 	t.Setenv("JOBDB_BEARER_TOKEN", "test-token")
 	handler := remote.NewServer(rt)
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(celltest.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != "Bearer test-token" {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
 		handler.ServeHTTP(w, r)
-	}))
+	})))
 	defer server.Close()
 	file := filepath.Join(t.TempDir(), "profile.yaml")
 	require.NoError(t, os.WriteFile(file, []byte("version: 1\nentries:\n  - url: https://git.example/\n    username: bot\n    secret_file: '-'\n"), 0600))
@@ -231,7 +232,7 @@ func TestSuppliedCredentialStoredSeparately(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, strings.HasPrefix(p.Entries[0].SecretRef, gitprofile.SecretPrefix))
 	require.NotContains(t, string(snapshot.Values[gitprofile.ProfilePrefix+"work"]), "supplied-private-value")
-	handle, err := rt.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "test", JobType: "probe", Data: jobdb.NewTaskDataOrPanic(nil)}})
+	handle, err := rt.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "test", JobType: "probe", Data: jobdb.NewTaskDataOrPanic(nil), Cell: "test", CellRepo: "example.test/test"}})
 	require.NoError(t, err)
 	lease, err := rt.GetJobLease(ctx, jobdb.GetJobLeaseRequest{JobKey: handle.JobKey, WorkerID: "test", Routes: []jobdb.Route{{JobType: "probe"}}, LeaseDuration: time.Minute})
 	require.NoError(t, err)
@@ -294,13 +295,13 @@ func TestRoutedGitCloneFetchAndServerEnforcedReadOnly(t *testing.T) {
 			resolve := func(_ context.Context, names []string) (jobdb.SecretResolveResult, error) {
 				return jobdb.SecretResolveResult{Secrets: map[string]jobdb.SecretValue{names[0]: {Value: names[0] + "-value"}}}, nil
 			}
-			ro, err := gitprofile.NewScope(context.Background(), gitprofile.Selection{Explicit: true, Value: "ro"}, snapshot, resolve, wrapper)
+			ro, err := gitprofile.NewScope(celltest.Context(context.Background()), gitprofile.Selection{Explicit: true, Value: "ro"}, snapshot, resolve, wrapper)
 			require.NoError(t, err)
 			defer ro.Close()
-			rw, err := gitprofile.NewScope(context.Background(), gitprofile.Selection{Explicit: true, Value: "rw"}, snapshot, resolve, wrapper)
+			rw, err := gitprofile.NewScope(celltest.Context(context.Background()), gitprofile.Selection{Explicit: true, Value: "rw"}, snapshot, resolve, wrapper)
 			require.NoError(t, err)
 			defer rw.Close()
-			roCtx, rwCtx := gitprofile.WithScope(context.Background(), ro), gitprofile.WithScope(context.Background(), rw)
+			roCtx, rwCtx := gitprofile.WithScope(celltest.Context(context.Background()), ro), gitprofile.WithScope(celltest.Context(context.Background()), rw)
 			clone := filepath.Join(t.TempDir(), "clone")
 			for _, args := range [][]string{{"ls-remote", "http://source.invalid/repo.git"}, {"ls-remote", "git@source.invalid:repo.git"}, {"ls-remote", "https://source.invalid/repo.git"}, {"clone", "https://source.invalid/repo.git", clone}, {"-C", clone, "fetch", "origin"}} {
 				out, err := gitprofile.Command(roCtx, args...).CombinedOutput()

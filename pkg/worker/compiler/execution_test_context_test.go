@@ -2,9 +2,10 @@ package compiler
 
 import (
 	"context"
-	"github.com/colony-2/c2j/pkg/swfutil"
 	"time"
 
+	"github.com/colony-2/c2j/internal/celltest"
+	"github.com/colony-2/c2j/pkg/swfutil"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/toy"
 	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
@@ -15,7 +16,9 @@ type testContext = context.Context
 type testScopeOptions = jobworkflow.ScopeOptions
 type testExecutionContext = jobworkflow.ExecutionContext
 
-func testBackground() context.Context { return context.Background() }
+func testBackground() context.Context {
+	return celltest.Context(context.Background())
+}
 
 // Compiler unit tests stub task outputs but run policy through the real JobDB
 // scope engine. This avoids maintaining another catch/retry implementation.
@@ -34,8 +37,8 @@ func (c mockScopeContext) DoScope(site string, opts jobworkflow.ScopeOptions, bo
 }
 func runMockScope(tasks jobworkflow.ExecutionContext, site string, opts jobworkflow.ScopeOptions, body func(jobworkflow.ExecutionContext) (jobdb.JobData, error)) (jobdb.JobData, error) {
 	rt := toy.New()
-	ctx := context.Background()
-	key, err := rt.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "scope-tests", JobType: "scope", Data: jobdb.NewTaskDataOrPanic(nil)}})
+	ctx := celltest.Context(context.Background())
+	key, err := rt.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "scope-tests", JobType: "scope", Data: jobdb.NewTaskDataOrPanic(nil), Cell: "test", CellRepo: "example.test/test"}})
 	if err != nil {
 		return nil, err
 	}
@@ -93,6 +96,10 @@ func executionTaskRuns(run jobdb.GetJobRunResponse) []jobdb.TaskRun {
 	}
 	out := make([]jobdb.TaskRun, 0, len(tasks))
 	for _, task := range tasks {
+		// Ownership capture precedes recipe execution and has no op envelope.
+		if task.TaskRun.TaskType == CellContextTaskType {
+			continue
+		}
 		out = append(out, task.TaskRun)
 	}
 	return out

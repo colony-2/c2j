@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/c2j/pkg/jobcontext"
 	"github.com/colony-2/c2j/pkg/jobdbschema"
 	"github.com/colony-2/c2j/pkg/jobref"
@@ -17,7 +18,7 @@ import (
 func TestListRecipeJobsFiltersByNormalizedRepository(t *testing.T) {
 	t.Parallel()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(celltest.Context(context.Background()), 10*time.Second)
 	defer cancel()
 
 	engine := newListTestEngine(t)
@@ -28,8 +29,8 @@ func TestListRecipeJobsFiltersByNormalizedRepository(t *testing.T) {
 	submitRecipeJob(t, ctx, engine, tenantID, "job-beta", "https://github.com/acme/boo-beta.git", "beta", submittedAt)
 
 	resp, err := ListRecipeJobs(ctx, engine, ListRecipeJobsRequest{
-		TenantID:         tenantID,
-		RepositorySource: "github.com/acme/boo-alpha",
+		TenantID:  tenantID,
+		CellNames: []string{"alpha"},
 	})
 	if err != nil {
 		t.Fatalf("ListRecipeJobs(): %v", err)
@@ -42,7 +43,7 @@ func TestListRecipeJobsFiltersByNormalizedRepository(t *testing.T) {
 	if job.JobID != "job-alpha" {
 		t.Fatalf("JobID = %q", job.JobID)
 	}
-	if job.RepositorySource != "https://github.com/acme/boo-alpha.git" {
+	if job.RepositorySource != "github.com/acme/boo-alpha" {
 		t.Fatalf("RepositorySource = %q", job.RepositorySource)
 	}
 	if job.CellName != "alpha" {
@@ -62,7 +63,7 @@ func TestListRecipeJobsFiltersByNormalizedRepository(t *testing.T) {
 func TestListRecipeJobsFiltersByResolvedShortName(t *testing.T) {
 	t.Parallel()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(celltest.Context(context.Background()), 10*time.Second)
 	defer cancel()
 
 	root := t.TempDir()
@@ -87,8 +88,8 @@ self:
 	submitRecipeJob(t, ctx, engine, tenantID, "job-beta", "https://github.com/acme/boo-beta.git", "beta", submittedAt)
 
 	resp, err := ListRecipeJobs(ctx, engine, ListRecipeJobsRequest{
-		TenantID:         tenantID,
-		RepositorySource: target.RepositorySource,
+		TenantID:  tenantID,
+		CellNames: []string{target.CellName},
 	})
 	if err != nil {
 		t.Fatalf("ListRecipeJobs(): %v", err)
@@ -102,7 +103,7 @@ self:
 func TestGetRecipeJobReadsOneJob(t *testing.T) {
 	t.Parallel()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(celltest.Context(context.Background()), 10*time.Second)
 	defer cancel()
 
 	engine := newListTestEngine(t)
@@ -117,7 +118,7 @@ func TestGetRecipeJobReadsOneJob(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetRecipeJob(): %v", err)
 	}
-	if job.JobID != "job-alpha" || job.RepositorySource != "https://github.com/acme/boo-alpha.git" {
+	if job.JobID != "job-alpha" || job.RepositorySource != "github.com/acme/boo-alpha" {
 		t.Fatalf("unexpected job: %#v", job)
 	}
 }
@@ -125,7 +126,7 @@ func TestGetRecipeJobReadsOneJob(t *testing.T) {
 func TestListChildRecipeJobsFiltersByParentInvocation(t *testing.T) {
 	t.Parallel()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(celltest.Context(context.Background()), 10*time.Second)
 	defer cancel()
 
 	runtime := toyruntime.New()
@@ -143,7 +144,7 @@ func TestListChildRecipeJobsFiltersByParentInvocation(t *testing.T) {
 			TenantId: tenantID,
 			JobID:    "parent-job",
 			JobType:  "parent-type",
-			Data:     jobdb.NewTaskDataOrPanic(map[string]interface{}{"parent": true}),
+			Data:     jobdb.NewTaskDataOrPanic(map[string]interface{}{"parent": true}), Cell: "alpha", CellRepo: "github.com/acme/boo-alpha",
 		},
 		RequestTime: time.Now().UTC(),
 	})

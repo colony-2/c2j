@@ -5,6 +5,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/c2j/pkg/story/internal/model"
 	storylive "github.com/colony-2/c2j/pkg/story/live"
 	"github.com/colony-2/jobdb/pkg/jobdb"
@@ -28,7 +29,7 @@ func TestStoryServicePreservesReconstructionErrorCauses(t *testing.T) {
 	for _, cause := range []error{sourceErr, errors.Join(jobdb.ErrWorkflowNotDeterministic, storylive.ErrIncompleteReplay, sourceErr)} {
 		svc, err := New(Config{Engine: storyErrorEngine{cause: cause}})
 		require.NoError(t, err)
-		_, err = svc.GetJobRunStory(context.Background(), model.GetJobRunStoryRequest{ProjectID: "tenant", JobID: "job"})
+		_, err = svc.GetJobRunStory(celltest.Context(context.Background()), model.GetJobRunStoryRequest{ProjectID: "tenant", JobID: "job"})
 		require.ErrorIs(t, err, sourceErr)
 		if errors.Is(cause, jobdb.ErrWorkflowNotDeterministic) {
 			require.ErrorIs(t, err, ErrJobRunStoryMismatch)

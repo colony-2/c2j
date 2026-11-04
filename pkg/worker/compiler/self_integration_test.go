@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/colony-2/c2j/internal/celltest"
 	extops "github.com/colony-2/c2j/pkg/ops/extensions"
 	"github.com/colony-2/c2j/pkg/selfinfo"
 	"github.com/colony-2/c2j/pkg/worker/commandop"
@@ -19,7 +20,7 @@ import (
 
 func TestSelfDiscoveryFromCommandAndExtension(t *testing.T) {
 	binary := filepath.Join(t.TempDir(), "c2j")
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	ctx, cancel := context.WithTimeout(celltest.Context(context.Background()), 2*time.Minute)
 	defer cancel()
 	build := exec.CommandContext(ctx, "go", "build", "-o", binary, "../../../cmd/c2j")
 	output, err := build.CombinedOutput()
@@ -94,7 +95,7 @@ sequence:
 				require.NoError(t, err)
 				// A replay cannot rely on the live broker or the original repository.
 				require.NoError(t, os.Rename(repo, repo+"-offline"))
-				replayed, err := engine.ReplayJobRun(context.Background(), jobworkflow.ReplayRunRequest{JobKey: key, JobWorker: NewRecipeJobWorker(RecipeJobWorkerOptions{ReadOnlyReplay: true})})
+				replayed, err := engine.ReplayJobRun(celltest.Context(context.Background()), jobworkflow.ReplayRunRequest{JobKey: key, JobWorker: NewRecipeJobWorker(RecipeJobWorkerOptions{ReadOnlyReplay: true})})
 				require.NoError(t, err)
 				require.JSONEq(t, string(out.Output.GetDataOrPanic()), string(replayed.GetDataOrPanic()))
 			})

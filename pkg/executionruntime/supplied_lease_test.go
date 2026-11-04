@@ -2,10 +2,11 @@ package executionruntime
 
 import (
 	"context"
-	coretask "github.com/colony-2/c2j/pkg/task"
 	"testing"
 	"time"
 
+	"github.com/colony-2/c2j/internal/celltest"
+	coretask "github.com/colony-2/c2j/pkg/task"
 	"github.com/colony-2/c2j/pkg/worker/compiler"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
@@ -13,7 +14,7 @@ import (
 )
 
 func TestSuppliedLeaseUsesExecutionAdmission(t *testing.T) {
-	ctx := context.Background()
+	ctx := celltest.Context(context.Background())
 	f := newFixture(t, "remote", "16Gi", nil)
 	// Publish the recipe's requirements through an ordinary reschedule.
 	out, _ := f.run(t, "16Gi", nil)
@@ -64,14 +65,14 @@ func runFixtureLease(t *testing.T, f *fixture, rt *Runtime, supplied jobdb.Execu
 	for i, task := range tasks {
 		wrapped[i] = rt.WrapTaskWorker(task)
 	}
-	return rt.RunWithLease(context.Background(), supplied, jobworkflow.GetJobForRunRequest{JobKey: f.key, JobWorker: worker, TaskWorkers: wrapped}, nil)
+	return rt.RunWithLease(celltest.Context(context.Background()), supplied, jobworkflow.GetJobForRunRequest{JobKey: f.key, JobWorker: worker, TaskWorkers: append(wrapped, compiler.NewCellContextTaskWorker())}, nil)
 }
 func TestRunSuppliedLeaseReplaysTaskRouteAndPreservesState(t *testing.T) {
 	for _, backend := range []string{"toy", "sqlite", "remote"} {
 		t.Run(backend, func(t *testing.T) {
 			f := newFixture(t, backend, "2Gi", nil)
 			claim := func(route jobdb.Route) jobdb.ExecutionLease {
-				l, err := f.runtime.GetJobLease(context.Background(), jobdb.GetJobLeaseRequest{JobKey: f.key, WorkerID: "dispatcher", Routes: []jobdb.Route{route}, LeaseDuration: time.Minute})
+				l, err := f.runtime.GetJobLease(celltest.Context(context.Background()), jobdb.GetJobLeaseRequest{JobKey: f.key, WorkerID: "dispatcher", Routes: []jobdb.Route{route}, LeaseDuration: time.Minute})
 				require.NoError(t, err)
 				require.NotNil(t, l)
 				return l
@@ -110,14 +111,14 @@ func (w delayedSuppliedTask) RunTask(local context.Context, ctx jobworkflow.Task
 }
 func TestRenewedSuppliedLeaseRetainsStagedDemand(t *testing.T) {
 	f := newFixture(t, "sqlite", "2Gi", nil)
-	supplied, err := f.runtime.GetJobLease(context.Background(), jobdb.GetJobLeaseRequest{JobKey: f.key, WorkerID: "dispatcher", Routes: []jobdb.Route{{JobType: "recipe"}}, LeaseDuration: 100 * time.Millisecond})
+	supplied, err := f.runtime.GetJobLease(celltest.Context(context.Background()), jobdb.GetJobLeaseRequest{JobKey: f.key, WorkerID: "dispatcher", Routes: []jobdb.Route{{JobType: "recipe"}}, LeaseDuration: 100 * time.Millisecond})
 	require.NoError(t, err)
 	require.NotNil(t, supplied)
 	rt := New(f.runtime, allocation("2Gi"))
 	out, err := runFixtureLease(t, f, rt, supplied, []jobworkflow.TaskWorker{delayedSuppliedTask{f.tasks[0]}})
 	require.NoError(t, err)
 	require.Equal(t, jobworkflow.JobRunSuspended, out.Status)
-	info, err := f.runtime.GetJob(context.Background(), f.key)
+	info, err := f.runtime.GetJob(celltest.Context(context.Background()), f.key)
 	require.NoError(t, err)
 	require.Contains(t, string(info.ClientPayload), `"memory":"2Gi"`)
 	require.Empty(t, rt.leases)

@@ -10,6 +10,7 @@ import (
 	"testing/synctest"
 	"time"
 
+	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	"github.com/stretchr/testify/require"
 )
@@ -20,7 +21,7 @@ func TestTaskSessionsDoNotShareSecretsOrMasks(t *testing.T) {
 	defer second.Close()
 	for i, session := range []*Session{first, second} {
 		value := fmt.Sprintf("private-%d", i)
-		require.NoError(t, session.Prepare(context.Background(), []string{"token"}, func(context.Context, []string) (jobdb.SecretResolveResult, error) {
+		require.NoError(t, session.Prepare(celltest.Context(context.Background()), []string{"token"}, func(context.Context, []string) (jobdb.SecretResolveResult, error) {
 			return jobdb.SecretResolveResult{Secrets: map[string]jobdb.SecretValue{"token": {Value: value}}}, nil
 		}))
 		got, err := session.Materialize(Reference{Name: "token"})
@@ -50,8 +51,8 @@ func TestPreparationAlwaysRefreshesAndClearsFailedValues(t *testing.T) {
 		}
 		return jobdb.SecretResolveResult{}, nil
 	}
-	require.NoError(t, s.Prepare(context.Background(), []string{"token"}, resolve))
-	require.ErrorContains(t, s.Prepare(context.Background(), []string{"token"}, resolve), "required secret unavailable")
+	require.NoError(t, s.Prepare(celltest.Context(context.Background()), []string{"token"}, resolve))
+	require.ErrorContains(t, s.Prepare(celltest.Context(context.Background()), []string{"token"}, resolve), "required secret unavailable")
 	require.Equal(t, 2, calls)
 	require.Empty(t, s.values)
 	require.Equal(t, "[REDACTED]", s.Redact("private"))
@@ -65,7 +66,7 @@ func TestTaskBatchesBoundedAndPartialFailureClearsValues(t *testing.T) {
 			names = append(names, fmt.Sprintf("token%d", i))
 		}
 		calls := 0
-		err := s.Prepare(context.Background(), names, func(_ context.Context, batch []string) (jobdb.SecretResolveResult, error) {
+		err := s.Prepare(celltest.Context(context.Background()), names, func(_ context.Context, batch []string) (jobdb.SecretResolveResult, error) {
 			calls++
 			require.LessOrEqual(t, len(batch), 64)
 			if fail && calls == 2 {
@@ -101,7 +102,7 @@ func TestConcurrentSessionsHaveSeparateValueCaches(t *testing.T) {
 			task := redactor.NewSession()
 			defer task.Close()
 			want := fmt.Sprintf("private-%d", i)
-			err := task.Prepare(context.Background(), []string{"token"}, func(context.Context, []string) (jobdb.SecretResolveResult, error) {
+			err := task.Prepare(celltest.Context(context.Background()), []string{"token"}, func(context.Context, []string) (jobdb.SecretResolveResult, error) {
 				return jobdb.SecretResolveResult{Secrets: map[string]jobdb.SecretValue{"token": {Value: want}}}, nil
 			})
 			if err != nil {
@@ -124,7 +125,7 @@ func TestTaskSecretExpiry(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		s := NewSession()
 		defer s.Close()
-		require.NoError(t, s.Prepare(context.Background(), []string{"token"}, func(context.Context, []string) (jobdb.SecretResolveResult, error) {
+		require.NoError(t, s.Prepare(celltest.Context(context.Background()), []string{"token"}, func(context.Context, []string) (jobdb.SecretResolveResult, error) {
 			expiry := time.Now().Add(time.Minute)
 			return jobdb.SecretResolveResult{Secrets: map[string]jobdb.SecretValue{"token": {Value: "private", ExpiresAt: &expiry}}}, nil
 		}))
@@ -139,7 +140,7 @@ func TestTaskCloseDuringResolution(t *testing.T) {
 	defer redactor.Close()
 	task := redactor.NewSession()
 	defer task.Close()
-	err := task.Prepare(context.Background(), []string{"token"}, func(context.Context, []string) (jobdb.SecretResolveResult, error) {
+	err := task.Prepare(celltest.Context(context.Background()), []string{"token"}, func(context.Context, []string) (jobdb.SecretResolveResult, error) {
 		redactor.Close()
 		return jobdb.SecretResolveResult{Secrets: map[string]jobdb.SecretValue{"token": {Value: "private"}}}, nil
 	})
@@ -155,7 +156,7 @@ func (e hiddenSecretCause) Unwrap() error { return e.cause }
 func TestTaskLeaseLossClearsValuesAndPreservesRedaction(t *testing.T) {
 	s := NewSession()
 	defer s.Close()
-	ctx := context.Background()
+	ctx := celltest.Context(context.Background())
 	require.NoError(t, s.Prepare(ctx, []string{"token"}, func(context.Context, []string) (jobdb.SecretResolveResult, error) {
 		return jobdb.SecretResolveResult{Secrets: map[string]jobdb.SecretValue{"token": {Value: "private-value"}}}, nil
 	}))
@@ -175,7 +176,7 @@ func TestTaskLeaseLossClearsValuesAndPreservesRedaction(t *testing.T) {
 func TestCancelledTaskRetainsRedactionUntilCleanup(t *testing.T) {
 	prior := NewRedactor()
 	task := prior.NewSession()
-	require.NoError(t, task.Prepare(context.Background(), []string{"token"}, func(context.Context, []string) (jobdb.SecretResolveResult, error) {
+	require.NoError(t, task.Prepare(celltest.Context(context.Background()), []string{"token"}, func(context.Context, []string) (jobdb.SecretResolveResult, error) {
 		return jobdb.SecretResolveResult{Secrets: map[string]jobdb.SecretValue{"token": {Value: "prior-secret"}}}, nil
 	}))
 	prior.Close()

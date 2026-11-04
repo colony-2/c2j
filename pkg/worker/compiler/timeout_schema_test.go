@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/c2j/pkg/jobdbschema"
 	"github.com/colony-2/c2j/pkg/starter"
 	"github.com/colony-2/c2j/pkg/workflowctl"
@@ -29,11 +30,11 @@ func TestC2JSchemaAcceptsTimeoutCompletion(t *testing.T) {
 			require.NoError(t, err)
 			submitter := jobdbschema.WorkflowEngine{Engine: engine, Registry: rt.WorkflowRuntime.(jobdb.JobSchemaRegistry)}
 			_, gitCtx := GenerateTestContext()
-			keyRef, err := starter.StartRecipeJob(context.Background(), workflowctl.StartJob{TenantId: "timeout-repro", RecipeName: "schema-probe", GitRef: gitCtx.ParentRef}, submitter)
+			keyRef, err := starter.StartRecipeJob(celltest.Context(context.Background()), workflowctl.StartJob{TenantId: "timeout-repro", RecipeName: "schema-probe", GitRef: gitCtx.ParentRef, Cell: "test", CellRepo: celltest.Repo("")}, submitter)
 			key := keyRef.Key()
 			require.NoError(t, err)
 			timeoutWorker.name = "recipe"
-			runnable, err := jobworkflow.GetJobForRun(context.Background(), rt, jobworkflow.GetJobForRunRequest{JobKey: key, JobWorker: asExecutionTestWorker(timeoutWorker), WorkerID: "schema-probe", LeaseDuration: time.Second})
+			runnable, err := jobworkflow.GetJobForRun(celltest.Context(context.Background()), rt, jobworkflow.GetJobForRunRequest{JobKey: key, JobWorker: asExecutionTestWorker(timeoutWorker), WorkerID: "schema-probe", LeaseDuration: time.Second})
 			require.NoError(t, err)
 			out, err := runnable.Run(nil)
 			require.NoError(t, err)

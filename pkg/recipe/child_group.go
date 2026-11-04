@@ -22,6 +22,7 @@ type ChildGroupAggregate struct {
 }
 
 type ChildGroupChild struct {
+	CellRepo   interface{}            `yaml:"cell_repo,omitempty" json:"cell_repo,omitempty"`
 	Wait       *ChildWait             `yaml:"wait,omitempty" json:"wait,omitempty"`
 	Key        interface{}            `yaml:"key,omitempty" json:"key,omitempty"`
 	Recipe     interface{}            `yaml:"recipe,omitempty" json:"recipe,omitempty"`

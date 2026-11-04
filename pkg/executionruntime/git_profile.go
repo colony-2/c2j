@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"slices"
 
 	"github.com/colony-2/c2j/pkg/gitprofile"
 	"github.com/colony-2/c2j/pkg/jobref"
@@ -123,7 +124,21 @@ func (w *guardedTask) runWithGitProfile(tc jobworkflow.TaskContext, input jobdb.
 		return values, nil
 	})
 	resolve = access.Resolve
-	scopeContext = jobref.WithScope(scopeContext, jobref.Scope{Submit: access.Submit})
+	scopeContext = jobref.WithScope(scopeContext, jobref.Scope{Submit: access.Submit, ResolveCell: func(call context.Context, name string) (jobdb.ResolvedCell, error) {
+		if !grant.Jobs.Submit || (grant.Jobs.CellNames != nil && !slices.Contains(grant.Jobs.CellNames, name)) {
+			return jobdb.ResolvedCell{}, jobdb.ErrLeasePermissionDenied
+		}
+		if err := access.Context().Err(); err != nil {
+			return jobdb.ResolvedCell{}, err
+		}
+		w.runtime.mu.Lock()
+		current := w.runtime.leases[tc.JobKey]
+		w.runtime.mu.Unlock()
+		if current == nil || current.leaseState != original.leaseState || tc.Context().Err() != nil {
+			return jobdb.ResolvedCell{}, jobdb.ErrExecutionLeaseLost
+		}
+		return current.ExecutionLease.ResolveCell(call, name)
+	}})
 	scope, err := gitprofile.NewScope(scopeContext, request.GitProfile, snapshot, resolve, "", tc.JobKey.TenantId)
 	if err != nil {
 		return nil, err

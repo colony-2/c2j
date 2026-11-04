@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"testing"
 
+	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/c2j/pkg/recipe"
 	"github.com/colony-2/c2j/pkg/starter"
 	"github.com/colony-2/c2j/pkg/workflowctl"
@@ -17,12 +18,10 @@ import (
 
 type loadFailureContext struct {
 	jobworkflow.ExecutionContext
-	output       jobdb.TaskData
-	err          error
-	reloadErr    error
-	reloadOutput jobdb.TaskData
-	calls        int
-	policies     []jobdb.RunPolicy
+	output   jobdb.TaskData
+	err      error
+	calls    int
+	policies []jobdb.RunPolicy
 }
 
 func (c *loadFailureContext) GetJobKey() jobdb.JobKey {
@@ -38,17 +37,15 @@ func (c *loadFailureContext) DoTask(call testTaskCall, build func(testContext) (
 	kind := call.TaskType
 	_ = kind
 
+	if kind == CellContextTaskType {
+		h := c.Job()
+		return jobdb.NewTaskData(jobdb.ResolvedCell{Cell: h.Cell, CellID: h.CellID, CellRepo: h.CellRepo})
+	}
 	if kind != RootSourceResolutionTaskType {
 		panic("execution continued after recipe load failure")
 	}
 	c.calls++
 	c.policies = append(c.policies, call.Policy)
-	if c.calls > 1 && c.reloadOutput != nil {
-		return c.reloadOutput, nil
-	}
-	if c.calls > 1 && c.reloadErr != nil {
-		return nil, c.reloadErr
-	}
 	return c.output, c.err
 }
 
@@ -66,7 +63,6 @@ func (l *failingRecipeLoader) Load(context.Context, string, RecipeSourceResoluti
 }
 
 func TestRecipeJobWorkerLoadFailuresStopBeforeExecution(t *testing.T) {
-	loaderErr := errors.New("recipe source unavailable")
 	sourceErr := errors.New("cannot read resolution chapter")
 	for _, tc := range []struct {
 		name, yaml, want string
@@ -76,8 +72,7 @@ func TestRecipeJobWorkerLoadFailuresStopBeforeExecution(t *testing.T) {
 	}{
 		{name: "resolved invalid yaml", yaml: "sequence: [", want: "parse resolved recipe YAML"},
 		{name: "resolved unknown nested op", yaml: "id: test\nsequence:\n - sequence:\n    - op: deliberately_unregistered_load_test\n", want: "unknown op"},
-		{name: "legacy loader failure", loadErr: loaderErr, want: loaderErr.Error()},
-		{name: "legacy empty recipe", want: "recipe YAML is empty"},
+		{name: "missing recipe content", want: "recipe YAML is empty"},
 		{name: "embedded invalid yaml", embedded: true, yaml: "sequence: [", want: "unmarshal YAML"},
 		{name: "embedded unknown op", embedded: true, yaml: "id: test\nop: deliberately_unregistered_load_test\n", want: "unknown op"},
 		{name: "resolution read failure", taskErr: sourceErr, want: sourceErr.Error()},
@@ -95,12 +90,12 @@ func TestRecipeJobWorkerLoadFailuresStopBeforeExecution(t *testing.T) {
 				if tc.malformedOutput {
 					source = &jobdb.SimpleTaskData{Data: []byte(`{"broken":true}`)}
 				}
-				ctx := &loadFailureContext{output: source, err: tc.taskErr, reloadErr: tc.loadErr}
+				ctx := &loadFailureContext{output: source, err: tc.taskErr}
 				var artifacts []jobdb.Artifact
 				if tc.embedded {
 					artifacts = append(artifacts, jobdb.NewArtifactFromBytes("test"+starter.RecipeArtifactSuffix, []byte(tc.yaml)))
 				}
-				start, err := jobdb.NewTaskData(workflowctl.StartJob{RecipeName: "test", TenantId: "tenant"}, artifacts...)
+				start, err := jobdb.NewTaskData(workflowctl.StartJob{RecipeName: "test", TenantId: "tenant", Cell: "test", CellRepo: celltest.Repo("")}, artifacts...)
 				require.NoError(t, err)
 				worker := NewRecipeJobWorker(RecipeJobWorkerOptions{ReadOnlyReplay: replay, RootSourceResolver: loader, OnRecipeSourceResolved: func(RecipeSourceResolution) { t.Fatal("reported an unloaded recipe as resolved") }, ExecutorFactory: func() RecipeExecutor { t.Fatal("created executor after failed load"); return nil }})
 				require.NotPanics(t, func() { _, err = worker.Execute(ctx, start) })
@@ -118,7 +113,7 @@ func TestRecipeJobWorkerLoadFailuresStopBeforeExecution(t *testing.T) {
 				if tc.embedded {
 					require.Zero(t, ctx.calls)
 				} else if tc.yaml == "" && tc.taskErr == nil && !tc.malformedOutput {
-					require.Equal(t, 2, ctx.calls, "legacy YAML loading uses a lease-scoped task")
+					require.Equal(t, 1, ctx.calls, "missing content must not fetch an old source")
 					require.Zero(t, loader.calls, "orchestration must not fetch Git sources directly")
 				} else {
 					require.Equal(t, 1, ctx.calls)
@@ -136,27 +131,21 @@ func (c *loadFailureContext) ExecutionVersions() jobdb.ExecutionVersions {
 	return jobdb.ExecutionVersions{}
 }
 
-func (c *loadFailureContext) Job() jobdb.JobHandle { return jobdb.JobHandle{JobKey: c.GetJobKey()} }
+func (c *loadFailureContext) Job() jobdb.JobHandle {
+	return jobdb.JobHandle{JobKey: c.GetJobKey(), Cell: "test", CellID: "fixture-cell", CellRepo: "example.test/test"}
+}
 
-func TestRecipeJobWorkerLoadsArtifactBeforeLegacyRecovery(t *testing.T) {
-	for _, recovery := range []bool{false, true} {
-		for _, replay := range []bool{false, true} {
-			t.Run(fmt.Sprintf("recovery=%t/replay=%t", recovery, replay), func(t *testing.T) {
-				resolution := RecipeSourceResolution{SourceKind: RecipeSourceKindGit, SubmittedSelector: "test"}
-				artifact := jobdb.NewArtifactFromBytes(ResolvedRecipeYAMLArtifactName, []byte("id: test\nop: deliberately_unregistered_load_test\n"))
-				output := jobdb.NewTaskDataOrPanic(ResolvedRecipeSource{RecipeSourceResolution: resolution, RecipeYAMLArtifact: ResolvedRecipeYAMLArtifactName}, artifact)
-				ctx := &loadFailureContext{output: output}
-				wantCalls := 1
-				if recovery {
-					ctx.output = jobdb.NewTaskDataOrPanic(resolution)
-					ctx.reloadOutput = output
-					wantCalls = 2
-				}
-				worker := NewRecipeJobWorker(RecipeJobWorkerOptions{ReadOnlyReplay: replay, RootSourceResolver: &failingRecipeLoader{}})
-				_, err := worker.Execute(ctx, jobdb.NewTaskDataOrPanic(workflowctl.StartJob{RecipeName: "test", TenantId: "tenant"}))
-				require.ErrorContains(t, err, "unknown op", "artifact source must reach recipe validation")
-				require.Equal(t, wantCalls, ctx.calls)
-			})
-		}
+func TestRecipeJobWorkerLoadsRecordedArtifact(t *testing.T) {
+	for _, replay := range []bool{false, true} {
+		t.Run(fmt.Sprintf("replay=%t", replay), func(t *testing.T) {
+			resolution := RecipeSourceResolution{SourceKind: RecipeSourceKindGit, SubmittedSelector: "test"}
+			artifact := jobdb.NewArtifactFromBytes(ResolvedRecipeYAMLArtifactName, []byte("id: test\nop: deliberately_unregistered_load_test\n"))
+			output := jobdb.NewTaskDataOrPanic(ResolvedRecipeSource{RecipeSourceResolution: resolution, RecipeYAMLArtifact: ResolvedRecipeYAMLArtifactName}, artifact)
+			ctx := &loadFailureContext{output: output}
+			worker := NewRecipeJobWorker(RecipeJobWorkerOptions{ReadOnlyReplay: replay, RootSourceResolver: &failingRecipeLoader{}})
+			_, err := worker.Execute(ctx, jobdb.NewTaskDataOrPanic(workflowctl.StartJob{RecipeName: "test", TenantId: "tenant", Cell: "test"}))
+			require.ErrorContains(t, err, "unknown op", "artifact source must reach recipe validation")
+			require.Equal(t, 1, ctx.calls)
+		})
 	}
 }

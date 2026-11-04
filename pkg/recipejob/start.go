@@ -55,14 +55,22 @@ func BuildStartJob(req BuildStartJobRequest) (workflowctl.StartJob, error) {
 	}
 	repositorySource = normalizedRepositorySource
 
+	cellRepo := req.Target.CellRepo
+	if cellRepo == "" {
+		cellRepo = req.Target.RepositorySource
+	}
+	cellRepo, err = jobdb.NormalizeCellRepo(cellRepo)
+	if err != nil {
+		return workflowctl.StartJob{}, fmt.Errorf("target repository assertion: %w", err)
+	}
 	defaultRef := strings.TrimSpace(req.Target.DefaultRef)
 	if defaultRef == "" {
 		defaultRef = compiler.DefaultRecipeRef
 	}
 
 	cellName := strings.TrimSpace(req.Target.CellName)
-	if cellName == "" {
-		cellName = compiler.RepositoryNameFromSource(repositorySource)
+	if err := jobdb.ValidateCellName(cellName); err != nil {
+		return workflowctl.StartJob{}, fmt.Errorf("target cell name: %w", err)
 	}
 
 	recipeName := strings.TrimSpace(req.Recipe)
@@ -83,6 +91,8 @@ func BuildStartJob(req BuildStartJobRequest) (workflowctl.StartJob, error) {
 		return workflowctl.StartJob{}, err
 	}
 	return workflowctl.StartJob{
+		Cell:         cellName,
+		CellRepo:     cellRepo,
 		Dependencies: append([]jobdb.Dependency(nil), req.Dependencies...),
 		Execution:    &initial,
 		TenantId:     tenantID,

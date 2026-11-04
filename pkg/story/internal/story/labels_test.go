@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/colony-2/c2j/internal/celltest"
 	coreops "github.com/colony-2/c2j/pkg/ops"
 	"github.com/colony-2/c2j/pkg/starter"
 	"github.com/colony-2/c2j/pkg/story/internal/model"
@@ -40,7 +41,10 @@ sequence:
         done:
           op: story_label_probe
 `
-	input := jobdb.NewTaskDataOrPanic(workflowctl.StartJob{RecipeName: "labels"}, jobdb.NewArtifactFromBytes("labels"+starter.RecipeArtifactSuffix, []byte(recipeYAML)))
+	input := jobdb.NewTaskDataOrPanic(workflowctl.StartJob{RecipeName: "labels", Cell: "test", CellRepo: celltest.Repo(
+		"",
+	),
+	}, jobdb.NewArtifactFromBytes("labels"+starter.RecipeArtifactSuffix, []byte(recipeYAML)))
 	env, err := coretasks.NewOutputEnvelope(coretasks.OutputKindActivityInvocationOutput, map[string]any{
 		"git": map[string]any{}, "nextTaskType": "", "output": map[string]any{},
 	})
@@ -49,7 +53,7 @@ sequence:
 	for i := 0; i < 4; i++ {
 		engine.taskScripts = append(engine.taskScripts, fakeTaskScript{Attempts: []fakeTaskAttempt{{Attempt: 1, Output: jobdb.NewTaskDataOrPanic(env)}}})
 	}
-	st, err := BuildJobRunStory(context.Background(), engine, jobdb.JobKey{TenantId: "tenant", JobId: "labels"}, nil, nil)
+	st, err := BuildJobRunStory(celltest.Context(context.Background()), engine, jobdb.JobKey{TenantId: "tenant", JobId: "labels"}, nil, nil)
 	require.NoError(t, err)
 	require.Equal(t, model.WorkflowStatusCompleted, st.Status)
 	var labels []string

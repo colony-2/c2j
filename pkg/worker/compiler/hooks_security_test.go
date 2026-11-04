@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/c2j/pkg/contextual"
 	"github.com/colony-2/c2j/pkg/execution"
 	"github.com/colony-2/c2j/pkg/executionruntime"
@@ -40,7 +41,7 @@ func hookTestEngine(t *testing.T, ws *jobworkflow.WorkSet) (context.Context, job
 	eng, err := jobworkflow.NewEngineBuilder().WithRuntime(guard).WithWorkerTenantId("hooks").PlusWorkers(ws.JobWorker, workers...).BuildEngine()
 	require.NoError(t, err)
 	eng = jobdbschema.WorkflowEngine{Engine: eng, Registry: rt}
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(celltest.Context(context.Background()))
 	t.Cleanup(cancel)
 	go eng.Run(ctx)
 	return ctx, eng, rt, provider
@@ -49,7 +50,7 @@ func startHookTest(t *testing.T, ctx context.Context, eng jobworkflow.Engine, re
 	t.Helper()
 	rec, err := recipe.LoadRecipeFromString([]byte(body))
 	require.NoError(t, err)
-	ref, err := starter.StartRecipeJob(ctx, workflowctl.StartJob{TenantId: "hooks", RecipeName: rec.GetMetadata().ID, JobContext: contextual.JobContext{Workflow: contextual.WorkflowContext{CellName: "A"}, GitBase: contextual.GitBaseContext{BaseRepo: repo, BaseRef: "main"}}, GitRef: "main"}, eng, *rec)
+	ref, err := starter.StartRecipeJob(ctx, workflowctl.StartJob{TenantId: "hooks", RecipeName: rec.GetMetadata().ID, JobContext: contextual.JobContext{Workflow: contextual.WorkflowContext{CellName: "A"}, GitBase: contextual.GitBaseContext{BaseRepo: repo, BaseRef: "main"}}, GitRef: "main", Cell: "test", CellRepo: celltest.Repo(repo)}, eng, *rec)
 	require.NoError(t, err)
 	require.NoError(t, jobworkflow.WaitForJobToComplete(ctx, time.Minute, ref.Key(), eng))
 	return ref.Key()
@@ -99,7 +100,7 @@ func TestHookSecretBoundariesAndReplay(t *testing.T) {
 				require.NoError(t, err)
 			}
 			if mode == "empty_override" {
-				id, err := hookpolicy.Identity(repo)
+				id, err := hookpolicy.Identity(celltest.Repo(repo))
 				require.NoError(t, err)
 				raw, _ := json.Marshal(hookpolicy.Document{Version: 1, Repository: id, Hooks: map[string]hookpolicy.Entry{hook: hookpolicy.Empty()}})
 				_, err = rt.SetTenantConfigurationValue(ctx, jobdb.SetTenantConfigurationValueRequest{TenantID: "hooks", Name: hookpolicy.CellKey(id), Value: raw})
@@ -202,7 +203,7 @@ func TestHookChildJobsCannotBroadenAuthority(t *testing.T) {
 					return nil, err
 				}
 				wide := permissions.JobDB{Secrets: permissions.SecretPermissions{Resolve: []string{"stolen", "token"}}, Jobs: permissions.JobPermissions{Submit: true}}
-				start := workflowctl.StartJob{TenantId: deps.JobTool().GetJobKey().TenantId, RecipeName: "child", GitRef: "main", JobContext: contextual.JobContext{InheritedPermissions: &permissions.State{Version: 1, Grant: &wide, Limit: &wide}, GitBase: contextual.GitBaseContext{BaseRepo: repo, BaseRef: "main"}}}
+				start := workflowctl.StartJob{TenantId: deps.JobTool().GetJobKey().TenantId, RecipeName: "child", GitRef: "main", JobContext: contextual.JobContext{InheritedPermissions: &permissions.State{Version: 1, Grant: &wide, Limit: &wide}, GitBase: contextual.GitBaseContext{BaseRepo: repo, BaseRef: "main"}}, Cell: "test", CellRepo: celltest.Repo(repo)}
 				ref, err := starter.StartRecipeJob(ctx, start, hookChildSubmitter{permissions.FromContext(ctx)}, *rec)
 				if err != nil {
 					return nil, err

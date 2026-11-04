@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/c2j/pkg/contextual"
 	"github.com/colony-2/c2j/pkg/git/gitstate"
 	"github.com/colony-2/c2j/pkg/jobref"
@@ -236,7 +237,7 @@ func TestWithGitWorkspaceDoesNotApplyArbitraryOutputContextPatch(t *testing.T) {
 	wrapped := opExecutor{deps: deps, reg: registration, controller: controller}.do
 
 	jobKey := jobdb.JobKey{TenantId: "test", JobId: "job-1"}
-	output, artifacts, err := wrapped(context.Background(), &jt{jobKey}, ActivityInvocationRequest{
+	output, artifacts, err := wrapped(celltest.Context(context.Background()), &jt{jobKey}, ActivityInvocationRequest{
 		Input: map[string]interface{}{
 			"context": map[string]interface{}{
 				"git": map[string]interface{}{
@@ -313,7 +314,7 @@ func TestWithGitWorkspaceProducesDiffAndThinPack(t *testing.T) {
 	wrapped := opExecutor{deps: deps, reg: registration, controller: controller}.do
 
 	jobKey := jobdb.JobKey{TenantId: "test", JobId: "job-2"}
-	_, artifacts, err := wrapped(context.Background(), &jt{jobKey}, ActivityInvocationRequest{
+	_, artifacts, err := wrapped(celltest.Context(context.Background()), &jt{jobKey}, ActivityInvocationRequest{
 		Input: map[string]interface{}{
 			"message": "hello",
 		},
@@ -398,7 +399,7 @@ func TestEnableActivitiesInWorkerInjectsDependencies(t *testing.T) {
 	repoPath, baseHash, _ := initTwoCommitRepo(t)
 	input := map[string]interface{}{"message": "hi"}
 	jobKey := jobdb.JobKey{TenantId: "test", JobId: "job-3"}
-	_, _, err = handler(context.Background(), &stubJobTool{JobKey: jobKey}, ActivityInvocationRequest{
+	_, _, err = handler(celltest.Context(context.Background()), &stubJobTool{JobKey: jobKey}, ActivityInvocationRequest{
 		Input: input,
 		GitTaskContext: gitstate.GlobalGitTaskContext{
 			BaseRepo:         repoPath,
@@ -771,7 +772,7 @@ func TestWithGitWorkspace_ThinPackFiltering(t *testing.T) {
 	}
 
 	jobKey := jobdb.JobKey{TenantId: "test", JobId: "job-4"}
-	_, outputArts, err := wrapped(context.Background(), &jt{jobKey}, req, inputArtifacts)
+	_, outputArts, err := wrapped(celltest.Context(context.Background()), &jt{jobKey}, req, inputArtifacts)
 	require.NoError(t, err)
 
 	// Verify the operation received only user artifacts (thin pack filtered out).
@@ -829,7 +830,7 @@ func TestWithGitWorkspace_NoThinPackPassThrough(t *testing.T) {
 	}
 
 	jobKey := jobdb.JobKey{TenantId: "test", JobId: "job-5"}
-	_, outputArts, err := wrapped(context.Background(), &jt{jobKey}, req, inputArtifacts)
+	_, outputArts, err := wrapped(celltest.Context(context.Background()), &jt{jobKey}, req, inputArtifacts)
 	require.NoError(t, err)
 
 	// Critical test: When there's no input thin pack and Persist returns nil,
@@ -879,7 +880,7 @@ func TestWithGitWorkspace_OperationFailure_PreservesArtifacts(t *testing.T) {
 	}
 
 	jobKey := jobdb.JobKey{TenantId: "test", JobId: "job-6"}
-	_, outputArts, err := wrapped(context.Background(), &jt{jobKey}, req, nil)
+	_, outputArts, err := wrapped(celltest.Context(context.Background()), &jt{jobKey}, req, nil)
 
 	// Verify operation failed
 	require.Error(t, err)
@@ -930,7 +931,7 @@ func TestWithGitWorkspace_OperationArtifactsPreservedRegardlessOfPersist(t *test
 	}
 
 	jobKey := jobdb.JobKey{TenantId: "test", JobId: "job-7"}
-	_, outputArts, err := wrapped(context.Background(), &jt{jobKey}, req, nil)
+	_, outputArts, err := wrapped(celltest.Context(context.Background()), &jt{jobKey}, req, nil)
 	require.NoError(t, err)
 
 	// Critical test: Operation artifacts should be preserved
@@ -973,7 +974,7 @@ func TestWithGitWorkspace_RestoreFailure_ReturnsNoArtifacts(t *testing.T) {
 	}
 
 	jobKey := jobdb.JobKey{TenantId: "test", JobId: "job-8"}
-	_, outputArts, err := wrapped(context.Background(), &jt{jobKey}, req, nil)
+	_, outputArts, err := wrapped(celltest.Context(context.Background()), &jt{jobKey}, req, nil)
 
 	// Verify restore failed
 	require.Error(t, err)
@@ -1013,7 +1014,7 @@ func TestWithGitWorkspace_SuccessPath_StillWorks(t *testing.T) {
 	}
 
 	jobKey := jobdb.JobKey{TenantId: "test", JobId: "job-9"}
-	output, outputArts, err := wrapped(context.Background(), &jt{jobKey}, req, nil)
+	output, outputArts, err := wrapped(celltest.Context(context.Background()), &jt{jobKey}, req, nil)
 
 	// Verify success
 	require.NoError(t, err)
@@ -1058,7 +1059,7 @@ func TestControllerPersist_DirectCall(t *testing.T) {
 	controller := gitstate.NewController(nil)
 
 	// Prepare and restore
-	require.NoError(t, controller.Restore(context.Background(), ctx, nil))
+	require.NoError(t, controller.Restore(celltest.Context(context.Background()), ctx, nil))
 
 	// Make a change inside the node path directory
 	nodeDir := filepath.Join(worktree, "cells", "alpha", "test")
@@ -1076,7 +1077,7 @@ func TestControllerPersist_DirectCall(t *testing.T) {
 	t.Logf("File exists before Persist: %v (err: %v)", err == nil, err)
 
 	// Call Persist
-	output, artifact, err := controller.Persist(context.Background(), ctx)
+	output, artifact, err := controller.Persist(celltest.Context(context.Background()), ctx)
 
 	// Debug: Check if file exists after persist
 	_, statErr := os.Stat(newFilePath)
@@ -1136,7 +1137,7 @@ func TestWithGitWorkspace_NewThinPackCreatedWhenChanges(t *testing.T) {
 	}
 
 	jobKey := jobdb.JobKey{TenantId: "test", JobId: "job-10"}
-	output, outputArts, err := wrapped(context.Background(), &jt{jobKey}, req, nil)
+	output, outputArts, err := wrapped(celltest.Context(context.Background()), &jt{jobKey}, req, nil)
 
 	// Verify success
 	require.NoError(t, err)
@@ -1209,7 +1210,7 @@ func TestWithGitWorkspace_NewThinPackReplacesInputWhenChanges(t *testing.T) {
 
 	inputArtifacts := []jobdb.Artifact{inputThinPack}
 	jobKey := jobdb.JobKey{TenantId: "test", JobId: "job-11"}
-	output, outputArts, err := wrapped(context.Background(), &jt{jobKey}, req, inputArtifacts)
+	output, outputArts, err := wrapped(celltest.Context(context.Background()), &jt{jobKey}, req, inputArtifacts)
 
 	// Verify success
 	require.NoError(t, err)
@@ -1275,7 +1276,7 @@ func TestWithGitWorkspace_PersistWithDiffs_CreatesThreeArtifacts(t *testing.T) {
 	}
 
 	jobKey := jobdb.JobKey{TenantId: "test", JobId: "job-12"}
-	output, outputArts, err := wrapped(context.Background(), &jt{jobKey}, req, nil)
+	output, outputArts, err := wrapped(celltest.Context(context.Background()), &jt{jobKey}, req, nil)
 
 	// Verify success
 	require.NoError(t, err)
@@ -1334,7 +1335,7 @@ func TestWithGitWorkspace_PersistWithDiffs_NoChanges_NoArtifacts(t *testing.T) {
 	}
 
 	jobKey := jobdb.JobKey{TenantId: "test", JobId: "job-13"}
-	output, outputArts, err := wrapped(context.Background(), &jt{jobKey}, req, nil)
+	output, outputArts, err := wrapped(celltest.Context(context.Background()), &jt{jobKey}, req, nil)
 
 	// Verify success
 	require.NoError(t, err)
@@ -1378,7 +1379,7 @@ func TestWithGitWorkspace_PersistWithDiffs_PassThroughWhenNoChanges(t *testing.T
 
 	inputArtifacts := []jobdb.Artifact{inputThinPack}
 	jobKey := jobdb.JobKey{TenantId: "test", JobId: "job-14"}
-	output, outputArts, err := wrapped(context.Background(), &jt{jobKey}, req, inputArtifacts)
+	output, outputArts, err := wrapped(celltest.Context(context.Background()), &jt{jobKey}, req, inputArtifacts)
 
 	// Verify success
 	require.NoError(t, err)
@@ -1423,7 +1424,7 @@ func TestWithGitWorkspace_PersistWithDiffs_PreservesHashModeWhenNoChanges(t *tes
 	}
 
 	jobKey := jobdb.JobKey{TenantId: "test", JobId: "job-14a"}
-	output, outputArts, err := wrapped(context.Background(), &jt{jobKey}, req, nil)
+	output, outputArts, err := wrapped(celltest.Context(context.Background()), &jt{jobKey}, req, nil)
 
 	require.NoError(t, err)
 	assert.Equal(t, "still-clean", output.OpOutput["result"])
@@ -1468,7 +1469,7 @@ func TestWithGitWorkspace_ConstTreatsMutationsAsNoChange(t *testing.T) {
 	}
 
 	jobKey := jobdb.JobKey{TenantId: "test", JobId: "job-14b"}
-	output, outputArts, err := wrapped(context.Background(), &jt{jobKey}, req, []jobdb.Artifact{inputThinPack})
+	output, outputArts, err := wrapped(celltest.Context(context.Background()), &jt{jobKey}, req, []jobdb.Artifact{inputThinPack})
 
 	require.NoError(t, err)
 	assert.Equal(t, "mutated-but-const", output.OpOutput["result"])
@@ -1514,7 +1515,7 @@ func TestWithGitWorkspace_PersistWithDiffs_DiffContent(t *testing.T) {
 	}
 
 	jobKey := jobdb.JobKey{TenantId: "test", JobId: "job-15"}
-	output, outputArts, err := wrapped(context.Background(), &jt{jobKey}, req, nil)
+	output, outputArts, err := wrapped(celltest.Context(context.Background()), &jt{jobKey}, req, nil)
 
 	// Verify success
 	require.NoError(t, err)
@@ -1596,7 +1597,7 @@ func TestWithGitWorkspace_ConsecutiveMutationsEmitRestorableReplacementThinPack(
 
 	run := func(reg ActivityRegistration, gitCtx contextual.GitCommitContext, artifacts []jobdb.Artifact) (ActivityInvocationOutput, []jobdb.Artifact, error) {
 		wrapped := opExecutor{deps: deps, reg: reg, controller: controller}.do
-		return wrapped(context.Background(), &jt{jobKey}, ActivityInvocationRequest{
+		return wrapped(celltest.Context(context.Background()), &jt{jobKey}, ActivityInvocationRequest{
 			Input: map[string]interface{}{},
 			GitTaskContext: gitstate.GlobalGitTaskContext{
 				BaseRepo:    baseRepo,
@@ -1779,7 +1780,7 @@ func TestOpExecutorResolvesOpVisibleSentinelsToHostPathsByDefault(t *testing.T) 
 		},
 	}
 
-	output, _, err := wrapped(context.Background(), &jt{jobdb.JobKey{TenantId: "test", JobId: "job-op-visible-default"}}, req, nil)
+	output, _, err := wrapped(celltest.Context(context.Background()), &jt{jobdb.JobKey{TenantId: "test", JobId: "job-op-visible-default"}}, req, nil)
 	require.NoError(t, err)
 
 	require.Equal(t, capturedPaths.WorktreePath, capturedInput["repo_path"])

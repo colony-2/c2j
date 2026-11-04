@@ -2,11 +2,12 @@ package executionruntime
 
 import (
 	"context"
-	coretask "github.com/colony-2/c2j/pkg/task"
 	"testing"
 	"time"
 
+	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/c2j/pkg/execution"
+	coretask "github.com/colony-2/c2j/pkg/task"
 	"github.com/colony-2/c2j/pkg/worker/compiler"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
@@ -43,7 +44,7 @@ func TestEnvironmentReceiptAvailableBeforeYieldCallerReturns(t *testing.T) {
 			defer close(release)
 			tasks := guardTasks(rt, f.tasks)
 			tasks[1] = gatedYieldTask{tasks[1], release, yielded, finished}
-			runnable, err := jobworkflow.GetJobForRun(context.Background(), rt, jobworkflow.GetJobForRunRequest{JobKey: f.key, JobWorker: worker, TaskWorkers: tasks, WorkerID: "receipt", LeaseDuration: time.Minute})
+			runnable, err := jobworkflow.GetJobForRun(celltest.Context(context.Background()), rt, jobworkflow.GetJobForRunRequest{JobKey: f.key, JobWorker: worker, TaskWorkers: append(tasks, compiler.NewCellContextTaskWorker()), WorkerID: "receipt", LeaseDuration: time.Minute})
 			require.NoError(t, err)
 			out, err := runnable.Run(nil)
 			require.NoError(t, err)

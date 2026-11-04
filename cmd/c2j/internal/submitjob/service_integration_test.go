@@ -16,6 +16,7 @@ import (
 	"github.com/colony-2/c2j/cmd/c2j/internal/defaults"
 	"github.com/colony-2/c2j/cmd/c2j/internal/runjob"
 	"github.com/colony-2/c2j/cmd/c2j/internal/swfruntime"
+	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/c2j/pkg/execution"
 	"github.com/colony-2/c2j/pkg/swfutil"
 	"github.com/colony-2/c2j/pkg/worker/compiler"
@@ -33,7 +34,7 @@ func testJobDBURI(serverURL string, tenantID string) string {
 func TestRun_SubmitsJobThatCanBeRun(t *testing.T) {
 	t.Parallel()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	ctx, cancel := context.WithTimeout(celltest.Context(context.Background()), 20*time.Second)
 	defer cancel()
 
 	tenantID := "tenant-submit-test"
@@ -67,14 +68,14 @@ outputs:
 	baseRepo, _ := createGitRepo(t)
 
 	underlying := toyruntime.New()
-	server := httptest.NewServer(remoteruntime.NewServer(underlying))
+	server := httptest.NewServer(celltest.Handler(remoteruntime.NewServer(underlying)))
 	defer server.Close()
 
 	var submitStdout bytes.Buffer
 	if err := Run(ctx, Options{
 		JobDBURI:   testJobDBURI(server.URL, tenantID),
 		RecipeFile: recipePath,
-		Cell:       baseRepo,
+		Cell:       "app", CellRepo: celltest.Repo(baseRepo),
 		JSONOutput: true,
 		Prompt:     "run the test recipe",
 		Title:      "  Test recipe title  ",
@@ -152,7 +153,7 @@ outputs:
 func TestRun_SubmitsAttachedArtifactAndRecipeReadsInboxFile(t *testing.T) {
 	t.Parallel()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	ctx, cancel := context.WithTimeout(celltest.Context(context.Background()), 20*time.Second)
 	defer cancel()
 
 	tenantID := "tenant-submit-artifact-test"
@@ -188,14 +189,14 @@ outputs:
 	baseRepo, _ := createGitRepo(t)
 
 	underlying := toyruntime.New()
-	server := httptest.NewServer(remoteruntime.NewServer(underlying))
+	server := httptest.NewServer(celltest.Handler(remoteruntime.NewServer(underlying)))
 	defer server.Close()
 
 	var submitStdout bytes.Buffer
 	if err := Run(ctx, Options{
-		JobDBURI:      testJobDBURI(server.URL, tenantID),
-		RecipeFile:    recipePath,
-		Cell:          baseRepo,
+		JobDBURI:   testJobDBURI(server.URL, tenantID),
+		RecipeFile: recipePath,
+		Cell:       "app", CellRepo: celltest.Repo(baseRepo),
 		WorkingDir:    root,
 		ArtifactSpecs: []string{"brief.md"},
 		Prompt:        "read the attached brief",
@@ -265,7 +266,7 @@ outputs:
 func TestRun_ForwardsSubmittedArtifactToChildRecipe(t *testing.T) {
 	t.Parallel()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(celltest.Context(context.Background()), 30*time.Second)
 	defer cancel()
 
 	tenantID := "tenant-child-artifact-forwarding-test"
@@ -315,15 +316,15 @@ outputs:
 	}
 
 	underlying := toyruntime.New()
-	server := httptest.NewServer(remoteruntime.NewServer(underlying))
+	server := httptest.NewServer(celltest.Handler(remoteruntime.NewServer(underlying)))
 	defer server.Close()
 
 	var submitStdout bytes.Buffer
 	if err := Run(ctx, Options{
-		JobDBURI:      testJobDBURI(server.URL, tenantID),
-		Recipe:        "parent-artifact-forwarding",
-		Prompt:        "forward the attached brief",
-		Cell:          baseRepo,
+		JobDBURI: testJobDBURI(server.URL, tenantID),
+		Recipe:   "parent-artifact-forwarding",
+		Prompt:   "forward the attached brief",
+		Cell:     "app", CellRepo: celltest.Repo(baseRepo),
 		WorkingDir:    baseRepo,
 		ArtifactSpecs: []string{"brief.md=" + briefPath},
 		JSONOutput:    true,
@@ -429,7 +430,7 @@ outputs:
 func TestRun_SubmitsRecipeReferenceThatResolvesAtExecution(t *testing.T) {
 	t.Parallel()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	ctx, cancel := context.WithTimeout(celltest.Context(context.Background()), 20*time.Second)
 	defer cancel()
 
 	tenantID := "tenant-submit-ref-test"
@@ -455,15 +456,15 @@ outputs:
 	commitRepo(t, baseRepo, "add bare recipe")
 
 	underlying := toyruntime.New()
-	server := httptest.NewServer(remoteruntime.NewServer(underlying))
+	server := httptest.NewServer(celltest.Handler(remoteruntime.NewServer(underlying)))
 	defer server.Close()
 
 	var submitStdout bytes.Buffer
 	if err := Run(ctx, Options{
-		JobDBURI:   testJobDBURI(server.URL, tenantID),
-		Recipe:     "nucleus_submit_ref_recipe",
-		Prompt:     "run the referenced recipe",
-		Cell:       baseRepo,
+		JobDBURI: testJobDBURI(server.URL, tenantID),
+		Recipe:   "nucleus_submit_ref_recipe",
+		Prompt:   "run the referenced recipe",
+		Cell:     "app", CellRepo: celltest.Repo(baseRepo),
 		JSONOutput: true,
 		Stdout:     &submitStdout,
 	}); err != nil {
@@ -519,7 +520,7 @@ outputs:
 	if len(tasks) == 0 {
 		t.Fatal("expected recorded tasks in execution history")
 	}
-	if tasks[0].TaskType != compiler.RootSourceResolutionTaskType {
+	if len(tasks) < 2 || tasks[0].TaskType != compiler.CellContextTaskType || tasks[1].TaskType != compiler.RootSourceResolutionTaskType {
 		t.Fatalf("expected first task %q, got %q", compiler.RootSourceResolutionTaskType, tasks[0].TaskType)
 	}
 }
@@ -528,18 +529,19 @@ func TestRun_DefaultBuildUsesSharedRecipe(t *testing.T) {
 	t.Parallel()
 	for _, privateTarget := range []bool{false, true} {
 		t.Run(fmt.Sprintf("private=%v", privateTarget), func(t *testing.T) {
-			ctx := context.Background()
+			ctx := celltest.Context(context.Background())
 			root, _ := createGitRepo(t)
 			mustWriteRepoFile(t, root, ".c2/recipes/build.yaml", "invalid: [")
-			mustWriteRepoFile(t, root, ".c2/config.yaml", "self:\n  repo: "+root+"\n  ref: main\n")
+			mustWriteRepoFile(t, root, ".c2/config.yaml", "self:\n  cell: app\n  repo: "+celltest.Repo(root)+"\n  ref: main\n")
 			commitRepo(t, root, "local recipe must not override default")
 			base := toyruntime.New()
-			server := httptest.NewServer(remoteruntime.NewServer(base))
+			server := httptest.NewServer(celltest.Handler(remoteruntime.NewServer(base)))
 			defer server.Close()
 			var stdout bytes.Buffer
 			opts := Options{JobDBURI: testJobDBURI(server.URL, "default-build"), WorkingDir: root, Prompt: "build it", JSONOutput: true, Stdout: &stdout}
 			if privateTarget {
-				opts.Cell = "https://private.invalid/team/repo.git"
+				opts.Cell = "private"
+				opts.CellRepo = "https://private.invalid/team/repo.git"
 			}
 			if err := Run(ctx, opts); err != nil {
 				t.Fatal(err)
@@ -565,9 +567,9 @@ func TestRun_DefaultBuildUsesSharedRecipe(t *testing.T) {
 			if start.RecipeName != compiler.SharedBuildRecipeSelector || start.Inputs["type"] != "build" || start.Inputs["prompt"] != "build it" {
 				t.Fatalf("unexpected submitted inputs: %+v", start)
 			}
-			wantRepo := "file://" + root
+			wantRepo := "https://" + celltest.Repo(root) + ".git"
 			if privateTarget {
-				wantRepo = opts.Cell
+				wantRepo = opts.CellRepo
 			}
 			if start.JobContext.GitBase.BaseRepo != wantRepo {
 				t.Fatalf("target = %q, want %q", start.JobContext.GitBase.BaseRepo, wantRepo)
@@ -579,7 +581,7 @@ func TestRun_DefaultBuildUsesSharedRecipe(t *testing.T) {
 func TestRun_SubmitsCurrentCellUsingExplicitBuildRecipe(t *testing.T) {
 	t.Parallel()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	ctx, cancel := context.WithTimeout(celltest.Context(context.Background()), 20*time.Second)
 	defer cancel()
 
 	tenantID := "tenant-submit-self-test"
@@ -605,11 +607,11 @@ outputs:
 
 	baseRepo, _ := createGitRepo(t)
 	mustWriteRepoFile(t, baseRepo, ".c2/recipes/build.yaml", recipeYAML)
-	mustWriteRepoFile(t, baseRepo, ".c2/config.yaml", "self:\n  repo: "+baseRepo+"\n  ref: main\n")
+	mustWriteRepoFile(t, baseRepo, ".c2/config.yaml", "self:\n  cell: app\n  repo: "+celltest.Repo(baseRepo)+"\n  ref: main\n")
 	commitRepo(t, baseRepo, "add self config and default recipe")
 
 	underlying := toyruntime.New()
-	server := httptest.NewServer(remoteruntime.NewServer(underlying))
+	server := httptest.NewServer(celltest.Handler(remoteruntime.NewServer(underlying)))
 	defer server.Close()
 
 	var submitStdout bytes.Buffer
@@ -685,7 +687,7 @@ func TestRun_ConventionsUseTargetCellNotSubmittingCell(t *testing.T) {
 	for _, selection := range []string{"build"} {
 		t.Run("recipe="+selection, func(t *testing.T) {
 			const kind = "build"
-			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+			ctx, cancel := context.WithTimeout(celltest.Context(context.Background()), 20*time.Second)
 			defer cancel()
 			targetRepo, _ := createGitRepo(t)
 			submittingRepo, _ := createGitRepo(t)
@@ -710,15 +712,15 @@ outputs:
 `)
 			commitRepo(t, targetRepo, "target recipe")
 			mustWriteRepoFile(t, submittingRepo, ".c2/recipes/"+kind+".yaml", "invalid: [")
-			mustWriteRepoFile(t, submittingRepo, ".c2/config.yaml", "self:\n  repo: "+submittingRepo+"\n  ref: main\n")
+			mustWriteRepoFile(t, submittingRepo, ".c2/config.yaml", "self:\n  cell: app\n  repo: "+celltest.Repo(submittingRepo)+"\n  ref: main\n")
 			commitRepo(t, submittingRepo, "unrelated submitting cell")
 			underlying := toyruntime.New()
-			server := httptest.NewServer(remoteruntime.NewServer(underlying))
+			server := httptest.NewServer(celltest.Handler(remoteruntime.NewServer(underlying)))
 			defer server.Close()
 			var stdout, stderr bytes.Buffer
 			err := Run(ctx, Options{
 				JobDBURI:   testJobDBURI(server.URL, "target-conventions"),
-				WorkingDir: submittingRepo, Cell: targetRepo, Recipe: selection,
+				WorkingDir: submittingRepo, Cell: "app", CellRepo: celltest.Repo(targetRepo), Recipe: selection,
 				RunAfterSubmit: true, Stdin: strings.NewReader("interactive prompt\n"),
 				Stdout: &stdout, Stderr: &stderr,
 			})
@@ -770,7 +772,7 @@ func TestRun_SubmitsPromptAndRunsJobImmediately(t *testing.T) {
 	for _, source := range []string{"positional", "relative file", "absolute file"} {
 		t.Run(source, func(t *testing.T) {
 
-			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+			ctx, cancel := context.WithTimeout(celltest.Context(context.Background()), 20*time.Second)
 			defer cancel()
 
 			tenantID := "tenant-submit-prompt-test"
@@ -797,15 +799,15 @@ outputs:
 			baseRepo, _ := createGitRepo(t)
 
 			underlying := toyruntime.New()
-			server := httptest.NewServer(remoteruntime.NewServer(underlying))
+			server := httptest.NewServer(celltest.Handler(remoteruntime.NewServer(underlying)))
 			defer server.Close()
 
 			var submitStdout bytes.Buffer
 			var submitStderr bytes.Buffer
 			opts := Options{
-				JobDBURI:       testJobDBURI(server.URL, tenantID),
-				RecipeFile:     recipePath,
-				Cell:           baseRepo,
+				JobDBURI:   testJobDBURI(server.URL, tenantID),
+				RecipeFile: recipePath,
+				Cell:       "app", CellRepo: celltest.Repo(baseRepo),
 				Prompt:         "hello from positional prompt",
 				PromptSet:      true,
 				RunAfterSubmit: true,
@@ -875,7 +877,7 @@ outputs:
 }
 
 func TestRun_SubmitsAndExecutesWithEmbeddedRuntime(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	ctx, cancel := context.WithTimeout(celltest.Context(context.Background()), 90*time.Second)
 	defer cancel()
 
 	t.Setenv("HOME", t.TempDir())
@@ -911,10 +913,10 @@ outputs:
 		RecipeFile:            recipePath,
 		ExecutionRequirements: execution.Requirements{Capabilities: []string{"synthetic.job"}},
 		Prompt:                "run the embedded test recipe",
-		Cell:                  baseRepo,
-		JSONOutput:            true,
-		Stdout:                &submitStdout,
-		Stderr:                &bytes.Buffer{},
+		Cell:                  "app", CellRepo: celltest.Repo(baseRepo),
+		JSONOutput: true,
+		Stdout:     &submitStdout,
+		Stderr:     &bytes.Buffer{},
 	}); err != nil {
 		t.Fatalf("submit job: %v", err)
 	}
@@ -981,7 +983,7 @@ outputs:
 }
 
 func TestRun_EmbedExtensionFailureCompletesWithOriginalError(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	ctx, cancel := context.WithTimeout(celltest.Context(context.Background()), 90*time.Second)
 	defer cancel()
 
 	t.Setenv("HOME", t.TempDir())
@@ -1021,10 +1023,10 @@ output_schema:
 	var submitStdout bytes.Buffer
 	var submitStderr bytes.Buffer
 	err := Run(ctx, Options{
-		JobDBURI:       "embed:///",
-		Recipe:         "failing_extension_recipe",
-		Prompt:         "exercise the failing extension",
-		Cell:           baseRepo,
+		JobDBURI: "embed:///",
+		Recipe:   "failing_extension_recipe",
+		Prompt:   "exercise the failing extension",
+		Cell:     "app", CellRepo: celltest.Repo(baseRepo),
 		RunAfterSubmit: true,
 		Stdin:          bytes.NewBuffer(nil),
 		Stdout:         &submitStdout,

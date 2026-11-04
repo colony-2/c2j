@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/colony-2/c2j/internal/celltest"
 	recipeartifacts "github.com/colony-2/c2j/pkg/artifacts"
 	"github.com/colony-2/c2j/pkg/contextual"
 	coretask "github.com/colony-2/c2j/pkg/task"
@@ -75,17 +76,17 @@ func TestRuntimeRestoresPendingInput(t *testing.T) {
 				before, err := task.data.GetArtifacts()
 				require.NoError(t, err)
 				for i := 0; i < 2; i++ {
-					got, err := runtime.GetForm(context.Background(), "tenant", "input")
+					got, err := runtime.GetForm(celltest.Context(context.Background()), "tenant", "input")
 					require.NoError(t, err)
 					require.Equal(t, form, got)
-					details, err := runtime.GetDetails(context.Background(), "tenant", "input")
+					details, err := runtime.GetDetails(celltest.Context(context.Background()), "tenant", "input")
 					require.NoError(t, err)
 					require.Equal(t, toOpenAPIInputFormConfig(form), details.Form)
-					page, err := runtime.ListPendingInputsPage(context.Background(), "tenant", PendingInputOptions{})
+					page, err := runtime.ListPendingInputsPage(celltest.Context(context.Background()), "tenant", PendingInputOptions{})
 					require.NoError(t, err)
 					require.Equal(t, "next", page.NextPageToken)
 					require.Equal(t, []PendingInputOccurrence{{JobID: "input", TaskOrdinal: 7, RequestID: form.RequestID, RequestedAt: form.RequestedAt}}, page.Inputs)
-					_, output, artifacts, err := runtime.getOutput(context.Background(), "tenant", "input")
+					_, output, artifacts, err := runtime.getOutput(celltest.Context(context.Background()), "tenant", "input")
 					require.NoError(t, err)
 					require.Equal(t, "workspace", output.WorkspaceScopeID)
 					require.Equal(t, "parent", output.GitResult.ParentHash)
@@ -99,7 +100,7 @@ func TestRuntimeRestoresPendingInput(t *testing.T) {
 				require.NoError(t, err)
 				require.Equal(t, before, afterArtifacts)
 				service := &inputManagementService{ctl: runtime.ctl}
-				_, output, _, err := service.getOutput(context.Background(), "tenant", "input")
+				_, output, _, err := service.getOutput(celltest.Context(context.Background()), "tenant", "input")
 				require.NoError(t, err)
 				require.NotEmpty(t, output.OpOutput)
 				service.runtime = runtime
@@ -172,7 +173,7 @@ func TestPendingInputRestorationFailure(t *testing.T) {
 			defer runtime.sse.Unsubscribe("test")
 			finishes := 0
 			task.finish = func(jobdb.TaskData) error { finishes++; return nil }
-			ctx := context.Background()
+			ctx := celltest.Context(context.Background())
 			if mode == "canceled" {
 				var cancel context.CancelFunc
 				ctx, cancel = context.WithCancel(ctx)
@@ -227,7 +228,7 @@ func TestPendingInputRestorationFailure(t *testing.T) {
 		})
 	}
 	for _, service := range []*inputManagementService{{}, {runtime: &Runtime{}}} {
-		_, _, _, err := service.getOutput(context.Background(), "tenant", "input")
+		_, _, _, err := service.getOutput(celltest.Context(context.Background()), "tenant", "input")
 		require.Error(t, err)
 	}
 }
@@ -264,7 +265,7 @@ func TestRestoredStructuredSubmissionBoundaries(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, artifacts, 1)
 		require.Equal(t, "unrelated.txt", artifacts[0].Name())
-		bytes, err := artifacts[0].Bytes(context.Background())
+		bytes, err := artifacts[0].Bytes(celltest.Context(context.Background()))
 		require.NoError(t, err)
 		require.Equal(t, []byte("retain"), bytes)
 		return nil
@@ -279,13 +280,13 @@ func TestRestoredStructuredSubmissionBoundaries(t *testing.T) {
 		{StructuredSubmission{RequestID: "frozen", SubmissionID: "submission", Response: map[string]any{"decision": "wrong"}}, actor},
 		{valid, Actor{Kind: "human"}}, {valid, Actor{ID: "trusted"}},
 	} {
-		_, err := runtime.SubmitStructuredResponse(context.Background(), "tenant", "input", tc.sub, tc.actor)
+		_, err := runtime.SubmitStructuredResponse(celltest.Context(context.Background()), "tenant", "input", tc.sub, tc.actor)
 		require.Error(t, err)
 		require.Zero(t, finishes)
 	}
-	require.Error(t, runtime.SubmitResponse(context.Background(), "tenant", "input", FormResponse{}))
+	require.Error(t, runtime.SubmitResponse(celltest.Context(context.Background()), "tenant", "input", FormResponse{}))
 	require.Zero(t, finishes)
-	_, err = runtime.SubmitStructuredResponse(context.Background(), "tenant", "input", valid, actor)
+	_, err = runtime.SubmitStructuredResponse(celltest.Context(context.Background()), "tenant", "input", valid, actor)
 	require.NoError(t, err)
 	require.Equal(t, 1, finishes)
 	select {
@@ -311,13 +312,13 @@ func TestRestorationRetainsWaitingTaskValidation(t *testing.T) {
 	finishes := 0
 	task.finish = func(jobdb.TaskData) error { finishes++; return nil }
 	for _, key := range []jobdb.JobKey{{TenantId: "other", JobId: "input"}, {TenantId: "tenant", JobId: "other"}} {
-		_, err := runtime.GetForm(context.Background(), key.TenantId, key.JobId)
+		_, err := runtime.GetForm(celltest.Context(context.Background()), key.TenantId, key.JobId)
 		require.ErrorIs(t, err, ErrInputNotPending)
 	}
 	ctl := runtime.ctl.(*clientControl)
 	for _, wrong := range []workflowctl.TaskHandle{nil, &restorationWrongTypeTask{task}} {
 		ctl.waiting = func(jobdb.JobKey) (workflowctl.TaskHandle, error) { return wrong, nil }
-		_, err := runtime.SubmitStructuredResponse(context.Background(), "tenant", "input", StructuredSubmission{}, Actor{})
+		_, err := runtime.SubmitStructuredResponse(celltest.Context(context.Background()), "tenant", "input", StructuredSubmission{}, Actor{})
 		require.ErrorIs(t, err, ErrInputNotPending)
 	}
 	require.Zero(t, finishes)
@@ -344,7 +345,7 @@ func TestRestoredInputCompletionConflicts(t *testing.T) {
 				}
 				return jobdb.ErrConflict
 			}
-			_, err := runtime.SubmitStructuredResponse(context.Background(), "tenant", "input", StructuredSubmission{RequestID: "frozen", SubmissionID: "submission", Response: map[string]any{"decision": "approve"}}, Actor{ID: "trusted", Kind: "human"})
+			_, err := runtime.SubmitStructuredResponse(celltest.Context(context.Background()), "tenant", "input", StructuredSubmission{RequestID: "frozen", SubmissionID: "submission", Response: map[string]any{"decision": "approve"}}, Actor{ID: "trusted", Kind: "human"})
 			require.Equal(t, 1, finishes)
 			expected := ErrStorage
 			if mode == "completed" {

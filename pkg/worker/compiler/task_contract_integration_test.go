@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
 	"github.com/stretchr/testify/require"
@@ -56,7 +57,7 @@ func TestOperationTaskContractReplay(t *testing.T) {
 			key := probeSubmit(t, rt, recording)
 			outcome := probeRun(t, rt, key, recording, task)
 			require.Equal(t, jobworkflow.JobRunCompleted, outcome.Status, "%v", outcome.JobError)
-			before, err := rt.ListChapters(context.Background(), jobdb.ListChaptersRequest{JobKey: key})
+			before, err := rt.ListChapters(celltest.Context(context.Background()), jobdb.ListChaptersRequest{JobKey: key})
 			require.NoError(t, err)
 			err = probeReplay(t, rt, key, worker)
 			if tc.wantErr {
@@ -64,7 +65,7 @@ func TestOperationTaskContractReplay(t *testing.T) {
 			} else {
 				require.NoError(t, err)
 			}
-			after, err := rt.ListChapters(context.Background(), jobdb.ListChaptersRequest{JobKey: key})
+			after, err := rt.ListChapters(celltest.Context(context.Background()), jobdb.ListChaptersRequest{JobKey: key})
 			require.NoError(t, err)
 			require.Equal(t, before, after, "replay must not rewrite history")
 			require.Equal(t, map[string]int{"a": 1}, task.calls, "replay must not execute recorded tasks")

@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	"github.com/stretchr/testify/require"
 )
@@ -26,13 +27,13 @@ func TestChapterVisibilityForwardsDeletion(t *testing.T) {
 		runtime := &deletionCapture{err: wantErr}
 		wrapped := withChapterVisibility(runtime).(jobdb.JobDeletionRuntime)
 		req := jobdb.DeleteJobsRequest{TenantID: "tenant", All: true, DryRun: true}
-		result, err := wrapped.DeleteJobs(context.Background(), req)
+		result, err := wrapped.DeleteJobs(celltest.Context(context.Background()), req)
 		require.ErrorIs(t, err, wantErr)
 		require.Equal(t, 1, runtime.calls)
 		require.Equal(t, req, runtime.req)
 		require.EqualValues(t, 12, result.MatchedCount)
 	}
 	wrapped := withChapterVisibility(struct{ jobdb.WorkflowRuntime }{}).(jobdb.JobDeletionRuntime)
-	_, err := wrapped.DeleteJobs(context.Background(), jobdb.DeleteJobsRequest{TenantID: "tenant", All: true})
+	_, err := wrapped.DeleteJobs(celltest.Context(context.Background()), jobdb.DeleteJobsRequest{TenantID: "tenant", All: true})
 	require.ErrorIs(t, err, jobdb.ErrJobDeletionUnsupported)
 }

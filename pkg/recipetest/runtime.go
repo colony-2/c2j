@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/c2j/pkg/cellref"
 	"github.com/colony-2/c2j/pkg/childbroker"
 	"github.com/colony-2/c2j/pkg/contextual"
@@ -52,7 +53,7 @@ func runRuntimeCase(parent context.Context, opts HarnessOptions, tenant string, 
 	start := time.Now()
 	result = CaseRunResult{CaseId: req.Case.ID, CaseHash: prepared.Validation.CaseHash, Status: "failed"}
 	defer func() { result.DurationMs = time.Since(start).Milliseconds() }()
-	ctx, cancel := context.WithTimeout(parent, parseTimeout(req.Execution.Timeout, 60*time.Second))
+	ctx, cancel := context.WithTimeout(celltest.Context(parent), parseTimeout(req.Execution.Timeout, 60*time.Second))
 	defer cancel()
 	root, err := os.MkdirTemp("", "c2j-runtime-case-*")
 	if err != nil {
@@ -71,6 +72,12 @@ func runRuntimeCase(parent context.Context, opts HarnessOptions, tenant string, 
 		return
 	}
 	rt := toyruntime.New(toyruntime.WithSecretProvider(runtimeSecretProvider{tenant: tenant, values: req.Case.Runtime.Secrets}))
+	for name, repo := range f.cells {
+		if _, e := rt.CreateCell(ctx, jobdb.CreateCellRequest{TenantID: tenant, Name: name, Repo: celltest.Repo(repo)}); e != nil {
+			result.FailureReason = e.Error()
+			return
+		}
+	}
 	for name, value := range req.Case.Runtime.Config {
 		raw, e := json.Marshal(value)
 		if e != nil {
@@ -115,7 +122,7 @@ func runRuntimeCase(parent context.Context, opts HarnessOptions, tenant string, 
 		result.FailureReason = err.Error()
 		return
 	}
-	key, err := starter.StartRecipeJob(ctx, workflowctl.StartJob{TenantId: tenant, RecipeName: prepared.Recipe.GetMetadata().ID, Inputs: req.Case.Inputs, GitRef: "main", JobContext: f.jobContext(cell)}, engine, *prepared.Recipe)
+	key, err := starter.StartRecipeJob(ctx, workflowctl.StartJob{Cell: cell, CellRepo: celltest.Repo(f.cells[cell]), TenantId: tenant, RecipeName: prepared.Recipe.GetMetadata().ID, Inputs: req.Case.Inputs, GitRef: "main", JobContext: f.jobContext(cell)}, engine, *prepared.Recipe)
 	if err != nil {
 		result.FailureReason = err.Error()
 		return
@@ -244,7 +251,7 @@ func runRuntimeCase(parent context.Context, opts HarnessOptions, tenant string, 
 }
 
 func (f *runtimeFixture) jobContext(cell string) contextual.JobContext {
-	return contextual.JobContext{Workflow: contextual.WorkflowContext{CellName: cell}, GitBase: contextual.GitBaseContext{BaseRepo: f.cells[cell], BaseRef: "main", GitAuthor: "Recipe Test <recipe-test@example.com>"}, CellResolution: &cellref.Context{Pattern: filepath.Join(f.root, "cells", "${{ cell }}")}}
+	return contextual.JobContext{Workflow: contextual.WorkflowContext{CellName: cell}, GitBase: contextual.GitBaseContext{BaseRepo: f.cells[cell], BaseRef: "main", GitAuthor: "Recipe Test <recipe-test@example.com>"}, CellResolution: &cellref.Context{SelfCell: cell, SelfRepo: celltest.Repo(f.cells[cell])}}
 }
 
 func (f *runtimeFixture) seedCells(ctx context.Context, primary string) error {
@@ -486,7 +493,7 @@ func (f *runtimeFixture) invoke(deps coreops.OpDependencies, ctx context.Context
 			if err != nil {
 				return nil, err
 			}
-			request, err := childbroker.NewSubmitRequest(ctx, workflowctl.StartJob{TenantId: key.TenantId, RecipeName: r.GetMetadata().ID, Inputs: child.Inputs, GitRef: "main", JobContext: f.jobContext(child.Cell)}, nil, *r)
+			request, err := childbroker.NewSubmitRequest(ctx, workflowctl.StartJob{Cell: child.Cell, CellRepo: celltest.Repo(f.cells[child.Cell]), TenantId: key.TenantId, RecipeName: r.GetMetadata().ID, Inputs: child.Inputs, GitRef: "main", JobContext: f.jobContext(child.Cell)}, nil, *r)
 			if err != nil {
 				return nil, err
 			}

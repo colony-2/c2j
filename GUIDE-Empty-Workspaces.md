@@ -1,7 +1,7 @@
 # Create and publish an empty workspace
 
-Set `initial: empty` on a workspace to start a new Git history. `cell` selects
-the destination repository; `ref` selects the branch (defaulting through normal
+Set `initial: empty` on a workspace to start a new Git history. `cell` selects an explicit cell name and `repo` supplies the portable destination
+repository locator; `ref` selects the branch (defaulting through normal
 cell resolution, usually to `main`). The destination repository need not exist.
 
 ```yaml
@@ -9,15 +9,18 @@ id: create-cell
 version: "1"
 input_schema:
   prompt: {type: string}
+  cell: {type: string, required: true}
   repository: {type: string, required: true}
   purpose: {type: string, required: true}
 inputs:
+  cell: "${{ inputs.cell }}"
   repository: "${{ inputs.repository }}"
   purpose: "${{ inputs.purpose }}"
 sequence:
   - id: create
     workspace:
-      cell: "${{ inputs.repository }}"
+      cell: "${{ inputs.cell }}"
+      repo: "${{ inputs.repository }}"
       ref: main
       initial: empty
     sequence:
@@ -45,7 +48,7 @@ Run this recipe from an existing recipe source or an embedded local file. Keep
 
 ```sh
 c2j submit "Create the approved cell" --advanced-recipe-file ./create.yaml \
-  --inputs-json '{"repository":"https://git.example/owner/new.git","purpose":"Approved purpose"}'
+  --inputs-json '{"cell":"new","repository":"https://git.example/owner/new.git","purpose":"Approved purpose"}'
 ```
 
 - Initialization is local only: it does not fetch, push, or create a remote
@@ -88,3 +91,5 @@ details](BUG-C2J-PUSH-OUTCOME-RETRY.md).
 
 Separate `squash` and `merge` recipe tasks remain available when explicit
 preparation and publication are useful. See [separate Git ops](GUIDE-Git-Ops.md).
+
+Preparing or publishing a workspace does not register a JobDB cell. Use `c2j cell create NAME --repo REPO`, or an authorized first child submission with that name and repository assertion.

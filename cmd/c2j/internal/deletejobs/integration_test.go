@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/colony-2/c2j/cmd/c2j/internal/swfruntime"
+	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/remote"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/sqlite"
@@ -31,14 +32,16 @@ func newDeletionFixture(t *testing.T, backend string) *deletionFixture {
 		t.Setenv("HOME", t.TempDir())
 		return f
 	}
-	rt, err := sqlite.NewFromConfig(context.Background(), sqlite.Config{DBPath: filepath.Join(t.TempDir(), "jobdb.sqlite")})
+	rt, err := sqlite.NewFromConfig(celltest.Context(context.Background()), sqlite.Config{DBPath: filepath.Join(t.TempDir(), "jobdb.sqlite")})
 	require.NoError(t, err)
-	t.Cleanup(func() { require.NoError(t, rt.Close(context.Background())) })
+	t.Cleanup(func() {
+		require.NoError(t, rt.Close(celltest.Context(context.Background())))
+	})
 	server := remote.NewServer(rt)
-	httpServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	httpServer := httptest.NewServer(celltest.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		f.calls.Add(1)
 		server.ServeHTTP(w, r)
-	}))
+	})))
 	t.Cleanup(httpServer.Close)
 	f.tenant = "tenant"
 	f.runtimeURL = httpServer.URL
@@ -48,7 +51,7 @@ func newDeletionFixture(t *testing.T, backend string) *deletionFixture {
 
 func (f *deletionFixture) open(t *testing.T) *swfruntime.Handle {
 	t.Helper()
-	h, err := swfruntime.Open(context.Background(), f.runtimeURL)
+	h, err := swfruntime.Open(celltest.Context(context.Background()), f.runtimeURL)
 	require.NoError(t, err)
 	return h
 }
@@ -58,9 +61,13 @@ func (f *deletionFixture) run(t *testing.T, opts Options) Result {
 	var out bytes.Buffer
 	opts.JobDBURI, opts.Stdout, opts.JSONOutput = f.uri, &out, true
 	before := f.calls.Load()
-	require.NoError(t, Run(context.Background(), opts))
+	require.NoError(t, Run(celltest.Context(context.Background()), opts))
 	if f.runtimeURL != "embed:///" {
-		require.EqualValues(t, 1, f.calls.Load()-before, "one bulk call; no listing, polling, or per-ID calls")
+		expected := int64(1)
+		if len(opts.Cells) > 0 || opts.Self {
+			expected++
+		}
+		require.EqualValues(t, expected, f.calls.Load()-before, "selection then bulk deletion")
 	}
 	var result Result
 	require.NoError(t, json.Unmarshal(out.Bytes(), &result))
@@ -70,7 +77,7 @@ func (f *deletionFixture) run(t *testing.T, opts Options) Result {
 func TestDeletionSelectionAcrossRuntimes(t *testing.T) {
 	for _, backend := range []string{"embed", "remote"} {
 		t.Run(backend, func(t *testing.T) {
-			ctx := context.Background()
+			ctx := celltest.Context(context.Background())
 			f := newDeletionFixture(t, backend)
 			h := f.open(t)
 			for _, row := range []struct{ tenant, id, repo, recipe string }{
@@ -81,7 +88,7 @@ func TestDeletionSelectionAcrossRuntimes(t *testing.T) {
 				metadata, err := json.Marshal(map[string]string{"repo": "https://github.com/acme/" + row.repo + ".git", "recipe": row.recipe})
 				require.NoError(t, err)
 				_, err = h.Runtime.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{
-					TenantId: row.tenant, JobID: row.id, JobType: "test", Metadata: metadata, Data: jobdb.NewTaskDataOrPanic("input"),
+					TenantId: row.tenant, JobID: row.id, JobType: "test", Metadata: metadata, Data: jobdb.NewTaskDataOrPanic("input"), Cell: row.repo, CellRepo: "github.com/acme/" + row.repo,
 				}})
 				require.NoError(t, err)
 			}
@@ -150,15 +157,15 @@ func TestDeletionErrorsDoNotFallBack(t *testing.T) {
 		{http.StatusServiceUnavailable, nil},
 	} {
 		var calls atomic.Int64
-		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		server := httptest.NewServer(celltest.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			calls.Add(1)
 			if r.Method != http.MethodPost || r.URL.Path != "/v1/tenants/tenant/jobs/delete" {
 				t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
 			}
 			w.WriteHeader(tc.status)
 			_, _ = io.WriteString(w, `{"error":"unavailable"}`)
-		}))
-		err := Run(context.Background(), Options{JobDBURI: server.URL + "/tenant", All: true, Stdout: io.Discard})
+		})))
+		err := Run(celltest.Context(context.Background()), Options{JobDBURI: server.URL + "/tenant", All: true, Stdout: io.Discard})
 		server.Close()
 		require.Error(t, err)
 		if tc.want != nil {
@@ -166,7 +173,7 @@ func TestDeletionErrorsDoNotFallBack(t *testing.T) {
 		}
 		require.EqualValues(t, 1, calls.Load())
 	}
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(celltest.Context(context.Background()))
 	cancel()
 	err := Run(ctx, Options{JobDBURI: "http://127.0.0.1:1/tenant", All: true, Stdout: io.Discard})
 	require.ErrorIs(t, err, context.Canceled)

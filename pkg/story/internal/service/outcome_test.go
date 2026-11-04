@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/c2j/pkg/story/internal/model"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
@@ -49,7 +50,7 @@ func TestWorkflowOutcomeReconcilesTerminalState(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			service, err := New(Config{Engine: outcomeEngine{run: jobdb.GetJobRunResponse{Job: jobdb.JobRunSummary{Status: tc.state}, Attempts: tc.attempts}}})
 			require.NoError(t, err)
-			out, err := service.GetWorkflowOutcome(context.Background(), model.GetWorkflowOutcomeRequest{ProjectID: "tenant", JobID: "job"})
+			out, err := service.GetWorkflowOutcome(celltest.Context(context.Background()), model.GetWorkflowOutcomeRequest{ProjectID: "tenant", JobID: "job"})
 			if tc.pending {
 				require.ErrorIs(t, err, ErrOutcomePending)
 				require.Nil(t, out)

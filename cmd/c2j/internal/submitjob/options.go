@@ -37,6 +37,7 @@ type Options struct {
 	FromWorkspace    bool
 	FromWorkspaceNow bool
 	Self             bool
+	CellRepo         string
 	Cell             string
 
 	RunAfterSubmit bool

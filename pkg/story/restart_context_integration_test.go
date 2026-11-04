@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/colony-2/c2j/internal/celltest"
 	coreops "github.com/colony-2/c2j/pkg/ops"
 	"github.com/colony-2/c2j/pkg/starter"
 	"github.com/colony-2/c2j/pkg/story"
@@ -74,14 +75,14 @@ func newRestartFixture(t *testing.T, backend, recipe string, failFirst ...bool) 
 	coreops.Register(coreops.NewActivityMappedOpV2[restartProbeInput, map[string]any](coreops.OpMetadata{Type: restartProbeOp}, func(coreops.OpDependencies, context.Context, restartProbeInput) (map[string]any, error) {
 		panic("inspection must not execute operations")
 	}))
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(celltest.Context(context.Background()), 30*time.Second)
 	t.Cleanup(cancel)
 	db, err := sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: filepath.Join(t.TempDir(), "jobs.db")})
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close(ctx)) })
 	var rt jobdb.WorkflowRuntime = db
 	if backend == "remote" {
-		server := httptest.NewServer(remote.NewServer(db))
+		server := httptest.NewServer(celltest.Handler(remote.NewServer(db)))
 		t.Cleanup(server.Close)
 		rt, err = remote.New(server.URL, server.Client())
 		require.NoError(t, err)
@@ -95,14 +96,14 @@ func newRestartFixture(t *testing.T, backend, recipe string, failFirst ...bool) 
 	require.NoError(t, err)
 	svc, err := story.New(story.ServiceConfig{Engine: engine, SchemaRegistry: db})
 	require.NoError(t, err)
-	data, err := jobdb.NewTaskData(workflowctl.StartJob{TenantId: "restart-tests", RecipeName: "fixture"}, jobdb.NewArtifactFromBytes("fixture"+starter.RecipeArtifactSuffix, []byte(recipe)))
+	data, err := jobdb.NewTaskData(workflowctl.StartJob{TenantId: "restart-tests", RecipeName: "fixture", Cell: "test", CellRepo: celltest.Repo("")}, jobdb.NewArtifactFromBytes("fixture"+starter.RecipeArtifactSuffix, []byte(recipe)))
 	require.NoError(t, err)
-	keyHandle, err := engine.SubmitJob(ctx, jobdb.SubmitJob{TenantId: "restart-tests", JobType: "recipe", Data: data})
+	keyHandle, err := engine.SubmitJob(ctx, jobdb.SubmitJob{TenantId: "restart-tests", JobType: "recipe", Data: data, Cell: "test", CellRepo: "example.test/test"})
 	key := keyHandle.JobKey
 	require.NoError(t, err)
 	f := &restartFixture{ctx, rt, engine, svc, w, task, key}
 	if task.fail.Load() {
-		run, err := jobworkflow.GetJobForRun(ctx, rt, jobworkflow.GetJobForRunRequest{JobKey: key, JobWorker: w, TaskWorkers: []jobworkflow.TaskWorker{task}, WorkerID: "test", LeaseDuration: time.Minute})
+		run, err := jobworkflow.GetJobForRun(ctx, rt, jobworkflow.GetJobForRunRequest{JobKey: key, JobWorker: w, TaskWorkers: []jobworkflow.TaskWorker{compiler.NewCellContextTaskWorker(), task}, WorkerID: "test", LeaseDuration: time.Minute})
 		require.NoError(t, err)
 		out, err := run.Run(nil)
 		require.NoError(t, err)
@@ -114,7 +115,7 @@ func newRestartFixture(t *testing.T, backend, recipe string, failFirst ...bool) 
 }
 func (f *restartFixture) run(t *testing.T, key jobdb.JobKey) {
 	t.Helper()
-	run, err := jobworkflow.GetJobForRun(f.ctx, f.runtime, jobworkflow.GetJobForRunRequest{JobKey: key, JobWorker: f.worker, TaskWorkers: []jobworkflow.TaskWorker{f.task}, WorkerID: "restart-test", LeaseDuration: time.Minute})
+	run, err := jobworkflow.GetJobForRun(f.ctx, f.runtime, jobworkflow.GetJobForRunRequest{JobKey: key, JobWorker: f.worker, TaskWorkers: []jobworkflow.TaskWorker{compiler.NewCellContextTaskWorker(), f.task}, WorkerID: "restart-test", LeaseDuration: time.Minute})
 	require.NoError(t, err)
 	_, err = run.Run(nil)
 	require.NoError(t, err)

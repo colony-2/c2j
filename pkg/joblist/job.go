@@ -17,6 +17,8 @@ type Page struct {
 // Job is the CLI-compatible typed projection, with repository identity added.
 // Stored row fields pass through; evaluated waits and extra memberships are not loaded.
 type Job struct {
+	Cell                string                       `json:"cell"`
+	CellID              string                       `json:"cell_id"`
 	BlockingWaitSummary *jobdb.DependencyWaitSummary `json:"blocking_wait_summary,omitempty"`
 	Metadata            json.RawMessage              `json:"metadata,omitempty"`
 	SchemaHash          string                       `json:"schema_hash,omitempty"`
@@ -78,14 +80,14 @@ func CloneBlockingWaitSummary(wait *jobdb.DependencyWaitSummary) *jobdb.Dependen
 // recipe or reading history. Malformed execution data stays an item diagnostic.
 func JobFromSummary(job jobdb.JobSummary) Job {
 	var meta struct {
-		RepositorySource string `json:"repo"`
-		Prompt           string `json:"prompt"`
-		Title            string `json:"title"`
+		Prompt string `json:"prompt"`
+		Title  string `json:"title"`
 	}
 	// Unrelated metadata does not prevent projecting job state. ExecutionView
 	// independently reports malformed execution metadata for waiting jobs.
 	_ = json.Unmarshal(job.Metadata, &meta)
 	return Job{
+		Cell: job.Cell, CellID: job.CellID,
 		BlockingWaitSummary: CloneBlockingWaitSummary(job.BlockingWaitSummary),
 		Metadata:            append(json.RawMessage(nil), job.Metadata...),
 		SchemaHash:          job.SchemaHash,
@@ -98,7 +100,7 @@ func JobFromSummary(job jobdb.JobSummary) Job {
 		ClientPayload:       append(json.RawMessage(nil), job.ClientPayload...),
 		TaskWait:            jobdb.CloneExecutionState(job.ExecutionState).TaskWait,
 		WaitFor:             append([]string(nil), job.WaitFor...),
-		Execution:           ExecutionView(job), RepositorySource: meta.RepositorySource,
+		Execution:           ExecutionView(job), RepositorySource: job.CellRepo,
 		ClientPayloadRevision: job.ClientPayloadRevision,
 		TenantID:              job.JobKey.TenantId, JobID: job.JobKey.JobId, Status: job.Status,
 		Store: StoreForJob(job), JobType: job.JobType, CreatedAt: job.CreatedAt, AvailableAt: job.AvailableAt,

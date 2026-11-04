@@ -5,6 +5,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/c2j/pkg/ops"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 )
@@ -19,7 +20,7 @@ func TestAwaitChildGroupTreatsTerminalChildErrorsAsCollectable(t *testing.T) {
 	state := ChildGroupStepState{Children: []ChildGroupChildRecord{
 		{Status: "started", Wait: WaitPolicy{On: "job"}, Result: ResultSource{Job: "child-1"}, JobID: "child-1"},
 	}}
-	out, err := awaitChildGroup(deps, context.Background(), state)
+	out, err := awaitChildGroup(deps, celltest.Context(context.Background()), state)
 	if err != nil {
 		t.Fatalf("unexpected await error: %v", err)
 	}
@@ -36,7 +37,7 @@ func TestAwaitChildGroupPropagatesSystemAwaitError(t *testing.T) {
 		WithJobTool(&fakeJobTool{key: jobdb.JobKey{TenantId: "tenant"}, awaitErr: errors.New("backend down")}).
 		Build()
 
-	_, err := awaitChildGroup(deps, context.Background(), ChildGroupStepState{Children: []ChildGroupChildRecord{
+	_, err := awaitChildGroup(deps, celltest.Context(context.Background()), ChildGroupStepState{Children: []ChildGroupChildRecord{
 		{Status: "started", Wait: WaitPolicy{On: "job"}, Result: ResultSource{Job: "child-1"}, JobID: "child-1"},
 	}})
 	if err == nil || err.Error() != "backend down" {
@@ -55,7 +56,7 @@ func TestCollectChildGroupSoftensOnlyTerminalChildErrors(t *testing.T) {
 		WithJobTool(&fakeJobTool{key: jobdb.JobKey{TenantId: "tenant"}}).
 		Build()
 
-	out, err := collectChildGroup(deps, context.Background(), ChildGroupStepState{Children: []ChildGroupChildRecord{
+	out, err := collectChildGroup(deps, celltest.Context(context.Background()), ChildGroupStepState{Children: []ChildGroupChildRecord{
 		{Key: "required", Required: true, Status: "started", Wait: WaitPolicy{On: "job"}, Result: ResultSource{Job: "child-1"}, JobID: "child-1"},
 		{Key: "optional", Required: false, Status: "started", Wait: WaitPolicy{On: "job"}, Result: ResultSource{Job: "child-2"}, JobID: "child-2"},
 	}})
@@ -84,7 +85,7 @@ func TestCollectChildGroupPropagatesUnexpectedResultError(t *testing.T) {
 		WithJobTool(&fakeJobTool{key: jobdb.JobKey{TenantId: "tenant"}}).
 		Build()
 
-	_, err := collectChildGroup(deps, context.Background(), ChildGroupStepState{Children: []ChildGroupChildRecord{
+	_, err := collectChildGroup(deps, celltest.Context(context.Background()), ChildGroupStepState{Children: []ChildGroupChildRecord{
 		{Key: "child", Required: true, Status: "started", Wait: WaitPolicy{On: "job"}, Result: ResultSource{Job: "child-1"}, JobID: "child-1"},
 	}})
 	if err == nil || err.Error() != "result store down" {

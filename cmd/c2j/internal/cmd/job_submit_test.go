@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/c2j/pkg/recipejob"
 	remoteruntime "github.com/colony-2/jobdb/pkg/jobdb/runtime/remote"
 	toyruntime "github.com/colony-2/jobdb/pkg/jobdb/runtime/toy"
@@ -46,20 +47,20 @@ func TestSubmitTitleFlag(t *testing.T) {
 	root := t.TempDir()
 	t.Chdir(root)
 	db := toyruntime.New()
-	server := httptest.NewServer(remoteruntime.NewServer(db))
+	server := httptest.NewServer(celltest.Handler(remoteruntime.NewServer(db)))
 	defer server.Close()
 	for _, title := range []string{"  Improve café\nUI  ", "", "  "} {
 		cmd := newSubmitCmd()
 		var out bytes.Buffer
 		cmd.SetOut(&out)
 		cmd.SetErr(&bytes.Buffer{})
-		cmd.SetArgs([]string{"unchanged prompt", "--title", title, "--cell", root, "--jobdb", server.URL + "/tenant", "--json"})
+		cmd.SetArgs([]string{"unchanged prompt", "--title", title, "--cell", "app", "--cell-repo", celltest.Repo(root), "--jobdb", server.URL + "/tenant", "--json"})
 		require.NoError(t, cmd.Execute())
 		var submitted struct {
 			JobID string `json:"job_id"`
 		}
 		require.NoError(t, json.Unmarshal(out.Bytes(), &submitted))
-		job, err := recipejob.GetRecipeJob(context.Background(), db, recipejob.GetRecipeJobRequest{TenantID: "tenant", JobID: submitted.JobID})
+		job, err := recipejob.GetRecipeJob(celltest.Context(context.Background()), db, recipejob.GetRecipeJobRequest{TenantID: "tenant", JobID: submitted.JobID})
 		require.NoError(t, err)
 		want := title
 		if strings.TrimSpace(want) == "" {
@@ -71,7 +72,7 @@ func TestSubmitTitleFlag(t *testing.T) {
 	cmd := newSubmitCmd()
 	cmd.SetOut(&bytes.Buffer{})
 	cmd.SetErr(&bytes.Buffer{})
-	cmd.SetArgs([]string{"prompt", "--title", "", "--inputs-json", `{"title":"existing"}`, "--cell", root, "--jobdb", server.URL + "/tenant"})
+	cmd.SetArgs([]string{"prompt", "--title", "", "--inputs-json", `{"title":"existing"}`, "--cell", "app", "--cell-repo", celltest.Repo(root), "--jobdb", server.URL + "/tenant"})
 	require.ErrorContains(t, cmd.Execute(), "title was provided both")
 }
 
@@ -93,7 +94,7 @@ func TestSubmitRejectsConflictingRecipeFlags(t *testing.T) {
 func TestSubmitConventionsWithInteractivePromptAndJSON(t *testing.T) {
 	root := t.TempDir()
 	t.Chdir(root)
-	server := httptest.NewServer(remoteruntime.NewServer(toyruntime.New()))
+	server := httptest.NewServer(celltest.Handler(remoteruntime.NewServer(toyruntime.New())))
 	defer server.Close()
 	for _, mode := range []string{"default", "build", "custom"} {
 		t.Run(mode, func(t *testing.T) {
@@ -102,7 +103,7 @@ func TestSubmitConventionsWithInteractivePromptAndJSON(t *testing.T) {
 			cmd.SetOut(&out)
 			cmd.SetErr(&stderr)
 			cmd.SetIn(strings.NewReader("implement the feature\n"))
-			args := []string{"--cell", root, "--jobdb", server.URL + "/tenant", "--json"}
+			args := []string{"--cell", "app", "--cell-repo", celltest.Repo(root), "--jobdb", server.URL + "/tenant", "--json"}
 			want := mode
 			if mode == "default" {
 				want = "git+https://github.com/colony-2/recipes.git//build.yaml@main"
@@ -151,7 +152,7 @@ func TestSubmitPromptFile(t *testing.T) {
 	require.NoError(t, os.WriteFile("prompt.md", []byte(prompt), 0600))
 	require.NoError(t, os.WriteFile("inputs.yaml", []byte("extra: retained\n"), 0600))
 	db := toyruntime.New()
-	server := httptest.NewServer(remoteruntime.NewServer(db))
+	server := httptest.NewServer(celltest.Handler(remoteruntime.NewServer(db)))
 	defer server.Close()
 	cmd := newSubmitCmd()
 	var stdout, stderr bytes.Buffer
@@ -159,7 +160,7 @@ func TestSubmitPromptFile(t *testing.T) {
 	cmd.SetIn(stdin)
 	cmd.SetOut(&stdout)
 	cmd.SetErr(&stderr)
-	cmd.SetArgs([]string{"--prompt-file", "prompt.md", "--inputs-file", "inputs.yaml", "--cell", root, "--jobdb", server.URL + "/tenant", "--json"})
+	cmd.SetArgs([]string{"--prompt-file", "prompt.md", "--inputs-file", "inputs.yaml", "--cell", "app", "--cell-repo", celltest.Repo(root), "--jobdb", server.URL + "/tenant", "--json"})
 	require.NoError(t, cmd.Execute())
 	require.Empty(t, stderr.String())
 	remaining, err := io.ReadAll(stdin)
@@ -169,7 +170,7 @@ func TestSubmitPromptFile(t *testing.T) {
 		JobID string `json:"job_id"`
 	}
 	require.NoError(t, json.Unmarshal(stdout.Bytes(), &submitted))
-	job, err := recipejob.GetRecipeJob(context.Background(), db, recipejob.GetRecipeJobRequest{TenantID: "tenant", JobID: submitted.JobID})
+	job, err := recipejob.GetRecipeJob(celltest.Context(context.Background()), db, recipejob.GetRecipeJobRequest{TenantID: "tenant", JobID: submitted.JobID})
 	require.NoError(t, err)
 	require.Equal(t, prompt, job.Prompt)
 }
@@ -200,7 +201,7 @@ func TestSubmitPromptFileErrors(t *testing.T) {
 			cmd := newSubmitCmd()
 			cmd.SetOut(&bytes.Buffer{})
 			cmd.SetErr(&bytes.Buffer{})
-			cmd.SetArgs(append(tc.args, "--cell", root, "--jobdb", "http://127.0.0.1:1/tenant"))
+			cmd.SetArgs(append(tc.args, "--cell", "app", "--cell-repo", celltest.Repo(root), "--jobdb", "http://127.0.0.1:1/tenant"))
 			require.ErrorContains(t, cmd.Execute(), tc.want)
 		})
 	}

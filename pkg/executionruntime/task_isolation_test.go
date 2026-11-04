@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/c2j/pkg/execution"
 	"github.com/colony-2/c2j/pkg/gitprofile"
 	"github.com/colony-2/c2j/pkg/permissions"
@@ -34,7 +35,7 @@ func (p connectionSecretProvider) ResolveSecrets(_ context.Context, req jobdb.Se
 }
 
 func TestTaskStateIsolatedAcrossConnectionsAndSuccessiveTasks(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(celltest.Context(context.Background()), 30*time.Second)
 	defer cancel()
 	type taskState struct {
 		slot     int
@@ -131,12 +132,12 @@ func TestTaskStateIsolatedAcrossConnectionsAndSuccessiveTasks(t *testing.T) {
 			_, err = base.SetTenantConfigurationValue(ctx, jobdb.SetTenantConfigurationValueRequest{TenantID: "same", Name: name, Value: value})
 			require.NoError(t, err)
 		}
-		server := httptest.NewServer(remote.NewServer(base))
+		server := httptest.NewServer(celltest.Handler(remote.NewServer(base)))
 		t.Cleanup(server.Close)
 		client, err := remote.New(server.URL, server.Client())
 		require.NoError(t, err)
 		runtime := New(client, execution.Allocation{})
-		job, err := client.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "same", JobID: "same", JobType: orchestrator.Name(), Data: jobdb.NewTaskDataOrPanic(nil)}})
+		job, err := client.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "same", JobID: "same", JobType: orchestrator.Name(), Data: jobdb.NewTaskDataOrPanic(nil), Cell: "test", CellRepo: "example.test/test"}})
 		require.NoError(t, err)
 		run, err := wf.GetJobForRun(ctx, runtime, wf.GetJobForRunRequest{JobKey: job.JobKey, JobWorker: orchestrator,
 			TaskWorkers: []wf.TaskWorker{runtime.WrapTaskWorker(worker)}, WorkerID: "worker", LeaseDuration: time.Minute,

@@ -4,19 +4,20 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	coretask "github.com/colony-2/c2j/pkg/task"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/colony-2/c2j/internal/celltest"
 	coreops "github.com/colony-2/c2j/pkg/ops"
 	extops "github.com/colony-2/c2j/pkg/ops/extensions"
 	"github.com/colony-2/c2j/pkg/ops/process"
 	"github.com/colony-2/c2j/pkg/recipe"
 	"github.com/colony-2/c2j/pkg/starter"
 	"github.com/colony-2/c2j/pkg/swfutil"
+	coretask "github.com/colony-2/c2j/pkg/task"
 	workerops "github.com/colony-2/c2j/pkg/worker/ops"
 	"github.com/colony-2/c2j/pkg/workflowctl"
 	"github.com/colony-2/jobdb/pkg/jobdb"
@@ -110,11 +111,11 @@ outputs:
 	job.GitBase.ResolvedBaseHash = commit
 	git.ParentRef = commit
 	engine := newToyEngineWithWorkSet(t, "tools", ws, nil)
-	keyRef, err := starter.StartRecipeJob(context.Background(), workflowctl.StartJob{TenantId: "tools", RecipeName: "tools", JobContext: job, GitRef: git.ParentRef}, engine, *rec)
+	keyRef, err := starter.StartRecipeJob(celltest.Context(context.Background()), workflowctl.StartJob{TenantId: "tools", RecipeName: "tools", JobContext: job, GitRef: git.ParentRef, Cell: "test", CellRepo: celltest.Repo(job.GitBase.BaseRepo)}, engine, *rec)
 	key := keyRef.Key()
 	require.NoError(t, err)
-	require.NoError(t, jobworkflow.WaitForJobToComplete(context.Background(), 10*time.Second, key, engine))
-	result, err := swfutil.JobResult(context.Background(), engine, key)
+	require.NoError(t, jobworkflow.WaitForJobToComplete(celltest.Context(context.Background()), 10*time.Second, key, engine))
+	result, err := swfutil.JobResult(celltest.Context(context.Background()), engine, key)
 	require.NoError(t, err)
 	raw, err := result.GetData()
 	require.NoError(t, err)
@@ -124,7 +125,7 @@ outputs:
 	installs, err := os.ReadFile(log)
 	require.NoError(t, err)
 	require.Equal(t, "tool==1\ntool==2\ntool==3\n", string(installs))
-	run, err := engine.GetJobRun(context.Background(), jobdb.GetJobRunRequest{JobKey: key, IncludeOutputs: true})
+	run, err := engine.GetJobRun(celltest.Context(context.Background()), jobdb.GetJobRunRequest{JobKey: key, IncludeOutputs: true})
 	require.NoError(t, err)
 	setups := 0
 	for _, task := range executionTaskRuns(run) {
@@ -141,7 +142,7 @@ outputs:
 	require.NoError(t, os.RemoveAll(cache))
 	require.NoError(t, os.RemoveAll(opRoot))
 	require.NoError(t, os.RemoveAll(bin))
-	replay, err := engine.ReplayJobRun(context.Background(), jobworkflow.ReplayRunRequest{JobKey: key, JobWorker: NewRecipeJobWorker(RecipeJobWorkerOptions{ReadOnlyReplay: true})})
+	replay, err := engine.ReplayJobRun(celltest.Context(context.Background()), jobworkflow.ReplayRunRequest{JobKey: key, JobWorker: NewRecipeJobWorker(RecipeJobWorkerOptions{ReadOnlyReplay: true})})
 	require.NoError(t, err)
 	replayRaw, err := replay.GetData()
 	require.NoError(t, err)
@@ -226,19 +227,19 @@ sequence:
 	require.NoError(t, err)
 	job, git := GenerateTestContext()
 	engine := newToyEngineWithWorkSet(t, "tools", ws, nil)
-	keyRef, err := starter.StartRecipeJob(context.Background(), workflowctl.StartJob{TenantId: "tools", RecipeName: "recovery", JobContext: job, GitRef: git.ParentRef}, engine, *rec)
+	keyRef, err := starter.StartRecipeJob(celltest.Context(context.Background()), workflowctl.StartJob{TenantId: "tools", RecipeName: "recovery", JobContext: job, GitRef: git.ParentRef, Cell: "test", CellRepo: celltest.Repo(job.GitBase.BaseRepo)}, engine, *rec)
 	key := keyRef.Key()
 	require.NoError(t, err)
-	waitErr := jobworkflow.WaitForJobToComplete(context.Background(), 10*time.Second, key, engine)
+	waitErr := jobworkflow.WaitForJobToComplete(celltest.Context(context.Background()), 10*time.Second, key, engine)
 	require.NoError(t, waitErr)
-	_, err = swfutil.JobResult(context.Background(), engine, key)
+	_, err = swfutil.JobResult(celltest.Context(context.Background()), engine, key)
 	require.NoError(t, err)
 	require.True(t, lost)
 	require.Equal(t, 1, first, "completed first step must never be repeated")
 	require.Equal(t, 1, second)
 	require.NoError(t, os.RemoveAll(cache))
 	require.NoError(t, os.RemoveAll(bin))
-	_, err = engine.ReplayJobRun(context.Background(), jobworkflow.ReplayRunRequest{JobKey: key, JobWorker: NewRecipeJobWorker(RecipeJobWorkerOptions{ReadOnlyReplay: true})})
+	_, err = engine.ReplayJobRun(celltest.Context(context.Background()), jobworkflow.ReplayRunRequest{JobKey: key, JobWorker: NewRecipeJobWorker(RecipeJobWorkerOptions{ReadOnlyReplay: true})})
 	require.NoError(t, err)
 	require.Equal(t, 1, first)
 	require.Equal(t, 1, second)

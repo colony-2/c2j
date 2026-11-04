@@ -26,7 +26,7 @@ type Options struct {
 
 type Selection struct {
 	TenantID      string     `json:"tenant_id"`
-	Repositories  []string   `json:"repositories,omitempty"`
+	Cells         []string   `json:"cells,omitempty"`
 	Recipe        string     `json:"recipe,omitempty"`
 	JobIDs        []string   `json:"job_ids,omitempty"`
 	CreatedBefore *time.Time `json:"created_before,omitempty"`
@@ -64,7 +64,16 @@ func Run(ctx context.Context, opts Options) error {
 	if !ok {
 		return jobdb.ErrJobDeletionUnsupported
 	}
-	response, err := admin.DeleteJobs(ctx, req)
+	var response jobdb.DeleteJobsResponse
+	if len(selection.Cells) > 0 {
+		req.JobIDs, err = recipejob.JobIDsInCells(ctx, handle.Runtime, req.TenantID, selection.Cells, req.JobIDs)
+		if err != nil {
+			return err
+		}
+	}
+	if len(selection.Cells) == 0 || len(req.JobIDs) > 0 {
+		response, err = admin.DeleteJobs(ctx, req)
+	}
 	if err != nil {
 		return fmt.Errorf("delete jobs: %w", err)
 	}
@@ -127,15 +136,7 @@ func buildRequest(ctx context.Context, opts Options, tenant string, now time.Tim
 			if err != nil {
 				return jobdb.DeleteJobsRequest{}, Selection{}, fmt.Errorf("resolve deletion cell: %w", err)
 			}
-			eq, err := jobdb.Metadata().EqualFilter("repo", target.RepositorySource)
-			if err != nil {
-				return invalid(err.Error())
-			}
-			filter, err = filter.OrFilter(eq)
-			if err != nil {
-				return invalid(err.Error())
-			}
-			selection.Repositories = append(selection.Repositories, target.RepositorySource)
+			selection.Cells = append(selection.Cells, target.CellName)
 		}
 	}
 	if opts.Recipe != "" {
@@ -149,7 +150,11 @@ func buildRequest(ctx context.Context, opts Options, tenant string, now time.Tim
 		}
 	}
 	req.MetadataFilter = filter
-	if err := req.Validate(); err != nil {
+	validation := req
+	if len(selection.Cells) > 0 && len(validation.JobIDs) == 0 {
+		validation.JobIDs = []string{"cell-selection"}
+	}
+	if err := validation.Validate(); err != nil {
 		return jobdb.DeleteJobsRequest{}, Selection{}, err
 	}
 	return req, selection, nil

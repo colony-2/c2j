@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"testing"
 
+	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/c2j/pkg/logging"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	"github.com/stretchr/testify/require"
@@ -27,7 +28,7 @@ func TestLogMasksValuesAndPreservesGroups(t *testing.T) {
 	defer redactor.Close()
 	s := redactor.NewSession()
 	defer s.Close()
-	require.NoError(t, s.Prepare(context.Background(), []string{"token"}, func(context.Context, []string) (jobdb.SecretResolveResult, error) {
+	require.NoError(t, s.Prepare(celltest.Context(context.Background()), []string{"token"}, func(context.Context, []string) (jobdb.SecretResolveResult, error) {
 		return jobdb.SecretResolveResult{Secrets: map[string]jobdb.SecretValue{"token": {Value: "private-token\n"}}}, nil
 	}))
 	s.Close() // Closing a value cache does not discard the invocation's masks.
@@ -50,7 +51,7 @@ func TestInjectedSelectiveLoggerMasksFieldsCapturedBeforeSecretSetup(t *testing.
 	child := logger.With("component", "worker").WithGroup("payload").With("captured", "late-private-token")
 	session := redactor.NewSession()
 	defer session.Close()
-	require.NoError(t, session.Prepare(context.Background(), []string{"token"}, func(context.Context, []string) (jobdb.SecretResolveResult, error) {
+	require.NoError(t, session.Prepare(celltest.Context(context.Background()), []string{"token"}, func(context.Context, []string) (jobdb.SecretResolveResult, error) {
 		return jobdb.SecretResolveResult{Secrets: map[string]jobdb.SecretValue{"token": {Value: "late-private-token"}}}, nil
 	}))
 	child.Debug("late-private-token", "error", fmt.Errorf("failed: late-private-token"))

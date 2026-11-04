@@ -5,6 +5,7 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/colony-2/c2j/internal/celltest"
 	coreops "github.com/colony-2/c2j/pkg/ops"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	"github.com/segmentio/ksuid"
@@ -39,7 +40,7 @@ func TestStartSingleJobPassesDeterministicJobID(t *testing.T) {
 		WithGitContext(coreops.GitExecutionContext{NodePath: "workflow/steps/start", InvokeSeq: 5}).
 		Build()
 
-	out, err := startSingleJob(deps, context.Background(), SingleRecipeWithRef{
+	out, err := startSingleJob(deps, celltest.Context(context.Background()), SingleRecipeWithRef{
 		SingleRecipe: SingleRecipe{
 			Name: "child-recipe",
 			Git: SingleRecipeGit{
@@ -93,11 +94,11 @@ func TestStartMultipleJobsReusesSameIDsAcrossReruns(t *testing.T) {
 		},
 	}
 
-	first, err := startMultipleJobs(deps, context.Background(), input)
+	first, err := startMultipleJobs(deps, celltest.Context(context.Background()), input)
 	if err != nil {
 		t.Fatalf("first startMultipleJobs: %v", err)
 	}
-	second, err := startMultipleJobs(deps, context.Background(), input)
+	second, err := startMultipleJobs(deps, celltest.Context(context.Background()), input)
 	if err != nil {
 		t.Fatalf("second startMultipleJobs: %v", err)
 	}
@@ -132,7 +133,7 @@ func TestStartSingleJobBareNameUsesRecipeSourceForLookup(t *testing.T) {
 		}).
 		Build()
 
-	_, err := startSingleJob(deps, context.Background(), SingleRecipeWithRef{
+	_, err := startSingleJob(deps, celltest.Context(context.Background()), SingleRecipeWithRef{
 		SingleRecipe: SingleRecipe{
 			Name: "child-recipe",
 			Git: SingleRecipeGit{

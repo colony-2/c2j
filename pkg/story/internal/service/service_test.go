@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/c2j/pkg/starter"
 	"github.com/colony-2/c2j/pkg/story/internal/model"
 	"github.com/colony-2/jobdb/pkg/jobdb"
@@ -127,8 +128,6 @@ func TestBuildSummary_UsesJobMetadata(t *testing.T) {
 	meta := starter.JobMetadata{
 		Version:    starter.JobMetadataVersion,
 		RecipeName: "recipe-1",
-		CellID:     "cell-1",
-		CellName:   "alpha",
 		GitRef:     "main",
 	}
 	metaRaw, err := json.Marshal(meta)
@@ -138,13 +137,14 @@ func TestBuildSummary_UsesJobMetadata(t *testing.T) {
 
 	svc := &Service{logger: slog.Default()}
 	job := jobdb.JobSummary{
+		Cell: "alpha", CellID: "cell-1",
 		JobKey:    jobdb.JobKey{TenantId: "proj-1", JobId: "job-1"},
 		Status:    jobdb.JobStatusActive,
 		CreatedAt: created,
 		Metadata:  metaRaw,
 	}
 
-	summary, ok, err := svc.buildSummary(context.Background(), "proj-1", job)
+	summary, ok, err := svc.buildSummary(celltest.Context(context.Background()), "proj-1", job)
 	if err != nil {
 		t.Fatalf("buildSummary error: %v", err)
 	}

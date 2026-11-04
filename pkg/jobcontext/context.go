@@ -15,6 +15,8 @@ const (
 	CurrentOpTypeEnv             = "C2J_CURRENT_OP_TYPE"
 	CurrentOpStepEnv             = "C2J_CURRENT_OP_STEP"
 	CurrentOpTaskTypeEnv         = "C2J_CURRENT_OP_TASK_TYPE"
+	CurrentCellIDEnv             = "C2J_CURRENT_CELL_ID"
+	CurrentCellRepoEnv           = "C2J_CURRENT_CELL_REPO"
 	CurrentCellNameEnv           = "C2J_CURRENT_CELL_NAME"
 	CurrentRepositorySourceEnv   = "C2J_CURRENT_REPOSITORY_SOURCE"
 	CurrentGitRefEnv             = "C2J_CURRENT_GIT_REF"
@@ -35,6 +37,8 @@ const (
 )
 
 type Current struct {
+	CellID             string `json:"cell_id,omitempty"`
+	CellRepo           string `json:"cell_repo,omitempty"`
 	GoalID             string `json:"goal_id"`
 	TenantID           string `json:"tenant_id,omitempty"`
 	JobID              string `json:"job_id,omitempty"`
@@ -51,6 +55,8 @@ type Current struct {
 }
 
 type Parent struct {
+	CellID             string `json:"cell_id,omitempty"`
+	CellRepo           string `json:"cell_repo,omitempty"`
 	GoalID             string `json:"goal_id"`
 	TenantID           string `json:"tenant_id,omitempty"`
 	JobID              string `json:"job_id,omitempty"`
@@ -105,6 +111,7 @@ func (p Parent) HasJob() bool {
 
 func ParentFromCurrent(c Current) Parent {
 	return Parent{
+		CellID: c.CellID, CellRepo: c.CellRepo,
 		TenantID:           strings.TrimSpace(c.TenantID),
 		JobID:              strings.TrimSpace(c.JobID),
 		GoalID:             strings.TrimSpace(c.GoalID),
@@ -135,6 +142,8 @@ func EnvForCurrent(c Current) map[string]string {
 	setIfNotEmpty(env, CurrentOpTypeEnv, c.OpType)
 	setIfNotEmpty(env, CurrentOpStepEnv, c.OpStep)
 	setIfNotEmpty(env, CurrentOpTaskTypeEnv, c.OpTaskType)
+	setIfNotEmpty(env, CurrentCellIDEnv, c.CellID)
+	setIfNotEmpty(env, CurrentCellRepoEnv, c.CellRepo)
 	setIfNotEmpty(env, CurrentCellNameEnv, c.CellName)
 	setIfNotEmpty(env, CurrentRepositorySourceEnv, c.RepositorySource)
 	setIfNotEmpty(env, CurrentGitRefEnv, c.GitRef)
@@ -168,6 +177,7 @@ func CurrentFromEnv(getenv func(string) string) (Current, bool, error) {
 		return Current{}, false, nil
 	}
 	current := Current{
+		CellID: strings.TrimSpace(getenv(CurrentCellIDEnv)), CellRepo: strings.TrimSpace(getenv(CurrentCellRepoEnv)),
 		GoalID:           strings.TrimSpace(getenv(CurrentGoalIDEnv)),
 		TenantID:         strings.TrimSpace(getenv(CurrentTenantIDEnv)),
 		JobID:            strings.TrimSpace(getenv(CurrentJobIDEnv)),
@@ -234,7 +244,7 @@ func setIfNotEmpty(env map[string]string, key string, value string) {
 }
 
 func hasAnyCurrentEnv(c Current, seqRaw string) bool {
-	return c.GoalID != "" || c.TenantID != "" ||
+	return c.CellID != "" || c.CellRepo != "" || c.GoalID != "" || c.TenantID != "" ||
 		c.JobID != "" ||
 		c.JobType != "" ||
 		c.OpType != "" ||

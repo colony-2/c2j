@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/colony-2/c2j/internal/localruntime"
 	"github.com/colony-2/c2j/pkg/jobdbschema"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	remoteruntime "github.com/colony-2/jobdb/pkg/jobdb/runtime/remote"
@@ -145,7 +146,7 @@ func openEmbed(ctx context.Context, parsed *url.URL, rawURL string, workerTenant
 	if err != nil {
 		return cleanupOnErr(fmt.Errorf("build sqlite runtime: %w", err))
 	}
-	runtime := withChapterVisibility(baseRuntime)
+	runtime := withChapterVisibility(localruntime.New(baseRuntime))
 
 	builder := jobworkflow.NewEngineBuilder().WithRuntime(runtime).WithLogger(slog.Default())
 	if workerTenantID != "" {

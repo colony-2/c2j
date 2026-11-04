@@ -7,12 +7,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	toyruntime "github.com/colony-2/jobdb/pkg/jobdb/runtime/toy"
 )
 
 func TestSchemaRegistersWithJobDB(t *testing.T) {
-	ctx := context.Background()
+	ctx := celltest.Context(context.Background())
 	runtime := toyruntime.New()
 
 	info, err := runtime.RegisterJobSchema(ctx, jobdb.RegisterJobSchemaRequest{
@@ -33,7 +34,7 @@ func TestSchemaRegistersWithJobDB(t *testing.T) {
 }
 
 func TestSubmitterRegistersOnMissingSchemaHash(t *testing.T) {
-	ctx := context.Background()
+	ctx := celltest.Context(context.Background())
 	submitter := &missingSchemaSubmitter{}
 	registry := &captureRegistry{}
 
@@ -43,7 +44,7 @@ func TestSubmitterRegistersOnMissingSchemaHash(t *testing.T) {
 	}).SubmitJob(ctx, jobdb.SubmitJob{
 		TenantId: "tenant",
 		JobType:  "recipe",
-		JobID:    "job-1",
+		JobID:    "job-1", Cell: "test", CellRepo: "example.test/test",
 	})
 	key := keyHandle.JobKey
 	if err != nil {
@@ -78,7 +79,7 @@ func TestSubmitterRegistersOnMissingSchemaHash(t *testing.T) {
 }
 
 func TestRestartSubmitterRegistersOnMissingSchemaHash(t *testing.T) {
-	ctx := context.Background()
+	ctx := celltest.Context(context.Background())
 	submitter := &missingSchemaRestartSubmitter{}
 	registry := &captureRegistry{}
 
@@ -87,7 +88,7 @@ func TestRestartSubmitterRegistersOnMissingSchemaHash(t *testing.T) {
 		Registry:         registry,
 	}).SubmitRestartJob(ctx, jobdb.SubmitRestartJobRequest{RequestID: "restart-id", Job: jobdb.SubmitRestartJob{
 		PriorJobKey: jobdb.JobKey{TenantId: "tenant", JobId: "prior"},
-		JobID:       "job-2",
+		JobID:       "job-2", Cell: "test",
 	}})
 	if err != nil {
 		t.Fatalf("SubmitRestartJob: %v", err)
@@ -195,7 +196,7 @@ func TestSubmitterDoesNotRegisterOtherErrors(t *testing.T) {
 	_, err := (Submitter{
 		JobSubmitter: submitter,
 		Registry:     registry,
-	}).SubmitJob(context.Background(), jobdb.SubmitJob{TenantId: "tenant"})
+	}).SubmitJob(celltest.Context(context.Background()), jobdb.SubmitJob{TenantId: "tenant", Cell: "test", CellRepo: "example.test/test"})
 	if !errors.Is(err, wantErr) {
 		t.Fatalf("SubmitJob error = %v, want %v", err, wantErr)
 	}

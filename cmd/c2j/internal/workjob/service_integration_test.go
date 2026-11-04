@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/colony-2/c2j/cmd/c2j/internal/c2jops"
+	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/c2j/pkg/contextual"
 	"github.com/colony-2/c2j/pkg/jobdbschema"
 	"github.com/colony-2/c2j/pkg/recipe"
@@ -43,14 +44,14 @@ func newSchemaAwareSubmitEngine(t *testing.T, runtime jobdb.WorkflowRuntime) job
 
 func TestReadyCountsAvailableJobsByTenant(t *testing.T) {
 	c2jops.Register()
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	ctx, cancel := context.WithTimeout(celltest.Context(context.Background()), 20*time.Second)
 	defer cancel()
 
 	tenantID := "tenant-ready-count"
 	otherTenantID := "tenant-ready-other"
 	underlying := toyruntime.New()
 	submitEngine := newSchemaAwareSubmitEngine(t, underlying)
-	server := httptest.NewServer(remoteruntime.NewServer(underlying))
+	server := httptest.NewServer(celltest.Handler(remoteruntime.NewServer(underlying)))
 	defer server.Close()
 
 	recipeYAML := simpleSuccessRecipe("ready_count_recipe", "ready-count")
@@ -107,7 +108,7 @@ func submitRecipeJob(t *testing.T, ctx context.Context, engine jobworkflow.Engin
 				ResolvedBaseHash: baseHash,
 			},
 		},
-		GitRef: baseHash,
+		GitRef: baseHash, Cell: strings.TrimPrefix(celltest.Repo(baseRepo), "example.test/"), CellRepo: celltest.Repo(baseRepo),
 	}, engine, *rec)
 	key := keyRef.Key()
 	if err != nil {

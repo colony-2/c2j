@@ -3,6 +3,7 @@ package recipe
 import (
 	"testing"
 
+	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/c2j/pkg/contextual"
 	"github.com/colony-2/c2j/pkg/ops"
 	"github.com/colony-2/c2j/pkg/workflowctl"
@@ -13,7 +14,7 @@ import (
 func TestChildInheritsScopedSnapshotAndKeepsIndependentLineage(t *testing.T) {
 	key := jobdb.ArtifactKey{JobId: "parent", TaskOrdinal: 3, Name: "snapshot", SizeBytes: 123}
 	git := ops.GitExecutionContext{BaseRepo: "https://example.com/B.git", BaseRef: "main", ResolvedBaseHash: "base", PersistHash: "synthetic", ParentHash: "base", RestoreArtifact: &key, Workspace: &contextual.WorkspaceContext{Cell: "B", ScopeID: "parent-scope", InitialHash: "base"}}
-	start := workflowctl.StartJob{JobID: "child", GitRef: "synthetic", JobContext: contextual.JobContext{Workflow: contextual.WorkflowContext{CellName: "B"}, GitBase: contextual.GitBaseContext{BaseRepo: git.BaseRepo, BaseRef: "main", ResolvedBaseHash: "base"}}}
+	start := workflowctl.StartJob{JobID: "child", GitRef: "synthetic", JobContext: contextual.JobContext{Workflow: contextual.WorkflowContext{CellName: "B"}, GitBase: contextual.GitBaseContext{BaseRepo: git.BaseRepo, BaseRef: "main", ResolvedBaseHash: "base"}}, Cell: "test", CellRepo: celltest.Repo(git.BaseRepo)}
 	got, err := inheritWorkspace(start, git)
 	require.NoError(t, err)
 	require.Equal(t, "synthetic", got.JobContext.InitialCommit.PersistHash)

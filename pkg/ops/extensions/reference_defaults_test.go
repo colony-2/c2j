@@ -6,6 +6,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/c2j/pkg/configuration"
 	"github.com/colony-2/c2j/pkg/secrets"
 	"github.com/colony-2/jobdb/pkg/jobdb"
@@ -99,7 +100,7 @@ func TestReferenceDefaultsMatchExplicitBindings(t *testing.T) {
 			for _, input := range []map[string]any{{}, {"api": map[string]any{"api_key": secretRef, "base_url": configRef}}} {
 				_, err = r.ApplyInvocationDefaults(input)
 				require.NoError(t, err)
-				value, _, err := configuration.MaterializeInput(context.Background(), nil, input, func(context.Context) (jobdb.ConfigurationSnapshot, error) {
+				value, _, err := configuration.MaterializeInput(celltest.Context(context.Background()), nil, input, func(context.Context) (jobdb.ConfigurationSnapshot, error) {
 					return jobdb.ConfigurationSnapshot{Values: tc.config}, nil
 				})
 				require.NoError(t, err)
@@ -107,7 +108,7 @@ func TestReferenceDefaultsMatchExplicitBindings(t *testing.T) {
 				require.NoError(t, err)
 				session := secrets.NewSession()
 				defer session.Close()
-				require.NoError(t, session.PrepareReferences(context.Background(), refs, func(_ context.Context, names []string) (jobdb.SecretResolveResult, error) {
+				require.NoError(t, session.PrepareReferences(celltest.Context(context.Background()), refs, func(_ context.Context, names []string) (jobdb.SecretResolveResult, error) {
 					require.Equal(t, []string{"api_key"}, names)
 					return jobdb.SecretResolveResult{Secrets: tc.values}, nil
 				}))
@@ -153,7 +154,7 @@ func TestReferenceDefaultMaterializedValidation(t *testing.T) {
 			defer session.Close()
 			refs, err := referenceDefaultRefs(input)
 			require.NoError(t, err)
-			require.NoError(t, session.PrepareReferences(context.Background(), refs, func(context.Context, []string) (jobdb.SecretResolveResult, error) {
+			require.NoError(t, session.PrepareReferences(celltest.Context(context.Background()), refs, func(context.Context, []string) (jobdb.SecretResolveResult, error) {
 				return jobdb.SecretResolveResult{}, nil
 			}))
 			value, err := session.Materialize(input)
@@ -183,7 +184,7 @@ func TestReferenceDefaultProviderErrors(t *testing.T) {
 		t.Run(providerErr.Error(), func(t *testing.T) {
 			session := secrets.NewSession()
 			defer session.Close()
-			err := session.PrepareReferences(context.Background(), refs, func(context.Context, []string) (jobdb.SecretResolveResult, error) {
+			err := session.PrepareReferences(celltest.Context(context.Background()), refs, func(context.Context, []string) (jobdb.SecretResolveResult, error) {
 				return jobdb.SecretResolveResult{}, providerErr
 			})
 			require.Error(t, err)
@@ -225,7 +226,7 @@ func TestConfigurationDefaultScalarTypes(t *testing.T) {
 			input := map[string]any{}
 			_, err = r.ApplyInvocationDefaults(input)
 			require.NoError(t, err)
-			value, _, err := configuration.MaterializeInput(context.Background(), nil, input, func(context.Context) (jobdb.ConfigurationSnapshot, error) {
+			value, _, err := configuration.MaterializeInput(celltest.Context(context.Background()), nil, input, func(context.Context) (jobdb.ConfigurationSnapshot, error) {
 				return jobdb.ConfigurationSnapshot{Values: map[string]json.RawMessage{"value": json.RawMessage(tc.value)}}, nil
 			})
 			require.NoError(t, err)

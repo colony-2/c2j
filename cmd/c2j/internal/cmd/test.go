@@ -127,7 +127,7 @@ func bindTestCommonFlags(cmd *cobra.Command, opts *testjob.Options) {
 	flags.StringSliceVar(&opts.CaseIDs, "case", nil, "Only include selected case IDs (repeatable)")
 	flags.BoolVar(&opts.Strict, "strict", false, "Strict local compile")
 	flags.BoolVar(&opts.Self, "self", false, "Target the current cell explicitly")
-	flags.StringVar(&opts.Cell, "cell", "", "Target cell git repository, clone URL, local path, or configured short name")
+	flags.StringVar(&opts.Cell, "cell", "", "Target cell name with a configured repository for local testing")
 }
 
 func bindTestRunFlags(cmd *cobra.Command, opts *testjob.Options) {

@@ -2,8 +2,11 @@
 
 package compiler
 
+import
+
 // Regression checks for JobDB timeout fixes and characterizations of remaining
 // dependency-wait limitations. Run with -tags=timeoutrepro -run TestTimeoutRepro -v.
+"github.com/colony-2/c2j/internal/celltest"
 
 import (
 	"context"
@@ -64,7 +67,7 @@ func TestTimeoutReproCoreAlternateRouteDoesNotOverrideWaits(t *testing.T) {
 			t.Run(backend+"/"+wait, func(t *testing.T) {
 				rt := newTimeoutReproRuntime(t, backend)
 				key := submitTimeoutRepro(t, rt, "parent", timeoutReproPolicy(time.Minute, time.Second))
-				lease, err := rt.GetJobLease(context.Background(), jobdb.GetJobLeaseRequest{JobKey: key, Routes: []jobdb.Route{{JobType: "repro"}}, WorkerID: "setup", LeaseDuration: time.Second})
+				lease, err := rt.GetJobLease(celltest.Context(context.Background()), jobdb.GetJobLeaseRequest{JobKey: key, Routes: []jobdb.Route{{JobType: "repro"}}, WorkerID: "setup", LeaseDuration: time.Second})
 				require.NoError(t, err)
 				require.NotNil(t, lease)
 				defer lease.StopKeepAlive()
@@ -78,20 +81,20 @@ func TestTimeoutReproCoreAlternateRouteDoesNotOverrideWaits(t *testing.T) {
 					future := time.Now().Add(time.Minute)
 					req.WaitUntil = &future
 				}
-				require.NoError(t, lease.Reschedule(context.Background(), req))
+				require.NoError(t, lease.Reschedule(celltest.Context(context.Background()), req))
 				waitTimeoutRepro(t, time.Now().Add(after+50*time.Millisecond))
-				found, err := rt.GetJobLease(context.Background(), jobdb.GetJobLeaseRequest{JobKey: key, Routes: []jobdb.Route{{JobType: "repro"}}, WorkerID: "timeout-worker", LeaseDuration: time.Second})
+				found, err := rt.GetJobLease(celltest.Context(context.Background()), jobdb.GetJobLeaseRequest{JobKey: key, Routes: []jobdb.Route{{JobType: "repro"}}, WorkerID: "timeout-worker", LeaseDuration: time.Second})
 				require.NoError(t, err)
 				if wait == "external-only" {
 					require.NotNil(t, found)
 					defer found.StopKeepAlive()
-					require.NoError(t, found.Reschedule(context.Background(), jobdb.RescheduleExecutionRequest{NextRoute: jobdb.Route{JobType: "repro"}}))
+					require.NoError(t, found.Reschedule(celltest.Context(context.Background()), jobdb.RescheduleExecutionRequest{NextRoute: jobdb.Route{JobType: "repro"}}))
 					t.Log("CONTROL: due alternate route makes an external-task wait retrievable without the external task worker")
 				} else {
 					require.Nil(t, found)
-					info, err := rt.GetJob(context.Background(), key)
+					info, err := rt.GetJob(celltest.Context(context.Background()), key)
 					require.NoError(t, err)
-					leases, err := rt.PollWork(context.Background(), jobdb.PollWorkRequest{TenantId: "timeout-repro", WorkerID: "poller", Routes: []jobdb.Route{{JobType: "repro"}}, MetadataEquals: []jobdb.MetadataPredicate{}, Limit: 10, LeaseDuration: time.Second})
+					leases, err := rt.PollWork(celltest.Context(context.Background()), jobdb.PollWorkRequest{TenantId: "timeout-repro", WorkerID: "poller", Routes: []jobdb.Route{{JobType: "repro"}}, MetadataEquals: []jobdb.MetadataPredicate{}, Limit: 10, LeaseDuration: time.Second})
 					require.NoError(t, err)
 					for _, l := range leases {
 						require.NotEqual(t, key, l.Job().JobKey)
@@ -137,16 +140,16 @@ func TestTimeoutReproJobDeadlinePreservesExistingChapter(t *testing.T) {
 			}}
 			require.Equal(t, jobworkflow.JobRunSuspended, runTimeoutRepro(t, rt, key, worker, local).Status)
 			require.EqualValues(t, 1, local.runs.Load())
-			before, err := rt.ListChapters(context.Background(), jobdb.ListChaptersRequest{JobKey: key})
+			before, err := rt.ListChapters(celltest.Context(context.Background()), jobdb.ListChaptersRequest{JobKey: key})
 			require.NoError(t, err)
 			h := rt.lastHandoff(t)
 			waitTimeoutRepro(t, h.at.Add(*h.req.AlternateAfter+50*time.Millisecond))
-			runnable, err := jobworkflow.GetJobForRun(context.Background(), rt, jobworkflow.GetJobForRunRequest{JobKey: key, JobWorker: asExecutionTestWorker(worker), TaskWorkers: []jobworkflow.TaskWorker{local}, WorkerID: "restart", LeaseDuration: time.Second})
+			runnable, err := jobworkflow.GetJobForRun(celltest.Context(context.Background()), rt, jobworkflow.GetJobForRunRequest{JobKey: key, JobWorker: asExecutionTestWorker(worker), TaskWorkers: []jobworkflow.TaskWorker{local}, WorkerID: "restart", LeaseDuration: time.Second})
 			require.NoError(t, err)
 			out, err := runnable.Run(nil)
 			require.NoError(t, err)
 			requireTimeoutCompletion(t, rt, key, out)
-			after, err := rt.ListChapters(context.Background(), jobdb.ListChaptersRequest{JobKey: key})
+			after, err := rt.ListChapters(celltest.Context(context.Background()), jobdb.ListChaptersRequest{JobKey: key})
 			require.NoError(t, err)
 			require.Greater(t, len(after), len(before))
 			require.Equal(t, before, after[:len(before)], "timeout completion must preserve existing history")
@@ -165,7 +168,7 @@ func TestTimeoutReproAwaitDurationClampsToDeadline(t *testing.T) {
 				return data, ctx.AwaitDuration(jobdb.Duration(time.Second))
 			}}
 			// This control specifically exercises durable timed suspension.
-			runnable, err := jobworkflow.GetJobForRun(context.Background(), rt, jobworkflow.GetJobForRunRequest{JobKey: key, JobWorker: asExecutionTestWorker(worker), WorkerID: "timed-wait", LeaseDuration: time.Second, AwaitThreshold: time.Millisecond})
+			runnable, err := jobworkflow.GetJobForRun(celltest.Context(context.Background()), rt, jobworkflow.GetJobForRunRequest{JobKey: key, JobWorker: asExecutionTestWorker(worker), WorkerID: "timed-wait", LeaseDuration: time.Second, AwaitThreshold: time.Millisecond})
 			require.NoError(t, err)
 			out, err := runnable.Run(nil)
 			require.NoError(t, err)

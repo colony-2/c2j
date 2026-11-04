@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
 	"github.com/stretchr/testify/require"
@@ -29,7 +30,7 @@ func recordedRecipeYAML(t *testing.T, getter jobdb.ArtifactGetter, key jobdb.Job
 	source, err := ParseResolvedRecipeSourceTaskData(&jobdb.SimpleTaskData{Data: output.Data, Artifacts: artifacts})
 	require.NoError(t, err)
 	require.Empty(t, source.RecipeYAML, "new records must not contain inline YAML")
-	raw, err := source.RecipeYAMLBytes(context.Background())
+	raw, err := source.RecipeYAMLBytes(celltest.Context(context.Background()))
 	require.NoError(t, err)
 	return string(raw)
 }
@@ -94,7 +95,7 @@ func TestResolvedRecipeArtifactCompatibility(t *testing.T) {
 			encoded, err := json.Marshal(source)
 			require.NoError(t, err)
 			require.JSONEq(t, string(td.GetDataOrPanic()), string(encoded))
-			loaded, err := source.LoadRecipeContext(context.Background())
+			loaded, err := source.LoadRecipeContext(celltest.Context(context.Background()))
 			if tc.wantErr != "" {
 				require.ErrorContains(t, err, tc.wantErr)
 				if tc.readFailure {
@@ -112,7 +113,7 @@ func TestResolvedRecipeArtifactCompatibility(t *testing.T) {
 }
 
 func TestRootSourceWritesOnlyRecipeArtifact(t *testing.T) {
-	ctx := context.Background()
+	ctx := celltest.Context(context.Background())
 	root := []byte("id: expanded\nsequence:\n - include: child\n   perms: {limit: {jobdb: {}}}\n")
 	child := []byte("id: child\nsequence: []\noutputs:\n  text: " + strings.Repeat("x", 1_300_000) + "\n")
 	resolution := RecipeSourceResolution{SourceKind: RecipeSourceKindServerRef, SubmittedSelector: "root", ResolvedSelector: "root@pinned", ResolvedCommit: "pinned", WasAlreadyPinned: true}

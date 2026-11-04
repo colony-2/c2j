@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/c2j/pkg/contextual"
 	extops "github.com/colony-2/c2j/pkg/ops/extensions"
 	"github.com/colony-2/c2j/pkg/recipe"
@@ -141,7 +142,7 @@ output_schema:
 
 	require.NotNil(t, stub.lastInvocation.Preparation.Extension)
 	require.Nil(t, stub.lastInvocation.Input["inputs"].(map[string]any)["ref"], "manifest is not needed to schedule the task")
-	_, err = workerops.ResolveInvocation(context.Background(), &stub.lastInvocation)
+	_, err = workerops.ResolveInvocation(celltest.Context(context.Background()), &stub.lastInvocation)
 	require.NoError(t, err)
 	require.Equal(t, "./tools/ops/defaulted", stub.lastInvocation.Input["selector"])
 	rawInputs, ok := stub.lastInvocation.Input["inputs"].(map[string]interface{})

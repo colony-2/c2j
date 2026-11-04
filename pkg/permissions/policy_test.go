@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"testing"
 
+	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/c2j/pkg/jobref"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	"github.com/stretchr/testify/require"
@@ -76,7 +77,7 @@ func TestPermissionSyntaxRejectsIgnoredOrAmbiguousRestrictions(t *testing.T) {
 }
 
 func TestAccessChecksBeforeCacheAndSubmission(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(celltest.Context(context.Background()))
 	calls := 0
 	a := NewAccess(ctx, JobDB{Secrets: SecretPermissions{Resolve: []string{"model"}}}, func(context.Context, []string) (jobdb.SecretResolveResult, error) {
 		calls++
@@ -91,10 +92,10 @@ func TestAccessChecksBeforeCacheAndSubmission(t *testing.T) {
 	values, err := a.Resolve(ctx, []string{"model"})
 	require.NoError(t, err)
 	require.Len(t, values.Secrets, 1)
-	_, err = a.Submit(ctx, jobdb.SubmitJob{})
+	_, err = a.Submit(ctx, jobdb.SubmitJob{Cell: "test", CellRepo: "example.test/test"})
 	require.ErrorIs(t, err, jobdb.ErrLeasePermissionDenied)
 	cancel()
-	_, err = a.Resolve(context.Background(), []string{"model"})
+	_, err = a.Resolve(celltest.Context(context.Background()), []string{"model"})
 	require.ErrorIs(t, err, context.Canceled)
 	require.Equal(t, 1, calls)
 }

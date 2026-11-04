@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	"github.com/stretchr/testify/require"
 )
@@ -60,7 +61,7 @@ func TestStructuredConflictPreservesCandidateAndEvidence(t *testing.T) {
 	} {
 		t.Run(tc.mode+tc.path, func(t *testing.T) {
 			repo, base, target, candidate := conflictFixture(t, tc.path, tc.mode)
-			out, err := Run(context.Background(), ThinpackRebaseInput{RepoPath: repo, BaseHash: base, TargetBaseHash: target})
+			out, err := Run(celltest.Context(context.Background()), ThinpackRebaseInput{RepoPath: repo, BaseHash: base, TargetBaseHash: target})
 			require.Nil(t, out)
 			var f *Failure
 			require.ErrorAs(t, err, &f)
@@ -92,12 +93,12 @@ func TestNonConflictFailuresKeepClassification(t *testing.T) {
 	for _, mode := range []string{"authentication", "cancel", "timeout", "ancestry", "dirty"} {
 		t.Run(mode, func(t *testing.T) {
 			repo, base, target, candidate := conflictFixture(t, "file", "text")
-			ctx, cancel := context.WithCancelCause(context.Background())
+			ctx, cancel := context.WithCancelCause(celltest.Context(context.Background()))
 			defer cancel(nil)
 			input := ThinpackRebaseInput{RepoPath: repo, BaseHash: base, TargetBaseHash: target}
 			switch mode {
 			case "authentication", "cancel", "timeout":
-				srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				srv := httptest.NewServer(celltest.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 					if mode == "cancel" {
 						cancel(context.Canceled)
 					}
@@ -105,7 +106,7 @@ func TestNonConflictFailuresKeepClassification(t *testing.T) {
 						cancel(context.DeadlineExceeded)
 					}
 					http.Error(w, "denied", http.StatusForbidden)
-				}))
+				})))
 				defer srv.Close()
 				runGit(t, repo, "git", "remote", "add", "origin", srv.URL+"/repo.git")
 				input.TargetBaseHash = strings.Repeat("a", 40)
@@ -130,22 +131,22 @@ func TestNonConflictFailuresKeepClassification(t *testing.T) {
 func TestCleanupFailureDoesNotHideOriginalConflict(t *testing.T) {
 	repo, base, target, candidate := conflictFixture(t, "file", "text")
 	// Leave a real conflicted index, then make Git unable to acquire its lock.
-	err := rebaseOntoTarget(context.Background(), workspaceSnapshot{RepoPath: repo, BaseHash: base, PersistHash: candidate}, target, nil)
+	err := rebaseOntoTarget(celltest.Context(context.Background()), workspaceSnapshot{RepoPath: repo, BaseHash: base, PersistHash: candidate}, target, nil)
 	require.Error(t, err)
 	require.NoError(t, os.WriteFile(filepath.Join(repo, ".git", "index.lock"), nil, 0600))
-	f := captureFailure(context.Background(), err, workspaceSnapshot{RepoPath: repo, BaseHash: base, PersistHash: candidate}, target, "replay", true, true).(*Failure)
+	f := captureFailure(celltest.Context(context.Background()), err, workspaceSnapshot{RepoPath: repo, BaseHash: base, PersistHash: candidate}, target, "replay", true, true).(*Failure)
 	require.Equal(t, ConflictCode, f.Code)
 	require.False(t, f.Details.WorkspaceRestored)
 	require.NotEmpty(t, f.Details.CleanupError)
 	require.ErrorIs(t, f, err)
 	require.NoError(t, os.Remove(filepath.Join(repo, ".git", "index.lock")))
-	require.NoError(t, abortRebase(context.Background(), repo))
+	require.NoError(t, abortRebase(celltest.Context(context.Background()), repo))
 }
 
 func TestCancellationAbortsWithIndependentContext(t *testing.T) {
 	repo, base, target, candidate := conflictFixture(t, "file", "text")
-	err := rebaseOntoTarget(context.Background(), workspaceSnapshot{RepoPath: repo, BaseHash: base, PersistHash: candidate}, target, nil)
-	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	err := rebaseOntoTarget(celltest.Context(context.Background()), workspaceSnapshot{RepoPath: repo, BaseHash: base, PersistHash: candidate}, target, nil)
+	ctx, cancel := context.WithTimeout(celltest.Context(context.Background()), time.Minute)
 	cancel()
 	f := captureFailure(ctx, errors.Join(err, ctx.Err()), workspaceSnapshot{RepoPath: repo, BaseHash: base, PersistHash: candidate}, target, "replay", true, true).(*Failure)
 	require.Equal(t, FailedCode, f.Code)
@@ -156,7 +157,7 @@ func TestCancellationAbortsWithIndependentContext(t *testing.T) {
 }
 
 func TestRebaseCanceledBeforeValidationKeepsCancellation(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(celltest.Context(context.Background()))
 	cancel()
 	_, err := Run(ctx, ThinpackRebaseInput{RepoPath: t.TempDir(), BaseHash: strings.Repeat("a", 40), TargetBaseHash: strings.Repeat("b", 40)})
 	require.ErrorIs(t, err, context.Canceled)

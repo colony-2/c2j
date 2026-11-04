@@ -3,7 +3,6 @@ package testfixtures
 import (
 	"context"
 	"fmt"
-	coretask "github.com/colony-2/c2j/pkg/task"
 	"os"
 	"os/exec"
 	"path"
@@ -14,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/colony-2/c2j/internal/celltest"
 	executor "github.com/colony-2/c2j/internal/testexecutor"
 	"github.com/colony-2/c2j/pkg/contextual"
 	"github.com/colony-2/c2j/pkg/execution"
@@ -23,6 +23,7 @@ import (
 	coreops "github.com/colony-2/c2j/pkg/ops"
 	"github.com/colony-2/c2j/pkg/recipe"
 	"github.com/colony-2/c2j/pkg/swfutil"
+	coretask "github.com/colony-2/c2j/pkg/task"
 	"github.com/colony-2/c2j/pkg/worker/compiler"
 	workerops "github.com/colony-2/c2j/pkg/worker/ops"
 	workflow "github.com/colony-2/c2j/pkg/worker/workflow"
@@ -570,9 +571,9 @@ func RunTestOnAllRecipesWithDeps(deps coreops.ServiceDependencies2, path string,
 					var artifacts []string
 					var jobArtifacts []string
 					if len(tc.WantArtifacts) > 0 || len(tc.WantJobArtifacts) > 0 {
-						result, artifacts, jobArtifacts, err = executeRecipeWithArtifacts(context.Background(), a, recipeDef, tc.Inputs, jobCtx, gitCtx.ParentRef, registry, deps)
+						result, artifacts, jobArtifacts, err = executeRecipeWithArtifacts(celltest.Context(context.Background()), a, recipeDef, tc.Inputs, jobCtx, gitCtx.ParentRef, registry, deps)
 					} else {
-						result, err = exec.ExecuteWithRegistry(context.Background(), recipeDef, tc.Inputs, jobCtx, gitCtx.ParentRef, registry)
+						result, err = exec.ExecuteWithRegistry(celltest.Context(context.Background()), recipeDef, tc.Inputs, jobCtx, gitCtx.ParentRef, registry)
 					}
 
 					// Check results
@@ -708,6 +709,7 @@ func executeRecipeWithArtifacts(
 		taskWorkers = append(taskWorkers, tw)
 	}
 	tenantID := "default"
+	ctx = celltest.Context(ctx)
 	runtime := toyruntime.New()
 	guard := executionruntime.New(runtime, execution.Allocation{SchemaVersion: 1})
 	for i, tw := range taskWorkers {
@@ -729,7 +731,7 @@ func executeRecipeWithArtifacts(
 		RecipeName: recipeDef.GetMetadata().ID,
 		Inputs:     inputs,
 		JobContext: jobCtx,
-		GitRef:     gitRef,
+		GitRef:     gitRef, Cell: "test", CellRepo: celltest.Repo(jobCtx.GitBase.BaseRepo),
 	}
 
 	jobKey, err := control.StartJob(ctx, job)

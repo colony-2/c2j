@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"testing"
 
+	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/c2j/pkg/contextual"
 	coreops "github.com/colony-2/c2j/pkg/ops"
 	"github.com/colony-2/c2j/pkg/starter"
@@ -55,7 +56,7 @@ outputs: {}
 `
 
 	recipeArt := jobdb.NewArtifactFromBytes("test"+starter.RecipeArtifactSuffix, []byte(recipeYAML))
-	start := workflowctl.StartJob{RecipeName: "test", GitRef: "main", Inputs: map[string]any{}, JobContext: contextual.JobContext{}}
+	start := workflowctl.StartJob{RecipeName: "test", GitRef: "main", Inputs: map[string]any{}, JobContext: contextual.JobContext{}, Cell: "test", CellRepo: celltest.Repo("")}
 	jobInput, err := jobdb.NewTaskData(start, recipeArt)
 	if err != nil {
 		t.Fatalf("NewTaskData(job start): %v", err)
@@ -81,7 +82,7 @@ outputs: {}
 	}
 
 	jobKey := jobdb.JobKey{TenantId: "tenant", JobId: "job"}
-	st, err := BuildJobRunStory(context.Background(), engine, jobKey, nil, nil)
+	st, err := BuildJobRunStory(celltest.Context(context.Background()), engine, jobKey, nil, nil)
 	if err != nil {
 		t.Fatalf("BuildJobRunStory: %v", err)
 	}

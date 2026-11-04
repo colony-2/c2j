@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/c2j/pkg/contextual"
 	"github.com/colony-2/c2j/pkg/execution"
 	"github.com/colony-2/c2j/pkg/gitprofile"
@@ -93,7 +94,7 @@ func TestRecipeInputAuthorityAndRemoteLeaseIsolation(t *testing.T) {
 		{name: "forwarded input only", include: true, foreign: true, includePerms: "perms: {limit: {jobdb: {}}}", token: "${{ inputs.token }}"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			ctx := context.Background()
+			ctx := celltest.Context(context.Background())
 			root := t.TempDir()
 			for _, args := range [][]string{{"init", "-b", "main", root}, {"-C", root, "-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "--allow-empty", "-m", "initial"}, {"-C", root, "config", "user.name", "Test"}, {"-C", root, "config", "user.email", "test@example.com"}} {
 				out, err := exec.Command("git", args...).CombinedOutput()
@@ -131,13 +132,13 @@ func TestRecipeInputAuthorityAndRemoteLeaseIsolation(t *testing.T) {
 			require.NoError(t, err)
 			provider := &freshGitProvider{}
 			base := toy.New(toy.WithSecretProvider(provider))
-			server := httptest.NewServer(remote.NewServer(base))
+			server := httptest.NewServer(celltest.Handler(remote.NewServer(base)))
 			defer server.Close()
 			client, err := remote.New(server.URL, server.Client())
 			require.NoError(t, err)
 			engine, err := jobworkflow.NewEngineBuilder().WithRuntime(client).BuildEngine()
 			require.NoError(t, err)
-			start := workflowctl.StartJob{TenantId: "test", RecipeName: "root", JobContext: contextual.JobContext{Workflow: contextual.WorkflowContext{CellName: "root"}, GitBase: contextual.GitBaseContext{BaseRepo: root, BaseRef: "main"}}}
+			start := workflowctl.StartJob{TenantId: "test", RecipeName: "root", JobContext: contextual.JobContext{Workflow: contextual.WorkflowContext{CellName: "root"}, GitBase: contextual.GitBaseContext{BaseRepo: root, BaseRef: "main"}}, Cell: "test", CellRepo: celltest.Repo(root)}
 			ref, err := starter.StartRecipeJob(ctx, start, jobdbschema.WorkflowEngine{Engine: engine, Registry: client}, expanded.Recipe)
 			require.NoError(t, err)
 			rt := New(client, execution.Allocation{SchemaVersion: 1})

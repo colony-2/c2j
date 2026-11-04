@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/c2j/pkg/configuration"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	"github.com/stretchr/testify/require"
@@ -37,7 +38,7 @@ func TestConfigurationFallbacksValidatedBeforeExtensionExecution(t *testing.T) {
 			_, err = resolved.ApplyInvocationDefaults(input)
 			require.NoError(t, err)
 			require.Equal(t, ref, input["setting"], "ordinary schema defaults don't replace explicit references")
-			out, _, err := configuration.MaterializeInput(context.Background(), nil, input, func(context.Context) (jobdb.ConfigurationSnapshot, error) {
+			out, _, err := configuration.MaterializeInput(celltest.Context(context.Background()), nil, input, func(context.Context) (jobdb.ConfigurationSnapshot, error) {
 				return jobdb.ConfigurationSnapshot{}, nil
 			})
 			require.NoError(t, err)

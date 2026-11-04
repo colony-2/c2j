@@ -27,14 +27,11 @@ const (
 const (
 	JobMetadataVersion = 1
 
-	MetaFieldVersion  jobdb.FieldName = "v"
-	MetaFieldRecipe   jobdb.FieldName = "recipe"
-	MetaFieldPrompt   jobdb.FieldName = "prompt"
-	MetaFieldTitle    jobdb.FieldName = "title"
-	MetaFieldCellID   jobdb.FieldName = "cell_id"
-	MetaFieldCellName jobdb.FieldName = "cell_name"
-	MetaFieldRepo     jobdb.FieldName = "repo"
-	MetaFieldGitRef   jobdb.FieldName = "git_ref"
+	MetaFieldVersion jobdb.FieldName = "v"
+	MetaFieldRecipe  jobdb.FieldName = "recipe"
+	MetaFieldPrompt  jobdb.FieldName = "prompt"
+	MetaFieldTitle   jobdb.FieldName = "title"
+	MetaFieldGitRef  jobdb.FieldName = "git_ref"
 
 	MetaFieldParentTenantID       jobdb.FieldName = "parent_tenant_id"
 	MetaFieldParentJobID          jobdb.FieldName = "parent_job_id"
@@ -42,7 +39,6 @@ const (
 	MetaFieldParentOpType         jobdb.FieldName = "parent_op_type"
 	MetaFieldParentOpStep         jobdb.FieldName = "parent_op_step"
 	MetaFieldParentOpTaskType     jobdb.FieldName = "parent_op_task_type"
-	MetaFieldParentCellName       jobdb.FieldName = "parent_cell_name"
 	MetaFieldParentRepo           jobdb.FieldName = "parent_repo"
 	MetaFieldParentGitRef         jobdb.FieldName = "parent_git_ref"
 	MetaFieldParentInvocationPath jobdb.FieldName = "parent_invocation_path"
@@ -51,17 +47,14 @@ const (
 )
 
 type JobMetadata struct {
-	Execution        *execution.Submission `json:"execution,omitempty"`
-	InputHash        string                `json:"input_hash,omitempty"`
-	SubmittedAt      *time.Time            `json:"submitted_at,omitempty"`
-	Version          int                   `json:"v"`
-	RecipeName       string                `json:"recipe,omitempty"`
-	Prompt           string                `json:"prompt,omitempty"`
-	Title            string                `json:"title,omitempty"`
-	CellID           string                `json:"cell_id,omitempty"`
-	CellName         string                `json:"cell_name,omitempty"`
-	RepositorySource string                `json:"repo,omitempty"`
-	GitRef           string                `json:"git_ref,omitempty"`
+	Execution   *execution.Submission `json:"execution,omitempty"`
+	InputHash   string                `json:"input_hash,omitempty"`
+	SubmittedAt *time.Time            `json:"submitted_at,omitempty"`
+	Version     int                   `json:"v"`
+	RecipeName  string                `json:"recipe,omitempty"`
+	Prompt      string                `json:"prompt,omitempty"`
+	Title       string                `json:"title,omitempty"`
+	GitRef      string                `json:"git_ref,omitempty"`
 
 	ParentTenantID           string `json:"parent_tenant_id,omitempty"`
 	ParentGoalID             string `json:"parent_goal_id,omitempty"`
@@ -70,7 +63,6 @@ type JobMetadata struct {
 	ParentOpType             string `json:"parent_op_type,omitempty"`
 	ParentOpStep             string `json:"parent_op_step,omitempty"`
 	ParentOpTaskType         string `json:"parent_op_task_type,omitempty"`
-	ParentCellName           string `json:"parent_cell_name,omitempty"`
 	ParentRepositorySource   string `json:"parent_repo,omitempty"`
 	ParentGitRef             string `json:"parent_git_ref,omitempty"`
 	ParentInvocationPath     string `json:"parent_invocation_path,omitempty"`
@@ -79,20 +71,13 @@ type JobMetadata struct {
 }
 
 func JobMetadataFromStartJob(startJob workflowctl.StartJob) JobMetadata {
-	repo := startJob.JobContext.GitBase.BaseRepo
-	if repo == "" {
-		repo = startJob.JobContext.RecipeSource.Repo
-	}
 	meta := JobMetadata{
-		Execution:        startJob.Execution,
-		InputHash:        startJob.InputHash,
-		SubmittedAt:      startJob.SubmittedAt,
-		Version:          JobMetadataVersion,
-		RecipeName:       startJob.RecipeName,
-		CellID:           startJob.JobContext.Workflow.CellID,
-		CellName:         startJob.JobContext.Workflow.CellName,
-		RepositorySource: repo,
-		GitRef:           startJob.GitRef,
+		Execution:   startJob.Execution,
+		InputHash:   startJob.InputHash,
+		SubmittedAt: startJob.SubmittedAt,
+		Version:     JobMetadataVersion,
+		RecipeName:  startJob.RecipeName,
+		GitRef:      startJob.GitRef,
 	}
 	// Index only submitted text. Secret references remain in the input payload
 	// and are never resolved for metadata. Marked embedded inputs are validated
@@ -121,7 +106,6 @@ func applyParentMetadata(meta *JobMetadata, parent jobcontext.Parent) {
 	meta.ParentOpType = parent.OpType
 	meta.ParentOpStep = parent.OpStep
 	meta.ParentOpTaskType = parent.OpTaskType
-	meta.ParentCellName = parent.CellName
 	meta.ParentRepositorySource = parent.RepositorySource
 	meta.ParentGitRef = parent.GitRef
 	meta.ParentInvocationPath = parent.InvocationPath
@@ -140,6 +124,9 @@ type StartRecipeJobOptions struct {
 }
 
 func StartRecipeJobWithOptions(ctx context.Context, startJob workflowctl.StartJob, engine any, opts StartRecipeJobOptions, recipes ...recipe.Recipe) (jobref.Ref, error) {
+	if err := jobdb.ValidateCellName(startJob.Cell); err != nil {
+		return jobref.Ref{}, fmt.Errorf("cell name is required: %w", err)
+	}
 	submitter, ok := engine.(jobref.Submitter)
 	if !ok {
 		return jobref.Ref{}, fmt.Errorf("submitter must preserve the complete job reference")
@@ -220,6 +207,8 @@ func StartRecipeJobWithOptions(ctx context.Context, startJob workflowctl.StartJo
 	}
 
 	job := jobdb.SubmitJob{
+		Cell:         startJob.Cell,
+		CellRepo:     startJob.CellRepo,
 		TenantId:     startJob.TenantId,
 		JobType:      RecipeJobType,
 		JobID:        jobID,
@@ -278,6 +267,7 @@ func RestartRecipeJob(ctx context.Context, engine any, prior jobdb.JobKey, scope
 	if len(jobs.Jobs) != 1 {
 		return jobref.Ref{}, fmt.Errorf("restart source job: %w", jobdb.ErrJobNotFound)
 	}
+	req.Cell = jobs.Jobs[0].Cell
 	// Restart from the original scheduling hint, never the prior job's latest
 	// demand: the selected scope may precede any of its runtime changes.
 	initial := execution.Inspect(jobs.Jobs[0].Metadata, nil)

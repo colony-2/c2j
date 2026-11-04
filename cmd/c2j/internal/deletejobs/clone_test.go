@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	wf "github.com/colony-2/jobdb/pkg/workflow"
 	"github.com/stretchr/testify/require"
@@ -24,7 +25,7 @@ func (t *sharedArtifactTask) Run(_ wf.TaskContext, in jobdb.TaskData) (jobdb.Tas
 func TestDeletionPreservesCompletedOutcomeAndCloneArtifacts(t *testing.T) {
 	for _, backend := range []string{"embed", "remote"} {
 		t.Run(backend, func(t *testing.T) {
-			ctx := context.Background()
+			ctx := celltest.Context(context.Background())
 			f := newDeletionFixture(t, backend)
 			h := f.open(t)
 			task := &sharedArtifactTask{}
@@ -45,7 +46,7 @@ func TestDeletionPreservesCompletedOutcomeAndCloneArtifacts(t *testing.T) {
 			}
 			source, err := h.Runtime.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{
 				TenantId: f.tenant, JobID: "source", JobType: worker.Name(),
-				Data: &jobdb.SimpleTaskData{Data: json.RawMessage(`"output"`), Artifacts: []jobdb.Artifact{jobdb.NewArtifactFromBytes("shared.txt", []byte("shared contents"))}},
+				Data: &jobdb.SimpleTaskData{Data: json.RawMessage(`"output"`), Artifacts: []jobdb.Artifact{jobdb.NewArtifactFromBytes("shared.txt", []byte("shared contents"))}}, Cell: "test", CellRepo: "example.test/test",
 			}})
 			require.NoError(t, err)
 			run(h.Runtime, source.JobKey)
@@ -59,7 +60,7 @@ func TestDeletionPreservesCompletedOutcomeAndCloneArtifacts(t *testing.T) {
 			}
 			require.NotEmpty(t, scopeID)
 			clone, err := h.Runtime.SubmitRestartJob(ctx, jobdb.SubmitRestartJobRequest{Job: jobdb.SubmitRestartJob{
-				PriorJobKey: source.JobKey, ExecutionRestart: &jobdb.ExecutionRestart{ScopeID: scopeID},
+				PriorJobKey: source.JobKey, ExecutionRestart: &jobdb.ExecutionRestart{ScopeID: scopeID}, Cell: "test",
 			}})
 			require.NoError(t, err)
 			require.NoError(t, h.Cleanup())

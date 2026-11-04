@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/c2j/pkg/artifacts"
 	"github.com/colony-2/c2j/pkg/ops"
 	workerops "github.com/colony-2/c2j/pkg/worker/ops"
@@ -74,7 +75,7 @@ func TestPendingInputPagesAndLegacyListing(t *testing.T) {
 	}
 }
 func testPendingInputPagesAndLegacyListing(t *testing.T, size int) {
-	ctx := context.Background()
+	ctx := celltest.Context(context.Background())
 	forms := []InputForm{
 		{Question: "legacy"},
 		{Kind: "review", RequestID: "review-1", RequestedAt: "2026-09-30T01:02:03Z"},
@@ -141,7 +142,7 @@ func testPendingInputPageConcurrentCompletionAndStorageError(t *testing.T, size 
 		func(jobdb.JobKey) (workflowctl.TaskHandle, error) { return newer, nil },
 	} {
 		control.waiting = wait
-		page, err := runtime.ListPendingInputsPage(context.Background(), "tenant", PendingInputOptions{})
+		page, err := runtime.ListPendingInputsPage(celltest.Context(context.Background()), "tenant", PendingInputOptions{})
 		require.NoError(t, err)
 		if i == 0 {
 			require.Empty(t, page.Inputs)
@@ -152,7 +153,7 @@ func testPendingInputPageConcurrentCompletionAndStorageError(t *testing.T, size 
 	}
 	unavailable := errors.New("database offline")
 	control.waiting = func(jobdb.JobKey) (workflowctl.TaskHandle, error) { return nil, unavailable }
-	_, err := runtime.ListPendingInputsPage(context.Background(), "tenant", PendingInputOptions{})
+	_, err := runtime.ListPendingInputsPage(celltest.Context(context.Background()), "tenant", PendingInputOptions{})
 	require.ErrorIs(t, err, ErrStorage)
 	require.ErrorIs(t, err, unavailable)
 }
@@ -163,7 +164,7 @@ func TestReviewDocumentAccessAndOccurrenceLifetime(t *testing.T) {
 	}
 }
 func testReviewDocumentAccessAndOccurrenceLifetime(t *testing.T, size int) {
-	ctx := context.Background()
+	ctx := celltest.Context(context.Background())
 	ref := artifacts.NewStoredRef(jobdb.ArtifactKey{JobId: "child", TaskOrdinal: 7, Name: "design.md", SizeBytes: 4})
 	other := artifacts.NewStoredRef(jobdb.ArtifactKey{JobId: "another-child", TaskOrdinal: 9, Name: "rollout.md", SizeBytes: 4})
 	form := InputForm{Kind: "review", Title: strings.Repeat("<", size), RequestID: "first", Documents: map[string]artifacts.Ref{"design": ref, "rollout": other}}
@@ -244,25 +245,25 @@ func testReviewDocumentAccessAndOccurrenceLifetime(t *testing.T, size int) {
 }
 
 func TestReviewSubmissionTypedErrors(t *testing.T) {
-	form, err := buildForm(ops.NewOpDependenciesBuilder().Build(), context.Background(), Input{Form: reviewConfig()})
+	form, err := buildForm(ops.NewOpDependenciesBuilder().Build(), celltest.Context(context.Background()), Input{Form: reviewConfig()})
 	require.NoError(t, err)
 	task := apiTask(t, "job", 4, form)
 	control := &clientControl{waiting: func(jobdb.JobKey) (workflowctl.TaskHandle, error) { return task, nil }, artifact: func(string, jobdb.ArtifactKey) jobdb.Artifact { return nil }}
 	runtime, _ := NewRuntime(control, nil)
 	actor := Actor{ID: "reviewer", Kind: "human"}
 	for _, fields := range []map[string]any{{}, {"decision": "invalid"}} {
-		_, err := runtime.SubmitFormResponse(context.Background(), "tenant", "job", FormSubmission{RequestID: form.RequestID, SubmissionID: "submission", Fields: fields}, actor)
+		_, err := runtime.SubmitFormResponse(celltest.Context(context.Background()), "tenant", "job", FormSubmission{RequestID: form.RequestID, SubmissionID: "submission", Fields: fields}, actor)
 		require.ErrorIs(t, err, ErrValidation)
 		var validation ValidationError
 		require.ErrorAs(t, err, &validation)
 		require.Equal(t, "decision", validation.FieldID)
 	}
 	sub := FormSubmission{RequestID: "old", SubmissionID: "submission", Fields: map[string]any{"decision": "approve"}}
-	_, err = runtime.SubmitFormResponse(context.Background(), "tenant", "job", sub, actor)
+	_, err = runtime.SubmitFormResponse(celltest.Context(context.Background()), "tenant", "job", sub, actor)
 	require.ErrorIs(t, err, ErrStaleRequest)
 	sub.RequestID = form.RequestID
 	sub.Fields["document"] = artifacts.NewStoredRef(jobdb.ArtifactKey{JobId: "missing", TaskOrdinal: 2, Name: "file.md", SizeBytes: 4})
-	_, err = runtime.SubmitFormResponse(context.Background(), "tenant", "job", sub, actor)
+	_, err = runtime.SubmitFormResponse(celltest.Context(context.Background()), "tenant", "job", sub, actor)
 	require.ErrorIs(t, err, ErrArtifactUnavailable)
 	var access *RuntimeError
 	require.ErrorAs(t, err, &access)
@@ -270,11 +271,11 @@ func TestReviewSubmissionTypedErrors(t *testing.T) {
 	delete(sub.Fields, "document")
 	failure := errors.New("disk full")
 	task.finish = func(jobdb.TaskData) error { return failure }
-	_, err = runtime.SubmitFormResponse(context.Background(), "tenant", "job", sub, actor)
+	_, err = runtime.SubmitFormResponse(celltest.Context(context.Background()), "tenant", "job", sub, actor)
 	require.ErrorIs(t, err, ErrStorage)
 	require.ErrorIs(t, err, failure)
 	task.finish = func(jobdb.TaskData) error { return jobdb.ErrConflict }
-	_, err = runtime.SubmitFormResponse(context.Background(), "tenant", "job", sub, actor)
+	_, err = runtime.SubmitFormResponse(celltest.Context(context.Background()), "tenant", "job", sub, actor)
 	require.ErrorIs(t, err, ErrStorage)
 	// A conflict after a competing completion has a different classification.
 	calls := 0
@@ -285,7 +286,7 @@ func TestReviewSubmissionTypedErrors(t *testing.T) {
 		}
 		return nil, jobdb.ErrJobNotFound
 	}
-	_, err = runtime.SubmitFormResponse(context.Background(), "tenant", "job", sub, actor)
+	_, err = runtime.SubmitFormResponse(celltest.Context(context.Background()), "tenant", "job", sub, actor)
 	require.ErrorIs(t, err, ErrInputNotPending)
 	require.ErrorIs(t, err, jobdb.ErrConflict)
 }
@@ -294,7 +295,7 @@ func TestFormRequestedTimeIsPersistedForEveryMode(t *testing.T) {
 	for _, cfg := range []Config{{Question: "ordinary", Type: FieldTypeShortAnswer}, reviewConfig(), structuredConfig()} {
 		raw, err := jsonValue(Input{Form: cfg})
 		require.NoError(t, err)
-		output, err := GetOp().TaskChain()[0].Invoke(ops.NewOpDependenciesBuilder().Build(), context.Background(), raw.(map[string]any))
+		output, err := GetOp().TaskChain()[0].Invoke(ops.NewOpDependenciesBuilder().Build(), celltest.Context(context.Background()), raw.(map[string]any))
 		require.NoError(t, err)
 		var form InputForm
 		require.NoError(t, ops.DecodeWithJsonTags(output, &form))
@@ -308,7 +309,7 @@ func TestFormRequestedTimeIsPersistedForEveryMode(t *testing.T) {
 }
 
 func TestPendingInputSQLitePaginationBeyondBackendPageLimit(t *testing.T) {
-	ctx := context.Background()
+	ctx := celltest.Context(context.Background())
 	db, err := sqliteruntime.NewFromConfig(ctx, sqliteruntime.Config{DBPath: t.TempDir() + "/jobs.db"})
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close(ctx) })
@@ -321,7 +322,7 @@ func TestPendingInputSQLitePaginationBeyondBackendPageLimit(t *testing.T) {
 		form, err := buildForm(ops.NewOpDependenciesBuilder().Build(), ctx, Input{Form: Config{Question: "ordinary", Type: FieldTypeShortAnswer}})
 		require.NoError(t, err)
 		worker := structuredWorker{forms: []InputForm{form}}
-		handle, err := db.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "tenant", JobID: fmt.Sprintf("job-%03d", i), JobType: "recipe", Data: jobdb.NewTaskDataOrPanic(map[string]any{}), RunPolicy: jobdb.DefaultRunPolicy()}})
+		handle, err := db.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "tenant", JobID: fmt.Sprintf("job-%03d", i), JobType: "recipe", Data: jobdb.NewTaskDataOrPanic(map[string]any{}), RunPolicy: jobdb.DefaultRunPolicy(), Cell: "test", CellRepo: "example.test/test"}})
 		require.NoError(t, err)
 		runnable, err := workflow.GetJobForRun(ctx, db, workflow.GetJobForRunRequest{JobKey: handle.JobKey, JobWorker: worker.executionWorker(), TaskWorkers: []workflow.TaskWorker{structuredPrepareTask{}}, WorkerID: "test", LeaseDuration: time.Minute})
 		require.NoError(t, err)

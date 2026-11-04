@@ -170,7 +170,7 @@ func (d DefaultRecipeExecutor) ExecuteRecipe(ctx workflow.Context, r recipe.Reci
 	}
 	execOpts.ResolvedSelectors = cloneResolvedSelectors(withinResolution.ResolvedSelectors)
 	execOpts.ResolvedGitRefs = cloneResolvedGitRefs(withinResolution.ResolvedGitRefs)
-	execOpts.CELOptionsProvider, err = recipeCELOptionsProvider(r, execCtx, commitContext, execOpts, execOpts.CELOptionsProvider)
+	execOpts.CELOptionsProvider, err = recipeCELOptionsProvider(ctx.JobContext.Context(), r, execCtx, commitContext, execOpts, execOpts.CELOptionsProvider)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to configure recipe extension functions: %w", err)
 	}
@@ -357,11 +357,6 @@ func (d DefaultRecipeExecutor) executeOpBody(ctx workflow.Context, parentResolut
 
 // executeOperation executes a single operation node attempt.
 func (d DefaultRecipeExecutor) executeOpAttempt(ctx workflow.Context, parentResolutionContext *template.ResolutionContext, metadata recipe.NodeMetadata, op string) error {
-	observed, err := observeWorkspaceBase(ctx, parentResolutionContext, "workspace-base")
-	if err != nil {
-		return err
-	}
-	parentResolutionContext = observed
 	if metadata.Inputs == nil {
 		metadata.Inputs = map[string]interface{}{}
 	}

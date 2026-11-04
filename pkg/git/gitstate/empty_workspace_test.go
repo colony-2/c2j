@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/c2j/pkg/contextual"
 	"github.com/colony-2/c2j/pkg/git/common"
 	"github.com/colony-2/jobdb/pkg/jobdb"
@@ -17,7 +18,7 @@ import (
 func TestEmptyWorkspaceLifecycle(t *testing.T) {
 	t.Setenv("GIT_CONFIG_GLOBAL", os.DevNull)
 	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
-	ctx := context.Background()
+	ctx := celltest.Context(context.Background())
 	remote := filepath.Join(t.TempDir(), "does-not-exist.git")
 	task := &GitTaskContext{GlobalGitTaskContext: &GlobalGitTaskContext{
 		BaseRepo: remote, BaseRef: "feature/creation", Workspace: &contextual.WorkspaceContext{Cell: "new", ScopeID: "scope", Initial: "empty"},
@@ -86,7 +87,7 @@ func TestEmptyWorkspaceLifecycle(t *testing.T) {
 }
 
 func TestEmptyWorkspaceCapturesRootCommittedByOperation(t *testing.T) {
-	ctx := context.Background()
+	ctx := celltest.Context(context.Background())
 	task := &GitTaskContext{GlobalGitTaskContext: &GlobalGitTaskContext{BaseRepo: filepath.Join(t.TempDir(), "missing.git"), BaseRef: "main", Workspace: &contextual.WorkspaceContext{Initial: "empty"}}, WorktreePath: filepath.Join(t.TempDir(), "worktree")}
 	c := NewController(nil)
 	require.NoError(t, c.Restore(ctx, task, nil))
@@ -106,5 +107,5 @@ func TestEmptyWorkspaceCapturesRootCommittedByOperation(t *testing.T) {
 
 func TestOrdinaryWorkspaceDoesNotFallBackToEmpty(t *testing.T) {
 	task := &GitTaskContext{GlobalGitTaskContext: &GlobalGitTaskContext{BaseRepo: filepath.Join(t.TempDir(), "missing.git"), BaseRef: "main"}, WorktreePath: filepath.Join(t.TempDir(), "worktree")}
-	require.Error(t, NewController(nil).Restore(context.Background(), task, nil))
+	require.Error(t, NewController(nil).Restore(celltest.Context(context.Background()), task, nil))
 }

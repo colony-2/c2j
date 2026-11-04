@@ -5,6 +5,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/colony-2/c2j/internal/celltest"
 	recipeartifacts "github.com/colony-2/c2j/pkg/artifacts"
 	"github.com/colony-2/c2j/pkg/jobcontext"
 	"github.com/colony-2/jobdb/pkg/jobdb"
@@ -12,7 +13,7 @@ import (
 
 func TestStartJobsEmpty(t *testing.T) {
 	ctl := &fakeWorkflowControl{}
-	_, err := startJobs(context.Background(), nil, jobdb.JobKey{TenantId: "tenant", JobId: "parent-job"}, "", ctl, "github.com/acme/demo", "main", nil, "", jobcontext.Parent{})
+	_, err := startJobs(celltest.Context(context.Background()), nil, jobdb.JobKey{TenantId: "tenant", JobId: "parent-job"}, "", ctl, "github.com/acme/demo", "main", nil, "", jobcontext.Parent{})
 	if err == nil {
 		t.Fatal("expected error for empty recipes")
 	}
@@ -28,7 +29,7 @@ func TestStartJobsSingle(t *testing.T) {
 			BaseRef:  "main",
 		},
 	}}
-	keys, err := startJobs(context.Background(), nil, jobdb.JobKey{TenantId: "tenant", JobId: "parent-job"}, "test-invocation", ctl, "github.com/acme/demo", "main", recipes, "git-ref", jobcontext.Parent{})
+	keys, err := startJobs(celltest.Context(context.Background()), nil, jobdb.JobKey{TenantId: "tenant", JobId: "parent-job"}, "test-invocation", ctl, "github.com/acme/demo", "main", recipes, "git-ref", jobcontext.Parent{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -69,7 +70,7 @@ func TestStartJobsPassesConfiguredArtifactsAsRefsOnly(t *testing.T) {
 		},
 	}}
 
-	_, err := startJobs(context.Background(), nil, jobdb.JobKey{TenantId: "tenant", JobId: "parent-job"}, "test-invocation", ctl, "github.com/acme/demo", "main", recipes, "git-ref", jobcontext.Parent{})
+	_, err := startJobs(celltest.Context(context.Background()), nil, jobdb.JobKey{TenantId: "tenant", JobId: "parent-job"}, "test-invocation", ctl, "github.com/acme/demo", "main", recipes, "git-ref", jobcontext.Parent{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -110,7 +111,7 @@ func TestStartJobsMultipleRunsSequentially(t *testing.T) {
 			},
 		},
 	}
-	keys, err := startJobs(context.Background(), nil, jobdb.JobKey{TenantId: "tenant", JobId: "parent-job"}, "test-invocation", ctl, "github.com/acme/demo", "main", recipes, "", jobcontext.Parent{})
+	keys, err := startJobs(celltest.Context(context.Background()), nil, jobdb.JobKey{TenantId: "tenant", JobId: "parent-job"}, "test-invocation", ctl, "github.com/acme/demo", "main", recipes, "", jobcontext.Parent{})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -144,7 +145,7 @@ func TestStartJobsMultipleErrorReturnsNoKeys(t *testing.T) {
 			},
 		},
 	}
-	keys, err := startJobs(context.Background(), nil, jobdb.JobKey{TenantId: "tenant", JobId: "parent-job"}, "test-invocation", ctl, "github.com/acme/demo", "main", recipes, "", jobcontext.Parent{})
+	keys, err := startJobs(celltest.Context(context.Background()), nil, jobdb.JobKey{TenantId: "tenant", JobId: "parent-job"}, "test-invocation", ctl, "github.com/acme/demo", "main", recipes, "", jobcontext.Parent{})
 	if err == nil {
 		t.Fatal("expected error")
 	}

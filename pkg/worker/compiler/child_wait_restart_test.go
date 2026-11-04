@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/c2j/pkg/contextual"
 	coreops "github.com/colony-2/c2j/pkg/ops"
 	"github.com/colony-2/c2j/pkg/recipe"
@@ -24,7 +25,7 @@ import (
 // database survives worker replacement; neither recipe nor selector mocks can
 // manufacture the pending/cancelled transitions under test.
 func TestChildWaitSurvivesWorkerReplacementAndCancellation(t *testing.T) {
-	ctx := context.Background()
+	ctx := celltest.Context(context.Background())
 	var before, after atomic.Int32
 	ids := make(chan string, 2)
 	probe := coreops.NewActivityMappedOpV2[struct {
@@ -77,7 +78,7 @@ outputs:
 `))
 	require.NoError(t, err)
 	job := contextual.JobContext{Workflow: contextual.WorkflowContext{CellName: "root"}, GitBase: contextual.GitBaseContext{BaseRepo: repo, BaseRef: "main"}}
-	keyRef, err := starter.StartRecipeJob(ctx, workflowctl.StartJob{TenantId: "object-tests", RecipeName: "parent", JobContext: job, GitRef: "main"}, eng, *rec)
+	keyRef, err := starter.StartRecipeJob(ctx, workflowctl.StartJob{TenantId: "object-tests", RecipeName: "parent", JobContext: job, GitRef: "main", Cell: "test", CellRepo: celltest.Repo(job.GitBase.BaseRepo)}, eng, *rec)
 	key := keyRef.Key()
 	require.NoError(t, err)
 	var child string
@@ -123,7 +124,7 @@ outputs:
 }
 
 func TestAwaitAlreadyFinishedChildAfterWorkerReplacement(t *testing.T) {
-	ctx := context.Background()
+	ctx := celltest.Context(context.Background())
 	workspaceTestWorker(t)
 	repo := t.TempDir()
 	workspaceRepo(t, repo, "root")
@@ -132,7 +133,7 @@ func TestAwaitAlreadyFinishedChildAfterWorkerReplacement(t *testing.T) {
 	job := contextual.JobContext{Workflow: contextual.WorkflowContext{CellName: "root"}, GitBase: contextual.GitBaseContext{BaseRepo: repo, BaseRef: "main"}}
 	child, err := recipe.LoadRecipeFromString([]byte("id: child\nversion: '1'\nsequence: []\noutputs: {value: retained}\n"))
 	require.NoError(t, err)
-	keyRef, err := starter.StartRecipeJob(ctx, workflowctl.StartJob{TenantId: "object-tests", RecipeName: "child", JobContext: job, GitRef: "main"}, eng, *child)
+	keyRef, err := starter.StartRecipeJob(ctx, workflowctl.StartJob{TenantId: "object-tests", RecipeName: "child", JobContext: job, GitRef: "main", Cell: "test", CellRepo: celltest.Repo(job.GitBase.BaseRepo)}, eng, *child)
 	key := keyRef.Key()
 	require.NoError(t, err)
 	require.NoError(t, jobworkflow.WaitForJobToComplete(ctx, 10*time.Second, key, eng))

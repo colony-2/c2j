@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/c2j/pkg/jobdbschema"
 	"github.com/colony-2/c2j/pkg/recipejob"
 	"github.com/colony-2/jobdb/pkg/jobdb"
@@ -20,13 +21,13 @@ import (
 func TestGoalManagementLifecycle(t *testing.T) {
 	for _, backend := range []string{"sqlite", "http"} {
 		t.Run(backend, func(t *testing.T) {
-			ctx := context.Background()
+			ctx := celltest.Context(context.Background())
 			db, err := sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: filepath.Join(t.TempDir(), "jobs.db")})
 			require.NoError(t, err)
 			t.Cleanup(func() { require.NoError(t, db.Close(ctx)) })
 			var rt jobdb.WorkflowRuntime = db
 			if backend == "http" {
-				s := httptest.NewServer(remote.NewServer(db))
+				s := httptest.NewServer(celltest.Handler(remote.NewServer(db)))
 				t.Cleanup(s.Close)
 				rt, err = remote.New(s.URL, s.Client())
 				require.NoError(t, err)
@@ -36,7 +37,7 @@ func TestGoalManagementLifecycle(t *testing.T) {
 			engine := jobdbschema.WorkflowEngine{Engine: sdk, Registry: rt.(jobdb.JobSchemaRegistry)}
 			submit := func(id string, deps ...jobdb.Dependency) jobdb.JobHandle {
 				t.Helper()
-				h, err := engine.SubmitJob(ctx, jobdb.SubmitJob{TenantId: "tenant", JobID: id, JobType: "candidate", Data: jobdb.NewTaskDataOrPanic(nil), Dependencies: deps})
+				h, err := engine.SubmitJob(ctx, jobdb.SubmitJob{TenantId: "tenant", JobID: id, JobType: "candidate", Data: jobdb.NewTaskDataOrPanic(nil), Dependencies: deps, Cell: "test", CellRepo: "example.test/test"})
 				require.NoError(t, err)
 				return h
 			}

@@ -12,6 +12,7 @@ import (
 	"github.com/colony-2/c2j/pkg/git/common"
 	"github.com/colony-2/c2j/pkg/git/selectorcache"
 	"github.com/colony-2/c2j/pkg/gitprofile"
+	"github.com/colony-2/c2j/pkg/jobref"
 	"github.com/colony-2/c2j/pkg/permissions"
 	"github.com/colony-2/c2j/pkg/recipe"
 	"github.com/colony-2/c2j/pkg/template"
@@ -23,6 +24,10 @@ import (
 const WorkspaceResolutionTaskType = "recipe_workspace_resolve"
 
 type WorkspaceResolutionInput struct {
+	// OwnerSnapshot loads implicit hook bases from the trusted job handle instead
+	// of the mutable registry. This is not an authored workspace option.
+	OwnerSnapshot bool                 `json:"owner_snapshot,omitempty"`
+	Repo          string               `json:"repo,omitempty"`
 	Permissions   *permissions.State   `json:"permissions,omitempty"`
 	GitProfile    gitprofile.Selection `json:"git_profile,omitzero"`
 	Cell          string               `json:"cell"`
@@ -47,9 +52,9 @@ func (w workspaceResolutionWorker) Run(tc jobworkflow.TaskContext, data jobdb.Ta
 func (w workspaceResolutionWorker) RunTask(local context.Context, tc jobworkflow.TaskContext, data jobdb.TaskData) (jobdb.TaskData, error) {
 	ctx, cancel := context.WithCancel(local)
 	defer cancel()
-	return resolveWorkspaceTask(ctx, data)
+	return resolveWorkspaceTask(ctx, data, tc.Job())
 }
-func resolveWorkspaceTask(ctx context.Context, data jobdb.TaskData) (jobdb.TaskData, error) {
+func resolveWorkspaceTask(ctx context.Context, data jobdb.TaskData, owners ...jobdb.JobHandle) (jobdb.TaskData, error) {
 	raw, err := data.GetData()
 	if err != nil {
 		return nil, err
@@ -64,7 +69,38 @@ func resolveWorkspaceTask(ctx context.Context, data jobdb.TaskData) (jobdb.TaskD
 	if req.ScopeID == "" {
 		return nil, fmt.Errorf("workspace scope ID is required")
 	}
+	if req.OwnerSnapshot {
+		if len(owners) != 1 || owners[0].CellID == "" || owners[0].CellRepo == "" {
+			return nil, fmt.Errorf("owning job snapshot is required")
+		}
+		req.Cell, req.Repo = owners[0].Cell, owners[0].CellRepo
+		req.Resolution = cellref.Context{}
+	}
 	target, err := req.Resolution.Resolve(req.Cell, req.Ref)
+	if err != nil {
+		return nil, err
+	}
+	if req.Repo != "" {
+		target.Repository, err = jobdb.NormalizeCellRepo(req.Repo)
+		if err != nil {
+			return nil, err
+		}
+	}
+	if req.Initial != "empty" && !req.OwnerSnapshot {
+		scope, ok := jobref.FromContext(ctx)
+		if !ok {
+			return nil, fmt.Errorf("lease-bound cell resolver is required")
+		}
+		cell, err := cellref.ResolveTarget(ctx, scope.ResolveCell, target.Cell, target.Repository)
+		if err != nil {
+			return nil, err
+		}
+		target.Cell, target.Repository = cell.Cell, cell.CellRepo
+	}
+	if target.Repository == "" {
+		return nil, fmt.Errorf("workspace requires a registered cell or explicit repo")
+	}
+	target.Repository, err = NormalizeGitRepositorySource(target.Repository)
 	if err != nil {
 		return nil, err
 	}
@@ -94,45 +130,6 @@ func resolveWorkspaceTask(ctx context.Context, data jobdb.TaskData) (jobdb.TaskD
 	})
 }
 
-// Preserve the base tasks in existing histories. New workspaces resolve refs
-// within their task workers, so unpinned tasks and retries select independently.
-func observeWorkspaceBase(ctx workflow.Context, parent *template.ResolutionContext, site string) (*template.ResolutionContext, error) {
-	ec := parent.TaskExecutionContext()
-	ws := ec.Workspace
-	if !ws.UsesBaseTasks() || ec.GitTask.PersistHash != "" || ws.TaskBaseHash != "" || parent.Options.Mode == template.ModeValidate {
-		return parent, nil
-	}
-	if ctx.OperationBase != nil && *ctx.OperationBase != "" {
-		return parent.WithWorkspaceObservation(*ctx.OperationBase)
-	}
-	if ctx.StageNodeExecution != nil {
-		ctx.StageNodeExecution(parent.ExecutionNeeds)
-	}
-	p := parent.Permissions
-	req := WorkspaceResolutionInput{Cell: ec.GitTask.BaseRepo, Ref: ec.GitTask.BaseRef, ScopeID: ws.ScopeID,
-		Resolution:  cellref.Context{SelfRepo: ec.GitTask.BaseRepo, SelfRef: ec.GitTask.BaseRef},
-		Permissions: &p, GitProfile: parent.GitProfile}
-	out, err := workflow.ValueCall(ctx.JobContext, site, WorkspaceResolutionTaskType, jobdb.RunPolicy{}, req)
-	if err != nil {
-		return nil, err
-	}
-	raw, err := out.GetData()
-	if err != nil {
-		return nil, err
-	}
-	var result WorkspaceResolutionOutput
-	if err := json.Unmarshal(raw, &result); err != nil {
-		return nil, err
-	}
-	if !isFullGitHash(result.Git.ResolvedBaseHash) || result.Workspace.ScopeID != ws.ScopeID || result.Git.BaseRepo != ec.GitTask.BaseRepo {
-		return nil, fmt.Errorf("invalid workspace base observation")
-	}
-	if ctx.OperationBase != nil {
-		*ctx.OperationBase = result.Git.ResolvedBaseHash
-	}
-	return parent.WithWorkspaceObservation(result.Git.ResolvedBaseHash)
-}
-
 func enterWorkspace(ctx workflow.Context, parent *template.ResolutionContext, meta recipe.NodeMetadata) (*template.ResolutionContext, error) {
 	spec := meta.Workspace
 	if spec == nil {
@@ -159,6 +156,10 @@ func enterWorkspace(ctx workflow.Context, parent *template.ResolutionContext, me
 	if err != nil {
 		return nil, fmt.Errorf("workspace.cell: %w", err)
 	}
+	repo, err := render(spec.Repo, false)
+	if err != nil {
+		return nil, fmt.Errorf("workspace.repo: %w", err)
+	}
 	ref, err := render(spec.Ref, false)
 	if err != nil {
 		return nil, fmt.Errorf("workspace.ref: %w", err)
@@ -168,7 +169,7 @@ func enterWorkspace(ctx workflow.Context, parent *template.ResolutionContext, me
 	if incoming.CellResolution != nil {
 		resolution = *incoming.CellResolution
 	}
-	req := WorkspaceResolutionInput{Cell: cell, Ref: ref, Initial: spec.Initial, ScopeID: parent.NextWorkspaceID(meta.ID), Resolution: resolution}
+	req := WorkspaceResolutionInput{Cell: cell, Repo: repo, Ref: ref, Initial: spec.Initial, ScopeID: parent.NextWorkspaceID(meta.ID), Resolution: resolution}
 	req.GitProfile = parent.GitProfile
 	p := parent.Permissions
 	req.Permissions = &p

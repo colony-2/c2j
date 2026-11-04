@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/c2j/pkg/execution"
 	"github.com/colony-2/c2j/pkg/executionruntime"
 	"github.com/colony-2/c2j/pkg/git/gitstate"
@@ -50,14 +51,14 @@ func TestResumedJobLogsOnlyNewTaskExecution(t *testing.T) {
 		return result, nil
 	}}
 	rt := executionruntime.New(toy.New(), execution.Allocation{SchemaVersion: 1})
-	job, err := rt.SubmitJob(context.Background(), jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "test", JobType: orchestrator.Name(), Data: input}})
+	job, err := rt.SubmitJob(celltest.Context(context.Background()), jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "test", JobType: orchestrator.Name(), Data: input, Cell: "test", CellRepo: "example.test/test"}})
 	require.NoError(t, err)
 	for i, worker := range workers {
 		workers[i] = rt.WrapTaskWorker(worker)
 	}
 	for pass := 1; pass <= 2; pass++ {
 		out.Reset()
-		h, err := jobworkflow.GetJobForRun(context.Background(), rt, jobworkflow.GetJobForRunRequest{JobKey: job.JobKey, JobWorker: orchestrator, TaskWorkers: workers[:pass], WorkerID: "test", LeaseDuration: time.Minute, Logger: logger})
+		h, err := jobworkflow.GetJobForRun(celltest.Context(context.Background()), rt, jobworkflow.GetJobForRunRequest{JobKey: job.JobKey, JobWorker: orchestrator, TaskWorkers: workers[:pass], WorkerID: "test", LeaseDuration: time.Minute, Logger: logger})
 		require.NoError(t, err)
 		require.NotNil(t, h)
 		outcome, err := h.Run(nil)

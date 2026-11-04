@@ -202,13 +202,20 @@ Cross-repository includes must declare `perms.jobdb` or `perms.limit.jobdb` at t
 callsite, even if empty. Inherited lease grants reset at that boundary. A selected
 Git profile cannot override an explicit grant or ceiling.
 
-Permission lists contain literal, exact secret names. Wildcards, expressions,
+Permission lists contain literal, exact names. Wildcards, expressions,
 nulls, duplicate names, and unknown permission fields are rejected. Git profile
 names belong in `git_profile`, not in JobDB grants.
 
 Submission is a queue permission: `jobs.submit: true` permits submission within
-the lease's tenant. Child jobs run under their own root recipe policy, with their
-own trust root. They do not inherit the submitting job's grants or limits.
+the owning lease's cell ceiling. Root-owned jobs have tenant-wide scope; other
+jobs have their own cell plus explicitly authorized administrative targets.
+Optional `jobs.cellNames: [payments, reports]` narrows that scope to exact cell
+names and requires `submit: true`. Omission preserves the enclosing ceiling;
+an empty list is invalid, and nested grants cannot widen the ceiling. Workspace
+selection does not change owning-cell authority. See [named cells](GUIDE-Named-Cells.md).
+
+Child jobs run under their own root recipe policy, with their own trust root.
+They do not inherit the submitting job's grants or limits.
 Chapters, configuration mutation, restarts, and other job lifecycle operations
 remain unavailable through delegated defaults.
 

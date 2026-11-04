@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/c2j/pkg/artifacts"
 	"github.com/colony-2/c2j/pkg/contextual"
 	"github.com/colony-2/c2j/pkg/execution"
@@ -59,7 +60,7 @@ func artifactDigestOp(calls *atomic.Int32) coreops.RegisterableOp {
 func TestValueArtifactPersistedHandoffRecovery(t *testing.T) {
 	for _, format := range []string{"text", "json"} {
 		t.Run(format, func(t *testing.T) {
-			ctx := context.Background()
+			ctx := celltest.Context(context.Background())
 			sample := randomArtifactSample(71)
 			body := strings.Repeat(sample, 16)
 			valueExpr := `${{ jq(inputs.sample, '. * 16') }}`
@@ -117,7 +118,7 @@ outputs:
 `, format, valueExpr)))
 			require.NoError(t, err)
 			job := contextual.JobContext{Workflow: contextual.WorkflowContext{CellName: "A"}, GitBase: contextual.GitBaseContext{BaseRepo: repo, BaseRef: "main"}}
-			ref, err := starter.StartRecipeJob(ctx, workflowctl.StartJob{TenantId: "object-tests", RecipeName: "handoff", JobContext: job, GitRef: "main", Inputs: map[string]any{"sample": sample}}, eng, *rec)
+			ref, err := starter.StartRecipeJob(ctx, workflowctl.StartJob{TenantId: "object-tests", RecipeName: "handoff", JobContext: job, GitRef: "main", Inputs: map[string]any{"sample": sample}, Cell: "test", CellRepo: celltest.Repo(job.GitBase.BaseRepo)}, eng, *rec)
 			require.NoError(t, err)
 			key := ref.Key()
 			// Leave the consumer route unserved so JobDB records its input and

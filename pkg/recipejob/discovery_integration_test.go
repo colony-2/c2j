@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/c2j/pkg/execution"
 	"github.com/colony-2/c2j/pkg/executionruntime"
 	"github.com/colony-2/c2j/pkg/jobdbschema"
@@ -24,13 +25,13 @@ import (
 func TestGoalDiscovery(t *testing.T) {
 	for _, backend := range []string{"sqlite", "http"} {
 		t.Run(backend, func(t *testing.T) {
-			ctx := context.Background()
+			ctx := celltest.Context(context.Background())
 			db, err := sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: filepath.Join(t.TempDir(), "jobs.db")})
 			require.NoError(t, err)
 			t.Cleanup(func() { require.NoError(t, db.Close(ctx)) })
 			var rt jobdb.WorkflowRuntime = db
 			if backend == "http" {
-				server := httptest.NewServer(remote.NewServer(db))
+				server := httptest.NewServer(celltest.Handler(remote.NewServer(db)))
 				t.Cleanup(server.Close)
 				rt, err = remote.New(server.URL, server.Client())
 				require.NoError(t, err)
@@ -46,7 +47,7 @@ func TestGoalDiscovery(t *testing.T) {
 				t.Helper()
 				metadata, err := json.Marshal(map[string]string{"repo": repo, "cell_name": "root"})
 				require.NoError(t, err)
-				h, err := engine.SubmitJob(ctx, jobdb.SubmitJob{TenantId: "t", JobID: id, JobType: "candidate", Data: jobdb.NewTaskDataOrPanic(map[string]any{}), Metadata: metadata, Dependencies: deps})
+				h, err := engine.SubmitJob(ctx, jobdb.SubmitJob{TenantId: "t", JobID: id, JobType: "candidate", Data: jobdb.NewTaskDataOrPanic(map[string]any{}), Metadata: metadata, Dependencies: deps, Cell: "test", CellRepo: "example.test/test"})
 				require.NoError(t, err)
 				require.NotEmpty(t, h.GoalID)
 				return h
@@ -135,12 +136,12 @@ func TestGoalDiscovery(t *testing.T) {
 }
 
 func TestGoalDiscoveryRejectsInvalidQueriesBeforeDispatch(t *testing.T) {
-	_, err := recipejob.ListGoals(context.Background(), nil, jobdb.ListGoalsRequest{TenantId: "t", PageSize: -1})
+	_, err := recipejob.ListGoals(celltest.Context(context.Background()), nil, jobdb.ListGoalsRequest{TenantId: "t", PageSize: -1})
 	require.Error(t, err)
-	_, err = recipejob.ListGoals(context.Background(), nil, jobdb.ListGoalsRequest{})
+	_, err = recipejob.ListGoals(celltest.Context(context.Background()), nil, jobdb.ListGoalsRequest{})
 	require.Error(t, err)
-	_, err = recipejob.ListDependencyWaits(context.Background(), nil, jobdb.ListDependencyWaitsRequest{TenantId: "t", ConsumerJobID: "c", PageSize: -1})
+	_, err = recipejob.ListDependencyWaits(celltest.Context(context.Background()), nil, jobdb.ListDependencyWaitsRequest{TenantId: "t", ConsumerJobID: "c", PageSize: -1})
 	require.Error(t, err)
-	_, err = recipejob.GetDependencyWait(context.Background(), nil, jobdb.DependencyWaitKey{})
+	_, err = recipejob.GetDependencyWait(celltest.Context(context.Background()), nil, jobdb.DependencyWaitKey{})
 	require.Error(t, err)
 }

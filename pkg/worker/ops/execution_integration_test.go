@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/c2j/pkg/contextual"
 	"github.com/colony-2/c2j/pkg/execution"
 	"github.com/colony-2/c2j/pkg/executionruntime"
@@ -51,17 +52,17 @@ func TestExecutionDirectiveFromRealOperationReachesSuppliedLeaseOutcome(t *testi
 	require.NoError(t, err)
 	engine, err := jobworkflow.NewEngineBuilder().WithRuntime(rt).BuildEngine()
 	require.NoError(t, err)
-	keyRef, err := starter.StartRecipeJob(context.Background(), workflowctl.StartJob{TenantId: "test", RecipeName: r.GetMetadata().ID, JobContext: jobCtx, GitRef: base}, jobdbschema.WorkflowEngine{Engine: engine, Registry: rt}, *r)
+	keyRef, err := starter.StartRecipeJob(celltest.Context(context.Background()), workflowctl.StartJob{TenantId: "test", RecipeName: r.GetMetadata().ID, JobContext: jobCtx, GitRef: base, Cell: "test", CellRepo: celltest.Repo(jobCtx.GitBase.BaseRepo)}, jobdbschema.WorkflowEngine{Engine: engine, Registry: rt}, *r)
 	key := keyRef.Key()
 	require.NoError(t, err)
-	lease, err := rt.GetJobLease(context.Background(), jobdb.GetJobLeaseRequest{JobKey: key, Routes: []jobdb.Route{{JobType: "recipe"}}, WorkerID: "test", LeaseDuration: time.Minute})
+	lease, err := rt.GetJobLease(celltest.Context(context.Background()), jobdb.GetJobLeaseRequest{JobKey: key, Routes: []jobdb.Route{{JobType: "recipe"}}, WorkerID: "test", LeaseDuration: time.Minute})
 	require.NoError(t, err)
 	require.NotNil(t, lease)
 	var tasks []jobworkflow.TaskWorker
 	for _, w := range ws.TaskWorkers {
 		tasks = append(tasks, w)
 	}
-	outcome, err := wrapped.RunWithLease(context.Background(), lease, jobworkflow.GetJobForRunRequest{JobKey: key, JobWorker: ws.JobWorker, TaskWorkers: tasks}, nil)
+	outcome, err := wrapped.RunWithLease(celltest.Context(context.Background()), lease, jobworkflow.GetJobForRunRequest{JobKey: key, JobWorker: ws.JobWorker, TaskWorkers: tasks}, nil)
 	require.NoError(t, err)
 	require.Equal(t, jobworkflow.JobRunSuspended, outcome.Status)
 	handoff, err := compiler.ExecutionHandoffFromOutcome(outcome)

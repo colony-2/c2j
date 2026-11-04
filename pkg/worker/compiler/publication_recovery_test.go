@@ -4,9 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/colony-2/c2j/pkg/execution"
-	"github.com/colony-2/c2j/pkg/executionruntime"
-	coretask "github.com/colony-2/c2j/pkg/task"
 	"os"
 	"path/filepath"
 	"strings"
@@ -14,7 +11,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/c2j/pkg/contextual"
+	"github.com/colony-2/c2j/pkg/execution"
+	"github.com/colony-2/c2j/pkg/executionruntime"
 	"github.com/colony-2/c2j/pkg/git/common"
 	"github.com/colony-2/c2j/pkg/git/squashrebasemerge"
 	"github.com/colony-2/c2j/pkg/jobdbschema"
@@ -22,6 +22,7 @@ import (
 	"github.com/colony-2/c2j/pkg/recipe"
 	"github.com/colony-2/c2j/pkg/starter"
 	"github.com/colony-2/c2j/pkg/swfutil"
+	coretask "github.com/colony-2/c2j/pkg/task"
 	workerops "github.com/colony-2/c2j/pkg/worker/ops"
 	"github.com/colony-2/c2j/pkg/workflowctl"
 	"github.com/colony-2/jobdb/pkg/jobdb"
@@ -62,7 +63,7 @@ func TestSquashRebaseMergeLostTaskOutcome(t *testing.T) {
 			{"merge", "diverged"},
 		} {
 			t.Run(fmt.Sprintf("empty=%t/%s/%s", empty, scenario.step, scenario.remote), func(t *testing.T) {
-				ctx := context.Background()
+				ctx := celltest.Context(context.Background())
 				root := t.TempDir()
 				source, remote := filepath.Join(root, "source"), filepath.Join(root, "remote.git")
 				initial := workspaceRepo(t, source, "source")
@@ -164,13 +165,13 @@ outputs:
 `
 				job := contextual.JobContext{Workflow: contextual.WorkflowContext{CellName: "source"}, GitBase: contextual.GitBaseContext{BaseRepo: remote, BaseRef: "main"}}
 				if empty {
-					yaml = strings.Replace(yaml, "id: workspace-test\n", fmt.Sprintf("id: workspace-test\nworkspace: {cell: %q, ref: main, initial: empty}\n", remote), 1)
+					yaml = strings.Replace(yaml, "id: workspace-test\n", fmt.Sprintf("id: workspace-test\nworkspace: {cell: target, repo: %q, ref: main, initial: empty}\n", celltest.Repo(remote)), 1)
 					job.GitBase.BaseRepo = source
 				}
 				rec, err := recipe.LoadRecipeFromString([]byte(yaml))
 				require.NoError(t, err)
 				eng := newToyEngineWithWorkSet(t, "publication-tests", ws, nil)
-				keyRef, err := starter.StartRecipeJob(ctx, workflowctl.StartJob{TenantId: "publication-tests", RecipeName: "workspace-test", JobContext: job, GitRef: "main"}, eng, *rec)
+				keyRef, err := starter.StartRecipeJob(ctx, workflowctl.StartJob{TenantId: "publication-tests", RecipeName: "workspace-test", JobContext: job, GitRef: "main", Cell: "test", CellRepo: celltest.Repo(job.GitBase.BaseRepo)}, eng, *rec)
 				key := keyRef.Key()
 				require.NoError(t, err)
 				require.NoError(t, jobworkflow.WaitForJobToComplete(ctx, 15*time.Second, key, eng))
@@ -282,7 +283,7 @@ func (r *publicationStorageFaultRuntime) PutChapter(ctx context.Context, req job
 func TestSquashRebaseMergeRecoversMissingOutcomeOnNewWorker(t *testing.T) {
 	for _, empty := range []bool{false, true} {
 		t.Run(fmt.Sprintf("empty=%t", empty), func(t *testing.T) {
-			ctx := context.Background()
+			ctx := celltest.Context(context.Background())
 			root := t.TempDir()
 			source, remote := filepath.Join(root, "source"), filepath.Join(root, "remote.git")
 			workspaceRepo(t, source, "source")
@@ -330,12 +331,12 @@ outputs:
 `
 			job := contextual.JobContext{Workflow: contextual.WorkflowContext{CellName: "source"}, GitBase: contextual.GitBaseContext{BaseRepo: remote, BaseRef: "main"}}
 			if empty {
-				yaml = strings.Replace(yaml, "id: recover-publication\n", fmt.Sprintf("id: recover-publication\nworkspace: {cell: %q, ref: main, initial: empty}\n", remote), 1)
+				yaml = strings.Replace(yaml, "id: recover-publication\n", fmt.Sprintf("id: recover-publication\nworkspace: {cell: target, repo: %q, ref: main, initial: empty}\n", celltest.Repo(remote)), 1)
 				job.GitBase.BaseRepo = source
 			}
 			rec, err := recipe.LoadRecipeFromString([]byte(yaml))
 			require.NoError(t, err)
-			keyRef, err := starter.StartRecipeJob(ctx, workflowctl.StartJob{TenantId: "recovery", RecipeName: "recover-publication", JobContext: job, GitRef: "main"}, eng, *rec)
+			keyRef, err := starter.StartRecipeJob(ctx, workflowctl.StartJob{TenantId: "recovery", RecipeName: "recover-publication", JobContext: job, GitRef: "main", Cell: "test", CellRepo: celltest.Repo(job.GitBase.BaseRepo)}, eng, *rec)
 			key := keyRef.Key()
 			require.NoError(t, err)
 			run := func(ws *jobworkflow.WorkSet, id string) (jobworkflow.JobRunOutcome, error) {

@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/colony-2/c2j/cmd/c2j/internal/c2jops"
+	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/c2j/pkg/contextual"
 	"github.com/colony-2/c2j/pkg/jobdbschema"
 	"github.com/colony-2/c2j/pkg/recipe"
@@ -43,7 +44,7 @@ type suppliedCLI struct {
 func newSuppliedCLI(t *testing.T, yaml string, duration time.Duration, providers ...jobdb.SecretProvider) *suppliedCLI {
 	t.Helper()
 	c2jops.Register()
-	ctx := context.Background()
+	ctx := celltest.Context(context.Background())
 	cfg := sqlite.Config{DBPath: filepath.Join(t.TempDir(), "jobs.db")}
 	if len(providers) > 0 {
 		cfg.SecretProvider = providers[0]
@@ -53,7 +54,7 @@ func newSuppliedCLI(t *testing.T, yaml string, duration time.Duration, providers
 	t.Cleanup(func() { require.NoError(t, rt.Close(ctx)) })
 	f := &suppliedCLI{backend: rt}
 	handler := remote.NewServer(rt)
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewServer(celltest.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if f.denyClaims.Load() && (r.URL.Path == "/v1/jobs/poll" || strings.HasSuffix(r.URL.Path, "/lease")) {
 			f.acquisitions.Add(1)
 			http.Error(w, "claim forbidden", http.StatusForbidden)
@@ -67,7 +68,7 @@ func newSuppliedCLI(t *testing.T, yaml string, duration time.Duration, providers
 			}
 		}
 		handler.ServeHTTP(w, r)
-	}))
+	})))
 	t.Cleanup(server.Close)
 	f.client, err = remote.New(server.URL, server.Client())
 	require.NoError(t, err)
@@ -81,7 +82,7 @@ func newSuppliedCLI(t *testing.T, yaml string, duration time.Duration, providers
 		JobContext: contextual.JobContext{
 			Workflow: contextual.WorkflowContext{ProjectId: "tenant", CellName: "."},
 			GitBase:  contextual.GitBaseContext{BaseRepo: repo, BaseRef: hash, ResolvedBaseHash: hash},
-		},
+		}, Cell: "test", CellRepo: celltest.Repo(repo),
 	}, jobdbschema.WorkflowEngine{Engine: engine, Registry: rt}, *rec)
 	f.key = fkeyRef.Key()
 	require.NoError(t, err)
@@ -93,7 +94,7 @@ func newSuppliedCLI(t *testing.T, yaml string, duration time.Duration, providers
 func (f *suppliedCLI) claim(t *testing.T, route jobdb.Route, duration time.Duration) {
 	t.Helper()
 	f.denyClaims.Store(false)
-	lease, err := f.client.GetJobLease(context.Background(), jobdb.GetJobLeaseRequest{JobKey: f.key, WorkerID: "dispatcher", Routes: []jobdb.Route{route}, LeaseDuration: duration})
+	lease, err := f.client.GetJobLease(celltest.Context(context.Background()), jobdb.GetJobLeaseRequest{JobKey: f.key, WorkerID: "dispatcher", Routes: []jobdb.Route{route}, LeaseDuration: duration})
 	require.NoError(t, err)
 	require.NotNil(t, lease)
 	capability, err := remote.ExportLease(lease)
@@ -104,7 +105,7 @@ func (f *suppliedCLI) claim(t *testing.T, route jobdb.Route, duration time.Durat
 }
 func (f *suppliedCLI) run(t *testing.T, file bool) error {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(celltest.Context(context.Background()), 10*time.Second)
 	defer cancel()
 	path := "-"
 	f.opts.Stdin = bytes.NewReader(f.encoded)
@@ -125,13 +126,13 @@ outputs:
 `, time.Second)
 	require.NoError(t, f.run(t, true), f.stderr.String())
 	require.GreaterOrEqual(t, f.renewals.Load(), int32(3))
-	info, err := f.backend.GetJob(context.Background(), f.key)
+	info, err := f.backend.GetJob(celltest.Context(context.Background()), f.key)
 	require.NoError(t, err)
 	require.Equal(t, jobdb.JobStatusCompleted, info.Status)
 	raw, err := info.Data.GetData()
 	require.NoError(t, err)
 	require.Contains(t, string(raw), "supplied-result")
-	chapters, err := f.backend.ListChapters(context.Background(), jobdb.ListChaptersRequest{JobKey: f.key})
+	chapters, err := f.backend.ListChapters(celltest.Context(context.Background()), jobdb.ListChaptersRequest{JobKey: f.key})
 	require.NoError(t, err)
 	artifacts := 0
 	for _, chapter := range chapters {
@@ -176,7 +177,7 @@ inputs:
 		large := "16Gi"
 		f.opts.ExecutionFlags.Memory = &large
 		require.NoError(t, f.run(t, false))
-		info, err := f.backend.GetJob(context.Background(), f.key)
+		info, err := f.backend.GetJob(celltest.Context(context.Background()), f.key)
 		require.NoError(t, err)
 		require.Equal(t, jobdb.JobStatusCompleted, info.Status)
 	})
@@ -203,7 +204,7 @@ func TestRunWithLeaseRejectsInvalidAuthorityAndTarget(t *testing.T) {
 			case "tenant":
 				f.opts.JobDBURI = strings.TrimSuffix(f.opts.JobDBURI, "/tenant") + "/wrong-tenant"
 			case "cancelled":
-				require.NoError(t, f.backend.CancelJob(context.Background(), jobdb.CancelJobRequest{JobKey: f.key}))
+				require.NoError(t, f.backend.CancelJob(celltest.Context(context.Background()), jobdb.CancelJobRequest{JobKey: f.key}))
 			case "expired":
 				time.Sleep(60 * time.Millisecond)
 			case "initial-renewal":
@@ -216,7 +217,7 @@ func TestRunWithLeaseRejectsInvalidAuthorityAndTarget(t *testing.T) {
 				assertRenewalDiagnostic(t, f, err)
 			}
 			require.NotContains(t, f.stdout.String()+f.stderr.String(), "do-not-print-this")
-			chapters, listErr := f.backend.ListChapters(context.Background(), jobdb.ListChaptersRequest{JobKey: f.key})
+			chapters, listErr := f.backend.ListChapters(celltest.Context(context.Background()), jobdb.ListChaptersRequest{JobKey: f.key})
 			require.NoError(t, listErr)
 			require.Len(t, chapters, 1, "only the submitted job chapter should exist")
 		})
@@ -243,7 +244,7 @@ sequence:
 	assertRenewalDiagnostic(t, f, err)
 	require.Less(t, time.Since(started), 3*time.Second)
 	require.NotContains(t, f.stdout.String(), "must-not-run")
-	info, readErr := f.backend.GetJob(context.Background(), f.key)
+	info, readErr := f.backend.GetJob(celltest.Context(context.Background()), f.key)
 	require.NoError(t, readErr)
 	require.NotEqual(t, jobdb.JobStatusCompleted, info.Status)
 }
@@ -253,7 +254,7 @@ func TestRunWithLeaseImportFailureDiagnostic(t *testing.T) {
 		t.Run(kind, func(t *testing.T) {
 			f := newSuppliedCLI(t, "id: supplied\nsequence: []\n", time.Minute)
 			var requests atomic.Int32
-			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			server := httptest.NewServer(celltest.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				requests.Add(1)
 				require.True(t, strings.HasSuffix(r.URL.Path, "/keepalive"), "only lease validation should reach the server")
 				w.Header().Set("Content-Type", "application/json")
@@ -261,7 +262,7 @@ func TestRunWithLeaseImportFailureDiagnostic(t *testing.T) {
 				// printing untrusted response content in the CLI diagnostic.
 				require.NotEmpty(t, r.Header.Get("X-JobDB-Lease-Token"))
 				fmt.Fprintf(w, `{"lease": %q}`, r.Header.Get("X-JobDB-Lease-Token"))
-			}))
+			})))
 			t.Cleanup(server.Close)
 			f.opts.JobDBURI = server.URL + "/tenant"
 			if kind == "refused" {
@@ -291,7 +292,7 @@ func TestRunWithLeaseImportFailureDiagnostic(t *testing.T) {
 			require.NoError(t, json.Unmarshal(f.encoded, &wire))
 			require.NotContains(t, err.Error()+f.stdout.String()+f.stderr.String(), wire["leaseToken"].(string))
 			require.Empty(t, f.stdout.String())
-			chapters, listErr := f.backend.ListChapters(context.Background(), jobdb.ListChaptersRequest{JobKey: f.key})
+			chapters, listErr := f.backend.ListChapters(celltest.Context(context.Background()), jobdb.ListChaptersRequest{JobKey: f.key})
 			require.NoError(t, listErr)
 			require.Len(t, chapters, 1, "recipe execution must not append any chapters")
 		})
@@ -370,13 +371,13 @@ outputs:
 			require.Equal(t, f.key.TenantId, req.TenantID)
 			require.Equal(t, f.key.JobId, req.JobID)
 			require.Equal(t, []string{"token"}, req.Names)
-			info, err := f.backend.GetJob(context.Background(), f.key)
+			info, err := f.backend.GetJob(celltest.Context(context.Background()), f.key)
 			require.NoError(t, err)
 			require.Equal(t, jobdb.JobStatusCompleted, info.Status)
 			output, err := info.Data.GetData()
 			require.NoError(t, err)
 			require.JSONEq(t, `{"first":"resolved-first","second":"resolved-second"}`, string(output))
-			history, err := jobdb.GetJobRun(context.Background(), f.backend, jobdb.GetJobRunRequest{JobKey: f.key, IncludeInputs: true, IncludeOutputs: true})
+			history, err := jobdb.GetJobRun(celltest.Context(context.Background()), f.backend, jobdb.GetJobRunRequest{JobKey: f.key, IncludeInputs: true, IncludeOutputs: true})
 			require.NoError(t, err)
 			raw, err := json.Marshal(history)
 			require.NoError(t, err)
@@ -387,13 +388,13 @@ outputs:
 			// The CLI's cached story replay must not resolve secrets.
 			// Exercise the same worker factory.
 			opts := f.opts
-			require.NoError(t, opts.Complete(context.Background()))
-			deps, cleanup, err := buildDeps(context.Background(), opts)
+			require.NoError(t, opts.Complete(celltest.Context(context.Background())))
+			deps, cleanup, err := buildDeps(celltest.Context(context.Background()), opts)
 			require.NoError(t, err)
 			defer cleanup()
 			recorder := storylive.NewRecorder(storylive.Options{JobKey: f.key})
 			defer recorder.CloseNotifications()
-			_, err = deps.engine.ReplayJobRun(context.Background(), jobworkflow.ReplayRunRequest{
+			_, err = deps.engine.ReplayJobRun(celltest.Context(context.Background()), jobworkflow.ReplayRunRequest{
 				JobKey: f.key, JobWorker: newStoryJobWorker(deps, recorder, true), Observer: recorder.Observer(),
 			})
 			require.NoError(t, err)
@@ -428,7 +429,7 @@ func TestRunWithLeaseCapabilityHandoffAndOldEncoding(t *testing.T) {
 			require.NoError(t, f.run(t, true))
 			require.FileExists(t, marker)
 			require.NotContains(t, f.stdout.String(), `"kind":"environment_required"`)
-			info, err := f.backend.GetJob(context.Background(), f.key)
+			info, err := f.backend.GetJob(celltest.Context(context.Background()), f.key)
 			require.NoError(t, err)
 			require.Equal(t, jobdb.JobStatusCompleted, info.Status)
 		})

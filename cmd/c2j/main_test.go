@@ -83,7 +83,7 @@ func TestWithLeaseCLIErrorOutput(t *testing.T) {
 				"run", "with-lease", "--ci", "--job-id", "job", "--lease-file", "-", "--jobdb", target)
 			command.Env = append(os.Environ(), "C2J_TEST_LEASE_PROCESS=1")
 			command.Dir = t.TempDir()
-			command.Stdin = strings.NewReader(`{"version":1,"tenantId":"tenant","jobId":"job","leaseId":"lease","leaseToken":"` + token + `"}`)
+			command.Stdin = strings.NewReader(`{"version":2,"tenantId":"tenant","jobId":"job","leaseId":"lease","leaseToken":"` + token + `"}`)
 			var stdout, stderr bytes.Buffer
 			command.Stdout, command.Stderr = &stdout, &stderr
 			err := command.Run()

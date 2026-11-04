@@ -5,6 +5,7 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/c2j/pkg/gitprofile"
 	coreops "github.com/colony-2/c2j/pkg/ops"
 	"github.com/colony-2/c2j/pkg/permissions"
@@ -33,11 +34,11 @@ func TestRestrictedInputsDeniedBeforeInstallationOrResolution(t *testing.T) {
 	request.Permissions = nil
 	_, err = worker.Run(tc, jobdb.NewTaskDataOrPanic(request))
 	require.ErrorContains(t, err, "requires executionruntime.WrapTaskWorker")
-	access := permissions.NewAccess(context.Background(), permissions.JobDB{}, func(context.Context, []string) (jobdb.SecretResolveResult, error) {
+	access := permissions.NewAccess(celltest.Context(context.Background()), permissions.JobDB{}, func(context.Context, []string) (jobdb.SecretResolveResult, error) {
 		t.Fatal("denied input reached resolver")
 		return jobdb.SecretResolveResult{}, nil
 	}, nil)
-	ctx := permissions.WithAccess(context.Background(), access)
+	ctx := permissions.WithAccess(celltest.Context(context.Background()), access)
 	scope, err := gitprofile.NewScope(ctx, gitprofile.Selection{}, jobdb.ConfigurationSnapshot{}, access.Resolve, "")
 	require.NoError(t, err)
 	defer scope.Close()

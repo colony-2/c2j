@@ -51,6 +51,7 @@ type CellRefConfig struct {
 }
 
 type SelfConfig struct {
+	Cell string          `yaml:"cell"`
 	Repo StringOrCommand `yaml:"repo"`
 	Ref  StringOrCommand `yaml:"ref"`
 }
@@ -189,6 +190,8 @@ func (c *ProjectConfig) Path() string {
 func (c *ProjectConfig) RootDir() string {
 	return c.rootDir
 }
+
+func (c *ProjectConfig) SelfCell() string { return strings.TrimSpace(c.raw.Self.Cell) }
 
 func (c *ProjectConfig) SelfRepo(ctx context.Context) (string, error) {
 	return c.resolveRepoValue(ctx, c.raw.Self.Repo, c.baseSelfRepo)
