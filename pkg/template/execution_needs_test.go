@@ -11,23 +11,23 @@ func TestExecutionNeedsTemplatesAndScopeRestoration(t *testing.T) {
 	parent := newSequenceCtx(t, root, "parent", map[string]interface{}{"memory": "16Gi", "cpu": 4})
 	require.NoError(t, parent.ResolveExecutionNeeds(&recipe.ExecutionNeeds{
 		Resources: recipe.ExecutionNeedResources{CPU: "${{ inputs.cpu }}", Memory: "${{ inputs.memory }}", EphemeralStorage: "${{ '10Gi' }}"},
-		Platform:  "${{ 'linux/amd64' }}", Image: "${{ 'example.com/runner:a' }}",
+		Base:      "${{ 'ubuntu*amd64' }}",
 	}))
 	addOpOutput(t, parent, "probe", map[string]interface{}{"memory": "8Gi"})
 	child, err := parent.NewChildContext(ScopeOp, recipe.NodeMetadata{ID: "child"}, "", nil)
 	require.NoError(t, err)
 	require.NoError(t, child.ResolveExecutionNeeds(&recipe.ExecutionNeeds{
 		Resources: recipe.ExecutionNeedResources{Memory: "${{ sequence.probe.outputs.memory }}"},
-		Platform:  "linux/arm64", Image: "example.com/runner:b",
+		Base:      "macos*",
 	}))
 	require.Equal(t, "4", *child.ExecutionNeeds.Resources.CPU)
 	require.Equal(t, "8Gi", *child.ExecutionNeeds.Resources.Memory)
 	require.Equal(t, "10Gi", *child.ExecutionNeeds.Resources.EphemeralStorage)
-	require.Equal(t, "linux/arm64", *child.ExecutionNeeds.Platform)
+	require.Equal(t, "macos*", *child.ExecutionNeeds.Base)
 	sibling, err := parent.NewChildContext(ScopeOp, recipe.NodeMetadata{ID: "sibling"}, "", nil)
 	require.NoError(t, err)
 	require.Equal(t, "16Gi", *sibling.ExecutionNeeds.Resources.Memory)
-	require.Equal(t, "linux/amd64", *sibling.ExecutionNeeds.Platform)
+	require.Equal(t, "ubuntu*amd64", *sibling.ExecutionNeeds.Base)
 	require.True(t, root.ExecutionNeeds.Empty())
 	separate := newRecipeCtx(t, nil)
 	require.True(t, separate.ExecutionNeeds.Empty())

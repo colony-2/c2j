@@ -1,6 +1,6 @@
 # Portable execution model
 
-`Demand` version 3 is a scheduling hint containing resolution status and effective
+`Demand` version 4 is a scheduling hint containing resolution status and effective
 requirements. It is stored in the client-owned `c2j.execution` payload namespace.
 `Submission` adds the original job overrides and is saved in metadata and start
 input. `Inspect` selects the latest scheduling snapshot over the submission hint
@@ -22,36 +22,43 @@ independent client payload and explicit workflow yield. See the
 typed-route contract, and the
 [design](../../C2J_PORTABLE_EXECUTION_REQUIREMENTS_DESIGN.md) for feature intent.
 
-`Requirements` uses optional string pointers for image, platform, CPU, memory,
-and ephemeral storage. `Normalize` validates and canonicalizes supplied values.
-`Overlay(base, patch)` copies fields, with supplied patch fields replacing the
-base, including lower resource minima. Normalize each input before overlaying:
-empty, zero, and negative values are errors, not requests to clear a field.
+`Requirements` uses optional string pointers for `base`, CPU, memory, and
+ephemeral storage. `base` is a provider-defined selector, preserved exactly.
+`Overlay(parent, patch)` copies fields; supplied scalar values replace inherited
+values, including lower resource minima. Validate each input and the effective
+result. Omission inherits; empty values are invalid. Packages and capabilities
+retain their existing composition rules.
+
+`Allocation` version 2 reports actual usable capacity and a concrete `base` name
+from the provisioner. It must not be inferred from requests, the host, a previous
+attempt, image names, or OS families. There are no aliases. Providers choose
+supported names, backing environments, and their default when base is omitted.
+
+`MatchBase` matches the entire name case-sensitively. Each `*` matches zero or more
+characters, including `/`; all other characters are literal. `macos*` matches
+`macos-123-456`, while `linux` does not match `ubuntu`. Exactly `*` accepts a
+missing allocation base, as does an omitted requirement. Every other selector
+requires a known base. Actual names cannot contain `*`. Selectors and concrete
+names must be nonempty valid UTF-8, at most 4096 bytes, without NUL, space, tab,
+CR, or LF. Shared cases live in [testdata/base_matches.json](testdata/base_matches.json).
+
+`Compare` validates both operands and returns structured `base` mismatches with
+`unknown_allocation` or `incompatible`. Resources and capabilities are checked
+independently even when `base: "*"`. Compatibility is not a lease or reservation.
 
 CPU accepts cores or millicores at integral millicore precision. Memory/storage
 accept SI (`k`, `M`, `G`, `T`, `P`, `E`) or IEC (`Ki` through `Ei`) units and must
-resolve to integral bytes. Scalars must fit signed 64-bit integers. Kubernetes
-quantity parsing is checked for rounding and overflow; quantities are never
-silently rounded down or capped. Canonical byte values always retain a unit
-(one byte is `0.001k`). Platforms use `os/architecture[/variant]`, normalized to
-lowercase; a requirement without a variant accepts any variant of that same
-OS/architecture.
+resolve to positive integral bytes within signed 64-bit range. Quantities are
+never silently rounded down or capped; canonical byte values retain a unit.
 
-`Allocation` version 1 describes actual simultaneous usable capacity, injected
-by a trusted provisioner. It must not be inferred from recipe requests, host
-capacity, or a previous attempt. Its image has three independent fields:
-
-- `reference`: normalized launch reference/tag.
-- `manifest_digest`: actual resolved OCI manifest digest.
-- `image_id`: diagnostic runtime/config identity; never used as a manifest digest.
-
-`Compare(requirements, allocation)` validates both operands and returns
-structured mismatches. Unknown allocation fields cannot satisfy explicit
-requirements. Resources use minimum-capacity comparisons; image tags match
-launch references, and pinned images require the actual manifest digest.
-A pinned launch reference alone is not proof of the actual manifest. Empty
-requirements are compatible with unknown allocation. Compatibility is not a
-lease, resource reservation, or readiness guarantee.
+Legacy demand/submission v3 and allocation v1 remain readable. Image/platform
+normalization and comparison are isolated in [legacy.go](legacy.go), preserving
+old directives and replay. Those deprecated fields are accepted for old work;
+new requirements use `base`. Combining base with image/platform, including via
+an overlay, is an error. Allocation image/platform facts can coexist with base
+for draining old work, but never prove a base match. New base semantics require
+v4 demand and v2 allocation; unknown versions are rejected. Upgrade consumers
+before submitting base requirements.
 
 Run package tests with `go test ./pkg/execution`.
 
@@ -118,8 +125,6 @@ Cached work needs no historical allocation, while cached directives still affect
 later live work. Demand snapshots, listing JSON, and handoff diagnostics carry the
 same effective set.
 
-Schema numbers remain unchanged: demand/submission **3**, allocation **1**.
-All producers and consumers must upgrade together. Existing records that omit
-capabilities retain their behavior and need no data migration; new readers treat
-omission as an empty set. Old binaries reading new records and mixed-version
-rollouts are unsupported.
+New records use demand/submission **4** and allocation **2**. Legacy **3/1**
+records retain their existing capability and image/platform checks. Capability
+validation is unchanged by the base-selector migration.

@@ -46,7 +46,7 @@ func TestMixedSourcesAndPrecedence(t *testing.T) {
 
 func TestEveryArgumentOverridesItsEnvironment(t *testing.T) {
 	var empty Options
-	valid := []string{"1", "1Gi", "2Gi", "linux/amd64", "alpine:3", "sha256:" + strings.Repeat("a", 64), "runtime://image"}
+	valid := []string{"macos-123-456", "1", "1Gi", "2Gi", "linux/amd64", "alpine:3", "sha256:" + strings.Repeat("a", 64), "runtime://image"}
 	for i, b := range empty.bindings() {
 		t.Run(b.flag, func(t *testing.T) {
 			lookup := env(map[string]string{b.env: ""})
@@ -69,6 +69,35 @@ func TestUnknownAndInvalidAllocation(t *testing.T) {
 	require.ErrorContains(t, err, "execution.resources.memory")
 	_, err = (Options{}).Parse(env(map[string]string{"C2J_EXECUTION_CPU": "0"}))
 	require.ErrorContains(t, err, "execution.resources.cpu")
+}
+
+func TestBaseFlagsAndEnvironment(t *testing.T) {
+	a, err := (Options{}).Parse(env(map[string]string{"C2J_EXECUTION_BASE": "macos-123-456"}))
+	require.NoError(t, err)
+	require.Equal(t, "macos-123-456", a.Base)
+	require.True(t, a.HasCompatibilityFacts())
+	o := parseArgs(t, "--execution-base=ubuntu-26-arm64")
+	require.True(t, o.HasArguments())
+	a, err = o.Parse(env(map[string]string{"C2J_EXECUTION_BASE": "invalid ignored value"}))
+	require.NoError(t, err)
+	require.Equal(t, "ubuntu-26-arm64", a.Base)
+	_, err = parseArgs(t, "--execution-base=macos*").Parse(nil)
+	require.ErrorContains(t, err, "concrete")
+	_, err = o.ParseFilter(false, false, nil)
+	require.ErrorContains(t, err, "requires --compatible-with-execution")
+	f, err := o.ParseFilter(true, false, nil)
+	require.NoError(t, err)
+	require.Equal(t, a.Base, f.Allocation.Base)
+	var r execution.Requirements
+	flags := pflag.NewFlagSet("requirements", pflag.ContinueOnError)
+	AddRequirementFlags(flags, &r)
+	require.NoError(t, flags.Parse([]string{"--require-base=macos*"}))
+	r, err = r.Normalize()
+	require.NoError(t, err)
+	require.Equal(t, "macos*", *r.Base)
+	a, err = (Options{}).Parse(nil)
+	require.NoError(t, err)
+	require.Empty(t, a.Base, "requested base never supplies allocation facts")
 }
 
 func TestListOptIn(t *testing.T) {

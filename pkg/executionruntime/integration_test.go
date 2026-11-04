@@ -84,7 +84,7 @@ func registerExecutionOps(t *testing.T) {
 	}
 }
 
-func newFixture(t *testing.T, backend, memory string, patch *execution.Requirements) *fixture {
+func newFixture(t *testing.T, backend, memory string, patch *execution.Requirements, submissions ...*execution.Submission) *fixture {
 	t.Helper()
 	ctx := celltest.Context(context.Background())
 	var rt jobdb.WorkflowRuntime = toy.New()
@@ -108,7 +108,11 @@ func newFixture(t *testing.T, backend, memory string, patch *execution.Requireme
 	require.NoError(t, err)
 	registry := rt.(jobdb.JobSchemaRegistry)
 	jobContext, git := compiler.GenerateTestContext()
-	keyRef, err := starter.StartRecipeJob(ctx, workflowctl.StartJob{TenantId: "tenant", RecipeName: "resources", JobContext: jobContext, GitRef: git.ParentRef, Cell: "test", CellRepo: celltest.Repo(jobContext.GitBase.BaseRepo)}, jobdbschema.WorkflowEngine{Engine: engine, Registry: registry}, *r)
+	var initial *execution.Submission
+	if len(submissions) > 0 {
+		initial = submissions[0]
+	}
+	keyRef, err := starter.StartRecipeJob(ctx, workflowctl.StartJob{Execution: initial, TenantId: "tenant", RecipeName: "resources", JobContext: jobContext, GitRef: git.ParentRef, Cell: "test", CellRepo: celltest.Repo(jobContext.GitBase.BaseRepo)}, jobdbschema.WorkflowEngine{Engine: engine, Registry: registry}, *r)
 	key := keyRef.Key()
 	require.NoError(t, err)
 	f := &fixture{runtime: rt, key: key}

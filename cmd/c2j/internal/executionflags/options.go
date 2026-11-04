@@ -13,6 +13,7 @@ import (
 // Options preserves presence so an explicit empty argument cannot fall back to
 // an environment value. Environment lookup happens at execution, not binding.
 type Options struct {
+	Base             *string
 	Capabilities     []string
 	CPU              *string
 	Memory           *string
@@ -30,6 +31,7 @@ type binding struct {
 
 func (o *Options) bindings() []binding {
 	return []binding{
+		{"execution-base", "C2J_EXECUTION_BASE", "Actual concrete execution base name", &o.Base},
 		{"execution-cpu", "C2J_EXECUTION_CPU", "Actual usable CPU in cores or millicores", &o.CPU},
 		{"execution-memory", "C2J_EXECUTION_MEMORY", "Actual usable memory with an SI/IEC unit", &o.Memory},
 		{"execution-ephemeral-storage", "C2J_EXECUTION_EPHEMERAL_STORAGE", "Actual usable scratch capacity with an SI/IEC unit", &o.EphemeralStorage},
@@ -97,6 +99,9 @@ func (o Options) Parse(lookupEnv func(string) (string, bool)) (execution.Allocat
 		SchemaVersion: execution.SchemaVersion,
 		Platform:      o.Platform,
 		Resources:     execution.Resources{CPU: o.CPU, Memory: o.Memory, EphemeralStorage: o.EphemeralStorage},
+	}
+	if o.Base != nil {
+		a.Base = *o.Base
 	}
 	if o.Image != nil {
 		a.Image.Reference = *o.Image

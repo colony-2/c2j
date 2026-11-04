@@ -1,11 +1,5 @@
 package execution
 
-import (
-	"strings"
-
-	"github.com/distribution/reference"
-)
-
 type Mismatch struct {
 	Field     string `json:"field"`
 	Required  string `json:"required"`
@@ -44,21 +38,11 @@ func Compare(required Requirements, allocated Allocation) ([]Mismatch, error) {
 		}
 		result = append(result, Mismatch{Field: field, Required: *required, Allocated: actual, Reason: reason})
 	}
-	if r.Image != nil {
-		ref, _ := reference.ParseNormalizedNamed(*r.Image)
-		if pinned, ok := ref.(reference.Digested); ok {
-			check("image.manifest_digest", r.Image, a.Image.ManifestDigest, pinned.Digest().String() == a.Image.ManifestDigest)
-		} else {
-			check("image.reference", r.Image, a.Image.Reference, *r.Image == a.Image.Reference)
-		}
+	if r.Base != nil {
+		check("base", r.Base, a.Base, MatchBase(*r.Base, a.Base))
 	}
-	if r.Platform != nil {
-		actual := ""
-		if a.Platform != nil {
-			actual = *a.Platform
-		}
-		check("platform", r.Platform, actual, actual == *r.Platform || strings.HasPrefix(actual, *r.Platform+"/"))
-	}
+	compareLegacy(r, a, check)
+
 	for _, field := range []struct {
 		name             string
 		required, actual *string

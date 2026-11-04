@@ -170,7 +170,9 @@ func TestPreCapabilityJobsResumeAndReplay(t *testing.T) {
 		t.Run(backend, func(t *testing.T) {
 			var patch execution.Requirements
 			require.NoError(t, json.Unmarshal([]byte(`{"resources":{"memory":"4Gi"}}`), &patch))
-			f := newFixture(t, backend, "2Gi", &patch)
+			var initial execution.Submission
+			require.NoError(t, json.Unmarshal([]byte(`{"schema_version":3,"recipe_resolution":"resolved","effective":{"resources":{"memory":"2Gi"}},"job_requirements":{}}`), &initial))
+			f := newFixture(t, backend, "2Gi", &patch, &initial)
 			out, event := f.run(t, "2Gi", f.tasks)
 			require.Equal(t, jobworkflow.JobRunSuspended, out.Status)
 			require.Empty(t, event.Demand.Effective.Capabilities)
@@ -183,7 +185,7 @@ func TestPreCapabilityJobsResumeAndReplay(t *testing.T) {
 			require.NotContains(t, string(info.ClientPayload), "capabilities")
 			view := execution.Inspect(nil, info.ClientPayload)
 			require.Equal(t, "specified", view.Status)
-			require.Equal(t, 3, view.Demand.SchemaVersion)
+			require.Equal(t, 4, view.Demand.SchemaVersion, "new handoffs publish the current format even when resuming v3 submissions")
 			var a execution.Allocation
 			require.NoError(t, json.Unmarshal([]byte(`{"schema_version":1,"resources":{"memory":"4Gi"}}`), &a))
 			out, event = runNode(t, f, a, f.tasks)

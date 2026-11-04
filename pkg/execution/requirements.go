@@ -2,28 +2,21 @@
 // It has no scheduler dependencies and never treats a request as an allocation.
 package execution
 
-import (
-	_ "crypto/sha256" // Register OCI digest algorithms for go-digest validation.
-	_ "crypto/sha512"
-	"fmt"
-	"regexp"
-	"strings"
+import "fmt"
 
-	"github.com/distribution/reference"
-	"github.com/opencontainers/go-digest"
-)
-
-const SchemaVersion = 1
+const SchemaVersion = 2
 
 // Requirements is also the partial override format: nil preserves the base
 // property. Capabilities are additive; an empty list adds nothing. Scalar
-// empty values are invalid; version 1 does not support clear.
+// empty values are invalid; there is no explicit clearing operation.
 type Requirements struct {
-	Capabilities []string  `json:"capabilities,omitempty" yaml:"capabilities,omitempty"`
-	Packages     []string  `json:"packages,omitempty" yaml:"packages,omitempty"`
-	Image        *string   `json:"image,omitempty" yaml:"image,omitempty"`
-	Platform     *string   `json:"platform,omitempty" yaml:"platform,omitempty"`
-	Resources    Resources `json:"resources,omitempty" yaml:"resources,omitempty"`
+	Base         *string  `json:"base,omitempty" yaml:"base,omitempty"`
+	Capabilities []string `json:"capabilities,omitempty" yaml:"capabilities,omitempty"`
+	Packages     []string `json:"packages,omitempty" yaml:"packages,omitempty"`
+	// Deprecated: image and platform are retained for legacy records. Use Base.
+	Image     *string   `json:"image,omitempty" yaml:"image,omitempty"`
+	Platform  *string   `json:"platform,omitempty" yaml:"platform,omitempty"`
+	Resources Resources `json:"resources,omitempty" yaml:"resources,omitempty"`
 }
 
 type Resources struct {
@@ -41,9 +34,10 @@ type Image struct {
 // Allocation contains simultaneous usable capacities reported by the trusted
 // provisioner, not requested limits or capacities discovered from the host.
 type Allocation struct {
+	Base          string    `json:"base,omitempty"`
 	Capabilities  []string  `json:"capabilities,omitempty"`
 	SchemaVersion int       `json:"schema_version"`
-	Image         Image     `json:"image,omitempty"`
+	Image         Image     `json:"image,omitzero"`
 	Platform      *string   `json:"platform,omitempty"`
 	Resources     Resources `json:"resources,omitempty"`
 }
@@ -54,6 +48,7 @@ func Overlay(base, override Requirements) Requirements {
 	return Requirements{
 		Packages:     mergePackages(base.Packages, override.Packages),
 		Capabilities: mergeCapabilities(base.Capabilities, override.Capabilities),
+		Base:         choose(base.Base, override.Base),
 		Image:        choose(base.Image, override.Image),
 		Platform:     choose(base.Platform, override.Platform),
 		Resources: Resources{
@@ -76,12 +71,23 @@ func choose(base, override *string) *string {
 }
 
 func (r Requirements) Empty() bool {
-	return r.Image == nil && r.Platform == nil && r.Resources == (Resources{}) && len(r.Packages) == 0 && len(r.Capabilities) == 0
+	return r.Base == nil && r.Image == nil && r.Platform == nil && r.Resources == (Resources{}) && len(r.Packages) == 0 && len(r.Capabilities) == 0
 }
 
 // Normalize validates all supplied fields and returns canonical values.
 func (r Requirements) Normalize() (Requirements, error) {
 	out := Overlay(r, Requirements{})
+	if out.Base != nil {
+		if out.Image != nil || out.Platform != nil {
+			return Requirements{}, fmt.Errorf("execution.base cannot be combined with legacy image/platform requirements; replace all inherited image/platform constraints with base")
+		}
+		if err := validateBase(*out.Base, false); err != nil {
+			return Requirements{}, fmt.Errorf("execution.base: %w", err)
+		}
+	}
+	if err := normalizeLegacyRequirements(&out); err != nil {
+		return Requirements{}, err
+	}
 	if err := validateCapabilities(out.Capabilities); err != nil {
 		return Requirements{}, err
 	}
@@ -95,8 +101,6 @@ func (r Requirements) Normalize() (Requirements, error) {
 		value     **string
 		normalize func(string) (string, error)
 	}{
-		{"image", &out.Image, normalizeReference},
-		{"platform", &out.Platform, normalizePlatform},
 		{"resources.cpu", &out.Resources.CPU, normalizeCPU},
 		{"resources.memory", &out.Resources.Memory, normalizeBytes},
 		{"resources.ephemeral-storage", &out.Resources.EphemeralStorage, normalizeBytes},
@@ -114,64 +118,26 @@ func (r Requirements) Normalize() (Requirements, error) {
 }
 
 func (a Allocation) Normalize() (Allocation, error) {
-	if a.SchemaVersion != SchemaVersion {
+	if a.SchemaVersion != SchemaVersion && a.SchemaVersion != legacyAllocationSchemaVersion {
 		return Allocation{}, fmt.Errorf("unsupported allocation schema version %d", a.SchemaVersion)
 	}
-	r := Requirements{Platform: a.Platform, Resources: a.Resources, Capabilities: a.Capabilities}
-	if a.Image.Reference != "" {
-		r.Image = &a.Image.Reference
+	if a.Base != "" {
+		if a.SchemaVersion == legacyAllocationSchemaVersion {
+			return Allocation{}, fmt.Errorf("allocation base requires schema version %d", SchemaVersion)
+		}
+		if err := validateBase(a.Base, true); err != nil {
+			return Allocation{}, fmt.Errorf("execution base: %w", err)
+		}
 	}
-	normalized, err := r.Normalize()
+	r, err := (Requirements{Resources: a.Resources, Capabilities: a.Capabilities}).Normalize()
 	if err != nil {
 		return Allocation{}, err
 	}
-	a.Platform, a.Resources = normalized.Platform, normalized.Resources
-	a.Capabilities = normalized.Capabilities
-	if normalized.Image != nil {
-		a.Image.Reference = *normalized.Image
-	}
-	if a.Image.ManifestDigest != "" {
-		if err := digest.Digest(a.Image.ManifestDigest).Validate(); err != nil {
-			return Allocation{}, fmt.Errorf("execution image manifest digest: %w", err)
-		}
-	}
-	if a.Image.ImageID != "" && strings.TrimSpace(a.Image.ImageID) != a.Image.ImageID {
-		return Allocation{}, fmt.Errorf("execution image ID must not have surrounding whitespace")
-	}
-	// A pinned launch reference and a separately reported manifest must agree.
-	if r.Image != nil && a.Image.ManifestDigest != "" {
-		ref, _ := reference.ParseNormalizedNamed(a.Image.Reference)
-		if pinned, ok := ref.(reference.Digested); ok && pinned.Digest().String() != a.Image.ManifestDigest {
-			return Allocation{}, fmt.Errorf("execution image reference and manifest digest disagree")
-		}
-	}
-	return a, nil
+	a.Resources, a.Capabilities = r.Resources, r.Capabilities
+	return normalizeLegacyAllocation(a)
 }
 
 // HasCompatibilityFacts excludes image IDs, which are diagnostic only.
 func (a Allocation) HasCompatibilityFacts() bool {
-	return a.Image.Reference != "" || a.Image.ManifestDigest != "" || a.Platform != nil || a.Resources != (Resources{}) || len(a.Capabilities) > 0
-}
-
-func normalizeReference(value string) (string, error) {
-	ref, err := reference.ParseNormalizedNamed(value)
-	if err != nil {
-		return "", fmt.Errorf("invalid image reference %q: %w", value, err)
-	}
-	return reference.TagNameOnly(ref).String(), nil
-}
-
-var platformComponent = regexp.MustCompile(`^[a-z0-9][a-z0-9_.-]*$`)
-
-func normalizePlatform(value string) (string, error) {
-	parts := strings.Split(strings.ToLower(value), "/")
-	if len(parts) < 2 || len(parts) > 3 {
-		return "", fmt.Errorf("platform must be os/architecture[/variant]")
-	}
-	for _, part := range parts {
-		if !platformComponent.MatchString(part) {
-			return "", fmt.Errorf("invalid platform component %q", part)
-		}
-	}
-	return strings.Join(parts, "/"), nil
+	return a.Base != "" || a.Image.Reference != "" || a.Image.ManifestDigest != "" || a.Platform != nil || a.Resources != (Resources{}) || len(a.Capabilities) > 0
 }

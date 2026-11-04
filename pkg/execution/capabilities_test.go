@@ -66,8 +66,8 @@ func TestCapabilitiesValidationAndEncoding(t *testing.T) {
 // These literals deliberately retain the pre-capability encoding and version
 // numbers. Do not generate them with the current structs or schema constants.
 func TestPreCapabilityExecutionRecordsCompatibility(t *testing.T) {
-	require.Equal(t, 3, DemandSchemaVersion)
-	require.Equal(t, 1, SchemaVersion)
+	require.Equal(t, 4, DemandSchemaVersion)
+	require.Equal(t, 2, SchemaVersion)
 	metadata := json.RawMessage(`{"execution":{"schema_version":3,"recipe_resolution":"resolved","effective":{"resources":{"memory":"2Gi"}},"job_requirements":{"resources":{"memory":"2Gi"}}}}`)
 	payload := json.RawMessage(`{"c2j":{"execution":{"schema_version":3,"recipe_resolution":"resolved","effective":{"resources":{"memory":"4Gi"}}}}}`)
 	v := Inspect(metadata, payload)

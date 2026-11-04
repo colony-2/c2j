@@ -10,6 +10,7 @@ import (
 // ExecutionNeeds contains literal or templated node properties. Validation of
 // resolved values uses the existing execution.Requirements model.
 type ExecutionNeeds struct {
+	Base         any                    `yaml:"base,omitempty" json:"base,omitempty"`
 	Capabilities []string               `yaml:"capabilities,omitempty" json:"capabilities,omitempty"`
 	Packages     []string               `yaml:"packages,omitempty" json:"packages,omitempty"`
 	Resources    ExecutionNeedResources `yaml:"resources,omitempty" json:"resources,omitempty"`
@@ -30,7 +31,7 @@ func (n *ExecutionNeeds) UnmarshalYAML(node *yaml.Node) error {
 	for i := 0; i < len(node.Content); i += 2 {
 		key := node.Content[i].Value
 		switch key {
-		case "image", "platform", "packages":
+		case "base", "image", "platform", "packages":
 		case "capabilities":
 			if err := execution.ValidateCapabilitiesYAML(node.Content[i+1]); err != nil {
 				return err
@@ -69,10 +70,15 @@ func HasExecutionNeeds(r Recipe) bool {
 }
 
 // HasExecutionConstraints excludes packages: local setup does not require a
-// resource-admission runtime when there are no capability/image/capacity declarations.
+// resource-admission runtime when there are no capability/base/capacity constraints.
 func HasExecutionConstraints(r Recipe) bool {
 	return hasExecutionNeeds(r, func(n *ExecutionNeeds) bool {
-		return n != nil && (len(n.Capabilities) > 0 || n.Image != nil || n.Platform != nil || n.Resources.CPU != nil || n.Resources.Memory != nil || n.Resources.EphemeralStorage != nil)
+		if n == nil {
+			return false
+		}
+		base, literal := n.Base.(string)
+		constrainedBase := n.Base != nil && (!literal || base != "*")
+		return len(n.Capabilities) > 0 || constrainedBase || n.Image != nil || n.Platform != nil || n.Resources.CPU != nil || n.Resources.Memory != nil || n.Resources.EphemeralStorage != nil
 	})
 }
 func hasExecutionNeeds(r Recipe, matches func(*ExecutionNeeds) bool) bool {

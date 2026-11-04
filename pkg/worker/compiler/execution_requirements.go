@@ -41,6 +41,9 @@ func (j recipeJobWorker) executionSession(ctx jobworkflow.ExecutionContext, r re
 			return nil, err
 		}
 	}
+	if _, err := s.effective().Normalize(); err != nil {
+		return nil, err
+	}
 	if (recipe.HasExecutionConstraints(r) || needsAllocation(s.effective())) && !s.guarded {
 		return nil, fmt.Errorf("execution requirements require an execution-aware runtime and guarded task workers")
 	}
@@ -50,6 +53,9 @@ func (j recipeJobWorker) executionSession(ctx jobworkflow.ExecutionContext, r re
 
 func needsAllocation(r execution.Requirements) bool {
 	r.Packages = nil
+	if r.Base != nil && *r.Base == "*" {
+		r.Base = nil
+	}
 	return !r.Empty()
 }
 
@@ -87,7 +93,11 @@ func (s *executionSession) apply(patch execution.Requirements) error {
 	if needsAllocation(p) && !s.guarded {
 		return &executionControlError{fmt.Errorf("execution requirements require an execution-aware runtime and guarded task workers")}
 	}
-	s.overrides = execution.Overlay(s.overrides, p)
+	next := execution.Overlay(s.overrides, p)
+	if _, err := execution.Overlay(execution.Overlay(s.base, s.node), next).Normalize(); err != nil {
+		return &executionControlError{err}
+	}
+	s.overrides = next
 	s.stageCurrent()
 	return nil
 }

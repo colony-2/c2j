@@ -25,6 +25,7 @@ func TestExecutionNeedsParsingRoundTripAndSchema(t *testing.T) {
 	schema, err := GenerateSchemaString()
 	require.NoError(t, err)
 	require.Contains(t, schema, `"execution_needs"`)
+	require.Contains(t, schema, `"base"`)
 }
 
 func TestCapabilitiesRecipeAndNodeParsing(t *testing.T) {

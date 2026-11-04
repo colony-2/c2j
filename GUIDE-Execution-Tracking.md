@@ -20,8 +20,7 @@ execution:
     cpu: "2"
     memory: 4Gi
     ephemeral-storage: 10Gi
-  platform: linux/amd64
-  image: registry.example/runner:1.2
+  base: 'ubuntu-26*arm64'
 sequence: []
 ```
 
@@ -36,7 +35,7 @@ c2j submit --recipe-file ./recipes/process.yaml --require-memory 16Gi --json --e
 ```
 
 Available overrides are `--require-cpu`, `--require-memory`,
-`--require-ephemeral-storage`, `--require-platform`, and `--require-image`.
+`--require-ephemeral-storage`, `--require-base`, and `--require-capability`.
 These request capacity; they do not prove what the executor actually has.
 Later changes also replace fields individually, and can lower a previous
 minimum. There is no explicit clearing operation.
@@ -73,8 +72,8 @@ sequence:
 16 GiB. The nearest explicit property wins, not the largest numeric value.
 Leaving the inner sequence drops its override. A 16 GiB executor can run both
 without yielding; an 8 GiB executor can run `inspect`, then yields before
-`large-phase`. The same rules apply to image and platform overrides, including
-moving to arm64 for an inner scope and back to amd64 for a later sibling.
+`large-phase`. The same rules apply to base overrides, including moving to `macos*` for an
+inner scope and back to `ubuntu*` for a later sibling.
 
 For a later operation whose preceding `probe` operation returns a `memory`
 output, the normal expression is also supported:
@@ -112,15 +111,13 @@ Pass actual allocation to `run`, `run one`, `run with-lease`, or
 | `--execution-cpu` | `C2J_EXECUTION_CPU` | Usable cores/millicores |
 | `--execution-memory` | `C2J_EXECUTION_MEMORY` | Usable memory |
 | `--execution-ephemeral-storage` | `C2J_EXECUTION_EPHEMERAL_STORAGE` | Usable scratch capacity |
-| `--execution-platform` | `C2J_EXECUTION_PLATFORM` | OS/architecture/optional variant |
-| `--execution-image` | `C2J_EXECUTION_IMAGE` | Launch image reference/tag |
-| `--execution-image-digest` | `C2J_EXECUTION_IMAGE_DIGEST` | Actual resolved OCI manifest digest |
-| `--execution-image-id` | `C2J_EXECUTION_IMAGE_ID` | Runtime/config ID, diagnostic only |
+| `--execution-base` | `C2J_EXECUTION_BASE` | Concrete provider-reported base name |
+| `--execution-capability` | `C2J_EXECUTION_CAPABILITIES` | Repeatable capability; environment is a JSON array |
 
 An explicit argument overrides only its corresponding environment variable.
 Empty supplied values are errors. Omitted facts stay unknown: c2j does not
-infer capacity from the host, recipe, or a prior attempt. Unknown facts cannot
-satisfy explicit requirements. Report simultaneously usable resources, including
+infer capacity from the host, recipe, or a prior attempt. A missing base satisfies an omitted requirement or exactly `base: "*"`. Other
+explicit requirements need matching facts. Report simultaneously usable resources, including
 any memory consumed by memory-backed scratch storage.
 
 For a recipe requiring only memory:
@@ -129,11 +126,22 @@ For a recipe requiring only memory:
 c2j run --job-id JOB_ID --execution-memory 16Gi --embed
 ```
 
-For the fuller declaration above, also supply sufficient CPU and scratch,
-the matching platform, and the launch image reference. Additional image digest
-and ID facts can be supplied together; they are not alternative spellings of
-one identity. A digest-pinned requirement needs the actual manifest digest.
-An image/config ID or an unverified launch reference cannot prove that match.
+For the fuller declaration above, supply sufficient CPU and scratch plus a
+concrete base such as `--execution-base ubuntu-26.04-arm64`.
+
+Base matching is case-sensitive and covers the entire name. `*` matches zero or
+more characters anywhere, including `/`; every other character is literal.
+`macos*` matches `macos-123-456`. `linux` does not match `ubuntu`: there are no
+aliases or inferred families. A reported base cannot contain `*`. Names and
+selectors must be nonempty valid UTF-8, at most 4096 bytes, without NUL, space,
+tab, CR, or LF. c2j passes selectors unchanged; providers select environments.
+
+New demand/submission records use execution schema 4; allocation facts use
+schema 2. Readers still support legacy 3/1 records and their original
+image/platform checks. The old requirement flags are deprecated. Replace all
+inherited image/platform requirements when adopting base: mixing them is an
+error. Old allocation image/platform flags remain available for draining old
+jobs. Upgrade providers and workers before emitting new-format demands.
 
 ## Yield and resume
 

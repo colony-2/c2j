@@ -19,7 +19,7 @@ Go module is `github.com/colony-2/c2j`.
   jobs. The supported [job listing API](pkg/joblist/README.md) provides read-only
   remote job discovery and typed execution/completion views without starting a
   worker or embedded database.
-- [Execution requirements](pkg/execution) describe resources, platform, and image
+- [Execution requirements](pkg/execution) describe resources, base selectors, and capability
   needs. The [execution-aware runtime](pkg/executionruntime/README.md) checks
   unfinished tasks against executor allocation facts, publishes demand, and
   yields incompatible work for handoff. Replayed completed tasks do not request

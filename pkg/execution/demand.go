@@ -8,7 +8,7 @@ import (
 )
 
 // DemandSchemaVersion identifies the scheduling snapshot format.
-const DemandSchemaVersion = 3
+const DemandSchemaVersion = 4
 
 // Demand is a disposable scheduling snapshot, never replay state.
 type Demand struct {
@@ -41,8 +41,8 @@ func Initial(base *Requirements, resolved bool, overrides Requirements) (Submiss
 			return Submission{}, err
 		}
 	}
-	d.Effective = Overlay(b, d.JobRequirements)
-	return d, nil
+	d.Effective, err = Overlay(b, d.JobRequirements).Normalize()
+	return d, err
 }
 
 type UnsupportedVersionError struct{ Version int }
@@ -51,8 +51,11 @@ func (e *UnsupportedVersionError) Error() string {
 	return fmt.Sprintf("unsupported execution schema version %d", e.Version)
 }
 func (d Demand) Validate() error {
-	if d.SchemaVersion != DemandSchemaVersion {
+	if d.SchemaVersion != DemandSchemaVersion && d.SchemaVersion != legacyDemandSchemaVersion {
 		return &UnsupportedVersionError{d.SchemaVersion}
+	}
+	if d.SchemaVersion == legacyDemandSchemaVersion && d.Effective.Base != nil {
+		return fmt.Errorf("execution base requires schema version %d", DemandSchemaVersion)
 	}
 	if d.RecipeResolution != "resolved" && d.RecipeResolution != "unresolved" {
 		return fmt.Errorf("invalid recipe resolution %q", d.RecipeResolution)
@@ -63,6 +66,9 @@ func (d Demand) Validate() error {
 func (s Submission) Validate() error {
 	if err := s.Demand.Validate(); err != nil {
 		return err
+	}
+	if s.SchemaVersion == legacyDemandSchemaVersion && s.JobRequirements.Base != nil {
+		return fmt.Errorf("execution base requires schema version %d", DemandSchemaVersion)
 	}
 	_, err := s.JobRequirements.Normalize()
 	return err

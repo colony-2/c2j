@@ -21,6 +21,7 @@ func (rc *ResolutionContext) ResolveExecutionNeeds(needs *recipe.ExecutionNeeds)
 		value  any
 		target **string
 	}{
+		{"base", needs.Base, &patch.Base},
 		{"resources.cpu", needs.Resources.CPU, &patch.Resources.CPU},
 		{"resources.memory", needs.Resources.Memory, &patch.Resources.Memory},
 		{"resources.ephemeral-storage", needs.Resources.EphemeralStorage, &patch.Resources.EphemeralStorage},
@@ -58,7 +59,10 @@ func (rc *ResolutionContext) ResolveExecutionNeeds(needs *recipe.ExecutionNeeds)
 	if err != nil {
 		return fmt.Errorf("node %q execution_needs: %w", rc.scopeId, err)
 	}
-	rc.ExecutionNeeds = execution.Overlay(rc.ExecutionNeeds, patch)
+	rc.ExecutionNeeds, err = execution.Overlay(rc.ExecutionNeeds, patch).Normalize()
+	if err != nil {
+		return fmt.Errorf("node %q execution_needs: %w", rc.scopeId, err)
+	}
 	if len(needs.Packages) > 0 {
 		rc.ToolScopes = append(rc.ToolScopes, toolenv.Scope{ID: rc.TaskExecutionContext().Invocation.NodePath, Packages: append([]string(nil), needs.Packages...)})
 	}

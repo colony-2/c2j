@@ -24,7 +24,7 @@ func (r *Requirements) UnmarshalYAML(node *yaml.Node) error {
 	for i := 0; i < len(node.Content); i += 2 {
 		name := node.Content[i].Value
 		switch name {
-		case "image", "platform", "packages":
+		case "base", "image", "platform", "packages":
 		case "capabilities":
 			if err := ValidateCapabilitiesYAML(node.Content[i+1]); err != nil {
 				return err

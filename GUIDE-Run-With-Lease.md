@@ -67,7 +67,7 @@ match. The CLI supports remote capabilities. Library callers can pass already-he
 embedded leases directly.
 
 Execution allocation flags such as `--execution-memory`, `--execution-cpu`, and
-`--execution-image` still apply. c2j checks allocation under the renewed lease;
+`--execution-base` still apply. c2j checks allocation under the renewed lease;
 incompatible work uses the normal `environment_required` handoff. The original
 lease owner and renewal policy are retained, so this command has no `--worker-id`
 or `--lease-duration` override. `--await-threshold` still controls when JobDB

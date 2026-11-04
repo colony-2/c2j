@@ -13,6 +13,7 @@ host capacity or use recipe requests as evidence of allocation.
 
 | Argument | Environment | Meaning |
 | --- | --- | --- |
+| `--execution-base` | `C2J_EXECUTION_BASE` | Concrete provider base name, no wildcards |
 | `--execution-capability` | `C2J_EXECUTION_CAPABILITIES` | Repeatable capability name; environment is a JSON string array |
 | `--execution-cpu` | `C2J_EXECUTION_CPU` | Usable cores/millicores |
 | `--execution-memory` | `C2J_EXECUTION_MEMORY` | Usable memory |
@@ -36,3 +37,9 @@ validation, image-identity, and list opt-in tests.
 Capability flags replace the whole environment-provided set when present. Names
 are validated, deduplicated, and sorted. Use repeatable `--require-capability`
 for submission requirements; these never establish supplied allocation facts.
+
+Use `--require-base SELECTOR` for submission requirements. Matching is
+case-sensitive with only `*` as a wildcard; exactly `*` permits a missing actual
+base. There are no aliases. Image/platform flags remain for legacy records;
+`--require-image` and `--require-platform` are deprecated and cannot be combined
+with base. New allocations use schema 2 and new demands use schema 4.

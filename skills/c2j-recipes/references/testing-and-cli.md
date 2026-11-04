@@ -18,6 +18,14 @@ Build recipes receive `{"prompt":"your prompt","type":"build"}`. Declare both as
 
 Every CLI submission supplies `inputs.prompt`, so custom recipes must declare a string `prompt` in `input_schema`. When omitted from arguments and input data, a terminal prompts interactively; non-terminal stdin produces an error. `c2j test` retains its flags and does not require a prompt unless the recipe's schema does.
 
+Use `execution: {base: 'macos*'}` or scoped `execution_needs` to request a
+provider-defined environment. `--require-base` overrides the job requirement;
+`--execution-base` / `C2J_EXECUTION_BASE` report the actual concrete allocation.
+Matching is case-sensitive over the full name, with only `*` as a wildcard and
+no aliases. Exactly `*` accepts a missing allocation base. Concrete names cannot
+contain stars. Image/platform requirements are legacy-only and cannot be mixed
+with base. See [execution tracking](../../../GUIDE-Execution-Tracking.md).
+
 ## Starting From Workspace State
 
 Choose the starting state explicitly; `--self` selects a cell and does not capture
