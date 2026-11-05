@@ -26,8 +26,9 @@ type Trust struct {
 	Commit string `json:"commit,omitempty"`
 }
 type SourceTrust struct {
-	Secrets map[string]Trust `json:"jobdb.secrets.resolve,omitempty"`
-	Submit  *Trust           `json:"jobdb.jobs.submit,omitempty"`
+	Secrets     map[string]Trust `json:"jobdb.secrets.resolve,omitempty"`
+	Submit      *Trust           `json:"jobdb.jobs.submit,omitempty"`
+	CreateCells *Trust           `json:"jobdb.cells.create,omitempty"`
 }
 type Entry struct {
 	Perms permissions.Spec `json:"perms"`
@@ -158,7 +159,15 @@ func (e Entry) Validate() error {
 		return fmt.Errorf("job submission grant and source_trust must be specified together")
 	}
 	if e.Trust.Submit != nil {
-		return e.Trust.Submit.Validate()
+		if err := e.Trust.Submit.Validate(); err != nil {
+			return err
+		}
+	}
+	if g.Cells.Create != (e.Trust.CreateCells != nil) {
+		return fmt.Errorf("cell creation grant and source_trust must be specified together")
+	}
+	if e.Trust.CreateCells != nil {
+		return e.Trust.CreateCells.Validate()
 	}
 	return nil
 }
@@ -237,6 +246,9 @@ func (e Entry) Authority(commit string, parent permissions.State, call *permissi
 	if g.Jobs.Submit && !e.Trust.Submit.Allows(commit) {
 		return permissions.State{}, fmt.Errorf("hook job submission is not authorized for candidate %s", commit)
 	}
+	if g.Cells.Create && !e.Trust.CreateCells.Allows(commit) {
+		return permissions.State{}, fmt.Errorf("hook cell creation is not authorized for candidate %s", commit)
+	}
 	s := permissions.State{Version: permissions.Version, Grant: &g, Limit: &g, Inputs: &permissions.InputPolicy{Foreign: true, Allowed: slices.Clone(g.Secrets.Resolve)}}
 	// Each ceiling must narrow, never replenish, authority. Recipe declarations
 	// outside the hook are not the source of its administrative callback grant.
@@ -273,6 +285,10 @@ func (e Entry) Authority(commit string, parent permissions.State, call *permissi
 	child.Jobs.Submit = g.Jobs.Submit && e.Trust.Submit.Mode == "candidate"
 	if child.Jobs.Submit {
 		child.Jobs.CellNames = slices.Clone(g.Jobs.CellNames)
+	}
+	child.Cells.Create = g.Cells.Create && e.Trust.CreateCells.Mode == "candidate"
+	if child.Cells.Create {
+		child.Cells.CellNames = slices.Clone(g.Cells.CellNames)
 	}
 	s.ChildGrant = &child
 	return s, nil

@@ -81,6 +81,26 @@ func TestPolicyValidationAndAuthority(t *testing.T) {
 	require.False(t, g.Jobs.Submit)
 }
 
+func TestCellCreationRequiresSourceTrustAndRespectsChildCeiling(t *testing.T) {
+	entry := Entry{Perms: permissions.Spec{JobDB: &permissions.JobDB{Cells: permissions.CellPermissions{Create: true, CellNames: []string{"reports"}}}}}
+	require.ErrorContains(t, entry.Validate(), "source_trust")
+	entry.Trust.CreateCells = &Trust{Mode: "commit", Commit: strings.Repeat("a", 40)}
+	require.NoError(t, entry.Validate())
+	_, err := entry.Authority(strings.Repeat("b", 40), permissions.State{}, nil)
+	require.ErrorContains(t, err, "not authorized")
+	state, err := entry.Authority(strings.Repeat("a", 40), permissions.State{}, nil)
+	require.NoError(t, err)
+	require.True(t, state.Grant.Cells.Create)
+	require.False(t, state.ChildGrant.Cells.Create)
+	entry.Trust.CreateCells = &Trust{Mode: "candidate"}
+	state, err = entry.Authority(strings.Repeat("b", 40), permissions.State{}, nil)
+	require.NoError(t, err)
+	require.Equal(t, entry.Perms.JobDB.Cells, state.ChildGrant.Cells)
+	state, err = entry.Authority(strings.Repeat("b", 40), permissions.State{Limit: &permissions.JobDB{}}, nil)
+	require.NoError(t, err)
+	require.False(t, state.Grant.Cells.Create)
+}
+
 func TestCaptureRejectsBrokenBindingsAndCopies(t *testing.T) {
 	repo := "https://example.com/repo"
 	d := Document{Version: 1, Repository: repo, Hooks: map[string]Entry{"hook.yaml": Empty()}}

@@ -207,3 +207,13 @@ session input with `calls[].outputs.session` from the intended earlier call;
 checking only the object type does not establish correct checkpoint routing.
 
 `--cell` accepts a name only. `--cell-repo` is a portable hosted repository assertion. Set `self.cell` explicitly in project configuration; see [named cells](https://github.com/colony-2/c2j/blob/main/GUIDE-Named-Cells.md).
+
+### Creating a cell during an operation
+
+Use `c2j cell create NAME --repo REPO` with an explicit node grant
+`perms: {jobdb: {cells: {create: true, cellNames: [NAME]}}}`. Omit `cellNames` to
+allow any valid name within the enclosing limit. Creation is otherwise denied.
+Use a stable `--request-id` when the command may be retried. In a running task,
+the CLI uses its broker and owning tenant; do not supply `--jobdb`. Creation does
+not grant permission to submit jobs to the new cell. See the
+[named-cell guide](../../../../GUIDE-Named-Cells.md).

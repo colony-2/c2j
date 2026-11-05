@@ -13,19 +13,44 @@ import (
 
 type ResolveFunc func(context.Context, []string) (jobdb.SecretResolveResult, error)
 type SubmitFunc func(context.Context, jobdb.SubmitJob) (jobref.Ref, error)
+type CreateCellFunc func(context.Context, jobdb.CreateCellRequest) (jobdb.Cell, error)
 
 // Access checks every use before consulting a resolver, including cached ones.
 // Callbacks belong to the controller and are never serialized into task input.
 type Access struct {
-	mu      sync.RWMutex
-	ctx     context.Context
-	grant   JobDB
-	resolve ResolveFunc
-	submit  SubmitFunc
+	mu         sync.RWMutex
+	ctx        context.Context
+	grant      JobDB
+	resolve    ResolveFunc
+	submit     SubmitFunc
+	createCell CreateCellFunc
 }
 
-func NewAccess(ctx context.Context, grant JobDB, resolve ResolveFunc, submit SubmitFunc) *Access {
-	return &Access{ctx: ctx, grant: clone(grant), resolve: resolve, submit: submit}
+func NewAccess(ctx context.Context, grant JobDB, resolve ResolveFunc, submit SubmitFunc, create ...CreateCellFunc) *Access {
+	a := &Access{ctx: ctx, grant: clone(grant), resolve: resolve, submit: submit}
+	if len(create) > 0 {
+		a.createCell = create[0]
+	}
+	return a
+}
+
+// CreateCell registers a name without granting submission authority to it.
+func (a *Access) CreateCell(ctx context.Context, req jobdb.CreateCellRequest) (jobdb.Cell, error) {
+	if err := ctx.Err(); err != nil {
+		return jobdb.Cell{}, err
+	}
+	if err := a.Context().Err(); err != nil {
+		return jobdb.Cell{}, err
+	}
+	if !a.grant.Cells.Create || (a.grant.Cells.CellNames != nil && !slices.Contains(a.grant.Cells.CellNames, req.Name)) {
+		return jobdb.Cell{}, jobdb.ErrLeasePermissionDenied
+	}
+	if a.createCell == nil {
+		return jobdb.Cell{}, fmt.Errorf("restricted cell creation unavailable")
+	}
+	call, cancel := bound(ctx, a.Context())
+	defer cancel()
+	return a.createCell(call, req)
 }
 
 // LimitDeadline narrows helper calls as soon as an operation-local timeout is

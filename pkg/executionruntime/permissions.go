@@ -27,6 +27,15 @@ func (r *Runtime) restrictedAccess(parent context.Context, tc jobworkflow.TaskCo
 	var child jobdb.ExecutionLease
 	var issuedDelegation atomic.Pointer[jobdb.DelegationInfo]
 	resolve := fresh
+	createCell := permissions.CreateCellFunc(func(call context.Context, req jobdb.CreateCellRequest) (jobdb.Cell, error) {
+		r.mu.Lock()
+		current := r.leases[tc.JobKey]
+		r.mu.Unlock()
+		if current == nil || current.leaseState != original.leaseState || tc.Context().Err() != nil {
+			return jobdb.Cell{}, jobdb.ErrExecutionLeaseLost
+		}
+		return current.ExecutionLease.CreateCell(call, req)
+	})
 	var hookPolicy json.RawMessage
 	if len(policies) > 0 {
 		hookPolicy = policies[0].ChildPolicy
@@ -49,7 +58,7 @@ func (r *Runtime) restrictedAccess(parent context.Context, tc jobworkflow.TaskCo
 		}
 		return jobref.FromHandle(h)
 	})
-	if len(grant.Secrets.Resolve) != 0 || grant.Jobs.Submit {
+	if len(grant.Secrets.Resolve) != 0 || grant.Jobs.Submit || grant.Cells.Create {
 		if r.Issuer != nil {
 			var issuedDeadline time.Time
 			get := func(call context.Context) (jobdb.ExecutionLease, error) {
@@ -91,6 +100,13 @@ func (r *Runtime) restrictedAccess(parent context.Context, tc jobworkflow.TaskCo
 				}
 				return child.ResolveSecrets(call, names)
 			}
+			createCell = func(call context.Context, req jobdb.CreateCellRequest) (jobdb.Cell, error) {
+				child, err := get(call)
+				if err != nil {
+					return jobdb.Cell{}, err
+				}
+				return child.CreateCell(call, req)
+			}
 			if len(hookPolicy) == 0 {
 				submit = func(call context.Context, job jobdb.SubmitJob) (jobref.Ref, error) {
 					child, err := get(call)
@@ -128,7 +144,7 @@ func (r *Runtime) restrictedAccess(parent context.Context, tc jobworkflow.TaskCo
 			return result, nil
 		}
 	}
-	access = permissions.NewAccess(ctx, grant, resolve, submit)
+	access = permissions.NewAccess(ctx, grant, resolve, submit, createCell)
 	// Inspection must not wait for an in-flight delegation RPC. The issuer
 	// publishes only completed, noncredential metadata.
 	provider := r.selfProvider(tc, original, access, policies, issuedDelegation.Load)

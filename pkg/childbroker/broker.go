@@ -155,6 +155,7 @@ func start(ctx context.Context, opts Options, openListener func() (net.Listener,
 	mux.HandleFunc(submitPath+"/workspace", broker.handleWorkspace)
 	mux.HandleFunc(submitPath+"/self", broker.handleSelf)
 	mux.HandleFunc(submitPath+"/cell", broker.handleResolveCell)
+	mux.HandleFunc(submitPath+"/cells", broker.handleCreateCell)
 	broker.server = &http.Server{
 		Handler:           mux,
 		ReadHeaderTimeout: 5 * time.Second,

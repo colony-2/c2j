@@ -47,3 +47,22 @@ func TestSafeMetadata(t *testing.T) {
 	require.Contains(t, string(raw), "9007199254740993")
 	require.True(t, strings.Contains(string(raw), "git+https://example.test/repo"))
 }
+
+func TestCellCreationDiscoveryIsIndependentOfSubmission(t *testing.T) {
+	i := Unknown("test")
+	i.Lease.Status = "active"
+	i.Permissions.JobDB = &permissions.JobDB{Cells: permissions.CellPermissions{Create: true, CellNames: []string{"reports"}}}
+	i.Permissions.ChildCeiling = Ceiling{Status: "known", JobDB: &permissions.JobDB{}}
+	i.SetCapabilities(false, false, false, true)
+	require.Equal(t, "denied", i.Capabilities["jobs.submit"].Permission)
+	require.Equal(t, "granted", i.Capabilities["cells.create"].Permission)
+	require.Equal(t, "ready", i.Capabilities["cells.create"].Availability)
+	require.Equal(t, []string{"reports"}, i.Capabilities["cells.create"].Names)
+	require.Empty(t, i.Capabilities["cells.create"].Restrictions)
+	raw, err := json.Marshal(i.Permissions)
+	require.NoError(t, err)
+	require.Contains(t, string(raw), `"cells":{"cellNames":["reports"],"create":true}`)
+	i.Lease.Status = "lost"
+	i.SetCapabilities(false, false, false, true)
+	require.Equal(t, "unavailable", i.Capabilities["cells.create"].Availability)
+}

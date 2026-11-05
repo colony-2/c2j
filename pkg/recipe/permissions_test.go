@@ -10,7 +10,7 @@ import (
 
 func TestRecipePermissionsRoundTripAndStrictFields(t *testing.T) {
 	for _, shape := range []string{"sequence: []", "state: {initial: end, states: {end: {sequence: []}}}", "child_group: {mode: run, children: []}"} {
-		rec, err := LoadRecipeFromString([]byte("id: scoped\nperms: {jobdb: {}, limit: {jobdb: {jobs: {submit: false}}}}\n" + shape))
+		rec, err := LoadRecipeFromString([]byte("id: scoped\nperms: {jobdb: {cells: {create: true, cellNames: [reports]}}, limit: {jobdb: {cells: {create: true, cellNames: [reports]}}}}\n" + shape))
 		require.NoError(t, err)
 		require.NotNil(t, rec.GetMetdata().Perms)
 		raw, err := yaml.Marshal(rec)
@@ -19,6 +19,8 @@ func TestRecipePermissionsRoundTripAndStrictFields(t *testing.T) {
 		require.NoError(t, err)
 		require.NotNil(t, copy.GetMetdata().Perms.JobDB)
 		require.NotNil(t, copy.GetMetdata().Perms.Limit.JobDB)
+		require.True(t, copy.GetMetdata().Perms.JobDB.Cells.Create)
+		require.Equal(t, []string{"reports"}, copy.GetMetdata().Perms.Limit.JobDB.Cells.CellNames)
 	}
 	for _, spec := range []string{"null", "{jobdb: null}", "{jobdb: {git: {profiles: [read]}}}", "{limit: {jobdb: null}}"} {
 		_, err := LoadRecipeFromString([]byte("id: invalid\nsequence: []\nperms: " + spec))

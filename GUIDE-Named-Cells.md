@@ -21,10 +21,48 @@ to JobDB. These routes do not register cells or grant permission to submit jobs.
 `c2j cell add REPO` still edits that dependency configuration.
 
 Creation registers the cell; it does not create a Git repository. Every cell must
-be explicitly registered with JobDB's `cells.create` administrative permission
-before submitting work. A repository assertion cannot create a missing cell.
+be explicitly registered before submitting work, through an authorized admin
+client or a live execution lease. A repository assertion cannot create a missing cell.
 `root` is an ordinary name: it can be renamed or retired and grants no special
-authority. Cell creation is never inherited from a job lease.
+authority. Recipe operations require an explicit `cells.create` grant.
+
+## Create cells from recipes
+
+Grant cell creation on the operation that runs the CLI or extension:
+
+```yaml
+- id: provision
+  perms:
+    jobdb:
+      cells:
+        create: true
+        cellNames: [reports]
+  op: command_execution
+  inputs:
+    run: >-
+      c2j cell create reports --repo github.com/acme/reports
+      --description "Reporting service"
+      --request-id "$C2J_CURRENT_JOB_ID:create-reports"
+```
+
+Creation is denied by default. `cellNames` optionally restricts creation to exact
+names; omitting it permits any valid name within the enclosing authority.
+An explicit list must be nonempty and cannot contain wildcards or expressions.
+The same fields work in `perms.limit.jobdb`, and nested scopes cannot widen a
+limit. An explicit grant replaces inherited permissions, so include any needed
+Git secret or job-submission grants separately.
+
+Inside a running operation, `c2j cell create` uses the authenticated task broker
+and its live restricted lease. It always targets the owning job's tenant; an
+explicit `--jobdb` is rejected and ambient JobDB configuration does not retarget
+it. Broker failures or denial do not fall back to administrative access. Go ops
+can call `permissions.FromContext(ctx).CreateCell(ctx, request)`.
+
+Use the same `--request-id` and creation fields to reconcile retries after an
+uncertain response; without it, creating an existing name is a conflict.
+Creating a cell does not grant permission to submit work there. Submission still
+requires `jobs.submit` and JobDB's existing target-cell authority. Creation also
+does not provision the Git repository.
 
 ## Submission and configuration
 
@@ -87,7 +125,7 @@ identity before executing the recipe, so renames cannot change template inputs
 when resuming or replaying. Inspection shows JobDB's current canonical name and
 stable ID. Recipe schema versions 1 and 2 remain supported on fresh jobs.
 
-This upgrade uses JobDB main commit `e199a54304e7` and requires a coordinated
+This upgrade uses JobDB main commit `24f616ca4ffe` and requires a coordinated
 fresh-storage cutover. Old JobDB stores, jobs, supplied leases, captured execution
 contexts and compiled
 histories are incompatible; there is no old-server or metadata-identity adapter.

@@ -186,7 +186,8 @@ Every recipe uses restricted delegated defaults, including recipes with no
 secrets. Root and ordinary nodes use the configured RO profile; built-in `merge`
 and `squashrebasemerge` use the RW default unless an enclosing `git_profile`
 overrides it. `git_profile: null` removes automatic Git-secret contributions.
-Resolving other secret inputs does not enlarge these defaults.
+Resolving other secret inputs does not enlarge these defaults. Cell creation is
+denied unless explicitly granted.
 
 On ordinary nodes and scopes, an explicit `perms.jobdb` mapping replaces the
 inherited **delegated grant**. Omitted entries deny operation access. If an explicit
@@ -213,6 +214,30 @@ Optional `jobs.cellNames: [payments, reports]` narrows that scope to exact cell
 names and requires `submit: true`. Omission preserves the enclosing ceiling;
 an empty list is invalid, and nested grants cannot widen the ceiling. Workspace
 selection does not change owning-cell authority. See [named cells](GUIDE-Named-Cells.md).
+
+Cell registration uses `cells.create: true`, independently of `jobs.submit`:
+
+```yaml
+perms:
+  jobdb:
+    cells:
+      create: true
+      cellNames: [payments, reports]
+```
+
+The optional `cells.cellNames` list restricts creation to exact valid names.
+Omission allows all names within the enclosing authority; a present list must
+be nonempty and requires `create: true`. Limits intersect these grants, and an
+include's permission ceiling does not automatically grant creation to its body.
+Creating a cell neither expands submission scope nor enables registry editing
+or retirement. The CLI uses the task broker, and remote operations use JobDB's
+restricted `cells.create` delegation. `c2j self --json` reports this grant.
+
+Hook policies granting creation must also specify
+`source_trust["jobdb.cells.create"]` with candidate or commit trust, using the
+existing hook-policy JSON entry format. Commit-bound creation grants do not
+extend to arbitrary hook child recipes; candidate-trusted grants remain subject
+to the child's ceiling.
 
 Child jobs run under their own root recipe policy, with their own trust root.
 They do not inherit the submitting job's grants or limits.

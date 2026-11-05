@@ -40,6 +40,14 @@ func (r *Runtime) selfProvider(tc jobworkflow.TaskContext, original *lease, acce
 		if bounds := original.Delegation(); bounds != nil {
 			grant.Jobs.Submit = grant.Jobs.Submit && bounds.Permissions.Submit != nil
 			grant.Secrets.Resolve = slices.DeleteFunc(grant.Secrets.Resolve, func(n string) bool { return !slices.Contains(bounds.Permissions.Secrets, n) })
+			ceiling := permissions.JobDB{}
+			if names := bounds.Permissions.CreateCells; names != nil {
+				ceiling.Cells.Create = names.Any || len(names.Names) > 0
+				if !names.Any {
+					ceiling.Cells.CellNames = slices.Clone(names.Names)
+				}
+			}
+			grant.Cells = permissions.Intersect(grant, ceiling).Cells
 		}
 		if grant.Secrets.Resolve == nil {
 			grant.Secrets.Resolve = []string{}

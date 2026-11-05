@@ -30,6 +30,12 @@ type Limit struct {
 type JobDB struct {
 	Secrets SecretPermissions `yaml:"secrets,omitempty" json:"secrets,omitempty"`
 	Jobs    JobPermissions    `yaml:"jobs,omitempty" json:"jobs,omitempty"`
+	Cells   CellPermissions   `yaml:"cells,omitempty" json:"cells,omitzero"`
+}
+
+type CellPermissions struct {
+	Create    bool     `yaml:"create,omitempty" json:"create,omitempty"`
+	CellNames []string `yaml:"cellNames,omitempty" json:"cellNames,omitempty"`
 }
 
 type SecretPermissions struct {
@@ -44,6 +50,18 @@ type JobPermissions struct {
 var secretName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_-]{0,255}$`)
 
 func (p JobDB) Validate() error {
+	if p.Cells.CellNames != nil {
+		if !p.Cells.Create || len(p.Cells.CellNames) == 0 {
+			return fmt.Errorf("cellNames requires cells.create and a nonempty list")
+		}
+		seen := map[string]bool{}
+		for _, name := range p.Cells.CellNames {
+			if jobdb.ValidateCellName(name) != nil || seen[name] {
+				return fmt.Errorf("invalid or duplicate cell name %q", name)
+			}
+			seen[name] = true
+		}
+	}
 	if p.Jobs.CellNames != nil {
 		if !p.Jobs.Submit || len(p.Jobs.CellNames) == 0 {
 			return fmt.Errorf("cellNames requires jobs.submit and a nonempty list")
@@ -101,7 +119,7 @@ func (p *Spec) UnmarshalYAML(n *yaml.Node) error {
 }
 
 func grantShape() map[string]any {
-	return map[string]any{"secrets": map[string]any{"resolve": "names"}, "jobs": map[string]any{"submit": "bool", "cellNames": "names"}}
+	return map[string]any{"secrets": map[string]any{"resolve": "names"}, "jobs": map[string]any{"submit": "bool", "cellNames": "names"}, "cells": map[string]any{"create": "bool", "cellNames": "names"}}
 }
 
 func validateYAML(n *yaml.Node, shape any, path string) error {
@@ -156,6 +174,7 @@ func (Spec) JSONSchema() *jsonschema.Schema {
 	grant := object(map[string]*jsonschema.Schema{
 		"secrets": object(map[string]*jsonschema.Schema{"resolve": {Type: "array", Items: &jsonschema.Schema{Type: "string", Pattern: secretName.String()}, UniqueItems: true, MaxItems: ptr(uint64(256))}}),
 		"jobs":    object(map[string]*jsonschema.Schema{"submit": {Type: "boolean"}, "cellNames": {Type: "array", Items: &jsonschema.Schema{Type: "string"}, MinItems: ptr(uint64(1)), UniqueItems: true}}),
+		"cells":   object(map[string]*jsonschema.Schema{"create": {Type: "boolean"}, "cellNames": {Type: "array", Items: &jsonschema.Schema{Type: "string"}, MinItems: ptr(uint64(1)), UniqueItems: true}}),
 	})
 	return object(map[string]*jsonschema.Schema{"jobdb": grant, "limit": object(map[string]*jsonschema.Schema{"jobdb": grant})})
 }
@@ -247,10 +266,29 @@ func (s *State) UnmarshalJSON(raw []byte) error {
 func clone(g JobDB) JobDB {
 	g.Secrets.Resolve = slices.Clone(g.Secrets.Resolve)
 	g.Jobs.CellNames = slices.Clone(g.Jobs.CellNames)
+	g.Cells.CellNames = slices.Clone(g.Cells.CellNames)
 	return g
 }
 func intersect(a, b JobDB) JobDB {
 	out := JobDB{Jobs: JobPermissions{Submit: a.Jobs.Submit && b.Jobs.Submit}}
+	out.Cells.Create = a.Cells.Create && b.Cells.Create
+	if out.Cells.Create {
+		switch {
+		case a.Cells.CellNames == nil:
+			out.Cells.CellNames = slices.Clone(b.Cells.CellNames)
+		case b.Cells.CellNames == nil:
+			out.Cells.CellNames = slices.Clone(a.Cells.CellNames)
+		default:
+			for _, name := range a.Cells.CellNames {
+				if slices.Contains(b.Cells.CellNames, name) {
+					out.Cells.CellNames = append(out.Cells.CellNames, name)
+				}
+			}
+			if len(out.Cells.CellNames) == 0 {
+				out.Cells.Create = false
+			}
+		}
+	}
 	if out.Jobs.Submit {
 		switch {
 		case a.Jobs.CellNames == nil:
@@ -276,6 +314,18 @@ func intersect(a, b JobDB) JobDB {
 	return out
 }
 func subset(a, b JobDB) bool {
+	if a.Cells.Create {
+		if !b.Cells.Create || (b.Cells.CellNames != nil && a.Cells.CellNames == nil) {
+			return false
+		}
+		if b.Cells.CellNames != nil {
+			for _, name := range a.Cells.CellNames {
+				if !slices.Contains(b.Cells.CellNames, name) {
+					return false
+				}
+			}
+		}
+	}
 	if a.Jobs.Submit && b.Jobs.CellNames != nil {
 		if a.Jobs.CellNames == nil {
 			return false
@@ -297,5 +347,5 @@ func subset(a, b JobDB) bool {
 	return true
 }
 
-// Intersect narrows both secret and cell submission permissions.
+// Intersect narrows secret, submission, and cell creation permissions.
 func Intersect(a, b JobDB) JobDB { return intersect(a, b) }

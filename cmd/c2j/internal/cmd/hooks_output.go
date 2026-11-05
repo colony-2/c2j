@@ -111,6 +111,14 @@ func appendHookPolicies(out *strings.Builder, entries map[string]hookPolicyView)
 		} else {
 			out.WriteString("  Submit jobs: denied\n")
 		}
+		if entry.Perms.JobDB != nil && entry.Perms.JobDB.Cells.Create && entry.Trust.CreateCells != nil {
+			fmt.Fprintf(out, "  Create cells: allowed (trust: %s)\n", hookTrustLabel(*entry.Trust.CreateCells))
+			if names := entry.Perms.JobDB.Cells.CellNames; names != nil {
+				fmt.Fprintf(out, "    Names: %s\n", strings.Join(names, ", "))
+			}
+		} else {
+			out.WriteString("  Create cells: denied\n")
+		}
 		if entry.Perms.Limit == nil || entry.Perms.Limit.JobDB == nil {
 			out.WriteString("  Limits: no additional limit\n")
 		} else {
@@ -126,6 +134,14 @@ func appendHookPolicies(out *strings.Builder, entries map[string]hookPolicyView)
 				jobs = "allowed"
 			}
 			fmt.Fprintf(out, "  Limits:\n    Secret resolution: %s\n    Submit jobs: %s\n", label, jobs)
+			cells := "denied"
+			if limit.Cells.Create {
+				cells = "allowed"
+				if limit.Cells.CellNames != nil {
+					cells += " (" + strings.Join(limit.Cells.CellNames, ", ") + ")"
+				}
+			}
+			fmt.Fprintf(out, "    Create cells: %s\n", cells)
 		}
 	}
 }

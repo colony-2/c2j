@@ -7,6 +7,7 @@ import (
 	"github.com/colony-2/c2j/pkg/gitprofile"
 	"github.com/colony-2/c2j/pkg/jobcontext"
 	coreops "github.com/colony-2/c2j/pkg/ops"
+	"github.com/colony-2/c2j/pkg/permissions"
 	"github.com/colony-2/c2j/pkg/selfinfo"
 )
 
@@ -23,7 +24,7 @@ func invocationSelf(ctx context.Context, current jobcontext.Current, paths coreo
 		}
 		info.SetCurrent(current, "runtime_helper")
 		info.Workspace = workspace
-		info.SetCapabilities(canSubmit, paths.WorktreePath != "", gitprofile.FromContext(ctx) != nil)
+		info.SetCapabilities(canSubmit, paths.WorktreePath != "", gitprofile.FromContext(ctx) != nil, permissions.FromContext(ctx) != nil)
 		return info
 	}
 }

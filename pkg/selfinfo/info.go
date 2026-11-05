@@ -156,6 +156,7 @@ func Unknown(reason string) Info {
 }
 
 var Commands = map[string]string{
+	"cells.create":                   "c2j cell create NAME --repo REPO",
 	"jobs.submit":                    "c2j submit",
 	"jobs.submit_from_workspace":     "c2j submit --from-workspace",
 	"jobs.submit_from_workspace_now": "c2j submit --from-workspace-now",
@@ -173,8 +174,11 @@ func Standalone(destination bool) Info {
 	i.Permissions.Status = "not_applicable"
 	for action, c := range i.Capabilities {
 		switch action {
-		case "jobs.submit", "jobs.submit_from_workspace_now":
+		case "jobs.submit", "jobs.submit_from_workspace_now", "cells.create":
 			c.SubmissionKind = "standalone"
+			if action == "cells.create" {
+				c.SubmissionKind = ""
+			}
 			c.ReasonCode = String("standalone_authority_not_inspected")
 			if destination {
 				c.Route = String("configured_jobdb")
@@ -221,7 +225,7 @@ func (i *Info) SetCurrent(c jobcontext.Current, source string) {
 
 // SetCapabilities evaluates the supported routes, separately from policy grants.
 // It does not contact a provider, submit a probe, or mint a credential.
-func (i *Info) SetCapabilities(submit, workspace, secretHelper bool) {
+func (i *Info) SetCapabilities(submit, workspace, secretHelper bool, createCells ...bool) {
 	for action, c := range i.Capabilities {
 		c.Permission = "unknown"
 		c.Availability = "unknown"
@@ -231,6 +235,10 @@ func (i *Info) SetCapabilities(submit, workspace, secretHelper bool) {
 			if action == "secrets.resolve" {
 				allowed = len(i.Permissions.JobDB.Secrets.Resolve) > 0
 				c.Names = append([]string(nil), i.Permissions.JobDB.Secrets.Resolve...)
+			}
+			if action == "cells.create" {
+				allowed = i.Permissions.JobDB.Cells.Create
+				c.Names = append([]string(nil), i.Permissions.JobDB.Cells.CellNames...)
 			}
 			c.Permission = "denied"
 			c.Availability = "unavailable"
@@ -244,6 +252,10 @@ func (i *Info) SetCapabilities(submit, workspace, secretHelper bool) {
 		routeReady := submit
 		c.Route = String("child_job_broker")
 		c.SubmissionKind = "child"
+		if action == "cells.create" {
+			c.SubmissionKind = ""
+			routeReady = len(createCells) > 0 && createCells[0]
+		}
 		if action == "secrets.resolve" {
 			routeReady = secretHelper
 			c.Route = String("runtime_secret_helper")
@@ -269,10 +281,10 @@ func (i *Info) SetCapabilities(submit, workspace, secretHelper bool) {
 				c.ReasonCode = String("lease_state_unknown")
 			}
 		}
-		if action != "secrets.resolve" && i.Permissions.ParentBounds != nil {
+		if action != "secrets.resolve" && action != "cells.create" && i.Permissions.ParentBounds != nil {
 			c.SubmitScope = i.Permissions.ParentBounds.Permissions.Submit
 		}
-		if action != "secrets.resolve" && i.Permissions.ChildCeiling.Status == "known" {
+		if action != "secrets.resolve" && action != "cells.create" && i.Permissions.ChildCeiling.Status == "known" {
 			c.Restrictions = []string{"inherited_child_ceiling"}
 		}
 		i.Capabilities[action] = c
@@ -349,7 +361,11 @@ func (p Permissions) MarshalJSON() ([]byte, error) {
 		if p.JobDB.Jobs.CellNames != nil {
 			jobs["cellNames"] = p.JobDB.Jobs.CellNames
 		}
-		grant = map[string]any{"jobs": jobs, "secrets": map[string]any{"resolve": names}}
+		cells := map[string]any{"create": p.JobDB.Cells.Create}
+		if p.JobDB.Cells.CellNames != nil {
+			cells["cellNames"] = p.JobDB.Cells.CellNames
+		}
+		grant = map[string]any{"jobs": jobs, "cells": cells, "secrets": map[string]any{"resolve": names}}
 	}
 	return json.Marshal(struct {
 		plain

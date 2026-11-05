@@ -3,10 +3,13 @@ package cmd
 import (
 	"encoding/json"
 	"fmt"
+	"os"
 
 	"github.com/colony-2/c2j/cmd/c2j/internal/celledit"
 	"github.com/colony-2/c2j/cmd/c2j/internal/defaults"
 	"github.com/colony-2/c2j/cmd/c2j/internal/swfruntime"
+	"github.com/colony-2/c2j/pkg/childbroker"
+	"github.com/colony-2/c2j/pkg/jobcontext"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	"github.com/spf13/cobra"
 )
@@ -39,7 +42,7 @@ func newCellCmd() *cobra.Command {
 }
 
 func newCellCreateCmd() *cobra.Command {
-	var uri, repo, description string
+	var uri, repo, description, requestID string
 	var jsonOutput bool
 	cmd := &cobra.Command{Use: "create NAME", Short: "Register a cell before submitting work", Args: cobra.ExactArgs(1)}
 	cmd.RunE = func(cmd *cobra.Command, args []string) error {
@@ -50,16 +53,40 @@ func newCellCreateCmd() *cobra.Command {
 		if err != nil {
 			return fmt.Errorf("--repo must be a portable repository locator: %w", err)
 		}
-		target, err := defaults.ResolveJobDBTarget(cmd.Context(), "", uri)
+		broker, hasBroker, err := jobcontext.ChildJobBrokerFromEnv(os.Getenv)
 		if err != nil {
 			return err
 		}
-		handle, err := swfruntime.Open(cmd.Context(), target.RuntimeURL)
+		current, hasCurrent, err := jobcontext.CurrentFromEnv(os.Getenv)
 		if err != nil {
 			return err
 		}
-		defer handle.Cleanup()
-		cell, err := handle.Runtime.CreateCell(cmd.Context(), jobdb.CreateCellRequest{TenantID: target.TenantID, Name: args[0], Repo: normalized, Description: description})
+		request := jobdb.CreateCellRequest{Name: args[0], Repo: normalized, Description: description, RequestID: requestID}
+		var cell jobdb.Cell
+		if hasBroker {
+			if !hasCurrent || !current.HasJob() {
+				return fmt.Errorf("cell creation broker requires current job context")
+			}
+			if uri != "" {
+				return fmt.Errorf("--jobdb cannot retarget cell creation inside a running task")
+			}
+			cell, err = childbroker.CreateCell(cmd.Context(), broker, request)
+		} else {
+			if hasCurrent {
+				return fmt.Errorf("cell creation inside a running job requires a task broker")
+			}
+			target, resolveErr := defaults.ResolveJobDBTarget(cmd.Context(), "", uri)
+			if resolveErr != nil {
+				return resolveErr
+			}
+			handle, openErr := swfruntime.Open(cmd.Context(), target.RuntimeURL)
+			if openErr != nil {
+				return openErr
+			}
+			defer handle.Cleanup()
+			request.TenantID = target.TenantID
+			cell, err = handle.Runtime.CreateCell(cmd.Context(), request)
+		}
 		if err != nil {
 			return fmt.Errorf("create cell %q: %w", args[0], err)
 		}
@@ -73,6 +100,7 @@ func newCellCreateCmd() *cobra.Command {
 	f.StringVar(&uri, "jobdb", "", "JobDB URI")
 	f.StringVar(&repo, "repo", "", "Repository locator (required; no Git repository is created)")
 	f.StringVar(&description, "description", "", "Cell description")
+	f.StringVar(&requestID, "request-id", "", "Stable idempotency key for retrying the same cell creation")
 	f.BoolVar(&jsonOutput, "json", false, "Emit the registered cell as JSON")
 	_ = cmd.MarkFlagRequired("repo")
 	return cmd

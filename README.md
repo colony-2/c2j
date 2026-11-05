@@ -259,8 +259,11 @@ c2j cell list --dependencies
 `--state ALL` includes retired cells. `--dependencies` displays configured routing
 entries with `short_name`, `repo`, and optional `description`. Routing entries do
 not grant authority or register cells. Creation registers a name and repository
-mapping; it does not create a Git repository. Root creation requires JobDB's
-administrative bootstrap permission. See [Named cells](GUIDE-Named-Cells.md).
+mapping; it does not create a Git repository. Within a recipe operation,
+`perms.jobdb.cells.create: true` enables creation through the current task's
+restricted lease; optional `cells.cellNames` restricts the names. Creation is
+denied by default and does not grant submission access to the created cell.
+Use `--request-id KEY` to reconcile retries. See [Named cells](GUIDE-Named-Cells.md).
 
 ### `c2j cell add`
 
