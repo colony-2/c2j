@@ -9,6 +9,10 @@ a different environment yields, keeping its identity, recipe, recorded results,
 and artifacts. A provisioner supplies a compatible environment and resumes that
 same job. c2j does not provision machines or containers itself.
 
+Extensions can derive requirements from their inputs and request a handoff with
+exit 75. See [extension execution negotiation](GUIDE-Extension-Execution-Negotiation.md)
+for allocation information, capability requests, and the prepared package list.
+
 ## Declare requirements
 
 Every recipe root form can declare optional requirements:

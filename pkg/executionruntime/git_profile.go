@@ -7,6 +7,7 @@ import (
 	"errors"
 	"slices"
 
+	"github.com/colony-2/c2j/pkg/execution"
 	"github.com/colony-2/c2j/pkg/gitprofile"
 	"github.com/colony-2/c2j/pkg/jobref"
 	"github.com/colony-2/c2j/pkg/permissions"
@@ -25,6 +26,7 @@ func (w *guardedTask) runWithGitProfile(tc jobworkflow.TaskContext, input jobdb.
 	defer stop()
 	defer func() { runErr = redactor.Error(runErr) }()
 	local := secrets.WithRedactor(tc.Context(), redactor)
+	local = execution.WithEnvironment(local, w.runtime.Allocation)
 	local, gitStderr := gitprofile.WithStderrLog(local)
 	defer func() {
 		stderr := gitStderr.Bytes()

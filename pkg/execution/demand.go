@@ -12,6 +12,9 @@ const DemandSchemaVersion = 4
 
 // Demand is a disposable scheduling snapshot, never replay state.
 type Demand struct {
+	// Overrides is reconstructed by recipe replay for live negotiation only.
+	// It is deliberately excluded from disposable scheduling snapshots.
+	Overrides        Requirements `json:"-"`
 	SchemaVersion    int          `json:"schema_version"`
 	RecipeResolution string       `json:"recipe_resolution"`
 	Effective        Requirements `json:"effective"`

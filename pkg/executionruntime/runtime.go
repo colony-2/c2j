@@ -6,6 +6,7 @@ package executionruntime
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"reflect"
 	"sync"
@@ -184,7 +185,9 @@ func (l *lease) prepareReschedule(req jobdb.RescheduleExecutionRequest) (jobdb.R
 		if err != nil {
 			return req, nil, false, err
 		}
-		if current == nil || !reflect.DeepEqual(*current, *d) {
+		comparable := *d
+		comparable.Overrides = execution.Requirements{}
+		if current == nil || !reflect.DeepEqual(*current, comparable) {
 			copy := *d
 			raw, err := execution.PayloadWithDemand(l.ClientPayload(), copy)
 			if err != nil {
@@ -245,16 +248,42 @@ func (w *guardedTask) Run(ctx jobworkflow.TaskContext, input jobdb.TaskData) (jo
 	}
 	// Recipe-resolution tasks run before a scope is staged. Scoped recipe work
 	// always replays first, including when claimed through a pending-task route.
-	if d == nil {
-		return w.runWithGitProfile(ctx, input, l)
+	if d != nil {
+		mismatches, err := execution.Compare(d.Effective, r.Allocation)
+		if err != nil {
+			return nil, err
+		}
+		if len(mismatches) > 0 {
+			return l.yieldEnvironment(ctx, mismatches)
+		}
 	}
-	mismatches, err := execution.Compare(d.Effective, r.Allocation)
+	out, err := w.runWithGitProfile(ctx, input, l)
+	var required *execution.Required
+	if !errors.As(err, &required) {
+		return out, err
+	}
+	if err := ctx.Context().Err(); err != nil {
+		return nil, err
+	}
+	mismatches, err := execution.Compare(required.Needs, r.Allocation)
 	if err != nil {
 		return nil, err
 	}
 	if len(mismatches) == 0 {
-		return w.runWithGitProfile(ctx, input, l)
+		return nil, fmt.Errorf("extension execution_required protocol error: requested requirements are already satisfied")
 	}
+	if d == nil {
+		return nil, fmt.Errorf("extension execution_required requires staged recipe execution requirements")
+	}
+	negotiated, err := execution.Negotiate(*d, required.Needs)
+	if err != nil {
+		return nil, err
+	}
+	r.Stage(ctx.JobKey, negotiated)
+	return l.yieldEnvironment(ctx, mismatches)
+}
+
+func (l *lease) yieldEnvironment(ctx jobworkflow.TaskContext, mismatches []execution.Mismatch) (jobdb.TaskData, error) {
 	// A staged demand belongs to the recipe's current task, which may be later
 	// than the task route on the acquired lease. Resume recipe replay, not stale
 	// pending-task coordinates from that earlier handoff.
@@ -263,7 +292,7 @@ func (w *guardedTask) Run(ctx jobworkflow.TaskContext, input jobdb.TaskData) (jo
 	if err != nil {
 		return l.blockExecution(err)
 	}
-	metadata, err := json.Marshal(execution.Handoff{Kind: "environment_required", JobKey: ctx.JobKey, Demand: *publishedDemand, Allocation: r.Allocation, Mismatches: mismatches, Published: published})
+	metadata, err := json.Marshal(execution.Handoff{Kind: "environment_required", JobKey: ctx.JobKey, Demand: *publishedDemand, Allocation: l.runtime.Allocation, Mismatches: mismatches, Published: published})
 	if err != nil {
 		return l.blockExecution(err)
 	}

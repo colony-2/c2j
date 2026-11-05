@@ -64,7 +64,7 @@ func (s *executionSession) effective() execution.Requirements {
 }
 func (s *executionSession) stageCurrent() {
 	if s.stage != nil {
-		s.stage(s.ctx.GetJobKey(), execution.Demand{SchemaVersion: execution.DemandSchemaVersion, RecipeResolution: "resolved", Effective: s.effective()})
+		s.stage(s.ctx.GetJobKey(), execution.Demand{SchemaVersion: execution.DemandSchemaVersion, RecipeResolution: "resolved", Effective: s.effective(), Overrides: execution.Overlay(s.overrides, execution.Requirements{})})
 	}
 }
 func (s *executionSession) stageNode(needs execution.Requirements) {

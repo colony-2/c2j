@@ -12,6 +12,7 @@ import (
 
 	recipeartifacts "github.com/colony-2/c2j/pkg/artifacts"
 	"github.com/colony-2/c2j/pkg/configuration"
+	"github.com/colony-2/c2j/pkg/execution"
 	"github.com/colony-2/c2j/pkg/jobcontext"
 	"github.com/colony-2/c2j/pkg/ops"
 	"github.com/colony-2/c2j/pkg/ops/process"
@@ -51,6 +52,9 @@ func executeExtension(deps ops.OpDependencies, ctx context.Context, input Execut
 	defer report.Close()
 	report.Selector = input.Selector
 	defer func() {
+		if execution.IsRequired(runErr) {
+			return
+		}
 		exit := 0
 		if !report.Capture.Launched || report.Capture.Err != nil {
 			exit = -1
@@ -146,6 +150,12 @@ func executeExtension(deps ops.OpDependencies, ctx context.Context, input Execut
 		env[k] = v
 	}
 	env = jobcontext.MergeProtectedEnv(env, deps.ProtectedEnv())
+	allocation := execution.CurrentEnvironment(ctx)
+	allocationJSON, err := json.Marshal(allocation)
+	if err != nil {
+		return nil, err
+	}
+	env[execution.AllocationEnv] = string(allocationJSON)
 	if err := prepareObjectOutbox(deps, env); err != nil {
 		return nil, err
 	}
@@ -159,6 +169,27 @@ func executeExtension(deps ops.OpDependencies, ctx context.Context, input Execut
 	runReq := extensionRunRequest(resolved, env, inJSON)
 	runReq = report.Prepare(runReq)
 	stdout, _, err := process.ExecuteProcess(ctx, runReq)
+	var exit *exec.ExitError
+	if ctx.Err() == nil && errors.As(err, &exit) && exit.ExitCode() == executionRequiredExit {
+		if report.Capture.Truncated(0) {
+			return nil, fmt.Errorf("extension execution_required response exceeded execution capture limit")
+		}
+		needs, decodeErr := decodeExecutionRequired(report.Capture.RawBytes(0))
+		if decodeErr != nil {
+			return nil, fmt.Errorf("invalid extension execution_required response: %w", decodeErr)
+		}
+		if err := secrets.FromContext(ctx).CheckOutput(needs); err != nil {
+			return nil, err
+		}
+		mismatches, err := execution.Compare(needs, allocation.Allocation)
+		if err != nil {
+			return nil, err
+		}
+		if len(mismatches) == 0 {
+			return nil, fmt.Errorf("extension execution_required protocol error: requested requirements are already satisfied")
+		}
+		return nil, &execution.Required{Needs: needs}
+	}
 	if err != nil {
 		return nil, fmt.Errorf("extension op %q failed: %w; stderr: %s", input.Selector, err, executiondiag.Short(strings.TrimSpace(string(report.Capture.Bytes(1)))))
 	}

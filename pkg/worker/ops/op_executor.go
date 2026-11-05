@@ -451,6 +451,11 @@ func (t opExecutor) doPrepared(ctx context.Context, jobTool ops.JobTool, req Act
 	}
 
 	protectedEnv := jobcontext.EnvForCurrent(currentJob)
+	allocationJSON, err := json.Marshal(execution.CurrentEnvironment(opCtx))
+	if err != nil {
+		return zero, nil, err
+	}
+	protectedEnv[execution.AllocationEnv] = string(allocationJSON)
 	protectedEnv["C2J_WORKSPACE_CELL_NAME"] = req.GitTaskContext.GetWorkspaceCellName()
 	if req.GitTaskContext.Workspace != nil {
 		protectedEnv["C2J_WORKSPACE_SCOPE_ID"] = req.GitTaskContext.Workspace.ScopeID
@@ -540,6 +545,9 @@ func (t opExecutor) doPrepared(ctx context.Context, jobTool ops.JobTool, req Act
 	}
 	logger.Debug("Op body started", "event", "op.body.started")
 	outputData, stepErr := reg.Step.Invoke(opDeps, opCtx, hydratedInput)
+	if execution.IsRequired(stepErr) {
+		return zero, nil, stepErr
+	}
 	phase = "process_op_output"
 	stepErr = session.Error(stepErr)
 	if err := session.CheckOutput(outputData); err != nil {

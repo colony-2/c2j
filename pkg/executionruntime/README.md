@@ -33,6 +33,10 @@ stop keepalive for rejected leases; ordinary lease-expiry recovery applies.
 
 Use `ops.SuspendExecution` at a successful durable activity boundary to request
 a change. Read-only replay must use `ReadOnlyReplay: true` and must not publish.
+Extensions can instead return `execution_required` and exit 75 to publish demand
+and yield their unfinished task. The extension checks fresh allocation facts on
+its next invocation; there is no separate recovery state. An already-satisfied
+request is an error. See [extension negotiation](../../GUIDE-Extension-Execution-Negotiation.md).
 See the [design](../../C2J_PORTABLE_EXECUTION_REQUIREMENTS_DESIGN.md) and
 [user guide](../../GUIDE-Execution-Tracking.md) for lifecycle and failure semantics.
 

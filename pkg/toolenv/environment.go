@@ -58,6 +58,11 @@ type Environment struct {
 
 // Bind applies both executable selection and native activation to one op.
 func (e Environment) Bind(ctx context.Context) context.Context {
+	var packages []string
+	for _, tool := range e.Tools {
+		packages = append(packages, tool.Reference)
+	}
+	ctx = execution.WithPreparedPackages(ctx, packages)
 	return process.WithToolEnvironment(ctx, e.Path, e.Variables)
 }
 

@@ -9,6 +9,7 @@ import (
 
 	"github.com/colony-2/c2j/pkg/configuration"
 	"github.com/colony-2/c2j/pkg/contextual"
+	"github.com/colony-2/c2j/pkg/execution"
 	"github.com/colony-2/c2j/pkg/git/gitstate"
 	"github.com/colony-2/c2j/pkg/ops"
 	extops "github.com/colony-2/c2j/pkg/ops/extensions"
@@ -55,7 +56,7 @@ func (t *taskWorker) RunTask(local context.Context, ctx jobworkflow.TaskContext,
 	defer func() {
 		outcome := "succeeded"
 		switch {
-		case jobworkflow.IsExecutionSuspended(runErr):
+		case jobworkflow.IsExecutionSuspended(runErr), execution.IsRequired(runErr):
 			outcome = "waiting"
 		case errors.Is(runErr, context.Canceled):
 			outcome = "canceled"
@@ -91,6 +92,9 @@ func (t *taskWorker) RunTask(local context.Context, ctx jobworkflow.TaskContext,
 	var prepMS int64
 	var prepared bool
 	defer func() {
+		if execution.IsRequired(runErr) || jobworkflow.IsExecutionSuspended(runErr) {
+			return
+		}
 		if runErr == nil || (air.Setup == nil && air.Preparation.Extension == nil && len(air.Preparation.Scopes) == 0 && configDiag == nil && !configuration.Contains(air.Input) && !secrets.Contains(air.Input)) {
 			return
 		}
@@ -219,6 +223,12 @@ func (t *taskWorker) RunTask(local context.Context, ctx jobworkflow.TaskContext,
 		prepared = true
 		return bodyCtx, nil
 	})
+	if execution.IsRequired(err) || jobworkflow.IsExecutionSuspended(err) {
+		if stop := opCtx.Err(); stop != nil {
+			return nil, stop
+		}
+		return nil, err
+	}
 	out.PreparationMS = prepMS
 	var diagnostic interface{ FailureAttributes() map[string]any }
 	if errors.As(err, &diagnostic) {
