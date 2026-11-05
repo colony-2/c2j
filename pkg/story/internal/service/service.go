@@ -841,10 +841,11 @@ func (s *Service) RestartRecipeJob(ctx context.Context, req model.RestartRecipeJ
 	if jobID == "" {
 		return nil, ErrNotFound
 	}
-	if req.ChapterOrdinal != nil {
-		if strings.TrimSpace(req.ScopeID) != "" {
-			return nil, fmt.Errorf("%w: specify chapter ordinal or scope ID, not both", storylive.ErrInvalidRestartBoundary)
-		}
+	req.ScopeID = strings.TrimSpace(req.ScopeID)
+	if req.ChapterOrdinal != nil && req.ScopeID != "" {
+		return nil, fmt.Errorf("%w: specify chapter ordinal or scope ID, not both", storylive.ErrInvalidRestartBoundary)
+	}
+	if req.ChapterOrdinal != nil || req.ScopeID == starter.SubmissionRestartScopeID {
 		run, err := s.engine.GetJobRun(ctx, jobdb.GetJobRunRequest{JobKey: jobdb.JobKey{TenantId: projectID, JobId: jobID}})
 		if err != nil {
 			if errors.Is(err, jobdb.ErrJobNotFound) {
@@ -852,11 +853,19 @@ func (s *Service) RestartRecipeJob(ctx context.Context, req model.RestartRecipeJ
 			}
 			return nil, err
 		}
-		boundary, err := storylive.RestartBoundary(run.Execution, *req.ChapterOrdinal)
-		if err != nil {
-			return nil, err
+		if req.ScopeID == starter.SubmissionRestartScopeID || *req.ChapterOrdinal == 0 {
+			submission, err := storylive.SubmissionRestartScope(run)
+			if err != nil {
+				return nil, err
+			}
+			req.ScopeID = submission.ScopeID
+		} else {
+			boundary, err := storylive.RestartBoundary(run.Execution, *req.ChapterOrdinal)
+			if err != nil {
+				return nil, err
+			}
+			req.ScopeID = boundary.Record.ID
 		}
-		req.ScopeID = boundary.Record.ID
 	}
 
 	var restartSubmitter any = jobdbschema.WorkflowEngine{Engine: s.engine, Registry: s.registry}

@@ -288,7 +288,7 @@ outputs: {count: '${{ states.loop.outputs.count }}'}
 func TestRestartContextRejectsInvalidTargets(t *testing.T) {
 	f := newRestartFixture(t, "sqlite", restartSequenceRecipe)
 	st := f.story(t, f.key)
-	for _, ordinal := range []int64{-1, 0, 999999, *storyNodes(st.Root, "op", restartProbeOp)[0].TaskOrdinal} {
+	for _, ordinal := range []int64{-1, 999999, *storyNodes(st.Root, "op", restartProbeOp)[0].TaskOrdinal} {
 		_, err := f.service.GetRestartContext(f.ctx, story.GetRestartContextRequest{ProjectID: f.key.TenantId, JobID: f.key.JobId, ChapterOrdinal: ordinal})
 		require.ErrorIs(t, err, story.ErrInvalidRestartBoundary)
 		_, err = f.service.RestartRecipeJob(f.ctx, story.RestartRecipeJobRequest{RequestID: uuid.NewString(), Goal: struct {
@@ -312,6 +312,53 @@ func (f *restartFixture) inspectScope(t *testing.T, key jobdb.JobKey, id string)
 	return result
 }
 
+func TestSubmissionRestartPreservesInputsAndArtifacts(t *testing.T) {
+	for _, backend := range []string{"sqlite", "remote"} {
+		t.Run(backend, func(t *testing.T) {
+			f := newRestartFixture(t, backend, restartSequenceRecipe)
+			original, err := f.runtime.ListChapters(f.ctx, jobdb.ListChaptersRequest{JobKey: f.key})
+			require.NoError(t, err)
+			key := f.key
+			// Exercise both existing selectors and a restart of a restart.
+			for i, selector := range []string{"ordinal", "scope"} {
+				st := f.story(t, key)
+				require.Equal(t, "Job submission", st.RestartScopes[0].Title)
+				require.Zero(t, st.RestartScopes[0].ChapterOrdinal)
+				require.Equal(t, starter.SubmissionRestartScopeID, st.RestartScopes[0].ScopeID)
+				byOrdinal := f.inspect(t, key, 0)
+				byScope := f.inspectScope(t, key, st.RestartScopes[0].ScopeID)
+				require.Equal(t, byOrdinal, byScope)
+				require.Empty(t, byScope.Visible["inputs"])
+				require.NotContains(t, byScope.Visible, "sequence", "no recipe scope exists at submission")
+				req := story.RestartRecipeJobRequest{ProjectID: key.TenantId, JobID: key.JobId, RequestID: uuid.NewString()}
+				req.Goal.Mode = "new"
+				if selector == "ordinal" {
+					ordinal := int64(0)
+					req.ChapterOrdinal = &ordinal
+				} else {
+					req.ScopeID = st.RestartScopes[0].ScopeID
+				}
+				restarted, err := f.service.RestartRecipeJob(f.ctx, req)
+				require.NoError(t, err)
+				again, err := f.service.RestartRecipeJob(f.ctx, req)
+				require.NoError(t, err)
+				require.Equal(t, restarted, again, "request retries preserve identity")
+				key = jobdb.JobKey{TenantId: restarted.TenantID, JobId: restarted.JobID}
+				retained, err := f.runtime.ListChapters(f.ctx, jobdb.ListChaptersRequest{JobKey: key})
+				require.NoError(t, err)
+				require.Len(t, retained, 1, "only the submission is retained")
+				require.Equal(t, original[0].Body, retained[0].Body, "original input and recipe artifact references are preserved")
+				f.run(t, key)
+				require.EqualValues(t, 4*(i+2), f.task.calls.Load(), "every operation executes again")
+				require.Equal(t, "original", f.story(t, key).Root.Output.(map[string]any)["value"])
+			}
+			after, err := f.runtime.ListChapters(f.ctx, jobdb.ListChaptersRequest{JobKey: f.key})
+			require.NoError(t, err)
+			require.Equal(t, original, after, "inspection and restart leave the source history unchanged")
+		})
+	}
+}
+
 func TestRestartContinuesGoalAndReconcilesAfterWinning(t *testing.T) {
 	for _, backend := range []string{"sqlite", "remote"} {
 		t.Run(backend, func(t *testing.T) {
@@ -331,7 +378,7 @@ outputs:
 			require.Equal(t, jobdb.GoalOpen, goal.State)
 			st := f.story(t, f.key)
 			require.NotEmpty(t, st.RestartScopes)
-			req := story.RestartRecipeJobRequest{ProjectID: f.key.TenantId, JobID: f.key.JobId, ScopeID: st.RestartScopes[0].ScopeID, RequestID: "repair-attempt"}
+			req := story.RestartRecipeJobRequest{ProjectID: f.key.TenantId, JobID: f.key.JobId, ScopeID: st.Root.RestartScopeID, RequestID: "repair-attempt"}
 			restarted, err := f.service.RestartRecipeJob(f.ctx, req)
 			require.NoError(t, err)
 			require.Equal(t, info.GoalID, restarted.GoalID)

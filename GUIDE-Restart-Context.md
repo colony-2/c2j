@@ -30,6 +30,20 @@ Each `JobRunStoryNode` may have:
 `scope_id`, `started_at`, and, when associated with a displayed node, `title` and
 `path`. Use the scope ID to join the selected node to this list.
 
+The list also includes **Job submission**, at chapter `0`, once the job has
+recorded execution after submission. It uses the same `ScopeID` and
+`ChapterOrdinal` selectors as recipe scopes and is available on existing jobs,
+including jobs that failed during setup before entering a recipe scope. Display
+this entry from the list even though it has no associated recipe node. Treat its
+scope ID as opaque, just like the other returned IDs.
+
+Selecting Job submission retains only the original submission and its input
+artifacts. Cell-context capture, root recipe-source resolution, hook-policy
+capture, and recipe execution all run again. Floating recipe references can
+resolve to newer content; pinned references and embedded recipe artifacts stay
+as submitted. The job retains its owning cell snapshot. Ordinary recipe-scope
+restarts continue to reuse their recorded setup.
+
 Do not substitute `TaskOrdinal`. That field identifies stored task data, not a
 restart boundary. Do not calculate a boundary from a node's path or subtract one
 from the returned ordinal; the service handles the retained prefix internally.
@@ -73,6 +87,14 @@ The snapshot includes unchanged values. Scoped patches address
 `Visible["sequence"][id]["outputs"]` or
 `Visible["states"][id]["outputs"]`. These containers contain only outputs
 visible at the chosen boundary; a later task's result will not appear there.
+
+For Job submission, inspection reads the original submission directly without
+replaying execution or resolving the recipe. `Job` contains the submitted job
+context and `Visible.inputs` contains the submitted recipe inputs, with the same
+redaction policy. Recipe defaults, setup-derived context, and scoped outputs do
+not exist yet. This snapshot is read-only: submission restarts accept an absent
+or empty patch and reject nonempty context patches. Choose a recipe scope when
+you need to patch execution context.
 
 The context is captured at scope entry, before that scope resolves its own
 inputs or runs its body. Thus `Visible.inputs` belongs to the resolver being
@@ -127,6 +149,10 @@ boundary** replaces that boundary's previous patch; the before-state is the
 base for the new patch, not the old patched invocation. Restarting without a
 patch at that boundary therefore does not retain its previous patch.
 
+A submission restart instead retains chapter `0` itself and discards all later
+execution, including previous context patches. Goal selection and request-ID
+idempotency use the existing restart behavior.
+
 ## Read-only behavior and errors
 
 Inspection reuses c2j's interpreter and JobDB's read-only replay, stopping before
@@ -140,7 +166,7 @@ Use `errors.Is` with these public errors:
 
 | Error | Meaning |
 | --- | --- |
-| `story.ErrInvalidRestartBoundary` | The ordinal is not a recorded patchable scope entry, or both target selectors were supplied. |
+| `story.ErrInvalidRestartBoundary` | The target is neither an available submission boundary nor a recorded patchable scope, or both target selectors were supplied. |
 | `story.ErrRestartContextUnavailable` | The selected boundary exists but its context could not be reconstructed. The underlying replay error is preserved. |
 | `story.ErrNotFound` | The source job is not found in the requested tenant/project. |
 | `story.ErrInvalidProject` | The tenant/project was omitted. |

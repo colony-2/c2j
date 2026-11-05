@@ -240,17 +240,30 @@ func recipeRunPolicy(startJob workflowctl.StartJob, recipes []recipe.Recipe) job
 	return policy
 }
 
-// RestartRecipeJob starts a fresh continuation at a recorded, patchable scope.
+// SubmissionRestartScopeID selects the original submission, before any execution.
+// It is a c2j boundary, not a JobDB execution scope ID.
+const SubmissionRestartScopeID = "c2j:submission"
+
 type RestartOptions struct {
 	Goal      string
 	RequestID string
 }
 
+// RestartRecipeJob starts a fresh continuation at a recipe scope or submission.
 func RestartRecipeJob(ctx context.Context, engine any, prior jobdb.JobKey, scopeID string, patch *task.ContextPatch, opts RestartOptions) (jobref.Ref, error) {
 	if strings.TrimSpace(scopeID) == "" {
 		return jobref.Ref{}, fmt.Errorf("scope ID is required")
 	}
 	req := jobdb.SubmitRestartJob{PriorJobKey: prior, ExecutionRestart: &jobdb.ExecutionRestart{ScopeID: scopeID}}
+	if scopeID == SubmissionRestartScopeID {
+		if patch != nil && (len(patch.Job) > 0 || len(patch.Scopes) > 0) {
+			return jobref.Ref{}, fmt.Errorf("submission restart does not support context patches; select a recipe scope to patch execution context")
+		}
+		// Keep the original input and its artifacts, but no execution header,
+		// setup task results, or prior scope continuations.
+		req.ExecutionRestart = nil
+		req.LastStepToKeep = 0
+	}
 	reader, ok := engine.(interface {
 		ListJobs(context.Context, jobdb.ListJobsRequest) (jobdb.ListJobsResponse, error)
 	})
@@ -286,7 +299,7 @@ func RestartRecipeJob(ctx context.Context, engine any, prior jobdb.JobKey, scope
 		return jobref.Ref{}, err
 	}
 
-	if patch != nil {
+	if patch != nil && req.ExecutionRestart != nil {
 		raw, err := json.Marshal(patch)
 		if err != nil {
 			return jobref.Ref{}, err

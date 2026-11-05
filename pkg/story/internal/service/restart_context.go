@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/colony-2/c2j/pkg/starter"
 	"github.com/colony-2/c2j/pkg/story/internal/model"
 	storylive "github.com/colony-2/c2j/pkg/story/live"
 	"github.com/colony-2/jobdb/pkg/jobdb"
@@ -22,17 +23,22 @@ func (s *Service) GetRestartContext(ctx context.Context, req model.GetRestartCon
 	if key.JobId == "" {
 		return nil, ErrNotFound
 	}
-	run, err := s.engine.GetJobRun(ctx, jobdb.GetJobRunRequest{JobKey: key})
+	id := strings.TrimSpace(req.ScopeID)
+	if id != "" && req.ChapterOrdinal != 0 {
+		return nil, fmt.Errorf("%w: specify chapter ordinal or scope ID, not both", storylive.ErrInvalidRestartBoundary)
+	}
+	submission := id == starter.SubmissionRestartScopeID || (id == "" && req.ChapterOrdinal == 0)
+	run, err := s.engine.GetJobRun(ctx, jobdb.GetJobRunRequest{JobKey: key, IncludeInputs: submission})
 	if err != nil {
 		if errors.Is(err, jobdb.ErrJobNotFound) {
 			return nil, ErrNotFound
 		}
 		return nil, err
 	}
-	if id := strings.TrimSpace(req.ScopeID); id != "" {
-		if req.ChapterOrdinal != 0 {
-			return nil, fmt.Errorf("%w: specify chapter ordinal or scope ID, not both", storylive.ErrInvalidRestartBoundary)
-		}
+	if submission {
+		return storylive.InspectSubmissionRestartContext(key, run)
+	}
+	if id != "" {
 		return storylive.InspectRestartContextByScopeID(ctx, s.engine, key, run.Execution, id, s.celProvider, s.rootResolver, s.logger)
 	}
 	return storylive.InspectRestartContext(ctx, s.engine, key, run.Execution, req.ChapterOrdinal, s.celProvider, s.rootResolver, s.logger)

@@ -93,6 +93,30 @@ func TestRestartRecipeJob_WithPatch_UsesScopePayload(t *testing.T) {
 	assertHashOnlySchemaSelector(t, engine.last.Schema)
 }
 
+func TestRestartRecipeJob_FromSubmission(t *testing.T) {
+	for _, patch := range []*task.ContextPatch{nil, {}} {
+		engine := &captureEngine{info: jobdb.JobSummary{Cell: "source-cell"}}
+		_, err := RestartRecipeJob(context.Background(), engine, jobdb.JobKey{TenantId: "t", JobId: "prior"}, SubmissionRestartScopeID, patch, RestartOptions{RequestID: "submission-restart"})
+		require.NoError(t, err)
+		require.Nil(t, engine.last.ExecutionRestart)
+		require.Zero(t, engine.last.LastStepToKeep)
+		require.Equal(t, "source-cell", engine.last.Cell)
+		require.True(t, engine.last.ShareGoal)
+		require.Nil(t, engine.last.ExtraTaskInput)
+		require.Nil(t, engine.last.ExtraTaskOutput)
+		assertHashOnlySchemaSelector(t, engine.last.Schema)
+	}
+	for _, patch := range []*task.ContextPatch{
+		{Job: map[string]any{"git": map[string]any{"author": "changed"}}},
+		{Scopes: []task.ScopePatch{{Container: "sequence", ID: "step"}}},
+	} {
+		engine := &captureEngine{}
+		_, err := RestartRecipeJob(context.Background(), engine, jobdb.JobKey{TenantId: "t", JobId: "prior"}, SubmissionRestartScopeID, patch, RestartOptions{RequestID: "submission-restart"})
+		require.ErrorContains(t, err, "submission restart does not support context patches")
+		require.Nil(t, engine.last, "must not submit or silently discard a patch")
+	}
+}
+
 func assertHashOnlySchemaSelector(t *testing.T, selector *jobdb.JobSchemaSelector) {
 	t.Helper()
 	wantSchemaHash, err := jobdbschema.Hash()
