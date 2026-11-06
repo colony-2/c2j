@@ -19,8 +19,9 @@ const Version = 1
 // Spec is common node metadata. On ordinary nodes JobDB replaces the delegated
 // grant; on includes it authorizes callee inputs and bounds callee grants.
 type Spec struct {
-	JobDB *JobDB `yaml:"jobdb,omitempty" json:"jobdb,omitempty"`
-	Limit *Limit `yaml:"limit,omitempty" json:"limit,omitempty"`
+	JobDB    *JobDB       `yaml:"jobdb,omitempty" json:"jobdb,omitempty"`
+	Limit    *Limit       `yaml:"limit,omitempty" json:"limit,omitempty"`
+	Restrict *Restriction `yaml:"restrict,omitempty" json:"restrict,omitempty"`
 }
 
 type Limit struct {
@@ -97,15 +98,17 @@ func (p *Spec) Validate() error {
 		}
 	}
 	if p.Limit != nil && p.Limit.JobDB != nil {
-		return p.Limit.JobDB.Validate()
+		if err := p.Limit.JobDB.Validate(); err != nil {
+			return err
+		}
 	}
-	return nil
+	return p.Restrict.Validate()
 }
 
 // Reject unknown fields, nulls, aliases and merges rather than silently ignoring
 // an intended restriction. This strictness is local to the permission subtree.
 func (p *Spec) UnmarshalYAML(n *yaml.Node) error {
-	shape := map[string]any{"jobdb": grantShape(), "limit": map[string]any{"jobdb": grantShape()}}
+	shape := map[string]any{"jobdb": grantShape(), "limit": map[string]any{"jobdb": grantShape()}, "restrict": restrictionShape()}
 	if err := validateYAML(n, shape, "perms"); err != nil {
 		return err
 	}
@@ -176,7 +179,11 @@ func (Spec) JSONSchema() *jsonschema.Schema {
 		"jobs":    object(map[string]*jsonschema.Schema{"submit": {Type: "boolean"}, "cellNames": {Type: "array", Items: &jsonschema.Schema{Type: "string"}, MinItems: ptr(uint64(1)), UniqueItems: true}}),
 		"cells":   object(map[string]*jsonschema.Schema{"create": {Type: "boolean"}, "cellNames": {Type: "array", Items: &jsonschema.Schema{Type: "string"}, MinItems: ptr(uint64(1)), UniqueItems: true}}),
 	})
-	return object(map[string]*jsonschema.Schema{"jobdb": grant, "limit": object(map[string]*jsonschema.Schema{"jobdb": grant})})
+	restrict := object(map[string]*jsonschema.Schema{"jobdb": object(map[string]*jsonschema.Schema{
+		"jobs":  object(map[string]*jsonschema.Schema{"submit": {Type: "boolean", Enum: []any{false}}}),
+		"cells": object(map[string]*jsonschema.Schema{"create": {Type: "boolean", Enum: []any{false}}}),
+	})})
+	return object(map[string]*jsonschema.Schema{"jobdb": grant, "limit": object(map[string]*jsonschema.Schema{"jobdb": grant}), "restrict": restrict})
 }
 
 func ptr[T any](v T) *T { return &v }
@@ -193,6 +200,7 @@ type State struct {
 	Grant       *JobDB          `json:"grant,omitempty"`
 	Limit       *JobDB          `json:"limit,omitempty"`
 	Inputs      *InputPolicy    `json:"inputs,omitempty"`
+	Restrict    *Restriction    `json:"restrict,omitempty"`
 }
 
 func (s State) Enter(spec *Spec, boundary bool) (State, error) {
@@ -214,9 +222,11 @@ func (s State) Enter(spec *Spec, boundary bool) (State, error) {
 		if spec.JobDB != nil {
 			v := clone(*spec.JobDB)
 			s.Grant = &v
+			s.Restrict = nil
 		}
+		s.Restrict = mergeRestrictions(s.Restrict, spec.Restrict)
 	}
-	if s.Grant != nil && s.Limit != nil && !subset(*s.Grant, *s.Limit) {
+	if s.Grant != nil && s.Limit != nil && !subset(s.Restrict.apply(*s.Grant), *s.Limit) {
 		return State{}, fmt.Errorf("requested JobDB permissions exceed the enclosing limit")
 	}
 	return s, nil
@@ -225,6 +235,9 @@ func (s State) Enter(spec *Spec, boundary bool) (State, error) {
 func (s State) Resolve(gitSecrets []string) (JobDB, error) {
 	if s.Version != Version {
 		return JobDB{}, fmt.Errorf("unsupported permission policy version %d", s.Version)
+	}
+	if err := s.Restrict.Validate(); err != nil {
+		return JobDB{}, err
 	}
 	grant := JobDB{Secrets: SecretPermissions{Resolve: slices.Clone(gitSecrets)}, Jobs: JobPermissions{Submit: true}}
 	if s.Grant != nil {
@@ -235,6 +248,7 @@ func (s State) Resolve(gitSecrets []string) (JobDB, error) {
 	if err := grant.Validate(); err != nil {
 		return JobDB{}, err
 	}
+	grant = s.Restrict.apply(grant)
 	if s.Limit != nil {
 		if err := s.Limit.Validate(); err != nil {
 			return JobDB{}, err

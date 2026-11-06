@@ -196,6 +196,34 @@ grant also needs authenticated Git reads, include the actual RO secret name.
 `perms: {}` preserves the policy. Siblings recover the enclosing policy on scope
 exit. These replacements do not replace trusted input-reference authorization.
 
+To disable an action while retaining the rest of the inherited grant, use
+`perms.restrict`:
+
+```yaml
+perms:
+  restrict:
+    jobdb:
+      jobs:
+        submit: false
+```
+
+This preserves the selected Git profile's credentials when the inherited grant
+allows them, without naming deployment-specific secrets. Supported edits are
+`jobs.submit: false` and `cells.create: false`; each also clears its cell-name
+filter. Omitted fields and empty mappings inherit. `true`, nulls, unknown fields,
+and list edits are rejected. Use a complete `perms.jobdb` grant to add capabilities
+or change lists.
+
+The edited grant is inherited by descendants, but a later `perms.jobdb` replaces
+it and discards inherited edits. For example, a descendant may explicitly grant
+submission again within existing limits. If a node supplies both a complete grant
+and restrictions, the restrictions apply to that grant. Include boundaries that
+reset the inherited grant also reset its edits; callsite restrictions apply to
+the included scope. A restriction alone does not authorize a foreign include or
+secret input. Default Git credentials remain selected per task, including after
+resume. `c2j self` reports active edits under `permissions.grant_restrictions` and
+on the affected capabilities.
+
 `perms.limit.jobdb` sets a ceiling descendants cannot enlarge. Nested limits
 intersect. A limit alone does not authorize a foreign input reference or create a
 lease grant. The included recipe can request an explicit node grant within it.

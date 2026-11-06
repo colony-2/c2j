@@ -291,6 +291,15 @@ func (e Entry) Authority(commit string, parent permissions.State, call *permissi
 		child.Cells.CellNames = slices.Clone(g.Cells.CellNames)
 	}
 	s.ChildGrant = &child
+	// Hook authority starts its own grant. Apply local edits without turning
+	// them into administrative ceilings or inheriting the caller's grant edits.
+	s, err := s.Enter(&permissions.Spec{Restrict: e.Perms.Restrict}, false)
+	if err != nil {
+		return s, err
+	}
+	if call != nil {
+		return s.Enter(&permissions.Spec{Restrict: call.Restrict}, false)
+	}
 	return s, nil
 }
 func Intersect(a, b permissions.JobDB) permissions.JobDB { return permissions.Intersect(a, b) }

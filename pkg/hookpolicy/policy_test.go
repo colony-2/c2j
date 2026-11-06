@@ -117,3 +117,29 @@ func TestCaptureRejectsBrokenBindingsAndCopies(t *testing.T) {
 	_, err = Capture(jobdb.ConfigurationSnapshot{Values: map[string]json.RawMessage{TenantKey: []byte(`null`)}}, repo)
 	require.Error(t, err)
 }
+
+func TestHookRestrictionsEditGrantWithinAdministrativeCeiling(t *testing.T) {
+	disabled := false
+	edit := &permissions.Restriction{JobDB: &permissions.JobDBRestriction{Jobs: permissions.RestrictedJobs{Submit: &disabled}}}
+	grant := permissions.JobDB{Jobs: permissions.JobPermissions{Submit: true}}
+	for _, onCall := range []bool{false, true} {
+		entry := Entry{Perms: permissions.Spec{JobDB: &grant}, Trust: SourceTrust{Submit: &Trust{Mode: "candidate"}}}
+		var call *permissions.Spec
+		if onCall {
+			call = &permissions.Spec{Restrict: edit}
+		} else {
+			entry.Perms.Restrict = edit
+		}
+		s, err := entry.Authority(strings.Repeat("a", 40), permissions.State{}, call)
+		require.NoError(t, err)
+		g, err := s.Resolve(nil)
+		require.NoError(t, err)
+		require.False(t, g.Jobs.Submit)
+		require.True(t, s.Limit.Jobs.Submit)
+		replacement, err := s.Enter(&permissions.Spec{JobDB: &grant}, false)
+		require.NoError(t, err)
+		g, err = replacement.Resolve(nil)
+		require.NoError(t, err)
+		require.True(t, g.Jobs.Submit)
+	}
+}

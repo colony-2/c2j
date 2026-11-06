@@ -53,6 +53,9 @@ func (r *Runtime) selfProvider(tc jobworkflow.TaskContext, original *lease, acce
 			grant.Secrets.Resolve = []string{}
 		}
 		i.Permissions = selfinfo.Permissions{Status: "known", Scope: "current_execution", Source: "effective_operation_access", ParentBounds: original.Delegation(), JobDB: &grant, ChildCeiling: selfinfo.Ceiling{Status: "unknown"}}
+		if len(policies) > 0 {
+			i.Permissions.GrantRestrictions = policies[0].Restrict.Fields()
+		}
 		if len(policies) > 0 && len(policies[0].ChildPolicy) > 0 {
 			ceiling := grant
 			if policies[0].ChildGrant != nil {

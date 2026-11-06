@@ -103,6 +103,38 @@ func TestSelfInspectionLostAndRestrictedParent(t *testing.T) {
 	require.Equal(t, "lost", inspect().Lease.Status)
 }
 
+func TestSelfReportsGrantEditsUntilReplacement(t *testing.T) {
+	disabled := false
+	policy, err := (permissions.State{}).Enter(&permissions.Spec{Restrict: &permissions.Restriction{JobDB: &permissions.JobDBRestriction{Jobs: permissions.RestrictedJobs{Submit: &disabled}}}}, false)
+	require.NoError(t, err)
+	key := jobdb.JobKey{TenantId: "tenant", JobId: "job"}
+	rt := &Runtime{leases: map[jobdb.JobKey]*lease{}}
+	original := rt.wrapLease(&selfLease{key: key}, &leaseState{}).(*lease)
+	for _, replace := range []bool{false, true} {
+		if replace {
+			policy, err = policy.Enter(&permissions.Spec{JobDB: &permissions.JobDB{Jobs: permissions.JobPermissions{Submit: true}}}, false)
+			require.NoError(t, err)
+		}
+		grant, err := policy.Resolve([]string{"ro"})
+		require.NoError(t, err)
+		access := permissions.NewAccess(celltest.Context(context.Background()), grant, nil, nil)
+		info := rt.selfProvider(wf.TaskContext{JobKey: key}, original, access, []permissions.State{policy}, func() *jobdb.DelegationInfo { return nil })()
+		info.SetCapabilities(true, true, true)
+		if replace {
+			require.Empty(t, info.Permissions.GrantRestrictions)
+			require.Empty(t, info.Capabilities["jobs.submit"].Restrictions)
+			require.Equal(t, "granted", info.Capabilities["jobs.submit"].Permission)
+		} else {
+			require.Equal(t, []string{"perms.restrict.jobdb.jobs.submit"}, info.Permissions.GrantRestrictions)
+			for _, name := range []string{"jobs.submit", "jobs.submit_from_workspace", "jobs.submit_from_workspace_now"} {
+				require.Equal(t, info.Permissions.GrantRestrictions, info.Capabilities[name].Restrictions)
+				require.Equal(t, "denied", info.Capabilities[name].Permission)
+			}
+			require.Empty(t, info.Capabilities["secrets.resolve"].Restrictions)
+		}
+	}
+}
+
 // A read-only snapshot must stay responsive while a permitted operation is
 // waiting for its first delegated credential.
 type blockingSelfIssuer struct {

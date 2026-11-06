@@ -58,6 +58,7 @@ func (s State) EnterInclude(spec *Spec, boundary, trusted bool) (State, error) {
 	}
 	if boundary || (spec != nil && spec.JobDB != nil) {
 		s.Grant = nil
+		s.Restrict = nil
 	}
 	// Callsite authority is also a ceiling: foreign descendants cannot enlarge it.
 	if spec != nil {
@@ -77,7 +78,11 @@ func (s State) EnterInclude(spec *Spec, boundary, trusted bool) (State, error) {
 		}
 	}
 	s.Inputs = &input
-	return s.Enter(nil, false)
+	var edit *Spec
+	if spec != nil {
+		edit = &Spec{Restrict: spec.Restrict}
+	}
+	return s.Enter(edit, false)
 }
 
 func ValidateInclude(spec *Spec, boundary bool) error {

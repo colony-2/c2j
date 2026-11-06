@@ -85,13 +85,14 @@ type Lease struct {
 	ReasonCode        string                `json:"reason_code,omitempty"`
 }
 type Permissions struct {
-	ParentBounds *jobdb.DelegationInfo `json:"parent_bounds,omitempty"`
-	Status       string                `json:"status"`
-	Scope        string                `json:"scope"`
-	Source       string                `json:"source,omitempty"`
-	JobDB        *permissions.JobDB    `json:"jobdb"`
-	ChildCeiling Ceiling               `json:"child_ceiling"`
-	ReasonCode   string                `json:"reason_code,omitempty"`
+	GrantRestrictions []string              `json:"grant_restrictions,omitempty"`
+	ParentBounds      *jobdb.DelegationInfo `json:"parent_bounds,omitempty"`
+	Status            string                `json:"status"`
+	Scope             string                `json:"scope"`
+	Source            string                `json:"source,omitempty"`
+	JobDB             *permissions.JobDB    `json:"jobdb"`
+	ChildCeiling      Ceiling               `json:"child_ceiling"`
+	ReasonCode        string                `json:"reason_code,omitempty"`
 }
 type Ceiling struct {
 	Status   string             `json:"status"`
@@ -228,6 +229,7 @@ func (i *Info) SetCurrent(c jobcontext.Current, source string) {
 func (i *Info) SetCapabilities(submit, workspace, secretHelper bool, createCells ...bool) {
 	for action, c := range i.Capabilities {
 		c.Permission = "unknown"
+		c.Restrictions = nil
 		c.Availability = "unknown"
 		c.ReasonCode = String("permission_unknown")
 		if i.Permissions.JobDB != nil {
@@ -286,6 +288,15 @@ func (i *Info) SetCapabilities(submit, workspace, secretHelper bool, createCells
 		}
 		if action != "secrets.resolve" && action != "cells.create" && i.Permissions.ChildCeiling.Status == "known" {
 			c.Restrictions = []string{"inherited_child_ceiling"}
+		}
+		permission := action
+		if strings.HasPrefix(action, "jobs.submit") {
+			permission = "jobs.submit"
+		}
+		for _, field := range i.Permissions.GrantRestrictions {
+			if field == "perms.restrict.jobdb."+permission {
+				c.Restrictions = append(c.Restrictions, field)
+			}
 		}
 		i.Capabilities[action] = c
 	}
