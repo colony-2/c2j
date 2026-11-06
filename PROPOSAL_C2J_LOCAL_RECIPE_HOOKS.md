@@ -3,6 +3,8 @@
 Status: initial c2j implementation available. See [the user guide](GUIDE-Local-Recipe-Hooks.md)
 for supported syntax, CLI commands, execution boundaries, and current limitations.
 Build-specific checkpoint placement remains a consuming/shared-recipe change.
+The [hook workspace extension](#hook-workspaces) uses JobDB lease cell lookup
+independently of submission authority.
 
 ## Problem and approach
 
@@ -172,13 +174,10 @@ They retain that file's source snapshot rather than independently following a
 branch when reached. Explicit references to other repositories have their own
 recorded source identities and ordinary permission boundaries.
 
-The implementation must define the binding explicitly for recipes that switch
-workspaces. For v1, prefer the job's consuming cell; another repository should
-require an explicit reference rather than an implicit change in hook ownership.
-Hook definition, candidate input, and execution must use the same consuming
-workspace snapshot. A call from another active workspace must explicitly enter
-the consuming workspace or fail; it must not silently combine one repository's
-hook with another repository's candidate.
+The [hook workspace extension](#hook-workspaces) separates the consuming
+repository's hook source and candidate from the execution workspace. Selecting
+another workspace preserves hook ownership, source-trust checks, and the
+consuming repository's configured policy.
 
 ### Resolution timing
 
@@ -198,9 +197,9 @@ Hook entry must durably establish the following before executing hook code:
    content identity, and replayable definition, or its absence at that snapshot.
 3. Validate the hook and its permission requests against the recorded project
    policy described below, then evaluate candidate-dependent inputs.
-4. Execute against the pinned workspace and propagate that pin to subsequent
-   work in the same workspace lineage. Normal operations may produce newer
-   candidate snapshots from it.
+4. Execute in the consuming workspace by default. Workspace metadata also permits
+   a selected execution workspace, with its own snapshot lineage.
+   Normal operations may produce newer candidate snapshots within that lineage.
 
 Persist the pin and resolution record before dispatching hook operations so
 retries cannot combine a saved definition with a newly resolved branch tip.
@@ -232,6 +231,66 @@ Hooks with external effects need a stable invocation identity for deduplication:
 retries of one invocation retain that identity, while a new visit receives a new
 identity. This does not imply automatic exactly-once execution of external
 systems.
+
+## Hook workspaces
+
+Status: implemented with JobDB
+`v0.0.74-0.20261106183456-422c10acb4dd`, which includes the lease lookup API
+introduced in `6bcbb4e`. See the [lookup contract](GUIDE-LEASE-CELL-LOOKUP.md)
+and [hook workspace usage](GUIDE-Local-Recipe-Hooks.md#running-a-hook-in-another-workspace).
+
+### Access model and configuration
+
+- Git credentials and the Git server authorize repository access. There is no
+  job-level workspace permission or per-hook cell allowlist.
+- A hook can use an existing cell's workspace with `jobs.submit: false` and
+  without submission authority for that cell, provided its Git access succeeds.
+- Hook permissions remain in the authoritative JobDB configuration block, using
+  existing tenant defaults, cell overrides, source trust, and captured revision.
+- Existing secret grants govern obtaining Git credentials stored as JobDB secrets.
+  Ordinary grant replacement and `inherit: true` retain their existing semantics
+  within explicit limits and the hook's administrative authority.
+
+### Execution and source identity
+
+1. `workspace` is supported on a hook include, inside its body, and on a containing
+   node or recipe root that invokes the hook from another workspace.
+2. The nearest enclosing consuming-repository workspace supplies the hook source
+   context and its unmerged candidate. Relative includes and nested `cell://`
+   hooks retain that source. The execution target's commit is never substituted
+   for the candidate used to authorize the hook.
+3. Hook source selection retains `source_hooks` modes. Source, candidate, policy,
+   and workspace results are recorded separately for retry and replay.
+4. Caller input bindings keep their normal context. Hook body Git context describes
+   the execution workspace. Hook authority applies to workspace preparation on
+   its include, as well as operations inside the body.
+5. Normal workspace snapshots, outputs, artifacts, scope exit, and failure behavior
+   apply. Foreign changes stay in their own lineage and cannot become the implicit
+   root result. The owning job's identity stays the same.
+
+### JobDB integration
+
+Workspace selection now calls `ExecutionLease.LookupCell` through the live owning
+lease. It resolves an active cell name within that tenant without a submission
+check. Repository assertions still have to match the registry. Existing
+`workspace.initial: empty` behavior remains separate.
+
+Submission paths continue using `ResolveCell` and their existing c2j grant checks.
+A successful lookup does not authorize a child job. The dependency also includes
+JobDB's tenant-wide owner-lease submission default: trusted principal restrictions
+and delegated submission filters continue to apply, while the old
+`LeaseSubmitCells` field has been removed.
+
+Upgrade JobDB and c2j together. There is no fallback to administrative credentials
+or configured repository locations when lease lookup is unavailable or fails.
+
+### Validation
+
+Coverage includes embedded and remote lookup with submission disabled or filtered,
+closed-lease rejection, direct delegated lookup, and continued submission denial.
+Hook tests cover include/body/containing/root workspace placement, unpushed source
+and nested includes, grants configured in JobDB, consuming-candidate commit trust,
+snapshot separation, and replay after source removal and policy changes.
 
 ## Hook permissions and secrets
 

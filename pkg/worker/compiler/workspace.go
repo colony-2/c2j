@@ -91,7 +91,7 @@ func resolveWorkspaceTask(ctx context.Context, data jobdb.TaskData, owners ...jo
 		if !ok {
 			return nil, fmt.Errorf("lease-bound cell resolver is required")
 		}
-		cell, err := cellref.ResolveTarget(ctx, scope.ResolveCell, target.Cell, target.Repository)
+		cell, err := cellref.ResolveTarget(ctx, scope.LookupCell, target.Cell, target.Repository)
 		if err != nil {
 			return nil, err
 		}
@@ -172,6 +172,11 @@ func enterWorkspace(ctx workflow.Context, parent *template.ResolutionContext, me
 	req := WorkspaceResolutionInput{Cell: cell, Repo: repo, Ref: ref, Initial: spec.Initial, ScopeID: parent.NextWorkspaceID(meta.ID), Resolution: resolution}
 	req.GitProfile = parent.GitProfile
 	p := parent.Permissions
+	if meta.Internal != nil && meta.Internal.HookAuthority != nil {
+		// The include's selector and inputs belong to the caller, but credentials
+		// for preparing the hook's execution workspace belong to the hook.
+		p = *meta.Internal.HookAuthority
+	}
 	req.Permissions = &p
 	if incoming.Workspace != nil {
 		req.ParentScopeID = incoming.Workspace.ScopeID

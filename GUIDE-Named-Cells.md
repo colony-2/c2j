@@ -100,10 +100,12 @@ uninitialized repository without registering a cell. Child recipes and child-gro
 entries accept `cell_name` and optional `cell_repo` separately. A child starting
 from the active workspace carries its repository assertion and snapshot.
 
-A job's owning cell is independent of its active workspace. Every lease defaults
-to its own cell, including jobs owned by `root`. Trusted server policy can grant
-additional existing target cells. Selecting another workspace never expands
-that authority. Recipe grants can narrow submission further:
+A job's owning cell is independent of its active workspace. `LookupCell` can
+resolve any active cell in the lease's tenant, even with submission disabled.
+Git credentials authorize workspace access. JobDB owner leases allow tenant-wide
+submission unless explicitly restricted by trusted server policy; delegated
+leases and c2j recipe grants still require submission authority. Recipe grants
+can narrow submission further:
 
 ```yaml
 perms:

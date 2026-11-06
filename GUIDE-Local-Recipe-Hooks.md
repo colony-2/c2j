@@ -82,18 +82,53 @@ The consuming recipe controls this setting throughout its included recipes and
 nested hooks. A loaded hook's own `source_hooks` does not override it. A separate
 child job uses its own recipe's setting.
 
-All modes run the hook against the current candidate workspace. Relative recipe
-includes and local selector ops/CEL packages use the selected hook source commit.
-A command such as `./scripts/project-checks.sh` still reads that script from the
-candidate workspace, so source selection alone does not isolate executed code
-from job edits.
+All modes select hook code from the consuming repository. Relative recipe includes
+and local selector ops/CEL packages use the selected hook source commit. The body
+runs in the active execution workspace, which defaults to the consuming workspace.
+A command such as `./scripts/project-checks.sh` reads its script from that execution
+workspace, so source selection alone does not isolate executed code from job edits.
 
 Pinning and loading are separate durable tasks. Resume uses the recorded candidate,
 source, and permission policy. Hook retries reuse that definition, even if the
 workspace rebases during the invocation. A later invocation selects its source
 again using the recipe's mode. Missing-hook fallback is also evaluated against
-that selected source, not against the candidate. Put workspace selection on a
-containing node, and use the consuming repository.
+that selected source, not against the candidate.
+
+### Running a hook in another workspace
+
+Use ordinary `workspace` metadata on the hook include, on a containing node, or
+inside the hook recipe:
+
+```yaml
+sequence:
+  - id: check_in_tools
+    include: cell://.c2/hooks/check.yaml
+    workspace:
+      cell: shared-tools
+      ref: main
+```
+
+The hook's definition, relative includes, configured permissions, and source-trust
+candidate still belong to the consuming repository. When invoked from another
+workspace, loading uses the nearest enclosing consuming-repository workspace,
+including its unpushed changes. Nested `cell://` hooks use that source too.
+Selecting a different execution workspace does not load that target's hook or
+apply its hook policy.
+
+Inside the body, `context.git.*` and `context.workspace.cell` describe the selected
+workspace; `context.workflow.cell` retains the owning job's identity. Include
+inputs retain their normal caller-context binding. Returning restores the
+enclosing workspace, and target changes stay in their own snapshot lineage.
+
+Workspace selection works with `jobs.submit: false`. JobDB's lease `LookupCell`
+resolves the registered repository independently of submission authority; Git
+credentials and the Git server authorize access. Hook permissions remain in the
+JobDB configuration block, and existing secret grants govern obtaining credentials
+stored there. No workspace permission or per-hook cell allowlist is needed.
+The hook's grant also applies when preparing a workspace declared on its include.
+
+Deploy c2j with a JobDB server supporting the lease cell lookup API (the c2j
+dependency includes commit `6bcbb4e`). Older servers have no lookup fallback.
 
 ### Updating hooks through a child job
 
@@ -236,4 +271,4 @@ Local package selectors use the hook source repository and recorded source commi
 like local selector ops, the package loader currently requires a fetchable commit.
 CEL package execution keeps its existing behavior; any future changes should
 apply to ordinary includes and hooks alike. Provider-side hook identity
-authorization and cross-repository hook workspaces are outside this implementation.
+authorization is outside this implementation.

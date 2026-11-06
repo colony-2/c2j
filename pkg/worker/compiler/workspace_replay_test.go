@@ -67,7 +67,7 @@ func (c *workspaceReplayContext) DoTask(call testTaskCall, build func(testContex
 		if err = json.Unmarshal(raw, &req); err != nil {
 			return nil, err
 		}
-		ctx := jobref.WithScope(celltest.Context(context.Background()), jobref.Scope{ResolveCell: func(context.Context, string) (jobdb.ResolvedCell, error) {
+		ctx := jobref.WithScope(celltest.Context(context.Background()), jobref.Scope{LookupCell: func(context.Context, string) (jobdb.ResolvedCell, error) {
 			return jobdb.ResolvedCell{Cell: "B", CellID: "B-id", CellRepo: req.Repo}, nil
 		}})
 		out, err = resolveWorkspaceTask(permissions.WithAccess(ctx, permissions.NewAccess(celltest.Context(context.Background()), permissions.JobDB{}, nil, nil)), data)

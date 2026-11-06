@@ -409,13 +409,6 @@ func (d DefaultRecipeExecutor) executeHook(ctx workflow.Context, parent *templat
 }
 
 func prepareHook(ctx workflow.Context, parent *template.ResolutionContext, n *recipe.NodeInclude) (recipe.Node, error) {
-	// Source loading needs a stable candidate but does not accept repository work.
-	// Unpinned hook-body tasks select independently after the source has been loaded.
-	observing := parent.TaskExecutionContext().Workspace.FollowsRef() && parent.GetGitCommitContext().PersistHash == ""
-	if observing {
-		original := parent.GetGitCommitContext()
-		defer parent.UpdateGitState(original)
-	}
 	hook, err := hookpolicy.Reference(n.Include.Recipe)
 	if err != nil {
 		return recipe.Node{}, err
@@ -435,15 +428,33 @@ func prepareHook(ctx workflow.Context, parent *template.ResolutionContext, n *re
 	if ctx.HookPolicy == nil {
 		return recipe.Node{}, fmt.Errorf("hook policy was not captured during job preparation")
 	}
-	if n.Workspace != nil {
-		return recipe.Node{}, fmt.Errorf("put workspace selection on the containing node for cell hooks")
+	// Workspace boundaries retain their enclosing resolver and its snapshot.
+	// Load from the nearest consuming-repository workspace, even when execution
+	// is currently in a foreign workspace. Never reconstruct it from branch HEAD.
+	source := parent
+	for source != nil {
+		id, e := hookpolicy.Identity(source.TaskExecutionContext().GitTask.BaseRepo)
+		if e == nil && id == ctx.HookPolicy.Repository {
+			break
+		}
+		source = source.Parent
+	}
+	if source == nil {
+		return recipe.Node{}, fmt.Errorf("cell hook consuming repository workspace is unavailable")
+	}
+	// Source loading needs a stable candidate but does not accept repository work.
+	// Unpinned hook-body tasks select independently after the source has been loaded.
+	observing := source.TaskExecutionContext().Workspace.FollowsRef() && source.GetGitCommitContext().PersistHash == ""
+	if observing {
+		original := source.GetGitCommitContext()
+		defer source.UpdateGitState(original)
 	}
 	// Resolve outside the execution retry scope. The durable task result is reused
 	// by retries of this invocation; a new visit advances the local invocation ID.
 	invocation := parent.NextWorkspaceID("hook:" + template.ScopeID(n.NodeMetadata, "", template.ScopeSequence))
 	p := parent.Permissions
 	e, _ := ctx.HookPolicy.Select(hook)
-	req := workerops.ActivityInvocationRequest{Input: map[string]any{"hook": hook, "policy": e, "perms": n.Perms, "repository": ctx.HookPolicy.Repository, "policy_revision": ctx.HookPolicy.Revision}, Permissions: &p, GitProfile: parent.GitProfile, GitTaskContext: *gitstate.NewGlobalGitTaskContext(parent.TaskExecutionContext())}
+	req := workerops.ActivityInvocationRequest{Input: map[string]any{"hook": hook, "policy": e, "perms": n.Perms, "repository": ctx.HookPolicy.Repository, "policy_revision": ctx.HookPolicy.Revision}, Permissions: &p, GitProfile: parent.GitProfile}
 	req.Input["source_hooks"] = ctx.SourceHooks
 	req.Input["initial_base"] = ctx.HookBase
 	var result hookResolution
@@ -452,7 +463,7 @@ func prepareHook(ctx workflow.Context, parent *template.ResolutionContext, n *re
 	// not perform another floating-ref lookup.
 	for _, phase := range []string{"pin", "load"} {
 		req.Input["phase"] = phase
-		req.GitTaskContext = *gitstate.NewGlobalGitTaskContext(parent.TaskExecutionContext())
+		req.GitTaskContext = *gitstate.NewGlobalGitTaskContext(source.TaskExecutionContext())
 		out, err := workflow.ValueCall(ctx.JobContext, "hook:"+invocation+":"+phase, hookResolveTaskType, jobdb.RunPolicy{}, req)
 		if err != nil {
 			return recipe.Node{}, err
@@ -491,7 +502,7 @@ func prepareHook(ctx workflow.Context, parent *template.ResolutionContext, n *re
 				return recipe.Node{}, err
 			}
 		}
-		parent.UpdateGitState(decoded.Activity.GitResult)
+		source.UpdateGitState(decoded.Activity.GitResult)
 	}
 	if result.Absent {
 		e = hookpolicy.Empty()

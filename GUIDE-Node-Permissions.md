@@ -252,12 +252,15 @@ nulls, duplicate names, and unknown permission fields are rejected. Git profile
 names belong in `git_profile`, not in JobDB grants.
 
 Submission is a queue permission: `jobs.submit: true` permits submission within
-the owning lease's cell ceiling. All jobs, including those owned by `root`,
-have their own cell plus existing targets explicitly granted by trusted server policy.
+the owning lease's cell ceiling. JobDB owner leases allow targets throughout their
+tenant unless trusted server policy explicitly restricts them. Delegated leases
+must carry a submit grant.
 Optional `jobs.cellNames: [payments, reports]` narrows that scope to exact cell
 names and requires `submit: true`. Omission preserves the enclosing ceiling;
 an empty list is invalid, and nested grants cannot widen the ceiling. Workspace
-selection does not change owning-cell authority. See [named cells](GUIDE-Named-Cells.md).
+selection uses independent lease cell lookup and works with `submit: false`;
+Git credentials authorize repository access. Selecting a workspace does not grant
+submission authority. See [named cells](GUIDE-Named-Cells.md).
 
 Cell registration uses `cells.create: true`, independently of `jobs.submit`:
 

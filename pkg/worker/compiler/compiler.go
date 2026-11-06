@@ -109,7 +109,8 @@ func (d DefaultRecipeExecutor) ExecuteRecipe(ctx workflow.Context, r recipe.Reci
 
 	// we forward thin packs from one task to the next to maintain state.
 	forwarder := newThinPackForwardingJobContext(ctx.JobContext)
-	forwarder.scopedMode = recipe.HasWorkspaces(r) || execCtx.Workspace != nil
+	// A dynamically loaded hook can introduce workspaces absent from the caller.
+	forwarder.scopedMode = recipe.HasWorkspaces(r) || hasCellHooks(r) || execCtx.Workspace != nil
 	if execCtx.InitialCommit != nil {
 		commitContext = *execCtx.InitialCommit
 	}
@@ -217,7 +218,7 @@ func (d DefaultRecipeExecutor) ExecuteRecipe(ctx workflow.Context, r recipe.Reci
 	if err := rCtx.SelectGitProfile(metadata.GitProfile, ""); err != nil {
 		return nil, nil, err
 	}
-	if ctx.SourceHooks == recipe.HooksFromBase && hasCellHooks(r) && metadata.Workspace == nil {
+	if ctx.SourceHooks == recipe.HooksFromBase && hasCellHooks(r) {
 		ctx.HookBase, err = initialHookBase(ctx, rCtx)
 		if err != nil {
 			return nil, nil, err

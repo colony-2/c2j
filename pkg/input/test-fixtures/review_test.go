@@ -99,11 +99,8 @@ outputs:
 	embedded, err := sqliteruntime.StartEmbeddedRuntime(ctx)
 	require.NoError(t, err)
 	t.Cleanup(embedded.Shutdown)
-	beta, err := embedded.Runtime.CreateCell(ctx, jobdb.CreateCellRequest{TenantID: "test-tenant", Name: "beta", Repo: celltest.Repo(betaRepo)})
+	_, err = embedded.Runtime.CreateCell(ctx, jobdb.CreateCellRequest{TenantID: "test-tenant", Name: "beta", Repo: celltest.Repo(betaRepo)})
 	require.NoError(t, err)
-	authority, _ := jobdb.CellAuthorityFromContext(ctx)
-	authority.LeaseSubmitCells = map[string]bool{beta.ID: true}
-	ctx = jobdb.WithCellAuthority(ctx, authority)
 	guard := executionruntime.New(embedded.Runtime, execution.Allocation{SchemaVersion: 1})
 	tasks := make([]jobworkflow.TaskWorker, 0, len(workers.TaskWorkers))
 	for _, w := range workers.TaskWorkers {

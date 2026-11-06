@@ -72,18 +72,14 @@ func runRuntimeCase(parent context.Context, opts HarnessOptions, tenant string, 
 		return
 	}
 	rt := toyruntime.New(toyruntime.WithSecretProvider(runtimeSecretProvider{tenant: tenant, values: req.Case.Runtime.Secrets}))
-	// Runtime cases explicitly grant their seeded cells to child submissions.
-	authority, _ := jobdb.CellAuthorityFromContext(ctx)
-	authority.LeaseSubmitCells = map[string]bool{}
+	// Runtime cases explicitly register their seeded cells before execution.
 	for name, repo := range f.cells {
-		registered, e := rt.CreateCell(ctx, jobdb.CreateCellRequest{TenantID: tenant, Name: name, Repo: celltest.Repo(repo)})
+		_, e := rt.CreateCell(ctx, jobdb.CreateCellRequest{TenantID: tenant, Name: name, Repo: celltest.Repo(repo)})
 		if e != nil {
 			result.FailureReason = e.Error()
 			return
 		}
-		authority.LeaseSubmitCells[registered.ID] = true
 	}
-	ctx = jobdb.WithCellAuthority(ctx, authority)
 	for name, value := range req.Case.Runtime.Config {
 		raw, e := json.Marshal(value)
 		if e != nil {

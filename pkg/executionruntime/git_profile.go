@@ -126,10 +126,7 @@ func (w *guardedTask) runWithGitProfile(tc jobworkflow.TaskContext, input jobdb.
 		return values, nil
 	})
 	resolve = access.Resolve
-	scopeContext = jobref.WithScope(scopeContext, jobref.Scope{Submit: access.Submit, ResolveCell: func(call context.Context, name string) (jobdb.ResolvedCell, error) {
-		if !grant.Jobs.Submit || (grant.Jobs.CellNames != nil && !slices.Contains(grant.Jobs.CellNames, name)) {
-			return jobdb.ResolvedCell{}, jobdb.ErrLeasePermissionDenied
-		}
+	resolveCell := func(call context.Context, name string, lookup bool) (jobdb.ResolvedCell, error) {
 		if err := access.Context().Err(); err != nil {
 			return jobdb.ResolvedCell{}, err
 		}
@@ -139,8 +136,23 @@ func (w *guardedTask) runWithGitProfile(tc jobworkflow.TaskContext, input jobdb.
 		if current == nil || current.leaseState != original.leaseState || tc.Context().Err() != nil {
 			return jobdb.ResolvedCell{}, jobdb.ErrExecutionLeaseLost
 		}
+		if lookup {
+			return current.ExecutionLease.LookupCell(call, name)
+		}
 		return current.ExecutionLease.ResolveCell(call, name)
-	}})
+	}
+	scopeContext = jobref.WithScope(scopeContext, jobref.Scope{
+		Submit: access.Submit,
+		LookupCell: func(call context.Context, name string) (jobdb.ResolvedCell, error) {
+			return resolveCell(call, name, true)
+		},
+		ResolveCell: func(call context.Context, name string) (jobdb.ResolvedCell, error) {
+			if !grant.Jobs.Submit || (grant.Jobs.CellNames != nil && !slices.Contains(grant.Jobs.CellNames, name)) {
+				return jobdb.ResolvedCell{}, jobdb.ErrLeasePermissionDenied
+			}
+			return resolveCell(call, name, false)
+		},
+	})
 	scope, err := gitprofile.NewScope(scopeContext, request.GitProfile, snapshot, resolve, "", tc.JobKey.TenantId)
 	if err != nil {
 		return nil, err

@@ -39,6 +39,8 @@ type RestartSubmitter interface {
 // Scope is supplied by the trusted execution runtime, preserving the current
 // lease-bound submission authority. Identity comes from the native SDK context.
 type Scope struct {
+	// LookupCell resolves workspace metadata without submission authority.
+	LookupCell  func(context.Context, string) (jobdb.ResolvedCell, error)
 	ResolveCell func(context.Context, string) (jobdb.ResolvedCell, error)
 	Submit      func(context.Context, jobdb.SubmitJob) (Ref, error)
 }

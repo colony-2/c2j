@@ -82,7 +82,9 @@ outputs:
   summary: "{{ sequence.inspect.outputs.stdout }}"
 ```
 
-Cell names resolve through JobDB's registry using the owning lease. Optional `workspace.repo` and captured naming configuration supply portable repository assertions, never identity. An assertion must match the registry. Repository URLs and local paths are not cell names. Clients using `recipejob.ResolveTarget` provide a registry resolver and use `BuildStartJob` to preserve the resolved assertion. Workers never consult their current directory's project configuration.
+Cell names resolve through JobDB's registry using the owning lease's `LookupCell` API. This works with job submission disabled and with targets excluded from submission scope. Git credentials and the Git server authorize repository access; no workspace permission is required. Optional `workspace.repo` and captured naming configuration supply portable repository assertions, never identity. An assertion must match the registry. Repository URLs and local paths are not cell names. Clients using `recipejob.ResolveTarget` provide a registry resolver and use `BuildStartJob` to preserve the resolved assertion. Workers never consult their current directory's project configuration.
+
+Hooks support the same workspace placements. Their code, source-trust candidate, and configured permissions remain tied to the consuming repository while execution uses the selected workspace. See [hook workspaces](GUIDE-Local-Recipe-Hooks.md#running-a-hook-in-another-workspace).
 
 The default ref follows target resolution: configured self/root refs when applicable, otherwise `main`. For a symbolic ref, entry records an initial observation. Until repository changes are accepted, each task attempt selects a valid hash for that ref during workspace preparation. Consecutive tasks, including steps of one operation and retries, may select different hashes. Const and no-change tasks do not pin later tasks. A running task keeps its selected checkout; completed replay uses recorded results without fetching again. Local paths require access from the worker; use portable Git repository locations for remote workers.
 

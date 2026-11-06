@@ -635,17 +635,14 @@ func (e *guardedTestEngine) RegisterWorkers(ws *jobworkflow.WorkSet) error {
 	return e.Engine.RegisterWorkers(&copy)
 }
 
-// Cross-cell fixtures explicitly provision an administrative lease target policy.
+// Cross-cell fixtures explicitly register their repository mappings.
 func seedTestCells(t *testing.T, ctx context.Context, rt jobdb.CellRuntime, tenant string, sets ...map[string]string) context.Context {
 	t.Helper()
-	authority, _ := jobdb.CellAuthorityFromContext(ctx)
-	authority.LeaseSubmitCells = map[string]bool{}
 	for _, cells := range sets {
 		for name, repo := range cells {
-			cell, err := rt.CreateCell(ctx, jobdb.CreateCellRequest{TenantID: tenant, Name: name, Repo: celltest.Repo(repo)})
+			_, err := rt.CreateCell(ctx, jobdb.CreateCellRequest{TenantID: tenant, Name: name, Repo: celltest.Repo(repo)})
 			require.NoError(t, err)
-			authority.LeaseSubmitCells[cell.ID] = true
 		}
 	}
-	return jobdb.WithCellAuthority(ctx, authority)
+	return ctx
 }

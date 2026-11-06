@@ -52,13 +52,12 @@ func TestNamedCellSubmissionAndLeaseCeilings(t *testing.T) {
 	child := jobdb.SubmitJob{TenantId: "tenant", JobID: "child", JobType: "recipe", Cell: "payments", CellRepo: "git@EXAMPLE.com:team/payments.git", Data: jobdb.NewTaskDataOrPanic(nil)}
 	_, err = lease.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: child})
 	require.ErrorIs(t, err, jobdb.ErrCellNotFound, "a repo assertion cannot create a missing cell")
-	payments, err := rt.CreateCell(ctx, jobdb.CreateCellRequest{TenantID: "tenant", Name: "payments", Repo: "example.com/team/payments"})
+	_, err = rt.CreateCell(ctx, jobdb.CreateCellRequest{TenantID: "tenant", Name: "payments", Repo: "example.com/team/payments"})
 	require.NoError(t, err)
-	_, err = lease.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: child})
-	require.ErrorIs(t, err, jobdb.ErrCellNotFound, "root has no special cross-cell authority")
 	authority, _ := jobdb.CellAuthorityFromContext(ctx)
-	authority.LeaseSubmitCells = map[string]bool{payments.ID: true}
-	ctx = jobdb.WithCellAuthority(ctx, authority)
+	authority.Cells = map[string]bool{root.ID: true}
+	_, err = lease.SubmitJob(jobdb.WithCellAuthority(ctx, authority), jobdb.SubmitJobRequest{Job: child})
+	require.ErrorIs(t, err, jobdb.ErrCellNotFound, "an explicit principal restriction still blocks cross-cell submission")
 	h, err := lease.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: child})
 	require.NoError(t, err)
 	require.Equal(t, "payments", h.Cell)
