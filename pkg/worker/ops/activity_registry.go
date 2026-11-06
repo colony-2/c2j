@@ -16,6 +16,7 @@ import (
 	"github.com/colony-2/c2j/pkg/ops"
 	extops "github.com/colony-2/c2j/pkg/ops/extensions"
 	"github.com/colony-2/c2j/pkg/permissions"
+	coretask "github.com/colony-2/c2j/pkg/task"
 	"github.com/colony-2/c2j/pkg/toolenv"
 	"github.com/colony-2/c2j/pkg/worker/activity"
 	"github.com/colony-2/jobdb/pkg/jobdb"
@@ -47,6 +48,8 @@ type ActivityInvocationRequest struct {
 
 // ActivityInvocationOutput wraps the raw op output alongside workspace results.
 type ActivityInvocationOutput struct {
+	WorkspaceBefore *coretask.WorkspaceState `json:"workspace_before,omitempty"`
+	WorkspaceAfter  *coretask.WorkspaceState `json:"workspace_after,omitempty"`
 	// FailureAttrs carries native diagnostics without changing error kind or
 	// exposing a failed operation's normal output to recipes.
 	FailureAttrs      map[string]any                  `json:"failure_attrs,omitempty"`
@@ -67,6 +70,8 @@ type ActivityInvocationOutput struct {
 
 // variation of ActivityInvocationOutput that allows arbitrary output types to avoid double serialization
 type ActivityInvocationOutputRaw struct {
+	WorkspaceBefore   *coretask.WorkspaceState        `json:"workspace_before,omitempty"`
+	WorkspaceAfter    *coretask.WorkspaceState        `json:"workspace_after,omitempty"`
 	FailureAttrs      map[string]any                  `json:"failure_attrs,omitempty"`
 	WorkspaceScopeID  string                          `json:"workspace_scope_id,omitempty"`
 	Execution         *execution.Requirements         `json:"execution,omitempty"`

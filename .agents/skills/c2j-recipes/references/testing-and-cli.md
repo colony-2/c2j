@@ -122,6 +122,27 @@ Common flags from this checkout:
 
 ## Job Inspection
 
+Use the shared inspection commands from a task or standalone CLI:
+
+```bash
+c2j job list --json
+c2j job log JOB --json
+c2j job log JOB --task "$TASK" --field /summary
+c2j job artifacts JOB --task "$TASK" --json
+c2j job artifact JOB --task "$TASK" --name check.log --output check.log
+c2j job snapshot JOB --task "$TASK" --dir ./recovered
+git -C ./recovered/worktree diff refs/c2j/base HEAD
+```
+
+Inside tasks, `self` names the current job; the helper grants reads of that job
+and its direct children independently of submission permission. Copy native task
+IDs from the log; use `--attempt N` for retries. Snapshots are cumulative and
+include retained artifacts through the selected boundary. They create a new
+directory with a ready Git checkout, artifacts, bundles, and `snapshot.json`.
+Multiple workspace scopes remain separate. See
+[the inspection guide](../../../../GUIDE-Job-Inspection.md) for pagination,
+typed reads, before/after snapshots, failed-attempt evidence, and limits.
+
 List recent jobs:
 
 ```bash

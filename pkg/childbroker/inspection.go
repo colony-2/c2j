@@ -1,0 +1,150 @@
+package childbroker
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"net/url"
+	"strings"
+
+	"github.com/colony-2/c2j/pkg/jobcontext"
+	"github.com/colony-2/c2j/pkg/jobinspect"
+	"github.com/colony-2/c2j/pkg/permissions"
+)
+
+func (s *Server) handleJobInspection(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", 405)
+		return
+	}
+	if !s.authorized(r) {
+		http.Error(w, "unauthorized", 401)
+		return
+	}
+	api := jobinspect.FromContext(s.executionContext)
+	if api == nil {
+		http.Error(w, "job inspection unavailable", 501)
+		return
+	}
+	var q jobinspect.Request
+	d := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10))
+	d.DisallowUnknownFields()
+	if d.Decode(&q) != nil || d.Decode(new(any)) != io.EOF {
+		http.Error(w, "invalid inspection request", 400)
+		return
+	}
+	ctx, cancel := context.WithCancel(s.executionContext)
+	defer cancel()
+	stop := context.AfterFunc(r.Context(), cancel)
+	defer stop()
+	if access := permissions.FromContext(s.executionContext); access != nil {
+		stopScope := context.AfterFunc(access.Context(), cancel)
+		defer stopScope()
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	if strings.HasSuffix(r.URL.Path, "/download") {
+		reader, err := api.Download(ctx, q)
+		if err != nil {
+			http.Error(w, err.Error(), 400)
+			return
+		}
+		defer reader.Close()
+		w.Header().Set("Content-Type", "application/octet-stream")
+		w.Header().Set("Trailer", "X-C2J-Download-Error")
+		if _, err = io.Copy(w, reader); err != nil {
+			w.Header().Set("X-C2J-Download-Error", "artifact stream incomplete")
+		}
+		return
+	}
+	result, err := api.Inspect(ctx, q)
+	if err != nil {
+		http.Error(w, err.Error(), 400)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(result)
+}
+
+// JobClient is the task-scoped transport. It never opens ambient JobDB credentials.
+type JobClient struct{ Broker jobcontext.ChildJobBroker }
+
+func (c JobClient) call(ctx context.Context, q jobinspect.Request, download bool) (*http.Response, error) {
+	suffix := "/inspect"
+	if download {
+		suffix += "/download"
+	}
+	u, err := url.Parse(strings.TrimRight(c.Broker.Endpoint, "/") + suffix)
+	if err != nil || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
+		return nil, fmt.Errorf("invalid task inspection endpoint")
+	}
+	raw, err := json.Marshal(q)
+	if err != nil {
+		return nil, err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, u.String(), bytes.NewReader(raw))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+c.Broker.Token)
+	req.Header.Set(sessionHeader, c.Broker.SessionID)
+	req.Header.Set("Content-Type", "application/json")
+	transport := &http.Transport{Proxy: nil}
+	client := &http.Client{Transport: transport, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	resp, err := client.Do(req)
+	if err != nil {
+		transport.CloseIdleConnections()
+		return nil, fmt.Errorf("task inspection helper unavailable")
+	}
+	resp.Body = &transportBody{ReadCloser: resp.Body, close: transport.CloseIdleConnections}
+	if resp.StatusCode != http.StatusOK {
+		defer resp.Body.Close()
+		b, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		return nil, fmt.Errorf("task inspection rejected (%d): %s", resp.StatusCode, strings.TrimSpace(string(b)))
+	}
+	return resp, nil
+}
+
+type transportBody struct {
+	io.ReadCloser
+	close func()
+}
+
+func (b *transportBody) Close() error { err := b.ReadCloser.Close(); b.close(); return err }
+func (c JobClient) Inspect(ctx context.Context, q jobinspect.Request) (*jobinspect.Response, error) {
+	resp, err := c.call(ctx, q, false)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	var out jobinspect.Response
+	if err = json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		return nil, err
+	}
+	if out.Version != jobinspect.Version {
+		return nil, fmt.Errorf("unsupported job inspection response version")
+	}
+	return &out, nil
+}
+func (c JobClient) Download(ctx context.Context, q jobinspect.Request) (io.ReadCloser, error) {
+	resp, err := c.call(ctx, q, true)
+	if err != nil {
+		return nil, err
+	}
+	return &downloadBody{ReadCloser: resp.Body, response: resp}, nil
+}
+
+type downloadBody struct {
+	io.ReadCloser
+	response *http.Response
+}
+
+func (b *downloadBody) Read(p []byte) (int, error) {
+	n, err := b.ReadCloser.Read(p)
+	if err == io.EOF && b.response.Trailer.Get("X-C2J-Download-Error") != "" {
+		err = fmt.Errorf("artifact stream incomplete")
+	}
+	return n, err
+}

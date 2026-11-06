@@ -36,6 +36,7 @@ func newRootCmd(info buildinfo.Info) *cobra.Command {
 	root.AddCommand(newRunCmd())
 	root.AddCommand(newReadyCmd())
 	root.AddCommand(newListCmd())
+	root.AddCommand(newJobCmd())
 	root.AddCommand(newGoalsCmd())
 	root.AddCommand(newRestartCmd())
 	root.AddCommand(newDeleteCmd())

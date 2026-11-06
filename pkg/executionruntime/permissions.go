@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/colony-2/c2j/pkg/hookpolicy"
+	"github.com/colony-2/c2j/pkg/jobinspect"
 	"github.com/colony-2/c2j/pkg/jobref"
 	"github.com/colony-2/c2j/pkg/permissions"
 	"github.com/colony-2/c2j/pkg/secrets"
@@ -148,7 +149,8 @@ func (r *Runtime) restrictedAccess(parent context.Context, tc jobworkflow.TaskCo
 	// Inspection must not wait for an in-flight delegation RPC. The issuer
 	// publishes only completed, noncredential metadata.
 	provider := r.selfProvider(tc, original, access, policies, issuedDelegation.Load)
-	return access, selfinfo.WithProvider(permissions.WithAccess(ctx, access), provider), cancel, nil
+	inspectionCtx := jobinspect.WithAPI(permissions.WithAccess(ctx, access), r.inspection(access, tc, original))
+	return access, selfinfo.WithProvider(inspectionCtx, provider), cancel, nil
 }
 
 func constrainHookChild(job jobdb.SubmitJob, grant permissions.JobDB, policy json.RawMessage) (jobdb.SubmitJob, error) {

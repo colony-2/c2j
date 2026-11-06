@@ -74,10 +74,16 @@ c2j run one
 c2j run with-lease
 c2j ready
 c2j list
+c2j job log JOB
+c2j job snapshot JOB --task TASK --dir ./recovered
 c2j test
 ```
 
 Use `go run ./cmd/c2j --help` or `c2j --help` to see the full command tree.
+
+See [Inspect jobs and recover saved work](GUIDE-Job-Inspection.md) for task outputs,
+artifact downloads, child-job inspection, and cumulative snapshots exported as
+ready-to-use Git checkouts.
 
 ## Version Information
 

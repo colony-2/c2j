@@ -35,6 +35,7 @@ import (
 	"github.com/colony-2/c2j/pkg/ops/process"
 	"github.com/colony-2/c2j/pkg/secrets"
 	"github.com/colony-2/c2j/pkg/starter"
+	coretask "github.com/colony-2/c2j/pkg/task"
 	"github.com/colony-2/c2j/pkg/workflowctl"
 	"github.com/colony-2/c2j/pkg/workspacesubmit"
 	"github.com/colony-2/jobdb/pkg/jobdb"
@@ -421,6 +422,28 @@ func (t opExecutor) doPrepared(ctx context.Context, jobTool ops.JobTool, req Act
 	if err := controller.Restore(ctx, fullContext, thinPackArtifact); err != nil {
 		return zero, nil, err
 	}
+	// Persist observations separately from GitResult: observing a floating ref
+	// must not pin subsequent execution, but inspection needs the exact checkout.
+	observedHead, observeErr := common.HeadCommit(ctx, fullContext.WorktreePath, fullContext.Workspace.HasEmptyBase(fullContext.ResolvedBaseHash, fullContext.ParentHash))
+	if observeErr != nil {
+		return zero, nil, observeErr
+	}
+	before := coretask.WorkspaceState{Repository: fullContext.BaseRepo, Cell: fullContext.GetWorkspaceCellName(), BaseRef: fullContext.BaseRef, BaseCommit: fullContext.ResolvedBaseHash, HeadCommit: observedHead, EmptyBase: fullContext.Workspace.HasEmptyBase(fullContext.ResolvedBaseHash, fullContext.ParentHash)}
+	if fullContext.Workspace != nil {
+		before.ScopeID = fullContext.Workspace.ScopeID
+	}
+	defer func() {
+		output.WorkspaceBefore = &before
+		if req.Const || output.GitResult != (contextual.GitCommitContext{}) {
+			after := before
+			after.BaseCommit = fullContext.ResolvedBaseHash
+			if output.GitResult.PersistHash != "" {
+				after.HeadCommit = output.GitResult.PersistHash
+			}
+			after.EmptyBase = after.BaseCommit == "" && before.EmptyBase
+			output.WorkspaceAfter = &after
+		}
+	}()
 	opCtx := ctx
 	if prepare != nil {
 		phase = "prepare_packages"

@@ -157,6 +157,7 @@ func Unknown(reason string) Info {
 }
 
 var Commands = map[string]string{
+	"jobs.inspect":                   "c2j job log self",
 	"cells.create":                   "c2j cell create NAME --repo REPO",
 	"jobs.submit":                    "c2j submit",
 	"jobs.submit_from_workspace":     "c2j submit --from-workspace",
@@ -175,10 +176,13 @@ func Standalone(destination bool) Info {
 	i.Permissions.Status = "not_applicable"
 	for action, c := range i.Capabilities {
 		switch action {
-		case "jobs.submit", "jobs.submit_from_workspace_now", "cells.create":
+		case "jobs.submit", "jobs.submit_from_workspace_now", "cells.create", "jobs.inspect":
 			c.SubmissionKind = "standalone"
-			if action == "cells.create" {
+			if action == "cells.create" || action == "jobs.inspect" {
 				c.SubmissionKind = ""
+			}
+			if action == "jobs.inspect" {
+				c.Command = String("c2j job list")
 			}
 			c.ReasonCode = String("standalone_authority_not_inspected")
 			if destination {
@@ -228,6 +232,10 @@ func (i *Info) SetCurrent(c jobcontext.Current, source string) {
 // It does not contact a provider, submit a probe, or mint a credential.
 func (i *Info) SetCapabilities(submit, workspace, secretHelper bool, createCells ...bool) {
 	for action, c := range i.Capabilities {
+		// The task inspection transport supplies this capability independently.
+		if action == "jobs.inspect" {
+			continue
+		}
 		c.Permission = "unknown"
 		c.Restrictions = nil
 		c.Availability = "unknown"

@@ -6,6 +6,7 @@ import (
 	"github.com/colony-2/c2j/pkg/git/gitstate"
 	"github.com/colony-2/c2j/pkg/gitprofile"
 	"github.com/colony-2/c2j/pkg/jobcontext"
+	"github.com/colony-2/c2j/pkg/jobinspect"
 	coreops "github.com/colony-2/c2j/pkg/ops"
 	"github.com/colony-2/c2j/pkg/permissions"
 	"github.com/colony-2/c2j/pkg/selfinfo"
@@ -25,6 +26,16 @@ func invocationSelf(ctx context.Context, current jobcontext.Current, paths coreo
 		info.SetCurrent(current, "runtime_helper")
 		info.Workspace = workspace
 		info.SetCapabilities(canSubmit, paths.WorktreePath != "", gitprofile.FromContext(ctx) != nil, permissions.FromContext(ctx) != nil)
+		if jobinspect.FromContext(ctx) != nil {
+			info.Capabilities["jobs.inspect"] = selfinfo.Capability{Permission: "granted", Availability: "ready", Command: selfinfo.String("c2j job log self"), Route: selfinfo.String("child_job_broker"), Restrictions: []string{"current job and direct children"}}
+			switch info.Lease.Status {
+			case "lost", "expired", "cancelled":
+				c := info.Capabilities["jobs.inspect"]
+				c.Availability = "unavailable"
+				c.ReasonCode = selfinfo.String("execution_" + info.Lease.Status)
+				info.Capabilities["jobs.inspect"] = c
+			}
+		}
 		return info
 	}
 }
