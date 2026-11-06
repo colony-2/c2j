@@ -29,7 +29,16 @@ func (s State) CheckInput(name string) error {
 	if s.Inputs != nil && (!s.Inputs.Foreign || slices.Contains(s.Inputs.Allowed, name)) {
 		return nil
 	}
-	if s.Grant != nil && slices.Contains(s.Grant.Secrets.Resolve, name) {
+	var explicit []string
+	if s.Grant != nil {
+		explicit = s.Grant.Secrets.Resolve
+	}
+	for _, p := range s.Overrides {
+		if p.Secrets.Resolve != nil {
+			explicit = *p.Secrets.Resolve
+		}
+	}
+	if slices.Contains(explicit, name) {
 		return nil
 	}
 	return fmt.Errorf("input secret %q: %w", name, jobdb.ErrLeasePermissionDenied)
@@ -56,9 +65,16 @@ func (s State) EnterInclude(spec *Spec, boundary, trusted bool) (State, error) {
 		}
 		input.Allowed = append(input.Allowed, spec.JobDB.Secrets.Resolve...)
 	}
+	if spec != nil && spec.Overrides != nil && spec.Overrides.Secrets.Resolve != nil {
+		for _, name := range *spec.Overrides.Secrets.Resolve {
+			if err := s.CheckInput(name); err != nil {
+				return State{}, err
+			}
+		}
+	}
 	if boundary || (spec != nil && spec.JobDB != nil) {
 		s.Grant = nil
-		s.Restrict = nil
+		s.Overrides = nil
 	}
 	// Callsite authority is also a ceiling: foreign descendants cannot enlarge it.
 	if spec != nil {
@@ -80,7 +96,7 @@ func (s State) EnterInclude(spec *Spec, boundary, trusted bool) (State, error) {
 	s.Inputs = &input
 	var edit *Spec
 	if spec != nil {
-		edit = &Spec{Restrict: spec.Restrict}
+		edit = &Spec{Inherit: spec.Inherit, Overrides: spec.Overrides}
 	}
 	return s.Enter(edit, false)
 }

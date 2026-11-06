@@ -189,46 +189,62 @@ overrides it. `git_profile: null` removes automatic Git-secret contributions.
 Resolving other secret inputs does not enlarge these defaults. Cell creation is
 denied unless explicitly granted.
 
-On ordinary nodes and scopes, an explicit `perms.jobdb` mapping replaces the
-inherited **delegated grant**. Omitted entries deny operation access. If an explicit
+By default, on ordinary nodes and scopes, an explicit `perms.jobdb` mapping replaces
+the inherited **delegated grant**. Omitted entries deny operation access. If an explicit
 grant also needs authenticated Git reads, include the actual RO secret name.
 `jobdb: {}` denies all delegated capabilities. Omitted `jobdb` inherits; empty
 `perms: {}` preserves the policy. Siblings recover the enclosing policy on scope
 exit. These replacements do not replace trusted input-reference authorization.
 
-To disable an action while retaining the rest of the inherited grant, use
-`perms.restrict`:
+To change individual fields while retaining the rest of the inherited grant,
+set `perms.inherit: true`:
 
 ```yaml
 perms:
-  restrict:
-    jobdb:
-      jobs:
-        submit: false
+  inherit: true
+  jobdb:
+    jobs:
+      submit: false
 ```
 
-This preserves the selected Git profile's credentials when the inherited grant
-allows them, without naming deployment-specific secrets. Supported edits are
-`jobs.submit: false` and `cells.create: false`; each also clears its cell-name
-filter. Omitted fields and empty mappings inherit. `true`, nulls, unknown fields,
-and list edits are rejected. Use a complete `perms.jobdb` grant to add capabilities
-or change lists.
+This disables submission while preserving otherwise allowed Git credentials,
+without naming deployment-specific secrets. Omitted fields and empty mappings
+inherit. Explicit booleans override in either direction; a descendant can enable
+submission again with the same declaration and `submit: true`.
 
-The edited grant is inherited by descendants, but a later `perms.jobdb` replaces
-it and discards inherited edits. For example, a descendant may explicitly grant
-submission again within existing limits. If a node supplies both a complete grant
-and restrictions, the restrictions apply to that grant. Include boundaries that
-reset the inherited grant also reset its edits; callsite restrictions apply to
-the included scope. A restriction alone does not authorize a foreign include or
-secret input. Default Git credentials remain selected per task, including after
-resume. `c2j self` reports active edits under `permissions.grant_restrictions` and
-on the affected capabilities.
+Explicit lists replace inherited lists, rather than adding to them. For example,
+`secrets: {resolve: []}` removes delegated secret access while preserving the
+other capabilities. Cell-name lists must remain nonempty and require the resulting
+`jobs.submit` or `cells.create` to be true. Disabling an action clears its inherited
+cell-name filter; specify a new filter when enabling it again if needed.
+
+The flag applies only to its own declaration. Descendants inherit the resulting
+grant until they override fields with `inherit: true` or replace the complete
+grant without it. `inherit: false` is equivalent to omission. Thus `jobdb: {}`
+denies all delegated capabilities by default, but is a no-op with `inherit: true`.
+Existing ceilings still reject wider explicit grants or overrides. Default Git
+credentials remain selected per task, including after resume.
+
+Same-repository includes can use this mode to edit their inherited grant. Foreign
+includes using it must also supply an explicit `perms.limit.jobdb`; the caller's
+grant resets at that boundary, and overrides apply to callee defaults within the
+ceiling. Automatic Git access does not authorize foreign input references. Explicit
+secret-list overrides require caller input authority and remain bounded by the
+include ceiling. Hook callsites can override the authorized hook grant, while
+administrative hook configuration still requires complete grants.
+
+Nulls, duplicate/unknown fields, and malformed lists are rejected. The earlier
+`perms.restrict` syntax is no longer supported; use the example above.
+`c2j self` reports explicit inherited denials under `permissions.inherited_denials`
+and on affected capabilities. Re-enabling a field or replacing the grant clears
+the corresponding denial diagnostic.
 
 `perms.limit.jobdb` sets a ceiling descendants cannot enlarge. Nested limits
 intersect. A limit alone does not authorize a foreign input reference or create a
 lease grant. The included recipe can request an explicit node grant within it.
-Cross-repository includes must declare `perms.jobdb` or `perms.limit.jobdb` at the
-callsite, even if empty. Inherited lease grants reset at that boundary. A selected
+Cross-repository includes must declare a complete `perms.jobdb` or
+`perms.limit.jobdb` at the callsite, even if empty. Inherited lease grants reset
+at that boundary. A selected
 Git profile cannot override an explicit grant or ceiling.
 
 Permission lists contain literal, exact names. Wildcards, expressions,

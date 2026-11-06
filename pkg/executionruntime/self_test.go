@@ -105,7 +105,7 @@ func TestSelfInspectionLostAndRestrictedParent(t *testing.T) {
 
 func TestSelfReportsGrantEditsUntilReplacement(t *testing.T) {
 	disabled := false
-	policy, err := (permissions.State{}).Enter(&permissions.Spec{Restrict: &permissions.Restriction{JobDB: &permissions.JobDBRestriction{Jobs: permissions.RestrictedJobs{Submit: &disabled}}}}, false)
+	policy, err := (permissions.State{}).Enter(&permissions.Spec{Inherit: true, Overrides: &permissions.JobDBOverrides{Jobs: permissions.JobOverrides{Submit: &disabled}}}, false)
 	require.NoError(t, err)
 	key := jobdb.JobKey{TenantId: "tenant", JobId: "job"}
 	rt := &Runtime{leases: map[jobdb.JobKey]*lease{}}
@@ -121,13 +121,13 @@ func TestSelfReportsGrantEditsUntilReplacement(t *testing.T) {
 		info := rt.selfProvider(wf.TaskContext{JobKey: key}, original, access, []permissions.State{policy}, func() *jobdb.DelegationInfo { return nil })()
 		info.SetCapabilities(true, true, true)
 		if replace {
-			require.Empty(t, info.Permissions.GrantRestrictions)
+			require.Empty(t, info.Permissions.InheritedDenials)
 			require.Empty(t, info.Capabilities["jobs.submit"].Restrictions)
 			require.Equal(t, "granted", info.Capabilities["jobs.submit"].Permission)
 		} else {
-			require.Equal(t, []string{"perms.restrict.jobdb.jobs.submit"}, info.Permissions.GrantRestrictions)
+			require.Equal(t, []string{"perms.jobdb.jobs.submit"}, info.Permissions.InheritedDenials)
 			for _, name := range []string{"jobs.submit", "jobs.submit_from_workspace", "jobs.submit_from_workspace_now"} {
-				require.Equal(t, info.Permissions.GrantRestrictions, info.Capabilities[name].Restrictions)
+				require.Equal(t, info.Permissions.InheritedDenials, info.Capabilities[name].Restrictions)
 				require.Equal(t, "denied", info.Capabilities[name].Permission)
 			}
 			require.Empty(t, info.Capabilities["secrets.resolve"].Restrictions)

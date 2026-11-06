@@ -85,14 +85,14 @@ type Lease struct {
 	ReasonCode        string                `json:"reason_code,omitempty"`
 }
 type Permissions struct {
-	GrantRestrictions []string              `json:"grant_restrictions,omitempty"`
-	ParentBounds      *jobdb.DelegationInfo `json:"parent_bounds,omitempty"`
-	Status            string                `json:"status"`
-	Scope             string                `json:"scope"`
-	Source            string                `json:"source,omitempty"`
-	JobDB             *permissions.JobDB    `json:"jobdb"`
-	ChildCeiling      Ceiling               `json:"child_ceiling"`
-	ReasonCode        string                `json:"reason_code,omitempty"`
+	InheritedDenials []string              `json:"inherited_denials,omitempty"`
+	ParentBounds     *jobdb.DelegationInfo `json:"parent_bounds,omitempty"`
+	Status           string                `json:"status"`
+	Scope            string                `json:"scope"`
+	Source           string                `json:"source,omitempty"`
+	JobDB            *permissions.JobDB    `json:"jobdb"`
+	ChildCeiling     Ceiling               `json:"child_ceiling"`
+	ReasonCode       string                `json:"reason_code,omitempty"`
 }
 type Ceiling struct {
 	Status   string             `json:"status"`
@@ -293,8 +293,8 @@ func (i *Info) SetCapabilities(submit, workspace, secretHelper bool, createCells
 		if strings.HasPrefix(action, "jobs.submit") {
 			permission = "jobs.submit"
 		}
-		for _, field := range i.Permissions.GrantRestrictions {
-			if field == "perms.restrict.jobdb."+permission {
+		for _, field := range i.Permissions.InheritedDenials {
+			if field == "perms.jobdb."+permission {
 				c.Restrictions = append(c.Restrictions, field)
 			}
 		}

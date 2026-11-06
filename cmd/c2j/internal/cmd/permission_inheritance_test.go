@@ -38,9 +38,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-type restrictionSecrets struct{ name string }
+type inheritanceSecrets struct{ name string }
 
-func (s restrictionSecrets) ResolveSecrets(_ context.Context, req jobdb.SecretResolveRequest) (jobdb.SecretResolveResult, error) {
+func (s inheritanceSecrets) ResolveSecrets(_ context.Context, req jobdb.SecretResolveRequest) (jobdb.SecretResolveResult, error) {
 	out := jobdb.SecretResolveResult{Secrets: map[string]jobdb.SecretValue{}}
 	for _, name := range req.Names {
 		if name == s.name {
@@ -50,12 +50,12 @@ func (s restrictionSecrets) ResolveSecrets(_ context.Context, req jobdb.SecretRe
 	return out, nil
 }
 
-type restrictionIssuer struct {
+type inheritanceIssuer struct {
 	mu   sync.Mutex
 	last jobdb.ExecutionLease
 }
 
-func (i *restrictionIssuer) IssueRestrictedLease(ctx context.Context, tc permissions.TaskDelegator, grant permissions.JobDB, deadline time.Time) (jobdb.ExecutionLease, error) {
+func (i *inheritanceIssuer) IssueRestrictedLease(ctx context.Context, tc permissions.TaskDelegator, grant permissions.JobDB, deadline time.Time) (jobdb.ExecutionLease, error) {
 	l, err := (permissions.JobDBIssuer{}).IssueRestrictedLease(ctx, tc, grant, deadline)
 	if err == nil {
 		i.mu.Lock()
@@ -67,7 +67,7 @@ func (i *restrictionIssuer) IssueRestrictedLease(ctx context.Context, tc permiss
 
 // Exercise recipe compilation, durable handoff, the runtime guard, actual Git
 // smart HTTP, the CLI credential helper, and JobDB delegation without a model.
-func TestPermissionRestrictionAuthenticatedGitAndResume(t *testing.T) {
+func TestPermissionInheritanceAuthenticatedGitAndResume(t *testing.T) {
 	t.Setenv("C2J_GIT_HELPER_TEST", "1")
 	previous := coreops.List()
 	t.Cleanup(func() { coreops.Replace(previous...) })
@@ -114,7 +114,7 @@ func TestPermissionRestrictionAuthenticatedGitAndResume(t *testing.T) {
 			t.Run(backendName+"/"+secretName, func(t *testing.T) {
 				ctx, cancel := context.WithTimeout(celltest.Context(context.Background()), time.Minute)
 				defer cancel()
-				base := toy.New(toy.WithSecretProvider(restrictionSecrets{name: secretName}))
+				base := toy.New(toy.WithSecretProvider(inheritanceSecrets{name: secretName}))
 				var runtime jobdb.WorkflowRuntime = base
 				if backendName == "remote" {
 					server := httptest.NewServer(celltest.Handler(remote.NewServer(base)))
@@ -129,7 +129,7 @@ func TestPermissionRestrictionAuthenticatedGitAndResume(t *testing.T) {
 					_, err := base.SetTenantConfigurationValue(ctx, jobdb.SetTenantConfigurationValueRequest{TenantID: "test", Name: name, Value: value})
 					require.NoError(t, err)
 				}
-				issuer := &restrictionIssuer{}
+				issuer := &inheritanceIssuer{}
 				var observed []string
 				type probeInput struct {
 					ID    string `json:"id"`
@@ -181,7 +181,7 @@ func TestPermissionRestrictionAuthenticatedGitAndResume(t *testing.T) {
 version: "1"
 sequence:
   - id: restricted
-    perms: {restrict: {jobdb: {jobs: {submit: false}}}}
+    perms: {inherit: true, jobdb: {jobs: {submit: false}}}
     sequence:
       - id: fresh
         op: restriction_probe
@@ -190,6 +190,10 @@ sequence:
         execution_needs: {capabilities: [resume]}
         op: restriction_probe
         inputs: {id: resumed}
+      - id: reenabled
+        perms: {inherit: true, jobdb: {jobs: {submit: true}}}
+        op: restriction_probe
+        inputs: {id: reenabled, allow: true}
       - id: replacement
         perms: {jobdb: {jobs: {submit: true}, secrets: {resolve: [%s]}}}
         op: restriction_probe
@@ -236,10 +240,10 @@ sequence:
 				require.Len(t, jobs.Jobs, 1, "denied submissions must not create jobs")
 				second := run("resume")
 				require.Equal(t, wf.JobRunCompleted, second.Status, "%+v", second)
-				require.Equal(t, []string{"fresh", "resumed", "replacement", "inherited", "sibling"}, observed, "completed work must replay without executing again")
+				require.Equal(t, []string{"fresh", "resumed", "reenabled", "replacement", "inherited", "sibling"}, observed, "completed work must replay without executing again")
 				jobs, err = runtime.ListJobs(ctx, jobdb.ListJobsRequest{TenantIds: []string{"test"}})
 				require.NoError(t, err)
-				require.Len(t, jobs.Jobs, 3, "only the replacement and sibling may create children")
+				require.Len(t, jobs.Jobs, 4, "only the enabled scopes and sibling may create children")
 			})
 		}
 	}

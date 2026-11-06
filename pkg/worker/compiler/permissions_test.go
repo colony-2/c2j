@@ -36,7 +36,7 @@ func TestIncludePermissionsUseRepositoryBoundaries(t *testing.T) {
 	require.NoError(t, err)
 	_, err = expand("id: root\nsequence:\n- include: " + filepath.Join(foreign, "child.yaml") + "\n")
 	require.ErrorContains(t, err, "requires perms.limit.jobdb")
-	_, err = expand("id: root\nsequence:\n- include: " + filepath.Join(foreign, "child.yaml") + "\n  perms: {restrict: {jobdb: {jobs: {submit: false}}}}\n")
+	_, err = expand("id: root\nsequence:\n- include: " + filepath.Join(foreign, "child.yaml") + "\n  perms: {inherit: true, jobdb: {jobs: {submit: false}}}\n")
 	require.ErrorContains(t, err, "requires perms.limit.jobdb")
 	result, err := expand("id: root\nsequence:\n- include: " + filepath.Join(foreign, "child.yaml") + "\n  perms: {limit: {jobdb: {}}}\n")
 	require.NoError(t, err)

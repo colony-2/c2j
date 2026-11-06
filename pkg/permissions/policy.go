@@ -16,12 +16,15 @@ import (
 
 const Version = 1
 
-// Spec is common node metadata. On ordinary nodes JobDB replaces the delegated
-// grant; on includes it authorizes callee inputs and bounds callee grants.
+// Spec is common node metadata. Ordinary declarations replace the delegated
+// grant unless Inherit selects field overrides. Complete include grants authorize
+// callee inputs and bound callee grants.
 type Spec struct {
-	JobDB    *JobDB       `yaml:"jobdb,omitempty" json:"jobdb,omitempty"`
-	Limit    *Limit       `yaml:"limit,omitempty" json:"limit,omitempty"`
-	Restrict *Restriction `yaml:"restrict,omitempty" json:"restrict,omitempty"`
+	JobDB   *JobDB `yaml:"jobdb,omitempty" json:"jobdb,omitempty"`
+	Limit   *Limit `yaml:"limit,omitempty" json:"limit,omitempty"`
+	Inherit bool   `yaml:"inherit,omitempty" json:"inherit,omitempty"`
+	// Overrides is encoded as jobdb when Inherit is true.
+	Overrides *JobDBOverrides `yaml:"-" json:"-"`
 }
 
 type Limit struct {
@@ -92,6 +95,14 @@ func (p *Spec) Validate() error {
 	if p == nil {
 		return nil
 	}
+	if (p.Inherit && p.JobDB != nil) || (!p.Inherit && p.Overrides != nil) {
+		return fmt.Errorf("inherited permissions require Overrides; replacement permissions require JobDB")
+	}
+	if p.Overrides != nil {
+		if err := p.Overrides.Validate(); err != nil {
+			return err
+		}
+	}
 	if p.JobDB != nil {
 		if err := p.JobDB.Validate(); err != nil {
 			return err
@@ -102,22 +113,38 @@ func (p *Spec) Validate() error {
 			return err
 		}
 	}
-	return p.Restrict.Validate()
+	return nil
 }
 
 // Reject unknown fields, nulls, aliases and merges rather than silently ignoring
 // an intended restriction. This strictness is local to the permission subtree.
 func (p *Spec) UnmarshalYAML(n *yaml.Node) error {
-	shape := map[string]any{"jobdb": grantShape(), "limit": map[string]any{"jobdb": grantShape()}, "restrict": restrictionShape()}
+	shape := map[string]any{"jobdb": grantShape(), "limit": map[string]any{"jobdb": grantShape()}, "inherit": "bool"}
 	if err := validateYAML(n, shape, "perms"); err != nil {
 		return err
 	}
-	type plain Spec
-	var out plain
+	var out struct {
+		Inherit bool      `yaml:"inherit"`
+		JobDB   yaml.Node `yaml:"jobdb"`
+		Limit   *Limit    `yaml:"limit"`
+	}
 	if err := n.Decode(&out); err != nil {
 		return err
 	}
-	*p = Spec(out)
+	*p = Spec{Inherit: out.Inherit, Limit: out.Limit}
+	if out.JobDB.Kind != 0 {
+		if p.Inherit {
+			p.Overrides = &JobDBOverrides{}
+			if err := out.JobDB.Decode(p.Overrides); err != nil {
+				return err
+			}
+		} else {
+			p.JobDB = &JobDB{}
+			if err := out.JobDB.Decode(p.JobDB); err != nil {
+				return err
+			}
+		}
+	}
 	return p.Validate()
 }
 
@@ -179,11 +206,7 @@ func (Spec) JSONSchema() *jsonschema.Schema {
 		"jobs":    object(map[string]*jsonschema.Schema{"submit": {Type: "boolean"}, "cellNames": {Type: "array", Items: &jsonschema.Schema{Type: "string"}, MinItems: ptr(uint64(1)), UniqueItems: true}}),
 		"cells":   object(map[string]*jsonschema.Schema{"create": {Type: "boolean"}, "cellNames": {Type: "array", Items: &jsonschema.Schema{Type: "string"}, MinItems: ptr(uint64(1)), UniqueItems: true}}),
 	})
-	restrict := object(map[string]*jsonschema.Schema{"jobdb": object(map[string]*jsonschema.Schema{
-		"jobs":  object(map[string]*jsonschema.Schema{"submit": {Type: "boolean", Enum: []any{false}}}),
-		"cells": object(map[string]*jsonschema.Schema{"create": {Type: "boolean", Enum: []any{false}}}),
-	})})
-	return object(map[string]*jsonschema.Schema{"jobdb": grant, "limit": object(map[string]*jsonschema.Schema{"jobdb": grant}), "restrict": restrict})
+	return object(map[string]*jsonschema.Schema{"jobdb": grant, "limit": object(map[string]*jsonschema.Schema{"jobdb": grant}), "inherit": {Type: "boolean"}})
 }
 
 func ptr[T any](v T) *T { return &v }
@@ -195,12 +218,12 @@ type State struct {
 	ChildGrant *JobDB `json:"child_grant,omitempty"`
 	// ChildPolicy is controller-captured configuration. Its presence requires
 	// child submission through the runtime path that installs the ceiling.
-	ChildPolicy json.RawMessage `json:"child_policy,omitempty"`
-	Version     int             `json:"version"`
-	Grant       *JobDB          `json:"grant,omitempty"`
-	Limit       *JobDB          `json:"limit,omitempty"`
-	Inputs      *InputPolicy    `json:"inputs,omitempty"`
-	Restrict    *Restriction    `json:"restrict,omitempty"`
+	ChildPolicy json.RawMessage  `json:"child_policy,omitempty"`
+	Version     int              `json:"version"`
+	Grant       *JobDB           `json:"grant,omitempty"`
+	Limit       *JobDB           `json:"limit,omitempty"`
+	Inputs      *InputPolicy     `json:"inputs,omitempty"`
+	Overrides   []JobDBOverrides `json:"overrides,omitempty"`
 }
 
 func (s State) Enter(spec *Spec, boundary bool) (State, error) {
@@ -222,22 +245,19 @@ func (s State) Enter(spec *Spec, boundary bool) (State, error) {
 		if spec.JobDB != nil {
 			v := clone(*spec.JobDB)
 			s.Grant = &v
-			s.Restrict = nil
+			s.Overrides = nil
 		}
-		s.Restrict = mergeRestrictions(s.Restrict, spec.Restrict)
+		if spec.Overrides != nil && !spec.Overrides.empty() {
+			s.Overrides = append(slices.Clone(s.Overrides), spec.Overrides.clone())
+		}
 	}
-	if s.Grant != nil && s.Limit != nil && !subset(s.Restrict.apply(*s.Grant), *s.Limit) {
-		return State{}, fmt.Errorf("requested JobDB permissions exceed the enclosing limit")
-	}
-	return s, nil
+	_, err := s.Resolve(nil)
+	return s, err
 }
 
 func (s State) Resolve(gitSecrets []string) (JobDB, error) {
 	if s.Version != Version {
 		return JobDB{}, fmt.Errorf("unsupported permission policy version %d", s.Version)
-	}
-	if err := s.Restrict.Validate(); err != nil {
-		return JobDB{}, err
 	}
 	grant := JobDB{Secrets: SecretPermissions{Resolve: slices.Clone(gitSecrets)}, Jobs: JobPermissions{Submit: true}}
 	if s.Grant != nil {
@@ -248,15 +268,31 @@ func (s State) Resolve(gitSecrets []string) (JobDB, error) {
 	if err := grant.Validate(); err != nil {
 		return JobDB{}, err
 	}
-	grant = s.Restrict.apply(grant)
 	if s.Limit != nil {
 		if err := s.Limit.Validate(); err != nil {
 			return JobDB{}, err
 		}
-		if s.Grant != nil && !subset(grant, *s.Limit) {
-			return JobDB{}, fmt.Errorf("requested JobDB permissions exceed the enclosing limit")
+		// Defaults carry no explicit authority. Start overlays from the defaults
+		// allowed by the ceiling, so omitted fields cannot replenish denials.
+		if s.Grant == nil {
+			grant = intersect(grant, *s.Limit)
 		}
-		grant = intersect(grant, *s.Limit)
+	}
+	for _, p := range s.Overrides {
+		if err := p.Validate(); err != nil {
+			return JobDB{}, err
+		}
+		var err error
+		grant, err = p.apply(grant)
+		if err != nil {
+			return JobDB{}, err
+		}
+	}
+	if err := grant.Validate(); err != nil {
+		return JobDB{}, err
+	}
+	if s.Limit != nil && !subset(grant, *s.Limit) {
+		return JobDB{}, fmt.Errorf("requested JobDB permissions exceed the enclosing limit")
 	}
 	return grant, nil
 }

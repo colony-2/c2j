@@ -37,18 +37,18 @@ func TestRecipePermissionsRoundTripAndStrictFields(t *testing.T) {
 	require.NotNil(t, rec.GetMetdata().Perms)
 }
 
-func TestRecipeRestrictionRoundTrip(t *testing.T) {
+func TestRecipeInheritanceRoundTrip(t *testing.T) {
 	registerTestOp()
 	for _, shape := range []string{"op: echo\ninputs: {message: hi}", "sequence: []", "state: {initial: end, states: {end: {sequence: []}}}", "child_group: {mode: run, children: []}"} {
-		rec, err := LoadRecipeFromString([]byte("id: restricted\nperms: {restrict: {jobdb: {jobs: {submit: false}}}}\n" + shape))
+		rec, err := LoadRecipeFromString([]byte("id: restricted\nperms: {inherit: true, jobdb: {jobs: {submit: false}}}\n" + shape))
 		require.NoError(t, err)
 		raw, err := yaml.Marshal(rec)
 		require.NoError(t, err)
 		copy, err := LoadRecipeFromString(raw)
 		require.NoError(t, err)
-		require.NotNil(t, copy.GetMetdata().Perms.Restrict.JobDB.Jobs.Submit)
-		require.False(t, *copy.GetMetdata().Perms.Restrict.JobDB.Jobs.Submit)
+		require.NotNil(t, copy.GetMetdata().Perms.Overrides.Jobs.Submit)
+		require.False(t, *copy.GetMetdata().Perms.Overrides.Jobs.Submit)
 	}
-	require.NoError(t, Validate("id: restricted\nop: echo\ninputs: {message: hi}\nperms: {restrict: {jobdb: {jobs: {submit: false}}}}"))
-	require.Error(t, Validate("id: restricted\nop: echo\ninputs: {message: hi}\nperms: {restrict: {jobdb: {jobs: {submit: true}}}}"))
+	require.NoError(t, Validate("id: restricted\nop: echo\ninputs: {message: hi}\nperms: {inherit: true, jobdb: {jobs: {submit: false}}}"))
+	require.NoError(t, Validate("id: inherited\nop: echo\ninputs: {message: hi}\nperms: {inherit: true, jobdb: {jobs: {submit: true}}}"))
 }

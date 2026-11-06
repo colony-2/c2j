@@ -130,6 +130,9 @@ func (t Trust) Allows(commit string) bool {
 
 func Empty() Entry { return Entry{Perms: permissions.Spec{JobDB: &permissions.JobDB{}}} }
 func (e Entry) Validate() error {
+	if e.Perms.Inherit {
+		return fmt.Errorf("administrative hook policy requires a complete grant; inherit is only supported at recipe callsites")
+	}
 	if err := e.Perms.Validate(); err != nil {
 		return err
 	}
@@ -293,12 +296,8 @@ func (e Entry) Authority(commit string, parent permissions.State, call *permissi
 	s.ChildGrant = &child
 	// Hook authority starts its own grant. Apply local edits without turning
 	// them into administrative ceilings or inheriting the caller's grant edits.
-	s, err := s.Enter(&permissions.Spec{Restrict: e.Perms.Restrict}, false)
-	if err != nil {
-		return s, err
-	}
-	if call != nil {
-		return s.Enter(&permissions.Spec{Restrict: call.Restrict}, false)
+	if call != nil && call.Inherit {
+		return s.Enter(&permissions.Spec{Inherit: true, Overrides: call.Overrides}, false)
 	}
 	return s, nil
 }
