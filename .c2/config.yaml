@@ -6,7 +6,9 @@
 base: go
 self:
   cell: c2j
-jobdb: http://localhost:9047/c2
+jobdb: http://192.168.1.195:9047/c2
+root:
+  repo: https://github.com/colony-2/c2-root.git
 
 # Go 1.26, using the nixpkgs revision pinned in flake.lock.
 packages:
