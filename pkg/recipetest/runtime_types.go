@@ -9,6 +9,7 @@ import (
 // RuntimeCase opts a case into real JobDB and worker execution. Legacy cases
 // (including integration_case) retain their existing executor when omitted.
 type RuntimeCase struct {
+	Observe *ObservationConfig `json:"observe,omitempty"`
 	// Synthetic, case-local tenant values; never use production credentials.
 	Secrets      map[string]string      `json:"secrets,omitempty"`
 	Config       map[string]any         `json:"config,omitempty"`
@@ -60,9 +61,13 @@ type RepositoryReport struct {
 }
 
 type RuntimeReport struct {
-	Repositories map[string]RepositoryReport `json:"repositories,omitempty"`
-	Calls        []OpCall                    `json:"calls"`
-	Reviews      []ReviewCall                `json:"reviews,omitempty"`
+	ObservationsVersion   int                         `json:"observations_version,omitempty"`
+	Observations          []map[string]any            `json:"observations,omitempty"`
+	ObservationCollection *ObservationCollection      `json:"observation_collection,omitempty"`
+	ObservationArtifacts  []ObservationArtifact       `json:"observation_artifacts,omitempty"`
+	Repositories          map[string]RepositoryReport `json:"repositories,omitempty"`
+	Calls                 []OpCall                    `json:"calls"`
+	Reviews               []ReviewCall                `json:"reviews,omitempty"`
 }
 
 type OpCall struct {
@@ -106,6 +111,7 @@ func validateRuntimeCase(opts HarnessOptions, c Case) []Issue {
 	if c.ExpectError != "" && c.Runtime.ExpectError != "" {
 		add(fmt.Errorf("set expect_error at the case or runtime level, not both"))
 	}
+	add(validateObservations(c.Runtime.Observe))
 	for _, name := range c.Runtime.ObserveFiles {
 		_, err := fixturePath("", name)
 		add(err)

@@ -111,6 +111,10 @@ func executeNodeScope(ctx workflow.Context, parent *template.ResolutionContext, 
 	frames := map[int]scopeFrame{}
 	next := 0
 	last := 0
+	var contexts map[int]workflow.Context
+	if ctx.OnObservation != nil {
+		contexts = map[int]workflow.Context{}
+	}
 	var forwarding *thinpackForwarder
 	if f, ok := ctx.JobContext.(*thinpackForwarder); ok {
 		forwarding = f
@@ -169,6 +173,9 @@ func executeNodeScope(ctx workflow.Context, parent *template.ResolutionContext, 
 		}
 		if len(meta.Catch) > 0 {
 			view.Options.CatchBeforeRetry = true
+		}
+		if contexts != nil {
+			contexts[id] = inner
 		}
 		return inner, view, f, completion, id
 	}
@@ -338,6 +345,9 @@ func executeNodeScope(ctx workflow.Context, parent *template.ResolutionContext, 
 		if e := completeNodeScope(ctx, parent, frame.completion.output); e != nil {
 			return e
 		}
+	}
+	if frame.completion.scope != nil && ctx.OnObservation != nil {
+		contexts[result.Frame].Observe(workflow.Observation{Kind: "scope_completed", Scope: frame.completion.scope, Output: frame.completion.output})
 	}
 	if result.BlockHandled {
 		return &machineCatchHandledError{}

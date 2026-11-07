@@ -1,0 +1,42 @@
+recipe: bridge.yaml
+cases:
+- id: bounded-observation
+  type: integration_case
+  runtime:
+    expect_error: expected iteration cap
+    secrets: {token: fixture-secret}
+    observe:
+      scopes:
+      - node_path: observation-bridge/develop/verify/sequence/adaptive-verify
+        outputs: [ok, allowed, result, artifact_refs, agent_artifacts, secret_note, absent]
+        retain_artifacts: [diagnostic.txt]
+      - node_path: observation-bridge/develop/verify
+        outputs: [ok, allowed, result, artifact_refs, agent_artifacts]
+      transitions:
+      - {machine_path: observation-bridge/develop, from: verify, to: dispatch}
+      entries:
+      - {machine_path: observation-bridge/develop, state: dispatch}
+      limits: {records: 32, bytes: 65536}
+  mocks:
+    ops:
+    - match: {node_path: observation-bridge/develop/verify/sequence/adaptive-verify/helper}
+      behavior:
+        mode: return
+        outputs: {candidate: candidate-one, passed: false}
+    - match: {node_path: observation-bridge/develop/dispatch/command_execution}
+      behavior:
+        mode: fail
+        error: {message: expected iteration cap}
+  assertions:
+  - type: cel_true
+    expr: 'observation_collection.complete && observations.size() == 4'
+  - type: cel_true
+    expr: 'observations[0].outputs.ok == false && observations[0].outputs.allowed == false && observations[0].output_presence.absent == false'
+  - type: cel_true
+    expr: 'observations[0].outputs.secret_note == "[REDACTED]" && observations[2].payload.secret_note == "[REDACTED]"'
+  - type: cel_true
+    expr: 'observations[2].source_scope_id == observations[1].scope_id && observations[3].transition_id == observations[2].id && observations[3].incoming_transition.payload == observations[2].payload'
+  - type: cel_true
+    expr: 'calls.filter(c, c.node_path.endsWith("/helper")).size() == 1 && calls.filter(c, c.node_path.endsWith("/helper"))[0].outputs.candidate == observations[0].outputs.result.candidate && observations[0].outputs.result.passed == false && observations[0].outputs.result.exit_code == 0'
+  - type: artifact_exists
+    path: observations/observation-1/artifact-13707d0f731502acdd6e65893763aef03c8258d15cb37c2d64e1ba0475765635

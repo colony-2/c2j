@@ -113,7 +113,19 @@ func runRuntimeCase(parent context.Context, opts HarnessOptions, tenant string, 
 		}
 		registry.UpdateRegistration(name, reg)
 	}
+	var collector *observationCollector
+	var executor compiler.RecipeExecutor
+	if cfg := req.Case.Runtime.Observe; cfg != nil {
+		limit := req.Execution.ArtifactMaxBytes
+		if limit <= 0 {
+			limit = 64 * 1024
+		}
+		collector = newObservationCollector(*cfg, req.Case.ID, &f.report, req.Case.Runtime.Secrets, rt, int(min(limit, 256*1024)))
+		defer collector.redactor.Close()
+		executor = observationExecutor{collector: collector}
+	}
 	workers, err := compiler.NewRecipeWorkerWithOptions(deps, registry, compiler.RecipeJobWorkerOptions{
+		Executor:           executor,
 		RootSourceResolver: compiler.NewRecipeSourceResolver(compiler.RecipeSourceResolverOptions{}),
 		Allocation:         scopedRuntime.Allocation, WrapTaskWorker: scopedRuntime.WrapTaskWorker, StageExecution: scopedRuntime.Stage,
 	})
@@ -198,6 +210,11 @@ func runRuntimeCase(parent context.Context, opts HarnessOptions, tenant string, 
 			}
 		}
 	}
+	if collector != nil {
+		for name, data := range collector.artifacts {
+			artifacts[name] = data
+		}
+	}
 	applyExpectedError(&result, req.Case.ExpectError)
 	if expected := req.Case.Runtime.ExpectError; expected != "" {
 		if result.Status == "failed" && strings.Contains(result.FailureReason, expected) {
@@ -248,6 +265,14 @@ func runRuntimeCase(parent context.Context, opts HarnessOptions, tenant string, 
 	}
 	if req.Execution.ArtifactMode == "inline" {
 		result.Artifacts = inlineArtifacts(artifacts, req.Execution.ArtifactMaxBytes)
+	}
+	if collector != nil {
+		if result.Artifacts == nil {
+			result.Artifacts = map[string]InlineArtifact{}
+		}
+		for name, artifact := range inlineArtifacts(collector.artifacts, int64(collector.artifactLimit)) {
+			result.Artifacts[name] = artifact
+		}
 	}
 	return
 }

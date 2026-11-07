@@ -1,0 +1,349 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:c2j:native-test:runtime-observations:v1",
+  "title": "Opted-in RuntimeReport observation fields (CLI projection: run.runtime)",
+  "type": "object",
+  "required": [
+    "observations_version",
+    "observation_collection"
+  ],
+  "properties": {
+    "observations_version": {
+      "const": 1
+    },
+    "observations": {
+      "type": "array",
+      "maxItems": 4096,
+      "items": {
+        "$ref": "#/$defs/record"
+      }
+    },
+    "observation_collection": {
+      "type": "object",
+      "required": [
+        "complete",
+        "limits",
+        "records",
+        "bytes",
+        "dropped",
+        "reasons",
+        "diagnostics"
+      ],
+      "properties": {
+        "complete": {
+          "type": "boolean"
+        },
+        "limits": {
+          "type": "object",
+          "required": [
+            "records",
+            "bytes"
+          ],
+          "properties": {
+            "records": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 4096
+            },
+            "bytes": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 8388608
+            }
+          }
+        },
+        "records": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4096
+        },
+        "bytes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 8388608
+        },
+        "dropped": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "reasons": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "diagnostics": {
+          "type": "array",
+          "maxItems": 16,
+          "items": {
+            "type": "object",
+            "required": [
+              "id",
+              "reason"
+            ],
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "reason": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    },
+    "observation_artifacts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "observation_id",
+          "ref",
+          "size_bytes",
+          "status",
+          "name"
+        ],
+        "properties": {
+          "observation_id": {
+            "type": "string"
+          },
+          "ref": {
+            "description": "Ordinary typed artifact reference serialization; a reference alone does not claim retained bytes.",
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "path": {
+            "type": "string",
+            "pattern": "^artifacts/observations/"
+          },
+          "size_bytes": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "status": {
+            "enum": [
+              "retained",
+              "unavailable",
+              "omitted"
+            ]
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "status": {
+                  "const": "retained"
+                }
+              }
+            },
+            "then": {
+              "required": [
+                "path"
+              ]
+            }
+          }
+        ]
+      }
+    }
+  },
+  "$defs": {
+    "record": {
+      "type": "object",
+      "required": [
+        "id",
+        "order",
+        "kind",
+        "case_id",
+        "job_id",
+        "cell",
+        "identity_kind",
+        "scope_id",
+        "scope_visit",
+        "callback_attempt",
+        "node_path",
+        "invocation",
+        "machine_path",
+        "machine_scope_id",
+        "state_scope_id"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "order": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "kind": {
+          "enum": [
+            "scope_completed",
+            "transition_selected",
+            "route_selected",
+            "state_entered"
+          ]
+        },
+        "case_id": {
+          "type": "string"
+        },
+        "job_id": {
+          "type": "string"
+        },
+        "cell": {
+          "type": "string"
+        },
+        "identity_kind": {
+          "const": "test_local_scope_callback"
+        },
+        "scope_id": {
+          "type": "string"
+        },
+        "parent_scope_id": {
+          "type": "string"
+        },
+        "state_scope_id": {
+          "type": "string"
+        },
+        "scope_visit": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "callback_attempt": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "node_path": {
+          "type": "string"
+        },
+        "invocation": {
+          "type": "object",
+          "required": [
+            "hash",
+            "path",
+            "sequence"
+          ],
+          "properties": {
+            "hash": {
+              "type": "string"
+            },
+            "path": {
+              "type": "string"
+            },
+            "sequence": {
+              "type": "integer"
+            }
+          }
+        },
+        "machine_path": {
+          "type": "string"
+        },
+        "machine_scope_id": {
+          "type": "string"
+        },
+        "outputs": {
+          "type": "object"
+        },
+        "output_presence": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "boolean"
+          }
+        },
+        "from": {
+          "type": "string"
+        },
+        "to": {
+          "type": "string"
+        },
+        "payload": {
+          "type": "object"
+        },
+        "source_scope_id": {
+          "type": "string"
+        },
+        "transition_id": {
+          "type": "string"
+        },
+        "incoming_transition": {
+          "type": "object",
+          "required": [
+            "from",
+            "to",
+            "payload"
+          ],
+          "properties": {
+            "from": {
+              "type": "string"
+            },
+            "to": {
+              "type": "string"
+            },
+            "payload": {
+              "type": "object"
+            }
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "scope_completed"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "outputs",
+              "output_presence"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "enum": [
+                  "transition_selected",
+                  "route_selected"
+                ]
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "from",
+              "to",
+              "payload",
+              "source_scope_id"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "state_entered"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "incoming_transition",
+              "transition_id",
+              "source_scope_id"
+            ]
+          }
+        }
+      ]
+    }
+  }
+}

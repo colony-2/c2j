@@ -1,0 +1,38 @@
+id: observation-bridge
+version: "1"
+sequence:
+- id: develop
+  state:
+    initial: verify
+    states:
+      verify:
+        sequence:
+        - id: adaptive-verify
+          sequence:
+          - id: helper
+            op: command_execution
+            inputs: {run: fixture-only}
+          outputs:
+            ok: false
+            allowed: false
+            result: '${{ sequence.helper.outputs }}'
+            artifact_refs:
+              diagnostic.txt: {kind: value, format: text, value: "diagnostic fixture-secret"}
+            agent_artifacts: {}
+            secret_note: fixture-secret
+        outputs:
+          ok: '${{ sequence["adaptive-verify"].outputs.ok }}'
+          allowed: '${{ sequence["adaptive-verify"].outputs.allowed }}'
+          result: '${{ sequence["adaptive-verify"].outputs.result }}'
+          artifact_refs: '${{ sequence["adaptive-verify"].outputs.artifact_refs }}'
+          agent_artifacts: '${{ sequence["adaptive-verify"].outputs.agent_artifacts }}'
+        transitions:
+        - to: dispatch
+          when: true
+          payload:
+            result: '${{ states.verify.outputs.result }}'
+            allowed: '${{ states.verify.outputs.allowed }}'
+            secret_note: fixture-secret
+      dispatch:
+        op: command_execution
+        inputs: {run: '${{ transition.payload.result.candidate }}'}

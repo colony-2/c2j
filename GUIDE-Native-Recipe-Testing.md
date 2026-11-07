@@ -219,3 +219,136 @@ assertions:
 - type: cel_true
   expr: 'calls.filter(c, c.op == "extension_execution")[1].inputs.inputs.session == calls.filter(c, c.op == "extension_execution")[0].outputs.session'
 ```
+
+## Accepted composite and transition observations
+
+Native cases can opt into selected intermediate values, including when the root
+later fails. This is a local test facility; persisted job inspection cannot
+recover values that an older runner did not record. Add `runtime.observe` to the
+suite, without modifying the production recipe:
+
+```yaml
+runtime:
+  observe:
+    scopes:
+      - node_path: build/develop/verify/sequence/adaptive-verify
+        outputs: [ok, allowed, result, artifact_refs, agent_artifacts]
+        retain_artifacts: [diagnostic.txt]
+      - node_path: build/develop/verify
+        outputs: [ok, allowed, result, artifact_refs, agent_artifacts]
+    transitions:
+      - {machine_path: build/develop, from: verify, to: dispatch}
+    entries:
+      - {machine_path: build/develop, state: dispatch}
+    limits: {records: 256, bytes: 1048576}
+```
+
+Paths match exact resolver invocation paths, including implicit `sequence` nodes;
+use the paths from existing op-call reports and the recipe's nesting. Each
+selector can include `cell`. Wildcards and empty selectors are rejected.
+`outputs` selects top-level output keys. `retain_artifacts` selects names from
+that completion's bound artifact references, not arbitrary file paths or URLs.
+
+Run the included, offline example:
+
+```sh
+c2j test validate --file testdata/observations/bridge.test.yaml
+c2j test run --file testdata/observations/bridge.test.yaml --case bounded-observation --out-dir /tmp/observation-report
+```
+
+The example deliberately fails the root after dispatch entry. Its expected-error
+match and intermediate assertions must all pass. It demonstrates the reporting
+capability; it is not the retained recipes consumer acceptance suite.
+
+CLI results store observations in
+`cases/<case-id>/result.json` under `run.runtime`. The Go harness returns the same
+object as `CaseRunResult.Runtime`. Version 1 adds:
+
+| Field | Meaning |
+| --- | --- |
+| `observations_version` | Observation schema version, currently 1. |
+| `observations` | Immutable, redacted records in capture order. |
+| `observation_collection` | Complete flag, effective limits, retained count/bytes, dropped count, reason totals and bounded omission diagnostics. |
+| `observation_artifacts` | Diagnostic manifests with observation ID, typed ref, retention status, size and optional retrieval path. |
+
+Every record contains `id`, `order`, `kind`, `case_id`, `job_id`, `cell`,
+`identity_kind`, `scope_id`, `parent_scope_id`, `scope_visit`, `callback_attempt`,
+`node_path`, `invocation` (resolver hash/path/sequence), `machine_path`,
+`machine_scope_id`, and `state_scope_id` where a containing state exists.
+
+`identity_kind: test_local_scope_callback` explicitly identifies the test-local
+full occurrence path. Each parent counts scope calls per site; each scope counts
+body and catch callback entries. Together with job ID, this distinguishes visits,
+retries and nested machines. These counters are not JobDB native scope IDs or
+native attempt numbers and cannot be passed to `job log --task`.
+
+`scope_completed` records only accepted outcomes after existing publication or
+forwarding succeeds. It contains `outputs` and `output_presence`; a missing key
+has presence false, while null, false and `{}` remain distinct literal values.
+Acceptance belongs to that scope alone. Require a separate enclosing-state
+completion before claiming that state accepted the child's result.
+
+`transition_selected` contains the actual rendered `from`, `to`, `payload` and
+accepted `source_scope_id`. `route_selected` identifies catch routing, includes
+`failure`, and has an empty accepted source ID. `state_entered` contains the
+actual installed `incoming_transition`, `transition_id` and source scope ID.
+Entries without a selected matching transition have empty link fields. Configure
+both transition and entry selectors when requiring linkage. Initial-state entry
+can be observed, but this interface selects only transitions with named sources.
+
+CEL assertions receive `observations` and `observation_collection` using the
+same sanitized JSON values. Require complete collection, exact counts and linked
+identities; checking a Boolean alone cannot establish an execution chain:
+
+```yaml
+assertions:
+  - type: cel_true
+    expr: 'observation_collection.complete && observations.filter(o, o.kind == "transition_selected").size() == 1'
+  - type: cel_true
+    expr: 'observations.filter(o, o.kind == "state_entered").all(e, e.transition_id != "" && e.source_scope_id != "")'
+```
+
+Without observation configuration, the new report fields are absent and CEL
+receives an empty observation list with `complete: false`. Observation capture
+errors produce diagnostics; they do not change scope acceptance, catches,
+retries, gate results or worker errors. Assertions requiring completeness fail
+when records or selected diagnostics are omitted.
+
+Default limits are 256 records and 1 MiB of encoded records, manifests and
+retained diagnostic bytes per case, shared across child jobs. Hard maxima are
+4096 records and 8 MiB. Occurrence paths are capped at 8192 bytes; longer identities are explicitly omitted. Each event is limited to 256 KiB and nesting to 64 levels;
+oversized events are omitted whole. Bounded linking/deduplication indexes share
+the record ceiling. Collection status is reserved outside this budget: at most
+16 diagnostic entries, each identity capped at 1024 bytes, plus reason counts.
+The byte total excludes JSON envelope separators and collection bookkeeping.
+Limits never silently evict earlier events.
+
+Selected artifact references retain their typed serialization. A reference does
+not establish that its bytes were retained. Only value refs and stored refs from
+jobs executed in the same disposable case can be resolved; external refs are
+reported unavailable without fetching. Each diagnostic is capped by
+`--artifact-max-bytes` (default 64 KiB), additionally capped at 256 KiB and by the
+case observation budget. Secret values use the existing redaction rules,
+including synthetic case secrets, in observation keys/values and diagnostic
+contents, manifest names and retrieval keys. Every selected binding uses
+`artifact-<SHA-256 of original binding name>` as its retrieval filename;
+distinct bindings that redact to the same display name retain separate files.
+Always retrieve using the manifest's `path`, rather than reconstructing it from
+the display name. Literal names never serve as retrieval keys. Occupied keys
+are reported as `artifact_collision` omissions instead of replacing bytes;
+collection becomes incomplete. Capture errors mark collection incomplete.
+
+A retained manifest's `path` is relative to the case report directory. For the
+example, read:
+
+```sh
+case_dir=/tmp/observation-report/cases/bounded-observation
+artifact_path=$(jq -r '.run.runtime.observation_artifacts[] | select(.status == "retained") | .path' "$case_dir/result.json" | head -n 1)
+cat "$case_dir/$artifact_path"
+```
+
+Selected diagnostics are included in ordinary inline report artifacts even when
+`--artifact-mode` is omitted. They remain available after disposable runtime
+cleanup, including empty diagnostics and expected root failure. Unavailable or
+omitted refs do not receive a retained retrieval path. Directory suite reports
+retain the existing `suites/<relative-suite-path>/cases/...` nesting.

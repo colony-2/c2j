@@ -3,7 +3,10 @@ package testjob
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
+	"fmt"
+	jsonschema "github.com/santhosh-tekuri/jsonschema/v6"
 	"os"
 	"path/filepath"
 	"strings"
@@ -696,4 +699,224 @@ cases:
 		t.Fatalf("write suite: %v", err)
 	}
 	return parentPath, suitePath
+}
+
+func TestNativeObservationBridgeReportAndArtifactRetrieval(t *testing.T) {
+	root, err := filepath.Abs("../../../../testdata/observations")
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := filepath.Join(t.TempDir(), "reports")
+	opts := Options{FilePath: filepath.Join(root, "bridge.test.yaml"), WorkingDir: root, OutDir: out, Stdout: &bytes.Buffer{}, Stderr: &bytes.Buffer{}}
+	if err := Validate(context.Background(), opts); err != nil {
+		t.Fatal(err)
+	}
+	if err := Run(context.Background(), opts); err != nil {
+		b, _ := os.ReadFile(filepath.Join(out, "cases", "bounded-observation", "result.json"))
+		t.Fatalf("%v: %s", err, b)
+	}
+	report, err := os.ReadFile(filepath.Join(out, "cases", "bounded-observation", "result.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(report), "fixture-secret") {
+		t.Fatal("secret in report")
+	}
+	var decoded map[string]any
+	if err := json.Unmarshal(report, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	run := decoded["run"].(map[string]any)
+	runtime := run["runtime"].(map[string]any)
+	schemaBytes, err := os.ReadFile(filepath.Join(root, "runtime-observation.schema.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var schemaDoc any
+	if err := json.Unmarshal(schemaBytes, &schemaDoc); err != nil {
+		t.Fatal(err)
+	}
+	validator := jsonschema.NewCompiler()
+	if err := validator.AddResource("urn:c2j:native-test:runtime-observations:v1", schemaDoc); err != nil {
+		t.Fatal(err)
+	}
+	schema, err := validator.Compile("urn:c2j:native-test:runtime-observations:v1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := schema.Validate(runtime); err != nil {
+		t.Fatal(err)
+	}
+
+	if runtime["observations_version"] != float64(1) || len(runtime["observations"].([]any)) != 4 {
+		t.Fatalf("unexpected observations: %s", report)
+	}
+	diagnostic, err := os.ReadFile(filepath.Join(out, "cases", "bounded-observation", "artifacts", "observations", "observation-1", fmt.Sprintf("artifact-%x", sha256.Sum256([]byte("diagnostic.txt")))))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(diagnostic) != "diagnostic [REDACTED]" {
+		t.Fatalf("unexpected diagnostic %q", diagnostic)
+	}
+}
+
+func TestNativeObservationEmptyDiagnosticRetrieval(t *testing.T) {
+	root := t.TempDir()
+	recipe := `id: empty
+sequence:
+- id: verify
+  sequence: []
+  outputs:
+    artifact_refs:
+      empty.txt: {kind: value, format: text, value: ""}
+`
+	source := filepath.Join(root, "recipe.yaml")
+	suite := filepath.Join(root, "suite.test.yaml")
+	if err := os.WriteFile(source, []byte(recipe), 0600); err != nil {
+		t.Fatal(err)
+	}
+	declaration := `recipe: recipe.yaml
+cases:
+- id: empty
+  type: integration_case
+  runtime:
+    observe:
+      scopes:
+      - node_path: empty/verify
+        outputs: [artifact_refs]
+        retain_artifacts: [empty.txt]
+`
+	if err := os.WriteFile(suite, []byte(declaration), 0600); err != nil {
+		t.Fatal(err)
+	}
+	out := filepath.Join(root, "report")
+	if err := Run(context.Background(), Options{FilePath: suite, WorkingDir: root, OutDir: out, Stdout: &bytes.Buffer{}, Stderr: &bytes.Buffer{}}); err != nil {
+		t.Fatal(err)
+	}
+	b, err := os.ReadFile(filepath.Join(out, "cases", "empty", "artifacts", "observations", "observation-1", fmt.Sprintf("artifact-%x", sha256.Sum256([]byte("empty.txt")))))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(b) != 0 {
+		t.Fatal("expected empty diagnostic")
+	}
+}
+
+// OBS-015/021: metadata redaction must preserve distinct, retrievable files.
+func TestNativeObservationArtifactMetadataRedaction(t *testing.T) {
+	for _, publicCollision := range []bool{false, true} {
+		t.Run(fmt.Sprintf("public-collision-%t", publicCollision), func(t *testing.T) {
+			testNativeObservationArtifactMetadataRedaction(t, publicCollision)
+		})
+	}
+}
+
+func testNativeObservationArtifactMetadataRedaction(t *testing.T, publicCollision bool) {
+	root, err := filepath.Abs("../../../../testdata/observations")
+	if err != nil {
+		t.Fatal(err)
+	}
+	work := t.TempDir()
+	recipe, err := os.ReadFile(filepath.Join(root, "bridge.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	suite, err := os.ReadFile(filepath.Join(root, "bridge.test.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	names := []string{"fixture-secret.txt", "fixture-other.txt"}
+	recipe = bytes.ReplaceAll(recipe, []byte("diagnostic.txt: {kind: value, format: text, value: \"diagnostic fixture-secret\"}"), []byte("fixture-secret.txt: {kind: value, format: text, value: \"first fixture-secret\"}\n              fixture-other.txt: {kind: value, format: text, value: \"second fixture-other\"}"))
+	suite = bytes.ReplaceAll(suite, []byte("secrets: {token: fixture-secret}"), []byte("secrets: {token: fixture-secret, other: fixture-other}"))
+	suite = bytes.ReplaceAll(suite, []byte("retain_artifacts: [diagnostic.txt]"), []byte("retain_artifacts: [fixture-secret.txt, fixture-other.txt]"))
+	suite = bytes.ReplaceAll(suite, []byte("  - type: artifact_exists\n    path: observations/observation-1/artifact-13707d0f731502acdd6e65893763aef03c8258d15cb37c2d64e1ba0475765635"), nil)
+	if publicCollision {
+		publicName := fmt.Sprintf("artifact-%x", sha256.Sum256([]byte(names[0])))
+		recipe = bytes.ReplaceAll(recipe, []byte("fixture-other.txt"), []byte(publicName))
+		recipe = bytes.ReplaceAll(recipe, []byte("second fixture-other"), []byte("second public diagnostic"))
+		suite = bytes.ReplaceAll(suite, []byte("fixture-other.txt"), []byte(publicName))
+		names[1] = publicName
+	}
+	for _, name := range names {
+		path := fmt.Sprintf("observations/observation-1/artifact-%x", sha256.Sum256([]byte(name)))
+		suite = append(suite, []byte("  - type: artifact_exists\n    path: "+path+"\n")...)
+	}
+	for name, data := range map[string][]byte{"bridge.yaml": recipe, "bridge.test.yaml": suite} {
+		if err := os.WriteFile(filepath.Join(work, name), data, 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	out := filepath.Join(t.TempDir(), "report")
+	if err := Run(context.Background(), Options{FilePath: filepath.Join(work, "bridge.test.yaml"), WorkingDir: work, OutDir: out, Stdout: &bytes.Buffer{}, Stderr: &bytes.Buffer{}}); err != nil {
+		t.Fatal(err)
+	}
+	// Only persisted report files remain available for retrieval.
+	if err := os.RemoveAll(work); err != nil {
+		t.Fatal(err)
+	}
+	caseDir := filepath.Join(out, "cases", "bounded-observation")
+	report, err := os.ReadFile(filepath.Join(caseDir, "result.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decoded struct {
+		Run struct {
+			Runtime struct {
+				Artifacts []struct {
+					Name, Path, Status string
+					Size               int `json:"size_bytes"`
+				} `json:"observation_artifacts"`
+				Collection struct{ Complete bool } `json:"observation_collection"`
+			} `json:"runtime"`
+		} `json:"run"`
+	}
+	if err := json.Unmarshal(report, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	manifests := decoded.Run.Runtime.Artifacts
+	if !decoded.Run.Runtime.Collection.Complete || len(manifests) != 2 || manifests[0].Path == manifests[1].Path {
+		t.Fatalf("distinct manifests required: %s", report)
+	}
+	for i, m := range manifests {
+		displayName := "[REDACTED].txt"
+		if publicCollision && i == 1 {
+			displayName = names[1]
+		}
+		if m.Name != displayName || m.Status != "retained" {
+			t.Fatalf("unexpected manifest: %+v", m)
+		}
+		data, err := os.ReadFile(filepath.Join(caseDir, m.Path))
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := []string{"first [REDACTED]", "second [REDACTED]"}[i]
+		if publicCollision && i == 1 {
+			want = "second public diagnostic"
+		}
+		if string(data) != want || len(data) != m.Size {
+			t.Fatalf("got %q want %q", data, want)
+		}
+	}
+	if err := filepath.WalkDir(out, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		for _, secret := range []string{"fixture-secret", "fixture-other"} {
+			if strings.Contains(path, secret) {
+				t.Fatalf("secret in path: %s", path)
+			}
+			if !d.IsDir() {
+				data, err := os.ReadFile(path)
+				if err != nil {
+					return err
+				}
+				if bytes.Contains(data, []byte(secret)) {
+					t.Fatalf("secret in persisted report: %s", path)
+				}
+			}
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
 }

@@ -15,9 +15,11 @@ import (
 )
 
 type Context struct {
-	SourceHooks recipe.HookSource
-	HookBase    string
-	HookPolicy  *hookpolicy.Snapshot
+	// OnObservation is optional synchronous, observation-only instrumentation.
+	OnObservation ObservationCallback
+	SourceHooks   recipe.HookSource
+	HookBase      string
+	HookPolicy    *hookpolicy.Snapshot
 	// Logger carries request-scoped metadata through nested recipe evaluation.
 	Logger         *slog.Logger
 	RecipeDigest   string

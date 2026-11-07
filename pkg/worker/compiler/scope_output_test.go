@@ -1,6 +1,7 @@
 package compiler
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"testing"
@@ -88,6 +89,7 @@ func TestScopeOutputPublishedOnlyAfterAcceptance(t *testing.T) {
 				rt := toy.New()
 				job, git := GenerateTestContext()
 				var observedErr error
+				observations := 0
 				var before, after map[string]template.StepOutput
 				w := jobworkflow.ExecutionWorker{JobType: "publication-boundary", Execute: func(exec jobworkflow.ExecutionContext, _ jobdb.JobData) (jobdb.JobData, error) {
 					root, err := template.NewRecipeResolutionContext(&git, nil, job)
@@ -117,6 +119,11 @@ func TestScopeOutputPublishedOnlyAfterAcceptance(t *testing.T) {
 						}
 						return nil
 					}})
+					ctx.OnObservation = func(_ context.Context, event workflow.Observation) {
+						observations++
+						require.Equal(t, "scope_completed", event.Kind)
+						require.Equal(t, "accepted", event.Output.Outputs["value"])
+					}
 					meta := recipe.NodeMetadata{ID: "work"}
 					observedErr = executeNodeScope(ctx, parent, meta, kind, "", func(inner workflow.Context, entry *template.ResolutionContext, meta recipe.NodeMetadata) error {
 						var inputs map[string]any
@@ -138,8 +145,10 @@ func TestScopeOutputPublishedOnlyAfterAcceptance(t *testing.T) {
 				if reject {
 					require.ErrorContains(t, observedErr, "result rejected at scope boundary")
 					require.Empty(t, after)
+					require.Zero(t, observations)
 				} else {
 					require.NoError(t, observedErr)
+					require.Equal(t, 1, observations)
 					require.Equal(t, "accepted", after["work"].Outputs["value"])
 					require.Empty(t, after["work"].Runs)
 				}
@@ -154,6 +163,7 @@ func TestStateOwnsNestedOpPublication(t *testing.T) {
 			rt := toy.New()
 			job, git := GenerateTestContext()
 			var observedErr error
+			var observed []template.ScopeType
 			var after map[string]template.StepOutput
 			w := jobworkflow.ExecutionWorker{JobType: "state-publication", Execute: func(exec jobworkflow.ExecutionContext, _ jobdb.JobData) (jobdb.JobData, error) {
 				root, err := template.NewRecipeResolutionContext(&git, nil, job)
@@ -170,6 +180,9 @@ func TestStateOwnsNestedOpPublication(t *testing.T) {
 					}
 					return nil
 				}})
+				ctx.OnObservation = func(_ context.Context, event workflow.Observation) {
+					observed = append(observed, event.Scope.ScopeType)
+				}
 				meta := recipe.NodeMetadata{ID: "work"}
 				observedErr = executeNodeScope(ctx, machine, meta, template.ScopeState, "", func(inner workflow.Context, entry *template.ResolutionContext, meta recipe.NodeMetadata) error {
 					state, err := entry.NewChildContext(template.ScopeState, meta, "", nil)
@@ -196,8 +209,10 @@ func TestStateOwnsNestedOpPublication(t *testing.T) {
 			if reject {
 				require.ErrorContains(t, observedErr, "state result rejected")
 				require.Empty(t, after)
+				require.Equal(t, []template.ScopeType{template.ScopeOp}, observed)
 			} else {
 				require.NoError(t, observedErr)
+				require.Equal(t, []template.ScopeType{template.ScopeOp, template.ScopeState}, observed)
 				require.Equal(t, "accepted", after["work"].Outputs["value"])
 				require.Empty(t, after["work"].Runs)
 			}

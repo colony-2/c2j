@@ -161,6 +161,7 @@ func (d DefaultRecipeExecutor) executeStateMachineBody(ctx workflow.Context, par
 			if _, ok := stateMap.States[stateResult.Route.To]; !ok {
 				return fmt.Errorf("catch target state %q not found", stateResult.Route.To)
 			}
+			ctx.Observe(workflow.Observation{Kind: "route_selected", Scope: resCtx, Transition: *stateResult.Route})
 			currentState = stateResult.Route.To
 			currentTransition = *stateResult.Route
 			continue
@@ -180,6 +181,7 @@ func (d DefaultRecipeExecutor) executeStateMachineBody(ctx workflow.Context, par
 			break
 		}
 
+		ctx.Observe(workflow.Observation{Kind: "transition_selected", Scope: resCtx, Transition: decision.Transition})
 		currentState = decision.To
 		currentTransition = decision.Transition
 	}
@@ -388,6 +390,7 @@ func (d DefaultRecipeExecutor) runStateAttempt(ctx workflow.Context, resCtx *tem
 		ctx.ScopeState(stateResCtx)
 	}
 	stateResCtx.TemplateData.Transition = transition
+	ctx.Observe(workflow.Observation{Kind: "state_entered", Scope: stateResCtx, Transition: stateResCtx.TemplateData.Transition})
 	if node.GetMetadata().Workspace != nil {
 		var result stateRunResult
 		err := withNodeWorkspace(ctx, stateResCtx, node.GetMetadata(), func(inner workflow.Context, scoped *template.ResolutionContext, _ recipe.NodeMetadata) error {

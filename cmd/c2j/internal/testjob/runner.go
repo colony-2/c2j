@@ -402,15 +402,15 @@ func buildHarnessOptions(ctx context.Context, opts Options, ir CompiledIR) (reci
 		fixtureRoot = filepath.Dir(file)
 	}
 	return recipetest.HarnessOptions{
-		FixtureRoot: fixtureRoot,
-		Resolver:    defaultTargetResolver{},
-		Deps:        deps,
-		WorkRoot:    workRoot,
-	}, func() {
-		for i := len(cleanups) - 1; i >= 0; i-- {
-			cleanups[i]()
-		}
-	}, nil
+			FixtureRoot: fixtureRoot,
+			Resolver:    defaultTargetResolver{},
+			Deps:        deps,
+			WorkRoot:    workRoot,
+		}, func() {
+			for i := len(cleanups) - 1; i >= 0; i-- {
+				cleanups[i]()
+			}
+		}, nil
 }
 
 func suiteUsesPassthrough(cases []recipetest.Case) bool {
@@ -677,7 +677,7 @@ func writeRunArtifacts(outDir string, results []CaseResult) error {
 			return err
 		}
 		for name, entry := range r.Run.Artifacts {
-			if strings.TrimSpace(entry.ContentBase64) == "" {
+			if strings.TrimSpace(entry.ContentBase64) == "" && (entry.SizeBytes != 0 || entry.Truncated) {
 				continue
 			}
 			decoded, err := base64.StdEncoding.DecodeString(entry.ContentBase64)
