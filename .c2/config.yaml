@@ -9,12 +9,8 @@ self:
 jobdb: http://192.168.1.195:9047/c2
 root:
   repo: https://github.com/colony-2/c2-root.git
-
-# Go 1.26, using the nixpkgs revision pinned in flake.lock.
-packages:
-  - nix:github:NixOS/nixpkgs/a033e66ab94a6bedf2c3d58d93a36319d3cbbbaf#go_1_26
-
-
+# Match the verify hook and CI toolchain exactly (approved package).
+packages: ["nix:github:NixOS/nixpkgs/e4074f13905f5117d20ad71358596b41694863aa#go_1_26"]
 # Derived current repo: github.com/colony-2/c2j
 # Derived pattern: github.com/colony-2/${{ cell }}
 # Derived root repo: github.com/colony-2/root

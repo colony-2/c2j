@@ -1,0 +1,590 @@
+{
+  "recipe": "live-driver.yaml",
+  "live": true,
+  "cases": [
+    {
+      "id": "VH-012-016-019-020-real-success",
+      "type": "integration_case",
+      "runtime": {
+        "cells": {
+          "root": {
+            "files": {
+              ".c2/config.yaml": "packages: [\"nix:github:NixOS/nixpkgs/e4074f13905f5117d20ad71358596b41694863aa#go_1_26\"]\n",
+              "go.mod": "module example.com/verifyfixture\n\ngo 1.26\n",
+              "Makefile": "check-mod:\n\tgo mod tidy -diff\n",
+              "fixture.go": "package fixture\n",
+              "fixture_test.go": "package fixture\nimport (\"testing\"; \"os\")\nfunc TestOptionalDocker(t *testing.T) { t.Skip(\"optional Docker fixture coverage unavailable\") }\nfunc TestJobIdentityIsolation(t *testing.T) { for _, key := range []string{\"C2J_CURRENT_JOB_ID\", \"C2J_CHILD_JOB_ENDPOINT\", \"C2J_CHILD_JOB_TOKEN\", \"C2J_TENANT_ID\"} { if os.Getenv(key) != \"\" { t.Fatalf(\"inherited enclosing job identity: %s\", key) } } }\n",
+              "skills/fixture/SKILL.md": "---\nname: verify-fixture\ndescription: A small disposable skill for verify hook acceptance.\n---\n\nUse this fixture only in acceptance tests.\n",
+              "candidate-untracked.txt": "preserve this candidate file\n"
+            },
+            "file_sources": {
+              ".c2/recipes/hooks/build/verify.yaml": "../../../.c2/recipes/hooks/build/verify.yaml"
+            }
+          }
+        },
+        "observe": {
+          "scopes": [
+            {
+              "node_path": "verify-hook-live",
+              "outputs": [
+                "status",
+                "summary",
+                "artifact_refs"
+              ],
+              "retain_artifacts": [
+                "environment.log",
+                "modules.log",
+                "tests.log",
+                "skills.log",
+                "summary.md"
+              ]
+            }
+          ],
+          "limits": {
+            "records": 8,
+            "bytes": 1048576
+          }
+        }
+      },
+      "mocks": {
+        "ops": [
+          {
+            "match": {
+              "op": "command_execution"
+            },
+            "repeat": true,
+            "behavior": {
+              "mode": "passthrough"
+            }
+          }
+        ]
+      },
+      "assertions": [
+        {
+          "type": "output_equals",
+          "path": "status",
+          "value": "passed"
+        },
+        {
+          "type": "cel_true",
+          "expr": "repositories.root.clean && repositories.root.new_commits == 0 && repositories.root.changed_files.size() == 0"
+        },
+        {
+          "type": "cel_true",
+          "expr": "calls.filter(c, c.node_path.endsWith(\"/export_evidence\"))[0].artifacts[\"tests.log\"].contains(\"--- SKIP: TestOptionalDocker\")"
+        },
+        {
+          "type": "cel_true",
+          "expr": "outputs.artifact_refs.size() == 5"
+        },
+        {
+          "type": "cel_true",
+          "expr": "observation_collection.complete && observations.size() == 1"
+        }
+      ]
+    },
+    {
+      "id": "VH-014-real-untidy-modules",
+      "type": "integration_case",
+      "runtime": {
+        "cells": {
+          "root": {
+            "files": {
+              ".c2/config.yaml": "packages: [\"nix:github:NixOS/nixpkgs/e4074f13905f5117d20ad71358596b41694863aa#go_1_26\"]\n",
+              "go.mod": "module example.com/verifyfixture\n\ngo 1.26\n\nrequire github.com/dustin/go-humanize v1.0.1\n",
+              "Makefile": "check-mod:\n\tgo mod tidy -diff\n",
+              "fixture.go": "package fixture\n",
+              "fixture_test.go": "package fixture\nimport (\"testing\"; \"os\")\nfunc TestOptionalDocker(t *testing.T) { t.Skip(\"optional Docker fixture coverage unavailable\") }\nfunc TestJobIdentityIsolation(t *testing.T) { for _, key := range []string{\"C2J_CURRENT_JOB_ID\", \"C2J_CHILD_JOB_ENDPOINT\", \"C2J_CHILD_JOB_TOKEN\", \"C2J_TENANT_ID\"} { if os.Getenv(key) != \"\" { t.Fatalf(\"inherited enclosing job identity: %s\", key) } } }\n",
+              "skills/fixture/SKILL.md": "---\nname: verify-fixture\ndescription: A small disposable skill for verify hook acceptance.\n---\n\nUse this fixture only in acceptance tests.\n",
+              "candidate-untracked.txt": "preserve this candidate file\n"
+            },
+            "file_sources": {
+              ".c2/recipes/hooks/build/verify.yaml": "../../../.c2/recipes/hooks/build/verify.yaml"
+            }
+          }
+        },
+        "observe": {
+          "scopes": [
+            {
+              "node_path": "verify-hook-live",
+              "outputs": [
+                "status",
+                "summary",
+                "artifact_refs"
+              ],
+              "retain_artifacts": [
+                "environment.log",
+                "modules.log",
+                "tests.log",
+                "skills.log",
+                "summary.md"
+              ]
+            }
+          ],
+          "limits": {
+            "records": 8,
+            "bytes": 1048576
+          }
+        }
+      },
+      "mocks": {
+        "ops": [
+          {
+            "match": {
+              "op": "command_execution"
+            },
+            "repeat": true,
+            "behavior": {
+              "mode": "passthrough"
+            }
+          }
+        ]
+      },
+      "assertions": [
+        {
+          "type": "output_equals",
+          "path": "status",
+          "value": "failed"
+        },
+        {
+          "type": "cel_true",
+          "expr": "repositories.root.clean && repositories.root.new_commits == 0 && repositories.root.changed_files.size() == 0"
+        },
+        {
+          "type": "cel_true",
+          "expr": "outputs.artifact_refs.size() == 5"
+        },
+        {
+          "type": "cel_true",
+          "expr": "calls.filter(c, c.node_path.endsWith(\"/export_evidence\"))[0].artifacts[\"modules.log\"].contains(\"diff\")"
+        },
+        {
+          "type": "cel_true",
+          "expr": "calls.filter(c, c.op == \"command_execution\").size() == 7"
+        },
+        {
+          "type": "cel_true",
+          "expr": "observation_collection.complete && observations.size() == 1"
+        }
+      ]
+    },
+    {
+      "id": "VH-014-real-failing-test",
+      "type": "integration_case",
+      "runtime": {
+        "cells": {
+          "root": {
+            "files": {
+              ".c2/config.yaml": "packages: [\"nix:github:NixOS/nixpkgs/e4074f13905f5117d20ad71358596b41694863aa#go_1_26\"]\n",
+              "go.mod": "module example.com/verifyfixture\n\ngo 1.26\n",
+              "Makefile": "check-mod:\n\tgo mod tidy -diff\n",
+              "fixture.go": "package fixture\n",
+              "fixture_test.go": "package fixture\nimport (\"testing\"; \"os\")\nfunc TestOptionalDocker(t *testing.T) { t.Skip(\"optional Docker fixture coverage unavailable\") }\nfunc TestFailure(t *testing.T) { t.Fatal(\"intentional integration failure\") }\nfunc TestJobIdentityIsolation(t *testing.T) { for _, key := range []string{\"C2J_CURRENT_JOB_ID\", \"C2J_CHILD_JOB_ENDPOINT\", \"C2J_CHILD_JOB_TOKEN\", \"C2J_TENANT_ID\"} { if os.Getenv(key) != \"\" { t.Fatalf(\"inherited enclosing job identity: %s\", key) } } }\n",
+              "skills/fixture/SKILL.md": "---\nname: verify-fixture\ndescription: A small disposable skill for verify hook acceptance.\n---\n\nUse this fixture only in acceptance tests.\n",
+              "candidate-untracked.txt": "preserve this candidate file\n"
+            },
+            "file_sources": {
+              ".c2/recipes/hooks/build/verify.yaml": "../../../.c2/recipes/hooks/build/verify.yaml"
+            }
+          }
+        },
+        "observe": {
+          "scopes": [
+            {
+              "node_path": "verify-hook-live",
+              "outputs": [
+                "status",
+                "summary",
+                "artifact_refs"
+              ],
+              "retain_artifacts": [
+                "environment.log",
+                "modules.log",
+                "tests.log",
+                "skills.log",
+                "summary.md"
+              ]
+            }
+          ],
+          "limits": {
+            "records": 8,
+            "bytes": 1048576
+          }
+        }
+      },
+      "mocks": {
+        "ops": [
+          {
+            "match": {
+              "op": "command_execution"
+            },
+            "repeat": true,
+            "behavior": {
+              "mode": "passthrough"
+            }
+          }
+        ]
+      },
+      "assertions": [
+        {
+          "type": "output_equals",
+          "path": "status",
+          "value": "failed"
+        },
+        {
+          "type": "cel_true",
+          "expr": "repositories.root.clean && repositories.root.new_commits == 0 && repositories.root.changed_files.size() == 0"
+        },
+        {
+          "type": "cel_true",
+          "expr": "outputs.artifact_refs.size() == 5"
+        },
+        {
+          "type": "cel_true",
+          "expr": "calls.filter(c, c.node_path.endsWith(\"/export_evidence\"))[0].artifacts[\"tests.log\"].contains(\"intentional integration failure\")"
+        },
+        {
+          "type": "cel_true",
+          "expr": "calls.filter(c, c.op == \"command_execution\").size() == 7"
+        },
+        {
+          "type": "cel_true",
+          "expr": "observation_collection.complete && observations.size() == 1"
+        }
+      ]
+    },
+    {
+      "id": "VH-014-real-failing-skills",
+      "type": "integration_case",
+      "runtime": {
+        "cells": {
+          "root": {
+            "files": {
+              ".c2/config.yaml": "packages: [\"nix:github:NixOS/nixpkgs/e4074f13905f5117d20ad71358596b41694863aa#go_1_26\"]\n",
+              "go.mod": "module example.com/verifyfixture\n\ngo 1.26\n",
+              "Makefile": "check-mod:\n\tgo mod tidy -diff\n",
+              "fixture.go": "package fixture\n",
+              "fixture_test.go": "package fixture\nimport (\"testing\"; \"os\")\nfunc TestOptionalDocker(t *testing.T) { t.Skip(\"optional Docker fixture coverage unavailable\") }\nfunc TestJobIdentityIsolation(t *testing.T) { for _, key := range []string{\"C2J_CURRENT_JOB_ID\", \"C2J_CHILD_JOB_ENDPOINT\", \"C2J_CHILD_JOB_TOKEN\", \"C2J_TENANT_ID\"} { if os.Getenv(key) != \"\" { t.Fatalf(\"inherited enclosing job identity: %s\", key) } } }\n",
+              "skills/fixture/SKILL.md": "---\nname: verify-fixture\ndescription: A small disposable skill for verify hook acceptance.\n---\n\nUse this fixture only in acceptance tests.\n",
+              "candidate-untracked.txt": "preserve this candidate file\n",
+              ".npmrc": "registry=http://127.0.0.1:1/\nfetch-retries=0\nfetch-timeout=10000\n"
+            },
+            "file_sources": {
+              ".c2/recipes/hooks/build/verify.yaml": "../../../.c2/recipes/hooks/build/verify.yaml"
+            }
+          }
+        },
+        "observe": {
+          "scopes": [
+            {
+              "node_path": "verify-hook-live",
+              "outputs": [
+                "status",
+                "summary",
+                "artifact_refs"
+              ],
+              "retain_artifacts": [
+                "environment.log",
+                "modules.log",
+                "tests.log",
+                "skills.log",
+                "summary.md"
+              ]
+            }
+          ],
+          "limits": {
+            "records": 8,
+            "bytes": 1048576
+          }
+        }
+      },
+      "mocks": {
+        "ops": [
+          {
+            "match": {
+              "op": "command_execution"
+            },
+            "repeat": true,
+            "behavior": {
+              "mode": "passthrough"
+            }
+          }
+        ]
+      },
+      "assertions": [
+        {
+          "type": "output_equals",
+          "path": "status",
+          "value": "failed"
+        },
+        {
+          "type": "cel_true",
+          "expr": "repositories.root.clean && repositories.root.new_commits == 0 && repositories.root.changed_files.size() == 0"
+        },
+        {
+          "type": "cel_true",
+          "expr": "outputs.artifact_refs.size() == 5"
+        },
+        {
+          "type": "cel_true",
+          "expr": "calls.filter(c, c.node_path.endsWith(\"/export_evidence\"))[0].artifacts[\"skills.log\"].contains(\"ECONNREFUSED\")"
+        },
+        {
+          "type": "cel_true",
+          "expr": "calls.filter(c, c.op == \"command_execution\").size() == 7"
+        },
+        {
+          "type": "cel_true",
+          "expr": "observation_collection.complete && observations.size() == 1"
+        }
+      ]
+    },
+    {
+      "id": "VH-015-real-unavailable-history",
+      "type": "integration_case",
+      "runtime": {
+        "cells": {
+          "root": {
+            "files": {
+              ".c2/config.yaml": "packages: [\"nix:github:NixOS/nixpkgs/e4074f13905f5117d20ad71358596b41694863aa#go_1_26\"]\n",
+              "go.mod": "module example.com/verifyfixture\n\ngo 1.26\n",
+              "Makefile": "check-mod:\n\tgo mod tidy -diff\n",
+              "fixture.go": "package fixture\n",
+              "fixture_test.go": "package fixture\nimport (\"testing\"; \"os/exec\"; \"os\")\nfunc TestHistory(t *testing.T) { if b, err := exec.Command(\"git\", \"cat-file\", \"-e\", \"0000000000000000000000000000000000000001^{commit}\").CombinedOutput(); err != nil { t.Fatalf(\"required historical revision unavailable: %v %s\",err,b) } }\nfunc TestJobIdentityIsolation(t *testing.T) { for _, key := range []string{\"C2J_CURRENT_JOB_ID\", \"C2J_CHILD_JOB_ENDPOINT\", \"C2J_CHILD_JOB_TOKEN\", \"C2J_TENANT_ID\"} { if os.Getenv(key) != \"\" { t.Fatalf(\"inherited enclosing job identity: %s\", key) } } }\n",
+              "skills/fixture/SKILL.md": "---\nname: verify-fixture\ndescription: A small disposable skill for verify hook acceptance.\n---\n\nUse this fixture only in acceptance tests.\n",
+              "candidate-untracked.txt": "preserve this candidate file\n"
+            },
+            "file_sources": {
+              ".c2/recipes/hooks/build/verify.yaml": "../../../.c2/recipes/hooks/build/verify.yaml"
+            }
+          }
+        },
+        "observe": {
+          "scopes": [
+            {
+              "node_path": "verify-hook-live",
+              "outputs": [
+                "status",
+                "summary",
+                "artifact_refs"
+              ],
+              "retain_artifacts": [
+                "environment.log",
+                "modules.log",
+                "tests.log",
+                "skills.log",
+                "summary.md"
+              ]
+            }
+          ],
+          "limits": {
+            "records": 8,
+            "bytes": 1048576
+          }
+        }
+      },
+      "mocks": {
+        "ops": [
+          {
+            "match": {
+              "op": "command_execution"
+            },
+            "repeat": true,
+            "behavior": {
+              "mode": "passthrough"
+            }
+          }
+        ]
+      },
+      "assertions": [
+        {
+          "type": "output_equals",
+          "path": "status",
+          "value": "failed"
+        },
+        {
+          "type": "cel_true",
+          "expr": "repositories.root.clean && repositories.root.new_commits == 0 && repositories.root.changed_files.size() == 0"
+        },
+        {
+          "type": "cel_true",
+          "expr": "outputs.artifact_refs.size() == 5"
+        },
+        {
+          "type": "cel_true",
+          "expr": "calls.filter(c, c.node_path.endsWith(\"/export_evidence\"))[0].artifacts[\"tests.log\"].contains(\"required historical revision unavailable\")"
+        },
+        {
+          "type": "cel_true",
+          "expr": "calls.filter(c, c.op == \"command_execution\").size() == 7"
+        },
+        {
+          "type": "cel_true",
+          "expr": "observation_collection.complete && observations.size() == 1"
+        }
+      ]
+    },
+    {
+      "id": "VH-015-real-denied-private-access",
+      "type": "integration_case",
+      "runtime": {
+        "cells": {
+          "root": {
+            "files": {
+              ".c2/config.yaml": "packages: [\"nix:github:NixOS/nixpkgs/e4074f13905f5117d20ad71358596b41694863aa#go_1_26\"]\n",
+              "go.mod": "module example.com/verifyfixture\n\ngo 1.26\n",
+              "Makefile": "check-mod:\n\tenv -u GIT_CONFIG_PARAMETERS GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=protocol.allow GIT_CONFIG_VALUE_0=never GIT_TERMINAL_PROMPT=0 go mod download github.com/colony-2/jobdb@v0.0.74-0.20261106183456-422c10acb4dd\n",
+              "fixture.go": "package fixture\n",
+              "fixture_test.go": "package fixture\nimport (\"testing\"; \"os\")\nfunc TestOptionalDocker(t *testing.T) { t.Skip(\"optional Docker fixture coverage unavailable\") }\nfunc TestJobIdentityIsolation(t *testing.T) { for _, key := range []string{\"C2J_CURRENT_JOB_ID\", \"C2J_CHILD_JOB_ENDPOINT\", \"C2J_CHILD_JOB_TOKEN\", \"C2J_TENANT_ID\"} { if os.Getenv(key) != \"\" { t.Fatalf(\"inherited enclosing job identity: %s\", key) } } }\n",
+              "skills/fixture/SKILL.md": "---\nname: verify-fixture\ndescription: A small disposable skill for verify hook acceptance.\n---\n\nUse this fixture only in acceptance tests.\n",
+              "candidate-untracked.txt": "preserve this candidate file\n"
+            },
+            "file_sources": {
+              ".c2/recipes/hooks/build/verify.yaml": "../../../.c2/recipes/hooks/build/verify.yaml"
+            }
+          }
+        },
+        "observe": {
+          "scopes": [
+            {
+              "node_path": "verify-hook-live",
+              "outputs": [
+                "status",
+                "summary",
+                "artifact_refs"
+              ],
+              "retain_artifacts": [
+                "environment.log",
+                "modules.log",
+                "tests.log",
+                "skills.log",
+                "summary.md"
+              ]
+            }
+          ],
+          "limits": {
+            "records": 8,
+            "bytes": 1048576
+          }
+        }
+      },
+      "mocks": {
+        "ops": [
+          {
+            "match": {
+              "op": "command_execution"
+            },
+            "repeat": true,
+            "behavior": {
+              "mode": "passthrough"
+            }
+          }
+        ]
+      },
+      "assertions": [
+        {
+          "type": "output_equals",
+          "path": "status",
+          "value": "failed"
+        },
+        {
+          "type": "cel_true",
+          "expr": "calls.filter(c, c.node_path.endsWith(\"/export_evidence\"))[0].artifacts[\"modules.log\"].contains(\"not allowed\")"
+        },
+        {
+          "type": "cel_true",
+          "expr": "calls.filter(c, c.op == \"command_execution\").size() == 7 && repositories.root.clean"
+        },
+        {
+          "type": "cel_true",
+          "expr": "observation_collection.complete && observations.size() == 1"
+        }
+      ]
+    },
+    {
+      "id": "VH-013-real-large-output",
+      "type": "integration_case",
+      "runtime": {
+        "cells": {
+          "root": {
+            "files": {
+              ".c2/config.yaml": "packages: [\"nix:github:NixOS/nixpkgs/e4074f13905f5117d20ad71358596b41694863aa#go_1_26\"]\n",
+              "go.mod": "module example.com/verifyfixture\n\ngo 1.26\n",
+              "Makefile": "check-mod:\n\tgo mod tidy -diff\n",
+              "fixture.go": "package fixture\n",
+              "fixture_test.go": "package fixture\nimport (\"testing\"; \"strings\"; \"os\")\nfunc TestLarge(t *testing.T) { t.Log(strings.Repeat(\"full-output-\", 16000)); t.Log(\"large-output-end-marker\") }\nfunc TestOptionalDocker(t *testing.T) { t.Skip(\"optional Docker fixture coverage unavailable\") }\nfunc TestJobIdentityIsolation(t *testing.T) { for _, key := range []string{\"C2J_CURRENT_JOB_ID\", \"C2J_CHILD_JOB_ENDPOINT\", \"C2J_CHILD_JOB_TOKEN\", \"C2J_TENANT_ID\"} { if os.Getenv(key) != \"\" { t.Fatalf(\"inherited enclosing job identity: %s\", key) } } }\n",
+              "skills/fixture/SKILL.md": "---\nname: verify-fixture\ndescription: A small disposable skill for verify hook acceptance.\n---\n\nUse this fixture only in acceptance tests.\n",
+              "candidate-untracked.txt": "preserve this candidate file\n"
+            },
+            "file_sources": {
+              ".c2/recipes/hooks/build/verify.yaml": "../../../.c2/recipes/hooks/build/verify.yaml"
+            }
+          }
+        },
+        "observe": {
+          "scopes": [
+            {
+              "node_path": "verify-hook-live",
+              "outputs": [
+                "status",
+                "summary",
+                "artifact_refs"
+              ],
+              "retain_artifacts": [
+                "environment.log",
+                "modules.log",
+                "tests.log",
+                "skills.log",
+                "summary.md"
+              ]
+            }
+          ],
+          "limits": {
+            "records": 8,
+            "bytes": 1048576
+          }
+        }
+      },
+      "mocks": {
+        "ops": [
+          {
+            "match": {
+              "op": "command_execution"
+            },
+            "repeat": true,
+            "behavior": {
+              "mode": "passthrough"
+            }
+          }
+        ]
+      },
+      "assertions": [
+        {
+          "type": "output_equals",
+          "path": "status",
+          "value": "passed"
+        },
+        {
+          "type": "cel_true",
+          "expr": "repositories.root.clean && repositories.root.new_commits == 0 && repositories.root.changed_files.size() == 0"
+        },
+        {
+          "type": "cel_true",
+          "expr": "calls.filter(c, c.node_path.endsWith(\"/export_evidence\"))[0].artifacts[\"summary.md\"].contains(\"--- SKIP: TestOptionalDocker\")"
+        },
+        {
+          "type": "cel_true",
+          "expr": "outputs.artifact_refs.size() == 5"
+        },
+        {
+          "type": "cel_true",
+          "expr": "outputs.artifact_refs[\"tests.log\"].stored.key.sizeBytes > 131072"
+        },
+        {
+          "type": "cel_true",
+          "expr": "observation_collection.complete && observations.size() == 1"
+        }
+      ]
+    }
+  ]
+}

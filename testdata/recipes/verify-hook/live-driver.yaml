@@ -1,0 +1,45 @@
+id: verify-hook-live
+version: "1"
+source_hooks: from_current
+input_schema: {}
+sequence:
+  - id: prepare
+    op: command_execution
+    inputs:
+      run: git rev-parse HEAD
+      timeout: 2m
+      capture_diagnostics: always
+  - id: verify
+    include: cell://.c2/recipes/hooks/build/verify.yaml
+    inputs:
+      api_version: c2.build-hook/v1
+      request: 'verify $(touch never-execute)'
+      target_directory: '; touch never-execute'
+      candidate: disposable-fixture
+      base: fixture-base
+      documents: {}
+  - id: export_evidence
+    op: command_execution
+    artifacts:
+      ./ : '${{ sequence.verify.outputs.artifact_refs }}'
+    inputs:
+      shell: bash
+      timeout: 2m
+      capture_diagnostics: always
+      env:
+        INBOX: '${{ context.environment.op.inbox }}'
+        OUTBOX: '${{ context.environment.op.outbox }}'
+      run: |
+        set -eu
+        for name in environment.log modules.log tests.log skills.log summary.md; do
+          test -s "$INBOX/$name"
+          cp "$INBOX/$name" "$OUTBOX/$name"
+        done
+        if [ "$(wc -c < "$INBOX/tests.log")" -gt 131072 ]; then
+          grep -q large-output-end-marker "$INBOX/tests.log"
+        fi
+        printf 'Exported all five native artifact references.'
+outputs:
+  status: '${{ sequence.verify.outputs.status }}'
+  summary: '${{ sequence.verify.outputs.summary }}'
+  artifact_refs: '${{ sequence.verify.outputs.artifact_refs }}'

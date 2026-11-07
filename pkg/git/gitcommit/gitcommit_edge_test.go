@@ -77,13 +77,15 @@ func TestPersistCommit_InvalidRootHash(t *testing.T) {
 }
 
 func TestPersistCommit_InvalidStorageLocation(t *testing.T) {
-	// Test with storage location that cannot be created
+	// A file cannot be used as a parent directory, even when tests run as root.
 	repoPath, rootCommit, cleanup := setupTestRepo(t)
 	defer cleanup()
+	blocked := filepath.Join(t.TempDir(), "not-a-directory")
+	require.NoError(t, os.WriteFile(blocked, []byte("blocked"), 0600))
 
 	input := PersistCommitActivity{
 		RepoPath:        repoPath,
-		StorageLocation: "/root/forbidden/path",
+		StorageLocation: filepath.Join(blocked, "storage"),
 		RootHash:        rootCommit,
 		CommitMessage:   "Test",
 	}

@@ -1,0 +1,2685 @@
+{
+  "recipe": "../../../.c2/recipes/hooks/build/verify.yaml",
+  "cases": [
+    {
+      "id": "VH-001-003-004-009-011-happy-path",
+      "type": "integration_case",
+      "runtime": {},
+      "inputs": {
+        "api_version": "c2.build-hook/v1",
+        "request": "verify $(touch never-execute)",
+        "target_directory": "; touch never-execute",
+        "candidate": "fixture-candidate",
+        "base": "fixture-base"
+      },
+      "mocks": {
+        "ops": [
+          {
+            "match": {
+              "node_path": "c2j-build-verify/check_environment/check_environment"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": true,
+                "exit_code": 0,
+                "timed_out": false,
+                "error_message": "",
+                "stdout": ""
+              },
+              "artifacts": {
+                "environment.log": "fixture evidence\n"
+              }
+            }
+          },
+          {
+            "match": {
+              "node_path": "c2j-build-verify/check_modules/check_modules"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": true,
+                "exit_code": 0,
+                "timed_out": false,
+                "error_message": "",
+                "stdout": ""
+              },
+              "artifacts": {
+                "modules.log": "fixture evidence\n"
+              }
+            }
+          },
+          {
+            "match": {
+              "node_path": "c2j-build-verify/test_integration/test_integration"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": true,
+                "exit_code": 0,
+                "timed_out": false,
+                "error_message": "",
+                "stdout": ""
+              },
+              "artifacts": {
+                "tests.log": "fixture evidence\n"
+              }
+            }
+          },
+          {
+            "match": {
+              "node_path": "c2j-build-verify/check_skills/check_skills"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": true,
+                "exit_code": 0,
+                "timed_out": false,
+                "error_message": "",
+                "stdout": ""
+              },
+              "artifacts": {
+                "skills.log": "fixture evidence\n"
+              }
+            }
+          },
+          {
+            "match": {
+              "node_path": "c2j-build-verify/summarize/summarize"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": true,
+                "exit_code": 0,
+                "timed_out": false,
+                "error_message": "",
+                "stdout": "Local verification passed on fixture/platform; inspect summary.md."
+              },
+              "artifacts": {
+                "summary.md": "fixture evidence\n"
+              }
+            }
+          }
+        ]
+      },
+      "assertions": [
+        {
+          "type": "output_equals",
+          "path": "status",
+          "value": "passed"
+        },
+        {
+          "type": "output_equals",
+          "path": "api_version",
+          "value": "c2.build-hook/v1"
+        },
+        {
+          "type": "cel_true",
+          "expr": "outputs.artifact_refs.size() == 5 && outputs.artifact_refs[\"tests.log\"].name == \"tests.log\""
+        },
+        {
+          "type": "cel_true",
+          "expr": "calls.size() == 5 && calls.all(c, c.inputs.capture_diagnostics == \"always\")"
+        },
+        {
+          "type": "op_input_equals",
+          "node_path": "c2j-build-verify/check_environment/check_environment",
+          "path": "timeout",
+          "value": "2m"
+        },
+        {
+          "type": "op_input_equals",
+          "node_path": "c2j-build-verify/check_modules/check_modules",
+          "path": "timeout",
+          "value": "5m"
+        },
+        {
+          "type": "op_input_equals",
+          "node_path": "c2j-build-verify/test_integration/test_integration",
+          "path": "timeout",
+          "value": "30m"
+        },
+        {
+          "type": "op_input_equals",
+          "node_path": "c2j-build-verify/check_skills/check_skills",
+          "path": "timeout",
+          "value": "5m"
+        },
+        {
+          "type": "op_input_equals",
+          "node_path": "c2j-build-verify/summarize/summarize",
+          "path": "timeout",
+          "value": "2m"
+        },
+        {
+          "type": "cel_true",
+          "expr": "calls.filter(c, c.node_path == \"c2j-build-verify/check_modules/check_modules\")[0].inputs.run.contains(\"make check-mod\")"
+        },
+        {
+          "type": "cel_true",
+          "expr": "calls.filter(c, c.node_path == \"c2j-build-verify/test_integration/test_integration\")[0].inputs.run.contains(\"go test -count=1 -v -tags=integration ./...\")"
+        },
+        {
+          "type": "cel_true",
+          "expr": "calls.filter(c, c.node_path == \"c2j-build-verify/check_skills/check_skills\")[0].inputs.run.contains(\"npx -y skills add . --list --full-depth\")"
+        }
+      ]
+    },
+    {
+      "id": "VH-006-check_modules-failure",
+      "type": "integration_case",
+      "runtime": {},
+      "inputs": {
+        "api_version": "c2.build-hook/v1",
+        "request": "verify $(touch never-execute)",
+        "target_directory": "; touch never-execute",
+        "candidate": "fixture-candidate",
+        "base": "fixture-base"
+      },
+      "mocks": {
+        "ops": [
+          {
+            "match": {
+              "node_path": "c2j-build-verify/check_environment/check_environment"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": true,
+                "exit_code": 0,
+                "timed_out": false,
+                "error_message": "",
+                "stdout": ""
+              },
+              "artifacts": {
+                "environment.log": "fixture evidence\n"
+              }
+            }
+          },
+          {
+            "match": {
+              "node_path": "c2j-build-verify/check_modules/check_modules"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": false,
+                "exit_code": 17,
+                "timed_out": false,
+                "error_message": "independent failure",
+                "stdout": ""
+              },
+              "artifacts": {
+                "modules.log": "fixture evidence\n"
+              }
+            }
+          },
+          {
+            "match": {
+              "node_path": "c2j-build-verify/test_integration/test_integration"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": true,
+                "exit_code": 0,
+                "timed_out": false,
+                "error_message": "",
+                "stdout": ""
+              },
+              "artifacts": {
+                "tests.log": "fixture evidence\n"
+              }
+            }
+          },
+          {
+            "match": {
+              "node_path": "c2j-build-verify/check_skills/check_skills"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": true,
+                "exit_code": 0,
+                "timed_out": false,
+                "error_message": "",
+                "stdout": ""
+              },
+              "artifacts": {
+                "skills.log": "fixture evidence\n"
+              }
+            }
+          },
+          {
+            "match": {
+              "node_path": "c2j-build-verify/summarize/summarize"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": true,
+                "exit_code": 0,
+                "timed_out": false,
+                "error_message": "",
+                "stdout": "Local verification passed on fixture/platform; inspect summary.md."
+              },
+              "artifacts": {
+                "summary.md": "fixture evidence\n"
+              }
+            }
+          }
+        ]
+      },
+      "assertions": [
+        {
+          "type": "output_equals",
+          "path": "status",
+          "value": "failed"
+        },
+        {
+          "type": "output_equals",
+          "path": "api_version",
+          "value": "c2.build-hook/v1"
+        },
+        {
+          "type": "cel_true",
+          "expr": "calls.size() == 5"
+        }
+      ]
+    },
+    {
+      "id": "VH-006-test_integration-failure",
+      "type": "integration_case",
+      "runtime": {},
+      "inputs": {
+        "api_version": "c2.build-hook/v1",
+        "request": "verify $(touch never-execute)",
+        "target_directory": "; touch never-execute",
+        "candidate": "fixture-candidate",
+        "base": "fixture-base"
+      },
+      "mocks": {
+        "ops": [
+          {
+            "match": {
+              "node_path": "c2j-build-verify/check_environment/check_environment"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": true,
+                "exit_code": 0,
+                "timed_out": false,
+                "error_message": "",
+                "stdout": ""
+              },
+              "artifacts": {
+                "environment.log": "fixture evidence\n"
+              }
+            }
+          },
+          {
+            "match": {
+              "node_path": "c2j-build-verify/check_modules/check_modules"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": true,
+                "exit_code": 0,
+                "timed_out": false,
+                "error_message": "",
+                "stdout": ""
+              },
+              "artifacts": {
+                "modules.log": "fixture evidence\n"
+              }
+            }
+          },
+          {
+            "match": {
+              "node_path": "c2j-build-verify/test_integration/test_integration"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": false,
+                "exit_code": 17,
+                "timed_out": false,
+                "error_message": "independent failure",
+                "stdout": ""
+              },
+              "artifacts": {
+                "tests.log": "fixture evidence\n"
+              }
+            }
+          },
+          {
+            "match": {
+              "node_path": "c2j-build-verify/check_skills/check_skills"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": true,
+                "exit_code": 0,
+                "timed_out": false,
+                "error_message": "",
+                "stdout": ""
+              },
+              "artifacts": {
+                "skills.log": "fixture evidence\n"
+              }
+            }
+          },
+          {
+            "match": {
+              "node_path": "c2j-build-verify/summarize/summarize"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": true,
+                "exit_code": 0,
+                "timed_out": false,
+                "error_message": "",
+                "stdout": "Local verification passed on fixture/platform; inspect summary.md."
+              },
+              "artifacts": {
+                "summary.md": "fixture evidence\n"
+              }
+            }
+          }
+        ]
+      },
+      "assertions": [
+        {
+          "type": "output_equals",
+          "path": "status",
+          "value": "failed"
+        },
+        {
+          "type": "output_equals",
+          "path": "api_version",
+          "value": "c2.build-hook/v1"
+        },
+        {
+          "type": "cel_true",
+          "expr": "calls.size() == 5"
+        }
+      ]
+    },
+    {
+      "id": "VH-006-check_skills-failure",
+      "type": "integration_case",
+      "runtime": {},
+      "inputs": {
+        "api_version": "c2.build-hook/v1",
+        "request": "verify $(touch never-execute)",
+        "target_directory": "; touch never-execute",
+        "candidate": "fixture-candidate",
+        "base": "fixture-base"
+      },
+      "mocks": {
+        "ops": [
+          {
+            "match": {
+              "node_path": "c2j-build-verify/check_environment/check_environment"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": true,
+                "exit_code": 0,
+                "timed_out": false,
+                "error_message": "",
+                "stdout": ""
+              },
+              "artifacts": {
+                "environment.log": "fixture evidence\n"
+              }
+            }
+          },
+          {
+            "match": {
+              "node_path": "c2j-build-verify/check_modules/check_modules"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": true,
+                "exit_code": 0,
+                "timed_out": false,
+                "error_message": "",
+                "stdout": ""
+              },
+              "artifacts": {
+                "modules.log": "fixture evidence\n"
+              }
+            }
+          },
+          {
+            "match": {
+              "node_path": "c2j-build-verify/test_integration/test_integration"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": true,
+                "exit_code": 0,
+                "timed_out": false,
+                "error_message": "",
+                "stdout": ""
+              },
+              "artifacts": {
+                "tests.log": "fixture evidence\n"
+              }
+            }
+          },
+          {
+            "match": {
+              "node_path": "c2j-build-verify/check_skills/check_skills"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": false,
+                "exit_code": 17,
+                "timed_out": false,
+                "error_message": "independent failure",
+                "stdout": ""
+              },
+              "artifacts": {
+                "skills.log": "fixture evidence\n"
+              }
+            }
+          },
+          {
+            "match": {
+              "node_path": "c2j-build-verify/summarize/summarize"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": true,
+                "exit_code": 0,
+                "timed_out": false,
+                "error_message": "",
+                "stdout": "Local verification passed on fixture/platform; inspect summary.md."
+              },
+              "artifacts": {
+                "summary.md": "fixture evidence\n"
+              }
+            }
+          }
+        ]
+      },
+      "assertions": [
+        {
+          "type": "output_equals",
+          "path": "status",
+          "value": "failed"
+        },
+        {
+          "type": "output_equals",
+          "path": "api_version",
+          "value": "c2.build-hook/v1"
+        },
+        {
+          "type": "cel_true",
+          "expr": "calls.size() == 5"
+        }
+      ]
+    },
+    {
+      "id": "VH-007-010-timeout",
+      "type": "integration_case",
+      "runtime": {},
+      "inputs": {
+        "api_version": "c2.build-hook/v1",
+        "request": "verify $(touch never-execute)",
+        "target_directory": "; touch never-execute",
+        "candidate": "fixture-candidate",
+        "base": "fixture-base"
+      },
+      "mocks": {
+        "ops": [
+          {
+            "match": {
+              "node_path": "c2j-build-verify/check_environment/check_environment"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": true,
+                "exit_code": 0,
+                "timed_out": false,
+                "error_message": "",
+                "stdout": ""
+              },
+              "artifacts": {
+                "environment.log": "fixture evidence\n"
+              }
+            }
+          },
+          {
+            "match": {
+              "node_path": "c2j-build-verify/check_modules/check_modules"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": false,
+                "exit_code": -1,
+                "timed_out": true,
+                "error_message": "command execution timed out"
+              },
+              "artifacts": {
+                "modules.log": "fixture evidence\n"
+              }
+            }
+          },
+          {
+            "match": {
+              "node_path": "c2j-build-verify/test_integration/test_integration"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": true,
+                "exit_code": 0,
+                "timed_out": false,
+                "error_message": "",
+                "stdout": ""
+              },
+              "artifacts": {
+                "tests.log": "fixture evidence\n"
+              }
+            }
+          },
+          {
+            "match": {
+              "node_path": "c2j-build-verify/check_skills/check_skills"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": true,
+                "exit_code": 0,
+                "timed_out": false,
+                "error_message": "",
+                "stdout": ""
+              },
+              "artifacts": {
+                "skills.log": "fixture evidence\n"
+              }
+            }
+          },
+          {
+            "match": {
+              "node_path": "c2j-build-verify/summarize/summarize"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": true,
+                "exit_code": 0,
+                "timed_out": false,
+                "error_message": "",
+                "stdout": "Local verification passed on fixture/platform; inspect summary.md."
+              },
+              "artifacts": {
+                "summary.md": "fixture evidence\n"
+              }
+            }
+          }
+        ]
+      },
+      "assertions": [
+        {
+          "type": "output_equals",
+          "path": "status",
+          "value": "failed"
+        },
+        {
+          "type": "output_equals",
+          "path": "api_version",
+          "value": "c2.build-hook/v1"
+        }
+      ]
+    },
+    {
+      "id": "VH-007-010-missing-outputs",
+      "type": "integration_case",
+      "runtime": {},
+      "inputs": {
+        "api_version": "c2.build-hook/v1",
+        "request": "verify $(touch never-execute)",
+        "target_directory": "; touch never-execute",
+        "candidate": "fixture-candidate",
+        "base": "fixture-base"
+      },
+      "mocks": {
+        "ops": [
+          {
+            "match": {
+              "node_path": "c2j-build-verify/check_environment/check_environment"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": true,
+                "exit_code": 0,
+                "timed_out": false,
+                "error_message": "",
+                "stdout": ""
+              },
+              "artifacts": {
+                "environment.log": "fixture evidence\n"
+              }
+            }
+          },
+          {
+            "match": {
+              "node_path": "c2j-build-verify/check_modules/check_modules"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {},
+              "artifacts": {
+                "modules.log": "fixture evidence\n"
+              }
+            }
+          },
+          {
+            "match": {
+              "node_path": "c2j-build-verify/test_integration/test_integration"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": true,
+                "exit_code": 0,
+                "timed_out": false,
+                "error_message": "",
+                "stdout": ""
+              },
+              "artifacts": {
+                "tests.log": "fixture evidence\n"
+              }
+            }
+          },
+          {
+            "match": {
+              "node_path": "c2j-build-verify/check_skills/check_skills"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": true,
+                "exit_code": 0,
+                "timed_out": false,
+                "error_message": "",
+                "stdout": ""
+              },
+              "artifacts": {
+                "skills.log": "fixture evidence\n"
+              }
+            }
+          },
+          {
+            "match": {
+              "node_path": "c2j-build-verify/summarize/summarize"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": true,
+                "exit_code": 0,
+                "timed_out": false,
+                "error_message": "",
+                "stdout": "Local verification passed on fixture/platform; inspect summary.md."
+              },
+              "artifacts": {
+                "summary.md": "fixture evidence\n"
+              }
+            }
+          }
+        ]
+      },
+      "assertions": [
+        {
+          "type": "output_equals",
+          "path": "status",
+          "value": "failed"
+        },
+        {
+          "type": "output_equals",
+          "path": "api_version",
+          "value": "c2.build-hook/v1"
+        }
+      ]
+    },
+    {
+      "id": "VH-007-010-diagnostic-export-failure",
+      "type": "integration_case",
+      "runtime": {},
+      "inputs": {
+        "api_version": "c2.build-hook/v1",
+        "request": "verify $(touch never-execute)",
+        "target_directory": "; touch never-execute",
+        "candidate": "fixture-candidate",
+        "base": "fixture-base"
+      },
+      "mocks": {
+        "ops": [
+          {
+            "match": {
+              "node_path": "c2j-build-verify/check_environment/check_environment"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": true,
+                "exit_code": 0,
+                "timed_out": false,
+                "error_message": "",
+                "stdout": ""
+              },
+              "artifacts": {
+                "environment.log": "fixture evidence\n"
+              }
+            }
+          },
+          {
+            "match": {
+              "node_path": "c2j-build-verify/check_modules/check_modules"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": true,
+                "exit_code": 0,
+                "timed_out": false,
+                "diagnostic_errors": [
+                  "upload failed"
+                ]
+              },
+              "artifacts": {
+                "modules.log": "fixture evidence\n"
+              }
+            }
+          },
+          {
+            "match": {
+              "node_path": "c2j-build-verify/test_integration/test_integration"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": true,
+                "exit_code": 0,
+                "timed_out": false,
+                "error_message": "",
+                "stdout": ""
+              },
+              "artifacts": {
+                "tests.log": "fixture evidence\n"
+              }
+            }
+          },
+          {
+            "match": {
+              "node_path": "c2j-build-verify/check_skills/check_skills"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": true,
+                "exit_code": 0,
+                "timed_out": false,
+                "error_message": "",
+                "stdout": ""
+              },
+              "artifacts": {
+                "skills.log": "fixture evidence\n"
+              }
+            }
+          },
+          {
+            "match": {
+              "node_path": "c2j-build-verify/summarize/summarize"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": true,
+                "exit_code": 0,
+                "timed_out": false,
+                "error_message": "",
+                "stdout": "Local verification passed on fixture/platform; inspect summary.md."
+              },
+              "artifacts": {
+                "summary.md": "fixture evidence\n"
+              }
+            }
+          }
+        ]
+      },
+      "assertions": [
+        {
+          "type": "output_equals",
+          "path": "status",
+          "value": "failed"
+        },
+        {
+          "type": "output_equals",
+          "path": "api_version",
+          "value": "c2.build-hook/v1"
+        }
+      ]
+    },
+    {
+      "id": "VH-007-launch-check_environment",
+      "type": "integration_case",
+      "runtime": {},
+      "inputs": {
+        "api_version": "c2.build-hook/v1",
+        "request": "verify $(touch never-execute)",
+        "target_directory": "; touch never-execute",
+        "candidate": "fixture-candidate",
+        "base": "fixture-base"
+      },
+      "mocks": {
+        "ops": [
+          {
+            "match": {
+              "node_path": "c2j-build-verify/check_environment/check_environment"
+            },
+            "behavior": {
+              "mode": "fail",
+              "error": {
+                "message": "injected launch failure"
+              }
+            }
+          },
+          {
+            "match": {
+              "node_path": "c2j-build-verify/summarize/summarize"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": true,
+                "exit_code": 0,
+                "timed_out": false,
+                "error_message": "",
+                "stdout": "Local verification passed on fixture/platform; inspect summary.md."
+              },
+              "artifacts": {
+                "summary.md": "fixture evidence\n"
+              }
+            }
+          }
+        ]
+      },
+      "assertions": [
+        {
+          "type": "output_equals",
+          "path": "status",
+          "value": "failed"
+        },
+        {
+          "type": "output_equals",
+          "path": "api_version",
+          "value": "c2.build-hook/v1"
+        }
+      ]
+    },
+    {
+      "id": "VH-007-launch-check_modules",
+      "type": "integration_case",
+      "runtime": {},
+      "inputs": {
+        "api_version": "c2.build-hook/v1",
+        "request": "verify $(touch never-execute)",
+        "target_directory": "; touch never-execute",
+        "candidate": "fixture-candidate",
+        "base": "fixture-base"
+      },
+      "mocks": {
+        "ops": [
+          {
+            "match": {
+              "node_path": "c2j-build-verify/check_environment/check_environment"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": true,
+                "exit_code": 0,
+                "timed_out": false,
+                "error_message": "",
+                "stdout": ""
+              },
+              "artifacts": {
+                "environment.log": "fixture evidence\n"
+              }
+            }
+          },
+          {
+            "match": {
+              "node_path": "c2j-build-verify/check_modules/check_modules"
+            },
+            "behavior": {
+              "mode": "fail",
+              "error": {
+                "message": "injected launch failure"
+              }
+            }
+          },
+          {
+            "match": {
+              "node_path": "c2j-build-verify/test_integration/test_integration"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": true,
+                "exit_code": 0,
+                "timed_out": false,
+                "error_message": "",
+                "stdout": ""
+              },
+              "artifacts": {
+                "tests.log": "fixture evidence\n"
+              }
+            }
+          },
+          {
+            "match": {
+              "node_path": "c2j-build-verify/check_skills/check_skills"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": true,
+                "exit_code": 0,
+                "timed_out": false,
+                "error_message": "",
+                "stdout": ""
+              },
+              "artifacts": {
+                "skills.log": "fixture evidence\n"
+              }
+            }
+          },
+          {
+            "match": {
+              "node_path": "c2j-build-verify/summarize/summarize"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": true,
+                "exit_code": 0,
+                "timed_out": false,
+                "error_message": "",
+                "stdout": "Local verification passed on fixture/platform; inspect summary.md."
+              },
+              "artifacts": {
+                "summary.md": "fixture evidence\n"
+              }
+            }
+          }
+        ]
+      },
+      "assertions": [
+        {
+          "type": "output_equals",
+          "path": "status",
+          "value": "failed"
+        },
+        {
+          "type": "output_equals",
+          "path": "api_version",
+          "value": "c2.build-hook/v1"
+        }
+      ]
+    },
+    {
+      "id": "VH-007-launch-test_integration",
+      "type": "integration_case",
+      "runtime": {},
+      "inputs": {
+        "api_version": "c2.build-hook/v1",
+        "request": "verify $(touch never-execute)",
+        "target_directory": "; touch never-execute",
+        "candidate": "fixture-candidate",
+        "base": "fixture-base"
+      },
+      "mocks": {
+        "ops": [
+          {
+            "match": {
+              "node_path": "c2j-build-verify/check_environment/check_environment"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": true,
+                "exit_code": 0,
+                "timed_out": false,
+                "error_message": "",
+                "stdout": ""
+              },
+              "artifacts": {
+                "environment.log": "fixture evidence\n"
+              }
+            }
+          },
+          {
+            "match": {
+              "node_path": "c2j-build-verify/check_modules/check_modules"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": true,
+                "exit_code": 0,
+                "timed_out": false,
+                "error_message": "",
+                "stdout": ""
+              },
+              "artifacts": {
+                "modules.log": "fixture evidence\n"
+              }
+            }
+          },
+          {
+            "match": {
+              "node_path": "c2j-build-verify/test_integration/test_integration"
+            },
+            "behavior": {
+              "mode": "fail",
+              "error": {
+                "message": "injected launch failure"
+              }
+            }
+          },
+          {
+            "match": {
+              "node_path": "c2j-build-verify/check_skills/check_skills"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": true,
+                "exit_code": 0,
+                "timed_out": false,
+                "error_message": "",
+                "stdout": ""
+              },
+              "artifacts": {
+                "skills.log": "fixture evidence\n"
+              }
+            }
+          },
+          {
+            "match": {
+              "node_path": "c2j-build-verify/summarize/summarize"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": true,
+                "exit_code": 0,
+                "timed_out": false,
+                "error_message": "",
+                "stdout": "Local verification passed on fixture/platform; inspect summary.md."
+              },
+              "artifacts": {
+                "summary.md": "fixture evidence\n"
+              }
+            }
+          }
+        ]
+      },
+      "assertions": [
+        {
+          "type": "output_equals",
+          "path": "status",
+          "value": "failed"
+        },
+        {
+          "type": "output_equals",
+          "path": "api_version",
+          "value": "c2.build-hook/v1"
+        }
+      ]
+    },
+    {
+      "id": "VH-007-launch-check_skills",
+      "type": "integration_case",
+      "runtime": {},
+      "inputs": {
+        "api_version": "c2.build-hook/v1",
+        "request": "verify $(touch never-execute)",
+        "target_directory": "; touch never-execute",
+        "candidate": "fixture-candidate",
+        "base": "fixture-base"
+      },
+      "mocks": {
+        "ops": [
+          {
+            "match": {
+              "node_path": "c2j-build-verify/check_environment/check_environment"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": true,
+                "exit_code": 0,
+                "timed_out": false,
+                "error_message": "",
+                "stdout": ""
+              },
+              "artifacts": {
+                "environment.log": "fixture evidence\n"
+              }
+            }
+          },
+          {
+            "match": {
+              "node_path": "c2j-build-verify/check_modules/check_modules"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": true,
+                "exit_code": 0,
+                "timed_out": false,
+                "error_message": "",
+                "stdout": ""
+              },
+              "artifacts": {
+                "modules.log": "fixture evidence\n"
+              }
+            }
+          },
+          {
+            "match": {
+              "node_path": "c2j-build-verify/test_integration/test_integration"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": true,
+                "exit_code": 0,
+                "timed_out": false,
+                "error_message": "",
+                "stdout": ""
+              },
+              "artifacts": {
+                "tests.log": "fixture evidence\n"
+              }
+            }
+          },
+          {
+            "match": {
+              "node_path": "c2j-build-verify/check_skills/check_skills"
+            },
+            "behavior": {
+              "mode": "fail",
+              "error": {
+                "message": "injected launch failure"
+              }
+            }
+          },
+          {
+            "match": {
+              "node_path": "c2j-build-verify/summarize/summarize"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": true,
+                "exit_code": 0,
+                "timed_out": false,
+                "error_message": "",
+                "stdout": "Local verification passed on fixture/platform; inspect summary.md."
+              },
+              "artifacts": {
+                "summary.md": "fixture evidence\n"
+              }
+            }
+          }
+        ]
+      },
+      "assertions": [
+        {
+          "type": "output_equals",
+          "path": "status",
+          "value": "failed"
+        },
+        {
+          "type": "output_equals",
+          "path": "api_version",
+          "value": "c2.build-hook/v1"
+        }
+      ]
+    },
+    {
+      "id": "VH-010-missing-environment.log",
+      "type": "integration_case",
+      "runtime": {},
+      "inputs": {
+        "api_version": "c2.build-hook/v1",
+        "request": "verify $(touch never-execute)",
+        "target_directory": "; touch never-execute",
+        "candidate": "fixture-candidate",
+        "base": "fixture-base"
+      },
+      "mocks": {
+        "ops": [
+          {
+            "match": {
+              "node_path": "c2j-build-verify/check_environment/check_environment"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": true,
+                "exit_code": 0,
+                "timed_out": false,
+                "error_message": "",
+                "stdout": ""
+              },
+              "artifacts": {}
+            }
+          },
+          {
+            "match": {
+              "node_path": "c2j-build-verify/check_modules/check_modules"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": true,
+                "exit_code": 0,
+                "timed_out": false,
+                "error_message": "",
+                "stdout": ""
+              },
+              "artifacts": {
+                "modules.log": "fixture evidence\n"
+              }
+            }
+          },
+          {
+            "match": {
+              "node_path": "c2j-build-verify/test_integration/test_integration"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": true,
+                "exit_code": 0,
+                "timed_out": false,
+                "error_message": "",
+                "stdout": ""
+              },
+              "artifacts": {
+                "tests.log": "fixture evidence\n"
+              }
+            }
+          },
+          {
+            "match": {
+              "node_path": "c2j-build-verify/check_skills/check_skills"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": true,
+                "exit_code": 0,
+                "timed_out": false,
+                "error_message": "",
+                "stdout": ""
+              },
+              "artifacts": {
+                "skills.log": "fixture evidence\n"
+              }
+            }
+          },
+          {
+            "match": {
+              "node_path": "c2j-build-verify/summarize/summarize"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": true,
+                "exit_code": 0,
+                "timed_out": false,
+                "error_message": "",
+                "stdout": "Local verification passed on fixture/platform; inspect summary.md."
+              },
+              "artifacts": {
+                "summary.md": "fixture evidence\n"
+              }
+            }
+          }
+        ]
+      },
+      "assertions": [
+        {
+          "type": "output_equals",
+          "path": "status",
+          "value": "failed"
+        },
+        {
+          "type": "output_equals",
+          "path": "api_version",
+          "value": "c2.build-hook/v1"
+        }
+      ]
+    },
+    {
+      "id": "VH-010-missing-modules.log",
+      "type": "integration_case",
+      "runtime": {},
+      "inputs": {
+        "api_version": "c2.build-hook/v1",
+        "request": "verify $(touch never-execute)",
+        "target_directory": "; touch never-execute",
+        "candidate": "fixture-candidate",
+        "base": "fixture-base"
+      },
+      "mocks": {
+        "ops": [
+          {
+            "match": {
+              "node_path": "c2j-build-verify/check_environment/check_environment"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": true,
+                "exit_code": 0,
+                "timed_out": false,
+                "error_message": "",
+                "stdout": ""
+              },
+              "artifacts": {
+                "environment.log": "fixture evidence\n"
+              }
+            }
+          },
+          {
+            "match": {
+              "node_path": "c2j-build-verify/check_modules/check_modules"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": true,
+                "exit_code": 0,
+                "timed_out": false,
+                "error_message": "",
+                "stdout": ""
+              },
+              "artifacts": {}
+            }
+          },
+          {
+            "match": {
+              "node_path": "c2j-build-verify/test_integration/test_integration"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": true,
+                "exit_code": 0,
+                "timed_out": false,
+                "error_message": "",
+                "stdout": ""
+              },
+              "artifacts": {
+                "tests.log": "fixture evidence\n"
+              }
+            }
+          },
+          {
+            "match": {
+              "node_path": "c2j-build-verify/check_skills/check_skills"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": true,
+                "exit_code": 0,
+                "timed_out": false,
+                "error_message": "",
+                "stdout": ""
+              },
+              "artifacts": {
+                "skills.log": "fixture evidence\n"
+              }
+            }
+          },
+          {
+            "match": {
+              "node_path": "c2j-build-verify/summarize/summarize"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": true,
+                "exit_code": 0,
+                "timed_out": false,
+                "error_message": "",
+                "stdout": "Local verification passed on fixture/platform; inspect summary.md."
+              },
+              "artifacts": {
+                "summary.md": "fixture evidence\n"
+              }
+            }
+          }
+        ]
+      },
+      "assertions": [
+        {
+          "type": "output_equals",
+          "path": "status",
+          "value": "failed"
+        },
+        {
+          "type": "output_equals",
+          "path": "api_version",
+          "value": "c2.build-hook/v1"
+        }
+      ]
+    },
+    {
+      "id": "VH-010-missing-tests.log",
+      "type": "integration_case",
+      "runtime": {},
+      "inputs": {
+        "api_version": "c2.build-hook/v1",
+        "request": "verify $(touch never-execute)",
+        "target_directory": "; touch never-execute",
+        "candidate": "fixture-candidate",
+        "base": "fixture-base"
+      },
+      "mocks": {
+        "ops": [
+          {
+            "match": {
+              "node_path": "c2j-build-verify/check_environment/check_environment"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": true,
+                "exit_code": 0,
+                "timed_out": false,
+                "error_message": "",
+                "stdout": ""
+              },
+              "artifacts": {
+                "environment.log": "fixture evidence\n"
+              }
+            }
+          },
+          {
+            "match": {
+              "node_path": "c2j-build-verify/check_modules/check_modules"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": true,
+                "exit_code": 0,
+                "timed_out": false,
+                "error_message": "",
+                "stdout": ""
+              },
+              "artifacts": {
+                "modules.log": "fixture evidence\n"
+              }
+            }
+          },
+          {
+            "match": {
+              "node_path": "c2j-build-verify/test_integration/test_integration"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": true,
+                "exit_code": 0,
+                "timed_out": false,
+                "error_message": "",
+                "stdout": ""
+              },
+              "artifacts": {}
+            }
+          },
+          {
+            "match": {
+              "node_path": "c2j-build-verify/check_skills/check_skills"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": true,
+                "exit_code": 0,
+                "timed_out": false,
+                "error_message": "",
+                "stdout": ""
+              },
+              "artifacts": {
+                "skills.log": "fixture evidence\n"
+              }
+            }
+          },
+          {
+            "match": {
+              "node_path": "c2j-build-verify/summarize/summarize"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": true,
+                "exit_code": 0,
+                "timed_out": false,
+                "error_message": "",
+                "stdout": "Local verification passed on fixture/platform; inspect summary.md."
+              },
+              "artifacts": {
+                "summary.md": "fixture evidence\n"
+              }
+            }
+          }
+        ]
+      },
+      "assertions": [
+        {
+          "type": "output_equals",
+          "path": "status",
+          "value": "failed"
+        },
+        {
+          "type": "output_equals",
+          "path": "api_version",
+          "value": "c2.build-hook/v1"
+        }
+      ]
+    },
+    {
+      "id": "VH-010-missing-skills.log",
+      "type": "integration_case",
+      "runtime": {},
+      "inputs": {
+        "api_version": "c2.build-hook/v1",
+        "request": "verify $(touch never-execute)",
+        "target_directory": "; touch never-execute",
+        "candidate": "fixture-candidate",
+        "base": "fixture-base"
+      },
+      "mocks": {
+        "ops": [
+          {
+            "match": {
+              "node_path": "c2j-build-verify/check_environment/check_environment"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": true,
+                "exit_code": 0,
+                "timed_out": false,
+                "error_message": "",
+                "stdout": ""
+              },
+              "artifacts": {
+                "environment.log": "fixture evidence\n"
+              }
+            }
+          },
+          {
+            "match": {
+              "node_path": "c2j-build-verify/check_modules/check_modules"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": true,
+                "exit_code": 0,
+                "timed_out": false,
+                "error_message": "",
+                "stdout": ""
+              },
+              "artifacts": {
+                "modules.log": "fixture evidence\n"
+              }
+            }
+          },
+          {
+            "match": {
+              "node_path": "c2j-build-verify/test_integration/test_integration"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": true,
+                "exit_code": 0,
+                "timed_out": false,
+                "error_message": "",
+                "stdout": ""
+              },
+              "artifacts": {
+                "tests.log": "fixture evidence\n"
+              }
+            }
+          },
+          {
+            "match": {
+              "node_path": "c2j-build-verify/check_skills/check_skills"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": true,
+                "exit_code": 0,
+                "timed_out": false,
+                "error_message": "",
+                "stdout": ""
+              },
+              "artifacts": {}
+            }
+          },
+          {
+            "match": {
+              "node_path": "c2j-build-verify/summarize/summarize"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": true,
+                "exit_code": 0,
+                "timed_out": false,
+                "error_message": "",
+                "stdout": "Local verification passed on fixture/platform; inspect summary.md."
+              },
+              "artifacts": {
+                "summary.md": "fixture evidence\n"
+              }
+            }
+          }
+        ]
+      },
+      "assertions": [
+        {
+          "type": "output_equals",
+          "path": "status",
+          "value": "failed"
+        },
+        {
+          "type": "output_equals",
+          "path": "api_version",
+          "value": "c2.build-hook/v1"
+        }
+      ]
+    },
+    {
+      "id": "VH-010-missing-summary.md",
+      "type": "integration_case",
+      "runtime": {},
+      "inputs": {
+        "api_version": "c2.build-hook/v1",
+        "request": "verify $(touch never-execute)",
+        "target_directory": "; touch never-execute",
+        "candidate": "fixture-candidate",
+        "base": "fixture-base"
+      },
+      "mocks": {
+        "ops": [
+          {
+            "match": {
+              "node_path": "c2j-build-verify/check_environment/check_environment"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": true,
+                "exit_code": 0,
+                "timed_out": false,
+                "error_message": "",
+                "stdout": ""
+              },
+              "artifacts": {
+                "environment.log": "fixture evidence\n"
+              }
+            }
+          },
+          {
+            "match": {
+              "node_path": "c2j-build-verify/check_modules/check_modules"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": true,
+                "exit_code": 0,
+                "timed_out": false,
+                "error_message": "",
+                "stdout": ""
+              },
+              "artifacts": {
+                "modules.log": "fixture evidence\n"
+              }
+            }
+          },
+          {
+            "match": {
+              "node_path": "c2j-build-verify/test_integration/test_integration"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": true,
+                "exit_code": 0,
+                "timed_out": false,
+                "error_message": "",
+                "stdout": ""
+              },
+              "artifacts": {
+                "tests.log": "fixture evidence\n"
+              }
+            }
+          },
+          {
+            "match": {
+              "node_path": "c2j-build-verify/check_skills/check_skills"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": true,
+                "exit_code": 0,
+                "timed_out": false,
+                "error_message": "",
+                "stdout": ""
+              },
+              "artifacts": {
+                "skills.log": "fixture evidence\n"
+              }
+            }
+          },
+          {
+            "match": {
+              "node_path": "c2j-build-verify/summarize/summarize"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": true,
+                "exit_code": 0,
+                "timed_out": false,
+                "error_message": "",
+                "stdout": "Local verification passed on fixture/platform; inspect summary.md."
+              },
+              "artifacts": {}
+            }
+          }
+        ]
+      },
+      "assertions": [
+        {
+          "type": "output_equals",
+          "path": "status",
+          "value": "failed"
+        },
+        {
+          "type": "output_equals",
+          "path": "api_version",
+          "value": "c2.build-hook/v1"
+        }
+      ]
+    },
+    {
+      "id": "VH-005-mandatory-tool-missing",
+      "type": "integration_case",
+      "runtime": {},
+      "inputs": {
+        "api_version": "c2.build-hook/v1",
+        "request": "verify $(touch never-execute)",
+        "target_directory": "; touch never-execute",
+        "candidate": "fixture-candidate",
+        "base": "fixture-base"
+      },
+      "mocks": {
+        "ops": [
+          {
+            "match": {
+              "node_path": "c2j-build-verify/check_environment/check_environment"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": false,
+                "exit_code": 1,
+                "timed_out": false
+              },
+              "artifacts": {
+                "environment.log": "fixture evidence\n"
+              }
+            }
+          },
+          {
+            "match": {
+              "node_path": "c2j-build-verify/summarize/summarize"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": true,
+                "exit_code": 0,
+                "timed_out": false,
+                "error_message": "",
+                "stdout": "Local verification passed on fixture/platform; inspect summary.md."
+              },
+              "artifacts": {
+                "summary.md": "fixture evidence\n"
+              }
+            }
+          }
+        ]
+      },
+      "assertions": [
+        {
+          "type": "output_equals",
+          "path": "status",
+          "value": "failed"
+        },
+        {
+          "type": "output_equals",
+          "path": "api_version",
+          "value": "c2.build-hook/v1"
+        },
+        {
+          "type": "cel_true",
+          "expr": "calls.size() == 2 && calls[1].inputs.env.RESULT_1 == \"not run (environment gate failed)\""
+        }
+      ]
+    },
+    {
+      "id": "VH-005-unavailable-environment-output",
+      "type": "integration_case",
+      "runtime": {},
+      "inputs": {
+        "api_version": "c2.build-hook/v1",
+        "request": "verify $(touch never-execute)",
+        "target_directory": "; touch never-execute",
+        "candidate": "fixture-candidate",
+        "base": "fixture-base"
+      },
+      "mocks": {
+        "ops": [
+          {
+            "match": {
+              "node_path": "c2j-build-verify/check_environment/check_environment"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {},
+              "artifacts": {
+                "environment.log": "fixture evidence\n"
+              }
+            }
+          },
+          {
+            "match": {
+              "node_path": "c2j-build-verify/summarize/summarize"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": true,
+                "exit_code": 0,
+                "timed_out": false,
+                "error_message": "",
+                "stdout": "Local verification passed on fixture/platform; inspect summary.md."
+              },
+              "artifacts": {
+                "summary.md": "fixture evidence\n"
+              }
+            }
+          }
+        ]
+      },
+      "assertions": [
+        {
+          "type": "output_equals",
+          "path": "status",
+          "value": "failed"
+        },
+        {
+          "type": "output_equals",
+          "path": "api_version",
+          "value": "c2.build-hook/v1"
+        },
+        {
+          "type": "cel_true",
+          "expr": "calls.size() == 2 && calls[1].inputs.env.RESULT_1 == \"not run (environment gate failed)\""
+        }
+      ]
+    },
+    {
+      "id": "VH-005-incompatible-go-or-node",
+      "type": "integration_case",
+      "runtime": {},
+      "inputs": {
+        "api_version": "c2.build-hook/v1",
+        "request": "verify $(touch never-execute)",
+        "target_directory": "; touch never-execute",
+        "candidate": "fixture-candidate",
+        "base": "fixture-base"
+      },
+      "mocks": {
+        "ops": [
+          {
+            "match": {
+              "node_path": "c2j-build-verify/check_environment/check_environment"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": false,
+                "exit_code": 1,
+                "timed_out": false
+              },
+              "artifacts": {
+                "environment.log": "fixture evidence\n"
+              }
+            }
+          },
+          {
+            "match": {
+              "node_path": "c2j-build-verify/summarize/summarize"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": true,
+                "exit_code": 0,
+                "timed_out": false,
+                "error_message": "",
+                "stdout": "Local verification passed on fixture/platform; inspect summary.md."
+              },
+              "artifacts": {
+                "summary.md": "fixture evidence\n"
+              }
+            }
+          }
+        ]
+      },
+      "assertions": [
+        {
+          "type": "output_equals",
+          "path": "status",
+          "value": "failed"
+        },
+        {
+          "type": "output_equals",
+          "path": "api_version",
+          "value": "c2.build-hook/v1"
+        },
+        {
+          "type": "cel_true",
+          "expr": "calls.size() == 2 && calls[1].inputs.env.RESULT_1 == \"not run (environment gate failed)\""
+        }
+      ]
+    },
+    {
+      "id": "VH-002-unsupported-api",
+      "type": "integration_case",
+      "runtime": {},
+      "inputs": {
+        "api_version": "unsupported",
+        "request": "verify $(touch never-execute)",
+        "target_directory": "; touch never-execute",
+        "candidate": "fixture-candidate",
+        "base": "fixture-base"
+      },
+      "mocks": {
+        "ops": [
+          {
+            "match": {
+              "node_path": "c2j-build-verify/check_environment/check_environment"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": false,
+                "exit_code": 1,
+                "timed_out": false,
+                "error_message": "",
+                "stdout": ""
+              },
+              "artifacts": {
+                "environment.log": "fixture evidence\n"
+              }
+            }
+          },
+          {
+            "match": {
+              "node_path": "c2j-build-verify/summarize/summarize"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": true,
+                "exit_code": 0,
+                "timed_out": false,
+                "error_message": "",
+                "stdout": "Local verification passed on fixture/platform; inspect summary.md."
+              },
+              "artifacts": {
+                "summary.md": "fixture evidence\n"
+              }
+            }
+          }
+        ]
+      },
+      "assertions": [
+        {
+          "type": "output_equals",
+          "path": "status",
+          "value": "failed"
+        },
+        {
+          "type": "output_equals",
+          "path": "api_version",
+          "value": "c2.build-hook/v1"
+        }
+      ]
+    },
+    {
+      "id": "VH-010-report-failure",
+      "type": "integration_case",
+      "runtime": {},
+      "inputs": {
+        "api_version": "c2.build-hook/v1",
+        "request": "verify $(touch never-execute)",
+        "target_directory": "; touch never-execute",
+        "candidate": "fixture-candidate",
+        "base": "fixture-base"
+      },
+      "mocks": {
+        "ops": [
+          {
+            "match": {
+              "node_path": "c2j-build-verify/check_environment/check_environment"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": true,
+                "exit_code": 0,
+                "timed_out": false,
+                "error_message": "",
+                "stdout": ""
+              },
+              "artifacts": {
+                "environment.log": "fixture evidence\n"
+              }
+            }
+          },
+          {
+            "match": {
+              "node_path": "c2j-build-verify/check_modules/check_modules"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": true,
+                "exit_code": 0,
+                "timed_out": false,
+                "error_message": "",
+                "stdout": ""
+              },
+              "artifacts": {
+                "modules.log": "fixture evidence\n"
+              }
+            }
+          },
+          {
+            "match": {
+              "node_path": "c2j-build-verify/test_integration/test_integration"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": true,
+                "exit_code": 0,
+                "timed_out": false,
+                "error_message": "",
+                "stdout": ""
+              },
+              "artifacts": {
+                "tests.log": "fixture evidence\n"
+              }
+            }
+          },
+          {
+            "match": {
+              "node_path": "c2j-build-verify/check_skills/check_skills"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": true,
+                "exit_code": 0,
+                "timed_out": false,
+                "error_message": "",
+                "stdout": ""
+              },
+              "artifacts": {
+                "skills.log": "fixture evidence\n"
+              }
+            }
+          },
+          {
+            "match": {
+              "node_path": "c2j-build-verify/summarize/summarize"
+            },
+            "behavior": {
+              "mode": "fail",
+              "error": {
+                "message": "injected report failure"
+              }
+            }
+          }
+        ]
+      },
+      "assertions": [],
+      "expect_error": "injected report failure"
+    },
+    {
+      "id": "VH-011-012-019-020-report-roundtrip",
+      "type": "integration_case",
+      "runtime": {},
+      "inputs": {
+        "api_version": "c2.build-hook/v1",
+        "request": "verify $(touch never-execute)",
+        "target_directory": "; touch never-execute",
+        "candidate": "fixture-candidate",
+        "base": "fixture-base"
+      },
+      "mocks": {
+        "ops": [
+          {
+            "match": {
+              "node_path": "c2j-build-verify/check_environment/check_environment"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": true,
+                "exit_code": 0,
+                "timed_out": false,
+                "error_message": "",
+                "stdout": ""
+              },
+              "artifacts": {
+                "environment.log": "Go 1.26.1\nNode v24.0.0\nOptional Docker absent\n"
+              }
+            }
+          },
+          {
+            "match": {
+              "node_path": "c2j-build-verify/check_modules/check_modules"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": true,
+                "exit_code": 0,
+                "timed_out": false,
+                "error_message": "",
+                "stdout": ""
+              },
+              "artifacts": {
+                "modules.log": "fixture evidence\n"
+              }
+            }
+          },
+          {
+            "match": {
+              "node_path": "c2j-build-verify/test_integration/test_integration"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": true,
+                "exit_code": 0,
+                "timed_out": false,
+                "error_message": "",
+                "stdout": ""
+              },
+              "artifacts": {
+                "tests.log": "--- SKIP: TestDocker (0.00s)\n"
+              }
+            }
+          },
+          {
+            "match": {
+              "node_path": "c2j-build-verify/check_skills/check_skills"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": true,
+                "exit_code": 0,
+                "timed_out": false,
+                "error_message": "",
+                "stdout": ""
+              },
+              "artifacts": {
+                "skills.log": "fixture evidence\n"
+              }
+            }
+          },
+          {
+            "match": {
+              "node_path": "c2j-build-verify/summarize/summarize"
+            },
+            "behavior": {
+              "mode": "passthrough"
+            }
+          }
+        ]
+      },
+      "assertions": [
+        {
+          "type": "output_equals",
+          "path": "status",
+          "value": "passed"
+        },
+        {
+          "type": "output_equals",
+          "path": "api_version",
+          "value": "c2.build-hook/v1"
+        },
+        {
+          "type": "cel_true",
+          "expr": "calls[4].artifacts[\"tests.log\"].contains(\"TestDocker\")"
+        }
+      ]
+    },
+    {
+      "id": "VH-007-timeout-test_integration",
+      "type": "integration_case",
+      "runtime": {},
+      "inputs": {
+        "api_version": "c2.build-hook/v1",
+        "request": "verify $(touch never-execute)",
+        "target_directory": "; touch never-execute",
+        "candidate": "fixture-candidate",
+        "base": "fixture-base"
+      },
+      "mocks": {
+        "ops": [
+          {
+            "match": {
+              "node_path": "c2j-build-verify/check_environment/check_environment"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": true,
+                "exit_code": 0,
+                "timed_out": false,
+                "error_message": "",
+                "stdout": ""
+              },
+              "artifacts": {
+                "environment.log": "fixture evidence\n"
+              }
+            }
+          },
+          {
+            "match": {
+              "node_path": "c2j-build-verify/check_modules/check_modules"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": true,
+                "exit_code": 0,
+                "timed_out": false,
+                "error_message": "",
+                "stdout": ""
+              },
+              "artifacts": {
+                "modules.log": "fixture evidence\n"
+              }
+            }
+          },
+          {
+            "match": {
+              "node_path": "c2j-build-verify/test_integration/test_integration"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": false,
+                "exit_code": -1,
+                "timed_out": true,
+                "error_message": "",
+                "stdout": ""
+              },
+              "artifacts": {
+                "tests.log": "fixture evidence\n"
+              }
+            }
+          },
+          {
+            "match": {
+              "node_path": "c2j-build-verify/check_skills/check_skills"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": true,
+                "exit_code": 0,
+                "timed_out": false,
+                "error_message": "",
+                "stdout": ""
+              },
+              "artifacts": {
+                "skills.log": "fixture evidence\n"
+              }
+            }
+          },
+          {
+            "match": {
+              "node_path": "c2j-build-verify/summarize/summarize"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": true,
+                "exit_code": 0,
+                "timed_out": false,
+                "error_message": "",
+                "stdout": "Local verification passed on fixture/platform; inspect summary.md."
+              },
+              "artifacts": {
+                "summary.md": "fixture evidence\n"
+              }
+            }
+          }
+        ]
+      },
+      "assertions": [
+        {
+          "type": "output_equals",
+          "path": "status",
+          "value": "failed"
+        },
+        {
+          "type": "cel_true",
+          "expr": "calls.size() == 5"
+        }
+      ]
+    },
+    {
+      "id": "VH-007-timeout-check_skills",
+      "type": "integration_case",
+      "runtime": {},
+      "inputs": {
+        "api_version": "c2.build-hook/v1",
+        "request": "verify $(touch never-execute)",
+        "target_directory": "; touch never-execute",
+        "candidate": "fixture-candidate",
+        "base": "fixture-base"
+      },
+      "mocks": {
+        "ops": [
+          {
+            "match": {
+              "node_path": "c2j-build-verify/check_environment/check_environment"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": true,
+                "exit_code": 0,
+                "timed_out": false,
+                "error_message": "",
+                "stdout": ""
+              },
+              "artifacts": {
+                "environment.log": "fixture evidence\n"
+              }
+            }
+          },
+          {
+            "match": {
+              "node_path": "c2j-build-verify/check_modules/check_modules"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": true,
+                "exit_code": 0,
+                "timed_out": false,
+                "error_message": "",
+                "stdout": ""
+              },
+              "artifacts": {
+                "modules.log": "fixture evidence\n"
+              }
+            }
+          },
+          {
+            "match": {
+              "node_path": "c2j-build-verify/test_integration/test_integration"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": true,
+                "exit_code": 0,
+                "timed_out": false,
+                "error_message": "",
+                "stdout": ""
+              },
+              "artifacts": {
+                "tests.log": "fixture evidence\n"
+              }
+            }
+          },
+          {
+            "match": {
+              "node_path": "c2j-build-verify/check_skills/check_skills"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": false,
+                "exit_code": -1,
+                "timed_out": true,
+                "error_message": "",
+                "stdout": ""
+              },
+              "artifacts": {
+                "skills.log": "fixture evidence\n"
+              }
+            }
+          },
+          {
+            "match": {
+              "node_path": "c2j-build-verify/summarize/summarize"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": true,
+                "exit_code": 0,
+                "timed_out": false,
+                "error_message": "",
+                "stdout": "Local verification passed on fixture/platform; inspect summary.md."
+              },
+              "artifacts": {
+                "summary.md": "fixture evidence\n"
+              }
+            }
+          }
+        ]
+      },
+      "assertions": [
+        {
+          "type": "output_equals",
+          "path": "status",
+          "value": "failed"
+        },
+        {
+          "type": "cel_true",
+          "expr": "calls.size() == 5"
+        }
+      ]
+    },
+    {
+      "id": "VH-002-missing-api_version",
+      "type": "integration_case",
+      "runtime": {},
+      "inputs": {
+        "request": "verify $(touch never-execute)",
+        "target_directory": "; touch never-execute",
+        "candidate": "fixture-candidate",
+        "base": "fixture-base"
+      },
+      "mocks": {
+        "ops": []
+      },
+      "assertions": [],
+      "expect_error": "required"
+    },
+    {
+      "id": "VH-002-missing-request",
+      "type": "integration_case",
+      "runtime": {},
+      "inputs": {
+        "api_version": "c2.build-hook/v1",
+        "target_directory": "; touch never-execute",
+        "candidate": "fixture-candidate",
+        "base": "fixture-base"
+      },
+      "mocks": {
+        "ops": []
+      },
+      "assertions": [],
+      "expect_error": "required"
+    },
+    {
+      "id": "VH-002-missing-target_directory",
+      "type": "integration_case",
+      "runtime": {},
+      "inputs": {
+        "api_version": "c2.build-hook/v1",
+        "request": "verify $(touch never-execute)",
+        "candidate": "fixture-candidate",
+        "base": "fixture-base"
+      },
+      "mocks": {
+        "ops": []
+      },
+      "assertions": [],
+      "expect_error": "required"
+    },
+    {
+      "id": "VH-002-missing-candidate",
+      "type": "integration_case",
+      "runtime": {},
+      "inputs": {
+        "api_version": "c2.build-hook/v1",
+        "request": "verify $(touch never-execute)",
+        "target_directory": "; touch never-execute",
+        "base": "fixture-base"
+      },
+      "mocks": {
+        "ops": []
+      },
+      "assertions": [],
+      "expect_error": "required"
+    },
+    {
+      "id": "VH-002-missing-base",
+      "type": "integration_case",
+      "runtime": {},
+      "inputs": {
+        "api_version": "c2.build-hook/v1",
+        "request": "verify $(touch never-execute)",
+        "target_directory": "; touch never-execute",
+        "candidate": "fixture-candidate"
+      },
+      "mocks": {
+        "ops": []
+      },
+      "assertions": [],
+      "expect_error": "required"
+    },
+    {
+      "id": "VH-002-005-real-rejected-environment",
+      "type": "integration_case",
+      "runtime": {},
+      "inputs": {
+        "api_version": "unsupported",
+        "request": "verify $(touch never-execute)",
+        "target_directory": "; touch never-execute",
+        "candidate": "fixture-candidate",
+        "base": "fixture-base"
+      },
+      "mocks": {
+        "ops": [
+          {
+            "match": {
+              "node_path": "c2j-build-verify/check_environment/check_environment"
+            },
+            "behavior": {
+              "mode": "passthrough"
+            }
+          },
+          {
+            "match": {
+              "node_path": "c2j-build-verify/summarize/summarize"
+            },
+            "behavior": {
+              "mode": "passthrough"
+            }
+          }
+        ]
+      },
+      "assertions": [
+        {
+          "type": "output_equals",
+          "path": "status",
+          "value": "failed"
+        },
+        {
+          "type": "cel_true",
+          "expr": "calls.size() == 2 && calls[1].inputs.env.RESULT_1 == \"not run (environment gate failed)\""
+        }
+      ]
+    }
+  ]
+}

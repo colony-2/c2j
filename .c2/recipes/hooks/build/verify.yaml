@@ -1,0 +1,291 @@
+# Repository-wide checks; request text and target_directory never enter shell source.
+id: c2j-build-verify
+version: "1.0.0"
+desc: Validate the candidate on this worker with independently recorded CI checks.
+input_schema:
+  api_version:
+    type: string
+    required: true
+  request:
+    type: string
+    required: true
+  target_directory:
+    type: string
+    required: true
+  candidate:
+    type: string
+    required: true
+  base:
+    type: string
+    required: true
+  documents:
+    type: artifact_map
+    default_value: {}
+  settings:
+    type: artifact
+    required: false
+inputs:
+  api_version: "${{ inputs.api_version }}"
+  request: "${{ inputs.request }}"
+  target_directory: "${{ inputs.target_directory }}"
+  candidate: "${{ inputs.candidate }}"
+  base: "${{ inputs.base }}"
+  documents: "${{ inputs.documents }}"
+state:
+  initial: check_environment
+  states:
+    check_environment:
+      id: check_environment
+      timeout: 2m
+      op: command_execution
+      inputs:
+        shell: bash
+        working_directory: "${{ context.environment.op.worktree_path }}"
+        timeout: 2m
+        continue_on_error: true
+        capture_diagnostics: always
+        env:
+          GOPRIVATE: github.com/colony-2/*
+          GOTOOLCHAIN: local
+          GOFLAGS: -mod=readonly
+          OUTBOX: "${{ context.environment.op.outbox }}"
+          API_VERSION: "${{ inputs.api_version }}"
+          CANDIDATE: "${{ inputs.candidate }}"
+          BASE: "${{ inputs.base }}"
+        run: |
+          set -eu
+          exec > "$OUTBOX/environment.log" 2>&1
+          printf 'Candidate: %s\nBase: %s\n' "$CANDIDATE" "$BASE"
+          printf 'Local platform: '; uname -s -m || true
+          printf 'Observed HEAD: '; git rev-parse HEAD || true
+          bad=0
+          if [ "$API_VERSION" != c2.build-hook/v1 ]; then
+            printf 'Unsupported API version: %s\n' "$API_VERSION"; bad=1
+          fi
+          for tool in bash git make go node npm npx; do
+            if ! command -v "$tool"; then printf 'Missing mandatory tool: %s\n' "$tool"; bad=1; fi
+          done
+          if command -v go >/dev/null; then
+            go version || bad=1
+            if [ "$(go env GOVERSION)" != go1.26.1 ]; then printf 'Requires Go 1.26.1\n'; bad=1; fi
+          fi
+          if command -v node >/dev/null; then
+            node --version || bad=1
+            case "$(node --version)" in v24.*) ;; *) printf 'Requires Node major 24\n'; bad=1 ;; esac
+          fi
+          if command -v npm >/dev/null; then npm --version || bad=1; fi
+          if command -v npx >/dev/null; then npx --version || bad=1; fi
+          bash --version | head -n 1 || true
+          git --version || true
+          make --version | head -n 1 || true
+          if command -v docker >/dev/null; then
+            docker version || printf 'Optional Docker daemon unavailable; tests may skip Docker coverage.\n'
+          else
+            printf 'Optional Docker absent; tests may skip Docker coverage.\n'
+          fi
+          printf 'Environment gate exit: %s\n' "$bad"
+          exit "$bad"
+      catch:
+        - when: "failure.kind != 'cancellation'"
+          continue:
+            outputs:
+              success: false
+              exit_code: -1
+              timed_out: "${{ failure.kind == 'timeout' }}"
+              failure: "${{ failure }}"
+              error_message: "${{ failure.message }}"
+      transitions:
+        - to: check_modules
+          when: "jq(states.check_environment.outputs, '.success == true and .exit_code == 0 and .timed_out == false and ((.diagnostic_errors // []) | length == 0)') == true"
+        - to: summarize
+    check_modules:
+      id: check_modules
+      timeout: 5m
+      op: command_execution
+      inputs:
+        shell: bash
+        working_directory: "${{ context.environment.op.worktree_path }}"
+        timeout: 5m
+        continue_on_error: true
+        capture_diagnostics: always
+        env:
+          GOPRIVATE: github.com/colony-2/*
+          GOTOOLCHAIN: local
+          GOFLAGS: -mod=readonly
+          OUTBOX: "${{ context.environment.op.outbox }}"
+        run: |
+          set -eu
+          scratch=$(mktemp -d /tmp/c2j-verify.XXXXXXXX)
+          trap 'rm -rf -- "$scratch"' EXIT
+          export TMPDIR="$scratch/tmp" GOCACHE="$scratch/go-build" GOMODCACHE="$scratch/go-mod"
+          export GOPATH="$scratch/go" npm_config_cache="$scratch/npm" XDG_CACHE_HOME="$scratch/cache"
+          mkdir -p "$TMPDIR" "$GOCACHE" "$GOMODCACHE" "$npm_config_cache" "$XDG_CACHE_HOME"
+          exec > "$OUTBOX/modules.log" 2>&1
+          make check-mod
+      catch:
+        - when: "failure.kind != 'cancellation'"
+          continue:
+            outputs:
+              success: false
+              exit_code: -1
+              timed_out: "${{ failure.kind == 'timeout' }}"
+              failure: "${{ failure }}"
+              error_message: "${{ failure.message }}"
+      transitions:
+        - to: test_integration
+    test_integration:
+      id: test_integration
+      timeout: 30m
+      op: command_execution
+      inputs:
+        shell: bash
+        working_directory: "${{ context.environment.op.worktree_path }}"
+        timeout: 30m
+        continue_on_error: true
+        capture_diagnostics: always
+        env:
+          GOPRIVATE: github.com/colony-2/*
+          GOTOOLCHAIN: local
+          GOFLAGS: -mod=readonly
+          OUTBOX: "${{ context.environment.op.outbox }}"
+        run: |
+          set -eu
+          scratch=$(mktemp -d /tmp/c2j-verify.XXXXXXXX)
+          trap 'rm -rf -- "$scratch"' EXIT
+          export TMPDIR="$scratch/tmp" GOCACHE="$scratch/go-build" GOMODCACHE="$scratch/go-mod"
+          export GOPATH="$scratch/go" npm_config_cache="$scratch/npm" XDG_CACHE_HOME="$scratch/cache"
+          mkdir -p "$TMPDIR" "$GOCACHE" "$GOMODCACHE" "$npm_config_cache" "$XDG_CACHE_HOME"
+          exec > "$OUTBOX/tests.log" 2>&1
+          # Tests create their own embedded jobs; never inherit this live job's identity.
+          # Preserve the scoped Git credential socket and tool/cache environment.
+          for variable in ${!C2J_CURRENT_@} ${!C2J_CHILD_JOB_@} ${!C2J_WORKSPACE_@}; do
+            unset "$variable"
+          done
+          unset C2J_TENANT_ID C2J_OBJECT_OUTBOX
+          go test -count=1 -v -tags=integration ./...
+      catch:
+        - when: "failure.kind != 'cancellation'"
+          continue:
+            outputs:
+              success: false
+              exit_code: -1
+              timed_out: "${{ failure.kind == 'timeout' }}"
+              failure: "${{ failure }}"
+              error_message: "${{ failure.message }}"
+      transitions:
+        - to: check_skills
+    check_skills:
+      id: check_skills
+      timeout: 5m
+      op: command_execution
+      inputs:
+        shell: bash
+        working_directory: "${{ context.environment.op.worktree_path }}"
+        timeout: 5m
+        continue_on_error: true
+        capture_diagnostics: always
+        env:
+          GOPRIVATE: github.com/colony-2/*
+          GOTOOLCHAIN: local
+          GOFLAGS: -mod=readonly
+          OUTBOX: "${{ context.environment.op.outbox }}"
+        run: |
+          set -eu
+          scratch=$(mktemp -d /tmp/c2j-verify.XXXXXXXX)
+          trap 'rm -rf -- "$scratch"' EXIT
+          export TMPDIR="$scratch/tmp" GOCACHE="$scratch/go-build" GOMODCACHE="$scratch/go-mod"
+          export GOPATH="$scratch/go" npm_config_cache="$scratch/npm" XDG_CACHE_HOME="$scratch/cache"
+          mkdir -p "$TMPDIR" "$GOCACHE" "$GOMODCACHE" "$npm_config_cache" "$XDG_CACHE_HOME"
+          exec > "$OUTBOX/skills.log" 2>&1
+          npx -y skills add . --list --full-depth
+      catch:
+        - when: "failure.kind != 'cancellation'"
+          continue:
+            outputs:
+              success: false
+              exit_code: -1
+              timed_out: "${{ failure.kind == 'timeout' }}"
+              failure: "${{ failure }}"
+              error_message: "${{ failure.message }}"
+      transitions:
+        - to: summarize
+    summarize:
+      id: summarize
+      timeout: 2m
+      op: command_execution
+      artifacts:
+        ./ : "${{ jq([(has(states.check_environment) ? states.check_environment.artifacts : {}), (has(states.check_modules) ? states.check_modules.artifacts : {}), (has(states.test_integration) ? states.test_integration.artifacts : {}), (has(states.check_skills) ? states.check_skills.artifacts : {})], 'add | with_entries(select(.key == \"environment.log\" or .key == \"modules.log\" or .key == \"tests.log\" or .key == \"skills.log\"))') }}"
+      inputs:
+        shell: bash
+        working_directory: "${{ context.environment.op.worktree_path }}"
+        timeout: 2m
+        capture_diagnostics: always
+        env:
+          INBOX: "${{ context.environment.op.inbox }}"
+          OUTBOX: "${{ context.environment.op.outbox }}"
+          CANDIDATE: "${{ inputs.candidate }}"
+          BASE: "${{ inputs.base }}"
+          VERDICT: "${{ (inputs.api_version == 'c2.build-hook/v1' && jq((has(states.check_environment) ? states.check_environment.outputs : {}), '.success == true and .exit_code == 0 and .timed_out == false and ((.diagnostic_errors // []) | length == 0)') == true && 'environment.log' in (has(states.check_environment) ? states.check_environment.artifacts : {}) && jq((has(states.check_modules) ? states.check_modules.outputs : {}), '.success == true and .exit_code == 0 and .timed_out == false and ((.diagnostic_errors // []) | length == 0)') == true && 'modules.log' in (has(states.check_modules) ? states.check_modules.artifacts : {}) && jq((has(states.test_integration) ? states.test_integration.outputs : {}), '.success == true and .exit_code == 0 and .timed_out == false and ((.diagnostic_errors // []) | length == 0)') == true && 'tests.log' in (has(states.test_integration) ? states.test_integration.artifacts : {}) && jq((has(states.check_skills) ? states.check_skills.outputs : {}), '.success == true and .exit_code == 0 and .timed_out == false and ((.diagnostic_errors // []) | length == 0)') == true && 'skills.log' in (has(states.check_skills) ? states.check_skills.artifacts : {})) ? 'passed' : 'failed' }}"
+          RESULT_0: "${{ (jq((has(states.check_environment) ? states.check_environment.outputs : {}), '.success == true and .exit_code == 0 and .timed_out == false and ((.diagnostic_errors // []) | length == 0)') == true) ? 'passed' : 'failed' }}"
+          DETAIL_0: "${{ json_stringify((has(states.check_environment) ? states.check_environment.outputs : {})) }}"
+          RESULT_1: "${{ !(jq((has(states.check_environment) ? states.check_environment.outputs : {}), '.success == true and .exit_code == 0 and .timed_out == false and ((.diagnostic_errors // []) | length == 0)') == true) ? 'not run (environment gate failed)' : ((jq((has(states.check_modules) ? states.check_modules.outputs : {}), '.success == true and .exit_code == 0 and .timed_out == false and ((.diagnostic_errors // []) | length == 0)') == true) ? 'passed' : 'failed') }}"
+          DETAIL_1: "${{ json_stringify((has(states.check_modules) ? states.check_modules.outputs : {})) }}"
+          RESULT_2: "${{ !(jq((has(states.check_environment) ? states.check_environment.outputs : {}), '.success == true and .exit_code == 0 and .timed_out == false and ((.diagnostic_errors // []) | length == 0)') == true) ? 'not run (environment gate failed)' : ((jq((has(states.test_integration) ? states.test_integration.outputs : {}), '.success == true and .exit_code == 0 and .timed_out == false and ((.diagnostic_errors // []) | length == 0)') == true) ? 'passed' : 'failed') }}"
+          DETAIL_2: "${{ json_stringify((has(states.test_integration) ? states.test_integration.outputs : {})) }}"
+          RESULT_3: "${{ !(jq((has(states.check_environment) ? states.check_environment.outputs : {}), '.success == true and .exit_code == 0 and .timed_out == false and ((.diagnostic_errors // []) | length == 0)') == true) ? 'not run (environment gate failed)' : ((jq((has(states.check_skills) ? states.check_skills.outputs : {}), '.success == true and .exit_code == 0 and .timed_out == false and ((.diagnostic_errors // []) | length == 0)') == true) ? 'passed' : 'failed') }}"
+          DETAIL_3: "${{ json_stringify((has(states.check_skills) ? states.check_skills.outputs : {})) }}"
+        run: |
+          set -eu
+          report="$OUTBOX/summary.md"
+          {
+            printf '# Local candidate verification: %s\n\n' "$VERDICT"
+            printf 'Candidate: %s\n\nBase: %s\n\n' "$CANDIDATE" "$BASE"
+            printf 'Platform: '; uname -s -m || true
+            printf '\nThis run covers this host only. It does not certify the GitHub matrix.\n'
+            printf '\n## check_environment: %s\n\n' "$RESULT_0"
+            printf 'Operation result (exit code, timeout, error):\n\n```json\n%s\n```\n' "$DETAIL_0"
+            if [ -f "$INBOX/environment.log" ]; then
+              printf '\nEvidence: environment.log\n'
+            else
+              printf '\nEvidence unavailable: environment.log (not run, launch failure, or export failure).\n'
+            fi
+            printf '\n## check_modules: %s\n\n' "$RESULT_1"
+            printf 'Operation result (exit code, timeout, error):\n\n```json\n%s\n```\n' "$DETAIL_1"
+            if [ -f "$INBOX/modules.log" ]; then
+              printf '\nEvidence: modules.log\n'
+            else
+              printf '\nEvidence unavailable: modules.log (not run, launch failure, or export failure).\n'
+            fi
+            printf '\n## test_integration: %s\n\n' "$RESULT_2"
+            printf 'Operation result (exit code, timeout, error):\n\n```json\n%s\n```\n' "$DETAIL_2"
+            if [ -f "$INBOX/tests.log" ]; then
+              printf '\nEvidence: tests.log\n'
+            else
+              printf '\nEvidence unavailable: tests.log (not run, launch failure, or export failure).\n'
+            fi
+            printf '\n## check_skills: %s\n\n' "$RESULT_3"
+            printf 'Operation result (exit code, timeout, error):\n\n```json\n%s\n```\n' "$DETAIL_3"
+            if [ -f "$INBOX/skills.log" ]; then
+              printf '\nEvidence: skills.log\n'
+            else
+              printf '\nEvidence unavailable: skills.log (not run, launch failure, or export failure).\n'
+            fi
+            printf '\n## Observed environment and tool versions\n\n```text\n'
+            if [ -f "$INBOX/environment.log" ]; then cat "$INBOX/environment.log"; fi
+            printf '\n```\n\n## Observed test skips\n\n'
+            if [ -f "$INBOX/tests.log" ]; then
+              if ! grep -E -- '--- SKIP:|SKIP|[Ss]kipping' "$INBOX/tests.log"; then
+                printf 'No skip markers observed in tests.log.\n'
+              fi
+            else
+              printf 'Test evidence unavailable; skip coverage unknown.\n'
+            fi
+          } > "$report"
+          test -s "$report"
+          printf 'Local verification %s on %s/%s; environment=%s, modules=%s, integration=%s, skills=%s. See summary.md and per-check logs for tool versions, errors and observed skips.' \
+            "$VERDICT" "$(uname -s)" "$(uname -m)" "$RESULT_0" "$RESULT_1" "$RESULT_2" "$RESULT_3"
+outputs:
+  api_version: c2.build-hook/v1
+  status: "${{ (inputs.api_version == 'c2.build-hook/v1' && jq((has(states.check_environment) ? states.check_environment.outputs : {}), '.success == true and .exit_code == 0 and .timed_out == false and ((.diagnostic_errors // []) | length == 0)') == true && 'environment.log' in (has(states.check_environment) ? states.check_environment.artifacts : {}) && jq((has(states.check_modules) ? states.check_modules.outputs : {}), '.success == true and .exit_code == 0 and .timed_out == false and ((.diagnostic_errors // []) | length == 0)') == true && 'modules.log' in (has(states.check_modules) ? states.check_modules.artifacts : {}) && jq((has(states.test_integration) ? states.test_integration.outputs : {}), '.success == true and .exit_code == 0 and .timed_out == false and ((.diagnostic_errors // []) | length == 0)') == true && 'tests.log' in (has(states.test_integration) ? states.test_integration.artifacts : {}) && jq((has(states.check_skills) ? states.check_skills.outputs : {}), '.success == true and .exit_code == 0 and .timed_out == false and ((.diagnostic_errors // []) | length == 0)') == true && 'skills.log' in (has(states.check_skills) ? states.check_skills.artifacts : {}) && jq((has(states.summarize) ? states.summarize.outputs : {}), '.success == true and .exit_code == 0 and .timed_out == false and ((.diagnostic_errors // []) | length == 0)') == true && 'summary.md' in (has(states.summarize) ? states.summarize.artifacts : {}) && size((has(states.summarize) ? states.summarize.outputs : {}).stdout) > 0 && size((has(states.summarize) ? states.summarize.outputs : {}).stdout) <= 8192) ? 'passed' : 'failed' }}"
+  summary: "${{ size((has(states.summarize) ? states.summarize.outputs : {}).stdout) > 0 && size((has(states.summarize) ? states.summarize.outputs : {}).stdout) <= 8192 ? (has(states.summarize) ? states.summarize.outputs : {}).stdout : 'Local verification failed: reporting output unavailable; inspect task diagnostics.' }}"
+  artifact_refs: "${{ jq([jq([(has(states.check_environment) ? states.check_environment.artifacts : {}), (has(states.check_modules) ? states.check_modules.artifacts : {}), (has(states.test_integration) ? states.test_integration.artifacts : {}), (has(states.check_skills) ? states.check_skills.artifacts : {})], 'add | with_entries(select(.key == \"environment.log\" or .key == \"modules.log\" or .key == \"tests.log\" or .key == \"skills.log\"))'), jq((has(states.summarize) ? states.summarize.artifacts : {}), 'with_entries(select(.key == \"summary.md\"))')], 'add') }}"

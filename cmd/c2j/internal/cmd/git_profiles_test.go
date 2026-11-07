@@ -202,6 +202,8 @@ func TestExecutionCommandsRequireLiveScope(t *testing.T) {
 }
 
 func TestSuppliedCredentialStoredSeparately(t *testing.T) {
+	// This exercises provisioning against the test server, outside a live task scope.
+	t.Setenv(gitprofile.SocketEnv, "")
 	ctx := celltest.Context(context.Background())
 	rt, err := sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: filepath.Join(t.TempDir(), "jobs.db")})
 	require.NoError(t, err)

@@ -52,3 +52,6 @@ server/colony2/colony2
 **/test-results/*
 .nx
 .c2/passthrough-go-cache
+
+# Build hook definitions are source, despite their directory name.
+!/.c2/recipes/hooks/build/
