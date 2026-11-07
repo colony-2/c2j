@@ -13,6 +13,7 @@ import (
 	"github.com/colony-2/c2j/pkg/git/gitstate"
 	coreops "github.com/colony-2/c2j/pkg/ops"
 	extops "github.com/colony-2/c2j/pkg/ops/extensions"
+	"github.com/colony-2/c2j/pkg/ops/process"
 	"github.com/colony-2/c2j/pkg/permissions"
 	"github.com/colony-2/c2j/pkg/secrets"
 	"github.com/colony-2/c2j/pkg/template"
@@ -100,4 +101,59 @@ run: unused
 	value, err := session.Materialize(inv.Input["inputs"])
 	require.NoError(t, err)
 	require.Equal(t, map[string]any{"token": "schema", "omitted": "", "explicit": "explicit", "binding": "resolved-value"}, value)
+}
+
+// Exercise the actual live setup chain, including repository scope collection,
+// retained manifests and regeneration of a runner from an older worker.
+func TestLiveSetupRepairsDeclaredRunner(t *testing.T) {
+	root, base, cache := t.TempDir(), t.TempDir(), t.TempDir()
+	log := filepath.Join(t.TempDir(), "install.log")
+	t.Setenv("C2J_TOOL_CACHE_DIR", cache)
+	t.Setenv("RUNNER_INSTALL_LOG", log)
+	require.NoError(t, os.Mkdir(filepath.Join(root, ".c2"), 0700))
+	require.NoError(t, os.WriteFile(filepath.Join(root, ".c2/config.yaml"), []byte("packages: [uv:manager==repo]\n"), 0600))
+	require.NoError(t, os.WriteFile(filepath.Join(base, "uv"), []byte(`#!/bin/sh
+set -eu
+for spec do :; done
+printf '%s\n' "$spec" >> "$RUNNER_INSTALL_LOG"
+mkdir -p "$UV_TOOL_BIN_DIR"
+printf '#!/bin/sh\nprintf "%%s\\n" %s\n' "'$spec'" > "$UV_TOOL_BIN_DIR/pnpm"
+chmod +x "$UV_TOOL_BIN_DIR/pnpm"
+`), 0700))
+	require.NoError(t, os.WriteFile(filepath.Join(base, "pnpm"), []byte("#!/bin/sh\necho 12.18.0\n"), 0700))
+	t.Setenv("PATH", base+string(os.PathListSeparator)+os.Getenv("PATH"))
+	originalPath := os.Getenv("PATH")
+	ctx := celltest.Context(context.Background())
+	var inv ActivityInvocationRequest
+	req := ToolSetupRequest{Scopes: []toolenv.Scope{{ID: "op", Packages: []string{"uv:manager==op"}}}}
+	require.NoError(t, InstallWorkspaceInvocation(ctx, &inv, req, root, PrepareTools))
+	require.Equal(t, []string{"uv:manager==repo"}, inv.Setup.Diagnostics.Repository.Packages)
+	require.Len(t, inv.Setup.Diagnostics.Tools, 2)
+	env := *inv.Setup.Environment
+	check := func() {
+		t.Helper()
+		out, stderr, err := process.ExecuteProcess(inv.Setup.Environment.Bind(ctx), process.RunRequest{Command: []string{"pnpm", "--version"}})
+		require.NoError(t, err, string(stderr))
+		require.Equal(t, "manager==op\n", string(out))
+	}
+	check()
+	before, err := os.ReadFile(log)
+	require.NoError(t, err)
+	require.Equal(t, "manager==repo\nmanager==op\n", string(before))
+	require.NoError(t, os.WriteFile(filepath.Join(env.Path, "pnpm"), []byte("#!/bin/sh\necho 12.18.0\n"), 0700))
+	require.NoError(t, InstallWorkspaceInvocation(ctx, &inv, req, root, PrepareTools))
+	require.Equal(t, env.Path, inv.Setup.Environment.Path)
+	for _, d := range inv.Setup.Diagnostics.Tools {
+		require.Equal(t, "reused", d.Outcome)
+	}
+	check()
+	after, err := os.ReadFile(log)
+	require.NoError(t, err)
+	require.Equal(t, before, after)
+	require.Equal(t, originalPath, os.Getenv("PATH"))
+	// Repository-only declarations also select their executable.
+	require.NoError(t, InstallWorkspaceInvocation(ctx, &inv, ToolSetupRequest{}, root, PrepareTools))
+	out, stderr, err := process.ExecuteProcess(inv.Setup.Environment.Bind(ctx), process.RunRequest{Command: []string{"pnpm", "--version"}})
+	require.NoError(t, err, string(stderr))
+	require.Equal(t, "manager==repo\n", string(out))
 }

@@ -147,7 +147,11 @@ nix run 'github:NixOS/nixpkgs/<commit>#jq' -- --version
 For declared tools, c2j binds these forms to retained executables so timed execution
 cannot trigger installation. They support one package and an explicit executable
 for uvx/pnpm; `nix run` requires a derivation with a discoverable main program.
-Other pnpm/Nix commands use the base manager normally.
+Other pnpm/Nix/uvx commands use the declared executable selected by closest
+scope. Same-scope collisions fail explicitly and require a qualified runner.
+This corrects earlier behavior that discarded declared manager executables.
+When that executable is undeclared, ordinary pnpm/Nix commands use the base
+manager normally; ordinary uvx commands require qualification.
 
 Setup runs inside each live task after workspace restore and before its op body.
 The resulting environment applies to the op and its subprocesses; worker Git

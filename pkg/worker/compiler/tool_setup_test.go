@@ -148,6 +148,7 @@ outputs:
 	replayRaw, err := replay.GetData()
 	require.NoError(t, err)
 	require.JSONEq(t, string(raw), string(replayRaw))
+	require.NoDirExists(t, cache, "read-only replay must not regenerate bindings or packages")
 	after, err := os.ReadFile(log)
 	require.NoError(t, err)
 	require.Equal(t, string(installs), string(after))

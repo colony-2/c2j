@@ -168,7 +168,7 @@ func (m *Manager) Prepare(ctx context.Context, scopes []Scope) (env Environment,
 			return
 		}
 	}
-	if err = writeRunners(dir, env.Tools); err != nil {
+	if err = writeRunners(dir, env.Tools, bindings); err != nil {
 		return
 	}
 	env.Path = dir
@@ -358,11 +358,33 @@ func writeExecutable(path, body string) error {
 
 // These exact native invocation forms dispatch retained executables. They never
 // fall back to downloading an undeclared version during timed execution.
-func writeRunners(dir string, tools []Tool) error {
+func writeRunners(dir string, tools []Tool, bindings map[string]string) error {
+	// Presence matters: an empty binding is ambiguous, not undeclared. Only
+	// undeclared pnpm/Nix commands may delegate to a base manager.
+	ordinary := func(name, usage string) string {
+		if target, declared := bindings[name]; declared {
+			if target == "" {
+				return "echo 'ambiguous declared tool; use a qualified runner' >&2; exit 127"
+			}
+			return "exec " + quote(target) + " \"$@\""
+		}
+		if name != "uvx" {
+			if native, e := exec.LookPath(name); e == nil {
+				// Never delegate back into this environment's dispatcher.
+				if absolute, e := filepath.Abs(native); e == nil && absolute != filepath.Join(dir, name) {
+					return "exec " + quote(absolute) + " \"$@\""
+				}
+			}
+		}
+		return "echo " + quote(usage) + " >&2; exit 127"
+	}
 	scripts := map[string]string{
-		"uvx":  "#!/bin/sh\n[ \"$1\" = --from ] || { echo 'use uvx --from PACKAGE EXECUTABLE' >&2; exit 127; }\nspec=$2; shift 2\ncase \"$spec\" in\n",
-		"pnpm": "#!/bin/sh\ncase \"$1\" in --package=*) spec=${1#--package=}; shift;; --package) spec=$2; shift 2;; *) echo 'use pnpm --package=PACKAGE dlx EXECUTABLE' >&2; exit 127;; esac\n[ \"$1\" = dlx ] || exit 127\nshift\ncase \"$spec\" in\n",
-		"nix":  "#!/bin/sh\n[ \"$1\" = run ] || { echo 'use nix run INSTALLABLE -- ARGS' >&2; exit 127; }\nspec=$2; shift 2\n[ \"$1\" != -- ] || shift\ncase \"$spec\" in\n",
+		"uvx": "#!/bin/sh\n[ \"$1\" = --from ] || { " + ordinary("uvx", "use uvx --from PACKAGE EXECUTABLE") + "; }\n" +
+			"[ \"$#\" -ge 3 ] || exit 127\nspec=$2; shift 2\ncase \"$spec\" in\n",
+		"pnpm": "#!/bin/sh\ncase \"$1\" in --package=*) spec=${1#--package=}; shift;; --package) [ \"$#\" -ge 2 ] || exit 127; spec=$2; shift 2;; *) " + ordinary("pnpm", "use pnpm --package=PACKAGE dlx EXECUTABLE") + ";; esac\n" +
+			"[ \"$1\" = dlx ] && [ \"$#\" -ge 2 ] || exit 127\nshift\ncase \"$spec\" in\n",
+		"nix": "#!/bin/sh\n[ \"$1\" = run ] || { " + ordinary("nix", "use nix run INSTALLABLE -- ARGS") + "; }\n" +
+			"[ \"$#\" -ge 2 ] || exit 127\nspec=$2; shift 2\n[ \"$1\" != -- ] || shift\ncase \"$spec\" in\n",
 	}
 	for _, t := range tools {
 		manager, spec, _ := execution.ParsePackage(t.Reference)
@@ -387,12 +409,6 @@ func writeRunners(dir string, tools []Tool) error {
 		scripts[runner] += branch + ";;\n"
 	}
 	for name, body := range scripts {
-		if native, e := exec.LookPath(name); e == nil && name == "pnpm" {
-			body = strings.Replace(body, "*) echo 'use pnpm --package=PACKAGE dlx EXECUTABLE' >&2; exit 127;;", "*) exec "+quote(native)+" \"$@\";;", 1)
-		}
-		if native, e := exec.LookPath(name); e == nil && name == "nix" {
-			body = strings.Replace(body, "echo 'use nix run INSTALLABLE -- ARGS' >&2; exit 127;", "exec "+quote(native)+" \"$@\";", 1)
-		}
 		body += "*) echo 'tool version not declared' >&2; exit 127;;\nesac\n"
 		if err := writeExecutable(filepath.Join(dir, name), body); err != nil {
 			return err
