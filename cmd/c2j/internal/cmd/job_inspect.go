@@ -51,11 +51,13 @@ func openInspection(ctx context.Context, uri string) (jobinspect.API, func(), st
 func newJobCmd() *cobra.Command {
 	var uri string
 	var embed, jsonOutput bool
-	root := &cobra.Command{Use: "job", Short: "Inspect jobs, task outputs, artifacts, and cumulative workspace snapshots", Long: `Inspect persisted jobs without running or replaying their recipes.
+	root := &cobra.Command{Use: "job", Short: "Inspect jobs and clear crash concern", Long: `Inspect persisted jobs and recover jobs blocked by crash concern.
 
 Start with 'c2j job log JOB'. Copy a task ID from that log to read its output,
 download an artifact, or export the cumulative workspace at that point.
 Inside a task, JOB may be 'self'; reads follow JobDB permissions for the selected tenant.
+Use 'c2j job clear-crash-concern JOB' with operator credentials to restore
+scheduling eligibility after repeated worker crashes.
 
 Example:
   c2j job log JOB --json
@@ -67,6 +69,7 @@ Use 'git -C CHECKOUT diff refs/c2j/base HEAD' to review cumulative changes.`}
 	root.PersistentFlags().StringVar(&uri, "jobdb", "", "JobDB URI (defaults from project or C2J_JOBDB)")
 	root.PersistentFlags().BoolVar(&embed, "embed", false, "Use embedded JobDB")
 	root.PersistentFlags().BoolVar(&jsonOutput, "json", false, "Emit structured JSON")
+	root.AddCommand(newClearCrashConcernCmd(&uri, &embed, &jsonOutput))
 	for _, operation := range []string{"list", "show", "log", "story", "result", "fields", "artifacts", "artifact", "snapshot"} {
 		op := operation
 		q := jobinspect.Request{Operation: op}

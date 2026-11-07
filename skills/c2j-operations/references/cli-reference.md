@@ -18,6 +18,7 @@ c2j run with-lease
 c2j ready
 c2j list
 c2j list children
+c2j job clear-crash-concern JOB
 c2j delete
 c2j test
 ```
@@ -155,6 +156,24 @@ c2j list --self --embed --json
 ```
 
 Filter with `--status`, `--job-type`, `--job-id`, `--waiting-for`, `--created-after`, `--created-before`, `--page-size`, `--page-token`, and `--all` where exposed by the command.
+
+## `c2j job clear-crash-concern`
+
+Reset the existing job's consecutive expired-lease counter after resolving the
+worker problem:
+
+```bash
+c2j job clear-crash-concern JOB --reason 'worker issue fixed'
+c2j job clear-crash-concern JOB --embed --json
+```
+
+`reset-crash-concern` is an alias. Supports `--jobdb`, `--embed`, `--reason`,
+`--worker-id` (default `c2j-cli`), and `--json`. Uses operator credentials, not
+the task inspection helper. The remote JobDB server must support this operation.
+History and scheduling constraints are preserved, and no lease is acquired.
+Live leases and completed, cancelled, or hidden jobs return a conflict. Workers
+resume normally when eligible. An already-clear inactive job is a successful
+no-op. `c2j run` cannot bypass crash concern; `c2j restart` creates a new job.
 
 ## `c2j delete`
 

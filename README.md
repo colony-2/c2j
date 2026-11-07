@@ -76,6 +76,7 @@ c2j ready
 c2j list
 c2j job log JOB
 c2j job snapshot JOB --task TASK --dir ./recovered
+c2j job clear-crash-concern JOB --reason 'worker issue fixed'
 c2j test
 ```
 
@@ -84,6 +85,11 @@ Use `go run ./cmd/c2j --help` or `c2j --help` to see the full command tree.
 See [Inspect jobs and recover saved work](GUIDE-Job-Inspection.md) for task outputs,
 artifact downloads, child-job inspection, and cumulative snapshots exported as
 ready-to-use Git checkouts.
+
+Use `c2j job clear-crash-concern JOB` to reset a job's crash counter and allow
+normal scheduling to resume on the same job. It supports `--jobdb`, `--embed`,
+`--reason`, `--worker-id`, and `--json`. See [crash-concern recovery](GUIDE-Cortex-RecipeJob-API.md#clear-crash-concern)
+for the CLI and public Go API used by hosts such as Cortex.
 
 ## Version Information
 

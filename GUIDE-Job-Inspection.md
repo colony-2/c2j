@@ -1,7 +1,10 @@
 # Inspect jobs and recover saved work
 
 Use `c2j job` to inspect persisted jobs, execution scopes, task outputs, artifacts,
-and cumulative Git snapshots. These commands do not run or replay recipes.
+and cumulative Git snapshots. Inspection commands do not run or replay recipes.
+The separate operator action `c2j job clear-crash-concern JOB` resets a blocked
+job's crash counter. See [crash-concern recovery](GUIDE-Cortex-RecipeJob-API.md#clear-crash-concern)
+for its credentials, behavior, and Go API.
 
 ## Find the relevant work
 

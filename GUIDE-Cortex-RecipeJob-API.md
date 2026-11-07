@@ -36,6 +36,7 @@ The public `pkg/recipejob` package exposes:
 - start-request assembly for `workflowctl.StartJob`
 - recipe-job list/read helpers backed by JobDB `ListJobs`
 - reusable c2j list defaults for visible statuses and stores
+- operator recovery of jobs blocked by crash concern
 
 It does not open a JobDB runtime, start workers, execute recipes, or register
 ops.
@@ -190,6 +191,65 @@ if errors.Is(err, recipejob.ErrJobNotFound) {
     return nil
 }
 ```
+
+## Clear Crash Concern
+
+Clear the consecutive expired-lease counter on an existing job with operator
+credentials:
+
+```sh
+c2j job clear-crash-concern JOB --reason 'worker issue fixed'
+c2j job clear-crash-concern JOB --jobdb https://jobdb.example.com/tenant --json
+c2j job clear-crash-concern JOB --embed
+```
+
+`reset-crash-concern` is an alias. The destination follows the usual `--jobdb`,
+`C2J_JOBDB`, and project configuration precedence; `--embed` selects embedded
+SQLite. `--worker-id` defaults to `c2j-cli` and identifies the operator in backend
+tracing. `--reason` is optional. Remote calls use `JOBDB_BEARER_TOKEN` when set.
+JSON success output is `{"tenant_id":"tenant","job_id":"JOB","cleared":true}`;
+errors return nonzero without a success result.
+
+Cortex can use its existing caller-owned runtime or the
+`jobdbschema.WorkflowEngine` it uses for goal management:
+
+```go
+err := recipejob.ClearCrashConcern(ctx, runtime, jobdb.ClearCrashConcernRequest{
+    JobKey:   jobdb.JobKey{TenantId: tenantID, JobId: jobID},
+    WorkerID: operatorID,
+    Reason:   "worker issue fixed",
+})
+```
+
+The helper accepts the narrow `recipejob.CrashConcernAdmin` interface. A
+`jobdb.WorkflowRuntime` implements it directly. `jobdbschema.WorkflowEngine`
+forwards through its `Registry` runtime, as its goal lifecycle methods do. The
+upstream `workflow.Engine` interface alone does not expose this method; retain
+the runtime or the c2j wrapper when wiring host management APIs.
+
+The action uses tenant lifecycle authority, like cancellation. It is not granted
+by task submission or inspection permissions and is not exposed through the task
+helper. Delegated lease credentials are rejected by JobDB. Hosts should put it
+behind the same operator access controls as their other job lifecycle actions.
+
+Clearing preserves the job ID, goal membership, history, payload, routing,
+dependencies, availability, and execution deadlines. It does not acquire a lease
+or execute the job; workers resume normal scheduling when eligible. This differs
+from `c2j restart`, which creates a new continuation job. Success does not promise
+`READY`, because other scheduling constraints still apply.
+
+Use `errors.Is` with `jobdb.ErrInvalidCrashConcernRequest` for missing identity,
+`jobdb.ErrJobNotFound` for a missing job in the selected tenant, and
+`jobdb.ErrConflict` for a live lease or a completed, cancelled, or hidden job.
+Authorization and transport errors also pass through. Retrying an already-clear
+inactive job succeeds; retrying after a worker acquires it returns a conflict.
+
+This c2j revision pins JobDB main commit `f92ae253a5da`
+(`v0.0.75-0.20261106232324-f92ae253a5da`). Remote servers must include its
+`ClearCrashConcern` endpoint/backend support; upgrading c2j alone does not add
+the endpoint to an older server. Toy, SQLite, and PostgreSQL support the action.
+The reason and worker ID are backend tracing context; SQLite and toy do not
+persist those audit fields.
 
 ## Completion Results
 

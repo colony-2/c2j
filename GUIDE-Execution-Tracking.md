@@ -296,7 +296,7 @@ recipe-step outcomes:
 | --- | --- |
 | `READY` | Work is available for its route; this does not prove your worker can handle it. |
 | `ACTIVE` | A worker holds a live execution lease. |
-| `CRASH_CONCERN` | A lease expired without finalization; check the worker and recovery state. |
+| `CRASH_CONCERN` | Repeated expired-lease reclaims blocked acquisition; after fixing the worker, use `c2j job clear-crash-concern JOB`. |
 | `PENDING_JOBS` | Dependencies are outstanding; inspect `wait_for`. |
 | `AWAITING_FUTURE` | Work is deferred; inspect `available_at`. |
 | `EXPIRED` | The runtime reports the job as expired; inspect its expiry information. |

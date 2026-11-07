@@ -1064,6 +1064,22 @@ func (e WorkflowEngine) GetGoal(ctx context.Context, key jobdb.GoalKey) (jobdb.G
 	}
 	return rt.GetGoal(ctx, key)
 }
+
+// ClearCrashConcern exposes operator recovery through the same caller-owned
+// runtime used for goal lifecycle management. It does not restart the job.
+func (e WorkflowEngine) ClearCrashConcern(ctx context.Context, req jobdb.ClearCrashConcernRequest) error {
+	if err := req.Validate(); err != nil {
+		return err
+	}
+	rt, ok := e.Registry.(interface {
+		ClearCrashConcern(context.Context, jobdb.ClearCrashConcernRequest) error
+	})
+	if !ok {
+		return fmt.Errorf("crash concern administration unavailable")
+	}
+	return rt.ClearCrashConcern(ctx, req)
+}
+
 func (e WorkflowEngine) GetDependencyWait(ctx context.Context, key jobdb.DependencyWaitKey) (jobdb.DependencyWaitInfo, error) {
 	rt, ok := e.Registry.(jobdb.GoalRuntime)
 	if !ok {
