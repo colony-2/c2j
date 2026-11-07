@@ -91,7 +91,7 @@ func NewRecipeWorkerWithOptions(dependencies ops.ServiceDependencies2, activityR
 	if resolutionWorker := newRootSourceResolutionTaskWorker(opts.RootSourceResolver); resolutionWorker != nil {
 		taskWorkers = append(taskWorkers, resolutionWorker)
 	}
-	taskWorkers = append(taskWorkers, newWithinRecipeResolutionTaskWorker(), NewWorkspaceResolutionTaskWorker(), cellContextWorker{}, hookPolicyWorker{}, hookResolveWorker{})
+	taskWorkers = append(taskWorkers, newWithinRecipeResolutionTaskWorker(), NewWorkspaceResolutionTaskWorker(), cellContextWorker{}, hookPolicyWorker{}, hookResolveWorker{control: dependencies.WorkflowControl()})
 	if opts.WrapTaskWorker != nil {
 		for i, worker := range taskWorkers {
 			taskWorkers[i] = opts.WrapTaskWorker(worker)

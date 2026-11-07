@@ -23,6 +23,7 @@ import (
 	"github.com/colony-2/c2j/pkg/template"
 	workerops "github.com/colony-2/c2j/pkg/worker/ops"
 	"github.com/colony-2/c2j/pkg/workflow"
+	"github.com/colony-2/c2j/pkg/workflowctl"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
 	jsonschema "github.com/santhosh-tekuri/jsonschema/v6"
@@ -154,7 +155,9 @@ type hookResolution struct {
 	Source             recipe.RecipeSourceSnapshot  `json:"source"`
 	Functions          WithinRecipeResolutionResult `json:"functions,omitempty"`
 }
-type hookResolveWorker struct{}
+type hookResolveWorker struct {
+	control workflowctl.WorkflowControl
+}
 
 func (hookResolveWorker) Name() string { return hookResolveTaskType }
 func (w hookResolveWorker) Run(tc jobworkflow.TaskContext, data jobdb.TaskData) (jobdb.TaskData, error) {
@@ -206,6 +209,12 @@ func (w hookResolveWorker) RunTask(ctx context.Context, tc jobworkflow.TaskConte
 		} else if a.Name() == gitstate.ThinPackArtifactName {
 			pack = a
 		}
+	}
+	if req.WorkspaceManaged && req.RestoreArtifact != nil && pack == nil {
+		if w.control == nil {
+			return nil, fmt.Errorf("workflow control required for hook workspace snapshot")
+		}
+		pack = w.control.GetArtifactLazy(ctx, tc.JobKey.TenantId, *req.RestoreArtifact)
 	}
 	if req.RestoreArtifact != nil && pack == nil {
 		return nil, fmt.Errorf("hook workspace restore artifact missing")
