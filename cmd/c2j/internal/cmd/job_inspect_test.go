@@ -18,10 +18,16 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-type cliInspection struct{ requests []jobinspect.Request }
+type cliInspection struct {
+	requests []jobinspect.Request
+	failure  error
+}
 
 func (a *cliInspection) Inspect(_ context.Context, q jobinspect.Request) (*jobinspect.Response, error) {
 	a.requests = append(a.requests, q)
+	if a.failure != nil {
+		return nil, a.failure
+	}
 	if q.Field != nil {
 		return &jobinspect.Response{Version: 1, Value: json.RawMessage(`null`)}, nil
 	}
@@ -66,6 +72,16 @@ func TestJobCLIUsesTaskHelperAndExactOutput(t *testing.T) {
 	require.NoError(t, e)
 	require.Equal(t, "null\n", out)
 	require.Equal(t, 2, api.requests[len(api.requests)-1].Attempt)
+	_, e = run("show", "unrelated", "--json")
+	require.NoError(t, e)
+	require.Equal(t, "unrelated", api.requests[len(api.requests)-1].JobID)
+	_, e = run("list", "--parent", "other-parent", "--json")
+	require.NoError(t, e)
+	require.Equal(t, "other-parent", api.requests[len(api.requests)-1].Parent)
+	_, e = run("list", "--help")
+	require.NoError(t, e)
+	_, e = run("show", "unrelated", "--jobdb", "invalid://retarget")
+	require.NoError(t, e)
 	file := filepath.Join(t.TempDir(), "log.bin")
 	_, e = run("artifact", "child", "--task", "native/task#2", "--name", "check.log", "--output", file)
 	require.NoError(t, e)
@@ -86,6 +102,10 @@ func TestJobCLIUsesTaskHelperAndExactOutput(t *testing.T) {
 	require.ErrorContains(t, e, "mutually exclusive")
 	_, e = run("artifact", "child", "--name", "check.log")
 	require.ErrorContains(t, e, "requires --output")
+	api.failure = fmt.Errorf("inspection backend denied")
+	_, e = run("show", "unrelated", "--jobdb", "embed:///")
+	require.ErrorContains(t, e, "inspection backend denied")
+
 }
 
 func TestJobCLIRejectsMissingHelperAndPartialFile(t *testing.T) {
@@ -104,4 +124,14 @@ func TestJobCLIRejectsMissingHelperAndPartialFile(t *testing.T) {
 	})
 	require.Error(t, e)
 	require.NoFileExists(t, file)
+}
+
+func TestJobInspectionHelpDescribesBackendPermissions(t *testing.T) {
+	c := newJobCmd()
+	require.Contains(t, c.Long, "JobDB permissions")
+	for _, child := range c.Commands() {
+		if child.Name() == "list" {
+			require.Contains(t, child.Short, "--parent JOB")
+		}
+	}
 }

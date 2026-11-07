@@ -54,7 +54,7 @@ The inspection implementation adds `pkg/jobinspect` and `c2j job` to that baseli
   submission also accepts stored artifact references. Neither requires inventing
   a new transport format.
 - `c2j job` now exposes compact task logs and selective reads. The task helper
-  provides current-job/direct-child access independently of submission grants;
+  provides JobDB-permitted reads independently of lineage and submission grants;
   it does not expose general chapter-reading or lifecycle authority to the agent.
 
 Build a supported application interface over the existing story/result/artifact

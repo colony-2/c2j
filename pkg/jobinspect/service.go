@@ -23,10 +23,12 @@ import (
 type Service struct {
 	Runtime jobdb.WorkflowRuntime
 	Tenant  string
-	// Authorize is called before every detail/byte read. The task runtime binds it
-	// to a live operation and limits access to its job and direct children.
+	// Authorize guards detail/byte reads and discovery. Discovery passes the
+	// selected parent, or an empty ID for an unfiltered list. The task runtime
+	// checks operation and lease lifetime; JobDB controls read permissions.
 	Authorize func(context.Context, string) error
-	// Parent limits discovery for a task; standalone callers use runtime policy.
+	// Parent is the default discovery filter, overridden by Request.Parent.
+	// It is not an authorization boundary.
 	Parent string
 }
 
@@ -675,15 +677,12 @@ func sameRef(a, b artifacts.Ref) bool {
 }
 func (s *Service) list(ctx context.Context, q Request) (*Response, error) {
 	parent := q.Parent
-	if s.Parent != "" {
-		if parent != "" && parent != s.Parent {
-			return nil, jobdb.ErrLeasePermissionDenied
-		}
+	if parent == "" {
 		parent = s.Parent
-		if s.Authorize != nil {
-			if e := s.Authorize(ctx, parent); e != nil {
-				return nil, e
-			}
+	}
+	if s.Authorize != nil {
+		if err := s.Authorize(ctx, parent); err != nil {
+			return nil, err
 		}
 	}
 	req := jobdb.ListJobsRequest{TenantIds: []string{s.Tenant}, PageSize: q.Limit, PageToken: q.Cursor, Statuses: q.Status}

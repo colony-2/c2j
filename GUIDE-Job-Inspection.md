@@ -14,12 +14,14 @@ c2j job story JOB --json
 ```
 
 Inside an ordinary task, `self` identifies the current job. `c2j job list` lists
-its direct children, and `c2j job log self` inspects its own stored history.
-`c2j self` advertises `jobs.inspect`. Reads use the authenticated task helper and
-are available independently of permission to submit new jobs. They cover the
-current job and direct children, including terminal children, for the lifetime
-of the task. Outside a task, the commands use configured JobDB access. `--jobdb`
-and `--embed` select a standalone destination; neither bypasses task authority.
+backend-visible jobs in the selected tenant, and `c2j job log self` inspects its
+own stored history. `c2j self` advertises `jobs.inspect`. Reads use the
+authenticated task helper and are available independently of permission to submit
+new jobs. They follow existing JobDB read permissions for the lifetime of the
+task, including sibling, unrelated, and terminal jobs. Use
+`c2j job list --parent JOB` to select only that job's direct children. Outside a
+task, the commands use configured JobDB access. `--jobdb` and `--embed` select a
+standalone destination; neither bypasses task authority.
 
 `log` lists native task occurrence IDs. Copy one exactly, quote it in the shell,
 and use `--task "$TASK"`. Repeated nodes have different IDs. A task's `attempts`

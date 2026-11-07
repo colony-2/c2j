@@ -78,12 +78,18 @@ func TestTaskInspectionReadsTerminalChildWithoutSubmitGrant(t *testing.T) {
 				require.Equal(t, "42", string(r.Value))
 				listing, e := api.Inspect(ctx, jobinspect.Request{Operation: "list"})
 				require.NoError(t, e)
-				require.Len(t, listing.Jobs, 1)
-				require.Equal(t, child.JobKey.JobId, listing.Jobs[0].ID)
+				standalone := &jobinspect.Service{Runtime: base, Tenant: "tenant"}
+				want, e := standalone.Inspect(ctx, jobinspect.Request{Operation: "list"})
+				require.NoError(t, e)
+				require.Equal(t, want, listing)
+				filtered, e := api.Inspect(ctx, jobinspect.Request{Operation: "list", Parent: parent.JobKey.JobId})
+				require.NoError(t, e)
+				require.Len(t, filtered.Jobs, 1)
+				require.Equal(t, child.JobKey.JobId, filtered.Jobs[0].ID)
 				_, e = api.Inspect(ctx, jobinspect.Request{Operation: "show", JobID: other.JobKey.JobId})
-				require.ErrorIs(t, e, jobdb.ErrLeasePermissionDenied)
+				require.NoError(t, e)
 				_, e = api.Inspect(ctx, jobinspect.Request{Operation: "show", JobID: pretender.JobKey.JobId})
-				require.ErrorIs(t, e, jobdb.ErrLeasePermissionDenied)
+				require.NoError(t, e)
 				current := jobcontext.Current{TenantID: "tenant", JobID: parent.JobKey.JobId, GoalID: parent.GoalID}
 				server, e := childbroker.Start(scope, childbroker.Options{Current: current, Self: func() selfinfo.Info { return selfinfo.Unknown("") }})
 				require.NoError(t, e)
@@ -95,7 +101,7 @@ func TestTaskInspectionReadsTerminalChildWithoutSubmitGrant(t *testing.T) {
 				require.NoError(t, e)
 				require.Equal(t, "42", string(r.Value))
 				_, e = client.Inspect(ctx, jobinspect.Request{Operation: "show", JobID: other.JobKey.JobId})
-				require.Error(t, e)
+				require.NoError(t, e)
 				stop := access.LimitDeadline(time.Now().Add(-time.Second))
 				defer stop()
 				_, e = api.Inspect(ctx, jobinspect.Request{Operation: "show", JobID: parent.JobKey.JobId})
@@ -110,8 +116,14 @@ func TestTaskInspectionReadsTerminalChildWithoutSubmitGrant(t *testing.T) {
 			out, e := run.Run(nil)
 			require.NoError(t, e)
 			require.Equal(t, wf.JobRunCompleted, out.Status)
-			_, e = saved.Inspect(ctx, jobinspect.Request{Operation: "show", JobID: child.JobKey.JobId})
-			require.Error(t, e)
+			for _, op := range []string{"show", "list", "download"} {
+				if op == "download" {
+					_, e = saved.Download(ctx, jobinspect.Request{JobID: child.JobKey.JobId, Name: "x"})
+				} else {
+					_, e = saved.Inspect(ctx, jobinspect.Request{Operation: op, JobID: child.JobKey.JobId})
+				}
+				require.Error(t, e, op)
+			}
 		})
 	}
 }

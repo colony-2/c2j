@@ -55,7 +55,7 @@ func newJobCmd() *cobra.Command {
 
 Start with 'c2j job log JOB'. Copy a task ID from that log to read its output,
 download an artifact, or export the cumulative workspace at that point.
-Inside a task, JOB may be 'self'; access includes the current job and its children.
+Inside a task, JOB may be 'self'; reads follow JobDB permissions for the selected tenant.
 
 Example:
   c2j job log JOB --json
@@ -72,7 +72,7 @@ Use 'git -C CHECKOUT diff refs/c2j/base HEAD' to review cumulative changes.`}
 		q := jobinspect.Request{Operation: op}
 		var output, dir, field, reference string
 		var statuses []string
-		short := map[string]string{"fields": "List output field pointers, types, sizes, and bounded previews", "list": "List jobs (inside a task: its children)", "show": "Show job identity and status", "log": "List task occurrences or inspect one task's outputs", "story": "List recorded execution scopes without recipe replay", "result": "Inspect final recipe outputs and exported artifacts", "artifacts": "List artifacts exported by a job or produced by one task", "artifact": "Download one artifact exactly", "snapshot": "Inspect or export cumulative Git state and artifacts"}[op]
+		short := map[string]string{"fields": "List output field pointers, types, sizes, and bounded previews", "list": "List jobs (use --parent JOB for children)", "show": "Show job identity and status", "log": "List task occurrences or inspect one task's outputs", "story": "List recorded execution scopes without recipe replay", "result": "Inspect final recipe outputs and exported artifacts", "artifacts": "List artifacts exported by a job or produced by one task", "artifact": "Download one artifact exactly", "snapshot": "Inspect or export cumulative Git state and artifacts"}[op]
 		use := op + " JOB"
 		args := cobra.ExactArgs(1)
 		if op == "list" {
