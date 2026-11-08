@@ -76,3 +76,58 @@ func TestReferenceRoundTripAndValidation(t *testing.T) {
 		require.Error(t, err)
 	}
 }
+
+func TestSchemaDefaultOmissionDoesNotPruneOtherNulls(t *testing.T) {
+	marked := Ref("missing")
+	marked.SchemaDefaultNonNullable = "input_schema.properties.optional"
+	marked.ExpectedType = "string"
+	input := map[string]any{"optional": marked, "ordinary": Ref("missing"), "literal": nil, "array": []any{nil, Ref("missing"), marked}, "nested": map[string]any{"literal": nil, "optional": marked}}
+	raw, err := json.Marshal(input)
+	require.NoError(t, err)
+	var restored any
+	require.NoError(t, json.Unmarshal(raw, &restored))
+	for _, values := range []map[string]json.RawMessage{nil, {"missing": json.RawMessage(`null`)}} {
+		out, diag, err := MaterializeInput(context.Background(), nil, restored, func(context.Context) (jobdb.ConfigurationSnapshot, error) {
+			return jobdb.ConfigurationSnapshot{Revision: "rev", Values: values}, nil
+		})
+		require.NoError(t, err)
+		require.Equal(t, map[string]any{"ordinary": nil, "literal": nil, "array": []any{nil, nil, nil}, "nested": map[string]any{"literal": nil}}, out)
+		require.Equal(t, "rev", diag.Revision)
+	}
+	for _, failure := range []error{context.Canceled, context.DeadlineExceeded, jobdb.ErrExecutionLeaseLost} {
+		_, _, err := MaterializeInput(context.Background(), nil, restored, func(context.Context) (jobdb.ConfigurationSnapshot, error) {
+			return jobdb.ConfigurationSnapshot{}, failure
+		})
+		require.ErrorIs(t, err, failure)
+	}
+}
+
+func TestSchemaDefaultReferenceEncodingCompatibility(t *testing.T) {
+	ref := Ref("value")
+	ref.Default = json.RawMessage(`null`)
+	ref.ExpectedType = "string"
+	ref.SchemaDefaultNonNullable = "input_schema.properties.value"
+	raw, err := json.Marshal(ref)
+	require.NoError(t, err)
+	var value any
+	require.NoError(t, json.Unmarshal(raw, &value))
+	got, ok, err := Parse(value)
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Equal(t, ref, got)
+	for _, wire := range []string{
+		`{"$c2j_ref":{"kind":"config","name":"value"}}`,
+		`{"$c2j_ref":{"kind":"config","name":"value","default":null,"type":"string"}}`,
+	} {
+		require.NoError(t, json.Unmarshal([]byte(wire), &value))
+		got, ok, err = Parse(value)
+		require.NoError(t, err)
+		require.True(t, ok)
+		require.Empty(t, got.SchemaDefaultNonNullable)
+	}
+	for _, origin := range []any{nil, false, 42, ""} {
+		_, ok, err = Parse(map[string]any{WireKey: map[string]any{"kind": "config", "name": "value", "schema_default_non_nullable": origin}})
+		require.True(t, ok)
+		require.Error(t, err)
+	}
+}

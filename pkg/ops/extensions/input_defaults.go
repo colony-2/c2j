@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"reflect"
+	"sort"
 	"strings"
 
 	"github.com/colony-2/c2j/pkg/configuration"
@@ -27,10 +28,20 @@ type InputDefaults struct {
 
 type defaultsNode struct {
 	schema          *jsonschemav6.Schema
+	path            string
 	kind            defaultsKind
 	explicitDefault interface{}
 	objectProps     map[string]*defaultsNode
+	patternProps    []patternDefaultsNode
+	additionalProp  *defaultsNode
 	arrayItem       *defaultsNode
+}
+
+// Pattern contracts annotate entries already inserted by a supported parent
+// default. They do not add support for defaults declared inside these schemas.
+type patternDefaultsNode struct {
+	pattern jsonschemav6.Regexp
+	node    *defaultsNode
 }
 
 func BuildInputDefaults(raw map[string]any, compiled *jsonschemav6.Schema) (*InputDefaults, error) {
@@ -95,6 +106,7 @@ func buildDefaultsNode(schema *jsonschemav6.Schema, path string, memo map[*jsons
 	states[resolved] = visitStateVisiting
 	node := &defaultsNode{
 		schema: resolved,
+		path:   path,
 		kind:   detectDefaultsKind(resolved),
 	}
 	memo[resolved] = node
@@ -120,6 +132,28 @@ func buildDefaultsNode(schema *jsonschemav6.Schema, path string, memo map[*jsons
 		}
 	}
 
+	// Keep all applicable map-entry contracts for literal object defaults.
+	// Sorting patterns also makes provenance deterministic when several reject null.
+	patterns := make([]jsonschemav6.Regexp, 0, len(resolved.PatternProperties))
+	for pattern := range resolved.PatternProperties {
+		patterns = append(patterns, pattern)
+	}
+	sort.Slice(patterns, func(i, j int) bool { return patterns[i].String() < patterns[j].String() })
+	for _, pattern := range patterns {
+		child, err := buildDefaultsNode(resolved.PatternProperties[pattern], path+".patternProperties."+pattern.String(), memo, states)
+		if err != nil {
+			return nil, err
+		}
+		node.patternProps = append(node.patternProps, patternDefaultsNode{pattern: pattern, node: child})
+	}
+	if additional, ok := resolved.AdditionalProperties.(*jsonschemav6.Schema); ok {
+		child, err := buildDefaultsNode(additional, path+".additionalProperties", memo, states)
+		if err != nil {
+			return nil, err
+		}
+		node.additionalProp = child
+	}
+
 	switch items := resolved.Items.(type) {
 	case *jsonschemav6.Schema:
 		child, err := buildDefaultsNode(items, path+".items", memo, states)
@@ -142,12 +176,8 @@ func buildDefaultsNode(schema *jsonschemav6.Schema, path string, memo map[*jsons
 		}
 	}
 
-	if node.explicitDefault == nil && len(node.objectProps) == 0 && node.arrayItem == nil {
-		delete(memo, resolved)
-		states[resolved] = visitStateDone
-		return nil, nil
-	}
-
+	// Retain child schemas even without defaults: references inside a literal
+	// parent default need their nullability when provenance is attached.
 	if node.explicitDefault != nil {
 		value, _, err := node.applyDescendantsToValue(deepCopyAny(node.explicitDefault), true)
 		if err != nil {
@@ -363,6 +393,53 @@ func schemaLooksLikeArray(schema *jsonschemav6.Schema) bool {
 	return isSlice
 }
 
+// copyDefault attaches provenance only to values inserted by the schema. It
+// also handles references nested in literal object/array defaults.
+func (n *defaultsNode) copyDefault() any {
+	return n.annotateDefault(deepCopyAny(n.explicitDefault))
+}
+
+func (n *defaultsNode) annotateDefault(value any) any {
+	if n == nil {
+		return value
+	}
+	if ref, ok, err := configuration.Parse(value); ok && err == nil {
+		if n.schema.Validate(nil) != nil {
+			ref.SchemaDefaultNonNullable = n.path
+		}
+		// Keep defaults JSON-shaped for schema validation and durable storage.
+		raw, _ := json.Marshal(ref)
+		var encoded any
+		_ = json.Unmarshal(raw, &encoded)
+		return encoded
+	}
+	switch v := value.(type) {
+	case map[string]any:
+		for key, item := range v {
+			child, matched := n.objectProps[key]
+			item = child.annotateDefault(item)
+			// Named properties and every matching pattern are conjunctive.
+			// A nullable constraint must not erase a rejecting constraint's marker.
+			for _, contract := range n.patternProps {
+				if contract.pattern.MatchString(key) {
+					matched = true
+					item = contract.node.annotateDefault(item)
+				}
+			}
+			// Additional properties govern only entries not matched above.
+			if !matched {
+				item = n.additionalProp.annotateDefault(item)
+			}
+			v[key] = item
+		}
+	case []any:
+		for i, item := range v {
+			v[i] = n.arrayItem.annotateDefault(item)
+		}
+	}
+	return value
+}
+
 func (n *defaultsNode) applyToValue(current interface{}, present bool) (interface{}, bool, error) {
 	if n == nil {
 		return current, false, nil
@@ -371,7 +448,7 @@ func (n *defaultsNode) applyToValue(current interface{}, present bool) (interfac
 	// References are whole values, even though their durable encoding is an
 	// object. Never merge their internal keys into a caller-supplied object.
 	if !present && isReferenceDefault(n.explicitDefault) {
-		return deepCopyAny(n.explicitDefault), true, nil
+		return n.copyDefault(), true, nil
 	}
 	switch n.kind {
 	case defaultsKindObject:
@@ -386,7 +463,7 @@ func (n *defaultsNode) applyToValue(current interface{}, present bool) (interfac
 		}
 
 		if n.explicitDefault != nil && !isReferenceDefault(n.explicitDefault) {
-			defMap, ok, _ := toStringMap(deepCopyAny(n.explicitDefault))
+			defMap, ok, _ := toStringMap(n.copyDefault())
 			if !ok {
 				return nil, false, fmt.Errorf("object default must be a map, got %T", n.explicitDefault)
 			}
@@ -410,7 +487,7 @@ func (n *defaultsNode) applyToValue(current interface{}, present bool) (interfac
 			if n.explicitDefault == nil {
 				return current, false, nil
 			}
-			value, _, err := n.applyDescendantsToValue(deepCopyAny(n.explicitDefault), true)
+			value, _, err := n.applyDescendantsToValue(n.copyDefault(), true)
 			if err != nil {
 				return nil, false, err
 			}
@@ -426,7 +503,7 @@ func (n *defaultsNode) applyToValue(current interface{}, present bool) (interfac
 		if present || n.explicitDefault == nil {
 			return current, false, nil
 		}
-		return deepCopyAny(n.explicitDefault), true, nil
+		return n.copyDefault(), true, nil
 	}
 }
 

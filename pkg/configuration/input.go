@@ -66,6 +66,13 @@ func transformInput(t reflect.Type, v any, mode string, f func(Reference) (any, 
 			if err != nil {
 				return nil, err
 			}
+			// Omit only a null resolved from an inserted non-nullable schema
+			// default. Explicit null and ordinary references retain null.
+			if childMode != "forward" && value == nil {
+				if ref, ok, _ := Parse(v); ok && ref.SchemaDefaultNonNullable != "" {
+					continue
+				}
+			}
 			out[k] = value
 		}
 		return out, nil

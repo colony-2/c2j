@@ -1,0 +1,287 @@
+{
+  "name": "skill.run",
+  "description": "Runs one requested Codex skill with structured artifact validation",
+  "command": [
+    "bin/skill-run"
+  ],
+  "input_schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "skill"
+    ],
+    "properties": {
+      "skill": {
+        "type": "string"
+      },
+      "skills": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "input": {
+        "type": "object"
+      },
+      "prompt": {
+        "type": "string"
+      },
+      "instructions": {
+        "type": "string",
+        "description": "Additional developer instructions for a new session only. Ignored when continuing a session, including repair attempts; the existing rollout supplies its instructions."
+      },
+      "session": {
+        "type": "object",
+        "x-c2j-object-type": "c2ops.codex.session/v1"
+      },
+      "model": {
+        "type": "string",
+        "default": "${{ context.config.?codex_model.orValue(null) }}"
+      },
+      "reasoning_effort": {
+        "type": "string",
+        "default": "${{ context.config.?codex_reasoning_effort.orValue(null) }}"
+      },
+      "api": {
+        "type": [
+          "object",
+          "null"
+        ],
+        "description": "External Responses API from tenant settings; used only when both URL and credentials are available. Set null to disable.",
+        "additionalProperties": false,
+        "required": [
+          "base_url"
+        ],
+        "properties": {
+          "base_url": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "default": "${{ context.config.?codex_api_base_url.orValue(null) }}",
+            "description": "API base URL including /v1, without /responses. Null or empty retains the default provider."
+          },
+          "api_key": {
+            "type": "string",
+            "x-secret": true,
+            "minLength": 1,
+            "default": "${{ context.secrets.?codex_api_key.orValue(null) }}",
+            "description": "Proxy client key from context.secrets; omit with orValue(null) to retain the default provider."
+          },
+          "api_key_env": {
+            "type": "string",
+            "description": "Explicit worker environment variable containing a bearer token; overrides api_key for legacy recipes."
+          }
+        }
+      },
+      "env": {
+        "type": "object",
+        "properties": {
+          "OPENAI_API_KEY": {
+            "type": "string",
+            "x-secret": true
+          },
+          "CODEX_API_KEY": {
+            "type": "string",
+            "x-secret": true
+          }
+        },
+        "additionalProperties": {
+          "type": "string"
+        }
+      },
+      "return_on": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "status_contract": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string"
+          }
+        }
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "from": {
+            "type": "string",
+            "description": "artifact (default), response (final answer), or legacy assistantSummary alias."
+          },
+          "path": {
+            "type": "string"
+          },
+          "format": {
+            "type": "string"
+          },
+          "schema": {
+            "type": [
+              "object",
+              "boolean"
+            ]
+          },
+          "max_repair_attempts": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Final-answer schema corrections (default 3); applies to response and assistantSummary sources."
+          },
+          "required_when_incomplete": {
+            "type": "boolean"
+          },
+          "validation": {
+            "type": "object",
+            "properties": {
+              "on_error": {
+                "type": "string"
+              },
+              "repair": {
+                "type": "object",
+                "properties": {
+                  "enabled": {
+                    "type": "boolean"
+                  },
+                  "max_attempts": {
+                    "type": "integer"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "idle_timeout": {
+        "type": "string",
+        "description": "Optional idle limit; omitted or zero disables the watchdog."
+      },
+      "workdir_path": {
+        "type": "string",
+        "default": "{{ context.environment.op.workdir }}"
+      },
+      "worktree_path": {
+        "type": "string",
+        "default": "{{ context.environment.op.worktree_path }}"
+      },
+      "artifact_inbox_path": {
+        "type": "string",
+        "default": "{{ context.environment.op.inbox }}"
+      },
+      "artifact_outbox_path": {
+        "type": "string",
+        "default": "{{ context.environment.op.outbox }}"
+      }
+    }
+  },
+  "output_schema": {
+    "type": "object",
+    "required": [
+      "session"
+    ],
+    "properties": {
+      "session": {
+        "type": "object",
+        "x-c2j-object-type": "c2ops.codex.session/v1"
+      },
+      "status": {
+        "type": "string"
+      },
+      "sessionId": {
+        "type": "string"
+      },
+      "assistantSummary": {
+        "type": "string"
+      },
+      "incompleteReason": {
+        "type": "string"
+      },
+      "incompleteCategory": {
+        "type": "string"
+      },
+      "pendingDependencies": {
+        "type": "array",
+        "items": {
+          "type": "object"
+        }
+      },
+      "skills_installed": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "outcome": {
+        "type": "object"
+      },
+      "skill": {
+        "type": "string"
+      },
+      "raw_summary": {
+        "type": "string"
+      },
+      "output_source": {
+        "type": "string"
+      },
+      "output_path": {
+        "type": "string"
+      },
+      "raw_output": {
+        "type": "string"
+      },
+      "parsed_output": {},
+      "output_schema_valid": {
+        "type": "boolean"
+      },
+      "output_schema_errors": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "output_repair_attempts": {
+        "type": "integer"
+      },
+      "status_contract_path": {
+        "type": "string"
+      },
+      "status_contract_present": {
+        "type": "boolean"
+      },
+      "status_contract_valid": {
+        "type": "boolean"
+      },
+      "status_contract_json": {},
+      "status_contract_errors": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "diagnostics": {
+        "type": "object"
+      },
+      "response": {},
+      "usage": {
+        "description": "Native cumulative session token usage, including resumed turns and repair attempts. Do not sum snapshots across invocations of the same session.",
+        "type": [
+          "object",
+          "null"
+        ],
+        "additionalProperties": true
+      },
+      "exit_code": {
+        "type": [
+          "integer",
+          "null"
+        ]
+      },
+      "schema_mode": {
+        "type": "string"
+      },
+      "errorMessage": {
+        "type": "string"
+      }
+    }
+  }
+}

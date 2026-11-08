@@ -59,6 +59,12 @@ func MaterializeInput(ctx context.Context, typ reflect.Type, input any, fetch Fe
 		if refs, e := objects.Collect(value); e != nil || len(refs) > 0 {
 			return nil, fmt.Errorf("configuration %q cannot supply object references", ref.Name)
 		}
+		// An inserted schema default may resolve null even when a typed
+		// reference normally rejects it. The containing object omits it;
+		// ordinary typed references still enforce their existing contract.
+		if value == nil && ref.SchemaDefaultNonNullable != "" {
+			return nil, nil
+		}
 		valid := true
 		switch ref.ExpectedType {
 		case "string":

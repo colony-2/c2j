@@ -20,6 +20,9 @@ type Reference struct {
 	ExpectedType string `json:"type,omitempty"`
 	// Default is a JSON scalar used only when the name is absent, not for an existing null.
 	Default json.RawMessage `json:"default,omitempty"`
+	// SchemaDefaultNonNullable records the schema path of an inserted default
+	// whose property rejects null. Only materializing object properties uses it.
+	SchemaDefaultNonNullable string `json:"schema_default_non_nullable,omitempty"`
 }
 
 func Ref(name string) Reference { return Reference{Kind: "config", Name: name} }
@@ -47,16 +50,23 @@ func Parse(value any) (Reference, bool, error) {
 			return r, false, nil
 		}
 		fields, ok := raw.(map[string]any)
-		if !ok || len(v) != 1 || (len(fields) < 2 || len(fields) > 4) {
+		if !ok || len(v) != 1 || (len(fields) < 2 || len(fields) > 5) {
 			return r, true, fmt.Errorf("invalid config reference encoding")
 		}
 		r.Kind, _ = fields["kind"].(string)
 		r.Name, _ = fields["name"].(string)
 		for key := range fields {
 			switch key {
-			case "kind", "name", "type", "default":
+			case "kind", "name", "type", "default", "schema_default_non_nullable":
 			default:
 				return r, true, fmt.Errorf("invalid config reference encoding")
+			}
+		}
+		if origin, exists := fields["schema_default_non_nullable"]; exists {
+			var valid bool
+			r.SchemaDefaultNonNullable, valid = origin.(string)
+			if !valid || r.SchemaDefaultNonNullable == "" {
+				return r, true, fmt.Errorf("invalid config schema default origin")
 			}
 		}
 		if d, exists := fields["default"]; exists {

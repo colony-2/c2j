@@ -323,3 +323,40 @@ That gives extension ops the missing behavior users expect while keeping the aut
 - same keyword as OpenAPI / JSON Schema
 - same execution timing as built-in op defaults
 - one shared implementation across selector-resolved extension ops
+
+## Configuration-reference null defaults
+
+When an absent property receives a configuration-reference default and its schema
+rejects null, a null resolution omits that property before validation. Both an
+absent setting with a null fallback and a present JSON null use this rule.
+Required properties still fail required validation after omission. Explicit
+invocation nulls and explicit configuration references retain null and undergo
+normal validation. Nullable defaults retain null. Arrays retain their elements;
+this rule removes object properties only, including properties inside array
+objects. Empty and whitespace strings remain strings.
+
+Inserted non-nullable configuration defaults carry the schema path in the optional
+`schema_default_non_nullable` field inside the existing `$c2j_ref` encoding. The
+path records default origin and the schema's rejection of null; materialization
+does not infer origin from the resolved value. Literal object/array defaults
+propagate the annotation using the corresponding child schemas. Nodes without
+defaults are retained to supply those child nullability contracts.
+
+New readers accept existing reference encodings without the annotation and retain
+their ordinary-reference semantics. Already serialized unannotated references
+cannot safely be reclassified as defaults: they may have been explicit inputs.
+Fresh preparation with this build records provenance for newly inserted defaults.
+Older readers reject the added field, so compilers/preparers and materializing
+workers that exchange annotated inputs must all use a compatible build before
+such inputs are produced. Updating an application's Go dependency alone does not
+upgrade its materializing runtime. Completed offline replay does not rematerialize
+configuration or require the original extension source.
+
+For entries inside a literal object default, provenance also follows
+`additionalProperties` and `patternProperties` schema contracts. Named properties
+and all matching patterns apply together: a null resolution is omitted when any
+applicable contract rejects null. `additionalProperties` applies only when neither
+a named property nor a pattern matches. These contracts are followed recursively
+through nested maps and arrays. This does not enable default keywords declared
+inside additional or pattern property schemas; those unsupported locations remain
+rejected.

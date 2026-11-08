@@ -1,0 +1,128 @@
+name: codex
+description: Runs Codex via the selector-backed extension mechanism
+command: ["nix", "run", "github:colony-2/c2ops/published#codex", "--"]
+dependencies:
+  - nix:github:colony-2/c2ops/published#codex
+input_schema:
+  type: object
+  additionalProperties: false
+  required: [prompt]
+  properties:
+    prompt:
+      type: string
+    instructions:
+      type: string
+      description: Additional developer instructions for a new session only. Ignored when continuing a session, including repair attempts; the existing rollout supplies its instructions.
+    session:
+      type: object
+      x-c2j-object-type: c2ops.codex.session/v1
+    model:
+      type: string
+      default: '${{ context.config.?codex_model.orValue(null) }}'
+    reasoning_effort:
+      type: string
+      default: '${{ context.config.?codex_reasoning_effort.orValue(null) }}'
+    api:
+      type: [object, "null"]
+      description: External Responses API from tenant settings; used only when both URL and credentials are available. Set null to disable.
+      additionalProperties: false
+      required: [base_url]
+      properties:
+        base_url:
+          type: [string, "null"]
+          default: '${{ context.config.?codex_api_base_url.orValue(null) }}'
+          description: API base URL including /v1, without /responses. Null or empty retains the default provider.
+        api_key:
+          type: string
+          x-secret: true
+          minLength: 1
+          default: '${{ context.secrets.?codex_api_key.orValue(null) }}'
+          description: Proxy client key from context.secrets; omit with orValue(null) to retain the default provider.
+        api_key_env:
+          type: string
+          description: Explicit worker environment variable containing a bearer token; overrides api_key for legacy recipes.
+    env:
+      type: object
+      properties:
+        OPENAI_API_KEY:
+          type: string
+          x-secret: true
+        CODEX_API_KEY:
+          type: string
+          x-secret: true
+      additionalProperties:
+        type: string
+    skills:
+      type: array
+      items:
+        type: string
+    return_on:
+      type: array
+      items:
+        type: string
+    status_contract:
+      type: object
+    output:
+      type: object
+      additionalProperties: false
+      properties:
+        schema:
+          type: [object, boolean, "null"]
+          description: Optional JSON Schema for the final answer, passed directly to Codex and validated locally. Null disables validation.
+        max_repair_attempts:
+          type: integer
+          minimum: 0
+          default: 3
+          description: Corrections after the initial answer; zero disables repairs. Each correction resumes the same session.
+    idle_timeout:
+      type: string
+      description: Optional idle limit; omitted or zero disables the watchdog.
+    workdir_path:
+      type: string
+      default: "{{ context.environment.op.workdir }}"
+    worktree_path:
+      type: string
+      default: "{{ context.environment.op.worktree_path }}"
+    artifact_inbox_path:
+      type: string
+      default: "{{ context.environment.op.inbox }}"
+    artifact_outbox_path:
+      type: string
+      default: "{{ context.environment.op.outbox }}"
+output_schema:
+  type: object
+  required: [session]
+  properties:
+    session:
+      type: object
+      x-c2j-object-type: c2ops.codex.session/v1
+    status:
+      type: string
+    sessionId:
+      type: string
+    skills_installed:
+      type: array
+      items:
+        type: string
+    workflow:
+      type: object
+      description: Present only when status_contract.path is explicitly configured.
+    response: {}
+    usage:
+      description: Native cumulative session token usage, including resumed turns and repair attempts. Do not sum snapshots across invocations of the same session.
+      type: [object, "null"]
+      additionalProperties: true
+    exit_code:
+      type: [integer, "null"]
+    schema_mode:
+      type: string
+    errorMessage:
+      type: string
+    output_schema_valid:
+      type: boolean
+    output_schema_errors:
+      type: array
+      items:
+        type: string
+    output_repair_attempts:
+      type: integer
