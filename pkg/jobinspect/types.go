@@ -62,6 +62,7 @@ type Job struct {
 	Parent           string    `json:"parent,omitempty"`
 	Status           string    `json:"status"`
 	CompletionStatus string    `json:"completion_status,omitempty"`
+	CompletionDetail string    `json:"completion_detail,omitempty"`
 	CreatedAt        time.Time `json:"created_at"`
 }
 

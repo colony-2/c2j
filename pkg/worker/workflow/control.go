@@ -83,6 +83,12 @@ func (s *SWFWorkflowControl) InspectJob(ctx context.Context, key jobdb.JobKey) (
 	if run.Job.ArchivedAt != nil {
 		inspection.FinishedAt = *run.Job.ArchivedAt
 	}
+	if run.Job.Status == jobdb.JobStatusCancelled {
+		// Cancellation belongs to the job, even when no attempt produced an
+		// outcome. Preserve its exact message independently of partial outputs.
+		inspection.FailureKind = "cancellation"
+		inspection.FailureMessage = run.Job.CompletionDetail
+	}
 
 	if len(run.Attempts) == 0 {
 		return inspection, nil
@@ -98,6 +104,11 @@ func (s *SWFWorkflowControl) InspectJob(ctx context.Context, key jobdb.JobKey) (
 			return workflowctl.JobInspection{}, err
 		}
 		inspection.Output = output
+	}
+	if run.Job.Status == jobdb.JobStatusCancelled {
+		// A retained attempt failure predates the terminal cancellation and must
+		// not replace either its status or its operator-supplied explanation.
+		return inspection, nil
 	}
 
 	if latest.Outcome.Status == jobdb.TaskOutcomeStatusFailed || latest.Outcome.Error != nil {

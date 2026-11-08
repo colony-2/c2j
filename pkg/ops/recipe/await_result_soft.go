@@ -120,7 +120,7 @@ func childStatusFromInspection(deps ops.OpDependencies, inspection workflowctl.J
 	if out.FailureKind == "" && out.Status == "completed" {
 		out.FailureKind = "none"
 	}
-	out.FailureMessage = strings.TrimSpace(inspection.FailureMessage)
+	out.FailureMessage = inspection.FailureMessage
 	out.StartedAt = formatInspectionTime(inspection.StartedAt)
 	out.FinishedAt = formatInspectionTime(inspection.FinishedAt)
 

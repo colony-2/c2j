@@ -79,7 +79,7 @@ func (s *Service) load(ctx context.Context, id string) (*history, error) {
 	h := &history{run: run, attempts: map[string][]*attempt{}}
 	var meta starter.JobMetadata
 	_ = json.Unmarshal(run.Job.Metadata, &meta)
-	h.job = Job{ID: id, Tenant: s.Tenant, Goal: run.Job.GoalID, Parent: meta.ParentJobID, Status: string(run.Job.Status), CompletionStatus: run.Job.CompletionStatus, CreatedAt: run.Job.CreatedAt}
+	h.job = Job{ID: id, Tenant: s.Tenant, Goal: run.Job.GoalID, Parent: meta.ParentJobID, Status: string(run.Job.Status), CompletionStatus: run.Job.CompletionStatus, CompletionDetail: run.Job.CompletionDetail, CreatedAt: run.Job.CreatedAt}
 	if page, e := s.Runtime.ListJobs(ctx, jobdb.ListJobsRequest{TenantIds: []string{s.Tenant}, JobKeys: []jobdb.JobKey{run.Job.JobKey}, IncludeHidden: true, PageSize: 1}); e == nil && len(page.Jobs) == 1 {
 		h.job.Cell = page.Jobs[0].Cell
 		h.job.Parent = page.Jobs[0].ParentJobID

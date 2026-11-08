@@ -16,6 +16,14 @@ c2j job log JOB
 c2j job story JOB --json
 ```
 
+`show` includes `job.completion_status` and the exact persisted
+`job.completion_detail` when present. The same detail field carries failure
+diagnostics and cancellation feedback, including messages supplied while a job
+was waiting for a review. The text view prints it under `Completion detail:`.
+No final recipe output or completed review response is required. Empty detail
+is omitted; c2j does not invent a cancellation reason. For large messages, use
+`c2j job show JOB --output job.json` to write the complete JSON response.
+
 Inside an ordinary task, `self` identifies the current job. `c2j job list` lists
 backend-visible jobs in the selected tenant, and `c2j job log self` inspects its
 own stored history. `c2j self` advertises `jobs.inspect`. Reads use the

@@ -274,6 +274,9 @@ func renderInspection(out io.Writer, r *jobinspect.Response) error {
 	}
 	if r.Job != nil {
 		fmt.Fprintf(out, "Job %s: %s %s — cell %s\n", r.Job.ID, r.Job.Status, r.Job.CompletionStatus, r.Job.Cell)
+		if r.Job.CompletionDetail != "" {
+			fmt.Fprintf(out, "Completion detail:\n%s\n", r.Job.CompletionDetail)
+		}
 	}
 	w := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
 	if r.Jobs != nil {

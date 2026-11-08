@@ -59,6 +59,16 @@ mode. Soft exact-job waits return failed/cancelled status and available partial
 results as data. Soft goal waits finish on success or explicit goal failure;
 a failed candidate under an open goal remains pending.
 
+For an externally cancelled job, an exact-job `recipe.await_result_soft` read
+returns `status: cancelled`, `failure_kind: cancellation`, and the stored
+cancellation explanation in `failure_message`. This applies to both
+`return_when: terminal` and `return_when: current_status`. The explanation is
+available even without final outputs or an answered review and preserves the
+original text, including whitespace and Unicode. No supplied reason means an
+empty/omitted message. An earlier attempt error cannot override the terminal
+cancellation. `c2j job show JOB --json` exposes the same text as
+`job.completion_detail`. The parent decides how to respond to that feedback.
+
 `recipe.get_result` is nonblocking: a job target reads that execution; a goal
 target reads its committed winner. `recipe.await_result_soft` also supports
 `return_when: current_status` to inspect an open goal without waiting.
