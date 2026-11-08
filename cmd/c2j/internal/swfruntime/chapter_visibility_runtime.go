@@ -47,6 +47,10 @@ func (r *chapterVisibilityRuntime) DeleteJobs(ctx context.Context, req jobdb.Del
 	return admin.DeleteJobs(ctx, req)
 }
 
+func (r *chapterVisibilityRuntime) ListLeaseEvents(ctx context.Context, req jobdb.ListLeaseEventsRequest) (jobdb.ListLeaseEventsResponse, error) {
+	return jobdb.ListLeaseEvents(ctx, r.WorkflowRuntime, req)
+}
+
 func (r *chapterVisibilityRuntime) RegisterJobSchema(ctx context.Context, req jobdb.RegisterJobSchemaRequest) (jobdb.JobSchemaInfo, error) {
 	registry, err := r.schemaRegistry()
 	if err != nil {

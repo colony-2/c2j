@@ -67,5 +67,5 @@ func (r Runtime) PollWork(ctx context.Context, req jobdb.PollWorkRequest) ([]job
 }
 
 func (r Runtime) ListLeaseEvents(ctx context.Context, req jobdb.ListLeaseEventsRequest) (jobdb.ListLeaseEventsResponse, error) {
-	return r.WorkflowRuntime.ListLeaseEvents(Context(ctx), req)
+	return jobdb.ListLeaseEvents(Context(ctx), r.WorkflowRuntime, req)
 }

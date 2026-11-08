@@ -61,7 +61,7 @@ func (s *Service) ListJobLeaseEvents(ctx context.Context, jobID string, options 
 			return jobdb.ListLeaseEventsResponse{}, err
 		}
 	}
-	return s.Runtime.ListLeaseEvents(ctx, jobdb.ListLeaseEventsRequest{
+	return jobdb.ListLeaseEvents(ctx, s.Runtime, jobdb.ListLeaseEventsRequest{
 		TenantID: s.Tenant, JobIDs: []string{jobID}, EventTypes: options.EventTypes,
 		OccurredAfter: options.OccurredAfter, OccurredBefore: options.OccurredBefore,
 		IncludeHidden: options.IncludeHidden, PageSize: options.PageSize, PageToken: options.PageToken,

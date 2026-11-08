@@ -2,6 +2,14 @@
 
 Owner: JobDB. Type: SDK bug / API consistency.
 
+Status: resolved in the JobDB revision now used by c2j,
+`v0.0.78-0.20261108193348-5dee36022e67` (commit `5dee36022e67`). Both result
+helpers return `*jobdb.JobCancelledError`, whose `Detail` field preserves the
+exact cancellation reason and whose `Unwrap` retains `ErrJobCancelled`.
+c2j regression coverage verifies the reason through `JobResult` and `InspectJob`
+using SQLite and HTTP, including cancellation after an earlier attempt failure.
+The original report below describes the behavior before this fix.
+
 Verified against `github.com/colony-2/jobdb`
 `v0.0.77-0.20261108033303-ea45f87bf010` (commit `ea45f87bf010`).
 

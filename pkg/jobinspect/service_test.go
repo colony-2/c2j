@@ -32,7 +32,7 @@ type eventReadCounter struct {
 
 func (r *eventReadCounter) ListLeaseEvents(ctx context.Context, req jobdb.ListLeaseEventsRequest) (jobdb.ListLeaseEventsResponse, error) {
 	r.calls++
-	return r.WorkflowRuntime.ListLeaseEvents(ctx, req)
+	return jobdb.ListLeaseEvents(ctx, r.WorkflowRuntime, req)
 }
 
 type fixtureTask struct {
@@ -146,18 +146,18 @@ func TestFailedJobInspectionAndCumulativeExport(t *testing.T) {
 			require.Equal(t, wf.JobRunFailed, out.Status)
 			// Canonical reads are opt-in, one page, and leave retained history unchanged.
 			eventReq := jobdb.ListLeaseEventsRequest{TenantID: "tenant", JobIDs: []string{h.JobKey.JobId}, PageSize: 1}
-			expected, e := rt.ListLeaseEvents(ctx, eventReq)
+			expected, e := jobdb.ListLeaseEvents(ctx, rt, eventReq)
 			require.NoError(t, e)
 			require.Len(t, expected.Events, 1)
 			eventPage, e := api.ListJobLeaseEvents(ctx, h.JobKey.JobId, jobinspect.LeaseEventOptions{PageSize: 1})
 			require.NoError(t, e)
 			require.Equal(t, expected, eventPage)
-			unchanged, e := rt.ListLeaseEvents(ctx, eventReq)
+			unchanged, e := jobdb.ListLeaseEvents(ctx, rt, eventReq)
 			require.NoError(t, e)
 			require.Equal(t, expected, unchanged)
 			if expected.NextPageToken != "" {
 				eventReq.PageToken = expected.NextPageToken
-				older, err := rt.ListLeaseEvents(ctx, eventReq)
+				older, err := jobdb.ListLeaseEvents(ctx, rt, eventReq)
 				require.NoError(t, err)
 				next, err := api.ListJobLeaseEvents(ctx, h.JobKey.JobId, jobinspect.LeaseEventOptions{PageSize: 1, PageToken: expected.NextPageToken})
 				require.NoError(t, err)

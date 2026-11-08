@@ -50,12 +50,23 @@ func TestInspectCancellationOverridesRetainedAttemptError(t *testing.T) {
 				require.NoError(t, err)
 				require.NotEmpty(t, run.Attempts)
 				require.NotNil(t, latestInspectionAttempt(run.Attempts).Outcome.Error)
-				got, err := (&SWFWorkflowControl{Engine: engine}).InspectJob(ctx, h.JobKey)
+				control := &SWFWorkflowControl{Engine: engine}
+				got, err := control.InspectJob(ctx, h.JobKey)
 				require.NoError(t, err)
 				require.True(t, got.Terminal)
 				require.Equal(t, "cancelled", got.Status)
 				require.Equal(t, "cancellation", got.FailureKind)
 				require.Equal(t, reason, got.FailureMessage)
+
+				output, err := control.JobResult(ctx, h.JobKey)
+				require.Nil(t, output)
+				require.ErrorIs(t, err, jobdb.ErrJobCancelled)
+				var cancelled *jobdb.JobCancelledError
+				require.ErrorAs(t, err, &cancelled)
+				require.Equal(t, reason, cancelled.Detail)
+				if reason != "" {
+					require.ErrorContains(t, err, reason)
+				}
 			})
 		}
 	}

@@ -35,6 +35,10 @@ func New(runtime jobdb.WorkflowRuntime, allocation execution.Allocation) *Runtim
 	return r
 }
 
+func (r *Runtime) ListLeaseEvents(ctx context.Context, req jobdb.ListLeaseEventsRequest) (jobdb.ListLeaseEventsResponse, error) {
+	return jobdb.ListLeaseEvents(ctx, r.WorkflowRuntime, req)
+}
+
 // CreateDelegation forwards the optional runtime capability hidden by embedding
 // WorkflowRuntime. Preserve the exact parent chosen by the engine and unwrap our
 // admission wrapper so the remote runtime can export its original capability.
