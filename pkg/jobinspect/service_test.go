@@ -25,6 +25,16 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+type eventReadCounter struct {
+	jobdb.WorkflowRuntime
+	calls int
+}
+
+func (r *eventReadCounter) ListLeaseEvents(ctx context.Context, req jobdb.ListLeaseEventsRequest) (jobdb.ListLeaseEventsResponse, error) {
+	r.calls++
+	return r.WorkflowRuntime.ListLeaseEvents(ctx, req)
+}
+
 type fixtureTask struct {
 	outputs []jobdb.TaskData
 	calls   int
@@ -117,7 +127,8 @@ func TestFailedJobInspectionAndCumulativeExport(t *testing.T) {
 			}}
 			h, e := rt.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "tenant", JobType: orchestrator.Name(), Cell: "test", CellRepo: "example.test/test", Data: jobdb.NewTaskDataOrPanic(nil), RunPolicy: jobdb.RunPolicy{Retry: jobdb.RetryPolicy{MaximumAttempts: 1}}}})
 			require.NoError(t, e)
-			api := &jobinspect.Service{Runtime: rt, Tenant: "tenant"}
+			counter := &eventReadCounter{WorkflowRuntime: rt}
+			api := &jobinspect.Service{Runtime: counter, Tenant: "tenant"}
 			var liveID string
 			worker.before = func(tc wf.TaskContext) {
 				if worker.calls == 1 {
@@ -133,9 +144,48 @@ func TestFailedJobInspectionAndCumulativeExport(t *testing.T) {
 			out, e := run.Run(nil)
 			require.NoError(t, e)
 			require.Equal(t, wf.JobRunFailed, out.Status)
+			// Canonical reads are opt-in, one page, and leave retained history unchanged.
+			eventReq := jobdb.ListLeaseEventsRequest{TenantID: "tenant", JobIDs: []string{h.JobKey.JobId}, PageSize: 1}
+			expected, e := rt.ListLeaseEvents(ctx, eventReq)
+			require.NoError(t, e)
+			require.Len(t, expected.Events, 1)
+			eventPage, e := api.ListJobLeaseEvents(ctx, h.JobKey.JobId, jobinspect.LeaseEventOptions{PageSize: 1})
+			require.NoError(t, e)
+			require.Equal(t, expected, eventPage)
+			unchanged, e := rt.ListLeaseEvents(ctx, eventReq)
+			require.NoError(t, e)
+			require.Equal(t, expected, unchanged)
+			if expected.NextPageToken != "" {
+				eventReq.PageToken = expected.NextPageToken
+				older, err := rt.ListLeaseEvents(ctx, eventReq)
+				require.NoError(t, err)
+				next, err := api.ListJobLeaseEvents(ctx, h.JobKey.JobId, jobinspect.LeaseEventOptions{PageSize: 1, PageToken: expected.NextPageToken})
+				require.NoError(t, err)
+				require.Equal(t, older, next)
+			}
+			_, e = api.ListJobLeaseEvents(ctx, h.JobKey.JobId, jobinspect.LeaseEventOptions{PageToken: "tampered"})
+			require.ErrorIs(t, e, jobdb.ErrInvalidLeaseEventPageToken)
+			if backend == "toy" {
+				denied := jobdb.WithCellAuthority(ctx, jobdb.CellAuthority{Principal: "reader", TenantID: "tenant", Permissions: map[string]bool{}})
+				_, e = api.ListJobLeaseEvents(denied, h.JobKey.JobId, jobinspect.LeaseEventOptions{})
+				require.ErrorIs(t, e, jobdb.ErrCellForbidden)
+				excluded := jobdb.WithCellAuthority(ctx, jobdb.CellAuthority{Principal: "reader", TenantID: "tenant", Permissions: map[string]bool{"jobs.list": true}, Cells: map[string]bool{}})
+				invisible, err := api.ListJobLeaseEvents(excluded, h.JobKey.JobId, jobinspect.LeaseEventOptions{})
+				require.NoError(t, err)
+				require.Empty(t, invisible.Events)
+				otherTenant := &jobinspect.Service{Runtime: rt, Tenant: "other"}
+				invisible, err = otherTenant.ListJobLeaseEvents(ctx, h.JobKey.JobId, jobinspect.LeaseEventOptions{})
+				require.NoError(t, err)
+				require.Empty(t, invisible.Events)
+			}
+
+			eventReads := counter.calls
+			_, e = api.Inspect(ctx, jobinspect.Request{Operation: "show", JobID: h.JobKey.JobId})
+			require.NoError(t, e)
 			listing, e := api.Inspect(ctx, jobinspect.Request{Operation: "list"})
 			require.NoError(t, e)
 			require.Len(t, listing.Jobs, 1)
+			require.Equal(t, eventReads, counter.calls, "ordinary show/list must not read events")
 			require.Equal(t, h.JobKey.JobId, listing.Jobs[0].ID)
 			q := jobinspect.Request{Operation: "log", JobID: h.JobKey.JobId, Limit: 2}
 			page, e := api.Inspect(ctx, q)

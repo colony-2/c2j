@@ -286,6 +286,13 @@ func (h *history) selected(id string, n int) (*attempt, error) {
 	return nil, fmt.Errorf("task %q attempt %d not found", id, n)
 }
 func (s *Service) Inspect(ctx context.Context, q Request) (*Response, error) {
+	if q.Operation == "events" {
+		page, err := s.ListJobLeaseEvents(ctx, q.JobID, q.Events)
+		if err != nil {
+			return nil, err
+		}
+		return &Response{Version: Version, LeaseEvents: &page}, nil
+	}
 	if q.Limit == 0 {
 		q.Limit = 25
 	}

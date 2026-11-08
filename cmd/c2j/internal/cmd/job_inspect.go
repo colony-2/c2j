@@ -8,6 +8,7 @@ import (
 	"os"
 	"strings"
 	"text/tabwriter"
+	"time"
 
 	"github.com/colony-2/c2j/cmd/c2j/internal/defaults"
 	"github.com/colony-2/c2j/cmd/c2j/internal/swfruntime"
@@ -70,12 +71,14 @@ Use 'git -C CHECKOUT diff refs/c2j/base HEAD' to review cumulative changes.`}
 	root.PersistentFlags().BoolVar(&embed, "embed", false, "Use embedded JobDB")
 	root.PersistentFlags().BoolVar(&jsonOutput, "json", false, "Emit structured JSON")
 	root.AddCommand(newClearCrashConcernCmd(&uri, &embed, &jsonOutput))
-	for _, operation := range []string{"list", "show", "log", "story", "result", "fields", "artifacts", "artifact", "snapshot"} {
+	for _, operation := range []string{"events", "list", "show", "log", "story", "result", "fields", "artifacts", "artifact", "snapshot"} {
 		op := operation
 		q := jobinspect.Request{Operation: op}
 		var output, dir, field, reference string
 		var statuses []string
-		short := map[string]string{"fields": "List output field pointers, types, sizes, and bounded previews", "list": "List jobs (use --parent JOB for children)", "show": "Show job identity and status", "log": "List task occurrences or inspect one task's outputs", "story": "List recorded execution scopes without recipe replay", "result": "Inspect final recipe outputs and exported artifacts", "artifacts": "List artifacts exported by a job or produced by one task", "artifact": "Download one artifact exactly", "snapshot": "Inspect or export cumulative Git state and artifacts"}[op]
+		var eventTypes []string
+		var after, before string
+		short := map[string]string{"events": "Read one page of retained lease events", "fields": "List output field pointers, types, sizes, and bounded previews", "list": "List jobs (use --parent JOB for children)", "show": "Show job identity and status", "log": "List task occurrences or inspect one task's outputs", "story": "List recorded execution scopes without recipe replay", "result": "Inspect final recipe outputs and exported artifacts", "artifacts": "List artifacts exported by a job or produced by one task", "artifact": "Download one artifact exactly", "snapshot": "Inspect or export cumulative Git state and artifacts"}[op]
 		use := op + " JOB"
 		args := cobra.ExactArgs(1)
 		if op == "list" {
@@ -84,6 +87,23 @@ Use 'git -C CHECKOUT diff refs/c2j/base HEAD' to review cumulative changes.`}
 		}
 		command := &cobra.Command{Use: use, Short: short, Args: args, RunE: func(cmd *cobra.Command, args []string) error {
 			request := q
+			if op == "events" {
+				for _, value := range eventTypes {
+					request.Events.EventTypes = append(request.Events.EventTypes, jobdb.LeaseEventType(value))
+				}
+				for _, bound := range []struct {
+					value string
+					dest  **time.Time
+				}{{after, &request.Events.OccurredAfter}, {before, &request.Events.OccurredBefore}} {
+					if bound.value != "" {
+						at, err := time.Parse(time.RFC3339Nano, bound.value)
+						if err != nil {
+							return err
+						}
+						*bound.dest = &at
+					}
+				}
+			}
 			if len(args) > 0 {
 				request.JobID = args[0]
 			}
@@ -158,7 +178,12 @@ Use 'git -C CHECKOUT diff refs/c2j/base HEAD' to review cumulative changes.`}
 				return err
 			}
 			var raw []byte
-			if request.Field != nil {
+			if op == "events" {
+				raw, err = json.MarshalIndent(response.LeaseEvents, "", "  ")
+				if err != nil {
+					return err
+				}
+			} else if request.Field != nil {
 				raw = response.Value
 			} else {
 				raw, err = json.MarshalIndent(response, "", "  ")
@@ -179,6 +204,14 @@ Use 'git -C CHECKOUT diff refs/c2j/base HEAD' to review cumulative changes.`}
 			return renderInspection(cmd.OutOrStdout(), response)
 		}}
 		f := command.Flags()
+		if op == "events" {
+			f.IntVar(&q.Events.PageSize, "page-size", 0, "Events per page (1–200; default 100)")
+			f.StringVar(&q.Events.PageToken, "page-token", "", "Opaque continuation token")
+			f.StringSliceVar(&eventTypes, "event-type", nil, "Event type: lease_acquired or lease_renewed (repeatable)")
+			f.StringVar(&after, "occurred-after", "", "Inclusive RFC3339 time bound")
+			f.StringVar(&before, "occurred-before", "", "Exclusive RFC3339 time bound")
+			f.BoolVar(&q.Events.IncludeHidden, "include-hidden", false, "Include hidden history under JobDB policy")
+		}
 		f.StringVar(&output, "output", "", "Write exact JSON or artifact bytes to a new file; - writes stdout")
 		if op == "list" || op == "log" || op == "story" || op == "fields" || op == "artifacts" {
 			f.IntVar(&q.Limit, "limit", 25, "Items per page (1–100)")
@@ -230,6 +263,15 @@ func writeInspectionFile(path string, stdout io.Writer, write func(io.Writer) er
 }
 
 func renderInspection(out io.Writer, r *jobinspect.Response) error {
+	if r.LeaseEvents != nil {
+		for _, event := range r.LeaseEvents.Events {
+			fmt.Fprintf(out, "%s  %s  %s  worker=%s lease=%s\n", event.OccurredAt.Format(time.RFC3339Nano), event.EventID, event.EventType, event.WorkerID, event.LeaseID)
+		}
+		if r.LeaseEvents.NextPageToken != "" {
+			fmt.Fprintf(out, "Next page: --page-token %s\n", r.LeaseEvents.NextPageToken)
+		}
+		return nil
+	}
 	if r.Job != nil {
 		fmt.Fprintf(out, "Job %s: %s %s — cell %s\n", r.Job.ID, r.Job.Status, r.Job.CompletionStatus, r.Job.Cell)
 	}

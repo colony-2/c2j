@@ -3,6 +3,7 @@ package childbroker
 import (
 	"context"
 	"io"
+	"net/http"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -65,4 +66,30 @@ func TestJobInspectionAuthentication(t *testing.T) {
 	_, err = client.Download(canceled, jobinspect.Request{JobID: "other", Name: "x"})
 	require.Error(t, err)
 	require.Equal(t, int32(2), probe.calls.Load())
+}
+
+func TestJobEventsRejectScopeOverrides(t *testing.T) {
+	probe := &inspectionProbe{}
+	server, err := Start(jobinspect.WithAPI(context.Background(), probe), Options{Current: jobcontext.Current{TenantID: "tenant", JobID: "job", GoalID: "goal"}, Self: func() selfinfo.Info { return selfinfo.Unknown("") }})
+	require.NoError(t, err)
+	defer server.Close()
+	broker, _, err := jobcontext.ChildJobBrokerFromEnv(func(k string) string { return server.Env()[k] })
+	require.NoError(t, err)
+	for _, raw := range []string{
+		`{"operation":"events","job_id":"selected","tenant_id":"other"}`,
+		`{"operation":"events","job_id":"selected","events":{"job_ids":["other"]}}`,
+		`{"operation":"events","job_id":"selected","events":{"tenant_id":"other"}}`,
+		`{"operation":"events","job_id":"selected","events":{"event_types":null}}`,
+		`{"operation":"events","job_id":"selected","events":{"event_types":[]}}`,
+	} {
+		req, err := http.NewRequest(http.MethodPost, strings.TrimRight(broker.Endpoint, "/")+"/inspect", strings.NewReader(raw))
+		require.NoError(t, err)
+		req.Header.Set("Authorization", "Bearer "+broker.Token)
+		req.Header.Set(sessionHeader, broker.SessionID)
+		resp, err := http.DefaultClient.Do(req)
+		require.NoError(t, err)
+		require.NoError(t, resp.Body.Close())
+		require.Equal(t, http.StatusBadRequest, resp.StatusCode)
+	}
+	require.Zero(t, probe.calls.Load())
 }

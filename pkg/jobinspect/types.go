@@ -16,6 +16,7 @@ import (
 const Version = 1
 
 type Request struct {
+	Events    LeaseEventOptions  `json:"events,omitzero"`
 	Operation string             `json:"operation"`
 	JobID     string             `json:"job_id,omitempty"`
 	Task      string             `json:"task,omitempty"`
@@ -37,19 +38,20 @@ type API interface {
 }
 
 type Response struct {
-	Version    int             `json:"version"`
-	Job        *Job            `json:"job,omitempty"`
-	Jobs       []Job           `json:"jobs,omitempty"`
-	Tasks      []Task          `json:"tasks,omitempty"`
-	Task       *Task           `json:"task,omitempty"`
-	Scopes     []Scope         `json:"scopes,omitempty"`
-	Result     *Result         `json:"result,omitempty"`
-	Artifacts  []Artifact      `json:"artifacts,omitempty"`
-	Fields     []Field         `json:"fields,omitempty"`
-	Snapshot   *Snapshot       `json:"snapshot,omitempty"`
-	Value      json.RawMessage `json:"value,omitempty"`
-	NextCursor string          `json:"next_cursor,omitempty"`
-	Warnings   []string        `json:"warnings,omitempty"`
+	Version     int                            `json:"version"`
+	LeaseEvents *jobdb.ListLeaseEventsResponse `json:"lease_events,omitempty"`
+	Job         *Job                           `json:"job,omitempty"`
+	Jobs        []Job                          `json:"jobs,omitempty"`
+	Tasks       []Task                         `json:"tasks,omitempty"`
+	Task        *Task                          `json:"task,omitempty"`
+	Scopes      []Scope                        `json:"scopes,omitempty"`
+	Result      *Result                        `json:"result,omitempty"`
+	Artifacts   []Artifact                     `json:"artifacts,omitempty"`
+	Fields      []Field                        `json:"fields,omitempty"`
+	Snapshot    *Snapshot                      `json:"snapshot,omitempty"`
+	Value       json.RawMessage                `json:"value,omitempty"`
+	NextCursor  string                         `json:"next_cursor,omitempty"`
+	Warnings    []string                       `json:"warnings,omitempty"`
 }
 
 type Job struct {

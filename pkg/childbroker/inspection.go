@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -13,6 +14,7 @@ import (
 	"github.com/colony-2/c2j/pkg/jobcontext"
 	"github.com/colony-2/c2j/pkg/jobinspect"
 	"github.com/colony-2/c2j/pkg/permissions"
+	"github.com/colony-2/jobdb/pkg/jobdb"
 )
 
 func (s *Server) handleJobInspection(w http.ResponseWriter, r *http.Request) {
@@ -61,6 +63,20 @@ func (s *Server) handleJobInspection(w http.ResponseWriter, r *http.Request) {
 	}
 	result, err := api.Inspect(ctx, q)
 	if err != nil {
+		if q.Operation == "events" {
+			if errors.Is(err, jobdb.ErrLeasePermissionDenied) {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(403)
+				_ = json.NewEncoder(w).Encode(&jobdb.CellError{Code: "lease_permission_denied", Status: 403})
+				return
+			}
+			if status, code, ok := jobdb.CellErrorStatus(err); ok {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(status)
+				_ = json.NewEncoder(w).Encode(&jobdb.CellError{Code: code, Status: status})
+				return
+			}
+		}
 		http.Error(w, err.Error(), 400)
 		return
 	}
@@ -102,6 +118,15 @@ func (c JobClient) call(ctx context.Context, q jobinspect.Request, download bool
 	if resp.StatusCode != http.StatusOK {
 		defer resp.Body.Close()
 		b, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		if q.Operation == "events" {
+			var typed jobdb.CellError
+			if json.Unmarshal(b, &typed) == nil && typed.Code != "" && typed.Status == resp.StatusCode {
+				if typed.Code == "lease_permission_denied" {
+					return nil, jobdb.ErrLeasePermissionDenied
+				}
+				return nil, &typed
+			}
+		}
 		return nil, fmt.Errorf("task inspection rejected (%d): %s", resp.StatusCode, strings.TrimSpace(string(b)))
 	}
 	return resp, nil

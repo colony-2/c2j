@@ -15,6 +15,7 @@ import (
 	"github.com/colony-2/c2j/pkg/jobcontext"
 	"github.com/colony-2/c2j/pkg/jobinspect"
 	"github.com/colony-2/c2j/pkg/selfinfo"
+	"github.com/colony-2/jobdb/pkg/jobdb"
 	"github.com/stretchr/testify/require"
 )
 
@@ -27,6 +28,9 @@ func (a *cliInspection) Inspect(_ context.Context, q jobinspect.Request) (*jobin
 	a.requests = append(a.requests, q)
 	if a.failure != nil {
 		return nil, a.failure
+	}
+	if q.Operation == "events" {
+		return &jobinspect.Response{Version: 1, LeaseEvents: &jobdb.ListLeaseEventsResponse{Events: []jobdb.LeaseEvent{{EventID: "9007199254740993", EventType: jobdb.LeaseEventRenewed}}, NextPageToken: "opaque+/="}}, nil
 	}
 	if q.Field != nil {
 		return &jobinspect.Response{Version: 1, Value: json.RawMessage(`null`)}, nil
@@ -133,5 +137,57 @@ func TestJobInspectionHelpDescribesBackendPermissions(t *testing.T) {
 		if child.Name() == "list" {
 			require.Contains(t, child.Short, "--parent JOB")
 		}
+	}
+}
+
+func TestJobEventsCLI(t *testing.T) {
+	api := &cliInspection{}
+	current := jobcontext.Current{TenantID: "tenant", JobID: "selected", GoalID: "goal"}
+	server, err := childbroker.Start(jobinspect.WithAPI(context.Background(), api), childbroker.Options{Current: current, Self: func() selfinfo.Info { return selfinfo.Unknown("") }})
+	require.NoError(t, err)
+	defer server.Close()
+	for k, v := range jobcontext.EnvForCurrent(current) {
+		t.Setenv(k, v)
+	}
+	for k, v := range server.Env() {
+		t.Setenv(k, v)
+	}
+	t.Setenv("C2J_JOBDB", "invalid://ambient")
+	var out bytes.Buffer
+	command := newJobCmd()
+	command.SetOut(&out)
+	command.SetErr(io.Discard)
+	command.SetArgs([]string{"events", "self", "--json", "--page-size", "2", "--page-token", "opaque", "--event-type", "lease_renewed", "--occurred-after", "2026-11-08T01:02:03.123456789Z", "--occurred-before", "2026-11-09T00:00:00Z", "--include-hidden"})
+	require.NoError(t, command.Execute())
+	require.Len(t, api.requests, 1)
+	q := api.requests[0]
+	require.Equal(t, "selected", q.JobID)
+	require.Equal(t, "events", q.Operation)
+	require.Equal(t, 2, q.Events.PageSize)
+	require.Equal(t, "opaque", q.Events.PageToken)
+	require.True(t, q.Events.IncludeHidden)
+	require.Equal(t, []jobdb.LeaseEventType{jobdb.LeaseEventRenewed}, q.Events.EventTypes)
+	require.Equal(t, 123456789, q.Events.OccurredAfter.Nanosecond())
+	require.NotNil(t, q.Events.OccurredBefore)
+	var page jobdb.ListLeaseEventsResponse
+	require.NoError(t, json.Unmarshal(out.Bytes(), &page))
+	require.Equal(t, "9007199254740993", page.Events[0].EventID)
+	require.Equal(t, "opaque+/=", page.NextPageToken)
+	require.NotContains(t, out.String(), "lease_events")
+	for _, args := range [][]string{{"events", "one", "two"}, {"events", "self", "--occurred-after", "bad"}} {
+		c := newJobCmd()
+		c.SetOut(io.Discard)
+		c.SetErr(io.Discard)
+		c.SetArgs(args)
+		require.Error(t, c.Execute())
+	}
+	require.Len(t, api.requests, 1)
+	for _, failure := range []error{jobdb.ErrInvalidLeaseEventPageToken, jobdb.ErrInvalidLeaseEventRequest, jobdb.ErrCellForbidden, jobdb.ErrLeasePermissionDenied} {
+		api.failure = failure
+		c := newJobCmd()
+		c.SetOut(io.Discard)
+		c.SetErr(io.Discard)
+		c.SetArgs([]string{"events", "self", "--json"})
+		require.ErrorIs(t, c.Execute(), failure)
 	}
 }
