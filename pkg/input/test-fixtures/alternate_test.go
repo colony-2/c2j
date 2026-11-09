@@ -174,6 +174,12 @@ outputs:
 				require.NoError(t, err)
 				form, err := client.GetForm(ctx, key.TenantId, key.JobId)
 				require.NoError(t, err)
+				history, err := input.NewHistoryService(input.HistoryConfig{Reader: ctl})
+				require.NoError(t, err)
+				beforeHistory, err := history.ListJobInputStory(ctx, input.ListJobInputStoryRequest{TenantID: key.TenantId, JobID: key.JobId})
+				require.NoError(t, err)
+				require.Len(t, beforeHistory.Entries, 1)
+				require.Equal(t, "pending", beforeHistory.Entries[0].State)
 				at, err := time.Parse(time.RFC3339Nano, form.FallbackAt)
 				require.NoError(t, err)
 				if mode == "before-fallback" {
@@ -224,6 +230,18 @@ outputs:
 				if mode != "human-late" {
 					receipt := result["receipt"].(map[string]any)
 					require.Equal(t, "if-unanswered:"+form.RequestID, receipt["submission_id"])
+				}
+				afterHistory, err := history.ListJobInputStory(ctx, input.ListJobInputStoryRequest{TenantID: key.TenantId, JobID: key.JobId})
+				require.NoError(t, err)
+				require.Len(t, afterHistory.Entries, 1, "%+v", afterHistory)
+				require.Equal(t, beforeHistory.Entries[0].EntryID, afterHistory.Entries[0].EntryID)
+				require.True(t, afterHistory.Entries[0].AcceptedResponse.Present)
+				if mode == "human-late" {
+					require.Equal(t, "answered", afterHistory.Entries[0].State)
+					require.Equal(t, "external_submission", afterHistory.Entries[0].ResponseSource)
+				} else {
+					require.Equal(t, "defaulted", afterHistory.Entries[0].State)
+					require.Equal(t, "unanswered_fallback", afterHistory.Entries[0].ResponseSource)
 				}
 				// Durable collection results retain the logical input identity under schema validation.
 				chapters, err := rt.ListChapters(ctx, jobdb.ListChaptersRequest{JobKey: key})

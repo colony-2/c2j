@@ -48,6 +48,13 @@ func TestInputSubmissionRacesTimeoutPickup(t *testing.T) {
 				if scenario == "timeout_first" {
 					require.Equal(t, workflow.JobRunFailed, run().Status)
 				}
+				history, historyErr := NewHistoryService(HistoryConfig{Reader: &c2workflow.SWFWorkflowControl{Engine: engine}})
+				require.NoError(t, historyErr)
+				page, historyErr := history.ListJobInputStory(ctx, ListJobInputStoryRequest{TenantID: submitted.JobKey.TenantId, JobID: submitted.JobKey.JobId})
+				require.NoError(t, historyErr)
+				require.Len(t, page.Entries, 1)
+				require.False(t, page.Entries[0].AcceptedResponse.Present)
+				require.NotEqual(t, "defaulted", page.Entries[0].State)
 				var answer any = "yes"
 				err = client.SubmitResponse(ctx, submitted.JobKey.TenantId, submitted.JobKey.JobId, FormResponse{Response: &answer})
 				if scenario == "timeout_first" {
@@ -64,6 +71,12 @@ func TestInputSubmissionRacesTimeoutPickup(t *testing.T) {
 					} else {
 						require.Equal(t, workflow.JobRunCompleted, outcome.Status)
 					}
+					answered, historyErr := history.ListJobInputStory(ctx, ListJobInputStoryRequest{TenantID: submitted.JobKey.TenantId, JobID: submitted.JobKey.JobId})
+					require.NoError(t, historyErr)
+					require.Len(t, answered.Entries, 1)
+					require.Equal(t, page.Entries[0].EntryID, answered.Entries[0].EntryID)
+					require.True(t, answered.Entries[0].AcceptedResponse.Present)
+					require.Equal(t, "answered", answered.Entries[0].State)
 				}
 			})
 		})
