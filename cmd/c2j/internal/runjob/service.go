@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/colony-2/c2j/pkg/executionruntime"
+	restartservice "github.com/colony-2/c2j/pkg/jobrestart/service"
 	"io"
 	"log/slog"
 	"strings"
@@ -204,6 +205,7 @@ func buildDeps(ctx context.Context, opts Options) (*runnerDeps, func(), error) {
 		stopRuntime:  handle.Cleanup,
 	}
 	deps.executionRuntime = executionruntime.New(handle.Runtime, opts.Allocation)
+	deps.executionRuntime.RestartAPI = &restartservice.Service{Engine: handle.Engine, Tenant: opts.TenantID, Provider: celProvider, Resolver: recipeSourceResolver, Submit: (restartservice.TaskSubmitter{Engine: handle.Engine, Registry: handle.Runtime.(jobdb.JobSchemaRegistry)}).Submit}
 	for i, worker := range deps.taskWorkers {
 		deps.taskWorkers[i] = deps.executionRuntime.WrapTaskWorker(worker)
 	}

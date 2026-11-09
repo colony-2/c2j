@@ -1,5 +1,7 @@
 package model
 
+import "github.com/colony-2/c2j/pkg/jobrestart"
+
 // Prefer ScopeID: compact histories can contain multiple scopes in one chapter.
 // ChapterOrdinal remains available for unambiguous boundaries, including 0 for submission.
 type GetRestartContextRequest struct {
@@ -9,17 +11,4 @@ type GetRestartContextRequest struct {
 	ScopeID        string
 }
 
-type RestartContext struct {
-	ProjectID      string `json:"project_id"`
-	JobID          string `json:"job_id"`
-	ChapterOrdinal int64  `json:"chapter_ordinal"`
-	ScopeID        string `json:"scope_id"`
-	// Job is the before-state for ContextPatch.Job. Scoped patches address
-	// Visible.sequence[id].outputs or Visible.states[id].outputs.
-	// At submission these are read-only: Job is the submitted context and
-	// Visible contains only the submitted inputs, before defaults or setup.
-	Job     map[string]any `json:"job"`
-	Visible map[string]any `json:"visible"`
-	// RedactedPaths are JSON pointers into this response, never patch values.
-	RedactedPaths []string `json:"redacted_paths"`
-}
+type RestartContext = jobrestart.RestartContext

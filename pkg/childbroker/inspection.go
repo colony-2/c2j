@@ -92,6 +92,9 @@ func (c JobClient) call(ctx context.Context, q jobinspect.Request, download bool
 	if download {
 		suffix += "/download"
 	}
+	return c.callPayload(ctx, q, suffix, q.Operation == "events")
+}
+func (c JobClient) callPayload(ctx context.Context, q any, suffix string, events bool) (*http.Response, error) {
 	u, err := url.Parse(strings.TrimRight(c.Broker.Endpoint, "/") + suffix)
 	if err != nil || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
 		return nil, fmt.Errorf("invalid task inspection endpoint")
@@ -112,13 +115,16 @@ func (c JobClient) call(ctx context.Context, q jobinspect.Request, download bool
 	resp, err := client.Do(req)
 	if err != nil {
 		transport.CloseIdleConnections()
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
 		return nil, fmt.Errorf("task inspection helper unavailable")
 	}
 	resp.Body = &transportBody{ReadCloser: resp.Body, close: transport.CloseIdleConnections}
 	if resp.StatusCode != http.StatusOK {
 		defer resp.Body.Close()
 		b, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-		if q.Operation == "events" {
+		if events {
 			var typed jobdb.CellError
 			if json.Unmarshal(b, &typed) == nil && typed.Code != "" && typed.Status == resp.StatusCode {
 				if typed.Code == "lease_permission_denied" {

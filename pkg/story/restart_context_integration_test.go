@@ -71,6 +71,9 @@ type restartFixture struct {
 }
 
 func newRestartFixture(t *testing.T, backend, recipe string, failFirst ...bool) *restartFixture {
+	return newRestartFixtureInputs(t, backend, recipe, nil, failFirst...)
+}
+func newRestartFixtureInputs(t *testing.T, backend, recipe string, inputs map[string]any, failFirst ...bool) *restartFixture {
 	t.Helper()
 	coreops.Register(coreops.NewActivityMappedOpV2[restartProbeInput, map[string]any](coreops.OpMetadata{Type: restartProbeOp}, func(coreops.OpDependencies, context.Context, restartProbeInput) (map[string]any, error) {
 		panic("inspection must not execute operations")
@@ -96,7 +99,7 @@ func newRestartFixture(t *testing.T, backend, recipe string, failFirst ...bool) 
 	require.NoError(t, err)
 	svc, err := story.New(story.ServiceConfig{Engine: engine, SchemaRegistry: db})
 	require.NoError(t, err)
-	data, err := jobdb.NewTaskData(workflowctl.StartJob{TenantId: "restart-tests", RecipeName: "fixture", Cell: "test", CellRepo: celltest.Repo("")}, jobdb.NewArtifactFromBytes("fixture"+starter.RecipeArtifactSuffix, []byte(recipe)))
+	data, err := jobdb.NewTaskData(workflowctl.StartJob{Inputs: inputs, TenantId: "restart-tests", RecipeName: "fixture", Cell: "test", CellRepo: celltest.Repo("")}, jobdb.NewArtifactFromBytes("fixture"+starter.RecipeArtifactSuffix, []byte(recipe)))
 	require.NoError(t, err)
 	celltest.Create(t, rt, "restart-tests", "test", "example.test/test")
 	keyHandle, err := engine.SubmitJob(ctx, jobdb.SubmitJob{TenantId: "restart-tests", JobType: "recipe", Data: data, Cell: "test", CellRepo: "example.test/test"})
@@ -283,6 +286,13 @@ outputs: {count: '${{ states.loop.outputs.count }}'}
 	key := jobdb.JobKey{TenantId: f.key.TenantId, JobId: restarted.JobID}
 	f.run(t, key)
 	require.EqualValues(t, 2, f.story(t, key).Root.Output.(map[string]any)["count"])
+	patched, err := f.service.RestartRecipeJob(f.ctx, story.RestartRecipeJobRequest{RequestID: uuid.NewString(), ProjectID: f.key.TenantId, JobID: f.key.JobId, ScopeID: scopeID, Patch: &coretask.ContextPatch{Scopes: []coretask.ScopePatch{{Container: "states", ID: "loop", Outputs: map[string]any{"count": 10}}}}, Goal: struct {
+		Mode string `json:"mode"`
+	}{Mode: "new"}})
+	require.NoError(t, err)
+	patchedKey := jobdb.JobKey{TenantId: f.key.TenantId, JobId: patched.JobID}
+	f.run(t, patchedKey)
+	require.EqualValues(t, 11, f.story(t, patchedKey).Root.Output.(map[string]any)["count"], "state output patch applies before the revisited state's vars/inputs")
 }
 
 func TestRestartContextRejectsInvalidTargets(t *testing.T) {

@@ -115,6 +115,18 @@ func inspectRestartBoundary(ctx context.Context, engine replayJobRunner, key job
 		Logger:         compilerLogger,
 		ReadOnlyReplay: true, CELOptionsProvider: provider, RootSourceResolver: resolver, BeforeScope: scopes.beforeScope,
 	}))
+	// JobDB may replace an early interpreter failure with a replay divergence.
+	// Preserve the reconstruction cause so missing recipes/data stay actionable.
+	execute := worker.Execute
+	worker.Execute = func(exec jobworkflow.ExecutionContext, data jobdb.JobData) (jobdb.JobData, error) {
+		out, err := execute(exec, data)
+		if err != nil && !errors.Is(err, context.Canceled) {
+			mu.Lock()
+			captureErr = errors.Join(captureErr, err)
+			mu.Unlock()
+		}
+		return out, err
+	}
 	observer := scopeReplayObserver{ReplayObserver: restartContextObserver{}, scopes: scopes}
 	_, replayErr := engine.ReplayJobRun(ctx, jobworkflow.ReplayRunRequest{JobKey: key, JobWorker: worker, Observer: observer})
 	mu.Lock()

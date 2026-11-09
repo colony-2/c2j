@@ -157,6 +157,7 @@ func start(ctx context.Context, opts Options, openListener func() (net.Listener,
 	mux.HandleFunc(submitPath+"/cell", broker.handleResolveCell)
 	mux.HandleFunc(submitPath+"/cells", broker.handleCreateCell)
 	mux.HandleFunc(submitPath+"/inspect", broker.handleJobInspection)
+	mux.HandleFunc(submitPath+"/restart", broker.handleRestart)
 	mux.HandleFunc(submitPath+"/inspect/download", broker.handleJobInspection)
 	broker.server = &http.Server{
 		Handler:           mux,

@@ -1,5 +1,71 @@
 # Restart selection and context inspection
 
+Discover restart boundaries, inspect their context, and submit a corrected
+continuation from the CLI:
+
+```sh
+c2j job restart-points JOB
+c2j job restart-points JOB --json
+c2j job restart-context JOB --scope SCOPE --output before.json
+c2j restart JOB --scope SCOPE --request-id recovery-1 --patch-file patch.json
+```
+
+`restart-points` reads recorded history without replaying or loading the recipe.
+Its JSON contains `project_id`, `job_id`, and `restart_scopes`; each point has
+`scope_id`, `chapter_ordinal`, `started_at`, and available recorded title/path.
+Repeated visits remain separate. A duplicate scope identity is listed with an
+`unavailable_reason`, and cannot be selected. An eligible job with no points
+returns an empty list. A missing job or denied read returns an error.
+
+Inspection and submission require exactly one explicit `--scope ID` or
+`--chapter ORDINAL`. Chapter `0` explicitly selects submission. A chapter with
+multiple scopes is ambiguous; use a unique scope ID from discovery. Blank scope
+IDs, negative chapters, missing selectors, and both flags are errors.
+
+Inspection writes complete JSON to stdout by default (`--json` is also accepted).
+`--output FILE` creates a new file, refusing to overwrite an existing one;
+`--output -` writes stdout. It preserves the snapshot fields described below,
+including deferred configuration, object, and artifact references and redaction
+metadata. A missing recipe can prevent inspection while discovery still works.
+
+Write only intended edits in `patch.json`, for example:
+
+```json
+{"scopes":[{"container":"sequence","id":"write","outputs":{"document_path":"design.md"}}]}
+```
+
+The step ID is local to `sequence` or `states`, not the opaque restart scope ID.
+Optional `job` edits use the typed job-context JSON shape, for example
+`{"job":{"git":{"author":"Recovery Author"}}}`. Unknown structural/job
+fields, malformed JSON, multiple documents, wrong types, `inputs`, `config`,
+`workspace`, and `cell_resolution` edits are rejected. Forbidden identities are
+rejected even when their value is null. Arbitrary JSON remains supported inside
+output maps and other extensible map values. Null deletes map keys; arrays
+replace whole arrays. `{}` is an empty patch. Omitting `--patch-file` preserves
+the legacy unpatched restart. Submission accepts only an absent or empty patch.
+Do not copy the inspection snapshot or redaction placeholders into a patch.
+Runtime validation can still reject a patch when replay reaches its boundary;
+a successful submission returns the new identity, not an execution result.
+
+Restart returns a complete JSON job reference. It continues the source goal by
+default; `--goal new` creates a new goal. Reuse `--request-id` only to retry the
+same selection and payload. Changed requests need a fresh ID. A new patch
+replaces the prior patch at that boundary; omitting it removes the prior patch.
+Earlier patches in the retained prefix remain effective. The source job stays
+unchanged and uncancelled. Tasks and external side effects in the selected
+continuation may repeat. After submission, further corrections require another
+restart.
+
+Inside a task, these commands use the authenticated worker helper, and `JOB`
+can be `self`. They never fall back to a direct connection, including when an
+explicit `--jobdb` is supplied. An older helper without the required capability
+returns an error. Restart submission requires the operation's `jobs.submit`
+grant and permitted source cell. The trusted controller checks these grants and
+uses its current owner lease; delegated tokens themselves cannot restart jobs.
+Restart submission under an inherited hook policy is unavailable because copying
+that source could bypass its child-policy ceiling; use an authorized operator
+context. Tenant authorization, scope lifetime, and backend errors remain in force.
+
 The `pkg/story` service exposes a recorded restart boundary on story nodes and
 can reconstruct the complete context at that boundary before a new patch is
 applied. The boundary is identified by **tenant/project, source job ID, and
@@ -113,7 +179,7 @@ unreconstructable context is an error, not an empty successful snapshot.
 
 ## Submit the restart
 
-Submit the selected ordinal and only the changes the user requested:
+Submit the selected boundary and only the changes the user requested:
 
 ```go
 patch := &task.ContextPatch{
@@ -126,6 +192,7 @@ patch := &task.ContextPatch{
 result, err := svc.RestartRecipeJob(ctx, story.RestartRecipeJobRequest{
     ProjectID:      tenantID,
     JobID:          sourceJobID,
+    RequestID:      "recovery-1", // Fresh ID for a changed selection or payload.
     ScopeID:        scopeID,
     Patch:         patch,
 })

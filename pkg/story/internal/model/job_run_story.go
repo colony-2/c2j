@@ -3,6 +3,8 @@ package model
 import (
 	"time"
 
+	"github.com/colony-2/c2j/pkg/jobrestart"
+
 	recipeartifacts "github.com/colony-2/c2j/pkg/artifacts"
 	"github.com/colony-2/c2j/pkg/contextual"
 	"github.com/colony-2/jobdb/pkg/jobdb"
@@ -164,10 +166,4 @@ type JobRunStoryTransitionDecision struct {
 }
 
 // RestartScope identifies a patchable durable boundary, including task blocks.
-type RestartScope struct {
-	ChapterOrdinal int64     `json:"chapter_ordinal"`
-	Title          string    `json:"title,omitempty"`
-	Path           []string  `json:"path,omitempty"`
-	ScopeID        string    `json:"scope_id"`
-	StartedAt      time.Time `json:"started_at"`
-}
+type RestartScope = jobrestart.RestartScope

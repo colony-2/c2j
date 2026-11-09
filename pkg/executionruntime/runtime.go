@@ -13,12 +13,15 @@ import (
 	"time"
 
 	"github.com/colony-2/c2j/pkg/execution"
+	"github.com/colony-2/c2j/pkg/jobrestart"
 	"github.com/colony-2/c2j/pkg/permissions"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
 )
 
 type Runtime struct {
+	// RestartAPI is a driver-provided, authorized restart service.
+	RestartAPI jobrestart.API
 	jobdb.WorkflowRuntime
 	// Issuer translates recipe grants into task-scoped delegation requests.
 	Issuer     permissions.Issuer

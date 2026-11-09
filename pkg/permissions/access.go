@@ -24,6 +24,7 @@ type Access struct {
 	resolve    ResolveFunc
 	submit     SubmitFunc
 	createCell CreateCellFunc
+	restart    RestartFunc
 }
 
 func NewAccess(ctx context.Context, grant JobDB, resolve ResolveFunc, submit SubmitFunc, create ...CreateCellFunc) *Access {
@@ -165,3 +166,27 @@ func WithAccess(ctx context.Context, access *Access) context.Context {
 	return context.WithValue(ctx, accessKey{}, access)
 }
 func FromContext(ctx context.Context) *Access { a, _ := ctx.Value(accessKey{}).(*Access); return a }
+
+// RestartFunc is kept inside the controller, alongside ordinary submission.
+type RestartFunc func(context.Context, jobdb.SubmitRestartJobRequest) (jobref.Ref, error)
+
+// WithRestart installs the controller's lease-bound restart callback before the
+// Access is published to an operation. It does not expand its submission grant.
+func (a *Access) WithRestart(restart RestartFunc) *Access { a.restart = restart; return a }
+func (a *Access) Restart(ctx context.Context, req jobdb.SubmitRestartJobRequest) (jobref.Ref, error) {
+	if err := ctx.Err(); err != nil {
+		return jobref.Ref{}, err
+	}
+	if err := a.Context().Err(); err != nil {
+		return jobref.Ref{}, err
+	}
+	if !a.grant.Jobs.Submit || (a.grant.Jobs.CellNames != nil && !slices.Contains(a.grant.Jobs.CellNames, req.Job.Cell)) {
+		return jobref.Ref{}, jobdb.ErrLeasePermissionDenied
+	}
+	if a.restart == nil {
+		return jobref.Ref{}, fmt.Errorf("authorized restart submission capability unavailable")
+	}
+	call, cancel := bound(ctx, a.Context())
+	defer cancel()
+	return a.restart(call, req)
+}

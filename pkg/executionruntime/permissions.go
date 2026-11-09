@@ -11,6 +11,7 @@ import (
 	"github.com/colony-2/c2j/pkg/hookpolicy"
 	"github.com/colony-2/c2j/pkg/jobinspect"
 	"github.com/colony-2/c2j/pkg/jobref"
+	"github.com/colony-2/c2j/pkg/jobrestart"
 	"github.com/colony-2/c2j/pkg/permissions"
 	"github.com/colony-2/c2j/pkg/secrets"
 	"github.com/colony-2/c2j/pkg/selfinfo"
@@ -59,6 +60,29 @@ func (r *Runtime) restrictedAccess(parent context.Context, tc jobworkflow.TaskCo
 		}
 		return jobref.FromHandle(h)
 	})
+	// Delegated JobDB tokens explicitly exclude restart. Keep this action in
+	// the trusted controller, behind Access.Restart's grant/cell checks and the
+	// current owner lease, just like controller-managed hook child submissions.
+	restart := permissions.RestartFunc(func(call context.Context, req jobdb.SubmitRestartJobRequest) (jobref.Ref, error) {
+		if len(hookPolicy) > 0 {
+			return jobref.Ref{}, fmt.Errorf("restart submission unavailable under inherited hook policy; restart from an authorized operator context")
+		}
+		r.mu.Lock()
+		current := r.leases[tc.JobKey]
+		r.mu.Unlock()
+		if current == nil || current.leaseState != original.leaseState || tc.Context().Err() != nil {
+			return jobref.Ref{}, jobdb.ErrExecutionLeaseLost
+		}
+		if req.Job.PriorJobKey.TenantId != tc.JobKey.TenantId {
+			return jobref.Ref{}, jobdb.ErrLeasePermissionDenied
+		}
+		handle, err := current.ExecutionLease.SubmitRestartJob(call, req)
+		if err != nil {
+			return jobref.Ref{}, err
+		}
+		return jobref.FromHandle(handle)
+	})
+
 	if len(grant.Secrets.Resolve) != 0 || grant.Jobs.Submit || grant.Cells.Create {
 		if r.Issuer != nil {
 			var issuedDeadline time.Time
@@ -145,11 +169,12 @@ func (r *Runtime) restrictedAccess(parent context.Context, tc jobworkflow.TaskCo
 			return result, nil
 		}
 	}
-	access = permissions.NewAccess(ctx, grant, resolve, submit, createCell)
+	access = permissions.NewAccess(ctx, grant, resolve, submit, createCell).WithRestart(restart)
 	// Inspection must not wait for an in-flight delegation RPC. The issuer
 	// publishes only completed, noncredential metadata.
 	provider := r.selfProvider(tc, original, access, policies, issuedDelegation.Load)
 	inspectionCtx := jobinspect.WithAPI(permissions.WithAccess(ctx, access), r.inspection(access, tc, original))
+	inspectionCtx = jobrestart.WithAPI(inspectionCtx, r.restartInspection(access, tc, original))
 	return access, selfinfo.WithProvider(inspectionCtx, provider), cancel, nil
 }
 

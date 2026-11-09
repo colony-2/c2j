@@ -221,20 +221,7 @@ func BuildJobRunStory(ctx context.Context, engine replayJobRunner, jobKey jobdb.
 		story.GoalID = recorded.Job.GoalID
 		story.OtherGoalIDs = append([]string{}, recorded.Job.OtherGoalIDs...)
 		story.BlockingWait = recorded.Job.BlockingWait
-		if submission, err := SubmissionRestartScope(*recorded); err == nil {
-			story.RestartScopes = append(story.RestartScopes, submission)
-		}
-		for _, entry := range recorded.Execution {
-			if entry.Record.Kind != "scope" {
-				continue
-			}
-			var policy struct {
-				Restart bool `json:"restart"`
-			}
-			if json.Unmarshal(entry.Record.Descriptor, &policy) == nil && policy.Restart {
-				story.RestartScopes = append(story.RestartScopes, model.RestartScope{ScopeID: entry.Record.ID, ChapterOrdinal: entry.Ordinal, StartedAt: entry.Record.At})
-			}
-		}
+		story.RestartScopes = RecordedRestartScopes(*recorded)
 	}
 
 	associateRestartScopes(story.Root, nil)
