@@ -20,6 +20,10 @@ type ToolSetupRequest struct {
 	Scopes       []toolenv.Scope    `json:"scopes,omitempty"`
 	Extension    *extops.ResolvedOp `json:"extension,omitempty"`
 	ResolutionMS int64              `json:"resolution_ms,omitempty"`
+
+	// observeRepository runs synchronously after the config read and before
+	// admission can yield. It is local diagnostic plumbing, never task input.
+	observeRepository func(*toolenv.RepositoryDiagnostic)
 }
 type ToolSetupResult struct {
 	Duration    time.Duration        `json:"duration_ns"`

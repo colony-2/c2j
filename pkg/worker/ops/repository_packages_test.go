@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/colony-2/c2j/internal/celltest"
@@ -33,7 +34,7 @@ func TestRepositoryPackageScopePrecedesExistingScopes(t *testing.T) {
 }
 
 func TestRepositoryOnlyPreparationFailureAttachesDiagnostics(t *testing.T) {
-	for _, config := range []string{"packages: [42]", "packages: [unknown:tool]", "packages: [uv:tool==1]"} {
+	for _, config := range []string{"packages: [42]", "packages: [unknown:tool]", "packages: [uv:tool==1]", "packages: [uv:tool==1]\nexecution: {resources: {memory: wrong}}", "packages: [uv:tool==1]\nexecution: {base: linux*}"} {
 		t.Run(config, func(t *testing.T) {
 			baseRepo, _, cleanup := setupGitRepo(t)
 			defer cleanup()
@@ -49,7 +50,9 @@ func TestRepositoryOnlyPreparationFailureAttachesDiagnostics(t *testing.T) {
 			git("add", ".")
 			git("commit", "-m", "packages")
 			manager := t.TempDir()
-			require.NoError(t, os.WriteFile(filepath.Join(manager, "uv"), []byte("#!/bin/sh\necho simulated-install-failure >&2\nexit 9\n"), 0700))
+			installMarker := filepath.Join(manager, "installed")
+			t.Setenv("C2J_PREPARATION_INSTALL_LOG", installMarker)
+			require.NoError(t, os.WriteFile(filepath.Join(manager, "uv"), []byte("#!/bin/sh\ntouch \"$C2J_PREPARATION_INSTALL_LOG\"\necho simulated-install-failure >&2\nexit 9\n"), 0700))
 			t.Setenv("PATH", manager+":"+os.Getenv("PATH"))
 			t.Setenv("C2J_TOOL_CACHE_DIR", t.TempDir())
 			reg := ActivityRegistration{Step: coreops.TaskStep{Invoke: func(coreops.OpDependencies, context.Context, map[string]any) (map[string]any, error) {
@@ -61,6 +64,10 @@ func TestRepositoryOnlyPreparationFailureAttachesDiagnostics(t *testing.T) {
 			tc := jobworkflow.NewTaskContext(jobdb.JobKey{TenantId: "test", JobId: "repo-failure"}, 1, nil, nil, nil)
 			data, err := worker.RunTask(deniedTaskContext(t, tc), tc, jobdb.NewTaskDataOrPanic(inv))
 			require.Error(t, err)
+			if strings.Contains(config, "execution:") {
+				_, markerErr := os.Stat(installMarker)
+				require.True(t, os.IsNotExist(markerErr), "execution failure must precede installer")
+			}
 			require.NotNil(t, data)
 			artifacts, err := data.GetArtifacts()
 			require.NoError(t, err)
@@ -76,6 +83,14 @@ func TestRepositoryOnlyPreparationFailureAttachesDiagnostics(t *testing.T) {
 				require.NoError(t, json.Unmarshal(b, &out))
 				require.NotEmpty(t, out.Setup.Error)
 				require.NotEmpty(t, out.Setup.Repository.Digest)
+				require.Equal(t, ".c2/config.yaml", out.Setup.Repository.Path)
+				require.NotEmpty(t, out.Setup.Repository.Scope)
+				require.NotEmpty(t, out.Setup.Repository.Repository)
+				require.NotEmpty(t, out.Setup.Repository.Snapshot)
+				if strings.Contains(config, "memory: wrong") {
+					require.Contains(t, out.Setup.Error, ".c2/config.yaml")
+					require.Contains(t, out.Setup.Error, "memory")
+				}
 			}
 			require.True(t, found)
 		})

@@ -10,9 +10,12 @@ const SchemaVersion = 2
 // property. Capabilities are additive; an empty list adds nothing. Scalar
 // empty values are invalid; there is no explicit clearing operation.
 type Requirements struct {
-	Base         *string  `json:"base,omitempty" yaml:"base,omitempty"`
-	Capabilities []string `json:"capabilities,omitempty" yaml:"capabilities,omitempty"`
-	Packages     []string `json:"packages,omitempty" yaml:"packages,omitempty"`
+	// CapabilitiesDeclared preserves lexical list presence, including an empty list.
+	// Overlay still accumulates capabilities; repository fallback alone uses this bit.
+	CapabilitiesDeclared bool     `json:"-" yaml:"-"`
+	Base                 *string  `json:"base,omitempty" yaml:"base,omitempty"`
+	Capabilities         []string `json:"capabilities,omitempty" yaml:"capabilities,omitempty"`
+	Packages             []string `json:"packages,omitempty" yaml:"packages,omitempty"`
 	// Deprecated: image and platform are retained for legacy records. Use Base.
 	Image     *string   `json:"image,omitempty" yaml:"image,omitempty"`
 	Platform  *string   `json:"platform,omitempty" yaml:"platform,omitempty"`
@@ -46,11 +49,12 @@ type Allocation struct {
 // the returned pointers. Validate patches before overlaying them.
 func Overlay(base, override Requirements) Requirements {
 	return Requirements{
-		Packages:     mergePackages(base.Packages, override.Packages),
-		Capabilities: mergeCapabilities(base.Capabilities, override.Capabilities),
-		Base:         choose(base.Base, override.Base),
-		Image:        choose(base.Image, override.Image),
-		Platform:     choose(base.Platform, override.Platform),
+		CapabilitiesDeclared: base.CapabilitiesDeclared || override.CapabilitiesDeclared,
+		Packages:             mergePackages(base.Packages, override.Packages),
+		Capabilities:         mergeCapabilities(base.Capabilities, override.Capabilities),
+		Base:                 choose(base.Base, override.Base),
+		Image:                choose(base.Image, override.Image),
+		Platform:             choose(base.Platform, override.Platform),
 		Resources: Resources{
 			CPU:              choose(base.Resources.CPU, override.Resources.CPU),
 			Memory:           choose(base.Resources.Memory, override.Resources.Memory),

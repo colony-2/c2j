@@ -1,6 +1,7 @@
 package recipe
 
 import (
+	"encoding/json"
 	"fmt"
 
 	"github.com/colony-2/c2j/pkg/execution"
@@ -10,12 +11,13 @@ import (
 // ExecutionNeeds contains literal or templated node properties. Validation of
 // resolved values uses the existing execution.Requirements model.
 type ExecutionNeeds struct {
-	Base         any                    `yaml:"base,omitempty" json:"base,omitempty"`
-	Capabilities []string               `yaml:"capabilities,omitempty" json:"capabilities,omitempty"`
-	Packages     []string               `yaml:"packages,omitempty" json:"packages,omitempty"`
-	Resources    ExecutionNeedResources `yaml:"resources,omitempty" json:"resources,omitempty"`
-	Image        any                    `yaml:"image,omitempty" json:"image,omitempty"`
-	Platform     any                    `yaml:"platform,omitempty" json:"platform,omitempty"`
+	CapabilitiesDeclared bool                   `json:"capabilities_declared,omitempty" yaml:"-"`
+	Base                 any                    `yaml:"base,omitempty" json:"base,omitempty"`
+	Capabilities         []string               `yaml:"capabilities,omitempty" json:"capabilities,omitempty"`
+	Packages             []string               `yaml:"packages,omitempty" json:"packages,omitempty"`
+	Resources            ExecutionNeedResources `yaml:"resources,omitempty" json:"resources,omitempty"`
+	Image                any                    `yaml:"image,omitempty" json:"image,omitempty"`
+	Platform             any                    `yaml:"platform,omitempty" json:"platform,omitempty"`
 }
 
 type ExecutionNeedResources struct {
@@ -33,6 +35,7 @@ func (n *ExecutionNeeds) UnmarshalYAML(node *yaml.Node) error {
 		switch key {
 		case "base", "image", "platform", "packages":
 		case "capabilities":
+			n.CapabilitiesDeclared = true
 			if err := execution.ValidateCapabilitiesYAML(node.Content[i+1]); err != nil {
 				return err
 			}
@@ -128,4 +131,22 @@ func hasExecutionNeeds(r Recipe, matches func(*ExecutionNeeds) bool) bool {
 		}
 	}
 	return false
+}
+
+func (n ExecutionNeeds) MarshalYAML() (any, error) {
+	type plain ExecutionNeeds
+	var node yaml.Node
+	if err := node.Encode(plain(n)); err != nil {
+		return nil, err
+	}
+	if (n.CapabilitiesDeclared || n.Capabilities != nil) && len(n.Capabilities) == 0 {
+		node.Content = append(node.Content, &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "capabilities"}, &yaml.Node{Kind: yaml.SequenceNode, Tag: "!!seq"})
+	}
+	return &node, nil
+}
+
+func (n ExecutionNeeds) MarshalJSON() ([]byte, error) {
+	type plain ExecutionNeeds
+	n.CapabilitiesDeclared = n.CapabilitiesDeclared || n.Capabilities != nil
+	return json.Marshal(plain(n))
 }

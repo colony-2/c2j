@@ -27,6 +27,30 @@ func (w *guardedTask) runWithGitProfile(tc jobworkflow.TaskContext, input jobdb.
 	defer func() { runErr = redactor.Error(runErr) }()
 	local := secrets.WithRedactor(tc.Context(), redactor)
 	local = execution.WithEnvironment(local, w.runtime.Allocation)
+	local = execution.WithRepositoryAdmission(local, func(ctx context.Context, defaults execution.Requirements) error {
+		w.runtime.mu.Lock()
+		staged := original.demand
+		w.runtime.mu.Unlock()
+		d := execution.Demand{SchemaVersion: execution.DemandSchemaVersion, RecipeResolution: "resolved"}
+		if staged != nil {
+			d = *staged
+		}
+		effective, err := execution.RepositoryFallback(defaults, d.Effective)
+		if err != nil {
+			return err
+		}
+		d.Effective = effective
+		w.runtime.Stage(tc.JobKey, d)
+		mismatches, err := execution.Compare(effective, w.runtime.Allocation)
+		if err != nil {
+			return err
+		}
+		if len(mismatches) > 0 {
+			_, err = original.yieldEnvironment(tc, mismatches)
+			return err
+		}
+		return nil
+	})
 	local, gitStderr := gitprofile.WithStderrLog(local)
 	defer func() {
 		stderr := gitStderr.Bytes()

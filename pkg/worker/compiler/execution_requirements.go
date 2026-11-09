@@ -33,10 +33,12 @@ func (j recipeJobWorker) executionSession(ctx jobworkflow.ExecutionContext, r re
 			return nil, err
 		}
 		s.overrides = execution.Overlay(initial.JobRequirements, execution.Requirements{})
+		s.overrides.CapabilitiesDeclared = false
 	}
 	if base := r.GetMetadata().Execution; base != nil {
 		var err error
 		s.base, err = base.Normalize()
+		s.base.CapabilitiesDeclared = base.CapabilitiesDeclared || base.Capabilities != nil
 		if err != nil {
 			return nil, err
 		}
@@ -97,6 +99,7 @@ func (s *executionSession) apply(patch execution.Requirements) error {
 	if _, err := execution.Overlay(execution.Overlay(s.base, s.node), next).Normalize(); err != nil {
 		return &executionControlError{err}
 	}
+	next.CapabilitiesDeclared = false
 	s.overrides = next
 	s.stageCurrent()
 	return nil

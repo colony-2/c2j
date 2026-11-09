@@ -1,6 +1,7 @@
 package recipe
 
 import (
+	"encoding/json"
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
 	"testing"
@@ -49,4 +50,29 @@ func TestCapabilitiesRecipeAndNodeParsing(t *testing.T) {
 	schema, err := GenerateSchemaString()
 	require.NoError(t, err)
 	require.Contains(t, schema, `"capabilities"`)
+}
+
+func TestExplicitEmptyCapabilitiesSurviveRecipeEncoding(t *testing.T) {
+	registerTestOp()
+	for _, source := range []string{"id: empty\nexecution_needs: {capabilities: []}\nop: echo\n", "id: empty\nexecution: {capabilities: []}\nop: echo\n"} {
+		r, err := LoadRecipeFromString([]byte(source))
+		require.NoError(t, err)
+		raw, err := yaml.Marshal(r)
+		require.NoError(t, err)
+		again, err := LoadRecipeFromString(raw)
+		require.NoError(t, err)
+		if n := again.GetMetadata().ExecutionNeeds; n != nil {
+			require.True(t, n.CapabilitiesDeclared)
+		} else {
+			require.True(t, again.GetMetadata().Execution.CapabilitiesDeclared)
+		}
+	}
+}
+
+func TestProgrammaticEmptyCapabilitiesJSONPresence(t *testing.T) {
+	raw, err := json.Marshal(ExecutionNeeds{Capabilities: []string{}})
+	require.NoError(t, err)
+	var n ExecutionNeeds
+	require.NoError(t, json.Unmarshal(raw, &n))
+	require.True(t, n.CapabilitiesDeclared)
 }

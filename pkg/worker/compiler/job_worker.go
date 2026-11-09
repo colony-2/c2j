@@ -297,6 +297,7 @@ func (j recipeJobWorker) Run(ctx jobworkflow.ExecutionContext, jobData jobdb.Job
 		}
 		wCtx.UpdateExecution = session.apply
 		wCtx.JobPackages = func() []string { return session.overrides.Packages }
+		wCtx.CurrentExecution = session.effective
 		wCtx.StageNodeExecution = session.stageNode
 	}
 	opts := ExecutionOptions{}

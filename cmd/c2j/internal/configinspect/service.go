@@ -12,6 +12,7 @@ import (
 	"unicode"
 
 	configpkg "github.com/colony-2/c2j/pkg/config"
+	"github.com/colony-2/c2j/pkg/execution"
 )
 
 type CellsOptions struct {
@@ -34,15 +35,16 @@ type CellInfo struct {
 }
 
 type SelfInfo struct {
-	Packages   []string `json:"packages,omitempty"`
-	ConfigPath string   `json:"config_path,omitempty"`
-	ShortName  string   `json:"short_name"`
-	Repo       string   `json:"repo"`
-	JobDB      string   `json:"jobdb"`
-	Ref        string   `json:"ref"`
-	RootRepo   string   `json:"root_repo"`
-	RootRef    string   `json:"root_ref"`
-	Pattern    string   `json:"pattern"`
+	RepositoryExecution execution.Requirements `json:"repository_execution,omitzero"`
+	Packages            []string               `json:"packages,omitempty"`
+	ConfigPath          string                 `json:"config_path,omitempty"`
+	ShortName           string                 `json:"short_name"`
+	Repo                string                 `json:"repo"`
+	JobDB               string                 `json:"jobdb"`
+	Ref                 string                 `json:"ref"`
+	RootRepo            string                 `json:"root_repo"`
+	RootRef             string                 `json:"root_ref"`
+	Pattern             string                 `json:"pattern"`
 }
 
 func RunCells(ctx context.Context, opts CellsOptions) error {

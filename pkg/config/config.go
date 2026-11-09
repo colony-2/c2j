@@ -57,13 +57,14 @@ type SelfConfig struct {
 }
 
 type fileConfig struct {
-	Packages   PackageList      `yaml:"packages"`
-	Base       string           `yaml:"base"`
-	JobDB      StringOrCommand  `yaml:"jobdb"`
-	Dependents DependentsConfig `yaml:"dependents"`
-	Self       SelfConfig       `yaml:"self"`
-	Root       CellRefConfig    `yaml:"root"`
-	Pattern    string           `yaml:"pattern"`
+	Execution  ExecutionDefaults `yaml:"execution"`
+	Packages   PackageList       `yaml:"packages"`
+	Base       string            `yaml:"base"`
+	JobDB      StringOrCommand   `yaml:"jobdb"`
+	Dependents DependentsConfig  `yaml:"dependents"`
+	Self       SelfConfig        `yaml:"self"`
+	Root       CellRefConfig     `yaml:"root"`
+	Pattern    string            `yaml:"pattern"`
 }
 
 type ProjectConfig struct {
@@ -399,6 +400,9 @@ func loadProjectConfig(configPath string) (*ProjectConfig, error) {
 }
 
 func parseProjectConfig(configPath string, rawBytes []byte) (*ProjectConfig, error) {
+	if err := validateExecutionDocument(rawBytes); err != nil {
+		return nil, fmt.Errorf("%s: %w", configPath, err)
+	}
 	cfg := fileConfig{}
 	if err := yaml.Unmarshal(rawBytes, &cfg); err != nil {
 		return nil, fmt.Errorf("parse %s: %w", configPath, err)

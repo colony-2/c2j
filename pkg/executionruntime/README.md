@@ -52,3 +52,24 @@ Renewable lease wrappers retain shared invocation state across refreshed snapsho
 so a heartbeat cannot drop staged requirements before rescheduling. They forward
 current token, owner, expiry, and schema metadata. See the
 [run-with-lease guide](../../GUIDE-Run-With-Lease.md) for usage and deployment details.
+
+Repository defaults in `.c2/config.yaml` are read with packages from the restored
+consuming workspace, immediately before tool installation. Per-property recipe/node
+values override these defaults; explicit capability lists (including `[]`) disable
+config capability fallback while lexical capability accumulation remains additive.
+Submission and durable directives retain their stronger scalar and additive capability
+semantics. Defaults are task-local and are never negotiated into durable overrides.
+
+A late mismatch stages full effective demand and uses the existing environment-required
+yield. Replay reconstructs requirements rather than treating scheduling snapshots as
+state. Completed tasks skip workspace config reads and historical admission. This needs
+an upgraded worker; older workers do not enforce repository execution defaults. The
+runtime supplies no new provisioning or provider selection. Passthrough consumers
+without an admission bridge reject constrained work before tools run.
+
+Each unfinished attempt restores normally and recomputes defaults from that
+workspace. A moved floating ref can therefore yield again with a changed demand;
+there is no preparation checkpoint or ref-pinning guarantee. Ordinary pinned
+revisions and accepted snapshots keep their existing restoration semantics.
+Late preparation failures log config provenance, including the digest, workspace
+scope and restored revision when available, without changing handoff schemas.

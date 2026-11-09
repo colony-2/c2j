@@ -134,6 +134,8 @@ func PayloadWithDemand(raw json.RawMessage, d Demand) (json.RawMessage, error) {
 	if ns == nil {
 		ns = map[string]json.RawMessage{}
 	}
+	// Lexical presence is replay state, not a scheduling fact.
+	d.Effective.CapabilitiesDeclared = false
 	encoded, err := json.Marshal(d)
 	if err != nil {
 		return nil, err

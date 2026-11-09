@@ -1015,3 +1015,43 @@ c2j submit "Run the requested task" \
 Ops can publish immutable typed objects containing metadata and files, then accept an explicit reference to any earlier checkpoint. Each consumer receives a fresh writable copy. See [the API and Codex migration guide](GUIDE-Op-Object-Checkpoints.md) for recipe routing, extension manifests, native APIs, and compatibility details.
 
 See [Named cells](GUIDE-Named-Cells.md) for cell creation, registry and dependency listings, and the JobDB storage cutover.
+
+Repositories can declare literal worker requirements in `.c2/config.yaml`:
+
+```yaml
+base: go # project discovery, separate from execution.base
+packages: [uv:ruff==0.11.2]
+execution:
+  base: linux*
+  capabilities: [docker]
+  resources:
+    cpu: "2"
+    memory: 8Gi
+    ephemeral-storage: 10Gi
+```
+
+Execution defaults come from the exact restored consuming workspace. Each recipe
+or active-node scalar overrides its corresponding default, even when lower;
+omitted properties inherit. Recipe/node capability declarations suppress config
+capability fallback, including `capabilities: []`. Recipe and node capabilities
+still accumulate: an empty inner list does not clear an enclosing list. Submission
+requirements and durable execution changes keep their stronger scalar precedence
+and add capabilities. Top-level `base` and `packages` retain their existing meanings.
+Execution values must be literals; commands, templates, unknown fields, and empty
+scalar requirements are rejected. Config inspection exposes normalized defaults
+as `repository_execution` in `c2j self --json`.
+
+Upgraded workers enforce these defaults after restoring the workspace and before
+installing tools or invoking the operation. A bootstrap worker can therefore yield
+immediately with an environment-required handoff. Compatible workers resume through
+the existing handoff protocol; this does not add provisioning behavior. Older
+workers do not enforce this block. Recipe-test passthrough rejects constrained work
+when execution-aware admission is unavailable; mocked operations do not read config.
+
+Every live retry restores the workspace normally and reads its config again. A
+floating branch can move between handoffs, causing another handoff for its new
+requirements before tools run. Ordinary pinned revisions and accepted snapshots
+retain their existing restoration behavior; observing config does not pin a ref.
+Completed replay skips config reads and installation. Preparation failures and
+late mismatches log the config path, digest, workspace and restored revision
+when available.

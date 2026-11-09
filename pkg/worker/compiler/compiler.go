@@ -583,7 +583,11 @@ func (d DefaultRecipeExecutor) executeOpAttempt(ctx workflow.Context, parentReso
 					}
 					invocationKeys = acc.Keys()
 				}
-				preparation := workerops.PreparationRequest{Extension: extensionRequest}
+				preparation := workerops.PreparationRequest{Extension: extensionRequest, Execution: resCtx.ExecutionNeeds}
+				if ctx.CurrentExecution != nil {
+					preparation.Execution = ctx.CurrentExecution()
+				}
+				preparation.CapabilitiesDeclared = preparation.Execution.CapabilitiesDeclared
 				for _, scope := range resCtx.ToolScopes {
 					if scope.ID == "job" && ctx.JobPackages != nil {
 						scope.Packages = append([]string(nil), ctx.JobPackages()...)

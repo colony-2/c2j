@@ -8,6 +8,7 @@ import (
 
 	"github.com/colony-2/c2j/pkg/config"
 	"github.com/colony-2/c2j/pkg/configuration"
+	"github.com/colony-2/c2j/pkg/execution"
 	coreops "github.com/colony-2/c2j/pkg/ops"
 	extops "github.com/colony-2/c2j/pkg/ops/extensions"
 	"github.com/colony-2/c2j/pkg/permissions"
@@ -19,14 +20,16 @@ import (
 // PreparationRequest contains identities, never resolved configuration or credentials.
 // Preparation runs only inside a live task, under the same timeout as execution.
 type PreparationRequest struct {
-	Extension *ExtensionResolutionRequest `json:"extension,omitempty"`
-	Scopes    []toolenv.Scope             `json:"scopes,omitempty"`
+	CapabilitiesDeclared bool                        `json:"capabilities_declared,omitempty"`
+	Execution            execution.Requirements      `json:"execution,omitzero"`
+	Extension            *ExtensionResolutionRequest `json:"extension,omitempty"`
+	Scopes               []toolenv.Scope             `json:"scopes,omitempty"`
 }
 
 // IsZero makes nil and empty scope lists serialize identically when no extension
 // needs preparation. omitempty alone does not omit a value-typed struct.
 func (p PreparationRequest) IsZero() bool {
-	return p.Extension == nil && len(p.Scopes) == 0
+	return p.Extension == nil && len(p.Scopes) == 0 && p.Execution.Empty() && !p.Execution.CapabilitiesDeclared && !p.CapabilitiesDeclared
 }
 
 // ResolveInvocation loads a manifest and its defaults only for a live task.
@@ -119,9 +122,18 @@ func InstallWorkspaceInvocation(ctx context.Context, inv *ActivityInvocationRequ
 		snapshot = inv.GitTaskContext.ResolvedBaseHash
 	}
 	provenance := &toolenv.RepositoryDiagnostic{PackageSource: source, Scope: scope, Repository: inv.GitTaskContext.BaseRepo, Snapshot: snapshot}
+	if req.observeRepository != nil {
+		req.observeRepository(provenance)
+	}
 	if err != nil {
 		inv.Setup = &ToolSetupResult{Diagnostics: toolenv.Diagnostics{Repository: provenance, Error: err.Error(), WallMS: time.Since(start).Milliseconds()}}
 		return fmt.Errorf("repository package setup failed: %w", err)
+	}
+	scopeRequirements := inv.Preparation.Execution
+	scopeRequirements.CapabilitiesDeclared = scopeRequirements.CapabilitiesDeclared || inv.Preparation.CapabilitiesDeclared
+	if err := execution.AdmitRepository(ctx, source.Execution, scopeRequirements); err != nil {
+		inv.Setup = &ToolSetupResult{Diagnostics: toolenv.Diagnostics{Repository: provenance, Error: err.Error()}}
+		return err
 	}
 	if len(source.Packages) > 0 {
 		req.Scopes = append([]toolenv.Scope{{ID: scope, Packages: source.Packages}}, req.Scopes...)

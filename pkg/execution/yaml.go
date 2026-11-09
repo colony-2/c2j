@@ -14,7 +14,14 @@ func (r Requirements) MarshalYAML() (any, error) {
 		return nil, err
 	}
 	type plain Requirements
-	return plain(normalized), nil
+	var node yaml.Node
+	if err := node.Encode(plain(normalized)); err != nil {
+		return nil, err
+	}
+	if normalized.CapabilitiesDeclared && len(normalized.Capabilities) == 0 {
+		node.Content = append(node.Content, &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "capabilities"}, &yaml.Node{Kind: yaml.SequenceNode, Tag: "!!seq"})
+	}
+	return &node, nil
 }
 
 func (r *Requirements) UnmarshalYAML(node *yaml.Node) error {
@@ -49,6 +56,7 @@ func (r *Requirements) UnmarshalYAML(node *yaml.Node) error {
 	if err := node.Decode(&decoded); err != nil {
 		return err
 	}
+	decoded.CapabilitiesDeclared = decoded.Capabilities != nil && len(decoded.Capabilities) == 0
 	normalized, err := Requirements(decoded).Normalize()
 	if err != nil {
 		return err

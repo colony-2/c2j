@@ -15,7 +15,7 @@ func (rc *ResolutionContext) ResolveExecutionNeeds(needs *recipe.ExecutionNeeds)
 	if needs == nil {
 		return nil
 	}
-	patch := execution.Requirements{Packages: needs.Packages, Capabilities: needs.Capabilities}
+	patch := execution.Requirements{CapabilitiesDeclared: needs.CapabilitiesDeclared || needs.Capabilities != nil, Packages: needs.Packages, Capabilities: needs.Capabilities}
 	for _, field := range []struct {
 		name   string
 		value  any

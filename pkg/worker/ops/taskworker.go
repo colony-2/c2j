@@ -16,6 +16,7 @@ import (
 	"github.com/colony-2/c2j/pkg/permissions"
 	"github.com/colony-2/c2j/pkg/secrets"
 	coretask "github.com/colony-2/c2j/pkg/task"
+	"github.com/colony-2/c2j/pkg/toolenv"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
 )
@@ -204,6 +205,18 @@ func (t *taskWorker) RunTask(local context.Context, ctx jobworkflow.TaskContext,
 	opCtx = secrets.WithSession(opCtx, session)
 	if err := opCtx.Err(); err != nil {
 		return nil, err
+	}
+	// Yield acknowledgment can finish the runner before this task unwinds.
+	// Emit provenance before admission rather than after the yield returns.
+	req.observeRepository = func(provenance *toolenv.RepositoryDiagnostic) {
+		// Preserve existing execution logging for repositories without config.
+		if provenance.Missing {
+			return
+		}
+		logger.Info("Repository config restored",
+			"config_path", provenance.Path, "config_digest", provenance.Digest,
+			"workspace_scope", provenance.Scope, "repository", provenance.Repository,
+			"restored_revision", provenance.Snapshot)
 	}
 	jobTool := &ops.TaskBasedJobTool{TaskContext: ctx, Restricted: access}
 	out, outArt, err := t.doer.doPrepared(opCtx, jobTool, air, inArt, logger, func(bodyCtx context.Context, restored *gitstate.GitTaskContext) (context.Context, error) {

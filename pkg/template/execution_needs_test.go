@@ -42,3 +42,15 @@ func TestExecutionNeedsInvalidValuesIdentifyNodeAndProperty(t *testing.T) {
 		require.Contains(t, err.Error(), "memory")
 	}
 }
+
+func TestEmptyCapabilitiesRetainOuterDeclaration(t *testing.T) {
+	root := newRecipeCtx(t, nil)
+	parent := newSequenceCtx(t, root, "parent", map[string]interface{}{})
+	require.NoError(t, parent.ResolveExecutionNeeds(&recipe.ExecutionNeeds{Capabilities: []string{"outer"}}))
+	child, err := parent.NewChildContext(ScopeOp, recipe.NodeMetadata{ID: "child"}, "", nil)
+	require.NoError(t, err)
+	require.NoError(t, child.ResolveExecutionNeeds(&recipe.ExecutionNeeds{Capabilities: []string{}}))
+	require.True(t, child.ExecutionNeeds.CapabilitiesDeclared)
+	require.Equal(t, []string{"outer"}, child.ExecutionNeeds.Capabilities)
+	require.False(t, root.ExecutionNeeds.CapabilitiesDeclared)
+}

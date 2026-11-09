@@ -108,6 +108,7 @@ func inspectCell(ctx context.Context, dir string, getenv func(string) string) (S
 	} else {
 		info.ConfigPath = cfg.Path()
 		info.Packages = cfg.Packages()
+		info.RepositoryExecution = cfg.Execution()
 		for _, field := range []struct {
 			name   string
 			read   func(context.Context) (string, error)

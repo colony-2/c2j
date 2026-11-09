@@ -78,10 +78,11 @@ func (c *ProjectConfig) Packages() []string { return append([]string(nil), c.raw
 
 // PackageSource is provenance, not a resolved package lock or a full config.
 type PackageSource struct {
-	Path     string   `json:"path"`
-	Digest   string   `json:"digest,omitempty"`
-	Missing  bool     `json:"missing,omitempty"`
-	Packages []string `json:"packages,omitempty"`
+	Execution execution.Requirements `json:"execution,omitzero"`
+	Path      string                 `json:"path"`
+	Digest    string                 `json:"digest,omitempty"`
+	Missing   bool                   `json:"missing,omitempty"`
+	Packages  []string               `json:"packages,omitempty"`
 }
 
 // LoadWorkspacePackages reads only the exact restored workspace's config. It
@@ -114,12 +115,17 @@ func LoadWorkspacePackages(workspace string) (source PackageSource, err error) {
 		return source, fmt.Errorf("%s: %w", source.Path, err)
 	}
 	source.Digest = fmt.Sprintf("sha256:%x", sha256.Sum256(raw))
+	if err := validateExecutionDocument(raw); err != nil {
+		return source, fmt.Errorf("%s: %w", source.Path, err)
+	}
 	var config struct {
-		Packages PackageList `yaml:"packages"`
+		Execution ExecutionDefaults `yaml:"execution"`
+		Packages  PackageList       `yaml:"packages"`
 	}
 	if err := yaml.Unmarshal(raw, &config); err != nil {
 		return source, fmt.Errorf("%s: %w", source.Path, err)
 	}
+	source.Execution = config.Execution.Requirements
 	source.Packages = append([]string(nil), config.Packages...)
 	return source, nil
 }

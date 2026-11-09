@@ -191,6 +191,7 @@ func (l *lease) prepareReschedule(req jobdb.RescheduleExecutionRequest) (jobdb.R
 		}
 		comparable := *d
 		comparable.Overrides = execution.Requirements{}
+		comparable.Effective.CapabilitiesDeclared = false
 		if current == nil || !reflect.DeepEqual(*current, comparable) {
 			copy := *d
 			raw, err := execution.PayloadWithDemand(l.ClientPayload(), copy)
@@ -276,6 +277,9 @@ func (w *guardedTask) Run(ctx jobworkflow.TaskContext, input jobdb.TaskData) (jo
 	if len(mismatches) == 0 {
 		return nil, fmt.Errorf("extension execution_required protocol error: requested requirements are already satisfied")
 	}
+	r.mu.Lock()
+	d = l.demand
+	r.mu.Unlock()
 	if d == nil {
 		return nil, fmt.Errorf("extension execution_required requires staged recipe execution requirements")
 	}
