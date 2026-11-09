@@ -502,6 +502,16 @@ func (s *historyService) project(ctx context.Context, key jobdb.JobKey, run jobd
 	}
 	for i := range entries {
 		d := &entries[i]
+		association := RecordedHistoryRestart(key, run, d.Locator)
+		if s.mapRestart != nil {
+			mapped, err := s.mapRestart(ctx, key, historyCopy(d.Locator))
+			if err != nil {
+				association = historyRestartUnavailable("restart mapping failed: " + err.Error())
+			} else {
+				association = validateHistoryRestart(run, d.Locator, mapped)
+			}
+		}
+		d.Locator.Restart = association
 		if d.Kind == "unknown" {
 			d.Diagnostics = append(d.Diagnostics, HistoryDiagnostic{Code: "unknown_form_kind", Message: "recorded form kind is unsupported", EntryID: d.EntryID})
 		}

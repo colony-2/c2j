@@ -76,3 +76,37 @@ original producer bytes, and interleave acceptance/new generation with paging.
 Older JobDB versions, shared deployment retention and Cortex HTTP/browser
 integration require separate validation. This feature changes no schema or
 existing `story.Service`, current form, document or submission contracts.
+
+Each list/detail locator now includes `Restart`, a
+`HistoryRestartAssociation`: `ScopeID`, typed `Relationship` (`exact`,
+`containing`, or supplied story `body`), and `UnavailableReason`. This is
+independent of live actionability. A containing scope reruns enclosing work;
+an association grants no authorization and does not guarantee restart success.
+
+By default, `RecordedHistoryRestart` performs a pure lookup over the same
+retained execution snapshot. It matches full invocation identity and the saved
+boundary, then selects the nearest recorded restartable scope. Compact logical
+records sharing an ordinal remain distinct. Collection-only occurrences resolve
+through their recorded task identity and first wait/result boundary, rather than
+the compatibility synthetic occurrence ID. Retry and job-attempt components are
+kept intact. Copied prefixes use scopes present in the selected job; a source-job
+pointer alone cannot establish a target. Absent, ambiguous or unsupported
+boundaries produce an unavailable reason. No worker, registry, story replay or
+recipe operation runs during this lookup.
+
+If an application already has an immutable story mapping, it may supply
+`HistoryConfig.MapRestart`. Match the complete locator, including invocation,
+attempts and collection coordinates, within the supplied selected `JobKey`.
+Return a typed association or an error. The reader checks that the returned
+scope is uniquely recorded in this snapshot and matches invocation lineage;
+mapping errors leave the saved form and document manifests readable. Do not
+call story assembly/replay from this callback. Existing `MapNode` remains
+supported independently. Associations are captured with the immutable page
+snapshot and may expire with it.
+
+The compiling `restartSavedInput` example passes the page's tenant/job and the
+selected entry's `Restart.ScopeID` to `story.Service.RestartRecipeJob` as a
+separate explicit action. Leave `ChapterOrdinal` unset: the existing API rejects
+conflicting selectors. Use a fresh request ID for the intended action, handle
+restart errors, and navigate to the returned new job identity. Keep the original
+history readable. This adds no answer editing or restart engine.

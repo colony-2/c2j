@@ -3,10 +3,13 @@ package input_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 
 	"github.com/colony-2/c2j/pkg/input"
+	"github.com/colony-2/c2j/pkg/story"
 	c2workflow "github.com/colony-2/c2j/pkg/worker/workflow"
+	"github.com/colony-2/jobdb/pkg/jobdb"
 	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
 )
 
@@ -65,4 +68,40 @@ func readInputHistory(ctx context.Context, service input.HistoryService, tenant,
 		}
 	}
 	return err
+}
+
+// Called only after the user explicitly selects a history entry and requests a
+// restart. Authorization belongs to the embedding application, separately from
+// reading history. The response identifies the new job; keep the old history.
+func restartSavedInput(ctx context.Context, restarts story.Service, page *input.JobInputStoryPage, entry input.JobInputStoryEntry, requestID string) (*story.RestartRecipeJobResponse, error) {
+	target := entry.Locator.Restart
+	if target.UnavailableReason != "" {
+		return nil, fmt.Errorf("restart unavailable: %s", target.UnavailableReason)
+	}
+	if target.ScopeID == "" {
+		return nil, errors.New("no recorded restart scope")
+	}
+	// For containing/body relationships, show the enclosing work to be rerun.
+	return restarts.RestartRecipeJob(ctx, story.RestartRecipeJobRequest{
+		ProjectID: page.TenantID, JobID: page.JobID, ScopeID: target.ScopeID, RequestID: requestID,
+	})
+}
+
+func ExampleRecordedHistoryRestart() {
+	// The application already holds authorized retained records for this job.
+	key := jobdb.JobKey{TenantId: "tenant", JobId: "selected-job"}
+	scope := `/scope:"review"#1`
+	invocation := scope + `/attempt:1/task:"input:generate_form"#1/attempt:1`
+	ordinal := int64(7)
+	run := jobdb.GetJobRunResponse{Job: jobdb.JobRunSummary{JobKey: key}, Execution: []jobdb.ExecutionHistoryEntry{
+		{Ordinal: 7, Record: jobdb.ExecutionRecord{Version: jobdb.ExecutionPatternVersion, Kind: "scope", ID: scope, Descriptor: []byte(`{"restart":true}`)}},
+		{Ordinal: 7, Record: jobdb.ExecutionRecord{Version: jobdb.ExecutionPatternVersion, Kind: "result", ID: invocation}},
+	}}
+	target := input.RecordedHistoryRestart(key, run, input.HistoryLocator{InvocationID: invocation, GenerationOrdinal: &ordinal})
+	if target.UnavailableReason != "" {
+		fmt.Println(target.UnavailableReason)
+		return
+	}
+	fmt.Println(target.ScopeID, target.Relationship)
+	// Output: /scope:"review"#1 containing
 }

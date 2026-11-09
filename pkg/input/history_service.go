@@ -24,14 +24,15 @@ type historySnapshot struct {
 	diagnostics []HistoryDiagnostic
 }
 type historyService struct {
-	secret    [32]byte
-	issuer    string
-	mapNode   func(context.Context, jobdb.JobKey, HistoryLocator) (string, error)
-	reader    HistoryReader
-	ttl       time.Duration
-	max       int
-	mu        sync.Mutex
-	snapshots map[string]*historySnapshot
+	secret     [32]byte
+	issuer     string
+	mapNode    func(context.Context, jobdb.JobKey, HistoryLocator) (string, error)
+	mapRestart func(context.Context, jobdb.JobKey, HistoryLocator) (HistoryRestartAssociation, error)
+	reader     HistoryReader
+	ttl        time.Duration
+	max        int
+	mu         sync.Mutex
+	snapshots  map[string]*historySnapshot
 }
 
 // NewHistoryService constructs an independent retained-history reader. It does
@@ -49,7 +50,7 @@ func NewHistoryService(cfg HistoryConfig) (HistoryService, error) {
 	if cfg.MaxSnapshots == 0 {
 		cfg.MaxSnapshots = 128
 	}
-	s := &historyService{reader: cfg.Reader, mapNode: cfg.MapNode, ttl: cfg.SnapshotTTL, max: cfg.MaxSnapshots, snapshots: map[string]*historySnapshot{}}
+	s := &historyService{reader: cfg.Reader, mapNode: cfg.MapNode, mapRestart: cfg.MapRestart, ttl: cfg.SnapshotTTL, max: cfg.MaxSnapshots, snapshots: map[string]*historySnapshot{}}
 	if _, err := rand.Read(s.secret[:]); err != nil {
 		return nil, err
 	}

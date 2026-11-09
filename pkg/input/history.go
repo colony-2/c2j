@@ -69,16 +69,33 @@ type HistoryValue struct {
 	Source  string          `json:"source,omitempty"`
 }
 type HistoryLocator struct {
-	InvocationID            string   `json:"invocation_id"`
-	GenerationOrdinal       *int64   `json:"generation_ordinal,omitempty"`
-	CollectionInvocationIDs []string `json:"collection_invocation_ids,omitempty"`
-	CollectionOrdinals      []int64  `json:"collection_ordinals,omitempty"`
-	AcceptedOrdinal         *int64   `json:"accepted_ordinal,omitempty"`
-	JobAttempt              int      `json:"job_attempt,omitempty"`
-	TaskAttempt             int      `json:"task_attempt,omitempty"`
-	Path                    string   `json:"path,omitempty"`
-	StoryNodeID             string   `json:"story_node_id,omitempty"`
+	InvocationID            string                    `json:"invocation_id"`
+	GenerationOrdinal       *int64                    `json:"generation_ordinal,omitempty"`
+	CollectionInvocationIDs []string                  `json:"collection_invocation_ids,omitempty"`
+	CollectionOrdinals      []int64                   `json:"collection_ordinals,omitempty"`
+	AcceptedOrdinal         *int64                    `json:"accepted_ordinal,omitempty"`
+	JobAttempt              int                       `json:"job_attempt,omitempty"`
+	TaskAttempt             int                       `json:"task_attempt,omitempty"`
+	Path                    string                    `json:"path,omitempty"`
+	StoryNodeID             string                    `json:"story_node_id,omitempty"`
+	Restart                 HistoryRestartAssociation `json:"restart"`
 }
+
+// HistoryRestartAssociation identifies a boundary in the selected job, not a
+// submission permission. UnavailableReason is set when no unique target exists.
+type HistoryRestartAssociation struct {
+	ScopeID           string                     `json:"scope_id,omitempty"`
+	Relationship      HistoryRestartRelationship `json:"relationship,omitempty"`
+	UnavailableReason string                     `json:"unavailable_reason,omitempty"`
+}
+
+type HistoryRestartRelationship string
+
+const (
+	HistoryRestartExact      HistoryRestartRelationship = "exact"
+	HistoryRestartContaining HistoryRestartRelationship = "containing"
+	HistoryRestartBody       HistoryRestartRelationship = "body"
+)
 
 // HistoryActor preserves the recorded receipt without authenticating it anew.
 // Provenance is submission_receipt for externally collected receipts,
@@ -170,6 +187,11 @@ type HistoryConfig struct {
 	// MapNode is an optional read-only lookup against an already available story.
 	// Failure leaves history readable. It must not execute recipe operations.
 	MapNode func(context.Context, jobdb.JobKey, HistoryLocator) (string, error)
+	// MapRestart optionally supplies an existing immutable story mapping. It must
+	// match the full invocation/attempt and selected job; never replay to resolve it.
+	// Returned boundaries are checked against this snapshot's recorded scopes.
+	// Without it, the service uses RecordedHistoryRestart over retained identities.
+	MapRestart func(context.Context, jobdb.JobKey, HistoryLocator) (HistoryRestartAssociation, error)
 	// SnapshotTTL defaults to five minutes. MaxSnapshots bounds cache entries,
 	// never the number of occurrences in a job. Eviction explicitly expires tokens.
 	SnapshotTTL  time.Duration

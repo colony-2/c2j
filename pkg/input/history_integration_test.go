@@ -19,6 +19,7 @@ import (
 	"github.com/colony-2/c2j/pkg/executionruntime"
 	coreops "github.com/colony-2/c2j/pkg/ops"
 	"github.com/colony-2/c2j/pkg/starter"
+	"github.com/colony-2/c2j/pkg/story"
 	"github.com/colony-2/c2j/pkg/worker/compiler"
 	workerops "github.com/colony-2/c2j/pkg/worker/ops"
 	c2workflow "github.com/colony-2/c2j/pkg/worker/workflow"
@@ -354,6 +355,8 @@ outputs: {}
 	require.Len(t, p.Entries, 3, "%+v", p)
 	require.Equal(t, "complete", p.Completeness, "%+v", p.Diagnostics)
 	for i, entry := range p.Entries {
+		require.NotEmpty(t, entry.Locator.Restart.ScopeID, "%+v", entry.Locator.Restart)
+		require.Equal(t, HistoryRestartContaining, entry.Locator.Restart.Relationship)
 		require.NotNil(t, entry.Locator.GenerationOrdinal, "%+v", entry)
 		require.Len(t, entry.Locator.CollectionInvocationIDs, 1)
 		if i < 2 {
@@ -363,6 +366,20 @@ outputs: {}
 			require.Equal(t, "pending", entry.State)
 		}
 	}
+	restartService, err := story.New(story.ServiceConfig{Engine: engine, SchemaRegistry: rt})
+	require.NoError(t, err)
+	selected := p.Entries[0].Locator.Restart
+	restartRequest := story.RestartRecipeJobRequest{ProjectID: "history", JobID: h.JobKey.JobId, ScopeID: selected.ScopeID, RequestID: "history-restart"}
+	conflictingOrdinal := int64(0)
+	restartRequest.ChapterOrdinal = &conflictingOrdinal
+	_, err = restartService.RestartRecipeJob(ctx, restartRequest)
+	require.Error(t, err, "existing selector validation remains authoritative")
+	restartRequest.ChapterOrdinal = nil
+	restartResult, err := restartService.RestartRecipeJob(ctx, restartRequest)
+	require.NoError(t, err)
+	require.NotEqual(t, h.JobKey.JobId, restartResult.JobID)
+	require.Equal(t, "history", restartResult.TenantID)
+	// Restart is a separate explicit action. No worker runs the new job here.
 	runtime, err := NewRuntime(ctl, nil)
 	require.NoError(t, err)
 	page, err := s.ListJobInputStory(ctx, ListJobInputStoryRequest{TenantID: "history", JobID: h.JobKey.JobId, PageSize: 1})
