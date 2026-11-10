@@ -219,3 +219,16 @@ func TestSchemaIsValidJSON(t *testing.T) {
 		t.Fatalf("schema is invalid JSON: %v", err)
 	}
 }
+
+func TestSubmitterPreservesPersistedSchemaSelector(t *testing.T) {
+	// A replay must not replace an earlier descriptor's schema with today's hash.
+	prior := &jobdb.JobSchemaSelector{Hash: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}
+	capture := &missingSchemaSubmitter{calls: 1}
+	_, err := (Submitter{JobSubmitter: capture}).SubmitJob(context.Background(), jobdb.SubmitJob{TenantId: "tenant", JobID: "old", JobType: "recipe", Schema: prior})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if capture.last.Schema.Hash != prior.Hash {
+		t.Fatal("replaced retained schema selector")
+	}
+}

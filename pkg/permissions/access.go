@@ -114,6 +114,11 @@ func (a *Access) Resolve(ctx context.Context, names []string) (jobdb.SecretResol
 	return values, nil
 }
 func (a *Access) Submit(ctx context.Context, job jobdb.SubmitJob) (jobref.Ref, error) {
+	// Lease delegation has no explicit primary-selection grant. Never inherit a
+	// caller-supplied host hook as authority for a restricted task.
+	if job.GoalID != "" {
+		return jobref.Ref{}, jobdb.ErrPrimaryGoalSelectionForbidden
+	}
 	if err := a.Context().Err(); err != nil {
 		return jobref.Ref{}, err
 	}

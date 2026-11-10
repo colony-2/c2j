@@ -52,8 +52,16 @@ func TestLeaseEventsThroughRuntimeWrappers(t *testing.T) {
 }
 
 func TestLeaseEventsUnsupportedThroughRuntimeWrappers(t *testing.T) {
-	rt := executionruntime.New(withChapterVisibility(localruntime.New(struct{ jobdb.WorkflowRuntime }{})), execution.Allocation{})
+	rt := executionruntime.New(withChapterVisibility(localruntime.New(unsupportedEventsRuntime{})), execution.Allocation{})
 	service := &jobinspect.Service{Runtime: rt, Tenant: "tenant"}
 	_, err := service.ListJobLeaseEvents(context.Background(), "job", jobinspect.LeaseEventOptions{})
 	require.ErrorIs(t, err, jobdb.ErrLeaseEventsUnsupported)
+}
+
+// Lease-event listing is required by the upgraded WorkflowRuntime interface;
+// model an unsupported implementation explicitly rather than embedding nil.
+type unsupportedEventsRuntime struct{ jobdb.WorkflowRuntime }
+
+func (unsupportedEventsRuntime) ListLeaseEvents(context.Context, jobdb.ListLeaseEventsRequest) (jobdb.ListLeaseEventsResponse, error) {
+	return jobdb.ListLeaseEventsResponse{}, jobdb.ErrLeaseEventsUnsupported
 }

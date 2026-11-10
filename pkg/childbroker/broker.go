@@ -83,6 +83,8 @@ type EmbeddedRecipePayload struct {
 }
 
 type SubmitRequest struct {
+	prepare         *starter.Descriptor
+	Descriptor      *starter.Descriptor     `json:"descriptor,omitempty"`
 	WorkspaceMode   string                  `json:"workspace_mode,omitempty"`
 	ExplicitTarget  bool                    `json:"explicit_target,omitempty"`
 	Start           workflowctl.StartJob    `json:"start"`
@@ -152,6 +154,8 @@ func start(ctx context.Context, opts Options, openListener func() (net.Listener,
 
 	mux := http.NewServeMux()
 	mux.HandleFunc(submitPath, broker.handleSubmit)
+	mux.HandleFunc(submitPath+"/primary-goal", broker.handleSubmit)
+	mux.HandleFunc(submitPath+"/primary-goal/prepare", broker.handlePrepareSelected)
 	mux.HandleFunc(submitPath+"/workspace", broker.handleWorkspace)
 	mux.HandleFunc(submitPath+"/self", broker.handleSelf)
 	mux.HandleFunc(submitPath+"/cell", broker.handleResolveCell)
@@ -256,9 +260,17 @@ func (s *Server) handleSubmit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if (req.Start.GoalID != "" || req.Descriptor != nil) && r.URL.Path != submitPath+"/primary-goal" {
+		writeSelectionError(w, jobdb.ErrPrimaryGoalSelectionUnsupported)
+		return
+	}
+	if r.URL.Path == submitPath+"/primary-goal" && req.Start.GoalID == "" && req.Descriptor == nil {
+		writeSelectionError(w, jobdb.ErrInvalidDependency)
+		return
+	}
 	resp, err := s.submit(r.Context(), req)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		writeSelectionError(w, err)
 		return
 	}
 
@@ -291,6 +303,9 @@ func (s *Server) submit(ctx context.Context, req SubmitRequest) (SubmitResponse,
 	stop := context.AfterFunc(ctx, cancel)
 	defer stop()
 	ctx = call
+	if req.Descriptor != nil {
+		return s.submitDescriptor(ctx, *req.Descriptor)
+	}
 	start := req.Start
 	start.JobContext.GitProfile = gitprofile.InheritedSelection(s.executionContext)
 	if strings.TrimSpace(start.TenantId) != strings.TrimSpace(s.current.TenantID) {
@@ -340,7 +355,22 @@ func (s *Server) submit(ctx context.Context, req SubmitRequest) (SubmitResponse,
 			return SubmitResponse{}, err
 		}
 	}
-	key, err := starter.StartRecipeJob(ctx, start, s.submitter, recipes...)
+	job, err := starter.PrepareRecipeJob(ctx, start, starter.StartRecipeJobOptions{}, recipes...)
+	if err != nil {
+		return SubmitResponse{}, err
+	}
+	if req.prepare != nil {
+		descriptor, err := starter.NewDescriptor(ctx, job)
+		if err != nil {
+			return SubmitResponse{}, err
+		}
+		*req.prepare = descriptor
+		return SubmitResponse{}, nil
+	}
+	key, err := s.submitter.SubmitJobRef(ctx, job)
+	if err == nil && job.GoalID != "" {
+		err = key.ValidateSelected(job)
+	}
 	if err != nil {
 		return SubmitResponse{}, fmt.Errorf("submit child job: %w", err)
 	}
@@ -359,6 +389,7 @@ func (s *Server) record(key jobref.Ref, start workflowctl.StartJob) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.started = append(s.started, jobcontext.StartedJobContext{
+		Cell: key.Cell, CellID: key.CellID, CellRepo: key.CellRepo,
 		TenantID:             key.TenantID,
 		GoalID:               key.GoalID,
 		JobID:                key.JobID,
@@ -405,6 +436,26 @@ func submit(ctx context.Context, broker jobcontext.ChildJobBroker, req SubmitReq
 		return SubmitResponse{}, fmt.Errorf("child job broker endpoint must be http or https")
 	}
 
+	// A retained descriptor is selected even when a caller omits the redundant
+	// Start projection. Never put that envelope on an ignorable ordinary route.
+	if req.Descriptor != nil {
+		job, err := req.Descriptor.Request()
+		if err != nil {
+			return SubmitResponse{}, err
+		}
+		if job.GoalID == "" {
+			return SubmitResponse{}, jobdb.ErrInvalidDependency
+		}
+		if req.Start.GoalID != "" && req.Start.GoalID != job.GoalID || req.Start.JobID != "" && req.Start.JobID != job.JobID || req.Start.TenantId != "" && req.Start.TenantId != job.TenantId {
+			return SubmitResponse{}, jobdb.ErrExistingJobMismatch
+		}
+		req.Start.GoalID = job.GoalID
+		req.Start.JobID = job.JobID
+		req.Start.TenantId = job.TenantId
+	}
+	if req.Start.GoalID != "" {
+		endpoint += "/primary-goal"
+	}
 	body, err := json.Marshal(req)
 	if err != nil {
 		return SubmitResponse{}, fmt.Errorf("encode child job request: %w", err)
@@ -420,6 +471,11 @@ func submit(ctx context.Context, broker jobcontext.ChildJobBroker, req SubmitReq
 	httpReq.Header.Set("Authorization", "Bearer "+broker.Token)
 	httpReq.Header.Set(sessionHeader, broker.SessionID)
 
+	if req.Start.GoalID != "" {
+		copyClient := *client
+		copyClient.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+		client = &copyClient
+	}
 	resp, err := client.Do(httpReq)
 	if err != nil {
 		return SubmitResponse{}, fmt.Errorf("call child job broker: %w", err)
@@ -433,11 +489,17 @@ func submit(ctx context.Context, broker jobcontext.ChildJobBroker, req SubmitReq
 		if msg == "" {
 			msg = resp.Status
 		}
-		return SubmitResponse{}, fmt.Errorf("child job broker rejected submit: %s", msg)
+		return SubmitResponse{}, decodeSelectionError(resp.StatusCode, msg, req.Start.GoalID != "")
 	}
 	var out SubmitResponse
 	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
 		return SubmitResponse{}, fmt.Errorf("decode child job broker response: %w", err)
+	}
+	if req.Start.GoalID != "" {
+		ref := jobref.Ref{TenantID: out.TenantID, JobID: out.JobID, GoalID: out.GoalID, Cell: out.Cell, CellID: out.CellID, CellRepo: out.CellRepo}
+		if err := ref.ValidateSelected(jobdb.SubmitJob{TenantId: req.Start.TenantId, JobID: req.Start.JobID, GoalID: req.Start.GoalID}); err != nil {
+			return SubmitResponse{}, err
+		}
 	}
 	return out, nil
 }

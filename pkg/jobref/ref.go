@@ -24,6 +24,16 @@ func (r Ref) Validate() error {
 	}
 	return nil
 }
+
+// ValidateSelected rejects ambiguous or contradictory selected receipts without
+// reconstructing captured identity from requests or current registry state.
+func (r Ref) ValidateSelected(job jobdb.SubmitJob) error {
+	if r.Validate() != nil || r.Cell == "" || r.CellID == "" || r.CellRepo == "" || r.TenantID != job.TenantId || r.JobID != job.JobID || r.GoalID != job.GoalID {
+		return jobdb.ErrSubmissionReceiptUnavailable
+	}
+	return nil
+}
+
 func FromHandle(h jobdb.JobHandle) (Ref, error) {
 	r := Ref{Cell: h.Cell, CellID: h.CellID, CellRepo: h.CellRepo, TenantID: h.JobKey.TenantId, JobID: h.JobKey.JobId, GoalID: h.GoalID}
 	return r, r.Validate()

@@ -143,6 +143,7 @@ func collectStartedJobs(ctx context.Context, lister childJobLister, current jobc
 			out.JobIDs = append(out.JobIDs, jobID)
 			out.GoalIDs = append(out.GoalIDs, summary.GoalID)
 			out.Items = append(out.Items, jobcontext.StartedJobContext{
+				Cell: summary.Cell, CellID: summary.CellID, CellRepo: summary.CellRepo,
 				TenantID:             summary.JobKey.TenantId,
 				GoalID:               summary.GoalID,
 				JobID:                jobID,

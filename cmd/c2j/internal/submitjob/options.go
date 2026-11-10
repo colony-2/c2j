@@ -14,6 +14,10 @@ import (
 )
 
 type Options struct {
+	GoalID                string
+	JobID                 string
+	RequestFile           string
+	ReplayFile            string
 	ExecutionRequirements execution.Requirements
 	ExecutionFlags        executionflags.Options
 	JobDBURI              string
@@ -89,6 +93,15 @@ func (o *Options) Complete(ctx context.Context) error {
 }
 
 func (o Options) Validate() error {
+	if o.ReplayFile != "" && (o.GoalID != "" || o.JobID != "" || o.RequestFile != "" || o.PromptSet || o.Prompt != "" || o.PromptFile != "" || o.Title != "" || o.PromptFileSet || o.TitleSet || o.InputsJSON != "" || o.InputsFile != "" || o.Recipe != "" || o.RecipeFile != "" || len(o.ArtifactSpecs) > 0 || o.FromWorkspace || o.FromWorkspaceNow || o.Self || o.Cell != "" || o.CellRepo != "" || !o.ExecutionRequirements.Empty()) {
+		return fmt.Errorf("--replay cannot override the retained semantic request")
+	}
+	if o.GoalID != "" && (strings.TrimSpace(o.JobID) == "" || o.RequestFile == "") {
+		return fmt.Errorf("--goal requires --job-id and --request-file for reconciliation")
+	}
+	if o.RequestFile != "" && o.GoalID == "" {
+		return fmt.Errorf("--request-file requires --goal")
+	}
 	if o.FromWorkspace && o.FromWorkspaceNow {
 		return fmt.Errorf("--from-workspace and --from-workspace-now are mutually exclusive")
 	}

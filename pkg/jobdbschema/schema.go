@@ -478,6 +478,7 @@ var c2jJobSchema = json.RawMessage(`{
               "type": "object"
             }
           },
+          "goal_id": {"type": "string"},
           "job_id": {
             "type": "string"
           },
@@ -950,6 +951,11 @@ func SetSubmitJobSchema(job *jobdb.SubmitJob) error {
 	if err != nil {
 		return err
 	}
+	// Selected requests carry the immutable schema alongside its hash so the
+	// dedicated HTTP operation never needs an ordinary schema-miss retry.
+	if job.GoalID != "" {
+		selector.Schema = Schema()
+	}
 	job.Schema = selector
 	return nil
 }
@@ -978,8 +984,10 @@ func (s Submitter) SubmitJob(ctx context.Context, job jobdb.SubmitJob) (jobdb.Jo
 	if s.JobSubmitter == nil {
 		return jobdb.JobHandle{}, errors.New("submit c2j job: submitter is nil")
 	}
-	if err := SetSubmitJobSchema(&job); err != nil {
-		return jobdb.JobHandle{}, fmt.Errorf("set c2j job schema: %w", err)
+	if job.Schema == nil {
+		if err := SetSubmitJobSchema(&job); err != nil {
+			return jobdb.JobHandle{}, fmt.Errorf("set c2j job schema: %w", err)
+		}
 	}
 	key, err := s.JobSubmitter.SubmitJob(ctx, job)
 	if !isJobSchemaNotFound(err) {
@@ -1044,7 +1052,11 @@ func (e WorkflowEngine) SubmitJobRef(ctx context.Context, job jobdb.SubmitJob) (
 	if err != nil {
 		return jobref.Ref{}, err
 	}
-	return jobref.FromHandle(h)
+	ref, err := jobref.FromHandle(h)
+	if job.GoalID != "" {
+		err = ref.ValidateSelected(job)
+	}
+	return ref, err
 }
 func (e WorkflowEngine) SubmitRestartJobRef(ctx context.Context, req jobdb.SubmitRestartJobRequest) (jobref.Ref, error) {
 	if err := SetSubmitRestartJobSchema(&req.Job); err != nil {

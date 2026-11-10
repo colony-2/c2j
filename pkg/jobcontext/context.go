@@ -73,6 +73,9 @@ type Parent struct {
 }
 
 type StartedJobContext struct {
+	Cell                 string `json:"cell,omitempty"`
+	CellID               string `json:"cell_id,omitempty"`
+	CellRepo             string `json:"cell_repo,omitempty"`
 	GoalID               string `json:"goal_id"`
 	TenantID             string `json:"tenant_id,omitempty"`
 	JobID                string `json:"job_id,omitempty"`

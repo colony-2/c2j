@@ -42,7 +42,11 @@ func (r Runtime) RetireCell(ctx context.Context, req jobdb.RetireCellRequest) (j
 	return r.WorkflowRuntime.RetireCell(Context(ctx), req)
 }
 func (r Runtime) SubmitJob(ctx context.Context, req jobdb.SubmitJobRequest) (jobdb.JobHandle, error) {
-	return r.WorkflowRuntime.SubmitJob(Context(ctx), req)
+	ctx = Context(ctx)
+	if req.Job.GoalID != "" {
+		ctx = jobdb.WithPrimaryGoalSelectionAuthorizer(ctx, func(context.Context, jobdb.GoalKey, jobdb.ResolvedCell) error { return nil })
+	}
+	return r.WorkflowRuntime.SubmitJob(ctx, req)
 }
 func (r Runtime) SubmitRestartJob(ctx context.Context, req jobdb.SubmitRestartJobRequest) (jobdb.JobHandle, error) {
 	return r.WorkflowRuntime.SubmitRestartJob(Context(ctx), req)

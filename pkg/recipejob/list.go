@@ -308,6 +308,7 @@ func StartedJobsContextFromRecipeJobs(jobs []RecipeJob) jobcontext.StartedJobsCo
 			parentInvocationHash = job.Parent.InvocationHash
 		}
 		out.Items = append(out.Items, jobcontext.StartedJobContext{
+			Cell: job.CellName, CellID: job.CellID, CellRepo: job.RepositorySource,
 			TenantID:             job.TenantID,
 			JobID:                job.JobID,
 			GoalID:               job.GoalID,

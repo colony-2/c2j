@@ -42,6 +42,7 @@ type JobInspection struct {
 }
 
 type StartJob struct {
+	GoalID       string                 `json:"goal_id,omitempty"`
 	Cell         string                 `json:"cell"`
 	CellRepo     string                 `json:"cell_repo,omitempty"`
 	Dependencies []jobdb.Dependency     `json:"dependencies,omitempty"`

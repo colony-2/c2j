@@ -361,6 +361,12 @@ npx skills add colony-2/c2j
 
 ## Submitting Jobs
 
+To retain an existing open primary goal for fresh work, use `--goal ID` with
+`--job-id ID` and `--request-file PATH`. After an ambiguous response, replay the
+saved request with `--replay PATH`. See [selected goal submission](pkg/recipejob/SELECTED_GOALS.md)
+for authority, workspace routes and Go API examples.
+
+
 ### Basic forms
 
 Submit a build job:

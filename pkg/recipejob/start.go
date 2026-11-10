@@ -25,6 +25,7 @@ type BuildStartJobRequest struct {
 	Dependencies          []jobdb.Dependency
 	ExecutionRequirements execution.Requirements
 	TenantID              string
+	GoalID                string
 	JobID                 string
 	Target                ResolvedTarget
 	Recipe                string
@@ -40,6 +41,9 @@ type Submitter interface {
 }
 
 func BuildStartJob(req BuildStartJobRequest) (workflowctl.StartJob, error) {
+	if err := jobdb.ValidatePrimaryGoalSelection(jobdb.SubmitJob{TenantId: req.TenantID, JobID: req.JobID, GoalID: req.GoalID}); err != nil {
+		return workflowctl.StartJob{}, err
+	}
 	tenantID := strings.TrimSpace(req.TenantID)
 	if tenantID == "" {
 		return workflowctl.StartJob{}, fmt.Errorf("tenant ID is required")
@@ -97,6 +101,7 @@ func BuildStartJob(req BuildStartJobRequest) (workflowctl.StartJob, error) {
 		Execution:    &initial,
 		TenantId:     tenantID,
 		JobID:        strings.TrimSpace(req.JobID),
+		GoalID:       req.GoalID,
 		RecipeName:   recipeName,
 		Inputs:       req.Inputs,
 		Artifacts:    append([]jobdb.Artifact(nil), req.Artifacts...),

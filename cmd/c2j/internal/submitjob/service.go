@@ -27,6 +27,9 @@ import (
 )
 
 type submitResult struct {
+	Cell     string `json:"cell"`
+	CellID   string `json:"cell_id"`
+	CellRepo string `json:"cell_repo"`
 	GoalID   string `json:"goal_id"`
 	TenantID string `json:"tenant_id"`
 	JobID    string `json:"job_id"`
@@ -41,6 +44,9 @@ func Run(ctx context.Context, opts Options) error {
 	}
 	if err := opts.Validate(); err != nil {
 		return err
+	}
+	if opts.ReplayFile != "" {
+		return replaySelected(ctx, opts)
 	}
 	inputs, err := loadInputs(opts)
 	if err != nil {
@@ -113,10 +119,15 @@ func Run(ctx context.Context, opts Options) error {
 	}
 
 	submittedAt := time.Now().UTC()
+	jobID := opts.JobID
+	if jobID == "" {
+		jobID = ksuid.New().String()
+	}
 	start, err := recipejob.BuildStartJob(recipejob.BuildStartJobRequest{
 		ExecutionRequirements: opts.ExecutionRequirements,
 		TenantID:              opts.TenantID,
-		JobID:                 ksuid.New().String(),
+		JobID:                 jobID,
+		GoalID:                opts.GoalID,
 		Target:                target,
 		Recipe:                recipeName,
 		Inputs:                inputs,
@@ -133,6 +144,41 @@ func Run(ctx context.Context, opts Options) error {
 		if err != nil {
 			return err
 		}
+	}
+	if opts.GoalID != "" {
+		var recipes []recipe.Recipe
+		if embeddedRecipe != nil {
+			recipes = append(recipes, *embeddedRecipe)
+		}
+		var descriptor starter.Descriptor
+		if hasBroker {
+			req, e := childbroker.NewSubmitRequest(ctx, start, start.Artifacts, recipes...)
+			if e != nil {
+				return e
+			}
+			if opts.FromWorkspace {
+				req.WorkspaceMode = workspacesubmit.Start
+			}
+			if opts.FromWorkspaceNow {
+				req.WorkspaceMode = workspacesubmit.Now
+			}
+			req.ExplicitTarget = strings.TrimSpace(opts.Cell) != ""
+			descriptor, err = childbroker.PrepareSelected(ctx, broker, req)
+		} else {
+			var job jobdb.SubmitJob
+			job, err = starter.PrepareRecipeJob(ctx, start, starter.StartRecipeJobOptions{}, recipes...)
+			if err == nil {
+				descriptor, err = starter.NewDescriptor(ctx, job)
+			}
+		}
+		if err != nil {
+			return err
+		}
+		retained := retainedSubmission{Version: 1, RuntimeURL: opts.SWFURL, TenantID: opts.TenantID, Broker: hasBroker, Descriptor: descriptor}
+		if err := saveRetained(opts.RequestFile, retained); err != nil {
+			return err
+		}
+		return publishRetained(ctx, opts, retained, broker, runtimeHandle)
 	}
 	var result submitResult
 	if hasBroker {
@@ -156,6 +202,7 @@ func Run(ctx context.Context, opts Options) error {
 			return err
 		}
 		result = submitResult{
+			Cell: resp.Cell, CellID: resp.CellID, CellRepo: resp.CellRepo,
 			TenantID: resp.TenantID,
 			GoalID:   resp.GoalID,
 			JobID:    resp.JobID,
@@ -179,7 +226,8 @@ func Run(ctx context.Context, opts Options) error {
 		}
 
 		result = submitResult{
-			TenantID: opts.TenantID,
+			Cell: jobKey.Cell, CellID: jobKey.CellID, CellRepo: jobKey.CellRepo,
+			TenantID: jobKey.TenantID,
 			JobID:    jobKey.JobID,
 			GoalID:   jobKey.GoalID,
 			Recipe:   recipeName,

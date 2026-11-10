@@ -45,6 +45,10 @@ Custom recipes are an advanced use case: use --advanced-recipe[-file].`,
 	}
 
 	flags := cmd.Flags()
+	flags.StringVar(&opts.GoalID, "goal", "", "Select an existing open primary goal (requires --job-id and --request-file)")
+	flags.StringVar(&opts.JobID, "job-id", "", "Explicit destination job ID")
+	flags.StringVar(&opts.RequestFile, "request-file", "", "Create a retained resolved request before selected publication")
+	flags.StringVar(&opts.ReplayFile, "replay", "", "Replay a retained request unchanged after an ambiguous result")
 	executionflags.AddRequirementFlags(flags, &opts.ExecutionRequirements)
 	opts.ExecutionFlags.AddFlags(flags)
 	flags.StringVar(&opts.JobDBURI, "jobdb", "", "JobDB URI (http(s)://host/tenant or embed:///)")

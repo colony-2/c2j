@@ -119,43 +119,73 @@ func StartRecipeJob(ctx context.Context, startJob workflowctl.StartJob, engine a
 
 type StartRecipeJobOptions struct {
 	ExecutionRequirements execution.Requirements
+	GoalID                string
 	JobID                 string
 	Dependencies          []jobdb.Dependency
 }
 
 func StartRecipeJobWithOptions(ctx context.Context, startJob workflowctl.StartJob, engine any, opts StartRecipeJobOptions, recipes ...recipe.Recipe) (jobref.Ref, error) {
-	if err := jobdb.ValidateCellName(startJob.Cell); err != nil {
-		return jobref.Ref{}, fmt.Errorf("cell name is required: %w", err)
-	}
 	submitter, ok := engine.(jobref.Submitter)
 	if !ok {
 		return jobref.Ref{}, fmt.Errorf("submitter must preserve the complete job reference")
 	}
-
-	initial, err := execution.Initial(nil, false, opts.ExecutionRequirements)
+	job, err := PrepareRecipeJob(ctx, startJob, opts, recipes...)
 	if err != nil {
 		return jobref.Ref{}, err
 	}
+	ref, err := submitter.SubmitJobRef(ctx, job)
+	if err == nil && job.GoalID != "" {
+		err = ref.ValidateSelected(job)
+	}
+	return ref, err
+}
+
+// PrepareRecipeJob resolves the complete semantic request without publishing it.
+// Retain this value through Descriptor before attempting selected publication.
+func PrepareRecipeJob(ctx context.Context, startJob workflowctl.StartJob, opts StartRecipeJobOptions, recipes ...recipe.Recipe) (jobdb.SubmitJob, error) {
+	if err := jobdb.ValidateCellName(startJob.Cell); err != nil {
+		return jobdb.SubmitJob{}, fmt.Errorf("cell name is required: %w", err)
+	}
+	if opts.JobID != "" && startJob.JobID != "" && opts.JobID != startJob.JobID {
+		return jobdb.SubmitJob{}, fmt.Errorf("conflicting destination job IDs")
+	}
+	if opts.GoalID != "" && startJob.GoalID != "" && opts.GoalID != startJob.GoalID {
+		return jobdb.SubmitJob{}, fmt.Errorf("conflicting primary goal IDs")
+	}
+	if opts.GoalID != "" {
+		startJob.GoalID = opts.GoalID
+	}
+	if opts.JobID != "" {
+		startJob.JobID = opts.JobID
+	}
+	if err := jobdb.ValidatePrimaryGoalSelection(jobdb.SubmitJob{TenantId: startJob.TenantId, JobID: startJob.JobID, GoalID: startJob.GoalID}); err != nil {
+		return jobdb.SubmitJob{}, err
+	}
+
+	initial, err := execution.Initial(nil, false, opts.ExecutionRequirements)
+	if err != nil {
+		return jobdb.SubmitJob{}, err
+	}
 	if startJob.Execution != nil {
 		if err := startJob.Execution.Validate(); err != nil {
-			return jobref.Ref{}, err
+			return jobdb.SubmitJob{}, err
 		}
 		initial = *startJob.Execution
 	}
 	initial, err = execution.Initial(nil, false, execution.Overlay(initial.JobRequirements, opts.ExecutionRequirements))
 	if err != nil {
-		return jobref.Ref{}, err
+		return jobdb.SubmitJob{}, err
 	}
 	for _, r := range recipes {
 		if r.GetMetdata().ID == startJob.RecipeName {
 			// Validate nested marked fields before persisting embedded inputs.
 			contract, err := recipe.CompileInputSchema(r.GetMetdata().SchemaVersion, r.GetMetdata().InputSchema)
 			if err != nil {
-				return jobref.Ref{}, err
+				return jobdb.SubmitJob{}, err
 			}
 			inputs, err := contract.PrepareSubmittedSecrets(startJob.Inputs)
 			if err != nil {
-				return jobref.Ref{}, err
+				return jobdb.SubmitJob{}, err
 			}
 			startJob.Inputs = inputs
 
@@ -166,7 +196,7 @@ func StartRecipeJobWithOptions(ctx context.Context, startJob workflowctl.StartJo
 				initial, err = execution.Initial(nil, false, initial.JobRequirements)
 			}
 			if err != nil {
-				return jobref.Ref{}, err
+				return jobdb.SubmitJob{}, err
 			}
 		}
 	}
@@ -176,7 +206,7 @@ func StartRecipeJobWithOptions(ctx context.Context, startJob workflowctl.StartJo
 	for i, r := range recipes {
 		recipeYaml, err := yaml.Marshal(&r)
 		if err != nil {
-			return jobref.Ref{}, err
+			return jobdb.SubmitJob{}, err
 		}
 		name := r.GetMetadata().ID + RecipeArtifactSuffix
 		artifacts[i] = jobdb.NewArtifactFromBytes(name, recipeYaml)
@@ -191,13 +221,13 @@ func StartRecipeJobWithOptions(ctx context.Context, startJob workflowctl.StartJo
 	inputData, err := jobdb.NewTaskData(payload, artifacts...)
 
 	if err != nil {
-		return jobref.Ref{}, err
+		return jobdb.SubmitJob{}, err
 	}
 
 	meta := JobMetadataFromStartJob(startJob)
 	metaRaw, err := json.Marshal(meta)
 	if err != nil {
-		return jobref.Ref{}, err
+		return jobdb.SubmitJob{}, err
 	}
 
 	runPolicy := recipeRunPolicy(startJob, recipes)
@@ -212,15 +242,16 @@ func StartRecipeJobWithOptions(ctx context.Context, startJob workflowctl.StartJo
 		TenantId:     startJob.TenantId,
 		JobType:      RecipeJobType,
 		JobID:        jobID,
+		GoalID:       startJob.GoalID,
 		Data:         inputData,
 		RunPolicy:    runPolicy,
 		Metadata:     metaRaw,
 		Dependencies: append(append([]jobdb.Dependency(nil), startJob.Dependencies...), opts.Dependencies...),
 	}
 	if err := jobdbschema.SetSubmitJobSchema(&job); err != nil {
-		return jobref.Ref{}, err
+		return jobdb.SubmitJob{}, err
 	}
-	return submitter.SubmitJobRef(ctx, job)
+	return job, nil
 }
 
 func recipeRunPolicy(startJob workflowctl.StartJob, recipes []recipe.Recipe) jobdb.RunPolicy {
