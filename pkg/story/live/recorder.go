@@ -17,6 +17,7 @@ import (
 	"github.com/colony-2/c2j/pkg/recipe"
 	"github.com/colony-2/c2j/pkg/redact"
 	"github.com/colony-2/c2j/pkg/starter"
+	"github.com/colony-2/c2j/pkg/story/internal/inbox"
 	"github.com/colony-2/c2j/pkg/story/internal/model"
 	coretasks "github.com/colony-2/c2j/pkg/task"
 	"github.com/colony-2/c2j/pkg/template"
@@ -401,6 +402,7 @@ func (r *Recorder) OnTaskStart(event jobworkflow.TaskStartEvent) {
 	}
 
 	applyTaskInputToNode(attNode, event.Input)
+	attNode.Inbox = inbox.Project(r.ctx, event.Input)
 	tr.attemptNodes = append(tr.attemptNodes, attNode)
 	tr.byAttempt[event.AttemptNumber] = attNode
 	copyAttemptIntoStep(tr.stepNode, attNode)
@@ -1176,6 +1178,7 @@ func (e *recordingExecutor) ExecuteOp(ctx coreworkflow.Context, parentResolution
 	if known && len(registered.TaskChain()) == 1 && len(opNode.Children) == 1 {
 		ch := opNode.Children[0]
 		if ch != nil && ch.Kind == model.JobRunStoryNodeKindOpStep && ch.StepID == opID {
+			opNode.Inbox = inbox.Clone(ch.Inbox)
 			opNode.Attempt = ch.Attempt
 			opNode.PriorAttempts = ch.PriorAttempts
 			opNode.Input = ch.Input
@@ -1557,6 +1560,7 @@ func (b *treeBuilder) newNode(kind model.JobRunStoryNodeKind, title string) *mod
 	id := fmt.Sprintf("n_%d", b.nextID)
 	b.nextID++
 	return &model.JobRunStoryNode{
+		Inbox:         defaultInbox(kind),
 		ID:            id,
 		Kind:          kind,
 		Title:         title,
@@ -1926,6 +1930,7 @@ func copyAttemptIntoStep(dst, src *model.JobRunStoryNode) {
 	dst.StartedAt = src.StartedAt
 	dst.FinishedAt = src.FinishedAt
 	dst.Attempt = src.Attempt
+	dst.Inbox = inbox.Clone(src.Inbox)
 	dst.Input = src.Input
 	dst.Output = src.Output
 	dst.ArtifactKeys = src.ArtifactKeys
@@ -2062,6 +2067,7 @@ func cloneNode(src *model.JobRunStoryNode) *model.JobRunStoryNode {
 		return nil
 	}
 	dst := *src
+	dst.Inbox = inbox.Clone(src.Inbox)
 	dst.StartedAt = cloneTimePtr(src.StartedAt)
 	dst.FinishedAt = cloneTimePtr(src.FinishedAt)
 	dst.Path = append([]string{}, src.Path...)
@@ -2185,4 +2191,11 @@ func cloneBoolPtr(src *bool) *bool {
 
 func taskInvocationID(id string, attempt int) string {
 	return strings.TrimSuffix(id, fmt.Sprintf("/attempt:%d", attempt))
+}
+
+func defaultInbox(kind model.JobRunStoryNodeKind) *model.Inbox {
+	if kind == model.JobRunStoryNodeKindOpStep {
+		return inbox.Unavailable("pending_input")
+	}
+	return &model.Inbox{Status: "not_applicable", Reason: "non_activity", Entries: []model.InboxEntry{}}
 }

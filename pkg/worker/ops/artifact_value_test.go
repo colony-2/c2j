@@ -2,6 +2,7 @@ package ops
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -27,5 +28,23 @@ func TestValueArtifactMaterialization(t *testing.T) {
 			require.Error(t, materializeArtifactBindings(context.Background(), inbox, map[string]artifacts.Ref{"docs/context.txt": ref}, nil), "must not overwrite")
 		}
 		require.Error(t, materializeArtifactBindings(context.Background(), t.TempDir(), map[string]artifacts.Ref{"../escape": ref}, nil))
+	}
+}
+
+// Inspection uses ValueBytes on the retained descriptor. Compare those bytes
+// with files written by the worker for formats sensitive to JSON decoding.
+func TestRecordedValueBytesMatchMaterialization(t *testing.T) {
+	for _, ref := range []artifacts.Ref{
+		{Kind: artifacts.RefKindValue, Format: "text", Value: json.RawMessage(`"${{ untouched }}\n$(false)"`)},
+		{Kind: artifacts.RefKindValue, Format: "json", Value: json.RawMessage(` { "large":9007199254740993123456789, "nothing":null } `)},
+		{Kind: artifacts.RefKindValue, Format: "json", Value: json.RawMessage(`null`)},
+	} {
+		dir := t.TempDir()
+		require.NoError(t, materializeArtifactBindings(context.Background(), dir, map[string]artifacts.Ref{"nested/file": ref}, nil))
+		execution, err := os.ReadFile(filepath.Join(dir, "nested/file"))
+		require.NoError(t, err)
+		inspection, err := ref.ValueBytes()
+		require.NoError(t, err)
+		require.Equal(t, execution, inspection)
 	}
 }

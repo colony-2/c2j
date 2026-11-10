@@ -46,3 +46,18 @@ func TestRawJobDataComesFromJobInputNotClientPayload(t *testing.T) {
 	require.Equal(t, "original-job-input", (*detail.RawJobData)["recipe"])
 	require.NotContains(t, *detail.RawJobData, "cursor")
 }
+
+func TestInboxAdditiveStorySerialization(t *testing.T) {
+	node := model.JobRunStoryNode{Input: map[string]any{"existing": "input"}, Output: map[string]any{"existing": "output"}, ArtifactKeys: []jobdb.ArtifactKey{{JobId: "source", TaskOrdinal: 42, Name: "file"}}, Inbox: &model.Inbox{Status: "available", Entries: []model.InboxEntry{}}}
+	raw, err := json.Marshal(node)
+	require.NoError(t, err)
+	var fields map[string]json.RawMessage
+	require.NoError(t, json.Unmarshal(raw, &fields))
+	for _, field := range []string{"input", "output", "artifact_keys", "inbox"} {
+		require.Contains(t, fields, field)
+	}
+	require.JSONEq(t, `{"status":"available","entries":[]}`, string(fields["inbox"]))
+	var old model.JobRunStoryNode
+	require.NoError(t, json.Unmarshal([]byte(`{"input":{},"output":{}}`), &old))
+	require.Nil(t, old.Inbox)
+}

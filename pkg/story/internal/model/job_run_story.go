@@ -112,6 +112,7 @@ type JobRunStoryNode struct {
 	Attempt       int                `json:"attempt"`
 	PriorAttempts []*JobRunStoryNode `json:"prior_attempts"`
 
+	Inbox        *Inbox                 `json:"inbox,omitempty"`
 	Input        any                    `json:"input"`
 	Output       any                    `json:"output"`
 	RenderedVars map[string]interface{} `json:"rendered_vars,omitempty"`

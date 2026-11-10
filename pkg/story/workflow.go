@@ -6,6 +6,7 @@ import (
 	"log/slog"
 
 	workflowapi "github.com/colony-2/c2j/pkg/story/api"
+	"github.com/colony-2/c2j/pkg/story/internal/inbox"
 	"github.com/colony-2/c2j/pkg/story/internal/model"
 	"github.com/colony-2/c2j/pkg/story/internal/service"
 	storylive "github.com/colony-2/c2j/pkg/story/live"
@@ -28,6 +29,11 @@ type (
 	WorkflowSummary               = model.WorkflowSummary
 	WorkflowDetail                = model.WorkflowDetail
 	WorkflowOutcome               = model.WorkflowOutcome
+	Inbox                         = model.Inbox
+	InboxEntry                    = model.InboxEntry
+	InboxValue                    = model.InboxValue
+	GetInboxValueRequest          = model.GetInboxValueRequest
+	InboxError                    = inbox.Error
 	JobRunStory                   = model.JobRunStory
 	JobRunStoryRecipe             = model.JobRunStoryRecipe
 	JobRunStoryRecipeSource       = model.JobRunStoryRecipeSource
@@ -96,6 +102,7 @@ var (
 )
 
 type Service interface {
+	GetInboxValue(ctx context.Context, req GetInboxValueRequest) (*InboxValue, error)
 	ListWorkflows(ctx context.Context, req ListWorkflowsRequest) ([]WorkflowSummary, error)
 	GetWorkflow(ctx context.Context, req GetWorkflowRequest) (*WorkflowDetail, error)
 	GetWorkflowOutcome(ctx context.Context, req GetWorkflowOutcomeRequest) (*WorkflowOutcome, error)
