@@ -74,6 +74,10 @@ func TestSelectedCLILostResponseRetainsExactRequest(t *testing.T) {
 	var saved retainedSubmission
 	require.NoError(t, json.Unmarshal(raw, &saved))
 	require.Equal(t, "dest", saved.Descriptor.Job.JobID)
+	require.Equal(t, source.GoalID, saved.Descriptor.Job.GoalID)
+	var prepared map[string]json.RawMessage
+	require.NoError(t, json.Unmarshal(saved.Descriptor.Input, &prepared))
+	require.NotContains(t, prepared, "goal_id")
 	stat, err := os.Stat(requestFile)
 	require.NoError(t, err)
 	require.Equal(t, os.FileMode(0600), stat.Mode().Perm())

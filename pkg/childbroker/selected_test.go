@@ -52,6 +52,49 @@ func TestSelectedBrokerRealDispatchAndReplay(t *testing.T) {
 	require.NoError(t, err)
 	d, err := PrepareSelected(ctx, broker, req)
 	require.NoError(t, err)
+	wire, err := json.Marshal(req)
+	require.NoError(t, err)
+	require.Contains(t, string(wire), `"goal_id":"`+source.GoalID+`"`)
+	var prepared map[string]json.RawMessage
+	require.NoError(t, json.Unmarshal(d.Input, &prepared))
+	require.NotContains(t, prepared, "goal_id")
+	require.Equal(t, source.GoalID, d.Job.GoalID)
+	// A retained historical request keeps its old schema and conflicting payload
+	// identity through real HTTP broker dispatch and an identical retry.
+	var old map[string]any
+	require.NoError(t, json.Unmarshal(jobdbschema.Schema(), &old))
+	old["firstChapterShape"].(map[string]any)["$defs"].(map[string]any)["startJob"].(map[string]any)["properties"].(map[string]any)["goal_id"] = map[string]any{"type": "string"}
+	oldBytes, err := json.Marshal(old)
+	require.NoError(t, err)
+	historical := d
+	historical.Job.JobID = "historical"
+	historical.Job.Schema = &jobdb.JobSchemaSelector{Schema: oldBytes}
+	prepared["goal_id"] = json.RawMessage(`"stale"`)
+	prepared["job_id"] = json.RawMessage(`"historical"`)
+	// Stored JobDB JSON is canonicalized recursively. Model those historical
+	// bytes, rather than the mixed key order of nested RawMessages above.
+	rawHistorical, err := json.Marshal(prepared)
+	require.NoError(t, err)
+	var canonicalHistorical map[string]any
+	require.NoError(t, json.Unmarshal(rawHistorical, &canonicalHistorical))
+	historical.Input, err = json.Marshal(canonicalHistorical)
+	require.NoError(t, err)
+	historicalRef, err := SubmitSelected(ctx, broker, historical)
+	require.NoError(t, err)
+	require.Equal(t, source.GoalID, historicalRef.GoalID)
+	historicalRetry, err := SubmitSelected(ctx, broker, historical)
+	require.NoError(t, err)
+	require.Equal(t, historicalRef, historicalRetry)
+	historicalJob, err := rt.GetJob(ctx, jobdb.JobKey{TenantId: historicalRef.TenantID, JobId: historicalRef.JobID})
+	require.NoError(t, err)
+	chapters, err := rt.ListChapters(ctx, jobdb.ListChaptersRequest{JobKey: jobdb.JobKey{TenantId: historicalRef.TenantID, JobId: historicalRef.JobID}})
+	require.NoError(t, err)
+	require.NotEmpty(t, chapters)
+	retained, ok := chapters[0].Body.(jobdb.JobStartChapter)
+	require.True(t, ok)
+	require.Equal(t, []byte(historical.Input), []byte(retained.Input.Data))
+	require.Equal(t, "sha256:3b77b87e6349ecd231839a13ddfa30d0da797cb019ff56dd81c5b7260c394750", historicalJob.SchemaHash)
+
 	_, err = rt.GetJob(ctx, jobdb.JobKey{TenantId: "tenant", JobId: "dest"})
 	require.ErrorIs(t, err, jobdb.ErrJobNotFound)
 	ref, err := SubmitSelected(ctx, broker, d)

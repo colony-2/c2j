@@ -232,3 +232,51 @@ func TestSubmitterPreservesPersistedSchemaSelector(t *testing.T) {
 		t.Fatal("replaced retained schema selector")
 	}
 }
+
+func TestRestoredGoalSchema(t *testing.T) {
+	hash, err := Hash()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if hash != "sha256:30076cc9dd60eaa75d9a2f3963d696d694eb61ea7ddb2354f9c96cc35033a4c9" {
+		t.Fatalf("unexpected schema hash: %s", hash)
+	}
+	for _, extra := range []string{"", `,"goal_id":"stale"`, `,"unknown":true`, `,"job_id":12`} {
+		t.Run(extra, func(t *testing.T) {
+			rt := toyruntime.New()
+			ctx := celltest.Context(context.Background())
+			celltest.Create(t, rt, "tenant", "test", "example.test/test")
+			_, err := rt.RegisterJobSchema(ctx, jobdb.RegisterJobSchemaRequest{TenantId: "tenant", Schema: Schema()})
+			if err != nil {
+				t.Fatal(err)
+			}
+			raw := json.RawMessage(`{"tenantId":"tenant","cell":"test","cell_repo":"example.test/test","recipe":"build","context":{},"inputs":{"goal_id":"nested"}` + extra + `}`)
+			_, err = rt.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "tenant", JobID: "dest", JobType: "recipe", Cell: "test", CellRepo: "example.test/test", Schema: &jobdb.JobSchemaSelector{Hash: hash}, Data: &jobdb.SimpleTaskData{Data: raw}}})
+			if extra == "" && err != nil {
+				t.Fatal(err)
+			}
+			if extra != "" && err == nil {
+				t.Fatal("invalid input accepted")
+			}
+		})
+	}
+}
+
+func TestGoalSelectionPreservesSchemaRouting(t *testing.T) {
+	for _, goal := range []string{"", "selected"} {
+		job := jobdb.SubmitJob{GoalID: goal}
+		if err := SetSubmitJobSchema(&job); err != nil {
+			t.Fatal(err)
+		}
+		hash, err := Hash()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if job.Schema.Hash != hash {
+			t.Fatal("wrong selector")
+		}
+		if (len(job.Schema.Schema) != 0) != (goal != "") {
+			t.Fatal("changed inline schema routing")
+		}
+	}
+}

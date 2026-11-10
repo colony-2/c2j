@@ -216,7 +216,10 @@ func PrepareRecipeJob(ctx context.Context, startJob workflowctl.StartJob, opts S
 		artifacts[recipeCount+i] = a
 	}
 
+	// Goal selection belongs to JobDB, not the persisted recipe input. Keep
+	// StartJob.GoalID serializable for broker transport and historical decoding.
 	payload := startJob
+	payload.GoalID = ""
 	payload.Artifacts = nil
 	inputData, err := jobdb.NewTaskData(payload, artifacts...)
 

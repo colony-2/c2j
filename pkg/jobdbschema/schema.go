@@ -478,7 +478,6 @@ var c2jJobSchema = json.RawMessage(`{
               "type": "object"
             }
           },
-          "goal_id": {"type": "string"},
           "job_id": {
             "type": "string"
           },

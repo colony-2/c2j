@@ -72,7 +72,9 @@ func (s *Server) submitDescriptor(ctx context.Context, d starter.Descriptor) (Su
 	if err := json.Unmarshal(job.Metadata, &meta); err != nil {
 		return SubmitResponse{}, err
 	}
-	if start.TenantId != job.TenantId || start.JobID != job.JobID || start.GoalID != job.GoalID || start.Cell != job.Cell || start.CellRepo != job.CellRepo || start.Parent == nil || start.Parent.JobID != s.current.JobID || start.Parent.TenantID != s.current.TenantID || meta.ParentJobID != s.current.JobID || meta.ParentInvocationHash != s.current.InvocationHash {
+	// The descriptor's first-class goal is authoritative. Historical input may
+	// contain a stale duplicate; newly prepared input omits it entirely.
+	if start.TenantId != job.TenantId || start.JobID != job.JobID || start.Cell != job.Cell || start.CellRepo != job.CellRepo || start.Parent == nil || start.Parent.JobID != s.current.JobID || start.Parent.TenantID != s.current.TenantID || meta.ParentJobID != s.current.JobID || meta.ParentInvocationHash != s.current.InvocationHash {
 		return SubmitResponse{}, jobdb.ErrPrimaryGoalSelectionForbidden
 	}
 	ref, err := d.Submit(ctx, s.submitter)
