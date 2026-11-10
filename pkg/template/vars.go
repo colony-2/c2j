@@ -2,6 +2,7 @@ package template
 
 import (
 	"fmt"
+	"reflect"
 	"strings"
 )
 
@@ -119,6 +120,9 @@ func isIdentifierChar(ch byte) bool {
 }
 
 func cloneTemplateVars(in map[string]interface{}) map[string]interface{} {
+	if in == nil {
+		return nil
+	}
 	out := make(map[string]interface{}, len(in))
 	for key, value := range in {
 		out[key] = cloneTemplateVarValue(value)
@@ -127,20 +131,49 @@ func cloneTemplateVars(in map[string]interface{}) map[string]interface{} {
 }
 
 func cloneTemplateVarValue(value interface{}) interface{} {
-	switch v := value.(type) {
-	case map[string]interface{}:
-		cloned := make(map[string]interface{}, len(v))
-		for key, item := range v {
-			cloned[key] = cloneTemplateVarValue(item)
+	if value == nil {
+		return nil
+	}
+	return cloneRecipeContainer(reflect.ValueOf(value)).Interface()
+}
+
+// Recipe payloads are acyclic values. Copy containers by their native type so
+// typed maps/lists and numeric leaves retain their CEL meaning.
+func cloneRecipeContainer(v reflect.Value) reflect.Value {
+	switch v.Kind() {
+	case reflect.Interface:
+		if v.IsNil() {
+			return reflect.Zero(v.Type())
 		}
-		return cloned
-	case []interface{}:
-		cloned := make([]interface{}, len(v))
-		for i, item := range v {
-			cloned[i] = cloneTemplateVarValue(item)
+		out := reflect.New(v.Type()).Elem()
+		out.Set(cloneRecipeContainer(v.Elem()))
+		return out
+	case reflect.Map:
+		if v.IsNil() {
+			return reflect.Zero(v.Type())
 		}
-		return cloned
+		out := reflect.MakeMapWithSize(v.Type(), v.Len())
+		it := v.MapRange()
+		for it.Next() {
+			out.SetMapIndex(it.Key(), cloneRecipeContainer(it.Value()))
+		}
+		return out
+	case reflect.Slice:
+		if v.IsNil() {
+			return reflect.Zero(v.Type())
+		}
+		out := reflect.MakeSlice(v.Type(), v.Len(), v.Len())
+		for i := 0; i < v.Len(); i++ {
+			out.Index(i).Set(cloneRecipeContainer(v.Index(i)))
+		}
+		return out
+	case reflect.Array:
+		out := reflect.New(v.Type()).Elem()
+		for i := 0; i < v.Len(); i++ {
+			out.Index(i).Set(cloneRecipeContainer(v.Index(i)))
+		}
+		return out
 	default:
-		return value
+		return v
 	}
 }

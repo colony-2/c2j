@@ -1,11 +1,10 @@
 package template
 
 import (
-	"encoding/json"
 	"maps"
+	"slices"
 
 	"github.com/colony-2/c2j/pkg/contextual"
-	"github.com/colony-2/c2j/pkg/toolenv"
 )
 
 // CloneForRestart isolates the resolver graph before applying a restart patch.
@@ -27,14 +26,8 @@ func (rc *ResolutionContext) CloneForRestart() (*ResolutionContext, error) {
 		position := *src.completion
 		dst.completion = &position
 		nodes[src] = &dst
-		raw, err := json.Marshal(src.TemplateData)
-		if err != nil {
-			return nil, err
-		}
-		dst.TemplateData = templateData{}
-		if err = json.Unmarshal(raw, &dst.TemplateData); err != nil {
-			return nil, err
-		}
+		dst.TemplateData = cloneRestartData(src.TemplateData)
+		var err error
 		dst.Parent, err = clone(src.Parent)
 		if err != nil {
 			return nil, err
@@ -58,11 +51,17 @@ func (rc *ResolutionContext) CloneForRestart() (*ResolutionContext, error) {
 		}
 		dst.workspaceCounters = workspaceCounters
 		dst.tracker = &invocationTracker{segments: append([]string(nil), src.tracker.segments...), counters: counters}
-		dst.ToolScopes = append([]toolenv.Scope(nil), src.ToolScopes...)
+		dst.ToolScopes = slices.Clone(src.ToolScopes)
+		for i := range dst.ToolScopes {
+			dst.ToolScopes[i].Packages = slices.Clone(src.ToolScopes[i].Packages)
+		}
 		dst.artifactCache = maps.Clone(src.artifactCache)
 		dst.lastArtifacts = append(dst.lastArtifacts[:0:0], src.lastArtifacts...)
 		dst.lastArtifactRefs = append(dst.lastArtifactRefs[:0:0], src.lastArtifactRefs...)
-		dst.lastExecution = cloneAnyMap(src.lastExecution)
+		for i := range dst.lastArtifactRefs {
+			dst.lastArtifactRefs[i] = cloneRestartArtifact(dst.lastArtifactRefs[i])
+		}
+		dst.lastExecution = cloneTemplateVars(src.lastExecution)
 		dst.lastJobs.JobIDs = append(src.lastJobs.JobIDs[:0:0], src.lastJobs.JobIDs...)
 		dst.lastJobs.GoalIDs = append(src.lastJobs.GoalIDs[:0:0], src.lastJobs.GoalIDs...)
 		dst.lastJobs.Items = append(src.lastJobs.Items[:0:0], src.lastJobs.Items...)

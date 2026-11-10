@@ -33,14 +33,15 @@ type restartProbeInput struct {
 	Value string `json:"value"`
 }
 type restartProbeTask struct {
-	calls atomic.Int32
-	fail  atomic.Bool
+	calls     atomic.Int32
+	fail      atomic.Bool
+	failValue string
 }
 
 func (*restartProbeTask) Name() string { return restartProbeOp + ":" + restartProbeOp }
 func (w *restartProbeTask) Run(_ jobworkflow.TaskContext, data jobdb.TaskData) (jobdb.TaskData, error) {
 	w.calls.Add(1)
-	if w.fail.Load() {
+	if w.fail.Load() && w.failValue == "" {
 		return nil, fmt.Errorf("candidate failed")
 	}
 	raw, err := data.GetData()
@@ -50,6 +51,9 @@ func (w *restartProbeTask) Run(_ jobworkflow.TaskContext, data jobdb.TaskData) (
 	var request workerops.ActivityInvocationRequest
 	if err = json.Unmarshal(raw, &request); err != nil {
 		return nil, err
+	}
+	if w.fail.Load() && request.Input["value"] == w.failValue {
+		return nil, fmt.Errorf("candidate failed")
 	}
 	envelope, err := coretask.NewOutputEnvelope(coretask.OutputKindActivityInvocationOutput, map[string]any{
 		"output": map[string]any{"value": request.Input["value"], "unchanged": "keep", "api_key": "sensitive fixture"}, "git": map[string]any{}, "nextTaskType": "",
@@ -74,6 +78,10 @@ func newRestartFixture(t *testing.T, backend, recipe string, failFirst ...bool) 
 	return newRestartFixtureInputs(t, backend, recipe, nil, failFirst...)
 }
 func newRestartFixtureInputs(t *testing.T, backend, recipe string, inputs map[string]any, failFirst ...bool) *restartFixture {
+	return newRestartFixtureFailure(t, backend, recipe, inputs, "", failFirst...)
+}
+
+func newRestartFixtureFailure(t *testing.T, backend, recipe string, inputs map[string]any, failValue string, failFirst ...bool) *restartFixture {
 	t.Helper()
 	coreops.Register(coreops.NewActivityMappedOpV2[restartProbeInput, map[string]any](coreops.OpMetadata{Type: restartProbeOp}, func(coreops.OpDependencies, context.Context, restartProbeInput) (map[string]any, error) {
 		panic("inspection must not execute operations")
@@ -91,7 +99,7 @@ func newRestartFixtureInputs(t *testing.T, backend, recipe string, inputs map[st
 		require.NoError(t, err)
 	}
 	w := compiler.NewRecipeJobWorker(compiler.RecipeJobWorkerOptions{})
-	task := &restartProbeTask{}
+	task := &restartProbeTask{failValue: failValue}
 	if len(failFirst) > 0 {
 		task.fail.Store(failFirst[0])
 	}
@@ -125,7 +133,7 @@ func (f *restartFixture) run(t *testing.T, key jobdb.JobKey) {
 	require.NoError(t, err)
 	stored, err := f.engine.GetJobRun(f.ctx, jobdb.GetJobRunRequest{JobKey: key})
 	require.NoError(t, err)
-	require.Equal(t, "success", stored.Job.CompletionStatus)
+	require.Equal(t, "success", stored.Job.CompletionStatus, "%s", stored.Job.CompletionDetail)
 }
 func (f *restartFixture) inspect(t *testing.T, key jobdb.JobKey, ordinal int64) *story.RestartContext {
 	t.Helper()
@@ -429,6 +437,58 @@ outputs:
 			freshStory := f.story(t, freshKey)
 			require.Equal(t, fresh.GoalID, freshStory.GoalID)
 			require.Equal(t, fresh.GoalID, freshStory.Root.Output.(map[string]any)["value"])
+		})
+	}
+}
+
+func TestRestartNumericNestedLifecycle(t *testing.T) {
+	for _, backend := range []string{"sqlite", "remote"} {
+		t.Run(backend, func(t *testing.T) {
+			f := newRestartFixtureFailure(t, backend, `id: numeric_restart
+sequence:
+ - id: prior
+   op: restart_context_probe
+   inputs: {value: prior}
+ - id: nested
+   inputs: {count: '${{ inputs.?count.orValue(0) }}'}
+   state:
+     initial: work
+     states:
+       work:
+         inputs: {count: '${{ inputs.count }}'}
+         sequence:
+          - id: inner
+            op: restart_context_probe
+            inputs: {value: inner}
+          - id: target
+            op: restart_context_probe
+            inputs: {value: target}
+         outputs: {count: '${{ inputs.count + 1 }}'}
+   outputs: {count: '${{ states.work.outputs.count + inputs.count }}'}
+outputs: {count: '${{ sequence.nested.outputs.count + 1 }}'}
+`, nil, "target", true)
+			before, err := f.runtime.ListChapters(f.ctx, jobdb.ListChaptersRequest{JobKey: f.key})
+			require.NoError(t, err)
+			source := f.story(t, f.key)
+			ops := storyNodes(source.Root, "op", restartProbeOp)
+			require.Len(t, ops, 3)
+			require.Equal(t, int32(3), f.task.calls.Load())
+			req := story.RestartRecipeJobRequest{ProjectID: f.key.TenantId, JobID: f.key.JobId, ChapterOrdinal: ops[2].RestartChapterOrdinal, RequestID: uuid.NewString()}
+			req.Goal.Mode = "new"
+			restarted, err := f.service.RestartRecipeJob(f.ctx, req)
+			require.NoError(t, err)
+			f.task.fail.Store(false)
+			key := jobdb.JobKey{TenantId: restarted.TenantID, JobId: restarted.JobID}
+			f.run(t, key)
+			require.Equal(t, int32(4), f.task.calls.Load(), "completed prior tasks are retained")
+			st := f.story(t, key)
+			require.EqualValues(t, 2, st.Root.Output.(map[string]any)["count"])
+			nested := storyNodes(st.Root, "stateMachine", "nested")
+			require.Len(t, nested, 1)
+			require.EqualValues(t, 1, nested[0].Output.(map[string]any)["count"])
+			after, err := f.runtime.ListChapters(f.ctx, jobdb.ListChaptersRequest{JobKey: f.key})
+			require.NoError(t, err)
+			require.Equal(t, before, after)
 		})
 	}
 }
