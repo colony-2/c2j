@@ -179,17 +179,24 @@ sequence:
 outputs:
   answer: '${{ sequence.answer.outputs.answer }}'
 `}
-	for _, mode := range []string{"release", "cancel_job"} {
+	for _, mode := range []string{"release", "cancel_job", "release_with_ordering"} {
 		t.Run(mode, func(t *testing.T) {
 			c := controlCase()
-			c.Runtime.Controls.Actions[0].Do = mode
+			action := mode
+			if mode == "release_with_ordering" {
+				action = "release"
+			}
+			c.Runtime.Controls.Actions[0].Do = action
 			c.Runtime.Controls.Dispatch.Allow = append(c.Runtime.Controls.Dispatch.Allow,
 				DispatchMatcher{Kind: "task", Name: "input:generate_form", NodePath: "controls/question"},
 				DispatchMatcher{Kind: "task", Name: "input:generate_form", NodePath: "controls/review"},
 				DispatchMatcher{Kind: "task", Name: "neutral_continue:neutral_continue", NodePath: "controls/continuation"})
 			c.Runtime.Responses = []InputFixture{{NodePath: "controls/question", Fields: map[string]any{"question": "Explain the change"}}}
-			if mode == "release" {
+			if action == "release" {
 				c.Runtime.Responses = append(c.Runtime.Responses, InputFixture{NodePath: "controls/review", After: "answer.exited", Fields: map[string]any{"action": "continue"}})
+			}
+			if mode == "release_with_ordering" {
+				c.Runtime.Responses[1].AfterCall = &AfterCall{NodePath: "controls/review", Occurrence: 1}
 			}
 			result := RunCase(context.Background(), HarnessOptions{Deps: coreops.NewServiceDepsBuilder().Build(), WorkRoot: t.TempDir(), FixtureRoot: t.TempDir()}, "native-gates", target, c, ExecutionOptions{Timeout: "10s"})
 			require.Equal(t, "passed", result.Status, "%+v", result)
@@ -208,7 +215,7 @@ outputs:
 					continuations++
 				}
 			}
-			if mode == "release" {
+			if action == "release" {
 				require.Len(t, reviews, 2)
 				require.NotEqual(t, reviews[0].RequestID, reviews[1].RequestID)
 				require.NotEqual(t, reviews[0].Receipt.SubmissionID, reviews[1].Receipt.SubmissionID)
@@ -233,6 +240,10 @@ outputs:
 			}
 			passed, reason := evaluateAssertion(`controls.complete && controls.events.exists(e, e.kind == "drained")`, result.Outputs, nil, result.Status, result.Runtime)
 			require.True(t, passed, reason)
+			if mode == "release_with_ordering" {
+				passed, reason = evaluateAssertion(`controls.complete && events.exists(e, e.kind == "gate_eligible") && events.exists(e, e.kind == "response_release" && e.node_path == "controls/review")`, result.Outputs, nil, result.Status, result.Runtime)
+				require.True(t, passed, reason)
+			}
 		})
 	}
 }

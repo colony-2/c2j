@@ -1,6 +1,8 @@
 package recipetest
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
 	inputop "github.com/colony-2/c2j/pkg/input"
 	"path/filepath"
@@ -30,7 +32,25 @@ type CellFixture struct {
 	FileSources map[string]string `json:"file_sources,omitempty"`
 }
 
+type AfterCall struct {
+	NodePath   string `json:"node_path"`
+	Cell       string `json:"cell,omitempty"`
+	Occurrence int    `json:"occurrence"`
+}
+
+type OrderingEvent struct {
+	Position      int    `json:"position"`
+	Kind          string `json:"kind"`
+	JobID         string `json:"job_id"`
+	ParentJobID   string `json:"parent_job_id,omitempty"`
+	NodePath      string `json:"node_path,omitempty"`
+	Cell          string `json:"cell,omitempty"`
+	ResponseIndex *int   `json:"response_index,omitempty"`
+	Status        string `json:"status,omitempty"`
+}
+
 type InputFixture struct {
+	AfterCall *AfterCall `json:"after_call,omitempty"`
 	// After gates this native submission on a prepared control event. The pending
 	// form is captured on one controller pass before submission on a later pass.
 	After       string            `json:"after,omitempty"`
@@ -55,6 +75,7 @@ type ObjectFixture struct {
 }
 
 type ChildFixture struct {
+	Await  string         `json:"await,omitempty"`
 	Recipe string         `json:"recipe"`
 	Cell   string         `json:"cell"`
 	Inputs map[string]any `json:"inputs,omitempty"`
@@ -69,6 +90,7 @@ type RepositoryReport struct {
 }
 
 type RuntimeReport struct {
+	Events                []OrderingEvent             `json:"events,omitempty"`
 	Controls              *ControlReport              `json:"controls,omitempty"`
 	ObservationsVersion   int                         `json:"observations_version,omitempty"`
 	Observations          []map[string]any            `json:"observations,omitempty"`
@@ -167,6 +189,9 @@ func validateRuntimeCase(opts HarnessOptions, c Case) []Issue {
 				add(err)
 			}
 			for _, child := range e.Children {
+				if child.Await != "" && child.Await != "terminal" {
+					add(fmt.Errorf("child await must be terminal when supplied"))
+				}
 				if _, ok := c.Runtime.Cells[child.Cell]; !ok {
 					add(fmt.Errorf("child fixture references unknown cell %q", child.Cell))
 				}
@@ -174,6 +199,11 @@ func validateRuntimeCase(opts HarnessOptions, c Case) []Issue {
 		}
 	}
 	for _, response := range c.Runtime.Responses {
+		if gate := response.AfterCall; gate != nil {
+			if strings.TrimSpace(gate.NodePath) == "" || gate.Occurrence <= 0 {
+				add(fmt.Errorf("after_call requires nonempty node_path and positive occurrence"))
+			}
+		}
 		if response.After != "" {
 			id, event, ok := strings.Cut(response.After, ".")
 			exists := false
@@ -208,4 +238,55 @@ func applyExpectedError(result *CaseRunResult, expected string) {
 		result.Status = "failed"
 		result.FailureReason = fmt.Sprintf("expected error containing %q; got %s", expected, result.FailureReason)
 	}
+}
+
+// Reject misspelled selector keys rather than silently relaxing an ordering gate.
+func (g *AfterCall) UnmarshalJSON(data []byte) error {
+	type plain AfterCall
+	var value plain
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&value); err != nil {
+		return fmt.Errorf("after_call: %w", err)
+	}
+	*g = AfterCall(value)
+	return nil
+}
+
+func (c *ChildFixture) UnmarshalJSON(data []byte) error {
+	type plain ChildFixture
+	var value plain
+	if err := json.Unmarshal(data, &value); err != nil {
+		return err
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return err
+	}
+	if raw, supplied := fields["await"]; supplied {
+		var mode string
+		if err := json.Unmarshal(raw, &mode); err != nil || mode != "terminal" {
+			return fmt.Errorf("child await must be terminal when supplied")
+		}
+	}
+	*c = ChildFixture(value)
+	return nil
+}
+
+// A supplied null gate is not a selector; omission is the asynchronous default.
+func (r *InputFixture) UnmarshalJSON(data []byte) error {
+	type plain InputFixture
+	var value plain
+	if err := json.Unmarshal(data, &value); err != nil {
+		return err
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return err
+	}
+	if raw, supplied := fields["after_call"]; supplied && bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
+		return fmt.Errorf("after_call requires a selector")
+	}
+	*r = InputFixture(value)
+	return nil
 }

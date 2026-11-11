@@ -1,0 +1,6 @@
+id: failed-child
+version: "1"
+input_schema: {}
+op: command_execution
+inputs: {run: deliberately-unmocked}
+outputs: {}

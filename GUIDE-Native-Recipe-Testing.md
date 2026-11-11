@@ -504,3 +504,73 @@ Prepared content capture currently handles top-level object inputs with regular
 file parts and stored file bindings. Unsupported directory parts or non-stored
 bindings fail capture rather than implying complete evidence. Snapshot archives
 retain full bounded checkpoint bytes independently of prepared content capture.
+
+## Ordering real child jobs (unreleased)
+
+These optional controls are unreleased. **0.0.124 does not support them**;
+recipes must upgrade to a supporting CLI and worker release before adoption.
+The first supporting version is not yet known. To try the checkout examples:
+
+```sh
+go build -o /tmp/c2j-native-ordering ./cmd/c2j
+/tmp/c2j-native-ordering test run --directory testdata/recipes/native-ordering --case-timeout 10s
+```
+
+The examples use disposable local repositories and real embedded jobs, with
+fixture reports and synthetic input answers. They need no model or deployment.
+`terminal.test.yaml` proves completed and failed children terminate before a
+configured report returns. `gated.test.yaml` releases child input at parent entry
+and then awaits the real child through normal jobs metadata.
+
+An input response can wait for a root-parent operation to enter:
+
+```yaml
+runtime:
+  responses:
+  - node_path: child/release
+    cell: worker
+    response: {}
+    after_call:
+      node_path: gated/release
+      cell: root
+      occurrence: 1
+```
+
+The selector requires a nonempty exact native node path and an explicit positive,
+one-based occurrence; `cell` is optional. Distinct invocation identities count
+once; retries of the same invocation do not advance the count. Child invocations and mismatched paths or cells
+cannot release a gate. Entry is recorded before operation execution, so gating
+on entry to a blocking await works; gating on an unreachable later operation
+will time out. An earlier entry remains eligible when input arrives later.
+Matching deferred responses stay unused while other responses and inputs
+progress. An eligible response uses ordinary input validation and attachments;
+an attempted validation rejection consumes it. Truly unmatched input still fails.
+
+A submitting fixture can require its exact broker-submitted child to terminate:
+
+```yaml
+effects:
+  children:
+  - recipe: child.yaml
+    cell: worker
+    await: terminal
+```
+
+Only `terminal` is supported when `await` is supplied. Both completed and failed
+children satisfy the barrier; the fixture's configured report is preserved.
+Submission permissions still apply. Omission keeps asynchronous submission.
+Omitting `after_call` keeps immediate matching responses.
+
+Reports expose `runtime.events`; CEL assertions receive that list as `events`.
+Positions increase under the runner mutex and describe `operation_entry` for root
+operations, `gate_eligible`, `response_release`, `child_submitted`,
+`child_terminal` (with observed native status), and `fixture_return`.
+Events carry job identities, relevant paths/cells and zero-based response
+indices. Release records an ordinary answer attempt, including rejected answers;
+eligibility can precede input arrival. The examples assert positions and matching
+identities instead of elapsed time.
+
+Case cancellation stops waits and workers before cleanup. Timeout diagnostics
+identify unresolved selectors and unfinished child IDs. A timeout cannot satisfy
+`expect_error`. Dependencies that cannot become eligible time out; the harness
+does not infer general dependency cycles. Unused fixtures still fail cases.

@@ -138,6 +138,7 @@ cases:
   runtime:
     responses:
     - node_path: review/approve
+      after_call: {node_path: review/draft, occurrence: 1}
       fields: {decision: approve}
       attachments: {annotation: feedback.md}
   mocks:

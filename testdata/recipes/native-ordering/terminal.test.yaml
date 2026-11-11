@@ -1,0 +1,43 @@
+recipe: terminal.yaml
+cases:
+- id: completed-before-report
+  type: integration_case
+  runtime:
+    cells: {root: {}, worker: {}}
+    responses:
+    - node_path: child/release
+      response: {}
+      after_call: {node_path: terminal/submit, occurrence: 1}
+  mocks:
+    ops:
+    - match: {node_path: terminal/submit}
+      behavior:
+        mode: return
+        outputs: {report: deliberately-invalid}
+        effects:
+          children: [{recipe: child.yaml, cell: worker, await: terminal}]
+  assertions:
+  - {type: output_equals, path: report, value: deliberately-invalid}
+  - type: cel_true
+    expr: >-
+      events.exists(t, t.kind == "child_terminal" && t.status == "completed" &&
+        events.exists(s, s.kind == "child_submitted" && s.job_id == t.job_id && s.position < t.position) &&
+        events.exists(r, r.kind == "fixture_return" && r.job_id == t.parent_job_id && r.position > t.position))
+- id: failed-before-report
+  type: integration_case
+  runtime:
+    cells: {root: {}, worker: {}}
+  mocks:
+    ops:
+    - match: {node_path: terminal/submit}
+      behavior:
+        mode: return
+        outputs: {report: deliberately-invalid}
+        effects:
+          children: [{recipe: failed-child.yaml, cell: worker, await: terminal}]
+  assertions:
+  - {type: output_equals, path: report, value: deliberately-invalid}
+  - type: cel_true
+    expr: >-
+      events.exists(t, t.kind == "child_terminal" && t.status == "failed" &&
+        events.exists(r, r.kind == "fixture_return" && r.job_id == t.parent_job_id && r.position > t.position))

@@ -63,6 +63,9 @@ outputs: {}
 						action = "continue"
 					}
 					response := InputFixture{NodePath: "choice/choose", Cell: tc.cell}
+					if tc.valid || tc.name == "expected rejection" {
+						response.AfterCall = &AfterCall{NodePath: "choice/choose", Occurrence: 1}
+					}
 					if structured {
 						response.Response = map[string]any{"action": action}
 					} else {

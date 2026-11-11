@@ -1,0 +1,10 @@
+id: terminal
+version: "1"
+input_schema: {}
+sequence:
+- id: submit
+  op: command_execution
+  inputs: {run: fixture-only}
+outputs:
+  report: ${{ sequence.submit.outputs.report }}
+  jobs: ${{ sequence.submit.jobs }}

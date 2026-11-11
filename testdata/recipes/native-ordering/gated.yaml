@@ -1,0 +1,18 @@
+id: gated
+version: "1"
+input_schema: {}
+sequence:
+- id: submit
+  op: command_execution
+  inputs: {run: fixture-only}
+- id: release
+  op: input
+  inputs:
+    form:
+      request: {title: Parent release}
+      response_schema: {type: object}
+- id: await
+  op: recipe.await_result_soft
+  inputs: {target: {goal: "${{ sequence.submit.jobs.goal_ids[0] }}"}}
+outputs:
+  accepted: ${{ sequence.await.outputs.outputs.accepted }}

@@ -38,6 +38,10 @@ import (
 )
 
 type runtimeFixture struct {
+	entrySeen        map[string]bool
+	rootJobID        string
+	gateCounts       map[int]int
+	waiting          map[string]bool
 	retainedCleanups []func()
 	controlWorktrees map[string]string
 	barriers         []*barrierState
@@ -173,6 +177,9 @@ func runRuntimeCase(parent context.Context, opts HarnessOptions, tenant string, 
 	}
 	controlCtx, stopController := context.WithTimeout(celltest.Context(context.WithoutCancel(parent)), parseTimeout(req.Execution.Timeout, 60*time.Second))
 	defer stopController()
+	f.rootJobID = key.Key().JobId
+	f.gateCounts = map[int]int{}
+	f.waiting = map[string]bool{}
 	done := make(chan struct{})
 	workerCtx := ctx
 	if f.c.Runtime.Controls != nil {
@@ -236,6 +243,10 @@ func runRuntimeCase(parent context.Context, opts HarnessOptions, tenant string, 
 		if err := f.waitControlledExits(ctx); err != nil {
 			markFailure(&result, "control_failure", err.Error())
 		}
+	}
+	if ctx.Err() != nil {
+		result.Status = "timed_out"
+		result.FailureReason = f.unresolved(ctx.Err())
 	}
 	cancel()
 	<-done
@@ -407,6 +418,7 @@ func (f *runtimeFixture) invoke(deps coreops.OpDependencies, ctx context.Context
 	idx, seen := f.selected[identity]
 	exists := seen && idx >= 0
 	if !seen {
+		f.recordEntry(identity, key.JobId, cell, g.NodePath)
 		eligible := append([]OpMock(nil), f.c.Mocks.Ops...)
 		for i := range eligible {
 			if eligible[i].Match.Cell != "" && eligible[i].Match.Cell != cell {
@@ -493,6 +505,11 @@ func (f *runtimeFixture) invoke(deps coreops.OpDependencies, ctx context.Context
 	callIndex := f.callIndexes[identity]
 	f.mu.Unlock()
 	defer func() {
+		if exists {
+			f.mu.Lock()
+			f.event(OrderingEvent{Kind: "fixture_return", JobID: key.JobId, Cell: cell, NodePath: g.NodePath})
+			f.mu.Unlock()
+		}
 		if invokeErr == nil {
 			// Detach report values from mutable op inputs/outputs and normalize
 			// typed object references for the JSON/CEL report interface.
@@ -600,9 +617,17 @@ func (f *runtimeFixture) invoke(deps coreops.OpDependencies, ctx context.Context
 			if err != nil {
 				return nil, err
 			}
-			_, err = childbroker.SubmitLocal(ctx, request)
+			submitted, err := childbroker.SubmitLocal(ctx, request)
 			if err != nil {
 				return nil, err
+			}
+			f.mu.Lock()
+			f.event(OrderingEvent{Kind: "child_submitted", JobID: submitted.JobID, ParentJobID: key.JobId, Cell: child.Cell, NodePath: g.NodePath})
+			f.mu.Unlock()
+			if child.Await == "terminal" {
+				if err := f.awaitChild(ctx, jobdb.JobKey{TenantId: submitted.TenantID, JobId: submitted.JobID}, key.JobId, g.NodePath); err != nil {
+					return nil, err
+				}
 			}
 		}
 	}
@@ -630,11 +655,19 @@ func (f *runtimeFixture) answerInputs(ctx context.Context, tenant string, input 
 			continue
 		}
 		matched := false
+		deferred := false
 		for i, response := range f.c.Runtime.Responses {
 			if f.responses[i] || response.NodePath != nodePath {
 				continue
 			}
 			if response.Cell != "" && response.Cell != cell {
+				continue
+			}
+			f.mu.Lock()
+			eligible := response.AfterCall == nil || f.gateCounts[i] >= response.AfterCall.Occurrence
+			f.mu.Unlock()
+			if !eligible {
+				deferred = true
 				continue
 			}
 			ready, err := f.gateInput(ctx, response, item.Id, form)
@@ -658,6 +691,10 @@ func (f *runtimeFixture) answerInputs(ctx context.Context, tenant string, input 
 			}
 			// A native validation rejection still consumes an attempted response.
 			f.responses[i] = true
+			f.mu.Lock()
+			index := i
+			f.event(OrderingEvent{Kind: "response_release", JobID: item.Id, NodePath: nodePath, Cell: cell, ResponseIndex: &index})
+			f.mu.Unlock()
 			actor := inputop.Actor{ID: "recipe-test", Kind: "test"}
 			var accepted inputop.Output
 			if form.ResponseSchema != nil {
@@ -680,7 +717,7 @@ func (f *runtimeFixture) answerInputs(ctx context.Context, tenant string, input 
 			matched = true
 			break
 		}
-		if !matched {
+		if !matched && !deferred {
 			return fmt.Errorf("no input response fixture for %s", nodePath)
 		}
 	}

@@ -1,0 +1,27 @@
+recipe: gated.yaml
+cases:
+- id: release-at-parent-entry
+  type: integration_case
+  runtime:
+    cells: {root: {}, worker: {}}
+    responses:
+    - node_path: child/release
+      cell: worker
+      response: {}
+      after_call: {node_path: gated/release, cell: root, occurrence: 1}
+    - node_path: gated/release
+      response: {}
+  mocks:
+    ops:
+    - match: {node_path: gated/submit}
+      behavior:
+        mode: return
+        outputs: {}
+        effects:
+          children: [{recipe: child.yaml, cell: worker}]
+  assertions:
+  - {type: output_equals, path: accepted, value: true}
+  - type: cel_true
+    expr: >-
+      events.exists(g, g.kind == "gate_eligible" &&
+        events.exists(r, r.kind == "response_release" && r.response_index == g.response_index && r.position > g.position))
