@@ -37,6 +37,10 @@ func TestHistoryMergeIdentitiesAndEvidence(t *testing.T) {
 		}
 		records = append(records, result)
 	}
+	// A successful accepted result without retained output remains unavailable.
+	missing := historyResult(10, prefix+`task:"missing-output"#1/attempt:1`, "{}", mergeEvidence)
+	missing.Record.Output = nil
+	records = append(records, historyTask(1, prefix+`task:"missing-output"#1`, "merge:merge"), missing)
 	// A declared but unaccepted execution must not be reconstructed.
 	records = append(records, historyTask(11, prefix+`task:"lost"#1`, "merge:merge"))
 	child := historyRecord(12, "join_result", "child-job-result")
@@ -49,12 +53,18 @@ func TestHistoryMergeIdentitiesAndEvidence(t *testing.T) {
 	require.NotEmpty(t, page.SnapshotToken)
 	frozen, err := GetJobHistorySnapshot(ctx, s, GetJobHistorySnapshotRequest{TenantID: "tenant", JobID: "job", SnapshotToken: page.SnapshotToken})
 	require.NoError(t, err)
-	require.Len(t, frozen.Merges, 6)
+	require.Len(t, frozen.Merges, 7)
 	ids := map[string]bool{}
 	recorded := 0
 	for _, m := range frozen.Merges {
 		require.False(t, ids[m.EntryID])
 		ids[m.EntryID] = true
+		require.EqualValues(t, 10, m.ResultOrdinal)
+		require.Contains(t, m.InvocationID, "/attempt:")
+		require.Positive(t, m.TaskAttempt)
+		if i := len(ids) - 1; i > 0 {
+			require.Less(t, frozen.Merges[i-1].InvocationID, m.InvocationID)
+		}
 		require.Nil(t, m.CompletedAt)
 		require.Contains(t, []int{1, 2}, m.JobAttempt)
 		if m.EvidenceAvailability == "recorded" {
@@ -66,7 +76,7 @@ func TestHistoryMergeIdentitiesAndEvidence(t *testing.T) {
 		}
 	}
 	require.Equal(t, 5, recorded)
-	require.Len(t, frozen.Events, 6)
+	require.Len(t, frozen.Events, 7)
 	// Mutating a returned projection and adding retained records cannot affect it.
 	frozen.Merges[0].CandidateSHA = "caller mutation"
 	frozen.Events[0].Ordinal = 999
@@ -75,7 +85,7 @@ func TestHistoryMergeIdentitiesAndEvidence(t *testing.T) {
 	r.mu.Unlock()
 	again, err := GetJobHistorySnapshot(ctx, s, GetJobHistorySnapshotRequest{TenantID: "tenant", JobID: "job", SnapshotToken: page.SnapshotToken})
 	require.NoError(t, err)
-	require.Len(t, again.Merges, 6)
+	require.Len(t, again.Merges, 7)
 	require.NotEqual(t, "caller mutation", again.Merges[0].CandidateSHA)
 	require.EqualValues(t, 10, again.Events[0].Ordinal)
 	live, err := GetJobHistorySnapshot(ctx, s, GetJobHistorySnapshotRequest{TenantID: "tenant", JobID: "job"})
@@ -134,39 +144,82 @@ func TestHistoryEventsUseSeparateRetainedOrdinals(t *testing.T) {
 func TestHistoryMergeEvidenceDispositionsAndCoordinates(t *testing.T) {
 	id := `/scope:"$job"#1/attempt:2/task:"merge:merge"#1`
 	at := time.Date(2026, 11, 11, 1, 2, 3, 0, time.UTC)
-	for _, tc := range []struct {
-		name, output, availability string
-	}{
-		{"published empty subject", `{"candidate_sha":"abc","candidate_subject":"","publication_branch":"refs/heads/main","publication_disposition":"published"}`, "recorded"},
-		{"already present", strings.Replace(mergeEvidence, "published", "already_present", 1), "recorded"},
-		{"no changes", strings.Replace(mergeEvidence, "published", "no_changes", 1), "recorded"},
-		{"unsupported disposition", strings.Replace(mergeEvidence, "published", "future", 1), "unavailable"},
-		{"missing subject", `{"candidate_sha":"abc","publication_branch":"refs/heads/main","publication_disposition":"published"}`, "unavailable"},
-		{"null subject", strings.Replace(mergeEvidence, `"actual"`, `null`, 1), "unavailable"},
+	for _, op := range []string{"merge:merge", "squashrebasemerge:merge"} {
+		for _, disposition := range []string{"published", "already_present", "no_changes"} {
+			for _, subject := range []struct {
+				name, field string
+				want        *string
+			}{
+				{"absent", "", nil}, {"null", `,"candidate_subject":null`, nil},
+				{"empty", `,"candidate_subject":""`, ptrHistorySubject("")},
+				{"nonempty", `,"candidate_subject":" exact subject "`, ptrHistorySubject(" exact subject ")},
+			} {
+				t.Run(op+"/"+disposition+"/"+subject.name, func(t *testing.T) {
+					output := `{"candidate_sha":"abc","publication_branch":"refs/heads/main","publication_disposition":"` + disposition + `"` + subject.field + `}`
+					result := historyResult(42, id+"/attempt:3", "{}", output)
+					result.Record.At = at
+					reader := historyFixture(historyTask(1, id, op), result)
+					projected := historyMergeProjection(reader.run.Job.JobKey, reader.run)
+					service := historyNew(t, reader)
+					snapshot, err := GetJobHistorySnapshot(context.Background(), service, GetJobHistorySnapshotRequest{TenantID: "tenant", JobID: "job"})
+					require.NoError(t, err)
+					require.Equal(t, projected, snapshot.Merges)
+					require.Len(t, projected, 1)
+					m := projected[0]
+					require.Equal(t, "recorded", m.EvidenceAvailability)
+					require.Equal(t, subject.want, m.CandidateSubject)
+					require.Equal(t, output, string(m.Output))
+					require.Equal(t, "abc", m.CandidateSHA)
+					require.Equal(t, "refs/heads/main", m.PublicationBranch)
+					require.Equal(t, disposition, m.PublicationDisposition)
+					require.Equal(t, op, m.Operation)
+					require.Equal(t, "tenant", m.TenantID)
+					require.Equal(t, "job", m.JobID)
+					require.Equal(t, 2, m.JobAttempt)
+					require.Equal(t, 3, m.TaskAttempt)
+					require.Equal(t, id+"/attempt:3", m.InvocationID)
+					require.EqualValues(t, 42, m.ResultOrdinal)
+					require.Equal(t, &at, m.CompletedAt)
+					require.NotEmpty(t, m.EntryID)
+					verified := m.EvidenceAvailability == "recorded" && (m.PublicationDisposition == "published" || m.PublicationDisposition == "already_present")
+					require.Equal(t, disposition != "no_changes", verified)
+					_, err = GetJobHistorySnapshot(context.Background(), service, GetJobHistorySnapshotRequest{TenantID: "tenant", JobID: "child"})
+					require.ErrorIs(t, err, jobdb.ErrJobNotFound)
+				})
+			}
+		}
+	}
+}
+
+func ptrHistorySubject(s string) *string { return &s }
+
+func TestHistoryMergeMalformedEvidence(t *testing.T) {
+	id := `/scope:"$job"#1/attempt:1/task:"merge"#1`
+	for _, tc := range []struct{ name, output string }{
+		{"missing sha", strings.Replace(mergeEvidence, `"candidate_sha":"abc",`, "", 1)},
+		{"empty sha", strings.Replace(mergeEvidence, `"abc"`, `""`, 1)},
+		{"missing branch", strings.Replace(mergeEvidence, `"publication_branch":"refs/heads/main",`, "", 1)},
+		{"empty branch", strings.Replace(mergeEvidence, `"refs/heads/main"`, `""`, 1)},
+		{"missing disposition", strings.Replace(mergeEvidence, `,"publication_disposition":"published"`, "", 1)},
+		{"unsupported disposition", strings.Replace(mergeEvidence, "published", "future", 1)},
+		{"wrong subject type", strings.Replace(mergeEvidence, `"actual"`, "42", 1)},
+		{"wrong sha type", strings.Replace(mergeEvidence, `"abc"`, "42", 1)},
+		{"wrong branch type", strings.Replace(mergeEvidence, `"refs/heads/main"`, "42", 1)},
+		{"wrong disposition type", strings.Replace(mergeEvidence, `"published"`, "42", 1)},
+		{"malformed json", `{`}, {"array", `[]`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			result := historyResult(42, id+"/attempt:3", "{}", tc.output)
-			result.Record.At = at
-			got := historyMergeProjection(jobdb.JobKey{TenantId: "tenant", JobId: "job"}, jobdb.GetJobRunResponse{Execution: []jobdb.ExecutionHistoryEntry{historyTask(1, id, "merge:merge"), result}})
+			got := historyMergeProjection(jobdb.JobKey{}, jobdb.GetJobRunResponse{Execution: []jobdb.ExecutionHistoryEntry{historyTask(1, id, "merge:merge"), historyResult(2, id+"/attempt:1", "{}", tc.output)}})
 			require.Len(t, got, 1)
-			m := got[0]
-			require.Equal(t, tc.availability, m.EvidenceAvailability)
-			require.Equal(t, "tenant", m.TenantID)
-			require.Equal(t, "job", m.JobID)
-			require.Equal(t, 2, m.JobAttempt)
-			require.Equal(t, 3, m.TaskAttempt)
-			require.Equal(t, id+"/attempt:3", m.InvocationID)
-			require.EqualValues(t, 42, m.ResultOrdinal)
-			require.Equal(t, &at, m.CompletedAt)
-			require.NotEmpty(t, m.EntryID)
-			if tc.name == "published empty subject" {
-				require.NotNil(t, m.CandidateSubject)
-				require.Empty(t, *m.CandidateSubject)
-			}
-			if tc.name == "no changes" {
-				require.Equal(t, "no_changes", m.PublicationDisposition)
-			}
+			require.Equal(t, "unavailable", got[0].EvidenceAvailability)
 		})
+	}
+	for _, envelope := range []string{`{"v":2,"kind":"activity_output","payload":{"output":` + mergeEvidence + `}}`, `{"v":1,"kind":"other","payload":{"output":` + mergeEvidence + `}}`, `{}`} {
+		result := historyResult(2, id+"/attempt:1", "{}", mergeEvidence)
+		result.Record.Output.Data = historyRaw(envelope)
+		got := historyMergeProjection(jobdb.JobKey{}, jobdb.GetJobRunResponse{Execution: []jobdb.ExecutionHistoryEntry{historyTask(1, id, "merge:merge"), result}})
+		require.Len(t, got, 1)
+		require.Equal(t, "unavailable", got[0].EvidenceAvailability)
 	}
 }
 

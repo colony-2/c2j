@@ -121,8 +121,8 @@ func ExampleGetJobHistorySnapshot() {
 	}
 	for _, merge := range snapshot.Merges {
 		verified := merge.EvidenceAvailability == "recorded" && (merge.PublicationDisposition == "published" || merge.PublicationDisposition == "already_present")
-		_ = verified
-		_ = merge.CandidateSubject // nil on historical records; never consult live Git
+		_ = verified               // no_changes is recorded but never verified; no claim of current remote membership
+		_ = merge.CandidateSubject // optional even for verified records: absent/null is nil, empty stays non-nil; never reconstruct
 	}
 	_ = snapshot.Events // ordinal, invocation_id, kind, entry_id order
 }

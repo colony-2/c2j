@@ -118,7 +118,7 @@ func historyMergeProjection(key jobdb.JobKey, run jobdb.GetJobRunResponse) []His
 				m.CandidateSubject = fields.Subject
 				m.PublicationBranch = fields.Branch
 				m.PublicationDisposition = fields.Disposition
-				if fields.SHA != "" && fields.Subject != nil && fields.Branch != "" && (fields.Disposition == "published" || fields.Disposition == "already_present" || fields.Disposition == "no_changes") {
+				if fields.SHA != "" && fields.Branch != "" && (fields.Disposition == "published" || fields.Disposition == "already_present" || fields.Disposition == "no_changes") {
 					m.EvidenceAvailability = "recorded"
 				}
 			}

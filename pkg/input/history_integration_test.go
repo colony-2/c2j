@@ -652,7 +652,7 @@ type historyMergeTask struct{}
 
 func (historyMergeTask) Name() string { return "merge:merge" }
 func (historyMergeTask) Run(_ workflow.TaskContext, data jobdb.TaskData) (jobdb.TaskData, error) {
-	return &jobdb.SimpleTaskData{Data: historyOut(mergeEvidence).Data}, nil
+	return &jobdb.SimpleTaskData{Data: historyOut(strings.Replace(mergeEvidence, `"candidate_subject":"actual",`, "", 1)).Data}, nil
 }
 
 func TestHistorySQLiteSharedMergeSnapshotDuringPagination(t *testing.T) {
@@ -708,6 +708,7 @@ func TestHistorySQLiteSharedMergeSnapshotDuringPagination(t *testing.T) {
 	require.Len(t, frozen.Merges, 1)
 	require.NotNil(t, frozen.Merges[0].CompletedAt)
 	require.Equal(t, "recorded", frozen.Merges[0].EvidenceAvailability)
+	require.Nil(t, frozen.Merges[0].CandidateSubject)
 	finish()
 	run()
 	next, err := s.ListJobInputStory(ctx, ListJobInputStoryRequest{TenantID: "tenant", JobID: "job", PageSize: 1, PageToken: page.NextPageToken})

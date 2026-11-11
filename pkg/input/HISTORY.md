@@ -140,7 +140,7 @@ Each `HistoryMergeEntry` has:
 | Operation | operation | string: merge:merge or squashrebasemerge:merge |
 | EvidenceAvailability | evidence_availability | recorded or unavailable |
 | CandidateSHA | candidate_sha | string, recorded candidate |
-| CandidateSubject | candidate_subject | *string, nil when absent |
+| CandidateSubject | candidate_subject | *string, optional; nil when absent or null, non-nil for empty strings |
 | PublicationBranch | publication_branch | string, normalized refs/heads branch |
 | PublicationDisposition | publication_disposition | published, already_present, no_changes, or historical empty |
 | Output | output | json.RawMessage, supported decoded operation output when available |
@@ -151,6 +151,19 @@ ordinals, loops and accepted task retries retain distinct full identities.
 Missing, failed and unaccepted outcomes are never synthesized. No child jobs
 or live Git are read. Unsupported historical outputs have unavailable evidence;
 a successful historical operation alone never establishes verified publication.
+
+Complete evidence requires a nonempty candidate SHA and publication branch and a
+supported disposition. The subject is optional display evidence; absent/null,
+empty and nonempty values are preserved without reconstruction. Consumers use:
+
+```go
+verified := merge.EvidenceAvailability == "recorded" &&
+    (merge.PublicationDisposition == "published" || merge.PublicationDisposition == "already_present")
+```
+
+Otherwise complete `no_changes` evidence remains recorded but never qualifies as
+verified publication. Retained evidence describes execution at that time; it does
+not establish current remote membership.
 
 `HistoryEvent` has `Ordinal` (int64), `InvocationID`, `Kind`, `EntryID`
 (strings), with snake_case JSON tags. Kinds are `request_generation`,
