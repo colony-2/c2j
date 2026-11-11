@@ -163,7 +163,8 @@ verified := merge.EvidenceAvailability == "recorded" &&
 
 Otherwise complete `no_changes` evidence remains recorded but never qualifies as
 verified publication. Retained evidence describes execution at that time; it does
-not establish current remote membership.
+not establish current remote membership. Unsupported proof remains unavailable, with
+retained output and decoded diagnostic fields accessible where decoding succeeds.
 
 `HistoryEvent` has `Ordinal` (int64), `InvocationID`, `Kind`, `EntryID`
 (strings), with snake_case JSON tags. Kinds are `request_generation`,

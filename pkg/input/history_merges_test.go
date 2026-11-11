@@ -2,6 +2,8 @@ package input
 
 import (
 	"context"
+	"encoding/json"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -26,12 +28,14 @@ func TestHistoryMergeIdentitiesAndEvidence(t *testing.T) {
 		{strings.Replace(prefix, `"loop"#1`, `"loop"#2`, 1) + `task:"merge:merge"#1`, "merge:merge", mergeEvidence, false},
 		{strings.Replace(prefix, "/attempt:1/", "/attempt:2/", 1) + `task:"merge:merge"#1`, "merge:merge", mergeEvidence, false},
 		{prefix + `task:"squashrebasemerge:squash"#2`, "squashrebasemerge:squash", mergeEvidence, false},
+		{prefix + `task:"rebase"#1`, "squashrebasemerge:rebase", mergeEvidence, false},
+		{prefix + `task:"wrapper"#1`, "squashrebasemerge", mergeEvidence, false},
 		{prefix + `task:"unrelated"#1`, "something:merge", mergeEvidence, false},
 		{prefix + `task:"historical"#1`, "merge:merge", `{"merged_hash":"abc","target_branch":"main"}`, false},
 		{prefix + `task:"failed"#1`, "merge:merge", mergeEvidence, true},
 	} {
 		records = append(records, historyTask(1, tc.id, tc.typ))
-		result := historyResult(10, tc.id+"/attempt:"+string(rune('1'+i)), "{}", tc.out)
+		result := historyResult(10, tc.id+"/attempt:"+strconv.Itoa(i+1), "{}", tc.out)
 		if tc.failed {
 			result.Record.ErrorKind = "SystemError"
 		}
@@ -220,6 +224,67 @@ func TestHistoryMergeMalformedEvidence(t *testing.T) {
 		got := historyMergeProjection(jobdb.JobKey{}, jobdb.GetJobRunResponse{Execution: []jobdb.ExecutionHistoryEntry{historyTask(1, id, "merge:merge"), result}})
 		require.Len(t, got, 1)
 		require.Equal(t, "unavailable", got[0].EvidenceAvailability)
+	}
+}
+
+func TestHistoryMergeUnavailableEvidence(t *testing.T) {
+	for _, operation := range []string{"merge:merge", "squashrebasemerge:merge"} {
+		cases := map[string]string{
+			"historical success":   `{"success":true}`,
+			"malformed":            `{`,
+			"incompatible subject": strings.Replace(mergeEvidence, `"actual"`, `123`, 1),
+			"incompatible sha":     strings.Replace(mergeEvidence, `"abc"`, `[]`, 1),
+		}
+		for _, field := range []string{"candidate_sha", "publication_branch", "publication_disposition"} {
+			for _, missing := range []bool{false, true} {
+				var fields map[string]any
+				require.NoError(t, json.Unmarshal([]byte(mergeEvidence), &fields))
+				if missing {
+					delete(fields, field)
+				} else {
+					fields[field] = ""
+				}
+				raw, err := json.Marshal(fields)
+				require.NoError(t, err)
+				name := field + " empty"
+				if missing {
+					name = field + " missing"
+				}
+				cases[name] = string(raw)
+			}
+		}
+		cases["unknown disposition"] = strings.Replace(mergeEvidence, "published", "future", 1)
+		for name, output := range cases {
+			t.Run(operation+"/"+name, func(t *testing.T) {
+				id := `/scope:"$job"#1/attempt:1/task:"publication"#1`
+				got := historyMergeProjection(jobdb.JobKey{TenantId: "tenant", JobId: "job"}, jobdb.GetJobRunResponse{Execution: []jobdb.ExecutionHistoryEntry{historyTask(1, id, operation), historyResult(2, id+"/attempt:1", "{}", output)}})
+				require.Len(t, got, 1)
+				m := got[0]
+				require.Equal(t, "unavailable", m.EvidenceAvailability)
+				if name == "malformed" {
+					require.Empty(t, m.Output)
+				} else {
+					require.JSONEq(t, output, string(m.Output))
+				}
+				var fields struct {
+					SHA         string  `json:"candidate_sha"`
+					Subject     *string `json:"candidate_subject"`
+					Branch      string  `json:"publication_branch"`
+					Disposition string  `json:"publication_disposition"`
+				}
+				if json.Unmarshal([]byte(output), &fields) == nil {
+					require.Equal(t, fields.SHA, m.CandidateSHA)
+					require.Equal(t, fields.Subject, m.CandidateSubject)
+					require.Equal(t, fields.Branch, m.PublicationBranch)
+					require.Equal(t, fields.Disposition, m.PublicationDisposition)
+				} else {
+					require.Empty(t, m.CandidateSHA)
+					require.Nil(t, m.CandidateSubject)
+					require.Empty(t, m.PublicationBranch)
+					require.Empty(t, m.PublicationDisposition)
+				}
+			})
+		}
 	}
 }
 
