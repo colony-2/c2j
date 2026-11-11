@@ -1,0 +1,477 @@
+{
+  "recipe": "recipe.yaml",
+  "cases": [
+    {
+      "id": "healthy",
+      "type": "integration_case",
+      "runtime": {
+        "backend": "sqlite",
+        "cells": {
+          "root": {
+            "file_sources": {
+              "echo/op.yaml": "echo/op.yaml",
+              "seed/op.yaml": "seed/op.yaml",
+              "continuation/op.yaml": "continuation/op.yaml",
+              "normalize/op.yaml": "normalize/op.yaml"
+            },
+            "files": {
+              "candidate.txt": "retained candidate"
+            }
+          }
+        },
+        "responses": [
+          {
+            "node_path": "controls/question",
+            "fields": {
+              "question": "Explain the change"
+            }
+          },
+          {
+            "node_path": "controls/review",
+            "after": "answer.exited",
+            "fields": {
+              "action": "continue"
+            }
+          }
+        ],
+        "controls": {
+          "snapshot": {
+            "files": [
+              "candidate.txt"
+            ]
+          },
+          "dispatch": {
+            "strict": true,
+            "allow": [
+              {
+                "kind": "task",
+                "name": "recipe_cell_context"
+              },
+              {
+                "kind": "task",
+                "name": "input:generate_form",
+                "node_path": "controls/question"
+              },
+              {
+                "kind": "task",
+                "name": "input:generate_form",
+                "node_path": "controls/review"
+              },
+              {
+                "kind": "task",
+                "name": "extension_execution:extension_execution",
+                "node_path": "controls/answer",
+                "cell": "root"
+              },
+              {
+                "kind": "task",
+                "name": "extension_execution:extension_execution",
+                "node_path": "controls/seed"
+              },
+              {
+                "kind": "task",
+                "name": "extension_execution:extension_execution",
+                "node_path": "controls/continuation"
+              },
+              {
+                "kind": "task",
+                "name": "extension_execution:extension_execution",
+                "node_path": "controls/normalize"
+              }
+            ]
+          },
+          "barriers": [
+            {
+              "id": "answer",
+              "match": {
+                "selector": "./echo",
+                "node_path": "controls/answer",
+                "cell": "root",
+                "occurrence": 1,
+                "attempt": 1
+              },
+              "stdout": "{\"output\": {\"answer\": \"ready\", \"session\": {\"$object\": \"next\"}}}",
+              "capture_prepared": true,
+              "probe_tools": [
+                "neutral-tool"
+              ],
+              "objects": {
+                "next": {
+                  "type": "neutral.session/v1",
+                  "metadata": {
+                    "text": "answer"
+                  },
+                  "files": {
+                    "checkpoint": "answer checkpoint"
+                  }
+                }
+              }
+            }
+          ],
+          "actions": [
+            {
+              "on": "answer.entered",
+              "do": "release"
+            }
+          ]
+        }
+      },
+      "assertions": [
+        {
+          "type": "cel_true",
+          "expr": "controls.complete && controls.dispatch_complete && controls.final_snapshot.complete"
+        },
+        {
+          "type": "output_equals",
+          "path": "answer",
+          "value": "ready"
+        },
+        {
+          "type": "cel_true",
+          "expr": "controls.events.exists(e, e.kind == \"entered\" && e.prepared.objects.session.checkpoint.sha256 != \"\" && e.prepared.tools[\"neutral-tool\"].sha256 != \"\" && size(e.prepared.artifact_keys) > 0)"
+        },
+        {
+          "type": "output_equals",
+          "path": "sentinel",
+          "value": "continued"
+        },
+        {
+          "type": "op_call_count",
+          "node_path": "controls/continuation",
+          "value": 1
+        },
+        {
+          "type": "output_equals",
+          "path": "normalized",
+          "value": "normalized ready"
+        }
+      ],
+      "mocks": {
+        "ops": [
+          {
+            "match": {
+              "node_path": "controls/seed"
+            },
+            "behavior": {
+              "mode": "passthrough"
+            }
+          },
+          {
+            "match": {
+              "node_path": "controls/continuation"
+            },
+            "behavior": {
+              "mode": "passthrough"
+            }
+          },
+          {
+            "match": {
+              "node_path": "controls/normalize"
+            },
+            "behavior": {
+              "mode": "passthrough"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "cancelled",
+      "type": "integration_case",
+      "runtime": {
+        "backend": "sqlite",
+        "cells": {
+          "root": {
+            "file_sources": {
+              "echo/op.yaml": "echo/op.yaml",
+              "seed/op.yaml": "seed/op.yaml",
+              "continuation/op.yaml": "continuation/op.yaml",
+              "normalize/op.yaml": "normalize/op.yaml"
+            },
+            "files": {
+              "candidate.txt": "retained candidate"
+            }
+          }
+        },
+        "responses": [
+          {
+            "node_path": "controls/question",
+            "fields": {
+              "question": "Explain the change"
+            }
+          }
+        ],
+        "controls": {
+          "snapshot": {
+            "files": [
+              "candidate.txt"
+            ]
+          },
+          "dispatch": {
+            "strict": true,
+            "allow": [
+              {
+                "kind": "task",
+                "name": "recipe_cell_context"
+              },
+              {
+                "kind": "task",
+                "name": "input:generate_form",
+                "node_path": "controls/question"
+              },
+              {
+                "kind": "task",
+                "name": "input:generate_form",
+                "node_path": "controls/review"
+              },
+              {
+                "kind": "task",
+                "name": "extension_execution:extension_execution",
+                "node_path": "controls/answer",
+                "cell": "root"
+              },
+              {
+                "kind": "task",
+                "name": "extension_execution:extension_execution",
+                "node_path": "controls/seed"
+              },
+              {
+                "kind": "task",
+                "name": "extension_execution:extension_execution",
+                "node_path": "controls/continuation"
+              },
+              {
+                "kind": "task",
+                "name": "extension_execution:extension_execution",
+                "node_path": "controls/normalize"
+              }
+            ]
+          },
+          "barriers": [
+            {
+              "id": "answer",
+              "match": {
+                "selector": "./echo",
+                "node_path": "controls/answer",
+                "cell": "root",
+                "occurrence": 1,
+                "attempt": 1
+              },
+              "stdout": "{\"output\": {\"answer\": \"ready\", \"session\": {\"$object\": \"next\"}}}",
+              "capture_prepared": true,
+              "probe_tools": [
+                "neutral-tool"
+              ],
+              "objects": {
+                "next": {
+                  "type": "neutral.session/v1",
+                  "metadata": {
+                    "text": "answer"
+                  },
+                  "files": {
+                    "checkpoint": "answer checkpoint"
+                  }
+                }
+              }
+            }
+          ],
+          "actions": [
+            {
+              "on": "answer.entered",
+              "do": "cancel_job"
+            }
+          ]
+        }
+      },
+      "assertions": [
+        {
+          "type": "cel_true",
+          "expr": "controls.complete && controls.dispatch_complete && controls.final_snapshot.complete"
+        },
+        {
+          "type": "cel_true",
+          "expr": "controls.preserved && controls.final.status == \"CANCELLED\" && !controls.final.has_output"
+        },
+        {
+          "type": "cel_true",
+          "expr": "controls.events.exists(e, e.kind == \"entered\" && e.prepared.objects.session.checkpoint.sha256 != \"\" && e.prepared.tools[\"neutral-tool\"].sha256 != \"\" && size(e.prepared.artifact_keys) > 0)"
+        }
+      ],
+      "mocks": {
+        "ops": [
+          {
+            "match": {
+              "node_path": "controls/seed"
+            },
+            "behavior": {
+              "mode": "passthrough"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "ordinary-error",
+      "type": "integration_case",
+      "runtime": {
+        "backend": "sqlite",
+        "cells": {
+          "root": {
+            "file_sources": {
+              "echo/op.yaml": "echo/op.yaml",
+              "seed/op.yaml": "seed/op.yaml",
+              "continuation/op.yaml": "continuation/op.yaml",
+              "normalize/op.yaml": "normalize/op.yaml"
+            },
+            "files": {
+              "candidate.txt": "retained candidate"
+            }
+          }
+        },
+        "responses": [
+          {
+            "node_path": "controls/question",
+            "fields": {
+              "question": "Explain the change"
+            }
+          },
+          {
+            "node_path": "controls/review",
+            "after": "answer.exited",
+            "fields": {
+              "action": "continue"
+            }
+          }
+        ],
+        "controls": {
+          "snapshot": {
+            "files": [
+              "candidate.txt"
+            ]
+          },
+          "dispatch": {
+            "strict": true,
+            "allow": [
+              {
+                "kind": "task",
+                "name": "recipe_cell_context"
+              },
+              {
+                "kind": "task",
+                "name": "input:generate_form",
+                "node_path": "controls/question"
+              },
+              {
+                "kind": "task",
+                "name": "input:generate_form",
+                "node_path": "controls/review"
+              },
+              {
+                "kind": "task",
+                "name": "extension_execution:extension_execution",
+                "node_path": "controls/answer",
+                "cell": "root"
+              },
+              {
+                "kind": "task",
+                "name": "extension_execution:extension_execution",
+                "node_path": "controls/seed"
+              },
+              {
+                "kind": "task",
+                "name": "extension_execution:extension_execution",
+                "node_path": "controls/continuation"
+              },
+              {
+                "kind": "task",
+                "name": "extension_execution:extension_execution",
+                "node_path": "controls/normalize"
+              }
+            ]
+          },
+          "barriers": [
+            {
+              "id": "answer",
+              "match": {
+                "selector": "./echo",
+                "node_path": "controls/answer",
+                "cell": "root",
+                "occurrence": 1,
+                "attempt": 1
+              },
+              "error": "ordinary application failure",
+              "capture_prepared": true,
+              "probe_tools": [
+                "neutral-tool"
+              ]
+            }
+          ],
+          "actions": [
+            {
+              "on": "answer.entered",
+              "do": "release"
+            }
+          ]
+        }
+      },
+      "assertions": [
+        {
+          "type": "cel_true",
+          "expr": "controls.complete && controls.dispatch_complete && controls.final_snapshot.complete"
+        },
+        {
+          "type": "output_equals",
+          "path": "answer",
+          "value": "recovered"
+        },
+        {
+          "type": "cel_true",
+          "expr": "controls.events.exists(e, e.kind == \"entered\" && e.prepared.objects.session.checkpoint.sha256 != \"\" && e.prepared.tools[\"neutral-tool\"].sha256 != \"\" && size(e.prepared.artifact_keys) > 0)"
+        },
+        {
+          "type": "output_equals",
+          "path": "sentinel",
+          "value": "continued"
+        },
+        {
+          "type": "op_call_count",
+          "node_path": "controls/continuation",
+          "value": 1
+        },
+        {
+          "type": "output_equals",
+          "path": "normalized",
+          "value": "normalized recovered"
+        }
+      ],
+      "mocks": {
+        "ops": [
+          {
+            "match": {
+              "node_path": "controls/seed"
+            },
+            "behavior": {
+              "mode": "passthrough"
+            }
+          },
+          {
+            "match": {
+              "node_path": "controls/continuation"
+            },
+            "behavior": {
+              "mode": "passthrough"
+            }
+          },
+          {
+            "match": {
+              "node_path": "controls/normalize"
+            },
+            "behavior": {
+              "mode": "passthrough"
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

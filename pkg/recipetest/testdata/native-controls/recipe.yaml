@@ -1,0 +1,52 @@
+id: controls
+version: "1.0.0"
+input_schema: {}
+sequence:
+- id: question
+  op: input
+  inputs:
+    form:
+      kind: review
+      title: Question
+      documents: {}
+      fields:
+      - {id: question, type: short_answer, question: "What should I answer?", required: true}
+- id: seed
+  op: ./seed
+- id: answer
+  op: ./echo
+  inputs:
+    session: '${{ sequence.seed.outputs.session }}'
+  artifacts:
+    checkpoint.tar:
+      kind: stored
+      name: checkpoint.tar
+      stored:
+        key: '${{ sequence.seed.outputs.session.artifact }}'
+  catch:
+  - id: ordinary
+    when: failure_message_contains(failure, "ordinary application failure")
+    continue:
+      outputs:
+        answer: recovered
+        session: '${{ sequence.seed.outputs.session }}'
+- id: normalize
+  op: ./normalize
+  inputs:
+    answer: '${{ sequence.answer.outputs.answer }}'
+- id: review
+  op: input
+  inputs:
+    form:
+      kind: review
+      title: Answer
+      documents: {}
+      fields:
+      - {id: action, type: short_answer, question: Continue, required: true}
+- id: continuation
+  op: ./continuation
+outputs:
+  normalized: '${{ sequence.normalize.outputs.answer }}'
+  sentinel: '${{ sequence.continuation.outputs.sentinel }}'
+  session: '${{ sequence.answer.outputs.session }}'
+  answer: '${{ sequence.answer.outputs.answer }}'

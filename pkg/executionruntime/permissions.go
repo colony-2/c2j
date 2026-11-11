@@ -8,6 +8,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/colony-2/c2j/internal/dispatchtest"
 	"github.com/colony-2/c2j/pkg/hookpolicy"
 	"github.com/colony-2/c2j/pkg/jobinspect"
 	"github.com/colony-2/c2j/pkg/jobref"
@@ -24,6 +25,7 @@ func (r *Runtime) restrictedAccess(parent context.Context, tc jobworkflow.TaskCo
 	// Keep the live TaskContext: JobDB attaches its authoritative execution
 	// bounds when creating a child. Embedded execution uses in-process guards.
 	ctx, cancel := context.WithCancel(parent)
+	ctx = dispatchtest.WithIdentity(ctx, dispatchtest.Attempt{JobID: tc.JobKey.JobId, InvocationID: tc.InvocationID, Attempt: tc.AttemptNumber, ResultOrdinal: tc.Step})
 	var access *permissions.Access
 	var delegationMu sync.Mutex
 	var child jobdb.ExecutionLease

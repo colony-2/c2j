@@ -1,0 +1,16 @@
+name: neutral
+shell: sh
+dependencies: [uv:neutral-tool==1]
+run: 'exit 93'
+input_schema:
+  type: object
+  required: [session]
+  properties:
+    marker: {type: string, default: prepared}
+    session: {type: object, x-c2j-object-type: neutral.session/v1}
+output_schema:
+  type: object
+  required: [answer, session]
+  properties:
+    answer: {type: string}
+    session: {type: object, x-c2j-object-type: neutral.session/v1}

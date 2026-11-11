@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/colony-2/c2j/internal/dispatchtest"
 	"github.com/colony-2/c2j/pkg/jobref"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 )
@@ -36,7 +37,12 @@ func NewAccess(ctx context.Context, grant JobDB, resolve ResolveFunc, submit Sub
 }
 
 // CreateCell registers a name without granting submission authority to it.
-func (a *Access) CreateCell(ctx context.Context, req jobdb.CreateCellRequest) (jobdb.Cell, error) {
+func (a *Access) CreateCell(ctx context.Context, req jobdb.CreateCellRequest) (result jobdb.Cell, err error) {
+	finish, err := dispatchtest.Begin(a.Context(), dispatchtest.Attempt{Kind: "native", Name: "create_cell", Cell: req.Name})
+	if err != nil {
+		return result, err
+	}
+	defer func() { finish(err) }()
 	if err := ctx.Err(); err != nil {
 		return jobdb.Cell{}, err
 	}
@@ -113,7 +119,12 @@ func (a *Access) Resolve(ctx context.Context, names []string) (jobdb.SecretResol
 	values.Secrets = filtered
 	return values, nil
 }
-func (a *Access) Submit(ctx context.Context, job jobdb.SubmitJob) (jobref.Ref, error) {
+func (a *Access) Submit(ctx context.Context, job jobdb.SubmitJob) (result jobref.Ref, err error) {
+	finish, err := dispatchtest.Begin(a.Context(), dispatchtest.Attempt{Kind: "native", Name: "submit_job", Cell: job.Cell})
+	if err != nil {
+		return result, err
+	}
+	defer func() { finish(err) }()
 	// Lease delegation has no explicit primary-selection grant. Never inherit a
 	// caller-supplied host hook as authority for a restricted task.
 	if job.GoalID != "" {
@@ -178,7 +189,12 @@ type RestartFunc func(context.Context, jobdb.SubmitRestartJobRequest) (jobref.Re
 // WithRestart installs the controller's lease-bound restart callback before the
 // Access is published to an operation. It does not expand its submission grant.
 func (a *Access) WithRestart(restart RestartFunc) *Access { a.restart = restart; return a }
-func (a *Access) Restart(ctx context.Context, req jobdb.SubmitRestartJobRequest) (jobref.Ref, error) {
+func (a *Access) Restart(ctx context.Context, req jobdb.SubmitRestartJobRequest) (result jobref.Ref, err error) {
+	finish, err := dispatchtest.Begin(a.Context(), dispatchtest.Attempt{Kind: "native", Name: "restart_job", Cell: req.Job.Cell})
+	if err != nil {
+		return result, err
+	}
+	defer func() { finish(err) }()
 	if err := ctx.Err(); err != nil {
 		return jobref.Ref{}, err
 	}

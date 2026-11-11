@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/colony-2/c2j/internal/celltest"
+	"github.com/colony-2/c2j/internal/dispatchtest"
 	"github.com/colony-2/c2j/pkg/cellref"
 	"github.com/colony-2/c2j/pkg/childbroker"
 	"github.com/colony-2/c2j/pkg/contextual"
@@ -31,22 +32,26 @@ import (
 	workerworkflow "github.com/colony-2/c2j/pkg/worker/workflow"
 	"github.com/colony-2/c2j/pkg/workflowctl"
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	"github.com/colony-2/jobdb/pkg/jobdb/runtime/sqlite"
 	toyruntime "github.com/colony-2/jobdb/pkg/jobdb/runtime/toy"
 	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
 )
 
 type runtimeFixture struct {
-	mu          sync.Mutex
-	opts        HarnessOptions
-	c           Case
-	root        string
-	cells       map[string]string
-	selected    map[string]int
-	callIndexes map[string]int
-	used        map[int]struct{}
-	responses   map[int]bool
-	report      RuntimeReport
-	ctl         *workerworkflow.SWFWorkflowControl
+	retainedCleanups []func()
+	controlWorktrees map[string]string
+	barriers         []*barrierState
+	mu               sync.Mutex
+	opts             HarnessOptions
+	c                Case
+	root             string
+	cells            map[string]string
+	selected         map[string]int
+	callIndexes      map[string]int
+	used             map[int]struct{}
+	responses        map[int]bool
+	report           RuntimeReport
+	ctl              *workerworkflow.SWFWorkflowControl
 }
 
 func runRuntimeCase(parent context.Context, opts HarnessOptions, tenant string, req caseInput, prepared preparedCase) (result CaseRunResult) {
@@ -63,6 +68,12 @@ func runRuntimeCase(parent context.Context, opts HarnessOptions, tenant string, 
 	defer os.RemoveAll(root)
 	f := &runtimeFixture{opts: opts, c: req.Case, root: root, cells: map[string]string{}, selected: map[string]int{}, callIndexes: map[string]int{}, used: map[int]struct{}{}, responses: map[int]bool{}}
 	defer func() { f.mu.Lock(); defer f.mu.Unlock(); result.Runtime = &f.report }()
+	defer func() {
+		for _, cleanup := range f.retainedCleanups {
+			cleanup()
+		}
+	}()
+	f.initControls()
 	cell := req.Case.Runtime.Cell
 	if cell == "" {
 		cell = "root"
@@ -71,7 +82,16 @@ func runRuntimeCase(parent context.Context, opts HarnessOptions, tenant string, 
 		result.FailureReason = err.Error()
 		return
 	}
-	rt := toyruntime.New(toyruntime.WithSecretProvider(runtimeSecretProvider{tenant: tenant, values: req.Case.Runtime.Secrets}))
+	rt, closeRuntime, err := newCaseRuntime(ctx, root, tenant, req.Case.Runtime)
+	if err != nil {
+		result.FailureReason = err.Error()
+		return
+	}
+	defer func() {
+		if err := closeRuntime(); err != nil {
+			markFailure(&result, "runtime_close", err.Error())
+		}
+	}()
 	// Runtime cases explicitly register their seeded cells before execution.
 	for name, repo := range f.cells {
 		_, e := rt.CreateCell(ctx, jobdb.CreateCellRequest{TenantID: tenant, Name: name, Repo: celltest.Repo(repo)})
@@ -91,7 +111,11 @@ func runRuntimeCase(parent context.Context, opts HarnessOptions, tenant string, 
 			return
 		}
 	}
-	scopedRuntime := executionruntime.New(rt, execution.Allocation{SchemaVersion: 1})
+	var workerRuntime jobdb.WorkflowRuntime = rt
+	if req.Case.Runtime.Controls != nil {
+		workerRuntime = controlledRuntime{rt}
+	}
+	scopedRuntime := executionruntime.New(workerRuntime, execution.Allocation{SchemaVersion: 1})
 	engine, err := jobworkflow.NewEngineBuilder().WithRuntime(scopedRuntime).WithWorkerTenantId(tenant).BuildEngine()
 	if err != nil {
 		result.FailureReason = err.Error()
@@ -127,7 +151,13 @@ func runRuntimeCase(parent context.Context, opts HarnessOptions, tenant string, 
 	workers, err := compiler.NewRecipeWorkerWithOptions(deps, registry, compiler.RecipeJobWorkerOptions{
 		Executor:           executor,
 		RootSourceResolver: compiler.NewRecipeSourceResolver(compiler.RecipeSourceResolverOptions{}),
-		Allocation:         scopedRuntime.Allocation, WrapTaskWorker: scopedRuntime.WrapTaskWorker, StageExecution: scopedRuntime.Stage,
+		Allocation:         scopedRuntime.Allocation, WrapTaskWorker: func(worker jobworkflow.TaskWorker) jobworkflow.TaskWorker {
+			guarded := scopedRuntime.WrapTaskWorker(worker)
+			if f.c.Runtime.Controls != nil {
+				return dispatchTaskWorker{guarded, f}
+			}
+			return guarded
+		}, StageExecution: scopedRuntime.Stage,
 	})
 	if err == nil {
 		err = engine.RegisterWorkers(workers)
@@ -141,8 +171,21 @@ func runRuntimeCase(parent context.Context, opts HarnessOptions, tenant string, 
 		result.FailureReason = err.Error()
 		return
 	}
+	controlCtx, stopController := context.WithTimeout(celltest.Context(context.WithoutCancel(parent)), parseTimeout(req.Execution.Timeout, 60*time.Second))
+	defer stopController()
 	done := make(chan struct{})
-	go func() { defer close(done); engine.Run(ctx) }()
+	workerCtx := ctx
+	if f.c.Runtime.Controls != nil {
+		workerCtx = dispatchtest.WithObserver(ctx, f.beginDispatch)
+		if f.c.Runtime.Controls.Snapshot != nil {
+			workerCtx = dispatchtest.WithCleanupRetainer(workerCtx, func(cleanup func()) {
+				f.mu.Lock()
+				defer f.mu.Unlock()
+				f.retainedCleanups = append(f.retainedCleanups, cleanup)
+			})
+		}
+	}
+	go func() { defer close(done); engine.Run(workerCtx) }()
 	defer func() { cancel(); <-done }()
 	input, err := inputop.NewRuntime(f.ctl, nil)
 	if err != nil {
@@ -157,6 +200,12 @@ func runRuntimeCase(parent context.Context, opts HarnessOptions, tenant string, 
 		if inspectErr != nil {
 			result.FailureReason = inspectErr.Error()
 			break
+		}
+		if f.c.Runtime.Controls != nil {
+			if err := f.pumpControls(controlCtx, rt, tenant); err != nil {
+				result.FailureReason = err.Error()
+				break
+			}
 		}
 		if inspection.Terminal {
 			output = inspection.Output
@@ -183,8 +232,18 @@ func runRuntimeCase(parent context.Context, opts HarnessOptions, tenant string, 
 		}
 		break
 	}
+	if f.c.Runtime.Controls != nil {
+		if err := f.waitControlledExits(ctx); err != nil {
+			markFailure(&result, "control_failure", err.Error())
+		}
+	}
 	cancel()
 	<-done
+	if f.report.Controls != nil {
+		f.mu.Lock()
+		f.report.Controls.Events = append(f.report.Controls.Events, ControlEvent{Kind: "drained"})
+		f.mu.Unlock()
+	}
 	artifacts := map[string][]byte{}
 	if output != nil {
 		raw, readErr := output.GetData()
@@ -225,6 +284,8 @@ func runRuntimeCase(parent context.Context, opts HarnessOptions, tenant string, 
 			result.FailureReason = fmt.Sprintf("expected error containing %q; got %s", expected, result.FailureReason)
 		}
 	}
+	f.captureControlFinal(controlCtx, rt, key.Key())
+	f.finishControls(&result)
 	if err := f.captureRepositories(parent); err != nil {
 		markFailure(&result, "fixture_inspection", err.Error())
 	}
@@ -334,6 +395,7 @@ func writeFixture(root, name string, content []byte) error {
 }
 
 func (f *runtimeFixture) invoke(deps coreops.OpDependencies, ctx context.Context, op string, real func(coreops.OpDependencies, context.Context, map[string]any) (map[string]any, error), in map[string]any) (opOutput map[string]any, invokeErr error) {
+	controlledInvocation := false
 	g := deps.GitContext()
 	cell := g.CellName
 	if g.Workspace != nil {
@@ -441,6 +503,9 @@ func (f *runtimeFixture) invoke(deps coreops.OpDependencies, ctx context.Context
 				f.mu.Unlock()
 			}
 		}
+		if controlledInvocation {
+			f.controlledExit(deps)
+		}
 	}()
 	if op == "squashrebasemerge" {
 		// Git config is not copied when cloning a fixture repository. Set the
@@ -451,6 +516,17 @@ func (f *runtimeFixture) invoke(deps coreops.OpDependencies, ctx context.Context
 				return nil, fmt.Errorf("configure fixture committer: %w: %s", err, output)
 			}
 		}
+	}
+	controlledCtx, controlled, controlErr := f.controlledContext(deps, ctx, op, in)
+	if controlErr != nil {
+		return nil, controlErr
+	}
+	if controlled {
+		if exists {
+			return nil, f.controlError(fmt.Errorf("prepared control conflicts with whole-operation mock at %s", g.NodePath))
+		}
+		controlledInvocation = true
+		return real(deps, controlledCtx, in)
 	}
 	if !exists {
 		// Built-in orchestration runs normally; external work requires an explicit
@@ -561,6 +637,14 @@ func (f *runtimeFixture) answerInputs(ctx context.Context, tenant string, input 
 			if response.Cell != "" && response.Cell != cell {
 				continue
 			}
+			ready, err := f.gateInput(ctx, response, item.Id, form)
+			if err != nil {
+				return err
+			}
+			if !ready {
+				matched = true
+				break
+			}
 			fields := cloneStringMap(response.Fields)
 			if fields == nil {
 				fields = map[string]any{}
@@ -575,15 +659,24 @@ func (f *runtimeFixture) answerInputs(ctx context.Context, tenant string, input 
 			// A native validation rejection still consumes an attempted response.
 			f.responses[i] = true
 			actor := inputop.Actor{ID: "recipe-test", Kind: "test"}
+			var accepted inputop.Output
 			if form.ResponseSchema != nil {
-				_, err = input.SubmitStructuredResponse(ctx, tenant, item.Id, inputop.StructuredSubmission{RequestID: form.RequestID, SubmissionID: fmt.Sprint(i), Response: response.Response}, actor)
+				accepted, err = input.SubmitStructuredResponse(ctx, tenant, item.Id, inputop.StructuredSubmission{RequestID: form.RequestID, SubmissionID: fmt.Sprint(i), Response: response.Response}, actor)
 			} else {
-				_, err = input.SubmitFormResponse(ctx, tenant, item.Id, inputop.FormSubmission{RequestID: form.RequestID, SubmissionID: fmt.Sprint(i), Fields: fields, Response: response.Response}, actor)
+				accepted, err = input.SubmitFormResponse(ctx, tenant, item.Id, inputop.FormSubmission{RequestID: form.RequestID, SubmissionID: fmt.Sprint(i), Fields: fields, Response: response.Response}, actor)
 			}
 			if err != nil {
 				return err
 			}
-			f.report.Reviews = append(f.report.Reviews, ReviewCall{NodePath: response.NodePath, Form: form})
+			var review ReviewCall
+			if err := snapshotRuntimeValue(ctx, ReviewCall{NodePath: response.NodePath, Form: form, JobID: item.Id, RequestID: form.RequestID, Receipt: accepted.Receipt}, &review); err != nil {
+				return err
+			}
+			// Keep the typed form for legacy review_document_exists assertions.
+			review.Form = form
+			f.mu.Lock()
+			f.report.Reviews = append(f.report.Reviews, review)
+			f.mu.Unlock()
 			matched = true
 			break
 		}
@@ -835,4 +928,24 @@ func snapshotRuntimeValue(ctx context.Context, value, dst any) error {
 		return err
 	}
 	return json.Unmarshal(raw, dst)
+}
+
+// caseRuntime includes only the native facilities used by the harness. Both
+// backends implement the same contract, including schema and configuration.
+type caseRuntime interface {
+	jobdb.WorkflowRuntime
+	jobdb.JobSchemaRegistry
+	jobdb.ConfigurationAdmin
+}
+
+func newCaseRuntime(ctx context.Context, root, tenant string, spec *RuntimeCase) (caseRuntime, func() error, error) {
+	provider := runtimeSecretProvider{tenant: tenant, values: spec.Secrets}
+	if spec.Backend == "sqlite" {
+		rt, err := sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: filepath.Join(root, "jobs.db"), SecretProvider: provider})
+		if err != nil {
+			return nil, nil, err
+		}
+		return rt, func() error { return rt.Close(context.WithoutCancel(ctx)) }, nil
+	}
+	return toyruntime.New(toyruntime.WithSecretProvider(provider)), func() error { return nil }, nil
 }

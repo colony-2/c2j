@@ -1883,7 +1883,7 @@ func failureCategoryFromError(err error) string {
 
 // evaluateAssertion evaluates a read-only declaration against observed behavior.
 func evaluateAssertion(expr string, outputs map[string]any, artifacts map[string][]byte, status string, report *RuntimeReport) (bool, string) {
-	env, err := cel.NewEnv(cel.Variable("outputs", cel.DynType), cel.Variable("artifacts", cel.DynType), cel.Variable("status", cel.StringType), cel.Variable("calls", cel.ListType(cel.DynType)), cel.Variable("reviews", cel.ListType(cel.DynType)), cel.Variable("repositories", cel.DynType), cel.Variable("observations", cel.ListType(cel.DynType)), cel.Variable("observation_collection", cel.DynType))
+	env, err := cel.NewEnv(cel.Variable("controls", cel.DynType), cel.Variable("outputs", cel.DynType), cel.Variable("artifacts", cel.DynType), cel.Variable("status", cel.StringType), cel.Variable("calls", cel.ListType(cel.DynType)), cel.Variable("reviews", cel.ListType(cel.DynType)), cel.Variable("repositories", cel.DynType), cel.Variable("observations", cel.ListType(cel.DynType)), cel.Variable("observation_collection", cel.DynType))
 	if err != nil {
 		return false, err.Error()
 	}
@@ -1928,7 +1928,7 @@ func evaluateAssertion(expr string, outputs map[string]any, artifacts map[string
 	if collection == nil {
 		collection = map[string]any{"complete": false}
 	}
-	value, _, err := program.Eval(map[string]any{"observations": observations, "observation_collection": collection, "outputs": outputs, "artifacts": texts, "status": status, "calls": calls, "reviews": reviews, "repositories": repositories})
+	value, _, err := program.Eval(map[string]any{"controls": data["controls"], "observations": observations, "observation_collection": collection, "outputs": outputs, "artifacts": texts, "status": status, "calls": calls, "reviews": reviews, "repositories": repositories})
 	if err != nil {
 		return false, err.Error()
 	}

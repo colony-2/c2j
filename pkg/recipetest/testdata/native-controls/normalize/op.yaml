@@ -1,0 +1,20 @@
+name: normalize
+shell: sh
+run: |
+  IFS= read -r payload || true
+  case "$payload" in
+    *'"answer":"ready"'*) answer='normalized ready';;
+    *'"answer":"recovered"'*) answer='normalized recovered';;
+    *) exit 94;;
+  esac
+  printf '{"output":{"answer":"%s"}}' "$answer"
+input_schema:
+  type: object
+  required: [answer]
+  properties:
+    answer: {type: string}
+output_schema:
+  type: object
+  required: [answer]
+  properties:
+    answer: {type: string}

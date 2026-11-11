@@ -2,6 +2,7 @@ package recipetest
 
 import (
 	"fmt"
+	inputop "github.com/colony-2/c2j/pkg/input"
 	"path/filepath"
 	"strings"
 )
@@ -9,7 +10,11 @@ import (
 // RuntimeCase opts a case into real JobDB and worker execution. Legacy cases
 // (including integration_case) retain their existing executor when omitted.
 type RuntimeCase struct {
-	Observe *ObservationConfig `json:"observe,omitempty"`
+	// Backend defaults to the compatible in-memory runtime. sqlite creates a
+	// disposable on-disk database owned exclusively by this case.
+	Controls *RuntimeControls   `json:"controls,omitempty"`
+	Backend  string             `json:"backend,omitempty"`
+	Observe  *ObservationConfig `json:"observe,omitempty"`
 	// Synthetic, case-local tenant values; never use production credentials.
 	Secrets      map[string]string      `json:"secrets,omitempty"`
 	Config       map[string]any         `json:"config,omitempty"`
@@ -26,6 +31,9 @@ type CellFixture struct {
 }
 
 type InputFixture struct {
+	// After gates this native submission on a prepared control event. The pending
+	// form is captured on one controller pass before submission on a later pass.
+	After       string            `json:"after,omitempty"`
 	NodePath    string            `json:"node_path"`
 	Cell        string            `json:"cell,omitempty"`
 	Fields      map[string]any    `json:"fields,omitempty"`
@@ -61,6 +69,7 @@ type RepositoryReport struct {
 }
 
 type RuntimeReport struct {
+	Controls              *ControlReport              `json:"controls,omitempty"`
 	ObservationsVersion   int                         `json:"observations_version,omitempty"`
 	Observations          []map[string]any            `json:"observations,omitempty"`
 	ObservationCollection *ObservationCollection      `json:"observation_collection,omitempty"`
@@ -82,8 +91,11 @@ type OpCall struct {
 }
 
 type ReviewCall struct {
-	NodePath string `json:"node_path"`
-	Form     any    `json:"form"`
+	JobID     string           `json:"job_id,omitempty"`
+	RequestID string           `json:"request_id,omitempty"`
+	Receipt   *inputop.Receipt `json:"receipt,omitempty"`
+	NodePath  string           `json:"node_path"`
+	Form      any              `json:"form"`
 }
 
 func fixturePath(root, name string) (string, error) {
@@ -110,6 +122,17 @@ func validateRuntimeCase(opts HarnessOptions, c Case) []Issue {
 	}
 	if c.ExpectError != "" && c.Runtime.ExpectError != "" {
 		add(fmt.Errorf("set expect_error at the case or runtime level, not both"))
+	}
+	if c.Runtime.Backend != "" && c.Runtime.Backend != "memory" && c.Runtime.Backend != "sqlite" {
+		add(fmt.Errorf("unknown runtime backend %q; use memory or sqlite", c.Runtime.Backend))
+	}
+	add(validateControls(c.Runtime))
+	if c.Runtime.Controls != nil && c.ExpectError != "" {
+		for _, a := range c.Runtime.Controls.Actions {
+			if a.Do == "cancel_job" {
+				add(fmt.Errorf("cancel_job controls require no case expect_error"))
+			}
+		}
 	}
 	add(validateObservations(c.Runtime.Observe))
 	for _, name := range c.Runtime.ObserveFiles {
@@ -151,6 +174,20 @@ func validateRuntimeCase(opts HarnessOptions, c Case) []Issue {
 		}
 	}
 	for _, response := range c.Runtime.Responses {
+		if response.After != "" {
+			id, event, ok := strings.Cut(response.After, ".")
+			exists := false
+			if c.Runtime.Controls != nil {
+				for _, b := range c.Runtime.Controls.Barriers {
+					if b.ID == id {
+						exists = true
+					}
+				}
+			}
+			if !ok || !exists || (event != "entered" && event != "exited") {
+				add(fmt.Errorf("unknown input response gate %q", response.After))
+			}
+		}
 		if response.NodePath == "" {
 			add(fmt.Errorf("input fixture requires node_path"))
 		}

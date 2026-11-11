@@ -1,0 +1,5 @@
+#!/bin/sh
+set -eu
+mkdir -p "$UV_TOOL_BIN_DIR"
+printf '#!/bin/sh\nprintf "neutral-prepared-tool-marker\\n"\n' > "$UV_TOOL_BIN_DIR/neutral-tool"
+chmod +x "$UV_TOOL_BIN_DIR/neutral-tool"

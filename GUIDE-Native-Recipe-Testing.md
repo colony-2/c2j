@@ -352,3 +352,155 @@ Selected diagnostics are included in ordinary inline report artifacts even when
 cleanup, including empty diagnostics and expected root failure. Unavailable or
 omitted refs do not receive a retained retrieval path. Directory suite reports
 retain the existing `suites/<relative-suite-path>/cases/...` nesting.
+
+## Prepared completion controls
+
+Use `runtime.backend: sqlite` for a disposable persisted native job. The default
+backend remains `memory`. The case closes its database after execution cleanup
+and removes its temporary files; the report is the retained evidence.
+
+Prepared completion controls are additive to the runtime case interface:
+
+```yaml
+runtime:
+  backend: sqlite
+  controls:
+    max_evidence_bytes: 262144
+    barriers:
+      - id: answer
+        match:
+          selector: ./echo
+          node_path: example/answer
+          cell: root
+          occurrence: 1
+          attempt: 1
+        stdout: '{"output":{"answer":"ready"}}'
+    actions:
+      - {on: answer.entered, do: release}
+```
+
+The recipe must contain that local selector, and its package must exist in the
+fixture cell. Controls do not supply missing source or bypass package/tool
+preparation. The barrier runs after input validation, defaults, materialization
+and object hydration. Scripted stdout traverses normal envelope decoding,
+output validation, object publication and artifact processing. `error` scripts
+an ordinary application error instead of stdout. A whole-operation mock cannot
+also match the selected invocation.
+
+All matcher fields are required and exact. Occurrence counts distinct native
+invocation IDs for the selected selector/node/cell within the case; attempt is
+the native one-based task attempt. Report counters are not attempt identities.
+Missing matches, duplicate selections, unexpected selected retries and unused
+controls fail. A barrier without an action blocks until runtime cancellation or
+the case deadline and fails as unreleased; expected-error matching cannot absorb
+control failures.
+
+`cancel_job` uses an independent controller context to cancel the entered job.
+Controlled cases renew one-second native worker leases so invalidation becomes
+observable promptly. The controller records request and acceptance separately
+from the runtime cause, completion exit, operation exit and engine drain.
+Cancellation passes only with accepted native cancellation, a native lease-loss
+or job-cancelled cause, persisted `CANCELLED` status, cancelled completion,
+cancellation failure kind and no successful job output. Omit `expect_error` for
+this action; a matching error string is insufficient evidence. The selected
+operation exits before worker cleanup. `drained` follows joining the engine.
+
+`capture_env` on a barrier names prepared environment values to retain. It is
+empty by default, forbids protected `C2J_` values and fails if a requested value
+is unavailable. Materialized input and selected environment snapshots use the
+existing secret redaction. `max_evidence_bytes` bounds each prepared-entry or
+gated-review snapshot (default and maximum 262144 bytes); exceeding the bound
+fails rather than reporting empty evidence.
+
+A response may specify `after: answer.exited` (or `answer.entered`). Its genuine
+pending review is captured on one controller pass; submission occurs on a later
+pass after the named barrier event. This preserves an inspectable interval
+before continuation. Reports retain the native request and receipt returned by
+the ordinary input API, rather than synthesizing receipt IDs.
+
+The additive `runtime.controls` report has `version: 1`, ordered `events`,
+`errors`, `complete`, and a persisted `final` job state. Entry events distinguish
+the authored selector, resolved selector, native invocation/attempt/result
+ordinal and authored node/cell. `review_pending` includes the native form and
+the call snapshot before submission. CEL assertions can access `controls`.
+Here `complete` means the configured control obligations were satisfied.
+
+Optional `dispatch: {strict: true, allow: [...]}` records native task dispatch
+before the environment/permission guard and native `submit_job`, `create_cell`
+and `restart_job` calls before authorization. Allow entries use exact `kind`
+(`task` or `native`) and `name`, with optional exact `node_path` and `cell`.
+Internal preparation tasks also need explicit allowance. Forbidden attempts are
+recorded and rejected before the guarded worker or native callback runs.
+Permission-denied attempts remain visible when dispatch policy allows them.
+The report includes trusted native job/invocation/attempt/result ordinals,
+allowed/denied/failed/finished flags, and `dispatch_complete`. Native review
+collection persisted by the workflow may not be a worker dispatch; its stored
+receipt appears in successful task snapshots instead. This coverage does not
+observe arbitrary HTTP calls or subprocess internals. `max_attempts` defaults to
+1024 (maximum 4096); overflow fails the case and records dropped evidence.
+
+Optional `snapshot: {files: [candidate.txt]}` captures baseline effects while
+the selected operation is blocked and final effects after execution drain.
+It retains successful native task outputs, artifact keys and full bounded
+artifact bytes, child job identities, and fixture/selected invocation repository
+HEAD/tree/refs/index/diff/status and explicitly selected file bytes. Content has
+SHA-256 plus base64 of redacted bytes; redaction is explicit. The default total
+snapshot bound is 1 MiB (maximum 16 MiB); `max_artifact_bytes` defaults to 256 KiB
+(maximum 4 MiB), also bounding selected files. Missing repository/artifact reads,
+unsafe file paths, truncation and serialization overflow make evidence incomplete
+and fail the case. An explicitly absent selected file is recorded as absent.
+Snapshot-enabled cases retain actual operation worktrees until the final snapshot,
+then clean them up. Ordinary execution retains its existing cleanup behavior.
+
+`baselines`, `final_snapshot` and `preserved` are additive report fields.
+Cancellation requires identical successful outputs/artifacts, repositories,
+children and dispatch counts in complete baseline/final snapshots. Healthy release
+can add successful effects, so it does not claim `preserved`. Enable both strict
+dispatch and snapshots when proving attempted and stored effect preservation.
+The neutral CLI example is
+`pkg/recipetest/testdata/native-controls/native-controls.test.json`:
+
+```sh
+c2j test validate --file pkg/recipetest/testdata/native-controls/native-controls.test.json
+c2j test run --file pkg/recipetest/testdata/native-controls/native-controls.test.json --case-timeout 20s --out-dir /tmp/native-controls-results
+```
+
+It covers healthy release, cancellation and ordinary-error catches using a real
+local package and genuine native reviews. These neutral cases do not establish actual pinned resolver acceptance.
+
+The shipped suite now also contains real passthrough seed, normalization and
+continuation packages. The seed publishes a typed checkpoint archive; the answer
+binds that archive into its inbox and hydrates its typed object input. Healthy
+release publishes a new checkpoint through ordinary extension processing,
+normalizes the answer, reaches a gated review and emits one continuation sentinel.
+The ordinary-error case uses a real catch and retains the seed checkpoint.
+
+A barrier's optional `capture_prepared: true` retains bounded content/digests for
+hydrated top-level object parts and stored bound artifacts, including original
+native artifact keys. Optional `probe_tools: [neutral-tool]` runs each exact
+executable with `--version` through the prepared tool environment, retains its
+bounded redacted stdout, and fails if unavailable. Probes require
+`capture_prepared`; they are explicit fixture commands, not passive tracing.
+Each evidence item and the whole entry obey `max_evidence_bytes`.
+
+Optional barrier `objects` maps draft names to `{type, metadata, files}`.
+`files` maps confined relative part names to inline fixture contents. Only after
+healthy release are these parts staged in the actual prepared object outbox and
+added to the scripted completion envelope. Stdout references them with ordinary
+`{"$object":"draft-name"}` values. Normal extension decoding, schema checks,
+archive publication and downstream hydration are retained. Cancellation stages
+no completion objects. Escaping or symlinked output paths fail the control.
+Do not also define `objects` in stdout when using this field.
+
+For this offline tool fixture, prepend
+`pkg/recipetest/testdata/native-controls/fake-bin` to PATH and set
+`C2J_TOOL_CACHE_DIR` to a disposable scratch directory before running the shipped
+CLI suite. Its synthetic `uv` installer installs only the neutral marker script;
+no network package installation or model credential is involved. Normal tool
+resolution, setup, activation and invocation still run. The Go
+`TestShippedNativeControls` test arranges this environment automatically.
+
+Prepared content capture currently handles top-level object inputs with regular
+file parts and stored file bindings. Unsupported directory parts or non-stored
+bindings fail capture rather than implying complete evidence. Snapshot archives
+retain full bounded checkpoint bytes independently of prepared content capture.

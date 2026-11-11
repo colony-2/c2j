@@ -22,6 +22,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/colony-2/c2j/internal/dispatchtest"
+	"github.com/colony-2/c2j/internal/preparedtest"
 	recipeartifacts "github.com/colony-2/c2j/pkg/artifacts"
 	"github.com/colony-2/c2j/pkg/childbroker"
 	"github.com/colony-2/c2j/pkg/contextual"
@@ -281,7 +283,7 @@ func (t opExecutor) doPrepared(ctx context.Context, jobTool ops.JobTool, req Act
 		contextual.OpArtifactOutboxSentinel: outbox,
 	}
 
-	defer removeWorkDir(worktreePath)
+	defer dispatchtest.Cleanup(ctx, func() { removeWorkDir(worktreePath) })
 
 	incomingGitContext := req.GitTaskContext
 	if req.GitTaskContext.Workspace != nil {
@@ -386,6 +388,9 @@ func (t opExecutor) doPrepared(ctx context.Context, jobTool ops.JobTool, req Act
 	defer func() { outputArtifacts = append(outputArtifacts, objectArtifacts...) }()
 	defer os.RemoveAll(filepath.Join(workDir, "objects"))
 	defer os.RemoveAll(filepath.Join(workDir, "objects-out"))
+	if dispatchtest.Enabled(ctx) {
+		ctx = preparedtest.WithBindings(ctx, req.Artifacts, inbox)
+	}
 	if len(req.Artifacts) > 0 {
 		if err := materializeArtifactBindings(ctx, inbox, req.Artifacts, artifactByKey); err != nil {
 			return zero, nil, err

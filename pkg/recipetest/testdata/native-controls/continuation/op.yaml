@@ -1,0 +1,10 @@
+name: continuation
+shell: sh
+run: |
+  printf '{"output":{"sentinel":"continued"}}'
+input_schema: {type: object}
+output_schema:
+  type: object
+  required: [sentinel]
+  properties:
+    sentinel: {type: string}

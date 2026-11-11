@@ -1,0 +1,11 @@
+name: seed
+shell: sh
+run: |
+  printf 'original checkpoint' > "$C2J_OBJECT_OUTBOX/checkpoint.txt"
+  printf '{"output":{"session":{"$object":"seed"}},"objects":{"seed":{"type":"neutral.session/v1","metadata":{"text":"original"},"files":{"checkpoint":"%s/checkpoint.txt"}}}}' "$C2J_OBJECT_OUTBOX"
+input_schema: {type: object}
+output_schema:
+  type: object
+  required: [session]
+  properties:
+    session: {type: object, x-c2j-object-type: neutral.session/v1}

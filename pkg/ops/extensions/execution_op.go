@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"strings"
 
+	"github.com/colony-2/c2j/internal/preparedtest"
 	recipeartifacts "github.com/colony-2/c2j/pkg/artifacts"
 	"github.com/colony-2/c2j/pkg/configuration"
 	"github.com/colony-2/c2j/pkg/execution"
@@ -168,7 +169,23 @@ func executeExtension(deps ops.OpDependencies, ctx context.Context, input Execut
 
 	runReq := extensionRunRequest(resolved, env, inJSON)
 	runReq = report.Prepare(runReq)
-	stdout, _, err := process.ExecuteProcess(ctx, runReq)
+	stdout, scripted, err := preparedtest.Complete(ctx, preparedtest.Invocation{
+		Selector: input.Selector, ResolvedSelector: resolved.ResolvedSelector,
+		Inputs: payload, Env: env,
+	})
+	if !scripted {
+		if err != nil {
+			return nil, fmt.Errorf("prepared completion selection: %w", err)
+		}
+		stdout, _, err = process.ExecuteProcess(ctx, runReq)
+	} else {
+		// A scripted completion never claims to have launched a process. Keep
+		// normal protocol decoding/publication below, including bounded output.
+		report.Capture.Err = err
+		if len(stdout) > process.CaptureLimit {
+			return nil, fmt.Errorf("scripted extension stdout exceeded execution capture limit")
+		}
+	}
 	var exit *exec.ExitError
 	if ctx.Err() == nil && errors.As(err, &exit) && exit.ExitCode() == executionRequiredExit {
 		if report.Capture.Truncated(0) {
