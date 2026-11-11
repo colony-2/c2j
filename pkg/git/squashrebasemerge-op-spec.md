@@ -74,3 +74,30 @@ the workspace out of empty-base mode.
   - Chain with `thinpackrebase` to ensure the resulting remote state can be rebased onto by another recipe.
 - **End-to-End:** exercise delivery of a feature branch into `main`, validating that thin packs and remote refs match the merged commit.
 - **Failure injection:** lose outcomes after each step, discard worktrees, lose a successful push response, fail the JobDB outcome write and resume on a new worker, and advance or diverge the target before retry. Cover first publication and existing branches.
+
+## Publication evidence
+
+Native `MergeOutput` and combined `SquashRebaseMergeOutput` add four fields,
+preserving every existing field:
+
+| Go field | JSON | Type |
+| --- | --- | --- |
+| CandidateSHA | candidate_sha | string |
+| CandidateSubject | candidate_subject | string (including an explicitly empty subject) |
+| PublicationBranch | publication_branch | string normalized as refs/heads/... |
+| PublicationDisposition | publication_disposition | PublicationDisposition string |
+
+The constants `PublicationPublished` (`published`),
+`PublicationAlreadyPresent` (`already_present`), and
+`PublicationNoChanges` (`no_changes`) distinguish publication paths.
+Historical omission means unavailable, never verified. Published means a
+successful push; already_present means supported ancestry verification or a
+successful machine-readable Git push reporting an up-to-date candidate.
+No_changes explicitly records the combined operation's skipped-publication
+path. Failed pushes without successful verification return errors.
+
+CandidateSubject is read from the actual selected commit during execution after
+rebasing, independently of the requested commit_message. This evidence describes
+execution, not a promise about current remote branch membership. Distinct
+accepted retry outcomes remain distinct even when their SHA is identical;
+lost outcomes are not reconstructed. See `publication_example_test.go`.

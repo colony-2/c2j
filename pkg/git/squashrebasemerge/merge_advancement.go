@@ -59,7 +59,7 @@ func isMergeAdvancement(err error) bool {
 }
 
 // Push output is retained for diagnostics; classification uses repository state.
-func pushMergeCandidate(ctx context.Context, repo string, args []string) error {
+func pushMergeCandidate(ctx context.Context, repo string, args []string) (bool, error) {
 	cmd := gitprofile.Command(ctx, args...)
 	cmd.Dir = repo
 	var stdout, stderr bytes.Buffer
@@ -71,5 +71,14 @@ func pushMergeCandidate(ctx context.Context, repo string, args []string) error {
 		}
 		err = fmt.Errorf("git push failed: %w (stdout: %s; stderr: %s)", err, stdout.String(), stderr.String())
 	}
-	return err
+	alreadyPresent := false
+	if err == nil {
+		// --porcelain uses "=" for an up-to-date ref, independently of locale.
+		for _, line := range strings.Split(stdout.String(), "\n") {
+			if strings.HasPrefix(line, "=\t") {
+				alreadyPresent = true
+			}
+		}
+	}
+	return alreadyPresent, err
 }

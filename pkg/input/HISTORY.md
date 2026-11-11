@@ -110,3 +110,60 @@ separate explicit action. Leave `ChapterOrdinal` unset: the existing API rejects
 conflicting selectors. Use a fresh request ID for the intended action, handle
 restart errors, and navigate to the returned new job identity. Keep the original
 history readable. This adds no answer editing or restart engine.
+
+## Shared publication snapshot
+
+`GetJobHistorySnapshot(ctx, service, GetJobHistorySnapshotRequest)` is an
+additive sibling accessor. NewHistoryService implements the optional
+HistorySnapshotService interface; existing HistoryService implementations need not
+change. `TenantID`, `JobID`, and `SnapshotToken` are request
+strings. Passing a page's `SnapshotToken` selects exactly its retained
+observation. An empty token captures a new observation, including merge-only
+jobs. Keep the same service instance. Existing list/detail/artifact APIs and
+pagination retain their meanings.
+
+`JobHistorySnapshot` fields are `TenantID`, `JobID`, `SnapshotToken` (strings),
+`SnapshotRevision` (int64 retained high-water ordinal), `ObservedAt` (time.Time),
+`Merges` ([]HistoryMergeEntry), and `Events` ([]HistoryEvent). JSON names are
+the corresponding snake_case names. Returned collections are copies.
+
+Each `HistoryMergeEntry` has:
+
+| Go field | JSON field | Type / meaning |
+| --- | --- | --- |
+| EntryID | entry_id | string, stable hash of tenant/job/full result ID/ordinal |
+| TenantID, JobID | tenant_id, job_id | strings, selected job only |
+| JobAttempt, TaskAttempt | job_attempt, task_attempt | ints from full invocation coordinates |
+| InvocationID | invocation_id | string, full retained result path including attempts |
+| ResultOrdinal | result_ordinal | int64, accepted result position |
+| CompletedAt | completed_at | *time.Time; nil when unrecorded |
+| Operation | operation | string: merge:merge or squashrebasemerge:merge |
+| EvidenceAvailability | evidence_availability | recorded or unavailable |
+| CandidateSHA | candidate_sha | string, recorded candidate |
+| CandidateSubject | candidate_subject | *string, nil when absent |
+| PublicationBranch | publication_branch | string, normalized refs/heads branch |
+| PublicationDisposition | publication_disposition | published, already_present, no_changes, or historical empty |
+| Output | output | json.RawMessage, supported decoded operation output when available |
+
+Only successful accepted publication-step results participate. Combined
+squash/rebase internals and wrappers do not add entries. Repeated SHAs, equal
+ordinals, loops and accepted task retries retain distinct full identities.
+Missing, failed and unaccepted outcomes are never synthesized. No child jobs
+or live Git are read. Unsupported historical outputs have unavailable evidence;
+a successful historical operation alone never establishes verified publication.
+
+`HistoryEvent` has `Ordinal` (int64), `InvocationID`, `Kind`, `EntryID`
+(strings), with snake_case JSON tags. Kinds are `request_generation`,
+`response_acceptance`, and `merge_completion`. Request and acceptance use
+their separate retained locator ordinals. Events sort lexicographically by
+(ordinal, full invocation, kind, stable entry ID); merge entries sort by
+(result ordinal, full invocation, entry ID). Ties are deterministic, not evidence
+of causal precedence. Wall time never determines order. Input occurrences stay
+combined and retain their original pagination and restart associations.
+
+Errors preserve existing `errors.Is` contracts: `ErrHistoryInvalidCursor`
+for malformed or wrong-job tokens, `ErrHistorySnapshotExpired` for expired,
+evicted or other-service observations, `ErrHistoryUnsupported` for an
+implementation without the sibling capability or unsupported execution protocol.
+No error silently refreshes a snapshot. Retained-reader errors propagate.
+See `history_example_test.go` for compiling shared-snapshot usage.

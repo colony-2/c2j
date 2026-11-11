@@ -59,6 +59,14 @@ func TestSeparateSquashAndMerge(t *testing.T) {
 				published, err := merge(ctx, input, empty)
 				require.NoError(t, err)
 				require.Equal(t, out.SquashedHash, published.MergedHash)
+				require.Equal(t, out.SquashedHash, published.CandidateSHA)
+				require.Equal(t, "Prepared", published.CandidateSubject)
+				require.Equal(t, "refs/heads/main", published.PublicationBranch)
+				want := PublicationPublished
+				if i > 0 {
+					want = PublicationAlreadyPresent
+				}
+				require.Equal(t, want, published.PublicationDisposition)
 				require.Equal(t, out.SquashedHash, revParse(t, remote, "refs/heads/main"))
 			}
 			// Publication remains successful after another writer builds on it.

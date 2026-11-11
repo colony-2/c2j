@@ -75,3 +75,65 @@ Inventory also uses `pending_input`, `non_activity`, `path_unavailable`,
 `external_content_unsupported`, and `member_inventory_unavailable`.
 Recognizable permission/not-found sentinels are classified; opaque backend errors
 remain unreadable. Nothing falls back to the current execution context.
+
+## Declared final documents
+
+Use the additive `story.GetFinalDocuments(ctx, service, GetWorkflowOutcomeRequest)`
+and `story.GetFinalDocument(ctx, service, GetFinalDocumentRequest)` helpers.
+Services returned by `New` implement the sibling `FinalDocumentService`
+interface. Existing `Service` implementations need not change; unsupported
+implementations return `ErrFinalDocumentsUnsupported`.
+`WorkflowOutcome.Artifacts` remains the all-attempt attachment inventory.
+
+The projection selects the same latest terminal attempt as the outcome API.
+Only its top-level `artifact_refs` object declares membership. Intermediate
+files, nested `files` fields, inputs and previous attempts are not final
+documents. A malformed member does not discard valid siblings.
+
+`FinalDocuments` has `JobID string`, `AttemptOrdinal *int64`,
+`State FinalManifestState`, `Documents []FinalDocument`, and
+`Diagnostic string`. JSON names are snake_case. Manifest states are:
+
+| Constant | Wire value | Meaning |
+| --- | --- | --- |
+| FinalManifestPresent | present | Nonempty supported declaration |
+| FinalManifestEmpty | empty | Explicit {} |
+| FinalManifestAbsent | absent | No artifact_refs declaration |
+| FinalManifestNull | null | Explicit JSON null |
+| FinalManifestUnsupported | unsupported | Nonobject declaration or unknown ref kind |
+| FinalManifestMalformed | malformed | Invalid output/member or invalid known ref |
+
+Malformed takes precedence over unsupported when both occur. A supported
+nonempty declaration may still have unresolved members.
+
+`FinalDocument` fields are `Alias string` (manifest key), `Ref artifacts.Ref`
+(original declaration), `Raw json.RawMessage`, `Resolution string`,
+`Producer *jobdb.ArtifactKey`, and `Diagnostic string`, all with snake_case
+JSON tags. Resolution is `stored`, `unresolved`, `external` or `value`.
+`Producer` records original `JobId`, `TaskOrdinal`, `Name`, `SizeBytes`;
+its storage Name can differ from Alias and Ref.Name.
+
+Stored refs retain their coordinates across child/grandchild forwarding.
+Attached refs bind only through their containing terminal result's recorded
+artifact map and its stored keys. Missing maps/keys stay unresolved; no
+same-filename search in other tasks/jobs occurs. Reference-chain traversal is
+bounded at 64 and diagnoses cycles. External refs never cause network fetching
+or replay. Value refs have no invented storage coordinates.
+
+Projection does not open byte storage. `stored` means recorded provenance,
+not that bytes still exist. `GetFinalDocumentRequest` has string fields
+`ProjectID`, `JobID`, `Alias`. The byte helper reselects declared membership
+then delegates to existing `GetArtifactByOrdinal` using producer coordinates.
+Applications retain their selected-job and producer authorization boundary.
+Running jobs return `ErrOutcomePending`; unknown jobs/aliases return
+`ErrNotFound`, empty projects return `ErrInvalidProject`, unresolved or
+nonstored members return `ErrFinalDocumentUnavailable`. Retained reads,
+authorization, storage-open and byte-read errors propagate. Missing bytes never
+remove membership. No expiry classification is invented: a backend expiry
+diagnostic remains in its propagated error; otherwise absence remains absence.
+
+See `final_documents_example_test.go` for compiling usage. Consumers pinned to
+c2j v0.0.125-0.20261109155012-f04763b5cca3 must upgrade to a revision containing
+these APIs. This implementation uses JobDB
+v0.0.81-0.20261110034917-7f6133791ec9 retained records and artifact reads; no new
+backend storage API or remote deployment is required.

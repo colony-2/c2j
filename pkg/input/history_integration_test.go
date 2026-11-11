@@ -645,3 +645,78 @@ func (t historyReceiptTask) Name() string { return t.fixture.taskType }
 func (t historyReceiptTask) Run(workflow.TaskContext, jobdb.TaskData) (jobdb.TaskData, error) {
 	return &jobdb.SimpleTaskData{Data: historyOut(t.fixture.output).Data}, nil
 }
+
+// Publication output here is a retained fixture, not a claim this test runs Git.
+// The Git transport suite establishes the writer behavior independently.
+type historyMergeTask struct{}
+
+func (historyMergeTask) Name() string { return "merge:merge" }
+func (historyMergeTask) Run(_ workflow.TaskContext, data jobdb.TaskData) (jobdb.TaskData, error) {
+	return &jobdb.SimpleTaskData{Data: historyOut(mergeEvidence).Data}, nil
+}
+
+func TestHistorySQLiteSharedMergeSnapshotDuringPagination(t *testing.T) {
+	ctx := celltest.Context(context.Background())
+	rt, err := sqliteruntime.NewFromConfig(ctx, sqliteruntime.Config{DBPath: filepath.Join(t.TempDir(), "shared.db")})
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, rt.Close(ctx)) })
+	celltest.Create(t, rt, "tenant", "test", "example.test/test")
+	engine, err := workflow.NewEngineBuilder().WithRuntime(rt).BuildEngine()
+	require.NoError(t, err)
+	ctl := &c2workflow.SWFWorkflowControl{Engine: engine}
+	base := structuredWorker{forms: []InputForm{{Question: "first", Type: FieldTypeBoolean}, {Question: "second", Type: FieldTypeBoolean}}}.executionWorker()
+	worker := base
+	worker.Execute = func(c workflow.ExecutionContext, in jobdb.JobData) (jobdb.JobData, error) {
+		emit := func(site string) error {
+			_, e := c.DoTask(workflow.TaskCall{Site: site, TaskType: "merge:merge", ContractVersion: 1, Command: []byte(`{}`)}, func(context.Context) (jobdb.TaskData, error) { return jobdb.NewTaskData(nil) })
+			return e
+		}
+		if e := emit("before"); e != nil {
+			return nil, e
+		}
+		result, e := base.Execute(c, in)
+		if e != nil {
+			return nil, e
+		}
+		if e := emit("after"); e != nil {
+			return nil, e
+		}
+		return result, nil
+	}
+	h, err := rt.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "tenant", JobID: "job", JobType: "recipe", Cell: "test", CellRepo: "example.test/test", Data: jobdb.NewTaskDataOrPanic(nil)}})
+	require.NoError(t, err)
+	run := func() {
+		r, e := workflow.GetJobForRun(ctx, rt, workflow.GetJobForRunRequest{JobKey: h.JobKey, JobWorker: worker, TaskWorkers: []workflow.TaskWorker{historyMergeTask{}}, WorkerID: "shared", LeaseDuration: time.Minute})
+		require.NoError(t, e)
+		_, e = r.Run(nil)
+		require.NoError(t, e)
+	}
+	finish := func() {
+		w, e := ctl.GetWaitingTask(ctx, h.JobKey)
+		require.NoError(t, e)
+		require.NoError(t, w.Finish(ctx, &jobdb.SimpleTaskData{Data: historyOut(`{"response":true}`).Data}))
+	}
+	run()
+	finish()
+	run()
+	s := historyNew(t, ctl)
+	page, err := s.ListJobInputStory(ctx, ListJobInputStoryRequest{TenantID: "tenant", JobID: "job", PageSize: 1})
+	require.NoError(t, err)
+	require.NotEmpty(t, page.NextPageToken)
+	frozen, err := GetJobHistorySnapshot(ctx, s, GetJobHistorySnapshotRequest{TenantID: "tenant", JobID: "job", SnapshotToken: page.SnapshotToken})
+	require.NoError(t, err)
+	require.Len(t, frozen.Merges, 1)
+	require.NotNil(t, frozen.Merges[0].CompletedAt)
+	require.Equal(t, "recorded", frozen.Merges[0].EvidenceAvailability)
+	finish()
+	run()
+	next, err := s.ListJobInputStory(ctx, ListJobInputStoryRequest{TenantID: "tenant", JobID: "job", PageSize: 1, PageToken: page.NextPageToken})
+	require.NoError(t, err)
+	require.Equal(t, "pending", next.Entries[0].State)
+	old, err := GetJobHistorySnapshot(ctx, s, GetJobHistorySnapshotRequest{TenantID: "tenant", JobID: "job", SnapshotToken: next.SnapshotToken})
+	require.NoError(t, err)
+	require.Equal(t, frozen, old)
+	current, err := GetJobHistorySnapshot(ctx, s, GetJobHistorySnapshotRequest{TenantID: "tenant", JobID: "job"})
+	require.NoError(t, err)
+	require.Len(t, current.Merges, 2)
+}

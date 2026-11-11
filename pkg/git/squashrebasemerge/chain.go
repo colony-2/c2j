@@ -155,14 +155,24 @@ func mergePublication(inv ops.OpDependencies, ctx context.Context, input publica
 	if err := verifyCandidate(ctx, state); err != nil {
 		return zero, err
 	}
+	evidence := PublicationEvidence{CandidateSHA: state.Candidate,
+		PublicationBranch:      "refs/heads/" + strings.TrimPrefix(state.Input.UpstreamBranch, "refs/heads/"),
+		PublicationDisposition: PublicationNoChanges}
+	subject, err := common.ExecuteGitCommand(ctx, state.Input.RepoPath, "show", "-s", "--format=%s", state.Candidate)
+	if err != nil {
+		return zero, err
+	}
+	evidence.CandidateSubject = strings.TrimSuffix(string(subject), "\n")
 	if !state.NoChanges {
 		source := state.Input.UpstreamRepo
 		if inv != nil && inv.WorktreePath() == state.Input.RepoPath {
 			source = inv.GitContext().BaseRepo
 		}
-		if _, err := mergeFrom(ctx, mergeInput(state), state.EmptyBase, source); err != nil {
+		published, err := mergeFrom(ctx, mergeInput(state), state.EmptyBase, source)
+		if err != nil {
 			return zero, err
 		}
+		evidence = PublicationEvidence{CandidateSHA: published.CandidateSHA, CandidateSubject: published.CandidateSubject, PublicationBranch: published.PublicationBranch, PublicationDisposition: published.PublicationDisposition}
 	}
 	// Preserve the prepared snapshot as child/result evidence, as the original
 	// combined op did. An empty workspace must leave empty-base mode on publish.
@@ -176,6 +186,7 @@ func mergePublication(inv ops.OpDependencies, ctx context.Context, input publica
 		branch = "refs/heads/" + strings.TrimPrefix(branch, "refs/heads/")
 	}
 	return SquashRebaseMergeOutput{
+		CandidateSHA: evidence.CandidateSHA, CandidateSubject: evidence.CandidateSubject, PublicationBranch: evidence.PublicationBranch, PublicationDisposition: evidence.PublicationDisposition,
 		TargetBranch: branch, RemoteRef: state.RemoteRef, MergedHash: state.Candidate,
 		SquashedCommits: state.Range,
 		FastForward:     !state.EmptyBase && state.Input.Rebase != nil && !*state.Input.Rebase,

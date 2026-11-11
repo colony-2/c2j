@@ -133,8 +133,9 @@ func TestMergeLostPushResponseRestoresExactCandidate(t *testing.T) {
 			}))
 			defer server.Close()
 			input := MergeInput{RepoPath: repo, UpstreamRepo: server.URL + "/remote.git", UpstreamBranch: "main"}
-			_, err := merge(ctx, input, empty)
+			failed, err := merge(ctx, input, empty)
 			require.Error(t, err)
+			require.Empty(t, failed.PublicationDisposition)
 			require.True(t, lost.Load())
 			require.Equal(t, candidate, revParse(t, remote, "main"))
 			require.NoError(t, os.RemoveAll(repo))
@@ -146,6 +147,7 @@ func TestMergeLostPushResponseRestoresExactCandidate(t *testing.T) {
 			out, err := merge(ctx, input, empty)
 			require.NoError(t, err)
 			require.Equal(t, candidate, out.MergedHash)
+			require.Equal(t, PublicationAlreadyPresent, out.PublicationDisposition)
 			require.Equal(t, candidate, revParse(t, remote, "main"))
 			require.EqualValues(t, 1, receives.Load(), "recovery must not send another ref update")
 		})

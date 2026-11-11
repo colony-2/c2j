@@ -23,6 +23,11 @@ type SquashRangeSummary struct {
 
 // SquashRebaseMergeOutput returns metadata about the merge operation.
 type SquashRebaseMergeOutput struct {
+	CandidateSHA           string                 `json:"candidate_sha,omitempty"`
+	CandidateSubject       string                 `json:"candidate_subject"`
+	PublicationBranch      string                 `json:"publication_branch,omitempty"`
+	PublicationDisposition PublicationDisposition `json:"publication_disposition,omitempty"`
+
 	TargetBranch    string                 `json:"target_branch"`
 	RemoteRef       string                 `json:"remote_ref"`
 	MergedHash      string                 `json:"merged_hash"`

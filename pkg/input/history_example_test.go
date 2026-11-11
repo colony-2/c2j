@@ -105,3 +105,24 @@ func ExampleRecordedHistoryRestart() {
 	fmt.Println(target.ScopeID, target.Relationship)
 	// Output: /scope:"review"#1 containing
 }
+
+// Capture merges and event positions from the page's exact retained observation,
+// including when Entries is empty. Continue input pagination with NextPageToken.
+func ExampleGetJobHistorySnapshot() {
+	var service input.HistoryService // initialized by NewHistoryService
+	ctx := context.Background()
+	page, err := service.ListJobInputStory(ctx, input.ListJobInputStoryRequest{TenantID: "tenant", JobID: "job"})
+	if err != nil {
+		return
+	}
+	snapshot, err := input.GetJobHistorySnapshot(ctx, service, input.GetJobHistorySnapshotRequest{TenantID: "tenant", JobID: "job", SnapshotToken: page.SnapshotToken})
+	if err != nil {
+		return
+	}
+	for _, merge := range snapshot.Merges {
+		verified := merge.EvidenceAvailability == "recorded" && (merge.PublicationDisposition == "published" || merge.PublicationDisposition == "already_present")
+		_ = verified
+		_ = merge.CandidateSubject // nil on historical records; never consult live Git
+	}
+	_ = snapshot.Events // ordinal, invocation_id, kind, entry_id order
+}

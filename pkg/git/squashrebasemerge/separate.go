@@ -31,6 +31,11 @@ type MergeInput struct {
 }
 
 type MergeOutput struct {
+	CandidateSHA           string                 `json:"candidate_sha,omitempty"`
+	CandidateSubject       string                 `json:"candidate_subject"`
+	PublicationBranch      string                 `json:"publication_branch,omitempty"`
+	PublicationDisposition PublicationDisposition `json:"publication_disposition,omitempty"`
+
 	MergedHash   string `json:"merged_hash"`
 	TargetBranch string `json:"target_branch"`
 }
@@ -161,7 +166,17 @@ func mergeFrom(ctx context.Context, input MergeInput, emptyBase bool, source str
 	if err != nil {
 		return result, err
 	}
-	args := []string{"push"}
+	subject, err := common.ExecuteGitCommand(ctx, input.RepoPath, "show", "-s", "--format=%s", head)
+	if err != nil {
+		return result, err
+	}
+	accepted := func(disposition PublicationDisposition) MergeOutput {
+		return MergeOutput{MergedHash: head, TargetBranch: branch,
+			CandidateSHA: head, CandidateSubject: strings.TrimSuffix(string(subject), "\n"),
+			PublicationBranch: branch, PublicationDisposition: disposition,
+		}
+	}
+	args := []string{"push", "--porcelain"}
 	if emptyBase {
 		// Receive-pack can create an empty repository on demand. Do not fetch
 		// first; insist the branch is absent (or already at this exact commit).
@@ -172,19 +187,20 @@ func mergeFrom(ctx context.Context, input MergeInput, emptyBase bool, source str
 			return result, classifyMergeAdvancement(ctx, input, source, "preflight", err)
 		}
 		if published {
-			return MergeOutput{MergedHash: head, TargetBranch: branch}, nil
+			return accepted(PublicationAlreadyPresent), nil
 		}
 		// Ordinary push enforces fast-forward on the server, including a race
 		// with another publisher. Never force or rewrite the prepared commit.
 		args = append(args, "--no-force")
 	}
 	args = append(args, "--", input.UpstreamRepo, head+":"+branch)
-	if err := pushMergeCandidate(ctx, input.RepoPath, args); err != nil {
+	alreadyPresent, pushErr := pushMergeCandidate(ctx, input.RepoPath, args)
+	if err := pushErr; err != nil {
 		if emptyBase {
 			// Initial creation must reach receive-pack before any read-side
 			// lookup. A lost response can still follow successful publication.
 			if published, checkErr := publicationPresent(ctx, input.RepoPath, input.UpstreamRepo, branch, head); checkErr == nil && published {
-				return MergeOutput{MergedHash: head, TargetBranch: branch}, nil
+				return accepted(PublicationAlreadyPresent), nil
 			}
 			return result, fmt.Errorf("publish initial branch %s (destination must be absent or contain the saved candidate): %w", branch, err)
 		}
@@ -195,7 +211,7 @@ func mergeFrom(ctx context.Context, input MergeInput, emptyBase bool, source str
 			// infer advancement from Git's human-readable rejection messages.
 			published, ancestryErr := verifyMergeAncestry(ctx, input.RepoPath, source, input.UpstreamRepo, branch, head)
 			if published && ancestryErr == nil {
-				return MergeOutput{MergedHash: head, TargetBranch: branch}, nil
+				return accepted(PublicationAlreadyPresent), nil
 			}
 			classified := classifyMergeAdvancement(ctx, input, source, "push", ancestryErr)
 			var app *jobdb.AppError
@@ -210,7 +226,10 @@ func mergeFrom(ctx context.Context, input MergeInput, emptyBase bool, source str
 		// the original push failure intact, including cancellation causes.
 		return result, pushErr
 	}
-	return MergeOutput{MergedHash: head, TargetBranch: branch}, nil
+	if alreadyPresent {
+		return accepted(PublicationAlreadyPresent), nil
+	}
+	return accepted(PublicationPublished), nil
 }
 
 func requireCleanWorkspace(ctx context.Context, path string) error {

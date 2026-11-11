@@ -17,6 +17,8 @@ import (
 )
 
 type historySnapshot struct {
+	merges      []HistoryMergeEntry
+	events      []HistoryEvent
 	highWater   int64
 	key         jobdb.JobKey
 	created     time.Time
@@ -142,7 +144,9 @@ func (s *historyService) snapshot(ctx context.Context, key jobdb.JobKey, token s
 	for _, e := range run.Execution {
 		high = max(high, e.Ordinal)
 	}
-	snap := &historySnapshot{highWater: high, key: key, created: time.Now().UTC(), entries: entries, diagnostics: diagnostics}
+	snap := &historySnapshot{highWater: high, key: key, created: time.Now().UTC(), entries: historyCopy(entries), diagnostics: historyCopy(diagnostics)}
+	snap.merges = historyCopy(historyMergeProjection(key, run))
+	snap.events = historyEvents(entries, snap.merges, run)
 	var nonce [24]byte
 	if _, err := rand.Read(nonce[:]); err != nil {
 		return nil, "", err
