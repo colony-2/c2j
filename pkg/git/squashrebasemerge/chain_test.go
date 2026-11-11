@@ -112,3 +112,46 @@ func TestCombinedPublicationEvidence(t *testing.T) {
 		})
 	}
 }
+
+func TestPublicationPreservesEmptySubject(t *testing.T) {
+	for _, combined := range []bool{false, true} {
+		t.Run(map[bool]string{false: "native", true: "combined"}[combined], func(t *testing.T) {
+			ctx := context.Background()
+			root := t.TempDir()
+			remote, repo := filepath.Join(root, "remote.git"), filepath.Join(root, "work")
+			initBareRemote(t, remote)
+			runGit(t, root, "git", "clone", remote, repo)
+			configureAuthor(t, repo, "Test", "test@example.com")
+			writeFile(t, repo, "base", "base")
+			runGit(t, repo, "git", "add", ".")
+			runGit(t, repo, "git", "commit", "-m", "base")
+			runGit(t, repo, "git", "push", "origin", "HEAD:main")
+			writeFile(t, repo, "feature", "feature")
+			runGit(t, repo, "git", "add", ".")
+			runGit(t, repo, "git", "commit", "--allow-empty-message", "-m", "")
+			candidate := revParse(t, repo, "HEAD")
+			if combined {
+				rebase := false
+				prepared, err := preparePublication(nil, ctx, SquashRebaseMergeInput{RepoPath: repo, UpstreamRepo: remote, UpstreamBranch: "main", Rebase: &rebase})
+				require.NoError(t, err)
+				// Preparation normally supplies a default squash subject. Exercise
+				// the publication step with an explicitly empty-subject candidate.
+				runGit(t, repo, "git", "commit", "--amend", "--allow-empty-message", "-m", "")
+				prepared.Candidate = revParse(t, repo, "HEAD")
+				state, err := rebasePublication(nil, ctx, prepared)
+				require.NoError(t, err)
+				out, err := mergePublication(nil, ctx, state)
+				require.NoError(t, err)
+				require.Empty(t, out.CandidateSubject)
+				require.Equal(t, PublicationPublished, out.PublicationDisposition)
+				require.Equal(t, state.Candidate, out.CandidateSHA)
+			} else {
+				out, err := merge(ctx, MergeInput{RepoPath: repo, UpstreamRepo: remote, UpstreamBranch: "main"}, false)
+				require.NoError(t, err)
+				require.Empty(t, out.CandidateSubject)
+				require.Equal(t, PublicationPublished, out.PublicationDisposition)
+				require.Equal(t, candidate, out.CandidateSHA)
+			}
+		})
+	}
+}

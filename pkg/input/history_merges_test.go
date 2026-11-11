@@ -130,3 +130,53 @@ func TestHistoryEventsUseSeparateRetainedOrdinals(t *testing.T) {
 	require.Equal(t, "merge-a", events[2].EntryID)
 	require.Equal(t, "merge-b", events[3].EntryID)
 }
+
+func TestHistoryMergeEvidenceDispositionsAndCoordinates(t *testing.T) {
+	id := `/scope:"$job"#1/attempt:2/task:"merge:merge"#1`
+	at := time.Date(2026, 11, 11, 1, 2, 3, 0, time.UTC)
+	for _, tc := range []struct {
+		name, output, availability string
+	}{
+		{"published empty subject", `{"candidate_sha":"abc","candidate_subject":"","publication_branch":"refs/heads/main","publication_disposition":"published"}`, "recorded"},
+		{"already present", strings.Replace(mergeEvidence, "published", "already_present", 1), "recorded"},
+		{"no changes", strings.Replace(mergeEvidence, "published", "no_changes", 1), "recorded"},
+		{"unsupported disposition", strings.Replace(mergeEvidence, "published", "future", 1), "unavailable"},
+		{"missing subject", `{"candidate_sha":"abc","publication_branch":"refs/heads/main","publication_disposition":"published"}`, "unavailable"},
+		{"null subject", strings.Replace(mergeEvidence, `"actual"`, `null`, 1), "unavailable"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			result := historyResult(42, id+"/attempt:3", "{}", tc.output)
+			result.Record.At = at
+			got := historyMergeProjection(jobdb.JobKey{TenantId: "tenant", JobId: "job"}, jobdb.GetJobRunResponse{Execution: []jobdb.ExecutionHistoryEntry{historyTask(1, id, "merge:merge"), result}})
+			require.Len(t, got, 1)
+			m := got[0]
+			require.Equal(t, tc.availability, m.EvidenceAvailability)
+			require.Equal(t, "tenant", m.TenantID)
+			require.Equal(t, "job", m.JobID)
+			require.Equal(t, 2, m.JobAttempt)
+			require.Equal(t, 3, m.TaskAttempt)
+			require.Equal(t, id+"/attempt:3", m.InvocationID)
+			require.EqualValues(t, 42, m.ResultOrdinal)
+			require.Equal(t, &at, m.CompletedAt)
+			require.NotEmpty(t, m.EntryID)
+			if tc.name == "published empty subject" {
+				require.NotNil(t, m.CandidateSubject)
+				require.Empty(t, *m.CandidateSubject)
+			}
+			if tc.name == "no changes" {
+				require.Equal(t, "no_changes", m.PublicationDisposition)
+			}
+		})
+	}
+}
+
+func TestHistorySharedSnapshotOtherInstance(t *testing.T) {
+	ctx := context.Background()
+	r := historyFixture()
+	first := historyNew(t, r)
+	second := historyNew(t, r)
+	snapshot, err := GetJobHistorySnapshot(ctx, first, GetJobHistorySnapshotRequest{TenantID: "tenant", JobID: "job"})
+	require.NoError(t, err)
+	_, err = GetJobHistorySnapshot(ctx, second, GetJobHistorySnapshotRequest{TenantID: "tenant", JobID: "job", SnapshotToken: snapshot.SnapshotToken})
+	require.ErrorIs(t, err, ErrHistorySnapshotExpired)
+}
