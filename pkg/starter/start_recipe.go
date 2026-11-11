@@ -11,6 +11,7 @@ import (
 	"github.com/colony-2/c2j/pkg/jobcontext"
 	"github.com/colony-2/c2j/pkg/jobdbschema"
 	"github.com/colony-2/c2j/pkg/jobref"
+	"github.com/colony-2/c2j/pkg/jobrestart"
 	"github.com/colony-2/c2j/pkg/recipe"
 	"github.com/colony-2/c2j/pkg/secrets"
 	"github.com/colony-2/c2j/pkg/task"
@@ -285,12 +286,15 @@ type RestartOptions struct {
 
 // RestartRecipeJob starts a fresh continuation at a recipe scope or submission.
 func RestartRecipeJob(ctx context.Context, engine any, prior jobdb.JobKey, scopeID string, patch *task.ContextPatch, opts RestartOptions) (jobref.Ref, error) {
+	if err := jobrestart.ValidatePatch(patch); err != nil {
+		return jobref.Ref{}, err
+	}
 	if strings.TrimSpace(scopeID) == "" {
 		return jobref.Ref{}, fmt.Errorf("scope ID is required")
 	}
 	req := jobdb.SubmitRestartJob{PriorJobKey: prior, ExecutionRestart: &jobdb.ExecutionRestart{ScopeID: scopeID}}
 	if scopeID == SubmissionRestartScopeID {
-		if patch != nil && (len(patch.Job) > 0 || len(patch.Scopes) > 0) {
+		if patch != nil && len(*patch) > 0 {
 			return jobref.Ref{}, fmt.Errorf("submission restart does not support context patches; select a recipe scope to patch execution context")
 		}
 		// Keep the original input and its artifacts, but no execution header,

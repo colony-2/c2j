@@ -10,7 +10,6 @@ import (
 	recipeartifacts "github.com/colony-2/c2j/pkg/artifacts"
 	"github.com/colony-2/c2j/pkg/ops"
 	"github.com/colony-2/c2j/pkg/recipe"
-	coretask "github.com/colony-2/c2j/pkg/task"
 	"github.com/colony-2/c2j/pkg/template"
 	"github.com/colony-2/c2j/pkg/workflow"
 	"github.com/colony-2/jobdb/pkg/jobdb"
@@ -134,13 +133,7 @@ func executeNodeScope(ctx workflow.Context, parent *template.ResolutionContext, 
 		if e != nil {
 			return e
 		}
-		var patch coretask.ContextPatch
-		if len(raw) > 0 {
-			if e = decodeJSONStrict(raw, &patch); e != nil {
-				return fmt.Errorf("restart patch: %w", e)
-			}
-		}
-		if e = fresh.ApplyContextPatch(patch); e != nil {
+		if e = fresh.ApplyRestartPayload(raw); e != nil {
 			return e
 		}
 		entry = fresh

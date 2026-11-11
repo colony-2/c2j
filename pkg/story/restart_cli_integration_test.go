@@ -116,7 +116,24 @@ func TestRestartCLIEndToEnd(t *testing.T) {
 			require.NoError(t, err)
 			require.Equal(t, before, after)
 			patchFile := filepath.Join(t.TempDir(), "patch.json")
-			require.NoError(t, os.WriteFile(patchFile, []byte(`{"job":{"git":{"author":"CLI Author"}},"scopes":[{"container":"sequence","id":"inner","outputs":{"value":"cli-patched","unchanged":null,"array":[1,2]}}]}`), 0600))
+			// JP-20: even the exact ID/payload of an accepted pre-upgrade
+			// request must fail at public ingress, before identity lookup.
+			legacyBody := json.RawMessage(`{"job":{"git":{"author":"Legacy Author"}}}`)
+			legacyJob := jobdb.SubmitRestartJob{Cell: "test", PriorJobKey: f.key, ExecutionRestart: &jobdb.ExecutionRestart{ScopeID: scope, Payload: legacyBody}}
+			require.NoError(t, jobdbschema.SetSubmitRestartJobSchema(&legacyJob))
+			require.NoError(t, jobdbschema.Register(f.ctx, f.runtime.(jobdb.JobSchemaRegistry), f.key.TenantId))
+			acceptedLegacy, err := f.runtime.SubmitRestartJob(f.ctx, jobdb.SubmitRestartJobRequest{RequestID: "accepted-legacy-cli", Job: legacyJob})
+			require.NoError(t, err)
+			legacyBefore, err := f.engine.GetJobRun(f.ctx, jobdb.GetJobRunRequest{JobKey: acceptedLegacy.JobKey, IncludeInputs: true, IncludeOutputs: true})
+			require.NoError(t, err)
+			require.NoError(t, os.WriteFile(patchFile, legacyBody, 0600))
+			legacyRetry, err := cli("restart", "self", "--scope", scope, "--request-id", "accepted-legacy-cli", "--goal", "new", "--patch-file", patchFile)
+			require.Error(t, err)
+			require.Contains(t, string(legacyRetry), "operation array")
+			legacyAfter, err := f.engine.GetJobRun(f.ctx, jobdb.GetJobRunRequest{JobKey: acceptedLegacy.JobKey, IncludeInputs: true, IncludeOutputs: true})
+			require.NoError(t, err)
+			require.Equal(t, legacyBefore, legacyAfter, "rejection must not alter the accepted historical continuation")
+			require.NoError(t, os.WriteFile(patchFile, []byte(`[{"op":"add","path":"/context/git/author","value":"CLI Author"},{"op":"replace","path":"/sequence/inner/outputs/value","value":"cli-patched"},{"op":"remove","path":"/sequence/inner/outputs/unchanged"},{"op":"add","path":"/sequence/inner/outputs/array","value":[1,2]}]`), 0600))
 			replays := count.replays.Load()
 			args := []string{"restart", "self", "--scope", scope, "--request-id", "cli-retry", "--goal", "new", "--patch-file", patchFile}
 			raw, err = cli(args...)
@@ -129,7 +146,7 @@ func TestRestartCLIEndToEnd(t *testing.T) {
 			require.NoError(t, err, string(retry))
 			require.JSONEq(t, string(raw), string(retry))
 			require.Equal(t, replays, count.replays.Load(), "submission reads eligibility but does not inspect context")
-			require.NoError(t, os.WriteFile(patchFile, []byte(`{}`), 0600))
+			require.NoError(t, os.WriteFile(patchFile, []byte(`[]`), 0600))
 			conflict, err := cli(args...)
 			require.Error(t, err, string(conflict))
 			f.run(t, ref.Key())
@@ -151,7 +168,7 @@ func TestRestartCLIEndToEnd(t *testing.T) {
 			require.Equal(t, int32(7), f.task.calls.Load())
 			require.Equal(t, "cli-patched", f.story(t, retained.Key()).Root.Output.(map[string]any)["value"])
 			// A new patch at the same boundary replaces its old payload.
-			require.NoError(t, os.WriteFile(patchFile, []byte(`{"scopes":[{"container":"sequence","id":"inner","outputs":{"value":"replacement"}}]}`), 0600))
+			require.NoError(t, os.WriteFile(patchFile, []byte(`[{"op":"replace","path":"/sequence/inner/outputs/value","value":"replacement"}]`), 0600))
 			raw, err = cli("restart", ref.JobID, "--scope", scope, "--request-id", "replace-patch", "--goal", "new", "--patch-file", patchFile)
 			require.NoError(t, err, string(raw))
 			var replaced jobref.Ref
@@ -167,13 +184,13 @@ func TestRestartCLIEndToEnd(t *testing.T) {
 			f.run(t, unpatched.Key())
 			require.Equal(t, "original", f.story(t, unpatched.Key()).Root.Output.(map[string]any)["value"])
 			// Explicit chapter zero is accepted, while all nonempty patches are refused.
-			for _, body := range []string{`{"job":{"git":{"author":"x"}}}`, `{"scopes":[{"container":"sequence","id":"inner"}]}`} {
+			for _, body := range []string{`[{"op":"add","path":"/context/git/author","value":"x"}]`, `[{"op":"test","path":"/sequence/inner/outputs/value","value":"original"}]`} {
 				require.NoError(t, os.WriteFile(patchFile, []byte(body), 0600))
 				raw, err = cli("restart", "self", "--chapter", "0", "--request-id", "invalid-submission", "--patch-file", patchFile)
 				require.Error(t, err, string(raw))
 				require.Contains(t, string(raw), "submission restart does not support")
 			}
-			require.NoError(t, os.WriteFile(patchFile, []byte(`{}`), 0600))
+			require.NoError(t, os.WriteFile(patchFile, []byte(`[]`), 0600))
 			raw, err = cli("restart", "self", "--chapter", "0", "--request-id", "empty-submission", "--goal", "new", "--patch-file", patchFile)
 			require.NoError(t, err, string(raw))
 			// Ordinary caller routing uses the configured tenant URL without a helper.

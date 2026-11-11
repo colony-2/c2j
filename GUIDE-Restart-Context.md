@@ -28,24 +28,80 @@ Inspection writes complete JSON to stdout by default (`--json` is also accepted)
 including deferred configuration, object, and artifact references and redaction
 metadata. A missing recipe can prevent inspection while discovery still works.
 
-Write only intended edits in `patch.json`, for example:
+Write only intended edits in `patch.json`. The file is an ordered
+[RFC 6902 JSON Patch](https://www.rfc-editor.org/rfc/rfc6902) array; paths use
+[RFC 6901 JSON Pointer](https://www.rfc-editor.org/rfc/rfc6901). For the equivalent
+of `states.coordinate.outputs.c[4].b.c[2] = "foo"`:
 
 ```json
-{"scopes":[{"container":"sequence","id":"write","outputs":{"document_path":"design.md"}}]}
+[{"op":"replace","path":"/states/coordinate/outputs/c/4/b/c/2","value":"foo"}]
 ```
 
-The step ID is local to `sequence` or `states`, not the opaque restart scope ID.
-Optional `job` edits use the typed job-context JSON shape, for example
-`{"job":{"git":{"author":"Recovery Author"}}}`. Unknown structural/job
-fields, malformed JSON, multiple documents, wrong types, `inputs`, `config`,
-`workspace`, and `cell_resolution` edits are rejected. Forbidden identities are
-rejected even when their value is null. Arbitrary JSON remains supported inside
-output maps and other extensible map values. Null deletes map keys; arrays
-replace whole arrays. `{}` is an empty patch. Omitting `--patch-file` preserves
-the legacy unpatched restart. Submission accepts only an absent or empty patch.
-Do not copy the inspection snapshot or redaction placeholders into a patch.
-Runtime validation can still reject a patch when replay reaches its boundary;
-a successful submission returns the new identity, not an execution result.
+To guard an append by checking an existing dependency's identity:
+
+```json
+[
+  {"op":"test","path":"/states/coordinate/outputs/records/0/job_id","value":"old-job"},
+  {"op":"add","path":"/states/coordinate/outputs/records/-","value":{"job_id":"replacement-job","kind":"execution"}}
+]
+```
+
+A guarded replacement uses the same test followed by a change to the named value:
+
+```json
+[
+  {"op":"test","path":"/states/coordinate/outputs/records/4/job_id","value":"old-job"},
+  {"op":"replace","path":"/states/coordinate/outputs/records/4/job_id","value":"new-job"}
+]
+```
+
+The test reads reconstructed boundary data; it is not a concurrency lock.
+The editable roots match CEL: `context`, `sequence`, and `states`. For example,
+`/context/workflow/goal_id` edits `context.workflow.goal_id`;
+`/context/git/author` edits the Git base author. The step ID is local to
+`sequence` or `states`, not the opaque restart scope ID. Escape `/` as `~1` and
+`~` as `~0` in each pointer token: local ID `a/b~c` becomes `a~1b~0c`.
+There is no `/job` editing alias.
+
+All six operations are supported: `add`, `remove`, `replace`, `move`, `copy`,
+and `test`. Operations run in order. `add` inserts into an array, accepts its
+length as an insertion index, and appends with `-`. Other operations require
+existing targets. Negative and leading-zero array indices are invalid. Parents
+must already exist. Move uses remove-then-add indices and cannot move a value
+into its descendant. Copy detaches the copied value. Test compares JSON values
+including exact numeric equality, so `1` equals `1.0` while distinct integers
+beyond 2^53 remain distinct. Required members must be present; extension members
+are ignored according to RFC 6902.
+
+Explicit `"value": null` writes a JSON null. Only `remove` deletes an output key:
+
+```json
+[
+  {"op":"add","path":"/sequence/write/outputs/optional","value":null},
+  {"op":"remove","path":"/sequence/write/outputs/obsolete"}
+]
+```
+
+Only typed job-context fields (`environment`, `workflow`, `git`, `artifacts`,
+`recipe_source`) and existing visible step outputs are editable. Submission-only
+policy, profile, commit and restore fields are runtime metadata.
+Document roots, context containers, step entries, workspace and cell-resolution
+identities, task invocation, execution-only Git fields, inputs, config, vars and
+runtime metadata are prohibited. The same restrictions apply to `test` and to
+both ends of `move` and `copy`. Unknown typed fields and wrong types fail, while
+output values and extensible maps retain arbitrary JSON. Every output root must
+remain an object, including after each intermediate operation.
+
+`[]` is an empty patch. Omitting `--patch-file` makes an unpatched restart.
+Submission accepts only absence or `[]`; every nonempty list, including a
+single `test`, requires a recipe scope. Null documents, object-form legacy
+patches, malformed operations, and trailing documents are rejected. Static
+syntax, permission and typed-value checks run before backend lookup/submission.
+Visibility, indices, existence, copy/move value types and failed tests can still
+fail when the continuation reaches its boundary. All operations commit
+atomically: a failure leaves outputs, ancestor contexts and workspace bases
+unchanged. A successful submission returns an identity, not execution success.
+Do not copy inspection snapshots or redaction placeholders into a patch.
 
 Restart returns a complete JSON job reference. It continues the source goal by
 default; `--goal new` creates a new goal. Reuse `--request-id` only to retry the
@@ -145,13 +201,14 @@ The `RestartContext` response contains:
 | Field | Contents |
 | --- | --- |
 | `ProjectID`, `JobID`, `ChapterOrdinal`, `ScopeID` | The exact source and boundary inspected. |
-| `Job` | The base job context in the JSON shape used by `ContextPatch.Job`. |
+| `Job` | The base job context; maps to the editing root `/context`. |
 | `Visible` | Template-visible `inputs`, `sequence`, `states`, `vars`, `outputs`, `transition`, `failure`, `scope`, `context`, `item`, and `index`. |
 | `RedactedPaths` | JSON pointers to redacted values in the response, for example `/visible/sequence/write/outputs/api_key`. |
 
-The snapshot includes unchanged values. Scoped patches address
-`Visible["sequence"][id]["outputs"]` or
-`Visible["states"][id]["outputs"]`. These containers contain only outputs
+The snapshot includes unchanged values. Inspection JSON `job` maps to editing
+`/context`; `visible.sequence` maps to `/sequence`, and `visible.states` maps to
+`/states`. Scoped operations address `/sequence/ID/outputs` or
+`/states/ID/outputs`. Inspection field names and redaction pointers are unchanged. These containers contain only outputs
 visible at the chosen boundary; a later task's result will not appear there.
 
 For Job submission, inspection reads the original submission directly without
@@ -182,13 +239,11 @@ unreconstructable context is an error, not an empty successful snapshot.
 Submit the selected boundary and only the changes the user requested:
 
 ```go
-patch := &task.ContextPatch{
-    Scopes: []task.ScopePatch{{
-        Container: "sequence",
-        ID:        "write",
-        Outputs:   map[string]any{"document_path": "design.md"},
-    }},
-}
+patch := &task.ContextPatch{{
+    Op:    "add",
+    Path:  "/sequence/write/outputs/document_path",
+    Value: json.RawMessage(`"design.md"`),
+}}
 result, err := svc.RestartRecipeJob(ctx, story.RestartRecipeJobRequest{
     ProjectID:      tenantID,
     JobID:          sourceJobID,
@@ -199,15 +254,16 @@ result, err := svc.RestartRecipeJob(ctx, story.RestartRecipeJobRequest{
 // result.JobID identifies the new continuation job.
 ```
 
-The examples use `github.com/colony-2/c2j/pkg/story` and
-`github.com/colony-2/c2j/pkg/task`. Construct the service with the same engine and
+The examples use `encoding/json`, `github.com/colony-2/c2j/pkg/story` and
+`github.com/colony-2/c2j/pkg/task`. Values are raw JSON, preserving explicit null
+and exact numbers. A supplied zero-length `ContextPatch` serializes as `[]`. Construct the service with the same engine and
 schema registry configuration used for existing story/restart calls.
 
 Both requests accept `ScopeID`. Supply either `ChapterOrdinal` or `ScopeID`,
 never both. A chapter containing multiple restartable scopes is rejected as
 ambiguous; use the returned logical scope ID to select the intended visit.
-An absent patch means an unpatched restart. Map nulls and arrays retain the
-existing patch semantics: map nulls delete keys and arrays replace values.
+An absent patch means an unpatched restart. New patches always use ordered
+operations, including explicit `remove` for deletion and `add` for insertion.
 
 Restart creates a new job and retains the recorded prefix before the selected
 scope. It does not rewind or cancel the source job. Previously patched work in
@@ -253,3 +309,22 @@ choosing a boundary in that new job.
 6. Submit only the patch, never the complete snapshot.
 
 After-state preview is not part of this API.
+
+## Upgrade existing producers
+
+This replaces the public merge-patch contract, including old `Job`/`Scopes` Go
+constructors. New CLI, helper, story, starter and service submissions accept
+only operation arrays. Legacy object submissions fail before accepted-request
+identity lookup, even when retrying an old accepted request ID. Existing stored
+records remain unchanged. Only the persisted replay reader accepts their old
+`job`/`scopes` shape, with the original merge null-deletion and whole-array
+replacement semantics. Malformed stored payloads fail without format fallback.
+New arrays retain their compact operations and order in durable history.
+
+Upgrade CLI, authenticated helpers, controllers and executing workers together
+before enabling producers such as Cortex. An older helper rejects arrays
+rather than silently dropping their operations; do not fall back to merge.
+Workers that execute retained operation arrays must understand this contract.
+Cortex owns its editor, server forwarding and browser retry migration. Retain
+uncertain legacy requests for outcome checking; never convert or automatically
+resend them. A changed payload or selection requires a fresh request ID.

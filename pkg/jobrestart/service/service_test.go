@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/colony-2/c2j/pkg/jobrestart"
+	"github.com/colony-2/c2j/pkg/task"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	wf "github.com/colony-2/jobdb/pkg/workflow"
 	"github.com/stretchr/testify/require"
@@ -94,4 +95,25 @@ func TestRestartServiceReadErrorsAndAuthorization(t *testing.T) {
 	_, err = svc.Restart(ctx, Request{Operation: "points", JobID: "job"})
 	require.ErrorIs(t, err, context.Canceled)
 	require.Zero(t, engine.reads)
+}
+
+// JP-14, JP-20: programmatic invalid patches fail before metadata/retry lookup.
+func TestPatchValidationPrecedesBackendReads(t *testing.T) {
+	engine := &historyEngine{}
+	svc := &Service{Engine: engine, Tenant: "tenant"}
+	for _, p := range []task.ContextPatch{
+		{{Op: "replace", Path: "/context/workspace", Value: []byte(`null`)}},
+		{{Op: "add", Path: "/sequence/s/outputs/x"}},
+		{{Op: "copy", From: "/context/git/hash", Path: "/sequence/s/outputs/x"}},
+	} {
+		_, err := svc.Restart(context.Background(), Request{Operation: "submit", JobID: "job", Selector: Selector{Scope: "scope"}, RequestID: "accepted-retry", Patch: &p})
+		require.Error(t, err)
+		require.Zero(t, engine.reads)
+		require.Zero(t, engine.replays)
+	}
+	for _, raw := range []string{`{"patch":{"job":{}}}`, `{"patch":null}`, `{"patch":{"scopes":[]}}`} {
+		var q Request
+		require.Error(t, json.Unmarshal([]byte(raw), &q))
+		require.Zero(t, engine.reads)
+	}
 }

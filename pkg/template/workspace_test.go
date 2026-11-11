@@ -5,7 +5,6 @@ import (
 
 	"github.com/colony-2/c2j/pkg/contextual"
 	"github.com/colony-2/c2j/pkg/recipe"
-	coretask "github.com/colony-2/c2j/pkg/task"
 	"github.com/stretchr/testify/require"
 )
 
@@ -21,7 +20,7 @@ func TestWorkspaceSharesGitStateWithinBoundaryAndIsolatesPatches(t *testing.T) {
 	child.UpdateGitState(contextual.GitCommitContext{PersistHash: "B-commit", ParentHash: "base-B"})
 	require.Equal(t, "B-commit", sibling.TaskExecutionContext().GitTask.PersistHash)
 	require.Equal(t, "A-commit", root.GetGitCommitContext().PersistHash)
-	require.NoError(t, child.ApplyContextPatch(coretask.ContextPatch{Job: map[string]any{"git": map[string]any{"author": "B author", "ref": "new-base"}, "environment": map[string]any{"inbox": "patched"}}}))
+	require.NoError(t, child.ApplyContextPatch(parseTestPatch(t, `[{"op":"add","path":"/context/git/author","value":"B author"},{"op":"add","path":"/context/git/ref","value":"new-base"},{"op":"add","path":"/context/environment/inbox","value":"patched"}]`)))
 	require.Equal(t, "A", root.TaskExecutionContext().GitTask.BaseRepo)
 	require.Equal(t, "main", root.TaskExecutionContext().GitTask.BaseRef)
 	require.Equal(t, "new-base", sibling.TaskExecutionContext().GitTask.BaseRef)
@@ -34,5 +33,5 @@ func TestWorkspaceSharesGitStateWithinBoundaryAndIsolatesPatches(t *testing.T) {
 	caller, err := scoped.ResolveCompositeInputs(map[string]any{"repo": "{{ context.git.repo }}"})
 	require.NoError(t, err)
 	require.Equal(t, "A", caller["repo"])
-	require.Error(t, child.ApplyContextPatch(coretask.ContextPatch{Job: map[string]any{"workspace": map[string]any{"scope_id": "A"}}}))
+	require.Error(t, child.ApplyRestartPayload([]byte(`[{"op":"add","path":"/context/workspace/scope_id","value":"A"}]`)))
 }

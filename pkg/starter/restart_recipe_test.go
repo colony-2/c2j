@@ -74,7 +74,7 @@ func TestRestartRecipeJob_WithPatch_UsesScopePayload(t *testing.T) {
 	engine := &captureEngine{}
 	prior := jobdb.JobKey{TenantId: "t1", JobId: "j1"}
 	patch := &task.ContextPatch{
-		Job: map[string]any{"git": map[string]any{"author": "new-author"}},
+		{Op: "add", Path: "/context/git/author", Value: []byte(`"new-author"`)},
 	}
 
 	_, err := RestartRecipeJob(celltest.Context(context.Background()), engine, prior, "scope-id", patch, RestartOptions{RequestID: "test-restart"})
@@ -89,7 +89,7 @@ func TestRestartRecipeJob_WithPatch_UsesScopePayload(t *testing.T) {
 	require.Nil(t, engine.last.ExtraTaskOutput)
 	var decoded task.ContextPatch
 	require.NoError(t, json.Unmarshal(engine.last.ExecutionRestart.Payload, &decoded))
-	require.Equal(t, patch.Job, decoded.Job)
+	require.Equal(t, *patch, decoded)
 	assertHashOnlySchemaSelector(t, engine.last.Schema)
 }
 
@@ -107,8 +107,8 @@ func TestRestartRecipeJob_FromSubmission(t *testing.T) {
 		assertHashOnlySchemaSelector(t, engine.last.Schema)
 	}
 	for _, patch := range []*task.ContextPatch{
-		{Job: map[string]any{"git": map[string]any{"author": "changed"}}},
-		{Scopes: []task.ScopePatch{{Container: "sequence", ID: "step"}}},
+		{{Op: "add", Path: "/context/git/author", Value: []byte(`"changed"`)}},
+		{{Op: "test", Path: "/sequence/step/outputs", Value: []byte(`{}`)}},
 	} {
 		engine := &captureEngine{}
 		_, err := RestartRecipeJob(context.Background(), engine, jobdb.JobKey{TenantId: "t", JobId: "prior"}, SubmissionRestartScopeID, patch, RestartOptions{RequestID: "submission-restart"})
@@ -132,4 +132,11 @@ func assertHashOnlySchemaSelector(t *testing.T, selector *jobdb.JobSchemaSelecto
 	if len(selector.Schema) != 0 {
 		t.Fatalf("expected hash-only schema selector")
 	}
+}
+
+func TestRestartRecipeJobInvalidPatchBeforeMetadataOrRetry(t *testing.T) {
+	patch := task.ContextPatch{{Op: "test", Path: "/context/workspace", Value: []byte(`null`)}}
+	// No engine is needed: validation must precede all backend capability checks.
+	_, err := RestartRecipeJob(context.Background(), nil, jobdb.JobKey{}, "scope", &patch, RestartOptions{RequestID: "accepted-id"})
+	require.ErrorContains(t, err, "identity cannot be patched")
 }

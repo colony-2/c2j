@@ -2,7 +2,9 @@
 package jobrestart
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -39,6 +41,27 @@ type Request struct {
 	Goal      string             `json:"goal,omitempty"`
 	RequestID string             `json:"request_id,omitempty"`
 }
+
+// UnmarshalJSON distinguishes an omitted patch from an explicitly invalid null.
+func (q *Request) UnmarshalJSON(raw []byte) error {
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &fields); err != nil {
+		return err
+	}
+	if patch, exists := fields["patch"]; exists && bytes.Equal(bytes.TrimSpace(patch), []byte("null")) {
+		return fmt.Errorf("patch must be an operation array; omit patch for an unpatched restart")
+	}
+	type plain Request
+	var out plain
+	d := json.NewDecoder(bytes.NewReader(raw))
+	d.DisallowUnknownFields()
+	if err := d.Decode(&out); err != nil {
+		return err
+	}
+	*q = Request(out)
+	return nil
+}
+
 type Response struct {
 	Points  *Points         `json:"points,omitempty"`
 	Context *RestartContext `json:"context,omitempty"`
@@ -53,7 +76,7 @@ type RestartContext struct {
 	JobID          string `json:"job_id"`
 	ChapterOrdinal int64  `json:"chapter_ordinal"`
 	ScopeID        string `json:"scope_id"`
-	// Job is the before-state for ContextPatch.Job. Scoped patches address
+	// Job maps to the patch document context root. Scoped operations address
 	// Visible.sequence[id].outputs or Visible.states[id].outputs.
 	// At submission these are read-only: Job is the submitted context and
 	// Visible contains only the submitted inputs, before defaults or setup.

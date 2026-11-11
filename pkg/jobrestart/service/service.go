@@ -48,6 +48,9 @@ func (s *Service) Restart(ctx context.Context, q Request) (*Response, error) {
 			return nil, err
 		}
 	}
+	if err := jobrestart.ValidatePatch(q.Patch); err != nil {
+		return nil, err
+	}
 	if s.Engine == nil {
 		return nil, fmt.Errorf("restart history/replay capability unavailable")
 	}
@@ -81,10 +84,8 @@ func (s *Service) Restart(ctx context.Context, q Request) (*Response, error) {
 		snapshot, err := live.InspectRestartContextByScopeID(ctx, s.Engine, key, run.Execution, point.ScopeID, provider, resolver)
 		return &Response{Context: snapshot}, err
 	case "submit":
-		if q.Patch != nil {
-			if err := jobrestart.ValidatePatch(q.Patch); err != nil {
-				return nil, err
-			}
+		if point.ScopeID == starter.SubmissionRestartScopeID && q.Patch != nil && len(*q.Patch) > 0 {
+			return nil, fmt.Errorf("submission restart does not support context patches; select a recipe scope")
 		}
 		if s.Submit == nil {
 			return nil, fmt.Errorf("authorized restart submission capability unavailable; this worker only supports restart inspection")

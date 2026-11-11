@@ -12,63 +12,159 @@ import (
 	"github.com/colony-2/c2j/pkg/task"
 )
 
-// ParsePatch validates only this CLI/helper input contract; the engine's
-// historical, permissive merge behavior remains unchanged for other callers.
+// ParsePatch is the shared public ingress contract. Stored legacy objects are
+// decoded only by the runtime's persisted-payload reader.
 func ParsePatch(raw []byte) (*task.ContextPatch, error) {
-	var document map[string]json.RawMessage
+	var patch task.ContextPatch
 	d := json.NewDecoder(bytes.NewReader(raw))
-	if err := d.Decode(&document); err != nil {
-		return nil, fmt.Errorf("patch must be one JSON object: %w", err)
-	}
-	if document == nil {
-		return nil, fmt.Errorf("patch must be one JSON object")
+	if err := d.Decode(&patch); err != nil {
+		return nil, err
 	}
 	if err := d.Decode(new(any)); err != io.EOF {
 		return nil, fmt.Errorf("patch must contain exactly one JSON document")
-	}
-	if err := validateTypedJSON(raw, reflect.TypeFor[task.ContextPatch](), "patch"); err != nil {
-		return nil, err
-	}
-	var patch task.ContextPatch
-	d = json.NewDecoder(bytes.NewReader(raw))
-	d.DisallowUnknownFields()
-	d.UseNumber()
-	if err := d.Decode(&patch); err != nil {
-		return nil, fmt.Errorf("invalid context patch: %w", err)
 	}
 	if err := ValidatePatch(&patch); err != nil {
 		return nil, err
 	}
 	return &patch, nil
 }
+
 func ValidatePatch(patch *task.ContextPatch) error {
-	for _, key := range []string{"workspace", "cell_resolution"} {
-		if _, exists := patch.Job[key]; exists {
-			return fmt.Errorf("job.%s cannot be patched", key)
-		}
+	if patch == nil {
+		return nil
 	}
-	if patch.Job != nil {
-		raw, err := json.Marshal(patch.Job)
+	// Round-trip also validates operations constructed by Go callers.
+	raw, err := json.Marshal(patch)
+	if err != nil {
+		return fmt.Errorf("invalid patch value")
+	}
+	var checked task.ContextPatch
+	if err := json.Unmarshal(raw, &checked); err != nil {
+		return err
+	}
+	for i, op := range checked {
+		typ, err := PatchPathType(op.Path)
 		if err != nil {
-			return err
+			return fmt.Errorf("operation %d path: %w", i, err)
 		}
-		if err := validateTypedJSON(raw, reflect.TypeFor[contextual.JobContext](), "job"); err != nil {
-			return err
+		if op.Op == "move" || op.Op == "copy" {
+			if _, err := PatchPathType(op.From); err != nil {
+				return fmt.Errorf("operation %d from: %w", i, err)
+			}
+			if op.Op == "move" && strings.HasPrefix(op.Path, op.From+"/") {
+				return fmt.Errorf("operation %d cannot move into a descendant", i)
+			}
 		}
-		var job contextual.JobContext
-		d := json.NewDecoder(bytes.NewReader(raw))
-		d.DisallowUnknownFields()
-		if err := d.Decode(&job); err != nil {
-			return fmt.Errorf("invalid job patch: %w", err)
+		if typ != nil && len(op.Value) > 0 {
+			if err := ValidatePatchValue(op.Value, typ); err != nil {
+				return fmt.Errorf("operation %d value: %w", i, err)
+			}
 		}
 	}
-	for _, scope := range patch.Scopes {
-		if scope.Container != "sequence" && scope.Container != "states" {
-			return fmt.Errorf("scope container must be sequence or states")
+	return nil
+}
+
+// PointerTokens decodes RFC 6901 exactly once, rejecting invalid escapes.
+func PointerTokens(path string) ([]string, error) {
+	if path == "" || !strings.HasPrefix(path, "/") {
+		return nil, fmt.Errorf("an editable JSON pointer is required")
+	}
+	tokens := strings.Split(path[1:], "/")
+	for i, token := range tokens {
+		var b strings.Builder
+		for j := 0; j < len(token); j++ {
+			if token[j] != '~' {
+				b.WriteByte(token[j])
+				continue
+			}
+			j++
+			if j >= len(token) || (token[j] != '0' && token[j] != '1') {
+				return nil, fmt.Errorf("malformed JSON pointer escape")
+			}
+			if token[j] == '0' {
+				b.WriteByte('~')
+			} else {
+				b.WriteByte('/')
+			}
 		}
-		if strings.TrimSpace(scope.ID) == "" {
-			return fmt.Errorf("scope local step ID must not be blank")
+		tokens[i] = b.String()
+	}
+	return tokens, nil
+}
+
+// PatchPathType authorizes reads as well as writes and returns a typed target
+// when the path addresses context. Output values are extensible JSON.
+func PatchPathType(path string) (reflect.Type, error) {
+	tokens, err := PointerTokens(path)
+	if err != nil {
+		return nil, err
+	}
+	switch tokens[0] {
+	case "sequence", "states":
+		if len(tokens) < 3 || strings.TrimSpace(tokens[1]) == "" || tokens[2] != "outputs" {
+			return nil, fmt.Errorf("only existing step outputs are editable")
 		}
+		return nil, nil
+	case "context":
+		if len(tokens) < 2 {
+			return nil, fmt.Errorf("context container is not editable")
+		}
+		if tokens[1] == "workspace" || tokens[1] == "cell_resolution" {
+			return nil, fmt.Errorf("context identity cannot be patched")
+		}
+		// These are the editable fields represented by the execution context.
+		// Submission-only policy, profile and restore fields are runtime metadata.
+		switch tokens[1] {
+		case "environment", "workflow", "git", "artifacts", "recipe_source":
+		default:
+			return nil, fmt.Errorf("unsupported editable context field")
+		}
+		typ := reflect.TypeFor[contextual.JobContext]()
+		for _, token := range tokens[1:] {
+			for typ.Kind() == reflect.Pointer {
+				typ = typ.Elem()
+			}
+			switch typ.Kind() {
+			case reflect.Struct:
+				found := false
+				for j := 0; j < typ.NumField(); j++ {
+					f := typ.Field(j)
+					if f.IsExported() && strings.Split(f.Tag.Get("json"), ",")[0] == token {
+						typ = f.Type
+						found = true
+						break
+					}
+				}
+				if !found {
+					return nil, fmt.Errorf("unsupported typed context field")
+				}
+			case reflect.Map:
+				typ = typ.Elem()
+			case reflect.Slice, reflect.Array:
+				if typ.Elem().Kind() == reflect.Uint8 {
+					return nil, nil
+				}
+				typ = typ.Elem()
+			case reflect.Interface:
+				return nil, nil
+			default:
+				return nil, fmt.Errorf("cannot descend into typed scalar")
+			}
+		}
+		return typ, nil
+	default:
+		return nil, fmt.Errorf("editable roots are context, sequence and states")
+	}
+}
+
+// ValidatePatchValue checks unknown typed fields even for custom unmarshallers.
+func ValidatePatchValue(raw json.RawMessage, typ reflect.Type) error {
+	if err := validateTypedJSON(raw, typ, "context"); err != nil {
+		return err
+	}
+	dst := reflect.New(typ).Interface()
+	if err := json.Unmarshal(raw, dst); err != nil {
+		return fmt.Errorf("invalid typed context value")
 	}
 	return nil
 }

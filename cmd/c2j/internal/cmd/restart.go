@@ -30,12 +30,15 @@ Submit with 'c2j restart JOB --scope ID --request-id KEY --patch-file patch.json
 
 Choose exactly one --scope ID or explicit --chapter ORDINAL (0 means submission).
 Ambiguous chapters require a unique scope ID; duplicate identities are unavailable.
-Patch files contain optional typed job edits and sequence/states local step outputs:
-  {"scopes":[{"container":"sequence","id":"write","outputs":{"path":"design.md"}}]}
+Patch files contain RFC 6902 operation arrays using JSON Pointer paths:
+  [{"op":"add","path":"/sequence/write/outputs/path","value":"design.md"}]
+Editable roots: context, sequence, states. Local step IDs must already be visible.
 Inputs, config, workspace and cell_resolution cannot be patched. Submission is read-only.
 Snapshots preserve deferred references and redact secrets; they are not patch documents.
 A patch replaces the previous patch at that boundary; omitting it removes that patch.
-Earlier retained patches remain. Null deletes map keys; arrays replace whole arrays.
+Earlier retained patches remain. Value null writes null; remove deletes a key.
+Add with /- appends to an array. Operations apply atomically in order. Empty [] is a no-op.
+Legacy merge objects are rejected; only stored historical objects remain replayable.
 Reuse a request ID only to retry the same payload; use a new ID for changed requests.
 A restart creates an independent continuation. Tasks after the boundary and external
 side effects may repeat. Corrections after submission require another restart.`
@@ -125,7 +128,7 @@ func newRestartCommand(open restartOpener) *cobra.Command {
 	addRestartSelector(command, &scope, &chapter)
 	command.Flags().StringVar(&mode, "goal", "continue", "Goal mode: continue or new")
 	command.Flags().StringVar(&id, "request-id", "", "Stable request ID; reuse only for the same restart payload")
-	command.Flags().StringVar(&patchFile, "patch-file", "", "JSON context patch file")
+	command.Flags().StringVar(&patchFile, "patch-file", "", "RFC 6902 JSON Patch operation-array file")
 	_ = command.MarkFlagRequired("request-id")
 	return command
 }

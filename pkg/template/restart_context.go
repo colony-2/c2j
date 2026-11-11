@@ -4,7 +4,7 @@ import "encoding/json"
 
 // RestartContextSnapshot returns detached JSON-shaped values, without resolving
 // expressions or dereferencing artifacts, objects, configuration, or secrets.
-// Job has the shape accepted by ContextPatch.Job; Visible uses template names.
+// Job maps to the patch document context root; Visible uses template names.
 func (rc *ResolutionContext) RestartContextSnapshot() (job, visible map[string]any, err error) {
 	exec := rc.TaskExecutionContext()
 	values := map[string]any{

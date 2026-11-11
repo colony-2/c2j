@@ -11,8 +11,10 @@ prefix before that scope and runs the scope and continuation again. Physical
 chapter ordinals are storage coordinates, not restart targets.
 
 The patch is applied by the scope's `OnRestart` hook before its inputs, conditions,
-and child task commands are evaluated. It can merge job context and patch scoped
-outputs/artifacts using the existing context-patch schema. The hook validates the
+and child task commands are evaluated. New patches are ordered RFC 6902 arrays
+using RFC 6901 pointers into `context`, `sequence` and `states`; local step
+outputs are editable, while step artifact metadata is read-only. Historical
+stored merge objects are decoded only at this replay boundary. The hook validates the
 payload and always starts from a fresh copy of the original scope-entry context,
 so resuming or replaying the restarted job applies the patch consistently.
 

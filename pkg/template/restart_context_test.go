@@ -9,7 +9,6 @@ import (
 	"github.com/colony-2/c2j/pkg/contextual"
 	"github.com/colony-2/c2j/pkg/objects"
 	"github.com/colony-2/c2j/pkg/recipe"
-	"github.com/colony-2/c2j/pkg/task"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	"github.com/stretchr/testify/require"
 )
@@ -37,7 +36,7 @@ func TestMergePatchDeletionArrayReplacementAndNewOutput(t *testing.T) {
 	seq, err := rc.NewChildContext(ScopeSequence, recipe.NodeMetadata{ID: "s"}, "", map[string]any{})
 	require.NoError(t, err)
 	seq.TemplateData.Sequence["prior"] = StepOutput{Outputs: map[string]any{"remove": "gone", "array": []any{1, 2, 3}, "nested": map[string]any{"keep": true, "remove": true}}}
-	require.NoError(t, seq.ApplyContextPatch(task.ContextPatch{Scopes: []task.ScopePatch{{Container: "sequence", ID: "prior", Outputs: map[string]any{"remove": nil, "array": []any{9}, "nested": map[string]any{"remove": nil}}}, {Container: "sequence", ID: "new", Outputs: map[string]any{"created": true}}}}))
+	require.NoError(t, seq.applyLegacyContextPatch(legacyContextPatch{Scopes: []legacyScopePatch{{Container: "sequence", ID: "prior", Outputs: map[string]any{"remove": nil, "array": []any{9}, "nested": map[string]any{"remove": nil}}}, {Container: "sequence", ID: "new", Outputs: map[string]any{"created": true}}}}))
 	out := seq.TemplateData.Sequence["prior"].Outputs
 	require.NotContains(t, out, "remove")
 	require.Equal(t, []any{9}, out["array"])

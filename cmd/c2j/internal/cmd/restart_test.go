@@ -75,7 +75,7 @@ func TestRestartExplicitSelectors(t *testing.T) {
 func joinArgs(args []string) string { raw, _ := json.Marshal(args); return string(raw) }
 func TestRestartPatchFileAndLegacy(t *testing.T) {
 	file := filepath.Join(t.TempDir(), "patch.json")
-	require.NoError(t, os.WriteFile(file, []byte(`{"scopes":[{"container":"sequence","id":"write","outputs":{"arbitrary":[1,null]}}]}`), 0600))
+	require.NoError(t, os.WriteFile(file, []byte(`[{"op":"add","path":"/sequence/write/outputs/arbitrary","value":[1,null]}]`), 0600))
 	p := &restartProbe{}
 	out, err := executeRestartTest(newRestartCommand(restartTestOpen(p)), "self", "--scope", "opaque", "--request-id", "same", "--goal", "new", "--patch-file", file)
 	require.NoError(t, err)
@@ -84,7 +84,7 @@ func TestRestartPatchFileAndLegacy(t *testing.T) {
 	require.Equal(t, "current", q.JobID)
 	require.Equal(t, "same", q.RequestID)
 	require.Equal(t, "new", q.Goal)
-	require.Equal(t, "write", q.Patch.Scopes[0].ID)
+	require.Equal(t, "/sequence/write/outputs/arbitrary", (*q.Patch)[0].Path)
 	p.requests = nil
 	_, err = executeRestartTest(newRestartCommand(restartTestOpen(p)), "job", "--scope", "opaque", "--request-id", "legacy")
 	require.NoError(t, err)

@@ -5,15 +5,14 @@ import (
 	"fmt"
 
 	"github.com/colony-2/c2j/pkg/contextual"
-	coretask "github.com/colony-2/c2j/pkg/task"
 )
 
-// ApplyContextPatch mutates template-visible context for this ResolutionContext.
+// applyLegacyContextPatch retains the historical persisted merge behavior.
 //
 // Job patches are applied to this context and all ancestors (global visibility).
 // Scoped patches are applied to the currently-visible scope containers only
 // (e.g. a sequence's "sequence" map, or a state machine's "states" map).
-func (rc *ResolutionContext) ApplyContextPatch(p coretask.ContextPatch) error {
+func (rc *ResolutionContext) applyLegacyContextPatch(p legacyContextPatch) error {
 	if rc == nil {
 		return fmt.Errorf("ApplyContextPatch: nil ResolutionContext")
 	}
@@ -166,4 +165,15 @@ func cloneAnyMap(in map[string]any) map[string]any {
 		out[k] = v
 	}
 	return out
+}
+
+// These types exist exclusively for replaying pre-upgrade persisted payloads.
+type legacyContextPatch struct {
+	Job    map[string]any     `json:"job,omitempty"`
+	Scopes []legacyScopePatch `json:"scopes,omitempty"`
+}
+type legacyScopePatch struct {
+	Container string         `json:"container"`
+	ID        string         `json:"id"`
+	Outputs   map[string]any `json:"outputs,omitempty"`
 }

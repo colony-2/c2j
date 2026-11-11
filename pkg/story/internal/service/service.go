@@ -15,6 +15,7 @@ import (
 	"github.com/colony-2/c2j/pkg/contextual"
 	"github.com/colony-2/c2j/pkg/jobdbschema"
 	"github.com/colony-2/c2j/pkg/jobref"
+	"github.com/colony-2/c2j/pkg/jobrestart"
 	"github.com/colony-2/c2j/pkg/recipe"
 	"github.com/colony-2/c2j/pkg/starter"
 	workflowapi "github.com/colony-2/c2j/pkg/story/api"
@@ -829,6 +830,9 @@ func errorChainForLog(err error) []string {
 }
 
 func (s *Service) RestartRecipeJob(ctx context.Context, req model.RestartRecipeJobRequest) (*model.RestartRecipeJobResponse, error) {
+	if err := jobrestart.ValidatePatch(req.Patch); err != nil {
+		return nil, err
+	}
 	if s.engine == nil {
 		return nil, ErrEngineUnavailable
 	}

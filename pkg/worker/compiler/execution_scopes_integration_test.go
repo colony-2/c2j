@@ -196,7 +196,7 @@ sequence:
 				}
 			}
 			require.NotEmpty(t, scope)
-			payload := json.RawMessage(`{"job":{"git":{"author":"patched"}}}`)
+			payload := json.RawMessage(`[{"op":"add","path":"/context/git/author","value":"patched"}]`)
 			restarted, err := rt.SubmitRestartJob(celltest.Context(context.Background()), jobdb.SubmitRestartJobRequest{Job: jobdb.SubmitRestartJob{PriorJobKey: key, ExecutionRestart: &jobdb.ExecutionRestart{ScopeID: scope, Payload: payload}, Cell: "test"}})
 			require.NoError(t, err)
 			outcome := probeRun(t, rt, restarted.JobKey, w, task)

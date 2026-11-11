@@ -225,7 +225,7 @@ func TestRestartContextAndOrdinalAPI(t *testing.T) {
 			require.NoError(t, err)
 			require.Equal(t, before, after, "inspection never writes history")
 
-			patch := &coretask.ContextPatch{Scopes: []coretask.ScopePatch{{Container: "sequence", ID: "inner", Outputs: map[string]any{"value": "patched"}}}}
+			patch := &coretask.ContextPatch{{Op: "replace", Path: "/sequence/inner/outputs/value", Value: []byte(`"patched"`)}}
 			restarted, err := f.service.RestartRecipeJob(f.ctx, story.RestartRecipeJobRequest{RequestID: uuid.NewString(), Goal: struct {
 				Mode string `json:"mode"`
 			}{Mode: "new"}, ProjectID: f.key.TenantId, JobID: f.key.JobId, ChapterOrdinal: &target, Patch: patch})
@@ -294,7 +294,7 @@ outputs: {count: '${{ states.loop.outputs.count }}'}
 	key := jobdb.JobKey{TenantId: f.key.TenantId, JobId: restarted.JobID}
 	f.run(t, key)
 	require.EqualValues(t, 2, f.story(t, key).Root.Output.(map[string]any)["count"])
-	patched, err := f.service.RestartRecipeJob(f.ctx, story.RestartRecipeJobRequest{RequestID: uuid.NewString(), ProjectID: f.key.TenantId, JobID: f.key.JobId, ScopeID: scopeID, Patch: &coretask.ContextPatch{Scopes: []coretask.ScopePatch{{Container: "states", ID: "loop", Outputs: map[string]any{"count": 10}}}}, Goal: struct {
+	patched, err := f.service.RestartRecipeJob(f.ctx, story.RestartRecipeJobRequest{RequestID: uuid.NewString(), ProjectID: f.key.TenantId, JobID: f.key.JobId, ScopeID: scopeID, Patch: &coretask.ContextPatch{{Op: "replace", Path: "/states/loop/outputs/count", Value: []byte(`10`)}}, Goal: struct {
 		Mode string `json:"mode"`
 	}{Mode: "new"}})
 	require.NoError(t, err)

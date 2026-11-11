@@ -29,8 +29,16 @@ func (s *Server) handleRestart(w http.ResponseWriter, r *http.Request) {
 	d := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4<<20))
 	d.DisallowUnknownFields()
 	d.UseNumber()
-	if d.Decode(&q) != nil || d.Decode(new(any)) != io.EOF {
+	if err := d.Decode(&q); err != nil {
+		http.Error(w, "invalid restart request: "+err.Error(), 400)
+		return
+	}
+	if d.Decode(new(any)) != io.EOF {
 		http.Error(w, "invalid restart request", 400)
+		return
+	}
+	if err := jobrestart.ValidatePatch(q.Patch); err != nil {
+		http.Error(w, err.Error(), 400)
 		return
 	}
 	ctx, cancel := context.WithCancel(s.executionContext)
@@ -58,6 +66,9 @@ func (s *Server) handleRestart(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(result)
 }
 func (c JobClient) Restart(ctx context.Context, q jobrestart.Request) (*jobrestart.Response, error) {
+	if err := jobrestart.ValidatePatch(q.Patch); err != nil {
+		return nil, err
+	}
 	resp, err := c.callPayload(ctx, q, "/restart", false)
 	if err != nil {
 		return nil, err
