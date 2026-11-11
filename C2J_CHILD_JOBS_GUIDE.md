@@ -368,6 +368,38 @@ Native recipe operations are not CLI submissions: supply their recipe inputs
 explicitly. If calling a build recipe that requires `prompt` and `type`,
 pass both; the CLI's automatic type injection does not apply to native ops.
 
+Child specifications accept an optional `title` for job metadata, separate from
+recipe `inputs`. For example, a child whose strict input schema declares only
+`value` can be launched with:
+
+```yaml
+op: recipes.run
+inputs:
+  recipes:
+    - name: strict
+      title: "Validate café import"
+      inputs:
+        value: original
+```
+
+The same field is available on single-child specifications and each entry in
+`recipes.run` and `recipes.run_and_wait` batches (`SingleRecipe`). A nonblank explicit title takes precedence over
+legacy
+`inputs.title`; an omitted, empty or whitespace-only title retains the legacy
+fallback. Accepted text is preserved exactly, including surrounding whitespace,
+Unicode and newlines. The title is never added to recipe inputs, and input
+validation remains unchanged.
+
+Titles cannot use secret references or resolve secrets. Operation validation
+rejects secret-derived values; direct submissions omit recognized unresolved
+secret templates from title metadata. An unsafe nonblank explicit title does
+not fall back to `inputs.title`. This boundary does not detect arbitrary secret
+plaintext copied outside the secret reference system.
+
+Upgrade the submitting/worker c2j runtime to a version supporting this field
+before enabling it in recipes. Existing callers can omit it. Listings continue
+to use the existing title metadata; historical jobs are not renamed.
+
 Workers must be available to execute children while the parent is waiting.
 Running just the parent with `c2j run --job-id ...` is not a substitute for
 workers that can claim its children. Prefer submitting asynchronously and

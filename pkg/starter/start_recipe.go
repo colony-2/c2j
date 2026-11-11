@@ -88,7 +88,13 @@ func JobMetadataFromStartJob(startJob workflowctl.StartJob) JobMetadata {
 			meta.Prompt = prompt
 		}
 	}
-	if title, ok := startJob.Inputs["title"].(string); ok && strings.TrimSpace(title) != "" {
+	// Blank explicit titles retain legacy fallback. Unsafe nonblank titles are
+	// omitted, never resolved and never replaced by a different title.
+	title := startJob.Title
+	if strings.TrimSpace(title) == "" {
+		title, _ = startJob.Inputs["title"].(string)
+	}
+	if strings.TrimSpace(title) != "" {
 		if _, secret := secrets.Template(title); !secret {
 			meta.Title = title
 		}

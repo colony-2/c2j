@@ -16,6 +16,8 @@ import (
 
 // RecipeInput defines the input for recipe activities
 type SingleRecipe struct {
+	// Title labels the job metadata without adding a recipe input.
+	Title     string                 `json:"title,omitempty"`
 	CellRepo  string                 `json:"cell_repo,omitempty"`
 	Wait      WaitPolicy             `json:"wait,omitempty"`
 	Name      string                 `json:"name" validate:"required"`

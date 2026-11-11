@@ -33,6 +33,8 @@ func TestHistoricalGoalIdentityExecutionRestartAndReplay(t *testing.T) {
 				require.NoError(t, json.Unmarshal(jobdbschema.Schema(), &schema))
 				properties := schema["firstChapterShape"].(map[string]any)["$defs"].(map[string]any)["startJob"].(map[string]any)["properties"].(map[string]any)
 				properties["goal_id"] = map[string]any{"type": "string"}
+				// This historical schema predates metadata-only submission titles.
+				delete(properties, "title")
 				oldSchema, err := json.Marshal(schema)
 				require.NoError(t, err)
 				registered, err := registry.RegisterJobSchema(ctx, jobdb.RegisterJobSchemaRequest{TenantId: "tenant", Schema: oldSchema})

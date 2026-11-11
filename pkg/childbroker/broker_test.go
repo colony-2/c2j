@@ -72,6 +72,8 @@ func TestBrokerSubmitUsesLeaseSubmitterAndOverridesParent(t *testing.T) {
 		TenantId:   "tenant",
 		JobID:      "child",
 		RecipeName: "deploy",
+		Title:      "  Deploy café\nUI  ",
+		Inputs:     map[string]any{"value": "original"},
 		Parent: &jobcontext.Parent{
 			TenantID:       "tenant",
 			JobID:          "spoofed",
@@ -110,6 +112,13 @@ func TestBrokerSubmitUsesLeaseSubmitterAndOverridesParent(t *testing.T) {
 	if err := json.Unmarshal(submitter.last.Metadata, &meta); err != nil {
 		t.Fatalf("metadata decode: %v", err)
 	}
+	require.Equal(t, req.Start.Title, meta.Title)
+	raw, err := submitter.last.Data.GetData()
+	require.NoError(t, err)
+	var submitted workflowctl.StartJob
+	require.NoError(t, json.Unmarshal(raw, &submitted))
+	require.Equal(t, req.Start.Title, submitted.Title)
+	require.Equal(t, req.Start.Inputs, submitted.Inputs)
 	if meta.ParentJobID != "parent" || meta.ParentInvocationHash != "hash-1" || meta.ParentOpStep != "run" {
 		t.Fatalf("broker did not override parent metadata: %#v", meta)
 	}

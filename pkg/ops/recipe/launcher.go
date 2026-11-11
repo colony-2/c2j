@@ -70,6 +70,7 @@ func recipeToStart(tenantId string, recipe SingleRecipe, recipeSourceRepo string
 		TenantId:     tenantId,
 		JobID:        jobID,
 		RecipeName:   recipeName,
+		Title:        recipe.Title,
 		Inputs:       recipe.Inputs,
 		ArtifactRefs: append([]recipeartifacts.Ref(nil), recipe.Artifacts...),
 		JobContext: contextual.JobContext{

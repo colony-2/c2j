@@ -48,7 +48,7 @@ func TestSelectedBrokerRealDispatchAndReplay(t *testing.T) {
 	require.NoError(t, err)
 	defer server.Close()
 	broker := jobcontext.ChildJobBroker{Endpoint: server.localEndpoint, Token: server.token, SessionID: server.sessionID}
-	req, err := NewSubmitRequest(ctx, workflowctl.StartJob{TenantId: "tenant", JobID: "dest", GoalID: source.GoalID, RecipeName: "build", Cell: "work", CellRepo: "example.test/work"}, nil)
+	req, err := NewSubmitRequest(ctx, workflowctl.StartJob{TenantId: "tenant", JobID: "dest", GoalID: source.GoalID, Title: "  Child café\n  ", Inputs: map[string]any{"value": "original"}, RecipeName: "build", Cell: "work", CellRepo: "example.test/work"}, nil)
 	require.NoError(t, err)
 	d, err := PrepareSelected(ctx, broker, req)
 	require.NoError(t, err)
@@ -64,6 +64,8 @@ func TestSelectedBrokerRealDispatchAndReplay(t *testing.T) {
 	var old map[string]any
 	require.NoError(t, json.Unmarshal(jobdbschema.Schema(), &old))
 	old["firstChapterShape"].(map[string]any)["$defs"].(map[string]any)["startJob"].(map[string]any)["properties"].(map[string]any)["goal_id"] = map[string]any{"type": "string"}
+	// Model the historical schema before metadata-only titles were added.
+	delete(old["firstChapterShape"].(map[string]any)["$defs"].(map[string]any)["startJob"].(map[string]any)["properties"].(map[string]any), "title")
 	oldBytes, err := json.Marshal(old)
 	require.NoError(t, err)
 	historical := d
@@ -77,6 +79,7 @@ func TestSelectedBrokerRealDispatchAndReplay(t *testing.T) {
 	require.NoError(t, err)
 	var canonicalHistorical map[string]any
 	require.NoError(t, json.Unmarshal(rawHistorical, &canonicalHistorical))
+	delete(canonicalHistorical, "title") // This field did not exist in historical request data.
 	historical.Input, err = json.Marshal(canonicalHistorical)
 	require.NoError(t, err)
 	historicalRef, err := SubmitSelected(ctx, broker, historical)
@@ -110,6 +113,22 @@ func TestSelectedBrokerRealDispatchAndReplay(t *testing.T) {
 	replay, err := SubmitSelected(ctx, broker, d)
 	require.NoError(t, err)
 	require.Equal(t, ref, replay)
+	chapters, err = rt.ListChapters(ctx, jobdb.ListChaptersRequest{JobKey: jobdb.JobKey{TenantId: ref.TenantID, JobId: ref.JobID}})
+	require.NoError(t, err)
+	require.NotEmpty(t, chapters)
+	submittedChapter, ok := chapters[0].Body.(jobdb.JobStartChapter)
+	require.True(t, ok)
+	var submitted workflowctl.StartJob
+	require.NoError(t, json.Unmarshal(submittedChapter.Input.Data, &submitted))
+	require.Equal(t, req.Start.Title, submitted.Title)
+	require.Equal(t, req.Start.Inputs, submitted.Inputs)
+	summaries, err := rt.ListJobs(ctx, jobdb.ListJobsRequest{TenantIds: []string{"tenant"}, JobKeys: []jobdb.JobKey{jobdb.JobKey{TenantId: ref.TenantID, JobId: ref.JobID}}})
+	require.NoError(t, err)
+	require.Len(t, summaries.Jobs, 1)
+	var metadata starter.JobMetadata
+	require.NoError(t, json.Unmarshal(summaries.Jobs[0].Metadata, &metadata))
+	require.Equal(t, req.Start.Title, metadata.Title)
+
 	revoked.Store(true)
 	_, err = SubmitSelected(ctx, broker, d)
 	require.ErrorIs(t, err, jobdb.ErrPrimaryGoalSelectionForbidden)

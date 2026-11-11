@@ -42,6 +42,8 @@ type JobInspection struct {
 }
 
 type StartJob struct {
+	// Title labels the job metadata without adding a recipe input.
+	Title        string                 `json:"title,omitempty"`
 	GoalID       string                 `json:"goal_id,omitempty"`
 	Cell         string                 `json:"cell"`
 	CellRepo     string                 `json:"cell_repo,omitempty"`

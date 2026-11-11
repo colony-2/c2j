@@ -42,7 +42,8 @@ func TestStartSingleJobPassesDeterministicJobID(t *testing.T) {
 
 	out, err := startSingleJob(deps, celltest.Context(context.Background()), SingleRecipeWithRef{
 		SingleRecipe: SingleRecipe{
-			Name: "child-recipe",
+			Name:  "child-recipe",
+			Title: "A single child",
 			Git: SingleRecipeGit{
 				BaseRepo: "github.com/acme/demo",
 				BaseRef:  "main",
@@ -57,6 +58,9 @@ func TestStartSingleJobPassesDeterministicJobID(t *testing.T) {
 		t.Fatalf("expected one child start, got %d", len(ctl.startRequests))
 	}
 
+	if ctl.startRequests[0].Title != "A single child" {
+		t.Fatal("single child title not forwarded")
+	}
 	want := deterministicChildJobID(jobdb.JobKey{TenantId: "tenant", JobId: "parent-job"}, "test-invocation", 0)
 	if ctl.startRequests[0].JobID != want {
 		t.Fatalf("expected explicit child job id %q, got %q", want, ctl.startRequests[0].JobID)

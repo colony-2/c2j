@@ -481,6 +481,9 @@ var c2jJobSchema = json.RawMessage(`{
           "job_id": {
             "type": "string"
           },
+          "title": {
+            "type": "string"
+          },
           "recipe": {
             "type": "string",
             "minLength": 1
