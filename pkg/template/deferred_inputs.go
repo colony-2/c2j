@@ -30,7 +30,7 @@ func (rc *ResolutionContext) InputSnapshot() (json.RawMessage, error) {
 
 func ResolveDeferredInputs(snapshot json.RawMessage, input map[string]any) (map[string]any, error) {
 	rc := &ResolutionContext{Options: DefaultResolutionOptions()}
-	if err := json.Unmarshal(snapshot, &rc.TemplateData); err != nil {
+	if err := decodePatchDocument(snapshot, &rc.TemplateData); err != nil {
 		return nil, err
 	}
 	rc.TemplateData.Scope = ScopeMetadata{ExecutionID: generateExecutionID(), Timestamp: time.Now()}

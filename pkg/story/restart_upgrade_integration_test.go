@@ -88,7 +88,7 @@ func TestRestartPreFixCompletedJobCompatibility(t *testing.T) {
 			target := ops[2].RestartChapterOrdinal
 			require.NotNil(t, target)
 			inspected := f.inspect(t, f.key, *target)
-			require.EqualValues(t, 0, inspected.Visible["inputs"].(map[string]any)["count"])
+			require.Equal(t, json.Number("0"), inspected.Visible["inputs"].(map[string]any)["count"])
 			require.Zero(t, f.task.calls.Load(), "reading old history must not execute tasks")
 			req := story.RestartRecipeJobRequest{ProjectID: f.key.TenantId, JobID: f.key.JobId, ChapterOrdinal: target, RequestID: uuid.NewString()}
 			req.Goal.Mode = "new"

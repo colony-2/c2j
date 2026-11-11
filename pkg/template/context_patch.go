@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/colony-2/c2j/internal/jsonexact"
 	"github.com/colony-2/c2j/pkg/contextual"
 )
 
@@ -76,7 +77,7 @@ func applyStepOutputsPatch(container map[string]StepOutput, id string, patch map
 	if err != nil {
 		return err
 	}
-	step.Outputs = merged
+	step.Outputs = jsonexact.Native(merged).(map[string]any)
 	container[id] = step
 	return nil
 }
@@ -88,7 +89,7 @@ func applyJobMergePatch(job contextual.JobContext, patch map[string]any) (contex
 		return contextual.JobContext{}, err
 	}
 	var base map[string]any
-	if err := json.Unmarshal(baseBytes, &base); err != nil {
+	if err := decodePatchDocument(baseBytes, &base); err != nil {
 		return contextual.JobContext{}, err
 	}
 
@@ -102,7 +103,7 @@ func applyJobMergePatch(job contextual.JobContext, patch map[string]any) (contex
 		return contextual.JobContext{}, err
 	}
 	var out contextual.JobContext
-	if err := json.Unmarshal(mergedBytes, &out); err != nil {
+	if err := decodePatchDocument(mergedBytes, &out); err != nil {
 		return contextual.JobContext{}, err
 	}
 	return out, nil

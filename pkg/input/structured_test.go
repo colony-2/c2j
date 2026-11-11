@@ -262,7 +262,7 @@ func testStructuredInputSQLite(t *testing.T, offloaded bool) {
 	require.NoError(t, json.Unmarshal(encoded, &persistedEnvelope))
 	var persistedActivity workerops.ActivityInvocationOutput
 	require.NoError(t, persistedEnvelope.DecodePayload(&persistedActivity))
-	normalized, err := jsonValue(out)
+	normalized, err := exactJSONValue(out)
 	require.NoError(t, err)
 	require.Equal(t, normalized, any(persistedActivity.OpOutput))
 	require.Equal(t, form.RequestID, out.Receipt.RequestID)

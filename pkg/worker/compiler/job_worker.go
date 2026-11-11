@@ -2,7 +2,6 @@ package compiler
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -19,6 +18,8 @@ import (
 	"github.com/colony-2/c2j/pkg/workflowctl"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
+
+	"github.com/colony-2/c2j/internal/jsonexact"
 )
 
 type RecipeJobWorkerOptions struct {
@@ -136,13 +137,15 @@ func (j recipeJobWorker) Run(ctx jobworkflow.ExecutionContext, jobData jobdb.Job
 		return nil, err
 	}
 	input := workflowctl.StartJob{}
-	err = json.Unmarshal(data, &input)
+	err = jsonexact.Unmarshal(data, &input)
 	if err != nil {
 		logger.Debug("recipe job: failed to unmarshal start job payload",
 			"error", err,
 		)
 		return nil, err
 	}
+
+	input.Inputs = jsonexact.Native(input.Inputs).(map[string]any)
 
 	owner, err := recordedCell(ctx)
 	if err != nil {

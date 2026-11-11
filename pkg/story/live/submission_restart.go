@@ -1,10 +1,10 @@
 package live
 
 import (
-	"encoding/json"
 	"fmt"
 	"sort"
 
+	"github.com/colony-2/c2j/internal/jsonexact"
 	"github.com/colony-2/c2j/pkg/starter"
 	"github.com/colony-2/c2j/pkg/story/internal/model"
 	"github.com/colony-2/jobdb/pkg/jobdb"
@@ -61,7 +61,7 @@ func InspectSubmissionRestartContext(key jobdb.JobKey, run jobdb.GetJobRunRespon
 		Inputs  map[string]any `json:"inputs"`
 		Context map[string]any `json:"context"`
 	}
-	if err := json.Unmarshal(run.Start.Input.Data, &submitted); err != nil {
+	if err := jsonexact.Unmarshal(run.Start.Input.Data, &submitted); err != nil {
 		return nil, fmt.Errorf("%w: read submission input: %w", ErrRestartContextUnavailable, err)
 	}
 	if submitted == nil {

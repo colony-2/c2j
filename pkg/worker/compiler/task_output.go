@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"github.com/colony-2/c2j/internal/jsonexact"
 
 	coretask "github.com/colony-2/c2j/pkg/task"
 	workerops "github.com/colony-2/c2j/pkg/worker/ops"
@@ -39,6 +40,7 @@ func decodeTaskOutput(outputData []byte) (decodedTaskOutput, error) {
 func decodeActivityInvocationOutput(payload []byte) (workerops.ActivityInvocationOutput, error) {
 	var activityOut workerops.ActivityInvocationOutput
 	if err := decodeJSONStrict(payload, &activityOut); err == nil {
+		activityOut.OpOutput = jsonexact.Native(activityOut.OpOutput).(map[string]any)
 		return activityOut, nil
 	}
 
@@ -53,7 +55,7 @@ func decodeActivityInvocationOutput(payload []byte) (workerops.ActivityInvocatio
 		if !ok {
 			return workerops.ActivityInvocationOutput{}, fmt.Errorf("decode activity output payload: raw output is not an object (got %T)", raw.Output)
 		}
-		coerced = m
+		coerced = jsonexact.Native(m).(map[string]any)
 	}
 	return workerops.ActivityInvocationOutput{
 		WorkspaceBefore:   raw.WorkspaceBefore,
@@ -72,6 +74,7 @@ func decodeActivityInvocationOutput(payload []byte) (workerops.ActivityInvocatio
 
 func decodeJSONStrict(data []byte, dst any) error {
 	dec := json.NewDecoder(bytes.NewReader(data))
+	dec.UseNumber()
 	dec.DisallowUnknownFields()
 	return dec.Decode(dst)
 }

@@ -3,6 +3,8 @@ package task
 import (
 	"encoding/json"
 	"fmt"
+
+	"github.com/colony-2/c2j/internal/jsonexact"
 )
 
 // OutputEnvelope is a versioned wrapper for persisted task outputs.
@@ -48,5 +50,5 @@ func (e OutputEnvelope) DecodePayload(dst any) error {
 	if len(e.Payload) == 0 {
 		return fmt.Errorf("DecodePayload: empty payload for kind %q", e.Kind)
 	}
-	return json.Unmarshal(e.Payload, dst)
+	return jsonexact.Unmarshal(e.Payload, dst)
 }

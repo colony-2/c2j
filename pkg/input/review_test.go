@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/colony-2/c2j/internal/jsonexact"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -230,7 +231,7 @@ func testReviewSQLiteAttachmentsReplayAndStaleSubmission(t *testing.T, annotated
 	require.NoError(t, json.Unmarshal(encoded, &persistedEnvelope))
 	var persistedActivity workerops.ActivityInvocationOutput
 	require.NoError(t, persistedEnvelope.DecodePayload(&persistedActivity))
-	normalized, err := jsonValue(out)
+	normalized, err := exactJSONValue(out)
 	require.NoError(t, err)
 	require.Equal(t, normalized, any(persistedActivity.OpOutput))
 	require.Contains(t, string(encoded), "cell-b-workspace")
@@ -255,4 +256,15 @@ func testReviewSQLiteAttachmentsReplayAndStaleSubmission(t *testing.T, annotated
 	require.NoError(t, err)
 	require.Equal(t, ref, out2.ArtifactRefs["design.md"])
 	run()
+}
+
+// Match the persisted generic decoder without a float64 comparison baseline.
+func exactJSONValue(value any) (any, error) {
+	raw, err := json.Marshal(value)
+	if err != nil {
+		return nil, err
+	}
+	var out any
+	err = jsonexact.Unmarshal(raw, &out)
+	return out, err
 }

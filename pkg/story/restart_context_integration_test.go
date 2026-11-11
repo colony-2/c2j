@@ -12,6 +12,9 @@ import (
 	"time"
 
 	"github.com/colony-2/c2j/internal/celltest"
+	"github.com/colony-2/c2j/internal/jsonexact"
+	"github.com/colony-2/c2j/pkg/artifacts"
+	"github.com/colony-2/c2j/pkg/contextual"
 	coreops "github.com/colony-2/c2j/pkg/ops"
 	"github.com/colony-2/c2j/pkg/starter"
 	"github.com/colony-2/c2j/pkg/story"
@@ -55,8 +58,16 @@ func (w *restartProbeTask) Run(_ jobworkflow.TaskContext, data jobdb.TaskData) (
 	if w.fail.Load() && request.Input["value"] == w.failValue {
 		return nil, fmt.Errorf("candidate failed")
 	}
+	output := map[string]any{"value": request.Input["value"], "unchanged": "keep", "api_key": "sensitive fixture"}
+	if request.Input["value"] == "exact-number-fixture" {
+		var numbers map[string]any
+		if err := jsonexact.Unmarshal([]byte(exactValues), &numbers); err != nil {
+			return nil, err
+		}
+		output["exact"] = numbers
+	}
 	envelope, err := coretask.NewOutputEnvelope(coretask.OutputKindActivityInvocationOutput, map[string]any{
-		"output": map[string]any{"value": request.Input["value"], "unchanged": "keep", "api_key": "sensitive fixture"}, "git": map[string]any{}, "nextTaskType": "",
+		"output": output, "git": map[string]any{}, "nextTaskType": "",
 	})
 	if err != nil {
 		return nil, err
@@ -82,6 +93,10 @@ func newRestartFixtureInputs(t *testing.T, backend, recipe string, inputs map[st
 }
 
 func newRestartFixtureFailure(t *testing.T, backend, recipe string, inputs map[string]any, failValue string, failFirst ...bool) *restartFixture {
+	return newRestartFixtureContext(t, backend, recipe, inputs, contextual.JobContext{}, failValue, failFirst...)
+}
+
+func newRestartFixtureContext(t *testing.T, backend, recipe string, inputs map[string]any, jobContext contextual.JobContext, failValue string, failFirst ...bool) *restartFixture {
 	t.Helper()
 	coreops.Register(coreops.NewActivityMappedOpV2[restartProbeInput, map[string]any](coreops.OpMetadata{Type: restartProbeOp}, func(coreops.OpDependencies, context.Context, restartProbeInput) (map[string]any, error) {
 		panic("inspection must not execute operations")
@@ -107,7 +122,12 @@ func newRestartFixtureFailure(t *testing.T, backend, recipe string, inputs map[s
 	require.NoError(t, err)
 	svc, err := story.New(story.ServiceConfig{Engine: engine, SchemaRegistry: db})
 	require.NoError(t, err)
-	data, err := jobdb.NewTaskData(workflowctl.StartJob{Inputs: inputs, TenantId: "restart-tests", RecipeName: "fixture", Cell: "test", CellRepo: celltest.Repo("")}, jobdb.NewArtifactFromBytes("fixture"+starter.RecipeArtifactSuffix, []byte(recipe)))
+	var refs []artifacts.Ref
+	for name, ref := range jobContext.Artifacts {
+		ref.Name = name
+		refs = append(refs, ref)
+	}
+	data, err := jobdb.NewTaskData(workflowctl.StartJob{ArtifactRefs: refs, JobContext: jobContext, Inputs: inputs, TenantId: "restart-tests", RecipeName: "fixture", Cell: "test", CellRepo: celltest.Repo("")}, jobdb.NewArtifactFromBytes("fixture"+starter.RecipeArtifactSuffix, []byte(recipe)))
 	require.NoError(t, err)
 	celltest.Create(t, rt, "restart-tests", "test", "example.test/test")
 	keyHandle, err := engine.SubmitJob(ctx, jobdb.SubmitJob{TenantId: "restart-tests", JobType: "recipe", Data: data, Cell: "test", CellRepo: "example.test/test"})
@@ -282,7 +302,7 @@ outputs: {count: '${{ states.loop.outputs.count }}'}
 	second := f.inspectScope(t, f.key, states[1].RestartScopeID)
 	require.Empty(t, first.Visible["states"])
 	prior := second.Visible["states"].(map[string]any)["loop"].(map[string]any)
-	require.EqualValues(t, 1, prior["outputs"].(map[string]any)["count"])
+	require.Equal(t, json.Number("1"), prior["outputs"].(map[string]any)["count"])
 	for _, scope := range st.RestartScopes {
 		f.inspectScope(t, f.key, scope.ScopeID)
 	}

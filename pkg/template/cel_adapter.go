@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"reflect"
 
+	"github.com/colony-2/c2j/internal/jsonexact"
 	"github.com/colony-2/c2j/pkg/contextual"
 	"github.com/google/cel-go/common/types"
 	"github.com/google/cel-go/common/types/ref"
@@ -35,12 +36,36 @@ func (a *resolutionTypeAdapter) NativeToValue(value interface{}) ref.Val {
 			return types.NewErr("failed to marshal context: %v", err)
 		}
 		var flattened map[string]interface{}
-		if err := json.Unmarshal(data, &flattened); err != nil {
+		if err := decodePatchDocument(data, &flattened); err != nil {
 			return types.NewErr("failed to unmarshal context: %v", err)
 		}
-		return a.base.NativeToValue(flattened)
+		return a.NativeToValue(flattened)
 	}
 
+	// CEL has bounded native numbers. Never expose json.Number as a string or
+	// round it to fit an expression; opaque JSON containers can still pass through.
+	if number, ok := value.(json.Number); ok {
+		native := jsonexact.Native(number)
+		if _, inexact := native.(json.Number); inexact {
+			return types.NewErr("JSON number %s cannot be represented exactly as a native CEL number", number)
+		}
+		return a.base.NativeToValue(native)
+	}
+	if value != nil {
+		typ := reflect.TypeOf(value)
+		switch typ.Kind() {
+		case reflect.Map:
+			return types.NewDynamicMap(a, value)
+		case reflect.Slice, reflect.Array:
+			if typ.Elem().Kind() != reflect.Uint8 {
+				list := types.NewDynamicList(a, value)
+				if a.options.ClampSliceIndex {
+					return newClampedList(list)
+				}
+				return list
+			}
+		}
+	}
 	if v, ok := value.(ref.Val); ok {
 		if a.options.ClampSliceIndex {
 			if list, ok := v.(traits.Lister); ok {
@@ -48,16 +73,6 @@ func (a *resolutionTypeAdapter) NativeToValue(value interface{}) ref.Val {
 			}
 		}
 		return v
-	}
-
-	if a.options.ClampSliceIndex {
-		valueType := reflect.TypeOf(value)
-		if valueType != nil && (valueType.Kind() == reflect.Slice || valueType.Kind() == reflect.Array) {
-			if valueType.Kind() == reflect.Slice && valueType.Elem().Kind() == reflect.Uint8 {
-				return a.base.NativeToValue(value)
-			}
-			return newClampedList(types.NewDynamicList(a, value))
-		}
 	}
 
 	return a.base.NativeToValue(value)

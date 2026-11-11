@@ -26,7 +26,7 @@ func (rc *ResolutionContext) RestartContextSnapshot() (job, visible map[string]a
 			return nil, err
 		}
 		var out map[string]any
-		err = json.Unmarshal(data, &out)
+		err = decodePatchDocument(data, &out)
 		return out, err
 	}
 	job, err = convert(exec.JobContext())

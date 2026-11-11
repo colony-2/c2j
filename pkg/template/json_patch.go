@@ -9,6 +9,7 @@ import (
 	"reflect"
 	"strconv"
 
+	"github.com/colony-2/c2j/internal/jsonexact"
 	"github.com/colony-2/c2j/pkg/contextual"
 	"github.com/colony-2/c2j/pkg/jobrestart"
 	"github.com/colony-2/c2j/pkg/task"
@@ -34,6 +35,7 @@ func (rc *ResolutionContext) ApplyRestartPayload(raw json.RawMessage) error {
 	}
 	var p legacyContextPatch
 	d := json.NewDecoder(bytes.NewReader(raw))
+	d.UseNumber()
 	d.DisallowUnknownFields()
 	if err := d.Decode(&p); err != nil {
 		return fmt.Errorf("stored legacy patch: %w", err)
@@ -45,9 +47,7 @@ func (rc *ResolutionContext) ApplyRestartPayload(raw json.RawMessage) error {
 }
 
 func decodePatchDocument(raw []byte, dst any) error {
-	d := json.NewDecoder(bytes.NewReader(raw))
-	d.UseNumber()
-	return d.Decode(dst)
+	return jsonexact.Unmarshal(raw, dst)
 }
 
 // ApplyContextPatch stages every operation and ancestor update before publishing
@@ -186,7 +186,7 @@ func (rc *ResolutionContext) ApplyContextPatch(p task.ContextPatch) error {
 			return err
 		}
 		var job contextual.JobContext
-		if err := json.Unmarshal(data, &job); err != nil {
+		if err := decodePatchDocument(data, &job); err != nil {
 			return err
 		}
 		jobs = append(jobs, staged{cur, job, !patchEqual(before["git"], after["git"]) && cur.commitContext == rc.commitContext})
@@ -241,7 +241,7 @@ func (rc *ResolutionContext) ApplyContextPatch(p task.ContextPatch) error {
 				continue
 			}
 			step := pair.steps[id]
-			step.Outputs = patchNativeJSON(out).(map[string]any)
+			step.Outputs = jsonexact.Native(out).(map[string]any)
 			pair.steps[id] = step
 		}
 	}
@@ -392,39 +392,6 @@ func patchDelta(base, before, after any) any {
 		return out
 	}
 	return after
-}
-
-// Prefer native CEL-compatible numbers only when JSON round-tripping preserves
-// their exact mathematical value. High-precision values remain json.Number.
-func patchNativeJSON(v any) any {
-	switch x := v.(type) {
-	case json.Number:
-		if n, err := x.Int64(); err == nil {
-			return n
-		}
-		if n, err := strconv.ParseUint(string(x), 10, 64); err == nil {
-			return n
-		}
-		if n, err := x.Float64(); err == nil {
-			raw, err := json.Marshal(n)
-			if err == nil && patchEqual(x, json.Number(raw)) {
-				return n
-			}
-		}
-		return x
-	case map[string]any:
-		for k, value := range x {
-			x[k] = patchNativeJSON(value)
-		}
-		return x
-	case []any:
-		for i, value := range x {
-			x[i] = patchNativeJSON(value)
-		}
-		return x
-	default:
-		return x
-	}
 }
 
 // TaskExecutionContext refreshes cached Git fields; use a detached receiver so

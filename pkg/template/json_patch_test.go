@@ -214,3 +214,25 @@ func TestJSONPatchOutputAndTestOnlyPreserveWorkspaceCaches(t *testing.T) {
 	require.Equal(t, before.GitTask, scoped.TemplateData.Context.GitTask)
 	require.Equal(t, base, *scoped.workspaceBase)
 }
+
+func TestRestartPayloadExactInlineArtifactAndLegacyValues(t *testing.T) {
+	const values = `{"n":9007199254740993,"nested":[9007199254740995,18446744073709551617,1.23000000000000000001]}`
+	for _, legacy := range []bool{false, true} {
+		t.Run(map[bool]string{false: "json-patch", true: "historical-merge"}[legacy], func(t *testing.T) {
+			rc := patchFixture(t)
+			ref := artifacts.Ref{Kind: artifacts.RefKindValue, Format: "json", Value: json.RawMessage(values)}
+			rc.TemplateData.Context.Artifacts = map[string]artifacts.Ref{"exact": ref}
+			var raw []byte
+			if legacy {
+				raw = []byte(`{"job":{"git":{"author":"changed"}},"scopes":[{"container":"sequence","id":"a/b~c","outputs":{"exact":` + values + `}}]}`)
+			} else {
+				raw = []byte(`[{"op":"add","path":"/context/git/author","value":"changed"},{"op":"add","path":"/sequence/a~1b~0c/outputs/exact","value":` + values + `}]`)
+			}
+			require.NoError(t, rc.ApplyRestartPayload(raw))
+			require.Equal(t, "changed", rc.TemplateData.Context.GitTask.GitAuthor)
+			requirePatchJSON(t, values, rc.TemplateData.Sequence["a/b~c"].Outputs["exact"])
+			requirePatchJSON(t, values, json.RawMessage(rc.TemplateData.Context.Artifacts["exact"].Value))
+			require.Equal(t, artifacts.RefKindValue, rc.TemplateData.Context.Artifacts["exact"].Kind)
+		})
+	}
+}

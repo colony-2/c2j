@@ -8,6 +8,7 @@ import (
 	"strings"
 	texttemplate "text/template"
 
+	"github.com/colony-2/c2j/internal/jsonexact"
 	recipeartifacts "github.com/colony-2/c2j/pkg/artifacts"
 	"github.com/colony-2/c2j/pkg/configuration"
 	"github.com/colony-2/c2j/pkg/contextual"
@@ -148,6 +149,8 @@ func (rc *ResolutionContext) resolveSimpleGoTemplateScalar(input string) (interf
 		return nil, true, fmt.Errorf("config references cannot be used in recipe expressions")
 	}
 	switch value := current.(type) {
+	case json.Number:
+		return jsonexact.Native(value), true, nil
 	case nil:
 		return "", true, nil
 	case string:
@@ -327,7 +330,7 @@ func flattenTemplateValue(value interface{}) map[string]interface{} {
 		return map[string]interface{}{}
 	}
 	var out map[string]interface{}
-	if err := json.Unmarshal(data, &out); err != nil {
+	if err := decodePatchDocument(data, &out); err != nil {
 		return map[string]interface{}{}
 	}
 	if out == nil {

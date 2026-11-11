@@ -160,7 +160,7 @@ func TestRestartStoredLegacyMergeCompatibility(t *testing.T) {
 			st := f.story(t, accepted.JobKey)
 			seed := st.Root.Output.(map[string]any)["seed"].(map[string]any)
 			require.NotContains(t, seed, "remove")
-			require.Equal(t, []any{float64(9)}, seed["array"])
+			assertExactJSON(t, `[9]`, seed["array"])
 			last := storyNodes(st.Root, "sequence", "capture")[0].RestartScopeID
 			require.Equal(t, "historical-author", f.inspectScope(t, accepted.JobKey, last).Job["git"].(map[string]any)["author"])
 			retained, err := f.service.RestartRecipeJob(f.ctx, restartRequest(f, accepted.JobKey.JobId, last, "retain-historical"))
