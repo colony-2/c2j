@@ -4,10 +4,13 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/c2j/pkg/contextual"
 	coreops "github.com/colony-2/c2j/pkg/ops"
 	recipecore "github.com/colony-2/c2j/pkg/recipe"
@@ -952,5 +955,38 @@ func TestStructuralValidationStillRejectsInvalidDeclarations(t *testing.T) {
 	got = ValidateCase(context.Background(), HarnessOptions{}, "test", target, c)
 	if got.Valid {
 		t.Fatal("structural validation accepted an invalid declaration")
+	}
+}
+
+func TestValidateCaseSecretInclude(t *testing.T) {
+	for _, marked := range []bool{true, false} {
+		t.Run(fmt.Sprintf("secret=%t", marked), func(t *testing.T) {
+			dir := t.TempDir()
+			err := os.WriteFile(filepath.Join(dir, "included.yaml"), []byte(fmt.Sprintf("id: included\ninput_schema:\n  token: {type: string, secret: %t, required: true}\nsequence: []\n", marked)), 0600)
+			if err != nil {
+				t.Fatal(err)
+			}
+			ctx := celltest.Context(context.Background())
+			target, _, err := ExpandInlineRecipeTarget(ctx, TargetRecipe{
+				Mode: "inline_recipe", Format: "yaml",
+				Content: "id: root\nsequence:\n  - include: ./included.yaml\n    perms: {limit: {jobdb: {}}}\n    inputs: {token: '${{ context.secrets.token }}'}\n",
+			}, InlineTargetExpansionOptions{RootFile: filepath.Join(dir, "root.yaml")})
+			if err != nil {
+				t.Fatal(err)
+			}
+			validation := ValidateCase(ctx, HarnessOptions{}, "p1", target, Case{ID: "secret-include", Type: "recipe_case"})
+			if marked {
+				if !validation.Valid {
+					t.Fatalf("declared secret rejected: %+v", validation.Errors)
+				}
+			} else {
+				if validation.Valid {
+					t.Fatal("ordinary input accepted secret")
+				}
+				if len(validation.Errors) == 0 || validation.Errors[0].Code != "semantic_validation" || !strings.Contains(validation.Errors[0].Message, "not marked secret") {
+					t.Fatalf("wrong rejection: %+v", validation.Errors)
+				}
+			}
+		})
 	}
 }

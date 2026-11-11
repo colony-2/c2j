@@ -161,3 +161,19 @@ func TestCatchAndNormalTransitionValidateBothTransitionShapes(t *testing.T) {
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "failure")
 }
+
+func TestCatchValidationRejectsSecretFields(t *testing.T) {
+	for _, tc := range []struct {
+		name, clause, message string
+	}{
+		{"outputs", "continue: {outputs: {token: '${{ context.secrets.token }}'}}", "catch_continue_outputs_invalid"},
+		{"failure", "fail: {message: '${{ context.secrets.token }}'}", "catch_fail_invalid"},
+		{"payload", "to: done\n          payload: {token: '${{ context.secrets.token }}'}", "catch_payload_invalid"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r, err := recipe.LoadRecipeFromString([]byte("id: root\nstate:\n  initial: done\n  states:\n    done:\n      sequence: []\n      catch:\n        - when: 'true'\n          " + tc.clause + "\n"))
+			require.NoError(t, err)
+			require.ErrorContains(t, validateCatchRecipe(t, *r), tc.message)
+		})
+	}
+}

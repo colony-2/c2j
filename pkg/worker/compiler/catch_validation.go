@@ -98,7 +98,11 @@ func validateNodeCatchSemantics(parent *template.ResolutionContext, node recipe.
 }
 
 func validateSequenceCatchSemantics(parent *template.ResolutionContext, metadata recipe.NodeMetadata, sequence []recipe.Node, stateNames map[string]struct{}, skipSelf bool) error {
-	resolvedInputs, err := parent.ResolveMap(metadata.Inputs)
+	resolvedInputs, err := parent.ResolveCompositeInputs(metadata.Inputs)
+	if err != nil {
+		return err
+	}
+	resolvedInputs, err = prepareCompositeInputs(metadata, resolvedInputs)
 	if err != nil {
 		return err
 	}
@@ -126,7 +130,11 @@ func validateSequenceCatchSemantics(parent *template.ResolutionContext, metadata
 }
 
 func validationStateMachineContext(parent *template.ResolutionContext, metadata recipe.NodeMetadata, stateMap *recipe.StateMap) (*template.ResolutionContext, error) {
-	resolvedInputs, err := parent.ResolveMap(metadata.Inputs)
+	resolvedInputs, err := parent.ResolveCompositeInputs(metadata.Inputs)
+	if err != nil {
+		return nil, err
+	}
+	resolvedInputs, err = prepareCompositeInputs(metadata, resolvedInputs)
 	if err != nil {
 		return nil, err
 	}
