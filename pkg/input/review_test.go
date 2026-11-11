@@ -185,8 +185,18 @@ func testReviewSQLiteAttachmentsReplayAndStaleSubmission(t *testing.T, annotated
 	sub := FormSubmission{RequestID: form.RequestID, SubmissionID: "submit-1", Fields: map[string]any{"decision": "invalid"}}
 	_, err = r.SubmitFormResponse(ctx, "tenant", "review", sub, actor)
 	require.ErrorContains(t, err, "decision")
-	_, err = r.GetForm(ctx, "tenant", "review")
+	unchanged, err := r.GetForm(ctx, "tenant", "review")
 	require.NoError(t, err)
+	require.Equal(t, form, unchanged)
+	waiting, err := r.ctl.GetWaitingTask(ctx, handle.JobKey)
+	require.NoError(t, err)
+	require.Equal(t, task.TaskOrdinalToComplete(), waiting.TaskOrdinalToComplete())
+	pageRejected, err := r.ListPendingInputsPage(ctx, "tenant", PendingInputOptions{PageSize: 1})
+	require.NoError(t, err)
+	require.Equal(t, pageBefore, pageRejected)
+	// Rejection must not write a completion record for the waiting task.
+	_, err = rt.GetChapter(ctx, jobdb.ChapterRef{JobKey: handle.JobKey, Ordinal: task.TaskOrdinalToComplete()})
+	require.Error(t, err)
 	_, err = r.GetForm(ctx, "another-tenant", "review")
 	require.Error(t, err)
 	missing := recipeartifacts.NewStoredRef(jobdb.ArtifactKey{JobId: "missing-child", TaskOrdinal: 1, Name: "missing.md", SizeBytes: 1})
@@ -201,6 +211,7 @@ func testReviewSQLiteAttachmentsReplayAndStaleSubmission(t *testing.T, annotated
 	sub.Fields = map[string]any{"decision": "revise", "document": jobdb.NewArtifactFromBytes("design.md", content)}
 	out, err := r.SubmitFormResponse(ctx, "tenant", "review", sub, actor)
 	require.NoError(t, err)
+	require.Equal(t, form.RequestID, out.Receipt.RequestID)
 	ref := out.ArtifactRefs["design.md"]
 	key, ok := ref.StoredKey()
 	require.True(t, ok)

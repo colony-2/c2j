@@ -572,6 +572,8 @@ func (f *runtimeFixture) answerInputs(ctx context.Context, tenant string, input 
 				}
 				fields[field] = jobdb.NewArtifactFromBytes(filepath.Base(source), b)
 			}
+			// A native validation rejection still consumes an attempted response.
+			f.responses[i] = true
 			actor := inputop.Actor{ID: "recipe-test", Kind: "test"}
 			if form.ResponseSchema != nil {
 				_, err = input.SubmitStructuredResponse(ctx, tenant, item.Id, inputop.StructuredSubmission{RequestID: form.RequestID, SubmissionID: fmt.Sprint(i), Response: response.Response}, actor)
@@ -581,7 +583,6 @@ func (f *runtimeFixture) answerInputs(ctx context.Context, tenant string, input 
 			if err != nil {
 				return err
 			}
-			f.responses[i] = true
 			f.report.Reviews = append(f.report.Reviews, ReviewCall{NodePath: response.NodePath, Form: form})
 			matched = true
 			break
