@@ -1,4 +1,4 @@
-<!-- Sources: colony-2/c2ops 8ac6ae9009f621bdc8065eaaed06e0852c67006b op.yaml schemas; pkg/ops/extensions/execution_op.go; c2j recipe template/artifact references. -->
+<!-- Sources: colony-2/c2ops 6396e1fe6462084e85ea44d86d372bdf3b133db0 op.yaml schemas; pkg/ops/extensions/execution_op.go; c2j recipe template/artifact references. -->
 
 # Selector Patterns
 
@@ -155,3 +155,5 @@ Extension manifests annotate checkpoint fields with `type: object` and `x-c2j-ob
 To publish, write export parts beneath `C2J_OBJECT_OUTBOX` and emit `{"output":{"session":{"$object":"next"}},"objects":{"next":{"type":"c2ops.codex.session/v1","metadata":{"session_id":"..."},"files":{"home":"<absolute staging path>"}}}}`. c2j seals the files and replaces the marker with the durable reference. Returning the input descriptor's `ref` preserves the original checkpoint. Keep ordinary user deliverables in the regular artifact outbox.
 
 Both later consumers may select the same earlier object; each starts with its exact state. Session IDs may match while checkpoint contents differ. A Codex export must preserve all supported resumable assets, including required database/rollout state, and omit credentials and transient files. Resolve relocated paths inside the adapter. Test branching, retries and worker restart without shared caches before changing recipe routing.
+
+At the reviewed revision, Codex `usage` is a cumulative session snapshot, including resumed turns and repair attempts; do not sum snapshots from the same session. Consume declared outputs such as `response`, `usage`, and `session`, rather than removed event/transcript fields. Recheck the selected manifest when moving revisions.

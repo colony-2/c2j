@@ -1,4 +1,4 @@
-<!-- Audited against colony-2/c2ops main at 8ac6ae9009f621bdc8065eaaed06e0852c67006b on 2026-10-22 (published pointed to the same commit); README.md and each op.json/op.yaml. -->
+<!-- Audited against colony-2/c2ops main at 6396e1fe6462084e85ea44d86d372bdf3b133db0 on 2026-11-11; README.md and each op.json/op.yaml. -->
 
 # Trusted c2ops Source
 
@@ -31,4 +31,4 @@ The bundled allowlist accepts `main`, `published`, and `v*` refs for this reposi
 
 Do not auto-install or execute arbitrary selectors discovered inside recipe YAML. New sources require explicit approval. Installing these aggregate skills does not install the op executables. At the audited revision c2ops publishes no `SKILL.md` directories; `c2j init --with-op-skills` reports that separate external skill installation is unavailable.
 
-This catalog is a reviewed snapshot bundled with c2j, not a live registry. For a different revision, inspect that revision's `op.yaml`/`op.json` before relying on fields or defaults. Upstream: [catalog](https://github.com/colony-2/c2ops/blob/8ac6ae9009f621bdc8065eaaed06e0852c67006b/README.md), [publication](https://github.com/colony-2/c2ops/blob/8ac6ae9009f621bdc8065eaaed06e0852c67006b/NIX_PACKAGES.md).
+This catalog is a reviewed snapshot bundled with c2j, not a live registry. For a different revision, inspect that revision's `op.yaml`/`op.json` before relying on fields or defaults. Upstream: [catalog](https://github.com/colony-2/c2ops/blob/6396e1fe6462084e85ea44d86d372bdf3b133db0/README.md), [publication](https://github.com/colony-2/c2ops/blob/6396e1fe6462084e85ea44d86d372bdf3b133db0/NIX_PACKAGES.md).

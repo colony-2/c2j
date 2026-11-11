@@ -16,7 +16,7 @@ For ordinary jobs, use `c2j submit "your prompt"` to submit the build recipe. Th
 
 Build recipes receive `{"prompt":"your prompt","type":"build"}`. Declare both as required strings in `input_schema`, and bind them in root `inputs` when using them in recipe logic. This also applies to explicit selection of the name `build`; custom names, Git selectors, and files have no automatic type injection. For build submissions, a user-provided type must be `"build"`.
 
-Every CLI submission supplies `inputs.prompt`, so custom recipes must declare a string `prompt` in `input_schema`. When omitted from arguments and input data, a terminal prompts interactively; non-terminal stdin produces an error. `c2j test` retains its flags and does not require a prompt unless the recipe's schema does.
+Every CLI submission supplies `inputs.prompt`, so custom recipes must declare a string `prompt` in `input_schema`. When omitted from arguments and input data, a terminal prompts interactively; non-terminal stdin produces an error. `c2j test run` and `c2j test validate` expose suite flags and does not require a prompt unless the recipe's schema does.
 
 Use `execution: {base: 'macos*'}` or scoped `execution_needs` to request a
 provider-defined environment. `--require-base` overrides the job requirement;
@@ -120,7 +120,7 @@ without modifying production recipe graphs. Runtime guarantees such as restart
 replay and lease handling belong in c2j's own tests, not recipe-specific servers
 or Python/shell orchestration.
 
-Common flags from this checkout:
+Use `c2j test run --help` and `c2j test validate --help`; flags belong to these subcommands, not the `test` parent. Shared flags from this checkout:
 
 - `--recipe` or `--recipe-file`
 - `--file` or `--stdin` for the scenario suite
@@ -128,16 +128,8 @@ Common flags from this checkout:
 - `--case`
 - `--strict`
 - `--parallelism`
-- `--fail-fast`
-- `--stop-on-failure`
-- `--execution-timeout`
-- `--artifact-mode`
-- `--artifact-max-bytes`
-- `--evaluation-mode`
-- `--out`
-- `--out-dir`
-- `--jsonl-events`
-- `--json`
+
+Execution-only flags include `--case-timeout`, `--stop-on-failure`, `--artifact-mode`, `--artifact-max-bytes`, `--evaluation-mode`, `--out-dir`, and `--jsonl-events`. Validation supports `--fail-fast` and `--json`.
 
 ## Job Inspection
 
@@ -216,4 +208,6 @@ allow any valid name within the enclosing limit. Creation is otherwise denied.
 Use a stable `--request-id` when the command may be retried. In a running task,
 the CLI uses its broker and owning tenant; do not supply `--jobdb`. Creation does
 not grant permission to submit jobs to the new cell. See the
-[named-cell guide](../../../../GUIDE-Named-Cells.md).
+[named-cell guide](https://github.com/colony-2/c2j/blob/a34601101b53c1ef7bef2bea46acbddd537597e3/GUIDE-Named-Cells.md).
+
+For shared-build approval, replacement lineage, stop requests and missing-capability decisions, read [adaptive workflows](adaptive-workflows.md). CLI examples describe reviewed c2j source `a34601101b53c1ef7bef2bea46acbddd537597e3`; check installed help rather than assuming older binaries implement the same contracts.

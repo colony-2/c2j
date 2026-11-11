@@ -109,7 +109,7 @@ Key flags:
 
 The recipe-selection flags are mutually exclusive. `--json` and `--run` are mutually exclusive. `--recipe` and `--recipe-file` are hidden, deprecated aliases on `submit`.
 
-Normal selection resolves the name `build` at execution time in the target cell's repository/ref (`.c2/recipes/build.yaml`). Only a missing recipe falls back to `git+https://github.com/colony-2/recipes.git//build.yaml@main`. `--cell` never uses the submitting project's recipes. Named recipes use committed content; explicit advanced files embed local edits. All CLI-submitted recipes must declare `prompt` in `input_schema`.
+Normal selection resolves `git+https://github.com/colony-2/recipes.git//build.yaml@main` directly, skipping target-cell lookup. Use `--advanced-recipe build` for the target cell's `.c2/recipes/build.yaml`, with the shared fallback only when missing. `--cell` selects the target, not the submitting project's recipes. Named recipes use committed content; explicit advanced files embed local edits. All CLI-submitted recipes must declare `prompt` in `input_schema`.
 
 Build submissions automatically include `inputs.type` (`"build"`) alongside `inputs.prompt`, including explicit selection of that name. The build recipe must declare a string `type` in `input_schema`. A supplied type must be `"build"`; it does not select a recipe. Custom names, explicit Git selectors, and local files preserve their own input contracts without automatic type injection.
 
@@ -202,7 +202,9 @@ cascade. A compatible JobDB deletion API/backend is required.
 Compile, validate, and run scenario suites.
 
 ```bash
-c2j test --file ./recipes/tests/my.scenario.md --recipe-file ./recipes/my-recipe.yaml
+c2j test run --file ./recipes/tests/my.scenario.md --recipe-file ./recipes/my-recipe.yaml
 ```
 
-Use `--json` or `--jsonl-events` when consuming results programmatically.
+Use `c2j test validate --json` for structured validation summaries, or `c2j test run --jsonl-events events.jsonl` for execution events.
+
+For persisted records, cumulative exports and restart selection, read [inspection and recovery](inspection-and-recovery.md).

@@ -1,6 +1,6 @@
 ---
 name: c2j-recipes
-description: Create, edit, review, validate, test, submit, and locally run c2j recipe YAML. Use for prompts about c2j recipes, recipe files, includes, sequences, state machines, child groups, child recipe ops, artifacts, templates, CEL, jq helpers, context visibility, cell workspaces, git state, c2ops selectors, rule gates, retries, timeouts, failure handling, and `c2j submit --recipe-file` or `c2j test` workflows.
+description: Create, edit, review, validate, test, submit, and locally run c2j recipe YAML. Use for prompts about c2j recipes, recipe files, includes, sequences, state machines, child groups, child recipe ops, artifacts, templates, CEL, jq helpers, context visibility, cell workspaces, git state, c2ops selectors, rule gates, retries, timeouts, failure handling, and `c2j submit --advanced-recipe-file` or `c2j test` workflows.
 ---
 
 # c2j Recipes
@@ -17,4 +17,6 @@ Use this skill as the main router for c2j recipe authoring work.
 6. Read [references/workspaces.md](references/workspaces.md) when a node runs in another cell, or when reasoning about workspace identity, snapshot isolation, dynamic cell selection, or returning to the enclosing workspace. Read [references/git-state.md](references/git-state.md) for durable worktree behavior, persisted git state, `squash`, `rebase`, `merge`, `thinpackrebase`, `squashrebasemerge`, and git context propagation.
 7. Read [references/testing-and-cli.md](references/testing-and-cli.md) when validating with `c2j test`, submitting with `c2j submit` (including `--from-workspace` and `--from-workspace-now`), running with `--run --embed`, passing inputs, attaching artifacts, or listing jobs.
 
-Prefer current local source and fixtures over memory when details conflict. Keep generated recipe YAML small enough to validate, include explicit `id`, `version`, `input_schema`, and `outputs` when useful, and run the narrowest relevant `c2j test` or `c2j submit --recipe-file ... --run --embed` command when the user asks for execution.
+8. Read [references/adaptive-workflows.md](references/adaptive-workflows.md) when operating shared builds, selecting handoffs, recovering approval, following children, or handling stop and missing-capability outcomes. Use `$c2j-operations` for existing-job commands.
+
+Prefer current local source and fixtures over memory when details conflict. Keep generated recipe YAML small enough to validate, include explicit `id`, `version`, `input_schema`, and `outputs` when useful, and run the narrowest relevant `c2j test` or `c2j submit --advanced-recipe-file ... --run --embed` command when the user asks for execution.

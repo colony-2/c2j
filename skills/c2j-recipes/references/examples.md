@@ -15,6 +15,8 @@ input_schema:
   message:
     type: string
     default_value: hello
+inputs:
+  message: "${{ inputs.message }}"
 sequence:
   - id: echo
     op: command_execution

@@ -42,7 +42,7 @@ release `version` is independent. Common types are:
 V2 objects support `properties` and boolean-or-schema `additionalProperties`
 (default true); arrays support `items`. Nested declarations use the same
 `required` and `default_value` fields. Each include keeps its own schema version.
-See [schema versions](../../../../GUIDE-Recipe-Schema-Versions.md) for migration,
+See [schema versions](https://github.com/colony-2/c2j/blob/a34601101b53c1ef7bef2bea46acbddd537597e3/GUIDE-Recipe-Schema-Versions.md) for migration,
 default semantics, and replay behavior.
 
 Use `required: true` for required values and `default_value` for defaults:
@@ -57,7 +57,7 @@ input_schema:
     default_value: 10
 ```
 
-Submitted data may not contain keys absent from `input_schema`.
+Submitted data may not contain keys absent from `input_schema`. The schema validates submitted values; bind values needed by the executable container in root `inputs` (for example `message: "${{ inputs.message }}"`). Declaring a schema field alone does not forward it into the body.
 
 ## Nodes
 

@@ -136,3 +136,5 @@ parameters when migrating recipes; see [breaking release notes](https://github.c
 
 Stored recipes and history are not rewritten. Finish jobs requiring the old
 runtime with a pinned older release, or resubmit deliberately migrated recipes.
+
+In a managed adaptive build, missing worker tools use the package request/probe workflow rather than editing candidate configuration to approve it. Application libraries belong in project manifests; executor memory, CPU, storage and base capabilities require a compatible executor. Preserve concrete failures and human exclusions; see [adaptive workflows](../../c2j-recipes/references/adaptive-workflows.md#missing-tools-and-resources).
