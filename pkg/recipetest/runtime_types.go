@@ -62,6 +62,7 @@ type InputFixture struct {
 }
 
 type FixtureEffects struct {
+	WorktreeExpr  map[string]string        `json:"worktree_expr,omitempty"`
 	Worktree      map[string]string        `json:"worktree,omitempty"`
 	ArtifactFiles map[string]string        `json:"artifact_files,omitempty"`
 	Objects       map[string]ObjectFixture `json:"objects,omitempty"`
@@ -83,6 +84,7 @@ type ChildFixture struct {
 }
 
 type RepositoryReport struct {
+	Repo         string            `json:"repo"`
 	Head         string            `json:"head"`
 	NewCommits   int               `json:"new_commits"`
 	Clean        bool              `json:"clean"`

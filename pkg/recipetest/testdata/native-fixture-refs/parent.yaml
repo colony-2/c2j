@@ -1,0 +1,60 @@
+id: fixture_refs
+version: "1"
+input_schema: {}
+sequence:
+- id: propose
+  op: command_execution
+  inputs: {run: unused}
+- id: review
+  op: input
+  inputs:
+    form:
+      kind: review
+      title: Seeded configuration
+      documents:
+        config: '${{ sequence.propose.artifacts["root-config.yaml"] }}'
+      fields:
+      - {id: action, type: short_answer, question: Continue, required: true}
+- id: empty
+  workspace:
+    cell: alpha
+    repo: '${{ sequence.propose.outputs.cells[0].repo }}'
+    initial: empty
+    ref: main
+  op: command_execution
+  inputs:
+    run: 'test ! -e PURPOSE.md && ! git rev-parse --verify HEAD; printf empty'
+- id: submit
+  op: command_execution
+  inputs: {run: unused}
+- id: save
+  op: command_execution
+  inputs: {run: unused}
+- id: compare
+  op: command_execution
+  artifacts:
+    reviewed.yaml: '${{ sequence.propose.artifacts["root-config.yaml"] }}'
+  inputs:
+    env:
+      INBOX: '${{ context.environment.op.inbox }}'
+      OUTBOX: '${{ context.environment.op.outbox }}'
+    run: |
+      set -eu
+      cmp "$INBOX/reviewed.yaml" .c2/config.yaml
+      cp "$INBOX/reviewed.yaml" "$OUTBOX/reviewed.yaml"
+      cp .c2/config.yaml "$OUTBOX/saved.yaml"
+      cat .c2/config.yaml
+- id: publish
+  op: squashrebasemerge
+  inputs: {commit_message: Save resolved fixture configuration}
+outputs:
+  proposal: '${{ sequence.propose.outputs }}'
+  child: '${{ sequence.submit.outputs }}'
+  jobs: '${{ sequence.submit.jobs }}'
+  saved: '${{ sequence.compare.outputs.stdout }}'
+  empty: '${{ sequence.empty.outputs.stdout }}'
+  reviewed_ref: '${{ sequence.propose.artifacts["root-config.yaml"] }}'
+  artifact_refs:
+    root-config.yaml: '${{ sequence.propose.artifacts["root-config.yaml"] }}'
+    reviewed.yaml: '${{ sequence.compare.artifacts["reviewed.yaml"] }}'
+    saved.yaml: '${{ sequence.compare.artifacts["saved.yaml"] }}'

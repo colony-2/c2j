@@ -87,13 +87,16 @@ type OpMockMatch struct {
 }
 
 type MockBehavior struct {
-	OutputsExpr *string           `json:"outputs_expr,omitempty"`
-	Effects     *FixtureEffects   `json:"effects,omitempty"`
-	Mode        string            `json:"mode" validate:"required,oneof=return fail passthrough record_passthrough replay"`
-	Outputs     map[string]any    `json:"outputs,omitempty"`
-	Artifacts   map[string]string `json:"artifacts,omitempty"`
-	Error       *TestError        `json:"error,omitempty"`
-	CassetteKey string            `json:"cassette_key,omitempty"`
+	FixtureRefs        map[string]FixtureReference `json:"fixture_refs,omitempty"`
+	OutputsFixtureExpr *string                     `json:"outputs_fixture_expr,omitempty"`
+	ArtifactsExpr      map[string]string           `json:"artifacts_expr,omitempty"`
+	OutputsExpr        *string                     `json:"outputs_expr,omitempty"`
+	Effects            *FixtureEffects             `json:"effects,omitempty"`
+	Mode               string                      `json:"mode" validate:"required,oneof=return fail passthrough record_passthrough replay"`
+	Outputs            map[string]any              `json:"outputs,omitempty"`
+	Artifacts          map[string]string           `json:"artifacts,omitempty"`
+	Error              *TestError                  `json:"error,omitempty"`
+	CassetteKey        string                      `json:"cassette_key,omitempty"`
 }
 
 type TestError struct {

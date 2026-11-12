@@ -17,7 +17,11 @@ import (
 
 // Only bindings are exposed: invocation inputs may contain materialized secrets.
 func responseProgram(expression string) (cel.Program, error) {
-	env, err := cel.NewEnv(cel.Variable("children", cel.MapType(cel.StringType, cel.StringType)),
+	return fixtureProgram(expression, false, cel.Variable("children", cel.MapType(cel.StringType, cel.StringType)))
+}
+
+func fixtureProgram(expression string, track bool, variables ...cel.EnvOption) (cel.Program, error) {
+	options := append(variables,
 		cel.Function("json_encode", cel.Overload("fixture_json_encode", []*cel.Type{cel.DynType}, cel.StringType,
 			cel.UnaryBinding(func(v ref.Val) ref.Val {
 				native, err := responseJSON(v)
@@ -33,6 +37,7 @@ func responseProgram(expression string) (cel.Program, error) {
 				}
 				return types.String(data)
 			}))))
+	env, err := cel.NewEnv(options...)
 	if err != nil {
 		return nil, err
 	}
@@ -40,7 +45,11 @@ func responseProgram(expression string) (cel.Program, error) {
 	if issues.Err() != nil {
 		return nil, issues.Err()
 	}
-	return env.Program(ast, cel.CostLimit(100000))
+	opts := []cel.ProgramOption{cel.CostLimit(100000)}
+	if track {
+		opts = append(opts, cel.EvalOptions(cel.OptTrackCost))
+	}
+	return env.Program(ast, opts...)
 }
 
 // Reject CEL-only values rather than silently coercing bytes, times or map keys.
@@ -232,7 +241,7 @@ func (f *runtimeFixture) responseBindings() (map[string]string, error) {
 }
 
 func validateResponses(c Case) []Issue {
-	var issues []Issue
+	issues := validateFixtureComputations(c)
 	add := func(message string) {
 		issues = append(issues, Issue{Code: "invalid_runtime_fixture", Message: message})
 	}
@@ -291,6 +300,9 @@ func (m *MockBehavior) UnmarshalJSON(data []byte) error {
 		if _, literal := fields["outputs"]; literal {
 			return fmt.Errorf("outputs and outputs_expr conflict")
 		}
+	}
+	if err := validateFixtureFields(fields); err != nil {
+		return err
 	}
 	*m = MockBehavior(value)
 	return nil

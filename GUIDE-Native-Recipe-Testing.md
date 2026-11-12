@@ -659,3 +659,112 @@ omit `await` and release native input using `after_call` after the relevant pare
 call. The binding is already usable while the child awaits input. Permission,
 input validation and timeout failures retain their normal behavior. This example
 checks c2j's harness contract; Recipes validates its own consumer suite separately.
+
+## Seeded repository references in native mocks
+
+A disposable native case registers portable repository identities before it runs
+its root recipe. Native `return` mocks can explicitly use those identities in
+proposals, review artifacts, and saved configuration:
+
+```yaml
+behavior:
+  mode: return
+  fixture_refs:
+    alpha_repo: {cell: alpha, field: repo}
+    beta_repo: {cell: beta, field: repo}
+  outputs_fixture_expr: >-
+    {"cells": [{"name": "alpha", "repo": alpha_repo},
+               {"name": "beta", "repo": beta_repo}]}
+  artifacts_expr:
+    root-config.yaml: >-
+      json_encode({"dependents": [{"repo": alpha_repo}, {"repo": beta_repo}]})
+  effects:
+    worktree_expr:
+      .c2/config.yaml: >-
+        json_encode({"dependents": [{"repo": alpha_repo}, {"repo": beta_repo}]})
+```
+
+Declare `alpha` and `beta` in `runtime.cells`. References can also select the
+implicit primary `root` when `runtime.cell` is omitted. An explicit primary
+still must appear in `runtime.cells`. Only seeded cells and `field: repo` are
+supported. Each mock sees only its declared aliases, as CEL strings, and pure
+CEL built-ins plus `json_encode`; there is no general registry, `cells`, inputs,
+secrets, transport path, service, or `children` binding. Aliases must be CEL
+identifiers; CEL keywords, `children`, and `json_encode` are reserved. Child invocations reuse
+the enclosing case's frozen identities; cases never share them.
+
+Preparation rejects invalid declarations (even unused ones), unsupported modes,
+null/empty expressions, undeclared variables, destination conflicts, and count
+overflow before starting the root. At the selected mock, all new expressions,
+result types, sizes, aggregate costs, object-output collisions and worktree
+destinations are checked into detached buffers before any of its artifacts,
+objects, writes or child submissions. Destination inspection creates no
+folders. Writes recheck confinement and symlinks through the ordinary fixture
+writer and retain ordinary snapshots. Artifact text uses ordinary native
+publication and review binding.
+
+`outputs_fixture_expr` must produce a JSON object, and conflicts with `outputs`
+and `outputs_expr`, even explicit null/empty alternatives. Computed artifact
+names must be disjoint from `artifacts` and `effects.artifact_files`. Computed
+worktree paths must be disjoint from literal worktree paths, including cleaned
+aliases and file/directory conflicts. Absolute paths, escapes and symlinks fail.
+Disjoint literal and computed destinations can coexist. Object-effect output
+keys must be disjoint from computed output keys.
+
+| Bound per selected mock | Limit |
+| --- | ---: |
+| Declared repository references | 64 |
+| Computed files, artifacts and worktree combined | 64 |
+| Each computed text file | 65,536 UTF-8 bytes |
+| All computed text files combined | 262,144 UTF-8 bytes |
+| Encoded structured output and each `json_encode` result | 65,536 bytes |
+| Each expression and all new expressions combined | 100,000 actual CEL cost |
+
+File expressions must return strings. JSON conversion rejects non-string map
+keys, non-finite numbers, bytes, timestamps and durations. `json_encode` uses
+ordinary JSON escaping for quotes/newlines; JSON configuration text is valid
+YAML. Use static file sources for larger unchanged fixtures.
+
+Fixture errors remain failures despite either `expect_error` location or recipe
+catches. Diagnostics name the mock, cell, node and failing field/destination.
+The guarantee covers seeded computation and destination preflight; later I/O
+failures and unrelated child-ID expression failures have no rollback guarantee.
+Existing `outputs_expr` still evaluates **after** child effects, retaining its
+receipt, retry and merge semantics. It can coexist with computed seeded files,
+but one computed output object cannot combine both expression environments.
+
+Existing output objects, artifact strings, fixture source bytes and worktree
+strings remain literal, including `{fixture: cells.alpha.repo}` and
+`${{ cells.alpha.repo }}`. No automatic interpolation is introduced.
+
+The self-contained example is
+`pkg/recipetest/testdata/native-fixture-refs/native-fixture-refs.test.json`.
+It runs two SQLite cases concurrently, binds the actual stored configuration to
+native review, enters a real empty alpha workspace, submits and awaits a real
+alpha child, computes saved configuration, compares the stored review bytes
+with saved bytes, and publishes through the real Git operation. Nothing mocks
+publication or workspace resolution. Its report records accepted registration
+identities in `runtime.repositories.<cell>.repo`, resolved proposals in outputs,
+review references in `runtime.reviews`, actual stored review bytes in the
+`fixture_refs/compare` call's `artifacts["reviewed.yaml"]`, and published saved
+bytes in `runtime.repositories.root.files[".c2/config.yaml"]`. These byte captures
+are suitable for direct comparison after the disposable runtime is removed.
+
+This capability was tested on source based on
+`7e63a044d3c109eab5403829baf68d370adae98e` plus the seeded-reference change,
+with Go 1.26.1 on Linux arm64. Build the supporting source; the pre-change
+installed CLI does not support these fields:
+
+```sh
+go build -o /tmp/c2j-fixture-refs ./cmd/c2j
+/tmp/c2j-fixture-refs test run \
+  --file pkg/recipetest/testdata/native-fixture-refs/native-fixture-refs.test.json \
+  --parallelism 2 --artifact-mode inline --artifact-max-bytes 524288 \
+  --out-dir /tmp/c2j-fixture-refs-results
+```
+
+Use the supporting CLI and worker together before adopting this syntax. Recipes
+owns migrating its creation fixtures and rerunning its full creation/publication
+and timeout checks on that runtime. Root retains creation orchestration. Source
+completion does not require a release or deployment, and does not relax
+production repository identity, registration, publication or child authorization.

@@ -51,6 +51,8 @@ type runtimeFixture struct {
 	c                Case
 	root             string
 	cells            map[string]string
+	seededRepos      map[string]string
+	fixtureFailure   string
 	selected         map[string]int
 	callIndexes      map[string]int
 	used             map[int]struct{}
@@ -97,13 +99,17 @@ func runRuntimeCase(parent context.Context, opts HarnessOptions, tenant string, 
 			markFailure(&result, "runtime_close", err.Error())
 		}
 	}()
+	// Freeze the portable identities accepted at registration, before root submission.
+	f.seededRepos = map[string]string{}
 	// Runtime cases explicitly register their seeded cells before execution.
 	for name, repo := range f.cells {
-		_, e := rt.CreateCell(ctx, jobdb.CreateCellRequest{TenantID: tenant, Name: name, Repo: celltest.Repo(repo)})
+		portable := celltest.Repo(repo)
+		_, e := rt.CreateCell(ctx, jobdb.CreateCellRequest{TenantID: tenant, Name: name, Repo: portable})
 		if e != nil {
 			result.FailureReason = e.Error()
 			return
 		}
+		f.seededRepos[name] = portable
 	}
 	for name, value := range req.Case.Runtime.Config {
 		raw, e := json.Marshal(value)
@@ -296,6 +302,11 @@ func runRuntimeCase(parent context.Context, opts HarnessOptions, tenant string, 
 			result.FailureReason = fmt.Sprintf("expected error containing %q; got %s", expected, result.FailureReason)
 		}
 	}
+	f.mu.Lock()
+	if f.fixtureFailure != "" {
+		markFailure(&result, "invalid_runtime_fixture", f.fixtureFailure)
+	}
+	f.mu.Unlock()
 	f.captureControlFinal(controlCtx, rt, key.Key())
 	f.finishControls(&result)
 	if err := f.captureRepositories(parent); err != nil {
@@ -389,16 +400,9 @@ func (f *runtimeFixture) seedCells(ctx context.Context, primary string) error {
 }
 
 func writeFixture(root, name string, content []byte) error {
-	dest, err := fixturePath(root, name)
+	dest, err := fixtureWriteDestination(root, name)
 	if err != nil {
 		return err
-	}
-	// Runtime worktrees may contain symlinks created by real ops. Refuse to
-	// traverse them when materializing fixture effects.
-	for path := dest; path != root; path = filepath.Dir(path) {
-		if info, err := os.Lstat(path); err == nil && info.Mode()&os.ModeSymlink != 0 {
-			return fmt.Errorf("fixture path contains symlink: %s", name)
-		}
 	}
 	if err := os.MkdirAll(filepath.Dir(dest), 0755); err != nil {
 		return err
@@ -566,9 +570,18 @@ func (f *runtimeFixture) invoke(deps coreops.OpDependencies, ctx context.Context
 		return nil, fmt.Errorf("%s", message)
 	}
 	deps.SetNextTaskType("")
-	out := cloneStringMap(mock.Behavior.Outputs)
+	resolved, err := preflightFixture(mock.Behavior, f.seededRepos, deps.WorktreePath())
+	if err != nil {
+		return nil, f.fixtureError(idx, cell, g.NodePath, err)
+	}
+	out := resolved.outputs
 	if out == nil {
 		out = map[string]any{}
+	}
+	for name, content := range resolved.artifacts {
+		if err := deps.AddOutputArtifact(jobdb.NewArtifactFromBytes(name, []byte(content))); err != nil {
+			return nil, err
+		}
 	}
 	for name, content := range mock.Behavior.Artifacts {
 		if err := deps.AddOutputArtifact(jobdb.NewArtifactFromBytes(name, []byte(content))); err != nil {
@@ -576,6 +589,11 @@ func (f *runtimeFixture) invoke(deps coreops.OpDependencies, ctx context.Context
 		}
 	}
 	if effects := mock.Behavior.Effects; effects != nil {
+		for name, content := range resolved.worktree {
+			if err := writeFixture(deps.WorktreePath(), name, []byte(content)); err != nil {
+				return nil, err
+			}
+		}
 		for name, content := range effects.Worktree {
 			if err := writeFixture(deps.WorktreePath(), name, []byte(content)); err != nil {
 				return nil, err
@@ -863,7 +881,7 @@ func (f *runtimeFixture) captureRepositories(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
-		r := RepositoryReport{Head: head, NewCommits: commits, Clean: status == "", ChangedFiles: []string{}, Files: map[string]string{}}
+		r := RepositoryReport{Repo: f.seededRepos[cell], Head: head, NewCommits: commits, Clean: status == "", ChangedFiles: []string{}, Files: map[string]string{}}
 		for _, name := range strings.Split(changed, "\x00") {
 			if name == "" {
 				continue

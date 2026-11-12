@@ -1,0 +1,325 @@
+{
+  "recipe": "parent.yaml",
+  "cases": [
+    {
+      "id": "seeded-repositories",
+      "type": "integration_case",
+      "runtime": {
+        "backend": "sqlite",
+        "cells": {
+          "alpha": {
+            "files": {
+              "PURPOSE.md": "seed alpha"
+            }
+          },
+          "beta": {}
+        },
+        "responses": [
+          {
+            "node_path": "fixture_refs/review",
+            "fields": {
+              "action": "continue"
+            }
+          }
+        ]
+      },
+      "mocks": {
+        "ops": [
+          {
+            "match": {
+              "node_path": "fixture_refs/propose"
+            },
+            "behavior": {
+              "mode": "return",
+              "fixture_refs": {
+                "root_repo": {
+                  "cell": "root",
+                  "field": "repo"
+                },
+                "alpha_repo": {
+                  "cell": "alpha",
+                  "field": "repo"
+                },
+                "beta_repo": {
+                  "cell": "beta",
+                  "field": "repo"
+                }
+              },
+              "outputs_fixture_expr": "{\"cells\": [{\"name\":\"alpha\", \"repo\":alpha_repo}, {\"name\":\"beta\", \"repo\":beta_repo}], \"primary\":root_repo}",
+              "artifacts_expr": {
+                "root-config.yaml": "json_encode({\"dependents\": [{\"cell\": \"alpha\", \"repo\": alpha_repo}, {\"cell\": \"beta\", \"repo\": beta_repo}], \"note\": \"quote: \\\"\\n\"})"
+              }
+            }
+          },
+          {
+            "match": {
+              "node_path": "fixture_refs/submit"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs_expr": "{\"id\": children.alpha}",
+              "effects": {
+                "children": [
+                  {
+                    "bind": "alpha",
+                    "cell": "alpha",
+                    "recipe": "child.yaml",
+                    "await": "terminal"
+                  }
+                ]
+              }
+            }
+          },
+          {
+            "match": {
+              "node_path": "fixture_child"
+            },
+            "behavior": {
+              "mode": "return",
+              "fixture_refs": {
+                "root_repo": {
+                  "cell": "root",
+                  "field": "repo"
+                },
+                "alpha_repo": {
+                  "cell": "alpha",
+                  "field": "repo"
+                },
+                "beta_repo": {
+                  "cell": "beta",
+                  "field": "repo"
+                }
+              },
+              "outputs_fixture_expr": "{\"cells\": [{\"name\":\"alpha\", \"repo\":alpha_repo}, {\"name\":\"beta\", \"repo\":beta_repo}], \"primary\":root_repo}"
+            }
+          },
+          {
+            "match": {
+              "node_path": "fixture_refs/save"
+            },
+            "behavior": {
+              "mode": "return",
+              "fixture_refs": {
+                "root_repo": {
+                  "cell": "root",
+                  "field": "repo"
+                },
+                "alpha_repo": {
+                  "cell": "alpha",
+                  "field": "repo"
+                },
+                "beta_repo": {
+                  "cell": "beta",
+                  "field": "repo"
+                }
+              },
+              "effects": {
+                "worktree_expr": {
+                  ".c2/config.yaml": "json_encode({\"dependents\": [{\"cell\": \"alpha\", \"repo\": alpha_repo}, {\"cell\": \"beta\", \"repo\": beta_repo}], \"note\": \"quote: \\\"\\n\"})"
+                }
+              }
+            }
+          },
+          {
+            "match": {
+              "node_path": "fixture_refs/empty"
+            },
+            "behavior": {
+              "mode": "passthrough"
+            }
+          },
+          {
+            "match": {
+              "node_path": "fixture_refs/compare"
+            },
+            "behavior": {
+              "mode": "passthrough"
+            }
+          }
+        ]
+      },
+      "assertions": [
+        {
+          "type": "cel_true",
+          "expr": "outputs.proposal.cells[0].repo == repositories.alpha.repo && outputs.proposal.cells[1].repo == repositories.beta.repo && outputs.proposal.primary == repositories.root.repo"
+        },
+        {
+          "type": "cel_true",
+          "expr": "outputs.saved == repositories.root.files[\".c2/config.yaml\"]"
+        },
+        {
+          "type": "cel_true",
+          "expr": "outputs.child.id in outputs.jobs.job_ids && events.exists(e, e.kind == \"child_terminal\" && e.status == \"completed\" && e.job_id == outputs.child.id)"
+        },
+        {
+          "type": "cel_true",
+          "expr": "size(reviews) == 1 && outputs.empty.contains(\"empty\")"
+        },
+        {
+          "type": "cel_true",
+          "expr": "calls.exists(c, c.node_path == \"fixture_refs/compare\" && c.artifacts[\"reviewed.yaml\"] == outputs.saved)"
+        }
+      ]
+    },
+    {
+      "id": "seeded-repositories-parallel",
+      "type": "integration_case",
+      "runtime": {
+        "backend": "sqlite",
+        "cells": {
+          "alpha": {
+            "files": {
+              "PURPOSE.md": "seed alpha"
+            }
+          },
+          "beta": {}
+        },
+        "responses": [
+          {
+            "node_path": "fixture_refs/review",
+            "fields": {
+              "action": "continue"
+            }
+          }
+        ]
+      },
+      "mocks": {
+        "ops": [
+          {
+            "match": {
+              "node_path": "fixture_refs/propose"
+            },
+            "behavior": {
+              "mode": "return",
+              "fixture_refs": {
+                "root_repo": {
+                  "cell": "root",
+                  "field": "repo"
+                },
+                "alpha_repo": {
+                  "cell": "alpha",
+                  "field": "repo"
+                },
+                "beta_repo": {
+                  "cell": "beta",
+                  "field": "repo"
+                }
+              },
+              "outputs_fixture_expr": "{\"cells\": [{\"name\":\"alpha\", \"repo\":alpha_repo}, {\"name\":\"beta\", \"repo\":beta_repo}], \"primary\":root_repo}",
+              "artifacts_expr": {
+                "root-config.yaml": "json_encode({\"dependents\": [{\"cell\": \"alpha\", \"repo\": alpha_repo}, {\"cell\": \"beta\", \"repo\": beta_repo}], \"note\": \"quote: \\\"\\n\"})"
+              }
+            }
+          },
+          {
+            "match": {
+              "node_path": "fixture_refs/submit"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs_expr": "{\"id\": children.alpha}",
+              "effects": {
+                "children": [
+                  {
+                    "bind": "alpha",
+                    "cell": "alpha",
+                    "recipe": "child.yaml",
+                    "await": "terminal"
+                  }
+                ]
+              }
+            }
+          },
+          {
+            "match": {
+              "node_path": "fixture_child"
+            },
+            "behavior": {
+              "mode": "return",
+              "fixture_refs": {
+                "root_repo": {
+                  "cell": "root",
+                  "field": "repo"
+                },
+                "alpha_repo": {
+                  "cell": "alpha",
+                  "field": "repo"
+                },
+                "beta_repo": {
+                  "cell": "beta",
+                  "field": "repo"
+                }
+              },
+              "outputs_fixture_expr": "{\"cells\": [{\"name\":\"alpha\", \"repo\":alpha_repo}, {\"name\":\"beta\", \"repo\":beta_repo}], \"primary\":root_repo}"
+            }
+          },
+          {
+            "match": {
+              "node_path": "fixture_refs/save"
+            },
+            "behavior": {
+              "mode": "return",
+              "fixture_refs": {
+                "root_repo": {
+                  "cell": "root",
+                  "field": "repo"
+                },
+                "alpha_repo": {
+                  "cell": "alpha",
+                  "field": "repo"
+                },
+                "beta_repo": {
+                  "cell": "beta",
+                  "field": "repo"
+                }
+              },
+              "effects": {
+                "worktree_expr": {
+                  ".c2/config.yaml": "json_encode({\"dependents\": [{\"cell\": \"alpha\", \"repo\": alpha_repo}, {\"cell\": \"beta\", \"repo\": beta_repo}], \"note\": \"quote: \\\"\\n\"})"
+                }
+              }
+            }
+          },
+          {
+            "match": {
+              "node_path": "fixture_refs/empty"
+            },
+            "behavior": {
+              "mode": "passthrough"
+            }
+          },
+          {
+            "match": {
+              "node_path": "fixture_refs/compare"
+            },
+            "behavior": {
+              "mode": "passthrough"
+            }
+          }
+        ]
+      },
+      "assertions": [
+        {
+          "type": "cel_true",
+          "expr": "outputs.proposal.cells[0].repo == repositories.alpha.repo && outputs.proposal.cells[1].repo == repositories.beta.repo && outputs.proposal.primary == repositories.root.repo"
+        },
+        {
+          "type": "cel_true",
+          "expr": "outputs.saved == repositories.root.files[\".c2/config.yaml\"]"
+        },
+        {
+          "type": "cel_true",
+          "expr": "outputs.child.id in outputs.jobs.job_ids && events.exists(e, e.kind == \"child_terminal\" && e.status == \"completed\" && e.job_id == outputs.child.id)"
+        },
+        {
+          "type": "cel_true",
+          "expr": "size(reviews) == 1 && outputs.empty.contains(\"empty\")"
+        },
+        {
+          "type": "cel_true",
+          "expr": "calls.exists(c, c.node_path == \"fixture_refs/compare\" && c.artifacts[\"reviewed.yaml\"] == outputs.saved)"
+        }
+      ]
+    }
+  ]
+}

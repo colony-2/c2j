@@ -1,0 +1,7 @@
+id: fixture_child
+version: "1"
+input_schema: {}
+op: command_execution
+inputs: {run: unused}
+outputs:
+  repos: '${{ outputs }}'
