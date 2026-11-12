@@ -574,3 +574,88 @@ Case cancellation stops waits and workers before cleanup. Timeout diagnostics
 identify unresolved selectors and unfinished child IDs. A timeout cannot satisfy
 `expect_error`. Dependencies that cannot become eligible time out; the harness
 does not infer general dependency cycles. Unused fixtures still fail cases.
+
+## Scripted responses with native child identities (unreleased)
+
+A native return mock can name its broker-submitted children with `bind`, then
+construct a response using `outputs_expr`. These additions require a supporting
+CLI and worker; they are not available in 0.0.124. No release tag is assigned by
+this example. Build the checkout and run the self-contained suite:
+
+```sh
+go build -o /tmp/c2j-native-bindings ./cmd/c2j
+/tmp/c2j-native-bindings test run \
+  --file pkg/recipetest/testdata/native-bindings/native-bindings.test.json \
+  --out-dir /tmp/c2j-native-bindings-results
+```
+
+The suite uses embedded SQLite JobDB, disposable Git repositories, one real
+successful child and one deliberately failed child. It verifies response IDs
+against native submission metadata and terminal observations. The report contains
+synthetic fixture data. No server deployment, model credentials or network
+service is needed after installing project dependencies.
+
+For example, the submitting mock can declare:
+
+```yaml
+match:
+  node_path: bindings/submit
+  cell: root
+behavior:
+  mode: return
+  effects:
+    children:
+    - bind: failed
+      recipe: bad.yaml
+      cell: child
+      await: terminal
+  outputs_expr: >-
+    {"request": {"job_id": children.failed},
+     "report": json_encode({"child_id": children.failed})}
+```
+
+Matchers keep their existing meanings: `node_path` is an exact native operation
+path, `cell` selects the invocation workspace, and `selector` can select an
+extension operation. Bindings belong to the entire case, including its child
+invocations, and never cross cases. Use distinct names for distinct child effects.
+Names become available only after the broker returns a successful submission;
+all effects on the current invocation run before its expression. A later mock can
+reference the same name. The expression receives only an immutable `children`
+map of names to generated job-ID strings, with no inputs, secrets, job searches,
+filesystem access or mutable runtime objects.
+
+`outputs_expr` is an explicit CEL expression returning a JSON object. It is not
+`${{ ... }}` interpolation. Nested maps and lists remain structured. Use
+`json_encode(value)` when the consumer needs a JSON string; quotes and newlines
+are escaped using normal JSON serialization. JSON values must use string object
+keys and finite numbers; CEL bytes, duration and timestamp values are rejected.
+Evaluation has a 100,000 cost limit; encoded reports and complete computed
+responses are limited to 65,536 bytes each. Published object-effect references
+are merged only if their keys are disjoint from the computed response. A key
+collision fails the operation and names the conflicting key.
+
+Existing `outputs` remains literal, including strings resembling expressions.
+Do not declare both `outputs` and `outputs_expr`, even with empty or null literal
+output. Empty/null expressions, malformed expressions, duplicate binding
+declarations and use outside native return mocks fail validation before effects.
+Missing or forward names fail evaluation immediately with the missing key and
+invocation location. Move the declaration earlier or correct the binding name;
+the harness never searches unrelated jobs or waits for a future declaration.
+Repeated invocation of a declaration cannot rebind its name: the error names
+both invocation locations.
+
+Bound submissions retain case-runtime receipts keyed by parent job, native
+invocation ID and child effect index. Task retry and reconstruction within that
+runtime restore the original broker ID without submitting again. Scope retries
+have distinct invocation IDs and cannot reuse a binding. Receipts survive fixture
+object reconstruction, but are removed with the disposable case runtime; they
+are not a cross-case checkpoint or a production recovery facility. An interrupted
+submission with an unresolved receipt fails closed rather than risking a second
+child. It exposes no usable binding; rerun the disposable case to start fresh.
+
+Binding an ID does not wait for the child to finish. `await: terminal` remains
+optional, and failed children satisfy that barrier. To observe an active child,
+omit `await` and release native input using `after_call` after the relevant parent
+call. The binding is already usable while the child awaits input. Permission,
+input validation and timeout failures retain their normal behavior. This example
+checks c2j's harness contract; Recipes validates its own consumer suite separately.

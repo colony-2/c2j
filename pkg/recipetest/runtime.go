@@ -38,6 +38,7 @@ import (
 )
 
 type runtimeFixture struct {
+	submissionMu     sync.Mutex
 	entrySeen        map[string]bool
 	rootJobID        string
 	gateCounts       map[int]int
@@ -600,7 +601,7 @@ func (f *runtimeFixture) invoke(deps coreops.OpDependencies, ctx context.Context
 			}
 			out[name] = ref
 		}
-		for _, child := range effects.Children {
+		for childIndex, child := range effects.Children {
 			data, err := os.ReadFile(filepath.Join(f.opts.FixtureRoot, child.Recipe))
 			if err != nil {
 				return nil, err
@@ -617,18 +618,50 @@ func (f *runtimeFixture) invoke(deps coreops.OpDependencies, ctx context.Context
 			if err != nil {
 				return nil, err
 			}
-			submitted, err := childbroker.SubmitLocal(ctx, request)
+			var submitted childReceipt
+			fresh := true
+			submit := func() (childReceipt, error) {
+				result, err := childbroker.SubmitLocal(ctx, request)
+				return childReceipt{JobID: result.JobID, TenantID: result.TenantID}, err
+			}
+			if child.Bind == "" {
+				submitted, err = submit()
+			} else {
+				receiptIdentity := fmt.Sprintf("%s/%s/child/%d", key.JobId, deps.JobTool().InvocationID(), childIndex)
+				if deps.JobTool().InvocationID() == "" {
+					return nil, fmt.Errorf("child binding %q requires native invocation identity at %s", child.Bind, g.NodePath)
+				}
+				submitted, fresh, err = f.boundChild(receiptIdentity, child.Bind, cell+":"+g.NodePath, submit)
+			}
 			if err != nil {
 				return nil, err
 			}
-			f.mu.Lock()
-			f.event(OrderingEvent{Kind: "child_submitted", JobID: submitted.JobID, ParentJobID: key.JobId, Cell: child.Cell, NodePath: g.NodePath})
-			f.mu.Unlock()
+			if fresh {
+				f.mu.Lock()
+				f.event(OrderingEvent{Kind: "child_submitted", JobID: submitted.JobID, ParentJobID: key.JobId, Cell: child.Cell, NodePath: g.NodePath})
+				f.mu.Unlock()
+			}
 			if child.Await == "terminal" {
 				if err := f.awaitChild(ctx, jobdb.JobKey{TenantId: submitted.TenantID, JobId: submitted.JobID}, key.JobId, g.NodePath); err != nil {
 					return nil, err
 				}
 			}
+		}
+	}
+	if mock.Behavior.OutputsExpr != nil {
+		bindings, err := f.responseBindings()
+		if err != nil {
+			return nil, err
+		}
+		computed, err := computedResponse(*mock.Behavior.OutputsExpr, bindings)
+		if err != nil {
+			return nil, fmt.Errorf("outputs_expr at %s:%s (%s): %w", cell, g.NodePath, deps.JobTool().InvocationID(), err)
+		}
+		for name, value := range computed {
+			if _, exists := out[name]; exists {
+				return nil, fmt.Errorf("outputs_expr at %s:%s collides with object effect key %q", cell, g.NodePath, name)
+			}
+			out[name] = value
 		}
 	}
 	return out, nil

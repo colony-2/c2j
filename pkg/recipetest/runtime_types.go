@@ -75,6 +75,7 @@ type ObjectFixture struct {
 }
 
 type ChildFixture struct {
+	Bind   string         `json:"bind,omitempty"`
 	Await  string         `json:"await,omitempty"`
 	Recipe string         `json:"recipe"`
 	Cell   string         `json:"cell"`
@@ -128,7 +129,7 @@ func fixturePath(root, name string) (string, error) {
 }
 
 func validateRuntimeCase(opts HarnessOptions, c Case) []Issue {
-	var issues []Issue
+	issues := validateResponses(c)
 	add := func(err error) {
 		if err != nil {
 			issues = append(issues, Issue{Code: "invalid_runtime_fixture", Message: err.Error()})
@@ -262,6 +263,12 @@ func (c *ChildFixture) UnmarshalJSON(data []byte) error {
 	var fields map[string]json.RawMessage
 	if err := json.Unmarshal(data, &fields); err != nil {
 		return err
+	}
+	if raw, supplied := fields["bind"]; supplied {
+		var name string
+		if err := json.Unmarshal(raw, &name); err != nil || strings.TrimSpace(name) == "" {
+			return fmt.Errorf("child bind must be a nonempty name")
+		}
 	}
 	if raw, supplied := fields["await"]; supplied {
 		var mode string

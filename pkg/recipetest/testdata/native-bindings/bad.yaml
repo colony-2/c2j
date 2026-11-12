@@ -1,0 +1,6 @@
+id: bad
+version: "1"
+input_schema: {}
+op: command_execution
+inputs: {run: unused}
+outputs: {ok: true}

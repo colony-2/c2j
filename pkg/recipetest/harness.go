@@ -87,6 +87,7 @@ type OpMockMatch struct {
 }
 
 type MockBehavior struct {
+	OutputsExpr *string           `json:"outputs_expr,omitempty"`
 	Effects     *FixtureEffects   `json:"effects,omitempty"`
 	Mode        string            `json:"mode" validate:"required,oneof=return fail passthrough record_passthrough replay"`
 	Outputs     map[string]any    `json:"outputs,omitempty"`

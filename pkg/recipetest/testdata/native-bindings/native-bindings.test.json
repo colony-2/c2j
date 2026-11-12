@@ -1,0 +1,110 @@
+{
+  "recipe": "parent.yaml",
+  "cases": [
+    {
+      "id": "generated-identities",
+      "type": "integration_case",
+      "runtime": {
+        "backend": "sqlite",
+        "cells": {
+          "root": {},
+          "child": {}
+        }
+      },
+      "mocks": {
+        "ops": [
+          {
+            "match": {
+              "node_path": "bindings/submit",
+              "cell": "root"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs_expr": "{\"success\": children.success, \"failure\": children.failure}",
+              "effects": {
+                "children": [
+                  {
+                    "bind": "success",
+                    "recipe": "good.yaml",
+                    "cell": "child",
+                    "await": "terminal"
+                  },
+                  {
+                    "bind": "failure",
+                    "recipe": "bad.yaml",
+                    "cell": "child",
+                    "await": "terminal"
+                  }
+                ]
+              }
+            }
+          },
+          {
+            "match": {
+              "node_path": "bindings/decide",
+              "cell": "root"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs_expr": "{\"request\": {\"job_id\": children.failure}, \"report\": json_encode({\"success\": children.success, \"failure\": children.failure})}"
+            }
+          },
+          {
+            "match": {
+              "node_path": "good",
+              "cell": "child"
+            },
+            "behavior": {
+              "mode": "return",
+              "artifacts": {
+                "success.txt": "real native artifact"
+              }
+            }
+          },
+          {
+            "match": {
+              "node_path": "bad",
+              "cell": "child"
+            },
+            "behavior": {
+              "mode": "fail",
+              "error": {
+                "message": "intentional native child failure"
+              }
+            }
+          }
+        ]
+      },
+      "assertions": [
+        {
+          "type": "cel_true",
+          "expr": "outputs.same.failure == outputs.decision.request.job_id"
+        },
+        {
+          "type": "cel_true",
+          "expr": "outputs.same.success != outputs.same.failure"
+        },
+        {
+          "type": "cel_true",
+          "expr": "outputs.same.success in outputs.jobs.job_ids && outputs.same.failure in outputs.jobs.job_ids"
+        },
+        {
+          "type": "cel_true",
+          "expr": "events.exists(e, e.kind == \"child_terminal\" && e.status == \"failed\" && e.job_id == outputs.same.failure)"
+        },
+        {
+          "type": "cel_true",
+          "expr": "events.exists(e, e.kind == \"child_terminal\" && e.status == \"completed\" && e.job_id == outputs.same.success)"
+        },
+        {
+          "type": "cel_true",
+          "expr": "outputs.decision.report.contains(outputs.same.failure) && outputs.decision.report.contains(outputs.same.success)"
+        },
+        {
+          "type": "cel_true",
+          "expr": "size(outputs.jobs.job_ids) == 2"
+        }
+      ]
+    }
+  ]
+}

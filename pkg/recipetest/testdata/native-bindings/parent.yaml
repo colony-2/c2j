@@ -1,0 +1,14 @@
+id: bindings
+version: "1"
+input_schema: {}
+sequence:
+- id: submit
+  op: command_execution
+  inputs: {run: unused}
+- id: decide
+  op: command_execution
+  inputs: {run: unused}
+outputs:
+  same: ${{ sequence.submit.outputs }}
+  decision: ${{ sequence.decide.outputs }}
+  jobs: ${{ sequence.submit.jobs }}

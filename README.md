@@ -1061,3 +1061,17 @@ retain their existing restoration behavior; observing config does not pin a ref.
 Completed replay skips config reads and installation. Preparation failures and
 late mismatches log the config path, digest, workspace and restored revision
 when available.
+
+Native recipe-test return mocks can opt into generated child identity bindings
+and structured CEL responses with `bind` and `outputs_expr`. Build the checkout
+and run the [self-contained example](pkg/recipetest/testdata/native-bindings/native-bindings.test.json):
+
+```sh
+go build -o /tmp/c2j-native-bindings ./cmd/c2j
+/tmp/c2j-native-bindings test run --file pkg/recipetest/testdata/native-bindings/native-bindings.test.json --out-dir /tmp/c2j-native-bindings-results
+```
+
+See [native response semantics](GUIDE-Native-Recipe-Testing.md#scripted-responses-with-native-child-identities-unreleased)
+for selectors, timing, scope, JSON encoding, retry receipts and actionable errors.
+Bindings and ordering controls require a supporting release; a checkout build
+establishes local behavior, not public release availability.
