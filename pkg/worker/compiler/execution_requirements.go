@@ -55,6 +55,7 @@ func (j recipeJobWorker) executionSession(ctx jobworkflow.ExecutionContext, r re
 
 func needsAllocation(r execution.Requirements) bool {
 	r.Packages = nil
+	r.Python = nil
 	if r.Base != nil && *r.Base == "*" {
 		r.Base = nil
 	}

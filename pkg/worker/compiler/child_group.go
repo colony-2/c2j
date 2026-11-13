@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	recipeartifacts "github.com/colony-2/c2j/pkg/artifacts"
+	"github.com/colony-2/c2j/pkg/execution"
 	recipeops "github.com/colony-2/c2j/pkg/ops/recipe"
 	"github.com/colony-2/c2j/pkg/recipe"
 	"github.com/colony-2/c2j/pkg/template"
@@ -63,6 +64,7 @@ func (d DefaultRecipeExecutor) ExecuteChildGroup(ctx workflow.Context, parent *t
 	needs := renderCtx.ExecutionNeeds
 	internalMetadata.ExecutionNeeds = &recipe.ExecutionNeeds{
 		CapabilitiesDeclared: needs.CapabilitiesDeclared,
+		Python:               execution.ChoosePython(nil, needs.Python),
 		Base:                 value(needs.Base),
 		Capabilities:         append([]string(nil), needs.Capabilities...),
 		Image:                value(needs.Image), Platform: value(needs.Platform),

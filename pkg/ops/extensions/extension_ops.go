@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/colony-2/c2j/pkg/execution"
 	"github.com/colony-2/c2j/pkg/objects"
 	"github.com/colony-2/c2j/pkg/secrets"
 	invschema "github.com/invopop/jsonschema"
@@ -15,6 +16,7 @@ import (
 
 // ExtensionOpSpec models the op.yaml configuration for a selector-resolved extension op.
 type ExtensionOpSpec struct {
+	Python       *execution.Python `yaml:"python,omitempty" json:"python,omitempty"`
 	Dependencies []string          `yaml:"dependencies,omitempty" json:"dependencies,omitempty"`
 	Name         string            `yaml:"name"`
 	Description  string            `yaml:"description"`
@@ -29,6 +31,9 @@ type ExtensionOpSpec struct {
 }
 
 func validateExtensionOpManifest(raw []byte) error {
+	if err := execution.ValidatePythonField(raw); err != nil {
+		return err
+	}
 	var top map[string]any
 	if err := yaml.Unmarshal(raw, &top); err != nil {
 		return err

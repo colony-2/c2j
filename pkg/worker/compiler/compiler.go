@@ -11,6 +11,7 @@ import (
 	recipeartifacts "github.com/colony-2/c2j/pkg/artifacts"
 	"github.com/colony-2/c2j/pkg/configuration"
 	"github.com/colony-2/c2j/pkg/contextual"
+	"github.com/colony-2/c2j/pkg/execution"
 	"github.com/colony-2/c2j/pkg/git/gitstate"
 	"github.com/colony-2/c2j/pkg/input/formdefaults"
 	"github.com/colony-2/c2j/pkg/jobcontext"
@@ -194,8 +195,8 @@ func (d DefaultRecipeExecutor) ExecuteRecipe(ctx workflow.Context, r recipe.Reci
 		ctx = wrapValidationContext(ctx, commitContext, rCtx.Options.ResolvedSelectors, rCtx.Options.ResolvedGitRefs)
 	}
 
-	if base := r.GetMetdata().Execution; base != nil && len(base.Packages) > 0 {
-		rCtx.ToolScopes = append(rCtx.ToolScopes, toolenv.Scope{ID: "recipe", Packages: base.Packages})
+	if base := r.GetMetdata().Execution; base != nil && (len(base.Packages) > 0 || base.Python != nil) {
+		rCtx.ToolScopes = append(rCtx.ToolScopes, toolenv.Scope{ID: "recipe", Packages: base.Packages, Python: execution.ChoosePython(nil, base.Python)})
 	}
 	if ctx.JobPackages != nil {
 		// Keep the job scope's precedence while refreshing its packages for each
@@ -318,6 +319,7 @@ func (d DefaultRecipeExecutor) ExecuteNode(ctx workflow.Context, parentResCtx *t
 	if metadata.Internal != nil && metadata.Internal.Inline != nil && metadata.Internal.Inline.Execution != nil && !metadata.Internal.Inline.Execution.Empty() && ctx.UpdateExecution != nil {
 		patch := *metadata.Internal.Inline.Execution
 		patch.Packages = nil
+		patch.Python = nil
 		if !patch.Empty() {
 			if err := ctx.UpdateExecution(patch); err != nil {
 				return err
@@ -601,7 +603,10 @@ func (d DefaultRecipeExecutor) executeOpAttempt(ctx workflow.Context, parentReso
 				for _, scope := range resCtx.ToolScopes {
 					if scope.ID == "job" && ctx.JobPackages != nil {
 						scope.Packages = append([]string(nil), ctx.JobPackages()...)
-						if len(scope.Packages) == 0 {
+						if ctx.JobPython != nil {
+							scope.Python = ctx.JobPython()
+						}
+						if len(scope.Packages) == 0 && scope.Python == nil {
 							continue
 						}
 					}

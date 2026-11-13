@@ -29,6 +29,7 @@ func AdmitRepository(ctx context.Context, defaults, scope Requirements) error {
 		return err
 	}
 	effective.Packages = nil
+	effective.Python = nil
 	if effective.Base != nil && *effective.Base == "*" {
 		effective.Base = nil
 	}

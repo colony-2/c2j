@@ -25,6 +25,13 @@ func (e *ExecutionDefaults) UnmarshalYAML(n *yaml.Node) error {
 	for i := 0; i < len(n.Content); i += 2 {
 		k, v := n.Content[i].Value, n.Content[i+1]
 		switch k {
+		case "python":
+			if err := execution.ValidatePythonYAML(v); err != nil {
+				return err
+			}
+			if err := v.Decode(&r.Python); err != nil {
+				return err
+			}
 		case "base":
 			x, err := scalar(v, k, false)
 			if err != nil {

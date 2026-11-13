@@ -367,6 +367,9 @@ func RestoreResolvedOp(resolved *ResolvedOp) (*ResolvedOp, error) {
 		}
 	}
 	spec := resolved.Spec
+	if err := spec.Python.Validate(); err != nil {
+		return nil, err
+	}
 	submittedSelector := resolved.Selector
 	if secrets.HasAnnotation(spec.OutputSchema) {
 		return nil, fmt.Errorf("extension selector %q: secret output annotations are not supported", submittedSelector)

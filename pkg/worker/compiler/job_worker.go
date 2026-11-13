@@ -292,6 +292,7 @@ func (j recipeJobWorker) Run(ctx jobworkflow.ExecutionContext, jobData jobdb.Job
 	wCtx := workflow.Context{JobContext: ctx, BeforeScope: j.beforeScope, Logger: logger}
 	if input.Execution != nil {
 		wCtx.JobPackages = func() []string { return input.Execution.JobRequirements.Packages }
+		wCtx.JobPython = func() *execution.Python { return execution.ChoosePython(nil, input.Execution.JobRequirements.Python) }
 	}
 	if !j.readOnlyReplay {
 		session, err := j.executionSession(ctx, r, input.Execution)
@@ -300,6 +301,7 @@ func (j recipeJobWorker) Run(ctx jobworkflow.ExecutionContext, jobData jobdb.Job
 		}
 		wCtx.UpdateExecution = session.apply
 		wCtx.JobPackages = func() []string { return session.overrides.Packages }
+		wCtx.JobPython = func() *execution.Python { return execution.ChoosePython(nil, session.overrides.Python) }
 		wCtx.CurrentExecution = session.effective
 		wCtx.StageNodeExecution = session.stageNode
 	}

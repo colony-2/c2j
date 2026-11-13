@@ -2,7 +2,7 @@
 
 The worker base must provide **Nix, pnpm (with Node), uv (with a usable Python),
 and git**. c2j prepares declared tools and Nix native libraries inside that
-environment. It does not build the base image.
+environment, including declared Python script environments. It does not build the base image.
 
 Declare dependencies needed by every operation on a repository in its existing
 `.c2/config.yaml`:
@@ -48,6 +48,112 @@ to the selected manager. pnpm and uv install isolated CLI applications; they do
 not add importable dependencies to a project's Node or Python environment.
 Playwright's CLI declaration does not provision browser binaries or all browser
 system dependencies.
+
+## Python script environments
+
+On Linux and macOS workers, use `python` for libraries imported by scripts. `uv:` continues to install CLI
+applications in their own environments; `uv:Pillow` does not make `PIL`
+importable by a separate interpreter.
+
+```yaml
+id: python-image-check
+version: "1.0.0"
+input_schema: {}
+execution_needs:
+  python:
+    requires-python: ">=3.10"
+    dependencies: ["Pillow==12.0.0"]
+op: command_execution
+inputs:
+  run: |
+    python3 - <<'PYTHON'
+    from io import BytesIO
+    from PIL import Image
+    data = BytesIO()
+    Image.new("RGB", (2, 2)).save(data, format="PNG")
+    data.seek(0)
+    with Image.open(data) as image:
+        image.load()
+        assert image.size == (2, 2)
+    PYTHON
+```
+
+`requires-python` is an optional standard Python version-specifier string.
+`dependencies` is a list of standard Python dependency strings, including extras,
+version ranges and environment markers. Use `dependencies: []` for an isolated
+interpreter with no libraries; an empty block has the same meaning. Unknown keys,
+non-string values and null blocks/lists fail validation. These fields are literal,
+not templates. Remote direct references are supported; local file references are
+rejected because retained installations are shared across workspaces.
+
+Set repository defaults under `execution.python` in `.c2/config.yaml`. Recipes
+can use `execution.python` or `execution_needs.python`; nested nodes use
+`execution_needs.python`. Extension manifests use a top-level `python` block.
+Go submission overrides and durable execution directives can use
+`execution.Requirements.Python`. The closest declaration selects the entire block:
+**extension, node/include, job, recipe, repository**. Dependencies and interpreter
+constraints do not merge. An empty dependency list replaces inherited libraries;
+omitting the block inherits it. Only the selected Python block is prepared.
+
+Preparation asks uv to select a compatible interpreter, creates a virtualenv,
+resolves the generated standard metadata, and installs the resolved requirements.
+It runs before the command body, under the existing task timeout. Python dependency
+syntax and resolution errors come from uv. Source builds are allowed with the
+worker's available build tools and any prepared Nix native activation; missing
+prerequisites fail preparation. This does not change Nix's prebuilt-only policy.
+The worker's `UV_PYTHON_DOWNLOADS` setting remains authoritative. With `never`,
+no compatible installed interpreter means failure; a version constraint does not
+permit a download. uv configuration-file discovery is disabled for preparation;
+worker uv environment settings supply registry and download policy.
+
+The block owns the task's `python` and `python3` bindings even when a separately
+declared Nix package exports those names. Its virtualenv bin directory also
+exposes installed entry points after explicitly declared CLI bindings. c2j sets
+`VIRTUAL_ENV` and `PYTHONNOUSERSITE=1`, and removes `PYTHONHOME`, `PYTHONPATH`, and
+`PYTHONUSERBASE`, including conflicting explicit op environment values. Child
+processes inherit this environment. Existing CLI tools retain their own
+interpreter shebangs. Explicit absolute interpreter paths and scripts that change
+their own environment are outside this binding contract.
+
+c2j retains complete environments under `C2J_TOOL_CACHE_DIR/python`, with a
+request index and an identity recording the interpreter, platform, resolved
+packages and preparation format. Relevant worker resolver settings and Nix native
+activation also distinguish installations. Paths are stable and preparation is
+locked across processes. Failed or interrupted installs never publish a ready
+entry; repair creates a new path without modifying an earlier installation.
+Ready environments are immutable: install additional libraries by declaring a
+new block, not by running pip against the retained environment.
+
+A warm task performs local file/readiness checks and binds the interpreter; it
+does not invoke uv, resolve, download or install. Different cells can share an
+entry. Independent cold caches may resolve different compatible versions. The
+cached `requirements.txt` and resolved package record preserve each installation;
+there is no portable lock or cross-host resolution guarantee in this version.
+
+Keep `UV_CACHE_DIR` and `C2J_TOOL_CACHE_DIR` on the same filesystem for package
+reuse between different complete environments. c2j requests hardlinks on Linux
+and copy-on-write clones on macOS, with uv's fallback when unavailable. uv caches
+source-built wheels too. Declared Nix native environments use separate uv cache
+subdirectories so a change in compilers or libraries cannot reuse an incompatible
+source-built wheel. Deleting the uv cache does not break ready environments.
+Providers own volume retention and separation by tenant, image and platform;
+containers must mount retained environments at the same absolute paths. A new
+image/cache generation or a host without the shared volume prepares independently.
+
+`setup.python` reports the scope, creation/reuse outcome, elapsed time, actual
+interpreter/version, requested and resolved dependencies, and captured command
+logs. Installer output uses the existing redacted capture mechanism and its
+4 MiB limit per command. Failures retain these diagnostics in
+`_c2j/preparation.json` and prevent the command body from running. No `.venv`,
+metadata file or lock is written to the managed repository.
+
+For a Nix-only alternative, publish a flake package whose output is
+`pkgs.python3.withPackages (ps: [ ps.pillow ])`, and declare that output, for
+example `nix:github:example/environments/<commit>#python-with-pillow`. Its complete
+closure must already exist locally or in a binary cache. Separately declaring
+`python3` and `python3Packages.pillow` is not a supported interpreter/library
+composition: native activation does not export Python import paths. Use the
+composed output without a `python` block, or use the uv-backed block above.
 
 ## Repository configuration
 
@@ -203,3 +309,27 @@ For the repository-to-command test:
 `go test ./pkg/worker/compiler -run TestRealRepositoryNativePackages -v`.
 The implementation was validated on Linux ARM64 with Nix 2.35.1; other
 platforms/toolchains need their own validation.
+
+## Python verification
+
+`go test ./pkg/toolenv -run TestPython -count=1` uses real uv and Python when
+available, serving test wheels and a source distribution locally. CI installs
+uv 0.13.6 and Python 3.13 so these tests run on each platform in the matrix. It covers
+scope selection, concurrent creation, warm reuse with uv disabled, package-cache
+cleanup, source-build reuse, linked files, interrupted installs and incompatible
+requests. It needs no public registry. Recipe/worker tests cover scope restoration,
+extension overrides, replay and failure-before-body diagnostics.
+
+The optional registry smoke test installs Pillow and creates, saves and decodes a
+PNG through the selected interpreter:
+
+```sh
+C2J_TEST_REAL_PYTHON=1 go test ./pkg/toolenv -run TestRealPythonPillow -count=1 -v
+```
+
+Local tests do not establish provider rollout. Before rollout, rebuild base2 with
+the feature, update Pulse's c2j library dependency, and verify both published
+architectures with the actual shared mounts. Record image digests and c2j/uv/Python
+versions; verify separate-container reuse, controller restart and cache-generation
+rotation. The adaptive3 validator and package-probe integration remain acceptance
+checks for that deployed environment.

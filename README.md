@@ -24,6 +24,9 @@ For resolving agent-returned paths against published artifact names, see the
 For selecting restart points and inspecting context before a patch, see the
 [restart CLI and context API guide](GUIDE-Restart-Context.md).
 
+For Python script libraries, retained virtualenvs and CLI/native dependencies, see
+[execution tools](EXECUTION_TOOLS.md#python-script-environments).
+
 For execution requirements, actual allocation inputs, compatibility filtering,
 job status, progress, handoffs, and child-job lineage, see the
 [execution tracking user guide](GUIDE-Execution-Tracking.md).

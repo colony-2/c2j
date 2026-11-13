@@ -20,8 +20,9 @@ import (
 )
 
 type Scope struct {
-	ID       string   `json:"id"`
-	Packages []string `json:"packages"`
+	ID       string            `json:"id"`
+	Packages []string          `json:"packages"`
+	Python   *execution.Python `json:"python,omitempty"`
 }
 
 type Tool struct {
@@ -47,6 +48,7 @@ type Diagnostics struct {
 	Tools       []ToolDiagnostic      `json:"tools,omitempty"`
 	Error       string                `json:"error,omitempty"`
 	Repository  *RepositoryDiagnostic `json:"repository,omitempty"`
+	Python      *PythonDiagnostic     `json:"python,omitempty"`
 	Native      *NativeDiagnostic     `json:"native,omitempty"`
 }
 
@@ -54,6 +56,7 @@ type Environment struct {
 	Path      string             `json:"path"`
 	Tools     []Tool             `json:"tools"`
 	Variables map[string]string  `json:"variables,omitempty"`
+	Python    *PythonEnvironment `json:"python,omitempty"`
 	Native    *nativeEnvironment `json:"native,omitempty"`
 }
 
@@ -64,7 +67,11 @@ func (e Environment) Bind(ctx context.Context) context.Context {
 		packages = append(packages, tool.Reference)
 	}
 	ctx = execution.WithPreparedPackages(ctx, packages)
-	return process.WithToolEnvironment(ctx, e.Path, e.Variables)
+	ctx = process.WithToolEnvironment(ctx, e.Path, e.Variables)
+	if e.Python != nil {
+		ctx = process.WithPythonEnvironment(ctx, e.Python.Path)
+	}
+	return ctx
 }
 
 // Manager owns only a local cache. Providers can retain/mount Root at the same
@@ -145,11 +152,22 @@ func (m *Manager) Prepare(ctx context.Context, scopes []Scope) (env Environment,
 	if env.Native != nil {
 		env.Variables = env.Native.Variables
 	}
+	env.Python, diag.Python, err = m.preparePython(ctx, scopes, env.Native)
+	if err != nil {
+		return
+	}
+	if env.Python != nil {
+		// The Python block owns these names regardless of package scope.
+		for _, name := range []string{"python", "python3"} {
+			bindings[name] = env.Python.Executable
+		}
+	}
 	// Bindings have stable paths; publication is protected across worker processes.
 	dir := filepath.Join(m.Root, "bindings", key(struct {
 		Scopes []Scope
 		Tools  []Tool
-	}{scopes, env.Tools}))
+		Python *PythonEnvironment `json:"python,omitempty"`
+	}{scopes, env.Tools, env.Python}))
 	if err = os.MkdirAll(dir, 0700); err != nil {
 		return
 	}
@@ -212,6 +230,9 @@ func (e Environment) Ready() bool {
 		if !toolReady(t) {
 			return false
 		}
+	}
+	if e.Python != nil && !e.Python.ready() {
+		return false
 	}
 	if e.Native != nil && !e.Native.ready() {
 		return false

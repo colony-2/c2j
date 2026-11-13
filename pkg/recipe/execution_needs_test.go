@@ -76,3 +76,26 @@ func TestProgrammaticEmptyCapabilitiesJSONPresence(t *testing.T) {
 	require.NoError(t, json.Unmarshal(raw, &n))
 	require.True(t, n.CapabilitiesDeclared)
 }
+
+func TestPythonRecipeDeclarations(t *testing.T) {
+	for _, field := range []string{"execution", "execution_needs"} {
+		for _, value := range []string{"{requires-python: '>=3.11', dependencies: [Pillow]}", "{dependencies: []}"} {
+			r, err := LoadRecipeFromString([]byte("id: python\n" + field + ": {python: " + value + "}\nsequence: []"))
+			require.NoError(t, err)
+			require.False(t, HasExecutionConstraints(*r))
+			raw, err := yaml.Marshal(r)
+			require.NoError(t, err)
+			again, err := LoadRecipeFromString(raw)
+			require.NoError(t, err)
+			require.Equal(t, r.GetMetadata(), again.GetMetadata())
+		}
+		for _, value := range []string{"null", "[]", "{dependencies: [12]}", "{requires-python: 3.11}", "{backend: uv}"} {
+			_, err := LoadRecipeFromString([]byte("id: python\n" + field + ": {python: " + value + "}\nsequence: []"))
+			require.Error(t, err)
+		}
+	}
+	schema, err := GenerateSchemaString()
+	require.NoError(t, err)
+	require.Contains(t, schema, `"python"`)
+	require.Contains(t, schema, `"requires-python"`)
+}

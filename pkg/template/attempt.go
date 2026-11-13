@@ -5,6 +5,7 @@ import (
 	"slices"
 
 	"github.com/colony-2/c2j/pkg/contextual"
+	"github.com/colony-2/c2j/pkg/execution"
 )
 
 // CloneForRestart isolates the resolver graph before applying a restart patch.
@@ -54,6 +55,7 @@ func (rc *ResolutionContext) CloneForRestart() (*ResolutionContext, error) {
 		dst.ToolScopes = slices.Clone(src.ToolScopes)
 		for i := range dst.ToolScopes {
 			dst.ToolScopes[i].Packages = slices.Clone(src.ToolScopes[i].Packages)
+			dst.ToolScopes[i].Python = execution.ChoosePython(nil, src.ToolScopes[i].Python)
 		}
 		dst.artifactCache = maps.Clone(src.artifactCache)
 		dst.lastArtifacts = append(dst.lastArtifacts[:0:0], src.lastArtifacts...)

@@ -386,8 +386,8 @@ func (rc *ResolutionContext) NewChildContext(scopeType ScopeType, metadata recip
 	child.ExecutionNeeds = execution.Overlay(rc.ExecutionNeeds, execution.Requirements{})
 	child.ToolScopes = append([]toolenv.Scope(nil), rc.ToolScopes...)
 	if metadata.Internal != nil && metadata.Internal.Inline != nil && metadata.Internal.Inline.Execution != nil {
-		if packages := metadata.Internal.Inline.Execution.Packages; len(packages) > 0 {
-			child.ToolScopes = append(child.ToolScopes, toolenv.Scope{ID: "include:" + metadata.Internal.Inline.CallsitePath, Packages: packages})
+		if declaration := metadata.Internal.Inline.Execution; len(declaration.Packages) > 0 || declaration.Python != nil {
+			child.ToolScopes = append(child.ToolScopes, toolenv.Scope{ID: "include:" + metadata.Internal.Inline.CallsitePath, Packages: declaration.Packages, Python: execution.ChoosePython(nil, declaration.Python)})
 		}
 	}
 	child.TemplateData.Vars = rc.TemplateData.Vars

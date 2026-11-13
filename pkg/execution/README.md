@@ -128,3 +128,17 @@ same effective set.
 New records use demand/submission **4** and allocation **2**. Legacy **3/1**
 records retain their existing capability and image/platform checks. Capability
 validation is unchanged by the base-selector migration.
+
+## Python preparation requirements
+
+`Requirements.Python` is an optional complete environment declaration containing
+`requires-python` and `dependencies`. Overlay copies and replaces the entire
+block; nil inherits, while an empty dependency list requests an isolated Python.
+Python version/dependency semantics belong to uv. This package validates shape
+and portability only; `toolenv` owns resolution, preparation and readiness.
+
+Like packages, Python requirements do not demand provider allocation facts and
+are excluded from resource-admission checks. Upgrade consumers of the shared Go
+model (including Pulse) before submitting declarations with this new optional
+field. See [execution tools](../../EXECUTION_TOOLS.md#python-script-environments)
+for scope order and the installation contract.

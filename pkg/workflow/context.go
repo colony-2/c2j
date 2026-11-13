@@ -33,6 +33,7 @@ type Context struct {
 	BeforeScope        func(context.Context, string, *template.ResolutionContext) error
 	CurrentExecution   func() execution.Requirements
 	JobPackages        func() []string
+	JobPython          func() *execution.Python
 	WorkspaceSnapshots bool
 	UpdateExecution    func(execution.Requirements) error
 	StageNodeExecution func(execution.Requirements)

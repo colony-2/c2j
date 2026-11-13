@@ -14,6 +14,7 @@ type ExecutionNeeds struct {
 	CapabilitiesDeclared bool                   `json:"capabilities_declared,omitempty" yaml:"-"`
 	Base                 any                    `yaml:"base,omitempty" json:"base,omitempty"`
 	Capabilities         []string               `yaml:"capabilities,omitempty" json:"capabilities,omitempty"`
+	Python               *execution.Python      `yaml:"python,omitempty" json:"python,omitempty"`
 	Packages             []string               `yaml:"packages,omitempty" json:"packages,omitempty"`
 	Resources            ExecutionNeedResources `yaml:"resources,omitempty" json:"resources,omitempty"`
 	Image                any                    `yaml:"image,omitempty" json:"image,omitempty"`
@@ -33,6 +34,10 @@ func (n *ExecutionNeeds) UnmarshalYAML(node *yaml.Node) error {
 	for i := 0; i < len(node.Content); i += 2 {
 		key := node.Content[i].Value
 		switch key {
+		case "python":
+			if err := execution.ValidatePythonYAML(node.Content[i+1]); err != nil {
+				return err
+			}
 		case "base", "image", "platform", "packages":
 		case "capabilities":
 			n.CapabilitiesDeclared = true
@@ -149,4 +154,12 @@ func (n ExecutionNeeds) MarshalJSON() ([]byte, error) {
 	type plain ExecutionNeeds
 	n.CapabilitiesDeclared = n.CapabilitiesDeclared || n.Capabilities != nil
 	return json.Marshal(plain(n))
+}
+
+func (n *ExecutionNeeds) UnmarshalJSON(raw []byte) error {
+	if err := execution.ValidatePythonField(raw); err != nil {
+		return err
+	}
+	type plain ExecutionNeeds
+	return json.Unmarshal(raw, (*plain)(n))
 }

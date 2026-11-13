@@ -15,6 +15,7 @@ type Requirements struct {
 	CapabilitiesDeclared bool     `json:"-" yaml:"-"`
 	Base                 *string  `json:"base,omitempty" yaml:"base,omitempty"`
 	Capabilities         []string `json:"capabilities,omitempty" yaml:"capabilities,omitempty"`
+	Python               *Python  `json:"python,omitempty" yaml:"python,omitempty"`
 	Packages             []string `json:"packages,omitempty" yaml:"packages,omitempty"`
 	// Deprecated: image and platform are retained for legacy records. Use Base.
 	Image     *string   `json:"image,omitempty" yaml:"image,omitempty"`
@@ -51,6 +52,7 @@ func Overlay(base, override Requirements) Requirements {
 	return Requirements{
 		CapabilitiesDeclared: base.CapabilitiesDeclared || override.CapabilitiesDeclared,
 		Packages:             mergePackages(base.Packages, override.Packages),
+		Python:               ChoosePython(base.Python, override.Python),
 		Capabilities:         mergeCapabilities(base.Capabilities, override.Capabilities),
 		Base:                 choose(base.Base, override.Base),
 		Image:                choose(base.Image, override.Image),
@@ -75,12 +77,15 @@ func choose(base, override *string) *string {
 }
 
 func (r Requirements) Empty() bool {
-	return r.Base == nil && r.Image == nil && r.Platform == nil && r.Resources == (Resources{}) && len(r.Packages) == 0 && len(r.Capabilities) == 0
+	return r.Python == nil && r.Base == nil && r.Image == nil && r.Platform == nil && r.Resources == (Resources{}) && len(r.Packages) == 0 && len(r.Capabilities) == 0
 }
 
 // Normalize validates all supplied fields and returns canonical values.
 func (r Requirements) Normalize() (Requirements, error) {
 	out := Overlay(r, Requirements{})
+	if err := out.Python.Validate(); err != nil {
+		return Requirements{}, err
+	}
 	if out.Base != nil {
 		if out.Image != nil || out.Platform != nil {
 			return Requirements{}, fmt.Errorf("execution.base cannot be combined with legacy image/platform requirements; replace all inherited image/platform constraints with base")

@@ -103,6 +103,17 @@ func executeOnHost(ctx context.Context, req RunRequest, workingDir string) ([]by
 		cmd.Stdin = bytes.NewReader(req.Stdin)
 	}
 	if !req.CleanEnv {
+		if python, ok := ctx.Value(pythonEnvironmentKey{}).(string); ok {
+			filtered := cmd.Env[:0]
+			for _, entry := range cmd.Env {
+				name, _, _ := strings.Cut(entry, "=")
+				if name == "PYTHONPATH" || name == "PYTHONHOME" || name == "PYTHONUSERBASE" || name == "PYTHONNOUSERSITE" || name == "VIRTUAL_ENV" {
+					continue
+				}
+				filtered = append(filtered, entry)
+			}
+			cmd.Env = append(filtered, "VIRTUAL_ENV="+python, "PYTHONNOUSERSITE=1")
+		}
 		cmd.Env = gitprofile.Env(ctx, cmd.Env)
 	}
 	var stdout, stderr bytes.Buffer
@@ -280,7 +291,11 @@ func withContextEnv(ctx context.Context, env map[string]string) map[string]strin
 		basePath = path
 	}
 	var paths []string
-	for _, path := range []string{tools.path, tools.variables["PATH"], basePath} {
+	pythonBin := ""
+	if python, ok := ctx.Value(pythonEnvironmentKey{}).(string); ok {
+		pythonBin = filepath.Join(python, "bin")
+	}
+	for _, path := range []string{tools.path, pythonBin, tools.variables["PATH"], basePath} {
 		if path != "" {
 			paths = append(paths, path)
 		}

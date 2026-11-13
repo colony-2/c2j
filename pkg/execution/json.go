@@ -17,6 +17,9 @@ func (r Requirements) MarshalJSON() ([]byte, error) {
 	}{plain: plain(r), Capabilities: []string{}})
 }
 func (r *Requirements) UnmarshalJSON(raw []byte) error {
+	if err := ValidatePythonField(raw); err != nil {
+		return err
+	}
 	type plain Requirements
 	var v plain
 	dec := json.NewDecoder(bytes.NewReader(raw))

@@ -1,6 +1,7 @@
 package template
 
 import (
+	"github.com/colony-2/c2j/pkg/execution"
 	"github.com/colony-2/c2j/pkg/recipe"
 	"github.com/stretchr/testify/require"
 	"testing"
@@ -53,4 +54,19 @@ func TestEmptyCapabilitiesRetainOuterDeclaration(t *testing.T) {
 	require.True(t, child.ExecutionNeeds.CapabilitiesDeclared)
 	require.Equal(t, []string{"outer"}, child.ExecutionNeeds.Capabilities)
 	require.False(t, root.ExecutionNeeds.CapabilitiesDeclared)
+}
+
+func TestPythonScopeReplacementAndRestartCopy(t *testing.T) {
+	root := newRecipeCtx(t, nil)
+	require.NoError(t, root.ResolveExecutionNeeds(&recipe.ExecutionNeeds{Python: &execution.Python{RequiresPython: ">=3.11", Dependencies: []string{"Pillow"}}}))
+	child, err := root.NewChildContext(ScopeOp, recipe.NodeMetadata{ID: "child"}, "", nil)
+	require.NoError(t, err)
+	require.NoError(t, child.ResolveExecutionNeeds(&recipe.ExecutionNeeds{Python: &execution.Python{Dependencies: []string{}}}))
+	require.Empty(t, child.ExecutionNeeds.Python.RequiresPython)
+	require.Empty(t, child.ExecutionNeeds.Python.Dependencies)
+	require.Equal(t, []string{"Pillow"}, root.ExecutionNeeds.Python.Dependencies)
+	copy, err := root.CloneForRestart()
+	require.NoError(t, err)
+	copy.ToolScopes[0].Python.Dependencies[0] = "changed"
+	require.Equal(t, []string{"Pillow"}, root.ToolScopes[0].Python.Dependencies)
 }

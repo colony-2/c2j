@@ -45,6 +45,12 @@ const packageTemplate = `
 #   - nix:nixpkgs#openssl
 #   - pnpm:playwright@1.51.1
 #   - uv:ruff==0.11.2
+#
+# Python libraries for scripts (separate from uv: CLI applications):
+# execution:
+#   python:
+#     requires-python: ">=3.10"
+#     dependencies: ["Pillow==12.0.0"]
 `
 
 func renderGenericInitTemplate() string {

@@ -90,8 +90,8 @@ func ResolveInvocation(ctx context.Context, inv *ActivityInvocationRequest) (Too
 		}
 		inv.Input["inputs"] = inputs
 
-		if len(resolved.Spec.Dependencies) > 0 {
-			req.Scopes = append(req.Scopes, toolenv.Scope{ID: "op:" + extension.Selector, Packages: resolved.Spec.Dependencies})
+		if len(resolved.Spec.Dependencies) > 0 || resolved.Spec.Python != nil {
+			req.Scopes = append(req.Scopes, toolenv.Scope{ID: "op:" + extension.Selector, Packages: resolved.Spec.Dependencies, Python: execution.ChoosePython(nil, resolved.Spec.Python)})
 		}
 	}
 	return req, nil
@@ -135,8 +135,8 @@ func InstallWorkspaceInvocation(ctx context.Context, inv *ActivityInvocationRequ
 		inv.Setup = &ToolSetupResult{Diagnostics: toolenv.Diagnostics{Repository: provenance, Error: err.Error()}}
 		return err
 	}
-	if len(source.Packages) > 0 {
-		req.Scopes = append([]toolenv.Scope{{ID: scope, Packages: source.Packages}}, req.Scopes...)
+	if len(source.Packages) > 0 || source.Execution.Python != nil {
+		req.Scopes = append([]toolenv.Scope{{ID: scope, Packages: source.Packages, Python: execution.ChoosePython(nil, source.Execution.Python)}}, req.Scopes...)
 	}
 	readMS := time.Since(start).Milliseconds()
 	err = InstallInvocation(ctx, inv, req, prepareTools)

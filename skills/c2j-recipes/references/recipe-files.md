@@ -118,3 +118,23 @@ inputs:
 ```
 
 Known built-in ops validate input shape at parse/compile time unless a value is templated. Selector-backed extension ops are resolved at runtime.
+
+## Python environments
+
+For script libraries, use `execution_needs.python` on a recipe or node:
+
+```yaml
+execution_needs:
+  python:
+    requires-python: ">=3.10"
+    dependencies: ["Pillow==12.0.0"]
+```
+
+The block is literal standard Python metadata; uv parses version specifiers,
+extras and markers. The closest block replaces the entire inherited environment.
+Use `dependencies: []` for an isolated interpreter without libraries. Repository
+defaults live in `.c2/config.yaml` under `execution.python`; extension manifests
+use top-level `python`. Preparation and any source builds finish before execution.
+Warm tasks reuse the installed environment without invoking uv. `python` and
+`python3` select this environment; `uv:` still means an isolated CLI tool.
+See [execution tools](../../../EXECUTION_TOOLS.md#python-script-environments).

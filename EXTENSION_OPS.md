@@ -68,6 +68,27 @@ c2j submit --recipe-file ./analyze.yaml \
   --inputs-json '{"text":"Hello"}' --run --embed
 ```
 
+## Python libraries
+
+An extension `op.yaml` can select a complete Python environment:
+
+```yaml
+name: image-probe
+python:
+  requires-python: ">=3.10"
+  dependencies: ["Pillow==12.0.0"]
+input_schema: {type: object}
+output_schema: {type: object}
+command: [python3, '-c', 'import json; from PIL import Image; print(json.dumps({"output": {"size": list(Image.new("RGB", (2, 2)).size)}}))']
+```
+
+The extension block replaces inherited Python requirements. Preparation finishes
+before the process runs; a failed install prevents execution. `dependencies:` at
+the manifest top level still declares prefixed CLI/native packages; the nested
+`python.dependencies` list uses standard Python dependency strings. See
+[Python environments](EXECUTION_TOOLS.md#python-script-environments) for reuse,
+source builds, interpreter selection and repository defaults.
+
 ## Manifest and process contract
 
 A Nix package exposes its manifest as `passthru.c2j` and installs the same JSON

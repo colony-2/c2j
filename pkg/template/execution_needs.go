@@ -15,7 +15,7 @@ func (rc *ResolutionContext) ResolveExecutionNeeds(needs *recipe.ExecutionNeeds)
 	if needs == nil {
 		return nil
 	}
-	patch := execution.Requirements{CapabilitiesDeclared: needs.CapabilitiesDeclared || needs.Capabilities != nil, Packages: needs.Packages, Capabilities: needs.Capabilities}
+	patch := execution.Requirements{CapabilitiesDeclared: needs.CapabilitiesDeclared || needs.Capabilities != nil, Packages: needs.Packages, Python: execution.ChoosePython(nil, needs.Python), Capabilities: needs.Capabilities}
 	for _, field := range []struct {
 		name   string
 		value  any
@@ -63,8 +63,8 @@ func (rc *ResolutionContext) ResolveExecutionNeeds(needs *recipe.ExecutionNeeds)
 	if err != nil {
 		return fmt.Errorf("node %q execution_needs: %w", rc.scopeId, err)
 	}
-	if len(needs.Packages) > 0 {
-		rc.ToolScopes = append(rc.ToolScopes, toolenv.Scope{ID: rc.TaskExecutionContext().Invocation.NodePath, Packages: append([]string(nil), needs.Packages...)})
+	if len(needs.Packages) > 0 || needs.Python != nil {
+		rc.ToolScopes = append(rc.ToolScopes, toolenv.Scope{ID: rc.TaskExecutionContext().Invocation.NodePath, Packages: append([]string(nil), needs.Packages...), Python: execution.ChoosePython(nil, needs.Python)})
 	}
 	return nil
 }
