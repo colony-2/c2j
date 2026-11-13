@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/colony-2/c2j/pkg/ops/process"
+	"github.com/colony-2/c2j/pkg/shellcmd"
 	"github.com/stretchr/testify/require"
 )
 
@@ -27,7 +28,8 @@ case "${0##*/}" in
  pnpm) bin=$PWD/node_modules/.bin;;
 esac
 mkdir -p "$bin"
-printf '#!/bin/sh\nprintf "%%s\\n" %s\n' "'$spec'" > "$bin/tool"
+` + shellcmd.Literal("#!/bin/sh\nprintf '%s\\n' ") + ` > "$bin/tool"
+printf "'%s'\n" "$spec" >> "$bin/tool"
 chmod +x "$bin/tool"
 `
 	for _, name := range []string{"uv", "pnpm"} {
@@ -56,7 +58,7 @@ func TestVersionsScopeSelectionAndOfflineReuse(t *testing.T) {
 	} {
 		out, stderr, err := process.ExecuteProcess(ctx, process.RunRequest{Command: tc.command})
 		require.NoError(t, err, string(stderr))
-		require.Equal(t, tc.want, strings.TrimSpace(string(out)))
+		require.Equal(t, tc.want+"\n", string(out))
 	}
 	_, _, err = process.ExecuteProcess(ctx, process.RunRequest{Command: []string{"tool"}})
 	require.Error(t, err, "same-scope executable collision must require qualification")
@@ -78,7 +80,7 @@ func TestVersionsScopeSelectionAndOfflineReuse(t *testing.T) {
 	require.NoError(t, err)
 	out, stderr, err := process.ExecuteProcess(process.WithToolPath(context.Background(), nearest.Path), process.RunRequest{Command: []string{"tool"}})
 	require.NoError(t, err, string(stderr))
-	require.Equal(t, "tool==2", strings.TrimSpace(string(out)))
+	require.Equal(t, "tool==2\n", string(out))
 	require.NotContains(t, os.Getenv("PATH"), nearest.Path)
 }
 
@@ -128,12 +130,12 @@ case "$1" in
  build)
   [ "$2" = --out-link ]
   [ "$5" = '/nix/store/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-missing.drv^out' ]
-  echo 'no prebuilt output available; builds disabled' >&2
+  ` + shellcmd.LiteralLine("no prebuilt output available; builds disabled") + ` >&2
   exit 1
   ;;
  eval)
   [ "$2" = --json ] && [ "$3" = --apply ] && [ "$6" = 'nixpkgs#missing' ]
-  echo '{"drv":"/nix/store/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-missing.drv","input":"/nix/store/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-missing","bin":"/nix/store/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-missing","outputs":{"out":"/nix/store/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-missing"}}'
+  ` + shellcmd.LiteralLine(`{"drv":"/nix/store/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-missing.drv","input":"/nix/store/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-missing","bin":"/nix/store/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-missing","outputs":{"out":"/nix/store/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-missing"}}`) + `
   ;;
  *) exit 2;;
 esac

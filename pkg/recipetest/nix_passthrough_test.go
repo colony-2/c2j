@@ -12,9 +12,11 @@ import (
 	"testing/synctest"
 	"time"
 
+	"github.com/colony-2/c2j/internal/pathutil"
 	"github.com/colony-2/c2j/pkg/contextual"
 	coreops "github.com/colony-2/c2j/pkg/ops"
 	extops "github.com/colony-2/c2j/pkg/ops/extensions"
+	"github.com/colony-2/c2j/pkg/shellcmd"
 	"github.com/colony-2/c2j/pkg/toolenv"
 	"github.com/colony-2/c2j/pkg/worker/commandop"
 	"github.com/colony-2/c2j/pkg/worker/compiler"
@@ -138,7 +140,7 @@ set -eu
 printf '%s\n' "$*" >> "$C2J_PASSTHROUGH_NIX_LOG"
 case " $* " in
  *' eval '*) printf '%s' "$C2J_PASSTHROUGH_DESCRIPTION";;
- *) echo 'binary cache unavailable' >&2; exit 7;;
+ *) `+shellcmd.LiteralLine("binary cache unavailable")+` >&2; exit 7;;
 esac
 `)
 	for _, manager := range []string{"uv", "pnpm"} {
@@ -151,7 +153,8 @@ case "${0##*/}" in
  pnpm) bin=$PWD/node_modules/.bin; name=pnpm-probe;;
 esac
 mkdir -p "$bin"
-printf '#!/bin/sh\nprintf "%%s\\n" %s\n' "'$spec'" > "$bin/$name"
+`+shellcmd.Literal("#!/bin/sh\nprintf '%s\\n' ")+` > "$bin/$name"
+printf "'%s'\n" "$spec" >> "$bin/$name"
 chmod +x "$bin/$name"
 `)
 	}
@@ -167,7 +170,7 @@ func (f *nixPassthroughFixture) prepare(t *testing.T, ctx context.Context, req w
 	// /nix/store nor Docker. Keep actual manifest execution and tool preparation.
 	// Nix store paths are canonical. Match that here even when the temporary
 	// directory has a symlinked parent (for example, /var on macOS).
-	packageDir, err := filepath.EvalSymlinks(f.packageDir)
+	packageDir, err := pathutil.CanonicalExisting(f.packageDir)
 	require.NoError(t, err)
 	prepared := *req.Extension
 	nix := *prepared.Nix
@@ -181,7 +184,7 @@ func (f *nixPassthroughFixture) prepare(t *testing.T, ctx context.Context, req w
 	require.NoError(t, os.MkdirAll(filepath.Join(packageDir, "bin"), 0700))
 	binary, err := os.Executable()
 	require.NoError(t, err)
-	script := "#!/bin/sh\nexec '" + strings.ReplaceAll(binary, "'", "'\\''") + "' -test.run '^TestNixPassthroughFixtureProcess$'\n"
+	script := "#!/bin/sh\nexec " + shellcmd.QuotePOSIX(binary) + " -test.run '^TestNixPassthroughFixtureProcess$'\n"
 	require.NoError(t, os.WriteFile(filepath.Join(packageDir, "bin/probe"), []byte(script), 0700))
 	require.NoError(t, os.Symlink(packageDir, prepared.NixRoot))
 	result := workerops.PrepareTools(ctx, workerops.ToolSetupRequest{Scopes: req.Scopes})

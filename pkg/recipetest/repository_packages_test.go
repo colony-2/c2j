@@ -8,6 +8,7 @@ import (
 
 	"github.com/colony-2/c2j/pkg/contextual"
 	coreops "github.com/colony-2/c2j/pkg/ops"
+	"github.com/colony-2/c2j/pkg/shellcmd"
 	"github.com/colony-2/c2j/pkg/toolenv"
 	"github.com/colony-2/c2j/pkg/worker/commandop"
 	"github.com/colony-2/c2j/pkg/worker/compiler"
@@ -32,7 +33,7 @@ func TestRepositoryPackagesPassthroughAndMockBoundary(t *testing.T) {
 			}
 			require.NoError(t, os.WriteFile(filepath.Join(j.operationPaths.WorktreePath, ".c2/config.yaml"), []byte(content), 0600))
 			bin := t.TempDir()
-			require.NoError(t, os.WriteFile(filepath.Join(bin, "repository-test"), []byte("#!/bin/sh\nprintf 'repository-tool'"), 0700))
+			require.NoError(t, os.WriteFile(filepath.Join(bin, "repository-test"), []byte("#!/bin/sh\n"+shellcmd.Literal("repository-tool")+"\n"), 0700))
 			setups := 0
 			j.prepareTools = func(_ context.Context, req workerops.ToolSetupRequest) workerops.ToolSetupResult {
 				setups++
@@ -73,10 +74,10 @@ func TestDeclaredRunnerPassthroughAndMockBoundary(t *testing.T) {
 			require.NoError(t, os.WriteFile(filepath.Join(base, "uv"), []byte(`#!/bin/sh
 set -eu
 mkdir -p "$UV_TOOL_BIN_DIR"
-printf '#!/bin/sh\necho declared-pnpm\n' > "$UV_TOOL_BIN_DIR/pnpm"
+`+shellcmd.Literal("#!/bin/sh\n"+shellcmd.LiteralLine("declared-pnpm")+"\n")+` > "$UV_TOOL_BIN_DIR/pnpm"
 chmod +x "$UV_TOOL_BIN_DIR/pnpm"
 `), 0700))
-			require.NoError(t, os.WriteFile(filepath.Join(base, "pnpm"), []byte("#!/bin/sh\necho ambient-pnpm\n"), 0700))
+			require.NoError(t, os.WriteFile(filepath.Join(base, "pnpm"), []byte("#!/bin/sh\n"+shellcmd.LiteralLine("ambient-pnpm")+"\n"), 0700))
 			t.Setenv("PATH", base+string(os.PathListSeparator)+os.Getenv("PATH"))
 			setups := 0
 			j.prepareTools = func(ctx context.Context, req workerops.ToolSetupRequest) workerops.ToolSetupResult {

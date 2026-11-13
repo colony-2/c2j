@@ -15,6 +15,7 @@ import (
 	extops "github.com/colony-2/c2j/pkg/ops/extensions"
 	"github.com/colony-2/c2j/pkg/ops/process"
 	"github.com/colony-2/c2j/pkg/recipe"
+	"github.com/colony-2/c2j/pkg/shellcmd"
 	"github.com/colony-2/c2j/pkg/starter"
 	"github.com/colony-2/c2j/pkg/swfutil"
 	coretask "github.com/colony-2/c2j/pkg/task"
@@ -36,7 +37,8 @@ set -eu
 for spec do :; done
 printf '%s\n' "$spec" >> "$TOOL_INSTALL_LOG"
 mkdir -p "$UV_TOOL_BIN_DIR"
-printf '#!/bin/sh\necho %s\n' "'$spec'" > "$UV_TOOL_BIN_DIR/tool"
+`+shellcmd.Literal("#!/bin/sh\nprintf '%s\\n' ")+` > "$UV_TOOL_BIN_DIR/tool"
+printf "'%s'\n" "$spec" >> "$UV_TOOL_BIN_DIR/tool"
 chmod +x "$UV_TOOL_BIN_DIR/tool"
 `), 0700))
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
@@ -49,6 +51,8 @@ chmod +x "$UV_TOOL_BIN_DIR/tool"
 		if err != nil {
 			return output{}, fmt.Errorf("tool: %w: %s", err, stderr)
 		}
+		require.True(t, strings.HasSuffix(string(out), "\n"), "generated tool appends one newline")
+		require.Equal(t, 1, strings.Count(string(out), "\n"))
 		return output{Text: strings.TrimSpace(string(out))}, nil
 	})
 	withRegisteredOps(t, op, extops.GetExecutionOp())
@@ -180,7 +184,7 @@ func TestToolRecoveryResumesCurrentStep(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(bin, "uv"), []byte(`#!/bin/sh
 set -eu
 mkdir -p "$UV_TOOL_BIN_DIR"
-printf '#!/bin/sh\necho ready\n' > "$UV_TOOL_BIN_DIR/tool"
+`+shellcmd.Literal("#!/bin/sh\n"+shellcmd.LiteralLine("ready")+"\n")+` > "$UV_TOOL_BIN_DIR/tool"
 chmod +x "$UV_TOOL_BIN_DIR/tool"
 `), 0700))
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
@@ -190,10 +194,11 @@ chmod +x "$UV_TOOL_BIN_DIR/tool"
 		Done     bool   `json:"done,omitempty"`
 	}
 	probe := func(ctx context.Context) error {
-		_, stderr, err := process.ExecuteProcess(ctx, process.RunRequest{Command: []string{"tool"}})
+		out, stderr, err := process.ExecuteProcess(ctx, process.RunRequest{Command: []string{"tool"}})
 		if err != nil {
 			return fmt.Errorf("%w: %s", err, stderr)
 		}
+		require.Equal(t, "ready\n", string(out))
 		return nil
 	}
 	op, err := coreops.NewOp().WithType("tool_chain").

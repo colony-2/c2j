@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/colony-2/c2j/internal/pathutil"
 	"github.com/stretchr/testify/require"
 )
 
@@ -91,4 +92,34 @@ func TestNativeScopeOrderKeepsClosestStoreInput(t *testing.T) {
 		refs = append(refs, tool.Reference)
 	}
 	require.Equal(t, []string{"first", "alias", "second", "middle"}, refs)
+}
+
+// Readiness must compare the retained identity strictly, even when both objects
+// still exist. These checks require no Nix installation.
+func TestRetainedRootReadiness(t *testing.T) {
+	for _, change := range []string{"valid", "missing link", "missing target", "retargeted"} {
+		t.Run(change, func(t *testing.T) {
+			dir := t.TempDir()
+			target := filepath.Join(dir, "target")
+			require.NoError(t, os.Mkdir(target, 0700))
+			identity, err := pathutil.CanonicalExisting(target)
+			require.NoError(t, err)
+			link := filepath.Join(dir, "root")
+			require.NoError(t, os.Symlink(target, link))
+			tool := Tool{Nix: &nixTool{Input: identity, Roots: []retainedRoot{{Link: link, Target: identity}}}}
+			require.True(t, toolReady(tool))
+			switch change {
+			case "missing link":
+				require.NoError(t, os.Remove(link))
+			case "missing target":
+				require.NoError(t, os.Remove(target))
+			case "retargeted":
+				other := filepath.Join(dir, "other")
+				require.NoError(t, os.Mkdir(other, 0700))
+				require.NoError(t, os.Remove(link))
+				require.NoError(t, os.Symlink(other, link))
+			}
+			require.Equal(t, change == "valid", toolReady(tool))
+		})
+	}
 }

@@ -16,6 +16,7 @@ import (
 
 	"github.com/colony-2/c2j/pkg/execution"
 	"github.com/colony-2/c2j/pkg/ops/process"
+	"github.com/colony-2/c2j/pkg/shellcmd"
 )
 
 type Scope struct {
@@ -160,9 +161,9 @@ func (m *Manager) Prepare(ctx context.Context, scopes []Scope) (env Environment,
 	defer unlock()
 	for name, target := range bindings {
 		// A same-scope collision must not silently fall through to a system version.
-		body := "#!/bin/sh\necho 'ambiguous declared tool; use a qualified runner' >&2\nexit 127\n"
+		body := "#!/bin/sh\n" + shellcmd.LiteralLine("ambiguous declared tool; use a qualified runner") + " >&2\nexit 127\n"
 		if target != "" {
-			body = "#!/bin/sh\nexec " + quote(target) + " \"$@\"\n"
+			body = "#!/bin/sh\nexec " + shellcmd.QuotePOSIX(target) + " \"$@\"\n"
 		}
 		if err = writeExecutable(filepath.Join(dir, name), body); err != nil {
 			return
@@ -345,7 +346,6 @@ func nixSetupCommand(args ...string) []string {
 	}, args...)
 }
 
-func quote(s string) string { return "'" + strings.ReplaceAll(s, "'", "'\"'\"'") + "'" }
 func writeExecutable(path, body string) error {
 	if b, err := os.ReadFile(path); err == nil && string(b) == body {
 		return nil
@@ -364,19 +364,19 @@ func writeRunners(dir string, tools []Tool, bindings map[string]string) error {
 	ordinary := func(name, usage string) string {
 		if target, declared := bindings[name]; declared {
 			if target == "" {
-				return "echo 'ambiguous declared tool; use a qualified runner' >&2; exit 127"
+				return shellcmd.LiteralLine("ambiguous declared tool; use a qualified runner") + " >&2; exit 127"
 			}
-			return "exec " + quote(target) + " \"$@\""
+			return "exec " + shellcmd.QuotePOSIX(target) + " \"$@\""
 		}
 		if name != "uvx" {
 			if native, e := exec.LookPath(name); e == nil {
 				// Never delegate back into this environment's dispatcher.
 				if absolute, e := filepath.Abs(native); e == nil && absolute != filepath.Join(dir, name) {
-					return "exec " + quote(absolute) + " \"$@\""
+					return "exec " + shellcmd.QuotePOSIX(absolute) + " \"$@\""
 				}
 			}
 		}
-		return "echo " + quote(usage) + " >&2; exit 127"
+		return shellcmd.LiteralLine(usage) + " >&2; exit 127"
 	}
 	scripts := map[string]string{
 		"uvx": "#!/bin/sh\n[ \"$1\" = --from ] || { " + ordinary("uvx", "use uvx --from PACKAGE EXECUTABLE") + "; }\n" +
@@ -392,24 +392,24 @@ func writeRunners(dir string, tools []Tool, bindings map[string]string) error {
 		if manager == "uv" {
 			runner = "uvx"
 		}
-		branch := quote(spec) + ")\n"
+		branch := shellcmd.QuotePOSIX(spec) + ")\n"
 		if manager == "nix" {
 			if t.Main == "" {
-				branch += "echo 'package has no unambiguous main program; use its executable name' >&2; exit 127\n"
+				branch += shellcmd.LiteralLine("package has no unambiguous main program; use its executable name") + " >&2; exit 127\n"
 			} else {
-				branch += "exec " + quote(filepath.Join(t.Bin, t.Main)) + " \"$@\"\n"
+				branch += "exec " + shellcmd.QuotePOSIX(filepath.Join(t.Bin, t.Main)) + " \"$@\"\n"
 			}
 		} else {
 			branch += "case \"$1\" in\n"
 			for _, name := range t.Executables {
-				branch += quote(name) + ") shift; exec " + quote(filepath.Join(t.Bin, name)) + " \"$@\";;\n"
+				branch += shellcmd.QuotePOSIX(name) + ") shift; exec " + shellcmd.QuotePOSIX(filepath.Join(t.Bin, name)) + " \"$@\";;\n"
 			}
-			branch += "*) echo 'executable not declared by package' >&2; exit 127;;\nesac\n"
+			branch += "*) " + shellcmd.LiteralLine("executable not declared by package") + " >&2; exit 127;;\nesac\n"
 		}
 		scripts[runner] += branch + ";;\n"
 	}
 	for name, body := range scripts {
-		body += "*) echo 'tool version not declared' >&2; exit 127;;\nesac\n"
+		body += "*) " + shellcmd.LiteralLine("tool version not declared") + " >&2; exit 127;;\nesac\n"
 		if err := writeExecutable(filepath.Join(dir, name), body); err != nil {
 			return err
 		}
