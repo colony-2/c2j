@@ -1,0 +1,11 @@
+id: sequence-when-false
+version: "1.0.0"
+input_schema: {}
+sequence:
+  - id: should-not-run
+    when: false
+    op: sleep
+    inputs:
+      duration: 1ms
+outputs:
+  finished: true

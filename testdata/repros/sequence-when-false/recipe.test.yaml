@@ -1,0 +1,21 @@
+recipe: recipe.yaml
+cases:
+  - id: false-skips-task-runtime
+    type: integration_case
+    runtime: {}
+    assertions:
+      - {type: output_equals, path: finished, value: true}
+      - {type: op_call_count, node_path: sequence-when-false/should-not-run, value: 0}
+      - {type: node_not_executed, node_path: sequence-when-false/should-not-run}
+  - id: false-skips-task-fast
+    type: recipe_case
+    mocks:
+      ops:
+        - match: {op: sleep}
+          behavior:
+            mode: return
+            outputs: {completed: true}
+    assertions:
+      - {type: output_equals, path: finished, value: true}
+      - {type: op_call_count, node_path: sequence-when-false/should-not-run, value: 0}
+      - {type: node_not_executed, node_path: sequence-when-false/should-not-run}

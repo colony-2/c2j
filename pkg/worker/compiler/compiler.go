@@ -305,6 +305,16 @@ func normalizeOpPathAlias(op *string, host string, hostSentinel string, opSentin
 // ExecuteWorkflow implements the WorkflowExecutor interface for unified recipes
 func (d DefaultRecipeExecutor) ExecuteNode(ctx workflow.Context, parentResCtx *template.ResolutionContext, n *recipe.Node) error {
 	metadata := n.GetMetadata()
+	// Conditions use the enclosing scope, before resolving the node's inputs or
+	// entering its workspace. Validation of all paths still visits false nodes.
+	shouldRun, err := parentResCtx.EvaluateCEL(metadata.When.String())
+	if err != nil {
+		return fmt.Errorf("failed to evaluate when for node %q: %w", metadata.ID, err)
+	}
+	validateAll := parentResCtx.Options.Mode == template.ModeValidate && parentResCtx.Options.ValidationMode == string(ValidateAll)
+	if !shouldRun && !validateAll {
+		return nil
+	}
 	if metadata.Internal != nil && metadata.Internal.Inline != nil && metadata.Internal.Inline.Execution != nil && !metadata.Internal.Inline.Execution.Empty() && ctx.UpdateExecution != nil {
 		patch := *metadata.Internal.Inline.Execution
 		patch.Packages = nil
