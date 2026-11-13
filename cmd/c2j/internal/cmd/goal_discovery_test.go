@@ -4,10 +4,12 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"net/http"
 	"net/http/httptest"
 	"path/filepath"
 	"testing"
 
+	"github.com/colony-2/c2j/internal/buildinfo"
 	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/c2j/pkg/joblist"
 	"github.com/colony-2/jobdb/pkg/jobdb"
@@ -17,24 +19,27 @@ import (
 )
 
 func TestGoalDiscoveryCommands(t *testing.T) {
-	ctx := celltest.Context(context.Background())
+	ctx := jobdb.WithPrimaryGoalSelectionAuthorizer(celltest.Context(context.Background()), func(context.Context, jobdb.GoalKey, jobdb.ResolvedCell) error { return nil })
 	db, err := sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: filepath.Join(t.TempDir(), "jobs.db")})
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close(ctx)) })
-	server := httptest.NewServer(celltest.Handler(remote.NewServer(db)))
+	handler := remote.NewServer(db)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		handler.ServeHTTP(w, r.WithContext(jobdb.WithPrimaryGoalSelectionAuthorizer(celltest.Context(r.Context()), func(context.Context, jobdb.GoalKey, jobdb.ResolvedCell) error { return nil })))
+	}))
 	t.Cleanup(server.Close)
-	submit := func(id, repo string, deps ...jobdb.Dependency) jobdb.JobHandle {
+	submit := func(id, repo, goal string, deps ...jobdb.Dependency) jobdb.JobHandle {
 		t.Helper()
 		meta, err := json.Marshal(map[string]string{"repo": repo, "cell_name": "root"})
 		require.NoError(t, err)
 		celltest.Create(t, db, "t", repo, "example.test/"+repo)
-		out, err := db.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "t", JobID: id, JobType: "external", Metadata: meta, Data: jobdb.NewTaskDataOrPanic(map[string]any{}), Dependencies: deps, Cell: repo, CellRepo: "example.test/" + repo}})
+		out, err := db.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "t", JobID: id, GoalID: goal, JobType: "external", Metadata: meta, Data: jobdb.NewTaskDataOrPanic(map[string]any{}), Dependencies: deps, Cell: repo, CellRepo: "example.test/" + repo}})
 		require.NoError(t, err)
 		return out
 	}
-	a := submit("a", "repo-one")
-	submit("b", "repo-two")
-	consumer := submit("consumer", "repo-two", jobdb.Dependency{Target: jobdb.DependencyTarget{GoalID: a.GoalID}, Condition: jobdb.JobPrereqSuccess})
+	a := submit("a", "repo-one", "")
+	submit("unrelated", "repo-two", "")
+	consumer := submit("consumer", "repo-two", "", jobdb.Dependency{Target: jobdb.DependencyTarget{GoalID: a.GoalID}, Condition: jobdb.JobPrereqSuccess})
 	run := func(args ...string) ([]byte, error) {
 		cmd := newGoalsCmd()
 		var out bytes.Buffer
@@ -81,11 +86,17 @@ func TestGoalDiscoveryCommands(t *testing.T) {
 		require.Error(t, err, "args: %v", args)
 	}
 
-	// Exercise lifecycle writes through the actual CLI/HTTP path, including retries.
-	for i := 0; i < 2; i++ {
-		_, err = run("attach", a.GoalID, "b")
-		require.NoError(t, err)
-	}
+	// Membership is selected only at creation, after the predecessor is terminal.
+	require.NoError(t, db.CancelJob(ctx, jobdb.CancelJobRequest{JobKey: a.JobKey}))
+	cancelled, err := db.GetJob(ctx, a.JobKey)
+	require.NoError(t, err)
+	require.Equal(t, jobdb.JobStatusCancelled, cancelled.Status)
+	submit("b", "repo-one", a.GoalID)
+	_, err = run("attach", a.GoalID, "b")
+	require.ErrorContains(t, err, "unknown command")
+	help, err := run("--help")
+	require.NoError(t, err)
+	require.NotContains(t, string(help), "attach")
 	raw, err = run("candidates", a.GoalID, "--page-size", "1")
 	require.NoError(t, err)
 	var candidates joblist.Page
@@ -121,4 +132,22 @@ func TestGoalDiscoveryCommands(t *testing.T) {
 	require.NoError(t, json.Unmarshal(raw, &waits))
 	require.Len(t, waits.Waits, 1)
 	require.Equal(t, failed.Failure, waits.Waits[0].Failure)
+}
+
+func TestGoalAttachRejectedThroughRoot(t *testing.T) {
+	for _, args := range [][]string{{"goals", "attach", "G", "B"}, {"goals", "attach"}} {
+		root := newRootCmd(buildinfo.Info{})
+		var out bytes.Buffer
+		root.SetOut(&out)
+		root.SetErr(&out)
+		root.SetArgs(args)
+		require.ErrorContains(t, root.ExecuteContext(context.Background()), "unknown command")
+	}
+	root := newRootCmd(buildinfo.Info{})
+	var out bytes.Buffer
+	root.SetOut(&out)
+	root.SetErr(&out)
+	root.SetArgs([]string{"goals", "--help"})
+	require.NoError(t, root.ExecuteContext(context.Background()))
+	require.NotContains(t, out.String(), "attach")
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"net/http/httptest"
 	"path/filepath"
 	"sync/atomic"
@@ -51,7 +52,7 @@ func TestGoalWinnerCollectionRecoveryAndExplicitFailure(t *testing.T) {
 		for _, scenario := range []struct{ fail, soft bool }{{false, false}, {false, true}, {true, false}, {true, true}} {
 			fail, soft := scenario.fail, scenario.soft
 			t.Run(fmt.Sprintf("%s/fail=%v/soft=%v", backend, fail, soft), func(t *testing.T) {
-				ctx := celltest.Context(context.Background())
+				ctx := jobdb.WithPrimaryGoalSelectionAuthorizer(celltest.Context(context.Background()), func(context.Context, jobdb.GoalKey, jobdb.ResolvedCell) error { return nil })
 				dbPath := filepath.Join(t.TempDir(), "jobs.db")
 				db, err := sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: dbPath})
 				require.NoError(t, err)
@@ -59,7 +60,10 @@ func TestGoalWinnerCollectionRecoveryAndExplicitFailure(t *testing.T) {
 				var rt jobdb.WorkflowRuntime = db
 				var server *httptest.Server
 				if backend == "remote" {
-					server = httptest.NewServer(celltest.Handler(remote.NewServer(db)))
+					handler := remote.NewServer(db)
+					server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+						handler.ServeHTTP(w, r.WithContext(jobdb.WithPrimaryGoalSelectionAuthorizer(celltest.Context(r.Context()), func(context.Context, jobdb.GoalKey, jobdb.ResolvedCell) error { return nil })))
+					}))
 					t.Cleanup(server.Close)
 					rt, err = remote.New(server.URL, server.Client())
 					require.NoError(t, err)
@@ -67,13 +71,15 @@ func TestGoalWinnerCollectionRecoveryAndExplicitFailure(t *testing.T) {
 				producer := wf.ExecutionWorker{JobType: "producer", Execute: func(c wf.ExecutionContext, _ jobdb.JobData) (jobdb.JobData, error) {
 					return jobdb.NewTaskDataOrPanic(map[string]any{"output": map[string]any{"winner": c.GetJobKey().JobId}, "git": map[string]any{"hash": "winner-hash"}}, jobdb.NewArtifactFromBytes("result.txt", []byte(c.GetJobKey().JobId))), nil
 				}}
-				submit := func(w wf.ExecutionWorker) jobdb.JobHandle {
+				submissions := 0
+				submit := func(w wf.ExecutionWorker, goal string) jobdb.JobHandle {
+					submissions++
 					celltest.Create(t, rt, "tenant", "test", "example.test/test")
-					h, e := rt.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "tenant", JobType: w.Name(), Data: jobdb.NewTaskDataOrPanic(nil), Cell: "test", CellRepo: "example.test/test"}})
+					h, e := rt.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "tenant", JobID: fmt.Sprintf("%s-%d", w.Name(), submissions), GoalID: goal, JobType: w.Name(), Data: jobdb.NewTaskDataOrPanic(nil), Cell: "test", CellRepo: "example.test/test"}})
 					require.NoError(t, e)
 					return h
 				}
-				original := submit(producer)
+				original := submit(producer, "")
 				engine, err := wf.NewEngineBuilder().WithRuntime(rt).BuildEngine()
 				require.NoError(t, err)
 				ctl := &workerworkflow.SWFWorkflowControl{Engine: jobdbschema.WorkflowEngine{Engine: engine, Registry: rt.(jobdb.JobSchemaRegistry)}}
@@ -81,7 +87,7 @@ func TestGoalWinnerCollectionRecoveryAndExplicitFailure(t *testing.T) {
 				consumer := wf.ExecutionWorker{JobType: "consumer", Execute: func(c wf.ExecutionContext, in jobdb.JobData) (jobdb.JobData, error) {
 					return c.DoTask(wf.TaskCall{Site: "wait", TaskType: task.Name(), ContractVersion: 1, Command: []byte(`{}`)}, func(context.Context) (jobdb.TaskData, error) { return in, nil })
 				}}
-				parent := submit(consumer)
+				parent := submit(consumer, "")
 				run := func(h jobdb.JobHandle, w wf.ExecutionWorker, tasks ...wf.TaskWorker) wf.JobRunOutcome {
 					r, e := wf.GetJobForRun(ctx, rt, wf.GetJobForRunRequest{JobKey: h.JobKey, JobWorker: w, TaskWorkers: tasks, WorkerID: "test", LeaseDuration: time.Minute})
 					require.NoError(t, e)
@@ -100,7 +106,10 @@ func TestGoalWinnerCollectionRecoveryAndExplicitFailure(t *testing.T) {
 				require.NoError(t, err)
 				rt = db
 				if backend == "remote" {
-					server = httptest.NewServer(celltest.Handler(remote.NewServer(db)))
+					handler := remote.NewServer(db)
+					server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+						handler.ServeHTTP(w, r.WithContext(jobdb.WithPrimaryGoalSelectionAuthorizer(celltest.Context(r.Context()), func(context.Context, jobdb.GoalKey, jobdb.ResolvedCell) error { return nil })))
+					}))
 					t.Cleanup(server.Close)
 					rt, err = remote.New(server.URL, server.Client())
 					require.NoError(t, err)
@@ -114,6 +123,9 @@ func TestGoalWinnerCollectionRecoveryAndExplicitFailure(t *testing.T) {
 				require.Equal(t, original.GoalID, inspected.BlockingWait.Dependencies[0].Target.GoalID)
 
 				require.NoError(t, rt.CancelJob(ctx, jobdb.CancelJobRequest{JobKey: original.JobKey}))
+				cancelled, err := rt.GetJob(ctx, original.JobKey)
+				require.NoError(t, err)
+				require.Equal(t, jobdb.JobStatusCancelled, cancelled.Status)
 				key := jobdb.GoalKey{TenantId: "tenant", GoalID: original.GoalID}
 				goal, err := rt.GetGoal(ctx, key)
 				require.NoError(t, err)
@@ -123,9 +135,7 @@ func TestGoalWinnerCollectionRecoveryAndExplicitFailure(t *testing.T) {
 					goal, err = rt.FailGoal(ctx, jobdb.FailGoalRequest{GoalKey: key, Message: "no further attempts"})
 					require.NoError(t, err)
 				} else {
-					winner = submit(producer)
-					_, err = rt.AddGoalCandidate(ctx, jobdb.AddGoalCandidateRequest{GoalKey: key, JobID: winner.JobKey.JobId})
-					require.NoError(t, err)
+					winner = submit(producer, original.GoalID)
 					require.Equal(t, wf.JobRunCompleted, run(winner, producer).Status)
 				}
 				out := run(parent, consumer, task)
@@ -145,11 +155,15 @@ func TestGoalWinnerCollectionRecoveryAndExplicitFailure(t *testing.T) {
 					require.NoError(t, json.Unmarshal(out.Output.GetDataOrPanic(), &got))
 					require.Equal(t, ResultSource{Goal: original.GoalID, Job: winner.JobKey.JobId}, got.Result)
 					require.Equal(t, winner.JobKey.JobId, got.Outputs["winner"])
+					require.NotNil(t, got.Artifacts["result.txt"].Stored)
+					require.Equal(t, winner.JobKey.JobId, got.Artifacts["result.txt"].Stored.Key.JobId)
 				} else if !fail {
 					var got SingleRecipeOutput
 					require.NoError(t, json.Unmarshal(out.Output.GetDataOrPanic(), &got))
 					require.Equal(t, ResultSource{Goal: original.GoalID, Job: winner.JobKey.JobId}, got.Result)
 					require.Equal(t, winner.JobKey.JobId, got.Outputs["winner"])
+					require.NotNil(t, got.Artifacts["result.txt"].Stored)
+					require.Equal(t, winner.JobKey.JobId, got.Artifacts["result.txt"].Stored.Key.JobId)
 					require.Contains(t, got.Artifacts, "result.txt")
 				}
 				count := task.calls.Load()

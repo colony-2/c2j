@@ -51,9 +51,17 @@ func TestSelectedGoalIncompleteReceiptAndDescriptorIntegrity(t *testing.T) {
 	saved.Artifacts[0].Data = []byte("changed")
 	_, err = saved.Request()
 	require.ErrorContains(t, err, "integrity")
-	d.Operation = "restart"
-	_, err = d.Request()
-	require.Error(t, err)
+	for _, mutate := range []func(*Descriptor){
+		func(d *Descriptor) { d.Operation = "restart" },
+		func(d *Descriptor) { d.Version = 2 },
+		func(d *Descriptor) { d.Job.JobID = "" },
+		func(d *Descriptor) { d.Job.TenantId = "" },
+	} {
+		changed := d
+		mutate(&changed)
+		_, err = changed.Request()
+		require.Error(t, err)
+	}
 }
 
 func TestSelectedGoalTransportAndStoredInput(t *testing.T) {

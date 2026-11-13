@@ -3,6 +3,7 @@ package recipejob_test
 import (
 	"context"
 	"encoding/json"
+	"net/http"
 	"net/http/httptest"
 	"path/filepath"
 	"testing"
@@ -25,13 +26,16 @@ import (
 func TestGoalDiscovery(t *testing.T) {
 	for _, backend := range []string{"sqlite", "http"} {
 		t.Run(backend, func(t *testing.T) {
-			ctx := celltest.Context(context.Background())
+			ctx := jobdb.WithPrimaryGoalSelectionAuthorizer(celltest.Context(context.Background()), func(context.Context, jobdb.GoalKey, jobdb.ResolvedCell) error { return nil })
 			db, err := sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: filepath.Join(t.TempDir(), "jobs.db")})
 			require.NoError(t, err)
 			t.Cleanup(func() { require.NoError(t, db.Close(ctx)) })
 			var rt jobdb.WorkflowRuntime = db
 			if backend == "http" {
-				server := httptest.NewServer(celltest.Handler(remote.NewServer(db)))
+				handler := remote.NewServer(db)
+				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					handler.ServeHTTP(w, r.WithContext(jobdb.WithPrimaryGoalSelectionAuthorizer(celltest.Context(r.Context()), func(context.Context, jobdb.GoalKey, jobdb.ResolvedCell) error { return nil })))
+				}))
 				t.Cleanup(server.Close)
 				rt, err = remote.New(server.URL, server.Client())
 				require.NoError(t, err)
@@ -43,7 +47,7 @@ func TestGoalDiscovery(t *testing.T) {
 				jobdb.WorkflowRuntime
 				jobdb.JobSchemaRegistry
 			}{wrapped, rt.(jobdb.JobSchemaRegistry)}}
-			submit := func(id, repo string, deps ...jobdb.Dependency) jobdb.JobHandle {
+			submit := func(id, repo, goal string, deps ...jobdb.Dependency) jobdb.JobHandle {
 				t.Helper()
 				metadata, err := json.Marshal(map[string]string{"repo": repo, "cell_name": "root"})
 				require.NoError(t, err)
@@ -51,16 +55,21 @@ func TestGoalDiscovery(t *testing.T) {
 					jobdb.WorkflowRuntime
 					jobdb.JobSchemaRegistry
 				}{wrapped, rt.(jobdb.JobSchemaRegistry)}, "t", "test", "example.test/test")
-				h, err := engine.SubmitJob(ctx, jobdb.SubmitJob{TenantId: "t", JobID: id, JobType: "candidate", Data: jobdb.NewTaskDataOrPanic(map[string]any{}), Metadata: metadata, Dependencies: deps, Cell: "test", CellRepo: "example.test/test"})
+				h, err := engine.SubmitJob(ctx, jobdb.SubmitJob{TenantId: "t", JobID: id, GoalID: goal, JobType: "candidate", Data: jobdb.NewTaskDataOrPanic(map[string]any{}), Metadata: metadata, Dependencies: deps, Cell: "test", CellRepo: "example.test/test"})
 				require.NoError(t, err)
 				require.NotEmpty(t, h.GoalID)
 				return h
 			}
-			a, b, exact := submit("a", "one"), submit("b", "two"), submit("exact", "two")
+			a := submit("a", "one", "")
 			key := jobdb.GoalKey{TenantId: "t", GoalID: a.GoalID}
-			before, err := engine.GetGoal(ctx, key)
+			require.NoError(t, rt.CancelJob(ctx, jobdb.CancelJobRequest{JobKey: a.JobKey}))
+			cancelled, err := rt.GetJob(ctx, a.JobKey)
 			require.NoError(t, err)
-			_, err = engine.AddGoalCandidate(ctx, jobdb.AddGoalCandidateRequest{GoalKey: key, JobID: b.JobKey.JobId})
+			require.Equal(t, jobdb.JobStatusCancelled, cancelled.Status)
+			b := submit("b", "two", a.GoalID)
+			exact := submit("exact", "two", "")
+			submit("unrelated", "two", "")
+			before, err := engine.GetGoal(ctx, key)
 			require.NoError(t, err)
 			// Hiding the original attempt must not remove it from goal-wide counts.
 			_, err = rt.(jobdb.JobDeletionRuntime).DeleteJobs(ctx, jobdb.DeleteJobsRequest{TenantID: "t", JobIDs: []string{a.JobKey.JobId}})
@@ -88,7 +97,7 @@ func TestGoalDiscovery(t *testing.T) {
 			require.Error(t, err)
 
 			goalTarget, jobTarget := jobdb.DependencyTarget{GoalID: a.GoalID}, jobdb.DependencyTarget{JobID: exact.JobKey.JobId}
-			consumer := submit("consumer", "one", jobdb.Dependency{Target: goalTarget, Condition: jobdb.JobPrereqSuccess}, jobdb.Dependency{Target: jobTarget, Condition: jobdb.JobPrereqSuccess})
+			consumer := submit("consumer", "one", "", jobdb.Dependency{Target: goalTarget, Condition: jobdb.JobPrereqSuccess}, jobdb.Dependency{Target: jobTarget, Condition: jobdb.JobPrereqSuccess})
 			reverse := func(target jobdb.DependencyTarget) []jobdb.DependencyWaitInfo {
 				t.Helper()
 				page, err := recipejob.ListDependencyWaits(ctx, engine, jobdb.ListDependencyWaitsRequest{TenantId: "t", Target: &target})

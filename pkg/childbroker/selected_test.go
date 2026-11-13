@@ -3,7 +3,7 @@ package childbroker
 import (
 	"context"
 	"encoding/json"
-	"github.com/colony-2/c2j/pkg/ops/process"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -17,10 +17,12 @@ import (
 	"github.com/colony-2/c2j/pkg/jobcontext"
 	"github.com/colony-2/c2j/pkg/jobdbschema"
 	"github.com/colony-2/c2j/pkg/jobref"
+	"github.com/colony-2/c2j/pkg/ops/process"
 	"github.com/colony-2/c2j/pkg/permissions"
 	"github.com/colony-2/c2j/pkg/starter"
 	"github.com/colony-2/c2j/pkg/workflowctl"
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	"github.com/colony-2/jobdb/pkg/jobdb/runtime/sqlite"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/toy"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtimetest"
 	workflow "github.com/colony-2/jobdb/pkg/workflow"
@@ -28,7 +30,9 @@ import (
 )
 
 func TestSelectedBrokerRealDispatchAndReplay(t *testing.T) {
-	rt := toy.New()
+	rt, err := sqlite.NewFromConfig(context.Background(), sqlite.Config{DBPath: filepath.Join(t.TempDir(), "jobs.db")})
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, rt.Close(context.Background())) })
 	ctx := runtimetest.PrimaryGoalContext(context.Background())
 	celltest.Create(t, rt, "tenant", "work", "example.test/work")
 	sdk, err := workflow.NewEngineBuilder().WithRuntime(rt).BuildEngine()
@@ -48,7 +52,7 @@ func TestSelectedBrokerRealDispatchAndReplay(t *testing.T) {
 	require.NoError(t, err)
 	defer server.Close()
 	broker := jobcontext.ChildJobBroker{Endpoint: server.localEndpoint, Token: server.token, SessionID: server.sessionID}
-	req, err := NewSubmitRequest(ctx, workflowctl.StartJob{TenantId: "tenant", JobID: "dest", GoalID: source.GoalID, Title: "  Child café\n  ", Inputs: map[string]any{"value": "original"}, RecipeName: "build", Cell: "work", CellRepo: "example.test/work"}, nil)
+	req, err := NewSubmitRequest(ctx, workflowctl.StartJob{TenantId: "tenant", JobID: "dest", GoalID: source.GoalID, Title: "  Child café\n  ", Inputs: map[string]any{"value": "original"}, RecipeName: "build", Cell: "work", CellRepo: "example.test/work"}, []jobdb.Artifact{jobdb.NewArtifactFromBytes("input.txt", []byte("input café\n"))})
 	require.NoError(t, err)
 	d, err := PrepareSelected(ctx, broker, req)
 	require.NoError(t, err)
@@ -103,7 +107,7 @@ func TestSelectedBrokerRealDispatchAndReplay(t *testing.T) {
 	ref, err := SubmitSelected(ctx, broker, d)
 	require.NoError(t, err)
 	require.Equal(t, source.GoalID, ref.GoalID)
-	require.Equal(t, source.CellID, ref.CellID)
+	require.Equal(t, SubmitResponse{TenantID: "tenant", JobID: "dest", GoalID: source.GoalID, Cell: "work", CellID: source.CellID, CellRepo: "example.test/work", Recipe: "build"}, ref)
 	started := server.StartedJobs()
 	require.Equal(t, ref.CellID, started.Items[0].CellID)
 	require.Equal(t, ref.CellRepo, started.Items[0].CellRepo)
@@ -116,6 +120,16 @@ func TestSelectedBrokerRealDispatchAndReplay(t *testing.T) {
 	chapters, err = rt.ListChapters(ctx, jobdb.ListChaptersRequest{JobKey: jobdb.JobKey{TenantId: ref.TenantID, JobId: ref.JobID}})
 	require.NoError(t, err)
 	require.NotEmpty(t, chapters)
+	require.Len(t, chapters[0].Artifacts, 1)
+	stored := chapters[0].Artifacts[0]
+	artifact, err := rt.OpenArtifact(ctx, jobdb.ArtifactRef{JobKey: jobdb.JobKey{TenantId: ref.TenantID, JobId: ref.JobID}, Ordinal: chapters[0].Ordinal, Name: stored.Name, Digest: stored.Digest})
+	require.NoError(t, err)
+	reader, err := artifact.Open()
+	require.NoError(t, err)
+	data, err := io.ReadAll(reader)
+	require.NoError(t, err)
+	require.NoError(t, reader.Close())
+	require.Equal(t, "input café\n", string(data))
 	submittedChapter, ok := chapters[0].Body.(jobdb.JobStartChapter)
 	require.True(t, ok)
 	var submitted workflowctl.StartJob

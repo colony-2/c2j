@@ -16,6 +16,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// Secondary memberships below are saved historical reader data; no live mutation
+// is needed to decode them with their recorded primary identity.
 func TestCompactRecipePageDoesNotEnrichRows(t *testing.T) {
 	for _, pageSize := range []int{1, 200} {
 		t.Run(fmt.Sprint(pageSize), func(t *testing.T) {

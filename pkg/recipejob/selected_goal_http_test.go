@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -13,6 +14,7 @@ import (
 	"github.com/colony-2/c2j/pkg/workflowctl"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/remote"
+	"github.com/colony-2/jobdb/pkg/jobdb/runtime/sqlite"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/toy"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtimetest"
 	"github.com/stretchr/testify/require"
@@ -69,7 +71,9 @@ func TestSelectedGoalHTTPUnavailableAndIncomplete(t *testing.T) {
 }
 func TestSelectedGoalHTTPRevokedReplay(t *testing.T) {
 	ctx := runtimetest.PrimaryGoalContext(context.Background())
-	rt := toy.New()
+	rt, err := sqlite.NewFromConfig(context.Background(), sqlite.Config{DBPath: filepath.Join(t.TempDir(), "jobs.db")})
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, rt.Close(context.Background())) })
 	celltest.Create(t, rt, "tenant", "work", "example.test/work")
 	source, err := rt.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "tenant", JobID: "source", JobType: "work", Cell: "work", CellRepo: "example.test/work", Data: jobdb.NewTaskDataOrPanic(nil)}})
 	require.NoError(t, err)

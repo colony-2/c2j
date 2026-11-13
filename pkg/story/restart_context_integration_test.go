@@ -14,7 +14,13 @@ import (
 	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/c2j/internal/jsonexact"
 	"github.com/colony-2/c2j/pkg/artifacts"
+	"github.com/colony-2/c2j/pkg/childbroker"
 	"github.com/colony-2/c2j/pkg/contextual"
+	"github.com/colony-2/c2j/pkg/jobcontext"
+	"github.com/colony-2/c2j/pkg/jobdbschema"
+	"github.com/colony-2/c2j/pkg/jobref"
+	"github.com/colony-2/c2j/pkg/jobrestart"
+	restartservice "github.com/colony-2/c2j/pkg/jobrestart/service"
 	coreops "github.com/colony-2/c2j/pkg/ops"
 	"github.com/colony-2/c2j/pkg/starter"
 	"github.com/colony-2/c2j/pkg/story"
@@ -421,6 +427,14 @@ outputs:
 			require.NoError(t, err)
 			require.Equal(t, info.GoalID, restarted.GoalID)
 			require.Equal(t, f.key.TenantId, restarted.TenantID)
+			require.NotEmpty(t, restarted.JobID)
+			require.NotEmpty(t, info.CellID)
+			accepted, err := f.runtime.GetJob(f.ctx, jobdb.JobKey{TenantId: restarted.TenantID, JobId: restarted.JobID})
+			require.NoError(t, err)
+			require.Equal(t, info.CellID, accepted.CellID)
+			require.Equal(t, info.Cell, accepted.Cell)
+			require.Equal(t, info.CellRepo, accepted.CellRepo)
+			require.Equal(t, restarted.GoalID, accepted.GoalID)
 			f.task.fail.Store(false)
 			f.run(t, jobdb.JobKey{TenantId: restarted.TenantID, JobId: restarted.JobID})
 			goal, err = f.runtime.GetGoal(f.ctx, goalKey)
@@ -509,6 +523,57 @@ outputs: {count: '${{ sequence.nested.outputs.count + 1 }}'}
 			after, err := f.runtime.ListChapters(f.ctx, jobdb.ListChaptersRequest{JobKey: f.key})
 			require.NoError(t, err)
 			require.Equal(t, before, after)
+		})
+	}
+}
+
+// Exercise the real broker/service/starter chain, including the complete native
+// receipt which the older story response projects down to tenant/job/goal.
+func TestGoalBrokerRestartReceiptReplay(t *testing.T) {
+	for _, backend := range []string{"sqlite", "remote"} {
+		t.Run(backend, func(t *testing.T) {
+			f := newRestartFixture(t, backend, restartSequenceRecipe, true)
+			original, err := f.runtime.GetJob(f.ctx, f.key)
+			require.NoError(t, err)
+			require.Equal(t, jobdb.JobStatusCompleted, original.Status)
+			engine := jobdbschema.WorkflowEngine{Engine: f.engine, Registry: f.runtime.(jobdb.JobSchemaRegistry)}
+			api := &restartservice.Service{Engine: f.engine, Tenant: f.key.TenantId,
+				Submit: func(ctx context.Context, key jobdb.JobKey, scope string, patch *coretask.ContextPatch, opts starter.RestartOptions) (jobref.Ref, error) {
+					return starter.RestartRecipeJob(ctx, engine, key, scope, patch, opts)
+				},
+			}
+			server, err := childbroker.Start(jobrestart.WithAPI(f.ctx, api), childbroker.Options{Submitter: engine, Current: jobcontext.Current{TenantID: f.key.TenantId, JobID: f.key.JobId, GoalID: original.GoalID}})
+			require.NoError(t, err)
+			t.Cleanup(func() { require.NoError(t, server.Close()) })
+			broker, found, err := jobcontext.ChildJobBrokerFromEnv(func(k string) string { return server.Env()[k] })
+			require.NoError(t, err)
+			require.True(t, found)
+			client := childbroker.JobClient{Broker: broker}
+			request := jobrestart.Request{Operation: "submit", JobID: f.key.JobId, Selector: jobrestart.Selector{Scope: starter.SubmissionRestartScopeID}, RequestID: "broker-repair"}
+			first, err := client.Restart(f.ctx, request)
+			require.NoError(t, err)
+			require.NotNil(t, first.Ref)
+			ref := *first.Ref
+			require.NotEmpty(t, ref.JobID)
+			require.Equal(t, jobref.Ref{TenantID: f.key.TenantId, JobID: ref.JobID, GoalID: original.GoalID, Cell: original.Cell, CellID: original.CellID, CellRepo: original.CellRepo}, ref)
+			f.task.fail.Store(false)
+			f.run(t, ref.Key())
+			goal, err := f.runtime.GetGoal(f.ctx, jobdb.GoalKey{TenantId: ref.TenantID, GoalID: ref.GoalID})
+			require.NoError(t, err)
+			require.Equal(t, jobdb.GoalSucceeded, goal.State)
+			replay, err := client.Restart(f.ctx, request)
+			require.NoError(t, err)
+			require.Equal(t, first, replay)
+			started := server.StartedJobs()
+			require.Len(t, started.Items, 2, "the helper records both accepted observations")
+			for _, item := range started.Items {
+				require.Equal(t, ref.CellID, item.CellID)
+				require.Equal(t, ref.CellRepo, item.CellRepo)
+				require.Equal(t, ref.Cell, item.Cell)
+				require.Equal(t, ref.GoalID, item.GoalID)
+				require.Equal(t, ref.JobID, item.JobID)
+				require.Equal(t, ref.TenantID, item.TenantID)
+			}
 		})
 	}
 }

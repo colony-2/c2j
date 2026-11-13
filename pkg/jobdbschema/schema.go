@@ -1072,7 +1072,9 @@ func (e WorkflowEngine) SubmitRestartJobRef(ctx context.Context, req jobdb.Submi
 }
 
 func (e WorkflowEngine) GetGoal(ctx context.Context, key jobdb.GoalKey) (jobdb.GoalInfo, error) {
-	rt, ok := e.Registry.(jobdb.GoalRuntime)
+	rt, ok := e.Registry.(interface {
+		GetGoal(context.Context, jobdb.GoalKey) (jobdb.GoalInfo, error)
+	})
 	if !ok {
 		return jobdb.GoalInfo{}, fmt.Errorf("goal runtime unavailable")
 	}
@@ -1095,22 +1097,19 @@ func (e WorkflowEngine) ClearCrashConcern(ctx context.Context, req jobdb.ClearCr
 }
 
 func (e WorkflowEngine) GetDependencyWait(ctx context.Context, key jobdb.DependencyWaitKey) (jobdb.DependencyWaitInfo, error) {
-	rt, ok := e.Registry.(jobdb.GoalRuntime)
+	rt, ok := e.Registry.(interface {
+		GetDependencyWait(context.Context, jobdb.DependencyWaitKey) (jobdb.DependencyWaitInfo, error)
+	})
 	if !ok {
 		return jobdb.DependencyWaitInfo{}, fmt.Errorf("goal runtime unavailable")
 	}
 	return rt.GetDependencyWait(ctx, key)
 }
 
-func (e WorkflowEngine) AddGoalCandidate(ctx context.Context, req jobdb.AddGoalCandidateRequest) (jobdb.GoalCandidateInfo, error) {
-	rt, ok := e.Registry.(jobdb.GoalRuntime)
-	if !ok {
-		return jobdb.GoalCandidateInfo{}, fmt.Errorf("goal runtime unavailable")
-	}
-	return rt.AddGoalCandidate(ctx, req)
-}
 func (e WorkflowEngine) FailGoal(ctx context.Context, req jobdb.FailGoalRequest) (jobdb.GoalInfo, error) {
-	rt, ok := e.Registry.(jobdb.GoalRuntime)
+	rt, ok := e.Registry.(interface {
+		FailGoal(context.Context, jobdb.FailGoalRequest) (jobdb.GoalInfo, error)
+	})
 	if !ok {
 		return jobdb.GoalInfo{}, fmt.Errorf("goal runtime unavailable")
 	}
@@ -1118,14 +1117,18 @@ func (e WorkflowEngine) FailGoal(ctx context.Context, req jobdb.FailGoalRequest)
 }
 
 func (e WorkflowEngine) ListGoals(ctx context.Context, req jobdb.ListGoalsRequest) (jobdb.ListGoalsResponse, error) {
-	rt, ok := e.Registry.(jobdb.GoalRuntime)
+	rt, ok := e.Registry.(interface {
+		ListGoals(context.Context, jobdb.ListGoalsRequest) (jobdb.ListGoalsResponse, error)
+	})
 	if !ok {
 		return jobdb.ListGoalsResponse{}, fmt.Errorf("goal runtime unavailable")
 	}
 	return rt.ListGoals(ctx, req)
 }
 func (e WorkflowEngine) ListDependencyWaits(ctx context.Context, req jobdb.ListDependencyWaitsRequest) (jobdb.ListDependencyWaitsResponse, error) {
-	rt, ok := e.Registry.(jobdb.GoalRuntime)
+	rt, ok := e.Registry.(interface {
+		ListDependencyWaits(context.Context, jobdb.ListDependencyWaitsRequest) (jobdb.ListDependencyWaitsResponse, error)
+	})
 	if !ok {
 		return jobdb.ListDependencyWaitsResponse{}, fmt.Errorf("goal runtime unavailable")
 	}

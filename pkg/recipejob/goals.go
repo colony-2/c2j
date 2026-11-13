@@ -49,18 +49,13 @@ func ListGoalCandidates(ctx context.Context, lister Lister, req GoalCandidatesRe
 	return out, nil
 }
 
-// AttachGoalCandidate and FailGoal require tenant lifecycle authority. These
-// functions must not be exposed through a task's jobs.submit permission.
-func AttachGoalCandidate(ctx context.Context, admin jobdb.GoalRuntime, req jobdb.AddGoalCandidateRequest) (jobdb.GoalCandidateInfo, error) {
-	if err := req.GoalKey.Validate(); err != nil {
-		return jobdb.GoalCandidateInfo{}, err
-	}
-	if req.JobID == "" {
-		return jobdb.GoalCandidateInfo{}, fmt.Errorf("candidate job ID is required")
-	}
-	return admin.AddGoalCandidate(ctx, req)
+// GoalFailureAdmin is the tenant lifecycle capability, separate from reads and
+// discovery. A task's jobs.submit permission must not grant this authority.
+type GoalFailureAdmin interface {
+	FailGoal(context.Context, jobdb.FailGoalRequest) (jobdb.GoalInfo, error)
 }
-func FailGoal(ctx context.Context, admin jobdb.GoalRuntime, req jobdb.FailGoalRequest) (jobdb.GoalInfo, error) {
+
+func FailGoal(ctx context.Context, admin GoalFailureAdmin, req jobdb.FailGoalRequest) (jobdb.GoalInfo, error) {
 	if err := req.Validate(); err != nil {
 		return jobdb.GoalInfo{}, err
 	}

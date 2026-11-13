@@ -139,7 +139,6 @@ restart-boundary selection remain supported by the story API.
 c2j goals get G
 c2j goals candidates G --page-size 100
 c2j goals candidates G --page-token 'returned-cursor'
-c2j goals attach G B
 c2j goals fail G --message 'No further attempts are planned'
 c2j list --goal G --json
 ```
@@ -149,7 +148,13 @@ primary and additional associations, all job types, and archived/hidden jobs.
 Use its pagination token to reach all candidates. An ordinary job list still
 applies its other filters and is not an authoritative goal state or count.
 
-Attachment and failure require tenant lifecycle authority. A task's
+Select a job's goal at creation with the existing selected-goal submission or
+shared-goal restart path. The attachment command and Go mutation helpers have
+been removed immediately; callers must update their scripts and source. Existing
+secondary memberships remain readable through the current backend. Later backend
+translation/removal is a separate change. Input artifact attachments remain supported.
+
+Explicit failure requires tenant lifecycle authority. A task's
 `perms.jobdb.jobs.submit` permission does not grant these actions.
 
 The public Go APIs expose `jobref.Ref`, goal reads, paginated candidates,

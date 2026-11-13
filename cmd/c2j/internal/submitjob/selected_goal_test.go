@@ -22,6 +22,7 @@ import (
 	"github.com/colony-2/c2j/pkg/workspacesubmit"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/remote"
+	"github.com/colony-2/jobdb/pkg/jobdb/runtime/sqlite"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/toy"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtimetest"
 	workflow "github.com/colony-2/jobdb/pkg/workflow"
@@ -30,7 +31,9 @@ import (
 
 func TestSelectedCLILostResponseRetainsExactRequest(t *testing.T) {
 	ctx := celltest.Context(runtimetest.PrimaryGoalContext(context.Background()))
-	rt := toy.New()
+	rt, err := sqlite.NewFromConfig(context.Background(), sqlite.Config{DBPath: filepath.Join(t.TempDir(), "jobs.db")})
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, rt.Close(context.Background())) })
 	root, _ := createGitRepo(t)
 	celltest.Create(t, rt, "selected", "app", celltest.Repo(root))
 	source, err := rt.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "selected", JobID: "source", Cell: "app", CellRepo: celltest.Repo(root), JobType: "work", Data: jobdb.NewTaskDataOrPanic(nil)}})
