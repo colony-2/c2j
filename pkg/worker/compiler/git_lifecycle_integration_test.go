@@ -69,6 +69,11 @@ func (r *gitOutcomeInterruption) PutChapter(ctx context.Context, req jobdb.PutCh
 
 func runGitLifecycle(t *testing.T, rt jobdb.WorkflowRuntime, key jobdb.JobKey, recordedPolicy ...string) (jobworkflow.JobRunOutcome, error) {
 	t.Helper()
+	return runGitLifecycleContext(t, celltest.Context(context.Background()), rt, key, recordedPolicy...)
+}
+
+func runGitLifecycleContext(t *testing.T, ctx context.Context, rt jobdb.WorkflowRuntime, key jobdb.JobKey, recordedPolicy ...string) (jobworkflow.JobRunOutcome, error) {
+	t.Helper()
 	reg, err := workerops.NewActivityRegistry()
 	require.NoError(t, err)
 	engine, err := jobworkflow.NewEngineBuilder().WithRuntime(rt).BuildEngine()
@@ -76,7 +81,6 @@ func runGitLifecycle(t *testing.T, rt jobdb.WorkflowRuntime, key jobdb.JobKey, r
 	deps := coreops.NewServiceDepsBuilder().WithWorkflowControl(&workerworkflow.SWFWorkflowControl{Engine: engine}).Build()
 	ws, err := NewRecipeWorker(deps, reg)
 	require.NoError(t, err)
-	ctx := celltest.Context(context.Background())
 	if fault, ok := rt.(*gitOutcomeInterruption); ok {
 		ctx, fault.cancel = context.WithCancel(ctx)
 		defer fault.cancel()

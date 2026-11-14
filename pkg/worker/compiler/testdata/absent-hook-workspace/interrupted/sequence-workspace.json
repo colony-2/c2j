@@ -1,0 +1,19 @@
+{
+  "Key": {
+    "tenantId": "git-tests",
+    "jobId": "3M55uJhBI84LNCrzHYwz6d4fD9L"
+  },
+  "Repo": "example.test/fixture-ac82c425109df866e6375f74ff8bd9060a4f85b334a1fc5ff2bd8970b79df343",
+  "Output": {
+    "later_head": "2be0d35793f1f18ff760bffa285b96dda13eb1de",
+    "later_scope": "271dbc959f40ffa75880de07fe86f7528da759952fcf40fd2a0a345636ec7b53",
+    "result": {
+      "cell": "test",
+      "hash": "",
+      "inputs": {},
+      "repo": "https://example.test/fixture-ac82c425109df866e6375f74ff8bd9060a4f85b334a1fc5ff2bd8970b79df343.git",
+      "scope": "f52a8d37b94eb02b375b1fcb7de48b6211e33b9aed8b77382884fd73adbf33eb",
+      "status": "skipped"
+    }
+  }
+}

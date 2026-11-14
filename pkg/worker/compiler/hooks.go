@@ -146,14 +146,15 @@ func hasCellHooks(r recipe.Recipe) bool {
 }
 
 type hookResolution struct {
-	Path               string                       `json:"path"`
-	Candidate          string                       `json:"candidate"`
-	Absent             bool                         `json:"absent"`
-	RecipeYAMLArtifact string                       `json:"recipe_yaml_artifact,omitempty"`
-	RecipeYAML         string                       `json:"recipe_yaml,omitempty"`
-	ContentSHA256      string                       `json:"content_sha256,omitempty"`
-	Source             recipe.RecipeSourceSnapshot  `json:"source"`
-	Functions          WithinRecipeResolutionResult `json:"functions,omitempty"`
+	Path                string                       `json:"path"`
+	Candidate           string                       `json:"candidate"`
+	Absent              bool                         `json:"absent"`
+	SkipAbsentWorkspace bool                         `json:"skip_absent_workspace,omitempty"`
+	RecipeYAMLArtifact  string                       `json:"recipe_yaml_artifact,omitempty"`
+	RecipeYAML          string                       `json:"recipe_yaml,omitempty"`
+	ContentSHA256       string                       `json:"content_sha256,omitempty"`
+	Source              recipe.RecipeSourceSnapshot  `json:"source"`
+	Functions           WithinRecipeResolutionResult `json:"functions,omitempty"`
 }
 type hookResolveWorker struct {
 	control workflowctl.WorkflowControl
@@ -277,6 +278,7 @@ func (w hookResolveWorker) RunTask(ctx context.Context, tc jobworkflow.TaskConte
 		contents, err := loader.read(hook)
 		if errors.Is(err, os.ErrNotExist) {
 			result.Absent = true
+			result.SkipAbsentWorkspace, _ = req.Input["skip_absent_workspace"].(bool)
 		} else if err != nil {
 			return nil, err
 		} else {
@@ -473,7 +475,7 @@ func prepareHook(ctx workflow.Context, parent *template.ResolutionContext, n *re
 	for _, phase := range []string{"pin", "load"} {
 		req.Input["phase"] = phase
 		req.GitTaskContext = *gitstate.NewGlobalGitTaskContext(source.TaskExecutionContext())
-		out, err := workflow.ValueCall(ctx.JobContext, "hook:"+invocation+":"+phase, hookResolveTaskType, jobdb.RunPolicy{}, req)
+		out, err := callHookResolution(ctx.JobContext, "hook:"+invocation+":"+phase, req, phase == "load")
 		if err != nil {
 			return recipe.Node{}, err
 		}
@@ -492,8 +494,12 @@ func prepareHook(ctx workflow.Context, parent *template.ResolutionContext, n *re
 		if err != nil {
 			return recipe.Node{}, err
 		}
+		result = hookResolution{}
 		if err = json.Unmarshal(encoded, &result); err != nil {
 			return recipe.Node{}, err
+		}
+		if result.SkipAbsentWorkspace && (phase != "load" || !result.Absent) {
+			return recipe.Node{}, fmt.Errorf("invalid absent hook workspace decision")
 		}
 		if result.Path != hook || !isFullGitHash(result.Candidate) || decoded.Activity.GitResult.PersistHash != result.Candidate {
 			return recipe.Node{}, fmt.Errorf("invalid hook resolution result")
@@ -530,7 +536,16 @@ func prepareHook(ctx workflow.Context, parent *template.ResolutionContext, n *re
 		if n.Include.IfMissing == nil {
 			return recipe.Node{}, fmt.Errorf("hook %s: %w", hook, os.ErrNotExist)
 		}
-		rec = recipe.Recipe{RecipeImpl: &recipe.RecipeSequence{RecipeMetadata: recipe.RecipeMetadata{NodeMetadata: recipe.NodeMetadata{ID: "absent_hook"}}, SequenceData: recipe.SequenceData{Outputs: n.Include.IfMissing.Outputs}}}
+		var inputs map[string]any
+		if result.SkipAbsentWorkspace {
+			// The synthetic body is another input scope. Forward already-bound
+			// wrapper inputs rather than evaluating include expressions twice.
+			inputs = make(map[string]any, len(n.Inputs))
+			for key := range n.Inputs {
+				inputs[key] = fmt.Sprintf("${{ inputs[%s] }}", quoteCELString(key))
+			}
+		}
+		rec = recipe.Recipe{RecipeImpl: &recipe.RecipeSequence{RecipeMetadata: recipe.RecipeMetadata{NodeMetadata: recipe.NodeMetadata{ID: "absent_hook", Inputs: inputs}}, SequenceData: recipe.SequenceData{Outputs: n.Include.IfMissing.Outputs}}}
 	} else {
 		recipeYAML, err = readResolvedRecipeYAML(ctx.JobContext.Context(), result.RecipeYAMLArtifact, result.RecipeYAML, recipeArtifact)
 		if err != nil {
@@ -548,6 +563,9 @@ func prepareHook(ctx workflow.Context, parent *template.ResolutionContext, n *re
 		return recipe.Node{}, err
 	}
 	seq := wrapper.NodeImpl.(*recipe.NodeSequence)
+	if result.SkipAbsentWorkspace {
+		seq.Workspace = nil
+	}
 	seq.Internal.HookAuthority = &authority
 	if !result.Absent {
 		parsed, err := parseGitRecipeSelector(result.Source.ResolvedSelector)
@@ -579,6 +597,28 @@ func prepareHook(ctx workflow.Context, parent *template.ResolutionContext, n *re
 		}
 	}
 	return wrapper, nil
+}
+
+// Keep the complete legacy command: JobDB compares it before reading results
+// or stored waiting input. Only fresh load inputs opt into the new behavior.
+// A recorded result, including one produced by an older worker, selects the path.
+func callHookResolution(ctx jobworkflow.ExecutionContext, site string, req workerops.ActivityInvocationRequest, optIn bool) (jobdb.TaskData, error) {
+	if !optIn {
+		return workflow.ValueCall(ctx, site, hookResolveTaskType, jobdb.RunPolicy{}, req)
+	}
+	command, err := json.Marshal(req)
+	if err != nil {
+		return nil, err
+	}
+	return ctx.DoTask(jobworkflow.TaskCall{Site: site, TaskType: hookResolveTaskType, ContractVersion: 1, Command: command, Policy: jobdb.RunPolicy{}}, func(context.Context) (jobdb.TaskData, error) {
+		input := req
+		input.Input = make(map[string]any, len(req.Input)+1)
+		for key, value := range req.Input {
+			input.Input[key] = value
+		}
+		input.Input["skip_absent_workspace"] = true
+		return jobdb.NewTaskData(input)
+	})
 }
 
 func compileExpectedOutputs(schema map[string]any) (*jsonschema.Schema, error) {

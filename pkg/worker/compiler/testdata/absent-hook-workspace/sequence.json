@@ -1,0 +1,15 @@
+{
+  "Key": {
+    "tenantId": "git-tests",
+    "jobId": "3M51az45rgytTuLqvdEq7cWPUbw"
+  },
+  "Output": {
+    "later_head": "90447597a31b09a261898906d0da10c85397e262",
+    "later_scope": "271dbc959f40ffa75880de07fe86f7528da759952fcf40fd2a0a345636ec7b53",
+    "result": {
+      "cell": "test",
+      "hash": "",
+      "status": "skipped"
+    }
+  }
+}

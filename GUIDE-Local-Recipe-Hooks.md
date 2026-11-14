@@ -127,6 +127,27 @@ JobDB configuration block, and existing secret grants govern obtaining credentia
 stored there. No workspace permission or per-hook cell allowlist is needed.
 The hook's grant also applies when preparing a workspace declared on its include.
 
+After successful source loading confirms an optional hook is absent, its
+`if_missing` outputs run without entering the workspace declared on that include.
+c2j does not evaluate that workspace's selectors, look up its target, or fetch it.
+Source discovery still runs and can require Git access: `from_current` includes
+saved unpushed hook additions and removals in the consuming workspace.
+
+Fallback expressions use the incoming caller's `context.workspace` and
+`context.git`, with the include's bound inputs and variables. An explicit candidate
+input still names the selected consuming candidate. The fallback retains empty
+hook authority and normal output validation, retries and catch handling. A
+workspace on an enclosing node still applies; put a workspace there if it must
+be entered even when the hook is absent. Ordinary empty sequences retain their
+workspace behavior. Present hooks retain their declared execution workspace.
+
+The load result records this choice. Retained legacy loads without the decision
+keep their original workspace entry and fallback input/context behavior during
+resume, retry, restart and replay. Discarding that load on restart permits a fresh
+decision. Upgrade both compiler and task workers to obtain suppression for new
+invocations; a combination with an older peer conservatively keeps the legacy
+path. This does not repair an already failed workspace or repeat publication.
+
 Deploy c2j with a JobDB server supporting the lease cell lookup API (the c2j
 dependency includes commit `6bcbb4e`). Older servers have no lookup fallback.
 
