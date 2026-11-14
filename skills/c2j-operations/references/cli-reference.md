@@ -18,6 +18,7 @@ c2j run with-lease
 c2j ready
 c2j list
 c2j list children
+c2j job dag JOB
 c2j job clear-crash-concern JOB
 c2j delete
 c2j test
@@ -208,3 +209,40 @@ c2j test run --file ./recipes/tests/my.scenario.md --recipe-file ./recipes/my-re
 Use `c2j test validate --json` for structured validation summaries, or `c2j test run --jsonl-events events.jsonl` for execution events.
 
 For persisted records, cumulative exports and restart selection, read [inspection and recovery](inspection-and-recovery.md).
+
+## `c2j job dag`
+
+```bash
+c2j job dag self --json
+c2j job dag JOB --subtree --max-nodes 100 --max-depth 8 --timeout 10s
+c2j job dag JOB --json --output family.json
+```
+
+Shows the recorded submission family, following runtime parents then descendants
+across cells and job types in one tenant. Edges mean parent submitted child;
+waits, shared goals and metadata parents create no edges. The default includes
+siblings and cousins; `--subtree` skips ancestry. Hidden and archived records are
+requested under JobDB read permissions. Text shows one line per job: a status
+symbol, title and full ID aligned on the right, with the selected job marked.
+Separate scheduler status, completion outcome and cancellation-request fields
+appear only in JSON.
+
+Bounds default to 1,000 nodes, 64 descendant levels and 30s; flags must be
+positive. Fixed caps are 64 ancestor hops, 200 child pages and 300 requests.
+Depth starts at the highest retained ancestor. Both formats describe incomplete
+branches, limits and anomalies: text warns only when the tree is incomplete or
+inconsistent. JSON retains full diagnostic detail; observation start/end times
+are JSON-only.
+
+Exit 0: requested observed listings exhausted. Exit 2: usable partial output
+written; inspect `coverage`. Exit 1: input, entry/protocol or output failure.
+JSON version 1 includes full identities, submission edges, root confirmation,
+limits, counts and ancestry/child coverage. Subtree ancestry is `not_requested`,
+with no global root claim. A failed or unqueried branch is never an empty leaf.
+
+`--output` writes the selected format to a new file, or stdout with `-`.
+Existing files remain untouched; valid partial files survive exit 2. DAG JSON is
+not subject to the other inspection commands' terminal byte limit.
+Inside tasks, use `self` and the authenticated helper; `--jobdb` cannot bypass it.
+Upgrade the worker and CLI together when family inspection is unsupported.
+See `GUIDE-Job-Inspection.md` in the c2j repository for coverage semantics. No Cortex connection or execution-history reads are required.

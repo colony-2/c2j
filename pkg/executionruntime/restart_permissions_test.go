@@ -12,6 +12,7 @@ import (
 	"github.com/colony-2/c2j/pkg/childbroker"
 	"github.com/colony-2/c2j/pkg/execution"
 	"github.com/colony-2/c2j/pkg/jobcontext"
+	"github.com/colony-2/c2j/pkg/jobinspect"
 	"github.com/colony-2/c2j/pkg/jobrestart"
 	restartservice "github.com/colony-2/c2j/pkg/jobrestart/service"
 	"github.com/colony-2/c2j/pkg/permissions"
@@ -92,6 +93,11 @@ func TestLeaseBoundRestartHelperSubmission(t *testing.T) {
 				require.NoError(t, e)
 				require.NotNil(t, result.Ref)
 				require.NoError(t, result.Ref.Validate())
+				family, e := jobinspect.ReadDAG(ctx, client, result.Ref.JobID, jobinspect.DefaultDAGOptions())
+				require.NoError(t, e)
+				require.True(t, family.Coverage.Complete)
+				require.Equal(t, tc.JobKey.JobId, family.Root.ID)
+				require.Contains(t, family.Edges, jobinspect.SubmissionEdge{Type: "submission", Parent: tc.JobKey.JobId, Child: result.Ref.JobID})
 				require.Equal(t, "tenant", result.Ref.TenantID)
 				retry, e := client.Restart(ctx, helperRequest)
 				require.NoError(t, e)

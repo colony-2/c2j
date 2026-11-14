@@ -286,6 +286,12 @@ func (h *history) selected(id string, n int) (*attempt, error) {
 	return nil, fmt.Errorf("task %q attempt %d not found", id, n)
 }
 func (s *Service) Inspect(ctx context.Context, q Request) (*Response, error) {
+	if q.Operation == "family-node" || q.Operation == "family-children" {
+		return s.family(ctx, q)
+	}
+	if q.Family != nil {
+		return nil, fmt.Errorf("family options require a family operation")
+	}
 	if q.Operation == "events" {
 		page, err := s.ListJobLeaseEvents(ctx, q.JobID, q.Events)
 		if err != nil {

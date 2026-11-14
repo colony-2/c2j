@@ -63,7 +63,13 @@ func (s *Server) handleJobInspection(w http.ResponseWriter, r *http.Request) {
 	}
 	result, err := api.Inspect(ctx, q)
 	if err != nil {
-		if q.Operation == "events" {
+		if q.Operation == "events" || q.Family != nil {
+			if q.Family != nil && (errors.Is(err, jobdb.ErrExecutionLeaseLost) || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)) {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(409)
+				_ = json.NewEncoder(w).Encode(&jobdb.CellError{Code: jobinspect.FamilyErrorReason(err), Status: 409})
+				return
+			}
 			if errors.Is(err, jobdb.ErrLeasePermissionDenied) {
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(403)
@@ -92,9 +98,9 @@ func (c JobClient) call(ctx context.Context, q jobinspect.Request, download bool
 	if download {
 		suffix += "/download"
 	}
-	return c.callPayload(ctx, q, suffix, q.Operation == "events")
+	return c.callPayload(ctx, q, suffix, q.Operation == "events" || q.Family != nil)
 }
-func (c JobClient) callPayload(ctx context.Context, q any, suffix string, events bool) (*http.Response, error) {
+func (c JobClient) callPayload(ctx context.Context, q any, suffix string, typedErrors bool) (*http.Response, error) {
 	u, err := url.Parse(strings.TrimRight(c.Broker.Endpoint, "/") + suffix)
 	if err != nil || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
 		return nil, fmt.Errorf("invalid task inspection endpoint")
@@ -124,14 +130,29 @@ func (c JobClient) callPayload(ctx context.Context, q any, suffix string, events
 	if resp.StatusCode != http.StatusOK {
 		defer resp.Body.Close()
 		b, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-		if events {
+		if typedErrors {
 			var typed jobdb.CellError
 			if json.Unmarshal(b, &typed) == nil && typed.Code != "" && typed.Status == resp.StatusCode {
 				if typed.Code == "lease_permission_denied" {
 					return nil, jobdb.ErrLeasePermissionDenied
 				}
+				if family, ok := q.(jobinspect.Request); ok && family.Family != nil {
+					switch typed.Code {
+					case "lease_lost":
+						return nil, jobdb.ErrExecutionLeaseLost
+					case "canceled":
+						return nil, context.Canceled
+					case "timeout":
+						return nil, context.DeadlineExceeded
+					case "invalid_request", "unsupported_operation":
+						return nil, fmt.Errorf("%w (%s); upgrade the worker and CLI together", jobinspect.ErrFamilyProtocol, typed.Code)
+					}
+				}
 				return nil, &typed
 			}
+		}
+		if family, ok := q.(jobinspect.Request); ok && family.Family != nil && (resp.StatusCode == 501 || resp.StatusCode == 404 || (resp.StatusCode == 400 && strings.TrimSpace(string(b)) == "invalid inspection request")) {
+			return nil, fmt.Errorf("%w; upgrade the worker and CLI together", jobinspect.ErrFamilyProtocol)
 		}
 		return nil, fmt.Errorf("task inspection rejected (%d): %s", resp.StatusCode, strings.TrimSpace(string(b)))
 	}
@@ -145,6 +166,11 @@ type transportBody struct {
 
 func (b *transportBody) Close() error { err := b.ReadCloser.Close(); b.close(); return err }
 func (c JobClient) Inspect(ctx context.Context, q jobinspect.Request) (*jobinspect.Response, error) {
+	if q.Family != nil {
+		if err := jobinspect.ValidateFamilyRequest(q); err != nil {
+			return nil, err
+		}
+	}
 	resp, err := c.call(ctx, q, false)
 	if err != nil {
 		return nil, err
@@ -155,7 +181,15 @@ func (c JobClient) Inspect(ctx context.Context, q jobinspect.Request) (*jobinspe
 		return nil, err
 	}
 	if out.Version != jobinspect.Version {
+		if q.Family != nil {
+			return nil, fmt.Errorf("%w; upgrade the worker and CLI together", jobinspect.ErrFamilyProtocol)
+		}
 		return nil, fmt.Errorf("unsupported job inspection response version")
+	}
+	if q.Family != nil {
+		if err := jobinspect.ValidateFamilyResponse(&out); err != nil {
+			return nil, err
+		}
 	}
 	return &out, nil
 }

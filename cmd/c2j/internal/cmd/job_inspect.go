@@ -59,8 +59,10 @@ download an artifact, or export the cumulative workspace at that point.
 Inside a task, JOB may be 'self'; reads follow JobDB permissions for the selected tenant.
 Use 'c2j job clear-crash-concern JOB' with operator credentials to restore
 scheduling eligibility after repeated worker crashes.
+Use 'c2j job dag JOB' to see recorded submission parents and descendants.
 
 Example:
+  c2j job dag JOB --json
   c2j job log JOB --json
   c2j job log JOB --task TASK --field /summary
   c2j job snapshot JOB --task TASK --dir ./recovered
@@ -71,6 +73,7 @@ Use 'git -C CHECKOUT diff refs/c2j/base HEAD' to review cumulative changes.`}
 	root.PersistentFlags().BoolVar(&embed, "embed", false, "Use embedded JobDB")
 	root.PersistentFlags().BoolVar(&jsonOutput, "json", false, "Emit structured JSON")
 	root.AddCommand(newClearCrashConcernCmd(&uri, &embed, &jsonOutput))
+	root.AddCommand(newJobDAGCmd(&uri, &embed, &jsonOutput, openInspection))
 	root.AddCommand(newRestartInspection("points", &uri, &embed, &jsonOutput, openRestart), newRestartInspection("context", &uri, &embed, &jsonOutput, openRestart))
 	for _, operation := range []string{"events", "list", "show", "log", "story", "result", "fields", "artifacts", "artifact", "snapshot"} {
 		op := operation

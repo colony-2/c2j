@@ -16,6 +16,7 @@ import (
 const Version = 1
 
 type Request struct {
+	Family    *FamilyOptions     `json:"family,omitempty"`
 	Events    LeaseEventOptions  `json:"events,omitzero"`
 	Operation string             `json:"operation"`
 	JobID     string             `json:"job_id,omitempty"`
@@ -38,6 +39,7 @@ type API interface {
 }
 
 type Response struct {
+	Family      *FamilyPage                    `json:"family,omitempty"`
 	Version     int                            `json:"version"`
 	LeaseEvents *jobdb.ListLeaseEventsResponse `json:"lease_events,omitempty"`
 	Job         *Job                           `json:"job,omitempty"`

@@ -150,6 +150,24 @@ func TestTaskInspectionUsesBackendReadPermissions(t *testing.T) {
 			require.Equal(t, sibling.JobKey.JobId, siblingResponse.Job.ID)
 
 			standalone := &jobinspect.Service{Runtime: base, Tenant: "tenant"}
+			var expected *jobinspect.DAG
+			for _, reader := range []jobinspect.API{standalone, api, client} {
+				family, e := jobinspect.ReadDAG(ctx, reader, self.JobKey.JobId, jobinspect.DefaultDAGOptions())
+				require.NoError(t, e)
+				require.True(t, family.Coverage.Complete)
+				require.True(t, family.Root.Confirmed)
+				require.Equal(t, ancestor.JobKey.JobId, family.Root.ID)
+				require.Len(t, family.Nodes, 6)
+				require.Len(t, family.Edges, 5)
+				if expected == nil {
+					expected = family
+				} else {
+					require.Equal(t, expected.Nodes, family.Nodes)
+					require.Equal(t, expected.Edges, family.Edges)
+					require.Equal(t, expected.Coverage, family.Coverage)
+				}
+			}
+
 			for _, q := range []jobinspect.Request{{Operation: "list", Limit: 2}, {Operation: "list", Parent: parent.JobKey.JobId, Limit: 1}, {Operation: "list", Parent: ancestor.JobKey.JobId}, {Operation: "list", Status: []jobdb.JobStatus{jobdb.JobStatusCompleted}}} {
 				for {
 					want, e := standalone.Inspect(ctx, q)
@@ -341,12 +359,17 @@ func TestTaskInspectionLifetimeGuards(t *testing.T) {
 				want = context.Canceled
 			}
 			api := jobinspect.FromContext(scope)
-			for _, op := range []string{"show", "list", "download"} {
+			for _, op := range []string{"show", "list", "download", "family-node", "family-children"} {
 				var e error
 				if op == "download" {
 					_, e = api.Download(call, jobinspect.Request{JobID: "unrelated", Name: "x"})
 				} else {
-					_, e = api.Inspect(call, jobinspect.Request{Operation: op, JobID: "unrelated"})
+					q := jobinspect.Request{Operation: op, JobID: "unrelated"}
+					if strings.HasPrefix(op, "family-") {
+						q.Family = &jobinspect.FamilyOptions{Version: 1}
+						q.Limit = 100
+					}
+					_, e = api.Inspect(call, q)
 				}
 				require.ErrorIs(t, e, want, op)
 			}

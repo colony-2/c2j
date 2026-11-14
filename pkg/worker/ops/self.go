@@ -27,7 +27,7 @@ func invocationSelf(ctx context.Context, current jobcontext.Current, paths coreo
 		info.Workspace = workspace
 		info.SetCapabilities(canSubmit, paths.WorktreePath != "", gitprofile.FromContext(ctx) != nil, permissions.FromContext(ctx) != nil)
 		if jobinspect.FromContext(ctx) != nil {
-			info.Capabilities["jobs.inspect"] = selfinfo.Capability{Permission: "granted", Availability: "ready", Command: selfinfo.String("c2j job log self"), Route: selfinfo.String("child_job_broker"), Restrictions: []string{"current job and direct children"}}
+			info.Capabilities["jobs.inspect"] = selfinfo.Capability{Permission: "granted", Availability: "ready", Command: selfinfo.String("c2j job log self"), Route: selfinfo.String("child_job_broker"), Restrictions: []string{"reads follow JobDB permissions for the selected tenant"}}
 			switch info.Lease.Status {
 			case "lost", "expired", "cancelled":
 				c := info.Capabilities["jobs.inspect"]

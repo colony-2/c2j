@@ -46,6 +46,104 @@ Compact history can omit normal scope completion; those rows say
 Running jobs can have work in process that has not yet been recorded; inspection
 reports this limit and does not invent temporary task IDs.
 
+## See a job's submission family
+
+```sh
+c2j job dag JOB
+c2j job dag self --json
+c2j job dag JOB --subtree --max-nodes 100 --max-depth 8 --timeout 10s
+c2j job dag JOB --json --output family.json
+```
+
+`dag` follows recorded runtime parents to the highest readable ancestor, then
+shows its descendants across cells and job types, including siblings and cousins.
+Each edge means **parent submitted child**. Shared goals, waits, recipe metadata
+and copied restart histories do not create edges. `--subtree` skips parent reads
+and shows only the selected job and its descendants. Hidden and archived jobs
+are requested under existing JobDB permissions, within the selected tenant.
+
+Text gives each job one line: a status symbol, title and full ID aligned in a
+column on the right. Tree connectors show the submission path, and `[selected]`
+marks the requested job. For example, selecting the implementation job includes
+its parent, sibling and descendant:
+
+```text
+▶ Build application                        parent-full-id
+|-- ▶ Implement DAG  [selected]             selected-full-id
+|   `-- ✓ Explain submission relationships  descendant-full-id
+`-- ○ Check documentation                  sibling-full-id
+```
+
+Symbols are `▶` active, `○` ready, `…` waiting, `✓` succeeded, `✗` failed,
+`⊘` cancelled, `!` cancellation requested or scheduler concern (expired lease
+or crash concern), and `?` unknown status or completion outcome.
+Titles escape terminal controls and shorten to at most 72 displayed characters;
+JSON keeps the full title. Missing titles say `(untitled job)`.
+Siblings sort by full ID. Healthy trees have no metadata footer or warning.
+An incomplete or inconsistent tree adds a warning with affected jobs and reasons;
+full diagnostic detail remains in JSON. A failed job alone does not mean the tree
+is inconsistent.
+The result observes an interval rather than an atomic snapshot; rerun to refresh.
+
+For agents, **use `c2j job dag JOB --json`** instead of parsing the text tree.
+`--json` writes only the structured document to stdout; diagnostics go to stderr.
+Use `--json --output family.json` to save it without a terminal byte cutoff.
+The same family is returned in both formats, including parents and descendants.
+
+Defaults are 1,000 retained jobs, 64 descendant levels and 30 seconds. Positive
+`--max-nodes`, `--max-depth` and `--timeout` values override those limits. Fixed
+safety caps are 64 ancestor hops, 200 child pages and 300 inspection requests.
+Depth starts at the highest retained ancestor, even when selecting a deep child.
+The selected job and readable ancestor chain remain visible at depth boundaries.
+
+Exit 0 means the requested observed listings exhausted. Exit 2 means usable
+partial output was written: read the text warning or inspect JSON ancestry, child
+boundaries and anomalies for unreadable branches, limits, repeated cursors or
+inconsistent relationships.
+An unqueried listing never implies a leaf. A confirmed root can still have
+incomplete descendants. Exit 1 means invalid input, entry/protocol failure or
+output failure. A successful empty lookup only means unavailable under current
+visibility; it does not prove deletion or denial.
+
+DAG JSON is a separate version-1 document with `selected`, `scope`, `nodes`,
+typed submission `edges`, `root`, `observed`, `limits`, `counts` and `coverage`.
+Coverage includes ancestry state, a child-listing state for every retained node,
+anomalies and `complete`. Ancestry in subtree mode is `not_requested`, with
+`root.confirmed` false. `limits.timeout_ns` is the effective duration in
+nanoseconds. Empty collections are arrays, and opaque next cursors are preserved.
+
+| JSON field | How to use it |
+| --- | --- |
+| `version` | Check the document contract; currently `1`. |
+| `selected.tenant`, `selected.id` | Identify the requested job independently of node order. |
+| `nodes[]` | Read full `id`, recorded `parent`, `cell`, `title`, `status`, `completion_status` and other job context. Optional labels and parent are omitted when empty; absent or empty completion status means unknown. |
+| `edges[]` | Follow accepted `{type: "submission", parent, child}` connections. Node metadata alone does not establish an accepted edge. |
+| `root.id`, `root.confirmed` | Locate the highest retained ancestor and check whether its parentlessness was confirmed. |
+| `coverage.complete` | Check whether the requested observed listings exhausted. |
+| `coverage.ancestry`, `coverage.children[]`, `coverage.anomalies[]` | Inspect unfinished reads and rejected relationships. Child entries use `id`, `state`, `reason`, `next_cursor`. |
+| `observed`, `limits`, `counts` | Read observation times, effective bounds and actual work performed. |
+
+For example, after saving `family.json`, use jq to select job summaries or
+inspect coverage. Exit 2 from c2j still leaves a usable document; inspect it
+before treating the family as complete. Avoid a shell `&&` chain that would
+skip reading that partial result.
+
+```sh
+jq '.nodes[] | {id, parent, cell, title, status, completion_status}' family.json
+jq '.edges[] | {parent, child}' family.json
+jq '{complete: .coverage.complete, ancestry: .coverage.ancestry,
+     unfinished: [.coverage.children[] | select(.state != "exhausted")],
+     anomalies: .coverage.anomalies}' family.json
+```
+
+`--output FILE` creates a new file in the selected text or JSON format;
+`--output -` writes stdout. Existing files remain untouched. Usable partial files
+survive exit 2; failed writes or closes remove newly created files. DAG JSON has
+no terminal byte cutoff. Inside tasks, this command requires workers supporting
+the family inspection protocol; upgrade the worker and CLI together. It uses the
+authenticated inspection helper even with `--jobdb`, without ambient fallback.
+Compact reads do not load job execution histories, outputs, artifacts or waits.
+
 ## Read exact outputs and files
 
 ```sh
@@ -71,7 +169,8 @@ Empty `--field ''` selects the entire output, preserving numbers and types.
 Discovery pages default to 25 entries, with a maximum of 100. Continue using the
 returned `--cursor`. Task/result summaries cap their field and artifact inventory;
 use `fields` and `artifacts` for paginated discovery. Previews mark truncation.
-Large exact values require `--output FILE`; terminal JSON is limited to 256 KiB.
+Large exact values require `--output FILE`; terminal JSON for these commands is
+limited to 256 KiB (the separate DAG document has no byte cutoff).
 Files are created exclusively, and a failed download removes its partial file.
 `--output -` explicitly streams to stdout, including binary artifact bytes.
 

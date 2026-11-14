@@ -46,3 +46,31 @@ page token. Pagination is a live traversal; refresh by omitting the token.
 History starts only when compatible writers are deployed. Empty history is not
 proof that a job never ran. Deployment and collection activation are separate
 operator responsibilities.
+
+## Submission families
+
+```go
+options := jobinspect.DefaultDAGOptions()
+options.MaxNodes = 100
+family, err := jobinspect.ReadDAG(ctx, service, jobID, options)
+```
+
+`ReadDAG` retains the entry, follows runtime `ParentJobID` to the highest readable
+ancestor and discovers descendants breadth first. `options.Subtree` skips ascent.
+Errors before retaining the entry return an error. Later failures return a usable
+version-1 DAG with `Coverage.Complete` false and explicit branch reasons. A caller
+must check coverage; a nil error alone does not mean discovery completed.
+
+`family-node` and `family-children` inspection operations require `FamilyOptions{
+Version: 1}`, an explicit `JobID`, and `Limit` in 1–100. Only children accept
+`Cursor`. Both authorize before one compact `ListJobs` call with the service's
+tenant, hidden records and both stores. They load no execution histories or
+per-node detail. Results use `Response.Family`, independently versioned with a
+non-null node array. Task helpers validate this envelope and preserve safe typed
+errors; unsupported workers must be upgraded alongside the CLI.
+
+The DAG's nodes and typed submission edges are sorted by full ID. Coverage,
+observation times, effective limits and actual counts distinguish exhausted
+listings from unqueried or failed branches. See the repository's
+[inspection guide](../../GUIDE-Job-Inspection.md#see-a-jobs-submission-family)
+for command flags, coverage states and output/exit behavior.

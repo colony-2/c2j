@@ -8,6 +8,7 @@ import (
 	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/c2j/pkg/execution"
 	"github.com/colony-2/c2j/pkg/jobdbschema"
+	"github.com/colony-2/c2j/pkg/jobinspect"
 	"github.com/colony-2/c2j/pkg/recipe"
 	"github.com/colony-2/c2j/pkg/starter"
 	"github.com/colony-2/jobdb/pkg/jobdb"
@@ -68,6 +69,11 @@ func TestRestartReconstructsRequirementsAtSelectedScope(t *testing.T) {
 				ref, err := starter.RestartRecipeJob(ctx, submitter, prior, scopeID, nil, opts)
 				require.NoError(t, err)
 				f.key = ref.Key()
+				family, e := jobinspect.ReadDAG(ctx, &jobinspect.Service{Runtime: f.runtime, Tenant: f.key.TenantId}, f.key.JobId, jobinspect.DefaultDAGOptions())
+				require.NoError(t, e)
+				require.True(t, family.Root.Confirmed)
+				require.Equal(t, f.key.JobId, family.Root.ID)
+				require.Empty(t, family.Edges)
 				info, err := f.runtime.GetJob(ctx, f.key)
 				require.NoError(t, err)
 				initial, err := execution.PayloadDemand(info.ClientPayload)

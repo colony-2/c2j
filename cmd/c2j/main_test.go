@@ -3,7 +3,12 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
+	"github.com/colony-2/c2j/pkg/childbroker"
+	"github.com/colony-2/c2j/pkg/jobcontext"
+	"github.com/colony-2/c2j/pkg/jobinspect"
+	"github.com/colony-2/c2j/pkg/selfinfo"
 	"io"
 	"log"
 	"net/http"
@@ -104,6 +109,79 @@ func TestWithLeaseCLIErrorOutput(t *testing.T) {
 			require.Equal(t, tt.hint, strings.Contains(output, "If running inside Docker"))
 			require.NotContains(t, output, "HTTP status 0")
 			require.NotContains(t, output, "secret-")
+		})
+	}
+}
+
+type dagProcessAPI struct{ partial, absent bool }
+
+func (a dagProcessAPI) Inspect(_ context.Context, q jobinspect.Request) (*jobinspect.Response, error) {
+	if a.absent {
+		return nil, fmt.Errorf("entry unavailable")
+	}
+	if q.Operation == "family-children" && a.partial {
+		return nil, fmt.Errorf("children unavailable")
+	}
+	p := &jobinspect.FamilyPage{Version: 1, Nodes: []jobinspect.FamilyNode{}}
+	if q.Operation == "family-node" {
+		p.Nodes = append(p.Nodes, jobinspect.FamilyNode{ID: q.JobID, Tenant: "tenant", Status: "READY"})
+	}
+	return &jobinspect.Response{Version: 1, Family: p}, nil
+}
+func (dagProcessAPI) Download(context.Context, jobinspect.Request) (io.ReadCloser, error) {
+	panic("unexpected download")
+}
+func TestDAGCLIProcessExitCodes(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		api  dagProcessAPI
+		code int
+	}{{"complete", dagProcessAPI{}, 0}, {"partial", dagProcessAPI{partial: true}, 2}, {"absent", dagProcessAPI{absent: true}, 1}} {
+		t.Run(tc.name, func(t *testing.T) {
+			current := jobcontext.Current{TenantID: "tenant", JobID: "selected", GoalID: "goal"}
+			server, err := childbroker.Start(jobinspect.WithAPI(context.Background(), tc.api), childbroker.Options{Current: current, Self: func() selfinfo.Info { return selfinfo.Unknown("") }})
+			require.NoError(t, err)
+			defer server.Close()
+			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+			defer cancel()
+			command := exec.CommandContext(ctx, os.Args[0], "-test.run=^TestLeaseDiagnosticProcess$", "--", "job", "dag", "self", "--json", "--jobdb", "invalid://ambient")
+			var env []string
+			for _, kv := range os.Environ() {
+				k, _, _ := strings.Cut(kv, "=")
+				if !strings.HasPrefix(k, "C2J_CURRENT_") && !strings.HasPrefix(k, "C2J_CHILD_JOB_") {
+					env = append(env, kv)
+				}
+			}
+			for k, v := range jobcontext.EnvForCurrent(current) {
+				env = append(env, k+"="+v)
+			}
+			for k, v := range server.Env() {
+				env = append(env, k+"="+v)
+			}
+			command.Env = append(env, "C2J_TEST_LEASE_PROCESS=1")
+			command.Dir = t.TempDir()
+			var stdout, stderr bytes.Buffer
+			command.Stdout, command.Stderr = &stdout, &stderr
+			err = command.Run()
+			if tc.code == 0 {
+				require.NoError(t, err)
+				require.Empty(t, stderr.String())
+			} else {
+				var exit *exec.ExitError
+				require.ErrorAs(t, err, &exit)
+				require.Equal(t, tc.code, exit.ExitCode())
+				require.Contains(t, stderr.String(), "Error:")
+			}
+			if tc.code == 1 {
+				require.Empty(t, stdout.String())
+			} else {
+				var d jobinspect.DAG
+				require.NoError(t, json.Unmarshal(stdout.Bytes(), &d))
+				require.Equal(t, tc.code == 0, d.Coverage.Complete)
+				require.NotNil(t, d.Nodes)
+				require.NotNil(t, d.Edges)
+				require.NotNil(t, d.Coverage.Anomalies)
+			}
 		})
 	}
 }
