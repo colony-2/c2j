@@ -180,6 +180,55 @@ func TestHookBrokenSourcesAndOutputFailClosed(t *testing.T) {
 	}
 }
 
+func TestAbsentHookSkipsExecutionWorkspace(t *testing.T) {
+	for _, shape := range []string{"sequence", "state"} {
+		for _, valid := range []bool{true, false} {
+			t.Run(fmt.Sprintf("%s/valid=%t", shape, valid), func(t *testing.T) {
+				repo := filepath.Join(t.TempDir(), "repo")
+				workspaceRepo(t, repo, "A")
+				ctx, eng, _, provider := hookTestEngine(t, workspaceTestWorker(t))
+				// Source loading uses the consuming repository. This unregistered
+				// execution workspace must never be resolved for a missing hook.
+				node := `   include:
+     recipe: cell://.c2/hooks/missing.yaml
+     if_missing: {outputs: {decision: continue, artifact_refs: {}}}
+   workspace: {cell: absent-hook-must-not-resolve}
+   perms: {limit: {jobdb: {}}}
+   expect_outputs:
+     type: object
+     required: [decision, artifact_refs]
+     properties:
+       decision: {enum: [continue]}
+       artifact_refs: {type: object, maxProperties: 0}
+`
+				if !valid {
+					node = strings.Replace(node, "enum: [continue]", "enum: [rejected]", 1)
+				}
+				body := "id: parent\nsequence:\n - id: hook\n" + node + "outputs: {decision: '${{ sequence.hook.outputs.decision }}'}\n"
+				if shape == "state" {
+					body = "id: parent\nstate:\n initial: hook\n states:\n  hook:\n" + node + "outputs: {decision: '${{ states.hook.outputs.decision }}'}\n"
+				}
+				job := startHookTest(t, ctx, eng, repo, body)
+				result, err := swfutil.JobResult(ctx, eng, job)
+				if !valid {
+					require.ErrorContains(t, err, "hook output contract")
+				} else {
+					require.NoError(t, err)
+					raw, err := result.GetData()
+					require.NoError(t, err)
+					require.JSONEq(t, `{"decision":"continue"}`, string(raw))
+					// Replaying the recorded absence needs neither source access nor
+					// another workspace lookup.
+					require.NoError(t, os.RemoveAll(repo))
+					_, err = eng.ReplayJobRun(ctx, jobworkflow.ReplayRunRequest{JobKey: job, JobWorker: NewRecipeJobWorker(RecipeJobWorkerOptions{ReadOnlyReplay: true})})
+					require.NoError(t, err)
+				}
+				require.Empty(t, provider.Calls())
+			})
+		}
+	}
+}
+
 type hookChildSubmitter struct{ access *permissions.Access }
 
 func (s hookChildSubmitter) SubmitJobRef(ctx context.Context, job jobdb.SubmitJob) (jobref.Ref, error) {
