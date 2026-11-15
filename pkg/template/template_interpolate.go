@@ -2,6 +2,7 @@ package template
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"regexp"
@@ -399,7 +400,37 @@ func (rc *ResolutionContext) ResolveTemplateWithMode(expr string, mode RenderMod
 	return rc.interpolateString(expr, mode)
 }
 
-// ResolveValueWithMode recursively resolves templates in a value with a specific mode
+// ResolveValueWithContext binds only this evaluation to its caller's lifetime.
+// Rebuild the CEL bindings on a lexical view: shared providers keep their memo
+// tables, while neither their context nor the caller's environment is mutated.
+func (rc *ResolutionContext) ResolveValueWithContext(ctx context.Context, value interface{}, mode RenderMode) (interface{}, error) {
+	view, err := rc.WithEvaluationContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out, err := view.ResolveValueWithMode(value, mode)
+	if contextErr := ctx.Err(); contextErr != nil {
+		return nil, contextErr
+	}
+	return out, err
+}
+
+// WithEvaluationContext creates a lexical view for one execution lifetime.
+// Descendant scopes inherit it; rebinding leaves the original resolver and shared
+// function memoization untouched.
+func (rc *ResolutionContext) WithEvaluationContext(ctx context.Context) (*ResolutionContext, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	view := rc.ExecutionView()
+	view.evaluationContext = ctx
+	if _, err := view.initializeCEL(); err != nil {
+		return nil, err
+	}
+	return view, nil
+}
+
+// ResolveValueWithMode recursively resolves templates in a value with a specific mode.
 func (rc *ResolutionContext) ResolveValueWithMode(value interface{}, mode RenderMode) (interface{}, error) {
 	if ref, ok, err := configuration.Parse(value); ok || err != nil {
 		if err != nil {

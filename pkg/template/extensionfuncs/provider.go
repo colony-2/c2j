@@ -31,6 +31,7 @@ const (
 var celIdentifierPattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
 type BuildOptions struct {
+	CapturedPackages []recipe.FunctionPackageSnapshot
 	BaseDir          string
 	RepositorySource string
 	RepositoryRef    string
@@ -110,7 +111,7 @@ func BuildProvider(ctx context.Context, imports []recipe.ExtensionFunctionImport
 				return nil, fmt.Errorf("extension function name collision for %q between %s and %s", imported.exposedName, prior, imp.Selector)
 			}
 			exposed[imported.exposedName] = imp.Selector
-			builder.WithBuiltin(imported.exposedName, imported.factory())
+			builder.WithRuntimeBuiltin(imported.exposedName, imported.factory())
 		}
 	}
 	return builder, nil
@@ -122,14 +123,20 @@ type importedFunction struct {
 }
 
 func loadPackage(ctx context.Context, selector string, opts BuildOptions) (*loadedPackage, error) {
-	resolved, err := extops.ResolvePath(ctx, selector, extops.ResolveOptions{
-		BaseDir:          strings.TrimSpace(opts.BaseDir),
-		RepositorySource: strings.TrimSpace(opts.RepositorySource),
-		RepositoryRef:    strings.TrimSpace(opts.RepositoryRef),
-		ResolvedRefs:     cloneResolvedRefs(opts.ResolvedRefs),
-	})
+	resolved, err := capturedPackage(ctx, selector, opts.CapturedPackages)
 	if err != nil {
 		return nil, err
+	}
+	if resolved == nil {
+		resolved, err = extops.ResolvePath(ctx, selector, extops.ResolveOptions{
+			BaseDir:          strings.TrimSpace(opts.BaseDir),
+			RepositorySource: strings.TrimSpace(opts.RepositorySource),
+			RepositoryRef:    strings.TrimSpace(opts.RepositoryRef),
+			ResolvedRefs:     cloneResolvedRefs(opts.ResolvedRefs),
+		})
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	manifestPath, err := locateManifestPath(resolved.Dir)
@@ -321,8 +328,8 @@ func (p *loadedPackage) importedFunctions(imp recipe.ExtensionFunctionImport) ([
 	return result, nil
 }
 
-func (i importedFunction) factory() funcregistry.BuiltinFactory {
-	return func(adapter celtypes.Adapter, _ funcregistry.ContextProvider) cel.EnvOption {
+func (i importedFunction) factory() funcregistry.RuntimeBuiltinFactory {
+	return func(adapter celtypes.Adapter, _ funcregistry.ContextProvider, ctx context.Context) cel.EnvOption {
 		argTypes := make([]*cel.Type, 0, len(i.loaded.argSchemas))
 		for _, arg := range i.loaded.argSchemas {
 			argTypes = append(argTypes, celTypeForSchema(arg.raw))
@@ -334,7 +341,7 @@ func (i importedFunction) factory() funcregistry.BuiltinFactory {
 				argTypes,
 				celTypeForSchema(i.loaded.returnSchema.raw),
 				cel.FunctionBinding(func(values ...ref.Val) ref.Val {
-					out, err := i.loaded.invoke(values)
+					out, err := i.loaded.invoke(ctx, values)
 					if err != nil {
 						return celtypes.NewErr("%s: %v", i.exposedName, err)
 					}
@@ -345,7 +352,10 @@ func (i importedFunction) factory() funcregistry.BuiltinFactory {
 	}
 }
 
-func (f *loadedFunction) invoke(values []ref.Val) (any, error) {
+func (f *loadedFunction) invoke(ctx context.Context, values []ref.Val) (any, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	if len(values) != len(f.argSchemas) {
 		return nil, fmt.Errorf("expected %d args, got %d", len(f.argSchemas), len(values))
 	}
@@ -374,8 +384,11 @@ func (f *loadedFunction) invoke(values []ref.Val) (any, error) {
 	}
 	f.memoMu.Unlock()
 
-	out, err := f.execute(args)
+	out, err := f.execute(ctx, args)
 	if err != nil {
+		return nil, err
+	}
+	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 	if err := f.returnSchema.validate(out); err != nil {
@@ -388,13 +401,13 @@ func (f *loadedFunction) invoke(values []ref.Val) (any, error) {
 	return cloneJSONValue(out)
 }
 
-func (f *loadedFunction) execute(args []any) (any, error) {
+func (f *loadedFunction) execute(ctx context.Context, args []any) (any, error) {
 	stdin, err := f.buildStdin(args)
 	if err != nil {
 		return nil, err
 	}
 
-	runCtx := context.Background()
+	runCtx := ctx
 	if f.pkg.timeout > 0 {
 		var cancel context.CancelFunc
 		runCtx, cancel = context.WithTimeout(runCtx, f.pkg.timeout)

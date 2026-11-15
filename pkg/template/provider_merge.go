@@ -1,6 +1,8 @@
 package template
 
 import (
+	"context"
+
 	"github.com/colony-2/c2j/pkg/template/funcregistry"
 	"github.com/google/cel-go/cel"
 	"github.com/google/cel-go/common/types"
@@ -41,8 +43,22 @@ func (c compositeCELOptionsProvider) FunctionOptions(adapter types.Adapter) ([]c
 }
 
 func (c compositeCELOptionsProvider) FunctionOptionsWithContext(adapter types.Adapter, ctxProvider funcregistry.ContextProvider) ([]cel.EnvOption, error) {
+	return c.FunctionOptionsWithRuntimeContext(adapter, ctxProvider, context.Background())
+}
+
+func (c compositeCELOptionsProvider) FunctionOptionsWithRuntimeContext(adapter types.Adapter, ctxProvider funcregistry.ContextProvider, ctx context.Context) ([]cel.EnvOption, error) {
 	var opts []cel.EnvOption
 	for _, provider := range c.providers {
+		if runtimeProvider, ok := provider.(interface {
+			FunctionOptionsWithRuntimeContext(types.Adapter, funcregistry.ContextProvider, context.Context) ([]cel.EnvOption, error)
+		}); ok {
+			extraOpts, err := runtimeProvider.FunctionOptionsWithRuntimeContext(adapter, ctxProvider, ctx)
+			if err != nil {
+				return nil, err
+			}
+			opts = append(opts, extraOpts...)
+			continue
+		}
 		if contextualProvider, ok := provider.(interface {
 			FunctionOptionsWithContext(types.Adapter, funcregistry.ContextProvider) ([]cel.EnvOption, error)
 		}); ok {

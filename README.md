@@ -621,6 +621,10 @@ Note:
 
 - `--json` and `--run` are mutually exclusive
 
+See [Including recipes from Git](GUIDE-Includes.md) for eager includes and opt-in
+`include: {bind: late, recipe: ...}` with immutable Git selectors, recovery and
+unpublished validation commands.
+
 ## Node workspaces
 
 Use `workspace: {cell: cellB}` on a recipe node to run against another cell's data. Every explicit declaration starts a fresh workspace; descendants share its durable Git snapshots. Cell and optional `ref` values accept runtime templates. When the node exits, execution resumes in the enclosing workspace without adopting its changes or publishing to the target cell.

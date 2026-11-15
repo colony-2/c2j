@@ -104,11 +104,15 @@ func (hookPolicyWorker) RunTask(ctx context.Context, tc jobworkflow.TaskContext,
 }
 
 func hasCellHooks(r recipe.Recipe) bool {
+	return recipeHasInclude(r, func(v *recipe.NodeInclude) bool { return strings.HasPrefix(v.Include.Recipe, "cell://") })
+}
+
+func recipeHasInclude(r recipe.Recipe, match func(*recipe.NodeInclude) bool) bool {
 	var walk func(recipe.Node) bool
 	walk = func(n recipe.Node) bool {
 		switch v := n.NodeImpl.(type) {
 		case *recipe.NodeInclude:
-			return strings.HasPrefix(v.Include.Recipe, "cell://")
+			return match(v)
 		case *recipe.NodeSequence:
 			for _, n := range v.Sequence {
 				if walk(n) {

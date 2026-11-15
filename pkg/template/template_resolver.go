@@ -1,9 +1,9 @@
 package template
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/colony-2/c2j/pkg/gitprofile"
 	"reflect"
 	"strings"
 	"time"
@@ -11,6 +11,7 @@ import (
 	recipeartifacts "github.com/colony-2/c2j/pkg/artifacts"
 	"github.com/colony-2/c2j/pkg/contextual"
 	"github.com/colony-2/c2j/pkg/execution"
+	"github.com/colony-2/c2j/pkg/gitprofile"
 	"github.com/colony-2/c2j/pkg/jobcontext"
 	"github.com/colony-2/c2j/pkg/permissions"
 	"github.com/colony-2/c2j/pkg/recipe"
@@ -102,6 +103,9 @@ type ResolutionContext struct {
 	lastArtifactRefs []recipeartifacts.Ref
 	lastJobs         jobcontext.StartedJobsContext
 	artifactCache    map[string]jobdb.Artifact
+
+	// evaluationContext is lexical runtime state, never recipe or task data.
+	evaluationContext context.Context
 }
 
 func (rc *ResolutionContext) UpdateGitState(commit contextual.GitCommitContext) {
@@ -131,18 +135,19 @@ func NewRecipeResolutionContext(commitContext *contextual.GitCommitContext, reci
 		options.CELOptionsProvider = builder
 	}
 
-	return newResolutionContext(commitContext, tracker, ScopeRecipe, "", recipeInputs, execCtx, options)
+	return newResolutionContext(commitContext, tracker, ScopeRecipe, "", recipeInputs, execCtx, options, nil)
 }
 
-func newResolutionContext(commitContext *contextual.GitCommitContext, tracker *invocationTracker, scopeType ScopeType, scopeId string, containerInputs map[string]interface{}, execCtx contextual.JobContext, options ResolutionOptions) (*ResolutionContext, error) {
+func newResolutionContext(commitContext *contextual.GitCommitContext, tracker *invocationTracker, scopeType ScopeType, scopeId string, containerInputs map[string]interface{}, execCtx contextual.JobContext, options ResolutionOptions, evaluationContext context.Context) (*ResolutionContext, error) {
 	rc := &ResolutionContext{
-		completion:    &completionPosition{},
-		GitProfile:    execCtx.GitProfile,
-		commitContext: commitContext,
-		ScopeType:     scopeType,
-		Options:       options,
-		tracker:       tracker,
-		scopeId:       scopeId,
+		evaluationContext: evaluationContext,
+		completion:        &completionPosition{},
+		GitProfile:        execCtx.GitProfile,
+		commitContext:     commitContext,
+		ScopeType:         scopeType,
+		Options:           options,
+		tracker:           tracker,
+		scopeId:           scopeId,
 		TemplateData: templateData{
 
 			ContainerInputs: containerInputs,
@@ -246,7 +251,11 @@ func (rc *ResolutionContext) initializeCEL() (*ResolutionContext, error) {
 		ctxProvider := func() contextual.TaskExecutionContext {
 			return rc.TaskExecutionContext()
 		}
-		if cp, ok := options.CELOptionsProvider.(contextualProvider); ok {
+		if cp, ok := options.CELOptionsProvider.(interface {
+			FunctionOptionsWithRuntimeContext(types.Adapter, funcregistry.ContextProvider, context.Context) ([]cel.EnvOption, error)
+		}); ok && rc.evaluationContext != nil {
+			extraOpts, err = cp.FunctionOptionsWithRuntimeContext(adapter, ctxProvider, rc.evaluationContext)
+		} else if cp, ok := options.CELOptionsProvider.(contextualProvider); ok {
 			extraOpts, err = cp.FunctionOptionsWithContext(adapter, ctxProvider)
 		} else {
 			extraOpts, err = options.CELOptionsProvider.FunctionOptions(adapter)
@@ -361,7 +370,7 @@ func (rc *ResolutionContext) NewChildContext(scopeType ScopeType, metadata recip
 	if scopeType != ScopeState && metadata.Internal != nil && metadata.Internal.CELProvider != nil {
 		options.CELOptionsProvider = metadata.Internal.CELProvider
 	}
-	child, err := newResolutionContext(rc.commitContext, rc.tracker.child(scopeId), scopeType, scopeId, inputs, rc.TaskExecutionContext().JobContext(), options)
+	child, err := newResolutionContext(rc.commitContext, rc.tracker.child(scopeId), scopeType, scopeId, inputs, rc.TaskExecutionContext().JobContext(), options, rc.evaluationContext)
 	if err != nil {
 		return nil, err
 	}
@@ -563,13 +572,20 @@ func (rc *ResolutionContext) evaluateCELExpression(expr string) (interface{}, er
 		return placeholderFromCELType(ast.OutputType()), nil
 	}
 
-	program, err := rc.CELEnv.Program(ast)
+	var programOptions []cel.ProgramOption
+	if rc.evaluationContext != nil {
+		if err := rc.evaluationContext.Err(); err != nil {
+			return nil, err
+		}
+		programOptions = append(programOptions, cel.InterruptCheckFrequency(100))
+	}
+	program, err := rc.CELEnv.Program(ast, programOptions...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create CEL program: %w", err)
 	}
 
 	// Pass templateData fields as CEL variables with native types
-	result, _, err := program.Eval(map[string]interface{}{
+	activation := map[string]interface{}{
 		"inputs":     rc.TemplateData.ContainerInputs,
 		"sequence":   rc.celSequenceValue(),
 		"states":     rc.celStatesValue(),
@@ -581,7 +597,13 @@ func (rc *ResolutionContext) evaluateCELExpression(expr string) (interface{}, er
 		"context":    rc.TaskExecutionContext(),
 		"item":       rc.localValue("item"),
 		"index":      rc.localValue("index"),
-	})
+	}
+	var result ref.Val
+	if rc.evaluationContext != nil {
+		result, _, err = program.ContextEval(rc.evaluationContext, activation)
+	} else {
+		result, _, err = program.Eval(activation)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to evaluate CEL expression: %w", err)
 	}

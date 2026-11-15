@@ -24,11 +24,15 @@ type ContextProvider func() contextual.TaskExecutionContext
 // Those helpers automatically register both CEL and Go-template equivalents.
 // WithBuiltin alone is CEL-only unless paired with WithTemplateFunc.
 type BuiltinFactory func(adapter types.Adapter, ctxProvider ContextProvider) cel.EnvOption
+
+// RuntimeBuiltinFactory binds a function to the current evaluation's lifetime.
+type RuntimeBuiltinFactory func(adapter types.Adapter, ctxProvider ContextProvider, ctx context.Context) cel.EnvOption
 type TemplateFuncFactory func(ctxProvider ContextProvider) interface{}
 
 // Builder holds a non-global set of builtin function factories and type declarations.
 type Builder struct {
 	factories         map[string]BuiltinFactory
+	runtimeFactories  map[string]RuntimeBuiltinFactory
 	templateFactories map[string]TemplateFuncFactory
 	typeDecls         []reflect.Type
 }
@@ -37,6 +41,7 @@ type Builder struct {
 func NewBuilder() *Builder {
 	return &Builder{
 		factories:         map[string]BuiltinFactory{},
+		runtimeFactories:  map[string]RuntimeBuiltinFactory{},
 		templateFactories: map[string]TemplateFuncFactory{},
 	}
 }
@@ -44,7 +49,7 @@ func NewBuilder() *Builder {
 // WithDefaults installs the legacy builtin set (json_parse, json_stringify, jq, string overloads).
 func (b *Builder) WithDefaults() *Builder {
 	for name, f := range defaultBuiltins() {
-		b.factories[name] = f
+		b.WithBuiltin(name, f)
 	}
 	for name, f := range defaultTemplateBuiltins() {
 		b.templateFactories[name] = f
@@ -59,7 +64,19 @@ func (b *Builder) WithDefaults() *Builder {
 // and Go templates. If you use WithBuiltin and need Go-template parity, also register
 // WithTemplateFunc for the same function name.
 func (b *Builder) WithBuiltin(name string, factory BuiltinFactory) *Builder {
+	delete(b.runtimeFactories, name)
 	b.factories[name] = factory
+	return b
+}
+
+// WithRuntimeBuiltin registers a CEL function that needs cancellation/deadlines.
+// Existing factories and callers without an evaluation context keep their behavior.
+func (b *Builder) WithRuntimeBuiltin(name string, factory RuntimeBuiltinFactory) *Builder {
+	delete(b.factories, name)
+	if b.runtimeFactories == nil {
+		b.runtimeFactories = map[string]RuntimeBuiltinFactory{}
+	}
+	b.runtimeFactories[name] = factory
 	return b
 }
 
@@ -74,6 +91,7 @@ func (b *Builder) WithTemplateFunc(name string, factory TemplateFuncFactory) *Bu
 
 // AddUnaryFunc registers a typed unary function with static output typing.
 func AddUnaryFunc[In any, Out any](b *Builder, name string, impl func(context.Context, In) (Out, error)) *Builder {
+	delete(b.runtimeFactories, name)
 	inT := reflect.TypeOf((*In)(nil)).Elem()
 	outT := reflect.TypeOf((*Out)(nil)).Elem()
 	b.registerType(inT)
@@ -118,6 +136,7 @@ func AddUnaryFunc[In any, Out any](b *Builder, name string, impl func(context.Co
 
 // AddBinaryFunc registers a typed binary function with static typing.
 func AddBinaryFunc[A any, B any, Out any](b *Builder, name string, impl func(context.Context, A, B) (Out, error)) *Builder {
+	delete(b.runtimeFactories, name)
 	aT := reflect.TypeOf((*A)(nil)).Elem()
 	bT := reflect.TypeOf((*B)(nil)).Elem()
 	outT := reflect.TypeOf((*Out)(nil)).Elem()
@@ -189,12 +208,23 @@ func (b *Builder) FunctionOptions(adapter types.Adapter) ([]cel.EnvOption, error
 
 // FunctionOptionsWithContext materializes cel.EnvOptions using the provided adapter and task context provider.
 func (b *Builder) FunctionOptionsWithContext(adapter types.Adapter, ctxProvider ContextProvider) ([]cel.EnvOption, error) {
+	return b.FunctionOptionsWithRuntimeContext(adapter, ctxProvider, context.Background())
+}
+
+// FunctionOptionsWithRuntimeContext also supplies the evaluation's Go context.
+func (b *Builder) FunctionOptionsWithRuntimeContext(adapter types.Adapter, ctxProvider ContextProvider, ctx context.Context) ([]cel.EnvOption, error) {
 	opts := make([]cel.EnvOption, 0, len(b.factories))
 	for name, factory := range b.factories {
 		if factory == nil {
 			return nil, fmt.Errorf("builtin %q has nil factory", name)
 		}
 		opts = append(opts, factory(adapter, ctxProvider))
+	}
+	for name, factory := range b.runtimeFactories {
+		if factory == nil {
+			return nil, fmt.Errorf("builtin %q has nil factory", name)
+		}
+		opts = append(opts, factory(adapter, ctxProvider, ctx))
 	}
 	return opts, nil
 }
@@ -269,6 +299,7 @@ func (b *Builder) registerType(rt reflect.Type) {
 
 // AddZeroFuncWithContext registers a zero-argument function that can access the TaskExecutionContext.
 func AddZeroFuncWithContext[Out any](b *Builder, name string, impl func(context.Context, contextual.TaskExecutionContext) (Out, error)) *Builder {
+	delete(b.runtimeFactories, name)
 	outT := reflect.TypeOf((*Out)(nil)).Elem()
 	b.registerType(outT)
 

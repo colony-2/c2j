@@ -16,8 +16,10 @@ import (
 	"github.com/colony-2/c2j/pkg/git/selectorcache"
 	"github.com/colony-2/c2j/pkg/gitprofile"
 	"github.com/colony-2/c2j/pkg/hookpolicy"
+	extops "github.com/colony-2/c2j/pkg/ops/extensions"
 	"github.com/colony-2/c2j/pkg/permissions"
 	"github.com/colony-2/c2j/pkg/recipe"
+	"github.com/colony-2/c2j/pkg/template/extensionfuncs"
 )
 
 const recipeSourceKindLocalFile = "localFile"
@@ -28,6 +30,9 @@ type InlineResolutionOptions struct {
 	WorkingDir string
 	Resolver   RecipeSourceResolver
 	RootSource *RecipeSourceResolution
+	// Runtime late capture carries the original caller's effective include
+	// authority and binds each source's CEL imports before merging descendants.
+	lateAuthority *permissions.State
 }
 
 type InlineResolutionResult struct {
@@ -40,9 +45,13 @@ func ResolveInlineRecipes(ctx context.Context, rec recipe.Recipe, opts InlineRes
 		resolver = NewRecipeSourceResolver(RecipeSourceResolverOptions{})
 	}
 	r := &inlineRecipeResolver{
-		projectID: strings.TrimSpace(opts.ProjectID),
-		resolver:  resolver,
-		gitRefs:   make(map[string]string),
+		projectID:           strings.TrimSpace(opts.ProjectID),
+		resolver:            resolver,
+		gitRefs:             make(map[string]string),
+		bindFunctionSources: opts.lateAuthority != nil,
+	}
+	if opts.lateAuthority != nil {
+		ctx = context.WithValue(ctx, inlineAuthorityKey{}, *opts.lateAuthority)
 	}
 	for key, value := range gitRefPinsFromRecipeSourceValue(opts.RootSource) {
 		r.gitRefs[key] = value
@@ -68,6 +77,9 @@ func ResolveInlineRecipes(ctx context.Context, rec recipe.Recipe, opts InlineRes
 		}
 		root := r.rootRepository
 		meta.Internal.RootRepository = &root
+		if r.bindFunctionSources {
+			meta.Internal.FunctionPackages = r.capturedFunctions
+		}
 	}
 	switch v := expanded.RecipeImpl.(type) {
 	case *recipe.RecipeSequence:
@@ -83,12 +95,14 @@ func ResolveInlineRecipes(ctx context.Context, rec recipe.Recipe, opts InlineRes
 }
 
 type inlineRecipeResolver struct {
-	rootRepository string
-	projectID      string
-	resolver       RecipeSourceResolver
-	gitRefs        map[string]string
-	extensions     recipe.ExtensionImports
-	depth          int
+	rootRepository      string
+	projectID           string
+	resolver            RecipeSourceResolver
+	gitRefs             map[string]string
+	extensions          recipe.ExtensionImports
+	depth               int
+	bindFunctionSources bool
+	capturedFunctions   []recipe.FunctionPackageSnapshot
 }
 
 type inlineRecipeSourceContext struct {
@@ -150,9 +164,59 @@ func (r *inlineRecipeResolver) rootSourceContext(opts InlineResolutionOptions) (
 }
 
 func (r *inlineRecipeResolver) expandRecipe(ctx context.Context, rec recipe.Recipe, source inlineRecipeSourceContext) (recipe.Recipe, error) {
+	if r.bindFunctionSources {
+		var err error
+		ctx, err = lateInlinePermissionContext(ctx, rec.GetMetadata().NodeMetadata)
+		if err != nil {
+			return recipe.Recipe{}, err
+		}
+		meta := recipeMetadataPtr(&rec)
+		imports := append([]recipe.ExtensionFunctionImport(nil), meta.Extensions.Functions...)
+		for i := range imports {
+			if extops.IsLocalSelector(imports[i].Selector) && source.GitRepositoryURL != "" {
+				imports[i].Selector = fmt.Sprintf("git+%s//%s@%s", source.GitRepositoryURL, path.Clean(imports[i].Selector), source.GitRef)
+			}
+		}
+		meta.Extensions.Functions = imports
+	}
 	ctx = inlinePermissionContext(ctx, rec.GetMetadata().NodeMetadata)
 	if spec := rec.GetMetadata().GitProfile; spec != nil {
 		ctx = context.WithValue(ctx, inlineGitProfileKey{}, spec)
+	}
+
+	if r.bindFunctionSources && len(rec.GetMetadata().Extensions.Functions) > 0 {
+		functionCtx, closeScope, err := inlineSourceGitProfile(ctx)
+		if err != nil {
+			return recipe.Recipe{}, err
+		}
+		defer closeScope()
+		imports := rec.GetMetadata().Extensions.Functions
+		var selectors []string
+		for _, imp := range imports {
+			selectors = append(selectors, imp.Selector)
+		}
+		pins, err := resolveSelectors(functionCtx, selectors, extops.ResolveOptions{RepositorySource: source.GitRepositoryURL, RepositoryRef: source.GitRef})
+		if err != nil {
+			return recipe.Recipe{}, err
+		}
+		imports = resolvedFunctionImports(imports, pins.ResolvedSelectors)
+		packages, err := extensionfuncs.CapturePackages(functionCtx, imports, extensionfuncs.BuildOptions{RepositorySource: source.GitRepositoryURL, RepositoryRef: source.GitRef, ResolvedRefs: pins.ResolvedGitRefs})
+		if err != nil {
+			return recipe.Recipe{}, err
+		}
+		for _, pkg := range packages {
+			exists := false
+			for _, old := range r.capturedFunctions {
+				if old.Selector == pkg.Selector {
+					exists = true
+					break
+				}
+			}
+			if !exists {
+				r.capturedFunctions = append(r.capturedFunctions, pkg)
+			}
+		}
+		recipeMetadataPtr(&rec).Extensions.Functions = imports
 	}
 	switch node := rec.RecipeImpl.(type) {
 	case *recipe.RecipeSequence:
@@ -227,6 +291,13 @@ func (r *inlineRecipeResolver) expandNode(ctx context.Context, node recipe.Node,
 		// loaded child's preparation and nested includes, not this bootstrap read.
 		if _, include := node.NodeImpl.(*recipe.NodeInclude); !include {
 			ctx = inlinePermissionContext(ctx, node.GetMetadata())
+			if r.bindFunctionSources {
+				var err error
+				ctx, err = lateInlinePermissionContext(ctx, node.GetMetadata())
+				if err != nil {
+					return recipe.Node{}, err
+				}
+			}
 		}
 		if spec := node.GetMetadata().GitProfile; spec != nil {
 			ctx = context.WithValue(ctx, inlineGitProfileKey{}, spec)
@@ -262,6 +333,24 @@ func (r *inlineRecipeResolver) expandInclude(ctx context.Context, include *recip
 	}
 	r.depth++
 	defer func() { r.depth-- }()
+	if include.Include.Bind != "" {
+		if err := validateLateInclude(include, stateKey); err != nil {
+			return recipe.Node{}, err
+		}
+		out := *include
+		if stateKey != "" {
+			out.ID = stateKey
+		}
+		if out.Internal == nil || out.Internal.Late == nil {
+			out.Internal = &recipe.NodeInternalMetadata{Late: &recipe.LateIncludeMetadata{
+				DeclaringSource:     sourceContextSnapshot(parentSource),
+				DeclaringRepository: sourceRepositoryIdentity(parentSource),
+				RootRepository:      r.rootRepository,
+				CallsitePath:        strings.Join(pathParts, "/"),
+			}}
+		}
+		return recipe.Node{NodeImpl: &out}, nil
+	}
 
 	if strings.HasPrefix(include.Include.Recipe, "cell://") {
 		if _, err := hookpolicy.Reference(include.Include.Recipe); err != nil {
@@ -278,31 +367,37 @@ func (r *inlineRecipeResolver) expandInclude(ctx context.Context, include *recip
 	if include.Include.IfMissing != nil {
 		return recipe.Node{}, fmt.Errorf("include.if_missing is only supported for cell:// hooks")
 	}
-	if parent := gitprofile.FromContext(ctx); parent != nil {
-		selection := gitprofile.InheritedSelection(ctx)
-		if spec, ok := ctx.Value(inlineGitProfileKey{}).(*recipe.GitProfileSpec); ok {
-			value := spec.Value
-			if text, ok := value.(string); ok {
-				if ref, yes := configuration.Template(text); yes {
-					value = ref
-				} else if strings.Contains(text, "{{") {
-					return recipe.Node{}, fmt.Errorf("Git profile for include loading must be a literal or configuration reference; runtime expressions are unavailable during source expansion")
-				}
-			}
-			selection = gitprofile.Selection{Explicit: true, Value: value}
-		}
-		// Always fork so inherited include ceilings also apply when the child
-		// never selects an explicit Git profile.
-		scope, err := parent.Fork(ctx, selection)
-		if err != nil {
-			return recipe.Node{}, err
-		}
-		defer scope.Close()
-		ctx = gitprofile.WithScope(ctx, scope)
+	var closeScope func()
+	var err error
+	ctx, closeScope, err = inlineSourceGitProfile(ctx)
+	if err != nil {
+		return recipe.Node{}, err
 	}
+	defer closeScope()
+
 	target := strings.TrimSpace(include.Include.Recipe)
 	if target == "" {
 		return recipe.Node{}, fmt.Errorf("include at %s must specify a recipe reference", strings.Join(pathParts, "/"))
+	}
+	var effective *permissions.State
+	if authority, ok := ctx.Value(inlineAuthorityKey{}).(permissions.State); ok {
+		declared := parentSource
+		if isGitRecipeSelector(target) {
+			parsed, err := parseGitRecipeSelector(target)
+			if err != nil {
+				return recipe.Node{}, err
+			}
+			declared = inlineRecipeSourceContext{GitRepositoryURL: parsed.RepositoryURL}
+		} else if !IsLocalRecipeFileReference(target) {
+			declared = inlineRecipeSourceContext{}
+		}
+		boundary := !sameRecipeRepository(parentSource, declared)
+		trusted := r.rootRepository != "" && r.rootRepository == sourceRepositoryIdentity(declared)
+		child, err := authority.EnterInclude(include.Perms, boundary, trusted)
+		if err != nil {
+			return recipe.Node{}, fmt.Errorf("include %q: %w", target, err)
+		}
+		effective = &child
 	}
 
 	loaded, err := r.loadIncludedRecipe(ctx, target, parentSource)
@@ -313,6 +408,12 @@ func (r *inlineRecipeResolver) expandInclude(ctx context.Context, include *recip
 	loaded.TrustedSource = r.rootRepository != "" && r.rootRepository == sourceRepositoryIdentity(loaded.SourceContext)
 	if err := permissions.ValidateInclude(include.Perms, loaded.PermissionBoundary); err != nil {
 		return recipe.Node{}, fmt.Errorf("include %q at %s: %w", target, strings.Join(pathParts, "/"), err)
+	}
+	if effective != nil {
+		ctx = context.WithValue(ctx, inlineAuthorityKey{}, *effective)
+		if effective.Limit != nil {
+			ctx = gitprofile.WithSecretLimit(ctx, effective.Limit.Secrets.Resolve)
+		}
 	}
 	if include.Perms != nil && include.Perms.JobDB != nil {
 		ctx = gitprofile.WithSecretLimit(ctx, include.Perms.JobDB.Secrets.Resolve)
@@ -334,6 +435,22 @@ func (r *inlineRecipeResolver) expandInclude(ctx context.Context, include *recip
 }
 
 type inlineGitProfileKey struct{}
+
+type inlineAuthorityKey struct{}
+
+func lateInlinePermissionContext(ctx context.Context, meta recipe.NodeMetadata) (context.Context, error) {
+	if authority, ok := ctx.Value(inlineAuthorityKey{}).(permissions.State); ok {
+		child, err := authority.Enter(meta.Perms, false)
+		if err != nil {
+			return nil, err
+		}
+		ctx = context.WithValue(ctx, inlineAuthorityKey{}, child)
+		if child.Limit != nil {
+			ctx = gitprofile.WithSecretLimit(ctx, child.Limit.Secrets.Resolve)
+		}
+	}
+	return ctx, nil
+}
 
 func (r *inlineRecipeResolver) loadIncludedRecipe(ctx context.Context, target string, parentSource inlineRecipeSourceContext) (loadedInlineRecipe, error) {
 	switch {
@@ -737,4 +854,33 @@ func (v *permissionBoundaryVisitor) VisitNodeSequence(node *recipe.NodeSequence,
 func validateIncludePermissionBoundaries(rec recipe.Recipe) error {
 	_, err := recipe.NewNodeWalker(&permissionBoundaryVisitor{}).Walk(rec)
 	return err
+}
+
+// Apply the declaring source's Git profile and intersected secret ceiling to
+// source preparation, including imported CEL packages.
+func inlineSourceGitProfile(ctx context.Context) (context.Context, func(), error) {
+	closeScope := func() {}
+	if parent := gitprofile.FromContext(ctx); parent != nil {
+		selection := gitprofile.InheritedSelection(ctx)
+		if spec, ok := ctx.Value(inlineGitProfileKey{}).(*recipe.GitProfileSpec); ok {
+			value := spec.Value
+			if text, ok := value.(string); ok {
+				if ref, yes := configuration.Template(text); yes {
+					value = ref
+				} else if strings.Contains(text, "{{") {
+					return nil, nil, fmt.Errorf("Git profile for include loading must be a literal or configuration reference; runtime expressions are unavailable during source expansion")
+				}
+			}
+			selection = gitprofile.Selection{Explicit: true, Value: value}
+		}
+		// Always fork so inherited include ceilings also apply when the child
+		// never selects an explicit Git profile.
+		scope, err := parent.Fork(ctx, selection)
+		if err != nil {
+			return nil, nil, err
+		}
+		closeScope = scope.Close
+		ctx = gitprofile.WithScope(ctx, scope)
+	}
+	return ctx, closeScope, nil
 }

@@ -28,6 +28,9 @@ type Context struct {
 	// ScopeOutput returns a prepared result to the owning scope executor.
 	// The callback does not publish to the enclosing template context.
 	ScopeOutput func(*template.ResolutionContext, template.ExecutionOutput) error
+	// DeferScopeOutput lets a transparent preparation scope publish the accepted
+	// body result only after its own outcome is accepted.
+	DeferScopeOutput bool
 	// BeforeScope observes the resolver that a restart patch will modify.
 	// Returning an error stops before entering the durable scope.
 	BeforeScope        func(context.Context, string, *template.ResolutionContext) error

@@ -135,7 +135,13 @@ lease; its explicit grant does not replace the include's input authorization for
 A request for another secret exceeds the caller's ceiling and fails.
 
 These input allowances follow same-repo includes within the authorized foreign
-recipe. A further cross-repository include requires another explicit callsite
+recipe, including a late include selecting a different full commit. Repository
+identity determines inheritance; the commit does not create a foreign boundary.
+Authored grants and enclosing ceilings still restrict descendants. The original
+root repository remains the trust root even when a foreign subtree changes
+commits. Relative children use their declaring source directory and selected
+commit recursively; explicit Git selectors keep their own targets. See
+[Git includes](GUIDE-Includes.md) for the syntax and durable capture behavior. A further cross-repository include requires another explicit callsite
 policy, and cannot enlarge the authority it received. Include allowances do not
 implicitly authorize defaults from foreign ops: bind the secret explicitly in
 the included recipe, or grant it on the invoking node.

@@ -1,6 +1,7 @@
 package template
 
 import (
+	"context"
 	"crypto/sha256"
 	"fmt"
 
@@ -76,9 +77,30 @@ func (rc *ResolutionContext) syncWorkspace() {
 
 // Composite bindings are evaluated in the calling workspace, before the override.
 func (rc *ResolutionContext) ResolveCompositeInputs(input map[string]interface{}) (map[string]interface{}, error) {
+	if rc.evaluationContext != nil {
+		return rc.ResolveCompositeInputsWithContext(rc.evaluationContext, input)
+	}
 	caller := rc
 	if rc.workspaceCaller != nil {
 		caller = rc.workspaceCaller
 	}
 	return caller.ResolveInputs(input)
+}
+
+// ResolveCompositeInputsWithContext keeps caller workspace and input authority
+// while bounding imported function processes by the active execution lifetime.
+func (rc *ResolutionContext) ResolveCompositeInputsWithContext(ctx context.Context, input map[string]interface{}) (map[string]interface{}, error) {
+	caller := rc
+	if rc.workspaceCaller != nil {
+		caller = rc.workspaceCaller
+	}
+	view, err := caller.WithEvaluationContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out, err := view.ResolveInputs(input)
+	if contextErr := ctx.Err(); contextErr != nil {
+		return nil, contextErr
+	}
+	return out, err
 }

@@ -172,6 +172,7 @@ func (n *NodeShared) isNode() {}
 
 type IncludeData struct {
 	Recipe    string           `yaml:"recipe" json:"recipe"`
+	Bind      string           `yaml:"bind,omitempty" json:"bind,omitempty"`
 	IfMissing *IncludeFallback `yaml:"if_missing,omitempty" json:"if_missing,omitempty"`
 }
 
@@ -185,6 +186,7 @@ func (IncludeData) JSONSchema() *jsonschema.Schema {
 	fallback.Set("outputs", &jsonschema.Schema{Type: "object", AdditionalProperties: &jsonschema.Schema{}})
 	fields := jsonschema.NewProperties()
 	fields.Set("recipe", &jsonschema.Schema{Type: "string"})
+	fields.Set("bind", &jsonschema.Schema{Type: "string", Enum: []interface{}{"late"}})
 	fields.Set("if_missing", &jsonschema.Schema{Type: "object", Properties: fallback, Required: []string{"outputs"}, AdditionalProperties: jsonschema.FalseSchema})
 	return &jsonschema.Schema{OneOf: []*jsonschema.Schema{
 		{Type: "string"},
@@ -202,10 +204,18 @@ func (i *IncludeData) UnmarshalYAML(node *yamlv3.Node) error {
 		i.Recipe = strings.TrimSpace(recipeRef)
 		return nil
 	case yamlv3.MappingNode:
+		seen := map[string]bool{}
 		for j := 0; j < len(node.Content); j += 2 {
 			key, value := node.Content[j].Value, node.Content[j+1]
-			if key != "recipe" && key != "if_missing" {
+			if seen[key] {
+				return fmt.Errorf("duplicate include field %q", key)
+			}
+			seen[key] = true
+			if key != "recipe" && key != "if_missing" && key != "bind" {
 				return fmt.Errorf("unknown include field %q", key)
+			}
+			if key == "bind" && (value.Kind != yamlv3.ScalarNode || value.Tag != "!!str" || value.Value != "late") {
+				return fmt.Errorf("include.bind must be the literal string late; omit bind for eager includes")
 			}
 			if key == "if_missing" {
 				if value.Kind != yamlv3.MappingNode || len(value.Content) != 2 || value.Content[0].Value != "outputs" || value.Content[1].Kind != yamlv3.MappingNode {
@@ -213,12 +223,26 @@ func (i *IncludeData) UnmarshalYAML(node *yamlv3.Node) error {
 				}
 			}
 		}
+		if seen["bind"] {
+			for j := 0; j < len(node.Content); j += 2 {
+				value := node.Content[j+1]
+				if node.Content[j].Value == "recipe" && (value.Kind != yamlv3.ScalarNode || value.Tag != "!!str" || strings.TrimSpace(value.Value) == "") {
+					return fmt.Errorf("include.recipe must be a non-empty string")
+				}
+			}
+		}
+		if seen["bind"] && !seen["recipe"] {
+			return fmt.Errorf("late include requires include.recipe")
+		}
 		type includeData IncludeData
 		var data includeData
 		if err := node.Decode(&data); err != nil {
 			return err
 		}
 		data.Recipe = strings.TrimSpace(data.Recipe)
+		if data.Bind == "late" && (data.IfMissing != nil || strings.HasPrefix(data.Recipe, "cell://")) {
+			return fmt.Errorf("late include cannot use cell hooks or if_missing")
+		}
 		*i = IncludeData(data)
 		return nil
 	default:
@@ -326,6 +350,10 @@ type NodeMetadata struct {
 }
 
 type NodeInternalMetadata struct {
+	BoundInputs      map[string]interface{}    `yaml:"-" json:"-" jsonschema:"-"`
+	FunctionPackages []FunctionPackageSnapshot `yaml:"function_packages,omitempty" json:"function_packages,omitempty"`
+	DefinitionSource *RecipeSourceSnapshot     `yaml:"definition_source,omitempty" json:"definition_source,omitempty"`
+	Late             *LateIncludeMetadata      `yaml:"late,omitempty" json:"late,omitempty"`
 	// CELProvider is installed at runtime when a deferred include is loaded.
 	CELProvider    cel.OptionsProvider `yaml:"-" json:"-" jsonschema:"-"`
 	HookSourceRepo string              `yaml:"hook_source_repo,omitempty" json:"hook_source_repo,omitempty"`
@@ -337,6 +365,28 @@ type NodeInternalMetadata struct {
 	Inline                 *InlineInclusionMetadata `yaml:"inline,omitempty" json:"inline,omitempty"`
 	CompositeSchemaVersion int                      `yaml:"composite_schema_version,omitempty" json:"composite_schema_version,omitempty"`
 	CompositeInputSchema   map[string]InputSchema   `yaml:"composite_input_schema,omitempty" json:"composite_input_schema,omitempty"`
+}
+
+// FunctionPackageSnapshot keeps deferred CEL imports usable when the recipe
+// source is unavailable. Files are base64 encoded, relative to the Git source
+// root. This is compiler-only data inside the definition artifact.
+type FunctionPackageSnapshot struct {
+	Selector         string            `yaml:"selector" json:"selector"`
+	ResolvedSelector string            `yaml:"resolved_selector" json:"resolved_selector"`
+	ResolvedCommit   string            `yaml:"resolved_commit" json:"resolved_commit"`
+	PackageDir       string            `yaml:"package_dir" json:"package_dir"`
+	Files            map[string]string `yaml:"files_base64" json:"files_base64"`
+	FileModes        map[string]uint32 `yaml:"file_modes" json:"file_modes"`
+	Symlinks         map[string]string `yaml:"symlinks,omitempty" json:"symlinks,omitempty"`
+}
+
+// LateIncludeMetadata belongs to the declaring source, never to the active
+// workspace or selected recipe. It survives internal definition capture.
+type LateIncludeMetadata struct {
+	DeclaringSource     RecipeSourceSnapshot `yaml:"declaring_source" json:"declaring_source"`
+	DeclaringRepository string               `yaml:"declaring_repository" json:"declaring_repository"`
+	RootRepository      string               `yaml:"root_repository" json:"root_repository"`
+	CallsitePath        string               `yaml:"callsite_path" json:"callsite_path"`
 }
 
 type InlineInclusionMetadata struct {

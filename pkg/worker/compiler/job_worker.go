@@ -93,6 +93,7 @@ func NewRecipeWorkerWithOptions(dependencies ops.ServiceDependencies2, activityR
 		taskWorkers = append(taskWorkers, resolutionWorker)
 	}
 	taskWorkers = append(taskWorkers, newWithinRecipeResolutionTaskWorker(), NewWorkspaceResolutionTaskWorker(), cellContextWorker{}, hookPolicyWorker{}, hookResolveWorker{control: dependencies.WorkflowControl()})
+	taskWorkers = append(taskWorkers, lateSelectWorker{}, lateCaptureWorker{resolver: opts.RootSourceResolver})
 	if opts.WrapTaskWorker != nil {
 		for i, worker := range taskWorkers {
 			taskWorkers[i] = opts.WrapTaskWorker(worker)

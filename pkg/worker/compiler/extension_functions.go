@@ -18,7 +18,12 @@ func recipeCELOptionsProvider(ctx context.Context, rec recipe.Recipe, execCtx co
 	}
 
 	resolveOpts := selectorLoadResolveOptions(execCtx, commitContext)
+	var captured []recipe.FunctionPackageSnapshot
+	if meta := rec.GetMetadata().Internal; meta != nil {
+		captured = meta.FunctionPackages
+	}
 	importedProvider, err := extensionfuncs.BuildProvider(ctx, imports, extensionfuncs.BuildOptions{
+		CapturedPackages: captured,
 		BaseDir:          normalizeExtensionBaseDir(resolveOpts.BaseDir),
 		RepositorySource: strings.TrimSpace(resolveOpts.RepositorySource),
 		RepositoryRef:    strings.TrimSpace(resolveOpts.RepositoryRef),

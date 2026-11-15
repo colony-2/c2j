@@ -1,0 +1,26 @@
+id: late-bound-includes
+version: '1'
+desc: Select an immutable Git recipe only when the include is enabled.
+input_schema:
+  prompt: {type: string}
+  type: {type: string}
+  approved_recipe: {type: string, required: true}
+  message: {type: string, default_value: late smoke}
+inputs:
+  approved_recipe: '${{ inputs.approved_recipe }}'
+  message: '${{ inputs.message }}'
+sequence:
+  - id: selected
+    include:
+      bind: late
+      recipe: '${{ inputs.approved_recipe }}'
+    perms: {jobdb: {}}
+    inputs:
+      message: '${{ inputs.message }}'
+    expect_outputs:
+      type: object
+      required: [result]
+      properties:
+        result: {type: string}
+outputs:
+  result: '${{ sequence.selected.outputs.result }}'

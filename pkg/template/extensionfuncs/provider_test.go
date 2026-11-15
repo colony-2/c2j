@@ -132,7 +132,7 @@ functions:
 	require.NotNil(t, slow)
 
 	start := time.Now()
-	_, err = slow.execute([]any{})
+	_, err = slow.execute(context.Background(), []any{})
 	require.Error(t, err)
 	require.True(t, strings.Contains(err.Error(), "execute \"slow\"") || strings.Contains(err.Error(), "deadline"))
 	require.Less(t, time.Since(start), 500*time.Millisecond)

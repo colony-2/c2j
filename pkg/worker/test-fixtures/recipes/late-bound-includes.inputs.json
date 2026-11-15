@@ -1,0 +1,5 @@
+{
+  "approved_recipe": "git+https://github.com/colony-2/c2j.git//pkg/worker/test-fixtures/recipes/basic-test.yaml@d031eb49c6777555cca1f58449b8451b1fc77c37",
+  "message": "late smoke",
+  "prompt": "Validate immutable late include"
+}

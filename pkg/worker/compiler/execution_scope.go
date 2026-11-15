@@ -1,6 +1,7 @@
 package compiler
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -79,6 +80,10 @@ func restoreScopeTimeoutFailure(err, bodyErr error) error {
 // and input builders run serially. They share context data; only the accepted
 // scope outcome publishes its prepared completion to the enclosing context.
 func executeNodeScope(ctx workflow.Context, parent *template.ResolutionContext, meta recipe.NodeMetadata, kind template.ScopeType, fallback string, body func(workflow.Context, *template.ResolutionContext, recipe.NodeMetadata) error) error {
+	return executeNodeScopeWithCatchFilter(ctx, parent, meta, kind, fallback, body, nil)
+}
+
+func executeNodeScopeWithCatchFilter(ctx workflow.Context, parent *template.ResolutionContext, meta recipe.NodeMetadata, kind template.ScopeType, fallback string, body func(workflow.Context, *template.ResolutionContext, recipe.NodeMetadata) error, catchFilter func(error) bool) error {
 	innerBody := body
 	body = func(ctx workflow.Context, state *template.ResolutionContext, meta recipe.NodeMetadata) error {
 		previous := state.GitProfile
@@ -87,7 +92,7 @@ func executeNodeScope(ctx workflow.Context, parent *template.ResolutionContext, 
 		var err error
 		// Include inputs belong to the caller. Enter the callee's authority only
 		// after resolving them, when NewChildContext creates the included scope.
-		if meta.Internal == nil || meta.Internal.Inline == nil {
+		if meta.Internal == nil || (meta.Internal.Inline == nil && meta.Internal.Late == nil) {
 			state.Permissions, err = state.Permissions.Enter(meta.Perms, false)
 		}
 		if err != nil {
@@ -114,6 +119,7 @@ func executeNodeScope(ctx workflow.Context, parent *template.ResolutionContext, 
 	if ctx.OnObservation != nil {
 		contexts = map[int]workflow.Context{}
 	}
+	var scopeDeadline time.Time
 	var forwarding *thinpackForwarder
 	if f, ok := ctx.JobContext.(*thinpackForwarder); ok {
 		forwarding = f
@@ -139,12 +145,16 @@ func executeNodeScope(ctx workflow.Context, parent *template.ResolutionContext, 
 		entry = fresh
 		return nil
 	}
-	newFrame := func(exec jobworkflow.ExecutionContext, base *template.ResolutionContext) (workflow.Context, *template.ResolutionContext, *thinpackForwarder, *scopeCompletion, int) {
+	newFrame := func(exec jobworkflow.ExecutionContext, base *template.ResolutionContext) (workflow.Context, *template.ResolutionContext, *thinpackForwarder, *scopeCompletion, int, error) {
 		next++
 		id := next
 		last = 0
-		view := base.ExecutionView()
+		view, err := base.WithEvaluationContext(exec.Context())
+		if err != nil {
+			return workflow.Context{}, nil, nil, nil, 0, err
+		}
 		inner := ctx
+		inner.DeferScopeOutput = false
 		inner.JobContext = exec
 		inner.CatchStateName = ""
 		completion := &scopeCompletion{}
@@ -170,7 +180,7 @@ func executeNodeScope(ctx workflow.Context, parent *template.ResolutionContext, 
 		if contexts != nil {
 			contexts[id] = inner
 		}
-		return inner, view, f, completion, id
+		return inner, view, f, completion, id, nil
 	}
 	save := func(id int, r, lexical *template.ResolutionContext, f *thinpackForwarder, completion *scopeCompletion) {
 		frames[id] = scopeFrame{resolver: r, lexical: lexical, forwarder: f, completion: completion}
@@ -194,13 +204,31 @@ func executeNodeScope(ctx workflow.Context, parent *template.ResolutionContext, 
 			return base, normalizeRuntimeFailure(e, base, meta, failureNodeType(kind), fallback)
 		}
 		options.Catch = append(options.Catch, jobworkflow.CatchRule{ID: id, Match: func(e error) bool {
+			if catchFilter != nil && !catchFilter(e) {
+				return false
+			}
 			base, failure := failureContext(e)
-			matched, evalErr := base.WithFailure(failure).EvaluateCEL(clause.When.String())
+			// A failed child/attempt may already be canceled. Match in the
+			// enclosing lifetime, bounded by this scope's continuous deadline.
+			matchCtx := ctx.JobContext.Context()
+			if !scopeDeadline.IsZero() {
+				var cancel context.CancelFunc
+				matchCtx, cancel = context.WithDeadline(matchCtx, scopeDeadline)
+				defer cancel()
+			}
+			view, evalErr := base.WithEvaluationContext(matchCtx)
+			if evalErr != nil {
+				return true // The handler reports the expired execution context.
+			}
+			matched, evalErr := view.WithFailure(failure).EvaluateCEL(clause.When.String())
 			return matched || evalErr != nil
 		}, Handle: func(exec jobworkflow.ExecutionContext, e error) (jobworkflow.CatchResult, error) {
 			base, failure := failureContext(e)
 			prior := frames[last].forwarder
-			inner, state, f, completion, id := newFrame(exec, base)
+			inner, state, f, completion, id, frameErr := newFrame(exec, base)
+			if frameErr != nil {
+				return jobworkflow.CatchResult{}, frameErr
+			}
 			if f != nil && prior != nil {
 				f.adopt(prior)
 			}
@@ -219,7 +247,7 @@ func executeNodeScope(ctx workflow.Context, parent *template.ResolutionContext, 
 					return jobworkflow.CatchResult{}, err
 				}
 				out.BlockHandled = ctx.CatchStateName != ""
-				if base.ScopeType == kind {
+				if base.ScopeType == kind && (meta.Internal == nil || meta.Internal.Late == nil || ctx.CatchStateName != "") {
 					if err = completeNodeScope(inner, state, template.ExecutionOutput{Outputs: decision.Outputs}); err != nil {
 						return jobworkflow.CatchResult{}, err
 					}
@@ -251,7 +279,11 @@ func executeNodeScope(ctx workflow.Context, parent *template.ResolutionContext, 
 	}
 	out, err := ctx.JobContext.DoScope(site, options, func(exec jobworkflow.ExecutionContext) (jobdb.JobData, error) {
 		base := entry
-		inner, state, f, completion, id := newFrame(exec, base)
+		scopeDeadline, _ = exec.Context().Deadline()
+		inner, state, f, completion, id, frameErr := newFrame(exec, base)
+		if frameErr != nil {
+			return nil, frameErr
+		}
 		clean := meta
 		clean.Catch = nil
 		if kind == template.ScopeStateMachine && ctx.CatchStateName == "" {
@@ -268,6 +300,13 @@ func executeNodeScope(ctx workflow.Context, parent *template.ResolutionContext, 
 		var route *catchRouteError
 		if errors.As(e, &route) {
 			result.Route = &route.Transition
+			e = nil
+		}
+		// Transparent late-entry scopes must carry a handled machine outcome
+		// as control flow, just like a catch route, across durable replay.
+		var handled *machineCatchHandledError
+		if errors.As(e, &handled) {
+			result.BlockHandled = true
 			e = nil
 		}
 		if e != nil {
@@ -299,8 +338,9 @@ func executeNodeScope(ctx workflow.Context, parent *template.ResolutionContext, 
 	// A child node within a state returns its output to that state. Only the
 	// accepted state outcome publishes to the machine's states map.
 	deferToState := parent.ScopeType == template.ScopeState && kind != template.ScopeState && ctx.ScopeOutput != nil
+	deferToOuter := ctx.DeferScopeOutput && ctx.ScopeOutput != nil
 	if ok {
-		if err == nil && frame.completion.scope != nil && !deferToState {
+		if err == nil && frame.completion.scope != nil && !deferToState && !deferToOuter {
 			if e := frame.completion.scope.PublishExecution(frame.completion.output); e != nil {
 				return e
 			}
@@ -334,7 +374,11 @@ func executeNodeScope(ctx workflow.Context, parent *template.ResolutionContext, 
 	if !ok {
 		return fmt.Errorf("scope %s outcome has no reconstructed frame %d", site, result.Frame)
 	}
-	if deferToState && frame.completion.scope != nil {
+	if deferToOuter && frame.completion.scope != nil {
+		if e := completeNodeScope(ctx, frame.completion.scope, frame.completion.output); e != nil {
+			return e
+		}
+	} else if deferToState && frame.completion.scope != nil {
 		if e := completeNodeScope(ctx, parent, frame.completion.output); e != nil {
 			return e
 		}

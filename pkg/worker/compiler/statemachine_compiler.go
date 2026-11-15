@@ -113,7 +113,7 @@ func (d DefaultRecipeExecutor) executeStateMachineBody(ctx workflow.Context, par
 
 		// Pin a direct hook before the state's retry scope. Retries execute the
 		// recorded definition; a later state visit prepares a new invocation.
-		if hook, ok := stateDef.NodeImpl.(*recipe.NodeInclude); ok {
+		if hook, ok := stateDef.NodeImpl.(*recipe.NodeInclude); ok && hook.Include.Bind != "late" {
 			call := *hook
 			call.ID = currentState
 			prepared, err := prepareHook(ctx, resCtx, &call)
@@ -125,33 +125,14 @@ func (d DefaultRecipeExecutor) executeStateMachineBody(ctx workflow.Context, par
 		observer.StateEntered(currentState)
 		var stateResult stateRunResult
 		var err error
-		if len(metadata.Catch) == 0 {
-			stateResult, err = d.runState(ctx, resCtx, currentState, stateDef, currentTransition)
+		if call, ok := stateDef.NodeImpl.(*recipe.NodeInclude); ok && call.Include.Bind == "late" {
+			stateResult, err = d.runLateStateWithMachineCatch(ctx, resCtx, currentState, stateDef, currentTransition, metadata.Catch)
 		} else {
-			outer := ctx
-			outer.CatchStateName = currentState
-			policy := stateDef.GetMetadata()
-			policy.ID = "state-policy:" + currentState
-			policy.Catch = metadata.Catch
-			policy.Timeout = 0
-			state := stateDef
-			state.Node = nodeWithoutRetry(state.Node)
-			err = executeNodeScope(outer, resCtx, policy, template.ScopeStateMachine, currentState, func(inner workflow.Context, entry *template.ResolutionContext, _ recipe.NodeMetadata) error {
-				result, e := d.runState(inner, entry, currentState, state, currentTransition)
-				if result.Route != nil {
-					return &catchRouteError{Transition: *result.Route}
-				}
-				return e
-			})
-			var handled *machineCatchHandledError
-			if errors.As(err, &handled) {
-				return nil
-			}
-			var routed *catchRouteError
-			if errors.As(err, &routed) {
-				stateResult.Route = &routed.Transition
-				err = nil
-			}
+			stateResult, err = d.runStateWithMachineCatch(ctx, resCtx, currentState, stateDef, currentTransition, metadata.Catch)
+		}
+		var handled *machineCatchHandledError
+		if errors.As(err, &handled) {
+			return nil
 		}
 		observer.StateExited(currentState)
 		if err != nil {
@@ -361,7 +342,38 @@ type stateRunResult struct {
 	Route *template.TransitionData
 }
 
+// Machine handlers run after state handlers and before the state's next body
+// attempt. Late states call this only after their durable preparation boundary.
+func (d DefaultRecipeExecutor) runStateWithMachineCatch(ctx workflow.Context, parent *template.ResolutionContext, name string, node recipe.State, transition template.TransitionData, clauses []recipe.CatchClause) (stateRunResult, error) {
+	if len(clauses) == 0 {
+		return d.runState(ctx, parent, name, node, transition)
+	}
+	outer := ctx
+	outer.CatchStateName = name
+	policy := node.GetMetadata()
+	policy.ID = "state-policy:" + name
+	policy.Catch = clauses
+	policy.Timeout = 0
+	state := node
+	state.Node = nodeWithoutRetry(state.Node)
+	err := executeNodeScope(outer, parent, policy, template.ScopeStateMachine, name, func(inner workflow.Context, entry *template.ResolutionContext, _ recipe.NodeMetadata) error {
+		result, err := d.runState(inner, entry, name, state, transition)
+		if result.Route != nil {
+			return &catchRouteError{Transition: *result.Route}
+		}
+		return err
+	})
+	var route *catchRouteError
+	if errors.As(err, &route) {
+		return stateRunResult{Route: &route.Transition}, nil
+	}
+	return stateRunResult{}, err
+}
+
 func (d DefaultRecipeExecutor) runState(ctx workflow.Context, resCtx *template.ResolutionContext, stateName string, node recipe.State, transition template.TransitionData) (stateRunResult, error) {
+	if call, ok := node.NodeImpl.(*recipe.NodeInclude); ok && call.Include.Bind == "late" {
+		return d.runLateState(ctx, resCtx, stateName, node, transition)
+	}
 	meta := node.GetMetadata()
 	if meta.ID == "" {
 		meta.ID = stateName

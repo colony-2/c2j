@@ -110,8 +110,8 @@ func (d DefaultRecipeExecutor) ExecuteRecipe(ctx workflow.Context, r recipe.Reci
 
 	// we forward thin packs from one task to the next to maintain state.
 	forwarder := newThinPackForwardingJobContext(ctx.JobContext)
-	// A dynamically loaded hook can introduce workspaces absent from the caller.
-	forwarder.scopedMode = recipe.HasWorkspaces(r) || hasCellHooks(r) || execCtx.Workspace != nil
+	// Dynamically loaded definitions can introduce workspaces absent from the caller.
+	forwarder.scopedMode = recipe.HasWorkspaces(r) || hasCellHooks(r) || recipeHasInclude(r, func(n *recipe.NodeInclude) bool { return n.Include.Bind == "late" }) || execCtx.Workspace != nil
 	if execCtx.InitialCommit != nil {
 		commitContext = *execCtx.InitialCommit
 	}
@@ -336,6 +336,9 @@ func (d DefaultRecipeExecutor) ExecuteNode(ctx workflow.Context, parentResCtx *t
 	case *recipe.NodeChildGroup:
 		return d.self().ExecuteChildGroup(ctx, parentResCtx, metadata, t.ChildGroup)
 	case *recipe.NodeInclude:
+		if t.Include.Bind == "late" {
+			return d.executeLateInclude(ctx, parentResCtx, t)
+		}
 		if strings.HasPrefix(t.Include.Recipe, "cell://") {
 			return d.executeHook(ctx, parentResCtx, t)
 		}
@@ -720,13 +723,19 @@ func (d DefaultRecipeExecutor) executeOpAttempt(ctx workflow.Context, parentReso
 
 func (d DefaultRecipeExecutor) innerSequence(ctx workflow.Context, parentCtx *template.ResolutionContext, metadata recipe.NodeMetadata, outputTemplate map[string]interface{}, sequence []recipe.Node) error {
 	// Create resolution context for this sequence
-	resolvedInputs, err := parentCtx.ResolveCompositeInputs(metadata.Inputs)
-	if err != nil {
-		return fmt.Errorf("failed to resolve sequence inputs: %w", err)
-	}
-	resolvedInputs, err = prepareCompositeInputs(metadata, resolvedInputs)
-	if err != nil {
-		return fmt.Errorf("sequence inputs do not match schema. %w", err)
+	var resolvedInputs map[string]interface{}
+	var err error
+	if metadata.Internal != nil && metadata.Internal.BoundInputs != nil {
+		resolvedInputs = metadata.Internal.BoundInputs
+	} else {
+		resolvedInputs, err = parentCtx.ResolveCompositeInputs(metadata.Inputs)
+		if err != nil {
+			return fmt.Errorf("failed to resolve sequence inputs: %w", err)
+		}
+		resolvedInputs, err = prepareCompositeInputs(metadata, resolvedInputs)
+		if err != nil {
+			return fmt.Errorf("sequence inputs do not match schema. %w", err)
+		}
 	}
 
 	resCtx, err := parentCtx.NewChildContext(template.ScopeSequence, metadata, "", resolvedInputs)
