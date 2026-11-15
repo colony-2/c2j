@@ -29,9 +29,9 @@ without narrowing its counts or implying repository ownership. Candidate-list
 visibility flags do not change tenant-wide goal counts. Open goals with no
 nonterminal candidates remain discoverable and open.
 
-Goal `UpdatedAt` and `Revision` describe the goal record itself. Candidate
-attachment, progress, and failure may change counts without changing these
-fields. Consumers must not use goal revision as a cache version for statistics.
+Goal `UpdatedAt` and `Revision` describe the goal record itself. Retained
+historical membership and candidate progress or failure affect counts separately
+from these fields. Consumers must not use goal revision as a cache version for statistics.
 
 ## Dependency discovery and blocked-job diagnostics
 
@@ -93,10 +93,13 @@ there is no follow-up lookup to recover the goal.
 handle. The caller's top-level `RequestID` reaches the runtime unchanged.
 `ExecutionContext.Job()` and `TaskContext.Job()` expose current tenant, primary
 goal, and job identity in live execution and replay. Manually constructed task
-contexts know only their supplied job key. `JobRunSummary` also carries `GoalID`
-and `OtherGoalIDs`.
+contexts know only their supplied job key. `JobRunSummary` retains `GoalID` and
+historical `OtherGoalIDs`. Current c2j projections keep the deprecated secondary
+field empty; use backend queries for historical membership and explicit
+inspection for complete blocking waits.
 
-Wrappers must forward both discovery methods on the expanded `GoalRuntime` and
+Read wrappers use existing discovery ports; mandatory runtime inputs remain
+pending the separate JobDB preparation. Wrappers must forward both discovery methods and
 adopt the new submission/restart signatures. Identity conversion must preserve
 the complete authoritative response, including on idempotent retries.
 

@@ -68,9 +68,10 @@ clear stale badges and diagnostics.
 - Do not call `GetJob`, `GetJobRun`, artifact/task APIs, goal-membership APIs,
   or dependency-explanation APIs for every row on refresh or expansion merely
   to show these restored fields.
-- `other_goal_ids` and full `blocking_wait` remain unloaded. Empty values do not
-  prove that no extra memberships or dependency explanations exist. Load those
-  only during explicit selected-job/wait inspection.
+- `other_goal_ids` is deprecated and empty in current c2j views, including
+  selected detail and stories. Backend goal queries retain historical membership.
+  Full `blocking_wait` is separate: lists carry its summary; explicit selected-job
+  or known-wait inspection loads complete dependencies and producer bindings.
 - Opening an input form or taking a task action still requires the existing
   fresh task-handle lookup and stale-occurrence protection. List coordinates
   do not replace those checks.

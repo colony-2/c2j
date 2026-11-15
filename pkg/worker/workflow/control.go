@@ -74,7 +74,6 @@ func (s *SWFWorkflowControl) InspectJob(ctx context.Context, key jobdb.JobKey) (
 		StartedAt: run.Job.CreatedAt,
 	}
 	inspection.GoalID = run.Job.GoalID
-	inspection.OtherGoalIDs = append([]string(nil), run.Job.OtherGoalIDs...)
 	inspection.BlockingWait = run.Job.BlockingWait
 
 	if !run.Start.CreatedAt.IsZero() {

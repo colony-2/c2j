@@ -1,5 +1,9 @@
 # Goal-oriented execution in c2j and Cortex
 
+Current direction supersedes attachment, parallel election and history deletion
+in the original proposal. Use creation-time selection or shared restart; preserve
+historical discovery, producer bindings and accepted replay identities.
+
 Status: updated 2026-10-25. Core goal execution is implemented. JobDB has now
 provided goal enumeration, dependency discovery, and complete SDK identities;
 c2j now exposes those APIs and uses native SDK identities. Cortex goal browsing
@@ -12,10 +16,10 @@ jobs as the identity of concrete executions, histories, artifacts, and actions.
 Expose both identities throughout c2j, and make goals and all their candidate
 jobs visible in Cortex as part of the rollout.
 
-This is a clean cutover. Old jobs will be deleted; only jobs submitted under the
-new contract need to run, restart, recover, or replay. Change public APIs and
-recipe inputs directly, and update their callers together. No compatibility
-adapters, old-history support, dual semantics, or data migration are required.
+Update public API callers and new recipe inputs together. Preserve retained
+history, exact producer/output/artifact bindings and accepted submission/restart
+identities. Current projections empty deprecated secondary fields while keeping
+historical decoding. No migration or history deletion is part of this cleanup.
 
 The basic Cortex patch includes goal lookup, candidate
 pagination, winner and failure details, goal navigation from jobs, lifecycle
@@ -79,7 +83,8 @@ Update these paths together:
   preserving complete references and existing lease enforcement.
 - Child broker replies and recording, CLI submit JSON, invocation-scoped child
   discovery, multi-child results, and child groups.
-- Job listing and inspection, including primary `goal_id` and `other_goal_ids`.
+- Job listing and inspection expose primary `goal_id`. Deprecated
+  `other_goal_ids` stays empty in current views; historical JSON remains decodable.
 
 Return and persist the same reference through every layer. A helper may project
 it to a `JobKey` for exact-job APIs without I/O, but submission paths must not
@@ -217,9 +222,10 @@ Git result metadata, and any restored workspace state from `SatisfiedByJobID` in
 the same tenant. Do not inspect the original child or scan for the latest
 successful candidate to choose a result. Recovery and replay reuse the binding.
 
-Validate the winner's c2j output envelope and expected result contract. A goal
-can be satisfied by an independently attached job, potentially from another
-recipe or repository. JobDB success does not guarantee output compatibility.
+Validate the winner's c2j output envelope and expected result contract. A
+historical goal can have a recorded producer from another primary goal, recipe
+or repository. Preserve that saved identity. JobDB success does not guarantee
+output compatibility.
 An incompatible result fails the consumer's collection/validation; it does not
 change the winner or cause a search for another candidate.
 
@@ -254,7 +260,7 @@ new shared candidate; report that conflict and require an explicit new-goal
 action. Never silently switch modes.
 
 - Carry the source's primary goal only. Additional goal associations are not
-  inherited; attaching a restart to those goals is a separate operator action.
+  inherited. Choose the desired goal at creation or through shared restart.
 - Preserve current logical scope selection and context patch behavior. Goal
   sharing does not replace restart-boundary validation or replay semantics.
 - Return the destination `JobRef`, with the source-job relationship.
@@ -274,23 +280,22 @@ action. Never silently switch modes.
 ## 7. Goal inspection and operator actions
 
 Add public goal inspection/candidate services and corresponding `c2j goals`
-commands for get, candidates, attach candidate, and fail. Add goal filtering to
+commands for get, candidates, and fail with a message. Add goal filtering to
 job lists through `ListJobsRequest.GoalIDs`, including primary and additional
 associations. Goal candidate views must include terminal and archived jobs;
 ordinary runnable-job list defaults are inappropriate here.
 
-Keep two distinct solution patterns visible:
-
-- Accept any success: attach running candidates; the first committed success wins.
-- Evaluate before accepting: run independent goals, inspect their exact jobs,
-  and attach only the chosen result to the still-open target goal.
+Use sequential recovery or shared restart for another attempt. If a producer
+must pass a gate before satisfying a goal, enforce that gate before its success.
+Independent evaluated results keep their own goals and exact result identities;
+do not attach them to elect a new winner.
 
 Existing candidates remain eligible during evaluation. There is no exclusive
 selection, winner replacement, reopen, or automatic loser cancellation.
 
-Candidate attachment and explicit goal failure use tenant lifecycle authority.
-The existing `perms.jobdb.jobs.submit` queue permission does not authorize these
-mutations. Waiting and result collection stay driver-mediated; do not broaden
+Explicit goal failure uses tenant lifecycle authority.
+The existing `perms.jobdb.jobs.submit` queue permission does not authorize this
+mutation. Waiting and result collection stay driver-mediated; do not broaden
 operation tokens merely to inspect goals. Future automated repair/adoption ops
 need explicit authority and durable mutation records, not side effects during
 recipe replay or story reads.
@@ -333,11 +338,13 @@ if other targets still block the wait. Use the consumer or known wait ID for
 history and bindings. Reads project elapsed deadlines as `TIMED_OUT` and exclude
 those waits from reverse results without changing persisted history.
 
-Use `BlockingWait` from job info/summaries/run outcomes for current structured
-wait diagnostics. Forward both discovery methods through the expanded
-`GoalRuntime` wrappers. Cursors are tenant/filter-bound; pages are live reads,
-default to 100, and cap at 200. Reset cursors when filters change. Do not build a
-parallel goal index or scan histories to replace these APIs.
+Use complete `BlockingWait` from explicit detail, inspection and reconstructed
+stories for structured wait diagnostics; lists carry `BlockingWaitSummary`.
+Forward both discovery methods through existing read ports. Mandatory broad
+runtime inputs remain pending the accepted JobDB preparation. Cursors are
+tenant/filter-bound; pages are live reads, default to 100, and cap at 200. Reset
+cursors when filters change. Do not build a parallel goal index or scan
+histories to replace these APIs.
 
 Adopt native SDK `JobHandle` submissions, full restart requests, execution/task
 `Job()` identity, and `JobRunSummary` goal fields. Remove low-level identity
@@ -356,8 +363,9 @@ API/types in `web/shared`, and job list/story components in `web/app`.
 - Add a goal detail page with all paginated candidate jobs, the committed winner
   or failure reason, restart relationships, and waiting consumers when indexed.
   Keep story, artifact, input, review, and cancellation actions tied to exact jobs.
-- On every job list/detail/story, expose its primary goal and additional goals,
-  with navigation to the goal and its other candidates. A job's failure should
+- On every job list/detail/story, expose its primary goal,
+  with navigation to the goal and its candidates. Historical membership comes
+  from backend queries; deprecated secondary fields stay empty in current views. A job's failure should
   not make a still-open goal appear failed.
 - On child task nodes, show originally submitted job, waited-on goal, actual
   result producer, and the consumer's recorded binding. Explain blocked states
@@ -367,7 +375,7 @@ API/types in `web/shared`, and job list/story components in `web/app`.
   showing the chosen goal, existing candidates, and conflict state. Preserve
   restart-context previews and patch editing. Navigate to the new job while
   retaining a prominent route back to the shared goal.
-- Add operator actions to attach a candidate and permanently fail a goal with a
+- Provide an operator action to permanently fail a goal with a
   reason. Explain that failure does not cancel running jobs and cannot be undone.
   Preserve stable retry identities and surface closed-goal conflicts.
 - Keep goal and exact-job routes independently addressable. Refresh candidate
@@ -388,20 +396,20 @@ follow-up polish.
 3. Implement goal-default waits, winner-aware collection, and shared-goal restart
    with durable request IDs. Record resolved wait targets, conditions, and
    bindings so recovery and replay of new jobs remain deterministic.
-4. Add candidate attachment, explicit failure, and the complete Cortex goal
+4. Add explicit message failure and the complete Cortex goal
    browser/operator experience. Update recipes that need exact-job waits to
    select that mode explicitly.
 5. Update CLI help, recipe schemas/examples, authoring skills, tests, and Cortex
    dependency pins for the single new contract. Replace obsolete fixtures;
    do not retain tests or adapters for the retired contract.
-6. At cutover, stop old submitters/workers, delete old jobs, deploy the coordinated
-   JobDB/c2j/Cortex versions, and start submitting new jobs. Goal-default waits,
+6. Deploy compatible JobDB/c2j/Cortex versions while preserving retained history
+   and accepted submission/restart identities. Goal-default waits,
    shared-goal restart, and Cortex goal/candidate views ship together.
 
-Do not backfill old jobs, replay old histories, preserve old restart defaults,
-or provide a legacy operating mode. Exact-job waits remain a supported feature
-of the new contract. Require a goal-capable backend; unsupported deployments
-must fail clearly rather than silently change dependency semantics.
+Retain historical decoding, producer bindings and accepted replay identities
+without adding compatibility mutation stubs. Exact-job waits remain supported.
+Require a compatible goal backend; unsupported deployments must fail clearly
+rather than silently change dependency semantics.
 
 ## 11. Acceptance scenarios
 
@@ -418,8 +426,8 @@ must fail clearly rather than silently change dependency semantics.
   multiple jobs sharing one goal remain separate items.
 - A failed original plus a successful shared restart unblocks the parent with
   the replacement's output, artifacts, and Git/workspace provenance.
-- Competing successes produce one immutable winner; independent evaluated
-  results can be attached without changing their own primary goal.
+- Historical successes retain one immutable winner, even when the producer
+  has another primary goal. Saved output and artifact identities remain exact.
 - Recovery before/after binding persistence and output collection returns the
   same winner; replay performs no new submit, attachment, failure, or election.
 - Exact-job complete/success, goal success, soft inspection, optional/required

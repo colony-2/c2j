@@ -16,7 +16,6 @@ import (
 )
 
 type effectArtifactRuntime struct {
-	jobdb.WorkflowRuntime
 	data string
 	fail bool
 }

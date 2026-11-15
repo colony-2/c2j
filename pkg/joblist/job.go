@@ -23,10 +23,10 @@ type Job struct {
 	Metadata            json.RawMessage              `json:"metadata,omitempty"`
 	SchemaHash          string                       `json:"schema_hash,omitempty"`
 	ParentJobID         string                       `json:"parent_job_id,omitempty"`
-	// Deprecated: not loaded in lists. Use explicit job inspection.
+	// Complete blocking waits are loaded only by explicit job inspection; lists carry a summary.
 	BlockingWait *jobdb.DependencyWaitInfo `json:"blocking_wait,omitempty"`
 	GoalID       string                    `json:"goal_id"`
-	// Deprecated: not loaded in lists. Use explicit job inspection.
+	// Deprecated: empty in current views; retained for historical JSON decoding.
 	OtherGoalIDs []string `json:"other_goal_ids"`
 	// Completion fields are persisted terminal results, separate from scheduler Status.
 	// Empty status means unavailable. Unknown statuses are preserved verbatim.

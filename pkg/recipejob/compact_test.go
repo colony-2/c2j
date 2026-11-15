@@ -37,7 +37,7 @@ func TestCompactRecipePageDoesNotEnrichRows(t *testing.T) {
 			for i := range rows {
 				rows[i] = row
 			}
-			// All other runtime methods panic. Page size must not increase the call count.
+			// The fixture exposes only listing. Page size must not increase the call count.
 			rt := &completionListOnly{list: func(_ context.Context, req jobdb.ListJobsRequest) (jobdb.ListJobsResponse, error) {
 				require.Equal(t, pageSize, req.PageSize)
 				require.Equal(t, "before", req.PageToken)
@@ -101,13 +101,13 @@ func TestSelectedRecipeJobLoadsDetailsExplicitly(t *testing.T) {
 	memory := "8Gi"
 	demand, err := execution.Initial(nil, true, execution.Requirements{Resources: execution.Resources{Memory: &memory}})
 	require.NoError(t, err)
-	payload, err := execution.PayloadWithDemand(nil, demand.Demand)
+	payload, err := execution.PayloadWithDemand(json.RawMessage(`{"application":{"other_goal_ids":["opaque"],"n":9007199254740993}}`), demand.Demand)
 	require.NoError(t, err)
 	r := &selectedJobReader{
 		row: jobdb.JobSummary{JobKey: jobdb.JobKey{TenantId: "tenant", JobId: "job"}, JobType: "recipe", Metadata: json.RawMessage(`{"recipe":"fixture"}`)},
 		info: jobdb.JobInfo{Status: jobdb.JobStatusPendingJobs, GoalID: "goal", OtherGoalIDs: []string{"other"},
-			ClientPayload: payload, ClientPayloadRevision: 7, CompletionStatus: "future_status", CompletionDetail: "exact detail",
-			WaitFor: []string{"dependency"}, BlockingWait: &jobdb.DependencyWaitInfo{WaitID: "wait"},
+			ClientPayload: payload, ClientPayloadRevision: 7, CompletionStatus: "future_status", CompletionDetail: "  exact detail\n☃\n",
+			WaitFor: []string{"dependency"}, BlockingWait: historicalBlockingWait(),
 			NextRoute:      &jobdb.Route{JobType: "recipe", TaskType: "input:collect"},
 			ExecutionState: jobdb.ExecutionState{TaskWait: &jobdb.TaskWait{InputOrdinal: 4, OutputOrdinal: 5, InputHash: "hash"}},
 		},
@@ -117,12 +117,14 @@ func TestSelectedRecipeJobLoadsDetailsExplicitly(t *testing.T) {
 	require.Equal(t, 1, r.lists)
 	require.Equal(t, 1, r.gets)
 	require.Equal(t, r.info.Status, got.Status)
-	require.Equal(t, r.info.OtherGoalIDs, got.OtherGoalIDs)
+	require.Empty(t, got.OtherGoalIDs)
+	require.Equal(t, []string{"other"}, r.info.OtherGoalIDs)
+	require.Equal(t, r.info.GoalID, got.GoalID)
 	require.Equal(t, r.info.BlockingWait, got.BlockingWait)
 	require.Equal(t, r.info.WaitFor, got.WaitFor)
 	require.Equal(t, r.info.NextRoute, got.NextRoute)
 	require.Equal(t, r.info.ExecutionState.TaskWait, got.TaskWait)
-	require.Equal(t, "exact detail", got.CompletionDetail)
+	require.Equal(t, r.info.CompletionDetail, got.CompletionDetail)
 	require.Equal(t, "future_status", got.CompletionStatus)
 	require.Equal(t, int64(7), got.ClientPayloadRevision)
 	require.JSONEq(t, string(payload), string(got.ClientPayload))

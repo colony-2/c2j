@@ -7,7 +7,8 @@ New submissions return a complete job reference:
 ```
 
 A job identifies one execution. A goal identifies the request for a successful
-result. The first successful candidate wins permanently. Failing or cancelling
+result. A committed successful producer remains fixed permanently. Use sequential
+recovery or shared restart to supply another attempt. Failing or cancelling
 a candidate leaves its goal open. Explicitly failing a goal is permanent and
 does not cancel candidate jobs.
 
@@ -150,9 +151,12 @@ applies its other filters and is not an authoritative goal state or count.
 
 Select a job's goal at creation with the existing selected-goal submission or
 shared-goal restart path. The attachment command and Go mutation helpers have
-been removed immediately; callers must update their scripts and source. Existing
-secondary memberships remain readable through the current backend. Later backend
-translation/removal is a separate change. Input artifact attachments remain supported.
+been removed immediately; callers must update their scripts and source.
+Historical membership remains readable through backend goal queries. Current c2j
+secondary fields are deprecated and empty, including selected detail, inspection
+and stories; historical JSON still decodes supplied values. Later backend
+translation/removal is a separate change. Input artifact attachments remain
+supported.
 
 Explicit failure requires tenant lifecycle authority. A task's
 `perms.jobdb.jobs.submit` permission does not grant these actions.
@@ -167,8 +171,10 @@ Current identity comes directly from the native execution/task context.
 ## Goal and dependency discovery
 
 c2j exposes JobDB's `ListGoals`, `ListDependencyWaits`, and known-wait lookup
-through public `recipejob` services and the workflow engine wrapper. Job lists,
-inspection, stories, and run diagnostics preserve structured `BlockingWait` data.
+through public `recipejob` services and the workflow engine wrapper. Ordinary
+lists carry `BlockingWaitSummary`. Explicit detail, inspection, stories and run
+diagnostics preserve complete `BlockingWait` data, including literal targets and
+saved producer bindings.
 
 ```sh
 c2j goals list --state OPEN --repo https://github.com/acme/app.git --page-size 100
@@ -183,10 +189,11 @@ These commands return JSON, use the configured tenant or `--jobdb`, and perform
 one page/read per invocation. Discovery pages expose the native `nextPageToken`;
 pass it unchanged via `--page-token` with the same filters. `goals list` also
 supports `--goal`, `--job-type`, `--cell`, and RFC3339 creation/update time bounds.
-Candidate repository and cell filters use metadata keys `repo` and `cell_name`.
+Repository filtering uses the metadata key `repo`. Cell filtering uses
+first-class backend ownership across active and archived stores, including hidden
+jobs; candidate IDs are intersected before goal discovery.
 Use `--state` to filter consumer history; reverse target queries accept only
-`PENDING`. Cortex still needs to connect its goal browser and waiter views to
-these discovery services.
+`PENDING`. Cortex owns its goal browser and waiter integration with these discovery services.
 
 `ListGoals` returns authoritative goal records and read-time counts across all
 primary/additional candidates, including archived and hidden jobs. Nonterminal
@@ -210,10 +217,11 @@ result, so a restart with a new goal gets its own identity during execution and 
 
 ## Deployment
 
-c2j pins JobDB main commit `86ac742286156ce9f38305b4c8b613df70856095`
-(`v0.0.54-0.20261025173555-86ac74228615`). Deploy a backend with the same
+c2j pins JobDB commit `501cebc4359fb2472c760e7b096ab4cc8b8575fa`
+(`v0.0.83-0.20261113185824-501cebc4359f`). Deploy a backend with the same
 contract and update SDK callers together: submissions return complete handles,
 and restart submission accepts the full request including its request ID.
-This is a clean cutover: old histories and old standalone `job_id` wait
-inputs are not supported. Update failure-oriented recipes to select exact-job
-waits where appropriate before submitting new jobs.
+Retain historical records, exact failure text, recorded producer bindings and
+accepted submission/restart identities. New recipes use nested `target` and
+`wait` mappings; select exact-job waits where failure is an acceptable result.
+This cleanup does not require deleting histories or a database migration.

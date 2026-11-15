@@ -21,11 +21,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// All non-list methods are nil: any history, artifact, recipe, or job read
-// through this runtime fails the test instead of supplying fallback data.
+// Direct list consumers receive only the listing port.
 type completionListOnly struct {
-	jobdb.WorkflowRuntime
-	jobdb.ConfigurationAdmin
 	list  func(context.Context, jobdb.ListJobsRequest) (jobdb.ListJobsResponse, error)
 	calls atomic.Int32
 }
@@ -33,6 +30,18 @@ type completionListOnly struct {
 func (r *completionListOnly) ListJobs(ctx context.Context, req jobdb.ListJobsRequest) (jobdb.ListJobsResponse, error) {
 	r.calls.Add(1)
 	return r.list(ctx, req)
+}
+
+// The legacy HTTP constructor still requires broad upstream inputs. This adapter
+// keeps that mandatory dependency separate from the list-only fixture.
+type completionHTTPRuntime struct {
+	jobdb.WorkflowRuntime
+	jobdb.ConfigurationAdmin
+	*completionListOnly
+}
+
+func (r completionHTTPRuntime) ListJobs(ctx context.Context, req jobdb.ListJobsRequest) (jobdb.ListJobsResponse, error) {
+	return r.completionListOnly.ListJobs(ctx, req)
 }
 
 type completionListEngine struct {
@@ -134,7 +143,7 @@ func TestCompletionProjectionsUseOnlySummaryFields(t *testing.T) {
 				return jobdb.ListJobsResponse{Jobs: []jobdb.JobSummary{summary}, NextPageToken: "next"}, nil
 			}}
 			checkRecipeCompletionPaths(t, rt, summary, "next")
-			server := httptest.NewServer(celltest.Handler(remote.NewServer(rt)))
+			server := httptest.NewServer(celltest.Handler(remote.NewServer(completionHTTPRuntime{completionListOnly: rt})))
 			defer server.Close()
 			client, err := remote.New(server.URL, server.Client())
 			require.NoError(t, err)
@@ -175,7 +184,7 @@ func TestRestoredOpaqueFieldsAcrossListProjections(t *testing.T) {
 				return jobdb.ListJobsResponse{Jobs: []jobdb.JobSummary{summary}, NextPageToken: "unchanged"}, nil
 			}}
 			checkRecipeCompletionPaths(t, rt, summary, "unchanged")
-			server := httptest.NewServer(celltest.Handler(remote.NewServer(rt)))
+			server := httptest.NewServer(celltest.Handler(remote.NewServer(completionHTTPRuntime{completionListOnly: rt})))
 			t.Cleanup(server.Close)
 			client, err := remote.New(server.URL, server.Client())
 			require.NoError(t, err)

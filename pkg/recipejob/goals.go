@@ -70,11 +70,8 @@ type GoalDiscovery interface {
 }
 
 func ListGoals(ctx context.Context, reader GoalDiscovery, req jobdb.ListGoalsRequest) (jobdb.ListGoalsResponse, error) {
-	if err := req.Validate(); err != nil {
+	if err := validateListGoals(req); err != nil {
 		return jobdb.ListGoalsResponse{}, err
-	}
-	if req.PageSize < 0 {
-		return jobdb.ListGoalsResponse{}, fmt.Errorf("page size must not be negative")
 	}
 	return reader.ListGoals(ctx, req)
 }
@@ -96,4 +93,14 @@ func GetDependencyWait(ctx context.Context, reader GoalReader, key jobdb.Depende
 		return jobdb.DependencyWaitInfo{}, fmt.Errorf("tenant, consumer job and wait ID are required")
 	}
 	return reader.GetDependencyWait(ctx, key)
+}
+
+func validateListGoals(req jobdb.ListGoalsRequest) error {
+	if err := req.Validate(); err != nil {
+		return err
+	}
+	if req.PageSize < 0 {
+		return fmt.Errorf("page size must not be negative")
+	}
+	return nil
 }

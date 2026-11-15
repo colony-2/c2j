@@ -111,7 +111,7 @@ func TestTitleProjectionsUseOnlySummaryMetadata(t *testing.T) {
 				require.Equal(t, []string{"tenant"}, req.TenantIds)
 				return jobdb.ListJobsResponse{Jobs: []jobdb.JobSummary{summary}, NextPageToken: "next"}, nil
 			}}
-			server := httptest.NewServer(celltest.Handler(remote.NewServer(guard)))
+			server := httptest.NewServer(celltest.Handler(remote.NewServer(completionHTTPRuntime{completionListOnly: guard})))
 			defer server.Close()
 			client, err := remote.New(server.URL, server.Client())
 			require.NoError(t, err)

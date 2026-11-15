@@ -2,6 +2,7 @@ package recipe
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/colony-2/c2j/internal/celltest"
@@ -80,61 +81,64 @@ func TestHistoricalGoalCrossPrimaryProducerOutputAndArtifacts(t *testing.T) {
 	}
 	goal := jobdb.GoalInfo{GoalKey: jobdb.GoalKey{TenantId: "t", GoalID: "G"}, State: jobdb.GoalSucceeded, SuccessfulJobID: "B"}
 	binding := jobdb.DependencyResolution{Target: jobdb.DependencyTarget{GoalID: "G"}, State: jobdb.DependencySatisfied, SatisfiedByJobID: "B"}
-	// Both saved snapshots retain B's winning identity even after A later succeeds.
-	for _, originalStatus := range []jobdb.JobStatus{jobdb.JobStatusReady, jobdb.JobStatusCompleted} {
-		jobs["A"] = workflowctl.JobInspection{GoalID: "G", Status: string(originalStatus)}
-		for _, route := range []string{"hard-wait", "soft-wait", "current-status", "explicit-result"} {
-			t.Run(string(originalStatus)+"/"+route, func(t *testing.T) {
-				tool := &bindingTool{fakeJobTool: fakeJobTool{key: jobdb.JobKey{TenantId: "t"}}, call: func(deps ...jobdb.Dependency) ([]jobdb.DependencyResolution, error) {
-					require.Equal(t, binding.Target, deps[0].Target)
-					return []jobdb.DependencyResolution{binding}, nil
-				}}
-				ctl := &goalStatusControl{goal: goal}
-				ctl.inspectFunc = func(_ context.Context, k jobdb.JobKey) (workflowctl.JobInspection, error) { return jobs[k.JobId], nil }
-				ctl.jobResultFunc = func(_ context.Context, k jobdb.JobKey) (jobdb.JobData, error) {
-					require.Equal(t, jobdb.JobKey{TenantId: "t", JobId: "B"}, k)
-					require.Equal(t, "H", jobs[k.JobId].GoalID, "retain the historical producer's primary goal")
-					return jobdb.NewTaskDataOrPanic(map[string]any{"output": map[string]any{"producer": k.JobId}}, artifact), nil
-				}
-				deps := ops.NewOpDependenciesBuilder().WithJobTool(tool).WithWorkflowControl(ctl).Build()
-				var result ResultSource
-				var outputs map[string]interface{}
-				var artifacts map[string]recipeartifacts.Ref
-				if route == "hard-wait" || route == "explicit-result" {
-					var out SingleRecipeOutput
-					var err error
-					if route == "hard-wait" {
-						out, err = waitAndGetRecipeOutput(deps, ctx, StartedJob{JobID: "A", GoalID: "G"})
+	for _, secondaries := range [][]string{{"G"}, nil} {
+		jobs["B"] = workflowctl.JobInspection{GoalID: "H", OtherGoalIDs: secondaries, Status: string(jobdb.JobStatusCompleted)}
+		// Both saved snapshots retain B's winning identity even after A later succeeds.
+		for _, originalStatus := range []jobdb.JobStatus{jobdb.JobStatusReady, jobdb.JobStatusCompleted} {
+			jobs["A"] = workflowctl.JobInspection{GoalID: "G", Status: string(originalStatus)}
+			for _, route := range []string{"hard-wait", "soft-wait", "current-status", "explicit-result"} {
+				t.Run(fmt.Sprintf("secondary-%d/%s/%s", len(secondaries), originalStatus, route), func(t *testing.T) {
+					tool := &bindingTool{fakeJobTool: fakeJobTool{key: jobdb.JobKey{TenantId: "t"}}, call: func(deps ...jobdb.Dependency) ([]jobdb.DependencyResolution, error) {
+						require.Equal(t, binding.Target, deps[0].Target)
+						return []jobdb.DependencyResolution{binding}, nil
+					}}
+					ctl := &goalStatusControl{goal: goal}
+					ctl.inspectFunc = func(_ context.Context, k jobdb.JobKey) (workflowctl.JobInspection, error) { return jobs[k.JobId], nil }
+					ctl.jobResultFunc = func(_ context.Context, k jobdb.JobKey) (jobdb.JobData, error) {
+						require.Equal(t, jobdb.JobKey{TenantId: "t", JobId: "B"}, k)
+						require.Equal(t, "H", jobs[k.JobId].GoalID, "retain the historical producer's primary goal")
+						return jobdb.NewTaskDataOrPanic(map[string]any{"output": map[string]any{"producer": k.JobId}}, artifact), nil
+					}
+					deps := ops.NewOpDependenciesBuilder().WithJobTool(tool).WithWorkflowControl(ctl).Build()
+					var result ResultSource
+					var outputs map[string]interface{}
+					var artifacts map[string]recipeartifacts.Ref
+					if route == "hard-wait" || route == "explicit-result" {
+						var out SingleRecipeOutput
+						var err error
+						if route == "hard-wait" {
+							out, err = waitAndGetRecipeOutput(deps, ctx, StartedJob{JobID: "A", GoalID: "G"})
+						} else {
+							out, err = getRecipeOutput(deps, ctx, StartedJob{Target: WaitTarget{Goal: "G"}})
+						}
+						require.NoError(t, err)
+						result, outputs, artifacts = out.Result, out.Outputs, out.Artifacts
 					} else {
-						out, err = getRecipeOutput(deps, ctx, StartedJob{Target: WaitTarget{Goal: "G"}})
+						when := "terminal"
+						if route == "current-status" {
+							when = "current_status"
+						}
+						out, err := awaitResultSoft(deps, ctx, AwaitResultSoftInput{Target: WaitTarget{Job: "A"}, ReturnWhen: when})
+						require.NoError(t, err)
+						result, outputs, artifacts = out.Result, out.Outputs, out.Artifacts
 					}
+					require.Equal(t, ResultSource{Goal: "G", Job: "B"}, result)
+					require.Equal(t, "B", outputs["producer"])
+					require.Equal(t, recipeartifacts.NewStoredRef(key), artifacts[key.Name])
+					forwarded := deps.GetOutputArtifacts()
+					require.Len(t, forwarded, 1)
+					bytes, err := forwarded[0].Bytes(ctx)
 					require.NoError(t, err)
-					result, outputs, artifacts = out.Result, out.Outputs, out.Artifacts
-				} else {
-					when := "terminal"
-					if route == "current-status" {
-						when = "current_status"
-					}
-					out, err := awaitResultSoft(deps, ctx, AwaitResultSoftInput{Target: WaitTarget{Job: "A"}, ReturnWhen: when})
+					require.Equal(t, "from B", string(bytes))
+					// Reader replay retains the complete saved record and exact binding.
+					replayed, err := ctl.GetGoal(ctx, goal.GoalKey)
 					require.NoError(t, err)
-					result, outputs, artifacts = out.Result, out.Outputs, out.Artifacts
-				}
-				require.Equal(t, ResultSource{Goal: "G", Job: "B"}, result)
-				require.Equal(t, "B", outputs["producer"])
-				require.Equal(t, recipeartifacts.NewStoredRef(key), artifacts[key.Name])
-				forwarded := deps.GetOutputArtifacts()
-				require.Len(t, forwarded, 1)
-				bytes, err := forwarded[0].Bytes(ctx)
-				require.NoError(t, err)
-				require.Equal(t, "from B", string(bytes))
-				// Reader replay retains the complete saved record and exact binding.
-				replayed, err := ctl.GetGoal(ctx, goal.GoalKey)
-				require.NoError(t, err)
-				require.Equal(t, goal, replayed)
-				resolved, err := tool.AwaitDependencies(jobdb.Dependency{Target: binding.Target, Condition: jobdb.JobPrereqSuccess})
-				require.NoError(t, err)
-				require.Equal(t, []jobdb.DependencyResolution{binding}, resolved)
-			})
+					require.Equal(t, goal, replayed)
+					resolved, err := tool.AwaitDependencies(jobdb.Dependency{Target: binding.Target, Condition: jobdb.JobPrereqSuccess})
+					require.NoError(t, err)
+					require.Equal(t, []jobdb.DependencyResolution{binding}, resolved)
+				})
+			}
 		}
 	}
 }

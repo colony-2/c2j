@@ -7,10 +7,19 @@ import (
 	"github.com/colony-2/jobdb/pkg/jobdb"
 )
 
+// CellGoalDiscovery composes the existing read ports without lifecycle authority.
+type CellGoalDiscovery interface {
+	GoalDiscovery
+	Lister
+}
+
 // ListGoalsInCells uses first-class candidate ownership. JobDB's current goal
 // discovery request has no cell selector; the candidate job IDs retain its
 // native pagination and whole-goal counts without trusting application metadata.
-func ListGoalsInCells(ctx context.Context, rt jobdb.WorkflowRuntime, req jobdb.ListGoalsRequest, cells []string) (jobdb.ListGoalsResponse, error) {
+func ListGoalsInCells(ctx context.Context, rt CellGoalDiscovery, req jobdb.ListGoalsRequest, cells []string) (jobdb.ListGoalsResponse, error) {
+	if err := validateListGoals(req); err != nil {
+		return jobdb.ListGoalsResponse{}, err
+	}
 	if cells == nil {
 		return ListGoals(ctx, rt, req)
 	}
@@ -31,7 +40,7 @@ func ListGoalsInCells(ctx context.Context, rt jobdb.WorkflowRuntime, req jobdb.L
 }
 
 // JobIDsInCells resolves ownership using JobDB's first-class selector before administrative filtering.
-func JobIDsInCells(ctx context.Context, rt jobdb.WorkflowRuntime, tenant string, cells, requested []string) ([]string, error) {
+func JobIDsInCells(ctx context.Context, rt Lister, tenant string, cells, requested []string) ([]string, error) {
 	jobs := jobdb.ListJobsRequest{TenantIds: []string{tenant}, CellNames: cells, Stores: []jobdb.JobStore{jobdb.JobStoreActive, jobdb.JobStoreArchived}, IncludeHidden: true, PageSize: jobdb.MaxListJobsPageSize}
 	var ids []string
 	for {

@@ -7,9 +7,9 @@ scripts, prompts, examples, and tests to use goals when waiting for successful
 child results. Keep exact job IDs for inspecting and operating on a particular
 execution.
 
-This is a clean cutover for new jobs. Old jobs will be deleted. Do not add data
-migration, backfill, old input aliases, job-ID enrichment adapters, or support
-for replaying old histories. Update callers and definitions to the new contract
+New recipes use the supported target/wait contract. Preserve retained history,
+recorded producer bindings and accepted submission/restart identities. This
+cleanup requires no history deletion or migration. Update callers and definitions
 together. The examples below describe supported c2j behavior; referenced child
 recipe names are illustrative, not an inventory of this repository.
 
@@ -20,7 +20,8 @@ Each submitted child creates its own goal. If child A fails, its goal G remains
 open; a replacement B sharing G can succeed and satisfy the parent's wait.
 The parent must consume B's recorded output and artifacts.
 
-The first successful candidate wins permanently. Failure, cancellation, and
+A committed successful producer remains fixed permanently. Use sequential
+recovery or shared restart for another attempt. Failure, cancellation, and
 retry exhaustion of a candidate do not fail its goal. Explicit goal failure
 is a separate permanent decision and does not cancel producers. A consumer's
 timeout or cancellation also does not fail the goal or cancel candidate jobs.
@@ -135,10 +136,10 @@ the same goal. Ordinary `recipes.run` submissions create new goals; they are not
 a way to repair G while keeping an existing consumer of G connected.
 
 Shared-goal restart is currently available through the c2j CLI and public
-restart APIs. Candidate attachment and explicit failure are tenant lifecycle
-actions. Do not assume a built-in recipe repair/attach/fail op exists or grant
-tasks broad credentials to simulate one. If unattended repair requires new ops,
-request explicit authority and durable, idempotent mutation support as a separate
+restart APIs. Explicit goal failure requires tenant lifecycle authority. Do not
+assume a built-in recipe repair/attach/fail op exists or grant tasks broad
+credentials to simulate one. If unattended repair requires new ops, request
+explicit authority and durable, idempotent mutation support as a separate
 feature. Operator-driven repair can use the existing restart controls.
 
 Use enclosing recipe/node timeouts to bound waits. Do not implement polling
@@ -262,13 +263,14 @@ fixtures, and mocks. Remove old standalone wait input shapes instead of retainin
 aliases. Keep exact-job controls explicitly supported for their intended uses.
 
 Pin a goal-aware c2j version with stable workspace replay across restarts. The
-core implementation baseline is c2j commits `c351eaf` and `039cadb`. Updated
-c2j pins JobDB main commit `86ac742286156ce9f38305b4c8b613df70856095`
-(`v0.0.54-0.20261025173555-86ac74228615`) and integrates goal enumeration,
+core implementation baseline is c2j commits `c351eaf` and `039cadb`. Current c2j
+pins JobDB commit `501cebc4359fb2472c760e7b096ab4cc8b8575fa`
+(`v0.0.83-0.20261113185824-501cebc4359f`) and integrates goal enumeration,
 dependency discovery, complete SDK handles, and current execution identity.
-Coordinate new submissions with Cortex goal/candidate visibility. The recipe wait/target and automatic
-metadata contracts above remain unchanged. Delete old jobs at cutover and
-exercise only the new contract.
+Coordinate new submissions with Cortex goal/candidate visibility. The recipe
+wait/target and automatic metadata contracts above remain unchanged. Retain
+historical records and exercise saved producer bindings as well as new
+submissions.
 
 For operator diagnostics, use goal records and their nonterminal-candidate
 counts to find open goals needing attention. Reverse waiter lookup shows only

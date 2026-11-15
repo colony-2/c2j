@@ -1,15 +1,17 @@
 # c2j goal reliability review
 
 Reviewed against JobDB main commit `86ac742286156ce9f38305b4c8b613df70856095`
-(`v0.0.54-0.20261025173555-86ac74228615`). This review covers new jobs under
-the agreed goal contract. Old jobs and histories are outside the supported scope.
+(`v0.0.54-0.20261025173555-86ac74228615`). This records the original review, not verification of the current candidate.
+The current [goal guide](C2J_GOALS_GUIDE.md) supersedes attachment and cutover
+guidance. Historical records and producer bindings remain supported.
 
 ## Finding and correction
 
 The recipe-specific `RecipeJob` DTO omitted `BlockingWait`, although the general
 job DTO, inspection, and story already exposed it. This could conceal structured
-goal dependencies from clients using recipe listings. The projection now retains
-the full wait, including deadline, dependency state, and recorded winner. A JSON
+goal dependencies from clients using recipe listings. Explicit detail, inspection and stories retain
+the full wait, including deadline, dependency state and recorded winner. Ordinary
+lists carry a summary. Deprecated secondary fields stay empty in current views. A JSON
 round-trip regression test checks that these fields survive serialization.
 
 No further functional blocker was identified in the c2j goal execution or
@@ -25,14 +27,14 @@ separate delivery work.
 | Persistence and recovery | A suspended goal wait survives closing and reopening SQLite, replacing the HTTP endpoint/client, and rebuilding the SDK. The resumed task collects the winner or explicit failure. |
 | Replay | Completed waits replay their recorded results without reexecuting the task. Explicit goal failure retains its typed error for strict waits. |
 | Restart | Continuation shares the goal; an explicit new goal supplies the new identity to execution and story replay. Concurrent retries with one request ID return the same identity even after the candidate has won. |
-| Goal lifecycle | Attachment retries do not duplicate candidates. Failure retries preserve the original failure. Candidate cancellation leaves the goal open. Explicit failure does not cancel candidates, and later success cannot reopen that goal. |
-| Closed goals | A successful goal rejects explicit failure. A failed goal rejects new candidates. Attaching a completed successful candidate to an open goal closes it immediately. |
-| Competing candidates | Concurrent candidate completions leave one winner; the consumer's recorded binding matches it. Retrying an existing association does not change the winner. |
+| Goal lifecycle | Creation-time goal selection and shared restart preserve accepted identities. Failure retries preserve the original failure. Candidate cancellation leaves the goal open. Explicit failure does not cancel candidates, and later success cannot reopen that goal. |
+| Closed goals | A successful goal rejects explicit failure. A failed goal rejects new candidates. Historical success and saved bindings remain readable. |
+| Historical producer | Saved `SuccessfulJobID` and `SatisfiedByJobID` retain the exact producer, including when its primary goal differs. Later success cannot replace that binding. |
 | Membership and pagination | Candidate lists include primary and additional memberships, hidden and archived jobs. Pagination does not omit or duplicate candidates. Candidate filters do not narrow the goal-wide counts. |
 | Discovery | Query-bound cursors reject changed tenants and filters. Resolving one dependency removes only that reverse edge while retaining consumer history and winner bindings. |
 | Interruptions | Enclosing task timeout and consumer cancellation remove reverse wait entries without failing the goal. Late producer success does not replace the interrupted wait's recorded outcome. Soft waits do not swallow timeout, cancellation, or storage errors. |
-| Management CLI | Real HTTP tests exercise get, candidates, attach, fail, list, waits, and known-wait lookup, including pagination, invalid arguments, retries, and failed consumer history. |
-| Tenant isolation | A different tenant cannot read, attach to, or fail the tested goal. |
+| Management CLI | Real HTTP tests exercise get, candidates, fail, list, waits, and known-wait lookup, including pagination, invalid arguments, retries, and failed consumer history. |
+| Tenant isolation | A different tenant cannot read or fail the tested goal. |
 | Task metadata and permissions | Existing broker, environment, merge, execution-runtime, and permission tests cover paired job/goal metadata, protected current identity, restricted submission, and lease scope. Goal lifecycle management remains a tenant-level API rather than a delegated submit permission. |
 
 The principal integration cases run against both SQLite and the real JobDB HTTP
@@ -54,7 +56,8 @@ Representative test entry points:
 
 ## Validation results
 
-All checks passed:
+The original review reported these checks passed; current candidate outcomes
+must be recorded separately:
 
 - Full repository test suite with cross-package coverage instrumentation for
   recipe operations, recipe job APIs, starter, job context, and schema wrappers.
@@ -81,6 +84,6 @@ every backend failure mode. Deploy the matching JobDB contract and retain these
 integration tests when updating the pin.
 
 A failed or cancelled candidate can leave an open goal with no runnable
-candidates. That is intentional: an operator can attach another attempt or
-explicitly fail the goal. Treating the candidate's failure as goal failure would
+candidates. That is intentional: an operator can submit a recovery attempt for the goal at creation, use shared
+restart, or explicitly fail the goal with a message. Treating the candidate's failure as goal failure would
 break continuation semantics.

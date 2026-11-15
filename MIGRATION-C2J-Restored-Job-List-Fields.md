@@ -106,10 +106,13 @@ An ordinary c2j page must make exactly one JobDB `ListJobs` call and pass throug
 its continuation unchanged. Do not hydrate rows with `GetJob`, `GetWaitingTask`,
 history, artifact, goal-membership, or dependency-explanation calls.
 
-`OtherGoalIDs` and full `BlockingWait` remain unloaded on ordinary lists. Their
-empty values do not mean there are no memberships or dependencies. Fetch those
-projections only for explicit selected-job/wait inspection. Server-side goal
-filtering continues to work without returning additional memberships.
+`OtherGoalIDs` is deprecated and empty in current c2j lists, detail, inspection
+and stories. Saved JSON still decodes historical values. Use backend goal
+queries for historical membership; an empty secondary field does not indicate
+whether detail was loaded.
+Full `BlockingWait` remains unloaded on ordinary lists. Fetch the complete wait
+only for explicit selected-job/wait inspection. Server-side goal filtering
+continues to include historical members without returning secondary IDs.
 
 Keep the currently rejected compatibility list filters rejected unless a
 separate pagination contract is agreed. Inspecting a supplied payload is local

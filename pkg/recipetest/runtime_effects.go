@@ -273,7 +273,7 @@ func (f *runtimeFixture) captureBaseline(ctx context.Context, rt jobdb.WorkflowR
 	return nil
 }
 
-func readEffectArtifact(ctx context.Context, rt jobdb.WorkflowRuntime, tenant string, k jobdb.ArtifactKey, limit int) ([]byte, error) {
+func readEffectArtifact(ctx context.Context, rt artifactOpener, tenant string, k jobdb.ArtifactKey, limit int) ([]byte, error) {
 	reader, err := rt.OpenArtifact(ctx, jobdb.ArtifactRef{JobKey: jobdb.JobKey{TenantId: tenant, JobId: k.JobId}, Ordinal: k.TaskOrdinal, Name: k.Name})
 	if err != nil {
 		return nil, fmt.Errorf("artifact %s unavailable: %w", k.Name, err)

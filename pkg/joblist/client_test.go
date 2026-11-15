@@ -24,8 +24,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Every method except ListJobs is deliberately absent: opening/listing must not
-// register schemas, claim work, or initialize any execution machinery.
+// The old HTTP constructor requires these broad inputs. Only ListJobs is
+// implemented; other promoted calls panic. This mandatory transport dependency
+// remains until JobDB publishes its narrower consumer handler.
 type readOnlyRuntime struct {
 	jobdb.WorkflowRuntime
 	jobdb.ConfigurationAdmin

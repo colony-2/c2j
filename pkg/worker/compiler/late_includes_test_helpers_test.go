@@ -137,7 +137,9 @@ func lateRecordOutputs(t *testing.T, rt jobdb.WorkflowRuntime, key jobdb.JobKey)
 	}
 	return selections, captures, run
 }
-func lateArtifactBytes(t *testing.T, rt jobdb.WorkflowRuntime, key jobdb.JobKey, run jobdb.GetJobRunResponse) [][]byte {
+func lateArtifactBytes(t *testing.T, rt interface {
+	OpenArtifact(context.Context, jobdb.ArtifactRef) (jobdb.ArtifactReader, error)
+}, key jobdb.JobKey, run jobdb.GetJobRunResponse) [][]byte {
 	t.Helper()
 	var bytes [][]byte
 	for _, e := range run.Execution {

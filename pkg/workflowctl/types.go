@@ -28,8 +28,9 @@ type JobInspector interface {
 }
 
 type JobInspection struct {
-	BlockingWait   *jobdb.DependencyWaitInfo
-	GoalID         string
+	BlockingWait *jobdb.DependencyWaitInfo
+	GoalID       string
+	// Deprecated: empty in current views; retained for historical JSON decoding.
 	OtherGoalIDs   []string
 	JobKey         jobdb.JobKey
 	Terminal       bool

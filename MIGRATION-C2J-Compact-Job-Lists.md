@@ -1,6 +1,8 @@
 # c2j compact job list migration
 
-c2j now pins JobDB main `9c44e3e3bfa1` (`v0.0.64-0.20261029043940-9c44e3e3bfa1`).
+The original compact-list rollout used JobDB `9c44e3e3bfa1`. The current pin is
+`501cebc4359fb2472c760e7b096ab4cc8b8575fa`
+(`v0.0.83-0.20261113185824-501cebc4359f`).
 The c2j list path covers `pkg/joblist`,
 `pkg/recipejob`, ordinary/child CLI JSON, goal candidate lists, and workflow
 control listing. The corrected boundary preserves stored fields and removes
@@ -28,12 +30,16 @@ The pinned backend returns completion detail, client payload, execution state,
 and prerequisites. Remote endpoints also need the matching JobDB/pgjobdb
 restoration. c2j does not fetch missing fields with per-row reads.
 
-The following fields still require explicit inspection. Empty means **not loaded**:
+`OtherGoalIDs` is deprecated and empty in current c2j lists, detail, inspection
+and stories. Saved JSON still decodes historical values. Use backend goal
+queries for historical membership; an empty secondary field does not indicate
+whether detail was loaded.
+
+The following fields still require explicit inspection. Their list values are **not loaded**:
 
 | List field | Explicit replacement |
 | --- | --- |
 | `blocking_wait` | `GetJob.BlockingWait` or `GetDependencyWait` using the summary wait ID |
-| `other_goal_ids` | `GetJob.OtherGoalIDs` |
 | `workflowctl.JobItem.TaskData` | `GetWaitingTask(...).Data()`; listed TaskData is nil |
 
 `recipejob.GetRecipeJob` is now an explicit inspection operation: one compact
@@ -98,8 +104,8 @@ correction above was audited on 2026-10-29:
 - Cortex main `e7bfa71bcd91c9cfa5dbc8ce61874624d2ce71bf`: ordinary handlers already
   delegate directly to c2j. Completion detail, payload, task coordinates, and
   prerequisites can remain in lists once the backend restores them. Additional
-  memberships and evaluated dependency explanations still need selected-job
-  inspection. Do not add per-row detail requests to render list rows.
+  memberships remain available through backend goal queries. Evaluated dependency
+  explanations need selected-job inspection. Do not add per-row detail requests to render list rows.
 - Pulse main `071cf32f1ef5ae6e31644d051a85c3e6e3efe022`: discovery is one list call,
   but allocation is calculated before admission. With the current backend,
   acquire leases before determining allocation requirements; the lease already

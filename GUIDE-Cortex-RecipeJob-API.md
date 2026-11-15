@@ -296,9 +296,12 @@ when supplied the root recipe; deferred submissions remain explicitly unresolved
 
 Lists make one JobDB call per page and preserve supplied completion detail,
 full client payload, task coordinates, and prerequisites. These stored fields
-need no per-row enrichment. Evaluated dependency explanations and additional
-goal memberships remain unloaded. `blocking_wait_summary` exposes wait identity
-and deadline; all application metadata is retained as `metadata`.
+need no per-row enrichment. Full `blocking_wait` remains unloaded in lists;
+`blocking_wait_summary` exposes wait identity and deadline. Explicit selected
+detail, inspection and stories retain complete waits and saved producer bindings.
+Deprecated `other_goal_ids` is empty in every current c2j view; saved JSON still
+decodes historical values, and backend goal queries retain historical membership.
+All application metadata is retained as `metadata`.
 
 Waiting rows interpret supplied payloads locally. Missing payloads are stored
 absence: c2j uses submission requirements when available, otherwise reports

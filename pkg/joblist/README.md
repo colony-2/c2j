@@ -141,14 +141,18 @@ Unknown values pass through unchanged; an empty status means unavailable, not
 success. Query `COMPLETED` explicitly to include completed jobs. A failed attempt
 does not establish final failure while a job is retrying.
 
-`BlockingWait` and `OtherGoalIDs` remain unloaded because their construction
-requires dependency evaluation or membership reads. Use JobDB `GetJob` for a
-selected job or `GetDependencyWait` for one wait. Recipe clients can use
-`recipejob.GetRecipeJob`, which reads the selected job's summary and detail.
-Do not call these once per row on every refresh.
+`OtherGoalIDs` is deprecated and empty in current c2j lists, detail, inspection
+and stories. Saved JSON still decodes historical values. Use backend goal
+queries for historical membership; an empty secondary field does not indicate
+whether detail was loaded.
+
+Lists carry `BlockingWaitSummary` and leave the full `BlockingWait` unloaded.
+Use JobDB `GetJob` for a selected job or `GetDependencyWait` for one wait.
+Recipe clients can use `recipejob.GetRecipeJob`, which reads the selected job's
+summary and detail. Do not call these once per row on every refresh.
 
 c2j preserves supplied `CompletionDetail`, full `ClientPayload`, `TaskWait`, and
-`WaitFor` without enrichment. The pinned JobDB revision `9c44e3e3bfa1` restores
+`WaitFor` without enrichment. The original JobDB revision `9c44e3e3bfa1` restored
 these fields; remote servers need the corresponding JobDB/pgjobdb update. See
 [the restoration migration](../../MIGRATION-C2J-Restored-Job-List-Fields.md).
 These are stored fields on rows already read, so their removal was unnecessary

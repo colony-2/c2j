@@ -83,6 +83,20 @@ func TestGoalDiscovery(t *testing.T) {
 			require.EqualValues(t, 2, g.CandidateCount)
 			require.EqualValues(t, 1, g.NonTerminalCandidateCount)
 			require.EqualValues(t, 1, g.TerminalCandidateCount)
+			// Existing ownership semantics also apply to historical hidden/archive rows.
+			for _, cells := range [][]string{nil, {"test"}} {
+				owned, err := recipejob.ListGoalsInCells(ctx, rt, jobdb.ListGoalsRequest{TenantId: "t", Candidate: &jobdb.GoalCandidateFilter{JobIDs: []string{a.JobKey.JobId}}}, cells)
+				require.NoError(t, err)
+				require.Equal(t, filtered.Goals, owned.Goals)
+			}
+			_, err = recipejob.ListGoalsInCells(ctx, rt, jobdb.ListGoalsRequest{TenantId: "t"}, []string{})
+			require.ErrorIs(t, err, jobdb.ErrInvalidCell)
+			_, err = recipejob.ListGoalsInCells(ctx, rt, jobdb.ListGoalsRequest{TenantId: "t"}, []string{"missing"})
+			require.ErrorIs(t, err, jobdb.ErrCellNotFound)
+			celltest.Create(t, rt, "t", "empty", "example.test/empty")
+			missing, err := recipejob.ListGoalsInCells(ctx, rt, jobdb.ListGoalsRequest{TenantId: "t"}, []string{"empty"})
+			require.NoError(t, err)
+			require.Empty(t, missing.Goals)
 			page, err := recipejob.ListGoals(ctx, engine, jobdb.ListGoalsRequest{TenantId: "t", PageSize: 1})
 			require.NoError(t, err)
 			require.Len(t, page.Goals, 1)

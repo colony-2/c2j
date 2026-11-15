@@ -6,9 +6,10 @@ Make goals and their candidate jobs visible throughout Cortex. A user waiting
 for a result should be able to follow the goal across failed attempts and
 restarts, while retaining access to each execution's history and artifacts.
 
-This is a clean cutover. Old jobs will be deleted. Support only jobs created
-under the new contract: no data migration, backfill, old-history support,
-compatibility adapters, or legacy operating mode.
+Current direction supersedes the original cutover and attachment proposal.
+Preserve historical records and backend-authoritative membership. Choose a goal
+at creation or through shared restart. Current c2j secondary fields stay empty;
+complete blocking waits and saved producer bindings remain available.
 
 ## Execution contract
 
@@ -25,7 +26,8 @@ candidate leaves its goal open. Explicit goal failure is permanent and does
 not cancel candidate jobs. Success fixes the winner permanently; there is no
 winner replacement, reopening, or automatic cancellation of other candidates.
 
-Each job has a primary goal and can also be a candidate for additional goals.
+Each current job has a primary goal. Historical jobs can have additional
+memberships retained by the backend.
 Membership is tenant-scoped and can span repositories. A repository filter is
 a view of candidate membership, not exclusive ownership of a goal.
 
@@ -62,7 +64,8 @@ Do not infer goal state, a winner, or complete candidate counts by grouping one
 page of jobs. Failure snapshots describe the failure decision time; live job
 statuses may subsequently change.
 
-Show primary and additional goal links in job lists and stories. Keep artifacts,
+Show primary goal links in current job lists and stories. Use backend goal
+queries for historical membership rather than secondary fields in detail. Keep artifacts,
 input requests, reviews, cancellation, and execution history attached to exact
 jobs. Child execution details should retain the original submitted job, waited-on
 goal, and actual result producer rather than replacing one ID with another.
@@ -102,7 +105,7 @@ same candidate; predicates are ANDed and values within a predicate are ORed.
 A matching candidate selects the goal, while counts still cover the whole goal.
 
 Goal revision and update time version the goal record, not candidate statistics.
-Attachment, progress, or failure may change counts without changing either
+Candidate progress or failure may change counts without changing either
 field. Refresh counts and candidate pages independently of goal-record changes.
 
 Use `ListDependencyWaits` in two distinct ways:
@@ -140,11 +143,12 @@ authoritative submission response:
 ```
 
 JobDB SDK engine, execution-context, and task-context submission methods now
-return `jobdb.JobHandle`, including `JobKey` and `GoalID`. Restart methods accept
-the full `SubmitRestartJobRequest`, preserving the caller's `RequestID`, and
-also return a handle. `ExecutionContext.Job()` and `TaskContext.Job()` expose
-current identity in live execution and replay. `JobRunSummary` includes primary
-and additional goal IDs.
+return `jobdb.JobHandle`, including `JobKey` and `GoalID`. Restart methods
+accept the full `SubmitRestartJobRequest`, preserving the caller's `RequestID`,
+and also return a handle. `ExecutionContext.Job()` and `TaskContext.Job()`
+expose current identity in live execution and replay. `JobRunSummary` retains
+historical primary and secondary fields; current c2j inspection and stories
+expose the primary and empty deprecated secondary IDs.
 
 Use these native SDK identities in c2j integration. Map the handle into the c2j
 public reference type and preserve all three fields through Go handlers,
@@ -198,7 +202,6 @@ The basic HTTP surface is:
 | --- | --- |
 | Read goal | `GET /api/projects/:tenant/goals/:goal` |
 | Candidate page | `GET /api/projects/:tenant/goals/:goal/candidates?pageSize=100&pageToken=...` |
-| Attach existing candidate | `POST /api/projects/:tenant/goals/:goal/candidates`, body `{"job_id":"B"}` |
 | Permanently fail goal | `POST /api/projects/:tenant/goals/:goal/fail`, body `{"message":"No further attempts are planned"}` |
 | Inspect restart context | `GET /api/projects/:tenant/jobs/:job/restart-context?scope_id=...` |
 
@@ -217,34 +220,36 @@ The path tenant is authoritative. Pagination tokens are not authorization
 credentials. These are tenant inspection APIs; do not broaden delegated task
 permissions to make the operator screens work.
 
-Attaching a successful job may immediately settle the goal. Existing candidates
-remain eligible; attaching a candidate is not an exclusive selection mechanism.
+Recover sequentially through creation-time goal selection or shared restart.
+A committed winner and recorded wait bindings remain fixed.
 Failing a goal needs a reason and an explicit permanent-action confirmation.
 Explain that running candidates are not cancelled.
 
-These mutations require tenant lifecycle authority. A task's JobDB submission
-permission does not grant candidate attachment or goal failure. Reads and story
+Explicit failure requires tenant lifecycle authority. A task's JobDB submission
+permission does not grant goal failure. Reads and story
 rendering must not perform mutations. Report missing resources, invalid requests,
 and closed-goal conflicts distinctly.
 
 ## Delivery and verification
 
 Deploy a goal-capable JobDB backend and the goal-aware c2j interfaces together
-with Cortex. The basic patch uses c2j commits `c351eaf` and `039cadb` with
-JobDB v0.0.53. Updated c2j now pins JobDB main commit
-`86ac742286156ce9f38305b4c8b613df70856095`
-(`v0.0.54-0.20261025173555-86ac74228615`), forwards both discovery methods,
-and uses native handles and current execution identity. It exposes
+with Cortex. The basic patch uses c2j commits `c351eaf` and `039cadb` with JobDB
+v0.0.53. Current c2j pins JobDB commit
+`501cebc4359fb2472c760e7b096ab4cc8b8575fa`
+(`v0.0.83-0.20261113185824-501cebc4359f`), forwards both discovery methods, and
+uses native handles and current execution identity. It exposes
 `recipejob.ListGoals`, `recipejob.ListDependencyWaits`, and
-`recipejob.GetDependencyWait`, plus structured `BlockingWait` fields in job
-lists, inspections, and stories. Adopt this updated c2j API and JobDB contract;
-the original patch's dependency pin is insufficient. Update Cortex SDK callers
-for handle return values and full restart requests. Keep lease enforcement,
-complete-reference validation, and restart request IDs intact.
+`recipejob.GetDependencyWait`, plus wait summaries in ordinary lists and
+complete `BlockingWait` fields in explicit detail, inspections and stories.
+Adopt this updated c2j API and JobDB contract; the original patch's dependency
+pin is insufficient. Update Cortex SDK callers for handle return values and full
+restart requests. Keep lease enforcement, complete-reference validation, and
+restart request IDs intact.
 
-Retire old submitters/workers, delete old jobs, and submit only new jobs after
-cutover. Deliver the goal browser and current waiter views as integration work,
-not as requests for further JobDB APIs.
+Keep compatible workers and preserve retained history and accepted replay
+identities. This cleanup needs no history deletion or migration. Deliver the
+goal browser and current waiter views as integration work, not as requests for
+further JobDB APIs.
 
 Acceptance tests must cover:
 
@@ -258,7 +263,7 @@ Acceptance tests must cover:
 5. Compact restart scopes and context patches work through the production API;
    workspace replay remains valid when the job ID changes.
 6. Explicit goal failure preserves its full snapshot and leaves running jobs
-   alone. Candidate attachment and closed-goal conflicts are visible to users.
+   alone. Closed-goal conflicts are visible to users.
 7. Tenant isolation, direct URLs, refresh, and reload preserve the selected goal
    and correct job navigation. Browser request IDs also work outside secure
    contexts where `crypto.randomUUID` is unavailable.

@@ -4,12 +4,16 @@
 summaries by default. There is no request flag and no legacy-detail mode.
 
 The corrected contract preserves stored row fields and excludes evaluated
-dependency explanations and additional goal memberships. Completion detail,
-full client payload, execution state, and prerequisites have been restored;
-they are no longer detail-only. See the
-[c2j restoration migration](MIGRATION-C2J-Restored-Job-List-Fields.md).
-`BlockingWait` and `OtherGoalIDs` remain unloaded on ordinary lists; their empty
-values do not establish that no dependencies or additional memberships exist.
+dependency explanations and additional goal memberships. Completion detail, full
+client payload, execution state, and prerequisites have been restored; they are
+no longer detail-only. See the [c2j restoration
+migration](MIGRATION-C2J-Restored-Job-List-Fields.md). `OtherGoalIDs` is
+deprecated and empty in current c2j lists, detail, inspection and stories. Saved
+JSON still decodes historical values. Use backend goal queries for historical
+membership; an empty secondary field does not indicate whether detail was
+loaded. Full `BlockingWait` is separate: ordinary lists carry its summary;
+explicit selected-job or known-wait inspection loads complete dependencies and
+saved producer bindings.
 
 ## What lists retain
 
@@ -36,10 +40,10 @@ The returned `nextRoute` remains the stored route even when an alternate is due.
 
 ## Move detail reads to selection/inspection
 
-| Deprecated list field | Replacement |
+| Field | Current behavior and read path |
 | --- | --- |
-| `BlockingWait` / `blockingWait` | `GetJob.BlockingWait`, or `GetDependencyWait` using the job key and `BlockingWaitSummary.WaitID` |
-| `OtherGoalIDs` / `otherGoalIds` | `GetJob.OtherGoalIDs` |
+| `BlockingWait` / `blockingWait` | Complete wait is unloaded in lists, not deprecated. Use `GetJob.BlockingWait`, or `GetDependencyWait` with the job key and `BlockingWaitSummary.WaitID`. |
+| `OtherGoalIDs` / `otherGoalIds` | Deprecated and empty in current c2j views, including detail. Use backend goal queries for historical membership. |
 
 `GetJob` now also exposes `CompletionStatus`, `CompletionDetail`, `WaitFor`, and
 `NextRoute`. HTTP names are `completionStatus`, `completionDetail`, `waitFor`,
@@ -52,9 +56,9 @@ page, err := runtime.ListJobs(ctx, jobdb.ListJobsRequest{
     TenantIds: []string{tenant}, PageSize: 100,
 })
 // Render stored list fields directly, including payload and completion detail.
-// On selection, fetch evaluated waits or additional memberships if needed:
+// On selection, fetch the complete blocking wait if needed:
 info, err := runtime.GetJob(ctx, selectedJobKey)
-// Use info.BlockingWait and info.OtherGoalIDs.
+// Use info.BlockingWait. Historical membership comes from backend goal queries.
 ```
 
 Do not automatically call `GetJob` for every row on every list refresh. Fetch
@@ -65,15 +69,17 @@ recorded input hash/ordinals and route, so a stale handle cannot complete newer
 work. Job-run inspection and worker run outcomes likewise obtain their required
 details explicitly.
 
-`otherGoalIds` remains unloaded, and full `blockingWait` is omitted. The restored
+c2j secondary fields stay empty, and lists omit full `blockingWait`. The restored
 `waitFor`, `executionState`, `completionDetail`, and `clientPayload` fields reflect
 stored values using their existing encodings. Missing payloads mean stored
 absence on supported backends; c2j no longer substitutes `not_loaded`.
 
-This change is scoped to ordinary job listing. `GetJob`, `GetJobRun`, dependency
-inspection, and schedule-run inspection continue exposing their existing
-inspection details. `JobSummary` is also embedded in schedule responses, so its
-Go deprecation annotations must not be mistaken for removal from those APIs.
+The compact-list boundary applies to ordinary listing. Selected-job, job-run,
+dependency and schedule inspection still load their complete wait details.
+Current c2j projections keep deprecated secondary fields empty; saved backend
+records remain readable without rewriting their identities. `JobSummary` is also
+embedded in schedule responses, so its Go deprecation annotations must not be
+mistaken for removal from those APIs.
 
 ## Backend rollout
 
