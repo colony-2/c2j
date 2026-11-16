@@ -13,6 +13,10 @@ func TestRecordedRestartScopesHistoryOnly(t *testing.T) {
 	run := jobdb.GetJobRunResponse{}
 	require.Empty(t, RecordedRestartScopes(run))
 	run.Job.JobType = "recipe"
+	points := RecordedRestartScopes(run)
+	require.Len(t, points, 1)
+	require.Equal(t, "c2j:submission", points[0].ScopeID)
+	require.Zero(t, points[0].ChapterOrdinal)
 	run.Execution = []jobdb.ExecutionHistoryEntry{
 		{Ordinal: 1, Record: jobdb.ExecutionRecord{Kind: "scope", ID: "root", At: now, Descriptor: json.RawMessage(`{}`)}},
 		{Ordinal: 2, Record: jobdb.ExecutionRecord{Kind: "scope", ID: "visit-1", At: now, Descriptor: json.RawMessage(`{"restart":true,"title":"Loop","path":["loop"]}`)}},
@@ -20,7 +24,7 @@ func TestRecordedRestartScopesHistoryOnly(t *testing.T) {
 		{Ordinal: 3, Record: jobdb.ExecutionRecord{Kind: "task", ID: "task", Descriptor: json.RawMessage(`{"restart":true}`)}},
 		{Ordinal: 4, Record: jobdb.ExecutionRecord{Kind: "scope", ID: "broken", Descriptor: json.RawMessage(`{`)}},
 	}
-	points := RecordedRestartScopes(run)
+	points = RecordedRestartScopes(run)
 	require.Len(t, points, 3)
 	require.Equal(t, "c2j:submission", points[0].ScopeID)
 	require.Equal(t, "visit-1", points[1].ScopeID)

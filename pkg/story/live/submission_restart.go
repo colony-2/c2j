@@ -10,41 +10,16 @@ import (
 	"github.com/colony-2/jobdb/pkg/jobdb"
 )
 
-// SubmissionRestartScope exposes a boundary for existing histories without
-// inserting a synthetic execution record. JobDB requires a chapter after the
-// retained prefix, so a history containing only chapter 0 is not restartable.
+// SubmissionRestartScope exposes the stored submission boundary, including
+// histories where execution has not begun.
 func SubmissionRestartScope(run jobdb.GetJobRunResponse) (model.RestartScope, error) {
-	if run.Job.JobType != "recipe" || run.Start.Ordinal != 0 || !hasExecutionAfterSubmission(run) {
+	if run.Job.JobType != "recipe" || run.Start.Ordinal != 0 {
 		return model.RestartScope{}, fmt.Errorf("%w: no restartable job submission", ErrInvalidRestartBoundary)
 	}
 	return model.RestartScope{
 		ScopeID: starter.SubmissionRestartScopeID, ChapterOrdinal: 0,
 		Title: "Job submission", StartedAt: run.Start.CreatedAt,
 	}, nil
-}
-
-func hasExecutionAfterSubmission(run jobdb.GetJobRunResponse) bool {
-	for _, entry := range run.Execution {
-		if entry.Ordinal > 0 {
-			return true
-		}
-	}
-	// Legacy histories may have no logical execution records. An initial
-	// attempt is synthesized even for unstarted jobs; only stored positions
-	// beyond chapter 0 establish a restartable prefix.
-	for _, attempt := range run.Attempts {
-		if attempt.Ordinal > 0 {
-			return true
-		}
-		for _, task := range attempt.Tasks {
-			for _, taskAttempt := range task.Attempts {
-				if taskAttempt.Ordinal > 0 {
-					return true
-				}
-			}
-		}
-	}
-	return false
 }
 
 // InspectSubmissionRestartContext reads only the submitted data. Recipe defaults,

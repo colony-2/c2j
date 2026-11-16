@@ -6,7 +6,10 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/colony-2/c2j/pkg/jobref"
 	"github.com/colony-2/c2j/pkg/jobrestart"
+	"github.com/colony-2/c2j/pkg/starter"
+	"github.com/colony-2/c2j/pkg/story/live"
 	"github.com/colony-2/c2j/pkg/task"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	wf "github.com/colony-2/jobdb/pkg/workflow"
@@ -18,6 +21,7 @@ type historyEngine struct {
 	run                jobdb.GetJobRunResponse
 	readErr, replayErr error
 	reads, replays     int
+	artifactReads      int
 	key                jobdb.JobKey
 }
 
@@ -115,5 +119,75 @@ func TestPatchValidationPrecedesBackendReads(t *testing.T) {
 		var q Request
 		require.Error(t, json.Unmarshal([]byte(raw), &q))
 		require.Zero(t, engine.reads)
+	}
+}
+
+func (e *historyEngine) GetArtifact(string, jobdb.ArtifactKey) (jobdb.Artifact, error) {
+	e.artifactReads++
+	return nil, errors.New("artifact body access forbidden")
+}
+
+func TestSubmissionOnlyDiscoveryAndContext(t *testing.T) {
+	zero := int64(0)
+	for _, fixture := range []struct {
+		input *jobdb.TaskIO
+		valid bool
+	}{
+		{nil, false}, {&jobdb.TaskIO{}, false}, {&jobdb.TaskIO{Data: json.RawMessage(`null`)}, false},
+		{&jobdb.TaskIO{Data: json.RawMessage(`{"inputs":`)}, false},
+		{&jobdb.TaskIO{Data: json.RawMessage(`{"inputs":{"value":"original","api_key":"secret"}}`)}, true},
+	} {
+		input := fixture.input
+		engine := &historyEngine{run: jobdb.GetJobRunResponse{Job: jobdb.JobRunSummary{JobType: "recipe"}, Start: jobdb.JobStart{Input: input}}}
+		svc := &Service{Engine: engine, Tenant: "tenant"}
+		points, err := svc.Restart(context.Background(), Request{Operation: "points", JobID: "job"})
+		require.NoError(t, err)
+		require.Len(t, points.Points.RestartScopes, 1)
+		require.Equal(t, 1, engine.reads)
+		require.Zero(t, engine.replays)
+		require.Zero(t, engine.artifactReads)
+		for _, selector := range []Selector{{Scope: "c2j:submission"}, {Chapter: &zero}} {
+			engine.reads = 0
+			result, err := svc.Restart(context.Background(), Request{Operation: "context", JobID: "job", Selector: selector})
+			if fixture.valid {
+				require.NoError(t, err)
+				require.Equal(t, map[string]any{"value": "original", "api_key": "[REDACTED]"}, result.Context.Visible["inputs"])
+			} else {
+				require.ErrorIs(t, err, live.ErrRestartContextUnavailable)
+			}
+			require.Equal(t, 1, engine.reads)
+			require.Zero(t, engine.replays)
+			require.Zero(t, engine.artifactReads)
+			_, err = svc.Restart(context.Background(), Request{Operation: "submit", JobID: "job", Selector: selector})
+			require.ErrorContains(t, err, "authorized restart submission capability unavailable")
+			submits := 0
+			svc.Submit = func(context.Context, jobdb.JobKey, string, *task.ContextPatch, starter.RestartOptions) (jobref.Ref, error) {
+				submits++
+				return jobref.Ref{}, nil
+			}
+			patch := task.ContextPatch{{Op: "test", Path: "/sequence/step/outputs/value", Value: json.RawMessage(`"original"`)}}
+			_, err = svc.Restart(context.Background(), Request{Operation: "submit", JobID: "job", Selector: selector, Patch: &patch})
+			require.ErrorContains(t, err, "submission restart does not support")
+			require.Zero(t, submits)
+			svc.Submit = nil
+		}
+	}
+}
+
+func TestSubmissionOnlySelectorValidation(t *testing.T) {
+	zero, negative := int64(0), int64(-1)
+	for _, selector := range []Selector{{}, {Scope: "c2j:submission", Chapter: &zero}, {Chapter: &negative}, {Scope: "unknown"}} {
+		engine := &historyEngine{run: jobdb.GetJobRunResponse{Job: jobdb.JobRunSummary{JobType: "recipe"}}}
+		svc := &Service{Engine: engine, Tenant: "tenant", Submit: func(context.Context, jobdb.JobKey, string, *task.ContextPatch, starter.RestartOptions) (jobref.Ref, error) {
+			t.Fatal("invalid selector reached submission")
+			return jobref.Ref{}, nil
+		}}
+		_, err := svc.Restart(context.Background(), Request{Operation: "submit", JobID: "job", Selector: selector})
+		require.Error(t, err)
+		require.Zero(t, engine.replays)
+		require.Zero(t, engine.artifactReads)
+		if selector.Scope != "unknown" {
+			require.Zero(t, engine.reads)
+		}
 	}
 }
