@@ -163,6 +163,8 @@ func start(ctx context.Context, opts Options, openListener func() (net.Listener,
 	mux.HandleFunc(submitPath+"/inspect", broker.handleJobInspection)
 	mux.HandleFunc(submitPath+"/restart", broker.handleRestart)
 	mux.HandleFunc(submitPath+"/inspect/download", broker.handleJobInspection)
+	mux.HandleFunc(submitPath+"/inspect/changes", broker.handleChanges)
+	mux.HandleFunc(submitPath+"/inspect/diff", broker.handleChanges)
 	broker.server = &http.Server{
 		Handler:           mux,
 		ReadHeaderTimeout: 5 * time.Second,

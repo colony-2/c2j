@@ -21,6 +21,8 @@ import (
 )
 
 type Service struct {
+	// ChangesConfig controls optional ChangesAPI reads; zero is bounded/offline.
+	ChangesConfig ChangesConfig
 	Runtime jobdb.WorkflowRuntime
 	Tenant  string
 	// Authorize guards detail/byte reads and discovery. Discovery passes the

@@ -1,4 +1,6 @@
 # Repository-wide checks; request text and target_directory never enter shell source.
+# Bound live commands below, not durable states: recovery downtime must not expire
+# a successful command whose enclosing state has not committed completion.
 id: c2j-build-verify
 version: "1.0.0"
 desc: Validate the candidate on this worker with independently recorded CI checks.
@@ -36,7 +38,6 @@ state:
   states:
     check_environment:
       id: check_environment
-      timeout: 2m
       op: command_execution
       inputs:
         shell: bash
@@ -100,7 +101,6 @@ state:
         - to: summarize
     check_modules:
       id: check_modules
-      timeout: 5m
       op: command_execution
       inputs:
         shell: bash
@@ -135,12 +135,11 @@ state:
         - to: test_integration
     test_integration:
       id: test_integration
-      timeout: 30m
       op: command_execution
       inputs:
         shell: bash
         working_directory: "${{ context.environment.op.worktree_path }}"
-        timeout: 30m
+        timeout: 60m
         continue_on_error: true
         capture_diagnostics: always
         env:
@@ -177,7 +176,6 @@ state:
         - to: check_skills
     check_skills:
       id: check_skills
-      timeout: 5m
       op: command_execution
       inputs:
         shell: bash
@@ -212,7 +210,6 @@ state:
         - to: summarize
     summarize:
       id: summarize
-      timeout: 2m
       op: command_execution
       artifacts:
         ./ : "${{ jq([(has(states.check_environment) ? states.check_environment.artifacts : {}), (has(states.check_modules) ? states.check_modules.artifacts : {}), (has(states.test_integration) ? states.test_integration.artifacts : {}), (has(states.check_skills) ? states.check_skills.artifacts : {})], 'add | with_entries(select(.key == \"environment.log\" or .key == \"modules.log\" or .key == \"tests.log\" or .key == \"skills.log\"))') }}"

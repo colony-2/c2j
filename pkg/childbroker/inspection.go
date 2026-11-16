@@ -129,7 +129,23 @@ func (c JobClient) callPayload(ctx context.Context, q any, suffix string, typedE
 	resp.Body = &transportBody{ReadCloser: resp.Body, close: transport.CloseIdleConnections}
 	if resp.StatusCode != http.StatusOK {
 		defer resp.Body.Close()
-		b, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		b, readErr := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		if isChangesPayload(q) {
+			if readErr != nil {
+				return nil, changesMetadataReadError(ctx, readErr)
+			}
+			var diagnostic jobinspect.ChangesError
+			if json.Unmarshal(b, &diagnostic) == nil && (diagnostic.Version != 0 || diagnostic.Code != "") {
+				if err := jobinspect.ValidateChangesDiagnostic(&diagnostic); err != nil {
+					return nil, err
+				}
+				return nil, &diagnostic
+			}
+			if resp.StatusCode == 401 || resp.StatusCode == 403 {
+				return nil, &jobinspect.ChangesError{Version: 1, Code: "job_denied", Detail: "Changes helper authorization failed"}
+			}
+			return nil, &jobinspect.ChangesError{Version: jobinspect.ChangesVersion, Code: "protocol", Detail: "unsupported changes helper response; upgrade worker and CLI together"}
+		}
 		if typedErrors {
 			var typed jobdb.CellError
 			if json.Unmarshal(b, &typed) == nil && typed.Code != "" && typed.Status == resp.StatusCode {

@@ -73,6 +73,7 @@ Use 'git -C CHECKOUT diff refs/c2j/base HEAD' to review cumulative changes.`}
 	root.PersistentFlags().BoolVar(&embed, "embed", false, "Use embedded JobDB")
 	root.PersistentFlags().BoolVar(&jsonOutput, "json", false, "Emit structured JSON")
 	root.AddCommand(newClearCrashConcernCmd(&uri, &embed, &jsonOutput))
+	root.AddCommand(newJobChangesCommands(&uri, &embed, &jsonOutput, openChanges)...)
 	root.AddCommand(newJobDAGCmd(&uri, &embed, &jsonOutput, openInspection))
 	root.AddCommand(newRestartInspection("points", &uri, &embed, &jsonOutput, openRestart), newRestartInspection("context", &uri, &embed, &jsonOutput, openRestart))
 	for _, operation := range []string{"events", "list", "show", "log", "story", "result", "fields", "artifacts", "artifact", "snapshot"} {

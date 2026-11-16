@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
 	"log"
 	"log/slog"
@@ -14,6 +15,10 @@ func Execute(info buildinfo.Info) (int, error) {
 	defer func() { slog.SetDefault(previous); log.SetOutput(writer); log.SetFlags(flags) }()
 	root := newRootCmd(info)
 	if err := root.Execute(); err != nil {
+		var printed *printedDiagnosticError
+		if errors.As(err, &printed) {
+			return 1, nil
+		}
 		if coded, ok := err.(exitCoder); ok {
 			return coded.ExitCode(), err
 		}
