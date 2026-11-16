@@ -920,3 +920,57 @@ func testNativeObservationArtifactMetadataRedaction(t *testing.T, publicCollisio
 		t.Fatal(err)
 	}
 }
+
+func TestSuiteResponseActorDecoding(t *testing.T) {
+	valid := []string{`{"id":"synthetic-reviewer","kind":"human"}`, `{"id":"agent","kind":"automation"}`, `{"id":"custom","kind":" arbitrary "}`}
+	invalid := []string{`null`, `false`, `7`, `"human"`, `[]`, `{}`, `{"id":"x"}`, `{"kind":"human"}`, `{"id":null,"kind":"human"}`, `{"id":"x","kind":null}`, `{"id":[],"kind":"human"}`, `{"id":"x","kind":1}`, `{"id":"","kind":"human"}`, `{"id":"x","kind":" \t"}`, `{"id":"x","kind":"human","extra":true}`, `{"id":"x","knd":"human"}`}
+	for _, format := range []string{"canonical_json", "canonical_yaml"} {
+		for _, raw := range append(append([]string{""}, valid...), invalid...) {
+			t.Run(format+"/"+raw, func(t *testing.T) {
+				// JSON flow objects are valid YAML too. The suite envelope takes each
+				// format's real decoding path before the typed fixture JSON decoder.
+				actor := ""
+				if raw != "" {
+					actor = `,"actor":` + raw
+				}
+				suite := `{"cases":[{"id":"actor","type":"integration_case","runtime":{"responses":[{"node_path":"gate/review"` + actor + `}]}}]}`
+				if format == "canonical_yaml" {
+					suite = "cases:\n- id: actor\n  type: integration_case\n  runtime:\n    responses:\n    - node_path: gate/review\n"
+					if raw != "" {
+						suite += "      actor: " + raw + "\n"
+					}
+				}
+				cases, err := parseSuiteCases([]byte(suite), format)
+				wantValid := raw == ""
+				for _, candidate := range valid {
+					if raw == candidate {
+						wantValid = true
+					}
+				}
+				if !wantValid {
+					if err == nil || !strings.Contains(err.Error(), "actor") {
+						t.Fatalf("expected actor error, got %v", err)
+					}
+					return
+				}
+				if err != nil {
+					t.Fatal(err)
+				}
+				actorValue := cases[0].Runtime.Responses[0].Actor
+				if raw == "" {
+					if actorValue != nil {
+						t.Fatalf("omitted actor: %+v", actorValue)
+					}
+					return
+				}
+				var want map[string]string
+				if err := json.Unmarshal([]byte(raw), &want); err != nil {
+					t.Fatal(err)
+				}
+				if actorValue == nil || actorValue.ID != want["id"] || actorValue.Kind != want["kind"] {
+					t.Fatalf("actor = %+v, want %v", actorValue, want)
+				}
+			})
+		}
+	}
+}

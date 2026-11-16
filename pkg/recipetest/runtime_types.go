@@ -50,7 +50,9 @@ type OrderingEvent struct {
 }
 
 type InputFixture struct {
-	AfterCall *AfterCall `json:"after_call,omitempty"`
+	// Actor selects a synthetic identity for this response only; nil uses recipe-test/test.
+	Actor     *inputop.Actor `json:"actor,omitempty"`
+	AfterCall *AfterCall     `json:"after_call,omitempty"`
 	// After gates this native submission on a prepared control event. The pending
 	// form is captured on one controller pass before submission on a later pass.
 	After       string            `json:"after,omitempty"`
@@ -201,7 +203,10 @@ func validateRuntimeCase(opts HarnessOptions, c Case) []Issue {
 			}
 		}
 	}
-	for _, response := range c.Runtime.Responses {
+	for i, response := range c.Runtime.Responses {
+		if err := validateFixtureActor(response.Actor); err != nil {
+			add(fmt.Errorf("response %d: %w", i, err))
+		}
 		if gate := response.AfterCall; gate != nil {
 			if strings.TrimSpace(gate.NodePath) == "" || gate.Occurrence <= 0 {
 				add(fmt.Errorf("after_call requires nonempty node_path and positive occurrence"))
@@ -282,15 +287,57 @@ func (c *ChildFixture) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// A supplied null gate is not a selector; omission is the asynchronous default.
+func validateFixtureActor(actor *inputop.Actor) error {
+	if actor == nil {
+		return nil
+	}
+	if strings.TrimSpace(actor.ID) == "" {
+		return fmt.Errorf("actor.id must be a nonblank string")
+	}
+	if strings.TrimSpace(actor.Kind) == "" {
+		return fmt.Errorf("actor.kind must be a nonblank string")
+	}
+	return nil
+}
+
+// Only omission selects defaults; supplied actors and gates must be valid.
 func (r *InputFixture) UnmarshalJSON(data []byte) error {
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return err
+	}
+	// Match encoding/json's field-name aliases so capitalization cannot bypass
+	// presence checks (in particular, an explicit null must never select defaults).
+	for field, raw := range fields {
+		if !strings.EqualFold(field, "actor") {
+			continue
+		}
+		var members map[string]json.RawMessage
+		if err := json.Unmarshal(raw, &members); err != nil || members == nil {
+			return fmt.Errorf("actor must be an object containing id and kind")
+		}
+		for name := range members {
+			if name != "id" && name != "kind" {
+				return fmt.Errorf("actor: unknown member %q", name)
+			}
+		}
+		for _, name := range []string{"id", "kind"} {
+			var value string
+			member, ok := members[name]
+			if !ok || bytes.Equal(bytes.TrimSpace(member), []byte("null")) {
+				return fmt.Errorf("actor.%s must be a nonblank string", name)
+			}
+			if err := json.Unmarshal(member, &value); err != nil {
+				return fmt.Errorf("actor.%s: %w", name, err)
+			}
+		}
+	}
 	type plain InputFixture
 	var value plain
 	if err := json.Unmarshal(data, &value); err != nil {
 		return err
 	}
-	var fields map[string]json.RawMessage
-	if err := json.Unmarshal(data, &fields); err != nil {
+	if err := validateFixtureActor(value.Actor); err != nil {
 		return err
 	}
 	if raw, supplied := fields["after_call"]; supplied && bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {

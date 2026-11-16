@@ -62,7 +62,7 @@ outputs: {}
 					if tc.valid {
 						action = "continue"
 					}
-					response := InputFixture{NodePath: "choice/choose", Cell: tc.cell}
+					response := InputFixture{NodePath: "choice/choose", Cell: tc.cell, Actor: &inputop.Actor{ID: "reviewer", Kind: "human"}}
 					if tc.valid || tc.name == "expected rejection" {
 						response.AfterCall = &AfterCall{NodePath: "choice/choose", Occurrence: 1}
 					}

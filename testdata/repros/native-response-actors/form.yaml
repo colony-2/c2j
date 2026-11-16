@@ -1,0 +1,26 @@
+id: approval
+version: "1"
+input_schema: {}
+sequence:
+- id: review
+  op: input
+  inputs:
+    form:
+      kind: review
+      title: Approve
+      documents: {}
+      fields:
+      - id: decision
+        question: Approve or reject?
+        type: multiple_choice
+        required: true
+        options:
+        - {value: approve, label: Approve}
+        - {value: reject, label: Reject}
+- id: eligible
+  when: sequence.review.outputs.receipt.actor.kind == 'human' && sequence.review.outputs.fields.decision == 'approve'
+  op: command_execution
+  inputs: {run: unused}
+outputs:
+  eligible: '${{ "eligible" in sequence }}'
+  receipt: '${{ sequence.review.outputs.receipt }}'

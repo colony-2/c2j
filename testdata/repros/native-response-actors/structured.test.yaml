@@ -1,0 +1,49 @@
+recipe: structured.yaml
+cases:
+- id: human
+  type: integration_case
+  runtime:
+    responses:
+    - node_path: approval/review
+      actor: {id: synthetic-reviewer, kind: human}
+      response: {decision: approve}
+  mocks:
+    ops:
+    - match: {node_path: approval/eligible}
+      behavior: {mode: return, outputs: {continued: true}}
+  assertions:
+  - {type: output_equals, path: eligible, value: true}
+  - {type: output_equals, path: receipt.actor, value: {id: synthetic-reviewer, kind: human}}
+  - {type: cel_true, expr: "reviews[0].receipt == outputs.receipt && reviews[0].request_id == outputs.receipt.request_id && outputs.receipt.submission_id == '0' && size(outputs.receipt.submitted_at) > 0"}
+- id: default
+  type: integration_case
+  runtime:
+    responses:
+    - node_path: approval/review
+      response: {decision: approve}
+  assertions:
+  - {type: output_equals, path: eligible, value: false}
+  - {type: output_equals, path: receipt.actor, value: {id: recipe-test, kind: test}}
+  - {type: cel_true, expr: "reviews[0].receipt == outputs.receipt && reviews[0].request_id == outputs.receipt.request_id && outputs.receipt.submission_id == '0' && size(outputs.receipt.submitted_at) > 0"}
+- id: automation
+  type: integration_case
+  runtime:
+    responses:
+    - node_path: approval/review
+      actor: {id: synthetic-agent, kind: automation}
+      response: {decision: approve}
+  assertions:
+  - {type: output_equals, path: eligible, value: false}
+  - {type: output_equals, path: receipt.actor, value: {id: synthetic-agent, kind: automation}}
+  - {type: cel_true, expr: "reviews[0].receipt == outputs.receipt && reviews[0].request_id == outputs.receipt.request_id && outputs.receipt.submission_id == '0' && size(outputs.receipt.submitted_at) > 0"}
+- id: explicit-test
+  type: integration_case
+  runtime:
+    responses:
+    - node_path: approval/review
+      actor: {id: synthetic-test, kind: test}
+      response: {decision: approve}
+  assertions:
+  - {type: output_equals, path: eligible, value: false}
+  - {type: output_equals, path: receipt.actor, value: {id: synthetic-test, kind: test}}
+  - {type: cel_true, expr: "reviews[0].receipt == outputs.receipt && reviews[0].request_id == outputs.receipt.request_id && outputs.receipt.submission_id == '0' && size(outputs.receipt.submitted_at) > 0"}

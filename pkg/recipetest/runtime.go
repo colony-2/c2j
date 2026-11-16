@@ -747,6 +747,9 @@ func (f *runtimeFixture) answerInputs(ctx context.Context, tenant string, input 
 			f.event(OrderingEvent{Kind: "response_release", JobID: item.Id, NodePath: nodePath, Cell: cell, ResponseIndex: &index})
 			f.mu.Unlock()
 			actor := inputop.Actor{ID: "recipe-test", Kind: "test"}
+			if response.Actor != nil {
+				actor = *response.Actor
+			}
 			var accepted inputop.Output
 			if form.ResponseSchema != nil {
 				accepted, err = input.SubmitStructuredResponse(ctx, tenant, item.Id, inputop.StructuredSubmission{RequestID: form.RequestID, SubmissionID: fmt.Sprint(i), Response: response.Response}, actor)

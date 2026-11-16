@@ -131,6 +131,47 @@ Use `c2j test run --help` and `c2j test validate --help`; flags belong to these 
 
 Execution-only flags include `--case-timeout`, `--stop-on-failure`, `--artifact-mode`, `--artifact-max-bytes`, `--evaluation-mode`, `--out-dir`, and `--jsonl-events`. Validation supports `--fail-fast` and `--json`.
 
+## Native response actors
+
+Select a synthetic actor separately on each `runtime.responses` entry:
+
+```yaml
+runtime:
+  responses:
+    - node_path: approval/review
+      actor: {id: synthetic-reviewer, kind: human}
+      fields: {decision: approve}
+```
+
+Use `response: {decision: approve}` for structured input. Form uploads keep
+`attachments: {annotation: fixtures/feedback.md}` and require a matching upload
+field and real fixture file. Both submission paths retain native validation and
+generated receipts; attachment binding stays native. No structured upload syntax
+or production authentication/rule change is added.
+
+Omission selects `{id: recipe-test, kind: test}` for that response only. Use
+`{id: synthetic-agent, kind: automation}` for a negative human-eligibility case.
+An override never carries into another response or case. Answer data named
+`actor` cannot select the receipt actor.
+
+A supplied actor requires exactly `id` and `kind`, both nonblank strings. Reject
+null, scalar/array actors, unknown or missing members, null/non-string members,
+and empty/whitespace-only strings before execution. Accept arbitrary nonblank
+kinds and preserve values exactly, without trimming or changing case. A direct
+Go fixture uses `Actor: &input.Actor{ID: "synthetic-reviewer", Kind: "human"}`;
+nil means omission.
+
+Run the form and structured examples from the repository root:
+
+```bash
+c2j test run --file testdata/repros/native-response-actors/form.test.yaml --out-dir /tmp/native-actors-form
+c2j test run --file testdata/repros/native-response-actors/structured.test.yaml --out-dir /tmp/native-actors-structured
+```
+
+These suites assert human eligibility, default/test/automation ineligibility and
+native receipt equality. Use a build containing this feature; older builds ignore
+the unknown actor fixture member and still submit as `test`.
+
 ## Job Inspection
 
 List recent jobs:

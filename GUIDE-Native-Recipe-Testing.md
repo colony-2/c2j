@@ -145,6 +145,51 @@ Runtime fixture vocabulary:
 Unused mocks/responses fail runtime cases. Case timeouts include child execution
 and waiting for input. All workers stop before the disposable runtime is removed.
 
+## Per-response synthetic actors
+
+Each native response can select its synthetic submission actor, beside `fields`,
+`response` and `attachments`:
+
+```yaml
+runtime:
+  responses:
+    - node_path: approval/review
+      actor: {id: synthetic-reviewer, kind: human}
+      fields: {decision: approve}
+```
+
+For structured input, use `response: {decision: approve}` instead of `fields`.
+Form file uploads still use `attachments: {annotation: fixtures/feedback.md}`
+with a real fixture file and a matching file-upload field. Actor selection keeps
+native answer validation, attachment binding and generated receipts. It does not
+add structured attachment syntax or change production authentication or rules.
+
+Omitting `actor` selects `{id: recipe-test, kind: test}` for that response only.
+Use `{id: synthetic-agent, kind: automation}` to exercise an automation receipt.
+A human-only recipe gate can distinguish these actors using the native receipt;
+valid test and automation answers remain ineligible for that gate.
+
+A supplied actor must be an object containing exactly `id` and `kind`, both
+nonblank strings. Null actors, scalars, arrays, unknown members, missing members,
+null members, non-string members, empty strings and whitespace-only strings fail
+fixture validation before execution. Arbitrary nonblank kinds are accepted;
+values retain their exact spelling and surrounding whitespace. Answer fields
+named `actor` are answer data and cannot select the receipt actor. Overrides
+never carry into another response or case. Direct Go fixtures use
+`Actor: &input.Actor{ID: "synthetic-reviewer", Kind: "human"}`; nil means omission.
+
+The runnable form and structured suites below assert human eligibility, default
+and automation ineligibility, explicit test receipts, and equality between the
+reported receipt and the persisted input output:
+
+```bash
+c2j test run --file testdata/repros/native-response-actors/form.test.yaml --out-dir /tmp/native-actors-form
+c2j test run --file testdata/repros/native-response-actors/structured.test.yaml --out-dir /tmp/native-actors-structured
+```
+
+These examples require the per-response actor implementation: older builds ignore
+the unknown fixture member and still submit as `test`.
+
 ## Assertions about recipe behavior
 
 `op_input_equals` checks the last call's input at `path`; `op_call_count` counts

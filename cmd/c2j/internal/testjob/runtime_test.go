@@ -3,6 +3,7 @@ package testjob
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"os"
 	"path/filepath"
 	"testing"
@@ -108,7 +109,8 @@ cases:
 
 func TestNativeRuntimeRespondsToDocumentReview(t *testing.T) {
 	root := t.TempDir()
-	writeDiscoveryFile(t, root, "feedback.md", "{++Keep this annotation++}")
+	feedback := "{++Keep this annotation++}\n\x00"
+	writeDiscoveryFile(t, root, "feedback.md", feedback)
 	writeDiscoveryFile(t, root, "recipe.yaml", `id: review
 version: "1"
 sequence:
@@ -127,7 +129,15 @@ sequence:
       fields:
       - {id: decision, type: short_answer, required: true, question: Decision}
       - {id: annotation, type: file_upload, required: true, question: Annotation}
+- id: consume
+  op: command_execution
+  artifacts:
+    annotation: '${{ sequence.approve.outputs.fields.annotation }}'
+  inputs:
+    run: 'base64 < "${{ context.environment.op.inbox }}/annotation"'
 outputs:
+  uploaded_bytes: '${{ sequence.consume.outputs.stdout }}'
+  receipt: '${{ sequence.approve.outputs.receipt }}'
   decision: ${{ sequence.approve.outputs.fields.decision }}
   annotated: ${{ sequence.approve.outputs.fields.annotation.kind }}
 `)
@@ -138,6 +148,7 @@ cases:
   runtime:
     responses:
     - node_path: review/approve
+      actor: {id: synthetic-reviewer, kind: human}
       after_call: {node_path: review/draft, occurrence: 1}
       fields: {decision: approve}
       attachments: {annotation: feedback.md}
@@ -148,7 +159,11 @@ cases:
         mode: return
         outputs: {success: true}
         artifacts: {design.md: '# Design', plan.md: '# Plan'}
+    - match: {node_path: review/consume}
+      behavior: {mode: passthrough}
   assertions:
+  - {type: cel_true, expr: "reviews[0].receipt == outputs.receipt && reviews[0].receipt.actor == {'id': 'synthetic-reviewer', 'kind': 'human'}"}
+  - {type: output_equals, path: uploaded_bytes, value: `+base64.StdEncoding.EncodeToString([]byte(feedback))+`}
   - {type: output_equals, path: decision, value: approve}
   - {type: output_equals, path: annotated, value: stored}
   - {type: review_document_exists, node_path: review/approve, path: design}
@@ -237,4 +252,36 @@ cases:
 	err := Run(context.Background(), Options{FilePath: filepath.Join(root, "suite.test.yaml"), OutDir: filepath.Join(root, "results"), Stdout: &output})
 	data, _ := os.ReadFile(filepath.Join(root, "results/summary.json"))
 	require.NoError(t, err, "%s\n%s", output.String(), data)
+}
+
+func TestNativeRuntimeActorExamplesAndCaseIsolation(t *testing.T) {
+	for _, parallelism := range []int{1, 3} {
+		for _, mode := range []string{"form", "structured"} {
+			root := t.TempDir()
+			suite, err := filepath.Abs(filepath.Join("../../../../testdata/repros/native-response-actors", mode+".test.yaml"))
+			require.NoError(t, err)
+			var output bytes.Buffer
+			err = Run(context.Background(), Options{FilePath: suite, OutDir: filepath.Join(root, "results"), Parallelism: parallelism, Stdout: &output, Execution: ExecutionOptions{Timeout: "10s"}})
+			data, readErr := os.ReadFile(filepath.Join(root, "results/summary.json"))
+			require.NoError(t, readErr)
+			require.NoError(t, err, "parallelism=%d mode=%s\n%s\n%s", parallelism, mode, output.String(), data)
+		}
+	}
+}
+
+func TestNativeRuntimeInvalidActorsStopBeforeExecution(t *testing.T) {
+	for _, extension := range []string{"yaml", "json"} {
+		root := t.TempDir()
+		writeDiscoveryFile(t, root, "recipe.yaml", "id: no-execution\nop: command_execution\ninputs: {run: should-not-execute}\n")
+		suite := "recipe: recipe.yaml\ncases:\n- id: invalid\n  type: integration_case\n  expect_error: actor\n  runtime:\n    responses:\n    - node_path: no-execution\n      actor: null\n"
+		if extension == "json" {
+			suite = `{"recipe":"recipe.yaml","cases":[{"id":"invalid","type":"integration_case","expect_error":"actor","runtime":{"responses":[{"node_path":"no-execution","actor":{"id":"reviewer","knd":"human"}}]}}]}`
+		}
+		writeDiscoveryFile(t, root, "suite.test."+extension, suite)
+		var output bytes.Buffer
+		err := Validate(context.Background(), Options{FilePath: filepath.Join(root, "suite.test."+extension), OutDir: filepath.Join(root, "results"), Stdout: &output})
+		require.ErrorContains(t, err, "actor")
+		err = Run(context.Background(), Options{FilePath: filepath.Join(root, "suite.test."+extension), OutDir: filepath.Join(root, "results"), Stdout: &output})
+		require.ErrorContains(t, err, "actor")
+	}
 }
