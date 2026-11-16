@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"github.com/colony-2/c2j/internal/celltest"
+	"github.com/colony-2/c2j/pkg/jobrestart"
+	restartservice "github.com/colony-2/c2j/pkg/jobrestart/service"
 	coreops "github.com/colony-2/c2j/pkg/ops"
 	"github.com/colony-2/c2j/pkg/story"
 	"github.com/colony-2/c2j/pkg/worker/compiler"
@@ -39,9 +41,10 @@ func openPreNumericRestartFixture(t *testing.T, backend string) (*restartFixture
 	db, err := sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: path})
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close(ctx)) })
-	var rt jobdb.WorkflowRuntime = db
+	guard := &inspectionRuntime{Runtime: db}
+	var rt jobdb.WorkflowRuntime = guard
 	if backend == "remote" {
-		server := httptest.NewServer(celltest.Handler(remote.NewServer(db)))
+		server := httptest.NewServer(celltest.Handler(remote.NewServer(guard)))
 		t.Cleanup(server.Close)
 		rt, err = remote.New(server.URL, server.Client())
 		require.NoError(t, err)
@@ -53,13 +56,13 @@ func openPreNumericRestartFixture(t *testing.T, backend string) (*restartFixture
 	task := &restartProbeTask{}
 	engine, err := jobworkflow.NewEngineBuilder().WithRuntime(rt).WithWorkerTenantId("restart-tests").PlusWorkers(worker, task).BuildEngine()
 	require.NoError(t, err)
-	svc, err := story.New(story.ServiceConfig{Engine: engine, SchemaRegistry: db})
+	svc, err := story.New(story.ServiceConfig{Engine: engine, SchemaRegistry: guard})
 	require.NoError(t, err)
 	raw, err = os.ReadFile("testdata/restart-pre-numeric/jobs.json")
 	require.NoError(t, err)
 	var keys map[string]string
 	require.NoError(t, json.Unmarshal(raw, &keys))
-	return &restartFixture{ctx: ctx, runtime: rt, engine: engine, service: svc, worker: worker, task: task}, keys
+	return &restartFixture{ctx: ctx, runtime: rt, engine: engine, service: svc, worker: worker, task: task, guard: guard, dbPath: path}, keys
 }
 
 func assertUpgradeNumericOutput(t *testing.T, st *story.JobRunStory) {
@@ -162,6 +165,37 @@ func TestRestartPreFixInProgressJobCompatibility(t *testing.T) {
 			current, err := f.runtime.GetJob(f.ctx, f.key)
 			require.NoError(t, err)
 			require.Equal(t, original, current, "restart leaves old unfinished source untouched")
+		})
+	}
+}
+
+func TestRestartContextUnfinishedHistory(t *testing.T) {
+	for _, backend := range []string{"sqlite", "remote"} {
+		t.Run(backend, func(t *testing.T) {
+			f, keys := openPreNumericRestartFixture(t, backend)
+			f.key = jobdb.JobKey{TenantId: "restart-tests", JobId: keys["in_progress"]}
+			original, err := f.runtime.GetJob(f.ctx, f.key)
+			require.NoError(t, err)
+			require.Empty(t, original.CompletionStatus)
+			before := restartStoredState(t, f)
+			f.guard.watch()
+			svc := &restartservice.Service{Engine: f.engine, Tenant: f.key.TenantId}
+			points, err := svc.Restart(f.ctx, jobrestart.Request{Operation: "points", JobID: f.key.JobId})
+			require.NoError(t, err)
+			point := discoveredRestartScope(t, points.Points, "state_machine:nested")
+			snapshot := f.inspectScope(t, f.key, point.ScopeID)
+			seq := snapshot.Visible["sequence"].(map[string]any)
+			require.Contains(t, seq, "prior")
+			require.Equal(t, "prior", seq["prior"].(map[string]any)["outputs"].(map[string]any)["value"])
+			require.Len(t, seq, 1)
+			require.NotContains(t, seq, "nested")
+			require.Zero(t, f.task.calls.Load(), "explicit inspection must not finish pending work")
+			f.guard.assertReadOnly(t)
+			require.Equal(t, before, restartStoredState(t, f))
+			current, err := f.runtime.GetJob(f.ctx, f.key)
+			require.NoError(t, err)
+			require.Equal(t, original, current)
+			t.Logf("unfinished history earlier scope=%s chapter=%d: prior retained, pending work untouched", snapshot.ScopeID, snapshot.ChapterOrdinal)
 		})
 	}
 }

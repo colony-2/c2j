@@ -54,13 +54,17 @@ func TestRestartExplicitSelectors(t *testing.T) {
 	} {
 		t.Run(joinArgs(args), func(t *testing.T) {
 			p := &restartProbe{}
+			want := "exactly one"
+			if len(args) == 2 && args[0] == "--chapter" {
+				want = "negative"
+			}
 			_, err := executeRestartTest(newRestartCommand(restartTestOpen(p)), append([]string{"job", "--request-id", "id"}, args...)...)
-			require.Error(t, err)
+			require.ErrorContains(t, err, want)
 			require.Empty(t, p.requests)
 			var uri string
 			var embed, jsonOut bool
 			_, err = executeRestartTest(newRestartInspection("context", &uri, &embed, &jsonOut, restartTestOpen(p)), append([]string{"job"}, args...)...)
-			require.Error(t, err)
+			require.ErrorContains(t, err, want)
 			require.Empty(t, p.requests)
 		})
 	}

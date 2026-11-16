@@ -15,6 +15,7 @@ import (
 	"github.com/colony-2/c2j/pkg/childbroker"
 	"github.com/colony-2/c2j/pkg/jobcontext"
 	"github.com/colony-2/c2j/pkg/jobdbschema"
+	"github.com/colony-2/c2j/pkg/jobinspect"
 	"github.com/colony-2/c2j/pkg/jobref"
 	"github.com/colony-2/c2j/pkg/jobrestart"
 	restartservice "github.com/colony-2/c2j/pkg/jobrestart/service"
@@ -219,6 +220,135 @@ func TestRestartCLIEndToEnd(t *testing.T) {
 				require.Contains(t, string(raw), `"scope_id"`)
 
 			}
+		})
+	}
+}
+
+// Acceptance uses fresh rejected histories, not the successful baseline above.
+func TestRestartCLIEndToEndAfterPayloadRejection(t *testing.T) {
+	binary := filepath.Join(t.TempDir(), "c2j")
+	build := exec.Command("go", "build", "-o", binary, "./cmd/c2j")
+	build.Dir = "../.."
+	raw, err := build.CombinedOutput()
+	require.NoError(t, err, string(raw))
+	baseEnv := []string{}
+	for _, entry := range os.Environ() {
+		if !strings.HasPrefix(entry, "C2J_CURRENT_") && !strings.HasPrefix(entry, "C2J_CHILD_JOB_") && !strings.HasPrefix(entry, "C2J_WORKSPACE_") && !strings.HasPrefix(entry, "C2J_JOBDB=") && !strings.HasPrefix(entry, "C2J_TENANT_ID=") && !strings.HasPrefix(entry, "C2J_OBJECT_OUTBOX=") {
+			baseEnv = append(baseEnv, entry)
+		}
+	}
+	for _, route := range []string{"helper-sqlite", "helper-http", "ordinary-http"} {
+		t.Run(route, func(t *testing.T) {
+			backend := "sqlite"
+			if route == "helper-http" {
+				backend = "remote"
+			}
+			probes := route != "ordinary-http"
+			f := newPayloadRejectedFixture(t, backend, probes)
+			env := append([]string{}, baseEnv...)
+			var url string
+			counter := &restartReplayCounter{Engine: f.engine}
+			if probes {
+				current := jobcontext.Current{TenantID: f.key.TenantId, JobID: f.key.JobId, GoalID: "controlled-goal"}
+				server, err := childbroker.Start(jobrestart.WithAPI(f.ctx, &restartservice.Service{Engine: counter, Tenant: f.key.TenantId}), childbroker.Options{Current: current, Self: func() selfinfo.Info { return selfinfo.Unknown("") }})
+				require.NoError(t, err)
+				t.Cleanup(func() { require.NoError(t, server.Close()) })
+				for k, v := range jobcontext.EnvForCurrent(current) {
+					env = append(env, k+"="+v)
+				}
+				for k, v := range server.Env() {
+					env = append(env, k+"="+v)
+				}
+				env = append(env, "C2J_JOBDB=invalid://ambient")
+				url = "invalid://explicit"
+			} else {
+				server := httptest.NewServer(celltest.Handler(remote.NewServer(f.guard)))
+				t.Cleanup(server.Close)
+				url = server.URL + "/" + f.key.TenantId
+			}
+			cli := func(args ...string) ([]byte, error) {
+				cmd := exec.CommandContext(f.ctx, binary, append(args, "--jobdb", url)...)
+				cmd.Env = env
+				return cmd.CombinedOutput()
+			}
+			before := restartStoredState(t, f)
+			calls := f.task.calls.Load()
+			builtinCalls := f.builtinCalls.Load()
+			f.guard.watch()
+			raw, err := cli("job", "restart-points", f.key.JobId, "--json")
+			require.NoError(t, err, string(raw))
+			var points jobrestart.Points
+			require.NoError(t, json.Unmarshal(raw, &points))
+			require.Equal(t, f.key.TenantId, points.ProjectID)
+			require.Equal(t, f.key.JobId, points.JobID)
+			require.Zero(t, counter.replays.Load())
+
+			suffix := "sequence:target"
+			if probes {
+				suffix = "op:target"
+			}
+			point := discoveredRestartScope(t, &points, suffix)
+			raw, err = cli("job", "restart-context", f.key.JobId, "--scope", point.ScopeID)
+			require.NoError(t, err, string(raw))
+			var snapshot jobrestart.RestartContext
+			require.NoError(t, json.Unmarshal(raw, &snapshot))
+			require.Equal(t, point.ScopeID, snapshot.ScopeID)
+			require.Equal(t, point.ChapterOrdinal, snapshot.ChapterOrdinal)
+			require.Equal(t, points.ProjectID, snapshot.ProjectID)
+			require.Equal(t, points.JobID, snapshot.JobID)
+			assertAcceptedPrior(t, snapshot.Visible, probes)
+			priorJSON, err := json.Marshal(snapshot.Visible["sequence"])
+			require.NoError(t, err)
+			t.Logf("built CLI prior values: %s", priorJSON)
+			file := filepath.Join(t.TempDir(), "context.json")
+			stdout, err := cli("job", "restart-context", f.key.JobId, "--scope", point.ScopeID, "--output", file)
+			require.NoError(t, err, string(stdout))
+			require.Empty(t, stdout)
+			stored, err := os.ReadFile(file)
+			require.NoError(t, err)
+			var saved jobrestart.RestartContext
+			require.NoError(t, json.Unmarshal(stored, &saved))
+			saved.Visible["scope"] = snapshot.Visible["scope"] // regenerated resolver metadata
+			require.Equal(t, snapshot, saved)
+			for _, selector := range [][]string{{"--scope", "unknown"}, {"--chapter", "999999"}, {"--scope", " "}, {"--chapter", "-1"}, {"--scope", point.ScopeID, "--chapter", "0"}, {}} {
+				raw, err := cli(append([]string{"job", "restart-context", f.key.JobId}, selector...)...)
+				require.Error(t, err, string(raw))
+				want := "exactly one"
+				if len(selector) == 2 && selector[1] == "-1" {
+					want = "negative"
+				}
+				if len(selector) == 2 && (selector[1] == "unknown" || selector[1] == "999999") {
+					want = "0 boundaries"
+				}
+				require.Contains(t, string(raw), want)
+				t.Logf("built CLI selector %v: %s", selector, strings.TrimSpace(string(raw)))
+			}
+			// Result inspection is supported on the ordinary route. Its exact
+			// empty-pointer read must fail, never returning the error marker as output.
+			if !probes {
+				raw, err := cli("job", "result", f.key.JobId, "--json")
+				require.NoError(t, err, string(raw))
+				var result jobinspect.Response
+				require.NoError(t, json.Unmarshal(raw, &result))
+				require.Equal(t, "not_produced", result.Result.Availability)
+				require.Empty(t, result.Result.Fields)
+				output := filepath.Join(t.TempDir(), "rejected-output.json")
+				raw, err = cli("job", "result", f.key.JobId, "--field", "", "--output", output)
+				require.Error(t, err, string(raw))
+				require.Contains(t, string(raw), "output not produced")
+				bytes, readErr := os.ReadFile(output)
+				if !os.IsNotExist(readErr) {
+					require.NoError(t, readErr)
+					require.Empty(t, bytes)
+				}
+				t.Logf("built CLI job result: %s", strings.TrimSpace(string(raw)))
+			}
+			assertPayloadRejection(t, f)
+			require.Equal(t, calls, f.task.calls.Load(), "all probe callback deltas remain zero")
+			require.Equal(t, builtinCalls, f.builtinCalls.Load(), "all built-in callback deltas remain zero")
+			f.guard.assertReadOnly(t)
+			require.Equal(t, before, restartStoredState(t, f))
+			t.Logf("built CLI route=%s tenant=%s job=%s discovered scope=%s chapter=%d: accepted-prior only; callback delta=0; mutation attempts=0; stored state unchanged", route, points.ProjectID, points.JobID, point.ScopeID, point.ChapterOrdinal)
 		})
 	}
 }

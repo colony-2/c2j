@@ -36,6 +36,10 @@ func TestRestartRoutingNeverBypassesTaskHelper(t *testing.T) {
 	for _, q := range p.requests {
 		require.Equal(t, "current", q.JobID)
 	}
+	t.Setenv(jobcontext.ChildJobTokenEnv, "bad-token")
+	_, err = executeRestartTest(newJobCmd(), "restart-points", "self", "--jobdb", "invalid://explicit")
+	require.ErrorContains(t, err, "401")
+	require.Len(t, p.requests, 3, "authentication failure cannot fall back to direct access")
 	for k := range server.Env() {
 		t.Setenv(k, "")
 	}

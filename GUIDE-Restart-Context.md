@@ -152,12 +152,12 @@ Each `JobRunStoryNode` may have:
 `scope_id`, `started_at`, and, when associated with a displayed node, `title` and
 `path`. Use the scope ID to join the selected node to this list.
 
-The list also includes **Job submission**, at chapter `0`, once the job has
-recorded execution after submission. It uses the same `ScopeID` and
-`ChapterOrdinal` selectors as recipe scopes and is available on existing jobs,
-including jobs that failed during setup before entering a recipe scope. Display
-this entry from the list even though it has no associated recipe node. Treat its
-scope ID as opaque, just like the other returned IDs.
+The list also includes **Job submission**, at chapter `0`, when a recipe job
+has a retained submission chapter. No later execution is required. It uses the
+same `ScopeID` and `ChapterOrdinal` selectors as recipe scopes and is available
+on existing jobs, including jobs that failed during setup before entering a
+recipe scope. Display this entry from the list even though it has no associated
+recipe node. Treat its scope ID as opaque, just like the other returned IDs.
 
 Selecting Job submission retains only the original submission and its input
 artifacts. Cell-context capture, root recipe-source resolution, hook-policy
@@ -278,12 +278,34 @@ idempotency use the existing restart behavior.
 
 ## Read-only behavior and errors
 
-Inspection reuses c2j's interpreter and JobDB's read-only replay, stopping before
-the selected scope executes. It does not execute tasks, consume external input,
-submit jobs, create restart records, or modify stored history. Expression
-extension functions may be reevaluated; they are assumed to have no side effects.
-Inspection can fail if the history or recipe artifacts needed to reach the
-boundary are unavailable or incompatible with replay.
+Retained records and reconstructed contexts answer different questions. JobDB's
+`GetChapter` and `ListChapters` read stored chapters directly. The existing
+`c2j job log JOB` and `c2j job log JOB --task TASK --field '' --output task.json`
+commands discover task occurrences and read their retained output. Copy the
+exact task ID from the log. These reads do not reconstruct template context.
+Chapter-zero context inspection also reads the retained submission directly,
+without loading a recipe or replaying execution.
+
+Recipe-scope inspection reconstructs template context from accepted history and
+the retained recipe. It reuses c2j's interpreter and JobDB's read-only replay,
+stopping before the selected scope resolves its inputs or executes its body.
+It does not execute tasks, consume external input, submit jobs, create restart
+records, or modify stored history. Expression extension functions may be
+reevaluated; they are assumed to have no side effects.
+
+A later application-payload rejection does not invalidate an earlier accepted
+prefix that has enough retained history to reconstruct the selected scope.
+Discover an exact scope with `restart-points`, then inspect that ID. If reaching
+it requires missing task results or recipe bytes, inspection fails with an
+unavailable-context error; it does not execute missing work or return an empty
+successful context. Incompatible histories can also prevent reconstruction.
+
+An error-only terminal chapter preserves the rejection code, message and size
+diagnostics. It contains no accepted application output. Rejected final bytes
+were never stored and remain unavailable through `c2j job result`, including an
+exact `--field ''` read. A reconstructed earlier context cannot replace that
+missing result. Inspection leaves the source job's completion and diagnostics
+unchanged and does not restart work or repeat published effects.
 
 Use `errors.Is` with these public errors:
 
