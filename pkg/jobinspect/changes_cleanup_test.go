@@ -204,3 +204,70 @@ func TestChangesJ30J32GitDiagnosticIdentity(t *testing.T) {
 		})
 	}
 }
+
+func TestChangesJ30L07RepositoryTransferCleanup(t *testing.T) {
+	for _, backend := range []string{"sqlite", "http"} {
+		t.Run(backend, func(t *testing.T) {
+			ctx, rt := changesBackend(t, backend)
+			f := changesFixture(t, ctx, rt, changestest.Options{Commits: 1, OmitBaseBundle: true})
+			require.NoError(t, f.DeleteCheckout())
+			before, err := changestest.Inventory(ctx, rt, f.Job)
+			require.NoError(t, err)
+			realGit, err := exec.LookPath("git")
+			require.NoError(t, err)
+			for _, mode := range []string{"limit", "deadline", "missing_trace"} {
+				t.Run(mode, func(t *testing.T) {
+					dir := t.TempDir()
+					marker := filepath.Join(dir, "fetch")
+					wrapper := filepath.Join(dir, "git-fetch")
+					// Start a descendant before the real transfer, so a byte-limit
+					// failure must stop the complete group and release the pipe.
+					fetch := "echo $$ > '" + marker + "'\nsleep 30 &\necho $! > '" + marker + ".child'\n"
+					if mode == "limit" {
+						fetch += "'" + realGit + "' \"$@\"\nwait\n"
+					} else if mode == "deadline" {
+						fetch += "wait\n"
+					} else {
+						fetch = "unset GIT_TRACE_PACKFILE\n"
+					}
+					script := "#!/bin/sh\nfor arg in \"$@\"; do\nif [ \"$arg\" = fetch ]; then\n" + fetch + "fi\ndone\nexec '" + realGit + "' \"$@\"\n"
+					require.NoError(t, os.WriteFile(wrapper, []byte(script), 0700))
+					tmp := t.TempDir()
+					readOnly := &changestest.ReadOnlyRuntime{WorkflowRuntime: rt}
+					artifact := int64(len(f.Steps[len(f.Steps)-1].Bundle))
+					limits := jobinspect.ChangesLimits{GitTime: 2 * time.Second}
+					if mode == "limit" {
+						limits.ArtifactBytes, limits.DownloadBytes = artifact, artifact+1
+					}
+					api := changesAPI(t, readOnly, jobinspect.ChangesConfig{GitPath: wrapper, TempDir: tmp, Limits: limits, ResolveRepository: func(context.Context, string) (jobinspect.RepositoryAccess, error) {
+						return jobinspect.RepositoryAccess{URL: f.Origin}, nil
+					}})
+					_, err := api.History(ctx, jobinspect.ChangesRequest{JobID: f.Job.JobId})
+					if mode == "deadline" {
+						require.ErrorIs(t, err, context.DeadlineExceeded)
+					} else if mode == "limit" {
+						changesCode(t, err, "limit")
+						require.Equal(t, "download_bytes", jobinspect.ChangesDiagnostic(err).Limit)
+					} else {
+						changesCode(t, err, "protocol")
+					}
+					if mode != "missing_trace" {
+						for _, path := range []string{marker, marker + ".child"} {
+							pid, err := os.ReadFile(path)
+							require.NoError(t, err)
+							state, _ := exec.Command("ps", "-o", "stat=", "-p", strings.TrimSpace(string(pid))).Output()
+							require.True(t, len(strings.TrimSpace(string(state))) == 0 || strings.HasPrefix(strings.TrimSpace(string(state)), "Z"), "process %s still running: %s", pid, state)
+						}
+					}
+					files, err := os.ReadDir(tmp)
+					require.NoError(t, err)
+					require.Empty(t, files)
+					after, err := changestest.Inventory(ctx, rt, f.Job)
+					require.NoError(t, err)
+					require.Equal(t, string(before), string(after))
+					require.Zero(t, readOnly.Mutations.Load())
+				})
+			}
+		})
+	}
+}

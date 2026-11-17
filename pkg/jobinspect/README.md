@@ -171,13 +171,22 @@ Page size cannot exceed 500; configured token/header bounds cannot exceed 64 MiB
 | Budget | Default |
 | --- | --- |
 | Cursor/selection and bundle header | 64 KiB each |
-| One artifact / downloaded sources | 256 MiB / 512 MiB |
+| One artifact / total downloaded bytes (artifacts and repository packs) | 256 MiB / 512 MiB |
 | Lineage candidates / prerequisite sources / depth | 128 / 32 / 16 |
 | History commits / stored objects | 10,000 / 100,000 |
 | One inflated object / inflated bytes | 64 MiB / 1 GiB |
 | Temporary storage / patch output | 2 GiB / 16 MiB |
 | Maximum page size | 500 (request default 100) |
 | Operation / Git process | 60 s / 30 s |
+
+`DownloadBytes` charges retained artifact streams and the actual received Git
+pack stream for each configured fetch, including failed transfers. All fetches
+and prerequisite probes share the operation's remaining allowance. An exhausted
+allowance prevents a fetch; an overrun stops and waits for the process group and
+returns `ChangesError{Code: "limit", Limit: "download_bytes"}` before returning
+history metadata or a patch. Git's pack trace travels through a bounded inherited
+pipe and is discarded after counting; it creates no saved payload. A successful
+missing-object fetch without observable pack bytes fails with `protocol`.
 
 Retained packs are inspected before Git imports them. Git subprocess output is
 bounded; temporary disk is supervised during execution. Git receives isolated

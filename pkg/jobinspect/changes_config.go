@@ -19,7 +19,7 @@ type ChangesLimits struct {
 	CursorBytes         int64
 	HeaderBytes         int64
 	ArtifactBytes       int64
-	DownloadBytes       int64
+	DownloadBytes       int64 // Total retained artifact bytes plus received repository pack bytes per operation.
 	LineageCandidates   int
 	PrerequisiteSources int
 	Depth               int

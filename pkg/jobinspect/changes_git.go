@@ -147,6 +147,28 @@ func (o *changesObjects) run(input io.Reader, out io.Writer, outputLimit int64, 
 		cmd.Env = append(cmd.Env, "GIT_ALLOW_PROTOCOL=file:http:https:ssh")
 		cmd.Env = append(cmd.Env, access.Environment...)
 	}
+	// Git sends the received pack trace to an inherited pipe. Counting this
+	// stream covers both unpacked and retained packs without estimating object
+	// directory growth or saving another copy of the payload. The bounded pipe
+	// also applies backpressure while the budget supervisor stops the group.
+	var downloadReader, downloadWriter *os.File
+	var downloadDone chan changesDownloadResult
+	remaining := o.c.config.Limits.DownloadBytes - o.downloaded
+	if access != nil {
+		if remaining <= 0 {
+			return changesLimit("download_bytes")
+		}
+		var err error
+		downloadReader, downloadWriter, err = os.Pipe()
+		if err != nil {
+			return changesErr("temporary_storage", "cannot supervise repository download")
+		}
+		defer downloadReader.Close()
+		defer downloadWriter.Close()
+		cmd.ExtraFiles = []*os.File{downloadWriter}
+		cmd.Env = append(cmd.Env, "GIT_TRACE_PACKFILE=3")
+		downloadDone = make(chan changesDownloadResult, 1)
+	}
 	stdout := &changesBoundedWriter{w: out, limit: outputLimit, name: outputName}
 	cmd.Stdout = stdout
 	// A discard with a bound also prevents unbounded diagnostic memory.
@@ -161,6 +183,19 @@ func (o *changesObjects) run(input io.Reader, out io.Writer, outputLimit int64, 
 		e := changesErr("git_unavailable", "cannot start Git; configure GitPath and executable access")
 		e.Cause = err
 		return e
+	}
+	if downloadDone != nil {
+		_ = downloadWriter.Close() // EOF follows the last Git process, not this parent.
+		go func() {
+			n, err := io.Copy(io.Discard, io.LimitReader(downloadReader, remaining+1))
+			if n > remaining {
+				err = changesLimit("download_bytes")
+			}
+			if err != nil {
+				cancel()
+			}
+			downloadDone <- changesDownloadResult{n, err}
+		}()
 	}
 	done := make(chan struct{})
 	stopped := make(chan struct{})
@@ -191,6 +226,18 @@ func (o *changesObjects) run(input io.Reader, out io.Writer, outputLimit int64, 
 	cleanupChangesProcess(cmd)
 	close(done)
 	<-stopped
+	if downloadDone != nil {
+		download := <-downloadDone
+		o.downloaded += download.bytes
+		if download.err != nil {
+			return download.err
+		}
+		// Never claim a bounded successful fetch when Git did not expose its
+		// incoming pack. Exact missing-object fetches must receive object bytes.
+		if err == nil && download.bytes == 0 && ctx.Err() == nil {
+			return changesErr("protocol", "Git did not expose repository download bytes")
+		}
+	}
 	mu.Lock()
 	limitErr := budgetErr
 	mu.Unlock()
@@ -241,6 +288,11 @@ func (o *changesObjects) run(input io.Reader, out io.Writer, outputLimit int64, 
 		return changesErr("invalid_objects", "Git could not read or validate selected objects")
 	}
 	return directoryBytes(o.storageRoot(), o.c.config.Limits.TemporaryBytes)
+}
+
+type changesDownloadResult struct {
+	bytes int64
+	err   error
 }
 
 func (o *changesObjects) git(args ...string) ([]byte, error) {
