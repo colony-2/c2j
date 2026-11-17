@@ -88,7 +88,7 @@ func TestResolvedTreeVersusConflictingReplay(t *testing.T) {
 			require.Equal(t, "file", link)
 			require.Contains(t, runGitOutput(t, input.RepoPath, "git", "ls-tree", "HEAD", "executable"), "100755")
 			require.NoFileExists(t, filepath.Join(input.RepoPath, "README.md"))
-			require.Equal(t, "1.2.0", op.GetMetadata().Version)
+			require.Equal(t, "1.2.1", op.GetMetadata().Version)
 		})
 	}
 }

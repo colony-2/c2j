@@ -61,7 +61,7 @@ func (a *ThinpackRebaseActivity) GetMetadata() ops.OpMetadata {
 	return ops.OpMetadata{
 		Type:        "thinpackrebase",
 		Description: "Replays commits or adopts a confirmed tree on a pinned managed base and refreshes git context metadata",
-		Version:     "1.2.0",
+		Version:     "1.2.1",
 	}
 }
 

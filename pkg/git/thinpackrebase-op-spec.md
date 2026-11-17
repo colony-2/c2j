@@ -47,9 +47,16 @@ workspace metadata.
   Fetch target history incrementally when shallow boundaries hide the relation.
   There is no unconditional full-history clone or unshallow operation. Truly
   divergent history fails; unavailable history fails as unverified ancestry.
-- With no pending commits, fast-forward to the target. Otherwise, rebase pending
-  commits onto it. `preserve_author` defaults to true; a committer identity is
-  supplied even when retaining original authors.
+  For replay, every shallow path beyond the old base must be known: a short
+  merge parent proving base ancestry cannot hide shared commits on another
+  parent. Retrieval remains bounded and uses the pinned target.
+- Pending commits are those reachable from HEAD but absent from the pinned
+  target (`target..HEAD`). The recorded base can be older than their actual
+  shared base: commits already reachable from target are never replayed,
+  including shared history incorporated through a merge. With no remaining
+  commits, fast-forward to target; otherwise replay only that remaining range.
+  `preserve_author` defaults to true; a committer identity is supplied even
+  when retaining original authors.
 - Uncommitted changes are rejected without discarding them. Conflicts abort the
   rebase and retain the original commits.
 - On the managed workspace, update the persistence base and carry a replacement
@@ -67,7 +74,12 @@ Outputs: `target_base_hash`, `new_base_hash`, `new_persist_hash`, `updated_ref`,
 workspace persistence uses an explicit runtime update, not arbitrary output
 fields named `git_context_patch`.
 
-## Adopt a confirmed resolved tree (operation metadata version 1.2.0)
+Both selectors report operation metadata version **1.2.1**. Ordinary replay
+needs no resolution input to recognize a later shared base. This uses commit
+ancestry, not tree similarity or patch equivalence: genuinely divergent local
+changes can still conflict and retain the existing clean recovery behavior.
+
+## Adopt a confirmed resolved tree
 
 Both `rebase` and `thinpackrebase` accept optional `resolution`. Supply all four
 confirmed full 40-character object IDs explicitly; replay defaults cannot supply

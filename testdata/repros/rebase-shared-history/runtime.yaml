@@ -1,0 +1,64 @@
+id: rebase-shared-history
+version: "1.0.0"
+desc: Skip shared upstream history despite an older recorded base.
+input_schema:
+  selector: {type: string, default_value: rebase}
+inputs:
+  selector: '${{ inputs.selector }}'
+sequence:
+  - id: local
+    op: command_execution
+    inputs:
+      run: printf 'local work\n' > local
+  - id: upstream
+    op: recipe.run_and_get_result
+    inputs:
+      name: fixture-upstream
+      cell_name: root
+      git_ref: main
+  - id: incorporate
+    op: command_execution
+    inputs:
+      env:
+        BASE: '${{ context.git.execution.base_hash }}'
+        SHARED: '${{ sequence.upstream.outputs.outputs.shared }}'
+        TARGET: '${{ sequence.upstream.outputs.outputs.target }}'
+      run: |
+        set -eu
+        git fetch origin "$SHARED"
+        test "$(git cat-file -t "$SHARED")" = commit
+        git -c user.name=Resolver -c user.email=resolver@example.com merge --no-edit "$SHARED" >/dev/null
+        printf '{"base_hash":"%s","persist_hash":"%s","target_base_hash":"%s","shared":"%s"}' \
+          "$BASE" "$(git rev-parse HEAD)" "$TARGET" "$SHARED"
+  - id: replay
+    when: inputs.selector == 'rebase'
+    op: rebase
+    inputs:
+      target_base_hash: '${{ sequence.upstream.outputs.outputs.target }}'
+  - id: replay_thinpack
+    when: inputs.selector == 'thinpackrebase'
+    op: thinpackrebase
+    inputs:
+      target_base_hash: '${{ sequence.upstream.outputs.outputs.target }}'
+  - id: restored
+    op: command_execution
+    inputs:
+      env:
+        BASE: '${{ context.git.execution.base_hash }}'
+        HEAD: '${{ context.git.execution.head_hash }}'
+        TARGET: '${{ sequence.upstream.outputs.outputs.target }}'
+      run: |
+        set -eu
+        test "$BASE" = "$TARGET"
+        test "$HEAD" = "$(git rev-parse HEAD)"
+        test "$(git show -s --format=%P HEAD)" = "$TARGET"
+        test "$(git rev-list --count "$TARGET..HEAD")" = 1
+        test "$(cat identity)" = 'new pinned target'
+        test "$(cat local)" = 'local work'
+        test -z "$(git status --porcelain)"
+        printf '{"base":"%s","head":"%s","tree":"%s","parent":"%s","clean":true}' \
+          "$BASE" "$HEAD" "$(git rev-parse 'HEAD^{tree}')" "$(git show -s --format=%P HEAD)"
+outputs:
+  before: '${{ json_parse(sequence.incorporate.outputs.stdout) }}'
+  replay: '${{ inputs.selector == "rebase" ? sequence.replay.outputs : sequence.replay_thinpack.outputs }}'
+  restored: '${{ json_parse(sequence.restored.outputs.stdout) }}'

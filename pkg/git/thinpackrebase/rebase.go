@@ -125,9 +125,25 @@ func run(ctx context.Context, input ThinpackRebaseInput, minimumBase string) (ou
 	var newHead string
 	var updatedRef string
 
-	commitCount, err := countCommitsSince(ctx, snapshot.RepoPath, snapshot.BaseHash)
+	// The recorded base can predate upstream history already incorporated by
+	// this candidate. Exclude everything reachable from the pinned target,
+	// including shared history brought in by a merge, rather than replaying it.
+	commitCount, err := countCommitsSince(ctx, snapshot.RepoPath, targetBase)
 	if err != nil {
 		return nil, err
+	}
+	if commitCount > 0 {
+		phase = "ancestry"
+		if err := ensureHistory(ctx, snapshot.RepoPath, remoteName, snapshot.BaseHash, targetBase, true); err != nil {
+			return nil, err
+		}
+		phase = "prepare"
+		// Retrieved history may reveal that apparently pending commits were
+		// already shared. A known empty range needs no further retrieval.
+		commitCount, err = countCommitsSince(ctx, snapshot.RepoPath, targetBase)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	// Fast-forward when there are no commits to replay but the target is newer.
@@ -260,6 +276,10 @@ func ensureTargetAvailable(ctx context.Context, repoPath, remoteName, target str
 // history incrementally until ancestry is proved or its reachable history is
 // complete. Never unshallow the whole repository just to refresh a workspace.
 func ensureLinearHistory(ctx context.Context, repoPath, remoteName, currentBase, targetBase string) error {
+	return ensureHistory(ctx, repoPath, remoteName, currentBase, targetBase, false)
+}
+
+func ensureHistory(ctx context.Context, repoPath, remoteName, currentBase, targetBase string, completeReplayRange bool) error {
 	if hashesEqual(currentBase, targetBase) {
 		return nil
 	}
@@ -270,12 +290,38 @@ func ensureLinearHistory(ctx context.Context, repoPath, remoteName, currentBase,
 		if err != nil {
 			return err
 		}
-		if ancestor {
+		if ancestor && !completeReplayRange {
 			return nil
 		}
 		boundary, err := reachableShallowBoundary(ctx, repoPath, targetBase)
 		if err != nil {
 			return err
+		}
+		if ancestor {
+			if boundary == "" {
+				return nil
+			}
+			// One merge parent can prove base ancestry while a shallow second
+			// parent still hides commits shared with HEAD. Stop only when all
+			// shallow boundaries are excluded by the recorded base's history.
+			pending, err := common.ExecuteGitCommand(ctx, repoPath, "rev-list", targetBase, "^"+currentBase)
+			if err != nil {
+				return err
+			}
+			rangeCommits := map[string]bool{}
+			for _, hash := range strings.Fields(string(pending)) {
+				rangeCommits[hash] = true
+			}
+			var relevant []string
+			for _, hash := range strings.Fields(boundary) {
+				if rangeCommits[hash] {
+					relevant = append(relevant, hash)
+				}
+			}
+			boundary = strings.Join(relevant, "\n")
+			if boundary == "" {
+				return nil
+			}
 		}
 		if boundary == "" {
 			return fmt.Errorf("target base %s does not descend from current base %s", shortHash(targetBase), shortHash(currentBase))
@@ -382,7 +428,7 @@ func rebaseOntoTarget(ctx context.Context, snapshot workspaceSnapshot, targetBas
 		keepAuthor = *preserveAuthor
 	}
 
-	args := []string{"rebase", "--reapply-cherry-picks", "--onto", targetBase, snapshot.BaseHash}
+	args := []string{"rebase", "--no-fork-point", "--reapply-cherry-picks", "--onto", targetBase, targetBase}
 
 	env := append(os.Environ(), "GIT_SEQUENCE_EDITOR=true", "GIT_TERMINAL_PROMPT=0")
 

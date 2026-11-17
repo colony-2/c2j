@@ -1,0 +1,65 @@
+recipe: runtime.yaml
+cases:
+  - id: rebase
+    type: integration_case
+    inputs: {selector: rebase}
+    runtime: &runtime
+      backend: sqlite
+      cell: root
+      cells:
+        root:
+          files:
+            identity: "old base\n"
+            .c2/recipes/fixture-upstream.yaml: |
+              id: fixture-upstream
+              version: "1.0.0"
+              sequence:
+                - id: shared_content
+                  op: command_execution
+                  inputs:
+                    run: printf 'shared upstream\n' > identity
+                - id: shared
+                  op: squashrebasemerge
+                  inputs:
+                    upstream_repo: '${{ context.git.repo }}'
+                    upstream_branch: main
+                    commit_message: Shared upstream fixture
+                    rebase: false
+                - id: refresh
+                  op: thinpackrebase
+                  inputs:
+                    target_base_hash: '${{ sequence.shared.outputs.merged_hash }}'
+                - id: target_content
+                  op: command_execution
+                  inputs:
+                    run: printf 'new pinned target\n' > identity
+                - id: target
+                  op: squashrebasemerge
+                  inputs:
+                    upstream_repo: '${{ context.git.repo }}'
+                    upstream_branch: main
+                    commit_message: Pinned target fixture
+                    rebase: false
+              outputs:
+                shared: '${{ sequence.shared.outputs.merged_hash }}'
+                target: '${{ sequence.target.outputs.merged_hash }}'
+    mocks: &passthrough
+      ops:
+        - match: {op: command_execution}
+          repeat: true
+          behavior: {mode: passthrough}
+    assertions: &assertions
+      - type: cel_true
+        expr: outputs.before.base_hash != outputs.before.shared && outputs.before.shared != outputs.before.target_base_hash
+      - type: cel_true
+        expr: outputs.replay.rebased_from.base_hash == outputs.before.base_hash && outputs.replay.rebased_from.persist_hash == outputs.before.persist_hash
+      - type: cel_true
+        expr: outputs.replay.new_base_hash == outputs.before.target_base_hash && outputs.restored.base == outputs.replay.new_base_hash
+      - type: cel_true
+        expr: outputs.restored.head == outputs.replay.new_persist_hash && outputs.restored.parent == outputs.before.target_base_hash && outputs.restored.clean
+  - id: thinpackrebase
+    type: integration_case
+    inputs: {selector: thinpackrebase}
+    runtime: *runtime
+    mocks: *passthrough
+    assertions: *assertions
