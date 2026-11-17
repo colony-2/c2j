@@ -31,6 +31,9 @@ func Run(ctx context.Context, input ThinpackRebaseInput) (*ThinpackRebaseOutput,
 }
 
 func run(ctx context.Context, input ThinpackRebaseInput, minimumBase string) (out *ThinpackRebaseOutput, runErr error) {
+	if input.Resolution != nil {
+		return nil, fmt.Errorf("resolved-tree adoption requires managed operation dependencies")
+	}
 	snapshot := workspaceSnapshot{RepoPath: input.RepoPath, BaseHash: input.BaseHash, PersistHash: input.PersistHash}
 	phase := "prepare"
 	clean, mutated := false, false
@@ -110,12 +113,8 @@ func run(ctx context.Context, input ThinpackRebaseInput, minimumBase string) (ou
 		return nil, fmt.Errorf("persist_hash does not match workspace HEAD")
 	}
 	snapshot.PersistHash = head
-	status, err := common.ExecuteGitCommand(ctx, snapshot.RepoPath, "status", "--porcelain")
-	if err != nil {
+	if err := requireCleanIntegration(ctx, snapshot.RepoPath); err != nil {
 		return nil, err
-	}
-	if len(strings.TrimSpace(string(status))) != 0 {
-		return nil, fmt.Errorf("thinpackrebase requires a clean workspace; commit pending changes first")
 	}
 	clean = true
 

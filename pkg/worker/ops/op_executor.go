@@ -459,6 +459,16 @@ func (t opExecutor) doPrepared(ctx context.Context, jobTool ops.JobTool, req Act
 		}
 	}
 	phase = "prepare_op_input"
+	// Check confirmations before task-time Git references can become actual
+	// restored hashes. An older compiler must not turn defaults into consent.
+	if err := ops.ValidateDeclaredOpInputType(reg.Step.InputType, req.Input, false); err != nil {
+		return zero, nil, err
+	}
+	if req.Const && (reg.Metadata.Type == "rebase" || reg.Metadata.Type == "thinpackrebase") {
+		if _, adoption := req.Input["resolution"]; adoption {
+			return zero, nil, fmt.Errorf("resolved-tree adoption requires workspace persistence; const operations discard changes")
+		}
+	}
 
 	hasGitExecutionReference := containsGitExecutionReference(req.Input)
 	if hasGitExecutionReference {
@@ -520,6 +530,7 @@ func (t opExecutor) doPrepared(ctx context.Context, jobTool ops.JobTool, req Act
 		WithWorkflowControl(deps.WorkflowControl()).
 		WithOperationPaths(operationPaths).
 		WithGitContext(ops.GitExecutionContext{
+			Const:     req.Const,
 			Workspace: fullContext.Workspace, CellResolution: fullContext.CellResolution, RestoreArtifact: req.RestoreArtifact,
 			BaseRepo:         fullContext.GetBaseRepo(),
 			BaseRef:          fullContext.GetBaseRef(),
@@ -554,6 +565,9 @@ func (t opExecutor) doPrepared(ctx context.Context, jobTool ops.JobTool, req Act
 		return zero, nil, secretErr
 	}
 	hydratedInput, _ = transient.(map[string]interface{})
+	if err := ops.ValidateDeclaredOpInputType(reg.Step.InputType, hydratedInput, false); err != nil {
+		return zero, nil, session.Error(err)
+	}
 	if hasOmission || hasGitExecutionReference {
 		if err := ops.ValidateMaterializedOpInputType(reg.Step.InputType, hydratedInput); err != nil {
 			return zero, nil, session.Error(err)

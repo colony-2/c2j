@@ -3,12 +3,17 @@ package ops
 import (
 	"reflect"
 	"strings"
+
+	coreops "github.com/colony-2/c2j/pkg/ops"
 )
 
 // InjectDefaults adds default values to the input map for fields that are missing.
 // Defaults are injected as strings and will be resolved by the template system.
 // This function recursively handles nested structs at arbitrary depth.
 func InjectDefaults(inputType reflect.Type, inputMap map[string]interface{}) error {
+	if err := coreops.ValidateDeclaredOpInputType(inputType, inputMap, false); err != nil {
+		return err
+	}
 	if inputType.Kind() == reflect.Ptr {
 		inputType = inputType.Elem()
 	}

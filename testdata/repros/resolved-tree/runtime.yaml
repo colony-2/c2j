@@ -1,0 +1,76 @@
+id: resolved-tree-runtime
+version: "1.0.0"
+desc: Exercise native adoption and restoration against an isolated fixture repository.
+input_schema:
+  selector: {type: string, default_value: rebase}
+inputs:
+  selector: '${{ inputs.selector }}'
+sequence:
+  - id: local
+    op: command_execution
+    inputs:
+      run: printf 'earlier local change\n' > identity
+  - id: target
+    op: recipe.run_and_get_result
+    inputs:
+      name: fixture-target
+      cell_name: root
+      git_ref: main
+  - id: resolve
+    op: command_execution
+    inputs:
+      env:
+        BASE: '${{ context.git.execution.base_hash }}'
+        TARGET: '${{ sequence.target.outputs.outputs.merged_hash }}'
+      run: |
+        set -eu
+        git fetch origin "$TARGET"
+        printf 'completed upstream and local resolution\n' > identity
+        printf '\000\377\200\000\n' > binary
+        printf '#!/bin/sh\nexit 0\n' > executable
+        chmod +x executable
+        ln -s identity link
+        git add -A
+        git -c user.name=Resolver -c user.email=resolver@example.com commit -m 'Completed resolution' >/dev/null
+        printf '{"base_hash":"%s","persist_hash":"%s","target_base_hash":"%s","resolution":{"tree_hash":"%s"}}' \
+          "$BASE" "$(git rev-parse HEAD)" "$TARGET" "$(git rev-parse 'HEAD^{tree}')"
+  - id: adopt_rebase
+    when: inputs.selector == 'rebase'
+    op: rebase
+    inputs:
+      base_hash: '${{ json_parse(sequence.resolve.outputs.stdout).base_hash }}'
+      persist_hash: '${{ json_parse(sequence.resolve.outputs.stdout).persist_hash }}'
+      target_base_hash: '${{ json_parse(sequence.resolve.outputs.stdout).target_base_hash }}'
+      resolution: '${{ json_parse(sequence.resolve.outputs.stdout).resolution }}'
+  - id: adopt_thinpack
+    when: inputs.selector == 'thinpackrebase'
+    op: thinpackrebase
+    inputs:
+      base_hash: '${{ json_parse(sequence.resolve.outputs.stdout).base_hash }}'
+      persist_hash: '${{ json_parse(sequence.resolve.outputs.stdout).persist_hash }}'
+      target_base_hash: '${{ json_parse(sequence.resolve.outputs.stdout).target_base_hash }}'
+      resolution: '${{ json_parse(sequence.resolve.outputs.stdout).resolution }}'
+  - id: restored
+    op: command_execution
+    inputs:
+      env:
+        BASE: '${{ context.git.execution.base_hash }}'
+        HEAD: '${{ context.git.execution.head_hash }}'
+        TARGET: '${{ json_parse(sequence.resolve.outputs.stdout).target_base_hash }}'
+        TREE: '${{ json_parse(sequence.resolve.outputs.stdout).resolution.tree_hash }}'
+      run: |
+        set -eu
+        test "$BASE" = "$TARGET"
+        test "$HEAD" = "$(git rev-parse HEAD)"
+        test "$TREE" = "$(git rev-parse 'HEAD^{tree}')"
+        test "$(git show -s --format=%P HEAD)" = "$TARGET"
+        test -z "$(git status --porcelain)"
+        test ! -e target-only
+        test -x executable
+        test "$(readlink link)" = identity
+        printf '{"base":"%s","head":"%s","tree":"%s","parent":"%s","clean":true}' \
+          "$BASE" "$HEAD" "$(git rev-parse 'HEAD^{tree}')" "$(git show -s --format=%P HEAD)"
+outputs:
+  confirmed: '${{ json_parse(sequence.resolve.outputs.stdout) }}'
+  adoption: '${{ inputs.selector == "rebase" ? sequence.adopt_rebase.outputs : sequence.adopt_thinpack.outputs }}'
+  restored: '${{ json_parse(sequence.restored.outputs.stdout) }}'

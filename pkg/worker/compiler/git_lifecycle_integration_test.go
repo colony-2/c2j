@@ -85,10 +85,17 @@ func runGitLifecycleContext(t *testing.T, ctx context.Context, rt jobdb.Workflow
 		ctx, fault.cancel = context.WithCancel(ctx)
 		defer fault.cancel()
 	}
+	if fault, ok := rt.(*resolvedOutcomeFault); ok {
+		ctx, fault.cancel = context.WithCancel(ctx)
+		defer fault.cancel()
+	}
 	guard := executionruntime.New(rt, execution.Allocation{SchemaVersion: 1})
 	guard.Issuer = permissions.JobDBIssuer{}
 	var tasks []jobworkflow.TaskWorker
 	for _, task := range ws.TaskWorkers {
+		if filter, ok := rt.(interface{ skipGitTask(string) bool }); ok && filter.skipGitTask(task.Name()) {
+			continue
+		}
 		if len(recordedPolicy) != 0 && task.Name() == WorkspaceResolutionTaskType {
 			task = workspacePolicyWorker{TaskWorker: task, policy: recordedPolicy[0]}
 		}

@@ -8,16 +8,22 @@ import (
 
 // ThinpackRebaseInput captures the parameters required to rebase a thin-pack backed workspace.
 type ThinpackRebaseInput struct {
-	RepoPath       string `json:"repo_path,omitempty" default:"{{ context.environment.worktree_path }}" validate:"required,dir"`
-	TargetBaseHash string `json:"target_base_hash" validate:"required,hexadecimal,min=7,max=40"`
-	UpstreamRemote string `json:"upstream_remote,omitempty"`
-	PreserveAuthor *bool  `json:"preserve_author,omitempty"`
-	UpdateRefs     string `json:"update_refs,omitempty"`
-	BaseHash       string `json:"base_hash" default:"{{ context.git.execution.base_hash }}" validate:"required,hexadecimal,min=7,max=40"`
-	PersistHash    string `json:"persist_hash,omitempty" default:"{{ context.git.execution.head_hash }}" validate:"omitempty,hexadecimal,min=7,max=40"`
-	BaseRepo       string `json:"base_repo,omitempty" default:"{{ context.git.repo }}"`
-	GitAuthor      string `json:"git_author,omitempty" default:"{{ context.git.author }}"`
-	CellName       string `json:"cell_name,omitempty" default:"{{ context.workflow.cell }}"`
+	RepoPath       string      `json:"repo_path,omitempty" default:"{{ context.environment.worktree_path }}" validate:"required,dir"`
+	TargetBaseHash string      `json:"target_base_hash" validate:"required,hexadecimal,min=7,max=40"`
+	UpstreamRemote string      `json:"upstream_remote,omitempty"`
+	PreserveAuthor *bool       `json:"preserve_author,omitempty"`
+	UpdateRefs     string      `json:"update_refs,omitempty"`
+	BaseHash       string      `json:"base_hash" default:"{{ context.git.execution.base_hash }}" validate:"required,hexadecimal,min=7,max=40"`
+	PersistHash    string      `json:"persist_hash,omitempty" default:"{{ context.git.execution.head_hash }}" validate:"omitempty,hexadecimal,min=7,max=40"`
+	BaseRepo       string      `json:"base_repo,omitempty" default:"{{ context.git.repo }}"`
+	GitAuthor      string      `json:"git_author,omitempty" default:"{{ context.git.author }}"`
+	CellName       string      `json:"cell_name,omitempty" default:"{{ context.workflow.cell }}"`
+	Resolution     *Resolution `json:"resolution,omitempty"`
+}
+
+// Resolution confirms the complete persisted tree to adopt without replay.
+type Resolution struct {
+	TreeHash string `json:"tree_hash" validate:"required,hexadecimal,len=40" jsonschema:"pattern=^[0-9a-fA-F]{40}$"`
 }
 
 // RebasedFromSummary records the base/persist pair prior to the rebase.
@@ -54,8 +60,8 @@ func GetOp() ops.RegisterableOp {
 func (a *ThinpackRebaseActivity) GetMetadata() ops.OpMetadata {
 	return ops.OpMetadata{
 		Type:        "thinpackrebase",
-		Description: "Rebases a thin-pack backed workspace onto a new base commit and refreshes git context metadata",
-		Version:     "1.1.0",
+		Description: "Replays commits or adopts a confirmed tree on a pinned managed base and refreshes git context metadata",
+		Version:     "1.2.0",
 	}
 }
 
@@ -69,7 +75,13 @@ func (a *ThinpackRebaseActivity) Execute(inv ops.OpDependencies, ctx context.Con
 			minimumBase = g.Workspace.InitialHash
 		}
 	}
-	output, err := run(ctx, input, minimumBase)
+	var output *ThinpackRebaseOutput
+	var err error
+	if input.Resolution != nil {
+		output, err = adopt(ctx, inv, input, minimumBase)
+	} else {
+		output, err = run(ctx, input, minimumBase)
+	}
 	if err != nil {
 		attachFailureEvidence(ctx, inv, err)
 		return ThinpackRebaseOutput{}, err
@@ -90,6 +102,6 @@ func GetRebaseOp() ops.RegisterableOp {
 	act := NewThinpackRebaseActivity()
 	metadata := act.GetMetadata()
 	metadata.Type = "rebase"
-	metadata.Description = "Rebases local commits onto target_base_hash without squashing or publishing"
+	metadata.Description = "Replays local commits or adopts a confirmed tree on target_base_hash without publishing"
 	return ops.NewActivityMappedOpV2[ThinpackRebaseInput, ThinpackRebaseOutput](metadata, act.Execute)
 }

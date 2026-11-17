@@ -9,6 +9,8 @@ import (
 // GitExecutionContext exposes the current execution workspace and git metadata
 // to ops without requiring user-facing inputs to mirror internal runtime state.
 type GitExecutionContext struct {
+	// Const marks invocations whose repository changes will be discarded.
+	Const            bool                         `json:"const,omitempty"`
 	Workspace        *contextual.WorkspaceContext `json:"workspace,omitempty"`
 	CellResolution   *cellref.Context             `json:"cell_resolution,omitempty"`
 	RestoreArtifact  *jobdb.ArtifactKey           `json:"restore_artifact,omitempty"`

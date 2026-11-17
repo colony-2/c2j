@@ -12,7 +12,7 @@ replaying any pending local commits on top of it.
 
 ## Defaults and execution context
 
-Only `target_base_hash` is required from the recipe. The defaults are:
+For ordinary replay, only `target_base_hash` is required from the recipe. The defaults are:
 
 | Input | Default |
 | --- | --- |
@@ -67,7 +67,57 @@ Outputs: `target_base_hash`, `new_base_hash`, `new_persist_hash`, `updated_ref`,
 workspace persistence uses an explicit runtime update, not arbitrary output
 fields named `git_context_patch`.
 
-## Structured failures (operation metadata version 1.1.0)
+## Adopt a confirmed resolved tree (operation metadata version 1.2.0)
+
+Both `rebase` and `thinpackrebase` accept optional `resolution`. Supply all four
+confirmed full 40-character object IDs explicitly; replay defaults cannot supply
+adoption confirmations. Omission selects ordinary replay. Null, empty or malformed
+resolution fails rather than falling back to replay.
+
+```yaml
+- id: adopt
+  op: rebase
+  inputs:
+    base_hash: '${{ sequence.confirm.outputs.base_hash }}'
+    persist_hash: '${{ sequence.confirm.outputs.persist_hash }}'
+    target_base_hash: '${{ sequence.confirm.outputs.target_base_hash }}'
+    resolution:
+      tree_hash: '${{ sequence.confirm.outputs.tree_hash }}'
+```
+
+Adoption is available only on the active managed workspace with native base-setting
+support and persistence enabled (`const: true` is rejected). The expected base must equal its restored authoritative base, and the
+candidate must equal both its accepted persisted identity and HEAD. The three
+commit IDs must name commits directly, and `tree_hash` must name the candidate's
+complete tree. Tags are not commit confirmations. The workspace and index must
+be clean, with no merge, rebase, cherry-pick, revert or sequencer session.
+
+The base must be an ancestor of both candidate and target; the target must also
+respect the workspace floor. Bounded history retrieval proves the pinned
+relations without substituting a remote's newer tip. The candidate need not
+descend from the target.
+
+Adoption constructs one commit with the exact confirmed tree and the target as
+sole parent. It never replays or adds missing target files. It preserves the
+candidate's author and full message by default; `preserve_author: false` uses
+the configured identity. If tree equals the target tree, it returns target
+itself, preserving its metadata and creating no empty commit.
+
+`new_base_hash` and `target_base_hash` equal the pinned target;
+`new_persist_hash` names the verified candidate or target. `rebased_from`
+records the confirmed old pair. Native worker persistence records this pair
+with a replacement bundle and target-relative diff. Since parent equals base,
+their shared diff is written once as `diff_from_parent.diff`. Equal-tree
+adoption records target as candidate/base and drops the obsolete bundle.
+
+The durable successful task outcome is the acceptance boundary. Local checkout
+changes and prepared artifacts do not install an accepted snapshot. A replacement
+worker restores the prior accepted pair after construction, persistence or
+pre-recording failure; after recorded success it restores the new pair. Completed
+offline replay returns recorded outputs without touching Git. Required verification
+and fresh review must run on the adopted candidate before publication.
+
+## Structured failures
 
 The public `rebase` and `thinpackrebase` selectors emit native task failures;
 successful outputs and Git context updates are unchanged. This contract does
@@ -79,7 +129,7 @@ Recipe catches can route on `failure.kind == 'task_error'` and
 | Field | Meaning |
 | --- | --- |
 | `version` | `1` |
-| `phase` | `prepare`, `fetch`, `ancestry`, `fast_forward`, `replay`, `update_ref`, or `adopt_base` |
+| `phase` | `prepare`, `fetch`, `ancestry`, `fast_forward`, `replay`, `validate_resolution`, `construct_resolution`, `install_resolution`, `update_ref`, or `adopt_base` |
 | `base_hash`, `candidate_hash`, `target_base_hash` | Available hashes, or explicit null when unavailable; values resolved during execution use full hashes. |
 | `conflicts` | List of `{path, status}` from Git's NUL-delimited porcelain status, collected before abort. |
 | `workspace_restored` | True when the workspace was untouched, or cleanup verified the original candidate and clean index/worktree. |
@@ -102,8 +152,11 @@ does not adopt a new base or candidate. Cleanup failure leaves
 Catch recovery uses the retained pre-operation candidate, the recorded target
 hash, and these durable references on a fresh worker. The rebase session has
 been aborted: do not depend on `git rebase --continue` or on a worker-local
-directory. Resolve the changes in a subsequent operation, then explicitly
-rebase and verify again. Enclosing catches and `transition.failure` preserve
+directory. Resolve the changes in a subsequent operation and persist a clean
+candidate under the old base. Confirm that new candidate and tree, then adopt
+them with the same pinned target using `resolution`, and verify again. Match the
+originating replay node, supported evidence version and restored state; adoption
+failures never qualify for conflict repair. Enclosing catches and `transition.failure` preserve
 the originating node and versioned data, including on completed replay.
 
 ## Coverage
@@ -112,3 +165,9 @@ Tests cover real child merge → refresh → next task; omitted defaults; shallo
 history with present/missing targets; pending commits; fast-forward; already
 merged local work; divergence and conflicts; dirty work preservation; base
 constraints; scoped workspaces; suspension/resumption; and offline replay.
+Adoption tests additionally cover exact-tree fidelity, both selectors, stale and
+missing confirmations, Git object types, unfinished integration states, scoped
+isolation, construction/install failures, failed bundle/diff generation, artifact
+upload failure and worker loss before/after durable recording. The runnable
+[`resolved-tree` suite](../../testdata/repros/resolved-tree/runtime.test.yaml)
+exercises native adoption and fresh restoration using a built CLI.

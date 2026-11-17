@@ -1,0 +1,51 @@
+recipe: runtime.yaml
+cases:
+  - id: rebase
+    type: integration_case
+    inputs: {selector: rebase}
+    runtime: &runtime
+      backend: sqlite
+      cell: root
+      cells:
+        root:
+          files:
+            identity: "base\n"
+            .c2/recipes/fixture-target.yaml: |
+              id: fixture-target
+              version: "1.0.0"
+              sequence:
+                - id: upstream
+                  op: command_execution
+                  inputs:
+                    run: |
+                      printf 'upstream change\n' > identity
+                      printf 'deliberately omitted by resolution\n' > target-only
+                - id: publish_fixture
+                  op: squashrebasemerge
+                  inputs:
+                    upstream_repo: '${{ context.git.repo }}'
+                    upstream_branch: main
+                    commit_message: Advance isolated fixture target
+                    rebase: false
+              outputs:
+                merged_hash: '${{ sequence.publish_fixture.outputs.merged_hash }}'
+    mocks: &passthrough
+      ops:
+        - match: {op: command_execution}
+          repeat: true
+          behavior: {mode: passthrough}
+    assertions: &assertions
+      - type: cel_true
+        expr: outputs.adoption.new_base_hash == outputs.confirmed.target_base_hash && outputs.adoption.target_base_hash == outputs.confirmed.target_base_hash
+      - type: cel_true
+        expr: outputs.adoption.rebased_from.base_hash == outputs.confirmed.base_hash && outputs.adoption.rebased_from.persist_hash == outputs.confirmed.persist_hash
+      - type: cel_true
+        expr: outputs.restored.head == outputs.adoption.new_persist_hash && outputs.restored.base == outputs.adoption.new_base_hash
+      - type: cel_true
+        expr: outputs.restored.tree == outputs.confirmed.resolution.tree_hash && outputs.restored.parent == outputs.confirmed.target_base_hash && outputs.restored.clean
+  - id: thinpackrebase
+    type: integration_case
+    inputs: {selector: thinpackrebase}
+    runtime: *runtime
+    mocks: *passthrough
+    assertions: *assertions

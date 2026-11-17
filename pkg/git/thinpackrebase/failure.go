@@ -164,6 +164,9 @@ func captureFailure(ctx context.Context, cause error, snapshot workspaceSnapshot
 					err = fmt.Errorf("workspace remains dirty after cleanup")
 				}
 			}
+			if err == nil {
+				err = requireCleanIntegration(cleanup, snapshot.RepoPath)
+			}
 		}
 		f.Details.WorkspaceRestored = err == nil
 		if err != nil {

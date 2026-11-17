@@ -112,6 +112,9 @@ func NewStepWithDeps[In any, Out any](fn ActivityHandlerV2[In, Out]) Step {
 	inputType := reflect.TypeOf((*In)(nil)).Elem()
 	outputType := reflect.TypeOf((*Out)(nil)).Elem()
 	invoker := func(deps OpDependencies, ctx context.Context, resolvedInput map[string]interface{}) (map[string]interface{}, error) {
+		if err := ValidateDeclaredOpInputType(inputType, resolvedInput, false); err != nil {
+			return nil, err
+		}
 		var input In
 		if err := DecodeWithJsonTags(resolvedInput, &input); err != nil {
 			return nil, fmt.Errorf("error decoding input: %w", err)

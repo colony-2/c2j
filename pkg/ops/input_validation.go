@@ -49,11 +49,33 @@ type typedOpInputValidator interface {
 	ValidateOpInput() error
 }
 
+// A map validator can distinguish an omitted optional input from an explicitly
+// invalid value before decoding or defaults erase that distinction.
+type declaredOpInputValidator interface {
+	ValidateDeclaredOpInput(map[string]any, bool) error
+}
+
+func ValidateDeclaredOpInputType(inputType reflect.Type, input map[string]any, allowNulls bool) error {
+	if inputType == nil {
+		return nil
+	}
+	if inputType.Kind() == reflect.Pointer {
+		inputType = inputType.Elem()
+	}
+	if v, ok := reflect.New(inputType).Interface().(declaredOpInputValidator); ok {
+		return v.ValidateDeclaredOpInput(input, allowNulls)
+	}
+	return nil
+}
+
 type requiredOpInputValidationError interface {
 	RequiredValidationError() bool
 }
 
 func ValidateOpInputType(inputType reflect.Type, input map[string]interface{}, allowNulls bool) error {
+	if err := ValidateDeclaredOpInputType(inputType, input, allowNulls); err != nil {
+		return err
+	}
 	if err := secrets.ValidateType(inputType, input); err != nil {
 		return err
 	}
@@ -63,6 +85,9 @@ func ValidateOpInputType(inputType reflect.Type, input map[string]interface{}, a
 // ValidateMaterializedOpInputType rechecks constraints after optional references
 // have been removed. The caller must already have validated secret permissions.
 func ValidateMaterializedOpInputType(inputType reflect.Type, input map[string]any) error {
+	if err := ValidateDeclaredOpInputType(inputType, input, false); err != nil {
+		return err
+	}
 	return validateOpInputValue(inputType, input, false)
 }
 

@@ -9,7 +9,7 @@ available.
 | Op | Behavior | Main inputs | Output |
 | --- | --- | --- | --- |
 | `squash` | Replace local commits after the execution base with one commit; no fetch or push | Optional `base_hash`, `commit_message`, `author` | `squashed_hash`, `squashed_commits` |
-| `rebase` | Replay local commits onto a specified base; no squash or push | Required `target_base_hash` | `new_base_hash`, `new_persist_hash` |
+| `rebase` | Replay local commits or adopt a confirmed resolved tree on a pinned base | Required `target_base_hash`; adoption also requires explicit base, candidate and tree | `new_base_hash`, `new_persist_hash` |
 | `merge` | Publish the current commit by fast-forward only; no rewriting or merge commit | Optional `upstream_repo`, `upstream_branch`, `prepared_base_hash` | `merged_hash`, `target_branch` |
 
 All three default `repo_path` to the task worktree. `squash` and `rebase` default
