@@ -53,7 +53,8 @@ jobs:
         run: make check-mod
 
       - name: Run tests (Unix)
-        run: go test -v -tags=integration ./...
+        # The integration suite can exceed Go's default 10-minute package timeout.
+        run: go test -v -tags=integration -timeout=20m ./...
       - name: Check bundled skill discovery
         run: npx -y skills add . --list --full-depth
 

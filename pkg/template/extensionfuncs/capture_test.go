@@ -12,10 +12,18 @@ import (
 )
 
 func TestCapturedPackageModesLinksAndIntegrity(t *testing.T) {
-	for _, mode := range []string{"valid", "path", "link-escape", "link-chain-escape", "link-parent", "missing-mode", "invalid-mode", "duplicate", "missing"} {
+	for _, mode := range []string{"valid", "valid-aliased-temp", "path", "link-escape", "link-chain-escape", "link-parent", "missing-mode", "invalid-mode", "duplicate", "missing"} {
 		t.Run(mode, func(t *testing.T) {
 			snapshot := recipe.FunctionPackageSnapshot{Selector: "selector", ResolvedSelector: "pinned", PackageDir: "tools", Files: map[string]string{"tools/run.sh": base64.StdEncoding.EncodeToString([]byte("#!/bin/sh\nprintf captured"))}, FileModes: map[string]uint32{"tools/run.sh": 0755}, Symlinks: map[string]string{"tools/run-link": "run.sh"}}
 			switch mode {
+			case "valid-aliased-temp":
+				// Reproduce macOS's /var -> /private/var temporary-directory alias.
+				parent := t.TempDir()
+				realTemp := filepath.Join(parent, "real")
+				require.NoError(t, os.Mkdir(realTemp, 0700))
+				alias := filepath.Join(parent, "alias")
+				require.NoError(t, os.Symlink(realTemp, alias))
+				t.Setenv("TMPDIR", alias)
 			case "path":
 				snapshot.Files["../escape"] = ""
 			case "link-escape":
@@ -39,7 +47,7 @@ func TestCapturedPackageModesLinksAndIntegrity(t *testing.T) {
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 			restored, err := capturedPackage(ctx, "selector", snapshots)
-			if mode != "valid" {
+			if mode != "valid" && mode != "valid-aliased-temp" {
 				require.Error(t, err)
 				return
 			}
@@ -51,6 +59,29 @@ func TestCapturedPackageModesLinksAndIntegrity(t *testing.T) {
 			linked, err := os.ReadFile(filepath.Join(restored.ProjectRoot, "tools/run-link"))
 			require.NoError(t, err)
 			require.Contains(t, string(linked), "captured")
+		})
+	}
+}
+
+func TestCaptureLinkInsideAliasedRoot(t *testing.T) {
+	parent := t.TempDir()
+	root := filepath.Join(parent, "source")
+	require.NoError(t, os.Mkdir(root, 0700))
+	alias := filepath.Join(parent, "alias")
+	require.NoError(t, os.Symlink(root, alias))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "file"), []byte("inside"), 0600))
+	require.NoError(t, os.WriteFile(filepath.Join(parent, "outside"), []byte("outside"), 0600))
+	require.NoError(t, os.Symlink("file", filepath.Join(root, "link")))
+	require.NoError(t, os.Symlink("link", filepath.Join(root, "chain")))
+	require.NoError(t, os.Symlink(".", filepath.Join(root, "self")))
+	// Lexically within the source, but resolving self before .. escapes it.
+	require.NoError(t, os.Symlink("self/../outside", filepath.Join(root, "escape")))
+	for _, source := range []string{root, alias} {
+		t.Run(filepath.Base(source), func(t *testing.T) {
+			require.NoError(t, captureLinkInside(source, "link"))
+			require.NoError(t, captureLinkInside(source, "chain"))
+			require.NoError(t, captureLinkInside(source, "self"))
+			require.ErrorContains(t, captureLinkInside(source, "escape"), "escapes source")
 		})
 	}
 }

@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/colony-2/c2j/internal/pathutil"
 	extops "github.com/colony-2/c2j/pkg/ops/extensions"
 	"github.com/colony-2/c2j/pkg/recipe"
 )
@@ -180,11 +181,17 @@ func capturedPackage(ctx context.Context, selector string, snapshots []recipe.Fu
 	return &extops.ResolvedSelectorPath{Selector: selector, ResolvedSelector: found.ResolvedSelector, ResolvedCommit: found.ResolvedCommit, ProjectRoot: dir, Dir: filepath.Join(dir, filepath.FromSlash(found.PackageDir))}, nil
 }
 func captureLinkInside(root, name string) error {
-	resolved, err := filepath.EvalSymlinks(filepath.Join(root, name))
+	// Compare filesystem identities: the source root may itself use a symlink
+	// alias, such as macOS's /var -> /private/var temporary-directory path.
+	canonicalRoot, err := pathutil.CanonicalExisting(root)
+	if err != nil {
+		return fmt.Errorf("captured CEL source root: %w", err)
+	}
+	resolved, err := pathutil.CanonicalExisting(filepath.Join(root, name))
 	if err != nil {
 		return fmt.Errorf("captured CEL symlink %q: %w", name, err)
 	}
-	rel, err := filepath.Rel(root, resolved)
+	rel, err := filepath.Rel(canonicalRoot, resolved)
 	if err != nil || !safeCapturePath(filepath.ToSlash(rel), true) {
 		return fmt.Errorf("captured CEL symlink %q escapes source", name)
 	}
