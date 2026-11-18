@@ -3,6 +3,7 @@ package compiler
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/colony-2/c2j/internal/jsonexact"
 	"reflect"
 	"sort"
 	"strconv"
@@ -215,7 +216,20 @@ func renderChildGroupChild(resCtx *template.ResolutionContext, child recipe.Chil
 	if child.Wait != nil {
 		wait = &recipeops.WaitPolicy{On: child.Wait.On, Condition: child.Wait.Condition}
 	}
+	grouping := child.Grouping
+	if grouping.Present {
+		grouping.Value, err = resCtx.WithLocals(locals).ResolveValueWithMode(grouping.Value, template.ModeInterpolation)
+		if err != nil {
+			return recipeops.ChildGroupChildSpec{}, fmt.Errorf("grouping: %w", err)
+		}
+		if include {
+			if _, err := grouping.Prepare(); err != nil {
+				return recipeops.ChildGroupChildSpec{}, err
+			}
+		}
+	}
 	return recipeops.ChildGroupChildSpec{
+		Grouping:   grouping,
 		Wait:       wait,
 		Key:        key,
 		Index:      index,
@@ -434,7 +448,7 @@ func childGroupInputMap(input recipeops.ChildGroupStartInput) map[string]interfa
 		return map[string]interface{}{}
 	}
 	var out map[string]interface{}
-	if err := json.Unmarshal(buf, &out); err != nil {
+	if err := jsonexact.Unmarshal(buf, &out); err != nil {
 		return map[string]interface{}{}
 	}
 	return out

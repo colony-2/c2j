@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/colony-2/c2j/internal/celltest"
+	"github.com/colony-2/c2j/internal/jobdbschematest"
 	"github.com/colony-2/c2j/pkg/jobcontext"
 	"github.com/colony-2/c2j/pkg/jobdbschema"
 	"github.com/colony-2/c2j/pkg/jobref"
@@ -65,16 +66,9 @@ func TestSelectedBrokerRealDispatchAndReplay(t *testing.T) {
 	require.Equal(t, source.GoalID, d.Job.GoalID)
 	// A retained historical request keeps its old schema and conflicting payload
 	// identity through real HTTP broker dispatch and an identical retry.
-	var old map[string]any
-	require.NoError(t, json.Unmarshal(jobdbschema.Schema(), &old))
-	old["firstChapterShape"].(map[string]any)["$defs"].(map[string]any)["startJob"].(map[string]any)["properties"].(map[string]any)["goal_id"] = map[string]any{"type": "string"}
-	// Model the historical schema before metadata-only titles were added.
-	delete(old["firstChapterShape"].(map[string]any)["$defs"].(map[string]any)["startJob"].(map[string]any)["properties"].(map[string]any), "title")
-	oldBytes, err := json.Marshal(old)
-	require.NoError(t, err)
 	historical := d
 	historical.Job.JobID = "historical"
-	historical.Job.Schema = &jobdb.JobSchemaSelector{Schema: oldBytes}
+	historical.Job.Schema = &jobdb.JobSchemaSelector{Schema: jobdbschematest.LegacyGoalSchema}
 	prepared["goal_id"] = json.RawMessage(`"stale"`)
 	prepared["job_id"] = json.RawMessage(`"historical"`)
 	// Stored JobDB JSON is canonicalized recursively. Model those historical

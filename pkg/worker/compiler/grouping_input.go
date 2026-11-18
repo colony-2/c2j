@@ -1,0 +1,74 @@
+package compiler
+
+import (
+	"encoding/json"
+	"fmt"
+	"strings"
+
+	"github.com/colony-2/c2j/internal/jsonexact"
+	"github.com/colony-2/c2j/pkg/grouping"
+	"github.com/colony-2/c2j/pkg/workflowctl"
+	"github.com/colony-2/jobdb/pkg/jobdb"
+)
+
+// namedStartArtifact changes only the display name, never storage identity.
+type namedStartArtifact struct {
+	jobdb.Artifact
+	name string
+}
+
+func (a namedStartArtifact) Name() string { return a.name }
+
+func decodeRecipeInput(data []byte, artifacts []jobdb.Artifact) (workflowctl.StartJob, []jobdb.Artifact, error) {
+	var start workflowctl.StartJob
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return start, nil, err
+	}
+	_, hasStart := fields["start"]
+	_, hasAppends := fields["appends"]
+	if hasStart || hasAppends {
+		if !hasStart || !hasAppends || len(fields) != 2 {
+			return start, nil, fmt.Errorf("malformed grouped recipe input: requires start and appends")
+		}
+		var appends []map[string]any
+		if err := jsonexact.Unmarshal(fields["appends"], &appends); err != nil || len(appends) == 0 {
+			return start, nil, fmt.Errorf("malformed grouped recipe appends")
+		}
+		if string(fields["start"]) == "null" {
+			return start, nil, fmt.Errorf("malformed grouped recipe start")
+		}
+		if err := jsonexact.Unmarshal(fields["start"], &start); err != nil {
+			return start, nil, fmt.Errorf("grouped recipe start: %w", err)
+		}
+		group := &grouping.Context{Appends: make([]grouping.Contribution, len(appends))}
+		for i, value := range appends {
+			c, _, err := grouping.DecodeContribution(value, false)
+			if err != nil {
+				return start, nil, fmt.Errorf("grouped recipe append %d: %w", i, err)
+			}
+			if c.Content != nil {
+				c.Content = jsonexact.Native(c.Content).(map[string]any)
+			}
+			group.Appends[i] = c
+		}
+		start.JobContext.Grouping = group
+		creator := make([]jobdb.Artifact, 0, len(artifacts))
+		for _, artifact := range artifacts {
+			if strings.HasPrefix(artifact.Name(), "start/") {
+				creator = append(creator, namedStartArtifact{Artifact: artifact, name: strings.TrimPrefix(artifact.Name(), "start/")})
+			} else if !strings.HasPrefix(artifact.Name(), "appends/") {
+				return start, nil, fmt.Errorf("grouped recipe artifact %q has no transport namespace", artifact.Name())
+			}
+		}
+		artifacts = creator
+	} else {
+		if err := jsonexact.Unmarshal(data, &start); err != nil {
+			return start, nil, err
+		}
+	}
+	if start.Inputs != nil {
+		start.Inputs = jsonexact.Native(start.Inputs).(map[string]any)
+	}
+	return start, artifacts, nil
+}

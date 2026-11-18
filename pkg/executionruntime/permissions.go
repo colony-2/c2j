@@ -10,6 +10,7 @@ import (
 
 	"github.com/colony-2/c2j/internal/dispatchtest"
 	"github.com/colony-2/c2j/pkg/hookpolicy"
+	"github.com/colony-2/c2j/pkg/jobdbschema"
 	"github.com/colony-2/c2j/pkg/jobinspect"
 	"github.com/colony-2/c2j/pkg/jobref"
 	"github.com/colony-2/c2j/pkg/jobrestart"
@@ -61,6 +62,33 @@ func (r *Runtime) restrictedAccess(parent context.Context, tc jobworkflow.TaskCo
 			return jobref.Ref{}, err
 		}
 		return jobref.FromHandle(h)
+	})
+	appendJob := permissions.AppendFunc(func(call context.Context, req jobdb.StartOrAppendJob) (jobref.Ref, error) {
+		if req.Job.TenantId != tc.JobKey.TenantId {
+			return jobref.Ref{}, jobdb.ErrLeasePermissionDenied
+		}
+		if len(hookPolicy) > 0 {
+			childGrant := grant
+			if policies[0].ChildGrant != nil {
+				childGrant = hookpolicy.Intersect(grant, *policies[0].ChildGrant)
+			}
+			var err error
+			req.Job, err = constrainHookChild(req.Job, childGrant, hookPolicy)
+			if err != nil {
+				return jobref.Ref{}, err
+			}
+		}
+		r.mu.Lock()
+		current := r.leases[tc.JobKey]
+		r.mu.Unlock()
+		if current == nil || current.leaseState != original.leaseState || tc.Context().Err() != nil {
+			return jobref.Ref{}, jobdb.ErrExecutionLeaseLost
+		}
+		handle, err := r.appendOnLease(call, current.ExecutionLease, req)
+		if err != nil {
+			return jobref.Ref{}, err
+		}
+		return jobref.FromHandle(handle)
 	})
 	// Delegated JobDB tokens explicitly exclude restart. Keep this action in
 	// the trusted controller, behind Access.Restart's grant/cell checks and the
@@ -135,6 +163,21 @@ func (r *Runtime) restrictedAccess(parent context.Context, tc jobworkflow.TaskCo
 				return child.CreateCell(call, req)
 			}
 			if len(hookPolicy) == 0 {
+				appendJob = func(call context.Context, req jobdb.StartOrAppendJob) (jobref.Ref, error) {
+					if req.Job.TenantId != tc.JobKey.TenantId {
+						return jobref.Ref{}, jobdb.ErrLeasePermissionDenied
+					}
+					child, err := get(call)
+					if err != nil {
+						return jobref.Ref{}, err
+					}
+					handle, err := r.appendOnLease(call, child, req)
+					if err != nil {
+						return jobref.Ref{}, err
+					}
+					return jobref.FromHandle(handle)
+				}
+
 				submit = func(call context.Context, job jobdb.SubmitJob) (jobref.Ref, error) {
 					child, err := get(call)
 					if err != nil {
@@ -171,7 +214,7 @@ func (r *Runtime) restrictedAccess(parent context.Context, tc jobworkflow.TaskCo
 			return result, nil
 		}
 	}
-	access = permissions.NewAccess(ctx, grant, resolve, submit, createCell).WithRestart(restart)
+	access = permissions.NewAccess(ctx, grant, resolve, submit, createCell).WithRestart(restart).WithAppend(appendJob)
 	// Inspection must not wait for an in-flight delegation RPC. The issuer
 	// publishes only completed, noncredential metadata.
 	provider := r.selfProvider(tc, original, access, policies, issuedDelegation.Load)
@@ -203,4 +246,14 @@ func constrainHookChild(job jobdb.SubmitJob, grant permissions.JobDB, policy jso
 	}
 	job.Data, err = jobdb.NewTaskData(start, arts...)
 	return job, err
+}
+
+type leaseAppender struct{ jobdb.ExecutionLease }
+
+func (l leaseAppender) StartOrAppendJob(ctx context.Context, req jobdb.StartOrAppendJob) (jobdb.JobHandle, error) {
+	return l.ExecutionLease.StartOrAppendJob(ctx, jobdb.StartOrAppendJobRequest{Job: req})
+}
+func (r *Runtime) appendOnLease(ctx context.Context, lease jobdb.ExecutionLease, req jobdb.StartOrAppendJob) (jobdb.JobHandle, error) {
+	registry, _ := r.WorkflowRuntime.(jobdb.JobSchemaRegistry)
+	return jobdbschema.Append(ctx, leaseAppender{lease}, registry, req)
 }

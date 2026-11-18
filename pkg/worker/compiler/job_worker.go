@@ -6,7 +6,6 @@ import (
 	"log/slog"
 	"strings"
 
-	"github.com/colony-2/c2j/internal/jsonexact"
 	recipeartifacts "github.com/colony-2/c2j/pkg/artifacts"
 	"github.com/colony-2/c2j/pkg/contextual"
 	"github.com/colony-2/c2j/pkg/execution"
@@ -136,7 +135,6 @@ func (j recipeJobWorker) Run(ctx jobworkflow.ExecutionContext, jobData jobdb.Job
 		)
 		return nil, err
 	}
-	recipes := newRetriever(artifacts)
 
 	data, err := jobData.GetData()
 	if err != nil {
@@ -145,16 +143,11 @@ func (j recipeJobWorker) Run(ctx jobworkflow.ExecutionContext, jobData jobdb.Job
 		)
 		return nil, err
 	}
-	input := workflowctl.StartJob{}
-	err = jsonexact.Unmarshal(data, &input)
+	input, artifacts, err := decodeRecipeInput(data, artifacts)
 	if err != nil {
-		logger.Debug("recipe job: failed to unmarshal start job payload",
-			"error", err,
-		)
-		return nil, err
+		return nil, fmt.Errorf("decode recipe job input: %w", err)
 	}
-
-	input.Inputs = jsonexact.Native(input.Inputs).(map[string]any)
+	recipes := newRetriever(artifacts)
 
 	owner, err := recordedCell(ctx)
 	if err != nil {

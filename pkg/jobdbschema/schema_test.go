@@ -238,7 +238,7 @@ func TestRestoredGoalSchema(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if hash != "sha256:1bcec6e56c5afc280b30659e799ebf7410028de1466804829fad3267a99eafa0" {
+	if hash != "sha256:ad11d56c09204001f5477d1cb9899ebe9f5e559cd9fb62e8341069b62b362b81" {
 		t.Fatalf("unexpected schema hash: %s", hash)
 	}
 	for _, extra := range []string{"", `,"goal_id":"stale"`, `,"unknown":true`, `,"job_id":12`} {

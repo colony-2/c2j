@@ -7,6 +7,7 @@ import (
 
 	recipeartifacts "github.com/colony-2/c2j/pkg/artifacts"
 	"github.com/colony-2/c2j/pkg/contextual"
+	"github.com/colony-2/c2j/pkg/grouping"
 	"github.com/colony-2/c2j/pkg/jobcontext"
 	"github.com/colony-2/c2j/pkg/jobref"
 	"github.com/colony-2/c2j/pkg/ops"
@@ -16,6 +17,7 @@ import (
 
 // RecipeInput defines the input for recipe activities
 type SingleRecipe struct {
+	Grouping grouping.Spec `json:"grouping,omitzero" secret:"forward"`
 	// Title labels the job metadata without adding a recipe input.
 	Title     string                 `json:"title,omitempty"`
 	CellRepo  string                 `json:"cell_repo,omitempty"`
@@ -58,6 +60,9 @@ func (in ResultInput) started() (StartedJob, error) {
 }
 
 type StartedJob struct {
+	Cell     string        `json:"cell,omitempty"`
+	CellID   string        `json:"cell_id,omitempty"`
+	CellRepo string        `json:"cell_repo,omitempty"`
 	Result   *ResultSource `json:"result,omitempty"`
 	JobID    string        `json:"job_id"`
 	GoalID   string        `json:"goal_id"`
@@ -210,7 +215,7 @@ func getRecipeOutput(deps ops.OpDependencies, ctx context.Context, input Started
 }
 
 func startSingleJob(deps ops.OpDependencies, ctx context.Context, input SingleRecipeWithRef) (StartedJob, error) {
-	wait, err := input.Wait.normalized(true)
+	wait, err := input.Wait.forSubmission(input.Grouping.Present, true)
 	if err != nil {
 		return StartedJob{}, err
 	}
@@ -221,15 +226,10 @@ func startSingleJob(deps ops.OpDependencies, ctx context.Context, input SingleRe
 	if err != nil {
 		return StartedJob{}, err
 	}
-	return StartedJob{JobID: keys[0].JobID, GoalID: keys[0].GoalID, TenantID: keys[0].TenantID, Wait: input.Wait}, nil
+	return StartedJob{Cell: keys[0].Cell, CellID: keys[0].CellID, CellRepo: keys[0].CellRepo, JobID: keys[0].JobID, GoalID: keys[0].GoalID, TenantID: keys[0].TenantID, Wait: input.Wait}, nil
 }
 
 func startMultipleJobs(deps ops.OpDependencies, ctx context.Context, input MultipleRecipes) (StartedJobs, error) {
-	wait, err := input.Wait.normalized(false)
-	if err != nil {
-		return StartedJobs{}, err
-	}
-	input.Wait = wait
 	resolved := make([]SingleRecipe, len(input.Recipes))
 	for i, recipe := range input.Recipes {
 		resolved[i] = recipe
@@ -241,7 +241,7 @@ func startMultipleJobs(deps ops.OpDependencies, ctx context.Context, input Multi
 		if recipe.Wait.Condition != "" {
 			childWait.Condition = recipe.Wait.Condition
 		}
-		childWait, err = childWait.normalized(false)
+		childWait, err := childWait.forSubmission(recipe.Grouping.Present, false)
 		if err != nil {
 			return StartedJobs{}, err
 		}
@@ -257,11 +257,13 @@ func startMultipleJobs(deps ops.OpDependencies, ctx context.Context, input Multi
 	for i, k := range keys {
 		ids[i] = k.JobID
 	}
+	// Preserve the declared inheritance policy here: grouped and ordinary entries
+	// can resolve it differently. Only Items carry normalized, executable waits.
 	out := StartedJobs{JobIDs: ids, GoalIDs: make([]string, len(keys)), Items: make([]StartedJob, len(keys)), Wait: input.Wait}
 	for i, k := range keys {
 		out.GoalIDs[i] = k.GoalID
 		wait := resolved[i].Wait
-		out.Items[i] = StartedJob{JobID: k.JobID, GoalID: k.GoalID, TenantID: k.TenantID, Wait: wait}
+		out.Items[i] = StartedJob{Cell: k.Cell, CellID: k.CellID, CellRepo: k.CellRepo, JobID: k.JobID, GoalID: k.GoalID, TenantID: k.TenantID, Wait: wait}
 	}
 	return out, nil
 }
@@ -314,4 +316,17 @@ func parentContextFromDeps(deps ops.OpDependencies) jobcontext.Parent {
 		return parent
 	}
 	return jobcontext.Parent{}
+}
+
+func (in *SingleRecipe) DecodeFromMap(value any) error {
+	type plain SingleRecipe
+	return grouping.DecodeSpecInput(value, (*plain)(in))
+}
+func (in *SingleRecipeWithRef) DecodeFromMap(value any) error {
+	type plain SingleRecipeWithRef
+	return grouping.DecodeSpecInput(value, (*plain)(in))
+}
+func (in *MultipleRecipes) DecodeFromMap(value any) error {
+	type plain MultipleRecipes
+	return grouping.DecodeSpecInput(value, (*plain)(in))
 }

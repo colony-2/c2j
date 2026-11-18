@@ -8,6 +8,7 @@ import (
 	"github.com/colony-2/c2j/pkg/contextual"
 	"github.com/colony-2/c2j/pkg/ops"
 	"github.com/colony-2/c2j/pkg/workflowctl"
+	"github.com/segmentio/ksuid"
 )
 
 func inheritWorkspace(start workflowctl.StartJob, g ops.GitExecutionContext) (workflowctl.StartJob, error) {
@@ -35,7 +36,11 @@ func inheritWorkspace(start workflowctl.StartJob, g ops.GitExecutionContext) (wo
 	}
 	ws := *g.Workspace
 	ws.ParentScopeID = ws.ScopeID
-	ws.ScopeID = "child:" + start.JobID
+	scopeID := start.JobID
+	if scopeID == "" {
+		scopeID = ksuid.New().String()
+	}
+	ws.ScopeID = "child:" + scopeID
 	start.JobContext.Workspace = &ws
 	start.JobContext.CellResolution = g.CellResolution
 	commit := contextual.GitCommitContext{ParentRef: g.BaseRef}

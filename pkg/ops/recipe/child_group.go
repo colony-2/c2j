@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	recipeartifacts "github.com/colony-2/c2j/pkg/artifacts"
+	"github.com/colony-2/c2j/pkg/grouping"
 	"github.com/colony-2/c2j/pkg/ops"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	"github.com/segmentio/ksuid"
@@ -30,6 +31,7 @@ type ChildGroupStartInput struct {
 }
 
 type ChildGroupChildSpec struct {
+	Grouping   grouping.Spec          `json:"grouping,omitzero" secret:"forward"`
 	CellRepo   string                 `json:"cell_repo,omitempty"`
 	Wait       *WaitPolicy            `json:"wait,omitempty"`
 	Key        string                 `json:"key,omitempty"`
@@ -57,6 +59,8 @@ type ChildGroupStepState struct {
 }
 
 type ChildGroupChildRecord struct {
+	CellID      string                         `json:"cell_id,omitempty"`
+	CellRepo    string                         `json:"cell_repo,omitempty"`
 	TenantID    string                         `json:"tenant_id,omitempty"`
 	GoalFailure *jobdb.GoalFailure             `json:"goal_failure,omitempty"`
 	GoalID      string                         `json:"goal_id,omitempty"`
@@ -137,7 +141,7 @@ func startChildGroup(deps ops.OpDependencies, ctx context.Context, input ChildGr
 		if input.Children[i].Wait != nil {
 			policy = *input.Children[i].Wait
 		}
-		effective, err := policy.normalized(false)
+		effective, err := policy.forSubmission(input.Children[i].Grouping.Present, normalizeChildGroupMode(input.Mode) == "run_and_get_result" && input.Children[i].Grouping.Present)
 		if err != nil {
 			return ChildGroupStepState{}, fmt.Errorf("child %d: %w", i, err)
 		}
@@ -209,7 +213,10 @@ func startChildGroup(deps ops.OpDependencies, ctx context.Context, input ChildGr
 		if gitRef == "" {
 			gitRef = state.GitRef
 		}
-		jobID := deterministicChildGroupJobID(parentJobKey, invocation, child.Key, i)
+		jobID := ""
+		if !child.Grouping.Present {
+			jobID = deterministicChildGroupJobID(parentJobKey, invocation, child.Key, i)
+		}
 		job, err := recipeToStart(parentJobKey.TenantId, SingleRecipe{
 			Name:      record.Recipe,
 			CellName:  cellName,
@@ -229,13 +236,14 @@ func startChildGroup(deps ops.OpDependencies, ctx context.Context, input ChildGr
 			state.Children = append(state.Children, record)
 			continue
 		}
-		key, err := startRecipeChildJob(ctx, deps, deps.WorkflowControl(), job)
+		key, err := startRecipeChildJob(ctx, deps, deps.WorkflowControl(), job, child.Grouping)
 		if err != nil {
 			record.Status = "start_failed"
 			record.Error = err.Error()
 			state.Children = append(state.Children, record)
 			continue
 		}
+		record.CellName, record.CellID, record.CellRepo = key.Cell, key.CellID, key.CellRepo
 		record.Status = "started"
 		record.JobID = key.JobID
 		record.TenantID = key.TenantID
@@ -613,4 +621,9 @@ func cloneMap(in map[string]interface{}) map[string]interface{} {
 		out[k] = v
 	}
 	return out
+}
+
+func (in *ChildGroupStartInput) DecodeFromMap(value any) error {
+	type plain ChildGroupStartInput
+	return grouping.DecodeSpecInput(value, (*plain)(in))
 }

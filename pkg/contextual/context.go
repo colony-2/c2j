@@ -6,6 +6,7 @@ import (
 	"github.com/colony-2/c2j/pkg/artifacts"
 	"github.com/colony-2/c2j/pkg/cellref"
 	"github.com/colony-2/c2j/pkg/gitprofile"
+	"github.com/colony-2/c2j/pkg/grouping"
 	"github.com/colony-2/c2j/pkg/jobcontext"
 	"github.com/colony-2/c2j/pkg/metrics"
 	"github.com/colony-2/c2j/pkg/permissions"
@@ -70,6 +71,7 @@ type WorkflowContext struct {
 
 // ExecutionContext holds typed workflow context available to templates. It is created per task.
 type JobContext struct {
+	Grouping             *grouping.Context        `json:"grouping,omitempty"`
 	InheritedPermissions *permissions.State       `json:"inherited_permissions,omitempty"`
 	GitProfile           gitprofile.Selection     `json:"git_profile,omitzero"`
 	InitialCommit        *GitCommitContext        `json:"initial_commit,omitempty"`
@@ -94,6 +96,7 @@ type TaskContext struct {
 func NewTaskExecutionContext(ctx JobContext, ctx2 TaskContext) TaskExecutionContext {
 	return TaskExecutionContext{
 		Metrics:   metrics.Empty(0),
+		Grouping:  ctx.Grouping,
 		Workspace: ctx.Workspace, CellResolution: ctx.CellResolution,
 		Environment:  ctx.Environment,
 		Artifacts:    cloneArtifactRefs(ctx.Artifacts),
@@ -118,6 +121,7 @@ func NewTaskExecutionContext(ctx JobContext, ctx2 TaskContext) TaskExecutionCont
 
 type TaskExecutionContext struct {
 	Metrics        metrics.Snapshot  `json:"metrics"`
+	Grouping       *grouping.Context `json:"grouping,omitempty"`
 	Workspace      *WorkspaceContext `json:"workspace,omitempty"`
 	CellResolution *cellref.Context  `json:"cell_resolution,omitempty"`
 	// embed these directly from task and job contexts for easier resolution.
@@ -167,6 +171,7 @@ type InvocationCtx struct {
 
 func (t TaskExecutionContext) JobContext() JobContext {
 	return JobContext{
+		Grouping:  t.Grouping,
 		Workspace: t.Workspace, CellResolution: t.CellResolution,
 		Environment: t.Environment,
 		Artifacts:   cloneArtifactRefs(t.Artifacts),

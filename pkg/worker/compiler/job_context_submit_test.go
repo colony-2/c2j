@@ -110,3 +110,27 @@ func (*renameAfterWithinResolutionContext) AwaitGoals(...string) ([]jobdb.Depend
 func (*renameAfterWithinResolutionContext) AwaitDependencies(...jobdb.Dependency) ([]jobdb.DependencyResolution, error) {
 	return nil, fmt.Errorf("unexpected AwaitDependencies in test context")
 }
+
+func (c *countingJobContext) StartOrAppendJob(context.Context, jobdb.StartOrAppendJob) (jobdb.JobHandle, error) {
+	panic("grouped submission unavailable in this context")
+}
+
+func (c *catchScriptedJobContext) StartOrAppendJob(context.Context, jobdb.StartOrAppendJob) (jobdb.JobHandle, error) {
+	panic("grouped submission unavailable in this context")
+}
+
+func (s *stubJobContext) StartOrAppendJob(context.Context, jobdb.StartOrAppendJob) (jobdb.JobHandle, error) {
+	panic("grouped submission unavailable in this context")
+}
+
+func (c *policyCaptureJobContext) StartOrAppendJob(context.Context, jobdb.StartOrAppendJob) (jobdb.JobHandle, error) {
+	panic("grouped submission unavailable in this context")
+}
+
+func (c *capturingInvocationJobContext) StartOrAppendJob(context.Context, jobdb.StartOrAppendJob) (jobdb.JobHandle, error) {
+	panic("grouped submission unavailable in this context")
+}
+
+func (c *renameAfterWithinResolutionContext) StartOrAppendJob(context.Context, jobdb.StartOrAppendJob) (jobdb.JobHandle, error) {
+	panic("grouped submission unavailable in this context")
+}

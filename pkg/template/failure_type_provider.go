@@ -3,6 +3,7 @@ package template
 import (
 	"fmt"
 
+	"github.com/colony-2/c2j/pkg/grouping"
 	"github.com/colony-2/c2j/pkg/recipe"
 	"github.com/google/cel-go/common/types"
 )
@@ -12,6 +13,27 @@ import (
 type failureTypeProvider struct{ types.Provider }
 
 func (p failureTypeProvider) FindStructFieldType(name, field string) (*types.FieldType, bool) {
+	if name == "grouping.Contribution" && field == "content" {
+		content := func(obj any) (any, error) {
+			switch c := obj.(type) {
+			case grouping.Contribution:
+				return c.Content, nil
+			case *grouping.Contribution:
+				if c != nil {
+					return c.Content, nil
+				}
+			}
+			return nil, fmt.Errorf("invalid grouping contribution %T", obj)
+		}
+		return &types.FieldType{Type: types.NewMapType(types.StringType, types.DynType), GetFrom: content, IsSet: func(obj any) bool {
+			v, err := content(obj)
+			if err != nil {
+				return false
+			}
+			m, ok := v.(map[string]any)
+			return ok && m != nil
+		}}, true
+	}
 	if name != "recipe.RuntimeFailure" || field != "attrs" {
 		return p.Provider.FindStructFieldType(name, field)
 	}

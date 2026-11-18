@@ -46,6 +46,21 @@ type JobTool interface {
 type TaskBasedJobTool struct {
 	TaskContext jobworkflow.TaskContext
 	Restricted  *permissions.Access
+	started     []jobcontext.StartedJobContext
+}
+
+func (j *TaskBasedJobTool) StartOrAppendJobRef(ctx context.Context, req jobdb.StartOrAppendJob) (jobref.Ref, error) {
+	if j.Restricted == nil {
+		return jobref.Ref{}, fmt.Errorf("task submission scope is unavailable")
+	}
+	ref, err := j.Restricted.StartOrAppend(ctx, req)
+	if err == nil {
+		j.started = append(j.started, jobcontext.StartedJobContext{Cell: ref.Cell, CellID: ref.CellID, CellRepo: ref.CellRepo, TenantID: ref.TenantID, JobID: ref.JobID, GoalID: ref.GoalID})
+	}
+	return ref, err
+}
+func (j *TaskBasedJobTool) StartedJobs() jobcontext.StartedJobsContext {
+	return jobcontext.StartedJobsContext{Items: append([]jobcontext.StartedJobContext(nil), j.started...)}
 }
 
 func (j *TaskBasedJobTool) InvocationID() string { return j.TaskContext.InvocationID }

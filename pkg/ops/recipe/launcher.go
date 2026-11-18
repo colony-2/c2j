@@ -12,6 +12,7 @@ import (
 	"github.com/colony-2/c2j/pkg/cellref"
 	"github.com/colony-2/c2j/pkg/contextual"
 	"github.com/colony-2/c2j/pkg/gitprofile"
+	"github.com/colony-2/c2j/pkg/grouping"
 	"github.com/colony-2/c2j/pkg/jobcontext"
 	"github.com/colony-2/c2j/pkg/jobref"
 	"github.com/colony-2/c2j/pkg/ops"
@@ -110,7 +111,16 @@ func startJobs(ctx context.Context, deps ops.OpDependencies, parentJobKey jobdb.
 
 	jobs := make([]workflowctl.StartJob, len(recipes))
 	for i, recipe := range recipes {
-		job, err := recipeToStart(parentJobKey.TenantId, recipe, recipeSourceRepo, recipeSourceRef, gitRef, deterministicChildJobID(parentJobKey, invocation, i), parent)
+		if recipe.Grouping.Present {
+			if _, err := recipe.Grouping.Prepare(); err != nil {
+				return nil, fmt.Errorf("recipe %d: %w", i, err)
+			}
+		}
+		jobID := ""
+		if !recipe.Grouping.Present {
+			jobID = deterministicChildJobID(parentJobKey, invocation, i)
+		}
+		job, err := recipeToStart(parentJobKey.TenantId, recipe, recipeSourceRepo, recipeSourceRef, gitRef, jobID, parent)
 		if err != nil {
 			return nil, err
 		}
@@ -118,7 +128,7 @@ func startJobs(ctx context.Context, deps ops.OpDependencies, parentJobKey jobdb.
 	}
 
 	if len(jobs) == 1 {
-		key, err := startRecipeChildJob(ctx, deps, ctl, jobs[0])
+		key, err := startRecipeChildJob(ctx, deps, ctl, jobs[0], recipes[0].Grouping)
 		if err != nil {
 			return nil, err
 		}
@@ -127,7 +137,7 @@ func startJobs(ctx context.Context, deps ops.OpDependencies, parentJobKey jobdb.
 
 	keys := make([]jobref.Ref, len(jobs))
 	for i, job := range jobs {
-		key, err := startRecipeChildJob(ctx, deps, ctl, job)
+		key, err := startRecipeChildJob(ctx, deps, ctl, job, recipes[i].Grouping)
 		if err != nil {
 			return nil, err
 		}
@@ -136,7 +146,7 @@ func startJobs(ctx context.Context, deps ops.OpDependencies, parentJobKey jobdb.
 	return keys, nil
 }
 
-func startRecipeChildJob(ctx context.Context, deps ops.OpDependencies, ctl workflowctl.WorkflowControl, start workflowctl.StartJob) (jobref.Ref, error) {
+func startRecipeChildJob(ctx context.Context, deps ops.OpDependencies, ctl workflowctl.WorkflowControl, start workflowctl.StartJob, groups ...grouping.Spec) (jobref.Ref, error) {
 	if scope, ok := jobref.FromContext(ctx); ok {
 		assertion := start.CellRepo
 		if assertion == "" && deps != nil && start.Cell == workspaceCell(deps.GitContext()) {
@@ -153,6 +163,15 @@ func startRecipeChildJob(ctx context.Context, deps ops.OpDependencies, ctl workf
 			return jobref.Ref{}, err
 		}
 	}
+	var group grouping.Spec
+	if len(groups) > 0 {
+		group = groups[0]
+	}
+	if group.Present {
+		if _, err := group.Prepare(); err != nil {
+			return jobref.Ref{}, err
+		}
+	}
 	start.JobContext.GitProfile = gitprofile.InheritedSelection(ctx)
 	if deps != nil {
 		var err error
@@ -161,10 +180,16 @@ func startRecipeChildJob(ctx context.Context, deps ops.OpDependencies, ctl workf
 			return jobref.Ref{}, err
 		}
 		if jobTool := deps.JobTool(); jobTool != nil {
+			if group.Present {
+				return starter.StartOrAppendRecipeJob(ctx, start, group, jobTool)
+			}
 			if submitter, ok := jobTool.(childJobSubmitter); ok {
 				return starter.StartRecipeJob(ctx, start, submitter)
 			}
 		}
+	}
+	if group.Present {
+		return jobref.Ref{}, fmt.Errorf("lease-authorized grouped submission is unavailable")
 	}
 	return ctl.StartJob(ctx, start)
 }

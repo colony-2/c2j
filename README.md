@@ -14,6 +14,9 @@ Use it when you want to:
 
 Examples below assume you are running from the repo root.
 
+For grouped recipe submissions and ordered receiver contributions, see the
+[recipe grouping guide](GUIDE-Recipe-Grouping.md).
+
 For log levels and selective DEBUG output, see the [logging user guide](GUIDE-Logging.md).
 For shared logger configuration across C2J, JobDB, Pulse, and Cortex, see the
 [logging integration guide](GUIDE-Logging-Integration.md).

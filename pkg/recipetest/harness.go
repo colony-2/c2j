@@ -1974,3 +1974,7 @@ func (j *testJobContext) AwaitGoals(ids ...string) ([]jobdb.DependencyResolution
 }
 
 func (j *testJobContext) Job() jobdb.JobHandle { return jobdb.JobHandle{JobKey: j.GetJobKey()} }
+
+func (j *testJobContext) StartOrAppendJob(context.Context, jobdb.StartOrAppendJob) (jobdb.JobHandle, error) {
+	return jobdb.JobHandle{}, fmt.Errorf("unmocked grouped submission in recipe test")
+}

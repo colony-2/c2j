@@ -131,3 +131,10 @@ func awaitChild(deps ops.OpDependencies, ctx context.Context, in StartedJob, res
 	}
 	return bindings[0], nil
 }
+
+func (p WaitPolicy) forSubmission(grouped, result bool) (WaitPolicy, error) {
+	if grouped && p.On == "" {
+		p.On = "job"
+	}
+	return p.normalized(result)
+}

@@ -1,5 +1,10 @@
 package recipe
 
+import (
+	"github.com/colony-2/c2j/pkg/grouping"
+	"gopkg.in/yaml.v3"
+)
+
 // ChildGroupData describes a first-class recipe node that fans out to child
 // recipes. The compiler lowers this node to internal task-backed recipe ops.
 type ChildGroupData struct {
@@ -22,6 +27,7 @@ type ChildGroupAggregate struct {
 }
 
 type ChildGroupChild struct {
+	Grouping   grouping.Spec          `yaml:"grouping,omitempty" json:"grouping,omitzero"`
 	CellRepo   interface{}            `yaml:"cell_repo,omitempty" json:"cell_repo,omitempty"`
 	Wait       *ChildWait             `yaml:"wait,omitempty" json:"wait,omitempty"`
 	Key        interface{}            `yaml:"key,omitempty" json:"key,omitempty"`
@@ -60,4 +66,17 @@ func (n *NodeChildGroup) isNode() {}
 type ChildWait struct {
 	On        string `yaml:"on,omitempty" json:"on,omitempty"`
 	Condition string `yaml:"condition,omitempty" json:"condition,omitempty"`
+}
+
+func (c *ChildGroupChild) UnmarshalYAML(n *yaml.Node) error {
+	type plain ChildGroupChild
+	if err := n.Decode((*plain)(c)); err != nil {
+		return err
+	}
+	for i := 0; i+1 < len(n.Content); i += 2 {
+		if n.Content[i].Value == "grouping" && n.Content[i+1].Tag == "!!null" {
+			c.Grouping = grouping.Spec{Present: true}
+		}
+	}
+	return nil
 }

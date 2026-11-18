@@ -1,0 +1,92 @@
+package jobdbschema
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"testing"
+
+	"github.com/colony-2/c2j/internal/celltest"
+	"github.com/colony-2/jobdb/pkg/jobdb"
+	"github.com/colony-2/jobdb/pkg/jobdb/runtime/toy"
+	"github.com/stretchr/testify/require"
+)
+
+type appendCapture struct {
+	calls   int
+	failure error
+}
+
+func (s *appendCapture) StartOrAppendJob(context.Context, jobdb.StartOrAppendJob) (jobdb.JobHandle, error) {
+	s.calls++
+	if s.calls == 1 {
+		return jobdb.JobHandle{}, s.failure
+	}
+	return jobdb.JobHandle{JobKey: jobdb.JobKey{TenantId: "tenant", JobId: "job"}, GoalID: "goal"}, nil
+}
+func TestGroupedSchemaRegistrationOnlyDefinitiveMiss(t *testing.T) {
+	for _, failure := range []error{jobdb.ErrJobSchemaNotFound, errors.New("transport timeout mentioning job schema not found"), jobdb.ErrLeasePermissionDenied} {
+		capture := &appendCapture{failure: failure}
+		registry := &captureRegistry{}
+		_, err := Append(context.Background(), capture, registry, jobdb.StartOrAppendJob{Job: jobdb.SubmitJob{TenantId: "tenant"}})
+		if errors.Is(failure, jobdb.ErrJobSchemaNotFound) {
+			require.NoError(t, err)
+			require.Equal(t, 2, capture.calls)
+			require.Equal(t, 1, registry.calls)
+		} else {
+			require.ErrorIs(t, err, failure)
+			require.Equal(t, 1, capture.calls)
+			require.Zero(t, registry.calls)
+		}
+	}
+}
+func TestGroupedAppendSchema(t *testing.T) {
+	for _, tc := range []struct {
+		raw   string
+		valid bool
+	}{
+		{`{"content":{},"artifacts":[]}`, true},
+		{`{"artifacts":[{"kind":"external","name":"a","external":{"url":"https://example.test"}}]}`, true},
+		{`null`, false}, {`[]`, false}, {`{"artifacts":[]}`, false}, {`{"content":null,"artifacts":[]}`, false},
+		{`{"content":1,"artifacts":[]}`, false}, {`{"content":{},"artifacts":null}`, false}, {`{"content":{},"artifacts":[],"unknown":true}`, false},
+	} {
+		t.Run(tc.raw, func(t *testing.T) {
+			ctx := celltest.Context(context.Background())
+			rt := toy.New()
+			celltest.Create(t, rt, "tenant", "test", "example.test/test")
+			require.NoError(t, Register(ctx, rt, "tenant"))
+			req := jobdb.StartOrAppendJob{AppendKey: "key", Append: json.RawMessage(tc.raw), Job: jobdb.SubmitJob{TenantId: "tenant", Cell: "test", JobType: "recipe", Data: jobdb.NewTaskDataOrPanic(map[string]any{"tenantId": "tenant", "cell": "test", "recipe": "batch", "context": map[string]any{}})}}
+			require.NoError(t, SetSubmitJobSchema(&req.Job))
+			_, err := rt.StartOrAppendJob(ctx, jobdb.StartOrAppendJobRequest{Job: req})
+			if tc.valid {
+				require.NoError(t, err)
+			} else {
+				require.Error(t, err)
+			}
+		})
+	}
+}
+
+func TestGroupedSchemaKeepsOrdinaryStartClosed(t *testing.T) {
+	ctx := celltest.Context(context.Background())
+	rt := toy.New()
+	celltest.Create(t, rt, "tenant", "test", "example.test/test")
+	require.NoError(t, Register(ctx, rt, "tenant"))
+	for _, tc := range []struct {
+		raw   string
+		valid bool
+	}{
+		{`{"tenantId":"tenant","cell":"test","recipe":"batch","context":{}}`, true},
+		{`{"tenantId":"tenant","cell":"test","recipe":"batch","context":{},"unrecognized":1}`, false},
+		{`{"start":{"recipe":"batch"},"appends":[{"content":{},"artifacts":[]}]}`, false},
+	} {
+		q := jobdb.SubmitJob{TenantId: "tenant", Cell: "test", JobType: "recipe", Data: jobdb.NewTaskDataOrPanic(json.RawMessage(tc.raw))}
+		require.NoError(t, SetSubmitJobSchema(&q))
+		_, err := rt.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: q})
+		if tc.valid {
+			require.NoError(t, err)
+		} else {
+			require.Error(t, err)
+		}
+	}
+}

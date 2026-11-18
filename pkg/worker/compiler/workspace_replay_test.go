@@ -172,3 +172,7 @@ func (*workspaceReplayContext) AwaitDependencies(...jobdb.Dependency) ([]jobdb.D
 }
 
 func (c *workspaceReplayContext) Job() jobdb.JobHandle { return jobdb.JobHandle{JobKey: c.GetJobKey()} }
+
+func (*workspaceReplayContext) StartOrAppendJob(context.Context, jobdb.StartOrAppendJob) (jobdb.JobHandle, error) {
+	panic("grouped submission unavailable in this context")
+}

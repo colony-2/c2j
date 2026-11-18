@@ -308,3 +308,7 @@ func (v *validationJobContext) Job() jobdb.JobHandle {
 	}
 	return v.inner.Job()
 }
+
+func (v *validationJobContext) StartOrAppendJob(context.Context, jobdb.StartOrAppendJob) (jobdb.JobHandle, error) {
+	return jobdb.JobHandle{}, fmt.Errorf("grouped submission is unavailable during validation")
+}

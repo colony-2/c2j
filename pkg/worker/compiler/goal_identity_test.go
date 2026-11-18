@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/colony-2/c2j/internal/celltest"
+	"github.com/colony-2/c2j/internal/jobdbschematest"
 	"github.com/colony-2/c2j/pkg/contextual"
 	"github.com/colony-2/c2j/pkg/jobdbschema"
 	"github.com/colony-2/c2j/pkg/jobinspect"
@@ -29,15 +30,7 @@ func TestHistoricalGoalIdentityExecutionRestartAndReplay(t *testing.T) {
 				ctx := celltest.Context(context.Background())
 				rt := newTimeoutReproRuntime(t, backend)
 				registry := rt.WorkflowRuntime.(jobdb.JobSchemaRegistry)
-				var schema map[string]any
-				require.NoError(t, json.Unmarshal(jobdbschema.Schema(), &schema))
-				properties := schema["firstChapterShape"].(map[string]any)["$defs"].(map[string]any)["startJob"].(map[string]any)["properties"].(map[string]any)
-				properties["goal_id"] = map[string]any{"type": "string"}
-				// This historical schema predates metadata-only submission titles.
-				delete(properties, "title")
-				oldSchema, err := json.Marshal(schema)
-				require.NoError(t, err)
-				registered, err := registry.RegisterJobSchema(ctx, jobdb.RegisterJobSchemaRequest{TenantId: "tenant", Schema: oldSchema})
+				registered, err := registry.RegisterJobSchema(ctx, jobdb.RegisterJobSchemaRequest{TenantId: "tenant", Schema: jobdbschematest.LegacyGoalSchema})
 				require.NoError(t, err)
 				require.Equal(t, "sha256:3b77b87e6349ecd231839a13ddfa30d0da797cb019ff56dd81c5b7260c394750", registered.SchemaHash)
 				celltest.Create(t, rt, "tenant", "test", "example.test/test")

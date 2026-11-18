@@ -12,6 +12,7 @@ import (
 	"github.com/colony-2/c2j/pkg/contextual"
 	"github.com/colony-2/c2j/pkg/execution"
 	"github.com/colony-2/c2j/pkg/gitprofile"
+	"github.com/colony-2/c2j/pkg/grouping"
 	"github.com/colony-2/c2j/pkg/jobcontext"
 	"github.com/colony-2/c2j/pkg/metrics"
 	"github.com/colony-2/c2j/pkg/permissions"
@@ -206,6 +207,8 @@ func (rc *ResolutionContext) initializeCEL() (*ResolutionContext, error) {
 			reflect.TypeOf(RunOutput{}),
 			reflect.TypeOf(contextual.TaskExecutionContext{}),
 			reflect.TypeOf(contextual.JobContext{}),
+			reflect.TypeOf(grouping.Context{}),
+			reflect.TypeOf(grouping.Contribution{}),
 			reflect.TypeOf(contextual.TaskContext{}),
 			reflect.TypeOf(contextual.EnvironmentContext{}),
 			reflect.TypeOf(contextual.WorkflowContext{}),

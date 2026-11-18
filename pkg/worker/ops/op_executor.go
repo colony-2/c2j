@@ -645,6 +645,13 @@ func (t opExecutor) doPrepared(ctx context.Context, jobTool ops.JobTool, req Act
 	if broker != nil {
 		startedJobs = broker.StartedJobs()
 	}
+	if reporter, ok := jobTool.(interface {
+		StartedJobs() jobcontext.StartedJobsContext
+	}); ok {
+		var mergeErr error
+		startedJobs, mergeErr = MergeStartedJobs(startedJobs, reporter.StartedJobs())
+		stepErr = errors.Join(stepErr, mergeErr)
+	}
 	listedJobs, collectErr := collectStartedJobs(ctx, deps.WorkflowControl(), currentJob)
 	if collectErr != nil {
 		stepErr = errors.Join(stepErr, fmt.Errorf("collect started jobs: %w", collectErr))

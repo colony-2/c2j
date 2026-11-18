@@ -15,7 +15,7 @@ import (
 
 var c2jJobSchema = json.RawMessage(`{
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "description": "c2j recipe execution chapter schema v4 (named cells)",
+  "description": "c2j recipe execution chapter schema v5 (grouped recipe contributions)",
   "firstChapterShape": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "type": "object",
@@ -306,7 +306,14 @@ var c2jJobSchema = json.RawMessage(`{
               "submit": {
                 "type": "boolean"
               },
-              "cellNames": {"type":"array","minItems":1,"uniqueItems":true,"items":{"type":"string"}}
+              "cellNames": {
+                "type": "array",
+                "minItems": 1,
+                "uniqueItems": true,
+                "items": {
+                  "type": "string"
+                }
+              }
             },
             "additionalProperties": false
           }
@@ -405,6 +412,22 @@ var c2jJobSchema = json.RawMessage(`{
           },
           "recipe_source": {
             "$ref": "#/$defs/recipeSourceContext"
+          },
+          "grouping": {
+            "type": "object",
+            "required": [
+              "appends"
+            ],
+            "properties": {
+              "appends": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "$ref": "#/$defs/groupingContribution"
+                }
+              }
+            },
+            "additionalProperties": false
           }
         },
         "additionalProperties": false
@@ -412,8 +435,12 @@ var c2jJobSchema = json.RawMessage(`{
       "parentJobContext": {
         "type": "object",
         "properties": {
-          "cell_id": {"type":"string"},
-          "cell_repo": {"type":"string"},
+          "cell_id": {
+            "type": "string"
+          },
+          "cell_repo": {
+            "type": "string"
+          },
           "tenant_id": {
             "type": "string"
           },
@@ -545,6 +572,148 @@ var c2jJobSchema = json.RawMessage(`{
           }
         },
         "additionalProperties": true
+      },
+      "contributionArtifact": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "kind",
+              "stored"
+            ],
+            "properties": {
+              "kind": {
+                "const": "stored"
+              },
+              "name": {
+                "type": "string"
+              },
+              "stored": {
+                "type": "object",
+                "required": [
+                  "key"
+                ],
+                "properties": {
+                  "key": {
+                    "$ref": "#/$defs/artifactKey"
+                  }
+                },
+                "additionalProperties": false
+              }
+            },
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "required": [
+              "kind",
+              "name",
+              "external"
+            ],
+            "properties": {
+              "kind": {
+                "const": "external"
+              },
+              "name": {
+                "type": "string",
+                "minLength": 1
+              },
+              "external": {
+                "type": "object",
+                "required": [
+                  "url"
+                ],
+                "properties": {
+                  "url": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "expand": {
+                    "type": "boolean"
+                  }
+                },
+                "additionalProperties": false
+              }
+            },
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "required": [
+              "kind",
+              "name",
+              "format",
+              "value"
+            ],
+            "properties": {
+              "kind": {
+                "const": "value"
+              },
+              "name": {
+                "type": "string",
+                "minLength": 1
+              },
+              "format": {
+                "enum": [
+                  "text",
+                  "json"
+                ]
+              },
+              "value": {}
+            },
+            "allOf": [
+              {
+                "if": {
+                  "properties": {
+                    "format": {
+                      "const": "text"
+                    }
+                  }
+                },
+                "then": {
+                  "properties": {
+                    "value": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            ],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "groupingContribution": {
+        "type": "object",
+        "properties": {
+          "content": {
+            "type": "object"
+          },
+          "artifacts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/contributionArtifact"
+            }
+          }
+        },
+        "required": [
+          "artifacts"
+        ],
+        "anyOf": [
+          {
+            "required": [
+              "content"
+            ]
+          },
+          {
+            "properties": {
+              "artifacts": {
+                "minItems": 1
+              }
+            }
+          }
+        ],
+        "additionalProperties": false
       }
     }
   },
@@ -889,6 +1058,179 @@ var c2jJobSchema = json.RawMessage(`{
           }
         },
         "additionalProperties": true
+      }
+    }
+  },
+  "appendShape": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "properties": {
+      "content": {
+        "type": "object"
+      },
+      "artifacts": {
+        "type": "array",
+        "items": {
+          "$ref": "#/$defs/contributionArtifact"
+        }
+      }
+    },
+    "required": [
+      "artifacts"
+    ],
+    "anyOf": [
+      {
+        "required": [
+          "content"
+        ]
+      },
+      {
+        "properties": {
+          "artifacts": {
+            "minItems": 1
+          }
+        }
+      }
+    ],
+    "additionalProperties": false,
+    "$defs": {
+      "artifactKey": {
+        "type": "object",
+        "required": [
+          "jobId",
+          "taskOrdinal",
+          "name",
+          "sizeBytes"
+        ],
+        "properties": {
+          "jobId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "taskOrdinal": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "sizeBytes": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false
+      },
+      "contributionArtifact": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "kind",
+              "stored"
+            ],
+            "properties": {
+              "kind": {
+                "const": "stored"
+              },
+              "name": {
+                "type": "string"
+              },
+              "stored": {
+                "type": "object",
+                "required": [
+                  "key"
+                ],
+                "properties": {
+                  "key": {
+                    "$ref": "#/$defs/artifactKey"
+                  }
+                },
+                "additionalProperties": false
+              }
+            },
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "required": [
+              "kind",
+              "name",
+              "external"
+            ],
+            "properties": {
+              "kind": {
+                "const": "external"
+              },
+              "name": {
+                "type": "string",
+                "minLength": 1
+              },
+              "external": {
+                "type": "object",
+                "required": [
+                  "url"
+                ],
+                "properties": {
+                  "url": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "expand": {
+                    "type": "boolean"
+                  }
+                },
+                "additionalProperties": false
+              }
+            },
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "required": [
+              "kind",
+              "name",
+              "format",
+              "value"
+            ],
+            "properties": {
+              "kind": {
+                "const": "value"
+              },
+              "name": {
+                "type": "string",
+                "minLength": 1
+              },
+              "format": {
+                "enum": [
+                  "text",
+                  "json"
+                ]
+              },
+              "value": {}
+            },
+            "allOf": [
+              {
+                "if": {
+                  "properties": {
+                    "format": {
+                      "const": "text"
+                    }
+                  }
+                },
+                "then": {
+                  "properties": {
+                    "value": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            ],
+            "additionalProperties": false
+          }
+        ]
       }
     }
   }

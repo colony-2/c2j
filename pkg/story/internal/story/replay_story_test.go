@@ -1006,3 +1006,7 @@ func (*fakeReplayJobContext) AwaitDependencies(...jobdb.Dependency) ([]jobdb.Dep
 func (c *fakeReplayJobContext) Job() jobdb.JobHandle {
 	return jobdb.JobHandle{JobKey: c.GetJobKey(), Cell: "test", CellID: "cell-test", CellRepo: "example.test/test"}
 }
+
+func (c *fakeReplayJobContext) StartOrAppendJob(context.Context, jobdb.StartOrAppendJob) (jobdb.JobHandle, error) {
+	panic("grouped submission unavailable in this context")
+}

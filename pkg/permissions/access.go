@@ -26,6 +26,7 @@ type Access struct {
 	submit     SubmitFunc
 	createCell CreateCellFunc
 	restart    RestartFunc
+	appendJob  AppendFunc
 }
 
 func NewAccess(ctx context.Context, grant JobDB, resolve ResolveFunc, submit SubmitFunc, create ...CreateCellFunc) *Access {
@@ -189,6 +190,32 @@ type RestartFunc func(context.Context, jobdb.SubmitRestartJobRequest) (jobref.Re
 // WithRestart installs the controller's lease-bound restart callback before the
 // Access is published to an operation. It does not expand its submission grant.
 func (a *Access) WithRestart(restart RestartFunc) *Access { a.restart = restart; return a }
+
+type AppendFunc func(context.Context, jobdb.StartOrAppendJob) (jobref.Ref, error)
+
+func (a *Access) WithAppend(appendJob AppendFunc) *Access { a.appendJob = appendJob; return a }
+func (a *Access) StartOrAppend(ctx context.Context, req jobdb.StartOrAppendJob) (result jobref.Ref, err error) {
+	finish, err := dispatchtest.Begin(a.Context(), dispatchtest.Attempt{Kind: "native", Name: "start_or_append_job", Cell: req.Job.Cell})
+	if err != nil {
+		return result, err
+	}
+	defer func() { finish(err) }()
+	if err := ctx.Err(); err != nil {
+		return result, err
+	}
+	if err := a.Context().Err(); err != nil {
+		return result, err
+	}
+	if !a.grant.Jobs.Submit || (a.grant.Jobs.CellNames != nil && !slices.Contains(a.grant.Jobs.CellNames, req.Job.Cell)) {
+		return result, jobdb.ErrLeasePermissionDenied
+	}
+	if a.appendJob == nil {
+		return result, fmt.Errorf("lease-authorized grouped submission is unavailable")
+	}
+	call, cancel := bound(ctx, a.Context())
+	defer cancel()
+	return a.appendJob(call, req)
+}
 func (a *Access) Restart(ctx context.Context, req jobdb.SubmitRestartJobRequest) (result jobref.Ref, err error) {
 	finish, err := dispatchtest.Begin(a.Context(), dispatchtest.Attempt{Kind: "native", Name: "restart_job", Cell: req.Job.Cell})
 	if err != nil {
