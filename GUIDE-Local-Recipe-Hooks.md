@@ -55,6 +55,13 @@ State-machine calls use the same syntax; parent transitions read
 `states.project_check.outputs.decision`. The hook returns results, and the parent
 owns revision routes and any required revalidation or approval gates.
 
+Caller input expressions resolve once against the selected candidate. Their
+results remain data: request text containing `{{ example }}` or
+`${{ not_a_reference }}` reaches present hooks and optional fallbacks unchanged.
+The selected hook's input schema still applies defaults and rejects invalid or
+missing required values before its body runs. Workers need the literal-input
+repair for this behavior; existing recipes and request text need no edits.
+
 Only an absent ordinary file triggers `if_missing`. Invalid YAML, symlinks,
 lookup failures, and invalid outputs fail the invocation. `expect_outputs` is a
 self-contained JSON Schema; external schema references are rejected. The schema

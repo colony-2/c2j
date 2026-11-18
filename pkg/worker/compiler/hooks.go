@@ -614,9 +614,14 @@ func prepareHook(ctx workflow.Context, parent *template.ResolutionContext, n *re
 	if observing {
 		// Bind caller inputs while the hook candidate is visible. Loading the
 		// definition is an observation and must not publish its synthetic pin.
-		seq.Inputs, err = parent.ResolveCompositeInputs(seq.Inputs)
+		// Carry validated values separately so literal data is not rendered again.
+		bound, err := parent.ResolveCompositeInputs(seq.Inputs)
 		if err != nil {
 			return recipe.Node{}, err
+		}
+		seq.Internal.BoundInputs, err = prepareCompositeInputs(seq.NodeMetadata, bound)
+		if err != nil {
+			return recipe.Node{}, fmt.Errorf("sequence inputs do not match schema. %w", err)
 		}
 	}
 	return wrapper, nil
