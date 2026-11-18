@@ -190,7 +190,7 @@ outputs:
 	require.NoError(t, err)
 	raw, err := result.GetData()
 	require.NoError(t, err)
-	require.JSONEq(t, `{"message":"hello"}`, string(raw))
+	requireJobOutputJSONEq(t, `{"message":"hello"}`, raw)
 	history, err := engine.GetJobRun(ctx, jobdb.GetJobRunRequest{JobKey: key, IncludeOutputs: true})
 	require.NoError(t, err)
 	setupSeen := false
