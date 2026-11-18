@@ -19,6 +19,12 @@ workspace ancestry restrictions as `thinpackrebase`: its target must descend
 from the current base and the job's initial commit. It fetches missing history
 as necessary, including for shallow workspaces.
 
+Ordinary rebase selects commits outside the pinned target's history, while
+retaining the recorded base for ancestry constraints and historical output.
+An already incorporated target preserves exact candidate HEAD and tree; a target
+containing the candidate fast-forwards it. A later target replays only pending
+work. Both selectors accept target-only calls for these cases.
+
 `squash.author` selects authorship. Managed workspaces fill missing Git identity
 fields from `context.git.author`; a standalone squash uses its explicit `author`
 as the fallback. Existing Git identity configuration and `GIT_COMMITTER_*`

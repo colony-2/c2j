@@ -120,10 +120,14 @@ func run(ctx context.Context, input ThinpackRebaseInput, minimumBase string) (ou
 
 	rebasedFrom := RebasedFromSummary{BaseHash: snapshot.BaseHash, PersistHash: snapshot.PersistHash}
 
-	equalBase := hashesEqual(snapshot.BaseHash, targetBase)
-
 	var newHead string
 	var updatedRef string
+
+	phase = "ancestry"
+	targetInCandidate, err := isAncestor(ctx, snapshot.RepoPath, targetBase, head)
+	if err != nil {
+		return nil, err
+	}
 
 	// The recorded base can predate upstream history already incorporated by
 	// this candidate. Exclude everything reachable from the pinned target,
@@ -132,22 +136,37 @@ func run(ctx context.Context, input ThinpackRebaseInput, minimumBase string) (ou
 	if err != nil {
 		return nil, err
 	}
-	if commitCount > 0 {
+	if !targetInCandidate && commitCount > 0 {
 		phase = "ancestry"
 		if err := ensureHistory(ctx, snapshot.RepoPath, remoteName, snapshot.BaseHash, targetBase, true); err != nil {
 			return nil, err
 		}
-		phase = "prepare"
-		// Retrieved history may reveal that apparently pending commits were
-		// already shared. A known empty range needs no further retrieval.
-		commitCount, err = countCommitsSince(ctx, snapshot.RepoPath, targetBase)
-		if err != nil {
-			return nil, err
-		}
 	}
 
-	// Fast-forward when there are no commits to replay but the target is newer.
-	if commitCount == 0 {
+	// Target deepening can also reveal the candidate's path to the recorded
+	// base. Prove it before acceptance, without first fetching an unpublished
+	// candidate commit from the upstream remote. A path through one merge parent
+	// still does not establish completeness of the others.
+	if err := ensureLinearHistory(ctx, snapshot.RepoPath, remoteName, snapshot.BaseHash, head); err != nil {
+		return nil, fmt.Errorf("candidate ancestry: %w", err)
+	}
+
+	// Either retrieval can reveal incorporated history. Make the final selection
+	// from the resulting graph, including candidate-side ancestry retrieval.
+	targetInCandidate, err = isAncestor(ctx, snapshot.RepoPath, targetBase, head)
+	if err != nil {
+		return nil, err
+	}
+	commitCount, err = countCommitsSince(ctx, snapshot.RepoPath, targetBase)
+	if err != nil {
+		return nil, err
+	}
+
+	// An incorporated target adopts the base without rewriting any commit,
+	// even when author reset was requested.
+	if targetInCandidate {
+		// Preserve the exact candidate HEAD and tree.
+	} else if commitCount == 0 {
 		// Nothing to reapply; align HEAD with the target base if needed.
 		if !hashesEqual(snapshot.PersistHash, targetBase) {
 			phase, mutated = "fast_forward", true
@@ -155,7 +174,10 @@ func run(ctx context.Context, input ThinpackRebaseInput, minimumBase string) (ou
 				return nil, fmt.Errorf("fast-forward to target base %s: %w", shortHash(targetBase), err)
 			}
 		}
-	} else if !equalBase {
+	} else {
+		if err := requireReplayHistory(ctx, snapshot.RepoPath, head, targetBase); err != nil {
+			return nil, err
+		}
 		phase, mutated = "replay", true
 		if err := rebaseOntoTarget(ctx, snapshot, targetBase, input.PreserveAuthor); err != nil {
 			return nil, err
@@ -190,6 +212,30 @@ func run(ctx context.Context, input ThinpackRebaseInput, minimumBase string) (ou
 	}
 
 	return output, nil
+}
+
+// A shallow root cuts all paths through its parents. Unless the other revision
+// also reaches that root, hidden history could change target..candidate (or hide
+// target ancestry entirely). Reject before replay can discard merge resolutions.
+// Shared roots are safe: their hidden history is excluded on both sides. Proven
+// ancestral adoption and fast-forward do not replay and need no such restriction.
+func requireReplayHistory(ctx context.Context, repoPath, candidate, target string) error {
+	for _, pair := range [][2]string{{candidate, target}, {target, candidate}} {
+		boundary, err := reachableShallowBoundary(ctx, repoPath, pair[0])
+		if err != nil {
+			return err
+		}
+		for _, root := range strings.Fields(boundary) {
+			shared, err := isAncestor(ctx, repoPath, root, pair[1])
+			if err != nil {
+				return err
+			}
+			if !shared {
+				return fmt.Errorf("cannot select replay: incomplete shallow history for %s", shortHash(pair[0]))
+			}
+		}
+	}
+	return nil
 }
 
 func resolveWorkspaceSnapshot(input ThinpackRebaseInput) (workspaceSnapshot, error) {
@@ -302,8 +348,8 @@ func ensureHistory(ctx context.Context, repoPath, remoteName, currentBase, targe
 				return nil
 			}
 			// One merge parent can prove base ancestry while a shallow second
-			// parent still hides commits shared with HEAD. Stop only when all
-			// shallow boundaries are excluded by the recorded base's history.
+			// parent still hides commits shared with HEAD. Boundaries already
+			// excluded by the base or shared with HEAD cannot change replay.
 			pending, err := common.ExecuteGitCommand(ctx, repoPath, "rev-list", targetBase, "^"+currentBase)
 			if err != nil {
 				return err
@@ -315,7 +361,13 @@ func ensureHistory(ctx context.Context, repoPath, remoteName, currentBase, targe
 			var relevant []string
 			for _, hash := range strings.Fields(boundary) {
 				if rangeCommits[hash] {
-					relevant = append(relevant, hash)
+					shared, err := isAncestor(ctx, repoPath, hash, "HEAD")
+					if err != nil {
+						return err
+					}
+					if !shared {
+						relevant = append(relevant, hash)
+					}
 				}
 			}
 			boundary = strings.Join(relevant, "\n")

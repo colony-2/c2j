@@ -90,7 +90,7 @@ func TestStructuredConflictPreservesCandidateAndEvidence(t *testing.T) {
 }
 
 func TestNonConflictFailuresKeepClassification(t *testing.T) {
-	for _, mode := range []string{"authentication", "cancel", "timeout", "ancestry", "dirty"} {
+	for _, mode := range []string{"authentication", "cancel", "timeout", "ancestry", "dirty", "mismatched-head", "missing-target"} {
 		t.Run(mode, func(t *testing.T) {
 			repo, base, target, candidate := conflictFixture(t, "file", "text")
 			ctx, cancel := context.WithCancelCause(celltest.Context(context.Background()))
@@ -109,6 +109,10 @@ func TestNonConflictFailuresKeepClassification(t *testing.T) {
 				})))
 				defer srv.Close()
 				runGit(t, repo, "git", "remote", "add", "origin", srv.URL+"/repo.git")
+				input.TargetBaseHash = strings.Repeat("a", 40)
+			case "mismatched-head":
+				input.PersistHash = base
+			case "missing-target":
 				input.TargetBaseHash = strings.Repeat("a", 40)
 			case "ancestry":
 				input.TargetBaseHash = gitRevParse(t, repo, base+"^")

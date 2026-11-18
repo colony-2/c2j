@@ -1,0 +1,101 @@
+{
+  "recipe": "managed-rebase-explicit.yaml",
+  "cases": [
+    {
+      "id": "explicit-rebase",
+      "type": "integration_case",
+      "runtime": {
+        "cells": {
+          "root": {
+            "files": {
+              "README.md": "initial\n",
+              "conflict.txt": "base\n"
+            }
+          }
+        }
+      },
+      "mocks": {
+        "ops": [
+          {
+            "repeat": true,
+            "match": {
+              "op": "command_execution"
+            },
+            "behavior": {
+              "mode": "passthrough"
+            }
+          }
+        ]
+      },
+      "assertions": [
+        {
+          "type": "cel_true",
+          "expr": "outputs.native.new_base_hash == outputs.seed.inc"
+        },
+        {
+          "type": "cel_true",
+          "expr": "outputs.native.new_persist_hash == outputs.seed.head"
+        },
+        {
+          "type": "cel_true",
+          "expr": "outputs.later_native.rebased_from.base_hash == outputs.seed.inc"
+        },
+        {
+          "type": "cel_true",
+          "expr": "outputs.later_native.new_base_hash == outputs.seed.later"
+        }
+      ],
+      "inputs": {
+        "selector": "rebase"
+      }
+    },
+    {
+      "id": "explicit-thinpackrebase",
+      "type": "integration_case",
+      "runtime": {
+        "cells": {
+          "root": {
+            "files": {
+              "README.md": "initial\n",
+              "conflict.txt": "base\n"
+            }
+          }
+        }
+      },
+      "mocks": {
+        "ops": [
+          {
+            "repeat": true,
+            "match": {
+              "op": "command_execution"
+            },
+            "behavior": {
+              "mode": "passthrough"
+            }
+          }
+        ]
+      },
+      "assertions": [
+        {
+          "type": "cel_true",
+          "expr": "outputs.native.new_base_hash == outputs.seed.inc"
+        },
+        {
+          "type": "cel_true",
+          "expr": "outputs.native.new_persist_hash == outputs.seed.head"
+        },
+        {
+          "type": "cel_true",
+          "expr": "outputs.later_native.rebased_from.base_hash == outputs.seed.inc"
+        },
+        {
+          "type": "cel_true",
+          "expr": "outputs.later_native.new_base_hash == outputs.seed.later"
+        }
+      ],
+      "inputs": {
+        "selector": "thinpackrebase"
+      }
+    }
+  ]
+}

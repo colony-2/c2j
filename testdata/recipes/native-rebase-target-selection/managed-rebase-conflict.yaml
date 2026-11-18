@@ -1,0 +1,103 @@
+{
+  "id": "managed-rebase-conflict",
+  "version": "1",
+  "input_schema": {
+    "selector": {
+      "type": "string",
+      "default_value": "rebase"
+    }
+  },
+  "sequence": [
+    {
+      "id": "seed",
+      "op": "command_execution",
+      "inputs": {
+        "env": {
+          "RECORDED_BASE": "${{ context.git.execution.base_hash }}",
+          "INCORPORATE": "false",
+          "CONFLICT": "true",
+          "HOOK": "false"
+        },
+        "run": "python3 - <<'PYSEED'\nimport json,os,pathlib,subprocess\nroot=pathlib.Path.cwd()\ndef git(repo,*args):\n return subprocess.check_output(['git','-C',str(repo),'-c','user.name=Rebase Diagnostic','-c','user.email=rebase@example.test',*args],stderr=subprocess.PIPE,text=True).strip()\nsource=pathlib.Path(git(root,'remote','get-url','origin').removeprefix('file://'))\nold=git(root,'rev-parse','HEAD')\nassert old==os.environ['RECORDED_BASE']\nincorporate=os.environ['INCORPORATE']=='true'\nconflict=os.environ['CONFLICT']=='true'\n# Two upstream commits change the same path. Reapplying the first on the second conflicts.\n(source/'shared.txt').write_text('upstream one\\n')\ngit(source,'add','.');git(source,'commit','-m','upstream one')\n(source/'shared.txt').write_text('upstream two\\n')\ngit(source,'add','.');git(source,'commit','-m','upstream two')\ninc=git(source,'rev-parse','HEAD')\ngit(root,'fetch','origin','main')\nif incorporate:git(root,'reset','--hard',inc)\n(root/'feature.txt').write_text('retained candidate\\n')\nif conflict:(root/'conflict.txt').write_text('candidate edit\\n')\ngit(root,'add','.');git(root,'commit','-m','retained candidate')\ncandidate=git(root,'rev-parse','HEAD')\n# Simulate the original temporary hook commit without invoking an ungranted hook.\nhook='.c2/recipes/hooks/build/prepare.yaml'\nif os.environ['HOOK']=='true':\n file=root/hook;file.parent.mkdir(parents=True,exist_ok=True);file.write_text('id: preserved-temporary-hook\\nop: command_execution\\ninputs: {run: \"true\"}\\n')\n git(root,'add',hook);git(root,'commit','-m','temporary guarded hook')\nhead=git(root,'rev-parse','HEAD')\nif conflict:(source/'conflict.txt').write_text('upstream edit\\n')\nelse:(source/'later.txt').write_text('later upstream\\n')\ngit(source,'add','.');git(source,'commit','-m','later upstream')\nlater=git(source,'rev-parse','HEAD')\nprint(json.dumps(dict(old=old,inc=inc,candidate=candidate,head=head,later=later,hook=hook,tree=git(root,\"rev-parse\",\"HEAD^{tree}\"))))\nPYSEED\n"
+      }
+    },
+    {
+      "id": "restored_before",
+      "op": "command_execution",
+      "inputs": {
+        "env": {
+          "RECORDED_BASE": "${{ context.git.execution.base_hash }}",
+          "RECORDED_HEAD": "${{ context.git.execution.head_hash }}",
+          "EXPECTED_BASE": "${{ json_parse(sequence.seed.outputs.stdout).old }}",
+          "EXPECTED_HEAD": "${{ json_parse(sequence.seed.outputs.stdout).head }}",
+          "EXPECTED_CANDIDATE": "${{ json_parse(sequence.seed.outputs.stdout).candidate }}",
+          "KEEP_HOOK": "false"
+        },
+        "run": "set -eu\n[ \"$(git rev-parse HEAD)\" = \"$EXPECTED_HEAD\" ]\n[ \"$RECORDED_HEAD\" = \"$EXPECTED_HEAD\" ]\n[ \"$RECORDED_BASE\" = \"$EXPECTED_BASE\" ]\ntest -z \"$(git status --porcelain)\"\ntest -z \"$(git ls-files -u)\"\nfor state in rebase-merge rebase-apply MERGE_HEAD CHERRY_PICK_HEAD; do\n  test ! -e \"$(git rev-parse --git-path \"$state\")\"\ndone\nif [ \"$KEEP_HOOK\" = true ]; then\n  git merge-base --is-ancestor \"$EXPECTED_CANDIDATE\" HEAD\n  test \"$(git rev-list --count \"$EXPECTED_CANDIDATE..HEAD\")\" = 1\n  test \"$(git diff --name-only \"$EXPECTED_CANDIDATE\" HEAD)\" = .c2/recipes/hooks/build/prepare.yaml\nfi\nprintf '%s\\n' \"base=$RECORDED_BASE head=$RECORDED_HEAD clean=true\"\n"
+      }
+    },
+    {
+      "id": "native_rebase",
+      "op": "rebase",
+      "inputs": {
+        "target_base_hash": "${{ json_parse(sequence.seed.outputs.stdout).later }}"
+      },
+      "catch": [
+        {
+          "when": "failure.code == 'REBASE_CONFLICT' && failure.attrs.rebase.workspace_restored",
+          "continue": {
+            "outputs": {
+              "observed_failure": "${{ failure.code }}",
+              "failed_phase": "${{ failure.attrs.rebase.phase }}",
+              "candidate": "${{ failure.attrs.rebase.candidate_hash }}"
+            }
+          }
+        }
+      ],
+      "when": "vars.selector == 'rebase'"
+    },
+    {
+      "id": "native_thinpackrebase",
+      "op": "thinpackrebase",
+      "inputs": {
+        "target_base_hash": "${{ json_parse(sequence.seed.outputs.stdout).later }}"
+      },
+      "catch": [
+        {
+          "when": "failure.code == 'REBASE_CONFLICT' && failure.attrs.rebase.workspace_restored",
+          "continue": {
+            "outputs": {
+              "observed_failure": "${{ failure.code }}",
+              "failed_phase": "${{ failure.attrs.rebase.phase }}",
+              "candidate": "${{ failure.attrs.rebase.candidate_hash }}"
+            }
+          }
+        }
+      ],
+      "when": "vars.selector == 'thinpackrebase'"
+    },
+    {
+      "id": "restored_after",
+      "op": "command_execution",
+      "inputs": {
+        "env": {
+          "RECORDED_BASE": "${{ context.git.execution.base_hash }}",
+          "RECORDED_HEAD": "${{ context.git.execution.head_hash }}",
+          "EXPECTED_BASE": "${{ json_parse(sequence.seed.outputs.stdout).old }}",
+          "EXPECTED_HEAD": "${{ json_parse(sequence.seed.outputs.stdout).head }}",
+          "EXPECTED_CANDIDATE": "${{ json_parse(sequence.seed.outputs.stdout).candidate }}",
+          "KEEP_HOOK": "false"
+        },
+        "run": "set -eu\n[ \"$(git rev-parse HEAD)\" = \"$EXPECTED_HEAD\" ]\n[ \"$RECORDED_HEAD\" = \"$EXPECTED_HEAD\" ]\n[ \"$RECORDED_BASE\" = \"$EXPECTED_BASE\" ]\ntest -z \"$(git status --porcelain)\"\ntest -z \"$(git ls-files -u)\"\nfor state in rebase-merge rebase-apply MERGE_HEAD CHERRY_PICK_HEAD; do\n  test ! -e \"$(git rev-parse --git-path \"$state\")\"\ndone\nif [ \"$KEEP_HOOK\" = true ]; then\n  git merge-base --is-ancestor \"$EXPECTED_CANDIDATE\" HEAD\n  test \"$(git rev-list --count \"$EXPECTED_CANDIDATE..HEAD\")\" = 1\n  test \"$(git diff --name-only \"$EXPECTED_CANDIDATE\" HEAD)\" = .c2/recipes/hooks/build/prepare.yaml\nfi\nprintf '%s\\n' \"base=$RECORDED_BASE head=$RECORDED_HEAD clean=true\"\n"
+      }
+    }
+  ],
+  "outputs": {
+    "seed": "${{ json_parse(sequence.seed.outputs.stdout) }}",
+    "native": "${{ (vars.selector == \"rebase\" ? sequence.native_rebase.outputs : sequence.native_thinpackrebase.outputs) }}",
+    "restored": "${{ sequence.restored_after.outputs.stdout }}"
+  },
+  "vars": {
+    "selector": "${{ inputs.selector }}"
+  }
+}

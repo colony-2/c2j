@@ -297,7 +297,7 @@ func TestResolvedTreeFreshWorkerPersistenceAndOfflineReplay(t *testing.T) {
 	}
 }
 
-func assertResolvedArtifacts(t *testing.T, rt jobdb.WorkflowRuntime, key jobdb.JobKey, selector string, equal bool, target, candidate, expectedDiff string) {
+func assertResolvedArtifacts(t *testing.T, rt jobdb.WorkflowRuntime, key jobdb.JobKey, selector string, equal bool, target, candidate, expectedDiff string, parentDiff ...string) {
 	t.Helper()
 	history, err := jobdb.GetJobRun(celltest.Context(context.Background()), rt, jobdb.GetJobRunRequest{JobKey: key, IncludeInputs: true, IncludeOutputs: true, IncludeArtifacts: true})
 	require.NoError(t, err)
@@ -333,15 +333,29 @@ func assertResolvedArtifacts(t *testing.T, rt jobdb.WorkflowRuntime, key jobdb.J
 				data, err := artifact.Key.ToLazyArtifact(engine, key.TenantId).Bytes(celltest.Context(context.Background()))
 				require.NoError(t, err)
 				require.NotEmpty(t, data)
-				if strings.HasSuffix(artifact.Name, ".diff") {
+				if artifact.Name == gitstate.ThinPackArtifactName {
+					require.Contains(t, string(data), "-"+target+" ", "bundle must require the accepted target")
+				}
+				if artifact.Name == "diff_from_base.diff" {
 					require.Equal(t, expectedDiff, string(data))
+				}
+				if artifact.Name == "diff_from_parent.diff" {
+					want := expectedDiff
+					if len(parentDiff) != 0 {
+						want = parentDiff[0]
+					}
+					require.Equal(t, want, string(data))
 				}
 			}
 			require.True(t, names[gitstate.ThinPackArtifactName])
 			require.True(t, names["diff_from_parent.diff"])
 			// Single-parent adoption has the target as both parent and base;
 			// native persistence writes their shared diff only once.
-			require.False(t, names["diff_from_base.diff"])
+			if len(parentDiff) == 0 || parentDiff[0] == expectedDiff {
+				require.False(t, names["diff_from_base.diff"])
+			} else {
+				require.True(t, names["diff_from_base.diff"])
+			}
 		}
 	}
 	require.True(t, found, "adoption output must be durably recorded")

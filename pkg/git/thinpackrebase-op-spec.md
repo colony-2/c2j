@@ -24,7 +24,7 @@ For ordinary replay, only `target_base_hash` is required from the recipe. The de
 
 The two `context.git.execution.*` expressions are task-time references, usable
 in op inputs. They resolve after the workspace is restored, before invoking the
-op. `base_hash` is the base beneath pending commits; `head_hash` is the actual
+op. `base_hash` is the recorded workspace base; `head_hash` is the actual
 restored HEAD. Both `{{ ... }}` and `${{ ... }}` syntax work. They are not
 immediately available hashes for recipe routing; use a completed op's outputs
 when a decision needs a hash.
@@ -47,16 +47,21 @@ workspace metadata.
   Fetch target history incrementally when shallow boundaries hide the relation.
   There is no unconditional full-history clone or unshallow operation. Truly
   divergent history fails; unavailable history fails as unverified ancestry.
-  For replay, every shallow path beyond the old base must be known: a short
+  For replay, every relevant shallow path must be known or shared: a short
   merge parent proving base ancestry cannot hide shared commits on another
   parent. Retrieval remains bounded and uses the pinned target.
-- Pending commits are those reachable from HEAD but absent from the pinned
-  target (`target..HEAD`). The recorded base can be older than their actual
-  shared base: commits already reachable from target are never replayed,
-  including shared history incorporated through a merge. With no remaining
-  commits, fast-forward to target; otherwise replay only that remaining range.
-  `preserve_author` defaults to true; a committer identity is supplied even
-  when retaining original authors.
+- The recorded base remains the ancestry constraint and historical
+  `rebased_from.base_hash`. Prove candidate ancestry before selecting pending
+  work. Before divergent replay, reject reachable shallow boundaries on either
+  side unless also reachable from the other revision. Shared boundaries are safe
+  to exclude; a short merge parent alone cannot certify hidden history.
+- When target is an ancestor of candidate (including equality), preserve exact
+  candidate HEAD and tree, even with `preserve_author: false`. When target contains
+  candidate, fast-forward to exact target. Otherwise replay only commits outside
+  pinned target history (`target..HEAD`), including exclusion of shared history
+  incorporated through a merge. Recompute selection after bounded retrieval.
+  `preserve_author` defaults to true; a committer identity is supplied even when
+  retaining original authors during replay.
 - Uncommitted changes are rejected without discarding them. Conflicts abort the
   rebase and retain the original commits.
 - On the managed workspace, update the persistence base and carry a replacement
@@ -183,3 +188,6 @@ isolation, construction/install failures, failed bundle/diff generation, artifac
 upload failure and worker loss before/after durable recording. The runnable
 [`resolved-tree` suite](../../testdata/repros/resolved-tree/runtime.test.yaml)
 exercises native adoption and fresh restoration using a built CLI.
+The [target-selection suites](../../testdata/recipes/native-rebase-target-selection/README.md)
+require successful default ancestral adoption and later integration for both
+selectors, together with normal, explicit-base and genuine-conflict controls.

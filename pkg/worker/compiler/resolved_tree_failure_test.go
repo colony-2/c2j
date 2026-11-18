@@ -24,6 +24,7 @@ type resolvedOutcomeFault struct {
 	jobdb.WorkflowRuntime
 	lease    jobdb.ExecutionLease
 	artifact bool
+	selector string
 	fired    bool
 	cancel   context.CancelFunc
 }
@@ -40,7 +41,11 @@ func (r *resolvedOutcomeFault) PutChapter(ctx context.Context, req jobdb.PutChap
 		if err != nil {
 			return err
 		}
-		if record.Kind == "result" && strings.Contains(record.ID, `scope:"op:integrate"`) && strings.Contains(record.ID, `task:"rebase:rebase"`) {
+		selector := r.selector
+		if selector == "" {
+			selector = "rebase"
+		}
+		if record.Kind == "result" && strings.Contains(record.ID, `scope:"op:integrate"`) && strings.Contains(record.ID, `task:"`+selector+`:`+selector+`"`) {
 			if record.ErrorKind != "" {
 				return fmt.Errorf("expected a successful prepared adoption, got %s", record.ErrorKind)
 			}

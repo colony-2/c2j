@@ -1,0 +1,79 @@
+{
+  "recipe": "managed-rebase-conflict.yaml",
+  "cases": [
+    {
+      "id": "conflict-rebase",
+      "type": "integration_case",
+      "runtime": {
+        "cells": {
+          "root": {
+            "files": {
+              "README.md": "initial\n",
+              "conflict.txt": "base\n"
+            }
+          }
+        }
+      },
+      "mocks": {
+        "ops": [
+          {
+            "repeat": true,
+            "match": {
+              "op": "command_execution"
+            },
+            "behavior": {
+              "mode": "passthrough"
+            }
+          }
+        ]
+      },
+      "assertions": [
+        {
+          "type": "output_equals",
+          "path": "native.observed_failure",
+          "value": "REBASE_CONFLICT"
+        }
+      ],
+      "inputs": {
+        "selector": "rebase"
+      }
+    },
+    {
+      "id": "conflict-thinpackrebase",
+      "type": "integration_case",
+      "runtime": {
+        "cells": {
+          "root": {
+            "files": {
+              "README.md": "initial\n",
+              "conflict.txt": "base\n"
+            }
+          }
+        }
+      },
+      "mocks": {
+        "ops": [
+          {
+            "repeat": true,
+            "match": {
+              "op": "command_execution"
+            },
+            "behavior": {
+              "mode": "passthrough"
+            }
+          }
+        ]
+      },
+      "assertions": [
+        {
+          "type": "output_equals",
+          "path": "native.observed_failure",
+          "value": "REBASE_CONFLICT"
+        }
+      ],
+      "inputs": {
+        "selector": "thinpackrebase"
+      }
+    }
+  ]
+}

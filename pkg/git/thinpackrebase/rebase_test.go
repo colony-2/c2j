@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -375,4 +376,121 @@ func TestManagedRefreshCannotBypassWorkspaceFloor(t *testing.T) {
 	_, err := NewThinpackRebaseActivity().Execute(deps, context.Background(), ThinpackRebaseInput{RepoPath: repo, BaseHash: old, TargetBaseHash: old})
 	require.ErrorContains(t, err, "workspace base constraint")
 	require.Equal(t, initial, gitRevParse(t, repo, "HEAD"))
+}
+
+// The recorded base predates incorporated upstream history. Replaying from it
+// would reapply the first upstream edit over the second, producing a false conflict.
+func TestReplaySelectionUsesPinnedTarget(t *testing.T) {
+	for _, relation := range []string{"ancestor", "later", "equal-base", "equal-candidate", "contained"} {
+		for _, authorMode := range []string{"default", "preserve", "reset"} {
+			preserve := authorMode != "reset"
+			var preserveOption *bool
+			if authorMode != "default" {
+				preserveOption = &preserve
+			}
+			t.Run(relation+"/"+authorMode, func(t *testing.T) {
+				repo := t.TempDir()
+				initRepo(t, repo)
+				base := gitRevParse(t, repo, "HEAD")
+				for _, content := range []string{"first upstream\n", "second upstream\n"} {
+					require.NoError(t, os.WriteFile(filepath.Join(repo, "README.md"), []byte(content), 0644))
+					runGit(t, repo, "git", "add", ".")
+					runGit(t, repo, "git", "commit", "-m", content)
+				}
+				incorporated := gitRevParse(t, repo, "HEAD")
+				configureAuthor(t, repo, "Feature Dev", "feature@example.com")
+				appendToFile(t, repo, "feature", "feature\n")
+				runGit(t, repo, "git", "add", ".")
+				runGit(t, repo, "git", "commit", "-m", "feature")
+				retained := gitRevParse(t, repo, "HEAD")
+				appendToFile(t, repo, "temporary-hook", "hook\n")
+				runGit(t, repo, "git", "add", ".")
+				runGit(t, repo, "git", "commit", "-m", "temporary hook")
+				candidate := gitRevParse(t, repo, "HEAD")
+				tree := gitRevParse(t, repo, "HEAD^{tree}")
+				target := incorporated
+				switch relation {
+				case "equal-base":
+					target = base
+				case "equal-candidate":
+					target = candidate
+				case "later", "contained":
+					parent := incorporated
+					if relation == "contained" {
+						parent = candidate
+					}
+					runGit(t, repo, "git", "checkout", "--detach", parent)
+					appendToFile(t, repo, "later-upstream", "later\n")
+					runGit(t, repo, "git", "add", ".")
+					runGit(t, repo, "git", "commit", "-m", "later upstream")
+					target = gitRevParse(t, repo, "HEAD")
+					runGit(t, repo, "git", "checkout", "--detach", candidate)
+				}
+				out, err := Run(context.Background(), ThinpackRebaseInput{RepoPath: repo, BaseHash: base, PersistHash: candidate, TargetBaseHash: target, PreserveAuthor: preserveOption, GitAuthor: "Workflow Bot <bot@example.com>", UpdateRefs: "refs/heads/result"})
+				require.NoError(t, err)
+				require.Equal(t, RebasedFromSummary{BaseHash: base, PersistHash: candidate}, out.RebasedFrom)
+				require.Equal(t, target, out.NewBaseHash)
+				require.Equal(t, out.NewPersistHash, gitRevParse(t, repo, "refs/heads/result"))
+				require.Equal(t, candidate, out.GitContextPatch["previous_hash"])
+				switch relation {
+				case "later":
+					require.Equal(t, "2", strings.TrimSpace(runGitOutput(t, repo, "git", "rev-list", "--count", target+"..HEAD")))
+					require.Equal(t, target, gitRevParse(t, repo, "HEAD~2"))
+					want := "Feature Dev <feature@example.com>"
+					if !preserve {
+						want = "Workflow Bot <bot@example.com>"
+					}
+					for _, author := range strings.Split(strings.TrimSpace(runGitOutput(t, repo, "git", "log", "--format=%an <%ae>", target+"..HEAD")), "\n") {
+						require.Equal(t, want, author)
+					}
+				case "contained":
+					require.Equal(t, target, out.NewPersistHash)
+				default:
+					require.Equal(t, candidate, out.NewPersistHash)
+					require.Equal(t, tree, gitRevParse(t, repo, "HEAD^{tree}"))
+					require.Equal(t, "temporary-hook", strings.TrimSpace(runGitOutput(t, repo, "git", "diff", "--name-only", retained, "HEAD")))
+					require.Equal(t, "1", strings.TrimSpace(runGitOutput(t, repo, "git", "rev-list", "--count", retained+"..HEAD")))
+				}
+				for name, content := range map[string]string{"README.md": "second upstream\n", "feature": "feature\n", "temporary-hook": "hook\n"} {
+					data, err := os.ReadFile(filepath.Join(repo, name))
+					require.NoError(t, err)
+					require.Equal(t, content, string(data))
+				}
+				require.Empty(t, runGitOutput(t, repo, "git", "status", "--porcelain"))
+			})
+		}
+	}
+}
+
+func TestReplaySelectionProvesShallowCandidateHistory(t *testing.T) {
+	for _, available := range []bool{true, false} {
+		t.Run(strconv.FormatBool(available), func(t *testing.T) {
+			remote := filepath.Join(t.TempDir(), "remote")
+			initRepo(t, remote)
+			base := gitRevParse(t, remote, "HEAD")
+			for _, content := range []string{"first\n", "second\n"} {
+				require.NoError(t, os.WriteFile(filepath.Join(remote, "README.md"), []byte(content), 0644))
+				runGit(t, remote, "git", "add", ".")
+				runGit(t, remote, "git", "commit", "-m", content)
+			}
+			candidate := gitRevParse(t, remote, "HEAD")
+			workspace := filepath.Join(t.TempDir(), "workspace")
+			runGit(t, filepath.Dir(workspace), "git", "clone", "--depth", "1", "file://"+remote, workspace)
+			runGit(t, workspace, "git", "fetch", "--depth", "1", "origin", base)
+			if !available {
+				runGit(t, workspace, "git", "remote", "remove", "origin")
+			}
+			out, err := Run(context.Background(), ThinpackRebaseInput{RepoPath: workspace, BaseHash: base, TargetBaseHash: base})
+			if available {
+				require.NoError(t, err)
+				require.Equal(t, candidate, out.NewPersistHash)
+			} else {
+				require.Nil(t, out)
+				require.ErrorContains(t, err, "candidate ancestry")
+				require.ErrorContains(t, err, "incomplete shallow history")
+			}
+			require.Equal(t, candidate, gitRevParse(t, workspace, "HEAD"))
+			require.Empty(t, runGitOutput(t, workspace, "git", "status", "--porcelain"))
+		})
+	}
 }
