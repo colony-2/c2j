@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/colony-2/c2j/internal/celltest"
+	"github.com/colony-2/c2j/internal/pathutil"
 	"github.com/colony-2/c2j/pkg/git/gitstate"
 	"github.com/colony-2/c2j/pkg/git/thinpackrebase"
 	coreops "github.com/colony-2/c2j/pkg/ops"
@@ -127,6 +128,15 @@ func TestResolvedTreeUnrecordedOutcomeRestoresPriorAcceptedPair(t *testing.T) {
 }
 
 func TestResolvedTreePersistenceFailureRetainsRepairSnapshot(t *testing.T) {
+	// Exercise the temporary-directory aliases used on macOS on every platform.
+	// Keep the prefix short enough for the Git credential broker's Unix socket.
+	realTemp, err := os.MkdirTemp("/tmp", "c2j-rt-")
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, os.RemoveAll(realTemp)) })
+	aliasedTemp := filepath.Join(realTemp, "alias")
+	require.NoError(t, os.Symlink(realTemp, aliasedTemp))
+	t.Setenv("TMPDIR", aliasedTemp)
+
 	for _, backend := range []string{"sqlite", "remote"} {
 		for _, failure := range []string{"base-setting-unavailable", "pack", "diff"} {
 			t.Run(backend+"/"+failure, func(t *testing.T) {
@@ -136,9 +146,9 @@ func TestResolvedTreePersistenceFailureRetainsRepairSnapshot(t *testing.T) {
 				marker := filepath.Join(t.TempDir(), "adoption-worktree")
 				shim := t.TempDir()
 				script := `#!/bin/sh
-if test -f "$C2J_RESOLVED_MARKER" && test "$(cat "$C2J_RESOLVED_MARKER")" = "$PWD"; then
+if test -f "$C2J_RESOLVED_MARKER" && test "$(cat "$C2J_RESOLVED_MARKER")" = "$(pwd -P)"; then
  case "$C2J_RESOLVED_FAILURE:$1:$2" in
-  pack:bundle:create|diff:diff:--unified=10) echo "injected adoption $C2J_RESOLVED_FAILURE failure" >&2; exit 73;;
+  pack:bundle:create|diff:diff:--unified=10) printf 'injected adoption %s failure\n' "$C2J_RESOLVED_FAILURE" >&2; exit 73;;
  esac
 fi
 exec "$C2J_RESOLVED_GIT" "$@"
@@ -156,7 +166,9 @@ exec "$C2J_RESOLVED_GIT" "$@"
 					result, err := native(d, ctx, input)
 					if err == nil {
 						installed = resolvedObserve(t, d, ctx)
-						require.NoError(t, os.WriteFile(marker, []byte(d.WorktreePath()), 0600))
+						worktree, err := pathutil.CanonicalExisting(d.WorktreePath())
+						require.NoError(t, err)
+						require.NoError(t, os.WriteFile(marker, []byte(worktree), 0600))
 					}
 					return result, err
 				}}
@@ -174,7 +186,10 @@ exec "$C2J_RESOLVED_GIT" "$@"
 				result := gitLifecycleOutput(t, out)
 				prepared := result["prepared"].(map[string]any)
 				restored := result["restored"].(map[string]any)
-				failureResult := result["integration"].(map[string]any)["failure"].(map[string]any)
+				integration, ok := result["integration"].(map[string]any)
+				require.True(t, ok, "expected integration output, got %v", result["integration"])
+				failureResult, ok := integration["failure"].(map[string]any)
+				require.True(t, ok, "fault injection did not produce a caught failure: %s", resolvedJSON(t, integration))
 				require.NotEqual(t, thinpackrebase.ConflictCode, failureResult["code"])
 				require.Equal(t, base, restored["base"])
 				require.Equal(t, prepared["head"], restored["head"])
