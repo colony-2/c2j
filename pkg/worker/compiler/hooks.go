@@ -152,15 +152,17 @@ func recipeHasInclude(r recipe.Recipe, match func(*recipe.NodeInclude) bool) boo
 }
 
 type hookResolution struct {
-	Path                string                       `json:"path"`
-	Candidate           string                       `json:"candidate"`
-	Absent              bool                         `json:"absent"`
-	SkipAbsentWorkspace bool                         `json:"skip_absent_workspace,omitempty"`
-	RecipeYAMLArtifact  string                       `json:"recipe_yaml_artifact,omitempty"`
-	RecipeYAML          string                       `json:"recipe_yaml,omitempty"`
-	ContentSHA256       string                       `json:"content_sha256,omitempty"`
-	Source              recipe.RecipeSourceSnapshot  `json:"source"`
-	Functions           WithinRecipeResolutionResult `json:"functions,omitempty"`
+	// Recorded by fresh pin tasks so replay retains the behavior of older results.
+	PreserveFloatingWorkspace bool                         `json:"preserve_floating_workspace,omitempty"`
+	Path                      string                       `json:"path"`
+	Candidate                 string                       `json:"candidate"`
+	Absent                    bool                         `json:"absent"`
+	SkipAbsentWorkspace       bool                         `json:"skip_absent_workspace,omitempty"`
+	RecipeYAMLArtifact        string                       `json:"recipe_yaml_artifact,omitempty"`
+	RecipeYAML                string                       `json:"recipe_yaml,omitempty"`
+	ContentSHA256             string                       `json:"content_sha256,omitempty"`
+	Source                    recipe.RecipeSourceSnapshot  `json:"source"`
+	Functions                 WithinRecipeResolutionResult `json:"functions,omitempty"`
 }
 type hookResolveWorker struct {
 	control workflowctl.WorkflowControl
@@ -237,6 +239,10 @@ func (w hookResolveWorker) RunTask(ctx context.Context, tc jobworkflow.TaskConte
 	result := hookResolution{Path: hook, Candidate: head}
 	source, _ := req.Input["source_commit"].(string)
 	phase, _ := req.Input["phase"].(string)
+	if phase == "pin" && req.Input["preserve_floating_workspace"] == true &&
+		g.Workspace == nil && g.PersistHash == "" && !isFullGitHash(g.BaseRef) {
+		result.PreserveFloatingWorkspace = true
+	}
 	if source == "" && phase == "pin" {
 		mode, _ := req.Input["source_hooks"].(string)
 		if err := recipe.HookSource(mode).Validate(); err != nil {
@@ -462,11 +468,13 @@ func prepareHook(ctx workflow.Context, parent *template.ResolutionContext, n *re
 	}
 	// Source loading needs a stable candidate but does not accept repository work.
 	// Unpinned hook-body tasks select independently after the source has been loaded.
-	observing := source.TaskExecutionContext().Workspace.FollowsRef() && source.GetGitCommitContext().PersistHash == ""
-	if observing {
-		original := source.GetGitCommitContext()
-		defer source.UpdateGitState(original)
-	}
+	original := source.GetGitCommitContext()
+	observing := source.TaskExecutionContext().Workspace.FollowsRef() && original.PersistHash == ""
+	defer func() {
+		if observing {
+			source.UpdateGitState(original)
+		}
+	}()
 	// Resolve outside the execution retry scope. The durable task result is reused
 	// by retries of this invocation; a new visit advances the local invocation ID.
 	invocation := parent.NextWorkspaceID("hook:" + template.ScopeID(n.NodeMetadata, "", template.ScopeSequence))
@@ -482,7 +490,7 @@ func prepareHook(ctx workflow.Context, parent *template.ResolutionContext, n *re
 	for _, phase := range []string{"pin", "load"} {
 		req.Input["phase"] = phase
 		req.GitTaskContext = *gitstate.NewGlobalGitTaskContext(source.TaskExecutionContext())
-		out, err := callHookResolution(ctx.JobContext, "hook:"+invocation+":"+phase, req, phase == "load")
+		out, err := callHookResolution(ctx.JobContext, "hook:"+invocation+":"+phase, req, true)
 		if err != nil {
 			return recipe.Node{}, err
 		}
@@ -516,6 +524,14 @@ func prepareHook(ctx workflow.Context, parent *template.ResolutionContext, n *re
 		}
 		if phase == "load" && result.Source.ResolvedCommit != req.Input["source_commit"] {
 			return recipe.Node{}, fmt.Errorf("hook source changed after pinning")
+		}
+		if phase == "pin" && result.PreserveFloatingWorkspace {
+			// The implicit root has no workspace ref policy. Preserve its ref-first
+			// state too, but only when the recorded pin opted into this behavior.
+			if req.GitTaskContext.Workspace != nil || original.PersistHash != "" || isFullGitHash(req.GitTaskContext.BaseRef) {
+				return recipe.Node{}, fmt.Errorf("invalid floating hook workspace decision")
+			}
+			observing = true
 		}
 		req.Input["source_commit"] = result.Source.ResolvedCommit
 		if phase == "load" && !result.Absent {
@@ -607,7 +623,7 @@ func prepareHook(ctx workflow.Context, parent *template.ResolutionContext, n *re
 }
 
 // Keep the complete legacy command: JobDB compares it before reading results
-// or stored waiting input. Only fresh load inputs opt into the new behavior.
+// or stored waiting input. Only fresh inputs opt into the new behavior.
 // A recorded result, including one produced by an older worker, selects the path.
 func callHookResolution(ctx jobworkflow.ExecutionContext, site string, req workerops.ActivityInvocationRequest, optIn bool) (jobdb.TaskData, error) {
 	if !optIn {
@@ -623,7 +639,11 @@ func callHookResolution(ctx jobworkflow.ExecutionContext, site string, req worke
 		for key, value := range req.Input {
 			input.Input[key] = value
 		}
-		input.Input["skip_absent_workspace"] = true
+		if req.Input["phase"] == "pin" {
+			input.Input["preserve_floating_workspace"] = true
+		} else {
+			input.Input["skip_absent_workspace"] = true
+		}
 		return jobdb.NewTaskData(input)
 	})
 }

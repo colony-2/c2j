@@ -181,11 +181,10 @@ variable: '${{ vars.here }}'`, `inputs:
  candidate: '${{ context.git.hash }}'
 vars: {here: '${{ context.workspace.cell }}'}`)
 				cell := "test"
-				hash := candidate
+				hash := "" // An untouched floating caller has no accepted Git hash.
 				if foreign {
 					b := filepath.Join(t.TempDir(), "B")
 					workspaceRepo(t, b, "B")
-					hash = "" // An untouched floating caller has no accepted Git hash.
 					text = strings.Replace(text, "candidate: '${{ context.git.hash }}'", "candidate: "+candidate, 1)
 					celltest.Create(t, rt, "hooks", "B", celltest.Repo(b))
 					text = "workspace: {cell: B}\n" + text

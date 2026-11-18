@@ -1,11 +1,14 @@
 # Repository-local recipe hooks
 
 A shared recipe can call a recipe in its consuming repository with `cell://`.
-The call resolves when execution reaches it. It pins the current candidate before
+The call resolves when execution reaches it. It records the current candidate before
 binding inputs, then records the selected hook source and definition (including
 relative includes), or its absence. By default, the definition comes from the
-current candidate workspace, including the job's own hook edits. The hook executes
-against that candidate. Read-only and absent hooks also pin the candidate.
+current candidate workspace, including the job's own hook edits. Source resolution
+does not pin a floating workspace, including the implicit root workspace: read-only
+and absent hooks allow later tasks to follow upstream until changes are persisted
+or a base is explicitly adopted. Hook-body tasks follow the same workspace rules.
+Older recorded hook resolutions retain their original pinning behavior on replay.
 Existing non-cell includes keep their eager expansion behavior.
 
 ```yaml
@@ -72,9 +75,10 @@ For example, after rebasing a candidate from upstream A onto upstream B,
 `from_base` continues loading hooks from A, `from_base_with_rebase` loads them
 from B, and `from_current` loads them from B plus the job's changes. Advancing
 the upstream branch alone does not change an already established execution base.
-An implicit workspace with a floating ref establishes its execution base when
-it first pins a candidate; `from_base` records its source base before recipe
-operations begin. Explicit workspaces use their own initial and execution bases.
+An implicit workspace with a floating ref establishes its durable execution base
+when it first persists changes or explicitly adopts a base; `from_base` records
+its source base before recipe operations begin. Explicit workspaces use their own
+initial and execution bases.
 Base-source modes require a base commit; an empty-base workspace must use
 `from_current` after creating its first candidate commit.
 

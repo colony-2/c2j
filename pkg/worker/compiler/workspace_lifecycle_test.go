@@ -197,6 +197,15 @@ outputs: {hook: '${{ sequence.hook.outputs }}', head: '${{ sequence.fresh.output
 }
 
 func TestFloatingWorkspaceHookTasksPinOnlyAfterWrite(t *testing.T) {
+	testHookTasksPinOnlyAfterWrite(t, true)
+}
+
+func TestImplicitWorkspaceHookTasksPinOnlyAfterWrite(t *testing.T) {
+	testHookTasksPinOnlyAfterWrite(t, false)
+}
+
+func testHookTasksPinOnlyAfterWrite(t *testing.T, explicit bool) {
+	t.Helper()
 	for _, write := range []bool{false, true} {
 		t.Run(fmt.Sprintf("write=%t", write), func(t *testing.T) {
 			repo := filepath.Join(t.TempDir(), "repo")
@@ -216,15 +225,18 @@ outputs: {first: '${{ sequence.advance.outputs.head }}', second: '${{ sequence.i
 `, repo, writeInput))
 			ws := workspaceTestWorker(t)
 			job := contextual.JobContext{Workflow: contextual.WorkflowContext{CellName: "repo"}, GitBase: contextual.GitBaseContext{BaseRepo: repo, BaseRef: "main"}}
+			workspace := ""
+			if explicit {
+				workspace = fmt.Sprintf("workspace: {cell: repo, repo: %q}\n", celltest.Repo(repo))
+			}
 			out, _ := runWorkspaceRecipe(t, ws, fmt.Sprintf(`id: workspace-test
-workspace: {cell: repo, repo: %q}
-sequence:
+%ssequence:
  - id: hook
    include: cell://.c2/hooks/check.yaml
  - id: after
    op: workspace_probe
 outputs: {hook: '${{ sequence.hook.outputs }}', after: '${{ sequence.after.outputs.head }}'}
-`, celltest.Repo(repo)), job)
+`, workspace), job)
 			hook := out["hook"].(map[string]any)
 			require.Equal(t, initial, hook["first"])
 			require.NotEqual(t, initial, hook["second"])

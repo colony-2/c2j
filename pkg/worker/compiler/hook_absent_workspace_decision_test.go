@@ -61,7 +61,8 @@ func (w hookDecisionWorker) Run(tc jobworkflow.TaskContext, in jobdb.TaskData) (
 		if err := json.Unmarshal(in.GetDataOrPanic(), &req); err != nil {
 			return nil, err
 		}
-		delete(req.Input, "skip_absent_workspace") // Emulate the old worker ignoring an unknown input.
+		delete(req.Input, "skip_absent_workspace") // Emulate the old worker ignoring unknown inputs.
+		delete(req.Input, "preserve_floating_workspace")
 		in = jobdb.NewTaskDataOrPanic(req)
 	}
 	return (hookResolveWorker{}).RunTask(ctx, tc, in)
@@ -131,13 +132,27 @@ func TestHookAbsentResolutionDecision(t *testing.T) {
 }
 
 func TestHookAbsentDecisionCommandAndStoredInputs(t *testing.T) {
+	testHookResolutionDecisionCommandAndStoredInputs(t, "load", "skip_absent_workspace", func(r hookResolution) bool { return r.SkipAbsentWorkspace })
+}
+
+func TestHookFloatingDecisionCommandAndStoredInputs(t *testing.T) {
+	testHookResolutionDecisionCommandAndStoredInputs(t, "pin", "preserve_floating_workspace", func(r hookResolution) bool { return r.PreserveFloatingWorkspace })
+}
+
+func testHookResolutionDecisionCommandAndStoredInputs(t *testing.T, phase, flag string, decision func(hookResolution) bool) {
+	t.Helper()
 	for _, compiler := range []string{"legacy", "new"} {
 		for _, worker := range []string{"legacy", "new"} {
 			for _, frontier := range []string{"completed", "waiting", "descriptor"} {
 				t.Run(compiler+"/"+worker+"/"+frontier, func(t *testing.T) {
 					repo := filepath.Join(t.TempDir(), "repo")
 					head := workspaceRepo(t, repo, "A")
-					req := decisionRequest(t, repo, head, "load")
+					req := decisionRequest(t, repo, head, phase)
+					if phase == "pin" {
+						req.GitTaskContext.PersistHash = ""
+						req.GitTaskContext.ParentHash = ""
+						req.GitTaskContext.ParentRef = "main"
+					}
 					original, err := json.Marshal(req)
 					require.NoError(t, err)
 					rt := newTimeoutReproRuntime(t, "sqlite")
@@ -149,9 +164,9 @@ func TestHookAbsentDecisionCommandAndStoredInputs(t *testing.T) {
 					w := jobworkflow.ExecutionWorker{JobType: "hook-decision", Execute: func(c jobworkflow.ExecutionContext, _ jobdb.JobData) (jobdb.JobData, error) {
 						c = hookDecisionContext{ExecutionContext: c, builds: &builds, reject: reject, call: &call, yield: yieldBuild}
 						if compiler == "legacy" && !upgraded {
-							return workflow.ValueCall(c, "hook:test:load", hookResolveTaskType, jobdb.RunPolicy{}, req)
+							return workflow.ValueCall(c, "hook:test:"+phase, hookResolveTaskType, jobdb.RunPolicy{}, req)
 						}
-						return callHookResolution(c, "hook:test:load", req, true)
+						return callHookResolution(c, "hook:test:"+phase, req, true)
 					}}
 					key := probeSubmit(t, rt, w)
 					tasks := []jobworkflow.TaskWorker{hookDecisionWorker{legacy: worker == "legacy"}}
@@ -160,9 +175,9 @@ func TestHookAbsentDecisionCommandAndStoredInputs(t *testing.T) {
 					}
 					out := probeRun(t, rt, key, w, tasks...)
 					require.JSONEq(t, string(original), string(call.Command))
-					require.NotContains(t, string(call.Command), "skip_absent_workspace")
+					require.NotContains(t, string(call.Command), flag)
 					require.Equal(t, 1, builds)
-					require.Equal(t, "hook:test:load", call.Site)
+					require.Equal(t, "hook:test:"+phase, call.Site)
 					require.Equal(t, hookResolveTaskType, call.TaskType)
 					require.EqualValues(t, 1, call.ContractVersion)
 					require.Equal(t, jobdb.RunPolicy{}, call.Policy)
@@ -179,7 +194,7 @@ func TestHookAbsentDecisionCommandAndStoredInputs(t *testing.T) {
 						require.NoError(t, err)
 						require.Equal(t, jobworkflow.JobRunCompleted, out.Status)
 						result := decodeHookDecision(t, replayed)
-						require.Equal(t, compiler == "new" && worker == "new", result.SkipAbsentWorkspace)
+						require.Equal(t, compiler == "new" && worker == "new", decision(result))
 						require.Equal(t, 1, builds)
 					} else if frontier == "waiting" {
 						require.Equal(t, jobworkflow.JobRunSuspended, out.Status)
@@ -187,7 +202,7 @@ func TestHookAbsentDecisionCommandAndStoredInputs(t *testing.T) {
 						require.ErrorAs(t, err, &miss)
 						var stored workerops.ActivityInvocationRequest
 						require.NoError(t, json.Unmarshal(miss.Input.GetDataOrPanic(), &stored))
-						require.Equal(t, compiler == "new", stored.Input["skip_absent_workspace"] == true)
+						require.Equal(t, compiler == "new", stored.Input[flag] == true)
 						require.Equal(t, 1, builds, "waiting input must bypass the new builder")
 					} else {
 						require.Equal(t, jobworkflow.JobRunSuspended, out.Status)
@@ -195,7 +210,7 @@ func TestHookAbsentDecisionCommandAndStoredInputs(t *testing.T) {
 						require.ErrorAs(t, err, &miss)
 						var fresh workerops.ActivityInvocationRequest
 						require.NoError(t, json.Unmarshal(miss.Input.GetDataOrPanic(), &fresh))
-						require.Equal(t, true, fresh.Input["skip_absent_workspace"])
+						require.Equal(t, true, fresh.Input[flag])
 						require.Equal(t, 2, builds, "descriptor-only replay must construct fresh input")
 					}
 					after, err := rt.ListChapters(testBackground(), jobdb.ListChaptersRequest{JobKey: key})
@@ -204,7 +219,7 @@ func TestHookAbsentDecisionCommandAndStoredInputs(t *testing.T) {
 					if frontier != "completed" {
 						resumed := probeRun(t, rt, key, w, hookDecisionWorker{legacy: worker == "legacy"})
 						require.Equal(t, jobworkflow.JobRunCompleted, resumed.Status, "%v", resumed.JobError)
-						require.Equal(t, (compiler == "new" || frontier == "descriptor") && worker == "new", decodeHookDecision(t, resumed.Output).SkipAbsentWorkspace)
+						require.Equal(t, (compiler == "new" || frontier == "descriptor") && worker == "new", decision(decodeHookDecision(t, resumed.Output)))
 						wantBuilds := 1
 						if frontier == "descriptor" {
 							wantBuilds = 3
@@ -214,7 +229,7 @@ func TestHookAbsentDecisionCommandAndStoredInputs(t *testing.T) {
 					stableBuilds := builds
 					// Both an accidental opt-in in the command and a genuine source change
 					// must fail descriptor matching before any new builder runs.
-					for _, change := range []string{"skip_absent_workspace", "source_commit"} {
+					for _, change := range []string{flag, "source_commit"} {
 						saved := req.Input[change]
 						req.Input[change] = "changed"
 						_, err = engine.ReplayJobRun(testBackground(), jobworkflow.ReplayRunRequest{JobKey: key})

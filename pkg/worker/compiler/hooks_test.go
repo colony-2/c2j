@@ -27,7 +27,7 @@ func commitHookFile(t *testing.T, repo, p, body string) string {
 	require.NoError(t, err)
 	return hash
 }
-func TestHookReadsCandidateAndPinsReadOnlyExecution(t *testing.T) {
+func TestHookReadsCandidateWithoutPinningReadOnlyExecution(t *testing.T) {
 	repo := filepath.Join(t.TempDir(), "repo")
 	workspaceRepo(t, repo, "A")
 	ws := workspaceTestWorker(t)
@@ -72,10 +72,13 @@ outputs:
 	require.Equal(t, "A", out["text"])
 	require.Equal(t, head, out["candidate"])
 	require.Equal(t, head, out["hook_head"])
-	require.Equal(t, head, out["after"])
+	advanced, err := common.GetCommitHash(context.Background(), repo, "HEAD")
+	require.NoError(t, err)
+	require.NotEqual(t, head, advanced)
+	require.Equal(t, advanced, out["after"])
 }
 
-func TestHookAbsentPinsCandidate(t *testing.T) {
+func TestHookAbsentDoesNotPinCandidate(t *testing.T) {
 	repo := filepath.Join(t.TempDir(), "repo")
 	head := workspaceRepo(t, repo, "A")
 	ws := workspaceTestWorker(t)
@@ -94,7 +97,10 @@ sequence:
 outputs: {decision: "{{ sequence.check.outputs.decision }}", after: "{{ sequence.after.outputs.head }}"}
 `, repo), contextual.JobContext{Workflow: contextual.WorkflowContext{CellName: "A"}, GitBase: contextual.GitBaseContext{BaseRepo: repo, BaseRef: "main"}})
 	require.Equal(t, "continue", out["decision"])
-	require.Equal(t, head, out["after"])
+	advanced, err := common.GetCommitHash(context.Background(), repo, "HEAD")
+	require.NoError(t, err)
+	require.NotEqual(t, head, advanced)
+	require.Equal(t, advanced, out["after"])
 }
 
 func TestHookExpansionIsDeferred(t *testing.T) {
