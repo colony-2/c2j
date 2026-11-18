@@ -216,7 +216,7 @@ func TestAbsentHookSkipsExecutionWorkspace(t *testing.T) {
 					require.NoError(t, err)
 					raw, err := result.GetData()
 					require.NoError(t, err)
-					require.JSONEq(t, `{"decision":"continue"}`, string(raw))
+					requireJobOutputJSONEq(t, `{"decision":"continue"}`, raw)
 					// Replaying the recorded absence needs neither source access nor
 					// another workspace lookup.
 					require.NoError(t, os.RemoveAll(repo))

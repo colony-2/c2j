@@ -13,8 +13,10 @@ import (
 	"github.com/colony-2/c2j/pkg/git/selectorcache"
 	"github.com/colony-2/c2j/pkg/gitprofile"
 	"github.com/colony-2/c2j/pkg/jobref"
+	"github.com/colony-2/c2j/pkg/metricsruntime"
 	"github.com/colony-2/c2j/pkg/permissions"
 	"github.com/colony-2/c2j/pkg/recipe"
+	coretask "github.com/colony-2/c2j/pkg/task"
 	"github.com/colony-2/c2j/pkg/template"
 	"github.com/colony-2/c2j/pkg/workflow"
 	"github.com/colony-2/jobdb/pkg/jobdb"
@@ -69,6 +71,7 @@ func resolveWorkspaceTask(ctx context.Context, data jobdb.TaskData, owners ...jo
 	if req.ScopeID == "" {
 		return nil, fmt.Errorf("workspace scope ID is required")
 	}
+	metricsruntime.Execution(ctx)
 	if req.OwnerSnapshot {
 		if len(owners) != 1 || owners[0].CellID == "" || owners[0].CellRepo == "" {
 			return nil, fmt.Errorf("owning job snapshot is required")
@@ -205,7 +208,7 @@ func enterWorkspace(ctx workflow.Context, parent *template.ResolutionContext, me
 		if e != nil {
 			return nil, e
 		}
-		if e = json.Unmarshal(raw, &result); e != nil {
+		if e = coretask.DecodeInternal(raw, &result); e != nil {
 			return nil, e
 		}
 		if result.Workspace.ScopeID != req.ScopeID || (result.Workspace.InitialHash == "" && result.Workspace.Initial != "empty") || result.Workspace.Initial != req.Initial || result.Git.BaseRepo == "" {

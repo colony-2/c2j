@@ -6,6 +6,7 @@ import (
 
 	"github.com/colony-2/c2j/internal/jsonexact"
 	"github.com/colony-2/c2j/pkg/contextual"
+	"github.com/colony-2/c2j/pkg/metrics"
 	"github.com/google/cel-go/common/types"
 	"github.com/google/cel-go/common/types/ref"
 	"github.com/google/cel-go/common/types/traits"
@@ -24,6 +25,13 @@ func newResolutionTypeAdapter(base types.Adapter, options ResolutionOptions) typ
 }
 
 func (a *resolutionTypeAdapter) NativeToValue(value interface{}) ref.Val {
+	// Project metrics as their JSON-shaped maps, preserving native integer leaves.
+	// CEL's native struct adapter cannot flatten embedded histogram/descriptor fields.
+	switch v := value.(type) {
+	case metrics.Snapshot:
+		return a.NativeToValue(flattenTemplateValue(v))
+	}
+
 	// When validation placeholders mark dynamic outputs, wrap them so missing
 	// keys resolve to null instead of throwing "no such key" at compile time.
 	if dyn, ok := value.(DynamicOutputs); ok {
@@ -39,6 +47,7 @@ func (a *resolutionTypeAdapter) NativeToValue(value interface{}) ref.Val {
 		if err := decodePatchDocument(data, &flattened); err != nil {
 			return types.NewErr("failed to unmarshal context: %v", err)
 		}
+		restoreMetricTemplateTypes(ctx, flattened)
 		return a.NativeToValue(flattened)
 	}
 

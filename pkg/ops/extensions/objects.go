@@ -88,7 +88,8 @@ func publishExtensionObjects(ctx context.Context, deps ops.OpDependencies, stdou
 	if err := json.Unmarshal(stdout, &envelope); err != nil {
 		return nil, err
 	}
-	if _, wrapped := envelope["output"]; !wrapped {
+	var output map[string]json.RawMessage
+	if json.Unmarshal(envelope["output"], &output) != nil || output == nil {
 		return outputs, nil
 	}
 	raw, exists := envelope["objects"]

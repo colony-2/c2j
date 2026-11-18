@@ -10,6 +10,7 @@ import (
 	"github.com/colony-2/c2j/pkg/execution"
 	"github.com/colony-2/c2j/pkg/gitprofile"
 	"github.com/colony-2/c2j/pkg/jobref"
+	"github.com/colony-2/c2j/pkg/metricsruntime"
 	"github.com/colony-2/c2j/pkg/permissions"
 	"github.com/colony-2/c2j/pkg/secrets"
 	"github.com/colony-2/c2j/pkg/task"
@@ -17,15 +18,28 @@ import (
 	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
 )
 
-func (w *guardedTask) runWithGitProfile(tc jobworkflow.TaskContext, input jobdb.TaskData, original *lease) (result jobdb.TaskData, runErr error) {
-	redactor := secrets.NewRedactor()
+func (w *guardedTask) runWithGitProfile(base context.Context, tc jobworkflow.TaskContext, input jobdb.TaskData, original *lease) (result jobdb.TaskData, runErr error) {
+	redactor := secrets.RedactorFromContext(base)
+	if redactor == nil {
+		redactor = secrets.NewRedactor()
+	}
 	retain := redactor.NewSession()
 	defer retain.Close()
 	defer redactor.Close()
 	stop := context.AfterFunc(tc.Context(), redactor.Close)
 	defer stop()
 	defer func() { runErr = redactor.Error(runErr) }()
-	local := secrets.WithRedactor(tc.Context(), redactor)
+	local := secrets.WithRedactor(base, redactor)
+	kind := metricsruntime.Kind(w.TaskWorker)
+	if kind == "" {
+		kind = metricsruntime.OutputKindFromContext(base)
+	}
+	if kind != "" && metricsruntime.Current(local) == nil {
+		var timing *metricsruntime.Timing
+		local, timing = metricsruntime.Begin(local, w.Name(), redactor.CheckOutput)
+		defer func() { result, runErr = metricsruntime.FinishTask(timing, kind, result, runErr) }()
+	}
+
 	local = execution.WithEnvironment(local, w.runtime.Allocation)
 	local = execution.WithRepositoryAdmission(local, func(ctx context.Context, defaults execution.Requirements) error {
 		w.runtime.mu.Lock()

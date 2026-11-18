@@ -15,7 +15,7 @@ func (rc *ResolutionContext) RestartContextSnapshot() (job, visible map[string]a
 		"outputs":    rc.TemplateData.Outputs,
 		"transition": rc.TemplateData.Transition.AsMap(),
 		"failure":    rc.TemplateData.Failure,
-		"scope":      rc.TemplateData.Scope,
+		"scope":      rc.scopeMetadata(),
 		"context":    exec,
 		"item":       rc.localValue("item"),
 		"index":      rc.localValue("index"),

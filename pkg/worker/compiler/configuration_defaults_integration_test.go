@@ -80,7 +80,7 @@ outputs:
 			_, err = rt.(jobdb.ConfigurationAdmin).SetTenantConfigurationValue(ctx, jobdb.SetTenantConfigurationValueRequest{TenantID: key.TenantId, Name: "value", Value: json.RawMessage(`"live"`)})
 			require.NoError(t, err)
 			result := gitLifecycleOutput(t, run(true))
-			require.Equal(t, map[string]any{"first": map[string]any{}, "second": map[string]any{"value": "live"}, "override": map[string]any{"value": "explicit"}}, result)
+			require.Equal(t, map[string]any{"first": map[string]any{}, "second": map[string]any{"value": "live"}, "override": map[string]any{"value": "explicit"}}, recipeBusinessOutputs(t, result))
 			// A completed first task must not re-read configuration or rerun preparation.
 			_, err = rt.(jobdb.ConfigurationAdmin).SetTenantConfigurationValue(ctx, jobdb.SetTenantConfigurationValueRequest{TenantID: key.TenantId, Name: "value", Value: json.RawMessage(`false`)})
 			require.NoError(t, err)

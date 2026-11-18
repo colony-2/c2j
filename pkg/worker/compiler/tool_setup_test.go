@@ -126,7 +126,7 @@ outputs:
 	require.NoError(t, err)
 	var out map[string]any
 	require.NoError(t, json.Unmarshal(raw, &out))
-	require.Equal(t, map[string]any{"first": "tool==1", "nested": "tool==2", "last": "tool==1", "extension": "tool==3"}, out)
+	require.Equal(t, map[string]any{"first": "tool==1", "nested": "tool==2", "last": "tool==1", "extension": "tool==3"}, recipeBusinessOutputs(t, out))
 	installs, err := os.ReadFile(log)
 	require.NoError(t, err)
 	require.Equal(t, "tool==1\ntool==2\ntool==3\n", string(installs))

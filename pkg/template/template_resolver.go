@@ -13,6 +13,7 @@ import (
 	"github.com/colony-2/c2j/pkg/execution"
 	"github.com/colony-2/c2j/pkg/gitprofile"
 	"github.com/colony-2/c2j/pkg/jobcontext"
+	"github.com/colony-2/c2j/pkg/metrics"
 	"github.com/colony-2/c2j/pkg/permissions"
 	"github.com/colony-2/c2j/pkg/recipe"
 	"github.com/colony-2/c2j/pkg/template/funcregistry"
@@ -57,8 +58,9 @@ type RunOutput = contextual.RunOutput
 
 // ScopeMetadata contains execution context metadata
 type ScopeMetadata struct {
-	ExecutionID string    `json:"execution_id"`
-	Timestamp   time.Time `json:"timestamp"`
+	Metrics     metrics.Snapshot `json:"metrics"`
+	ExecutionID string           `json:"execution_id"`
+	Timestamp   time.Time        `json:"timestamp"`
 	// Note: No attempts/runs counter - ambiguous which level
 }
 
@@ -94,7 +96,8 @@ type ResolutionContext struct {
 
 	CurrentRunID string // Track current run for this scope
 
-	completion *completionPosition
+	completion  *completionPosition
+	metricScope *metrics.View
 
 	tracker *invocationTracker
 
@@ -148,6 +151,7 @@ func newResolutionContext(commitContext *contextual.GitCommitContext, tracker *i
 		Options:           options,
 		tracker:           tracker,
 		scopeId:           scopeId,
+		metricScope:       options.MetricsScope,
 		TemplateData: templateData{
 
 			ContainerInputs: containerInputs,
@@ -233,7 +237,7 @@ func (rc *ResolutionContext) initializeCEL() (*ResolutionContext, error) {
 		return nil, fmt.Errorf("failed to create CEL environment: %w", err)
 	}
 	adapter := newResolutionTypeAdapter(env.CELTypeAdapter(), options)
-	env, err = cel.CustomTypeProvider(failureTypeProvider{env.CELTypeProvider()})(env)
+	env, err = cel.CustomTypeProvider(metricTypeProvider{failureTypeProvider{env.CELTypeProvider()}})(env)
 	if err != nil {
 		return nil, fmt.Errorf("failed to configure failure attributes: %w", err)
 	}
@@ -280,6 +284,7 @@ func (rc *ResolutionContext) initializeCEL() (*ResolutionContext, error) {
 func (rc *ResolutionContext) TaskExecutionContext() contextual.TaskExecutionContext {
 	rc.syncWorkspace()
 	rc.TemplateData.Context.GitTask.Execution = contextual.GitExecutionReferences{BaseHash: contextual.GitExecutionBaseSentinel, HeadHash: contextual.GitExecutionHeadSentinel}
+	rc.TemplateData.Context.Metrics = rc.Options.MetricsJob.Snapshot()
 	return rc.TemplateData.Context
 }
 
@@ -593,7 +598,7 @@ func (rc *ResolutionContext) evaluateCELExpression(expr string) (interface{}, er
 		"outputs":    rc.TemplateData.Outputs,
 		"transition": rc.TemplateData.Transition.AsMap(),
 		"failure":    rc.TemplateData.Failure,
-		"scope":      rc.TemplateData.Scope,
+		"scope":      rc.scopeMetadata(),
 		"context":    rc.TaskExecutionContext(),
 		"item":       rc.localValue("item"),
 		"index":      rc.localValue("index"),
@@ -737,18 +742,21 @@ func (rc *ResolutionContext) appendExecution(output map[string]interface{}, arti
 
 	if existing, ok := container[key]; ok {
 		existing.Runs = append(existing.Runs, RunOutput{
+			Metrics:   existing.Metrics,
 			Outputs:   existing.Outputs,
 			Artifacts: existing.Artifacts,
 			Jobs:      existing.Jobs,
 			RunID:     generateRunID(),
 			Timestamp: time.Now(),
 		})
+		existing.Metrics = rc.metricScope.Snapshot()
 		existing.Outputs = output
 		existing.Artifacts = artifactRefs
 		existing.Jobs = jobs
 		container[key] = existing
 	} else {
 		container[key] = StepOutput{
+			Metrics:   rc.metricScope.Snapshot(),
 			Outputs:   output,
 			Artifacts: artifactRefs,
 			Jobs:      jobs,

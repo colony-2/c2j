@@ -16,6 +16,7 @@ import (
 	"github.com/colony-2/c2j/pkg/git/gitstate"
 	"github.com/colony-2/c2j/pkg/gitprofile"
 	"github.com/colony-2/c2j/pkg/hookpolicy"
+	"github.com/colony-2/c2j/pkg/metricsruntime"
 	extops "github.com/colony-2/c2j/pkg/ops/extensions"
 	"github.com/colony-2/c2j/pkg/permissions"
 	"github.com/colony-2/c2j/pkg/recipe"
@@ -62,7 +63,7 @@ func initialHookBase(ctx workflow.Context, parent *template.ResolutionContext) (
 		return "", err
 	}
 	var result WorkspaceResolutionOutput
-	if err := json.Unmarshal(raw, &result); err != nil {
+	if err := coretask.DecodeInternal(raw, &result); err != nil {
 		return "", err
 	}
 	if !isFullGitHash(result.Workspace.InitialHash) {
@@ -88,6 +89,7 @@ func (hookPolicyWorker) RunTask(ctx context.Context, tc jobworkflow.TaskContext,
 	if err = json.Unmarshal(raw, &req); err != nil {
 		return nil, err
 	}
+	metricsruntime.Execution(ctx)
 	id, err := hookpolicy.Identity(req.Repository)
 	if err != nil {
 		return nil, err
@@ -191,6 +193,7 @@ func (w hookResolveWorker) RunTask(ctx context.Context, tc jobworkflow.TaskConte
 	if _, err = hookpolicy.Path(hook); err != nil {
 		return nil, err
 	}
+	metricsruntime.Execution(ctx)
 	dir, err := os.MkdirTemp("", "c2j-hook-*")
 	if err != nil {
 		return nil, err

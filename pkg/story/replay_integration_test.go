@@ -14,6 +14,7 @@ import (
 
 	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/c2j/pkg/logging"
+	"github.com/colony-2/c2j/pkg/metrics"
 	coreops "github.com/colony-2/c2j/pkg/ops"
 	"github.com/colony-2/c2j/pkg/starter"
 	"github.com/colony-2/c2j/pkg/story"
@@ -44,6 +45,7 @@ func (w *replayFixtureTask) Run(_ jobworkflow.TaskContext, _ jobdb.TaskData) (jo
 	if err != nil {
 		return nil, err
 	}
+	envelope.Metrics = &metrics.Channels{Runtime: metrics.Channel{Status: "absent"}, Producer: metrics.Channel{Status: "valid", Report: &metrics.Report{Version: 1, Mutations: []metrics.Mutation{{Descriptor: metrics.Descriptor{Name: "story_tokens", Kind: "counter", NumberType: "int64"}, Op: "add", Value: int64(1)}}}}}
 	return jobdb.NewTaskData(envelope)
 }
 
@@ -118,7 +120,7 @@ func TestStoryAPIReplaysAllPersistedAttemptsAfterDeadlines(t *testing.T) {
 				task := &replayFixtureTask{succeedAt: mode.succeedAt}
 				engine, err := jobworkflow.NewEngineBuilder().WithRuntime(rt).WithWorkerTenantId("story").PlusWorkers(recordingWorker, task).BuildEngine()
 				require.NoError(t, err)
-				recipe := "id: historical\nsequence:\n - id: outer\n   sequence:\n    - id: work\n      op: " + replayTestOp + "\n      retry: {maximum_attempts: 3, initial_interval: 1ms}\n      timeout: 5m\n"
+				recipe := "id: historical\nsequence:\n - id: outer\n   sequence:\n    - id: work\n      op: " + replayTestOp + "\n      retry: {maximum_attempts: 3, initial_interval: 1ms}\n      timeout: 5m\noutputs:\n  tokens: '${{ context.metrics.series[\"story_tokens\"][0].value }}'\n"
 				data, err := jobdb.NewTaskData(workflowctl.StartJob{TenantId: "story", RecipeName: "historical", Cell: "test", CellRepo: celltest.Repo("")}, jobdb.NewArtifactFromBytes("historical"+starter.RecipeArtifactSuffix, []byte(recipe)))
 				require.NoError(t, err)
 				policy := jobdb.DefaultRunPolicy()

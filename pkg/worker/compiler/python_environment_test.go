@@ -112,8 +112,9 @@ outputs:
 	require.NoError(t, err)
 	raw, err := result.GetData()
 	require.NoError(t, err)
-	var out map[string]string
+	var out map[string]any
 	require.NoError(t, json.Unmarshal(raw, &out))
+	require.Contains(t, out, "c2j_metrics")
 	require.NotEmpty(t, out["first"])
 	require.Equal(t, out["first"], out["last"])
 	require.Equal(t, out["first"], out["extension"])

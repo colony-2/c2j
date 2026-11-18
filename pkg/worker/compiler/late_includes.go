@@ -11,9 +11,11 @@ import (
 
 	recipecel "github.com/colony-2/c2j/pkg/cel"
 	"github.com/colony-2/c2j/pkg/gitprofile"
+	"github.com/colony-2/c2j/pkg/metricsruntime"
 	extops "github.com/colony-2/c2j/pkg/ops/extensions"
 	"github.com/colony-2/c2j/pkg/permissions"
 	"github.com/colony-2/c2j/pkg/recipe"
+	coretask "github.com/colony-2/c2j/pkg/task"
 	"github.com/colony-2/c2j/pkg/template"
 	"github.com/colony-2/c2j/pkg/workflow"
 	"github.com/colony-2/jobdb/pkg/jobdb"
@@ -122,7 +124,10 @@ func selectLate(ctx context.Context, n *recipe.NodeInclude, parent *template.Res
 type lateSelectWorker struct{}
 
 func (lateSelectWorker) Name() string { return lateSelectTaskType }
-func (lateSelectWorker) Run(tc jobworkflow.TaskContext, in jobdb.TaskData) (jobdb.TaskData, error) {
+func (w lateSelectWorker) Run(tc jobworkflow.TaskContext, in jobdb.TaskData) (jobdb.TaskData, error) {
+	return w.RunTask(tc.Context(), tc, in)
+}
+func (lateSelectWorker) RunTask(ctx context.Context, tc jobworkflow.TaskContext, in jobdb.TaskData) (jobdb.TaskData, error) {
 	var s lateSelection
 	raw, err := in.GetData()
 	if err != nil {
@@ -131,6 +136,7 @@ func (lateSelectWorker) Run(tc jobworkflow.TaskContext, in jobdb.TaskData) (jobd
 	if err = json.Unmarshal(raw, &s); err != nil {
 		return nil, err
 	}
+	metricsruntime.Execution(ctx)
 	if err = validateLateSelection(s); err != nil {
 		return nil, err
 	}
@@ -187,6 +193,7 @@ func (w lateCaptureWorker) RunTask(ctx context.Context, tc jobworkflow.TaskConte
 	if resolver == nil {
 		resolver = NewRecipeSourceResolver(RecipeSourceResolverOptions{})
 	}
+	metricsruntime.Execution(ctx)
 	resolution := req.Selection.resolution()
 	// Bootstrap reads run with caller authority. Callee ceilings apply to the
 	// selected definition's imports and all nested preparation, after this read.
@@ -268,7 +275,7 @@ func prepareLateInclude(ctx workflow.Context, parent *template.ResolutionContext
 	if err != nil {
 		return recipe.Node{}, err
 	}
-	if err = json.Unmarshal(raw, &selection); err != nil {
+	if err = coretask.DecodeInternal(raw, &selection); err != nil {
 		return recipe.Node{}, err
 	}
 	if err = validateLateSelection(selection); err != nil {
@@ -296,7 +303,7 @@ func prepareLateInclude(ctx workflow.Context, parent *template.ResolutionContext
 	if err != nil {
 		return recipe.Node{}, err
 	}
-	if err = json.Unmarshal(raw, &result); err != nil {
+	if err = coretask.DecodeInternal(raw, &result); err != nil {
 		return recipe.Node{}, err
 	}
 	if !reflect.DeepEqual(result.Selection, selection) || result.RecipeYAMLArtifact != ResolvedRecipeYAMLArtifactName {
@@ -486,6 +493,6 @@ func lateHookPolicy(ctx workflow.Context, parent *template.ResolutionContext, wr
 	if err != nil {
 		return ctx, err
 	}
-	err = json.Unmarshal(raw, &ctx.HookPolicy)
+	err = coretask.DecodeInternal(raw, &ctx.HookPolicy)
 	return ctx, err
 }

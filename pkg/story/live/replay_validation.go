@@ -136,7 +136,7 @@ type replayRecipeWorker struct {
 
 func newReplayRecipeWorker(worker jobworkflow.ExecutionWorker) *replayRecipeWorker {
 	w := &replayRecipeWorker{}
-	w.ExecutionWorker = jobworkflow.ExecutionWorker{JobType: worker.JobType, Execute: func(ctx jobworkflow.ExecutionContext, input jobdb.JobData) (jobdb.JobData, error) {
+	w.ExecutionWorker = jobworkflow.ExecutionWorker{JobType: worker.JobType, ObserveTaskResults: worker.ObserveTaskResults, Execute: func(ctx jobworkflow.ExecutionContext, input jobdb.JobData) (jobdb.JobData, error) {
 		out, err := worker.Execute(ctx, input)
 		w.mu.Lock()
 		w.err = err

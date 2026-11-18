@@ -7,6 +7,7 @@ import (
 	"github.com/colony-2/c2j/pkg/cellref"
 	"github.com/colony-2/c2j/pkg/gitprofile"
 	"github.com/colony-2/c2j/pkg/jobcontext"
+	"github.com/colony-2/c2j/pkg/metrics"
 	"github.com/colony-2/c2j/pkg/permissions"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 )
@@ -92,6 +93,7 @@ type TaskContext struct {
 
 func NewTaskExecutionContext(ctx JobContext, ctx2 TaskContext) TaskExecutionContext {
 	return TaskExecutionContext{
+		Metrics:   metrics.Empty(0),
 		Workspace: ctx.Workspace, CellResolution: ctx.CellResolution,
 		Environment:  ctx.Environment,
 		Artifacts:    cloneArtifactRefs(ctx.Artifacts),
@@ -115,6 +117,7 @@ func NewTaskExecutionContext(ctx JobContext, ctx2 TaskContext) TaskExecutionCont
 }
 
 type TaskExecutionContext struct {
+	Metrics        metrics.Snapshot  `json:"metrics"`
 	Workspace      *WorkspaceContext `json:"workspace,omitempty"`
 	CellResolution *cellref.Context  `json:"cell_resolution,omitempty"`
 	// embed these directly from task and job contexts for easier resolution.
@@ -197,6 +200,7 @@ type GitCommitContext struct {
 }
 
 type StepOutput struct {
+	Metrics   metrics.Snapshot              `json:"metrics"`
 	Outputs   map[string]interface{}        `json:"outputs"`
 	Artifacts map[string]artifacts.Ref      `json:"artifacts"`
 	Jobs      jobcontext.StartedJobsContext `json:"jobs,omitempty"`
@@ -205,6 +209,7 @@ type StepOutput struct {
 
 // RunOutput represents a single execution run
 type RunOutput struct {
+	Metrics   metrics.Snapshot              `json:"metrics"`
 	Outputs   map[string]interface{}        `json:"outputs"`
 	Artifacts map[string]artifacts.Ref      `json:"artifacts"`
 	Jobs      jobcontext.StartedJobsContext `json:"jobs,omitempty"`

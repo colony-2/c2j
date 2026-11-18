@@ -18,6 +18,7 @@ import (
 	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/c2j/pkg/contextual"
 	"github.com/colony-2/c2j/pkg/jobdbschema"
+	"github.com/colony-2/c2j/pkg/metrics"
 	"github.com/colony-2/c2j/pkg/recipe"
 	"github.com/colony-2/c2j/pkg/starter"
 	storylive "github.com/colony-2/c2j/pkg/story/live"
@@ -377,7 +378,15 @@ outputs:
 			require.Equal(t, jobdb.JobStatusCompleted, info.Status)
 			output, err := info.Data.GetData()
 			require.NoError(t, err)
-			require.JSONEq(t, `{"first":"resolved-first","second":"resolved-second"}`, string(output))
+			var values map[string]json.RawMessage
+			require.NoError(t, json.Unmarshal(output, &values))
+			require.Len(t, values, 3)
+			require.JSONEq(t, `"resolved-first"`, string(values["first"]))
+			require.JSONEq(t, `"resolved-second"`, string(values["second"]))
+			var snapshot metrics.Snapshot
+			require.NoError(t, json.Unmarshal(values[metrics.JobOutputKey], &snapshot))
+			require.Equal(t, metrics.Version, snapshot.Version)
+			require.Equal(t, "complete", snapshot.Coverage.History)
 			history, err := jobdb.GetJobRun(celltest.Context(context.Background()), f.backend, jobdb.GetJobRunRequest{JobKey: f.key, IncludeInputs: true, IncludeOutputs: true})
 			require.NoError(t, err)
 			raw, err := json.Marshal(history)

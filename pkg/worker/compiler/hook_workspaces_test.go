@@ -195,7 +195,7 @@ sequence:
 					return
 				}
 				require.NoError(t, err)
-				require.JSONEq(t, `{"text":"B"}`, string(result.GetDataOrPanic()))
+				requireJobOutputJSONEq(t, `{"text":"B"}`, result.GetDataOrPanic())
 				arts, err := result.GetArtifacts()
 				require.NoError(t, err)
 				require.Nil(t, findThinPack(arts), "foreign hook snapshot must not become the implicit root result")

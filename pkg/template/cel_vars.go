@@ -32,6 +32,7 @@ func clampStepOutputs(stepOutputs map[string]StepOutput, adapter types.Adapter) 
 		outputsVal := newPermissiveMap(outputs, adapter)
 		artifactsVal := newPermissiveArtifactMap(artifactRefs, adapter)
 		out[key] = map[string]interface{}{
+			"metrics":   step.Metrics,
 			"outputs":   outputsVal,
 			"artifacts": artifactsVal,
 			"jobs":      jobsContextValue(step.Jobs),
@@ -53,6 +54,7 @@ func clampRuns(runs []RunOutput, adapter types.Adapter) traits.Lister {
 			outputs = map[string]interface{}{}
 		}
 		runMaps = append(runMaps, map[string]interface{}{
+			"metrics":   run.Metrics,
 			"outputs":   newPermissiveMap(outputs, adapter),
 			"artifacts": newPermissiveArtifactMap(artifactRefs, adapter),
 			"jobs":      jobsContextValue(run.Jobs),

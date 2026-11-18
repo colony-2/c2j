@@ -148,7 +148,7 @@ func (d DefaultRecipeExecutor) ExecuteRecipe(ctx workflow.Context, r recipe.Reci
 		if e != nil {
 			return nil, nil, e
 		}
-		if e = json.Unmarshal(raw, &ctx.HookPolicy); e != nil {
+		if e = coretask.DecodeInternal(raw, &ctx.HookPolicy); e != nil {
 			return nil, nil, e
 		}
 	}
@@ -158,7 +158,12 @@ func (d DefaultRecipeExecutor) ExecuteRecipe(ctx workflow.Context, r recipe.Reci
 	if err != nil {
 		return nil, nil, err
 	}
-	profileContext, err := template.NewRecipeResolutionContext(&commitContext, profileInputs, execCtx, resolutionOptionsFromExecution(execOpts))
+	resolutionOptions := resolutionOptionsFromExecution(execOpts)
+	if m := taskMetrics(ctx.JobContext.Context()); m != nil {
+		resolutionOptions.MetricsJob = m.Job()
+		resolutionOptions.MetricsScope = m.Job()
+	}
+	profileContext, err := template.NewRecipeResolutionContext(&commitContext, profileInputs, execCtx, resolutionOptions)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -181,7 +186,12 @@ func (d DefaultRecipeExecutor) ExecuteRecipe(ctx workflow.Context, r recipe.Reci
 		return nil, nil, fmt.Errorf("recipe inputs do not match schema. %w", err)
 	}
 
-	rCtx, err := template.NewRecipeResolutionContext(&commitContext, recipeInputs, execCtx, resolutionOptionsFromExecution(execOpts))
+	resolutionOptions = resolutionOptionsFromExecution(execOpts)
+	if m := taskMetrics(ctx.JobContext.Context()); m != nil {
+		resolutionOptions.MetricsJob = m.Job()
+		resolutionOptions.MetricsScope = m.Job()
+	}
+	rCtx, err := template.NewRecipeResolutionContext(&commitContext, recipeInputs, execCtx, resolutionOptions)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to create resolution context: %w", err)
 	}

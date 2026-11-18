@@ -126,8 +126,9 @@ type lease struct {
 // All refreshed snapshots share invocation state. Renewal must not lose staged
 // execution demand or a failure that has already blocked subsequent tasks.
 type leaseState struct {
-	demand  *execution.Demand
-	blocked error
+	metricsSnapshot *jobdb.ChapterMetadataValue
+	demand          *execution.Demand
+	blocked         error
 }
 
 // Preserve signed parent bounds for the engine's task-scoped deadline clamp.
@@ -221,6 +222,7 @@ func (l *lease) Reschedule(ctx context.Context, req jobdb.RescheduleExecutionReq
 }
 
 func (l *lease) Complete(ctx context.Context, req jobdb.CompleteExecutionRequest) error {
+	req = l.finalizeMetrics(ctx, req)
 	err := l.ExecutionLease.Complete(ctx, req)
 	l.forget()
 	return err
@@ -237,7 +239,11 @@ type guardedTask struct {
 	runtime *Runtime
 }
 
+func (w *guardedTask) MetricAdmission() {}
 func (w *guardedTask) Run(ctx jobworkflow.TaskContext, input jobdb.TaskData) (jobdb.TaskData, error) {
+	return w.RunTask(ctx.Context(), ctx, input)
+}
+func (w *guardedTask) RunTask(local context.Context, ctx jobworkflow.TaskContext, input jobdb.TaskData) (jobdb.TaskData, error) {
 	r := w.runtime
 	r.mu.Lock()
 	l := r.leases[ctx.JobKey]
@@ -265,7 +271,7 @@ func (w *guardedTask) Run(ctx jobworkflow.TaskContext, input jobdb.TaskData) (jo
 			return l.yieldEnvironment(ctx, mismatches)
 		}
 	}
-	out, err := w.runWithGitProfile(ctx, input, l)
+	out, err := w.runWithGitProfile(local, ctx, input, l)
 	var required *execution.Required
 	if !errors.As(err, &required) {
 		return out, err

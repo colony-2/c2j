@@ -63,6 +63,12 @@ func (s *Server) handleJobInspection(w http.ResponseWriter, r *http.Request) {
 	}
 	result, err := api.Inspect(ctx, q)
 	if err != nil {
+		if q.Operation == "metrics" && result != nil && result.Metrics != nil {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusUnprocessableEntity)
+			_ = json.NewEncoder(w).Encode(result)
+			return
+		}
 		if q.Operation == "events" || q.Family != nil {
 			if q.Family != nil && (errors.Is(err, jobdb.ErrExecutionLeaseLost) || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)) {
 				w.Header().Set("Content-Type", "application/json")
@@ -127,6 +133,9 @@ func (c JobClient) callPayload(ctx context.Context, q any, suffix string, typedE
 		return nil, fmt.Errorf("task inspection helper unavailable")
 	}
 	resp.Body = &transportBody{ReadCloser: resp.Body, close: transport.CloseIdleConnections}
+	if request, ok := q.(jobinspect.Request); ok && request.Operation == "metrics" && resp.StatusCode == http.StatusUnprocessableEntity {
+		return resp, nil
+	}
 	if resp.StatusCode != http.StatusOK {
 		defer resp.Body.Close()
 		b, readErr := io.ReadAll(io.LimitReader(resp.Body, 4096))
@@ -170,6 +179,9 @@ func (c JobClient) callPayload(ctx context.Context, q any, suffix string, typedE
 		if family, ok := q.(jobinspect.Request); ok && family.Family != nil && (resp.StatusCode == 501 || resp.StatusCode == 404 || (resp.StatusCode == 400 && strings.TrimSpace(string(b)) == "invalid inspection request")) {
 			return nil, fmt.Errorf("%w; upgrade the worker and CLI together", jobinspect.ErrFamilyProtocol)
 		}
+		if request, ok := q.(jobinspect.Request); ok && request.Operation == "metrics" && (resp.StatusCode == 501 || resp.StatusCode == 404 || (resp.StatusCode == 400 && (strings.TrimSpace(string(b)) == "invalid inspection request" || strings.Contains(string(b), "unknown inspection operation")))) {
+			return nil, fmt.Errorf("metrics inspection unavailable; upgrade the worker and CLI together")
+		}
 		return nil, fmt.Errorf("task inspection rejected (%d): %s", resp.StatusCode, strings.TrimSpace(string(b)))
 	}
 	return resp, nil
@@ -201,6 +213,14 @@ func (c JobClient) Inspect(ctx context.Context, q jobinspect.Request) (*jobinspe
 			return nil, fmt.Errorf("%w; upgrade the worker and CLI together", jobinspect.ErrFamilyProtocol)
 		}
 		return nil, fmt.Errorf("unsupported job inspection response version")
+	}
+	if q.Operation == "metrics" {
+		if out.Metrics == nil || out.Metrics.Snapshot.Version != 1 || out.Metrics.Snapshot.ReducerVersion != 1 {
+			return nil, fmt.Errorf("metrics inspection unavailable; upgrade the worker and CLI together")
+		}
+		if resp.StatusCode != http.StatusOK || out.Metrics.Snapshot.Coverage.History != "complete" {
+			return &out, fmt.Errorf("metric history %s", out.Metrics.Snapshot.Coverage.History)
+		}
 	}
 	if q.Family != nil {
 		if err := jobinspect.ValidateFamilyResponse(&out); err != nil {

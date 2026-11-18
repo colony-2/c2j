@@ -1853,7 +1853,7 @@ func unwrapTaskEnvelopePayload(raw []byte) (any, bool) {
 	if err := json.Unmarshal(raw, &env); err != nil {
 		return nil, false
 	}
-	if env.Version != coretasks.OutputEnvelopeVersion || strings.TrimSpace(string(env.Kind)) == "" {
+	if (env.Version != 1 && env.Version != coretasks.OutputEnvelopeVersion) || strings.TrimSpace(string(env.Kind)) == "" {
 		return nil, false
 	}
 	if len(env.Payload) == 0 {
@@ -1871,7 +1871,7 @@ func outputKindFromRaw(raw []byte) (coretasks.OutputKind, bool) {
 	if json.Unmarshal(raw, &env) != nil {
 		return "", false
 	}
-	if env.Version != coretasks.OutputEnvelopeVersion {
+	if env.Version != 1 && env.Version != coretasks.OutputEnvelopeVersion {
 		return "", false
 	}
 	return env.Kind, true
@@ -2007,7 +2007,7 @@ func applyTaskOutputToNode(n *model.JobRunStoryNode, jobID string, taskType stri
 		raw, derr := td.GetData()
 		if derr == nil && len(raw) > 0 {
 			var outEnv coretasks.OutputEnvelope
-			if json.Unmarshal(raw, &outEnv) == nil && outEnv.Version == coretasks.OutputEnvelopeVersion {
+			if json.Unmarshal(raw, &outEnv) == nil && (outEnv.Version == 1 || outEnv.Version == coretasks.OutputEnvelopeVersion) {
 				switch outEnv.Kind {
 				case coretasks.OutputKindActivityInvocationOutput:
 					var env ops.ActivityInvocationOutput
@@ -2020,6 +2020,10 @@ func applyTaskOutputToNode(n *model.JobRunStoryNode, jobID string, taskType stri
 							}
 							n.ArtifactRefs = refs
 						}
+					}
+				case coretasks.OutputKindInternalResult:
+					if len(outEnv.Payload) > 0 {
+						_ = outEnv.DecodePayload(&n.Output)
 					}
 				default:
 					n.Output = map[string]any{"kind": string(outEnv.Kind)}

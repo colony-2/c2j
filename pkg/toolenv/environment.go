@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/colony-2/c2j/pkg/execution"
+	"github.com/colony-2/c2j/pkg/metricsruntime"
 	"github.com/colony-2/c2j/pkg/ops/process"
 	"github.com/colony-2/c2j/pkg/shellcmd"
 )
@@ -116,7 +117,13 @@ func (m *Manager) Prepare(ctx context.Context, scopes []Scope) (env Environment,
 		local := map[string]string{}
 		for _, ref := range scope.Packages {
 			begin := time.Now()
+			manager, _, _ := execution.ParsePackage(ref)
+			if manager == "pnpm" {
+				manager = "npm"
+			}
+			finish := metricsruntime.Component(ctx, "environment", manager)
 			tool, hit, e := m.prepareTool(ctx, ref)
+			finish(e, hit)
 			outcome := "prepared"
 			if hit {
 				outcome = "reused"

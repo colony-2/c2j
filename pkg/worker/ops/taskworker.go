@@ -11,6 +11,7 @@ import (
 	"github.com/colony-2/c2j/pkg/contextual"
 	"github.com/colony-2/c2j/pkg/execution"
 	"github.com/colony-2/c2j/pkg/git/gitstate"
+	"github.com/colony-2/c2j/pkg/metricsruntime"
 	"github.com/colony-2/c2j/pkg/ops"
 	extops "github.com/colony-2/c2j/pkg/ops/extensions"
 	"github.com/colony-2/c2j/pkg/permissions"
@@ -159,7 +160,9 @@ func (t *taskWorker) RunTask(local context.Context, ctx jobworkflow.TaskContext,
 		opCtx, stopOp = context.WithDeadline(opCtx, deadline)
 		defer stopOp()
 	}
+	finishConfig := metricsruntime.Component(opCtx, "configuration", "none")
 	configDiag, err = materializeConfiguration(opCtx, t.reg, &air, ctx.GetConfiguration)
+	finishConfig(err, false)
 	if err != nil {
 		return nil, err
 	}
@@ -192,6 +195,8 @@ func (t *taskWorker) RunTask(local context.Context, ctx jobworkflow.TaskContext,
 	if err := inputAccess.CheckSecrets(names); err != nil {
 		return nil, err
 	}
+	finishSecrets := metricsruntime.Component(opCtx, "secrets", "none")
+	defer func() { finishSecrets(runErr, false) }()
 	secretStart := time.Now()
 	if len(refs) > 0 {
 		err := session.PrepareReferences(opCtx, refs, func(ctx context.Context, names []string) (jobdb.SecretResolveResult, error) {
@@ -202,6 +207,7 @@ func (t *taskWorker) RunTask(local context.Context, ctx jobworkflow.TaskContext,
 			return nil, session.Error(err)
 		}
 	}
+	finishSecrets(nil, false)
 	opCtx = secrets.WithSession(opCtx, session)
 	if err := opCtx.Err(); err != nil {
 		return nil, err

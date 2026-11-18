@@ -9,6 +9,7 @@ import (
 	"time"
 
 	recipeartifacts "github.com/colony-2/c2j/pkg/artifacts"
+	"github.com/colony-2/c2j/pkg/metrics"
 	"github.com/colony-2/c2j/pkg/ops"
 	"github.com/colony-2/c2j/pkg/recipe"
 	"github.com/colony-2/c2j/pkg/template"
@@ -110,6 +111,16 @@ func executeNodeScopeWithCatchFilter(ctx workflow.Context, parent *template.Reso
 	if parent.Options.Mode == template.ModeValidate {
 		return body(ctx, parent, meta)
 	}
+	var metricView *metrics.View
+	if ctx.DeferScopeOutput {
+		// A late include's preparation and body publish one logical node.
+		// Keep its preparation reports in that node's eventual snapshot.
+		metricView = parent.Options.MetricsScope
+	} else if m := taskMetrics(ctx.JobContext.Context()); m != nil {
+		var close func()
+		metricView, close = m.EnterScope()
+		defer close()
+	}
 	original := parent
 	entry := original
 	frames := map[int]scopeFrame{}
@@ -153,6 +164,7 @@ func executeNodeScopeWithCatchFilter(ctx workflow.Context, parent *template.Reso
 		if err != nil {
 			return workflow.Context{}, nil, nil, nil, 0, err
 		}
+		view.Options.MetricsScope = metricView
 		inner := ctx
 		inner.DeferScopeOutput = false
 		inner.JobContext = exec

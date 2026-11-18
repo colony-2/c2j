@@ -259,9 +259,19 @@ outputs:
 	require.NoError(t, err)
 	raw, err := result.GetData()
 	require.NoError(t, err)
-	require.JSONEq(t, `{"result":{"annotations":[{"path":"design.md","title":"Design"}],"labels":{"component":"api"}}}`, string(raw))
-	_, err = eng.ReplayJobRun(ctx, jobworkflow.ReplayRunRequest{JobKey: key})
+	var output map[string]any
+	require.NoError(t, json.Unmarshal(raw, &output))
+	business := recipeBusinessOutputs(t, output)
+	require.Len(t, business, 1)
+	childOutput, ok := business["result"].(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, map[string]any{
+		"annotations": []any{map[string]any{"path": "design.md", "title": "Design"}},
+		"labels":      map[string]any{"component": "api"},
+	}, recipeBusinessOutputs(t, childOutput))
+	replayed, err := eng.ReplayJobRun(ctx, jobworkflow.ReplayRunRequest{JobKey: key})
 	require.NoError(t, err)
+	require.JSONEq(t, string(raw), string(replayed.GetDataOrPanic()))
 }
 
 func TestEmptyIncludeSchemaVersions(t *testing.T) {

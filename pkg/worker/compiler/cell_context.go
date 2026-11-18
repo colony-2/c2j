@@ -1,9 +1,11 @@
 package compiler
 
 import (
-	"encoding/json"
+	"context"
 	"fmt"
 
+	"github.com/colony-2/c2j/pkg/metricsruntime"
+	coretask "github.com/colony-2/c2j/pkg/task"
 	"github.com/colony-2/c2j/pkg/workflow"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
@@ -18,7 +20,11 @@ type cellContextWorker struct{}
 func NewCellContextTaskWorker() jobworkflow.TaskWorker { return cellContextWorker{} }
 
 func (cellContextWorker) Name() string { return CellContextTaskType }
-func (cellContextWorker) Run(tc jobworkflow.TaskContext, _ jobdb.TaskData) (jobdb.TaskData, error) {
+func (w cellContextWorker) Run(tc jobworkflow.TaskContext, in jobdb.TaskData) (jobdb.TaskData, error) {
+	return w.RunTask(tc.Context(), tc, in)
+}
+func (cellContextWorker) RunTask(local context.Context, tc jobworkflow.TaskContext, _ jobdb.TaskData) (jobdb.TaskData, error) {
+	metricsruntime.Execution(local)
 	h := tc.Job()
 	if h.Cell == "" || h.CellID == "" || h.CellRepo == "" {
 		return nil, fmt.Errorf("job is missing stored cell ownership")
@@ -35,7 +41,7 @@ func recordedCell(ctx jobworkflow.ExecutionContext) (jobdb.ResolvedCell, error) 
 		return jobdb.ResolvedCell{}, err
 	}
 	var cell jobdb.ResolvedCell
-	if err = json.Unmarshal(raw, &cell); err != nil {
+	if err = coretask.DecodeInternal(raw, &cell); err != nil {
 		return cell, err
 	}
 	if cell.Cell == "" || cell.CellID == "" || cell.CellRepo == "" {

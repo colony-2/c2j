@@ -15,8 +15,10 @@ import (
 	gitpkg "github.com/colony-2/c2j/pkg/git"
 	"github.com/colony-2/c2j/pkg/git/selectorcache"
 	"github.com/colony-2/c2j/pkg/gitprofile"
+	"github.com/colony-2/c2j/pkg/metricsruntime"
 	"github.com/colony-2/c2j/pkg/permissions"
 	"github.com/colony-2/c2j/pkg/recipe"
+	coretask "github.com/colony-2/c2j/pkg/task"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
 	"gopkg.in/yaml.v3"
@@ -192,7 +194,7 @@ func ParseResolvedRecipeSourceJSON(raw []byte) (*ResolvedRecipeSource, error) {
 	}
 
 	source := ResolvedRecipeSource{}
-	if err := json.Unmarshal(raw, &source); err != nil {
+	if err := coretask.DecodeInternal(raw, &source); err != nil {
 		return nil, fmt.Errorf("decode resolved recipe source payload: %w", err)
 	}
 	if source.SourceKind == "" && strings.TrimSpace(source.SubmittedSelector) == "" && strings.TrimSpace(source.ResolvedSelector) == "" && strings.TrimSpace(source.ResolvedCommit) == "" && strings.TrimSpace(source.ArtifactName) == "" && !source.HasRecipeYAML() {
@@ -458,6 +460,7 @@ func (w rootSourceResolutionTaskWorker) RunTask(local context.Context, taskCtx j
 		return nil, err
 	}
 
+	metricsruntime.Execution(ctx)
 	resolution, err := w.resolver.Resolve(ctx, strings.TrimSpace(req.ProjectID), effectiveSelector)
 	if err != nil {
 		return nil, err

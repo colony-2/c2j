@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/colony-2/c2j/pkg/artifacts"
+	"github.com/colony-2/c2j/pkg/metrics"
 	coretask "github.com/colony-2/c2j/pkg/task"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 )
@@ -16,6 +17,7 @@ import (
 const Version = 1
 
 type Request struct {
+	Metrics   *metrics.Query     `json:"metrics,omitempty"`
 	Family    *FamilyOptions     `json:"family,omitempty"`
 	Events    LeaseEventOptions  `json:"events,omitzero"`
 	Operation string             `json:"operation"`
@@ -39,6 +41,7 @@ type API interface {
 }
 
 type Response struct {
+	Metrics     *metrics.Result                `json:"metrics,omitempty"`
 	Family      *FamilyPage                    `json:"family,omitempty"`
 	Version     int                            `json:"version"`
 	LeaseEvents *jobdb.ListLeaseEventsResponse `json:"lease_events,omitempty"`
@@ -57,15 +60,16 @@ type Response struct {
 }
 
 type Job struct {
-	ID               string    `json:"id"`
-	Tenant           string    `json:"tenant"`
-	Cell             string    `json:"cell,omitempty"`
-	Goal             string    `json:"goal,omitempty"`
-	Parent           string    `json:"parent,omitempty"`
-	Status           string    `json:"status"`
-	CompletionStatus string    `json:"completion_status,omitempty"`
-	CompletionDetail string    `json:"completion_detail,omitempty"`
-	CreatedAt        time.Time `json:"created_at"`
+	Metrics          *metrics.Snapshot `json:"metrics,omitempty"`
+	ID               string            `json:"id"`
+	Tenant           string            `json:"tenant"`
+	Cell             string            `json:"cell,omitempty"`
+	Goal             string            `json:"goal,omitempty"`
+	Parent           string            `json:"parent,omitempty"`
+	Status           string            `json:"status"`
+	CompletionStatus string            `json:"completion_status,omitempty"`
+	CompletionDetail string            `json:"completion_detail,omitempty"`
+	CreatedAt        time.Time         `json:"created_at"`
 }
 
 type Field struct {
@@ -77,6 +81,7 @@ type Field struct {
 }
 
 type Task struct {
+	Metrics            *metrics.Result `json:"metrics,omitempty"`
 	ID                 string          `json:"id"`
 	Type               string          `json:"type"`
 	Path               string          `json:"path,omitempty"`

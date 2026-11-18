@@ -157,7 +157,7 @@ func (s *CompilerTestSuite) testRecipe(recipeYaml string, input map[string]inter
 	require.NoError(s.T(), err)
 	out := make(map[string]interface{})
 	require.NoError(s.T(), json.Unmarshal(d, &out))
-	assert.Equal(s.T(), expectedOutputs, out)
+	assert.Equal(s.T(), expectedOutputs, recipeBusinessOutputs(s.T(), out))
 }
 
 func (s *CompilerTestSuite) TestCompileSimpleRecipe() {

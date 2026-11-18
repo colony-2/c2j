@@ -100,7 +100,7 @@ outputs:
 	require.NoError(t, err)
 	raw, err := result.GetData()
 	require.NoError(t, err)
-	require.JSONEq(t, `{"a":true,"b":false}`, string(raw))
+	requireJobOutputJSONEq(t, `{"a":true,"b":false}`, raw)
 	history, err := engine.GetJobRun(ctx, jobdb.GetJobRunRequest{JobKey: key, IncludeOutputs: true})
 	require.NoError(t, err)
 	seen := map[string]string{}

@@ -430,7 +430,7 @@ func TestHookAbsentCompilerLoadFrontiers(t *testing.T) {
 				out, err = run.Run(nil)
 				require.NoError(t, err)
 				require.Equal(t, jobworkflow.JobRunCompleted, out.Status, "%v", out.JobError)
-				require.JSONEq(t, `{"result":{"status":"skipped"},"continued":true}`, string(out.Output.GetDataOrPanic()))
+				requireJobOutputJSONEq(t, `{"result":{"status":"skipped"},"continued":true}`, out.Output.GetDataOrPanic())
 				if frontier == "descriptor" {
 					wantBuilds++
 				}

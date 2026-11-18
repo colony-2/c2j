@@ -6,6 +6,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/colony-2/c2j/pkg/metricsruntime"
 	extops "github.com/colony-2/c2j/pkg/ops/extensions"
 	"github.com/colony-2/c2j/pkg/toolenv"
 )
@@ -40,7 +41,9 @@ func PrepareTools(ctx context.Context, req ToolSetupRequest) ToolSetupResult {
 	// If source storage was lost after manifest resolution, restore only the
 	// already-pinned selector. The durable manifest remains authoritative.
 	if req.Extension != nil && req.Extension.Nix != nil {
+		finish := metricsruntime.Component(ctx, "environment", "nix")
 		prepared, reused, e := extops.PrepareNixOp(ctx, req.Extension)
+		finish(e, reused)
 		outcome := "prepared"
 		if reused {
 			outcome = "reused"

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/colony-2/c2j/pkg/config"
+	"github.com/colony-2/c2j/pkg/metricsruntime"
 	"github.com/colony-2/c2j/pkg/ops/process"
 )
 
@@ -218,6 +219,8 @@ func (m *Manager) prepareNative(ctx context.Context, tools []Tool) (env *nativeE
 	if !needed {
 		return nil, nil, nil
 	}
+	finish := metricsruntime.Component(ctx, "environment", "native")
+	defer func() { finish(err, diag != nil && diag.Outcome == "reused") }()
 	start := time.Now()
 	id := key([]any{nativeVersion, nativeNixpkgs, tools})
 	diag = &NativeDiagnostic{Identity: id, Outcome: "failed"}

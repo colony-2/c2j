@@ -117,7 +117,7 @@ func (rc *ResolutionContext) resolveSimpleGoTemplateScalar(input string) (interf
 	case "failure":
 		current = flattenTemplateValue(rc.TemplateData.Failure)
 	case "scope":
-		current = flattenTemplateValue(rc.TemplateData.Scope)
+		current = flattenTemplateValue(rc.scopeMetadata())
 	case "context":
 		current = rc.goTemplateContextMap()
 	case "item":
@@ -241,7 +241,7 @@ func (rc *ResolutionContext) goTemplateFuncMap() texttemplate.FuncMap {
 			return flattenTemplateValue(rc.TemplateData.Failure)
 		},
 		"scope": func() map[string]interface{} {
-			return flattenTemplateValue(rc.TemplateData.Scope)
+			return flattenTemplateValue(rc.scopeMetadata())
 		},
 		"context": func() map[string]interface{} {
 			return rc.goTemplateContextMap()
@@ -259,7 +259,7 @@ func (rc *ResolutionContext) goTemplateFuncMap() texttemplate.FuncMap {
 	}
 	if provider, ok := rc.Options.CELOptionsProvider.(goTemplateFuncProvider); ok {
 		ctxProvider := func() contextual.TaskExecutionContext {
-			return rc.TemplateData.Context
+			return rc.TaskExecutionContext()
 		}
 		for name, fn := range provider.TemplateFuncsWithContext(ctxProvider) {
 			if _, exists := funcMap[name]; exists {
@@ -295,6 +295,7 @@ func (rc *ResolutionContext) goTemplateContextMap() map[string]interface{} {
 				"outbox":        ctx.Environment.Op.Outbox,
 			},
 		},
+		"metrics":   flattenTemplateValue(ctx.Metrics),
 		"artifacts": ctx.Artifacts,
 		"workspace": flattenTemplateValue(ctx.Workspace),
 		"workflow": map[string]interface{}{
@@ -337,6 +338,7 @@ func flattenTemplateValue(value interface{}) map[string]interface{} {
 	if out == nil {
 		return map[string]interface{}{}
 	}
+	restoreMetricTemplateTypes(value, out)
 	return out
 }
 

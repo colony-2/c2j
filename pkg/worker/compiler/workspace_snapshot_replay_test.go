@@ -37,10 +37,18 @@ func (w workspacePolicyWorker) RunTask(local context.Context, ctx jobworkflow.Ta
 		return nil, err
 	}
 	var result WorkspaceResolutionOutput
-	if err := json.Unmarshal(raw, &result); err != nil {
+	if err := coretask.DecodeInternal(raw, &result); err != nil {
 		return nil, err
 	}
 	result.Workspace.RefPolicy = w.policy
+	var envelope coretask.OutputEnvelope
+	if json.Unmarshal(raw, &envelope) == nil && envelope.Kind == coretask.OutputKindInternalResult {
+		envelope.Payload, err = json.Marshal(result)
+		if err != nil {
+			return nil, err
+		}
+		return jobdb.NewTaskData(envelope)
+	}
 	return jobdb.NewTaskData(result)
 }
 

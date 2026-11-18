@@ -14,6 +14,8 @@ import (
 	"github.com/colony-2/c2j/pkg/artifacts"
 	"github.com/colony-2/c2j/pkg/contextual"
 	"github.com/colony-2/c2j/pkg/git/gitstate"
+	"github.com/colony-2/c2j/pkg/metrics"
+	"github.com/colony-2/c2j/pkg/metricshistory"
 	"github.com/colony-2/c2j/pkg/starter"
 	"github.com/colony-2/c2j/pkg/swfutil"
 	coretask "github.com/colony-2/c2j/pkg/task"
@@ -243,8 +245,14 @@ func decodeOutput(raw json.RawMessage) (json.RawMessage, activity, error) {
 			return raw, activity{}, nil
 		}
 	}
-	if env.Version != coretask.OutputEnvelopeVersion || env.Kind != coretask.OutputKindActivityInvocationOutput {
+	if (env.Version != 1 && env.Version != coretask.OutputEnvelopeVersion) || (env.Kind != coretask.OutputKindActivityInvocationOutput && env.Kind != coretask.OutputKindInternalResult) {
 		return nil, activity{}, fmt.Errorf("unsupported stored task output %q version %d", env.Kind, env.Version)
+	}
+	if env.Kind == coretask.OutputKindInternalResult {
+		return env.Payload, activity{}, nil
+	}
+	if len(env.Payload) == 0 || bytes.Equal(bytes.TrimSpace(env.Payload), []byte("null")) {
+		return nil, activity{}, nil
 	}
 	var a activity
 	if err := env.DecodePayload(&a); err != nil {
@@ -253,6 +261,11 @@ func decodeOutput(raw json.RawMessage) (json.RawMessage, activity, error) {
 	return a.Output, a, nil
 }
 func (a *attempt) finish() {
+	// Failed activity envelopes may still carry preparation/workspace diagnostics
+	// and metric channels. Their output:null is not a published business result.
+	if a.task.Status == "failed" && bytes.Equal(bytes.TrimSpace(a.raw), []byte("null")) {
+		a.raw = nil
+	}
 	a.task.Path = a.in.Git.NodePath
 	a.task.Cell = a.in.Git.GetWorkspaceCellName()
 	a.task.Workspace = a.activity.Scope
@@ -288,6 +301,28 @@ func (h *history) selected(id string, n int) (*attempt, error) {
 	return nil, fmt.Errorf("task %q attempt %d not found", id, n)
 }
 func (s *Service) Inspect(ctx context.Context, q Request) (*Response, error) {
+	if q.Operation == "metrics" {
+		if q.Metrics == nil {
+			return nil, fmt.Errorf("metrics request requires versioned options")
+		}
+		if strings.TrimSpace(q.JobID) == "" {
+			return nil, fmt.Errorf("job ID is required")
+		}
+		if err := q.Metrics.Validate(); err != nil {
+			return nil, err
+		}
+		if s.Authorize != nil {
+			if err := s.Authorize(ctx, q.JobID); err != nil {
+				return nil, err
+			}
+		}
+		result, err := metricshistory.Read(ctx, s.Runtime, jobdb.JobKey{TenantId: s.Tenant, JobId: q.JobID}, *q.Metrics)
+		return &Response{Version: Version, Metrics: &result}, err
+	}
+	if q.Metrics != nil {
+		return nil, fmt.Errorf("metrics options require metrics operation")
+	}
+
 	if q.Operation == "family-node" || q.Operation == "family-children" {
 		return s.family(ctx, q)
 	}
@@ -344,10 +379,32 @@ func (s *Service) Inspect(ctx context.Context, q Request) (*Response, error) {
 	}
 	switch q.Operation {
 	case "show":
+		if len(h.run.Attempts) > 0 {
+			last := h.run.Attempts[len(h.run.Attempts)-1]
+			if ch, e := s.Runtime.GetChapter(ctx, jobdb.ChapterRef{JobKey: h.run.Job.JobKey, Ordinal: last.Ordinal}); e == nil {
+				snapshot, e := metricshistory.Stored(ch)
+				if e == nil {
+					r.Job.Metrics = snapshot
+				} else {
+					r.Warnings = append(r.Warnings, e.Error())
+				}
+			}
+		}
 		return r, nil
 	case "log":
 		if a != nil {
 			v := h.publicTask(a)
+			frontier := int64(0)
+			for _, entry := range h.run.Execution {
+				if entry.Ordinal > frontier {
+					frontier = entry.Ordinal
+				}
+			}
+			result, e := metrics.Reduce(metricshistory.Records(h.run), metrics.Query{Task: q.Task, Attempt: a.task.Attempt, Deltas: true}, frontier)
+			if e != nil {
+				return nil, e
+			}
+			v.Metrics = &result
 			r.Task = &v
 			return r, nil
 		}

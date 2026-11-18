@@ -7,6 +7,13 @@ onHandoff)`. Pass the same normalized allocation and callback to
 build the engine using the wrapped runtime. Register schemas using the original
 runtime. The CLI performs this wiring for all execution entry points.
 
+The compiler's registered workers automatically retain task metrics after
+admission. The compiler adds accumulated totals under `c2j_metrics` in successful
+job outputs. This runtime also adds snapshots to existing recipe success/failure final
+chapter metadata, preserving business fields and error outcomes. Use the same wrapper for acquired,
+supplied-lease and embedded runs. See [task metrics](../../GUIDE-Task-Metrics.md)
+for measurement boundaries, producer reports, coverage and upgrade requirements.
+
 The recipe reconstructs requirements from its input and retained activity results
 on every invocation. It never restores execution state from client payload.
 The compiler stages effective requirements before each task call. Guarded task

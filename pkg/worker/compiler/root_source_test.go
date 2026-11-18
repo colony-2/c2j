@@ -283,6 +283,7 @@ outputs:
 	require.NoError(t, err)
 	require.Len(t, run.Attempts, 1)
 	require.GreaterOrEqual(t, len(executionTaskRuns(run)), 2)
+	requireInternalWorkerMetrics(t, run, RootSourceResolutionTaskType)
 	require.Equal(t, RootSourceResolutionTaskType, executionTaskRuns(run)[0].TaskType)
 	require.NotEmpty(t, executionTaskRuns(run)[0].Attempts)
 	require.NotNil(t, executionTaskRuns(run)[0].Attempts[0].Output)
@@ -821,6 +822,7 @@ outputs:
 			resolutionOutput = task.Attempts[0].Output.Data
 		}
 	}
+	requireInternalWorkerMetrics(t, run, WithinRecipeResolutionTaskType)
 	require.NotEmpty(t, resolutionOutput)
 
 	resolved, err := ParseWithinRecipeResolutionJSON(resolutionOutput)

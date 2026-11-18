@@ -20,6 +20,7 @@ import (
 	"github.com/colony-2/c2j/pkg/executionruntime"
 	gitexport "github.com/colony-2/c2j/pkg/git/export"
 	"github.com/colony-2/c2j/pkg/jobdbschema"
+	"github.com/colony-2/c2j/pkg/metrics"
 	coreops "github.com/colony-2/c2j/pkg/ops"
 	"github.com/colony-2/c2j/pkg/recipe"
 	"github.com/colony-2/c2j/pkg/swfutil"
@@ -587,7 +588,20 @@ func RunTestOnAllRecipesWithDeps(deps coreops.ServiceDependencies2, path string,
 						require.NoError(t, err, "Unexpected error executing recipe")
 
 						if tc.Want != nil {
-							assertEqualWithTypeFlexibility(t, tc.Want, result, "Output mismatch")
+							// want describes recipe outputs. Check the automatic job
+							// summary separately so nondeterministic durations do not
+							// have to be hard-coded in every business-output fixture.
+							require.Contains(t, result, metrics.JobOutputKey)
+							actual := result
+							if _, explicit := tc.Want[metrics.JobOutputKey]; !explicit {
+								actual = make(map[string]interface{}, len(result)-1)
+								for key, value := range result {
+									if key != metrics.JobOutputKey {
+										actual[key] = value
+									}
+								}
+							}
+							assertEqualWithTypeFlexibility(t, tc.Want, actual, "Output mismatch")
 						}
 						if len(tc.WantArtifacts) > 0 {
 							assertArtifactNames(t, tc.WantArtifacts, artifacts)

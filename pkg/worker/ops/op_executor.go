@@ -29,9 +29,11 @@ import (
 	"github.com/colony-2/c2j/pkg/contextual"
 	"github.com/colony-2/c2j/pkg/execution"
 	"github.com/colony-2/c2j/pkg/git/common"
+	"github.com/colony-2/c2j/pkg/git/gitcommit"
 	"github.com/colony-2/c2j/pkg/git/gitstate"
 	"github.com/colony-2/c2j/pkg/jobcontext"
 	"github.com/colony-2/c2j/pkg/jobref"
+	"github.com/colony-2/c2j/pkg/metricsruntime"
 	"github.com/colony-2/c2j/pkg/objects"
 	"github.com/colony-2/c2j/pkg/ops"
 	"github.com/colony-2/c2j/pkg/ops/process"
@@ -47,7 +49,12 @@ import (
 type opExecutor struct {
 	deps       ops.ServiceDependencies2
 	reg        ActivityRegistration
-	controller *gitstate.Controller
+	controller workspaceController
+}
+
+type workspaceController interface {
+	Restore(context.Context, *gitstate.GitTaskContext, jobdb.Artifact) error
+	PersistWithDiffs(context.Context, *gitstate.GitTaskContext) (*gitcommit.PersistWithDiffsOutput, []jobdb.Artifact, error)
 }
 
 type nextTaskOverride interface {
@@ -219,6 +226,8 @@ func (t opExecutor) doPrepared(ctx context.Context, jobTool ops.JobTool, req Act
 	start := time.Now()
 	phase := "prepare_workspace"
 
+	finishWorkspace := metricsruntime.Component(ctx, "workspace", "none")
+	defer func() { finishWorkspace(err, false) }()
 	// Create temporary worktree directory for this invocation
 	workDir, err := createWorkDir()
 	if err != nil {
@@ -451,6 +460,7 @@ func (t opExecutor) doPrepared(ctx context.Context, jobTool ops.JobTool, req Act
 		}
 	}()
 	opCtx := ctx
+	finishWorkspace(nil, false)
 	if prepare != nil {
 		phase = "prepare_packages"
 		opCtx, err = prepare(ctx, fullContext)
@@ -483,6 +493,8 @@ func (t opExecutor) doPrepared(ctx context.Context, jobTool ops.JobTool, req Act
 	// CRITICAL: Hydrate sentinel values in input with actual worktree path
 	// Templates like {{ environment.worktree_path }} resolved to sentinel at compile time
 	// Now replace with real local path
+	finishInput := metricsruntime.Component(ctx, "input", "none")
+	defer func() { finishInput(err, false) }()
 	hydratedInput := replaceSentinels(req.Input, replacements)
 	hydratedInput = replaceSentinels(hydratedInput, defaultOpReplacements)
 	if process.ContainsOpVisibleSentinel(hydratedInput) {
@@ -586,6 +598,8 @@ func (t opExecutor) doPrepared(ctx context.Context, jobTool ops.JobTool, req Act
 	if err := opCtx.Err(); err != nil {
 		return zero, nil, err
 	}
+	finishInput(nil, false)
+	metricsruntime.Execution(opCtx)
 	logger.Debug("Op body started", "event", "op.body.started")
 	outputData, stepErr := reg.Step.Invoke(opDeps, opCtx, hydratedInput)
 	if execution.IsRequired(stepErr) {

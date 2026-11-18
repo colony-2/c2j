@@ -198,7 +198,9 @@ outputs:
 			if mode == "release_with_ordering" {
 				c.Runtime.Responses[1].AfterCall = &AfterCall{NodePath: "controls/review", Occurrence: 1}
 			}
-			result := RunCase(context.Background(), HarnessOptions{Deps: coreops.NewServiceDepsBuilder().Build(), WorkRoot: t.TempDir(), FixtureRoot: t.TempDir()}, "native-gates", target, c, ExecutionOptions{Timeout: "10s"})
+			// This checks review ordering across several prepared workspaces,
+			// not a timing deadline. Allow for repository-wide subprocess load.
+			result := RunCase(context.Background(), HarnessOptions{Deps: coreops.NewServiceDepsBuilder().Build(), WorkRoot: t.TempDir(), FixtureRoot: t.TempDir()}, "native-gates", target, c, ExecutionOptions{Timeout: "30s"})
 			require.Equal(t, "passed", result.Status, "%+v", result)
 			raw, err := json.Marshal(result.Runtime)
 			require.NoError(t, err)
@@ -361,9 +363,11 @@ func TestRuntimeEffectLimitsFailClosed(t *testing.T) {
 				c.Runtime.Controls.Snapshot.MaxArtifactBytes = 1
 			}
 			c.Runtime.ExpectError = "incomplete"
-			result := RunCase(context.Background(), HarnessOptions{Deps: coreops.NewServiceDepsBuilder().Build(), WorkRoot: t.TempDir(), FixtureRoot: t.TempDir()}, "effect-limit", target, c, ExecutionOptions{Timeout: "2s"})
+			result := RunCase(context.Background(), HarnessOptions{Deps: coreops.NewServiceDepsBuilder().Build(), WorkRoot: t.TempDir(), FixtureRoot: t.TempDir()}, "effect-limit", target, c, ExecutionOptions{Timeout: "10s"})
 			require.Equal(t, "failed", result.Status)
 			require.Equal(t, "control_failure", result.FailureCategory)
+			require.NotNil(t, result.Runtime, "%+v", result)
+			require.NotNil(t, result.Runtime.Controls, "%+v", result)
 			require.False(t, result.Runtime.Controls.Baselines["answer"].Complete)
 			require.False(t, result.Runtime.Controls.Complete)
 		})

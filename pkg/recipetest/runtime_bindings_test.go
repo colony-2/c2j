@@ -92,7 +92,9 @@ func runResponseCase(t *testing.T, c Case, parents ...string) CaseRunResult {
 	require.NoError(t, os.WriteFile(filepath.Join(root, "bad.yaml"), []byte("id: bad\nop: command_execution\ninputs: {run: unused}\n"), 0600))
 	require.NoError(t, os.WriteFile(filepath.Join(root, "part.txt"), []byte("published part"), 0600))
 	c.Mocks.Ops = append(c.Mocks.Ops, OpMock{Match: OpMockMatch{NodePath: "good"}, Behavior: MockBehavior{Mode: "return", Artifacts: map[string]string{"success.txt": "actual artifact"}}}, OpMock{Match: OpMockMatch{NodePath: "bad"}, Behavior: MockBehavior{Mode: "fail", Error: &TestError{Message: "actual child failure"}}})
-	return RunCase(context.Background(), HarnessOptions{Deps: coreops.NewServiceDepsBuilder().Build(), WorkRoot: t.TempDir(), FixtureRoot: root}, "bindings", TargetRecipe{Mode: "inline_recipe", Format: "yaml", Content: parent}, c, ExecutionOptions{Timeout: "10s"})
+	// These cases verify child bindings, including three concurrent parent jobs.
+	// Leave room for Git setup when other integration packages run alongside them.
+	return RunCase(context.Background(), HarnessOptions{Deps: coreops.NewServiceDepsBuilder().Build(), WorkRoot: t.TempDir(), FixtureRoot: root}, "bindings", TargetRecipe{Mode: "inline_recipe", Format: "yaml", Content: parent}, c, ExecutionOptions{Timeout: "30s"})
 }
 
 func TestResponseNativeBindings(t *testing.T) {

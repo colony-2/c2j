@@ -1,6 +1,9 @@
 package template
 
-import "github.com/colony-2/c2j/pkg/cel"
+import (
+	"github.com/colony-2/c2j/pkg/cel"
+	"github.com/colony-2/c2j/pkg/metrics"
+)
 
 // CELOptionsProvider supplies type options (must be applied at env creation)
 // and function options (require adapter) for CEL.
@@ -9,6 +12,9 @@ type CELOptionsProvider = cel.OptionsProvider
 type ResolutionMode string
 
 type ResolutionOptions struct {
+	// Metric views are derived execution state, never restart-patch input.
+	MetricsJob          *metrics.View
+	MetricsScope        *metrics.View
 	Mode                ResolutionMode
 	ValidationMode      string
 	ClampSliceIndex     bool

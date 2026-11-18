@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/colony-2/c2j/pkg/ops/executiondiag"
 	"os/exec"
 	"strings"
 
@@ -15,7 +14,9 @@ import (
 	"github.com/colony-2/c2j/pkg/configuration"
 	"github.com/colony-2/c2j/pkg/execution"
 	"github.com/colony-2/c2j/pkg/jobcontext"
+	"github.com/colony-2/c2j/pkg/metrics"
 	"github.com/colony-2/c2j/pkg/ops"
+	"github.com/colony-2/c2j/pkg/ops/executiondiag"
 	"github.com/colony-2/c2j/pkg/ops/process"
 	"github.com/colony-2/c2j/pkg/secrets"
 	"github.com/colony-2/jobdb/pkg/jobdb"
@@ -208,8 +209,10 @@ func executeExtension(deps ops.OpDependencies, ctx context.Context, input Execut
 		return nil, &execution.Required{Needs: needs}
 	}
 	if err != nil {
+		captureMetricReport(ctx, stdout, true, report.Capture.Truncated(0))
 		return nil, fmt.Errorf("extension op %q failed: %w; stderr: %s", input.Selector, err, executiondiag.Short(strings.TrimSpace(string(report.Capture.Bytes(1)))))
 	}
+	captureMetricReport(ctx, stdout, false, report.Capture.Truncated(0))
 
 	if report.Capture.Truncated(0) {
 		return nil, fmt.Errorf("extension stdout exceeded execution capture limit; JSON result was not decoded")
@@ -274,6 +277,9 @@ func decodeExecutionEnvelope(stdout []byte) (map[string]interface{}, map[string]
 	raw := map[string]interface{}{}
 	dec := json.NewDecoder(bytes.NewReader(trimmed))
 	dec.UseNumber()
+	if !json.Valid(trimmed) {
+		return nil, nil, fmt.Errorf("expected one complete JSON object")
+	}
 	if err := dec.Decode(&raw); err != nil {
 		return nil, nil, err
 	}
@@ -301,4 +307,44 @@ type preparedOpKey struct{}
 // WithPreparedOp supplies a manifest/source prepared before the task deadline.
 func WithPreparedOp(ctx context.Context, op *ResolvedOp) context.Context {
 	return context.WithValue(ctx, preparedOpKey{}, op)
+}
+
+// Metrics are a separate producer channel, recognized only in the existing
+// wrapper protocol. Complete bounded failure stdout is read before returning
+// the original exit error; failure artifacts and objects never reach publication.
+func captureMetricReport(ctx context.Context, stdout []byte, failed, truncated bool) {
+	c := metrics.FromContext(ctx)
+	if c == nil {
+		return
+	}
+	if truncated || len(stdout) > process.CaptureLimit || !json.Valid(stdout) {
+		if failed || truncated {
+			c.Invalidate("unavailable", "extension metric report unavailable")
+		}
+		return
+	}
+	var wrapper map[string]json.RawMessage
+	if json.Unmarshal(stdout, &wrapper) != nil {
+		if failed {
+			c.Invalidate("unavailable", "extension metric report unavailable")
+		}
+		return
+	}
+	output, present := wrapper["output"]
+	var object map[string]json.RawMessage
+	wrapped := present && json.Unmarshal(output, &object) == nil && object != nil
+	// Null is a failure-only wrapper form. Successful scalar/null output fields
+	// retain the legacy plain-object meaning, including business metrics fields.
+	if failed && bytes.Equal(bytes.TrimSpace(output), []byte("null")) {
+		wrapped = true
+	}
+	if !wrapped {
+		if failed {
+			c.Invalidate("unavailable", "extension metric report unavailable")
+		}
+		return
+	}
+	if raw, ok := wrapper["metrics"]; ok {
+		c.Import(raw)
+	}
 }

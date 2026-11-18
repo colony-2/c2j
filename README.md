@@ -89,6 +89,10 @@ See [Inspect jobs and recover saved work](GUIDE-Job-Inspection.md) for task outp
 artifact downloads, child-job inspection, and cumulative snapshots exported as
 ready-to-use Git checkouts.
 
+Use `c2j job metrics JOB` to inspect tagged task counters, gauges and histograms.
+[Task metrics](GUIDE-Task-Metrics.md) explains emission, automatic timings,
+CPU coverage, ordinal/scope filters and completion snapshots.
+
 Use `c2j job clear-crash-concern JOB` to reset a job's crash counter and allow
 normal scheduling to resume on the same job. It supports `--jobdb`, `--embed`,
 `--reason`, `--worker-id`, and `--json`. See [crash-concern recovery](GUIDE-Cortex-RecipeJob-API.md#clear-crash-concern)

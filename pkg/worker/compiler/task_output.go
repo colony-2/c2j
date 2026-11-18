@@ -4,8 +4,8 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"github.com/colony-2/c2j/internal/jsonexact"
 
+	"github.com/colony-2/c2j/internal/jsonexact"
 	coretask "github.com/colony-2/c2j/pkg/task"
 	workerops "github.com/colony-2/c2j/pkg/worker/ops"
 )
@@ -21,7 +21,7 @@ func decodeTaskOutput(outputData []byte) (decodedTaskOutput, error) {
 		return decodedTaskOutput{}, fmt.Errorf("decode task output envelope: %w", err)
 	}
 
-	if env.Version != coretask.OutputEnvelopeVersion {
+	if env.Version != 1 && env.Version != coretask.OutputEnvelopeVersion {
 		return decodedTaskOutput{}, fmt.Errorf("unsupported task output envelope version: %d", env.Version)
 	}
 

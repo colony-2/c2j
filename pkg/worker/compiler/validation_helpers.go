@@ -8,6 +8,7 @@ import (
 
 	recipeartifacts "github.com/colony-2/c2j/pkg/artifacts"
 	"github.com/colony-2/c2j/pkg/jobcontext"
+	"github.com/colony-2/c2j/pkg/metrics"
 	"github.com/colony-2/c2j/pkg/objects"
 	"github.com/colony-2/c2j/pkg/ops"
 	extops "github.com/colony-2/c2j/pkg/ops/extensions"
@@ -194,11 +195,13 @@ func placeholderStepOutput(outputs map[string]interface{}) template.StepOutput {
 	}
 	dyn := template.DynamicOutputs(wrapped)
 	return template.StepOutput{
+		Metrics:   metrics.Empty(0),
 		Outputs:   dyn,
 		Artifacts: map[string]recipeartifacts.Ref{},
 		Jobs:      jobcontext.EmptyStartedJobsContext(),
 		Runs: []template.RunOutput{
 			{
+				Metrics:   metrics.Empty(0),
 				Outputs:   dyn,
 				Artifacts: map[string]recipeartifacts.Ref{},
 				Jobs:      jobcontext.EmptyStartedJobsContext(),

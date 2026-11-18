@@ -218,7 +218,7 @@ func TestHistoryMergeMalformedEvidence(t *testing.T) {
 			require.Equal(t, "unavailable", got[0].EvidenceAvailability)
 		})
 	}
-	for _, envelope := range []string{`{"v":2,"kind":"activity_output","payload":{"output":` + mergeEvidence + `}}`, `{"v":1,"kind":"other","payload":{"output":` + mergeEvidence + `}}`, `{}`} {
+	for _, envelope := range []string{`{"v":99,"kind":"activity_output","payload":{"output":` + mergeEvidence + `}}`, `{"v":1,"kind":"other","payload":{"output":` + mergeEvidence + `}}`, `{}`} {
 		result := historyResult(2, id+"/attempt:1", "{}", mergeEvidence)
 		result.Record.Output.Data = historyRaw(envelope)
 		got := historyMergeProjection(jobdb.JobKey{}, jobdb.GetJobRunResponse{Execution: []jobdb.ExecutionHistoryEntry{historyTask(1, id, "merge:merge"), result}})

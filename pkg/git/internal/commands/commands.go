@@ -3,13 +3,14 @@ package commands
 import (
 	"context"
 	"fmt"
-	"github.com/colony-2/c2j/pkg/gitprofile"
 	"os/exec"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/colony-2/c2j/pkg/git/common"
+	"github.com/colony-2/c2j/pkg/gitprofile"
+	"github.com/colony-2/c2j/pkg/metricsruntime"
 )
 
 // Status represents the current status of a Git repository
@@ -368,7 +369,9 @@ func (r *Repository) configureSparseCheckout(ctx context.Context, repoPath strin
 }
 
 // Fetch downloads objects and refs from remote repository
-func (r *Repository) Fetch(ctx context.Context, nodePath string, remote string, branch string, prune bool, tags bool) error {
+func (r *Repository) Fetch(ctx context.Context, nodePath string, remote string, branch string, prune bool, tags bool) (err error) {
+	finish := metricsruntime.Request(ctx, "git.fetch")
+	defer func() { finish(err) }()
 	if !isGitRepoContext(ctx, nodePath) {
 		return fmt.Errorf("not a git repository")
 	}
@@ -404,6 +407,8 @@ func (r *Repository) Fetch(ctx context.Context, nodePath string, remote string, 
 
 // Pull fetches from remote and integrates into current branch
 func (r *Repository) Pull(ctx context.Context, nodePath string, remote string, branch string, fastForward bool, rebase bool) (updated bool, oldCommit string, newCommit string, conflictFiles []string, err error) {
+	finish := metricsruntime.Request(ctx, "git.pull")
+	defer func() { finish(err) }()
 	if !isGitRepoContext(ctx, nodePath) {
 		return false, "", "", nil, fmt.Errorf("not a git repository")
 	}

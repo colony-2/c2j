@@ -146,7 +146,7 @@ func TestRecipeReplayDoesNotWaitForPreviousActivationCleanup(t *testing.T) {
 				require.Equal(t, jobworkflow.JobRunCompleted, got.out.Status)
 				data, err := got.out.Output.GetData()
 				require.NoError(t, err)
-				require.JSONEq(t, `{"done":true}`, string(data))
+				requireJobOutputJSONEq(t, `{"done":true}`, data)
 				rt.release <- struct{}{}
 				prior := <-firstDone
 				require.NoError(t, prior.err)

@@ -7,12 +7,14 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"github.com/colony-2/c2j/pkg/gitprofile"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/colony-2/c2j/pkg/gitprofile"
+	"github.com/colony-2/c2j/pkg/metricsruntime"
 )
 
 const (
@@ -394,7 +396,11 @@ func isFullGitHash(ref string) bool {
 	return true
 }
 
-func runGitOutput(ctx context.Context, dir string, args ...string) (string, error) {
+func runGitOutput(ctx context.Context, dir string, args ...string) (result string, err error) {
+	if len(args) > 0 {
+		finish := metricsruntime.Request(ctx, "git."+args[0])
+		defer func() { finish(err) }()
+	}
 	cmd := gitprofile.Command(ctx, args...)
 	if dir != "" {
 		cmd.Dir = dir

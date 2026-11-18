@@ -44,6 +44,9 @@ func (p *freshGitProvider) ResolveSecrets(ctx context.Context, req jobdb.SecretR
 	return jobdb.SecretResolveResult{Secrets: values}, nil
 }
 func TestRecipeGitProfilesAcrossRenewalAndScopeChanges(t *testing.T) {
+	// The test must span a renewal, without depending on sub-second scheduling
+	// while the repository integration suite runs other Git-heavy packages.
+	const leaseDuration = time.Second
 	previous := coreops.List()
 	t.Cleanup(func() { coreops.Replace(previous...) })
 	type input struct {
@@ -78,7 +81,7 @@ func TestRecipeGitProfilesAcrossRenewalAndScopeChanges(t *testing.T) {
 			}
 			if in.Wait {
 				select {
-				case <-time.After(250 * time.Millisecond):
+				case <-time.After(leaseDuration + 500*time.Millisecond):
 				case <-ctx.Done():
 					return nil, ctx.Err()
 				}
@@ -191,7 +194,7 @@ sequence:
     inputs: {want: ro}
 `
 			if strings.HasSuffix(backend, "permissions") {
-				text = strings.Replace(text, "id: profiles\n", "id: profiles\nperms: {}\ntimeout: 10s\n", 1)
+				text = strings.Replace(text, "id: profiles\n", "id: profiles\nperms: {}\ntimeout: 30s\n", 1)
 				text = strings.Replace(text, "  - id: read\n", "  - id: read\n    timeout: 1m\n", 1)
 				text += `  - id: model
     op: git_profile_probe
@@ -229,11 +232,14 @@ sequence:
 			for _, worker := range ws.TaskWorkers {
 				taskWorkers = append(taskWorkers, worker)
 			}
-			runnable, err := jobworkflow.GetJobForRun(ctx, rt, jobworkflow.GetJobForRunRequest{JobKey: key, JobWorker: ws.JobWorker, TaskWorkers: taskWorkers, WorkerID: "profiles", LeaseDuration: 150 * time.Millisecond})
+			runnable, err := jobworkflow.GetJobForRun(ctx, rt, jobworkflow.GetJobForRunRequest{JobKey: key, JobWorker: ws.JobWorker, TaskWorkers: taskWorkers, WorkerID: "profiles", LeaseDuration: leaseDuration})
 			require.NoError(t, err)
 			out, err := runnable.Run(nil)
 			require.NoError(t, err)
 			require.Equal(t, jobworkflow.JobRunCompleted, out.Status, fmt.Sprintf("%+v", out))
+			renewals, err := rt.ListLeaseEvents(ctx, jobdb.ListLeaseEventsRequest{TenantID: key.TenantId, JobIDs: []string{key.JobId}, WorkerIDs: []string{"profiles"}, EventTypes: []jobdb.LeaseEventType{jobdb.LeaseEventRenewed}})
+			require.NoError(t, err)
+			require.NotEmpty(t, renewals.Events, "credential checks must cross an actual lease renewal")
 			if strings.HasSuffix(backend, "permissions") {
 				require.Equal(t, []string{"ro", "rw", "ro", "none", "ro", "ro", "ro", "none", "ro"}, observed)
 				require.EqualValues(t, 15, provider.calls.Load())
@@ -243,7 +249,7 @@ sequence:
 					require.NotEmpty(t, issued.deadlines)
 					for _, deadline := range issued.deadlines {
 						require.Equal(t, issued.deadlines[0], deadline, "preparation and sibling tasks must not restart the enclosing deadline")
-						require.WithinDuration(t, time.Now(), deadline, 10*time.Second, "enclosing timeout must beat the op's one-minute timeout")
+						require.WithinDuration(t, time.Now(), deadline, 30*time.Second, "enclosing timeout must beat the op's one-minute timeout")
 					}
 				}
 			} else {

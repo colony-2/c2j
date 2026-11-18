@@ -4,14 +4,20 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/colony-2/c2j/pkg/gitprofile"
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"github.com/colony-2/c2j/pkg/gitprofile"
+	"github.com/colony-2/c2j/pkg/metricsruntime"
 )
 
 // ExecuteGitCommand runs a git command with context
-func ExecuteGitCommand(ctx context.Context, repoPath string, args ...string) ([]byte, error) {
+func ExecuteGitCommand(ctx context.Context, repoPath string, args ...string) (result []byte, err error) {
+	if len(args) > 0 {
+		finish := metricsruntime.Request(ctx, "git."+args[0])
+		defer func() { finish(err) }()
+	}
 	cmd := gitprofile.Command(ctx, args...)
 	cmd.Dir = repoPath
 	output, err := gitprofile.CombinedOutput(ctx, cmd)

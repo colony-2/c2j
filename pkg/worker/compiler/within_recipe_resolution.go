@@ -10,9 +10,11 @@ import (
 	"github.com/colony-2/c2j/pkg/contextual"
 	"github.com/colony-2/c2j/pkg/git/selectorcache"
 	"github.com/colony-2/c2j/pkg/gitprofile"
+	"github.com/colony-2/c2j/pkg/metricsruntime"
 	extops "github.com/colony-2/c2j/pkg/ops/extensions"
 	"github.com/colony-2/c2j/pkg/permissions"
 	"github.com/colony-2/c2j/pkg/recipe"
+	coretask "github.com/colony-2/c2j/pkg/task"
 	"github.com/colony-2/c2j/pkg/workflow"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
@@ -56,6 +58,7 @@ func (w withinRecipeResolutionTaskWorker) RunTask(local context.Context, taskCtx
 
 	ctx, cancel := context.WithCancel(local)
 	defer cancel()
+	metricsruntime.Execution(ctx)
 	resolved, err := resolveSelectors(ctx, req.Selectors, extops.ResolveOptions{
 		RepositorySource: strings.TrimSpace(req.RepositorySource),
 		RepositoryRef:    strings.TrimSpace(req.RepositoryRef),
@@ -84,7 +87,7 @@ func ParseWithinRecipeResolutionJSON(raw []byte) (*WithinRecipeResolutionResult,
 	}
 
 	result := WithinRecipeResolutionResult{}
-	if err := json.Unmarshal(raw, &result); err != nil {
+	if err := coretask.DecodeInternal(raw, &result); err != nil {
 		return nil, fmt.Errorf("decode within recipe resolution payload: %w", err)
 	}
 	return &result, nil

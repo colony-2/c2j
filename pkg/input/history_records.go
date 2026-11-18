@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/colony-2/c2j/pkg/artifacts"
+	"github.com/colony-2/c2j/pkg/task"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 )
 
@@ -214,7 +215,7 @@ func historyOutput(snap *jobdb.ExecutionSnapshot) (json.RawMessage, map[string]j
 		return nil, nil, err
 	}
 	if v, ok := m["v"]; ok {
-		if string(v) != "1" || historyString(m["kind"]) != "activity_output" {
+		if (string(v) != "1" && string(v) != strconv.Itoa(task.OutputEnvelopeVersion)) || historyString(m["kind"]) != string(task.OutputKindActivityInvocationOutput) {
 			return nil, nil, &HistoryError{Kind: ErrHistoryUnsupported, Capability: "activity_output_version"}
 		}
 		m, err = historyFields(m["payload"])

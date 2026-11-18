@@ -6,20 +6,22 @@ import (
 	"log/slog"
 	"strings"
 
+	"github.com/colony-2/c2j/internal/jsonexact"
 	recipeartifacts "github.com/colony-2/c2j/pkg/artifacts"
 	"github.com/colony-2/c2j/pkg/contextual"
 	"github.com/colony-2/c2j/pkg/execution"
+	"github.com/colony-2/c2j/pkg/metrics"
+	"github.com/colony-2/c2j/pkg/metricsruntime"
 	"github.com/colony-2/c2j/pkg/ops"
 	"github.com/colony-2/c2j/pkg/recipe"
 	"github.com/colony-2/c2j/pkg/starter"
+	coretask "github.com/colony-2/c2j/pkg/task"
 	"github.com/colony-2/c2j/pkg/template"
 	workerops "github.com/colony-2/c2j/pkg/worker/ops"
 	"github.com/colony-2/c2j/pkg/workflow"
 	"github.com/colony-2/c2j/pkg/workflowctl"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
-
-	"github.com/colony-2/c2j/internal/jsonexact"
 )
 
 type RecipeJobWorkerOptions struct {
@@ -75,7 +77,7 @@ func NewRecipeJobWorker(opts RecipeJobWorkerOptions) jobworkflow.ExecutionWorker
 		onRecipeLoadedFn:    opts.OnRecipeLoaded,
 		onSourceResolved:    opts.OnRecipeSourceResolved,
 	}
-	return jobworkflow.ExecutionWorker{JobType: starter.RecipeJobType, Execute: j.Run}
+	return jobworkflow.ExecutionWorker{JobType: starter.RecipeJobType, Execute: j.Run, ObserveTaskResults: ObserveTaskMetrics}
 }
 
 func NewRecipeWorker(dependencies ops.ServiceDependencies2, activityRegistry *workerops.ActivityRegistry, provider ...template.CELOptionsProvider) (*jobworkflow.WorkSet, error) {
@@ -94,10 +96,16 @@ func NewRecipeWorkerWithOptions(dependencies ops.ServiceDependencies2, activityR
 	}
 	taskWorkers = append(taskWorkers, newWithinRecipeResolutionTaskWorker(), NewWorkspaceResolutionTaskWorker(), cellContextWorker{}, hookPolicyWorker{}, hookResolveWorker{control: dependencies.WorkflowControl()})
 	taskWorkers = append(taskWorkers, lateSelectWorker{}, lateCaptureWorker{resolver: opts.RootSourceResolver})
-	if opts.WrapTaskWorker != nil {
-		for i, worker := range taskWorkers {
-			taskWorkers[i] = opts.WrapTaskWorker(worker)
+	for i, worker := range taskWorkers {
+		kind := coretask.OutputKindActivityInvocationOutput
+		switch worker.Name() {
+		case RootSourceResolutionTaskType, WithinRecipeResolutionTaskType, WorkspaceResolutionTaskType, CellContextTaskType, hookPolicyTaskType, lateSelectTaskType, lateCaptureTaskType:
+			kind = coretask.OutputKindInternalResult
 		}
+		if opts.WrapTaskWorker != nil {
+			worker = opts.WrapTaskWorker(worker)
+		}
+		taskWorkers[i] = metricsruntime.WrapWorker(worker, kind)
 	}
 	return jobworkflow.AsWorkSetWithOptions(job, jobworkflow.WorkRegistrationOptions{ConsumerVersions: ExecutionConsumerVersions(opts.ConsumerVersions)}, taskWorkers...)
 }
@@ -346,6 +354,24 @@ func (j recipeJobWorker) Run(ctx jobworkflow.ExecutionContext, jobData jobdb.Job
 			exported[name] = recipeartifacts.Ref{Kind: recipeartifacts.RefKindAttached, Name: name}
 		}
 	}
+	// This is outside recipe evaluation: every operation (including bootstrap,
+	// hooks and committed failed attempts) has now been consumed. Do not require
+	// recipes to opt in with an output template or scan retained history here.
+	if _, exists := out[metrics.JobOutputKey]; exists {
+		return nil, fmt.Errorf("job output %q is reserved for task metrics", metrics.JobOutputKey)
+	}
+	out = cloneStringMap(out)
+	if out == nil {
+		out = make(map[string]interface{})
+	}
+	snapshot := metrics.Empty(0)
+	if accumulator := taskMetrics(ctx.Context()); accumulator != nil {
+		snapshot = accumulator.Job().Snapshot()
+	} else {
+		snapshot.Coverage.History = "unavailable"
+		snapshot.Coverage.Diagnostics = []string{"task metric consumer unavailable"}
+	}
+	out[metrics.JobOutputKey] = snapshot
 	taskData, err := jobdb.NewTaskData(out, artifacts...)
 	if err != nil {
 		logger.Debug("recipe job: failed to create task data",

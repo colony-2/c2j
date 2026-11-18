@@ -143,7 +143,7 @@ outputs:
 	require.NoError(t, err)
 	raw, err := result.GetData()
 	require.NoError(t, err)
-	require.JSONEq(t, `{"first":"repo-tool==a","edit":"repo-tool==a","updated":"repo-tool==c","b":"repo-tool==b","child":"repo-tool==b","back":"repo-tool==c","override":"repo-tool==node","empty":"repo-tool==e"}`, string(raw))
+	requireJobOutputJSONEq(t, `{"first":"repo-tool==a","edit":"repo-tool==a","updated":"repo-tool==c","b":"repo-tool==b","child":"repo-tool==b","back":"repo-tool==c","override":"repo-tool==node","empty":"repo-tool==e"}`, raw)
 	installed, err := os.ReadFile(log)
 	require.NoError(t, err)
 	require.ElementsMatch(t, []string{"repo-tool==a", "repo-tool==b", "repo-tool==c", "repo-tool==node", "repo-tool==e"}, strings.Fields(string(installed)))
@@ -179,7 +179,13 @@ outputs:
 	require.NoError(t, err)
 	require.JSONEq(t, string(raw), string(replayed))
 	require.Equal(t, before, calls)
-	// Keep a type check here because these diagnostics are part of durable JSON.
-	var values map[string]string
+	// Business values remain strings in durable JSON; the automatic job
+	// summary is a separate object and is checked above.
+	var values map[string]json.RawMessage
 	require.NoError(t, json.Unmarshal(replayed, &values))
+	delete(values, "c2j_metrics")
+	for _, raw := range values {
+		var value string
+		require.NoError(t, json.Unmarshal(raw, &value))
+	}
 }

@@ -17,6 +17,7 @@ import (
 	"github.com/colony-2/c2j/internal/pathutil"
 	"github.com/colony-2/c2j/pkg/execution"
 	"github.com/colony-2/c2j/pkg/gitprofile"
+	"github.com/colony-2/c2j/pkg/metricsruntime"
 	"github.com/colony-2/c2j/pkg/ops/process"
 )
 
@@ -103,6 +104,8 @@ func (m *Manager) preparePython(ctx context.Context, scopes []Scope, native *nat
 	}
 	sort.Strings(requested.Dependencies)
 	requested.Dependencies = slices.Compact(requested.Dependencies)
+	finish := metricsruntime.Component(ctx, "environment", "python")
+	defer func() { finish(err, diag != nil && diag.Outcome == "reused") }()
 	start := time.Now()
 	diag = &PythonDiagnostic{Scope: scope, Outcome: "failed", Requested: requested}
 	defer func() {

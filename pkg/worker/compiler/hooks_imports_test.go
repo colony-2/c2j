@@ -107,7 +107,7 @@ run: |
 			require.NoError(t, err)
 			raw, err := result.GetData()
 			require.NoError(t, err)
-			require.JSONEq(t, `{"ok":true}`, string(raw))
+			requireJobOutputJSONEq(t, `{"ok":true}`, raw)
 			require.Equal(t, [][]string{{"token"}}, provider.Calls())
 		})
 	}
@@ -164,7 +164,7 @@ outputs: {value: "${{ hook_lower(vars.text) }}"}
 				require.NoError(t, err)
 				raw, err := result.GetData()
 				require.NoError(t, err)
-				require.JSONEq(t, `{"value":"hello"}`, string(raw))
+				requireJobOutputJSONEq(t, `{"value":"hello"}`, raw)
 				// Replay must use the recorded CEL import ref even if its branch moves.
 				commitHookFile(t, foreign, "tools/cel/lower.sh", "printf changed")
 				replay, err := eng.ReplayJobRun(ctx, jobworkflow.ReplayRunRequest{JobKey: key, JobWorker: NewRecipeJobWorker(RecipeJobWorkerOptions{ReadOnlyReplay: true})})

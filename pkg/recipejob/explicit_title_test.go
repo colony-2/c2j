@@ -86,7 +86,11 @@ outputs:
 					out, err := runnable.Run(nil)
 					require.NoError(t, err)
 					require.Equal(t, wf.JobRunCompleted, out.Status, "%+v", out)
-					require.JSONEq(t, `{"value":"original"}`, string(out.Output.GetDataOrPanic()))
+					var values map[string]json.RawMessage
+					require.NoError(t, json.Unmarshal(out.Output.GetDataOrPanic(), &values))
+					require.Len(t, values, 2)
+					require.JSONEq(t, `"original"`, string(values["value"]))
+					require.Contains(t, values, "c2j_metrics")
 					replayed, err := sdk.ReplayJobRun(ctx, wf.ReplayRunRequest{JobKey: ref.Key(), JobWorker: compiler.NewRecipeJobWorker(compiler.RecipeJobWorkerOptions{ReadOnlyReplay: true})})
 					require.NoError(t, err)
 					require.JSONEq(t, string(out.Output.GetDataOrPanic()), string(replayed.GetDataOrPanic()))
