@@ -5,11 +5,19 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/colony-2/c2j/pkg/cellref"
+	"github.com/colony-2/c2j/pkg/childbroker"
+	"github.com/colony-2/c2j/pkg/jobcontext"
+	"github.com/colony-2/c2j/pkg/jobdbschema"
+	"github.com/colony-2/c2j/pkg/jobref"
+	"github.com/stretchr/testify/require"
+	"net/http"
 	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -1195,4 +1203,63 @@ func commitRepo(t *testing.T, repoDir string, message string) {
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("git commit failed: %v\n%s", err, out)
 	}
+}
+
+func TestRun_BrokerSubmissionAndConfiguredImmediateExecution(t *testing.T) {
+	ctx, cancel := context.WithTimeout(celltest.Context(context.Background()), 30*time.Second)
+	defer cancel()
+	root, _ := createGitRepo(t)
+	rt := toyruntime.New()
+	celltest.Create(t, rt, "broker-run", "app", celltest.Repo(root))
+	sdk, err := jobworkflow.NewEngineBuilder().WithRuntime(rt).BuildEngine()
+	require.NoError(t, err)
+	engine := jobdbschema.WorkflowEngine{Engine: sdk, Registry: rt}
+	ctx = jobref.WithScope(ctx, jobref.Scope{ResolveCell: cellref.Registry(rt, "broker-run")})
+	current := jobcontext.Current{TenantID: "broker-run", GoalID: "parent-goal", JobID: "parent", InvocationHash: "parent-invocation"}
+	broker, err := childbroker.Start(ctx, childbroker.Options{Current: current, Submitter: engine})
+	require.NoError(t, err)
+	defer broker.Close()
+	for k, v := range jobcontext.EnvForCurrent(current) {
+		t.Setenv(k, v)
+	}
+	for k, v := range broker.Env() {
+		t.Setenv(k, v)
+	}
+	var directPublications atomic.Int32
+	handler := celltest.Handler(remoteruntime.NewServer(rt))
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == "POST" && strings.HasSuffix(r.URL.Path, "/jobs") {
+			directPublications.Add(1)
+		}
+		handler.ServeHTTP(w, r)
+	}))
+	defer server.Close()
+	path := filepath.Join(t.TempDir(), "recipe.yaml")
+	require.NoError(t, os.WriteFile(path, []byte(`id: broker_run
+version: "1"
+input_schema:
+ prompt: {type: string}
+inputs:
+ prompt: "{{ inputs.prompt }}"
+sequence: []
+outputs:
+ received: "{{ inputs.prompt }}"
+`), 0600))
+	var out bytes.Buffer
+	require.NoError(t, Run(ctx, Options{JobDBURI: server.URL + "/broker-run", WorkingDir: root, Cell: "app", RecipeFile: path, Prompt: "execute through direct runtime", RunAfterSubmit: true, Stdout: &out, Stderr: &out, Stdin: strings.NewReader("")}), out.String())
+	started := broker.StartedJobs().Items
+	require.Len(t, started, 1)
+	require.Zero(t, directPublications.Load())
+	run, err := sdk.GetJobRun(ctx, jobdb.GetJobRunRequest{JobKey: jobdb.JobKey{TenantId: "broker-run", JobId: started[0].JobID}, IncludeOutputs: true})
+	require.NoError(t, err)
+	output, err := run.GetOutput(sdk, "broker-run")
+	require.NoError(t, err)
+	raw, err := output.GetData()
+	require.NoError(t, err)
+	var result map[string]any
+	require.NoError(t, json.Unmarshal(raw, &result))
+	require.Equal(t, "execute through direct runtime", result["received"])
+	jobs, err := rt.ListJobs(ctx, jobdb.ListJobsRequest{TenantIds: []string{"broker-run"}})
+	require.NoError(t, err)
+	require.Len(t, jobs.Jobs, 1)
 }

@@ -238,7 +238,7 @@ func TestRestoredGoalSchema(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if hash != "sha256:ad11d56c09204001f5477d1cb9899ebe9f5e559cd9fb62e8341069b62b362b81" {
+	if hash != "sha256:effefa237ec37c489b9239d3bccb270e86f68e0520acea50fd8151f638d7783e" {
 		t.Fatalf("unexpected schema hash: %s", hash)
 	}
 	for _, extra := range []string{"", `,"goal_id":"stale"`, `,"unknown":true`, `,"job_id":12`} {
@@ -278,5 +278,43 @@ func TestGoalSelectionPreservesSchemaRouting(t *testing.T) {
 		if (len(job.Schema.Schema) != 0) != (goal != "") {
 			t.Fatal("changed inline schema routing")
 		}
+	}
+}
+
+func TestSchemaInheritedGitProfile(t *testing.T) {
+	for _, tc := range []struct {
+		profile string
+		valid   bool
+	}{
+		{`{"explicit":true}`, true},
+		{`{"explicit":true,"value":"worker-read","publish":false}`, true},
+		{`{"explicit":true,"value":null}`, true},
+		{`{"explicit":true,"value":{"configuration":"read-profile"}}`, true},
+		{`"worker-read"`, false},
+		{`{"explicit":"yes"}`, false},
+		{`{"publish":"yes"}`, false},
+		{`{"unknown":true}`, false},
+	} {
+		t.Run(tc.profile, func(t *testing.T) {
+			ctx := celltest.Context(context.Background())
+			rt := toyruntime.New()
+			celltest.Create(t, rt, "tenant", "test", "example.test/test")
+			hash, err := Hash()
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = rt.RegisterJobSchema(ctx, jobdb.RegisterJobSchemaRequest{TenantId: "tenant", Schema: Schema()})
+			if err != nil {
+				t.Fatal(err)
+			}
+			raw := json.RawMessage(`{"tenantId":"tenant","cell":"test","cell_repo":"example.test/test","recipe":"build","context":{"git_profile":` + tc.profile + `}}`)
+			_, err = rt.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "tenant", JobID: "dest", Cell: "test", CellRepo: "example.test/test", JobType: "recipe", Schema: &jobdb.JobSchemaSelector{Hash: hash}, Data: &jobdb.SimpleTaskData{Data: raw}}})
+			if tc.valid && err != nil {
+				t.Fatal(err)
+			}
+			if !tc.valid && err == nil {
+				t.Fatal("invalid Git profile shape accepted")
+			}
+		})
 	}
 }

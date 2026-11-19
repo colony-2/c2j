@@ -219,5 +219,5 @@ func (s *captureSubmitter) SubmitJobRef(_ context.Context, job jobdb.SubmitJob) 
 		jobID = "captured-child"
 	}
 	s.lastKey = jobdb.JobKey{TenantId: job.TenantId, JobId: jobID}
-	return jobref.Ref{TenantID: s.lastKey.TenantId, JobID: s.lastKey.JobId, GoalID: "goal-" + s.lastKey.JobId}, nil
+	return jobref.Ref{Cell: job.Cell, CellID: "cell-" + job.Cell, CellRepo: job.CellRepo, TenantID: s.lastKey.TenantId, JobID: s.lastKey.JobId, GoalID: "goal-" + s.lastKey.JobId}, nil
 }

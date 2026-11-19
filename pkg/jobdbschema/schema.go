@@ -15,7 +15,7 @@ import (
 
 var c2jJobSchema = json.RawMessage(`{
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "description": "c2j recipe execution chapter schema v5 (grouped recipe contributions)",
+  "description": "c2j recipe execution chapter schema v6 (inherited Git profile)",
   "firstChapterShape": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "type": "object",
@@ -365,6 +365,15 @@ var c2jJobSchema = json.RawMessage(`{
       "jobContext": {
         "type": "object",
         "properties": {
+          "git_profile": {
+            "type": "object",
+            "properties": {
+              "explicit": { "type": "boolean" },
+              "value": {},
+              "publish": { "type": "boolean" }
+            },
+            "additionalProperties": false
+          },
           "inherited_permissions": {
             "$ref": "#/$defs/inheritedPermissions"
           },

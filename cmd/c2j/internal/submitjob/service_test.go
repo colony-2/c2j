@@ -324,13 +324,21 @@ type submitjobCaptureSubmitter struct {
 	last  jobdb.SubmitJob
 }
 
-func (s *submitjobCaptureSubmitter) SubmitJobRef(_ context.Context, job jobdb.SubmitJob) (jobref.Ref, error) {
+func (s *submitjobCaptureSubmitter) SubmitJobRef(ctx context.Context, job jobdb.SubmitJob) (jobref.Ref, error) {
 	s.calls++
 	s.last = job
 	if s.last.JobID == "" {
 		s.last.JobID = "captured-child"
 	}
-	return jobref.Ref{GoalID: "test-goal", TenantID: job.TenantId, JobID: s.last.JobID}, nil
+	cell := jobdb.ResolvedCell{Cell: job.Cell, CellID: "cell-" + job.Cell, CellRepo: job.CellRepo}
+	if scope, ok := jobref.FromContext(ctx); ok && scope.ResolveCell != nil {
+		var err error
+		cell, err = scope.ResolveCell(ctx, job.Cell)
+		if err != nil {
+			return jobref.Ref{}, err
+		}
+	}
+	return jobref.Ref{Cell: cell.Cell, CellID: cell.CellID, CellRepo: cell.CellRepo, GoalID: "test-goal", TenantID: job.TenantId, JobID: s.last.JobID}, nil
 }
 
 func TestLoadInputsAddsPromptField(t *testing.T) {

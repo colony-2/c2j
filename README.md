@@ -913,7 +913,12 @@ instead of the old `next_need` and flat `task_wait_*` fields. The human-readable
 ## Parent and child jobs
 
 Commands and extensions can run nested `c2j submit` calls that automatically
-record parentage through the current job's child-submission broker. See the
+record parentage through the current job's child-submission broker. Valid worker
+context supplies the tenant, so broker submission (including selected requests and
+replay) needs no direct JobDB configuration. Optional direct configuration must
+still be valid and match that tenant. Broker failures return errors without
+falling back to direct or embedded submission. `submit --run` requires matching
+direct configuration so it can execute the submitted job. See the
 [parent and child jobs guide](C2J_CHILD_JOBS_GUIDE.md) for setup, complete recipe
 examples, child listing, result handling, environment variables, and limits.
 

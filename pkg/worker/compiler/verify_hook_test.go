@@ -72,3 +72,52 @@ func TestVerifyHookReport(t *testing.T) {
 	_, err = os.Stat(filepath.Join(root, "never-execute"))
 	require.True(t, os.IsNotExist(err), "candidate input must be treated as data")
 }
+
+func TestVerifyHookSubmissionEnvironmentAndGate(t *testing.T) {
+	data, err := os.ReadFile("../../../.c2/recipes/hooks/build/verify.yaml")
+	require.NoError(t, err)
+	r, err := recipe.LoadRecipeFromString(data)
+	require.NoError(t, err)
+	state := r.RecipeImpl.(*recipe.RecipeState)
+	node := state.States.States["test_integration"].Node.NodeImpl.(*recipe.NodeOp)
+	for _, failGate := range []bool{false, true} {
+		t.Run(fmt.Sprint(failGate), func(t *testing.T) {
+			root := t.TempDir()
+			bin := filepath.Join(root, "bin")
+			outbox := filepath.Join(root, "outbox")
+			require.NoError(t, os.Mkdir(bin, 0700))
+			require.NoError(t, os.Mkdir(outbox, 0700))
+			// Run the hook's actual shell with a recording Go command. It rejects leaked
+			// live routing and proves a failed process gate prevents the broad suite.
+			mock := `#!/bin/bash
+set -eu
+for variable in ${!C2J_CURRENT_@} ${!C2J_CHILD_JOB_@} ${!C2J_WORKSPACE_@}; do exit 91; done
+test -z "${C2J_JOBDB+x}${C2J_TENANT_ID+x}${C2J_OBJECT_OUTBOX+x}${C2J_TEST_SUBMIT_BINARY+x}"
+test "$GOWORK" = off
+printf '%s\n' "$*" >> "$COMMANDS"
+if [[ "$*" == *TestBrokerOnlyCLI* ]] && [ "$FAIL_GATE" = true ]; then exit 42; fi
+`
+			require.NoError(t, os.WriteFile(filepath.Join(bin, "go"), []byte(mock), 0700))
+			commands := filepath.Join(root, "commands")
+			cmd := exec.Command("bash", "-c", node.Inputs["run"].(string))
+			cmd.Dir = root
+			cmd.Env = append(os.Environ(), "PATH="+bin+":"+os.Getenv("PATH"), "OUTBOX="+outbox, "COMMANDS="+commands, fmt.Sprintf("FAIL_GATE=%t", failGate), "C2J_CURRENT_JOB_ID=live", "C2J_CHILD_JOB_TOKEN=live", "C2J_WORKSPACE_ROOT=live", "C2J_JOBDB=embed:///", "C2J_TENANT_ID=live", "C2J_OBJECT_OUTBOX=live", "C2J_TEST_SUBMIT_BINARY=/stale/c2j")
+			out, err := cmd.CombinedOutput()
+			if failGate {
+				require.Error(t, err)
+				require.Equal(t, 42, cmd.ProcessState.ExitCode())
+			} else {
+				require.NoError(t, err, string(out))
+			}
+			raw, err := os.ReadFile(commands)
+			require.NoError(t, err)
+			require.Contains(t, string(raw), "-run ^TestBrokerOnlyCLI")
+			if failGate {
+				require.NotContains(t, string(raw), "-tags=integration")
+			} else {
+				require.Contains(t, string(raw), "-run ^TestSubmission")
+				require.Contains(t, string(raw), "-tags=integration")
+			}
+		})
+	}
+}

@@ -14,6 +14,7 @@ import (
 )
 
 type Options struct {
+	route                 *submissionRoute
 	GoalID                string
 	JobID                 string
 	RequestFile           string
@@ -82,13 +83,11 @@ func (o *Options) Complete(ctx context.Context) error {
 			o.WorkingDir = absPath
 		}
 	}
-	target, err := defaults.ResolveJobDBTarget(ctx, o.WorkingDir, o.JobDBURI)
+	route, err := resolveSubmissionRoute(ctx, o)
 	if err != nil {
 		return err
 	}
-	o.JobDBURI = target.URI
-	o.SWFURL = target.RuntimeURL
-	o.TenantID = target.TenantID
+	o.route = route
 	return nil
 }
 
@@ -111,7 +110,7 @@ func (o Options) Validate() error {
 	if strings.TrimSpace(o.TenantID) == "" {
 		return fmt.Errorf("--jobdb is required (or %s, or project jobdb)", defaults.JobDBEnv)
 	}
-	if strings.TrimSpace(o.SWFURL) == "" {
+	if strings.TrimSpace(o.SWFURL) == "" && (o.route == nil || !o.route.hasBroker) {
 		return fmt.Errorf("--jobdb is required (or %s, or project jobdb)", defaults.JobDBEnv)
 	}
 	if strings.TrimSpace(o.Recipe) != "" && strings.TrimSpace(o.RecipeFile) != "" {

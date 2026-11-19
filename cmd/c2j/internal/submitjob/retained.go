@@ -14,6 +14,7 @@ import (
 	"github.com/colony-2/c2j/pkg/jobref"
 	"github.com/colony-2/c2j/pkg/starter"
 	"github.com/colony-2/c2j/pkg/workflowctl"
+	"github.com/colony-2/jobdb/pkg/jobdb"
 )
 
 type retainedSubmission struct {
@@ -60,7 +61,7 @@ func saveRetained(path string, d retainedSubmission) error {
 	ok = true
 	return nil
 }
-func replaySelected(ctx context.Context, opts Options) error {
+func replaySelected(ctx context.Context, opts Options, route *submissionRoute) error {
 	raw, err := os.ReadFile(opts.ReplayFile)
 	if err != nil {
 		return err
@@ -79,22 +80,17 @@ func replaySelected(ctx context.Context, opts Options) error {
 	if job.TenantId != retained.TenantID || job.GoalID == "" {
 		return fmt.Errorf("invalid retained selected submission")
 	}
-	broker, hasBroker, err := jobcontext.ChildJobBrokerFromEnv(os.Getenv)
+	if route.hasBroker != retained.Broker {
+		return fmt.Errorf("retained submission route changed")
+	}
+	handle, err := route.openRuntime(ctx, opts.SWFURL, swfruntime.Open)
 	if err != nil {
 		return err
 	}
-	if hasBroker != retained.Broker {
-		return fmt.Errorf("retained submission route changed")
-	}
-	var handle *swfruntime.Handle
-	if !hasBroker {
-		handle, err = swfruntime.Open(ctx, opts.SWFURL)
-		if err != nil {
-			return err
-		}
+	if handle != nil {
 		defer handle.Cleanup()
 	}
-	return publishRetained(ctx, opts, retained, broker, handle)
+	return publishRetained(ctx, opts, retained, route.broker, handle)
 }
 func publishRetained(ctx context.Context, opts Options, d retainedSubmission, broker jobcontext.ChildJobBroker, handle *swfruntime.Handle) error {
 	var start workflowctl.StartJob
@@ -106,6 +102,9 @@ func publishRetained(ctx context.Context, opts Options, d retainedSubmission, br
 		ref, err := childbroker.SubmitSelected(ctx, broker, d.Descriptor)
 		if err != nil {
 			return fmt.Errorf("selected submission ambiguous or rejected; retain request and destination: %w", err)
+		}
+		if ref.Cell != d.Descriptor.Job.Cell || ref.CellRepo != d.Descriptor.Job.CellRepo || ref.Recipe != start.RecipeName {
+			return jobdb.ErrSubmissionReceiptUnavailable
 		}
 		result = submitResult{Cell: ref.Cell, CellID: ref.CellID, CellRepo: ref.CellRepo, TenantID: ref.TenantID, JobID: ref.JobID, GoalID: ref.GoalID, Recipe: ref.Recipe}
 	} else {

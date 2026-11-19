@@ -14,7 +14,6 @@ import (
 	"github.com/colony-2/c2j/cmd/c2j/internal/swfruntime"
 	"github.com/colony-2/c2j/pkg/cellref"
 	"github.com/colony-2/c2j/pkg/childbroker"
-	"github.com/colony-2/c2j/pkg/jobcontext"
 	"github.com/colony-2/c2j/pkg/jobref"
 	"github.com/colony-2/c2j/pkg/recipe"
 	"github.com/colony-2/c2j/pkg/recipejob"
@@ -46,7 +45,7 @@ func Run(ctx context.Context, opts Options) error {
 		return err
 	}
 	if opts.ReplayFile != "" {
-		return replaySelected(ctx, opts)
+		return replaySelected(ctx, opts, opts.route)
 	}
 	inputs, err := loadInputs(opts)
 	if err != nil {
@@ -58,17 +57,8 @@ func Run(ctx context.Context, opts Options) error {
 
 	c2jops.Register()
 
-	parentContext, err := parentContextFromEnv(opts.TenantID)
-	if err != nil {
-		return err
-	}
-	broker, hasBroker, err := jobcontext.ChildJobBrokerFromEnv(os.Getenv)
-	if err != nil {
-		return err
-	}
-	if hasBroker && parentContext == nil {
-		return fmt.Errorf("child job broker context requires current job context env")
-	}
+	route := opts.route
+	parentContext, broker, hasBroker := route.parent, route.broker, route.hasBroker
 
 	if opts.FromWorkspace && !hasBroker {
 		return fmt.Errorf("--from-workspace requires current task workspace context; use --from-workspace-now outside a running task")
@@ -86,21 +76,20 @@ func Run(ctx context.Context, opts Options) error {
 		return err
 	}
 
-	var runtimeHandle *swfruntime.Handle
+	runtimeHandle, err := route.openRuntime(ctx, opts.SWFURL, swfruntime.Open)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if runtimeHandle != nil {
+			runtimeHandle.Cleanup()
+		}
+	}()
 	if hasBroker {
 		target, err = recipejob.ResolveRegisteredTarget(ctx, target, func(ctx context.Context, name string) (jobdb.ResolvedCell, error) {
 			return childbroker.ResolveCell(ctx, broker, name)
 		})
 	} else {
-		runtimeHandle, err = swfruntime.Open(ctx, opts.SWFURL)
-		if err != nil {
-			return err
-		}
-		defer func() {
-			if runtimeHandle != nil {
-				runtimeHandle.Cleanup()
-			}
-		}()
 		target, err = recipejob.ResolveRegisteredTarget(ctx, target, cellref.Registry(runtimeHandle.Runtime, opts.TenantID))
 	}
 	if err != nil {
@@ -201,6 +190,13 @@ func Run(ctx context.Context, opts Options) error {
 		if err != nil {
 			return err
 		}
+		ref := jobref.Ref{Cell: resp.Cell, CellID: resp.CellID, CellRepo: resp.CellRepo, TenantID: resp.TenantID, JobID: resp.JobID, GoalID: resp.GoalID}
+		if err := ref.ValidateSelected(jobdb.SubmitJob{TenantId: start.TenantId, JobID: start.JobID, GoalID: resp.GoalID}); err != nil {
+			return err
+		}
+		if resp.Cell != target.CellName || resp.CellID != target.CellID || resp.CellRepo != target.CellRepo || resp.Recipe != recipeName {
+			return jobdb.ErrSubmissionReceiptUnavailable
+		}
 		result = submitResult{
 			Cell: resp.Cell, CellID: resp.CellID, CellRepo: resp.CellRepo,
 			TenantID: resp.TenantID,
@@ -253,18 +249,6 @@ func Run(ctx context.Context, opts Options) error {
 		Stdout:         opts.Stdout,
 		Stderr:         opts.Stderr,
 	})
-}
-
-func parentContextFromEnv(tenantID string) (*jobcontext.Parent, error) {
-	if parent, ok, err := jobcontext.ParentFromEnv(os.Getenv); err != nil {
-		return nil, err
-	} else if ok {
-		if strings.TrimSpace(parent.TenantID) != strings.TrimSpace(tenantID) {
-			return nil, fmt.Errorf("child job submission must use the current tenant %q; got %q", parent.TenantID, tenantID)
-		}
-		return &parent, nil
-	}
-	return nil, nil
 }
 
 func writeSubmitResult(opts Options, result submitResult) error {
