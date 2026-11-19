@@ -123,7 +123,7 @@ func Run(ctx context.Context, opts Options) error {
 type runnerDeps struct {
 	importLease      func(context.Context, remoteruntime.LeaseCapability) (jobdb.RenewableExecutionLease, error)
 	executionRuntime *executionruntime.Runtime
-	runtime          jobdb.WorkflowRuntime
+	runtime          jobdb.ConsumerRuntime
 	engine           jobworkflow.Engine
 	taskWorkers      []jobworkflow.TaskWorker
 	celProvider      template.CELOptionsProvider

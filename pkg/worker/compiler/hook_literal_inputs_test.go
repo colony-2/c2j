@@ -71,7 +71,7 @@ outputs:
 const literalHookBindings = `{request: '${{ inputs.request }}', candidate: '${{ context.git.hash }}'}`
 
 // Supply the request as submission data, never as authored template source.
-func submitLiteralHook(t *testing.T, rt jobdb.WorkflowRuntime, repo, ref, body, request string) jobdb.JobKey {
+func submitLiteralHook(t *testing.T, rt jobdb.ConsumerRuntime, repo, ref, body, request string) jobdb.JobKey {
 	t.Helper()
 	ctx := celltest.Context(context.Background())
 	celltest.Create(t, rt, "hooks", "test", celltest.Repo(repo))
@@ -207,7 +207,7 @@ func TestHookLiteralInputsResume(t *testing.T) {
 				workspaceTestWorker(t)
 				rt := newTimeoutReproRuntime(t, "sqlite")
 				key := submitLiteralHook(t, rt, repo, "main", literalHookRecipe("", literalHookBindings), literalHookRequest)
-				fault := &gitOutcomeInterruption{WorkflowRuntime: rt, match: ":" + phase + `"`}
+				fault := &gitOutcomeInterruption{ConsumerRuntime: rt, match: ":" + phase + `"`}
 				_, err := runGitLifecycle(t, fault, key)
 				require.Error(t, err)
 				require.True(t, fault.fired)

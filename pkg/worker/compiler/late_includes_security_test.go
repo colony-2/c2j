@@ -154,7 +154,7 @@ func TestLateIncludeGitAuthorityBeforeFetch(t *testing.T) {
 			}
 			profile, _ := json.Marshal(gitprofile.Profile{Version: 1, Entries: []gitprofile.Entry{{URL: f.url, Username: "bot", SecretRef: "missing"}}})
 			rt := newTimeoutReproRuntime(t, "sqlite")
-			_, err := rt.WorkflowRuntime.(interface {
+			_, err := rt.ConsumerRuntime.(interface {
 				SetTenantConfigurationValue(context.Context, jobdb.SetTenantConfigurationValueRequest) (string, error)
 			}).SetTenantConfigurationValue(testBackground(), jobdb.SetTenantConfigurationValueRequest{TenantID: "scope-tests", Name: gitprofile.ProfilePrefix + "private", Value: profile})
 			require.NoError(t, err)

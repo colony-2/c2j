@@ -42,7 +42,7 @@ func TestSelectedCLILostResponseRetainsExactRequest(t *testing.T) {
 	require.NoError(t, os.WriteFile(recipeFile, []byte(workspaceSubmitRecipe), 0600))
 	requestFile := filepath.Join(t.TempDir(), "request.json")
 	var publications atomic.Int32
-	h := remote.NewServer(rt)
+	h := remote.NewConsumerServer(rt)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		r = r.WithContext(runtimetest.PrimaryGoalContext(r.Context()))
 		if strings.HasSuffix(r.URL.Path, "/primary-goal") {
@@ -140,7 +140,7 @@ func TestSelectedCLIWorkspaceRoutes(t *testing.T) {
 					t.Setenv(k, v)
 				}
 			} else {
-				h := remote.NewServer(rt)
+				h := remote.NewConsumerServer(rt)
 				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 					h.ServeHTTP(w, r.WithContext(runtimetest.PrimaryGoalContext(r.Context())))
 				}))

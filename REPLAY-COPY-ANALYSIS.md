@@ -4,7 +4,7 @@ Measured on 2026-10-29 in the current checkout, Linux/arm64, Go 1.27.2, with six
 
 ## Replay reproduction
 
-Input: `job-3LIeAglwSRxG36xoys9kJOwiy19-chapters.json`, 162 chapters, approximately 7.3 MB. An in-memory WorkflowRuntime reader supplies the exported chapters/job metadata to the real `live.BuildJobRunStory`; it executes no tasks.
+Input: `job-3LIeAglwSRxG36xoys9kJOwiy19-chapters.json`, 162 chapters, approximately 7.3 MB. An in-memory historical runtime reader supplies the exported chapters/job metadata to the real `live.BuildJobRunStory`; it executes no tasks.
 
 The checkout was c2j `fa36a8a` with JobDB `v0.0.64-0.20261029043940-9c44e3e3bfa1`; `run.log` came from older c2j `7af6c5c` and JobDB `v0.0.64`. These are local reproduction results, not timings from the original server.
 

@@ -30,9 +30,9 @@ func TestGoalDiscovery(t *testing.T) {
 			db, err := sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: filepath.Join(t.TempDir(), "jobs.db")})
 			require.NoError(t, err)
 			t.Cleanup(func() { require.NoError(t, db.Close(ctx)) })
-			var rt jobdb.WorkflowRuntime = db
+			var rt jobdb.ConsumerRuntime = db
 			if backend == "http" {
-				handler := remote.NewServer(db)
+				handler := remote.NewConsumerServer(db)
 				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 					handler.ServeHTTP(w, r.WithContext(jobdb.WithPrimaryGoalSelectionAuthorizer(celltest.Context(r.Context()), func(context.Context, jobdb.GoalKey, jobdb.ResolvedCell) error { return nil })))
 				}))
@@ -44,7 +44,7 @@ func TestGoalDiscovery(t *testing.T) {
 			sdk, err := wf.NewEngineBuilder().WithRuntime(wrapped).BuildEngine()
 			require.NoError(t, err)
 			engine := jobdbschema.WorkflowEngine{Engine: sdk, Registry: struct {
-				jobdb.WorkflowRuntime
+				jobdb.ConsumerRuntime
 				jobdb.JobSchemaRegistry
 			}{wrapped, rt.(jobdb.JobSchemaRegistry)}}
 			submit := func(id, repo, goal string, deps ...jobdb.Dependency) jobdb.JobHandle {
@@ -52,7 +52,7 @@ func TestGoalDiscovery(t *testing.T) {
 				metadata, err := json.Marshal(map[string]string{"repo": repo, "cell_name": "root"})
 				require.NoError(t, err)
 				celltest.Create(t, struct {
-					jobdb.WorkflowRuntime
+					jobdb.ConsumerRuntime
 					jobdb.JobSchemaRegistry
 				}{wrapped, rt.(jobdb.JobSchemaRegistry)}, "t", "test", "example.test/test")
 				h, err := engine.SubmitJob(ctx, jobdb.SubmitJob{TenantId: "t", JobID: id, GoalID: goal, JobType: "candidate", Data: jobdb.NewTaskDataOrPanic(map[string]any{}), Metadata: metadata, Dependencies: deps, Cell: "test", CellRepo: "example.test/test"})

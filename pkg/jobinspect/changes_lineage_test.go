@@ -36,7 +36,7 @@ func TestChangesJ20J21J31J40ForeignLineageAndRestart(t *testing.T) {
 			require.NoError(t, e)
 			beforeChild, e := changestest.Inventory(ctx, rt, child.Job)
 			require.NoError(t, e)
-			readOnly := &changestest.ReadOnlyRuntime{WorkflowRuntime: rt}
+			readOnly := &changestest.ReadOnlyRuntime{ConsumerRuntime: rt}
 			api = changesAPI(t, readOnly, jobinspect.ChangesConfig{})
 			ch, e := api.History(ctx, jobinspect.ChangesRequest{JobID: child.Job.JobId})
 			require.NoError(t, e)

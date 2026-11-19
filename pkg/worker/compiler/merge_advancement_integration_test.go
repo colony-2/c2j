@@ -35,20 +35,20 @@ type mergeCaptureInput struct {
 
 // Stop after the real task error is durable, before recipe catch consumes it.
 type mergeOutcomeInterruption struct {
-	jobdb.WorkflowRuntime
+	jobdb.ConsumerRuntime
 	lease  jobdb.ExecutionLease
 	fired  bool
 	cancel context.CancelFunc
 }
 
 func (r *mergeOutcomeInterruption) GetJobLease(ctx context.Context, req jobdb.GetJobLeaseRequest) (jobdb.ExecutionLease, error) {
-	lease, err := r.WorkflowRuntime.GetJobLease(ctx, req)
+	lease, err := r.ConsumerRuntime.GetJobLease(ctx, req)
 	r.lease = lease
 	return lease, err
 }
 
 func (r *mergeOutcomeInterruption) PutChapter(ctx context.Context, req jobdb.PutChapterRequest) error {
-	if err := r.WorkflowRuntime.PutChapter(ctx, req); err != nil {
+	if err := r.ConsumerRuntime.PutChapter(ctx, req); err != nil {
 		return err
 	}
 	if body, ok := req.Chapter.Body.(jobdb.ExecutionChapter); ok && !r.fired {
@@ -170,7 +170,7 @@ outputs:
 				_, err := recipe.LoadRecipeFromString([]byte(yaml))
 				require.NoError(t, err)
 				rt := newTimeoutReproRuntime(t, backend)
-				fault := &mergeOutcomeInterruption{WorkflowRuntime: rt}
+				fault := &mergeOutcomeInterruption{ConsumerRuntime: rt}
 				first := newWorker()
 				job := contextual.JobContext{Workflow: contextual.WorkflowContext{CellName: "source"}, GitBase: contextual.GitBaseContext{BaseRepo: remote, BaseRef: "main"}}
 				data := jobdb.NewTaskDataOrPanic(workflowctl.StartJob{TenantId: "merge-tests", RecipeName: "merge-catch", JobContext: job, GitRef: "main", Cell: "test", CellRepo: celltest.Repo(job.GitBase.BaseRepo)}, jobdb.NewArtifactFromBytes("merge-catch"+starter.RecipeArtifactSuffix, []byte(yaml)))
@@ -178,7 +178,7 @@ outputs:
 				handle, err := rt.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "merge-tests", JobType: "recipe", Data: data, RunPolicy: jobdb.RunPolicy{Retry: jobdb.RetryPolicy{MaximumAttempts: 1}}, Cell: "test", CellRepo: celltest.Repo(job.GitBase.BaseRepo)}})
 				require.NoError(t, err)
 				key := handle.JobKey
-				run := func(runtime jobdb.WorkflowRuntime, ws *jobworkflow.WorkSet) (jobworkflow.JobRunOutcome, error) {
+				run := func(runtime jobdb.ConsumerRuntime, ws *jobworkflow.WorkSet) (jobworkflow.JobRunOutcome, error) {
 					runContext := ctx
 					if runtime == fault {
 						runContext, fault.cancel = context.WithCancel(ctx)

@@ -18,7 +18,7 @@ import (
 )
 
 type timeoutReproRuntime struct {
-	jobdb.WorkflowRuntime
+	jobdb.ConsumerRuntime
 	mu          sync.Mutex
 	handoffs    []timeoutReproHandoff
 	completions []jobdb.CompleteExecutionRequest
@@ -47,7 +47,7 @@ func (l *timeoutReproLease) LeaseWorkerID() string {
 }
 
 func (r *timeoutReproRuntime) GetJobLease(ctx context.Context, req jobdb.GetJobLeaseRequest) (jobdb.ExecutionLease, error) {
-	l, err := r.WorkflowRuntime.GetJobLease(ctx, req)
+	l, err := r.ConsumerRuntime.GetJobLease(ctx, req)
 	if err != nil || l == nil {
 		return l, err
 	}
@@ -81,7 +81,7 @@ func (r *timeoutReproRuntime) lastHandoff(t *testing.T) timeoutReproHandoff {
 
 func newTimeoutReproRuntime(t *testing.T, backend string) *timeoutReproRuntime {
 	t.Helper()
-	var rt jobdb.WorkflowRuntime = toy.New()
+	var rt jobdb.ConsumerRuntime = toy.New()
 	if backend != "toy" {
 		s, err := sqlite.NewFromConfig(celltest.Context(context.Background()), sqlite.Config{DBPath: filepath.Join(t.TempDir(), "jobs.db")})
 		require.NoError(t, err)
@@ -91,13 +91,13 @@ func newTimeoutReproRuntime(t *testing.T, backend string) *timeoutReproRuntime {
 		rt = s
 	}
 	if backend == "remote" {
-		s := httptest.NewServer(celltest.Handler(remote.NewServer(rt)))
+		s := httptest.NewServer(celltest.Handler(remote.NewConsumerServer(rt)))
 		t.Cleanup(s.Close)
 		r, err := remote.New(s.URL, s.Client())
 		require.NoError(t, err)
 		rt = r
 	}
-	return &timeoutReproRuntime{WorkflowRuntime: rt}
+	return &timeoutReproRuntime{ConsumerRuntime: rt}
 }
 
 type timeoutReproWorker struct {
@@ -116,7 +116,7 @@ func timeoutReproPolicy(total, invocation time.Duration) jobdb.RunPolicy {
 	p.Retry.MaximumAttempts = 1
 	return p
 }
-func submitTimeoutRepro(t *testing.T, rt jobdb.WorkflowRuntime, id string, p jobdb.RunPolicy) jobdb.JobKey {
+func submitTimeoutRepro(t *testing.T, rt jobdb.ConsumerRuntime, id string, p jobdb.RunPolicy) jobdb.JobKey {
 	t.Helper()
 	data, err := jobdb.NewTaskData(map[string]any{"id": id})
 	require.NoError(t, err)
@@ -125,7 +125,7 @@ func submitTimeoutRepro(t *testing.T, rt jobdb.WorkflowRuntime, id string, p job
 	require.NoError(t, err)
 	return h.JobKey
 }
-func runTimeoutRepro(t *testing.T, rt jobdb.WorkflowRuntime, key jobdb.JobKey, worker any, tasks ...jobworkflow.TaskWorker) jobworkflow.JobRunOutcome {
+func runTimeoutRepro(t *testing.T, rt jobdb.ConsumerRuntime, key jobdb.JobKey, worker any, tasks ...jobworkflow.TaskWorker) jobworkflow.JobRunOutcome {
 	t.Helper()
 	// Use the real JobDB execution engine for both local and remote runtimes.
 	r, err := jobworkflow.GetJobForRun(celltest.Context(context.Background()), rt, jobworkflow.GetJobForRunRequest{JobKey: key, JobWorker: asExecutionTestWorker(worker), TaskWorkers: append(tasks, NewCellContextTaskWorker()), WorkerID: "restarted-worker", LeaseDuration: time.Second, AwaitThreshold: time.Second})

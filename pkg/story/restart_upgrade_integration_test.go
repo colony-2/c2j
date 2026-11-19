@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/colony-2/c2j/internal/celltest"
+	"github.com/colony-2/c2j/internal/consumerfixture"
 	"github.com/colony-2/c2j/pkg/jobrestart"
 	restartservice "github.com/colony-2/c2j/pkg/jobrestart/service"
 	coreops "github.com/colony-2/c2j/pkg/ops"
@@ -41,10 +42,10 @@ func openPreNumericRestartFixture(t *testing.T, backend string) (*restartFixture
 	db, err := sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: path})
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close(ctx)) })
-	guard := &inspectionRuntime{Runtime: db}
-	var rt jobdb.WorkflowRuntime = guard
+	guard := &inspectionRuntime{Runtime: consumerfixture.New(db)}
+	var rt jobdb.ConsumerRuntime = guard
 	if backend == "remote" {
-		server := httptest.NewServer(celltest.Handler(remote.NewServer(guard)))
+		server := httptest.NewServer(celltest.Handler(remote.NewConsumerServer(guard)))
 		t.Cleanup(server.Close)
 		rt, err = remote.New(server.URL, server.Client())
 		require.NoError(t, err)

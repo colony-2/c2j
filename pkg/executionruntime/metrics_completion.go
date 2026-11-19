@@ -36,7 +36,7 @@ func (l *lease) finalizeMetrics(ctx context.Context, req jobdb.CompleteExecution
 	l.runtime.mu.Unlock()
 	if cached == nil {
 		cutoff := chapter.Ordinal - 1
-		result, err := metricshistory.Read(ctx, l.runtime.WorkflowRuntime, l.Job().JobKey, metrics.Query{ThroughOrdinal: &cutoff})
+		result, err := metricshistory.Read(ctx, l.runtime.ConsumerRuntime, l.Job().JobKey, metrics.Query{ThroughOrdinal: &cutoff})
 		if err != nil {
 			result = metricshistory.Unavailable("final metric snapshot unavailable; inspect history to retry")
 		}

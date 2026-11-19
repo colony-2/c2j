@@ -15,52 +15,52 @@ func Context(ctx context.Context) context.Context {
 }
 
 type Runtime struct {
-	jobdb.WorkflowRuntime
+	jobdb.ConsumerRuntime
 	jobdb.JobSchemaRegistry
 	jobdb.JobDeletionRuntime
 }
 
-func New(rt jobdb.WorkflowRuntime) Runtime {
+func New(rt jobdb.ConsumerRuntime) Runtime {
 	schema, _ := rt.(jobdb.JobSchemaRegistry)
 	deletion, _ := rt.(jobdb.JobDeletionRuntime)
-	return Runtime{WorkflowRuntime: rt, JobSchemaRegistry: schema, JobDeletionRuntime: deletion}
+	return Runtime{ConsumerRuntime: rt, JobSchemaRegistry: schema, JobDeletionRuntime: deletion}
 }
 
 func (r Runtime) CreateCell(ctx context.Context, req jobdb.CreateCellRequest) (jobdb.Cell, error) {
-	return r.WorkflowRuntime.CreateCell(Context(ctx), req)
+	return r.ConsumerRuntime.CreateCell(Context(ctx), req)
 }
 func (r Runtime) GetCell(ctx context.Context, req jobdb.CellKey) (jobdb.Cell, error) {
-	return r.WorkflowRuntime.GetCell(Context(ctx), req)
+	return r.ConsumerRuntime.GetCell(Context(ctx), req)
 }
 func (r Runtime) ListCells(ctx context.Context, req jobdb.ListCellsRequest) (jobdb.ListCellsResponse, error) {
-	return r.WorkflowRuntime.ListCells(Context(ctx), req)
+	return r.ConsumerRuntime.ListCells(Context(ctx), req)
 }
 func (r Runtime) UpdateCell(ctx context.Context, req jobdb.UpdateCellRequest) (jobdb.Cell, error) {
-	return r.WorkflowRuntime.UpdateCell(Context(ctx), req)
+	return r.ConsumerRuntime.UpdateCell(Context(ctx), req)
 }
 func (r Runtime) RetireCell(ctx context.Context, req jobdb.RetireCellRequest) (jobdb.Cell, error) {
-	return r.WorkflowRuntime.RetireCell(Context(ctx), req)
+	return r.ConsumerRuntime.RetireCell(Context(ctx), req)
 }
 func (r Runtime) SubmitJob(ctx context.Context, req jobdb.SubmitJobRequest) (jobdb.JobHandle, error) {
 	ctx = Context(ctx)
 	if req.Job.GoalID != "" {
 		ctx = jobdb.WithPrimaryGoalSelectionAuthorizer(ctx, func(context.Context, jobdb.GoalKey, jobdb.ResolvedCell) error { return nil })
 	}
-	return r.WorkflowRuntime.SubmitJob(ctx, req)
+	return r.ConsumerRuntime.SubmitJob(ctx, req)
 }
 func (r Runtime) SubmitRestartJob(ctx context.Context, req jobdb.SubmitRestartJobRequest) (jobdb.JobHandle, error) {
-	return r.WorkflowRuntime.SubmitRestartJob(Context(ctx), req)
+	return r.ConsumerRuntime.SubmitRestartJob(Context(ctx), req)
 }
 func (r Runtime) ListJobs(ctx context.Context, req jobdb.ListJobsRequest) (jobdb.ListJobsResponse, error) {
-	return r.WorkflowRuntime.ListJobs(Context(ctx), req)
+	return r.ConsumerRuntime.ListJobs(Context(ctx), req)
 }
 func (r Runtime) GetJobLease(ctx context.Context, req jobdb.GetJobLeaseRequest) (jobdb.ExecutionLease, error) {
-	return r.WorkflowRuntime.GetJobLease(Context(ctx), req)
+	return r.ConsumerRuntime.GetJobLease(Context(ctx), req)
 }
 func (r Runtime) PollWork(ctx context.Context, req jobdb.PollWorkRequest) ([]jobdb.ExecutionLease, error) {
-	return r.WorkflowRuntime.PollWork(Context(ctx), req)
+	return r.ConsumerRuntime.PollWork(Context(ctx), req)
 }
 
 func (r Runtime) ListLeaseEvents(ctx context.Context, req jobdb.ListLeaseEventsRequest) (jobdb.ListLeaseEventsResponse, error) {
-	return jobdb.ListLeaseEvents(Context(ctx), r.WorkflowRuntime, req)
+	return jobdb.ListLeaseEvents(Context(ctx), r.ConsumerRuntime, req)
 }

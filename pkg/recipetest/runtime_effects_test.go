@@ -48,7 +48,7 @@ func TestEffectArtifactEvidenceFailures(t *testing.T) {
 	}
 }
 
-type deniedChildListing struct{ jobdb.WorkflowRuntime }
+type deniedChildListing struct{ jobdb.ConsumerRuntime }
 
 func (r deniedChildListing) ListJobs(context.Context, jobdb.ListJobsRequest) (jobdb.ListJobsResponse, error) {
 	return jobdb.ListJobsResponse{}, errors.New("child listing denied")
@@ -87,7 +87,7 @@ func TestEffectSnapshotsConfinementCompletenessAndRedaction(t *testing.T) {
 				require.True(t, final.Complete, final.Errors)
 				require.Equal(t, baseline.Children, final.Children)
 			}
-			var runtime jobdb.WorkflowRuntime = rt
+			var runtime jobdb.ConsumerRuntime = rt
 			root := f.cells["root"]
 			switch mode {
 			case "missing repository":

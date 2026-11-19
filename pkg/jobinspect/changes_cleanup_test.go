@@ -21,7 +21,7 @@ import (
 )
 
 type arrivingChangesRuntime struct {
-	jobdb.WorkflowRuntime
+	jobdb.ConsumerRuntime
 	started chan struct{}
 	closed  chan struct{}
 }
@@ -37,7 +37,7 @@ type arrivingChangesBody struct {
 }
 
 func (r *arrivingChangesRuntime) OpenArtifact(ctx context.Context, q jobdb.ArtifactRef) (jobdb.ArtifactReader, error) {
-	a, e := r.WorkflowRuntime.OpenArtifact(ctx, q)
+	a, e := r.ConsumerRuntime.OpenArtifact(ctx, q)
 	if e != nil || q.Name != gitstate.ThinPackArtifactName {
 		return a, e
 	}
@@ -74,7 +74,7 @@ func TestChangesJ32L08CancelArrivingArtifact(t *testing.T) {
 		t.Run(backend, func(t *testing.T) {
 			ctx, rt := changesBackend(t, backend)
 			f := changesFixture(t, ctx, rt, changestest.Options{})
-			wrapped := &arrivingChangesRuntime{WorkflowRuntime: rt, started: make(chan struct{}), closed: make(chan struct{})}
+			wrapped := &arrivingChangesRuntime{ConsumerRuntime: rt, started: make(chan struct{}), closed: make(chan struct{})}
 			tmp := t.TempDir()
 			api := changesAPI(t, wrapped, jobinspect.ChangesConfig{TempDir: tmp})
 			cancelCtx, cancel := context.WithCancel(ctx)
@@ -156,7 +156,7 @@ func TestChangesJ30J32GitDiagnosticIdentity(t *testing.T) {
 						script := "#!/bin/sh\nfor arg in \"$@\"; do\n if [ \"$arg\" = " + command + " ]; then\n  echo $$ > '" + marker + "'\n  sleep 30 &\n  echo $! > '" + marker + ".child'\n  wait\n fi\ndone\nexec '" + realGit + "' \"$@\"\n"
 						require.NoError(t, os.WriteFile(wrapper, []byte(script), 0700))
 						temp := t.TempDir()
-						readOnly := &changestest.ReadOnlyRuntime{WorkflowRuntime: rt}
+						readOnly := &changestest.ReadOnlyRuntime{ConsumerRuntime: rt}
 						gitTime := 5 * time.Second
 						if deadline {
 							// Allow ordinary Git startup under the full suite's load;
@@ -233,7 +233,7 @@ func TestChangesJ30L07RepositoryTransferCleanup(t *testing.T) {
 					script := "#!/bin/sh\nfor arg in \"$@\"; do\nif [ \"$arg\" = fetch ]; then\n" + fetch + "fi\ndone\nexec '" + realGit + "' \"$@\"\n"
 					require.NoError(t, os.WriteFile(wrapper, []byte(script), 0700))
 					tmp := t.TempDir()
-					readOnly := &changestest.ReadOnlyRuntime{WorkflowRuntime: rt}
+					readOnly := &changestest.ReadOnlyRuntime{ConsumerRuntime: rt}
 					artifact := int64(len(f.Steps[len(f.Steps)-1].Bundle))
 					limits := jobinspect.ChangesLimits{GitTime: 2 * time.Second}
 					if mode == "limit" {

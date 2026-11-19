@@ -24,11 +24,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// The old HTTP constructor requires these broad inputs. Only ListJobs is
-// implemented; other promoted calls panic. This mandatory transport dependency
-// remains until JobDB publishes its narrower consumer handler.
+// This list-only transport fixture serves ListJobs through the consumer handler.
+// Other retained methods are unused by this reader; attachment is never exposed.
 type readOnlyRuntime struct {
-	jobdb.WorkflowRuntime
+	jobdb.ConsumerRuntime
 	jobdb.ConfigurationAdmin
 	list func(context.Context, jobdb.ListJobsRequest) (jobdb.ListJobsResponse, error)
 }
@@ -39,7 +38,7 @@ func (r readOnlyRuntime) ListJobs(ctx context.Context, req jobdb.ListJobsRequest
 
 func serve(t *testing.T, list func(context.Context, jobdb.ListJobsRequest) (jobdb.ListJobsResponse, error)) *httptest.Server {
 	t.Helper()
-	s := httptest.NewServer(celltest.Handler(remote.NewServer(readOnlyRuntime{list: list})))
+	s := httptest.NewServer(celltest.Handler(remote.NewConsumerServer(readOnlyRuntime{list: list})))
 	t.Cleanup(s.Close)
 	return s
 }

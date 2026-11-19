@@ -77,7 +77,7 @@ outputs:
 
 	underlying := toyruntime.New()
 	celltest.Create(t, underlying, tenantID, "app", celltest.Repo(baseRepo))
-	server := httptest.NewServer(celltest.Handler(remoteruntime.NewServer(underlying)))
+	server := httptest.NewServer(celltest.Handler(remoteruntime.NewConsumerServer(underlying)))
 	defer server.Close()
 
 	var submitStdout bytes.Buffer
@@ -199,7 +199,7 @@ outputs:
 
 	underlying := toyruntime.New()
 	celltest.Create(t, underlying, tenantID, "app", celltest.Repo(baseRepo))
-	server := httptest.NewServer(celltest.Handler(remoteruntime.NewServer(underlying)))
+	server := httptest.NewServer(celltest.Handler(remoteruntime.NewConsumerServer(underlying)))
 	defer server.Close()
 
 	var submitStdout bytes.Buffer
@@ -327,7 +327,7 @@ outputs:
 
 	underlying := toyruntime.New()
 	celltest.Create(t, underlying, tenantID, "app", celltest.Repo(baseRepo))
-	server := httptest.NewServer(celltest.Handler(remoteruntime.NewServer(underlying)))
+	server := httptest.NewServer(celltest.Handler(remoteruntime.NewConsumerServer(underlying)))
 	defer server.Close()
 
 	var submitStdout bytes.Buffer
@@ -468,7 +468,7 @@ outputs:
 
 	underlying := toyruntime.New()
 	celltest.Create(t, underlying, tenantID, "app", celltest.Repo(baseRepo))
-	server := httptest.NewServer(celltest.Handler(remoteruntime.NewServer(underlying)))
+	server := httptest.NewServer(celltest.Handler(remoteruntime.NewConsumerServer(underlying)))
 	defer server.Close()
 
 	var submitStdout bytes.Buffer
@@ -547,7 +547,7 @@ func TestRun_DefaultBuildUsesSharedRecipe(t *testing.T) {
 			mustWriteRepoFile(t, root, ".c2/config.yaml", "self:\n  cell: app\n  repo: "+celltest.Repo(root)+"\n  ref: main\n")
 			commitRepo(t, root, "local recipe must not override default")
 			base := toyruntime.New()
-			server := httptest.NewServer(celltest.Handler(remoteruntime.NewServer(base)))
+			server := httptest.NewServer(celltest.Handler(remoteruntime.NewConsumerServer(base)))
 			defer server.Close()
 			var stdout bytes.Buffer
 			opts := Options{JobDBURI: testJobDBURI(server.URL, "default-build"), WorkingDir: root, Prompt: "build it", JSONOutput: true, Stdout: &stdout}
@@ -629,7 +629,7 @@ outputs:
 
 	underlying := toyruntime.New()
 	celltest.Create(t, underlying, tenantID, "app", celltest.Repo(baseRepo))
-	server := httptest.NewServer(celltest.Handler(remoteruntime.NewServer(underlying)))
+	server := httptest.NewServer(celltest.Handler(remoteruntime.NewConsumerServer(underlying)))
 	defer server.Close()
 
 	var submitStdout bytes.Buffer
@@ -734,7 +734,7 @@ outputs:
 			commitRepo(t, submittingRepo, "unrelated submitting cell")
 			underlying := toyruntime.New()
 			celltest.Create(t, underlying, "target-conventions", "app", celltest.Repo(targetRepo))
-			server := httptest.NewServer(celltest.Handler(remoteruntime.NewServer(underlying)))
+			server := httptest.NewServer(celltest.Handler(remoteruntime.NewConsumerServer(underlying)))
 			defer server.Close()
 			var stdout, stderr bytes.Buffer
 			err := Run(ctx, Options{
@@ -819,7 +819,7 @@ outputs:
 
 			underlying := toyruntime.New()
 			celltest.Create(t, underlying, tenantID, "app", celltest.Repo(baseRepo))
-			server := httptest.NewServer(celltest.Handler(remoteruntime.NewServer(underlying)))
+			server := httptest.NewServer(celltest.Handler(remoteruntime.NewConsumerServer(underlying)))
 			defer server.Close()
 
 			var submitStdout bytes.Buffer
@@ -1226,7 +1226,7 @@ func TestRun_BrokerSubmissionAndConfiguredImmediateExecution(t *testing.T) {
 		t.Setenv(k, v)
 	}
 	var directPublications atomic.Int32
-	handler := celltest.Handler(remoteruntime.NewServer(rt))
+	handler := celltest.Handler(remoteruntime.NewConsumerServer(rt))
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == "POST" && strings.HasSuffix(r.URL.Path, "/jobs") {
 			directPublications.Add(1)

@@ -18,12 +18,12 @@ import (
 )
 
 type lateProcessRuntime struct {
-	jobdb.WorkflowRuntime
+	jobdb.ConsumerRuntime
 	phase, marker string
 }
 
 func (r *lateProcessRuntime) PutChapter(ctx context.Context, req jobdb.PutChapterRequest) error {
-	if err := r.WorkflowRuntime.PutChapter(ctx, req); err != nil {
+	if err := r.ConsumerRuntime.PutChapter(ctx, req); err != nil {
 		return err
 	}
 	if lateResultPhase(req.Chapter) == r.phase {
@@ -85,7 +85,7 @@ func TestLateIncludeProcessExecutor(t *testing.T) {
 	}
 	phase := os.Getenv("C2J_LATE_PROCESS_PHASE")
 	marker := os.Getenv("C2J_LATE_PROCESS_MARKER")
-	interrupted := &lateProcessRuntime{WorkflowRuntime: rt, phase: phase, marker: marker}
+	interrupted := &lateProcessRuntime{ConsumerRuntime: rt, phase: phase, marker: marker}
 	guard := lateGuard(interrupted)
 	_, git := GenerateTestContext()
 	probe := &scopeProbeTask{calls: map[string]int{}, git: git}

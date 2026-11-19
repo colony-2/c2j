@@ -40,15 +40,15 @@ func TestTaskInspectionUsesBackendReadPermissions(t *testing.T) {
 	for _, backend := range []string{"toy", "remote"} {
 		t.Run(backend, func(t *testing.T) {
 			ctx := celltest.Context(context.Background())
-			var base jobdb.WorkflowRuntime = toy.New()
+			var base jobdb.ConsumerRuntime = toy.New()
 			if backend == "remote" {
-				server := httptest.NewServer(celltest.Handler(remote.NewServer(base)))
+				server := httptest.NewServer(celltest.Handler(remote.NewConsumerServer(base)))
 				defer server.Close()
 				client, err := remote.New(server.URL, server.Client())
 				require.NoError(t, err)
 				base = client
 			}
-			policy := &inspectionPolicyRuntime{WorkflowRuntime: base}
+			policy := &inspectionPolicyRuntime{ConsumerRuntime: base}
 			rt := New(policy, execution.Allocation{})
 			celltest.Create(t, rt, "tenant", "cell", "example.test/cell")
 			celltest.Create(t, rt, "tenant", "other-cell", "example.test/other-cell")
@@ -312,7 +312,7 @@ type inspectionExpiryLease struct {
 func (l inspectionExpiryLease) LeaseExpiry() time.Time { return l.expiry }
 
 type inspectionReadCounter struct {
-	jobdb.WorkflowRuntime
+	jobdb.ConsumerRuntime
 	reads int
 }
 
@@ -380,7 +380,7 @@ func TestTaskInspectionLifetimeGuards(t *testing.T) {
 
 // inspectionPolicyRuntime injects backend decisions without changing the task guard.
 type inspectionPolicyRuntime struct {
-	jobdb.WorkflowRuntime
+	jobdb.ConsumerRuntime
 	mu         sync.Mutex
 	denied     string
 	lists      int
@@ -397,7 +397,7 @@ func (r *inspectionPolicyRuntime) ListJobs(ctx context.Context, q jobdb.ListJobs
 	if r.denied == "list" {
 		return jobdb.ListJobsResponse{}, fmt.Errorf("backend denied list")
 	}
-	return r.WorkflowRuntime.ListJobs(ctx, q)
+	return r.ConsumerRuntime.ListJobs(ctx, q)
 }
 func (r *inspectionPolicyRuntime) GetJob(ctx context.Context, key jobdb.JobKey) (jobdb.JobInfo, error) {
 	r.mu.Lock()
@@ -406,7 +406,7 @@ func (r *inspectionPolicyRuntime) GetJob(ctx context.Context, key jobdb.JobKey) 
 	if r.denied == "detail" {
 		return jobdb.JobInfo{}, fmt.Errorf("backend denied detail")
 	}
-	return r.WorkflowRuntime.GetJob(ctx, key)
+	return r.ConsumerRuntime.GetJob(ctx, key)
 }
 func (r *inspectionPolicyRuntime) OpenArtifact(ctx context.Context, ref jobdb.ArtifactRef) (jobdb.ArtifactReader, error) {
 	r.mu.Lock()
@@ -415,7 +415,7 @@ func (r *inspectionPolicyRuntime) OpenArtifact(ctx context.Context, ref jobdb.Ar
 	if r.denied == "artifact" {
 		return nil, fmt.Errorf("backend denied artifact")
 	}
-	return r.WorkflowRuntime.OpenArtifact(ctx, ref)
+	return r.ConsumerRuntime.OpenArtifact(ctx, ref)
 }
 
 func (r *inspectionPolicyRuntime) setDenied(mode string) {

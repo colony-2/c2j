@@ -23,7 +23,7 @@ func TestClientPayloadSurvivesYieldAndExternalTaskCompletion(t *testing.T) {
 		t.Run(backend, func(t *testing.T) {
 			ctx, cancel := context.WithTimeout(celltest.Context(context.Background()), 15*time.Second)
 			defer cancel()
-			var rt jobdb.WorkflowRuntime
+			var rt jobdb.ConsumerRuntime
 			if backend == "toy" {
 				rt = toyruntime.New()
 			} else {

@@ -232,13 +232,13 @@ func TestResolvedTreeFreshWorkerPersistenceAndOfflineReplay(t *testing.T) {
 					// Repair mode also interrupts after replay, proving clean repair is
 					// reconstructed by another worker from the failed task's history.
 					if route == "repair" {
-						fault := &gitOutcomeInterruption{WorkflowRuntime: rt, match: `task:"` + selector + `:` + selector + `"`}
+						fault := &gitOutcomeInterruption{ConsumerRuntime: rt, match: `task:"` + selector + `:` + selector + `"`}
 						_, err := runGitLifecycle(t, fault, key)
 						require.Error(t, err)
 						require.True(t, fault.fired)
 						require.Zero(t, calls)
 					}
-					fault := &gitOutcomeInterruption{WorkflowRuntime: rt, match: `task:"` + selector + `:` + selector + `"`}
+					fault := &gitOutcomeInterruption{ConsumerRuntime: rt, match: `task:"` + selector + `:` + selector + `"`}
 					if route == "repair" {
 						fault.match = `scope:"op:adopt"`
 					}
@@ -297,7 +297,7 @@ func TestResolvedTreeFreshWorkerPersistenceAndOfflineReplay(t *testing.T) {
 	}
 }
 
-func assertResolvedArtifacts(t *testing.T, rt jobdb.WorkflowRuntime, key jobdb.JobKey, selector string, equal bool, target, candidate, expectedDiff string, parentDiff ...string) {
+func assertResolvedArtifacts(t *testing.T, rt jobdb.ConsumerRuntime, key jobdb.JobKey, selector string, equal bool, target, candidate, expectedDiff string, parentDiff ...string) {
 	t.Helper()
 	history, err := jobdb.GetJobRun(celltest.Context(context.Background()), rt, jobdb.GetJobRunRequest{JobKey: key, IncludeInputs: true, IncludeOutputs: true, IncludeArtifacts: true})
 	require.NoError(t, err)

@@ -110,7 +110,7 @@ func TestGitProfileManagement(t *testing.T) {
 			t.Setenv("C2J_TENANT_ID", "ignored")
 			t.Setenv("JOBDB_BEARER_TOKEN", "test-token")
 			rt := toy.New()
-			handler := remote.NewServer(rt)
+			handler := remote.NewConsumerServer(rt)
 			server := httptest.NewServer(celltest.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				if r.Header.Get("Authorization") != "Bearer test-token" {
 					http.Error(w, "unauthorized", http.StatusUnauthorized)
@@ -209,7 +209,7 @@ func TestSuppliedCredentialStoredSeparately(t *testing.T) {
 	require.NoError(t, err)
 	defer rt.Close(ctx)
 	t.Setenv("JOBDB_BEARER_TOKEN", "test-token")
-	handler := remote.NewServer(rt)
+	handler := remote.NewConsumerServer(rt)
 	server := httptest.NewServer(celltest.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != "Bearer test-token" {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)

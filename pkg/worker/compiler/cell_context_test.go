@@ -35,7 +35,7 @@ outputs:
  owner: '${{ context.workflow.cell }}'
  owner_id: '${{ context.workflow.cell_id }}'
 `, schema))
-				fault := &gitOutcomeInterruption{WorkflowRuntime: rt, match: `task:"cell-context"`}
+				fault := &gitOutcomeInterruption{ConsumerRuntime: rt, match: `task:"cell-context"`}
 				_, err := runGitLifecycle(t, fault, key)
 				require.Error(t, err)
 				require.True(t, fault.fired)

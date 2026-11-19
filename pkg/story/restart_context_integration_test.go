@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/colony-2/c2j/internal/celltest"
+	"github.com/colony-2/c2j/internal/consumerfixture"
 	"github.com/colony-2/c2j/internal/jsonexact"
 	"github.com/colony-2/c2j/pkg/artifacts"
 	"github.com/colony-2/c2j/pkg/childbroker"
@@ -88,7 +89,7 @@ func (w *restartProbeTask) Run(_ jobworkflow.TaskContext, data jobdb.TaskData) (
 
 type restartFixture struct {
 	ctx          context.Context
-	runtime      jobdb.WorkflowRuntime
+	runtime      jobdb.ConsumerRuntime
 	engine       jobworkflow.Engine
 	service      story.Service
 	worker       jobworkflow.ExecutionWorker
@@ -126,10 +127,10 @@ func newRestartFixtureConfigured(t *testing.T, backend, recipe string, inputs ma
 	db, err := sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: dbPath})
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close(ctx)) })
-	guard := &inspectionRuntime{Runtime: db}
-	var rt jobdb.WorkflowRuntime = guard
+	guard := &inspectionRuntime{Runtime: consumerfixture.New(db)}
+	var rt jobdb.ConsumerRuntime = guard
 	if backend == "remote" {
-		server := httptest.NewServer(celltest.Handler(remote.NewServer(guard)))
+		server := httptest.NewServer(celltest.Handler(remote.NewConsumerServer(guard)))
 		t.Cleanup(server.Close)
 		rt, err = remote.New(server.URL, server.Client())
 		require.NoError(t, err)

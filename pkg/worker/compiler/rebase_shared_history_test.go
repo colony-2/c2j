@@ -73,7 +73,7 @@ outputs:
 `, selector, target)
 					rt := newTimeoutReproRuntime(t, backend)
 					key := submitGitLifecycle(t, rt, repo, yaml)
-					fault := &gitOutcomeInterruption{WorkflowRuntime: rt, match: `task:"` + selector + `:` + selector + `"`}
+					fault := &gitOutcomeInterruption{ConsumerRuntime: rt, match: `task:"` + selector + `:` + selector + `"`}
 					_, err := runGitLifecycle(t, fault, key)
 					require.Error(t, err)
 					require.True(t, fault.fired)

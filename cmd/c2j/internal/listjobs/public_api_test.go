@@ -17,7 +17,7 @@ import (
 )
 
 type parityRuntime struct {
-	jobdb.WorkflowRuntime
+	jobdb.ConsumerRuntime
 	jobdb.ConfigurationAdmin
 	job      jobdb.JobSummary
 	requests chan jobdb.ListJobsRequest
@@ -45,7 +45,7 @@ func TestPublicAPIAndCLIParity(t *testing.T) {
 				WaitFor:        []string{"second", "first"},
 				ExecutionState: jobdb.ExecutionState{TaskWait: &jobdb.TaskWait{InputOrdinal: 2, OutputOrdinal: 3, InputHash: "hash", ResumeJobType: "recipe"}},
 			}}
-			s := httptest.NewServer(celltest.Handler(remote.NewServer(runtime)))
+			s := httptest.NewServer(celltest.Handler(remote.NewConsumerServer(runtime)))
 			defer s.Close()
 			uri := s.URL + "/tenant"
 			root := t.TempDir()

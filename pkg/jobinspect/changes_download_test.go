@@ -61,7 +61,7 @@ func TestChangesJ30L07RepositoryDownloadBudget(t *testing.T) {
 							for _, mode := range []string{"history", "all_diff"} {
 								t.Run(mode, func(t *testing.T) {
 									tmp := t.TempDir()
-									readOnly := &changestest.ReadOnlyRuntime{WorkflowRuntime: rt}
+									readOnly := &changestest.ReadOnlyRuntime{ConsumerRuntime: rt}
 									calls := 0
 									api := changesAPI(t, readOnly, jobinspect.ChangesConfig{
 										TempDir: tmp,
@@ -149,7 +149,7 @@ func TestChangesJ30L07CumulativeRepositoryDownloads(t *testing.T) {
 					t.Run(name, func(t *testing.T) {
 						tmp := t.TempDir()
 						calls := 0
-						readOnly := &changestest.ReadOnlyRuntime{WorkflowRuntime: rt}
+						readOnly := &changestest.ReadOnlyRuntime{ConsumerRuntime: rt}
 						api := changesAPI(t, readOnly, jobinspect.ChangesConfig{TempDir: tmp, Limits: limits, ResolveRepository: func(context.Context, string) (jobinspect.RepositoryAccess, error) {
 							calls++
 							return jobinspect.RepositoryAccess{URL: f.Origin}, nil

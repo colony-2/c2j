@@ -16,7 +16,7 @@ import (
 )
 
 type crashConcernRuntime struct {
-	jobdb.WorkflowRuntime
+	jobdb.ConsumerRuntime
 	jobdb.ConfigurationAdmin
 	req   jobdb.ClearCrashConcernRequest
 	err   error
@@ -33,7 +33,7 @@ func TestClearCrashConcernCLI(t *testing.T) {
 	previous := slog.Default()
 	t.Cleanup(func() { slog.SetDefault(previous) })
 	rt := &crashConcernRuntime{}
-	handler := remote.NewServer(rt)
+	handler := remote.NewConsumerServer(rt)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		require.Equal(t, "Bearer operator-token", r.Header.Get("Authorization"))
 		if rt.err == jobdb.ErrLeasePermissionDenied {

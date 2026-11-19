@@ -2,6 +2,8 @@
 
 Status: delivered in JobDB v0.0.22. This document preserves the original request;
 see [c2j integration and usage](GUIDE-Run-With-Lease.md) for the implemented APIs.
+Legacy runtime names below describe the old dependency. Current decorators use
+[the retained consumer contract](MIGRATION-Consumer-Runtime.md).
 
 ## Use case
 

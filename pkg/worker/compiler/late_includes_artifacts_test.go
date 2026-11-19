@@ -36,7 +36,7 @@ func TestLateIncludeMissingAndCorruptStoredCaptures(t *testing.T) {
 			key := probeSubmit(t, rt, w)
 			ctx, cancel := context.WithCancel(lateTestContext())
 			defer cancel()
-			interruption := &lateInterruption{WorkflowRuntime: rt, phase: "capture", cancel: cancel}
+			interruption := &lateInterruption{ConsumerRuntime: rt, phase: "capture", cancel: cancel}
 			guard := lateGuard(interruption)
 			_, git := GenerateTestContext()
 			probe := &scopeProbeTask{calls: map[string]int{}, git: git}

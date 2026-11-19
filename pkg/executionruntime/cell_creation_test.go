@@ -23,7 +23,7 @@ func TestCellCreationThroughRestrictedTaskLease(t *testing.T) {
 	for _, backend := range []string{"toy", "sqlite", "remote"} {
 		t.Run(backend, func(t *testing.T) {
 			ctx := celltest.Context(context.Background())
-			var base jobdb.WorkflowRuntime = toy.New()
+			var base jobdb.ConsumerRuntime = toy.New()
 			if backend != "toy" {
 				db, err := sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: filepath.Join(t.TempDir(), "jobs.db")})
 				require.NoError(t, err)
@@ -31,7 +31,7 @@ func TestCellCreationThroughRestrictedTaskLease(t *testing.T) {
 				base = db
 			}
 			if backend == "remote" {
-				server := httptest.NewServer(celltest.Handler(remote.NewServer(base)))
+				server := httptest.NewServer(celltest.Handler(remote.NewConsumerServer(base)))
 				t.Cleanup(server.Close)
 				client, err := remote.New(server.URL, server.Client())
 				require.NoError(t, err)

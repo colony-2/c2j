@@ -1,6 +1,6 @@
-// Copy this file to pkg/story/legacy_generate_test.go in the documented old
-// checkout to regenerate the persisted compatibility fixture. It uses that
-// revision's restartProbeTask test worker and production compiler.
+// This generator uses the retained consumer contract and restartProbeTask.
+// Reproduce the original baseline with the archived revision's own generator
+// and dependencies, as described in README.md; never rewrite saved history.
 package story_test
 
 import (
@@ -49,19 +49,19 @@ outputs: {count: '${{ sequence.nested.outputs.count + 1 }}', fraction: '${{ sequ
 `
 
 type legacyNumericInterruption struct {
-	jobdb.WorkflowRuntime
+	jobdb.ConsumerRuntime
 	lease  jobdb.ExecutionLease
 	cancel context.CancelFunc
 	fired  bool
 }
 
 func (r *legacyNumericInterruption) GetJobLease(ctx context.Context, req jobdb.GetJobLeaseRequest) (jobdb.ExecutionLease, error) {
-	lease, err := r.WorkflowRuntime.GetJobLease(ctx, req)
+	lease, err := r.ConsumerRuntime.GetJobLease(ctx, req)
 	r.lease = lease
 	return lease, err
 }
 func (r *legacyNumericInterruption) PutChapter(ctx context.Context, req jobdb.PutChapterRequest) error {
-	if err := r.WorkflowRuntime.PutChapter(ctx, req); err != nil {
+	if err := r.ConsumerRuntime.PutChapter(ctx, req); err != nil {
 		return err
 	}
 	if body, ok := req.Chapter.Body.(jobdb.ExecutionChapter); ok && !r.fired {
@@ -103,9 +103,9 @@ func TestGeneratePreNumericRestartHistory(t *testing.T) {
 		handle, err := engine.SubmitJob(ctx, jobdb.SubmitJob{TenantId: "restart-tests", JobType: "recipe", Data: data, Cell: "test", CellRepo: "example.test/test"})
 		require.NoError(t, err)
 		keys[mode] = handle.JobKey.JobId
-		var rt jobdb.WorkflowRuntime = db
+		var rt jobdb.ConsumerRuntime = db
 		runCtx, cancel := context.WithCancel(ctx)
-		interruption := &legacyNumericInterruption{WorkflowRuntime: db, cancel: cancel}
+		interruption := &legacyNumericInterruption{ConsumerRuntime: db, cancel: cancel}
 		if mode == "in_progress" {
 			rt = interruption
 		}

@@ -29,7 +29,7 @@ func testJobDBURI(serverURL string, tenantID string) string {
 	return strings.TrimRight(serverURL, "/") + "/" + tenantID
 }
 
-func newSchemaAwareSubmitEngine(t *testing.T, runtime jobdb.WorkflowRuntime) jobworkflow.Engine {
+func newSchemaAwareSubmitEngine(t *testing.T, runtime jobdb.ConsumerRuntime) jobworkflow.Engine {
 	t.Helper()
 	engine, err := jobworkflow.NewEngineBuilder().WithRuntime(runtime).BuildEngine()
 	if err != nil {
@@ -51,7 +51,7 @@ func TestReadyCountsAvailableJobsByTenant(t *testing.T) {
 	otherTenantID := "tenant-ready-other"
 	underlying := toyruntime.New()
 	submitEngine := newSchemaAwareSubmitEngine(t, underlying)
-	server := httptest.NewServer(celltest.Handler(remoteruntime.NewServer(underlying)))
+	server := httptest.NewServer(celltest.Handler(remoteruntime.NewConsumerServer(underlying)))
 	defer server.Close()
 
 	recipeYAML := simpleSuccessRecipe("ready_count_recipe", "ready-count")

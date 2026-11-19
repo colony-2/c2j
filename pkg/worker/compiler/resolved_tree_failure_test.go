@@ -22,7 +22,7 @@ import (
 // Fail a real artifact upload or lose the worker before the successful outcome
 // is durable. Neither can make the locally adopted pair the accepted snapshot.
 type resolvedOutcomeFault struct {
-	jobdb.WorkflowRuntime
+	jobdb.ConsumerRuntime
 	lease    jobdb.ExecutionLease
 	artifact bool
 	selector string
@@ -31,7 +31,7 @@ type resolvedOutcomeFault struct {
 }
 
 func (r *resolvedOutcomeFault) GetJobLease(ctx context.Context, req jobdb.GetJobLeaseRequest) (jobdb.ExecutionLease, error) {
-	l, err := r.WorkflowRuntime.GetJobLease(ctx, req)
+	l, err := r.ConsumerRuntime.GetJobLease(ctx, req)
 	r.lease = l
 	return l, err
 }
@@ -61,7 +61,7 @@ func (r *resolvedOutcomeFault) PutChapter(ctx context.Context, req jobdb.PutChap
 				if !found {
 					return fmt.Errorf("adoption did not prepare a replacement snapshot")
 				}
-				if err := r.WorkflowRuntime.PutChapter(ctx, req); err == nil {
+				if err := r.ConsumerRuntime.PutChapter(ctx, req); err == nil {
 					return fmt.Errorf("artifact upload failure was incorrectly accepted")
 				}
 			}
@@ -73,7 +73,7 @@ func (r *resolvedOutcomeFault) PutChapter(ctx context.Context, req jobdb.PutChap
 			return fmt.Errorf("injected worker loss before durable adoption outcome")
 		}
 	}
-	return r.WorkflowRuntime.PutChapter(ctx, req)
+	return r.ConsumerRuntime.PutChapter(ctx, req)
 }
 
 func TestResolvedTreeUnrecordedOutcomeRestoresPriorAcceptedPair(t *testing.T) {
@@ -101,7 +101,7 @@ func TestResolvedTreeUnrecordedOutcomeRestoresPriorAcceptedPair(t *testing.T) {
 				workspaceTestWorker(t, append(resolvedFixtureOps(t, target, false), op)...)
 				rt := newTimeoutReproRuntime(t, backend)
 				key := submitGitLifecycle(t, rt, repo, resolvedRecipe("rebase", target, "direct"))
-				fault := &resolvedOutcomeFault{WorkflowRuntime: rt, artifact: failure == "artifact-upload"}
+				fault := &resolvedOutcomeFault{ConsumerRuntime: rt, artifact: failure == "artifact-upload"}
 				_, err := runGitLifecycle(t, fault, key)
 				require.Error(t, err)
 				require.True(t, fault.fired)

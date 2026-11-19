@@ -14,7 +14,7 @@ import (
 // Inventory drains chapter windows and every inspection task/attempt/artifact
 // page, including source bytes. A page size of one makes incomplete traversal
 // visible in small fixtures. Compare bytes before and after read-only intervals.
-func Inventory(ctx context.Context, rt jobdb.WorkflowRuntime, key jobdb.JobKey) ([]byte, error) {
+func Inventory(ctx context.Context, rt jobinspect.Runtime, key jobdb.JobKey) ([]byte, error) {
 	type bytesIdentity struct {
 		Ordinal      int64
 		Name, Digest string

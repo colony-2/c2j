@@ -11,7 +11,7 @@ import (
 
 func ExampleNewChangesService() {
 	// Supply your authenticated runtime and job authorization gate.
-	var runtime jobdb.WorkflowRuntime
+	var runtime jobdb.ConsumerRuntime
 	var authorize func(context.Context, string) error
 	service := &jobinspect.Service{Runtime: runtime, Tenant: "tenant", Authorize: authorize}
 	_, _ = jobinspect.NewChangesService(service, jobinspect.ChangesConfig{}) // offline

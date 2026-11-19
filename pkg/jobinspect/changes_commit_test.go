@@ -107,7 +107,7 @@ func TestChangesJ28CommitHeaders(t *testing.T) {
 							require.NoError(t, f.DeleteCheckout())
 							require.NoError(t, os.RemoveAll(f.Origin))
 							temp := t.TempDir()
-							readOnly := &changestest.ReadOnlyRuntime{WorkflowRuntime: rt}
+							readOnly := &changestest.ReadOnlyRuntime{ConsumerRuntime: rt}
 							api := changesAPI(t, readOnly, jobinspect.ChangesConfig{TempDir: temp})
 							q := jobinspect.ChangesRequest{JobID: f.Job.JobId, Limit: 1}
 							h, err := api.History(ctx, q)

@@ -27,9 +27,9 @@ func TestGoalManagementLifecycle(t *testing.T) {
 			db, err := sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: filepath.Join(t.TempDir(), "jobs.db")})
 			require.NoError(t, err)
 			t.Cleanup(func() { require.NoError(t, db.Close(ctx)) })
-			var rt jobdb.WorkflowRuntime = db
+			var rt jobdb.ConsumerRuntime = db
 			if backend == "http" {
-				handler := remote.NewServer(db)
+				handler := remote.NewConsumerServer(db)
 				s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 					handler.ServeHTTP(w, r.WithContext(jobdb.WithPrimaryGoalSelectionAuthorizer(celltest.Context(r.Context()), func(context.Context, jobdb.GoalKey, jobdb.ResolvedCell) error { return nil })))
 				}))
@@ -90,6 +90,19 @@ func TestGoalManagementLifecycle(t *testing.T) {
 			require.NoError(t, err)
 			require.Empty(t, other.Jobs)
 			consumer := submit("consumer", "", jobdb.Dependency{Target: jobdb.DependencyTarget{GoalID: a.GoalID}, Condition: jobdb.JobPrereqSuccess})
+			beforeInvalid := get(a)
+			waitsBefore, err := recipejob.ListDependencyWaits(ctx, engine, jobdb.ListDependencyWaitsRequest{TenantId: "tenant", ConsumerJobID: consumer.JobKey.JobId})
+			require.NoError(t, err)
+			for _, message := range []string{"", " \n\t", string([]byte{0xff}), strings.Repeat("x", (16<<10)+1)} {
+				_, err := recipejob.FailGoal(ctx, engine, jobdb.FailGoalRequest{GoalKey: beforeInvalid.GoalKey, Message: message})
+				require.ErrorIs(t, err, jobdb.ErrInvalidDependency)
+				require.Equal(t, beforeInvalid, get(a))
+			}
+			_, err = recipejob.FailGoal(ctx, engine, jobdb.FailGoalRequest{GoalKey: jobdb.GoalKey{TenantId: "tenant", GoalID: "missing"}, Message: "missing goal"})
+			require.ErrorIs(t, err, jobdb.ErrGoalNotFound)
+			waitsAfter, err := recipejob.ListDependencyWaits(ctx, engine, jobdb.ListDependencyWaitsRequest{TenantId: "tenant", ConsumerJobID: consumer.JobKey.JobId})
+			require.NoError(t, err)
+			require.Equal(t, waitsBefore, waitsAfter)
 			failReq := jobdb.FailGoalRequest{GoalKey: get(a).GoalKey, Message: "  attempts exhausted café\n"}
 			failed, err := recipejob.FailGoal(ctx, engine, failReq)
 			require.NoError(t, err)
@@ -131,7 +144,7 @@ func TestGoalFailureRejectsSubmitOnlyHTTPAuthority(t *testing.T) {
 	db, err := sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: filepath.Join(t.TempDir(), "jobs.db")})
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close(ctx)) })
-	server := httptest.NewServer(celltest.Handler(remote.NewServer(db)))
+	server := httptest.NewServer(celltest.Handler(remote.NewConsumerServer(db)))
 	t.Cleanup(server.Close)
 	client, err := remote.New(server.URL, server.Client())
 	require.NoError(t, err)

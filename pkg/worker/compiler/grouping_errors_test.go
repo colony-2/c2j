@@ -72,7 +72,7 @@ func (r *groupingLostResponseTransport) RoundTrip(q *http.Request) (*http.Respon
 }
 func TestGroupingTransportFailureDoesNotResubmit(t *testing.T) {
 	f := newGroupingFixture(t, "sqlite", groupingCountRecipe)
-	s := httptest.NewServer(celltest.Handler(remote.NewServer(f.rt)))
+	s := httptest.NewServer(celltest.Handler(remote.NewConsumerServer(f.rt)))
 	defer s.Close()
 	transport := &groupingLostResponseTransport{inner: s.Client().Transport}
 	client, err := remote.New(s.URL, &http.Client{Transport: transport})
@@ -118,7 +118,7 @@ outputs: {config: '${{ inputs.config }}'}
 // Inject at the backend boundary so the real starter, schema wrapper and HTTP
 // codec must surface the failure without using ordinary submission as a fallback.
 type groupingRejectedRuntime struct {
-	jobdb.WorkflowRuntime
+	jobdb.ConsumerRuntime
 	jobdb.ConfigurationAdmin
 	err             error
 	appends, starts int
@@ -131,7 +131,7 @@ func (r *groupingRejectedRuntime) StartOrAppendJob(context.Context, jobdb.StartO
 
 func (r *groupingRejectedRuntime) SubmitJob(ctx context.Context, req jobdb.SubmitJobRequest) (jobdb.JobHandle, error) {
 	r.starts++
-	return r.WorkflowRuntime.SubmitJob(ctx, req)
+	return r.ConsumerRuntime.SubmitJob(ctx, req)
 }
 
 func TestGroupingBackendRejectionsNeverFallBack(t *testing.T) {
@@ -139,10 +139,10 @@ func TestGroupingBackendRejectionsNeverFallBack(t *testing.T) {
 		for _, failure := range []error{jobdb.ErrAppendBusy, jobdb.ErrLeasePermissionDenied, jobdb.ErrChapterApplicationPayloadTooLarge, fmt.Errorf("grouping operation unsupported")} {
 			t.Run(transport+"/"+failure.Error(), func(t *testing.T) {
 				f := newGroupingFixture(t, "sqlite", groupingCountRecipe)
-				fault := &groupingRejectedRuntime{WorkflowRuntime: f.rt, ConfigurationAdmin: f.rt.(jobdb.ConfigurationAdmin), err: failure}
-				var rt jobdb.WorkflowRuntime = fault
+				fault := &groupingRejectedRuntime{ConsumerRuntime: f.rt, ConfigurationAdmin: f.rt.(jobdb.ConfigurationAdmin), err: failure}
+				var rt jobdb.ConsumerRuntime = fault
 				if transport == "http" {
-					s := httptest.NewServer(celltest.Handler(remote.NewServer(fault)))
+					s := httptest.NewServer(celltest.Handler(remote.NewConsumerServer(fault)))
 					t.Cleanup(s.Close)
 					var err error
 					rt, err = remote.New(s.URL, s.Client())

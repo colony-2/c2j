@@ -28,7 +28,7 @@ import (
 func TestMetricsReplayConsumptionBoundary(t *testing.T) {
 	for _, backend := range []string{"toy", "sqlite", "remote"} {
 		t.Run(backend, func(t *testing.T) {
-			rt := newTimeoutReproRuntime(t, backend).WorkflowRuntime
+			rt := newTimeoutReproRuntime(t, backend).ConsumerRuntime
 			ctx := celltest.Context(context.Background())
 			live := &metricsConsumptionObserver{entered: make(chan struct{}), release: make(chan struct{}), done: make(chan struct{})}
 			replay := &metricsConsumptionObserver{}
@@ -177,7 +177,7 @@ func TestMetricsReplayConsumptionBoundary(t *testing.T) {
 func TestMetricsConsumptionAcrossJobAttempts(t *testing.T) {
 	for _, backend := range []string{"toy", "sqlite", "remote"} {
 		t.Run(backend, func(t *testing.T) {
-			rt := newTimeoutReproRuntime(t, backend).WorkflowRuntime
+			rt := newTimeoutReproRuntime(t, backend).ConsumerRuntime
 			ctx := celltest.Context(context.Background())
 			observer := &metricsConsumptionObserver{}
 			var builds, runs atomic.Int32

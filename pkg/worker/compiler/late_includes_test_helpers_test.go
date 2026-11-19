@@ -99,7 +99,7 @@ func lateTasks(t *testing.T, guard *executionruntime.Runtime, extra ...jobworkfl
 	}
 	return workers
 }
-func lateRun(t *testing.T, rt jobdb.WorkflowRuntime, key jobdb.JobKey, w jobworkflow.ExecutionWorker, tasks ...jobworkflow.TaskWorker) jobworkflow.JobRunOutcome {
+func lateRun(t *testing.T, rt jobdb.ConsumerRuntime, key jobdb.JobKey, w jobworkflow.ExecutionWorker, tasks ...jobworkflow.TaskWorker) jobworkflow.JobRunOutcome {
 	t.Helper()
 	h, err := jobworkflow.GetJobForRun(lateTestContext(), rt, jobworkflow.GetJobForRunRequest{JobKey: key, JobWorker: w, TaskWorkers: tasks, WorkerID: "late-tests", LeaseDuration: time.Minute})
 	require.NoError(t, err)
@@ -107,12 +107,12 @@ func lateRun(t *testing.T, rt jobdb.WorkflowRuntime, key jobdb.JobKey, w jobwork
 	require.NoError(t, err)
 	return out
 }
-func lateGuard(rt jobdb.WorkflowRuntime) *executionruntime.Runtime {
+func lateGuard(rt jobdb.ConsumerRuntime) *executionruntime.Runtime {
 	guard := executionruntime.New(rt, execution.Allocation{SchemaVersion: 1})
 	guard.Issuer = permissions.JobDBIssuer{}
 	return guard
 }
-func lateRecordOutputs(t *testing.T, rt jobdb.WorkflowRuntime, key jobdb.JobKey) ([]lateSelection, []lateCapture, jobdb.GetJobRunResponse) {
+func lateRecordOutputs(t *testing.T, rt jobdb.ConsumerRuntime, key jobdb.JobKey) ([]lateSelection, []lateCapture, jobdb.GetJobRunResponse) {
 	t.Helper()
 	run, err := jobdb.GetJobRun(celltest.Context(context.Background()), rt, jobdb.GetJobRunRequest{JobKey: key})
 	require.NoError(t, err)

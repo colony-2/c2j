@@ -132,7 +132,7 @@ func TestRecipeInputAuthorityAndRemoteLeaseIsolation(t *testing.T) {
 			require.NoError(t, err)
 			provider := &freshGitProvider{}
 			base := toy.New(toy.WithSecretProvider(provider))
-			server := httptest.NewServer(celltest.Handler(remote.NewServer(base)))
+			server := httptest.NewServer(celltest.Handler(remote.NewConsumerServer(base)))
 			defer server.Close()
 			client, err := remote.New(server.URL, server.Client())
 			require.NoError(t, err)

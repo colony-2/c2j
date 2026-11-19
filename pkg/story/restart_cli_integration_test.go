@@ -198,7 +198,7 @@ func TestRestartCLIEndToEnd(t *testing.T) {
 			if backend == "sqlite" {
 				plain := newRestartFixture(t, "sqlite", "id: simple\nsequence:\n - id: nested\n   sequence: []\n")
 				plainScope := plain.story(t, plain.key).RestartScopes[1].ScopeID
-				httpServer := httptest.NewServer(celltest.Handler(remote.NewServer(plain.runtime)))
+				httpServer := httptest.NewServer(celltest.Handler(remote.NewConsumerServer(plain.runtime)))
 				defer httpServer.Close()
 				cmd := exec.CommandContext(f.ctx, binary, "job", "restart-points", plain.key.JobId, "--json", "--jobdb", httpServer.URL+"/"+f.key.TenantId)
 				for _, entry := range env {
@@ -262,7 +262,7 @@ func TestRestartCLIEndToEndAfterPayloadRejection(t *testing.T) {
 				env = append(env, "C2J_JOBDB=invalid://ambient")
 				url = "invalid://explicit"
 			} else {
-				server := httptest.NewServer(celltest.Handler(remote.NewServer(f.guard)))
+				server := httptest.NewServer(celltest.Handler(remote.NewConsumerServer(f.guard)))
 				t.Cleanup(server.Close)
 				url = server.URL + "/" + f.key.TenantId
 			}

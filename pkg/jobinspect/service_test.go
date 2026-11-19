@@ -26,13 +26,13 @@ import (
 )
 
 type eventReadCounter struct {
-	jobdb.WorkflowRuntime
+	jobdb.ConsumerRuntime
 	calls int
 }
 
 func (r *eventReadCounter) ListLeaseEvents(ctx context.Context, req jobdb.ListLeaseEventsRequest) (jobdb.ListLeaseEventsResponse, error) {
 	r.calls++
-	return jobdb.ListLeaseEvents(ctx, r.WorkflowRuntime, req)
+	return jobdb.ListLeaseEvents(ctx, r.ConsumerRuntime, req)
 }
 
 type fixtureTask struct {
@@ -73,9 +73,9 @@ func TestFailedJobInspectionAndCumulativeExport(t *testing.T) {
 	for _, backend := range []string{"toy", "remote"} {
 		t.Run(backend, func(t *testing.T) {
 			ctx := celltest.Context(context.Background())
-			var rt jobdb.WorkflowRuntime = toy.New()
+			var rt jobdb.ConsumerRuntime = toy.New()
 			if backend == "remote" {
-				server := httptest.NewServer(celltest.Handler(remote.NewServer(rt)))
+				server := httptest.NewServer(celltest.Handler(remote.NewConsumerServer(rt)))
 				defer server.Close()
 				client, e := remote.New(server.URL, server.Client())
 				require.NoError(t, e)
@@ -127,7 +127,7 @@ func TestFailedJobInspectionAndCumulativeExport(t *testing.T) {
 			}}
 			h, e := rt.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "tenant", JobType: orchestrator.Name(), Cell: "test", CellRepo: "example.test/test", Data: jobdb.NewTaskDataOrPanic(nil), RunPolicy: jobdb.RunPolicy{Retry: jobdb.RetryPolicy{MaximumAttempts: 1}}}})
 			require.NoError(t, e)
-			counter := &eventReadCounter{WorkflowRuntime: rt}
+			counter := &eventReadCounter{ConsumerRuntime: rt}
 			api := &jobinspect.Service{Runtime: counter, Tenant: "tenant"}
 			var liveID string
 			worker.before = func(tc wf.TaskContext) {
@@ -266,7 +266,7 @@ func TestFailedJobInspectionAndCumulativeExport(t *testing.T) {
 	}
 }
 
-type missingArtifacts struct{ jobdb.WorkflowRuntime }
+type missingArtifacts struct{ jobdb.ConsumerRuntime }
 
 func (missingArtifacts) OpenArtifact(context.Context, jobdb.ArtifactRef) (jobdb.ArtifactReader, error) {
 	return nil, fmt.Errorf("artifact expired")

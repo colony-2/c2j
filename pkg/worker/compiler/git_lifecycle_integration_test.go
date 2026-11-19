@@ -33,7 +33,7 @@ import (
 // Lose the worker after committing an outcome but before the compiler consumes
 // it. The replacement must reconstruct everything from durable history.
 type gitOutcomeInterruption struct {
-	jobdb.WorkflowRuntime
+	jobdb.ConsumerRuntime
 	lease       jobdb.ExecutionLease
 	match       string
 	includeBase bool
@@ -42,12 +42,12 @@ type gitOutcomeInterruption struct {
 }
 
 func (r *gitOutcomeInterruption) GetJobLease(ctx context.Context, req jobdb.GetJobLeaseRequest) (jobdb.ExecutionLease, error) {
-	l, err := r.WorkflowRuntime.GetJobLease(ctx, req)
+	l, err := r.ConsumerRuntime.GetJobLease(ctx, req)
 	r.lease = l
 	return l, err
 }
 func (r *gitOutcomeInterruption) PutChapter(ctx context.Context, req jobdb.PutChapterRequest) error {
-	if err := r.WorkflowRuntime.PutChapter(ctx, req); err != nil {
+	if err := r.ConsumerRuntime.PutChapter(ctx, req); err != nil {
 		return err
 	}
 	if body, ok := req.Chapter.Body.(jobdb.ExecutionChapter); ok && !r.fired {
@@ -67,12 +67,12 @@ func (r *gitOutcomeInterruption) PutChapter(ctx context.Context, req jobdb.PutCh
 	return nil
 }
 
-func runGitLifecycle(t *testing.T, rt jobdb.WorkflowRuntime, key jobdb.JobKey, recordedPolicy ...string) (jobworkflow.JobRunOutcome, error) {
+func runGitLifecycle(t *testing.T, rt jobdb.ConsumerRuntime, key jobdb.JobKey, recordedPolicy ...string) (jobworkflow.JobRunOutcome, error) {
 	t.Helper()
 	return runGitLifecycleContext(t, celltest.Context(context.Background()), rt, key, recordedPolicy...)
 }
 
-func runGitLifecycleContext(t *testing.T, ctx context.Context, rt jobdb.WorkflowRuntime, key jobdb.JobKey, recordedPolicy ...string) (jobworkflow.JobRunOutcome, error) {
+func runGitLifecycleContext(t *testing.T, ctx context.Context, rt jobdb.ConsumerRuntime, key jobdb.JobKey, recordedPolicy ...string) (jobworkflow.JobRunOutcome, error) {
 	t.Helper()
 	reg, err := workerops.NewActivityRegistry()
 	require.NoError(t, err)
@@ -108,7 +108,7 @@ func runGitLifecycleContext(t *testing.T, ctx context.Context, rt jobdb.Workflow
 	return r.Run(nil)
 }
 
-func submitGitLifecycle(t *testing.T, rt jobdb.WorkflowRuntime, repo, yaml string) jobdb.JobKey {
+func submitGitLifecycle(t *testing.T, rt jobdb.ConsumerRuntime, repo, yaml string) jobdb.JobKey {
 	t.Helper()
 	job := contextual.JobContext{Workflow: contextual.WorkflowContext{CellName: "source"}, GitBase: contextual.GitBaseContext{BaseRepo: repo, BaseRef: "main"}}
 	data := jobdb.NewTaskDataOrPanic(workflowctl.StartJob{TenantId: "git-tests", RecipeName: "git-lifecycle", JobContext: job, GitRef: "main", Cell: "test", CellRepo: celltest.Repo(job.GitBase.BaseRepo)}, jobdb.NewArtifactFromBytes("git-lifecycle"+starter.RecipeArtifactSuffix, []byte(yaml)))
@@ -165,7 +165,7 @@ outputs:
 `, celltest.Repo(repo), ref, plan)
 				rt := newTimeoutReproRuntime(t, backend)
 				key := submitGitLifecycle(t, rt, repo, yaml)
-				fault := &gitOutcomeInterruption{WorkflowRuntime: rt, match: `scope:"op:plan"`}
+				fault := &gitOutcomeInterruption{ConsumerRuntime: rt, match: `scope:"op:plan"`}
 				_, err := runGitLifecycle(t, fault, key)
 				require.Error(t, err)
 				require.True(t, fault.fired)
@@ -200,7 +200,7 @@ outputs:
 				require.NotEmpty(t, scope)
 				engine, err := jobworkflow.NewEngineBuilder().WithRuntime(rt).BuildEngine()
 				require.NoError(t, err)
-				submitter := jobdbschema.WorkflowEngine{Engine: engine, Registry: rt.WorkflowRuntime.(jobdb.JobSchemaRegistry)}
+				submitter := jobdbschema.WorkflowEngine{Engine: engine, Registry: rt.ConsumerRuntime.(jobdb.JobSchemaRegistry)}
 				restarted, err := starter.RestartRecipeJob(celltest.Context(context.Background()), submitter, key, scope, nil, starter.RestartOptions{Goal: "new", RequestID: "git-restart"})
 				require.NoError(t, err)
 				latest := advance("upstream-c")
@@ -296,7 +296,7 @@ outputs: {captured: '${{ sequence.integration.outputs.captured }}'}
 `
 			rt := newTimeoutReproRuntime(t, backend)
 			key := submitGitLifecycle(t, rt, repo, yaml)
-			fault := &gitOutcomeInterruption{WorkflowRuntime: rt, match: `task:"rebase:rebase"`}
+			fault := &gitOutcomeInterruption{ConsumerRuntime: rt, match: `task:"rebase:rebase"`}
 			_, err := runGitLifecycle(t, fault, key)
 			require.Error(t, err)
 			require.True(t, fault.fired)

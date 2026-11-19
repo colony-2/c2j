@@ -57,10 +57,10 @@ func TestGoalWinnerCollectionRecoveryAndExplicitFailure(t *testing.T) {
 				db, err := sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: dbPath})
 				require.NoError(t, err)
 				t.Cleanup(func() { require.NoError(t, db.Close(ctx)) })
-				var rt jobdb.WorkflowRuntime = db
+				var rt jobdb.ConsumerRuntime = db
 				var server *httptest.Server
 				if backend == "remote" {
-					handler := remote.NewServer(db)
+					handler := remote.NewConsumerServer(db)
 					server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 						handler.ServeHTTP(w, r.WithContext(jobdb.WithPrimaryGoalSelectionAuthorizer(celltest.Context(r.Context()), func(context.Context, jobdb.GoalKey, jobdb.ResolvedCell) error { return nil })))
 					}))
@@ -106,7 +106,7 @@ func TestGoalWinnerCollectionRecoveryAndExplicitFailure(t *testing.T) {
 				require.NoError(t, err)
 				rt = db
 				if backend == "remote" {
-					handler := remote.NewServer(db)
+					handler := remote.NewConsumerServer(db)
 					server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 						handler.ServeHTTP(w, r.WithContext(jobdb.WithPrimaryGoalSelectionAuthorizer(celltest.Context(r.Context()), func(context.Context, jobdb.GoalKey, jobdb.ResolvedCell) error { return nil })))
 					}))

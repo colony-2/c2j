@@ -222,7 +222,7 @@ err := recipejob.ClearCrashConcern(ctx, runtime, jobdb.ClearCrashConcernRequest{
 ```
 
 The helper accepts the narrow `recipejob.CrashConcernAdmin` interface. A
-`jobdb.WorkflowRuntime` implements it directly. `jobdbschema.WorkflowEngine`
+`jobdb.ConsumerRuntime` implements it directly. `jobdbschema.WorkflowEngine`
 forwards through its `Registry` runtime, as its goal lifecycle methods do. The
 upstream `workflow.Engine` interface alone does not expose this method; retain
 the runtime or the c2j wrapper when wiring host management APIs.

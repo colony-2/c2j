@@ -135,7 +135,7 @@ type completionIdentity struct {
 func (l completionIdentity) Job() jobdb.JobHandle { return jobdb.JobHandle{JobKey: l.key} }
 func (l completionIdentity) Route() jobdb.Route   { return jobdb.Route{JobType: "recipe"} }
 
-type failingMetricRead struct{ jobdb.WorkflowRuntime }
+type failingMetricRead struct{ jobdb.ConsumerRuntime }
 
 func (failingMetricRead) ListChapters(context.Context, jobdb.ListChaptersRequest) ([]jobdb.Chapter, error) {
 	return nil, errors.New("read failed")
@@ -154,7 +154,7 @@ func TestUnavailableCompletionAndCachedCutoff(t *testing.T) {
 	require.Equal(t, "FAILED", first.Status)
 	require.Equal(t, "original failure", first.Detail)
 	require.Len(t, ch.Metadata.Fields, 1)
-	adapter.runtime.WorkflowRuntime = f.runtime
+	adapter.runtime.ConsumerRuntime = f.runtime
 	second := adapter.finalizeMetrics(ctx, req)
 	require.Equal(t, first.Chapter.Metadata.Fields["metadata"].Map[metricshistory.SnapshotMetadataKey], second.Chapter.Metadata.Fields["metadata"].Map[metricshistory.SnapshotMetadataKey])
 }
@@ -162,7 +162,7 @@ func TestUnavailableCompletionAndCachedCutoff(t *testing.T) {
 // Commit either the full completion or just its chapter, then lose the response.
 // The latter leaves durable output for a fresh runner to reconcile after expiry.
 type metricCompletionFault struct {
-	jobdb.WorkflowRuntime
+	jobdb.ConsumerRuntime
 	partial bool
 	fired   atomic.Bool
 }
@@ -175,11 +175,11 @@ func (r *metricCompletionFault) CreateDelegation(ctx context.Context, parent job
 	if wrapped, ok := parent.(*metricCompletionFaultLease); ok {
 		parent = wrapped.ExecutionLease
 	}
-	return r.WorkflowRuntime.(jobdb.LeaseDelegator).CreateDelegation(ctx, parent, q)
+	return r.ConsumerRuntime.(jobdb.LeaseDelegator).CreateDelegation(ctx, parent, q)
 }
 
 func (r *metricCompletionFault) GetJobLease(ctx context.Context, q jobdb.GetJobLeaseRequest) (jobdb.ExecutionLease, error) {
-	l, err := r.WorkflowRuntime.GetJobLease(ctx, q)
+	l, err := r.ConsumerRuntime.GetJobLease(ctx, q)
 	if err != nil || l == nil {
 		return l, err
 	}
@@ -201,7 +201,7 @@ func (l *metricCompletionFaultLease) Complete(ctx context.Context, q jobdb.Compl
 	value.String = " \n" + value.String + "\n"
 	meta.Map[metricshistory.SnapshotMetadataKey] = value
 	if l.fault.partial {
-		if err := l.fault.WorkflowRuntime.PutChapter(ctx, jobdb.PutChapterRequest{LeaseID: l.LeaseID(), LeaseToken: l.LeaseToken(), Ref: jobdb.ChapterRef{JobKey: l.Job().JobKey, Ordinal: q.Chapter.Ordinal}, Chapter: *q.Chapter, ArtifactUploads: q.ArtifactUploads}); err != nil {
+		if err := l.fault.ConsumerRuntime.PutChapter(ctx, jobdb.PutChapterRequest{LeaseID: l.LeaseID(), LeaseToken: l.LeaseToken(), Ref: jobdb.ChapterRef{JobKey: l.Job().JobKey, Ordinal: q.Chapter.Ordinal}, Chapter: *q.Chapter, ArtifactUploads: q.ArtifactUploads}); err != nil {
 			return err
 		}
 	} else if err := l.ExecutionLease.Complete(ctx, q); err != nil {
@@ -216,14 +216,14 @@ func TestMetricsUncertainCompletionRecovery(t *testing.T) {
 			t.Run(fmt.Sprintf("%s/chapter-only=%t", backend, partial), func(t *testing.T) {
 				f := newFixture(t, backend, "2Gi", nil)
 				base := f.runtime
-				fault := &metricCompletionFault{WorkflowRuntime: base, partial: partial}
+				fault := &metricCompletionFault{ConsumerRuntime: base, partial: partial}
 				runs := 0
 				tasks := []wf.TaskWorker{
 					metricsruntime.WrapWorker(usageTask{"execution_discover:work", 3, false, &runs}, task.OutputKindActivityInvocationOutput),
 					metricsruntime.WrapWorker(usageTask{"execution_finish:work", 7, false, &runs}, task.OutputKindActivityInvocationOutput),
 				}
 				ctx := celltest.Context(context.Background())
-				run := func(storage jobdb.WorkflowRuntime) (wf.JobRunOutcome, error) {
+				run := func(storage jobdb.ConsumerRuntime) (wf.JobRunOutcome, error) {
 					guard := New(storage, allocation("2Gi"))
 					worker := compiler.NewRecipeJobWorker(compiler.RecipeJobWorkerOptions{Allocation: allocation("2Gi"), StageExecution: guard.Stage, WrapTaskWorker: guard.WrapTaskWorker})
 					// Leave time for SQLite/Git setup under repository-wide load.

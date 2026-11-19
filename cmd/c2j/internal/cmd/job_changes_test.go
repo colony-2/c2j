@@ -20,15 +20,15 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func changesCLIBackend(t *testing.T, backend string) (context.Context, jobdb.WorkflowRuntime) {
+func changesCLIBackend(t *testing.T, backend string) (context.Context, jobdb.ConsumerRuntime) {
 	t.Helper()
 	ctx := celltest.Context(context.Background())
 	db, e := sqliteruntime.NewFromConfig(ctx, sqliteruntime.Config{DBPath: filepath.Join(t.TempDir(), "cli.db")})
 	require.NoError(t, e)
 	t.Cleanup(func() { require.NoError(t, db.Close(ctx)) })
-	var rt jobdb.WorkflowRuntime = db
+	var rt jobdb.ConsumerRuntime = db
 	if backend == "http" {
-		server := httptest.NewServer(celltest.Handler(remote.NewServer(db)))
+		server := httptest.NewServer(celltest.Handler(remote.NewConsumerServer(db)))
 		t.Cleanup(server.Close)
 		rt, e = remote.New(server.URL, server.Client())
 		require.NoError(t, e)
@@ -41,7 +41,7 @@ func TestChangesCLI_J45Movement(t *testing.T) {
 	for _, backend := range []string{"sqlite", "http"} {
 		t.Run(backend, func(t *testing.T) {
 			ctx, rt := changesCLIBackend(t, backend)
-			guard := &changestest.ReadOnlyRuntime{WorkflowRuntime: rt}
+			guard := &changestest.ReadOnlyRuntime{ConsumerRuntime: rt}
 			api := &jobinspect.Service{Runtime: guard, Tenant: "tenant"}
 			var old jobinspect.ChangesHistory
 			f, e := changestest.Build(ctx, rt, changestest.Options{Directory: t.TempDir(), JobID: "cli-moving", Commits: 4, BeforeTask: func(i int) error {
@@ -97,7 +97,7 @@ func TestChangesCLI_J46FailureDiagnosticsAndUnsupportedAll(t *testing.T) {
 	for _, backend := range []string{"sqlite", "http"} {
 		t.Run(backend, func(t *testing.T) {
 			ctx, rt := changesCLIBackend(t, backend)
-			guard := &changestest.ReadOnlyRuntime{WorkflowRuntime: rt}
+			guard := &changestest.ReadOnlyRuntime{ConsumerRuntime: rt}
 			fixtures := []*changestest.Fixture{}
 			build := func(opt changestest.Options) *changestest.Fixture {
 				opt.Directory = t.TempDir()
@@ -200,9 +200,9 @@ func TestChangesCLI_J43J44J45J46J47(t *testing.T) {
 			rt, e := sqliteruntime.NewFromConfig(ctx, sqliteruntime.Config{DBPath: filepath.Join(t.TempDir(), "cli.db")})
 			require.NoError(t, e)
 			t.Cleanup(func() { require.NoError(t, rt.Close(ctx)) })
-			var runtime jobdb.WorkflowRuntime = rt
+			var runtime jobdb.ConsumerRuntime = rt
 			if backend == "http" {
-				server := httptest.NewServer(celltest.Handler(remote.NewServer(rt)))
+				server := httptest.NewServer(celltest.Handler(remote.NewConsumerServer(rt)))
 				t.Cleanup(server.Close)
 				client, e := remote.New(server.URL, server.Client())
 				require.NoError(t, e)
@@ -218,7 +218,7 @@ func TestChangesCLI_J43J44J45J46J47(t *testing.T) {
 			singleOracle, e := f.Oracle(ctx, f.Commits[0], f.Commits[1])
 			require.NoError(t, e)
 			require.NoError(t, f.DeleteCheckout())
-			readOnly := &changestest.ReadOnlyRuntime{WorkflowRuntime: runtime}
+			readOnly := &changestest.ReadOnlyRuntime{ConsumerRuntime: runtime}
 			api := &jobinspect.Service{Runtime: readOnly, Tenant: "tenant"}
 			before, e := changestest.Inventory(ctx, runtime, f.Job)
 			require.NoError(t, e)

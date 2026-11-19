@@ -12,7 +12,7 @@ import (
 // Wrap after fixture setup, then assert Mutations is zero as well as comparing
 // complete Inventory results. Successful read methods still use the real backend.
 type ReadOnlyRuntime struct {
-	jobdb.WorkflowRuntime
+	jobdb.ConsumerRuntime
 	Mutations atomic.Int64
 }
 
@@ -50,9 +50,6 @@ func (r *ReadOnlyRuntime) UpdateCell(context.Context, jobdb.UpdateCellRequest) (
 }
 func (r *ReadOnlyRuntime) RetireCell(context.Context, jobdb.RetireCellRequest) (jobdb.Cell, error) {
 	return jobdb.Cell{}, r.reject()
-}
-func (r *ReadOnlyRuntime) AddGoalCandidate(context.Context, jobdb.AddGoalCandidateRequest) (jobdb.GoalCandidateInfo, error) {
-	return jobdb.GoalCandidateInfo{}, r.reject()
 }
 func (r *ReadOnlyRuntime) FailGoal(context.Context, jobdb.FailGoalRequest) (jobdb.GoalInfo, error) {
 	return jobdb.GoalInfo{}, r.reject()

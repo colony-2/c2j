@@ -25,7 +25,7 @@ func TestLeaseEventsThroughRuntimeWrappers(t *testing.T) {
 			if backend == "embed" {
 				t.Setenv("HOME", t.TempDir())
 			} else {
-				server := httptest.NewServer(celltest.Handler(remote.NewServer(toy.New())))
+				server := httptest.NewServer(celltest.Handler(remote.NewConsumerServer(toy.New())))
 				t.Cleanup(server.Close)
 				url = server.URL
 			}
@@ -58,9 +58,9 @@ func TestLeaseEventsUnsupportedThroughRuntimeWrappers(t *testing.T) {
 	require.ErrorIs(t, err, jobdb.ErrLeaseEventsUnsupported)
 }
 
-// Lease-event listing is required by the upgraded WorkflowRuntime interface;
+// Lease-event listing is required by the upgraded ConsumerRuntime interface;
 // model an unsupported implementation explicitly rather than embedding nil.
-type unsupportedEventsRuntime struct{ jobdb.WorkflowRuntime }
+type unsupportedEventsRuntime struct{ jobdb.ConsumerRuntime }
 
 func (unsupportedEventsRuntime) ListLeaseEvents(context.Context, jobdb.ListLeaseEventsRequest) (jobdb.ListLeaseEventsResponse, error) {
 	return jobdb.ListLeaseEventsResponse{}, jobdb.ErrLeaseEventsUnsupported

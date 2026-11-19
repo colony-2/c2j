@@ -46,7 +46,7 @@ func TestSuppliedLeaseUsesExecutionAdmission(t *testing.T) {
 
 // Fail immediately if any supplied invocation reaches an acquisition API.
 type noClaimsRuntime struct {
-	jobdb.WorkflowRuntime
+	jobdb.ConsumerRuntime
 	t *testing.T
 }
 
@@ -60,7 +60,7 @@ func (r noClaimsRuntime) PollWork(context.Context, jobdb.PollWorkRequest) ([]job
 }
 func runFixtureLease(t *testing.T, f *fixture, rt *Runtime, supplied jobdb.ExecutionLease, tasks []jobworkflow.TaskWorker) (jobworkflow.JobRunOutcome, error) {
 	t.Helper()
-	rt.WorkflowRuntime = noClaimsRuntime{f.runtime, t}
+	rt.ConsumerRuntime = noClaimsRuntime{f.runtime, t}
 	worker := compiler.NewRecipeJobWorker(compiler.RecipeJobWorkerOptions{Allocation: rt.Allocation, StageExecution: rt.Stage, WrapTaskWorker: rt.WrapTaskWorker})
 	wrapped := make([]jobworkflow.TaskWorker, len(tasks))
 	for i, task := range tasks {

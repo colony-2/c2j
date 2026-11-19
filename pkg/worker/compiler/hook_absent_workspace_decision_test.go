@@ -396,7 +396,7 @@ func TestHookAbsentCompilerLoadFrontiers(t *testing.T) {
 				rt := newTimeoutReproRuntime(t, "sqlite")
 				text := absentWorkspaceRecipe(state, "workspace: {cell: test}", "status: skipped", "")
 				key := submitGitLifecycle(t, rt, repo, text)
-				fault := &gitOutcomeInterruption{WorkflowRuntime: rt, match: `:pin"`, includeBase: true}
+				fault := &gitOutcomeInterruption{ConsumerRuntime: rt, match: `:pin"`, includeBase: true}
 				_, err := runGitLifecycle(t, fault, key)
 				require.Error(t, err)
 				require.True(t, fault.fired)

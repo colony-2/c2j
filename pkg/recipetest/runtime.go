@@ -1097,7 +1097,7 @@ func snapshotRuntimeValue(ctx context.Context, value, dst any) error {
 // caseRuntime includes only the native facilities used by the harness. Both
 // backends implement the same contract, including schema and configuration.
 type caseRuntime interface {
-	jobdb.WorkflowRuntime
+	jobdb.ConsumerRuntime
 	jobdb.JobSchemaRegistry
 	jobdb.ConfigurationAdmin
 }

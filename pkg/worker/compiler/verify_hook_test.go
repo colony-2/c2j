@@ -120,10 +120,13 @@ fi
 			require.Contains(t, string(raw), "-run ^TestBrokerOnlyCLI")
 			if failGate {
 				require.NotContains(t, string(raw), "-tags=integration")
+				require.NotContains(t, string(raw), "./internal/retirementcheck")
 				require.NotContains(t, string(raw), "go build")
 				require.NotContains(t, string(raw), "c2j test")
 			} else {
 				require.Contains(t, string(raw), "-run ^TestSubmission")
+				require.Contains(t, string(raw), "go test -count=1 -v -timeout=10m ./internal/retirementcheck")
+				require.Less(t, strings.Index(string(raw), "-run ^TestSubmission"), strings.Index(string(raw), "./internal/retirementcheck"))
 				require.Contains(t, string(raw), "-tags=integration")
 				require.Equal(t, 4, strings.Count(string(raw), "c2j test validate --file "))
 				require.Equal(t, 4, strings.Count(string(raw), "c2j test run --file "))

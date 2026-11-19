@@ -93,7 +93,7 @@ outputs:
 		t.Fatalf("start recipe job: %v", err)
 	}
 
-	server := httptest.NewServer(celltest.Handler(remoteruntime.NewServer(underlying)))
+	server := httptest.NewServer(celltest.Handler(remoteruntime.NewConsumerServer(underlying)))
 	defer server.Close()
 
 	var liveStdout bytes.Buffer

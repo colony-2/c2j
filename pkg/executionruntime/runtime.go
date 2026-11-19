@@ -22,7 +22,7 @@ import (
 type Runtime struct {
 	// RestartAPI is a driver-provided, authorized restart service.
 	RestartAPI jobrestart.API
-	jobdb.WorkflowRuntime
+	jobdb.ConsumerRuntime
 	// Issuer translates recipe grants into task-scoped delegation requests.
 	Issuer     permissions.Issuer
 	Allocation execution.Allocation
@@ -30,8 +30,8 @@ type Runtime struct {
 	leases     map[jobdb.JobKey]*lease
 }
 
-func New(runtime jobdb.WorkflowRuntime, allocation execution.Allocation) *Runtime {
-	r := &Runtime{WorkflowRuntime: runtime, Allocation: allocation, leases: map[jobdb.JobKey]*lease{}}
+func New(runtime jobdb.ConsumerRuntime, allocation execution.Allocation) *Runtime {
+	r := &Runtime{ConsumerRuntime: runtime, Allocation: allocation, leases: map[jobdb.JobKey]*lease{}}
 	if _, ok := runtime.(jobdb.LeaseDelegator); ok {
 		r.Issuer = permissions.JobDBIssuer{}
 	}
@@ -39,14 +39,14 @@ func New(runtime jobdb.WorkflowRuntime, allocation execution.Allocation) *Runtim
 }
 
 func (r *Runtime) ListLeaseEvents(ctx context.Context, req jobdb.ListLeaseEventsRequest) (jobdb.ListLeaseEventsResponse, error) {
-	return jobdb.ListLeaseEvents(ctx, r.WorkflowRuntime, req)
+	return jobdb.ListLeaseEvents(ctx, r.ConsumerRuntime, req)
 }
 
 // CreateDelegation forwards the optional runtime capability hidden by embedding
-// WorkflowRuntime. Preserve the exact parent chosen by the engine and unwrap our
+// ConsumerRuntime. Preserve the exact parent chosen by the engine and unwrap our
 // admission wrapper so the remote runtime can export its original capability.
 func (r *Runtime) CreateDelegation(ctx context.Context, parent jobdb.ExecutionLease, req jobdb.CreateDelegationRequest) (jobdb.RenewableExecutionLease, error) {
-	creator, ok := r.WorkflowRuntime.(jobdb.LeaseDelegator)
+	creator, ok := r.ConsumerRuntime.(jobdb.LeaseDelegator)
 	if !ok {
 		return nil, jobdb.ErrLeaseDelegationUnsupported
 	}
@@ -69,7 +69,7 @@ func (r *Runtime) Stage(key jobdb.JobKey, demand execution.Demand) {
 }
 
 func (r *Runtime) GetJobLease(ctx context.Context, req jobdb.GetJobLeaseRequest) (jobdb.ExecutionLease, error) {
-	l, err := r.WorkflowRuntime.GetJobLease(ctx, req)
+	l, err := r.ConsumerRuntime.GetJobLease(ctx, req)
 	if err != nil || l == nil {
 		return l, err
 	}
@@ -77,7 +77,7 @@ func (r *Runtime) GetJobLease(ctx context.Context, req jobdb.GetJobLeaseRequest)
 }
 
 func (r *Runtime) PollWork(ctx context.Context, req jobdb.PollWorkRequest) ([]jobdb.ExecutionLease, error) {
-	leases, err := r.WorkflowRuntime.PollWork(ctx, req)
+	leases, err := r.ConsumerRuntime.PollWork(ctx, req)
 	if err != nil {
 		return nil, err
 	}

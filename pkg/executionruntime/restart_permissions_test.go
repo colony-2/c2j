@@ -32,9 +32,9 @@ func TestLeaseBoundRestartHelperSubmission(t *testing.T) {
 			db, err := sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: filepath.Join(t.TempDir(), "jobs.db")})
 			require.NoError(t, err)
 			defer db.Close(ctx)
-			var base jobdb.WorkflowRuntime = db
+			var base jobdb.ConsumerRuntime = db
 			if backend == "remote" {
-				server := httptest.NewServer(celltest.Handler(remote.NewServer(db)))
+				server := httptest.NewServer(celltest.Handler(remote.NewConsumerServer(db)))
 				defer server.Close()
 				base, err = remote.New(server.URL, server.Client())
 				require.NoError(t, err)

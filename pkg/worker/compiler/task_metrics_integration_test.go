@@ -55,7 +55,7 @@ func TestAutomaticMetricsThroughCompilerAndReplay(t *testing.T) {
 			}
 			malformed := `{"output":{"ok":true},"metrics":{"version":1,"identity":"forged","mutations":[]}}`
 			commitHookFile(t, repo, "op-malformed/op.yaml", "name: malformed-metrics\nshell: sh\nrun: |\n  "+shellcmd.LiteralLine(malformed)+"\ninput_schema: {type: object}\noutput_schema: {type: object}\n")
-			rt := newTimeoutReproRuntime(t, backend).WorkflowRuntime
+			rt := newTimeoutReproRuntime(t, backend).ConsumerRuntime
 			key := submitGitLifecycle(t, rt, repo, fmt.Sprintf(`id: git-lifecycle
 workspace: {cell: test, repo: %q, ref: main}
 sequence:
@@ -217,7 +217,7 @@ func TestJobMetricOutputNameIsReserved(t *testing.T) {
 	workspaceTestWorker(t)
 	repo := filepath.Join(t.TempDir(), "repo")
 	workspaceRepo(t, repo, "source")
-	rt := newTimeoutReproRuntime(t, "toy").WorkflowRuntime
+	rt := newTimeoutReproRuntime(t, "toy").ConsumerRuntime
 	key := submitGitLifecycle(t, rt, repo, fmt.Sprintf(`id: reserved-metric-output
 workspace: {cell: test, repo: %q, ref: main}
 sequence:

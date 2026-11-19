@@ -13,7 +13,7 @@ import (
 
 // Embedding a nil runtime makes every unexpected read or mutation panic.
 type eventRecorder struct {
-	jobdb.WorkflowRuntime
+	jobdb.ConsumerRuntime
 	requests []jobdb.ListLeaseEventsRequest
 	page     jobdb.ListLeaseEventsResponse
 	err      error

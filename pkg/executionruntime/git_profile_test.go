@@ -133,9 +133,9 @@ func TestRecipeGitProfilesAcrossRenewalAndScopeChanges(t *testing.T) {
 			defer cancel()
 			provider := &freshGitProvider{}
 			base := toy.New(toy.WithSecretProvider(provider))
-			var runtime jobdb.WorkflowRuntime = base
+			var runtime jobdb.ConsumerRuntime = base
 			if strings.HasPrefix(backend, "remote") {
-				server := httptest.NewServer(celltest.Handler(remote.NewServer(base)))
+				server := httptest.NewServer(celltest.Handler(remote.NewConsumerServer(base)))
 				defer server.Close()
 				remoteRT, err := remote.New(server.URL, server.Client())
 				require.NoError(t, err)

@@ -31,7 +31,7 @@ func (f delegationTask) RunTask(ctx context.Context, tc wf.TaskContext, in jobdb
 func TestRestrictedAccessUsesTaskDelegationAndOperationLimit(t *testing.T) {
 	ctx := celltest.Context(context.Background())
 	base := toy.New(toy.WithSecretProvider(&freshGitProvider{}))
-	server := httptest.NewServer(celltest.Handler(remote.NewServer(base)))
+	server := httptest.NewServer(celltest.Handler(remote.NewConsumerServer(base)))
 	defer server.Close()
 	client, err := remote.New(server.URL, server.Client())
 	require.NoError(t, err)
@@ -134,7 +134,7 @@ func TestTaskWithoutTimeoutUsesParentBoundRestrictedLease(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			ctx := celltest.Context(context.Background())
 			base := toy.New(toy.WithSecretProvider(&freshGitProvider{}))
-			server := httptest.NewServer(celltest.Handler(remote.NewServer(base)))
+			server := httptest.NewServer(celltest.Handler(remote.NewConsumerServer(base)))
 			defer server.Close()
 			client, err := remote.New(server.URL, server.Client())
 			require.NoError(t, err)
@@ -196,7 +196,7 @@ func TestTaskRequestsCannotOmitPermissionEnforcement(t *testing.T) {
 			ctx := celltest.Context(context.Background())
 			provider := &freshGitProvider{}
 			base := toy.New(toy.WithSecretProvider(provider))
-			server := httptest.NewServer(celltest.Handler(remote.NewServer(base)))
+			server := httptest.NewServer(celltest.Handler(remote.NewConsumerServer(base)))
 			defer server.Close()
 			client, err := remote.New(server.URL, server.Client())
 			require.NoError(t, err)

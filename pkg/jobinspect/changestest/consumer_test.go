@@ -23,9 +23,9 @@ func TestExternalConsumerL12(t *testing.T) {
 			db, e := sqliteruntime.NewFromConfig(ctx, sqliteruntime.Config{DBPath: filepath.Join(t.TempDir(), "consumer.db")})
 			require.NoError(t, e)
 			defer db.Close(ctx)
-			var rt jobdb.WorkflowRuntime = db
+			var rt jobdb.ConsumerRuntime = db
 			if backend == "http" {
-				server := httptest.NewServer(celltest.Handler(remote.NewServer(db)))
+				server := httptest.NewServer(celltest.Handler(remote.NewConsumerServer(db)))
 				defer server.Close()
 				rt, e = remote.New(server.URL, server.Client())
 				require.NoError(t, e)
@@ -38,7 +38,7 @@ func TestExternalConsumerL12(t *testing.T) {
 			require.NoError(t, f.DeleteCheckout())
 			before, e := changestest.Inventory(ctx, rt, f.Job)
 			require.NoError(t, e)
-			guard := &changestest.ReadOnlyRuntime{WorkflowRuntime: rt}
+			guard := &changestest.ReadOnlyRuntime{ConsumerRuntime: rt}
 			api, e := jobinspect.NewChangesService(&jobinspect.Service{Runtime: guard, Tenant: "tenant"}, jobinspect.ChangesConfig{})
 			require.NoError(t, e)
 			page, e := api.History(ctx, jobinspect.ChangesRequest{JobID: f.Job.JobId, Limit: 1})

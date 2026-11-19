@@ -251,13 +251,13 @@ func advancePublicationTarget(ctx context.Context, remote, parent, message strin
 }
 
 type publicationStorageFaultRuntime struct {
-	jobdb.WorkflowRuntime
+	jobdb.ConsumerRuntime
 	lease jobdb.ExecutionLease
 	fired bool
 }
 
 func (r *publicationStorageFaultRuntime) GetJobLease(ctx context.Context, req jobdb.GetJobLeaseRequest) (jobdb.ExecutionLease, error) {
-	lease, err := r.WorkflowRuntime.GetJobLease(ctx, req)
+	lease, err := r.ConsumerRuntime.GetJobLease(ctx, req)
 	r.lease = lease
 	return lease, err
 }
@@ -278,7 +278,7 @@ func (r *publicationStorageFaultRuntime) PutChapter(ctx context.Context, req job
 			return fmt.Errorf("injected task outcome storage failure after push")
 		}
 	}
-	return r.WorkflowRuntime.PutChapter(ctx, req)
+	return r.ConsumerRuntime.PutChapter(ctx, req)
 }
 
 func TestSquashRebaseMergeRecoversMissingOutcomeOnNewWorker(t *testing.T) {
@@ -315,7 +315,7 @@ func TestSquashRebaseMergeRecoversMissingOutcomeOnNewWorker(t *testing.T) {
 				return ws
 			}
 			base := toyruntime.New()
-			rt := &publicationStorageFaultRuntime{WorkflowRuntime: base}
+			rt := &publicationStorageFaultRuntime{ConsumerRuntime: base}
 			first := newWorker()
 			eng, err := jobworkflow.NewEngineBuilder().WithRuntime(base).WithWorkerTenantId("recovery").PlusWorkers(first.JobWorker).BuildEngine()
 			require.NoError(t, err)

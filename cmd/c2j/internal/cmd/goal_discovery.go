@@ -14,7 +14,12 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func withGoalRuntime(cmd *cobra.Command, uri string, query func(jobdb.WorkflowRuntime, string) (any, error)) error {
+type goalReadRuntime interface {
+	recipejob.CellGoalDiscovery
+	recipejob.GoalReader
+}
+
+func withGoalRuntime(cmd *cobra.Command, uri string, query func(goalReadRuntime, string) (any, error)) error {
 	cwd, err := os.Getwd()
 	if err != nil {
 		return err
@@ -63,7 +68,7 @@ func newGoalListCmd(uri *string) *cobra.Command {
 				*bound.out = &parsed
 			}
 		}
-		return withGoalRuntime(cmd, *uri, func(rt jobdb.WorkflowRuntime, tenant string) (any, error) {
+		return withGoalRuntime(cmd, *uri, func(rt goalReadRuntime, tenant string) (any, error) {
 			query.TenantId = tenant
 			var cells []string
 			if cell != "" {
@@ -101,7 +106,7 @@ func newGoalWaitsCmd(uri *string) *cobra.Command {
 		if goal != "" || job != "" {
 			query.Target = &jobdb.DependencyTarget{GoalID: goal, JobID: job}
 		}
-		return withGoalRuntime(cmd, *uri, func(rt jobdb.WorkflowRuntime, tenant string) (any, error) {
+		return withGoalRuntime(cmd, *uri, func(rt goalReadRuntime, tenant string) (any, error) {
 			query.TenantId = tenant
 			return recipejob.ListDependencyWaits(cmd.Context(), rt, query)
 		})
@@ -119,7 +124,7 @@ func newGoalWaitsCmd(uri *string) *cobra.Command {
 
 func newGoalWaitCmd(uri *string) *cobra.Command {
 	return &cobra.Command{Use: "wait JOB WAIT", Short: "Inspect one recorded dependency wait (JSON)", Args: cobra.ExactArgs(2), RunE: func(cmd *cobra.Command, args []string) error {
-		return withGoalRuntime(cmd, *uri, func(rt jobdb.WorkflowRuntime, tenant string) (any, error) {
+		return withGoalRuntime(cmd, *uri, func(rt goalReadRuntime, tenant string) (any, error) {
 			return recipejob.GetDependencyWait(cmd.Context(), rt, jobdb.DependencyWaitKey{JobKey: jobdb.JobKey{TenantId: tenant, JobId: args[0]}, WaitID: args[1]})
 		})
 	}}

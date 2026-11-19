@@ -44,7 +44,7 @@ func TestCommittedTaskRecordsUsePhysicalOrdinalAndPrefixPending(t *testing.T) {
 }
 
 type readFailure struct {
-	jobdb.WorkflowRuntime
+	jobdb.ConsumerRuntime
 	chapters []jobdb.Chapter
 	failure  error
 }

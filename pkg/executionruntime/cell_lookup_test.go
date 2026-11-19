@@ -23,9 +23,9 @@ func TestWorkspaceLookupIndependentOfSubmission(t *testing.T) {
 		for _, policy := range []string{"empty", "submit-own-cell"} {
 			t.Run(backend+"/"+policy, func(t *testing.T) {
 				ctx := celltest.Context(context.Background())
-				var base jobdb.WorkflowRuntime = toy.New()
+				var base jobdb.ConsumerRuntime = toy.New()
 				if backend == "remote" {
-					server := httptest.NewServer(celltest.Handler(remote.NewServer(base)))
+					server := httptest.NewServer(celltest.Handler(remote.NewConsumerServer(base)))
 					t.Cleanup(server.Close)
 					client, err := remote.New(server.URL, server.Client())
 					require.NoError(t, err)

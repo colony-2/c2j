@@ -11,7 +11,7 @@ import (
 )
 
 type delegationCapture struct {
-	jobdb.WorkflowRuntime
+	jobdb.ConsumerRuntime
 	parent  jobdb.ExecutionLease
 	request jobdb.CreateDelegationRequest
 	calls   int
@@ -35,6 +35,6 @@ func TestChapterVisibilityPreservesDelegationCapability(t *testing.T) {
 	require.Equal(t, 1, base.calls)
 	require.Equal(t, parent, base.parent)
 	require.Equal(t, req, base.request)
-	_, ok = withChapterVisibility(struct{ jobdb.WorkflowRuntime }{}).(jobdb.LeaseDelegator)
+	_, ok = withChapterVisibility(struct{ jobdb.ConsumerRuntime }{}).(jobdb.LeaseDelegator)
 	require.False(t, ok, "embedded runtimes must not advertise unsupported delegation")
 }

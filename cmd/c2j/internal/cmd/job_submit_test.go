@@ -48,7 +48,7 @@ func TestSubmitTitleFlag(t *testing.T) {
 	t.Chdir(root)
 	db := toyruntime.New()
 	celltest.Create(t, db, "tenant", "app", celltest.Repo(root))
-	server := httptest.NewServer(celltest.Handler(remoteruntime.NewServer(db)))
+	server := httptest.NewServer(celltest.Handler(remoteruntime.NewConsumerServer(db)))
 	defer server.Close()
 	for _, title := range []string{"  Improve café\nUI  ", "", "  "} {
 		cmd := newSubmitCmd()
@@ -97,7 +97,7 @@ func TestSubmitConventionsWithInteractivePromptAndJSON(t *testing.T) {
 	t.Chdir(root)
 	db := toyruntime.New()
 	celltest.Create(t, db, "tenant", "app", celltest.Repo(root))
-	server := httptest.NewServer(celltest.Handler(remoteruntime.NewServer(db)))
+	server := httptest.NewServer(celltest.Handler(remoteruntime.NewConsumerServer(db)))
 	defer server.Close()
 	for _, mode := range []string{"default", "build", "custom"} {
 		t.Run(mode, func(t *testing.T) {
@@ -156,7 +156,7 @@ func TestSubmitPromptFile(t *testing.T) {
 	require.NoError(t, os.WriteFile("inputs.yaml", []byte("extra: retained\n"), 0600))
 	db := toyruntime.New()
 	celltest.Create(t, db, "tenant", "app", celltest.Repo(root))
-	server := httptest.NewServer(celltest.Handler(remoteruntime.NewServer(db)))
+	server := httptest.NewServer(celltest.Handler(remoteruntime.NewConsumerServer(db)))
 	defer server.Close()
 	cmd := newSubmitCmd()
 	var stdout, stderr bytes.Buffer

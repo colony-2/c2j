@@ -12,7 +12,7 @@ import (
 )
 
 type familyRuntime struct {
-	jobdb.WorkflowRuntime // any unexpected enrichment panics
+	jobdb.ConsumerRuntime // any unexpected enrichment panics
 	calls                 []jobdb.ListJobsRequest
 	page                  jobdb.ListJobsResponse
 	err                   error

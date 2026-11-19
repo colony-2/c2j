@@ -165,6 +165,8 @@ state:
           # Exercise broker-only process routing before the broader integration suite.
           go test -mod=readonly -count=1 -v -timeout=10m ./pkg/childbroker -run '^TestBrokerOnlyCLI'
           go test -mod=readonly -count=1 -v -timeout=5m ./cmd/c2j/internal/submitjob -run '^TestSubmission'
+          # Inventory actual consumer method sets, including integration fixtures.
+          go test -count=1 -v -timeout=10m ./internal/retirementcheck
           # Fail early on the real shallow-transport restore/persistence regression.
           go test -count=1 -v -timeout=2m ./pkg/git/gitstate -run '^TestRestore_MatchingHEADShallowBase'
           # Native scenario acceptance includes fresh workers and the built CLI.

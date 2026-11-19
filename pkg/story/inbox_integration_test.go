@@ -37,9 +37,9 @@ func TestInboxPublicRetainedRecords(t *testing.T) {
 					db, err := sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: filepath.Join(t.TempDir(), "jobs.db")})
 					require.NoError(t, err)
 					t.Cleanup(func() { require.NoError(t, db.Close(ctx)) })
-					var rt jobdb.WorkflowRuntime = db
+					var rt jobdb.ConsumerRuntime = db
 					if backend == "remote" {
-						server := httptest.NewServer(celltest.Handler(remote.NewServer(db)))
+						server := httptest.NewServer(celltest.Handler(remote.NewConsumerServer(db)))
 						t.Cleanup(server.Close)
 						rt, err = remote.New(server.URL, server.Client())
 						require.NoError(t, err)
@@ -135,7 +135,7 @@ func TestInboxPublicRetainedRecords(t *testing.T) {
 							err    error
 							reason string
 						}{{fs.ErrPermission, "attachment_denied"}, {fs.ErrNotExist, "attachment_missing"}} {
-							deniedEngine, err := jobworkflow.NewEngineBuilder().WithRuntime(inboxDeniedRuntime{WorkflowRuntime: rt, err: denial.err}).WithWorkerTenantId("story").PlusWorkers(worker, proxy).BuildEngine()
+							deniedEngine, err := jobworkflow.NewEngineBuilder().WithRuntime(inboxDeniedRuntime{ConsumerRuntime: rt, err: denial.err}).WithWorkerTenantId("story").PlusWorkers(worker, proxy).BuildEngine()
 							require.NoError(t, err)
 							deniedSvc, err := story.New(story.ServiceConfig{Engine: deniedEngine})
 							require.NoError(t, err)
@@ -177,7 +177,7 @@ func (p inboxFixtureTask) Run(ctx jobworkflow.TaskContext, td jobdb.TaskData) (j
 }
 
 type inboxDeniedRuntime struct {
-	jobdb.WorkflowRuntime
+	jobdb.ConsumerRuntime
 	err error
 }
 
@@ -185,5 +185,5 @@ func (r inboxDeniedRuntime) OpenArtifact(ctx context.Context, ref jobdb.Artifact
 	if strings.Contains(ref.Name, "c2j-invocation-input.json") {
 		return nil, r.err
 	}
-	return r.WorkflowRuntime.OpenArtifact(ctx, ref)
+	return r.ConsumerRuntime.OpenArtifact(ctx, ref)
 }

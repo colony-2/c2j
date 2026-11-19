@@ -19,7 +19,7 @@ import (
 )
 
 type blockingChangesRuntime struct {
-	jobdb.WorkflowRuntime
+	jobdb.ConsumerRuntime
 	gate func()
 }
 
@@ -27,14 +27,14 @@ func (r *blockingChangesRuntime) OpenArtifact(ctx context.Context, q jobdb.Artif
 	if q.Name == gitstate.ThinPackArtifactName && r.gate != nil {
 		r.gate()
 	}
-	return r.WorkflowRuntime.OpenArtifact(ctx, q)
+	return r.ConsumerRuntime.OpenArtifact(ctx, q)
 }
 
 func TestChangesJ21J36L05L06Movement(t *testing.T) {
 	for _, backend := range []string{"sqlite", "http"} {
 		t.Run(backend, func(t *testing.T) {
 			ctx, rt := changesBackend(t, backend)
-			wrapped := &blockingChangesRuntime{WorkflowRuntime: rt}
+			wrapped := &blockingChangesRuntime{ConsumerRuntime: rt}
 			api := changesAPI(t, wrapped, jobinspect.ChangesConfig{})
 			var saved *jobinspect.ChangesHistory
 			var started, release chan struct{}

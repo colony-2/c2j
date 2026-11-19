@@ -11,7 +11,7 @@ import (
 )
 
 type listingRecorder struct {
-	jobdb.WorkflowRuntime
+	jobdb.ConsumerRuntime
 	requests []jobdb.ListJobsRequest
 }
 

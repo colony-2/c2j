@@ -24,7 +24,7 @@ type workerSession struct {
 }
 
 func (f *runtimeFixture) buildSession(rt caseRuntime, tenant string, collector *observationCollector) (*workerSession, error) {
-	var workerRuntime jobdb.WorkflowRuntime = rt
+	var workerRuntime jobdb.ConsumerRuntime = rt
 	if f.c.Runtime.Controls != nil {
 		workerRuntime = controlledRuntime{rt}
 		if f.scenario != nil {

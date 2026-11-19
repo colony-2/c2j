@@ -15,7 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func lateJobOutput(t *testing.T, rt jobdb.WorkflowRuntime, key jobdb.JobKey) map[string]any {
+func lateJobOutput(t *testing.T, rt jobdb.ConsumerRuntime, key jobdb.JobKey) map[string]any {
 	t.Helper()
 	engine, err := jobworkflow.NewEngineBuilder().WithRuntime(rt).WithWorkerTenantId(key.TenantId).BuildEngine()
 	require.NoError(t, err)

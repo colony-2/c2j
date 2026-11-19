@@ -60,9 +60,9 @@ func TestClearCrashConcernRecovery(t *testing.T) {
 			base, err := sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: path})
 			require.NoError(t, err)
 			t.Cleanup(func() { require.NoError(t, base.Close(ctx)) })
-			var rt jobdb.WorkflowRuntime = base
+			var rt jobdb.ConsumerRuntime = base
 			if backend == "http" {
-				server := httptest.NewServer(celltest.Handler(remote.NewServer(base)))
+				server := httptest.NewServer(celltest.Handler(remote.NewConsumerServer(base)))
 				t.Cleanup(server.Close)
 				rt, err = remote.New(server.URL, server.Client())
 				require.NoError(t, err)

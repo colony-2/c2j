@@ -79,7 +79,7 @@ func testStampedBuildProvenance(t *testing.T, flags string) {
 	for _, mode := range []string{"run", "run one", "run with-lease", "submit --run"} {
 		t.Run(mode, func(t *testing.T) {
 			rt := toy.New()
-			server := httptest.NewServer(celltest.Handler(remote.NewServer(rt)))
+			server := httptest.NewServer(celltest.Handler(remote.NewConsumerServer(rt)))
 			defer server.Close()
 			uri := server.URL + "/provenance"
 			cli(t, "cell", "create", "app", "--repo", celltest.Repo(repo), "--jobdb", uri)

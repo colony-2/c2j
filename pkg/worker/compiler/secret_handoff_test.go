@@ -22,7 +22,7 @@ import (
 // Hold the response after the scheduler has accepted a dependency wait. Another
 // worker can acquire the job before the old execution learns it must suspend.
 type delayedHandoffRuntime struct {
-	jobdb.WorkflowRuntime
+	jobdb.ConsumerRuntime
 	accepted chan struct{}
 	release  chan struct{}
 	once     sync.Once
@@ -34,7 +34,7 @@ type delayedHandoffLease struct {
 }
 
 func (r *delayedHandoffRuntime) GetJobLease(ctx context.Context, req jobdb.GetJobLeaseRequest) (jobdb.ExecutionLease, error) {
-	l, err := r.WorkflowRuntime.GetJobLease(ctx, req)
+	l, err := r.ConsumerRuntime.GetJobLease(ctx, req)
 	if err != nil || l == nil {
 		return l, err
 	}
@@ -97,7 +97,7 @@ func TestRecipeReplayDoesNotWaitForPreviousActivationCleanup(t *testing.T) {
 				require.NoError(t, err)
 				require.Equal(t, jobworkflow.JobRunCompleted, childOut.Status)
 
-				rt := &delayedHandoffRuntime{WorkflowRuntime: base, accepted: make(chan struct{}), release: make(chan struct{})}
+				rt := &delayedHandoffRuntime{ConsumerRuntime: base, accepted: make(chan struct{}), release: make(chan struct{})}
 				defer close(rt.release)
 				r, err := recipe.LoadRecipeFromString([]byte("id: parent\nsequence: []\n"))
 				require.NoError(t, err)

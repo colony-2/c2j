@@ -362,7 +362,7 @@ func (f *runtimeFixture) controlledContext(deps coreops.OpDependencies, ctx cont
 
 // pumpControls runs on the harness controller, never inside the selected task.
 // The supplied context belongs to the live controller, independent of the worker.
-func (f *runtimeFixture) pumpControls(ctx context.Context, rt jobdb.WorkflowRuntime, tenant string) error {
+func (f *runtimeFixture) pumpControls(ctx context.Context, rt jobdb.ConsumerRuntime, tenant string) error {
 	for _, a := range f.c.Runtime.Controls.Actions {
 		id, _ := strings.CutSuffix(a.On, ".entered")
 		for _, b := range f.barriers {
@@ -424,7 +424,7 @@ func (f *runtimeFixture) controlledExit(deps coreops.OpDependencies) {
 	}
 }
 
-func (f *runtimeFixture) captureControlFinal(ctx context.Context, rt jobdb.WorkflowRuntime, key jobdb.JobKey) {
+func (f *runtimeFixture) captureControlFinal(ctx context.Context, rt effectSnapshotReader, key jobdb.JobKey) {
 	if f.report.Controls == nil {
 		return
 	}

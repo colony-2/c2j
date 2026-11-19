@@ -62,9 +62,9 @@ func TestChangesHelperJ37J41L09(t *testing.T) {
 			rt, e := sqliteruntime.NewFromConfig(ctx, sqliteruntime.Config{DBPath: filepath.Join(t.TempDir(), "helper.db")})
 			require.NoError(t, e)
 			defer rt.Close(ctx)
-			var runtime jobdb.WorkflowRuntime = rt
+			var runtime jobdb.ConsumerRuntime = rt
 			if backend == "http" {
-				server := httptest.NewServer(celltest.Handler(remote.NewServer(rt)))
+				server := httptest.NewServer(celltest.Handler(remote.NewConsumerServer(rt)))
 				defer server.Close()
 				client, e := remote.New(server.URL, server.Client())
 				require.NoError(t, e)

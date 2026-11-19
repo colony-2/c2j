@@ -239,7 +239,7 @@ self:
 func startListTestRuntime(ctx context.Context) (*httptest.Server, string, jobdb.JobStatus, error) {
 	tenantID := "tenant-list-test"
 	underlying := toyruntime.New()
-	server := httptest.NewServer(celltest.Handler(remoteruntime.NewServer(underlying)))
+	server := httptest.NewServer(celltest.Handler(remoteruntime.NewConsumerServer(underlying)))
 
 	runtime, err := remoteruntime.New(server.URL, server.Client())
 	if err != nil {

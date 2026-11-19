@@ -132,7 +132,7 @@ func TestTaskStateIsolatedAcrossConnectionsAndSuccessiveTasks(t *testing.T) {
 			_, err = base.SetTenantConfigurationValue(ctx, jobdb.SetTenantConfigurationValueRequest{TenantID: "same", Name: name, Value: value})
 			require.NoError(t, err)
 		}
-		server := httptest.NewServer(celltest.Handler(remote.NewServer(base)))
+		server := httptest.NewServer(celltest.Handler(remote.NewConsumerServer(base)))
 		t.Cleanup(server.Close)
 		client, err := remote.New(server.URL, server.Client())
 		require.NoError(t, err)

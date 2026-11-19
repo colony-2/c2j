@@ -78,7 +78,7 @@ func TestSelectedGoalHTTPRevokedReplay(t *testing.T) {
 	source, err := rt.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "tenant", JobID: "source", JobType: "work", Cell: "work", CellRepo: "example.test/work", Data: jobdb.NewTaskDataOrPanic(nil)}})
 	require.NoError(t, err)
 	var revoked atomic.Bool
-	handler := remote.NewServer(rt)
+	handler := remote.NewConsumerServer(rt)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		trusted := jobdb.WithPrimaryGoalSelectionAuthorizer(celltest.Context(r.Context()), func(context.Context, jobdb.GoalKey, jobdb.ResolvedCell) error {
 			if revoked.Load() {
@@ -118,7 +118,7 @@ func TestSelectedGoalLegacyHTTPPreservesOrdinary(t *testing.T) {
 	ctx := runtimetest.PrimaryGoalContext(context.Background())
 	raw := toy.New()
 	celltest.Create(t, raw, "tenant", "work", "example.test/work")
-	handler := remote.NewServer(raw)
+	handler := remote.NewConsumerServer(raw)
 	var selectedCalls atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/v1/capabilities/primary-goal-selection" || strings.HasSuffix(r.URL.Path, "/primary-goal") {

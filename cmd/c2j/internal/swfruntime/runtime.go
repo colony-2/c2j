@@ -28,7 +28,7 @@ const (
 )
 
 type Handle struct {
-	Runtime       jobdb.WorkflowRuntime
+	Runtime       jobdb.ConsumerRuntime
 	Engine        jobworkflow.Engine
 	Configuration jobdb.ConfigurationAdmin
 	Secrets       SecretAdmin
@@ -189,7 +189,7 @@ func openEmbed(ctx context.Context, parsed *url.URL, rawURL string, workerTenant
 	}, nil
 }
 
-func schemaAwareEngine(engine jobworkflow.Engine, runtime jobdb.WorkflowRuntime) (jobworkflow.Engine, error) {
+func schemaAwareEngine(engine jobworkflow.Engine, runtime jobdb.ConsumerRuntime) (jobworkflow.Engine, error) {
 	registry, ok := runtime.(jobdb.JobSchemaRegistry)
 	if !ok {
 		return nil, fmt.Errorf("jobdb schema registry is unavailable")

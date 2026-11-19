@@ -15,17 +15,17 @@ const (
 )
 
 type chapterVisibilityRuntime struct {
-	jobdb.WorkflowRuntime
+	jobdb.ConsumerRuntime
 
 	visibilityTimeout      time.Duration
 	visibilityPollInterval time.Duration
 }
 
-func withChapterVisibility(runtime jobdb.WorkflowRuntime) jobdb.WorkflowRuntime {
+func withChapterVisibility(runtime jobdb.ConsumerRuntime) jobdb.ConsumerRuntime {
 	if runtime == nil {
 		return nil
 	}
-	wrapped := &chapterVisibilityRuntime{WorkflowRuntime: runtime}
+	wrapped := &chapterVisibilityRuntime{ConsumerRuntime: runtime}
 	if delegator, ok := runtime.(jobdb.LeaseDelegator); ok {
 		return &delegatingChapterVisibilityRuntime{chapterVisibilityRuntime: wrapped, LeaseDelegator: delegator}
 	}
@@ -33,14 +33,14 @@ func withChapterVisibility(runtime jobdb.WorkflowRuntime) jobdb.WorkflowRuntime 
 }
 
 func (r *chapterVisibilityRuntime) PutChapter(ctx context.Context, req jobdb.PutChapterRequest) error {
-	if err := r.WorkflowRuntime.PutChapter(ctx, req); err != nil {
+	if err := r.ConsumerRuntime.PutChapter(ctx, req); err != nil {
 		return err
 	}
 	return r.awaitChapterVisible(ctx, req.Ref)
 }
 
 func (r *chapterVisibilityRuntime) DeleteJobs(ctx context.Context, req jobdb.DeleteJobsRequest) (jobdb.DeleteJobsResponse, error) {
-	admin, ok := r.WorkflowRuntime.(jobdb.JobDeletionRuntime)
+	admin, ok := r.ConsumerRuntime.(jobdb.JobDeletionRuntime)
 	if !ok {
 		return jobdb.DeleteJobsResponse{}, jobdb.ErrJobDeletionUnsupported
 	}
@@ -48,7 +48,7 @@ func (r *chapterVisibilityRuntime) DeleteJobs(ctx context.Context, req jobdb.Del
 }
 
 func (r *chapterVisibilityRuntime) ListLeaseEvents(ctx context.Context, req jobdb.ListLeaseEventsRequest) (jobdb.ListLeaseEventsResponse, error) {
-	return jobdb.ListLeaseEvents(ctx, r.WorkflowRuntime, req)
+	return jobdb.ListLeaseEvents(ctx, r.ConsumerRuntime, req)
 }
 
 func (r *chapterVisibilityRuntime) RegisterJobSchema(ctx context.Context, req jobdb.RegisterJobSchemaRequest) (jobdb.JobSchemaInfo, error) {
@@ -84,7 +84,7 @@ func (r *chapterVisibilityRuntime) ArchiveJobSchema(ctx context.Context, key job
 }
 
 func (r *chapterVisibilityRuntime) schemaRegistry() (jobdb.JobSchemaRegistry, error) {
-	registry, ok := r.WorkflowRuntime.(jobdb.JobSchemaRegistry)
+	registry, ok := r.ConsumerRuntime.(jobdb.JobSchemaRegistry)
 	if !ok {
 		return nil, errors.New("jobdb schema registry is unavailable")
 	}
@@ -114,7 +114,7 @@ func (r *chapterVisibilityRuntime) awaitChapterVisible(ctx context.Context, ref 
 	}
 
 	for {
-		chapter, err := r.WorkflowRuntime.GetChapter(waitCtx, ref)
+		chapter, err := r.ConsumerRuntime.GetChapter(waitCtx, ref)
 		if err == nil {
 			if chapter.Ordinal != ref.Ordinal {
 				return fmt.Errorf("confirm chapter visibility: got ordinal %d, want %d", chapter.Ordinal, ref.Ordinal)

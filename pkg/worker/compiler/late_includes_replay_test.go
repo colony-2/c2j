@@ -15,7 +15,7 @@ import (
 
 // Interrupt only after the backend has accepted an actual task outcome.
 type lateInterruption struct {
-	jobdb.WorkflowRuntime
+	jobdb.ConsumerRuntime
 	lease  jobdb.ExecutionLease
 	phase  string
 	cancel context.CancelFunc
@@ -23,7 +23,7 @@ type lateInterruption struct {
 }
 
 func (r *lateInterruption) GetJobLease(ctx context.Context, req jobdb.GetJobLeaseRequest) (jobdb.ExecutionLease, error) {
-	l, err := r.WorkflowRuntime.GetJobLease(ctx, req)
+	l, err := r.ConsumerRuntime.GetJobLease(ctx, req)
 	r.lease = l
 	return l, err
 }
@@ -49,7 +49,7 @@ func lateResultPhase(ch jobdb.Chapter) string {
 	return ""
 }
 func (r *lateInterruption) PutChapter(ctx context.Context, req jobdb.PutChapterRequest) error {
-	if err := r.WorkflowRuntime.PutChapter(ctx, req); err != nil {
+	if err := r.ConsumerRuntime.PutChapter(ctx, req); err != nil {
 		return err
 	}
 	if !r.fired && lateResultPhase(req.Chapter) == r.phase {
@@ -80,7 +80,7 @@ func TestLateIncludeAcceptedBoundariesAndReplay(t *testing.T) {
 				}
 				ctx, cancel := context.WithCancel(lateTestContext())
 				defer cancel()
-				interruption := &lateInterruption{WorkflowRuntime: rt, phase: phase, cancel: cancel}
+				interruption := &lateInterruption{ConsumerRuntime: rt, phase: phase, cancel: cancel}
 				guard := lateGuard(interruption)
 				_, git := GenerateTestContext()
 				body := &scopeProbeTask{calls: map[string]int{}, git: git}

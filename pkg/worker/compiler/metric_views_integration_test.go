@@ -54,7 +54,7 @@ func (m *metricViewTask) Run(_ wf.TaskContext, input jobdb.TaskData) (jobdb.Task
 	}
 	return out, nil
 }
-func metricViewRecipe(t *testing.T, rt jobdb.WorkflowRuntime, yaml string) (wf.ExecutionWorker, jobdb.JobKey, *metricViewTask) {
+func metricViewRecipe(t *testing.T, rt jobdb.ConsumerRuntime, yaml string) (wf.ExecutionWorker, jobdb.JobKey, *metricViewTask) {
 	t.Helper()
 	rec, err := recipe.LoadRecipeFromString([]byte(yaml))
 	require.NoError(t, err)
@@ -82,7 +82,7 @@ func TestMetricTemplateFrontiersAndNestedOccurrences(t *testing.T) {
 	registerCatchOp(t, "scope_probe")
 	for _, backend := range []string{"toy", "sqlite", "remote"} {
 		t.Run(backend, func(t *testing.T) {
-			rt := newTimeoutReproRuntime(t, backend).WorkflowRuntime
+			rt := newTimeoutReproRuntime(t, backend).ConsumerRuntime
 			worker, key, task := metricViewRecipe(t, rt, `id: root
 version: "1.0.0"
 input_schema: {}
@@ -163,7 +163,7 @@ func TestMetricFailedScopesAndCatchFrontier(t *testing.T) {
 	registerCatchOp(t, "scope_probe")
 	for _, backend := range []string{"toy", "sqlite", "remote"} {
 		t.Run(backend, func(t *testing.T) {
-			rt := newTimeoutReproRuntime(t, backend).WorkflowRuntime
+			rt := newTimeoutReproRuntime(t, backend).ConsumerRuntime
 			worker, key, task := metricViewRecipe(t, rt, `id: root
 sequence:
 - id: prefix
@@ -222,7 +222,7 @@ func TestMetricLoopRunsAndRestartPrefix(t *testing.T) {
 	registerCatchOp(t, "scope_probe")
 	for _, backend := range []string{"toy", "sqlite", "remote"} {
 		t.Run(backend, func(t *testing.T) {
-			rt := newTimeoutReproRuntime(t, backend).WorkflowRuntime
+			rt := newTimeoutReproRuntime(t, backend).ConsumerRuntime
 			worker, key, task := metricViewRecipe(t, rt, `id: root
 state:
   initial: metrics

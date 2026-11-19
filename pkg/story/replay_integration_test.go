@@ -52,13 +52,13 @@ func (w *replayFixtureTask) Run(_ jobworkflow.TaskContext, _ jobdb.TaskData) (jo
 // Shift only the reader's view of chapter times, never the stored history.
 // This deterministically exercises historical job and task deadlines.
 type historicalStoryRuntime struct {
-	jobdb.WorkflowRuntime
+	jobdb.ConsumerRuntime
 	expireJob   bool
 	expireTasks bool
 }
 
 func (r historicalStoryRuntime) GetChapter(ctx context.Context, ref jobdb.ChapterRef) (jobdb.Chapter, error) {
-	c, err := r.WorkflowRuntime.GetChapter(ctx, ref)
+	c, err := r.ConsumerRuntime.GetChapter(ctx, ref)
 	if err == nil {
 		if body, ok := c.Body.(jobdb.ExecutionChapter); ok {
 			rec, e := jobdb.DecodeExecutionRecord(body.Record)
@@ -108,9 +108,9 @@ func TestStoryAPIReplaysAllPersistedAttemptsAfterDeadlines(t *testing.T) {
 				db, err := sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: filepath.Join(t.TempDir(), "jobs.db")})
 				require.NoError(t, err)
 				t.Cleanup(func() { require.NoError(t, db.Close(ctx)) })
-				var rt jobdb.WorkflowRuntime = db
+				var rt jobdb.ConsumerRuntime = db
 				if backend == "remote" {
-					server := httptest.NewServer(celltest.Handler(remote.NewServer(db)))
+					server := httptest.NewServer(celltest.Handler(remote.NewConsumerServer(db)))
 					t.Cleanup(server.Close)
 					rt, err = remote.New(server.URL, server.Client())
 					require.NoError(t, err)
@@ -147,9 +147,9 @@ func TestStoryAPIReplaysAllPersistedAttemptsAfterDeadlines(t *testing.T) {
 				require.NoError(t, err)
 				executions := task.calls.Load()
 				for _, historical := range []string{"current", "job deadline", "task deadline", "both deadlines"} {
-					var replayRuntime jobdb.WorkflowRuntime = rt
+					var replayRuntime jobdb.ConsumerRuntime = rt
 					if historical != "current" {
-						replayRuntime = historicalStoryRuntime{WorkflowRuntime: rt, expireJob: historical == "job deadline" || historical == "both deadlines", expireTasks: historical == "task deadline" || historical == "both deadlines"}
+						replayRuntime = historicalStoryRuntime{ConsumerRuntime: rt, expireJob: historical == "job deadline" || historical == "both deadlines", expireTasks: historical == "task deadline" || historical == "both deadlines"}
 					}
 					var logs storyLogBuffer
 					fallback.Reset()

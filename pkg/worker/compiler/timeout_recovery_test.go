@@ -93,7 +93,7 @@ sequence:
 				rt := newTimeoutReproRuntime(t, backend)
 				engine, err := jobworkflow.NewEngineBuilder().WithRuntime(rt).BuildEngine()
 				require.NoError(t, err)
-				submitter := &timeoutReproSubmitter{inner: jobdbschema.WorkflowEngine{Engine: engine, Registry: rt.WorkflowRuntime.(jobdb.JobSchemaRegistry)}}
+				submitter := &timeoutReproSubmitter{inner: jobdbschema.WorkflowEngine{Engine: engine, Registry: rt.ConsumerRuntime.(jobdb.JobSchemaRegistry)}}
 				jobCtx, gitCtx := GenerateTestContext()
 				start := workflowctl.StartJob{TenantId: "timeout-repro", RecipeName: "timeout_repro_recipe", JobContext: jobCtx, GitRef: gitCtx.ParentRef, Cell: "test", CellRepo: celltest.Repo(jobCtx.GitBase.BaseRepo)}
 				var embedded []recipe.Recipe
@@ -104,7 +104,7 @@ sequence:
 				} else {
 					embedded = []recipe.Recipe{*rec}
 				}
-				celltest.Create(t, rt.WorkflowRuntime, start.TenantId, start.Cell, start.CellRepo)
+				celltest.Create(t, rt.ConsumerRuntime, start.TenantId, start.Cell, start.CellRepo)
 				keyRef, err := starter.StartRecipeJob(celltest.Context(context.Background()), start, submitter, embedded...)
 				key := keyRef.Key()
 				require.NoError(t, err)

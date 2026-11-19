@@ -84,7 +84,7 @@ outputs: {head: '${{ sequence.last.outputs.head }}'}
 `, celltest.Repo(repo))
 			rt := newTimeoutReproRuntime(t, "sqlite")
 			key := submitGitLifecycle(t, rt, repo, yaml)
-			fault := &gitOutcomeInterruption{WorkflowRuntime: rt, match: tc.interrupt, includeBase: true}
+			fault := &gitOutcomeInterruption{ConsumerRuntime: rt, match: tc.interrupt, includeBase: true}
 			interrupted, err := runGitLifecycle(t, fault, key, tc.policy)
 			require.Error(t, err, "status=%s job error=%v", interrupted.Status, interrupted.JobError)
 			require.True(t, fault.fired)

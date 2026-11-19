@@ -297,7 +297,7 @@ func TestTaskMetricsPreparationFailures(t *testing.T) {
 // JobDB writes and queue waits dwarf the task but occur outside the admission
 // wrapper. Persist a real failed preparation result and compare its envelope.
 type metricAppendDelay struct {
-	jobdb.WorkflowRuntime
+	jobdb.ConsumerRuntime
 	seconds *atomic.Int64
 	writes  atomic.Int64
 }
@@ -305,11 +305,11 @@ type metricAppendDelay struct {
 func (r *metricAppendDelay) PutChapter(ctx context.Context, req jobdb.PutChapterRequest) error {
 	r.seconds.Add(1000)
 	r.writes.Add(1)
-	return r.WorkflowRuntime.PutChapter(ctx, req)
+	return r.ConsumerRuntime.PutChapter(ctx, req)
 }
 func TestAdmittedTaskMetricsExcludeQueueAndAppend(t *testing.T) {
 	var seconds atomic.Int64
-	source := &metricAppendDelay{WorkflowRuntime: toy.New(), seconds: &seconds}
+	source := &metricAppendDelay{ConsumerRuntime: toy.New(), seconds: &seconds}
 	rt := executionruntime.New(source, execution.Allocation{SchemaVersion: 1})
 	clock := func() time.Time { return time.Unix(seconds.Load(), 0) }
 	ctx := preparedtest.WithClock(celltest.Context(context.Background()), clock)

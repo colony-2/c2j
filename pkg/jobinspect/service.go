@@ -22,11 +22,19 @@ import (
 	"github.com/colony-2/jobdb/pkg/jobdb"
 )
 
+// Runtime is the read-only history and artifact port used by inspection.
+type Runtime interface {
+	jobdb.JobRunReader
+	jobdb.LeaseEventReader
+	GetChapter(context.Context, jobdb.ChapterRef) (jobdb.Chapter, error)
+	OpenArtifact(context.Context, jobdb.ArtifactRef) (jobdb.ArtifactReader, error)
+}
+
 type Service struct {
 	// ChangesConfig controls optional ChangesAPI reads; zero is bounded/offline.
 	ChangesConfig ChangesConfig
-	Runtime jobdb.WorkflowRuntime
-	Tenant  string
+	Runtime       Runtime
+	Tenant        string
 	// Authorize guards detail/byte reads and discovery. Discovery passes the
 	// selected parent, or an empty ID for an unfiltered list. The task runtime
 	// checks operation and lease lifetime; JobDB controls read permissions.

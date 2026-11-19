@@ -46,9 +46,9 @@ func TestChangesCLIProcessJ43J46L09(t *testing.T) {
 			db, e := sqliteruntime.NewFromConfig(ctx, sqliteruntime.Config{DBPath: filepath.Join(t.TempDir(), "process.db")})
 			require.NoError(t, e)
 			t.Cleanup(func() { require.NoError(t, db.Close(ctx)) })
-			var rt jobdb.WorkflowRuntime = db
+			var rt jobdb.ConsumerRuntime = db
 			if backend == "http" {
-				server := httptest.NewServer(celltest.Handler(remote.NewServer(db)))
+				server := httptest.NewServer(celltest.Handler(remote.NewConsumerServer(db)))
 				t.Cleanup(server.Close)
 				rt, e = remote.New(server.URL, server.Client())
 				require.NoError(t, e)
@@ -61,7 +61,7 @@ func TestChangesCLIProcessJ43J46L09(t *testing.T) {
 			require.NoError(t, f.DeleteCheckout())
 			before, e := changestest.Inventory(ctx, rt, f.Job)
 			require.NoError(t, e)
-			guard := &changestest.ReadOnlyRuntime{WorkflowRuntime: rt}
+			guard := &changestest.ReadOnlyRuntime{ConsumerRuntime: rt}
 			service := &jobinspect.Service{Runtime: guard, Tenant: "tenant"}
 			run := func(api jobinspect.API, args ...string) ([]byte, []byte, int) {
 				t.Helper()

@@ -238,7 +238,7 @@ func TestHistorySQLiteExactRawAndForbiddenPaths(t *testing.T) {
 		require.NoError(t, e)
 	}
 	run()
-	readEngine, err := workflow.NewEngineBuilder().WithRuntime(historyReadRuntime{WorkflowRuntime: rt}).BuildEngine()
+	readEngine, err := workflow.NewEngineBuilder().WithRuntime(historyReadRuntime{ConsumerRuntime: rt}).BuildEngine()
 	require.NoError(t, err)
 	guarded := historyGuardReader{HistoryReader: &c2workflow.SWFWorkflowControl{Engine: readEngine}}
 	s, err := NewHistoryService(HistoryConfig{Reader: guarded})
@@ -451,7 +451,7 @@ outputs: {}
 
 // These are the actual backend mutation/worker entry points. Reads have a
 // functioning durable backend but no path to a worker, lease, write or pickup.
-type historyReadRuntime struct{ jobdb.WorkflowRuntime }
+type historyReadRuntime struct{ jobdb.ConsumerRuntime }
 
 func (historyReadRuntime) PutChapter(context.Context, jobdb.PutChapterRequest) error {
 	panic("history wrote a chapter/artifact")
@@ -497,7 +497,7 @@ func TestHistorySQLiteUnavailableMembersAndNonmembers(t *testing.T) {
 	require.NoError(t, err)
 	_, err = runnable.Run(nil)
 	require.NoError(t, err)
-	engine, err := workflow.NewEngineBuilder().WithRuntime(historyReadRuntime{WorkflowRuntime: rt}).BuildEngine()
+	engine, err := workflow.NewEngineBuilder().WithRuntime(historyReadRuntime{ConsumerRuntime: rt}).BuildEngine()
 	require.NoError(t, err)
 	reader := &historyCountReader{HistoryReader: &c2workflow.SWFWorkflowControl{Engine: engine}}
 	s := historyNew(t, reader)
@@ -566,7 +566,7 @@ func TestHistorySQLiteSameProducerDifferentOrdinals(t *testing.T) {
 	require.NoError(t, err)
 	_, err = r.Run(nil)
 	require.NoError(t, err)
-	engine, err := workflow.NewEngineBuilder().WithRuntime(historyReadRuntime{WorkflowRuntime: rt}).BuildEngine()
+	engine, err := workflow.NewEngineBuilder().WithRuntime(historyReadRuntime{ConsumerRuntime: rt}).BuildEngine()
 	require.NoError(t, err)
 	s := historyNew(t, &c2workflow.SWFWorkflowControl{Engine: engine})
 	p, err := s.ListJobInputStory(ctx, ListJobInputStoryRequest{TenantID: "tenant", JobID: "job"})
@@ -631,7 +631,7 @@ func TestHistorySQLiteReceiptProducerProvenance(t *testing.T) {
 			require.NoError(t, err)
 			_, err = runnable.Run(nil)
 			require.NoError(t, err)
-			engine, err := workflow.NewEngineBuilder().WithRuntime(historyReadRuntime{WorkflowRuntime: rt}).BuildEngine()
+			engine, err := workflow.NewEngineBuilder().WithRuntime(historyReadRuntime{ConsumerRuntime: rt}).BuildEngine()
 			require.NoError(t, err)
 			s := historyNew(t, &c2workflow.SWFWorkflowControl{Engine: engine})
 			assertHistoryReceipt(t, s, ctx, "tenant", "job", fixture)

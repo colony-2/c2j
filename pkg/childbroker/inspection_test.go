@@ -179,7 +179,7 @@ func TestFamilyHelperRejectsScopeOverrides(t *testing.T) {
 }
 
 type familyBackendProbe struct {
-	jobdb.WorkflowRuntime
+	jobdb.ConsumerRuntime
 	calls int
 }
 

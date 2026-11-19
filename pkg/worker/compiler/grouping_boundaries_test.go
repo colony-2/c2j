@@ -41,8 +41,8 @@ import (
 type groupingFixture struct {
 	ctx     context.Context
 	dbPath  string
-	rt      jobdb.WorkflowRuntime
-	guard   jobdb.WorkflowRuntime
+	rt      jobdb.ConsumerRuntime
+	guard   jobdb.ConsumerRuntime
 	eng     jobdbschema.WorkflowEngine
 	workers *wf.WorkSet
 	start   workflowctl.StartJob
@@ -56,9 +56,9 @@ func newGroupingFixture(t *testing.T, transport, yaml string) *groupingFixture {
 	db, err := sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: dbPath})
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close(ctx)) })
-	var rt jobdb.WorkflowRuntime = db
+	var rt jobdb.ConsumerRuntime = db
 	if transport == "http" {
-		h := remote.NewServer(db)
+		h := remote.NewConsumerServer(db)
 		s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			h.ServeHTTP(w, r.WithContext(celltest.Context(r.Context())))
 		}))
@@ -100,7 +100,7 @@ func (f *groupingFixture) submit(t *testing.T, key string, id any, cap int) jobr
 	return r
 }
 
-func (f *groupingFixture) runRaw(t *testing.T, key jobdb.JobKey, rt jobdb.WorkflowRuntime) (wf.JobRunOutcome, error) {
+func (f *groupingFixture) runRaw(t *testing.T, key jobdb.JobKey, rt jobdb.ConsumerRuntime) (wf.JobRunOutcome, error) {
 	t.Helper()
 	if rt == nil {
 		rt = f.guard
@@ -114,7 +114,7 @@ func (f *groupingFixture) runRaw(t *testing.T, key jobdb.JobKey, rt jobdb.Workfl
 	return h.Run(nil)
 }
 
-func (f *groupingFixture) run(t *testing.T, key jobdb.JobKey, rt jobdb.WorkflowRuntime) wf.JobRunOutcome {
+func (f *groupingFixture) run(t *testing.T, key jobdb.JobKey, rt jobdb.ConsumerRuntime) wf.JobRunOutcome {
 	t.Helper()
 	out, err := f.runRaw(t, key, rt)
 	require.NoError(t, err)
@@ -220,7 +220,7 @@ func TestGroupingCapsConcurrencyAndIsolation(t *testing.T) {
 }
 
 type groupingFirstWriteConflict struct {
-	jobdb.WorkflowRuntime
+	jobdb.ConsumerRuntime
 	writes int
 }
 
@@ -229,7 +229,7 @@ func (r *groupingFirstWriteConflict) PutChapter(ctx context.Context, q jobdb.Put
 	if r.writes == 1 {
 		return jobdb.ErrConflict
 	}
-	return r.WorkflowRuntime.PutChapter(ctx, q)
+	return r.ConsumerRuntime.PutChapter(ctx, q)
 }
 
 func TestGroupingFirstWriteRecoveryAndRestart(t *testing.T) {
@@ -237,7 +237,7 @@ func TestGroupingFirstWriteRecoveryAndRestart(t *testing.T) {
 		t.Run(transport, func(t *testing.T) {
 			f := newGroupingFixture(t, transport, groupingCountRecipe)
 			first := f.submit(t, "restart", 1, 0)
-			fault := &groupingFirstWriteConflict{WorkflowRuntime: f.guard}
+			fault := &groupingFirstWriteConflict{ConsumerRuntime: f.guard}
 			require.Equal(t, wf.JobRunSuspended, f.run(t, first.Key(), fault).Status)
 			require.Equal(t, first, f.submit(t, "restart", 2, 0), "rejected first write must leave input appendable")
 			require.EqualValues(t, 2, f.result(t, first)["count"])

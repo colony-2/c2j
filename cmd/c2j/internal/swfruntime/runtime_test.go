@@ -120,7 +120,7 @@ func TestChapterVisibilityRuntimeWaitsUntilWrittenChapterCanBeRead(t *testing.T)
 		chapters:             map[jobdb.ChapterRef]jobdb.Chapter{},
 	}
 	runtime := &chapterVisibilityRuntime{
-		WorkflowRuntime:        underlying,
+		ConsumerRuntime:        underlying,
 		visibilityTimeout:      time.Second,
 		visibilityPollInterval: time.Millisecond,
 	}
@@ -138,7 +138,7 @@ func TestChapterVisibilityRuntimeWaitsUntilWrittenChapterCanBeRead(t *testing.T)
 }
 
 type delayedChapterRuntime struct {
-	jobdb.WorkflowRuntime
+	jobdb.ConsumerRuntime
 
 	mu                   sync.Mutex
 	visibleAfterGetCalls int

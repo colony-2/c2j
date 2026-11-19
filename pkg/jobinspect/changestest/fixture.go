@@ -88,7 +88,7 @@ func GitInput(ctx context.Context, dir string, input io.Reader, args ...string) 
 	return b, nil
 }
 
-func Build(ctx context.Context, rt jobdb.WorkflowRuntime, opt Options) (*Fixture, error) {
+func Build(ctx context.Context, rt jobdb.ConsumerRuntime, opt Options) (*Fixture, error) {
 	if opt.Directory == "" {
 		return nil, fmt.Errorf("fixture directory is required")
 	}
@@ -397,7 +397,7 @@ func (f *Fixture) DeleteCheckout() error { return os.RemoveAll(f.Checkout) }
 
 // RunRecorded reuses the native worker against a replay/restart job without
 // rebuilding Git data. Completed records keep their original artifact keys.
-func (f *Fixture) RunRecorded(ctx context.Context, rt jobdb.WorkflowRuntime, key jobdb.JobKey) error {
+func (f *Fixture) RunRecorded(ctx context.Context, rt jobdb.ConsumerRuntime, key jobdb.JobKey) error {
 	run, err := wf.GetJobForRun(ctx, rt, wf.GetJobForRunRequest{JobKey: key, JobWorker: f.Worker, TaskWorkers: []wf.TaskWorker{&fixtureWorker{steps: f.Steps}}, WorkerID: "changes-replay", LeaseDuration: time.Minute})
 	if err != nil {
 		return err

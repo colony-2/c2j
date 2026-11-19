@@ -33,7 +33,7 @@ func TestRunReportsEnvironmentHandoffAndResumes(t *testing.T) {
 	keyRef, err := starter.StartRecipeJob(ctx, workflowctl.StartJob{TenantId: "tenant", RecipeName: "resources", JobContext: jobContext, GitRef: git.ParentRef, Cell: "test", CellRepo: celltest.Repo(jobContext.GitBase.BaseRepo)}, jobdbschema.WorkflowEngine{Engine: engine, Registry: rt}, *r)
 	key := keyRef.Key()
 	require.NoError(t, err)
-	server := httptest.NewServer(celltest.Handler(remote.NewServer(rt)))
+	server := httptest.NewServer(celltest.Handler(remote.NewConsumerServer(rt)))
 	defer server.Close()
 	var stdout, stderr bytes.Buffer
 	small := "2Gi"
@@ -73,7 +73,7 @@ func TestRunNodeExecutionNeedsGuardsRealOperation(t *testing.T) {
 	keyRef, err := starter.StartRecipeJob(ctx, workflowctl.StartJob{TenantId: "tenant", RecipeName: "node-needs", JobContext: jobContext, GitRef: git.ParentRef, Cell: "test", CellRepo: celltest.Repo(jobContext.GitBase.BaseRepo)}, jobdbschema.WorkflowEngine{Engine: engine, Registry: rt}, *r)
 	key := keyRef.Key()
 	require.NoError(t, err)
-	server := httptest.NewServer(celltest.Handler(remote.NewServer(rt)))
+	server := httptest.NewServer(celltest.Handler(remote.NewConsumerServer(rt)))
 	defer server.Close()
 	var stdout, stderr bytes.Buffer
 	memory := "2Gi"

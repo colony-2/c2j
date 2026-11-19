@@ -337,7 +337,7 @@ func TestReplaySelectionFreshWorkerPersistenceAndOfflineReplay(t *testing.T) {
 						requested = "'${{ sequence.prepare.outputs.head }}'"
 					}
 					key := submitGitLifecycle(t, rt, repo, replayRecipe(selector, requested, mode == "conflict"))
-					fault := &gitOutcomeInterruption{WorkflowRuntime: rt, match: `task:"` + selector + `:` + selector + `"`}
+					fault := &gitOutcomeInterruption{ConsumerRuntime: rt, match: `task:"` + selector + `:` + selector + `"`}
 					_, err := runGitLifecycle(t, fault, key)
 					require.Error(t, err)
 					require.True(t, fault.fired)
@@ -475,7 +475,7 @@ func TestReplaySelectionShallowMergeFailureRestoresPriorPair(t *testing.T) {
 				workspaceTestWorker(t, prepare, observe, op)
 				rt := newTimeoutReproRuntime(t, backend)
 				key := submitGitLifecycle(t, rt, repo, replayRecipe(selector, target, true))
-				fault := &gitOutcomeInterruption{WorkflowRuntime: rt, match: `task:"` + selector + `:` + selector + `"`}
+				fault := &gitOutcomeInterruption{ConsumerRuntime: rt, match: `task:"` + selector + `:` + selector + `"`}
 				_, err := runGitLifecycle(t, fault, key)
 				require.Error(t, err)
 				require.True(t, fault.fired)
@@ -528,7 +528,7 @@ func TestReplaySelectionUnrecordedOutcomeRestoresPriorPair(t *testing.T) {
 						workspaceTestWorker(t, append(replayFixtureOps(t, mode, incorporated), op)...)
 						rt := newTimeoutReproRuntime(t, backend)
 						key := submitGitLifecycle(t, rt, repo, replayRecipe(selector, target, false))
-						fault := &resolvedOutcomeFault{WorkflowRuntime: rt, selector: selector, artifact: failure == "artifact-upload"}
+						fault := &resolvedOutcomeFault{ConsumerRuntime: rt, selector: selector, artifact: failure == "artifact-upload"}
 						_, err := runGitLifecycle(t, fault, key)
 						require.Error(t, err)
 						require.True(t, fault.fired)

@@ -35,7 +35,7 @@ func (r *completionListOnly) ListJobs(ctx context.Context, req jobdb.ListJobsReq
 // The legacy HTTP constructor still requires broad upstream inputs. This adapter
 // keeps that mandatory dependency separate from the list-only fixture.
 type completionHTTPRuntime struct {
-	jobdb.WorkflowRuntime
+	jobdb.ConsumerRuntime
 	jobdb.ConfigurationAdmin
 	*completionListOnly
 }
@@ -143,7 +143,7 @@ func TestCompletionProjectionsUseOnlySummaryFields(t *testing.T) {
 				return jobdb.ListJobsResponse{Jobs: []jobdb.JobSummary{summary}, NextPageToken: "next"}, nil
 			}}
 			checkRecipeCompletionPaths(t, rt, summary, "next")
-			server := httptest.NewServer(celltest.Handler(remote.NewServer(completionHTTPRuntime{completionListOnly: rt})))
+			server := httptest.NewServer(celltest.Handler(remote.NewConsumerServer(completionHTTPRuntime{completionListOnly: rt})))
 			defer server.Close()
 			client, err := remote.New(server.URL, server.Client())
 			require.NoError(t, err)
@@ -184,7 +184,7 @@ func TestRestoredOpaqueFieldsAcrossListProjections(t *testing.T) {
 				return jobdb.ListJobsResponse{Jobs: []jobdb.JobSummary{summary}, NextPageToken: "unchanged"}, nil
 			}}
 			checkRecipeCompletionPaths(t, rt, summary, "unchanged")
-			server := httptest.NewServer(celltest.Handler(remote.NewServer(completionHTTPRuntime{completionListOnly: rt})))
+			server := httptest.NewServer(celltest.Handler(remote.NewConsumerServer(completionHTTPRuntime{completionListOnly: rt})))
 			t.Cleanup(server.Close)
 			client, err := remote.New(server.URL, server.Client())
 			require.NoError(t, err)
@@ -209,9 +209,9 @@ func TestPersistedCompletionAcrossEmbeddedAndRemoteListings(t *testing.T) {
 				db, err := sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: filepath.Join(t.TempDir(), "jobs.db")})
 				require.NoError(t, err)
 				t.Cleanup(func() { require.NoError(t, db.Close(ctx)) })
-				var rt jobdb.WorkflowRuntime = db
+				var rt jobdb.ConsumerRuntime = db
 				if backend == "remote" {
-					server := httptest.NewServer(celltest.Handler(remote.NewServer(db)))
+					server := httptest.NewServer(celltest.Handler(remote.NewConsumerServer(db)))
 					t.Cleanup(server.Close)
 					rt, err = remote.New(server.URL, server.Client())
 					require.NoError(t, err)

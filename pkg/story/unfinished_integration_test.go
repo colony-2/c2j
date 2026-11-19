@@ -72,9 +72,9 @@ func TestStoryAPIExposesUnfinishedTask(t *testing.T) {
 				db, err := sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: filepath.Join(t.TempDir(), "jobs.db")})
 				require.NoError(t, err)
 				defer db.Close(celltest.Context(context.Background()))
-				var rt jobdb.WorkflowRuntime = db
+				var rt jobdb.ConsumerRuntime = db
 				if backend == "remote" {
-					server := httptest.NewServer(celltest.Handler(remote.NewServer(db)))
+					server := httptest.NewServer(celltest.Handler(remote.NewConsumerServer(db)))
 					defer server.Close()
 					rt, err = remote.New(server.URL, server.Client())
 					require.NoError(t, err)
@@ -210,7 +210,7 @@ func newStoryBarrierTask(t *testing.T, name string, result jobdb.TaskData) (*sto
 	return w, unblock
 }
 
-func storyTestRuntime(t *testing.T, ctx context.Context, backend string) jobdb.WorkflowRuntime {
+func storyTestRuntime(t *testing.T, ctx context.Context, backend string) jobdb.ConsumerRuntime {
 	t.Helper()
 	db, err := sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: filepath.Join(t.TempDir(), "jobs.db")})
 	require.NoError(t, err)
@@ -220,7 +220,7 @@ func storyTestRuntime(t *testing.T, ctx context.Context, backend string) jobdb.W
 	if backend == "sqlite" {
 		return db
 	}
-	server := httptest.NewServer(celltest.Handler(remote.NewServer(db)))
+	server := httptest.NewServer(celltest.Handler(remote.NewConsumerServer(db)))
 	t.Cleanup(server.Close)
 	rt, err := remote.New(server.URL, server.Client())
 	require.NoError(t, err)

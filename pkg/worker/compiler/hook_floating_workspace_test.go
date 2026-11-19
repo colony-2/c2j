@@ -85,7 +85,7 @@ outputs:
  text: '${{ sequence.inspect.outputs.text }}'
 `)
 				// Lose the worker between selecting the hook source and loading it.
-				fault := &gitOutcomeInterruption{WorkflowRuntime: rt, match: `:pin"`}
+				fault := &gitOutcomeInterruption{ConsumerRuntime: rt, match: `:pin"`}
 				_, err := runGitLifecycle(t, fault, key)
 				require.Error(t, err)
 				require.True(t, fault.fired)
@@ -142,7 +142,7 @@ outputs:
 				require.NoError(t, err)
 				engine, err := jobworkflow.NewEngineBuilder().WithRuntime(rt).WithWorkerTenantId(key.TenantId).PlusWorkers(NewRecipeJobWorker(RecipeJobWorkerOptions{})).BuildEngine()
 				require.NoError(t, err)
-				submitter := jobdbschema.WorkflowEngine{Engine: engine, Registry: rt.WorkflowRuntime.(jobdb.JobSchemaRegistry)}
+				submitter := jobdbschema.WorkflowEngine{Engine: engine, Registry: rt.ConsumerRuntime.(jobdb.JobSchemaRegistry)}
 				for _, node := range []string{"inspect", "write"} {
 					restarted, err := starter.RestartRecipeJob(ctx, submitter, key, scopes[node], nil, starter.RestartOptions{Goal: "new", RequestID: "hook-restart-" + node})
 					require.NoError(t, err)

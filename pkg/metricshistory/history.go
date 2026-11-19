@@ -19,7 +19,7 @@ const SnapshotMetadataKey = "c2j_metrics"
 const MaxChapters = 1000000
 
 type pinnedRuntime struct {
-	jobdb.WorkflowRuntime
+	jobdb.JobRunReader
 	key      jobdb.JobKey
 	chapters []jobdb.Chapter
 }
@@ -40,7 +40,7 @@ func (p pinnedRuntime) ListChapters(ctx context.Context, q jobdb.ListChaptersReq
 // Read freezes the frontier with one complete ListChapters call. That API returns
 // the whole range (including remote backends), not a cursor page. Pin it while
 // JobDB reconstructs compact/restarted history; late writes belong to the next read.
-func Read(ctx context.Context, runtime jobdb.WorkflowRuntime, key jobdb.JobKey, q metrics.Query) (metrics.Result, error) {
+func Read(ctx context.Context, runtime jobdb.JobRunReader, key jobdb.JobKey, q metrics.Query) (metrics.Result, error) {
 	if e := q.Validate(); e != nil {
 		return metrics.Result{}, e
 	}

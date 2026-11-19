@@ -17,6 +17,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/colony-2/c2j/internal/consumerfixture"
 	"github.com/colony-2/c2j/pkg/artifacts"
 	"github.com/colony-2/c2j/pkg/configuration"
 	"github.com/colony-2/c2j/pkg/jobrestart"
@@ -24,13 +25,12 @@ import (
 	"github.com/colony-2/c2j/pkg/objects"
 	"github.com/colony-2/c2j/pkg/story"
 	"github.com/colony-2/jobdb/pkg/jobdb"
-	"github.com/colony-2/jobdb/pkg/jobdb/runtime/sqlite"
 	wf "github.com/colony-2/jobdb/pkg/workflow"
 	"github.com/stretchr/testify/require"
 )
 
 type unavailableRecipeRuntime struct {
-	jobdb.WorkflowRuntime
+	jobdb.ConsumerRuntime
 	cause error
 }
 
@@ -131,11 +131,11 @@ sequence:
 	}
 }
 
-// The concrete embedding preserves optional runtime capabilities (including
-// schema registration and HTTP lease operations). During observation every
+// The retained ports preserve schema registration and HTTP lease operations.
+// During observation every
 // write is counted before refusal, including requests carrying artifact uploads.
 type inspectionRuntime struct {
-	*sqlite.Runtime
+	consumerfixture.Runtime
 	mu       sync.Mutex
 	watching bool
 	attempts []string
@@ -245,14 +245,6 @@ func (r *inspectionRuntime) RetireCell(ctx context.Context, q jobdb.RetireCellRe
 		return zero, err
 	}
 	return r.Runtime.RetireCell(ctx, q)
-}
-
-func (r *inspectionRuntime) AddGoalCandidate(ctx context.Context, q jobdb.AddGoalCandidateRequest) (jobdb.GoalCandidateInfo, error) {
-	if err := r.mutation("AddGoalCandidate"); err != nil {
-		var zero jobdb.GoalCandidateInfo
-		return zero, err
-	}
-	return r.Runtime.AddGoalCandidate(ctx, q)
 }
 
 func (r *inspectionRuntime) FailGoal(ctx context.Context, q jobdb.FailGoalRequest) (jobdb.GoalInfo, error) {
@@ -417,12 +409,12 @@ func restartStoredState(t *testing.T, f *restartFixture) map[string]string {
 // result. Discovery uses complete recorded metadata; reconstruction must not
 // fill the missing result by calling a worker or writing a replacement.
 type missingResultRuntime struct {
-	jobdb.WorkflowRuntime
+	jobdb.ConsumerRuntime
 	ordinal int64
 }
 
 func (r missingResultRuntime) ListChapters(ctx context.Context, q jobdb.ListChaptersRequest) ([]jobdb.Chapter, error) {
-	chapters, err := r.WorkflowRuntime.ListChapters(ctx, q)
+	chapters, err := r.ConsumerRuntime.ListChapters(ctx, q)
 	if err != nil {
 		return nil, err
 	}
@@ -438,7 +430,7 @@ func (r missingResultRuntime) GetChapter(ctx context.Context, q jobdb.ChapterRef
 	if q.Ordinal >= r.ordinal {
 		return jobdb.Chapter{}, fmt.Errorf("retained task result missing at chapter %d", q.Ordinal)
 	}
-	return r.WorkflowRuntime.GetChapter(ctx, q)
+	return r.ConsumerRuntime.GetChapter(ctx, q)
 }
 func TestRestartInspectionMissingRequiredResult(t *testing.T) {
 	for _, backend := range []string{"sqlite", "remote"} {

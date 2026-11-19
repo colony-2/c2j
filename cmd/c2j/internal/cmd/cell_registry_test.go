@@ -17,7 +17,7 @@ import (
 
 func TestCellCreateAndList(t *testing.T) {
 	rt := toy.New()
-	server := httptest.NewServer(celltest.Handler(remote.NewServer(rt)))
+	server := httptest.NewServer(celltest.Handler(remote.NewConsumerServer(rt)))
 	defer server.Close()
 	run := func(args ...string) ([]byte, error) {
 		cmd := newCellCmd()

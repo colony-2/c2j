@@ -70,7 +70,12 @@ type EffectSnapshot struct {
 
 func contentDigest(data []byte) string { sum := sha256.Sum256(data); return hex.EncodeToString(sum[:]) }
 
-func (f *runtimeFixture) snapshotEffects(ctx context.Context, rt jobdb.WorkflowRuntime, key jobdb.JobKey) *EffectSnapshot {
+type effectSnapshotReader interface {
+	jobdb.JobRunReader
+	artifactOpener
+}
+
+func (f *runtimeFixture) snapshotEffects(ctx context.Context, rt effectSnapshotReader, key jobdb.JobKey) *EffectSnapshot {
 	spec := f.c.Runtime.Controls.Snapshot
 	snapshot := &EffectSnapshot{Complete: true, Errors: []string{}, JobID: key.JobId, SuccessfulTasks: map[string]RetainedTask{}, Repositories: map[string]RetainedRepository{}, Children: []RetainedChild{}}
 	fail := func(err error) { snapshot.Complete = false; snapshot.Errors = append(snapshot.Errors, err.Error()) }
@@ -252,7 +257,7 @@ func (f *runtimeFixture) snapshotEffects(ctx context.Context, rt jobdb.WorkflowR
 	return snapshot
 }
 
-func (f *runtimeFixture) captureBaseline(ctx context.Context, rt jobdb.WorkflowRuntime, tenant string, b *barrierState) error {
+func (f *runtimeFixture) captureBaseline(ctx context.Context, rt effectSnapshotReader, tenant string, b *barrierState) error {
 	if f.c.Runtime.Controls.Snapshot == nil {
 		return nil
 	}

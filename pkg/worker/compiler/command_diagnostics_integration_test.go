@@ -102,7 +102,7 @@ outputs: {captured: '${{ states.recover.outputs }}'}
 `
 				rt := newTimeoutReproRuntime(t, backend)
 				key := submitGitLifecycle(t, rt, repo, yaml)
-				fault := &gitOutcomeInterruption{WorkflowRuntime: rt, match: `task:"command_execution:command_execution"`}
+				fault := &gitOutcomeInterruption{ConsumerRuntime: rt, match: `task:"command_execution:command_execution"`}
 				_, err := runGitLifecycle(t, fault, key)
 				require.Error(t, err)
 				require.True(t, fault.fired)

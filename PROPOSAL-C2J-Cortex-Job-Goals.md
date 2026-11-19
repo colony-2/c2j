@@ -388,7 +388,7 @@ follow-up polish.
 
 ## 10. Delivery and clean cutover
 
-1. Upgrade JobDB and runtime wrappers, including `GoalRuntime`, test doubles,
+1. Upgrade JobDB and runtime wrappers, using `ConsumerRuntime` and read-only ports, test doubles,
    dependency bindings, and execution-history decoding. Verify the deployed
    backend, including pgjobdb where used, supports the goal APIs.
 2. Change submission APIs and outputs to carry `JobRef` end to end. Publish

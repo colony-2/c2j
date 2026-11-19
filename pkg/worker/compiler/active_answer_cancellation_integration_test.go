@@ -126,12 +126,12 @@ func (w activeTaskObserver) RunTask(ctx context.Context, tc jobworkflow.TaskCont
 // Preserve the native renewable lease contract through observation. Renewal is
 // owned by the worker; this wrapper never injects cancellation or renews itself.
 type activeRuntime struct {
-	jobdb.WorkflowRuntime
+	jobdb.ConsumerRuntime
 	t *testing.T
 }
 
 func (r *activeRuntime) GetJobLease(ctx context.Context, req jobdb.GetJobLeaseRequest) (jobdb.ExecutionLease, error) {
-	l, err := r.WorkflowRuntime.GetJobLease(ctx, req)
+	l, err := r.ConsumerRuntime.GetJobLease(ctx, req)
 	if err != nil {
 		return nil, err
 	}
@@ -146,7 +146,7 @@ func (r *activeRuntime) CreateDelegation(ctx context.Context, parent jobdb.Execu
 	if l, ok := parent.(*activeLease); ok {
 		parent = l.RenewableExecutionLease
 	}
-	return r.WorkflowRuntime.(jobdb.LeaseDelegator).CreateDelegation(ctx, parent, req)
+	return r.ConsumerRuntime.(jobdb.LeaseDelegator).CreateDelegation(ctx, parent, req)
 }
 
 type activeLease struct {
@@ -171,7 +171,7 @@ func (l *activeLease) LeaseToken() string {
 
 // Native task outputs retain receipts, allowing byte-for-byte comparisons after
 // cancellation, independently of the attempted-call ledger.
-func activeStored(t *testing.T, rt jobdb.WorkflowRuntime, key jobdb.JobKey) map[string]string {
+func activeStored(t *testing.T, rt jobdb.ConsumerRuntime, key jobdb.JobKey) map[string]string {
 	t.Helper()
 	run, err := jobdb.GetJobRun(celltest.Context(context.Background()), rt, jobdb.GetJobRunRequest{JobKey: key, IncludeOutputs: true, IncludeArtifacts: true})
 	require.NoError(t, err)
@@ -249,7 +249,7 @@ func TestActiveAnswerCancellation(t *testing.T) {
 			workspaceTestWorker(t, input.GetOp(), answerOp, probe("active_continue"), probe("active_recovery"))
 			repo := t.TempDir()
 			workspaceRepo(t, repo, "source")
-			rt := &activeRuntime{newTimeoutReproRuntime(t, "sqlite").WorkflowRuntime, t}
+			rt := &activeRuntime{newTimeoutReproRuntime(t, "sqlite").ConsumerRuntime, t}
 			key := submitGitLifecycle(t, rt, repo, activeAnswerRecipe)
 			engine, err := jobworkflow.NewEngineBuilder().WithRuntime(rt).BuildEngine()
 			require.NoError(t, err)

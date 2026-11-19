@@ -40,7 +40,7 @@ input_schema:
       default: '${{ context.config.?value.orValue(null) }}'
 output_schema: {type: object}
 `)
-			rt := newTimeoutReproRuntime(t, backend).WorkflowRuntime
+			rt := newTimeoutReproRuntime(t, backend).ConsumerRuntime
 			key := submitGitLifecycle(t, rt, repo, `id: defaults
 sequence:
  - id: first

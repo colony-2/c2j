@@ -22,7 +22,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func runNegotiatingRecipe(t *testing.T, rt jobdb.WorkflowRuntime, key jobdb.JobKey, allocation execution.Allocation, supplied bool) (jobworkflow.JobRunOutcome, error) {
+func runNegotiatingRecipe(t *testing.T, rt jobdb.ConsumerRuntime, key jobdb.JobKey, allocation execution.Allocation, supplied bool) (jobworkflow.JobRunOutcome, error) {
 	t.Helper()
 	registry, err := workerops.NewActivityRegistry()
 	require.NoError(t, err)
@@ -71,7 +71,7 @@ input_schema: {type: object}
 output_schema: {type: object, required: [ready]}
 `, counter)
 			commitHookFile(t, repo, "ops/negotiated/op.yaml", manifest)
-			rt := newTimeoutReproRuntime(t, backend).WorkflowRuntime
+			rt := newTimeoutReproRuntime(t, backend).ConsumerRuntime
 			key := submitGitLifecycle(t, rt, repo, `id: git-lifecycle
 execution: {base: '*'}
 sequence:
@@ -153,7 +153,7 @@ dependencies: [uv:extension]
 input_schema: {type: object}
 output_schema: {type: object}
 `)
-	rt := newTimeoutReproRuntime(t, "toy").WorkflowRuntime
+	rt := newTimeoutReproRuntime(t, "toy").ConsumerRuntime
 	key := submitGitLifecycle(t, rt, repo, `id: git-lifecycle
 execution: {packages: [uv:recipe]}
 sequence:
@@ -195,7 +195,7 @@ run: 'printf ''{"execution_required":{"base":"macos*","capabilities":["docker"]}
 input_schema: {type: object}
 output_schema: {type: object}
 `)
-	rt := newTimeoutReproRuntime(t, "sqlite").WorkflowRuntime
+	rt := newTimeoutReproRuntime(t, "sqlite").ConsumerRuntime
 	key := submitGitLifecycle(t, rt, repo, `id: git-lifecycle
 op: ./ops/already-met
 catch:

@@ -36,7 +36,7 @@ func TestDeletionPreservesCompletedOutcomeAndCloneArtifacts(t *testing.T) {
 				}
 				return c.DoScope("restart", wf.ScopeOptions{OnRestart: func(json.RawMessage) error { return nil }}, func(wf.ExecutionContext) (jobdb.JobData, error) { return out, nil })
 			}}
-			run := func(rt jobdb.WorkflowRuntime, key jobdb.JobKey) {
+			run := func(rt jobdb.ConsumerRuntime, key jobdb.JobKey) {
 				r, err := wf.GetJobForRun(ctx, rt, wf.GetJobForRunRequest{JobKey: key, JobWorker: worker, TaskWorkers: []wf.TaskWorker{task}, WorkerID: "test", LeaseDuration: time.Hour})
 				require.NoError(t, err)
 				outcome, err := r.Run(nil)

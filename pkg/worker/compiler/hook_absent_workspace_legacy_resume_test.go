@@ -53,7 +53,7 @@ func TestGenerateAbsentHookLegacyInterruptedFixtures(t *testing.T) {
 				if frontier == "workspace" {
 					match = `task:"workspace:`
 				}
-				fault := &gitOutcomeInterruption{WorkflowRuntime: rt, match: match, includeBase: true}
+				fault := &gitOutcomeInterruption{ConsumerRuntime: rt, match: match, includeBase: true}
 				_, err = runGitLifecycle(t, fault, key)
 				require.Error(t, err)
 				require.True(t, fault.fired)

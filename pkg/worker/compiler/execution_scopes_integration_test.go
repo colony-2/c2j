@@ -77,7 +77,7 @@ func probeWorker(t *testing.T, rec recipe.Recipe) jobworkflow.ExecutionWorker {
 		return jobdb.NewTaskData(out, artifacts...)
 	}}
 }
-func probeRun(t *testing.T, rt jobdb.WorkflowRuntime, key jobdb.JobKey, w jobworkflow.ExecutionWorker, tasks ...jobworkflow.TaskWorker) jobworkflow.JobRunOutcome {
+func probeRun(t *testing.T, rt jobdb.ConsumerRuntime, key jobdb.JobKey, w jobworkflow.ExecutionWorker, tasks ...jobworkflow.TaskWorker) jobworkflow.JobRunOutcome {
 	t.Helper()
 	h, err := jobworkflow.GetJobForRun(celltest.Context(context.Background()), rt, jobworkflow.GetJobForRunRequest{JobKey: key, JobWorker: w, TaskWorkers: append(tasks, NewCellContextTaskWorker()), WorkerID: "scope-test", LeaseDuration: time.Minute})
 	require.NoError(t, err)
@@ -85,14 +85,14 @@ func probeRun(t *testing.T, rt jobdb.WorkflowRuntime, key jobdb.JobKey, w jobwor
 	require.NoError(t, err)
 	return out
 }
-func probeSubmit(t *testing.T, rt jobdb.WorkflowRuntime, w jobworkflow.ExecutionWorker) jobdb.JobKey {
+func probeSubmit(t *testing.T, rt jobdb.ConsumerRuntime, w jobworkflow.ExecutionWorker) jobdb.JobKey {
 	t.Helper()
 	celltest.Create(t, rt, "scope-tests", "test", "example.test/test")
 	h, err := rt.SubmitJob(celltest.Context(context.Background()), jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "scope-tests", JobType: w.Name(), Data: jobdb.NewTaskDataOrPanic(nil), RunPolicy: jobdb.RunPolicy{Retry: jobdb.RetryPolicy{MaximumAttempts: 1}}, Cell: "test", CellRepo: "example.test/test"}})
 	require.NoError(t, err)
 	return h.JobKey
 }
-func probeReplay(t *testing.T, rt jobdb.WorkflowRuntime, key jobdb.JobKey, w jobworkflow.ExecutionWorker) error {
+func probeReplay(t *testing.T, rt jobdb.ConsumerRuntime, key jobdb.JobKey, w jobworkflow.ExecutionWorker) error {
 	t.Helper()
 	engine, err := jobworkflow.NewEngineBuilder().WithRuntime(rt).WithWorkerTenantId(key.TenantId).PlusWorkers(w).BuildEngine()
 	require.NoError(t, err)
@@ -416,20 +416,20 @@ func TestExecutionScopesExhaustedStepTimeoutDoesNotRestartParent(t *testing.T) {
 }
 
 type interruptScopeRuntime struct {
-	jobdb.WorkflowRuntime
+	jobdb.ConsumerRuntime
 	lease jobdb.ExecutionLease
 	kind  string
 	fired bool
 }
 
 func (r *interruptScopeRuntime) GetJobLease(ctx context.Context, req jobdb.GetJobLeaseRequest) (jobdb.ExecutionLease, error) {
-	lease, err := r.WorkflowRuntime.GetJobLease(ctx, req)
+	lease, err := r.ConsumerRuntime.GetJobLease(ctx, req)
 	r.lease = lease
 	return lease, err
 }
 func (r *interruptScopeRuntime) PutChapter(ctx context.Context, req jobdb.PutChapterRequest) error {
 	if r.fired {
-		return r.WorkflowRuntime.PutChapter(ctx, req)
+		return r.ConsumerRuntime.PutChapter(ctx, req)
 	}
 	matches := func(record jobdb.ExecutionRecord) bool {
 		return record.Kind == r.kind && strings.Contains(record.ID, `scope:"sequence:block"`) && (r.kind != "decision" || record.Retry)
@@ -464,14 +464,14 @@ func (r *interruptScopeRuntime) PutChapter(ctx context.Context, req jobdb.PutCha
 				return err
 			}
 			if matches(record) {
-				if err := r.WorkflowRuntime.PutChapter(ctx, req); err != nil {
+				if err := r.ConsumerRuntime.PutChapter(ctx, req); err != nil {
 					return err
 				}
 				return interrupt()
 			}
 		}
 	}
-	return r.WorkflowRuntime.PutChapter(ctx, req)
+	return r.ConsumerRuntime.PutChapter(ctx, req)
 }
 
 func TestExecutionScopesRecoverCatchAndRetryDecision(t *testing.T) {
@@ -480,7 +480,7 @@ func TestExecutionScopesRecoverCatchAndRetryDecision(t *testing.T) {
 		for _, kind := range []string{"catch", "handled", "decision"} {
 			t.Run(backend+"/"+kind, func(t *testing.T) {
 				base := newTimeoutReproRuntime(t, backend)
-				rt := &interruptScopeRuntime{WorkflowRuntime: base, kind: kind}
+				rt := &interruptScopeRuntime{ConsumerRuntime: base, kind: kind}
 				_, git := GenerateTestContext()
 				task := &scopeProbeTask{calls: map[string]int{}, git: git, failOnce: "b"}
 				clause := "  catch:\n  - when: 'true'\n    continue: {outputs: {name: recovered}}\n"

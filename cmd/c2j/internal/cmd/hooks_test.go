@@ -10,6 +10,7 @@ import (
 
 	"github.com/colony-2/c2j/internal/buildinfo"
 	"github.com/colony-2/c2j/internal/celltest"
+	"github.com/colony-2/c2j/internal/consumerfixture"
 	"github.com/colony-2/c2j/pkg/gitprofile"
 	"github.com/colony-2/c2j/pkg/hookpolicy"
 	"github.com/colony-2/jobdb/pkg/jobdb"
@@ -23,7 +24,7 @@ func TestHookPermissionCLI(t *testing.T) {
 	rt := toy.New()
 	_, createErr := rt.CreateCell(celltest.Context(context.Background()), jobdb.CreateCellRequest{TenantID: "tenant", Name: "service", Repo: "example.com/service"})
 	require.NoError(t, createErr)
-	server := httptest.NewServer(celltest.Handler(remote.NewServer(rt)))
+	server := httptest.NewServer(celltest.Handler(remote.NewConsumerServer(rt)))
 	defer server.Close()
 	hook := ".c2/hooks/check.yaml"
 	repo := "example.com/service"
@@ -78,23 +79,29 @@ func TestHookPermissionCLIRejectsAmbiguousScopeAndExecution(t *testing.T) {
 	require.ErrorContains(t, c.Execute(), "provisioning context")
 }
 
-type hookConflictRuntime struct{ *toy.Runtime }
+// The toy backend supplies these ports but has no development-secret store.
+type hookConflictPorts interface {
+	jobdb.ConsumerRuntime
+	consumerfixture.Ports
+}
+
+type hookConflictRuntime struct{ hookConflictPorts }
 
 func (r hookConflictRuntime) SetTenantConfigurationValue(ctx context.Context, req jobdb.SetTenantConfigurationValueRequest) (string, error) {
 	if req.Name == hookpolicy.TenantKey {
-		_, err := r.Runtime.SetTenantConfigurationValue(ctx, jobdb.SetTenantConfigurationValueRequest{TenantID: req.TenantID, Name: "concurrent_edit", Value: json.RawMessage(`true`)})
+		_, err := r.hookConflictPorts.SetTenantConfigurationValue(ctx, jobdb.SetTenantConfigurationValueRequest{TenantID: req.TenantID, Name: "concurrent_edit", Value: json.RawMessage(`true`)})
 		if err != nil {
 			return "", err
 		}
 	}
-	return r.Runtime.SetTenantConfigurationValue(ctx, req)
+	return r.hookConflictPorts.SetTenantConfigurationValue(ctx, req)
 }
 func TestHookPermissionCLIRejectsConcurrentEdit(t *testing.T) {
 	t.Setenv(gitprofile.SocketEnv, "")
 	rt := toy.New()
 	_, createErr := rt.CreateCell(celltest.Context(context.Background()), jobdb.CreateCellRequest{TenantID: "tenant", Name: "service", Repo: "example.com/service"})
 	require.NoError(t, createErr)
-	server := httptest.NewServer(celltest.Handler(remote.NewServer(hookConflictRuntime{rt})))
+	server := httptest.NewServer(celltest.Handler(remote.NewConsumerServer(hookConflictRuntime{rt})))
 	defer server.Close()
 	c := newRootCmd(buildinfo.Info{})
 	c.SetOut(&bytes.Buffer{})
@@ -112,7 +119,7 @@ func TestHookPermissionCLITextOutput(t *testing.T) {
 	rt := toy.New()
 	_, createErr := rt.CreateCell(celltest.Context(context.Background()), jobdb.CreateCellRequest{TenantID: "tenant", Name: "service", Repo: "example.com/service"})
 	require.NoError(t, createErr)
-	server := httptest.NewServer(celltest.Handler(remote.NewServer(rt)))
+	server := httptest.NewServer(celltest.Handler(remote.NewConsumerServer(rt)))
 	defer server.Close()
 	run := func(args ...string) string {
 		t.Helper()

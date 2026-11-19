@@ -56,7 +56,7 @@ func TestMultistepMetricDeltasAcrossResumeAndReplay(t *testing.T) {
 			ws := workspaceTestWorker(t, op.(coreops.RegisterableOp))
 			repo := filepath.Join(t.TempDir(), "repo")
 			workspaceRepo(t, repo, "source")
-			rt := newTimeoutReproRuntime(t, backend).WorkflowRuntime
+			rt := newTimeoutReproRuntime(t, backend).ConsumerRuntime
 			key := submitGitLifecycle(t, rt, repo, fmt.Sprintf(`id: git-lifecycle
 version: "1.0.0"
 input_schema: {}
@@ -184,7 +184,7 @@ func TestMetricCPUSelectionsWithOverlap(t *testing.T) {
 				channel.CPU = &coverage
 				channels[name] = channel
 			}
-			rt := newTimeoutReproRuntime(t, backend).WorkflowRuntime
+			rt := newTimeoutReproRuntime(t, backend).ConsumerRuntime
 			rec, err := recipe.LoadRecipeFromString([]byte(`id: root
 version: "1.0.0"
 input_schema: {}

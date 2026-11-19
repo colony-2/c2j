@@ -13,7 +13,7 @@ import (
 )
 
 func (r *Runtime) inspection(access *permissions.Access, tc jobworkflow.TaskContext, owner *lease) jobinspect.API {
-	return &jobinspect.Service{Runtime: r.WorkflowRuntime, Tenant: tc.JobKey.TenantId, Authorize: func(call context.Context, _ string) error {
+	return &jobinspect.Service{Runtime: r.ConsumerRuntime, Tenant: tc.JobKey.TenantId, Authorize: func(call context.Context, _ string) error {
 		if err := call.Err(); err != nil {
 			return err
 		}

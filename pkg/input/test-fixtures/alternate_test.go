@@ -133,9 +133,9 @@ outputs:
 				store, err := sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: dbPath})
 				require.NoError(t, err)
 				t.Cleanup(func() { _ = store.Close(ctx) })
-				var rt jobdb.WorkflowRuntime = store
+				var rt jobdb.ConsumerRuntime = store
 				if backend == "remote" {
-					server := httptest.NewServer(celltest.Handler(remote.NewServer(store)))
+					server := httptest.NewServer(celltest.Handler(remote.NewConsumerServer(store)))
 					t.Cleanup(server.Close)
 					rt, err = remote.New(server.URL, server.Client())
 					require.NoError(t, err)

@@ -115,9 +115,9 @@ func TestPermissionInheritanceAuthenticatedGitAndResume(t *testing.T) {
 				ctx, cancel := context.WithTimeout(celltest.Context(context.Background()), time.Minute)
 				defer cancel()
 				base := toy.New(toy.WithSecretProvider(inheritanceSecrets{name: secretName}))
-				var runtime jobdb.WorkflowRuntime = base
+				var runtime jobdb.ConsumerRuntime = base
 				if backendName == "remote" {
-					server := httptest.NewServer(celltest.Handler(remote.NewServer(base)))
+					server := httptest.NewServer(celltest.Handler(remote.NewConsumerServer(base)))
 					defer server.Close()
 					var err error
 					runtime, err = remote.New(server.URL, server.Client())

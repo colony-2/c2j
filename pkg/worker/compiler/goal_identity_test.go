@@ -29,7 +29,7 @@ func TestHistoricalGoalIdentityExecutionRestartAndReplay(t *testing.T) {
 			t.Run(backend+"/"+duplicate, func(t *testing.T) {
 				ctx := celltest.Context(context.Background())
 				rt := newTimeoutReproRuntime(t, backend)
-				registry := rt.WorkflowRuntime.(jobdb.JobSchemaRegistry)
+				registry := rt.ConsumerRuntime.(jobdb.JobSchemaRegistry)
 				registered, err := registry.RegisterJobSchema(ctx, jobdb.RegisterJobSchemaRequest{TenantId: "tenant", Schema: jobdbschematest.LegacyGoalSchema})
 				require.NoError(t, err)
 				require.Equal(t, "sha256:3b77b87e6349ecd231839a13ddfa30d0da797cb019ff56dd81c5b7260c394750", registered.SchemaHash)
@@ -123,11 +123,11 @@ outputs:
 
 // Leave a fully executed job runnable, so continue restarts are prepared while
 // its goal is still open. Successful goals correctly reject new continuations.
-type goalCompletionInterruption struct{ jobdb.WorkflowRuntime }
+type goalCompletionInterruption struct{ jobdb.ConsumerRuntime }
 type goalCompletionLease struct{ jobdb.ExecutionLease }
 
 func (r goalCompletionInterruption) GetJobLease(ctx context.Context, req jobdb.GetJobLeaseRequest) (jobdb.ExecutionLease, error) {
-	lease, err := r.WorkflowRuntime.GetJobLease(ctx, req)
+	lease, err := r.ConsumerRuntime.GetJobLease(ctx, req)
 	if err != nil {
 		return nil, err
 	}

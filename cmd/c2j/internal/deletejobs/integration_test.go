@@ -37,7 +37,7 @@ func newDeletionFixture(t *testing.T, backend string) *deletionFixture {
 	t.Cleanup(func() {
 		require.NoError(t, rt.Close(celltest.Context(context.Background())))
 	})
-	server := remote.NewServer(rt)
+	server := remote.NewConsumerServer(rt)
 	httpServer := httptest.NewServer(celltest.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		f.calls.Add(1)
 		server.ServeHTTP(w, r)

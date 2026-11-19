@@ -35,7 +35,7 @@ import (
 type timedInputFixture struct {
 	key      jobdb.JobKey
 	ctl      *workflow.SWFWorkflowControl
-	rt       jobdb.WorkflowRuntime
+	rt       jobdb.ConsumerRuntime
 	engine   jobworkflow.Engine
 	resolver compiler.RecipeSourceResolver
 	run      func() jobworkflow.JobRunOutcome
@@ -63,7 +63,7 @@ func newTimedInputFixture(t *testing.T, source, scope string) *timedInputFixture
 	open := func() {
 		db, err := sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: dbPath})
 		require.NoError(t, err)
-		server := httptest.NewServer(celltest.Handler(remote.NewServer(db)))
+		server := httptest.NewServer(celltest.Handler(remote.NewConsumerServer(db)))
 		closeStore = func() { server.Close(); require.NoError(t, db.Close(ctx)) }
 		rt, err := remote.New(server.URL, server.Client())
 		require.NoError(t, err)

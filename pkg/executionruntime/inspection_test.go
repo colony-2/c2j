@@ -26,9 +26,9 @@ func TestTaskInspectionReadsTerminalChildWithoutSubmitGrant(t *testing.T) {
 	for _, backend := range []string{"toy", "remote"} {
 		t.Run(backend, func(t *testing.T) {
 			ctx := celltest.Context(context.Background())
-			var base jobdb.WorkflowRuntime = toy.New()
+			var base jobdb.ConsumerRuntime = toy.New()
 			if backend == "remote" {
-				s := httptest.NewServer(celltest.Handler(remote.NewServer(base)))
+				s := httptest.NewServer(celltest.Handler(remote.NewConsumerServer(base)))
 				defer s.Close()
 				client, e := remote.New(s.URL, s.Client())
 				require.NoError(t, e)

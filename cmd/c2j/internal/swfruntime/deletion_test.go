@@ -10,7 +10,7 @@ import (
 )
 
 type deletionCapture struct {
-	jobdb.WorkflowRuntime
+	jobdb.ConsumerRuntime
 	calls int
 	req   jobdb.DeleteJobsRequest
 	err   error
@@ -33,7 +33,7 @@ func TestChapterVisibilityForwardsDeletion(t *testing.T) {
 		require.Equal(t, req, runtime.req)
 		require.EqualValues(t, 12, result.MatchedCount)
 	}
-	wrapped := withChapterVisibility(struct{ jobdb.WorkflowRuntime }{}).(jobdb.JobDeletionRuntime)
+	wrapped := withChapterVisibility(struct{ jobdb.ConsumerRuntime }{}).(jobdb.JobDeletionRuntime)
 	_, err := wrapped.DeleteJobs(celltest.Context(context.Background()), jobdb.DeleteJobsRequest{TenantID: "tenant", All: true})
 	require.ErrorIs(t, err, jobdb.ErrJobDeletionUnsupported)
 }

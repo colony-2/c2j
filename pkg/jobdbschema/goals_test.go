@@ -14,7 +14,7 @@ import (
 )
 
 type submissionNoReads struct {
-	jobdb.WorkflowRuntime
+	jobdb.ConsumerRuntime
 	jobdb.JobSchemaRegistry
 	reads int
 }
@@ -25,7 +25,7 @@ func (r *submissionNoReads) GetJob(context.Context, jobdb.JobKey) (jobdb.JobInfo
 }
 func TestSubmitReferencePreservesIdentityWithoutRead(t *testing.T) {
 	raw := toy.New()
-	rt := &submissionNoReads{WorkflowRuntime: raw, JobSchemaRegistry: raw}
+	rt := &submissionNoReads{ConsumerRuntime: raw, JobSchemaRegistry: raw}
 	sdk, err := jobworkflow.NewEngineBuilder().WithRuntime(rt).BuildEngine()
 	require.NoError(t, err)
 	engine := WorkflowEngine{Engine: sdk, Registry: rt}
@@ -44,7 +44,7 @@ func TestSubmitReferencePreservesIdentityWithoutRead(t *testing.T) {
 }
 
 // Only the schema contract is embedded. In particular this base does not expose
-// WorkflowRuntime (which would silently add attachment and lifecycle methods).
+// ConsumerRuntime (which would add unnecessary lifecycle methods).
 type goalSchemaOnly struct{ jobdb.JobSchemaRegistry }
 
 type onlyGetGoal struct {

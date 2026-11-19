@@ -97,7 +97,7 @@ func TestCentralIssuerAcceptsParentBoundLeaseAndRejectsInvalidMetadata(t *testin
 func TestLocalAttenuationAndRenewalRespectHardDeadline(t *testing.T) {
 	ctx := celltest.Context(context.Background())
 	base := toy.New()
-	server := httptest.NewServer(celltest.Handler(remote.NewServer(base)))
+	server := httptest.NewServer(celltest.Handler(remote.NewConsumerServer(base)))
 	defer server.Close()
 	client, err := remote.New(server.URL, server.Client())
 	require.NoError(t, err)

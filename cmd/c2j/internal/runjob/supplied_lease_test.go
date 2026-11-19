@@ -54,7 +54,7 @@ func newSuppliedCLI(t *testing.T, yaml string, duration time.Duration, providers
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, rt.Close(ctx)) })
 	f := &suppliedCLI{backend: rt}
-	handler := remote.NewServer(rt)
+	handler := remote.NewConsumerServer(rt)
 	server := httptest.NewServer(celltest.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if f.denyClaims.Load() && (r.URL.Path == "/v1/jobs/poll" || strings.HasSuffix(r.URL.Path, "/lease")) {
 			f.acquisitions.Add(1)

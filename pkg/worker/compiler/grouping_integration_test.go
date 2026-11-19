@@ -43,9 +43,9 @@ func TestGroupingRealReceiverSQLiteAndHTTP(t *testing.T) {
 			db, err := sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: filepath.Join(t.TempDir(), "jobs.db")})
 			require.NoError(t, err)
 			t.Cleanup(func() { require.NoError(t, db.Close(ctx)) })
-			var runtime jobdb.WorkflowRuntime = db
+			var runtime jobdb.ConsumerRuntime = db
 			if transport == "http" {
-				handler := remote.NewServer(db)
+				handler := remote.NewConsumerServer(db)
 				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 					handler.ServeHTTP(w, r.WithContext(celltest.Context(r.Context())))
 				}))
@@ -184,7 +184,7 @@ func TestGroupingHTTPRegistersMissingSchema(t *testing.T) {
 	db, err := sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: filepath.Join(t.TempDir(), "jobs.db")})
 	require.NoError(t, err)
 	defer db.Close(ctx)
-	handler := remote.NewServer(db)
+	handler := remote.NewConsumerServer(db)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		handler.ServeHTTP(w, r.WithContext(celltest.Context(r.Context())))
 	}))

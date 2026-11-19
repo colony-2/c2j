@@ -26,7 +26,7 @@ func TestJobShowPersistedCancellationMessage(t *testing.T) {
 	db, err := sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: filepath.Join(t.TempDir(), "jobs.db")})
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close(ctx)) })
-	server := httptest.NewServer(celltest.Handler(remote.NewServer(db)))
+	server := httptest.NewServer(celltest.Handler(remote.NewConsumerServer(db)))
 	t.Cleanup(server.Close)
 	rt, err := remote.New(server.URL, server.Client())
 	require.NoError(t, err)

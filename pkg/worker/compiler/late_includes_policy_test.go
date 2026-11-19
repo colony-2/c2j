@@ -204,13 +204,13 @@ func (w lateCancelWorker) Run(tc jobworkflow.TaskContext, in jobdb.TaskData) (jo
 }
 
 type lateCancelRuntime struct {
-	jobdb.WorkflowRuntime
+	jobdb.ConsumerRuntime
 	cancel func()
 	verify bool
 }
 
 func (r *lateCancelRuntime) OpenArtifact(ctx context.Context, ref jobdb.ArtifactRef) (jobdb.ArtifactReader, error) {
-	reader, err := r.WorkflowRuntime.OpenArtifact(ctx, ref)
+	reader, err := r.ConsumerRuntime.OpenArtifact(ctx, ref)
 	if err == nil && r.verify && ref.Name == ResolvedRecipeYAMLArtifactName {
 		return lateCancelArtifactReader{reader, r.cancel}, nil
 	}
@@ -277,7 +277,7 @@ func TestLateIncludeCancellationNeverContinues(t *testing.T) {
 				key := probeSubmit(t, rt, w)
 				if phase == "verification" {
 					lost, cancelLost := context.WithCancel(lateTestContext())
-					interruption := &lateInterruption{WorkflowRuntime: rt, phase: "capture", cancel: cancelLost}
+					interruption := &lateInterruption{ConsumerRuntime: rt, phase: "capture", cancel: cancelLost}
 					firstGuard := lateGuard(interruption)
 					first, err := jobworkflow.GetJobForRun(lost, firstGuard, jobworkflow.GetJobForRunRequest{JobKey: key, JobWorker: w, TaskWorkers: lateTasks(t, firstGuard), WorkerID: "before-verification", LeaseDuration: time.Minute})
 					require.NoError(t, err)
@@ -296,7 +296,7 @@ func TestLateIncludeCancellationNeverContinues(t *testing.T) {
 						cancel()
 					}
 				}
-				wrapped := &lateCancelRuntime{WorkflowRuntime: rt, cancel: stop, verify: phase == "verification"}
+				wrapped := &lateCancelRuntime{ConsumerRuntime: rt, cancel: stop, verify: phase == "verification"}
 				guard := lateGuard(wrapped)
 				_, git := GenerateTestContext()
 				probe := &scopeProbeTask{calls: map[string]int{}, git: git}

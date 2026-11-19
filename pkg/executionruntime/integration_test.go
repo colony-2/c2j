@@ -69,7 +69,7 @@ func (w resultTask) Run(ctx jobworkflow.TaskContext, input jobdb.TaskData) (jobd
 }
 
 type fixture struct {
-	runtime       jobdb.WorkflowRuntime
+	runtime       jobdb.ConsumerRuntime
 	key           jobdb.JobKey
 	first, second atomic.Int32
 	tasks         []jobworkflow.TaskWorker
@@ -87,7 +87,7 @@ func registerExecutionOps(t *testing.T) {
 func newFixture(t *testing.T, backend, memory string, patch *execution.Requirements, submissions ...*execution.Submission) *fixture {
 	t.Helper()
 	ctx := celltest.Context(context.Background())
-	var rt jobdb.WorkflowRuntime = toy.New()
+	var rt jobdb.ConsumerRuntime = toy.New()
 	if backend == "sqlite" || backend == "remote" {
 		s, err := sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: filepath.Join(t.TempDir(), "jobs.db")})
 		require.NoError(t, err)
@@ -95,7 +95,7 @@ func newFixture(t *testing.T, backend, memory string, patch *execution.Requireme
 		rt = s
 	}
 	if backend == "remote" {
-		server := httptest.NewServer(celltest.Handler(remote.NewServer(rt)))
+		server := httptest.NewServer(celltest.Handler(remote.NewConsumerServer(rt)))
 		t.Cleanup(server.Close)
 		r, err := remote.New(server.URL, server.Client())
 		require.NoError(t, err)
@@ -237,10 +237,10 @@ sequence:
 	}
 }
 
-type lostResponseRuntime struct{ jobdb.WorkflowRuntime }
+type lostResponseRuntime struct{ jobdb.ConsumerRuntime }
 
 func (r lostResponseRuntime) GetJobLease(ctx context.Context, req jobdb.GetJobLeaseRequest) (jobdb.ExecutionLease, error) {
-	l, err := r.WorkflowRuntime.GetJobLease(ctx, req)
+	l, err := r.ConsumerRuntime.GetJobLease(ctx, req)
 	if err != nil || l == nil {
 		return l, err
 	}

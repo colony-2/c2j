@@ -53,7 +53,7 @@ func TestSubmitWorkspaceNowRunsOnFreshWorker(t *testing.T) {
 	require.NoError(t, os.WriteFile(recipePath, []byte(workspaceSubmitRecipe), 0644))
 	rt := toyruntime.New()
 	celltest.Create(t, rt, "workspace-submit", "app", celltest.Repo(root))
-	server := httptest.NewServer(celltest.Handler(remoteruntime.NewServer(rt)))
+	server := httptest.NewServer(celltest.Handler(remoteruntime.NewConsumerServer(rt)))
 	defer server.Close()
 	uri := testJobDBURI(server.URL, "workspace-submit")
 	var stdout bytes.Buffer

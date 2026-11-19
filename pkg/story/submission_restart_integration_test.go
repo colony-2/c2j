@@ -45,7 +45,7 @@ func TestSubmissionRestartRerunsSetup(t *testing.T) {
 			t.Run(fmt.Sprintf("%s/source_failure=%t", backend, failSource), func(t *testing.T) {
 				ctx, cancel := context.WithTimeout(celltest.Context(context.Background()), 30*time.Second)
 				defer cancel()
-				var rt jobdb.WorkflowRuntime
+				var rt jobdb.ConsumerRuntime
 				if backend == "toy" {
 					rt = toy.New()
 				} else {
@@ -185,13 +185,13 @@ func (e *submissionHistoryEngine) SubmitRestartJob(ctx context.Context, q jobdb.
 }
 
 type submissionArtifactRuntime struct {
-	jobdb.WorkflowRuntime
+	jobdb.ConsumerRuntime
 	reads int
 }
 
 func (r *submissionArtifactRuntime) OpenArtifact(ctx context.Context, ref jobdb.ArtifactRef) (jobdb.ArtifactReader, error) {
 	r.reads++
-	return r.WorkflowRuntime.OpenArtifact(ctx, ref)
+	return r.ConsumerRuntime.OpenArtifact(ctx, ref)
 }
 
 type forbiddenSubmissionResolver struct{ compiler.RecipeSourceResolver }
@@ -200,7 +200,7 @@ func (forbiddenSubmissionResolver) Resolve(context.Context, string, string) (com
 	panic("submission inspection must not resolve recipe sources")
 }
 
-func submissionArtifactContents(t *testing.T, ctx context.Context, rt jobdb.WorkflowRuntime, key jobdb.JobKey, chapters []jobdb.Chapter) map[string][]byte {
+func submissionArtifactContents(t *testing.T, ctx context.Context, rt jobdb.ConsumerRuntime, key jobdb.JobKey, chapters []jobdb.Chapter) map[string][]byte {
 	t.Helper()
 	result := map[string][]byte{}
 	for _, chapter := range chapters {
@@ -255,15 +255,15 @@ outputs:
 					t.Run(fmt.Sprintf("%s/%s/%s/%s", backend, state, path, selector), func(t *testing.T) {
 						ctx, cancel := context.WithTimeout(celltest.Context(context.Background()), 30*time.Second)
 						defer cancel()
-						var rt jobdb.WorkflowRuntime
+						var rt jobdb.ConsumerRuntime
 						if backend == "toy" {
 							rt = toy.New()
 						} else {
 							rt = storyTestRuntime(t, ctx, backend)
 						}
-						// storyTestRuntime's remote mode uses httptest + remote.NewServer(SQLite).
+						// storyTestRuntime's remote mode uses httptest + remote.NewConsumerServer(SQLite).
 						registry := rt.(jobdb.JobSchemaRegistry)
-						countedRT := &submissionArtifactRuntime{WorkflowRuntime: rt}
+						countedRT := &submissionArtifactRuntime{ConsumerRuntime: rt}
 						celltest.Create(t, rt, "submission", "test", "example.test/test")
 						cellWorker := compiler.NewCellContextTaskWorker()
 						cell := &submissionSetupTask{name: cellWorker.Name(), run: cellWorker.Run}

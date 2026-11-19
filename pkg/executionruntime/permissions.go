@@ -254,6 +254,6 @@ func (l leaseAppender) StartOrAppendJob(ctx context.Context, req jobdb.StartOrAp
 	return l.ExecutionLease.StartOrAppendJob(ctx, jobdb.StartOrAppendJobRequest{Job: req})
 }
 func (r *Runtime) appendOnLease(ctx context.Context, lease jobdb.ExecutionLease, req jobdb.StartOrAppendJob) (jobdb.JobHandle, error) {
-	registry, _ := r.WorkflowRuntime.(jobdb.JobSchemaRegistry)
+	registry, _ := r.ConsumerRuntime.(jobdb.JobSchemaRegistry)
 	return jobdbschema.Append(ctx, leaseAppender{lease}, registry, req)
 }

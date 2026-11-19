@@ -21,15 +21,15 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func changesBackend(t *testing.T, backend string) (context.Context, jobdb.WorkflowRuntime) {
+func changesBackend(t *testing.T, backend string) (context.Context, jobdb.ConsumerRuntime) {
 	t.Helper()
 	ctx := celltest.Context(context.Background())
 	rt, e := sqliteruntime.NewFromConfig(ctx, sqliteruntime.Config{DBPath: filepath.Join(t.TempDir(), "changes.db")})
 	require.NoError(t, e)
 	t.Cleanup(func() { require.NoError(t, rt.Close(ctx)) })
-	var runtime jobdb.WorkflowRuntime = rt
+	var runtime jobdb.ConsumerRuntime = rt
 	if backend == "http" {
-		server := httptest.NewServer(celltest.Handler(remote.NewServer(rt)))
+		server := httptest.NewServer(celltest.Handler(remote.NewConsumerServer(rt)))
 		t.Cleanup(server.Close)
 		client, e := remote.New(server.URL, server.Client())
 		require.NoError(t, e)
@@ -39,7 +39,7 @@ func changesBackend(t *testing.T, backend string) (context.Context, jobdb.Workfl
 	return ctx, runtime
 }
 
-func changesFixture(t *testing.T, ctx context.Context, rt jobdb.WorkflowRuntime, opt changestest.Options) *changestest.Fixture {
+func changesFixture(t *testing.T, ctx context.Context, rt jobdb.ConsumerRuntime, opt changestest.Options) *changestest.Fixture {
 	t.Helper()
 	opt.Directory = t.TempDir()
 	f, e := changestest.Build(ctx, rt, opt)
@@ -53,9 +53,9 @@ func changesFixture(t *testing.T, ctx context.Context, rt jobdb.WorkflowRuntime,
 	})
 	return f
 }
-func changesAPI(t *testing.T, rt jobdb.WorkflowRuntime, config jobinspect.ChangesConfig) *jobinspect.ChangesService {
+func changesAPI(t *testing.T, rt jobdb.ConsumerRuntime, config jobinspect.ChangesConfig) *jobinspect.ChangesService {
 	t.Helper()
-	guard := &changestest.ReadOnlyRuntime{WorkflowRuntime: rt}
+	guard := &changestest.ReadOnlyRuntime{ConsumerRuntime: rt}
 	t.Cleanup(func() { require.Zero(t, guard.Mutations.Load()) })
 	s, e := jobinspect.NewChangesService(&jobinspect.Service{Runtime: guard, Tenant: "tenant"}, config)
 	require.NoError(t, e)
@@ -109,7 +109,7 @@ func TestChangesJ16J17J20J23J29J31J32J43(t *testing.T) {
 			before, e := changestest.Inventory(ctx, rt, f.Job)
 			require.NoError(t, e)
 			tmp := t.TempDir()
-			readOnly := &changestest.ReadOnlyRuntime{WorkflowRuntime: rt}
+			readOnly := &changestest.ReadOnlyRuntime{ConsumerRuntime: rt}
 			api := changesAPI(t, readOnly, jobinspect.ChangesConfig{TempDir: tmp})
 			q := jobinspect.ChangesRequest{JobID: f.Job.JobId, Limit: 1}
 			var rows []jobinspect.ChangesCommit

@@ -12,7 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-type changesUnusedRuntime struct{ jobdb.WorkflowRuntime }
+type changesUnusedRuntime struct{ jobdb.ConsumerRuntime }
 
 func TestChangesU01Selectors(t *testing.T) {
 	h := strings.Repeat("a", 40)

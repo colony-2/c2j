@@ -33,7 +33,7 @@ func TestDAGPersistedSubmissionRelationships(t *testing.T) {
 				return jobdb.WithPrimaryGoalSelectionAuthorizer(celltest.Context(ctx), func(context.Context, jobdb.GoalKey, jobdb.ResolvedCell) error { return nil })
 			}
 			ctx := fixtureContext(context.Background())
-			var base jobdb.WorkflowRuntime = toy.New()
+			var base jobdb.ConsumerRuntime = toy.New()
 			if backend == "sqlite" || backend == "http-sqlite" {
 				db, err := sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: filepath.Join(t.TempDir(), "jobs.db")})
 				require.NoError(t, err)
@@ -41,7 +41,7 @@ func TestDAGPersistedSubmissionRelationships(t *testing.T) {
 				base = db
 			}
 			if backend == "http-toy" || backend == "http-sqlite" {
-				handler := remote.NewServer(base)
+				handler := remote.NewConsumerServer(base)
 				s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 					handler.ServeHTTP(w, r.WithContext(fixtureContext(r.Context())))
 				}))
@@ -158,7 +158,7 @@ func TestDAGPersistedSubmissionRelationships(t *testing.T) {
 }
 
 type dagDeniedRuntime struct {
-	jobdb.WorkflowRuntime
+	jobdb.ConsumerRuntime
 	calls int
 }
 

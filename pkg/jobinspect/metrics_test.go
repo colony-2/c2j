@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/colony-2/c2j/internal/celltest"
+	"github.com/colony-2/c2j/internal/consumerfixture"
 	"github.com/colony-2/c2j/pkg/jobinspect"
 	"github.com/colony-2/c2j/pkg/metrics"
 	"github.com/colony-2/c2j/pkg/metricshistory"
@@ -24,14 +25,14 @@ import (
 )
 
 type cancellationWriteRuntime struct {
-	jobdb.WorkflowRuntime
+	jobdb.ConsumerRuntime
 	beforeStore func(context.Context) error
 	fired       bool
 }
 
 // Retain the server's optional schema/configuration/tokenized lease APIs.
 type cancellationRemoteRuntime struct {
-	*sqlite.Runtime
+	consumerfixture.Runtime
 	fault *cancellationWriteRuntime
 }
 
@@ -59,7 +60,7 @@ func (r *cancellationWriteRuntime) PutChapter(ctx context.Context, q jobdb.PutCh
 			}})
 		}
 	}
-	return r.WorkflowRuntime.PutChapter(ctx, q)
+	return r.ConsumerRuntime.PutChapter(ctx, q)
 }
 
 func cancellationMetricOutput(value int64) jobdb.TaskData {
@@ -75,7 +76,7 @@ func TestMetricsLateAcceptedWriteAfterCancellation(t *testing.T) {
 	for _, backend := range []string{"toy", "sqlite", "remote"} {
 		t.Run(backend, func(t *testing.T) {
 			ctx := celltest.Context(context.Background())
-			var base jobdb.WorkflowRuntime = toy.New()
+			var base jobdb.ConsumerRuntime = toy.New()
 			if backend != "toy" {
 				s, err := sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: filepath.Join(t.TempDir(), "jobs.db")})
 				require.NoError(t, err)
@@ -83,10 +84,10 @@ func TestMetricsLateAcceptedWriteAfterCancellation(t *testing.T) {
 				base = s
 			}
 			celltest.Create(t, base, "tenant", "test", "example.test/test")
-			fault := &cancellationWriteRuntime{WorkflowRuntime: base}
-			var rt jobdb.WorkflowRuntime = fault
+			fault := &cancellationWriteRuntime{ConsumerRuntime: base}
+			var rt jobdb.ConsumerRuntime = fault
 			if backend == "remote" {
-				server := httptest.NewServer(celltest.Handler(remote.NewServer(cancellationRemoteRuntime{base.(*sqlite.Runtime), fault})))
+				server := httptest.NewServer(celltest.Handler(remote.NewConsumerServer(cancellationRemoteRuntime{consumerfixture.New(base.(*sqlite.Runtime)), fault})))
 				t.Cleanup(server.Close)
 				client, err := remote.New(server.URL, server.Client())
 				require.NoError(t, err)

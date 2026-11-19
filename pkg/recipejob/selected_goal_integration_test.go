@@ -28,7 +28,7 @@ import (
 // Exercise the delivered storage suite through c2j's receipt projection rather
 // than treating producer evidence as proof of consumer integration.
 type selectedAdapter struct {
-	jobdb.WorkflowRuntime
+	jobdb.ConsumerRuntime
 	jobdb.JobDeletionRuntime
 	engine jobdbschema.WorkflowEngine
 }
@@ -37,7 +37,7 @@ func (r selectedAdapter) SubmitJob(ctx context.Context, req jobdb.SubmitJobReque
 	ref, err := r.engine.SubmitJobRef(ctx, req.Job)
 	return jobdb.JobHandle{JobKey: ref.Key(), GoalID: ref.GoalID, Cell: ref.Cell, CellID: ref.CellID, CellRepo: ref.CellRepo}, err
 }
-func goalEngine(t *testing.T, rt jobdb.WorkflowRuntime) jobdbschema.WorkflowEngine {
+func goalEngine(t *testing.T, rt jobdb.ConsumerRuntime) jobdbschema.WorkflowEngine {
 	t.Helper()
 	sdk, err := workflow.NewEngineBuilder().WithRuntime(rt).BuildEngine()
 	require.NoError(t, err)
@@ -48,7 +48,7 @@ func TestSelectedGoalConformanceThroughC2J(t *testing.T) {
 	for _, backend := range []string{"toy", "sqlite"} {
 		for _, transport := range []string{"direct", "http"} {
 			t.Run(backend+"/"+transport, func(t *testing.T) {
-				var rt jobdb.WorkflowRuntime = toy.New()
+				var rt jobdb.ConsumerRuntime = toy.New()
 				if backend == "sqlite" {
 					embedded, err := sqlite.StartEmbeddedRuntime(context.Background())
 					require.NoError(t, err)
@@ -56,7 +56,7 @@ func TestSelectedGoalConformanceThroughC2J(t *testing.T) {
 					rt = embedded.Runtime
 				}
 				if transport == "http" {
-					h := remote.NewServer(rt)
+					h := remote.NewConsumerServer(rt)
 					s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 						h.ServeHTTP(w, r.WithContext(runtimetest.PrimaryGoalContext(r.Context())))
 					}))
@@ -65,7 +65,7 @@ func TestSelectedGoalConformanceThroughC2J(t *testing.T) {
 					require.NoError(t, err)
 					rt = client
 				}
-				adapter := selectedAdapter{WorkflowRuntime: rt, JobDeletionRuntime: rt.(jobdb.JobDeletionRuntime), engine: goalEngine(t, rt)}
+				adapter := selectedAdapter{ConsumerRuntime: rt, JobDeletionRuntime: rt.(jobdb.JobDeletionRuntime), engine: goalEngine(t, rt)}
 				runtimetest.RunPrimaryGoalSelectionConformance(t, adapter)
 				if transport == "direct" {
 					runtimetest.RunPrimaryGoalSelectionBoundaries(t, adapter)
@@ -135,9 +135,9 @@ func TestSelectedGoalRejectionsHaveNoPublicSideEffects(t *testing.T) {
 			celltest.Create(t, raw, "tenant", "work", "example.test/work")
 			celltest.Create(t, raw, "tenant", "other", "example.test/other")
 			celltest.Create(t, raw, "different", "work", "example.test/work")
-			var rt jobdb.WorkflowRuntime = raw
+			var rt jobdb.ConsumerRuntime = raw
 			if transport == "http" {
-				h := remote.NewServer(raw)
+				h := remote.NewConsumerServer(raw)
 				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 					h.ServeHTTP(w, r.WithContext(runtimetest.PrimaryGoalContext(r.Context())))
 				}))
@@ -192,9 +192,9 @@ func TestSelectedGoalReceiptReplayWithLaterActiveSuccessor(t *testing.T) {
 			db, err := sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: filepath.Join(t.TempDir(), "jobs.db")})
 			require.NoError(t, err)
 			t.Cleanup(func() { require.NoError(t, db.Close(ctx)) })
-			var rt jobdb.WorkflowRuntime = db
+			var rt jobdb.ConsumerRuntime = db
 			if transport == "http" {
-				handler := remote.NewServer(db)
+				handler := remote.NewConsumerServer(db)
 				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 					handler.ServeHTTP(w, r.WithContext(runtimetest.PrimaryGoalContext(r.Context())))
 				}))

@@ -13,7 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-type resolvedSuspensionRuntime struct{ jobdb.WorkflowRuntime }
+type resolvedSuspensionRuntime struct{ jobdb.ConsumerRuntime }
 
 func (resolvedSuspensionRuntime) skipGitTask(name string) bool {
 	return name == "resolved_observe:resolved_observe"

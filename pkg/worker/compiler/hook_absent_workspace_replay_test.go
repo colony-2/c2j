@@ -210,7 +210,7 @@ func TestHookAbsentResumeAndRestart(t *testing.T) {
 				if frontier == "pin" || frontier == "load" {
 					match = ":" + frontier + `"`
 				}
-				fault := &gitOutcomeInterruption{WorkflowRuntime: rt, match: match, includeBase: true}
+				fault := &gitOutcomeInterruption{ConsumerRuntime: rt, match: match, includeBase: true}
 				_, err := runGitLifecycle(t, fault, key)
 				require.Error(t, err)
 				require.True(t, fault.fired)

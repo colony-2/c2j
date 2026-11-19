@@ -7,12 +7,12 @@
 
 Both jobs use the optional CEL integer default and unchanged nested integer arithmetic, plus a fractional double. All artifacts were kept inline, so no blob files or secrets database are needed. The SQL includes the original SQLite `user_version` (11); Python's `iterdump()` alone omits it. No persisted record payload or numeric value was normalized. SQL SHA-256: `94b72ace08f0952eb0410f133bd0f4888732459689b82c27f7e34f5a76e5848a`.
 
-The fixture generator is retained here, outside normal Go package discovery. To regenerate in scratch with Go 1.26 and the repository module dependencies:
+The generator here uses the current retained consumer contract and stays outside normal Go package discovery. To reproduce the original baseline, use the original generator archived at `6a5157f513e8325e30b448004c9b0ff209485d69` with the worker and dependencies from the recorded revision; copying the current generator into that older checkout would mix incompatible API contracts. Regenerate only in disposable scratch with Go 1.26:
 
 ```bash
 mkdir -p /tmp/c2j-old-source /tmp/c2j-old-history
 git archive 11574b555465d1558754b436f68ef5c7ac0912ff | tar -x -C /tmp/c2j-old-source
-cp pkg/story/testdata/restart-pre-numeric/generate_test.go /tmp/c2j-old-source/pkg/story/legacy_generate_test.go
+git show 6a5157f513e8325e30b448004c9b0ff209485d69:pkg/story/testdata/restart-pre-numeric/generate_test.go > /tmp/c2j-old-source/pkg/story/legacy_generate_test.go
 C2J_LEGACY_FIXTURE_DIR=/tmp/c2j-old-history go test -C /tmp/c2j-old-source ./pkg/story -run TestGeneratePreNumericRestartHistory -count=1 -v
 python3 - <<'PY'
 import pathlib, sqlite3

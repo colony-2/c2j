@@ -37,20 +37,20 @@ func (w inlineRootSourceWorker) Run(tc jobworkflow.TaskContext, in jobdb.TaskDat
 }
 
 type rootSourceInterruption struct {
-	jobdb.WorkflowRuntime
+	jobdb.ConsumerRuntime
 	lease  jobdb.ExecutionLease
 	cancel context.CancelFunc
 	fired  bool
 }
 
 func (r *rootSourceInterruption) GetJobLease(ctx context.Context, req jobdb.GetJobLeaseRequest) (jobdb.ExecutionLease, error) {
-	lease, err := r.WorkflowRuntime.GetJobLease(ctx, req)
+	lease, err := r.ConsumerRuntime.GetJobLease(ctx, req)
 	r.lease = lease
 	return lease, err
 }
 
 func (r *rootSourceInterruption) PutChapter(ctx context.Context, req jobdb.PutChapterRequest) error {
-	if err := r.WorkflowRuntime.PutChapter(ctx, req); err != nil {
+	if err := r.ConsumerRuntime.PutChapter(ctx, req); err != nil {
 		return err
 	}
 	if body, ok := req.Chapter.Body.(jobdb.ExecutionChapter); ok && !r.fired {
@@ -111,7 +111,7 @@ func TestResolvedRecipeArtifactDurableReplay(t *testing.T) {
 				// worker must recover both YAML representations without resolving.
 				firstCtx, cancel := context.WithCancel(ctx)
 				defer cancel()
-				interrupted := &rootSourceInterruption{WorkflowRuntime: rt, cancel: cancel}
+				interrupted := &rootSourceInterruption{ConsumerRuntime: rt, cancel: cancel}
 				first, err := jobworkflow.GetJobForRun(firstCtx, interrupted, jobworkflow.GetJobForRunRequest{JobKey: handle.JobKey, JobWorker: worker, TaskWorkers: []jobworkflow.TaskWorker{NewCellContextTaskWorker(), sourceTask}, WorkerID: "first-worker", LeaseDuration: time.Minute})
 				require.NoError(t, err)
 				_, err = first.Run(nil)

@@ -163,7 +163,7 @@ outputs: {title: '${{ inputs.title }}'}
 				}
 				firstCtx, cancel := context.WithCancel(ctx)
 				defer cancel()
-				interrupted := &rootSourceInterruption{WorkflowRuntime: rt, cancel: cancel}
+				interrupted := &rootSourceInterruption{ConsumerRuntime: rt, cancel: cancel}
 				first, err := jobworkflow.GetJobForRun(firstCtx, interrupted, jobworkflow.GetJobForRunRequest{JobKey: handle.JobKey, JobWorker: worker, TaskWorkers: []jobworkflow.TaskWorker{NewCellContextTaskWorker(), sourceTask}, WorkerID: "first", LeaseDuration: time.Minute})
 				require.NoError(t, err)
 				_, err = first.Run(nil)
