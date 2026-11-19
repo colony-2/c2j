@@ -1,0 +1,499 @@
+{
+  "recipe": "driver.yaml",
+  "cases": [
+    {
+      "id": "worker-reopen-post-merge-continuation",
+      "type": "integration_case",
+      "runtime": {
+        "backend": "sqlite",
+        "cells": {
+          "root": {
+            "file_sources": {
+              ".c2/recipes/receiver.yaml": "receiver-recovery.yaml"
+            }
+          }
+        },
+        "controls": {
+          "scenario": {
+            "jobs": {
+              "root": {
+                "root": true
+              },
+              "one": {
+                "child_binding": "one"
+              },
+              "two": {
+                "child_binding": "two"
+              },
+              "three": {
+                "child_binding": "three"
+              },
+              "receiver": {
+                "submission": {
+                  "caller": "one",
+                  "task": {
+                    "task_type": "recipes.run:start",
+                    "node_path": "caller/queue",
+                    "attempt": 1,
+                    "occurrence": 1
+                  },
+                  "index": 1
+                }
+              },
+              "same_receiver": {
+                "submission": {
+                  "caller": "two",
+                  "task": {
+                    "task_type": "recipes.run:start",
+                    "node_path": "caller/queue",
+                    "attempt": 1,
+                    "occurrence": 1
+                  },
+                  "index": 1
+                }
+              },
+              "successor": {
+                "submission": {
+                  "caller": "three",
+                  "task": {
+                    "task_type": "recipes.run:start",
+                    "node_path": "caller/queue",
+                    "attempt": 1,
+                    "occurrence": 1
+                  },
+                  "index": 1
+                }
+              }
+            },
+            "admission_holds": [
+              {
+                "id": "batch",
+                "cell": "root",
+                "recipe": "receiver",
+                "route": {
+                  "jobType": "recipe"
+                },
+                "jobs": [
+                  "receiver",
+                  "same_receiver"
+                ]
+              }
+            ],
+            "dispatch_holds": [
+              {
+                "id": "next",
+                "job": "root",
+                "task": {
+                  "task_type": "command_execution:command_execution",
+                  "node_path": "driver/next",
+                  "attempt": 1,
+                  "occurrence": 1
+                }
+              },
+              {
+                "id": "recover_publish",
+                "job": "continuation",
+                "task": {
+                  "task_type": "command_execution:command_execution",
+                  "node_path": "receiver/publish",
+                  "attempt": 1,
+                  "occurrence": 1
+                }
+              }
+            ],
+            "events": [
+              {
+                "id": "one_submitted",
+                "kind": "submission",
+                "job": "receiver"
+              },
+              {
+                "id": "two_submitted",
+                "kind": "submission",
+                "job": "same_receiver"
+              },
+              {
+                "id": "next_ready",
+                "kind": "dispatch",
+                "hold": "next"
+              },
+              {
+                "id": "successor_submitted",
+                "kind": "submission",
+                "job": "successor"
+              },
+              {
+                "id": "failed",
+                "kind": "settled",
+                "job": "receiver",
+                "status": "failed"
+              },
+              {
+                "id": "recover_wait",
+                "kind": "dispatch",
+                "hold": "recover_publish"
+              },
+              {
+                "id": "successor_done",
+                "kind": "settled",
+                "job": "successor",
+                "status": "completed"
+              }
+            ],
+            "actions": [
+              {
+                "id": "admit",
+                "after_all": [
+                  "one_submitted",
+                  "two_submitted"
+                ],
+                "do": "release",
+                "target": "batch"
+              },
+              {
+                "id": "stop",
+                "after_all": [
+                  "failed"
+                ],
+                "do": "stop_worker"
+              },
+              {
+                "id": "reopen",
+                "after_all": [
+                  "stop"
+                ],
+                "do": "reopen_runtime"
+              },
+              {
+                "id": "restart",
+                "after_all": [
+                  "reopen"
+                ],
+                "do": "restart_job",
+                "target": "receiver",
+                "restart": {
+                  "path": [
+                    "$job",
+                    "sequence:receiver",
+                    "op:publish"
+                  ],
+                  "request_id": "native-post-merge",
+                  "continuation": "continuation",
+                  "required_prefix": [
+                    {
+                      "task_type": "squash:squash",
+                      "node_path": "receiver/squash",
+                      "attempt": 1,
+                      "occurrence": 1
+                    },
+                    {
+                      "task_type": "merge:merge",
+                      "node_path": "receiver/land",
+                      "attempt": 1,
+                      "occurrence": 1
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "reopen_again",
+                "after_all": [
+                  "restart"
+                ],
+                "do": "reopen_runtime"
+              },
+              {
+                "id": "restart_again",
+                "after_all": [
+                  "reopen_again"
+                ],
+                "do": "restart_job",
+                "target": "receiver",
+                "restart": {
+                  "path": [
+                    "$job",
+                    "sequence:receiver",
+                    "op:publish"
+                  ],
+                  "request_id": "native-post-merge",
+                  "continuation": "continuation_reused",
+                  "required_prefix": [
+                    {
+                      "task_type": "squash:squash",
+                      "node_path": "receiver/squash",
+                      "attempt": 1,
+                      "occurrence": 1
+                    },
+                    {
+                      "task_type": "merge:merge",
+                      "node_path": "receiver/land",
+                      "attempt": 1,
+                      "occurrence": 1
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "third",
+                "after_all": [
+                  "restart_again",
+                  "next_ready"
+                ],
+                "do": "release",
+                "target": "next"
+              },
+              {
+                "id": "start",
+                "after_all": [
+                  "third"
+                ],
+                "do": "start_worker"
+              },
+              {
+                "id": "finish_recovery",
+                "after_all": [
+                  "recover_wait",
+                  "successor_done"
+                ],
+                "do": "release",
+                "target": "recover_publish"
+              }
+            ],
+            "outcomes": {
+              "root": {
+                "status": "completed"
+              },
+              "one": {
+                "status": "completed"
+              },
+              "two": {
+                "status": "completed"
+              },
+              "three": {
+                "status": "completed"
+              },
+              "receiver": {
+                "status": "failed",
+                "message": "19"
+              },
+              "same_receiver": {
+                "status": "failed",
+                "message": "19"
+              },
+              "successor": {
+                "status": "completed"
+              },
+              "continuation": {
+                "status": "completed"
+              },
+              "continuation_reused": {
+                "status": "completed"
+              }
+            },
+            "retain": [
+              {
+                "id": "original-document",
+                "job": "receiver",
+                "task": {
+                  "task_type": "command_execution:command_execution",
+                  "node_path": "receiver/draft",
+                  "attempt": 1,
+                  "occurrence": 1
+                },
+                "artifact": "document.txt",
+                "expect_base64": "b3JpZ2luYWwgb3duZXIvc291cmNlL2Jhc2UgZG9jdW1lbnQgzrs="
+              },
+              {
+                "id": "restored-document",
+                "job": "continuation",
+                "task": {
+                  "task_type": "command_execution:command_execution",
+                  "node_path": "receiver/draft",
+                  "attempt": 1,
+                  "occurrence": 1
+                },
+                "artifact": "document.txt",
+                "compare_to": "original-document"
+              },
+              {
+                "id": "failed-diagnostic",
+                "job": "receiver",
+                "task": {
+                  "task_type": "command_execution:command_execution",
+                  "node_path": "receiver/publish",
+                  "attempt": 1,
+                  "occurrence": 1
+                },
+                "artifact": "failure.txt"
+              },
+              {
+                "id": "published-document",
+                "job": "continuation",
+                "task": {
+                  "task_type": "command_execution:command_execution",
+                  "node_path": "receiver/publish",
+                  "attempt": 1,
+                  "occurrence": 1
+                },
+                "artifact": "published.txt",
+                "compare_to": "original-document"
+              },
+              {
+                "id": "original-native-input",
+                "job": "receiver",
+                "task": {
+                  "task_type": "merge:merge",
+                  "node_path": "receiver/land",
+                  "attempt": 1,
+                  "occurrence": 1
+                },
+                "part": "input"
+              },
+              {
+                "id": "restored-native-input",
+                "job": "continuation",
+                "task": {
+                  "task_type": "merge:merge",
+                  "node_path": "receiver/land",
+                  "attempt": 1,
+                  "occurrence": 1
+                },
+                "part": "input",
+                "compare_to": "original-native-input"
+              },
+              {
+                "id": "original-binary",
+                "job": "receiver",
+                "task": {
+                  "task_type": "command_execution:command_execution",
+                  "node_path": "receiver/draft",
+                  "attempt": 1,
+                  "occurrence": 1
+                },
+                "artifact": "binary.bin",
+                "expect_base64": "AP8BgAo="
+              },
+              {
+                "id": "restored-binary",
+                "job": "continuation",
+                "task": {
+                  "task_type": "command_execution:command_execution",
+                  "node_path": "receiver/draft",
+                  "attempt": 1,
+                  "occurrence": 1
+                },
+                "artifact": "binary.bin",
+                "compare_to": "original-binary"
+              }
+            ]
+          }
+        },
+        "observe_files": [
+          "landed.txt"
+        ]
+      },
+      "mocks": {
+        "ops": [
+          {
+            "match": {
+              "node_path": "driver/spawn"
+            },
+            "behavior": {
+              "mode": "return",
+              "effects": {
+                "children": [
+                  {
+                    "bind": "one",
+                    "cell": "root",
+                    "recipe": "caller.yaml",
+                    "inputs": {
+                      "marker": "one"
+                    }
+                  },
+                  {
+                    "bind": "two",
+                    "cell": "root",
+                    "recipe": "caller.yaml",
+                    "inputs": {
+                      "marker": "two"
+                    }
+                  }
+                ]
+              }
+            }
+          },
+          {
+            "match": {
+              "node_path": "driver/next"
+            },
+            "behavior": {
+              "mode": "return",
+              "effects": {
+                "children": [
+                  {
+                    "bind": "three",
+                    "cell": "root",
+                    "recipe": "caller.yaml",
+                    "inputs": {
+                      "marker": "three"
+                    }
+                  }
+                ]
+              }
+            }
+          },
+          {
+            "match": {
+              "node_path": "receiver/draft"
+            },
+            "repeat": true,
+            "behavior": {
+              "mode": "passthrough"
+            }
+          },
+          {
+            "match": {
+              "node_path": "receiver/squash"
+            },
+            "repeat": true,
+            "behavior": {
+              "mode": "passthrough"
+            }
+          },
+          {
+            "match": {
+              "node_path": "receiver/land"
+            },
+            "repeat": true,
+            "behavior": {
+              "mode": "passthrough"
+            }
+          },
+          {
+            "match": {
+              "node_path": "receiver/publish"
+            },
+            "repeat": true,
+            "behavior": {
+              "mode": "passthrough"
+            }
+          }
+        ]
+      },
+      "assertions": [
+        {
+          "type": "cel_true",
+          "expr": "controls.scenario.complete && controls.dispatch_complete"
+        },
+        {
+          "type": "cel_true",
+          "expr": "controls.scenario.jobs.receiver.ref.job_id != controls.scenario.jobs.continuation.ref.job_id && controls.scenario.jobs.receiver.ref.goal_id == controls.scenario.jobs.continuation.ref.goal_id"
+        },
+        {
+          "type": "cel_true",
+          "expr": "!controls.dispatch.exists(d, d.job_id == controls.scenario.jobs.continuation.ref.job_id && (d.name == \"squash:squash\" || d.name == \"merge:merge\" || d.name == \"recipes.run:start\"))"
+        }
+      ]
+    }
+  ]
+}

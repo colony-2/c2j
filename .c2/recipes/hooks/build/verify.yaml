@@ -167,6 +167,15 @@ state:
           go test -mod=readonly -count=1 -v -timeout=5m ./cmd/c2j/internal/submitjob -run '^TestSubmission'
           # Fail early on the real shallow-transport restore/persistence regression.
           go test -count=1 -v -timeout=2m ./pkg/git/gitstate -run '^TestRestore_MatchingHEADShallowBase'
+          # Native scenario acceptance includes fresh workers and the built CLI.
+          # Includes late-bound dispatch prohibitions and native admission targets.
+          go test -race ./pkg/recipetest -run '^TestScenario' -count=1 -timeout=20m
+          go build -o "$scratch/c2j" ./cmd/c2j
+          for suite in admission-ordering advancement cancellation worker-recovery; do
+            fixture="pkg/recipetest/testdata/native-scenarios/$suite.test.json"
+            "$scratch/c2j" test validate --file "$fixture"
+            "$scratch/c2j" test run --file "$fixture" --parallelism 1 --case-timeout 90s --out-dir "$scratch/native-$suite"
+          done
           # Bound concurrent fixture work and allow the full compiler suite to finish.
           go test -count=1 -v -tags=integration -p 2 -timeout=20m ./...
       catch:

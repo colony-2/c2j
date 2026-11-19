@@ -3,6 +3,8 @@ package starter
 import (
 	"context"
 	"encoding/json"
+
+	"github.com/colony-2/c2j/internal/scenariotest"
 	"github.com/colony-2/c2j/pkg/jobcontext"
 	"github.com/colony-2/c2j/pkg/jobref"
 	"github.com/colony-2/c2j/pkg/workflowctl"
@@ -111,4 +113,14 @@ func TestSelectedGoalTransportAndStoredInput(t *testing.T) {
 	bytes, err := arts[0].Bytes(context.Background())
 	require.NoError(t, err)
 	require.Equal(t, "original", string(bytes))
+}
+
+func TestSubmissionObserverReceivesSelectedValidationFailure(t *testing.T) {
+	var observed error
+	ctx := scenariotest.WithObserver(context.Background(), scenariotest.Observer{Submission: func(context.Context, scenariotest.Submission) (func(jobref.Ref, error) error, error) {
+		return func(_ jobref.Ref, err error) error { observed = err; return err }, nil
+	}})
+	_, err := StartRecipeJobWithOptions(ctx, workflowctl.StartJob{TenantId: "tenant", Cell: "work", RecipeName: "build", JobID: "dest", GoalID: "goal"}, incompleteSelected{}, StartRecipeJobOptions{})
+	require.ErrorIs(t, err, jobdb.ErrSubmissionReceiptUnavailable)
+	require.ErrorIs(t, observed, jobdb.ErrSubmissionReceiptUnavailable, "an invalid return must not become a successful scenario receipt")
 }

@@ -1,0 +1,24 @@
+id: receiver
+version: '1'
+sequence:
+- id: draft
+  op: command_execution
+  inputs:
+    run: printf '%s' 'landed document λ' > landed.txt
+- id: squash
+  op: squash
+  inputs: {commit_message: Native scenario landing}
+- id: land
+  op: merge
+- id: publish
+  workspace: {cell: root, ref: main}
+  op: command_execution
+  inputs:
+    run: |
+      set -eu
+      test -f landed.txt
+      test -f advanced.txt
+      git rev-parse HEAD
+      cat advanced.txt
+outputs:
+  merged: '${{ sequence.land.outputs.merged_hash }}'

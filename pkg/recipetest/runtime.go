@@ -15,29 +15,24 @@ import (
 	"time"
 
 	"github.com/colony-2/c2j/internal/celltest"
-	"github.com/colony-2/c2j/internal/dispatchtest"
 	"github.com/colony-2/c2j/pkg/cellref"
 	"github.com/colony-2/c2j/pkg/childbroker"
 	"github.com/colony-2/c2j/pkg/contextual"
-	"github.com/colony-2/c2j/pkg/execution"
-	"github.com/colony-2/c2j/pkg/executionruntime"
 	inputop "github.com/colony-2/c2j/pkg/input"
-	"github.com/colony-2/c2j/pkg/jobdbschema"
 	coreops "github.com/colony-2/c2j/pkg/ops"
 	"github.com/colony-2/c2j/pkg/recipe"
 	"github.com/colony-2/c2j/pkg/secrets"
 	"github.com/colony-2/c2j/pkg/starter"
-	"github.com/colony-2/c2j/pkg/worker/compiler"
-	workerops "github.com/colony-2/c2j/pkg/worker/ops"
 	workerworkflow "github.com/colony-2/c2j/pkg/worker/workflow"
 	"github.com/colony-2/c2j/pkg/workflowctl"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/sqlite"
 	toyruntime "github.com/colony-2/jobdb/pkg/jobdb/runtime/toy"
-	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
 )
 
 type runtimeFixture struct {
+	nativeMu         sync.Mutex
+	scenario         *scenarioState
 	submissionMu     sync.Mutex
 	entrySeen        map[string]bool
 	rootJobID        string
@@ -72,7 +67,12 @@ func runRuntimeCase(parent context.Context, opts HarnessOptions, tenant string, 
 		result.FailureReason = err.Error()
 		return
 	}
-	defer os.RemoveAll(root)
+	caseDrained := true
+	defer func() {
+		if caseDrained {
+			_ = os.RemoveAll(root)
+		}
+	}()
 	f := &runtimeFixture{opts: opts, c: req.Case, root: root, cells: map[string]string{}, selected: map[string]int{}, callIndexes: map[string]int{}, used: map[int]struct{}{}, responses: map[int]bool{}}
 	defer func() { f.mu.Lock(); defer f.mu.Unlock(); result.Runtime = &f.report }()
 	defer func() {
@@ -95,6 +95,10 @@ func runRuntimeCase(parent context.Context, opts HarnessOptions, tenant string, 
 		return
 	}
 	defer func() {
+		if !caseDrained {
+			markFailure(&result, "worker_drain", "worker has not joined; case resources remain open")
+			return
+		}
 		if err := closeRuntime(); err != nil {
 			markFailure(&result, "runtime_close", err.Error())
 		}
@@ -122,34 +126,7 @@ func runRuntimeCase(parent context.Context, opts HarnessOptions, tenant string, 
 			return
 		}
 	}
-	var workerRuntime jobdb.WorkflowRuntime = rt
-	if req.Case.Runtime.Controls != nil {
-		workerRuntime = controlledRuntime{rt}
-	}
-	scopedRuntime := executionruntime.New(workerRuntime, execution.Allocation{SchemaVersion: 1})
-	engine, err := jobworkflow.NewEngineBuilder().WithRuntime(scopedRuntime).WithWorkerTenantId(tenant).BuildEngine()
-	if err != nil {
-		result.FailureReason = err.Error()
-		return
-	}
-	engine = jobdbschema.WorkflowEngine{Engine: engine, Registry: rt}
-	f.ctl = &workerworkflow.SWFWorkflowControl{Engine: engine}
-	deps := coreops.NewServiceDepsBuilder().WithWorkflowControl(f.ctl).Build()
-	registry, err := workerops.NewActivityRegistry()
-	if err != nil {
-		result.FailureReason = err.Error()
-		return
-	}
-	for name, registration := range registry.GetAll() {
-		reg := registration
-		invoke := reg.Step.Invoke
-		reg.Step.Invoke = func(deps coreops.OpDependencies, ctx context.Context, in map[string]any) (map[string]any, error) {
-			return f.invoke(deps, ctx, reg.Metadata.Type, invoke, in)
-		}
-		registry.UpdateRegistration(name, reg)
-	}
 	var collector *observationCollector
-	var executor compiler.RecipeExecutor
 	if cfg := req.Case.Runtime.Observe; cfg != nil {
 		limit := req.Execution.ArtifactMaxBytes
 		if limit <= 0 {
@@ -157,56 +134,52 @@ func runRuntimeCase(parent context.Context, opts HarnessOptions, tenant string, 
 		}
 		collector = newObservationCollector(*cfg, req.Case.ID, &f.report, req.Case.Runtime.Secrets, rt, int(min(limit, 256*1024)))
 		defer collector.redactor.Close()
-		executor = observationExecutor{collector: collector}
 	}
-	workers, err := compiler.NewRecipeWorkerWithOptions(deps, registry, compiler.RecipeJobWorkerOptions{
-		Executor:           executor,
-		RootSourceResolver: compiler.NewRecipeSourceResolver(compiler.RecipeSourceResolverOptions{}),
-		Allocation:         scopedRuntime.Allocation, WrapTaskWorker: func(worker jobworkflow.TaskWorker) jobworkflow.TaskWorker {
-			guarded := scopedRuntime.WrapTaskWorker(worker)
-			if f.c.Runtime.Controls != nil {
-				return dispatchTaskWorker{guarded, f}
-			}
-			return guarded
-		}, StageExecution: scopedRuntime.Stage,
-	})
-	if err == nil {
-		err = engine.RegisterWorkers(workers)
-	}
+	session, err := f.buildSession(rt, tenant, collector)
 	if err != nil {
 		result.FailureReason = err.Error()
 		return
 	}
+	engine := session.engine
 	key, err := starter.StartRecipeJob(ctx, workflowctl.StartJob{Cell: cell, CellRepo: celltest.Repo(f.cells[cell]), TenantId: tenant, RecipeName: prepared.Recipe.GetMetadata().ID, Inputs: req.Case.Inputs, GitRef: "main", JobContext: f.jobContext(cell)}, engine, *prepared.Recipe)
 	if err != nil {
 		result.FailureReason = err.Error()
 		return
 	}
-	controlCtx, stopController := context.WithTimeout(celltest.Context(context.WithoutCancel(parent)), parseTimeout(req.Execution.Timeout, 60*time.Second))
-	defer stopController()
+	controlCtx := ctx
 	f.rootJobID = key.Key().JobId
 	f.gateCounts = map[int]int{}
 	f.waiting = map[string]bool{}
-	done := make(chan struct{})
-	workerCtx := ctx
-	if f.c.Runtime.Controls != nil {
-		workerCtx = dispatchtest.WithObserver(ctx, f.beginDispatch)
-		if f.c.Runtime.Controls.Snapshot != nil {
-			workerCtx = dispatchtest.WithCleanupRetainer(workerCtx, func(cleanup func()) {
-				f.mu.Lock()
-				defer f.mu.Unlock()
-				f.retainedCleanups = append(f.retainedCleanups, cleanup)
-			})
+	if f.scenario != nil {
+		if err = f.bindScenarioJobs(ctx, rt, tenant); err != nil {
+			result.FailureReason = err.Error()
+			return
 		}
 	}
-	go func() { defer close(done); engine.Run(workerCtx) }()
-	defer func() { cancel(); <-done }()
+	caseDrained = false
+	if err = f.startSession(ctx, session); err != nil {
+		result.FailureReason = err.Error()
+		return
+	}
+	defer func() {
+		if session != nil && session.cancel != nil {
+			drainCtx, stop := context.WithTimeout(context.WithoutCancel(parent), 5*time.Second)
+			defer stop()
+			if f.stopSession(drainCtx, session) == nil {
+				caseDrained = true
+			}
+		}
+	}()
 	input, err := inputop.NewRuntime(f.ctl, nil)
 	if err != nil {
 		result.FailureReason = err.Error()
 		return
 	}
-	ticker := time.NewTicker(10 * time.Millisecond)
+	pollInterval := 10 * time.Millisecond
+	if f.scenario != nil {
+		pollInterval = 25 * time.Millisecond
+	}
+	ticker := time.NewTicker(pollInterval)
 	defer ticker.Stop()
 	var output jobdb.JobData
 	for {
@@ -221,7 +194,76 @@ func runRuntimeCase(parent context.Context, opts HarnessOptions, tenant string, 
 				break
 			}
 		}
-		if inspection.Terminal {
+		if f.scenario != nil {
+			complete, e := f.pumpScenario(ctx, rt, tenant, func(a ScenarioAction) error {
+				switch a.Do {
+				case "stop_worker":
+					e := f.stopSession(ctx, session)
+					if e == nil {
+						caseDrained = true
+					}
+					return e
+				case "reopen_runtime":
+					if session.cancel != nil {
+						return fmt.Errorf("cannot reopen runtime with running workers")
+					}
+					if e := f.retainScenario(ctx, rt, tenant, false); e != nil {
+						return e
+					}
+					if e := closeRuntime(); e != nil {
+						return e
+					}
+					closeRuntime = func() error { return nil }
+					f.scenario.report.Sessions = append(f.scenario.report.Sessions, ScenarioSession{ID: f.scenario.session, Kind: "closed"})
+					var e error
+					reopened, newClose, e := newCaseRuntime(ctx, root, tenant, req.Case.Runtime)
+					if e != nil {
+						return e
+					}
+					rt, closeRuntime = reopened, newClose
+					f.scenario.report.Sessions = append(f.scenario.report.Sessions, ScenarioSession{ID: f.scenario.session, Kind: "opened"})
+					if e := f.retainScenario(ctx, rt, tenant, false); e != nil {
+						return e
+					}
+					fresh, e := f.buildSession(rt, tenant, collector)
+					if e != nil {
+						return e
+					}
+					session = fresh
+					input, e = inputop.NewRuntime(f.ctl, nil)
+					return e
+				case "start_worker":
+					if session.cancel != nil {
+						return fmt.Errorf("worker already running")
+					}
+					var e error
+					fresh, e := f.buildSession(rt, tenant, collector)
+					if e != nil {
+						return e
+					}
+					session = fresh
+					input, e = inputop.NewRuntime(f.ctl, nil)
+					if e != nil {
+						return e
+					}
+					caseDrained = false
+					return f.startSession(ctx, session)
+				}
+				return fmt.Errorf("unknown lifecycle action")
+			})
+			if e != nil {
+				result.FailureReason = e.Error()
+				break
+			}
+			if complete {
+				// The scenario pass can observe terminal settlement after the loop's
+				// earlier root inspection. Return that same native terminal snapshot.
+				output = f.scenario.inspections[f.rootJobID].Output
+				result.Status = "passed"
+				break
+			}
+		}
+		if inspection.Terminal && f.scenario == nil {
 			output = inspection.Output
 			if inspection.Status == "completed" {
 				result.Status = "passed"
@@ -246,17 +288,35 @@ func runRuntimeCase(parent context.Context, opts HarnessOptions, tenant string, 
 		}
 		break
 	}
-	if f.c.Runtime.Controls != nil {
-		if err := f.waitControlledExits(ctx); err != nil {
-			markFailure(&result, "control_failure", err.Error())
-		}
-	}
+
+	cleanupCtx, stopCleanup := context.WithTimeout(celltest.Context(context.WithoutCancel(parent)), 5*time.Second)
+	defer stopCleanup()
 	if ctx.Err() != nil {
 		result.Status = "timed_out"
 		result.FailureReason = f.unresolved(ctx.Err())
+		if f.report.Controls != nil {
+			f.controlError(fmt.Errorf("%s", result.FailureReason))
+		}
 	}
-	cancel()
-	<-done
+
+	if f.c.Runtime.Controls != nil && f.scenario == nil {
+		if e := f.waitControlledExits(ctx); e != nil {
+			markFailure(&result, "control_failure", e.Error())
+		}
+	}
+	if session != nil && session.cancel != nil {
+		if e := f.stopSession(cleanupCtx, session); e != nil {
+			markFailure(&result, "worker_drain", e.Error())
+		} else {
+			caseDrained = true
+		}
+	}
+	if f.c.Runtime.Controls != nil && f.scenario != nil {
+		if e := f.waitControlledExits(cleanupCtx); e != nil {
+			markFailure(&result, "control_failure", e.Error())
+		}
+	}
+
 	if f.report.Controls != nil {
 		f.mu.Lock()
 		f.report.Controls.Events = append(f.report.Controls.Events, ControlEvent{Kind: "drained"})
@@ -307,7 +367,20 @@ func runRuntimeCase(parent context.Context, opts HarnessOptions, tenant string, 
 		markFailure(&result, "invalid_runtime_fixture", f.fixtureFailure)
 	}
 	f.mu.Unlock()
-	f.captureControlFinal(controlCtx, rt, key.Key())
+	// Successful evidence capture shares the original case deadline. The
+	// shorter cleanup budget bounds worker drain and best-effort diagnostics
+	// after a failed deadline; it must not truncate required native artifacts.
+	evidenceCtx := ctx
+	if evidenceCtx.Err() != nil {
+		evidenceCtx = cleanupCtx
+	}
+	f.captureControlFinal(evidenceCtx, rt, key.Key())
+	if f.scenario != nil {
+		if e := f.finishScenario(evidenceCtx, rt, tenant); e != nil {
+			f.controlError(e)
+			markFailure(&result, "scenario_failure", e.Error())
+		}
+	}
 	f.finishControls(&result)
 	if err := f.captureRepositories(parent); err != nil {
 		markFailure(&result, "fixture_inspection", err.Error())

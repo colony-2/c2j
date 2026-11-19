@@ -5,6 +5,7 @@ package dispatchtest
 import "context"
 
 type Attempt struct {
+	ScopeID       string `json:"scope_id,omitempty"`
 	Kind          string `json:"kind"`
 	Name          string `json:"name"`
 	Cell          string `json:"cell,omitempty"`
@@ -49,3 +50,5 @@ func Begin(ctx context.Context, attempt Attempt) (func(error), error) {
 }
 
 func Enabled(ctx context.Context) bool { _, ok := ctx.Value(observerKey{}).(Observer); return ok }
+
+func Identity(ctx context.Context) Attempt { a, _ := ctx.Value(identityKey{}).(Attempt); return a }

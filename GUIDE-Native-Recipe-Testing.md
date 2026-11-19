@@ -210,8 +210,8 @@ CEL assertions receive `outputs`, `calls`, `reviews`, `artifacts` (text by name)
 and execution `status`. They must evaluate to boolean true; invalid expressions
 and evaluation errors fail. Op-call assertions also work in the fast executor.
 
-Worker restart, lease fault injection, snapshot encoding and wire protocol tests
-belong in c2j's Go regressions, not recipe suite declarations.
+SQLite scenarios below support cooperative worker stop/join and runtime reopen.
+Lease fault injection, snapshot encoding and wire protocol tests remain Go regressions.
 
 Runtime mocks may match `selector` (the authored selector or resolved revision)
 plus `cell` and `node_path`. Set `repeat: true` on a mock to reuse it, for example
@@ -813,3 +813,137 @@ owns migrating its creation fixtures and rerunning its full creation/publication
 and timeout checks on that runtime. Root retains creation orchestration. Source
 completion does not require a release or deployment, and does not relax
 production repository identity, registration, publication or child authorization.
+
+## Native scenarios across jobs and worker sessions
+
+`runtime.controls.scenario` adds deterministic, case-local controls to the SQLite
+backend. Existing memory cases, prepared barriers/actions, child bindings and
+`responses.after_call` keep their existing behavior. The controller retains the
+case deadline, seeded repositories, database, artifacts, consumed responses and
+on-disk child receipts while workers are replaced. It never reseeds or resubmits
+the root. A failed job does not end a scenario with outstanding obligations.
+
+The runnable neutral examples are in
+[`pkg/recipetest/testdata/native-scenarios`](pkg/recipetest/testdata/native-scenarios):
+
+| Suite | Required behavior |
+| --- | --- |
+| `admission-ordering.test.json` | Two real callers append to one unleased receiver; a third contribution forms a successor blocked through publication. |
+| `advancement.test.json` | A real Git landing persists, a separate native job advances the branch, and only then does publish workspace resolution and checkout run. |
+| `cancellation.test.json` | Cancel a waiting caller while its receiver finishes, or cancel the receiver before publish dispatch while peers observe its settlement. |
+| `worker-recovery.test.json` | Fail after real squash/merge, stop and join, reopen SQLite twice, retry a stable restart request, and use a fresh worker. A newer generation completes while the older continuation is held. Copied prefix tasks do not dispatch again. |
+
+Build the candidate CLI and use it for both validation and execution:
+
+```sh
+go build -o /tmp/c2j-native-candidate ./cmd/c2j
+/tmp/c2j-native-candidate test validate --file pkg/recipetest/testdata/native-scenarios/worker-recovery.test.json
+/tmp/c2j-native-candidate test run --file pkg/recipetest/testdata/native-scenarios/worker-recovery.test.json --parallelism 1 --case-timeout 90s --out-dir /tmp/native-recovery
+```
+
+The envelope rejects duplicate names/members, unknown members, explicit nulls, invalid selectors,
+undeclared references and declaration cycles. It cannot combine with either
+`expect_error`: required outcomes express expected application failures;
+controller errors, missing evidence and timeouts always fail acceptance.
+
+| Scenario field | Contract |
+| --- | --- |
+| `jobs` | Map aliases to exactly one of `root: true`, `child_binding`, or `submission: {caller, task, index, output_pointer?}`. Submission indices are one-based returns from an exact native invocation, never arbitrary job IDs. An optional JSON pointer addresses the persisted task output (for example `/payload/output/items/0`) and must resolve to the same complete native reference. |
+| `admission_holds` | `{id, cell, recipe, route, jobs}`. Cell/repository identities come from the seeded registry. `route` uses native `jobType` and optional `taskType`. Matches stay unleased before aliases bind. Release requires every alias to match the native repository, recipe metadata and current route; missing or mismatched targets fail. Release retires the provisional hold for later generations. |
+| `dispatch_holds` | `{id, job, task, disposition?}`. Hold the actual scheduled task before its environment/permission guard and workspace preparation. Default disposition requires release. `cancelled` requires accepted native cancellation, settled cancellation, native lease invalidation and worker drain. |
+| `events` | `{id, kind, job?, hold?, task?, status?}`. Kinds are `submission`, `dispatch` (arrival at a named hold), `task_result`, and `settled`. Task results require `SUCCEEDED` or `FAILED`; settlement requires `completed`, `failed` or `cancelled`. Results come from persisted history. |
+| `actions` | `{id, after_all, do, target?, restart?}`. Prerequisites name events or completed actions. Actions fire once after every prerequisite. Supported operations: `release`, `cancel_job`, `stop_worker`, `reopen_runtime`, `start_worker`, `restart_job`. Cancellation target is independent of its trigger. Lifecycle actions have no target. |
+| `outcomes` | Required terminal state for every alias, including continuations: `{status, failure_kind?, message?}`. `message` is a required substring of the native failure. Aliases for the same native job must agree. |
+| `retain` | `{id, job, task, part?, artifact?, expect_base64?, compare_to?}`. Select native `input` or default `output`; optionally select one artifact by its exact name. Read complete bytes within bounds, retain native key/size and raw SHA-256, and compare required bytes. Selections already available before reopen are captured and checked again afterward. Missing or changed content fails. |
+| `limits` | Positive `jobs`, `events`, `receipts`, `actions`, `report_bytes` limits. Defaults: 128, 1024, 256, 128, 1048576. Maximums: 1024, 4096, 4096, 1024, 8388608. Overflow fails required checks. Dispatch/snapshot/artifact limits remain independently effective. |
+
+A task selector contains exact `task_type`, positive native `attempt`, and at
+least one of `node_path`, `invocation_id` or `scope_id`. Optional positive
+`occurrence` selects a repeated match; omission requires uniqueness. There are
+no wildcards or display-name searches. Workspace scopes are associated with
+trusted authored paths at the compiler callsite before scheduling resolution;
+fixtures do not compute their hashes. A gate that binds after its task passed
+fails rather than claiming a retrospective hold. Replay does not create a fresh
+dispatch or submission receipt.
+
+`restart_job` requires a settled named source and:
+
+```yaml
+restart:
+  path: ['$job', 'sequence:receiver', 'op:publish']
+  request_id: native-post-merge
+  continuation: continuation
+  required_prefix:
+    - {task_type: 'squash:squash', node_path: receiver/squash, attempt: 1, occurrence: 1}
+    - {task_type: 'merge:merge', node_path: receiver/land, attempt: 1, occurrence: 1}
+```
+
+`path` is the exact native scope-site chain, including `$job`, rather than the
+story UI's authored path labels. It is decoded from canonical recorded native
+identities (JSON string sites and positive occurrence/attempt coordinates).
+This avoids relying on story labels that can be absent for failed workspace
+scopes. Optional `occurrence` resolves repeated paths. The controller reconciles
+one available scope through existing restart discovery, inspects its exact
+context, and checks every successful prefix result precedes it. It submits with
+no patch, `goal: continue` and the stable request ID. Reusing that ID for changed
+selection fails. A continuation is a distinct job outside its source's append
+position; the source stays failed. This fixture contract adds no restart grant
+to workers and no production API.
+
+Stop closes admission, cancels only worker execution and joins the engine's
+lease runners and keepalives. Reopen requires stopped workers, closes storage,
+opens the same paths and reconstructs runtime-bound readers. Start constructs
+fresh workers, dependencies and input services. Duplicate/incompatible
+transitions fail. Parent cancellation and the original case deadline remain
+effective across every session.
+
+Reports retain the legacy root `controls.final` and add versioned
+`controls.scenario` jobs, native submission receipts, session transitions,
+admission receipts, causal event/action receipts, exact retained content and
+restart/context/request fingerprints. Native job/goal/result identities remain
+separate. Event positions describe observations and enforced prerequisites;
+they do not infer a global chronology from polling. Dispatch distinguishes
+attempted, held, entered, denied, finished and native cancellation. For absence
+checks, `controls.dispatch.forbid` accepts exact dispatch matchers and optional
+scenario `job` aliases. Binding reconciles earlier attempts, and final checks
+repeat that reconciliation after drain. A forbidden attempt fails even if it
+preceded alias binding or a permission guard denied entry. Earlier dispatch
+evidence keeps its actual entry and denial fields; reconciliation does not
+claim to have prevented an effect. An earlier preparation hold is needed to prevent the publish
+operation's dispatch itself. Full dispatch coverage is checked after drain.
+
+Synthetic `runtime.secrets` and `runtime.config` survive reopen. They use the
+existing policy model; no extra permissions are implied by scenarios. For
+example, a fixture may seed fake credentials and a candidate-trusted hook:
+
+```yaml
+runtime:
+  backend: sqlite
+  secrets: {TEST_TOKEN: synthetic-fixture-only}
+  config:
+    _c2j_hook_policy_tenant:
+      version: 1
+      hooks:
+        .c2/recipes/hooks/publish.yaml:
+          perms:
+            jobdb:
+              secrets: {resolve: [TEST_TOKEN]}
+              jobs: {submit: true}
+          source_trust:
+            jobdb.secrets.resolve:
+              TEST_TOKEN: {mode: candidate}
+            jobdb.jobs.submit: {mode: candidate}
+```
+
+Use the actual hook path. Empty/omitted grants exercise denial. Cell overrides
+use `_c2j_hook_policy_cell_<sha256(canonical repository identity)>` and bind
+`repository`; callsite ceilings still apply. Exact-byte retention fails when
+secret masking would change the selected bytes. Execute the actual hook/helper
+to prove its authorization behavior; a return mock is insufficient. See
+[local hooks](GUIDE-Local-Recipe-Hooks.md) and
+[node permissions](GUIDE-Node-Permissions.md).
+
+These fixtures use disposable repositories and a neutral publication probe.
+Recipes owns its declarative publication cases and product assertions. Adoption
+requires the supporting CLI/worker build together; it does not require a new
+scheduler, storage, merge or permission interface.

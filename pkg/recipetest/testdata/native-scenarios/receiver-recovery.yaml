@@ -1,0 +1,38 @@
+id: receiver
+version: '1'
+sequence:
+- id: draft
+  op: command_execution
+  inputs:
+    env:
+      OUTBOX: '${{ context.environment.op.outbox }}'
+    run: |
+      printf '%s' 'original owner/source/base document λ' > landed.txt
+      cp landed.txt "$OUTBOX/document.txt"
+      printf '\000\377\001\200\n' > "$OUTBOX/binary.bin"
+- id: squash
+  op: squash
+  inputs: {commit_message: Native recovery landing}
+- id: land
+  op: merge
+- id: publish
+  workspace: {cell: root, ref: main}
+  op: command_execution
+  inputs:
+    capture_diagnostics: always
+    env:
+      OUTBOX: '${{ context.environment.op.outbox }}'
+    run: |
+      set -eu
+      if git ls-remote --exit-code origin refs/heads/probe-receipt >/dev/null; then
+        cat landed.txt
+        cp landed.txt "$OUTBOX/published.txt"
+      else
+        git push origin HEAD:refs/heads/probe-receipt
+        printf 'first publication probe failed\n' > "$OUTBOX/failure.txt"
+        printf 'first publication probe failed\n' >&2
+        exit 19
+      fi
+outputs:
+  merged: '${{ sequence.land.outputs.merged_hash }}'
+  published: '${{ sequence.publish.outputs.stdout }}'

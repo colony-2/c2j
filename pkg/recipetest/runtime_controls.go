@@ -14,12 +14,14 @@ import (
 	"github.com/colony-2/c2j/internal/preparedtest"
 	inputop "github.com/colony-2/c2j/pkg/input"
 	coreops "github.com/colony-2/c2j/pkg/ops"
+	"github.com/colony-2/c2j/pkg/secrets"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 )
 
 // RuntimeControls are opt-in, case-local controls. Completion is scripted only
 // after native extension preparation; these are not whole-operation mocks.
 type RuntimeControls struct {
+	Scenario         *Scenario             `json:"scenario,omitempty"`
 	Snapshot         *EffectSnapshotConfig `json:"snapshot,omitempty"`
 	Dispatch         *DispatchPolicy       `json:"dispatch,omitempty"`
 	MaxEvidenceBytes int                   `json:"max_evidence_bytes,omitempty"`
@@ -62,6 +64,7 @@ type ControlJobState struct {
 }
 
 type ControlReport struct {
+	Scenario         *ScenarioReport            `json:"scenario,omitempty"`
 	Baselines        map[string]*EffectSnapshot `json:"baselines,omitempty"`
 	FinalSnapshot    *EffectSnapshot            `json:"final_snapshot,omitempty"`
 	Preserved        bool                       `json:"preserved"`
@@ -123,7 +126,10 @@ func validateControls(c *RuntimeCase) error {
 		if p.MaxAttempts < 0 || p.MaxAttempts > 4096 {
 			return fmt.Errorf("dispatch max_attempts must not exceed 4096")
 		}
-		for _, m := range p.Allow {
+		for _, m := range append(append([]DispatchMatcher(nil), p.Allow...), p.Forbid...) {
+			if m.Job != "" && c.Controls.Scenario == nil {
+				return fmt.Errorf("named dispatch policy requires scenario")
+			}
 			if (m.Kind != "task" && m.Kind != "native") || m.Name == "" || strings.ContainsAny(m.Name+m.NodePath+m.Cell, "*?[]") {
 				return fmt.Errorf("dispatch allow requires exact task/native name")
 			}
@@ -135,7 +141,10 @@ func validateControls(c *RuntimeCase) error {
 	if c.Backend != "sqlite" {
 		return fmt.Errorf("runtime controls require backend: sqlite")
 	}
-	if len(c.Controls.Barriers) == 0 {
+	if err := validateScenario(c); err != nil {
+		return err
+	}
+	if len(c.Controls.Barriers) == 0 && c.Controls.Scenario == nil {
 		return fmt.Errorf("controls require at least one barrier")
 	}
 	ids := map[string]bool{}
@@ -209,12 +218,22 @@ func (f *runtimeFixture) initControls() {
 		return
 	}
 	f.report.Controls = &ControlReport{Version: 1, Events: []ControlEvent{}, Errors: []string{}, Baselines: map[string]*EffectSnapshot{}}
+	f.initScenario()
 	for _, b := range f.c.Runtime.Controls.Barriers {
 		f.barriers = append(f.barriers, &barrierState{spec: b, seen: map[string]int{}, release: make(chan struct{}), exited: make(chan struct{})})
 	}
 }
 
 func (f *runtimeFixture) controlError(err error) error {
+	redactor := secrets.NewRedactor()
+	defer redactor.Close()
+	for _, v := range f.c.Runtime.Secrets {
+		_ = redactor.Register(v)
+	}
+	safe := redactor.Redact(err.Error())
+	if safe != err.Error() {
+		err = errors.New(safe)
+	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.report.Controls.Errors = append(f.report.Controls.Errors, err.Error())
@@ -429,6 +448,11 @@ func (f *runtimeFixture) finishControls(result *CaseRunResult) {
 	if f.report.Controls == nil {
 		return
 	}
+	// Drain has completed. Reconcile again so every binding path, including a
+	// restarted continuation, is covered by the final required absence check.
+	if err := f.reconcileDispatchForbids(); err != nil {
+		f.controlError(err)
+	}
 	for _, b := range f.barriers {
 		if b.entry == nil {
 			f.report.Controls.Errors = append(f.report.Controls.Errors, "unused barrier "+b.spec.ID)
@@ -490,6 +514,9 @@ func (f *runtimeFixture) finishControls(result *CaseRunResult) {
 	}
 	f.report.Controls.Complete = len(f.report.Controls.Errors) == 0
 	if !f.report.Controls.Complete {
+		if f.report.Controls.Scenario != nil {
+			f.report.Controls.Scenario.Complete = false
+		}
 		markFailure(result, "control_failure", strings.Join(f.report.Controls.Errors, "; "))
 	}
 }
@@ -587,4 +614,23 @@ func preparedObjectCompletion(prepared preparedtest.Invocation, spec PreparedBar
 	}
 	envelope["objects"] = drafts
 	return json.Marshal(envelope)
+}
+
+func (c *RuntimeControls) UnmarshalJSON(raw []byte) error {
+	type plain RuntimeControls
+	var v plain
+	if err := json.Unmarshal(raw, &v); err != nil {
+		return err
+	}
+	var members map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &members); err != nil {
+		return err
+	}
+	for k, b := range members {
+		if strings.EqualFold(k, "scenario") && strings.TrimSpace(string(b)) == "null" {
+			return fmt.Errorf("scenario must not be null")
+		}
+	}
+	*c = RuntimeControls(v)
+	return nil
 }

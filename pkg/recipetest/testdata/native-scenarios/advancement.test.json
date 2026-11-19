@@ -1,0 +1,302 @@
+{
+  "recipe": "driver.yaml",
+  "cases": [
+    {
+      "id": "advance-before-preparation",
+      "type": "integration_case",
+      "runtime": {
+        "backend": "sqlite",
+        "cells": {
+          "root": {
+            "file_sources": {
+              ".c2/recipes/receiver.yaml": "receiver-land.yaml"
+            }
+          }
+        },
+        "controls": {
+          "scenario": {
+            "jobs": {
+              "root": {
+                "root": true
+              },
+              "one": {
+                "child_binding": "one"
+              },
+              "two": {
+                "child_binding": "two"
+              },
+              "receiver": {
+                "submission": {
+                  "caller": "one",
+                  "task": {
+                    "task_type": "recipes.run:start",
+                    "node_path": "caller/queue",
+                    "attempt": 1,
+                    "occurrence": 1
+                  },
+                  "index": 1
+                }
+              },
+              "same_receiver": {
+                "submission": {
+                  "caller": "two",
+                  "task": {
+                    "task_type": "recipes.run:start",
+                    "node_path": "caller/queue",
+                    "attempt": 1,
+                    "occurrence": 1
+                  },
+                  "index": 1
+                }
+              },
+              "advance": {
+                "child_binding": "advance"
+              }
+            },
+            "admission_holds": [
+              {
+                "id": "batch",
+                "cell": "root",
+                "recipe": "receiver",
+                "route": {
+                  "jobType": "recipe"
+                },
+                "jobs": [
+                  "receiver",
+                  "same_receiver"
+                ]
+              },
+              {
+                "id": "advance_admission",
+                "cell": "root",
+                "recipe": "advance",
+                "route": {
+                  "jobType": "recipe"
+                },
+                "jobs": [
+                  "advance"
+                ]
+              }
+            ],
+            "dispatch_holds": [
+              {
+                "id": "publish",
+                "job": "receiver",
+                "task": {
+                  "task_type": "recipe_workspace_resolve",
+                  "node_path": "receiver/publish",
+                  "attempt": 1,
+                  "occurrence": 1
+                }
+              }
+            ],
+            "events": [
+              {
+                "id": "one_submitted",
+                "kind": "submission",
+                "job": "receiver"
+              },
+              {
+                "id": "two_submitted",
+                "kind": "submission",
+                "job": "same_receiver"
+              },
+              {
+                "id": "publishing",
+                "kind": "dispatch",
+                "hold": "publish"
+              },
+              {
+                "id": "landed",
+                "kind": "task_result",
+                "job": "receiver",
+                "task": {
+                  "task_type": "merge:merge",
+                  "node_path": "receiver/land",
+                  "attempt": 1,
+                  "occurrence": 1
+                },
+                "status": "SUCCEEDED"
+              },
+              {
+                "id": "advanced",
+                "kind": "settled",
+                "job": "advance",
+                "status": "completed"
+              }
+            ],
+            "actions": [
+              {
+                "id": "admit",
+                "after_all": [
+                  "one_submitted",
+                  "two_submitted"
+                ],
+                "do": "release",
+                "target": "batch"
+              },
+              {
+                "id": "advance_now",
+                "after_all": [
+                  "landed"
+                ],
+                "do": "release",
+                "target": "advance_admission"
+              },
+              {
+                "id": "checkout",
+                "after_all": [
+                  "advanced",
+                  "publishing"
+                ],
+                "do": "release",
+                "target": "publish"
+              }
+            ],
+            "outcomes": {
+              "root": {
+                "status": "completed"
+              },
+              "one": {
+                "status": "completed"
+              },
+              "two": {
+                "status": "completed"
+              },
+              "receiver": {
+                "status": "completed"
+              },
+              "same_receiver": {
+                "status": "completed"
+              },
+              "advance": {
+                "status": "completed"
+              }
+            }
+          }
+        },
+        "observe_files": [
+          "landed.txt",
+          "advanced.txt"
+        ]
+      },
+      "mocks": {
+        "ops": [
+          {
+            "match": {
+              "node_path": "driver/spawn"
+            },
+            "behavior": {
+              "mode": "return",
+              "effects": {
+                "children": [
+                  {
+                    "bind": "one",
+                    "cell": "root",
+                    "recipe": "caller.yaml",
+                    "inputs": {
+                      "marker": "one"
+                    }
+                  },
+                  {
+                    "bind": "two",
+                    "cell": "root",
+                    "recipe": "caller.yaml",
+                    "inputs": {
+                      "marker": "two"
+                    }
+                  },
+                  {
+                    "bind": "advance",
+                    "cell": "root",
+                    "recipe": "advance.yaml"
+                  }
+                ]
+              }
+            }
+          },
+          {
+            "match": {
+              "node_path": "driver/next"
+            },
+            "behavior": {
+              "mode": "return"
+            }
+          },
+          {
+            "match": {
+              "node_path": "receiver/draft"
+            },
+            "behavior": {
+              "mode": "passthrough"
+            },
+            "repeat": true
+          },
+          {
+            "match": {
+              "node_path": "receiver/squash"
+            },
+            "behavior": {
+              "mode": "passthrough"
+            },
+            "repeat": true
+          },
+          {
+            "match": {
+              "node_path": "receiver/land"
+            },
+            "behavior": {
+              "mode": "passthrough"
+            },
+            "repeat": true
+          },
+          {
+            "match": {
+              "node_path": "receiver/publish"
+            },
+            "behavior": {
+              "mode": "passthrough"
+            },
+            "repeat": true
+          },
+          {
+            "match": {
+              "node_path": "advance/edit"
+            },
+            "behavior": {
+              "mode": "passthrough"
+            },
+            "repeat": true
+          },
+          {
+            "match": {
+              "node_path": "advance/land"
+            },
+            "behavior": {
+              "mode": "passthrough"
+            },
+            "repeat": true
+          }
+        ]
+      },
+      "assertions": [
+        {
+          "type": "cel_true",
+          "expr": "controls.scenario.complete && controls.dispatch_complete"
+        },
+        {
+          "type": "cel_true",
+          "expr": "calls.exists(c, c.node_path == \"receiver/publish\" && c.outputs.stdout.contains(\"advanced\"))"
+        },
+        {
+          "type": "cel_true",
+          "expr": "calls.exists(p, p.node_path == \"receiver/publish\" && calls.exists(a, a.node_path == \"advance/land\" && p.outputs.stdout == a.outputs.merged_hash + \"\\nadvanced\"))"
+        },
+        {
+          "type": "cel_true",
+          "expr": "calls.exists(a, a.node_path == \"advance/land\" && calls.exists(l, l.node_path == \"receiver/land\" && a.outputs.squashed_commits.base_hash == l.outputs.merged_hash && a.outputs.merged_hash != l.outputs.merged_hash))"
+        }
+      ]
+    }
+  ]
+}

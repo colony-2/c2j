@@ -154,6 +154,9 @@ func validateRuntimeCase(opts HarnessOptions, c Case) []Issue {
 		add(fmt.Errorf("unknown runtime backend %q; use memory or sqlite", c.Runtime.Backend))
 	}
 	add(validateControls(c.Runtime))
+	if c.Runtime.Controls != nil && c.Runtime.Controls.Scenario != nil && c.ExpectError != "" {
+		add(fmt.Errorf("scenario outcomes cannot combine with case expect_error"))
+	}
 	if c.Runtime.Controls != nil && c.ExpectError != "" {
 		for _, a := range c.Runtime.Controls.Actions {
 			if a.Do == "cancel_job" {

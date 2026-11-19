@@ -75,6 +75,23 @@ func (f *runtimeFixture) unresolved(err error) string {
 			details = append(details, fmt.Sprintf("unresolved response %d after_call node_path=%q cell=%q occurrence=%d entries=%d", i, gate.NodePath, gate.Cell, gate.Occurrence, f.gateCounts[i]))
 		}
 	}
+	if f.scenario != nil {
+		for n := range f.c.Runtime.Controls.Scenario.Outcomes {
+			if _, ok := f.scenario.report.Jobs[n]; !ok {
+				details = append(details, "unresolved job "+n)
+			}
+		}
+		for _, e := range f.c.Runtime.Controls.Scenario.Events {
+			if !f.scenario.facts[e.ID] {
+				details = append(details, "unresolved scenario event "+e.ID)
+			}
+		}
+		for _, a := range f.c.Runtime.Controls.Scenario.Actions {
+			if !f.scenario.actions[a.ID] {
+				details = append(details, "unresolved scenario action "+a.ID)
+			}
+		}
+	}
 	for id := range f.waiting {
 		details = append(details, "unfinished child "+id)
 	}

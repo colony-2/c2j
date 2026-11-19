@@ -1,0 +1,13 @@
+id: advance
+version: '1'
+workspace: {cell: root, ref: main}
+sequence:
+- id: edit
+  op: command_execution
+  inputs:
+    run: printf advanced > advanced.txt
+- id: land
+  op: squashrebasemerge
+  inputs: {commit_message: Native advancement}
+outputs:
+  advanced: '${{ sequence.land.outputs.merged_hash }}'

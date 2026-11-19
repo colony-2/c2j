@@ -1,0 +1,269 @@
+{
+  "recipe": "driver.yaml",
+  "cases": [
+    {
+      "id": "grouped-admission-successor",
+      "type": "integration_case",
+      "runtime": {
+        "backend": "sqlite",
+        "cells": {
+          "root": {
+            "file_sources": {
+              ".c2/recipes/receiver.yaml": "receiver.yaml"
+            }
+          }
+        },
+        "controls": {
+          "scenario": {
+            "jobs": {
+              "root": {
+                "root": true
+              },
+              "one": {
+                "child_binding": "one"
+              },
+              "two": {
+                "child_binding": "two"
+              },
+              "three": {
+                "child_binding": "three"
+              },
+              "receiver": {
+                "submission": {
+                  "caller": "one",
+                  "task": {
+                    "task_type": "recipes.run:start",
+                    "node_path": "caller/queue",
+                    "attempt": 1,
+                    "occurrence": 1
+                  },
+                  "index": 1,
+                  "output_pointer": "/payload/output/items/0"
+                }
+              },
+              "same_receiver": {
+                "submission": {
+                  "caller": "two",
+                  "task": {
+                    "task_type": "recipes.run:start",
+                    "node_path": "caller/queue",
+                    "attempt": 1,
+                    "occurrence": 1
+                  },
+                  "index": 1,
+                  "output_pointer": "/payload/output/items/0"
+                }
+              },
+              "successor": {
+                "submission": {
+                  "caller": "three",
+                  "task": {
+                    "task_type": "recipes.run:start",
+                    "node_path": "caller/queue",
+                    "attempt": 1,
+                    "occurrence": 1
+                  },
+                  "index": 1
+                }
+              }
+            },
+            "admission_holds": [
+              {
+                "id": "batch",
+                "cell": "root",
+                "recipe": "receiver",
+                "route": {
+                  "jobType": "recipe"
+                },
+                "jobs": [
+                  "receiver",
+                  "same_receiver"
+                ]
+              }
+            ],
+            "dispatch_holds": [
+              {
+                "id": "next",
+                "job": "root",
+                "task": {
+                  "task_type": "command_execution:command_execution",
+                  "node_path": "driver/next",
+                  "attempt": 1,
+                  "occurrence": 1
+                }
+              },
+              {
+                "id": "publish",
+                "job": "receiver",
+                "task": {
+                  "task_type": "recipe_workspace_resolve",
+                  "node_path": "receiver/publish",
+                  "attempt": 1,
+                  "occurrence": 1
+                }
+              }
+            ],
+            "events": [
+              {
+                "id": "one_submitted",
+                "kind": "submission",
+                "job": "receiver"
+              },
+              {
+                "id": "two_submitted",
+                "kind": "submission",
+                "job": "same_receiver"
+              },
+              {
+                "id": "publishing",
+                "kind": "dispatch",
+                "hold": "publish"
+              },
+              {
+                "id": "next_ready",
+                "kind": "dispatch",
+                "hold": "next"
+              },
+              {
+                "id": "successor_submitted",
+                "kind": "submission",
+                "job": "successor"
+              }
+            ],
+            "actions": [
+              {
+                "id": "admit",
+                "after_all": [
+                  "one_submitted",
+                  "two_submitted"
+                ],
+                "do": "release",
+                "target": "batch"
+              },
+              {
+                "id": "third",
+                "after_all": [
+                  "publishing",
+                  "next_ready"
+                ],
+                "do": "release",
+                "target": "next"
+              },
+              {
+                "id": "finish",
+                "after_all": [
+                  "successor_submitted"
+                ],
+                "do": "release",
+                "target": "publish"
+              }
+            ],
+            "outcomes": {
+              "root": {
+                "status": "completed"
+              },
+              "one": {
+                "status": "completed"
+              },
+              "two": {
+                "status": "completed"
+              },
+              "three": {
+                "status": "completed"
+              },
+              "receiver": {
+                "status": "completed"
+              },
+              "same_receiver": {
+                "status": "completed"
+              },
+              "successor": {
+                "status": "completed"
+              }
+            }
+          }
+        }
+      },
+      "mocks": {
+        "ops": [
+          {
+            "match": {
+              "node_path": "driver/spawn"
+            },
+            "behavior": {
+              "mode": "return",
+              "effects": {
+                "children": [
+                  {
+                    "bind": "one",
+                    "cell": "root",
+                    "recipe": "caller.yaml",
+                    "inputs": {
+                      "marker": "one"
+                    }
+                  },
+                  {
+                    "bind": "two",
+                    "cell": "root",
+                    "recipe": "caller.yaml",
+                    "inputs": {
+                      "marker": "two"
+                    }
+                  }
+                ]
+              }
+            }
+          },
+          {
+            "match": {
+              "node_path": "driver/next"
+            },
+            "behavior": {
+              "mode": "return",
+              "effects": {
+                "children": [
+                  {
+                    "bind": "three",
+                    "cell": "root",
+                    "recipe": "caller.yaml",
+                    "inputs": {
+                      "marker": "three"
+                    }
+                  }
+                ]
+              }
+            }
+          },
+          {
+            "match": {
+              "node_path": "receiver/land"
+            },
+            "repeat": true,
+            "behavior": {
+              "mode": "passthrough"
+            }
+          },
+          {
+            "match": {
+              "node_path": "receiver/publish"
+            },
+            "repeat": true,
+            "behavior": {
+              "mode": "passthrough"
+            }
+          }
+        ]
+      },
+      "assertions": [
+        {
+          "type": "cel_true",
+          "expr": "controls.scenario.complete && controls.dispatch_complete"
+        },
+        {
+          "type": "cel_true",
+          "expr": "controls.scenario.jobs.receiver.ref.job_id == controls.scenario.jobs.same_receiver.ref.job_id && controls.scenario.jobs.receiver.ref.job_id != controls.scenario.jobs.successor.ref.job_id"
+        }
+      ]
+    }
+  ]
+}

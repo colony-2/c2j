@@ -1,0 +1,26 @@
+id: caller
+version: '1'
+input_schema:
+  marker: {type: string, required: true}
+inputs: {marker: '${{ inputs.marker }}'}
+sequence:
+- id: queue
+  op: recipes.run
+  inputs:
+    git_ref: main
+    recipes:
+    - name: receiver
+      cell_name: root
+      grouping:
+        key: native-scenario
+        max_items: 2
+        content:
+          marker: '${{ inputs.marker }}'
+- id: wait
+  op: recipe.await_result
+  inputs:
+    wait: {on: job, condition: success}
+    target:
+      job: '${{ sequence.queue.outputs.items[0].job_id }}'
+outputs:
+  receipt: '${{ sequence.queue.outputs.items[0] }}'

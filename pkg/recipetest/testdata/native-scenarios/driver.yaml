@@ -1,0 +1,10 @@
+id: driver
+version: '1'
+sequence:
+- id: spawn
+  op: command_execution
+  inputs: {run: fixture-submits-callers}
+- id: next
+  op: command_execution
+  inputs: {run: fixture-submits-successor}
+outputs: {}

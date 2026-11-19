@@ -165,6 +165,14 @@
         },
         {
           "type": "cel_true",
+          "expr": "calls.filter(c, c.node_path == \"c2j-build-verify/test_integration/test_integration\")[0].inputs.run.contains(\"go test -race ./pkg/recipetest -run '^TestScenario' -count=1 -timeout=20m\")"
+        },
+        {
+          "type": "cel_true",
+          "expr": "calls.filter(c, c.node_path == \"c2j-build-verify/test_integration/test_integration\")[0].inputs.run.contains(\"go test -count=1 -v -timeout=2m ./pkg/git/gitstate -run '^TestRestore_MatchingHEADShallowBase'\")"
+        },
+        {
+          "type": "cel_true",
           "expr": "calls.filter(c, c.node_path == \"c2j-build-verify/check_skills/check_skills\")[0].inputs.run.contains(\"npx -y skills add . --list --full-depth\")"
         }
       ]

@@ -7,6 +7,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/colony-2/c2j/internal/dispatchtest"
+	"github.com/colony-2/c2j/internal/scenariotest"
 	"github.com/colony-2/c2j/pkg/execution"
 	"github.com/colony-2/c2j/pkg/jobcontext"
 	"github.com/colony-2/c2j/pkg/jobdbschema"
@@ -140,11 +142,15 @@ func StartRecipeJobWithOptions(ctx context.Context, startJob workflowctl.StartJo
 	if err != nil {
 		return jobref.Ref{}, err
 	}
+	finish, err := beginTestSubmission(ctx, startJob, "submit")
+	if err != nil {
+		return jobref.Ref{}, err
+	}
 	ref, err := submitter.SubmitJobRef(ctx, job)
 	if err == nil && job.GoalID != "" {
 		err = ref.ValidateSelected(job)
 	}
-	return ref, err
+	return ref, finish(ref, err)
 }
 
 // PrepareRecipeJob resolves the complete semantic request without publishing it.
@@ -366,4 +372,15 @@ func RestartRecipeJob(ctx context.Context, engine any, prior jobdb.JobKey, scope
 		return jobref.Ref{}, fmt.Errorf("restart submitter must preserve the complete job reference")
 	}
 	return submitter.SubmitRestartJobRef(ctx, jobdb.SubmitRestartJobRequest{Job: req, RequestID: opts.RequestID})
+}
+
+func beginTestSubmission(ctx context.Context, start workflowctl.StartJob, kind string) (func(jobref.Ref, error) error, error) {
+	a := dispatchtest.Identity(ctx)
+	s := scenariotest.Submission{Caller: a.JobID, InvocationID: a.InvocationID, NodePath: a.NodePath, Attempt: a.Attempt, Kind: kind}
+	if start.Parent != nil && s.Caller == "" {
+		s.Caller = start.Parent.JobID
+		s.InvocationID = start.Parent.InvocationHash
+		s.NodePath = start.Parent.InvocationPath
+	}
+	return scenariotest.Begin(ctx, s)
 }

@@ -1,0 +1,423 @@
+{
+  "recipe": "driver.yaml",
+  "cases": [
+    {
+      "id": "cancel-one",
+      "type": "integration_case",
+      "runtime": {
+        "backend": "sqlite",
+        "cells": {
+          "root": {
+            "file_sources": {
+              ".c2/recipes/receiver.yaml": "receiver.yaml"
+            }
+          }
+        },
+        "controls": {
+          "scenario": {
+            "jobs": {
+              "root": {
+                "root": true
+              },
+              "one": {
+                "child_binding": "one"
+              },
+              "two": {
+                "child_binding": "two"
+              },
+              "receiver": {
+                "submission": {
+                  "caller": "one",
+                  "task": {
+                    "task_type": "recipes.run:start",
+                    "node_path": "caller/queue",
+                    "attempt": 1,
+                    "occurrence": 1
+                  },
+                  "index": 1
+                }
+              },
+              "same_receiver": {
+                "submission": {
+                  "caller": "two",
+                  "task": {
+                    "task_type": "recipes.run:start",
+                    "node_path": "caller/queue",
+                    "attempt": 1,
+                    "occurrence": 1
+                  },
+                  "index": 1
+                }
+              }
+            },
+            "admission_holds": [
+              {
+                "id": "batch",
+                "cell": "root",
+                "recipe": "receiver",
+                "route": {
+                  "jobType": "recipe"
+                },
+                "jobs": [
+                  "receiver",
+                  "same_receiver"
+                ]
+              }
+            ],
+            "dispatch_holds": [
+              {
+                "id": "publish",
+                "job": "receiver",
+                "task": {
+                  "task_type": "recipe_workspace_resolve",
+                  "node_path": "receiver/publish",
+                  "attempt": 1,
+                  "occurrence": 1
+                }
+              }
+            ],
+            "events": [
+              {
+                "id": "one_submitted",
+                "kind": "submission",
+                "job": "receiver"
+              },
+              {
+                "id": "two_submitted",
+                "kind": "submission",
+                "job": "same_receiver"
+              },
+              {
+                "id": "publishing",
+                "kind": "dispatch",
+                "hold": "publish"
+              },
+              {
+                "id": "cancelled",
+                "kind": "settled",
+                "job": "one",
+                "status": "cancelled"
+              }
+            ],
+            "actions": [
+              {
+                "id": "admit",
+                "after_all": [
+                  "one_submitted",
+                  "two_submitted"
+                ],
+                "do": "release",
+                "target": "batch"
+              },
+              {
+                "id": "cancel",
+                "after_all": [
+                  "publishing"
+                ],
+                "do": "cancel_job",
+                "target": "one"
+              },
+              {
+                "id": "finish",
+                "after_all": [
+                  "cancelled"
+                ],
+                "do": "release",
+                "target": "publish"
+              }
+            ],
+            "outcomes": {
+              "root": {
+                "status": "completed"
+              },
+              "one": {
+                "status": "cancelled",
+                "failure_kind": "cancellation"
+              },
+              "two": {
+                "status": "completed"
+              },
+              "receiver": {
+                "status": "completed"
+              },
+              "same_receiver": {
+                "status": "completed"
+              }
+            }
+          }
+        }
+      },
+      "mocks": {
+        "ops": [
+          {
+            "match": {
+              "node_path": "driver/spawn"
+            },
+            "behavior": {
+              "mode": "return",
+              "effects": {
+                "children": [
+                  {
+                    "bind": "one",
+                    "cell": "root",
+                    "recipe": "caller-wait.yaml",
+                    "inputs": {
+                      "marker": "one"
+                    }
+                  },
+                  {
+                    "bind": "two",
+                    "cell": "root",
+                    "recipe": "caller-wait.yaml",
+                    "inputs": {
+                      "marker": "two"
+                    }
+                  }
+                ]
+              }
+            }
+          },
+          {
+            "match": {
+              "node_path": "driver/next"
+            },
+            "behavior": {
+              "mode": "return"
+            }
+          },
+          {
+            "match": {
+              "node_path": "receiver/land"
+            },
+            "repeat": true,
+            "behavior": {
+              "mode": "passthrough"
+            }
+          },
+          {
+            "match": {
+              "node_path": "receiver/publish"
+            },
+            "repeat": true,
+            "behavior": {
+              "mode": "passthrough"
+            }
+          }
+        ]
+      },
+      "assertions": [
+        {
+          "type": "cel_true",
+          "expr": "controls.scenario.complete && controls.dispatch_complete"
+        }
+      ]
+    },
+    {
+      "id": "cancel-receiver",
+      "type": "integration_case",
+      "runtime": {
+        "backend": "sqlite",
+        "cells": {
+          "root": {
+            "file_sources": {
+              ".c2/recipes/receiver.yaml": "receiver.yaml"
+            }
+          }
+        },
+        "controls": {
+          "scenario": {
+            "jobs": {
+              "root": {
+                "root": true
+              },
+              "one": {
+                "child_binding": "one"
+              },
+              "two": {
+                "child_binding": "two"
+              },
+              "receiver": {
+                "submission": {
+                  "caller": "one",
+                  "task": {
+                    "task_type": "recipes.run:start",
+                    "node_path": "caller/queue",
+                    "attempt": 1,
+                    "occurrence": 1
+                  },
+                  "index": 1
+                }
+              },
+              "same_receiver": {
+                "submission": {
+                  "caller": "two",
+                  "task": {
+                    "task_type": "recipes.run:start",
+                    "node_path": "caller/queue",
+                    "attempt": 1,
+                    "occurrence": 1
+                  },
+                  "index": 1
+                }
+              }
+            },
+            "admission_holds": [
+              {
+                "id": "batch",
+                "cell": "root",
+                "recipe": "receiver",
+                "route": {
+                  "jobType": "recipe"
+                },
+                "jobs": [
+                  "receiver",
+                  "same_receiver"
+                ]
+              }
+            ],
+            "dispatch_holds": [
+              {
+                "id": "publish",
+                "job": "receiver",
+                "task": {
+                  "task_type": "recipe_workspace_resolve",
+                  "node_path": "receiver/publish",
+                  "attempt": 1,
+                  "occurrence": 1
+                },
+                "disposition": "cancelled"
+              }
+            ],
+            "events": [
+              {
+                "id": "one_submitted",
+                "kind": "submission",
+                "job": "receiver"
+              },
+              {
+                "id": "two_submitted",
+                "kind": "submission",
+                "job": "same_receiver"
+              },
+              {
+                "id": "publishing",
+                "kind": "dispatch",
+                "hold": "publish"
+              },
+              {
+                "id": "cancelled",
+                "kind": "settled",
+                "job": "receiver",
+                "status": "cancelled"
+              }
+            ],
+            "actions": [
+              {
+                "id": "admit",
+                "after_all": [
+                  "one_submitted",
+                  "two_submitted"
+                ],
+                "do": "release",
+                "target": "batch"
+              },
+              {
+                "id": "cancel",
+                "after_all": [
+                  "publishing"
+                ],
+                "do": "cancel_job",
+                "target": "receiver"
+              }
+            ],
+            "outcomes": {
+              "root": {
+                "status": "completed"
+              },
+              "one": {
+                "status": "failed"
+              },
+              "two": {
+                "status": "failed"
+              },
+              "receiver": {
+                "status": "cancelled",
+                "failure_kind": "cancellation"
+              },
+              "same_receiver": {
+                "status": "cancelled",
+                "failure_kind": "cancellation"
+              }
+            }
+          },
+          "dispatch": {
+            "strict": false,
+            "forbid": [
+              {
+                "kind": "task",
+                "name": "command_execution:command_execution",
+                "node_path": "receiver/publish",
+                "job": "receiver"
+              }
+            ]
+          }
+        }
+      },
+      "mocks": {
+        "ops": [
+          {
+            "match": {
+              "node_path": "driver/spawn"
+            },
+            "behavior": {
+              "mode": "return",
+              "effects": {
+                "children": [
+                  {
+                    "bind": "one",
+                    "cell": "root",
+                    "recipe": "caller-wait.yaml",
+                    "inputs": {
+                      "marker": "one"
+                    }
+                  },
+                  {
+                    "bind": "two",
+                    "cell": "root",
+                    "recipe": "caller-wait.yaml",
+                    "inputs": {
+                      "marker": "two"
+                    }
+                  }
+                ]
+              }
+            }
+          },
+          {
+            "match": {
+              "node_path": "driver/next"
+            },
+            "behavior": {
+              "mode": "return"
+            }
+          },
+          {
+            "match": {
+              "node_path": "receiver/land"
+            },
+            "repeat": true,
+            "behavior": {
+              "mode": "passthrough"
+            }
+          }
+        ]
+      },
+      "assertions": [
+        {
+          "type": "cel_true",
+          "expr": "controls.scenario.complete && controls.dispatch_complete"
+        }
+      ]
+    }
+  ]
+}

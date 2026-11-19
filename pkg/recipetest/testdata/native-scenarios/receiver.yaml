@@ -1,0 +1,16 @@
+id: receiver
+version: '1'
+sequence:
+- id: land
+  op: command_execution
+  inputs:
+    run: printf '%s' "$COUNT"
+    env:
+      COUNT: '${{ string(context.grouping.appends.size()) }}'
+- id: publish
+  workspace: {cell: root, ref: main}
+  op: command_execution
+  inputs:
+    run: git rev-parse HEAD
+outputs:
+  count: '${{ sequence.land.outputs.stdout }}'

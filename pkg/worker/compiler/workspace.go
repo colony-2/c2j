@@ -7,6 +7,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/colony-2/c2j/internal/scenariotest"
+
 	"github.com/colony-2/c2j/pkg/cellref"
 	"github.com/colony-2/c2j/pkg/contextual"
 	"github.com/colony-2/c2j/pkg/git/common"
@@ -200,6 +202,7 @@ func enterWorkspace(ctx workflow.Context, parent *template.ResolutionContext, me
 		if meta.Retry != nil {
 			policy.Retry = *meta.Retry
 		}
+		scenariotest.Associate(ctx.JobContext.Context(), scenariotest.Workspace{JobID: ctx.GetJobId(), NodePath: incoming.Invocation.NodePath + "/" + meta.ID, ScopeID: req.ScopeID, ParentScopeID: req.ParentScopeID})
 		out, e := workflow.ValueCall(ctx.JobContext, "workspace:"+req.ScopeID, WorkspaceResolutionTaskType, policy, req)
 		if e != nil {
 			return nil, e

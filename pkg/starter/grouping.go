@@ -17,6 +17,7 @@ type GroupedSubmitter interface {
 }
 
 func StartOrAppendRecipeJob(ctx context.Context, start workflowctl.StartJob, spec grouping.Spec, engine any, recipes ...recipe.Recipe) (jobref.Ref, error) {
+	originalStart := start
 	p, err := spec.Prepare()
 	if err != nil {
 		return jobref.Ref{}, err
@@ -36,7 +37,12 @@ func StartOrAppendRecipeJob(ctx context.Context, start workflowctl.StartJob, spe
 	if err != nil {
 		return jobref.Ref{}, err
 	}
-	return submitter.StartOrAppendJobRef(ctx, jobdb.StartOrAppendJob{
+	finish, err := beginTestSubmission(ctx, originalStart, "append")
+	if err != nil {
+		return jobref.Ref{}, err
+	}
+	ref, err := submitter.StartOrAppendJobRef(ctx, jobdb.StartOrAppendJob{
 		Job: job, AppendKey: p.Key, MaxInputs: p.MaxItems, Append: raw, AppendArtifacts: p.Native,
 	})
+	return ref, finish(ref, err)
 }

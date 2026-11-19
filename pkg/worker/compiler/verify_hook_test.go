@@ -88,14 +88,20 @@ func TestVerifyHookSubmissionEnvironmentAndGate(t *testing.T) {
 			require.NoError(t, os.Mkdir(bin, 0700))
 			require.NoError(t, os.Mkdir(outbox, 0700))
 			// Run the hook's actual shell with a recording Go command. It rejects leaked
-			// live routing and proves a failed process gate prevents the broad suite.
+			// live routing and proves a failed process gate prevents later checks.
+			// A successful build installs the same recorder as the scenario CLI.
 			mock := `#!/bin/bash
 set -eu
 for variable in ${!C2J_CURRENT_@} ${!C2J_CHILD_JOB_@} ${!C2J_WORKSPACE_@}; do exit 91; done
 test -z "${C2J_JOBDB+x}${C2J_TENANT_ID+x}${C2J_OBJECT_OUTBOX+x}${C2J_TEST_SUBMIT_BINARY+x}"
 test "$GOWORK" = off
-printf '%s\n' "$*" >> "$COMMANDS"
+printf '%s %s\n' "${0##*/}" "$*" >> "$COMMANDS"
 if [[ "$*" == *TestBrokerOnlyCLI* ]] && [ "$FAIL_GATE" = true ]; then exit 42; fi
+if [ "$1" = build ]; then
+  test "$#" = 4 && test "$2" = -o && test "$4" = ./cmd/c2j
+  cp -- "$0" "$3"
+  chmod 0700 "$3"
+fi
 `
 			require.NoError(t, os.WriteFile(filepath.Join(bin, "go"), []byte(mock), 0700))
 			commands := filepath.Join(root, "commands")
@@ -114,9 +120,18 @@ if [[ "$*" == *TestBrokerOnlyCLI* ]] && [ "$FAIL_GATE" = true ]; then exit 42; f
 			require.Contains(t, string(raw), "-run ^TestBrokerOnlyCLI")
 			if failGate {
 				require.NotContains(t, string(raw), "-tags=integration")
+				require.NotContains(t, string(raw), "go build")
+				require.NotContains(t, string(raw), "c2j test")
 			} else {
 				require.Contains(t, string(raw), "-run ^TestSubmission")
 				require.Contains(t, string(raw), "-tags=integration")
+				require.Equal(t, 4, strings.Count(string(raw), "c2j test validate --file "))
+				require.Equal(t, 4, strings.Count(string(raw), "c2j test run --file "))
+				for _, suite := range []string{"admission-ordering", "advancement", "cancellation", "worker-recovery"} {
+					fixture := "pkg/recipetest/testdata/native-scenarios/" + suite + ".test.json"
+					require.Contains(t, string(raw), "c2j test validate --file "+fixture+"\n")
+					require.Contains(t, string(raw), "c2j test run --file "+fixture+" --parallelism 1 --case-timeout 90s --out-dir ")
+				}
 			}
 		})
 	}
