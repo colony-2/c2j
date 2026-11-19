@@ -162,6 +162,8 @@ state:
           done
           unset C2J_JOBDB C2J_TENANT_ID C2J_OBJECT_OUTBOX C2J_TEST_SUBMIT_BINARY
           export GOWORK=off
+          # Exact hidden-source restarts must pass through the lease-bound helper.
+          go test -mod=readonly -count=1 -v -timeout=5m ./pkg/executionruntime -run '^TestLeaseBoundRestartHelperSubmission$'
           # Exercise broker-only process routing before the broader integration suite.
           go test -mod=readonly -count=1 -v -timeout=10m ./pkg/childbroker -run '^TestBrokerOnlyCLI'
           go test -mod=readonly -count=1 -v -timeout=5m ./cmd/c2j/internal/submitjob -run '^TestSubmission'

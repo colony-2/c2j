@@ -80,8 +80,8 @@ func TestVerifyHookSubmissionEnvironmentAndGate(t *testing.T) {
 	require.NoError(t, err)
 	state := r.RecipeImpl.(*recipe.RecipeState)
 	node := state.States.States["test_integration"].Node.NodeImpl.(*recipe.NodeOp)
-	for _, failGate := range []bool{false, true} {
-		t.Run(fmt.Sprint(failGate), func(t *testing.T) {
+	for _, failGate := range []string{"", "TestLeaseBoundRestartHelperSubmission", "TestBrokerOnlyCLI"} {
+		t.Run("fail="+failGate, func(t *testing.T) {
 			root := t.TempDir()
 			bin := filepath.Join(root, "bin")
 			outbox := filepath.Join(root, "outbox")
@@ -96,7 +96,7 @@ for variable in ${!C2J_CURRENT_@} ${!C2J_CHILD_JOB_@} ${!C2J_WORKSPACE_@}; do ex
 test -z "${C2J_JOBDB+x}${C2J_TENANT_ID+x}${C2J_OBJECT_OUTBOX+x}${C2J_TEST_SUBMIT_BINARY+x}"
 test "$GOWORK" = off
 printf '%s %s\n' "${0##*/}" "$*" >> "$COMMANDS"
-if [[ "$*" == *TestBrokerOnlyCLI* ]] && [ "$FAIL_GATE" = true ]; then exit 42; fi
+if [ -n "$FAIL_GATE" ] && [[ "$*" == *"$FAIL_GATE"* ]]; then exit 42; fi
 if [ "$1" = build ]; then
   test "$#" = 4 && test "$2" = -o && test "$4" = ./cmd/c2j
   cp -- "$0" "$3"
@@ -107,9 +107,9 @@ fi
 			commands := filepath.Join(root, "commands")
 			cmd := exec.Command("bash", "-c", node.Inputs["run"].(string))
 			cmd.Dir = root
-			cmd.Env = append(os.Environ(), "PATH="+bin+":"+os.Getenv("PATH"), "OUTBOX="+outbox, "COMMANDS="+commands, fmt.Sprintf("FAIL_GATE=%t", failGate), "C2J_CURRENT_JOB_ID=live", "C2J_CHILD_JOB_TOKEN=live", "C2J_WORKSPACE_ROOT=live", "C2J_JOBDB=embed:///", "C2J_TENANT_ID=live", "C2J_OBJECT_OUTBOX=live", "C2J_TEST_SUBMIT_BINARY=/stale/c2j")
+			cmd.Env = append(os.Environ(), "PATH="+bin+":"+os.Getenv("PATH"), "OUTBOX="+outbox, "COMMANDS="+commands, "FAIL_GATE="+failGate, "C2J_CURRENT_JOB_ID=live", "C2J_CHILD_JOB_TOKEN=live", "C2J_WORKSPACE_ROOT=live", "C2J_JOBDB=embed:///", "C2J_TENANT_ID=live", "C2J_OBJECT_OUTBOX=live", "C2J_TEST_SUBMIT_BINARY=/stale/c2j")
 			out, err := cmd.CombinedOutput()
-			if failGate {
+			if failGate != "" {
 				require.Error(t, err)
 				require.Equal(t, 42, cmd.ProcessState.ExitCode())
 			} else {
@@ -117,8 +117,14 @@ fi
 			}
 			raw, err := os.ReadFile(commands)
 			require.NoError(t, err)
-			require.Contains(t, string(raw), "-run ^TestBrokerOnlyCLI")
-			if failGate {
+			helperGate := "go test -mod=readonly -count=1 -v -timeout=5m ./pkg/executionruntime -run ^TestLeaseBoundRestartHelperSubmission$\n"
+			require.True(t, strings.HasPrefix(string(raw), helperGate), "helper regression must run first, after identity isolation")
+			if failGate == "TestLeaseBoundRestartHelperSubmission" {
+				require.Equal(t, helperGate, string(raw), "failed helper regression must prevent every later command")
+			} else {
+				require.Contains(t, string(raw), "-run ^TestBrokerOnlyCLI")
+			}
+			if failGate != "" {
 				require.NotContains(t, string(raw), "-tags=integration")
 				require.NotContains(t, string(raw), "./internal/retirementcheck")
 				require.NotContains(t, string(raw), "go build")

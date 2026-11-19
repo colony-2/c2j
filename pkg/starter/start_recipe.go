@@ -322,7 +322,10 @@ func RestartRecipeJob(ctx context.Context, engine any, prior jobdb.JobKey, scope
 	}
 	jobs, err := reader.ListJobs(ctx, jobdb.ListJobsRequest{
 		TenantIds: []string{prior.TenantId}, JobKeys: []jobdb.JobKey{prior},
-		Stores: []jobdb.JobStore{jobdb.JobStoreActive, jobdb.JobStoreArchived}, PageSize: 1,
+		// An explicitly selected source remains restartable when hidden from
+		// discovery, just as its retained history remains directly readable.
+		IncludeHidden: true,
+		Stores:        []jobdb.JobStore{jobdb.JobStoreActive, jobdb.JobStoreArchived}, PageSize: 1,
 	})
 	if err != nil {
 		return jobref.Ref{}, err

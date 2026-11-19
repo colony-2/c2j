@@ -26,14 +26,23 @@ import (
 )
 
 func TestLeaseBoundRestartHelperSubmission(t *testing.T) {
-	for _, backend := range []string{"sqlite", "remote"} {
-		t.Run(backend, func(t *testing.T) {
+	for _, fixture := range []struct {
+		name   string
+		remote bool
+		hidden bool
+	}{
+		{name: "sqlite"},
+		{name: "remote", remote: true},
+		{name: "sqlite_hidden", hidden: true},
+		{name: "remote_hidden", remote: true, hidden: true},
+	} {
+		t.Run(fixture.name, func(t *testing.T) {
 			ctx := celltest.Context(context.Background())
 			db, err := sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: filepath.Join(t.TempDir(), "jobs.db")})
 			require.NoError(t, err)
 			defer db.Close(ctx)
 			var base jobdb.ConsumerRuntime = db
-			if backend == "remote" {
+			if fixture.remote {
 				server := httptest.NewServer(celltest.Handler(remote.NewConsumerServer(db)))
 				defer server.Close()
 				base, err = remote.New(server.URL, server.Client())
@@ -55,7 +64,19 @@ func TestLeaseBoundRestartHelperSubmission(t *testing.T) {
 			require.NoError(t, err)
 			_, err = sourceRun.Run(nil)
 			require.NoError(t, err)
+			if fixture.hidden {
+				// Completed jobs may be hidden from discovery while their history
+				// remains available to an explicitly requested continuation.
+				deleted, err := base.(jobdb.JobDeletionRuntime).DeleteJobs(ctx, jobdb.DeleteJobsRequest{TenantID: "tenant", JobIDs: []string{source.JobKey.JobId}})
+				require.NoError(t, err)
+				require.EqualValues(t, 1, deleted.DeletedCount)
+				page, err := base.ListJobs(ctx, jobdb.ListJobsRequest{TenantIds: []string{"tenant"}, JobKeys: []jobdb.JobKey{source.JobKey}})
+				require.NoError(t, err)
+				require.Empty(t, page.Jobs)
+			}
 			before, err := jobdb.GetJobRun(ctx, rt, jobdb.GetJobRunRequest{JobKey: source.JobKey})
+			require.NoError(t, err)
+			sourceGoal, err := base.GetGoal(ctx, jobdb.GoalKey{TenantId: "tenant", GoalID: source.GoalID})
 			require.NoError(t, err)
 			request := jobdb.SubmitRestartJobRequest{RequestID: "restart-through-helper", Job: jobdb.SubmitRestartJob{Cell: "cell", PriorJobKey: source.JobKey, LastStepToKeep: 0}}
 			engine, e := wf.NewEngineBuilder().WithRuntime(base).BuildEngine()
@@ -99,6 +120,8 @@ func TestLeaseBoundRestartHelperSubmission(t *testing.T) {
 				require.Equal(t, tc.JobKey.JobId, family.Root.ID)
 				require.Contains(t, family.Edges, jobinspect.SubmissionEdge{Type: "submission", Parent: tc.JobKey.JobId, Child: result.Ref.JobID})
 				require.Equal(t, "tenant", result.Ref.TenantID)
+				require.NotEqual(t, source.JobKey.JobId, result.Ref.JobID)
+				require.NotEqual(t, source.GoalID, result.Ref.GoalID, "new-goal restart must not reuse the source goal")
 				retry, e := client.Restart(ctx, helperRequest)
 				require.NoError(t, e)
 				require.Equal(t, result.Ref, retry.Ref)
@@ -116,6 +139,20 @@ func TestLeaseBoundRestartHelperSubmission(t *testing.T) {
 				after, e := jobdb.GetJobRun(ctx, rt, jobdb.GetJobRunRequest{JobKey: source.JobKey})
 				require.NoError(t, e)
 				require.Equal(t, before, after)
+				goalAfter, e := base.GetGoal(ctx, jobdb.GoalKey{TenantId: "tenant", GoalID: source.GoalID})
+				require.NoError(t, e)
+				require.Equal(t, sourceGoal, goalAfter)
+				page, e := base.ListJobs(ctx, jobdb.ListJobsRequest{TenantIds: []string{"tenant"}, JobKeys: []jobdb.JobKey{source.JobKey}})
+				require.NoError(t, e)
+				if fixture.hidden {
+					require.Empty(t, page.Jobs, "restart must leave the hidden source out of ordinary discovery")
+				} else {
+					require.Len(t, page.Jobs, 1)
+				}
+				retained, e := base.ListJobs(ctx, jobdb.ListJobsRequest{TenantIds: []string{"tenant"}, JobKeys: []jobdb.JobKey{source.JobKey}, IncludeHidden: true})
+				require.NoError(t, e)
+				require.Len(t, retained.Jobs, 1)
+				require.Equal(t, source.GoalID, retained.Jobs[0].GoalID)
 				stop := access.LimitDeadline(time.Now().Add(-time.Second))
 				defer stop()
 				_, e = saved.Restart(ctx, jobrestart.Request{Operation: "points", JobID: source.JobKey.JobId})

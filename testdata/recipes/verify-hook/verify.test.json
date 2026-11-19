@@ -417,7 +417,7 @@
         },
         {
           "type": "cel_true",
-          "expr": "calls.size() == 5"
+          "expr": "calls.size() == 5 && calls[3].outputs.success == true && calls[4].inputs.env.RESULT_2 == \"failed\" && calls[4].inputs.env.RESULT_3 == \"passed\" && calls[4].inputs.env.VERDICT == \"failed\""
         }
       ]
     },

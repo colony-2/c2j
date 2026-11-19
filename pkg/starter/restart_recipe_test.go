@@ -3,6 +3,7 @@ package starter
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"testing"
 
 	"github.com/colony-2/c2j/internal/celltest"
@@ -15,12 +16,77 @@ import (
 )
 
 type captureEngine struct {
-	last *jobdb.SubmitRestartJob
-	info jobdb.JobSummary
+	last        *jobdb.SubmitRestartJob
+	info        jobdb.JobSummary
+	lookup      *jobdb.ListJobsRequest
+	lookupError error
+	missing     bool
 }
 
 func (c *captureEngine) ListJobs(_ context.Context, req jobdb.ListJobsRequest) (jobdb.ListJobsResponse, error) {
+	c.lookup = &req
+	if c.lookupError != nil || c.missing {
+		return jobdb.ListJobsResponse{}, c.lookupError
+	}
 	return jobdb.ListJobsResponse{Jobs: []jobdb.JobSummary{c.info}}, nil
+}
+
+func TestRestartRecipeJobExactSourceMetadata(t *testing.T) {
+	prior := jobdb.JobKey{TenantId: "tenant", JobId: "hidden-source"}
+	for _, goal := range []string{"", "continue", "new"} {
+		t.Run("goal="+goal, func(t *testing.T) {
+			engine := &captureEngine{info: jobdb.JobSummary{Cell: "source-cell"}}
+			_, err := RestartRecipeJob(context.Background(), engine, prior, "scope", nil, RestartOptions{Goal: goal, RequestID: "request"})
+			require.NoError(t, err)
+			require.Equal(t, &jobdb.ListJobsRequest{
+				TenantIds: []string{prior.TenantId}, JobKeys: []jobdb.JobKey{prior},
+				IncludeHidden: true, Stores: []jobdb.JobStore{jobdb.JobStoreActive, jobdb.JobStoreArchived}, PageSize: 1,
+			}, engine.lookup, "hidden metadata access must stay limited to the exact source")
+			require.NotNil(t, engine.last)
+			require.Equal(t, prior, engine.last.PriorJobKey)
+			require.Equal(t, "source-cell", engine.last.Cell)
+			require.Equal(t, goal != "new", engine.last.ShareGoal)
+		})
+	}
+}
+
+func TestRestartRecipeJobMetadataFailureNeverSubmits(t *testing.T) {
+	backendError := errors.New("metadata backend unavailable")
+	for _, fixture := range []struct {
+		name   string
+		engine captureEngine
+		want   error
+	}{
+		{name: "missing", engine: captureEngine{missing: true}, want: jobdb.ErrJobNotFound},
+		{name: "read error", engine: captureEngine{lookupError: backendError}, want: backendError},
+	} {
+		t.Run(fixture.name, func(t *testing.T) {
+			engine := fixture.engine
+			_, err := RestartRecipeJob(context.Background(), &engine, jobdb.JobKey{TenantId: "tenant", JobId: "source"}, "scope", nil, RestartOptions{RequestID: "request"})
+			require.ErrorIs(t, err, fixture.want)
+			require.Nil(t, engine.last)
+		})
+	}
+}
+
+func TestRestartRecipeJobInvalidOptionsNeverSubmit(t *testing.T) {
+	for _, fixture := range []struct {
+		name, scope, goal, requestID, want string
+	}{
+		{name: "blank scope", scope: " \t", requestID: "request", want: "scope ID is required"},
+		{name: "unsupported goal", scope: "scope", goal: "other", requestID: "request", want: "goal mode must be continue or new"},
+		{name: "blank request", scope: "scope", requestID: " \t", want: "restart request ID is required"},
+	} {
+		t.Run(fixture.name, func(t *testing.T) {
+			engine := &captureEngine{}
+			_, err := RestartRecipeJob(context.Background(), engine, jobdb.JobKey{TenantId: "tenant", JobId: "source"}, fixture.scope, nil, RestartOptions{Goal: fixture.goal, RequestID: fixture.requestID})
+			require.ErrorContains(t, err, fixture.want)
+			require.Nil(t, engine.last)
+			if fixture.name == "blank scope" {
+				require.Nil(t, engine.lookup)
+			}
+		})
+	}
 }
 
 func TestRestartUsesInitialRequirementsNotLatestPayload(t *testing.T) {
