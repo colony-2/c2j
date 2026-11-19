@@ -6,6 +6,44 @@ artifact references identify the producing job and task attempt. Nested catches
 retain the original producer. Retries use distinct references, and resume/replay
 reuse persisted evidence without executing the process again.
 
+## Compact failure messages
+
+A failed command or extension displays meaningful stderr first, falling back to
+stdout. For example:
+
+```text
+Required tool unavailable: go [exit 1]
+Validation failed: missing package [exit 1]
+```
+
+These messages are saved as `failure.message` and keep the same presentation in
+catches, resume/replay and the CLI. c2j adds no node prefix, `Error:` prefix, stream
+label, quotation wrapper or inline log reference. Text printed by the tool itself
+is preserved. Node identity and log references remain in structured failure details.
+Legacy and unrelated errors, including explicit catch replacements, keep their
+existing presentation.
+
+The summary trims surrounding whitespace, keeps the beginning of the selected
+stream, and escapes embedded newlines, controls and invalid bytes. The excerpt is
+at most 1,024 UTF-8 bytes and the whole message at most 2,048 bytes. An ellipsis
+marks capture or display truncation; inspect the log for the rest of the captured
+output. Selection uses redacted capture, including registered secret and Git
+credential masks. Other sensitive text printed by a tool can appear here too.
+
+Silent nonzero exits display `Process exited [exit N]`. Partial output ends with
+`[timed out]` or `[cancelled]` for interruptions; silent interruptions display
+`Timed out` or `Cancelled`. Launch failures retain their specific reason, and
+signal termination retains its reason without inventing an exit code. An extension
+that exits 0 but fails result handling displays the selected output, then the
+specific JSON/schema/object/publication/size reason and `[exit 0]`. Failed process
+stdout is diagnostic text only; it is not decoded or published as a result.
+
+New failures add optional `presentation: {format: output_exit_v1, message: ...}`
+to `failure.attrs.command` or `failure.attrs.extension`. Both the worker and CLI
+must support this metadata for the complete compact display. Unknown or absent
+formats retain legacy presentation. Log collection problems stay in
+`diagnostic_errors` and do not change the summary or operation outcome.
+
 ## Command output limits and capture
 
 The `stdout` and `stderr` command output fields are previews of the beginning of
@@ -60,6 +98,9 @@ failure:
       version: 2
       exit_code: 7
       timed_out: false
+      presentation:
+        format: output_exit_v1
+        message: Required tool unavailable: go [exit 7]
       diagnostics:
         _c2j/execution/check_tools.log: <stored ArtifactRef>
 ```
@@ -101,8 +142,7 @@ use the existing object/artifact channels for large application data. Raw protoc
 stdout has a separate 4 MiB capture limit; exceeding it fails explicitly rather
 than decoding a partial result. Large stderr output cannot consume that budget.
 
-Errors contain a bounded excerpt and a log reference instead of unlimited raw
-stdout/stderr. Extension preparation, manifests, and output schemas are unchanged.
+Errors contain a bounded excerpt; structured failure details carry log references. Extension preparation, manifests, and output schemas are unchanged.
 Logs capture the extension subprocess streams, not every inner command an agent
 may execute without emitting its output.
 

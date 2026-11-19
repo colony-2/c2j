@@ -99,7 +99,8 @@ func execute(deps ops.OpDependencies, ctx context.Context, input CommandExecutio
 				output.Stderr, output.StderrTruncated = executiondiag.Preview(string(report.Capture.Bytes(1)), output.StderrTruncated, "")
 			}
 			if runErr != nil {
-				runErr = &commandFailure{cause: runErr, message: executiondiag.Short(redactor.Redact(runErr.Error())), details: details}
+				details.Presentation = report.Presentation(runErr, output.TimedOut, report.Capture.Err == nil)
+				runErr = &commandFailure{cause: runErr, message: details.Presentation.Message, details: details}
 			}
 		}
 	}()

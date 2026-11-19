@@ -70,7 +70,7 @@ func TestExtensionReferenceDefaultsThroughWorkerAndReplay(t *testing.T) {
 		{name: "no provider", noProvider: true, wantErr: "no secret provider configured"},
 		{name: "outage", outage: true, wantErr: "secret resolution unavailable", calls: 1},
 		{name: "invalid config", config: `false`, wantErr: "failed to validate selector inputs"},
-		{name: "stderr redaction", secret: "private-credential", wantErr: "extension op", calls: 1},
+		{name: "stderr redaction", secret: "private-credential", wantErr: "[exit 9]", calls: 1},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx := celltest.Context(context.Background())

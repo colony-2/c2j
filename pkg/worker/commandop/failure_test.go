@@ -59,6 +59,15 @@ func TestCommandFailureDiagnostics(t *testing.T) {
 			require.Equal(t, tc.timedOut, failure.details.TimedOut)
 			require.Equal(t, tc.timedOut, errors.Is(err, context.DeadlineExceeded))
 			require.Equal(t, tc.canceled, errors.Is(err, context.Canceled))
+			if tc.timedOut {
+				require.EqualError(t, err, "error [timed out]")
+			}
+			if tc.canceled {
+				require.EqualError(t, err, "Cancelled")
+			}
+			if tc.name == "missing executable" {
+				require.NotContains(t, err.Error(), "[exit")
+			}
 			require.False(t, jobdb.IsAppError(err), "diagnostics must not coerce native failures to application errors")
 			require.False(t, output.Success)
 			require.Len(t, failure.details.Diagnostics, 1)
@@ -102,6 +111,7 @@ func TestCommandDiagnosticsPreserveNativeTimeoutCause(t *testing.T) {
 	var failure *commandFailure
 	require.ErrorAs(t, err, &failure)
 	require.True(t, failure.details.TimedOut)
+	require.EqualError(t, err, "Timed out")
 	require.Len(t, failure.details.Diagnostics, 1)
 }
 
@@ -125,7 +135,7 @@ func TestCommandDiagnosticCollectionFailureAndRedaction(t *testing.T) {
 	require.NoError(t, redactor.Register("private-credential"))
 	ctx := secrets.WithRedactor(celltest.Context(context.Background()), redactor)
 	_, err := execute(deps, ctx, CommandExecutionInput{Run: "printf private-credential; printf private-credential >&2; exit 7"})
-	require.EqualError(t, err, "command execution failed: exit status 7")
+	require.EqualError(t, err, "[REDACTED] [exit 7]")
 	for _, artifact := range deps.GetOutputArtifacts() {
 		raw, e := artifact.Bytes(ctx)
 		require.NoError(t, e)
@@ -133,7 +143,7 @@ func TestCommandDiagnosticCollectionFailureAndRedaction(t *testing.T) {
 		require.NotContains(t, string(raw), "private-credential")
 	}
 	_, err = execute(rejectingArtifacts{deps}, ctx, CommandExecutionInput{Run: "exit 7"})
-	require.EqualError(t, err, "command execution failed: exit status 7")
+	require.EqualError(t, err, "Process exited [exit 7]")
 	var failure *commandFailure
 	require.ErrorAs(t, err, &failure)
 	require.Len(t, failure.details.DiagnosticErrors, 1)
@@ -200,4 +210,25 @@ func TestCommandRejectedInvocationHasNoExecutionClaim(t *testing.T) {
 	require.Contains(t, string(raw), "Started: not launched")
 	require.NotContains(t, string(raw), "[stdout]")
 	require.NotContains(t, string(raw), "Duration:")
+}
+
+func TestCommandCompactFailures(t *testing.T) {
+	for _, tc := range []struct{ run, want string }{
+		{`printf 'checking tools\n'; printf 'Required tool unavailable: go\n' >&2; exit 1`, "Required tool unavailable: go [exit 1]"},
+		{`printf 'Validation failed: missing package\n'; printf ' \t\n' >&2; exit 1`, "Validation failed: missing package [exit 1]"},
+		{`printf 'partial\n' >&2; kill -TERM $$`, "partial; signal: terminated"},
+	} {
+		deps := ops.NewOpDependenciesBuilder().WithJobTool(diagnosticJobTool{}).Build()
+		out, err := execute(deps, celltest.Context(context.Background()), CommandExecutionInput{Run: tc.run, Shell: "sh"})
+		require.EqualError(t, err, tc.want)
+		require.False(t, out.Success)
+		var failure *commandFailure
+		require.ErrorAs(t, err, &failure)
+		require.Equal(t, tc.want, failure.details.Presentation.Message)
+		require.Equal(t, "output_exit_v1", failure.details.Presentation.Format)
+		require.NotContains(t, out.ErrorMessage, "[exit")
+		raw, e := deps.GetOutputArtifacts()[0].Bytes(celltest.Context(context.Background()))
+		require.NoError(t, e)
+		require.Contains(t, string(raw), "Operation result: failed: command execution failed:")
+	}
 }

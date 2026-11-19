@@ -6,7 +6,9 @@ import (
 	"errors"
 	"fmt"
 	"testing"
+	"time"
 
+	"github.com/colony-2/c2j/pkg/ops/executiondiag"
 	"github.com/colony-2/c2j/pkg/recipe"
 	coretask "github.com/colony-2/c2j/pkg/task"
 	workerops "github.com/colony-2/c2j/pkg/worker/ops"
@@ -176,4 +178,59 @@ func TestRestoreScopeTimeoutFailureDoesNotReuseUnrelatedEvidence(t *testing.T) {
 		require.Same(t, unrelated, restoreScopeTimeoutFailure(unrelated, bodyErr))
 	}
 	require.Same(t, &persisted, restoreScopeTimeoutFailure(&persisted, nil), "a fresh attempt cannot inherit the previous callback's evidence")
+}
+
+func TestCompactFailureNativeRestoration(t *testing.T) {
+	native := jobdb.NewTimeoutError("task", time.Second, jobdb.TimeoutScopeTotal, nil, false)
+	p := &recipe.FailurePresentation{Format: recipe.OutputExitFormat, Message: "partial [timed out]"}
+	attrs := map[string]any{"command": map[string]any{"version": 2, "presentation": p}}
+	failure := normalizeRuntimeFailure(native, nil, recipe.NodeMetadata{ID: "tools"}, recipe.FailureNodeOp, "command_execution")
+	env, err := coretask.NewOutputEnvelope(coretask.OutputKindActivityInvocationOutput, workerops.ActivityInvocationOutput{FailureAttrs: attrs})
+	require.NoError(t, err)
+	attachTaskFailureAttributes(failure, jobdb.NewTaskDataOrPanic(env))
+	applyExecutionPresentation(failure)
+	require.Equal(t, recipe.FailureKindTimeout, failure.Kind)
+	var timeout *jobdb.TimeoutError
+	require.ErrorAs(t, native, &timeout)
+	require.Equal(t, timeout.Payload.Code, failure.Code)
+	require.Equal(t, timeout.Payload.Scope, failure.Timing.Scope)
+	require.False(t, failure.Retryable)
+	require.Equal(t, "command_execution", failure.Node.Op)
+	require.Equal(t, p.Message, failure.Message)
+	wrapped := newRecipeFailureError(failure, native)
+	require.EqualError(t, wrapped, p.Message)
+	require.ErrorIs(t, wrapped, native)
+	var app *jobdb.AppError
+	require.ErrorAs(t, wrapped, &app)
+	raw, err := json.Marshal(app)
+	require.NoError(t, err)
+	var restored jobdb.AppError
+	require.NoError(t, json.Unmarshal(raw, &restored))
+	got, ok := failureFromError(&restored)
+	require.True(t, ok)
+	require.EqualError(t, newRecipeFailureError(got, &restored), p.Message)
+	for _, message := range []string{"replacement", p.Message} {
+		rewritten := &recipe.RuntimeFailure{Message: message, Node: failure.Node, Cause: failure.Clone()}
+		require.EqualError(t, newRecipeFailureError(rewritten, wrapped), message)
+		_, ok = recipe.CompactErrorMessage(newRecipeFailureError(rewritten, wrapped))
+		require.False(t, ok)
+	}
+	failure.Message = "replacement"
+	require.EqualError(t, newRecipeFailureError(failure, native), "replacement")
+	failure.Node.Path = "root/tools"
+	require.EqualError(t, newRecipeFailureError(failure, native), "[root.tools] replacement")
+}
+
+func TestCompactFailureWithoutTaskOutput(t *testing.T) {
+	cause := context.Canceled
+	details := executiondiag.Details{Version: 2, Presentation: &recipe.FailurePresentation{Format: recipe.OutputExitFormat, Message: "partial [cancelled]"}}
+	err := &executiondiag.Failure{Cause: cause, Message: details.Presentation.Message, Attribute: "command", Details: details}
+	f := normalizeRuntimeFailure(err, nil, recipe.NodeMetadata{}, recipe.FailureNodeOp, "command_execution")
+	attachTaskFailureAttributes(f, nil)
+	applyExecutionPresentation(f)
+	require.Equal(t, recipe.FailureKindCancellation, f.Kind)
+	require.Equal(t, "cancelled", f.Code)
+	require.False(t, f.Retryable)
+	require.EqualError(t, newRecipeFailureError(f, err), details.Presentation.Message)
+	require.ErrorIs(t, newRecipeFailureError(f, err), cause)
 }

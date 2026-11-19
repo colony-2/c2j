@@ -24,6 +24,9 @@ func (e *recipeFailureError) Error() string {
 		return ""
 	}
 	if e.Failure != nil {
+		if message, ok := recipe.CompactFailureMessage(e.Failure); ok {
+			return message
+		}
 		// The structured failure retains the originating node across enclosing
 		// scopes and JobDB serialization. Format it once; wrapping errors are
 		// still available through Unwrap for error classification.
@@ -145,7 +148,23 @@ func normalizeRuntimeFailure(err error, resCtx *template.ResolutionContext, meta
 	default:
 		failure.Retryable = true
 	}
+	var diagnostic interface{ FailureAttributes() map[string]any }
+	if errors.As(err, &diagnostic) {
+		if failure.Attrs == nil {
+			failure.Attrs = map[string]any{}
+		}
+		for k, v := range jsonCompatibleMap(diagnostic.FailureAttributes()) {
+			failure.Attrs[k] = v
+		}
+	}
 	return failure
+}
+
+// Apply only after native classification and failed-task attributes are restored.
+func applyExecutionPresentation(failure *recipe.RuntimeFailure) {
+	if p := recipe.ExecutionPresentation(failure.Attrs); p != nil {
+		failure.Message = p.Message
+	}
 }
 
 func scopeTypeForFailure(nodeType recipe.FailureNodeType) template.ScopeType {

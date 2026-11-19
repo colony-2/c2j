@@ -3,6 +3,7 @@ package ops
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -14,6 +15,9 @@ import (
 	"github.com/colony-2/c2j/pkg/executionruntime"
 	"github.com/colony-2/c2j/pkg/git/gitstate"
 	recipeops "github.com/colony-2/c2j/pkg/ops"
+	"github.com/colony-2/c2j/pkg/ops/executiondiag"
+	"github.com/colony-2/c2j/pkg/recipe"
+	"github.com/colony-2/c2j/pkg/secrets"
 	"github.com/colony-2/c2j/pkg/swfutil"
 	coretask "github.com/colony-2/c2j/pkg/task"
 	"github.com/colony-2/jobdb/pkg/jobdb"
@@ -239,3 +243,32 @@ func (*diagnosticObserver) OnJobStart(jobworkflow.JobStartEvent)   {}
 func (*diagnosticObserver) OnJobEnd(jobworkflow.JobEndEvent)       {}
 func (*diagnosticObserver) OnTaskStart(jobworkflow.TaskStartEvent) {}
 func (o *diagnosticObserver) OnTaskEnd(e jobworkflow.TaskEndEvent) { o.ends = append(o.ends, e) }
+
+func TestTaskWorkerCompactPresentationSurvivesRedaction(t *testing.T) {
+	baseRepo, baseHash, cleanup := setupGitRepo(t)
+	defer cleanup()
+	message := "[REDACTED] [exit 1]"
+	reg := ActivityRegistration{TaskType: "test.compact", Step: recipeops.TaskStep{
+		Invoke: func(deps recipeops.OpDependencies, ctx context.Context, _ map[string]any) (map[string]any, error) {
+			require.NoError(t, secrets.RedactorFromContext(ctx).Register("private-credential"))
+			return nil, &executiondiag.Failure{Cause: fmt.Errorf("private-credential"), Message: message, Attribute: "extension", Details: executiondiag.Details{Version: 2, ExitCode: 1, Presentation: &recipe.FailurePresentation{Format: recipe.OutputExitFormat, Message: message}}}
+		},
+	}}
+	worker := &taskWorker{name: reg.TaskType, reg: reg, doer: &opExecutor{deps: recipeops.NewServiceDepsBuilder().Build(), reg: reg, controller: gitstate.NewController(nil)}}
+	input := jobdb.NewTaskDataOrPanic(ActivityInvocationRequest{Input: map[string]any{}, GitTaskContext: gitstate.GlobalGitTaskContext{BaseRepo: baseRepo, BaseRef: baseHash}})
+	tc := jobworkflow.NewTaskContext(jobdb.JobKey{TenantId: "tenant", JobId: "job"}, 1, nil, nil, nil)
+	td, err := worker.RunTask(deniedTaskContext(t, tc), tc, input)
+	require.EqualError(t, err, message)
+	require.Nil(t, errors.Unwrap(err), "secret-bearing cause chains must still be discarded")
+	require.NotNil(t, td)
+	raw, e := td.GetData()
+	require.NoError(t, e)
+	var env coretask.OutputEnvelope
+	require.NoError(t, json.Unmarshal(raw, &env))
+	var out ActivityInvocationOutput
+	require.NoError(t, env.DecodePayload(&out))
+	p := recipe.ExecutionPresentation(out.FailureAttrs)
+	require.NotNil(t, p)
+	require.Equal(t, message, p.Message)
+	require.NotContains(t, string(raw), "private-credential")
+}

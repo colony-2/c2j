@@ -19,6 +19,7 @@ import (
 	"github.com/colony-2/c2j/pkg/gitprofile"
 	"github.com/colony-2/c2j/pkg/ops"
 	"github.com/colony-2/c2j/pkg/ops/process"
+	"github.com/colony-2/c2j/pkg/recipe"
 	"github.com/colony-2/c2j/pkg/secrets"
 	"github.com/colony-2/c2j/pkg/shellcmd"
 	"github.com/colony-2/jobdb/pkg/jobdb"
@@ -31,12 +32,16 @@ const OutputLimit = 128 * 1024
 const LogLimit = 8 * 1024 * 1024
 
 type Details struct {
-	Version          int                      `json:"version"`
-	ExitCode         int                      `json:"exit_code"`
-	TimedOut         bool                     `json:"timed_out"`
-	Diagnostics      map[string]artifacts.Ref `json:"diagnostics"`
-	DiagnosticErrors []string                 `json:"diagnostic_errors,omitempty"`
+	Presentation     *recipe.FailurePresentation `json:"presentation,omitempty"`
+	Version          int                         `json:"version"`
+	ExitCode         int                         `json:"exit_code"`
+	TimedOut         bool                        `json:"timed_out"`
+	Diagnostics      map[string]artifacts.Ref    `json:"diagnostics"`
+	DiagnosticErrors []string                    `json:"diagnostic_errors,omitempty"`
 }
+
+func (d Details) ExecutionFailurePresentation() *recipe.FailurePresentation { return d.Presentation }
+
 type Failure struct {
 	Cause     error
 	Message   string

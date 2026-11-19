@@ -17,6 +17,7 @@ import (
 	"github.com/colony-2/c2j/cmd/c2j/internal/swfruntime"
 	"github.com/colony-2/c2j/pkg/input"
 	coreops "github.com/colony-2/c2j/pkg/ops"
+	"github.com/colony-2/c2j/pkg/recipe"
 	storylive "github.com/colony-2/c2j/pkg/story/live"
 	"github.com/colony-2/c2j/pkg/template"
 	"github.com/colony-2/c2j/pkg/template/colonycel"
@@ -288,6 +289,11 @@ func replayCachedHistory(ctx context.Context, deps *runnerDeps, jobKey jobdb.Job
 		return nil
 	}
 
+	// A replayed compact failure is the expected saved outcome, printed once
+	// by the caller. It is not an unavailable-history diagnostic.
+	if _, ok := recipe.CompactErrorMessage(err); ok {
+		return nil
+	}
 	fmt.Fprintf(stderr, "warning: replay unavailable: %v\n", err)
 	return nil
 }

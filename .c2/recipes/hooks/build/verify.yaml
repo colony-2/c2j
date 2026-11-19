@@ -164,6 +164,10 @@ state:
           export GOWORK=off
           # Exact hidden-source restarts must pass through the lease-bound helper.
           go test -mod=readonly -count=1 -v -timeout=5m ./pkg/executionruntime -run '^TestLeaseBoundRestartHelperSubmission$'
+          # Fail early on compact failure formatting, persisted messages and real CLI output.
+          go test -count=1 -v -timeout=10m ./pkg/ops/executiondiag ./pkg/ops/process ./pkg/recipe ./pkg/worker/commandop ./pkg/ops/extensions ./pkg/worker/ops ./pkg/worker/compiler ./cmd/c2j -run 'Test(Compact|ExecutionFailurePresentation|Capture|ExecuteProcessMasksDynamicallyResolvedGitCredentials|CommandCompact|CommandFailure|CommandDiagnostic|ExtensionCompact|ExtensionAutomatic|ExtensionCancellation|ExtensionCollectionFailure|ExtensionResultFailureReasons|ExecutionRequired|PreparedCompletion|CommandDiagnosticsNestedCatchResumeAndReplay|ExtensionExecutionLogCatchAndReplay|TaskWorkerCompact|VerifyHook)'
+          # Preserve tool output through submit --run and both child-recipe fixture engines.
+          go test -count=1 -v -tags=integration -timeout=10m ./cmd/c2j/internal/submitjob ./pkg/input/test-fixtures -run '^Test(Run_EmbedExtensionFailureCompletesWithOriginalError|RecipeFixtures)'
           # Exercise broker-only process routing before the broader integration suite.
           go test -mod=readonly -count=1 -v -timeout=10m ./pkg/childbroker -run '^TestBrokerOnlyCLI'
           go test -mod=readonly -count=1 -v -timeout=5m ./cmd/c2j/internal/submitjob -run '^TestSubmission'

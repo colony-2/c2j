@@ -26,7 +26,7 @@ type commandCaptureInput struct {
 
 func TestCommandDiagnosticsNestedCatchResumeAndReplay(t *testing.T) {
 	for _, backend := range []string{"sqlite", "remote"} {
-		for _, scenario := range []string{"state", "include", "retry", "timeout"} {
+		for _, scenario := range []string{"state", "include", "retry", "timeout", "stderr", "stdout"} {
 			t.Run(backend+"/"+scenario, func(t *testing.T) {
 				repo := filepath.Join(t.TempDir(), "repo")
 				workspaceRepo(t, repo, "source")
@@ -35,6 +35,13 @@ func TestCommandDiagnosticsNestedCatchResumeAndReplay(t *testing.T) {
 				run := fmt.Sprintf(`printf 'run\n' >> %q; printf 'checking tools\n'; printf 'Required tool unavailable: go\n' >&2; exit 7`, counter)
 				policy, timeout := "", ""
 				expectedStdout, expectedStderr := "checking tools\n", "Required tool unavailable: go\n"
+				if scenario == "stderr" {
+					run = fmt.Sprintf(`printf 'run\n' >> %q; printf 'checking tools\n'; printf 'Required tool unavailable: go\n' >&2; exit 1`, counter)
+				}
+				if scenario == "stdout" {
+					run = fmt.Sprintf(`printf 'run\n' >> %q; printf 'Validation failed: missing package\n'; exit 1`, counter)
+					expectedStdout, expectedStderr = "Validation failed: missing package\n", ""
+				}
 				if scenario == "retry" {
 					// An inner catch gives this op's retry policy precedence over
 					// the enclosing catch; the clause itself never handles failure.
@@ -110,17 +117,33 @@ outputs: {captured: '${{ states.recover.outputs }}'}
 				require.NoError(t, err)
 				captured := gitLifecycleOutput(t, out)["captured"].(map[string]any)
 				require.Contains(t, captured["log"], strings.TrimSpace(expectedStdout))
-				require.Contains(t, captured["log"], strings.TrimSpace(expectedStderr))
+				if expectedStderr != "" {
+					require.Contains(t, captured["log"], strings.TrimSpace(expectedStderr))
+				}
 				failure := captured["failure"].(map[string]any)
 				kind, exit := "task_error", float64(7)
 				if scenario == "timeout" {
 					kind, exit = "timeout", -1
 				}
+				if scenario == "stderr" || scenario == "stdout" {
+					exit = 1
+				}
+				expectedMessage := strings.TrimSpace(expectedStderr)
+				if expectedMessage == "" {
+					expectedMessage = strings.TrimSpace(expectedStdout)
+				}
+				if scenario == "timeout" {
+					expectedMessage += " [timed out]"
+				} else {
+					expectedMessage += fmt.Sprintf(" [exit %d]", int(exit))
+				}
+				require.Equal(t, expectedMessage, failure["message"])
 				require.Equal(t, kind, failure["kind"])
 				node := failure["node"].(map[string]any)
 				require.Equal(t, "failed_command", node["id"])
 				require.Equal(t, "command_execution", node["op"])
 				details := failure["attrs"].(map[string]any)["command"].(map[string]any)
+				require.Equal(t, expectedMessage, details["presentation"].(map[string]any)["message"])
 				require.Equal(t, float64(2), details["version"])
 				require.Equal(t, exit, details["exit_code"])
 				require.Equal(t, scenario == "timeout", details["timed_out"])
@@ -191,12 +214,18 @@ outputs: {captured: '${{ states.recover.outputs }}'}
 
 func TestExtensionExecutionLogCatchAndReplay(t *testing.T) {
 	for _, backend := range []string{"sqlite", "remote"} {
-		for _, scenario := range []string{"success", "schema", "oversized"} {
+		for _, scenario := range []string{"success", "schema", "oversized", "stderr", "stdout"} {
 			t.Run(backend+"/"+scenario, func(t *testing.T) {
 				repo := filepath.Join(t.TempDir(), "repo")
 				workspaceRepo(t, repo, "source")
 				counter := filepath.Join(t.TempDir(), "runs")
 				run := fmt.Sprintf(`printf 'run\n' >> %q; printf '{"value":"ok"}'`, counter)
+				if scenario == "stderr" {
+					run = fmt.Sprintf(`printf 'run\n' >> %q; printf 'Required tool unavailable: go\n' >&2; exit 1`, counter)
+				}
+				if scenario == "stdout" {
+					run = fmt.Sprintf(`printf 'run\n' >> %q; printf 'Validation failed: missing package\n'; exit 1`, counter)
+				}
 				if scenario == "schema" {
 					run = fmt.Sprintf(`printf 'run\n' >> %q; printf '{"value":42}'`, counter)
 				}
@@ -238,15 +267,31 @@ outputs:
 					recipe = strings.Replace(recipe, `sequence.check.artifacts["_c2j/execution/check.log"]`, `sequence.check.outputs.diagnostics["_c2j/execution/check.log"]`, 1)
 					recipe = strings.Replace(recipe, "     inbox:", "     failure: '${{ sequence.check.outputs.failure }}'\n     inbox:", 1)
 				}
+				if scenario == "stderr" || scenario == "stdout" {
+					commitHookFile(t, repo, "nested.yaml", "id: extension-leaf\nversion: '1'\ninput_schema: {}\nsequence:\n - id: check\n   op: ./op\noutputs: {}\n")
+					recipe = strings.Replace(recipe, " - id: check\n   op: ./op\n", " - id: check\n   include: cell://nested.yaml\n", 1)
+				}
 				rt := newTimeoutReproRuntime(t, backend)
 				key := submitGitLifecycle(t, rt, repo, recipe)
+				if scenario == "stderr" || scenario == "stdout" {
+					fault := &gitOutcomeInterruption{ConsumerRuntime: rt, match: `task:"extension_execution:extension_execution"`}
+					_, err := runGitLifecycle(t, fault, key)
+					require.Error(t, err)
+					require.True(t, fault.fired)
+				}
 				out, err := runGitLifecycle(t, rt, key)
 				require.NoError(t, err)
 				result := gitLifecycleOutput(t, out)["result"].(map[string]any)
 				require.Equal(t, scenario != "success", result["failed"])
-				require.Equal(t, true, result["exited_zero"])
+				require.Equal(t, scenario != "stderr" && scenario != "stdout", result["exited_zero"])
 				if scenario != "success" {
 					failure := result["failure"].(map[string]any)
+					if scenario == "stderr" {
+						require.Equal(t, "Required tool unavailable: go [exit 1]", failure["message"])
+					}
+					if scenario == "stdout" {
+						require.Equal(t, "Validation failed: missing package [exit 1]", failure["message"])
+					}
 					require.Equal(t, "check", failure["node"].(map[string]any)["id"])
 				}
 				engine, err := jobworkflow.NewEngineBuilder().WithRuntime(rt).WithWorkerTenantId(key.TenantId).PlusWorkers(NewRecipeJobWorker(RecipeJobWorkerOptions{})).BuildEngine()

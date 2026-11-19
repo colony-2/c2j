@@ -6,12 +6,14 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/c2j/internal/preparedtest"
 	"github.com/colony-2/c2j/pkg/objects"
 	"github.com/colony-2/c2j/pkg/ops"
+	"github.com/colony-2/c2j/pkg/ops/executiondiag"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	"github.com/stretchr/testify/require"
 )
@@ -107,7 +109,7 @@ output_schema:
 	require.Equal(t, 2, entered)
 	// No control leaks into an unrelated context: the actual command exits 93.
 	_, err = invoke(celltest.Context(context.Background()), ExecutionInput{Selector: "./echo", Inputs: map[string]any{"question": "real"}})
-	require.ErrorContains(t, err, "exit status 93")
+	require.ErrorContains(t, err, "[exit 93]")
 
 	for _, tc := range []struct {
 		name, stdout, want string
@@ -124,6 +126,10 @@ output_schema:
 			})
 			_, err := invoke(ctx, ExecutionInput{Selector: "./echo", Inputs: map[string]any{"question": "hello"}})
 			require.ErrorContains(t, err, tc.want)
+			var failure *executiondiag.Failure
+			require.ErrorAs(t, err, &failure)
+			require.Equal(t, -1, failure.Details.ExitCode)
+			require.False(t, strings.Contains(err.Error(), "[exit"), "scripted completions have no observed process exit")
 		})
 	}
 }

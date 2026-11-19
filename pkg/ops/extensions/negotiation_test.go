@@ -61,7 +61,7 @@ func TestExecutionRequiredExitSemantics(t *testing.T) {
 		{"satisfied", `{"execution_required":{"base":"ubuntu*"}}`, 75, "already satisfied", false},
 		{"wildcard", `{"execution_required":{"base":"*"}}`, 75, "already satisfied", false},
 		{"invalid", `{"execution_required":{"packages":["uv:tool"]}}`, 75, "invalid extension execution_required", false},
-		{"ordinary_failure", `{"execution_required":{"base":"macos*"}}`, 7, "failed", false},
+		{"ordinary_failure", `{"execution_required":{"base":"macos*"}}`, 7, "[exit 7]", false},
 		{"ordinary_success", `{"output":{"ready":true,"execution_required":{"base":"macos*"}}}`, 0, "", false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

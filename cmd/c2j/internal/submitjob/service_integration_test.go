@@ -1074,8 +1074,9 @@ output_schema:
 		t.Fatal("expected submit --run to fail")
 	}
 	errText := err.Error()
-	if !strings.Contains(errText, "extension op") || !strings.Contains(errText, "extension failure") {
-		t.Fatalf("expected original extension failure, got %v\nstderr:\n%s", err, submitStderr.String())
+	const wantFailure = "extension failure [exit 23]"
+	if errText != wantFailure {
+		t.Fatalf("expected compact extension failure %q, got %v\nstderr:\n%s", wantFailure, err, submitStderr.String())
 	}
 	if strings.Contains(errText, "workflow state conflict") || strings.Contains(errText, "chapter ordinal") {
 		t.Fatalf("chapter conflict masked extension failure: %v\nstderr:\n%s", err, submitStderr.String())
@@ -1111,7 +1112,7 @@ output_schema:
 	}
 	if _, err := run.GetOutput(handle.Engine, defaults.EmbeddedTenantID); err == nil {
 		t.Fatal("expected failed job output")
-	} else if !strings.Contains(err.Error(), "extension failure") {
+	} else if !strings.Contains(err.Error(), wantFailure) {
 		t.Fatalf("expected job output error to preserve extension failure, got %v", err)
 	}
 }

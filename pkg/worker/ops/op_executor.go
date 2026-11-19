@@ -606,6 +606,20 @@ func (t opExecutor) doPrepared(ctx context.Context, jobTool ops.JobTool, req Act
 		return zero, nil, stepErr
 	}
 	phase = "process_op_output"
+	// Save safe failure metadata before fail-closed redaction can discard an
+	// unsafe cause chain. Never retain that chain merely for its diagnostics.
+	var diagnostic interface{ FailureAttributes() map[string]any }
+	if errors.As(stepErr, &diagnostic) {
+		attrs := diagnostic.FailureAttributes()
+		if err := session.CheckOutput(attrs); err != nil {
+			return zero, nil, err
+		}
+		defer func() {
+			if err != nil {
+				output.FailureAttrs = attrs
+			}
+		}()
+	}
 	stepErr = session.Error(stepErr)
 	if err := session.CheckOutput(outputData); err != nil {
 		return zero, nil, err

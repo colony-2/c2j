@@ -659,6 +659,9 @@ func (d DefaultRecipeExecutor) executeOpAttempt(ctx workflow.Context, parentReso
 			if err != nil {
 				failure := normalizeRuntimeFailure(err, resCtx, metadata, recipe.FailureNodeOp, op)
 				attachTaskFailureAttributes(failure, out)
+				if _, restored := failureFromError(err); !restored {
+					applyExecutionPresentation(failure)
+				}
 				return newRecipeFailureError(failure, err)
 			}
 

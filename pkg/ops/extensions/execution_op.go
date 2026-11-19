@@ -53,6 +53,7 @@ func executeExtension(deps ops.OpDependencies, ctx context.Context, input Execut
 	report := executiondiag.New(ctx, deps)
 	defer report.Close()
 	report.Selector = input.Selector
+	processFailure := false
 	defer func() {
 		if execution.IsRequired(runErr) {
 			return
@@ -70,13 +71,8 @@ func executeExtension(deps ops.OpDependencies, ctx context.Context, input Execut
 		timedOut = timedOut || errors.As(report.Capture.Err, &native)
 		details := report.Publish(runErr, exit, timedOut)
 		if runErr != nil {
-			message := executiondiag.Short(secrets.RedactorFromContext(ctx).Redact(runErr.Error()))
-			if len(details.Diagnostics) > 0 {
-				message += "; execution log: " + report.Name
-			} else {
-				message += "; execution log unavailable"
-			}
-			runErr = &executiondiag.Failure{Cause: runErr, Message: message, Attribute: "extension", Details: details}
+			details.Presentation = report.Presentation(runErr, timedOut, !processFailure)
+			runErr = &executiondiag.Failure{Cause: runErr, Message: details.Presentation.Message, Attribute: "extension", Details: details}
 		}
 	}()
 	gitCtx := deps.GitContext()
@@ -210,7 +206,8 @@ func executeExtension(deps ops.OpDependencies, ctx context.Context, input Execut
 	}
 	if err != nil {
 		captureMetricReport(ctx, stdout, true, report.Capture.Truncated(0))
-		return nil, fmt.Errorf("extension op %q failed: %w; stderr: %s", input.Selector, err, executiondiag.Short(strings.TrimSpace(string(report.Capture.Bytes(1)))))
+		processFailure = true
+		return nil, fmt.Errorf("extension op %q failed: %w", input.Selector, err)
 	}
 	captureMetricReport(ctx, stdout, false, report.Capture.Truncated(0))
 
@@ -219,7 +216,7 @@ func executeExtension(deps ops.OpDependencies, ctx context.Context, input Execut
 	}
 	outputs, artifactRefs, err := decodeExecutionEnvelope(stdout)
 	if err != nil {
-		return nil, fmt.Errorf("extension op %q produced invalid JSON on stdout: %w; raw: %s", input.Selector, err, executiondiag.Short(secrets.RedactorFromContext(ctx).Redact(strings.TrimSpace(string(stdout)))))
+		return nil, fmt.Errorf("extension op %q produced invalid JSON on stdout: %w", input.Selector, err)
 	}
 	if err := executiondiag.CheckOutput(executionEnvelope{Output: outputs, ArtifactRefs: artifactRefs}); err != nil {
 		return nil, err

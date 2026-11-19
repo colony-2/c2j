@@ -16,10 +16,10 @@ tests:
     inputs:
       child_recipe: child-triage-fail
     wantErr: true
-    wantErrContains: "exit status 127"
+    wantErrContains: "this-command-should-not-exist-xyz: command not found [exit 127]"
 
   - name: child_failure_exit_1_propagates_error
     inputs:
       child_recipe: repro-child-fail
     wantErr: true
-    wantErrContains: "exit status 1"
+    wantErrContains: "child failing [exit 1]"
