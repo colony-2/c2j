@@ -3,6 +3,7 @@ package gitstate
 import (
 	"context"
 	"encoding/json"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -293,6 +294,127 @@ func TestRestore_NilThinPackArtifactError(t *testing.T) {
 	err := controller.Restore(context.Background(), ctx, nil)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "thin pack artifact required")
+}
+
+func TestRestore_MatchingHEADShallowBase(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name   string
+		depth  string
+		remote string
+	}{
+		{name: "missing base", depth: "1"},
+		{name: "base present offline", depth: "2", remote: "unavailable"},
+		{name: "missing base offline", depth: "1", remote: "unavailable"},
+		{name: "origin lacks base", depth: "1", remote: "unrelated"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			task, base, candidate := setupMatchingHEADShallowWorkspace(t, tc.depth)
+			if tc.remote != "" {
+				remote := filepath.Join(t.TempDir(), "unavailable.git")
+				if tc.remote == "unrelated" {
+					remote = filepath.Join(t.TempDir(), "unrelated")
+					runGit(t, filepath.Dir(remote), "git", "init", "-b", "main", remote)
+					runGit(t, remote, "git", "-c", "user.name=Fixture", "-c", "user.email=fixture@example.test", "commit", "--allow-empty", "-m", "Unrelated history")
+					require.False(t, common.CommitExists(context.Background(), remote, base))
+				}
+				runGit(t, task.WorktreePath, "git", "remote", "set-url", "origin", (&url.URL{Scheme: "file", Path: remote}).String())
+			}
+
+			controller := NewController(nil)
+			err := controller.Restore(context.Background(), task, nil)
+			// Check saved identity before persistence applies its normal transitions.
+			require.Equal(t, candidate, gitRevParse(t, task.WorktreePath, "HEAD"))
+			require.Equal(t, candidate, task.PersistHash)
+			require.Equal(t, base, task.ParentHash)
+			if tc.depth == "1" && tc.remote != "" {
+				require.Error(t, err)
+				require.Contains(t, err.Error(), "fetch snapshot base "+base+" from origin")
+				var gitErr *exec.ExitError
+				require.ErrorAs(t, err, &gitErr, "retain the underlying Git failure")
+				require.False(t, common.CommitExists(context.Background(), task.WorktreePath, base))
+				return
+			}
+			require.NoError(t, err)
+			require.True(t, common.CommitExists(context.Background(), task.WorktreePath, base))
+			require.Equal(t, base, task.ResolvedBaseHash)
+			require.Empty(t, runGitOutput(t, task.WorktreePath, "git", "status", "--porcelain"))
+
+			output, artifacts, err := controller.PersistWithDiffs(context.Background(), task)
+			require.NoError(t, err)
+			require.False(t, output.HasChanges)
+			require.Empty(t, artifacts)
+			require.Equal(t, candidate, output.CommitHash)
+			require.Equal(t, candidate, gitRevParse(t, task.WorktreePath, "HEAD"))
+			require.Empty(t, task.PersistHash)
+			require.Equal(t, base, task.ParentHash)
+			require.Equal(t, base, task.ResolvedBaseHash)
+		})
+	}
+}
+
+func TestRestore_MatchingHEADShallowBaseWithChanges(t *testing.T) {
+	t.Parallel()
+	task, base, candidate := setupMatchingHEADShallowWorkspace(t, "1")
+	controller := NewController(nil)
+	require.NoError(t, controller.Restore(context.Background(), task, nil))
+	require.Equal(t, candidate, gitRevParse(t, task.WorktreePath, "HEAD"))
+	require.Equal(t, candidate, task.PersistHash)
+	require.Equal(t, base, task.ParentHash)
+	require.Equal(t, base, task.ResolvedBaseHash)
+
+	require.NoError(t, os.WriteFile(filepath.Join(task.WorktreePath, "task-edit.txt"), []byte("task edit\n"), 0o644))
+	output, artifacts, err := controller.PersistWithDiffs(context.Background(), task)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		for _, artifact := range artifacts {
+			require.NoError(t, artifact.Cleanup())
+		}
+	})
+	require.True(t, output.HasChanges)
+	require.Len(t, artifacts, 3)
+	require.Equal(t, ThinPackArtifactName, artifacts[0].Name())
+	require.Equal(t, "diff_from_parent.diff", artifacts[1].Name())
+	require.Equal(t, "diff_from_base.diff", artifacts[2].Name())
+	require.FileExists(t, output.ThinPackPath)
+	require.Greater(t, output.ThinPackSize, int64(0))
+	require.Equal(t, candidate, output.ParentHash)
+	require.NotEqual(t, candidate, output.CommitHash)
+	require.Equal(t, output.CommitHash, task.PersistHash)
+	require.Equal(t, output.CommitHash, gitRevParse(t, task.WorktreePath, "HEAD"))
+	require.Equal(t, base, task.ParentHash)
+	require.Equal(t, base, task.ResolvedBaseHash)
+	parentDiff, err := os.ReadFile(output.DiffFromParentPath)
+	require.NoError(t, err)
+	require.Contains(t, string(parentDiff), "task-edit.txt")
+	require.NotContains(t, string(parentDiff), "candidate.txt")
+	baseDiff, err := os.ReadFile(output.DiffFromBasePath)
+	require.NoError(t, err)
+	require.Contains(t, string(baseDiff), "task-edit.txt")
+	require.Contains(t, string(baseDiff), "candidate.txt")
+}
+
+func setupMatchingHEADShallowWorkspace(t *testing.T, depth string) (*GitTaskContext, string, string) {
+	t.Helper()
+	origin, base, _ := setupGitRepo(t)
+	require.NoError(t, os.WriteFile(filepath.Join(origin, "candidate.txt"), []byte("saved candidate\n"), 0o644))
+	runGit(t, origin, "git", "add", "candidate.txt")
+	runGit(t, origin, "git", "commit", "-m", "candidate")
+	candidate := gitRevParse(t, origin, "HEAD")
+	worktree := filepath.Join(t.TempDir(), "shallow")
+	remote := (&url.URL{Scheme: "file", Path: origin}).String()
+	// A local-path clone can ignore --depth; file:// exercises real shallow transport.
+	runGit(t, filepath.Dir(worktree), "git", "clone", "--depth="+depth, remote, worktree)
+	require.Equal(t, "true", strings.TrimSpace(runGitOutput(t, worktree, "git", "rev-parse", "--is-shallow-repository")))
+	require.Equal(t, candidate, gitRevParse(t, worktree, "HEAD"))
+	require.Equal(t, depth == "2", common.CommitExists(context.Background(), worktree, base))
+	return &GitTaskContext{
+		GlobalGitTaskContext: &GlobalGitTaskContext{
+			BaseRepo: remote, BaseRef: "main", ParentHash: base, PersistHash: candidate,
+		},
+		WorktreePath: worktree,
+	}, base, candidate
 }
 
 func TestBuildCommitMessage(t *testing.T) {

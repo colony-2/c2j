@@ -161,6 +161,8 @@ state:
             unset "$variable"
           done
           unset C2J_TENANT_ID C2J_OBJECT_OUTBOX
+          # Fail early on the real shallow-transport restore/persistence regression.
+          go test -count=1 -v -timeout=2m ./pkg/git/gitstate -run '^TestRestore_MatchingHEADShallowBase'
           # Bound concurrent fixture work and allow the full compiler suite to finish.
           go test -count=1 -v -tags=integration -p 2 -timeout=20m ./...
       catch:

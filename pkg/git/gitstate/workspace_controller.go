@@ -63,7 +63,8 @@ func (c *Controller) prepareWorkspace(ctx context.Context, task *GitTaskContext)
 	return common.EnsureGitIdentityWithFallback(ctx, task.GetWorktreePath(), task.GetGitAuthor())
 }
 
-// Restore replays thin packs when the target persist hash differs from the workspace state. It also prepares the workspace if it doesn't yet have a local copy of the repo.
+// Restore prepares the workspace and ensures the recorded base is available for persistence.
+// It replays thin packs when the target persist hash differs from the workspace state.
 func (c *Controller) Restore(ctx context.Context, task *GitTaskContext, thinPack jobdb.Artifact) error {
 	err := c.prepareWorkspace(ctx, task)
 	if err != nil {
@@ -140,7 +141,7 @@ func (c *Controller) Restore(ctx context.Context, task *GitTaskContext, thinPack
 
 	// if hashes are populated, operate in hash mode
 
-	// LAZY OPTIMIZATION: Check if already at target before touching artifact
+	// Matching HEAD avoids reading the artifact, but persistence still needs the base.
 	current, err := common.GetCommitHash(ctx, task.GetWorktreePath(), "HEAD")
 	if err != nil {
 		return fmt.Errorf("determine current commit: %w", err)
@@ -149,16 +150,24 @@ func (c *Controller) Restore(ctx context.Context, task *GitTaskContext, thinPack
 	if rootHash == "" {
 		return fmt.Errorf("git workspace requires resolved base hash for restore")
 	}
-	if hashesEqual(current, targetHash) {
-		task.ResolvedBaseHash = rootHash
-		return c.ensureCleanAfterRestore(ctx, task)
+	atTarget := hashesEqual(current, targetHash)
+	if !atTarget && thinPack == nil {
+		return fmt.Errorf("thin pack artifact required for restore to commit %s but none provided", targetHash)
 	}
 
-	// We need to restore to a different commit
-
-	// If we need to restore but have no thin pack artifact, return error
-	if thinPack == nil {
-		return fmt.Errorf("thin pack artifact required for restore to commit %s but none provided", targetHash)
+	// A shallow checkout can contain the candidate without its recorded base.
+	// Retrieve only a missing base, including when no thin pack needs replaying.
+	if !common.CommitExists(ctx, task.GetWorktreePath(), rootHash) {
+		if _, err := common.ExecuteGitCommand(ctx, task.GetWorktreePath(), "fetch", "--depth", "1", "origin", rootHash); err != nil {
+			return fmt.Errorf("fetch snapshot base %s from origin: %w", rootHash, err)
+		}
+		if !common.CommitExists(ctx, task.GetWorktreePath(), rootHash) {
+			return fmt.Errorf("snapshot base %s unavailable after fetch from origin", rootHash)
+		}
+	}
+	if atTarget {
+		task.ResolvedBaseHash = rootHash
+		return c.ensureCleanAfterRestore(ctx, task)
 	}
 
 	// Create temp directory for this restore operation
@@ -178,13 +187,6 @@ func (c *Controller) Restore(ctx context.Context, task *GitTaskContext, thinPack
 
 	if err := thinPack.SaveToFile(ctx, thinPackPath); err != nil {
 		return fmt.Errorf("extract thin pack artifact: %w", err)
-	}
-
-	// A refresh can move the snapshot base beyond the original checkout ref.
-	if !common.CommitExists(ctx, task.GetWorktreePath(), rootHash) {
-		if _, err := common.ExecuteGitCommand(ctx, task.GetWorktreePath(), "fetch", "--depth", "1", "origin", rootHash); err != nil {
-			return fmt.Errorf("fetch snapshot base: %w", err)
-		}
 	}
 
 	// Restore using thin pack
