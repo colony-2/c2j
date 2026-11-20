@@ -23,13 +23,23 @@ func TestRealRepositoryNativePackages(t *testing.T) {
 	if !nixtest.InContainer(t) {
 		return
 	}
+	for _, compiler := range []string{"implicit", "declared"} {
+		t.Run(compiler, func(t *testing.T) { testRealRepositoryNativePackages(t, compiler == "declared") })
+	}
+}
+
+func testRealRepositoryNativePackages(t *testing.T, declared bool) {
 	t.Setenv("C2J_TOOL_CACHE_DIR", t.TempDir())
 	repo := t.TempDir()
 	workspaceRepo(t, repo, "native")
 	require.NoError(t, os.MkdirAll(filepath.Join(repo, ".c2"), 0700))
 	// binutils is GNU but is not a compiler: activation must still provide cc.
 	const pin = "nix:github:NixOS/nixpkgs/b6018f87da91d19d0ab4cf979885689b469cdd41#"
-	require.NoError(t, os.WriteFile(filepath.Join(repo, ".c2/config.yaml"), []byte("packages:\n  - "+pin+"openssl\n  - "+pin+"zlib\n  - "+pin+"binutils\n"), 0600))
+	packages := "packages:\n  - " + pin + "openssl\n  - " + pin + "zlib\n  - " + pin + "binutils\n"
+	if declared {
+		packages += "  - " + pin + "stdenv.cc\n"
+	}
+	require.NoError(t, os.WriteFile(filepath.Join(repo, ".c2/config.yaml"), []byte(packages), 0600))
 	require.NoError(t, os.WriteFile(filepath.Join(repo, "probe.c"), []byte(`#include <openssl/crypto.h>
 #include <zlib.h>
 #include <stdio.h>

@@ -1,0 +1,89 @@
+{
+  "recipe": "recipe.yaml",
+  "cases": [
+    {
+      "id": "cold-and-warm-ordinary-commands",
+      "type": "integration_case",
+      "inputs": {
+        "published_source": "fixture-source"
+      },
+      "mocks": {
+        "ops": [
+          {
+            "match": {
+              "node_path": "native-compiler-activation/cold"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": true,
+                "exit_code": 0
+              }
+            }
+          },
+          {
+            "match": {
+              "node_path": "native-compiler-activation/warm"
+            },
+            "behavior": {
+              "mode": "return",
+              "outputs": {
+                "success": true,
+                "exit_code": 0
+              }
+            }
+          }
+        ]
+      },
+      "assertions": [
+        {
+          "type": "cel_true",
+          "expr": "calls.size() == 2 && calls.all(c, c.op == 'command_execution')"
+        },
+        {
+          "type": "cel_true",
+          "expr": "calls.all(c, c.inputs.env.PUBLISHED_SOURCE == 'fixture-source' && c.inputs.capture_diagnostics == 'always')"
+        },
+        {
+          "type": "output_equals",
+          "path": "cold.exit_code",
+          "value": 0
+        },
+        {
+          "type": "output_equals",
+          "path": "warm.exit_code",
+          "value": 0
+        }
+      ]
+    },
+    {
+      "id": "cold-preparation-or-probe-failure-stops-warm",
+      "type": "integration_case",
+      "inputs": {
+        "published_source": "fixture-source"
+      },
+      "mocks": {
+        "ops": [
+          {
+            "match": {
+              "node_path": "native-compiler-activation/cold"
+            },
+            "behavior": {
+              "mode": "fail",
+              "error": {
+                "message": "compiler preparation or probe failed"
+              }
+            }
+          }
+        ]
+      },
+      "assertions": [
+        {
+          "type": "cel_true",
+          "expr": "calls.size() == 1 && calls[0].node_path == 'native-compiler-activation/cold'"
+        }
+      ],
+      "expect_error": "compiler preparation or probe failed"
+    }
+  ]
+}

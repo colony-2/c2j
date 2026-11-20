@@ -1,0 +1,67 @@
+id: native-compiler-activation
+version: "1.0.0"
+desc: Exercise ordinary compiler preparation on the repaired Ubuntu Docker worker.
+execution:
+  base: linux*
+  capabilities: [docker]
+  packages:
+    - nix:github:NixOS/nixpkgs/39ad350a0602fa0a58a544344e3e9187526ea45c#gcc
+    - nix:github:NixOS/nixpkgs/39ad350a0602fa0a58a544344e3e9187526ea45c#go_1_26
+input_schema:
+  published_source:
+    type: string
+    required: true
+inputs:
+  published_source: ${{ inputs.published_source }}
+sequence:
+  - id: cold
+    op: command_execution
+    inputs: &probe_inputs
+      shell: bash
+      working_directory: ${{ context.environment.op.worktree_path }}
+      timeout: 10m
+      capture_diagnostics: always
+      env:
+        PROBE_OUTBOX: ${{ context.environment.op.outbox }}
+        PUBLISHED_SOURCE: ${{ inputs.published_source }}
+        GOTOOLCHAIN: local
+        GOWORK: 'off'
+        GOFLAGS: -mod=readonly
+      run: |
+        set -euo pipefail
+        exec > >(tee "$PROBE_OUTBOX/compiler-probes.log") 2>&1
+        test "$(git rev-parse HEAD)" = "$PUBLISHED_SOURCE"
+        test -z "$(git status --porcelain)"
+        printf 'Source: '; git rev-parse HEAD HEAD^{tree}
+        uname -sm
+        cat /etc/os-release
+        . /etc/os-release
+        test "$ID" = ubuntu
+        nix --version
+        test "$(nix --version)" = 'nix (Nix) 2.18.1'
+        docker version
+        docker info
+        printf 'Compiler: '; command -v cc
+        cc --version
+        printf 'Go: '; command -v go
+        go version
+        CGO_ENABLED=1 go env GOOS GOARCH CGO_ENABLED CC
+        scratch=$(mktemp -d /tmp/c2j-native-probe.XXXXXXXX)
+        trap 'rm -rf -- "$scratch"' EXIT
+        export GOCACHE="$scratch/go-build"
+        cp -R pkg/toolenv/testdata/native/probes/. "$scratch/"
+        cd "$scratch"
+        cc probe.c -o probe
+        ./probe
+        cd cgo
+        CGO_ENABLED=1 go test -count=1 ./...
+        CGO_ENABLED=1 go test -race -count=1 ./...
+        printf 'C_CGO_RACE_PROBES_COMPLETED\n'
+  - id: warm
+    op: command_execution
+    inputs: *probe_inputs
+outputs:
+  cold: ${{ sequence.cold.outputs }}
+  warm: ${{ sequence.warm.outputs }}
+  cold_artifacts: ${{ sequence.cold.artifacts }}
+  warm_artifacts: ${{ sequence.warm.artifacts }}

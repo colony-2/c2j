@@ -189,6 +189,11 @@ state:
           # Exercise broker-only process routing before the broader integration suite.
           go test -mod=readonly -count=1 -v -timeout=10m ./pkg/childbroker -run '^TestBrokerOnlyCLI'
           go test -mod=readonly -count=1 -v -timeout=5m ./cmd/c2j/internal/submitjob -run '^TestSubmission'
+          # Fail early on literal Nix JSON compatibility and native activation.
+          # Docker regressions retain their normal optional coverage; adopted
+          # Ubuntu cold/warm acceptance runs separately with no skipped probes.
+          go test -count=1 -v -timeout=10m ./internal/pathutil ./internal/portability ./pkg/shellcmd ./pkg/toolenv
+          go test -count=1 -v -timeout=10m ./pkg/worker/compiler -run '^TestRealRepositoryNativePackages$'
           # Saved comparisons must execute assertions on every public surface.
           saved_diff_status=0
           go test -mod=readonly -count=1 -json -tags=integration -timeout=10m ./pkg/jobinspect ./pkg/childbroker ./cmd/c2j/internal/cmd ./cmd/c2j ./pkg/worker/compiler -run '^(TestWorkspaceDiff|ExampleWorkspaceDiff)' > "$scratch/saved-diff.json" || saved_diff_status=$?

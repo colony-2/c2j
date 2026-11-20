@@ -1,0 +1,15 @@
+{
+  "version": 4,
+  "derivations": {
+    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-shell.drv": {
+      "builder": "/nix/store/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-bash/bin/bash",
+      "env": {"stdenv": "/nix/store/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-stdenv"},
+      "inputs": {
+        "drvs": {
+          "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb-input.drv": {"outputs": ["dev", "out"], "dynamicOutputs": {}},
+          "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-input.drv": {"outputs": ["out"]}
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "/nix/store/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-shell.drv": {
+    "builder": "/nix/store/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-bash/bin/bash",
+    "env": {"stdenv": "/nix/store/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-stdenv"},
+    "inputDrvs": {
+      "/nix/store/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb-input.drv": ["dev", "out"],
+      "/nix/store/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-input.drv": ["out"]
+    }
+  }
+}

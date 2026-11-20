@@ -1,0 +1,79 @@
+{
+  "/nix/store/khakw5dwzb4lzbfwfwj51pasvljp5vp9-nix-shell.drv": {
+    "args": [
+      "-e",
+      "/nix/store/l622p70vy8k5sh7y5wizi5f2mic6ynpg-source-stdenv.sh",
+      "/nix/store/shkw4qm9qcw5sc5n1k5jznc83ny02r39-default-builder.sh"
+    ],
+    "builder": "/nix/store/7ls7m3jyp74xb0ahnybm2pk4s2pvnk3n-bash-5.3p3/bin/bash",
+    "env": {
+      "__structuredAttrs": "",
+      "buildInputs": "/nix/store/99zij8qfs8wzbb2njrj18ys8hpnrcj3p-gcc-wrapper-16.2.0",
+      "buildPhase": "{ echo \"------------------------------------------------------------\";\n  echo \" WARNING: the existence of this path is not guaranteed.\";\n  echo \" It is an internal implementation detail for pkgs.mkShell.\";\n  echo \"------------------------------------------------------------\";\n  echo;\n  # Record all build inputs as runtime dependencies\n  export;\n} >> \"$out\"\n",
+      "builder": "/nix/store/7ls7m3jyp74xb0ahnybm2pk4s2pvnk3n-bash-5.3p3/bin/bash",
+      "cmakeFlags": "",
+      "configureFlags": "",
+      "depsBuildBuild": "",
+      "depsBuildBuildPropagated": "",
+      "depsBuildTarget": "",
+      "depsBuildTargetPropagated": "",
+      "depsHostHost": "",
+      "depsHostHostPropagated": "",
+      "depsTargetTarget": "",
+      "depsTargetTargetPropagated": "",
+      "doCheck": "",
+      "doInstallCheck": "",
+      "mesonFlags": "",
+      "name": "nix-shell",
+      "nativeBuildInputs": "/nix/store/wcmkzzpkwrzdvpccwcqxvs0sp32rjqrc-pkg-config-wrapper-0.29.2",
+      "out": "/nix/store/s9ddkn8180b8ibb68d64byj5ji7ii5z8-nix-shell",
+      "outputs": "out",
+      "patches": "",
+      "phases": "buildPhase",
+      "preferLocalBuild": "1",
+      "propagatedBuildInputs": "",
+      "propagatedNativeBuildInputs": "",
+      "shellHook": "",
+      "stdenv": "/nix/store/wrjh7fxq2ifnbp8bb1nankvjx929llhm-stdenv-linux",
+      "strictDeps": "",
+      "system": "aarch64-linux"
+    },
+    "inputDrvs": {
+      "/nix/store/3gs3nhybxpgf6wj1ik794b9ypysvh1gb-pkg-config-wrapper-0.29.2.drv": {
+        "dynamicOutputs": {},
+        "outputs": [
+          "out"
+        ]
+      },
+      "/nix/store/iih3d02zns7xn54kv6w3vv2j9zfh9qm3-stdenv-linux.drv": {
+        "dynamicOutputs": {},
+        "outputs": [
+          "out"
+        ]
+      },
+      "/nix/store/m5z7qjlfzjqrya90krpxvb3v7chz6gpk-gcc-wrapper-16.2.0.drv": {
+        "dynamicOutputs": {},
+        "outputs": [
+          "out"
+        ]
+      },
+      "/nix/store/skb0fi9ii07jk7xnbpi283s1fnawlk8l-bash-5.3p3.drv": {
+        "dynamicOutputs": {},
+        "outputs": [
+          "out"
+        ]
+      }
+    },
+    "inputSrcs": [
+      "/nix/store/l622p70vy8k5sh7y5wizi5f2mic6ynpg-source-stdenv.sh",
+      "/nix/store/shkw4qm9qcw5sc5n1k5jznc83ny02r39-default-builder.sh"
+    ],
+    "name": "nix-shell",
+    "outputs": {
+      "out": {
+        "path": "/nix/store/s9ddkn8180b8ibb68d64byj5ji7ii5z8-nix-shell"
+      }
+    },
+    "system": "aarch64-linux"
+  }
+}

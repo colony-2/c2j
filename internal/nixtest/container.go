@@ -16,7 +16,8 @@ import (
 
 // InContainer runs this test in Docker when called on the host. Tests return
 // when it returns false. Missing Docker and short mode skip integration tests.
-func InContainer(t *testing.T) bool {
+// Optional fixture paths are copied under /tmp, the child working directory.
+func InContainer(t *testing.T, fixtures ...string) bool {
 	t.Helper()
 	if testing.Short() {
 		t.Skip("Nix integration test requires Docker and network access")
@@ -24,11 +25,11 @@ func InContainer(t *testing.T) bool {
 	if os.Getenv("C2J_NIX_TEST_CONTAINER") == "1" {
 		return true
 	}
-	run(t)
+	run(t, fixtures)
 	return false
 }
 
-func run(t *testing.T) {
+func run(t *testing.T, fixtures []string) {
 	t.Helper()
 	docker, err := exec.LookPath("docker")
 	if err != nil {
@@ -66,7 +67,7 @@ func run(t *testing.T) {
 	}
 	cidFile := filepath.Join(dir, "container-id")
 	run("create", "--cidfile", cidFile, "-e", "C2J_NIX_TEST_CONTAINER=1",
-		"--entrypoint", "/tmp/toolenv.test", "nixos/nix:2.35.1",
+		"--workdir", "/tmp", "--entrypoint", "/tmp/toolenv.test", "nixos/nix:2.35.1",
 		"-test.run", "^"+regexp.QuoteMeta(t.Name())+"$", "-test.v", "-test.timeout", "8m")
 	cid, err := os.ReadFile(cidFile)
 	require.NoError(t, err)
@@ -81,6 +82,9 @@ func run(t *testing.T) {
 	})
 	// Copy instead of bind mounting: the daemon need not share the host filesystem.
 	run("cp", binary, id+":/tmp/toolenv.test")
+	for _, fixture := range fixtures {
+		run("cp", fixture, id+":/tmp/"+filepath.Base(fixture))
+	}
 	t.Logf("%s", run("start", "--attach", id))
 	require.Equal(t, "0", strings.TrimSpace(string(run("inspect", "--format", "{{.State.ExitCode}}", id))), "Nix container tests failed")
 }

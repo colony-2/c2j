@@ -1,6 +1,7 @@
 package toolenv
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -305,15 +306,42 @@ in pkgs.%s { nativeBuildInputs = [ pkgs.pkg-config ]; buildInputs = [ %s ]; }`, 
 	return env, diag, nil
 }
 
+// Nix has emitted both arrays and objects for derivation inputs. Normalize
+// static outputs without discarding dynamic outputs that activation must reject.
+type nativeDerivationInput struct {
+	Outputs        []string                   `json:"outputs"`
+	DynamicOutputs map[string]json.RawMessage `json:"dynamicOutputs"`
+}
+
+func (input *nativeDerivationInput) UnmarshalJSON(raw []byte) error {
+	raw = bytes.TrimSpace(raw)
+	var decoded nativeDerivationInput
+	if len(raw) == 0 {
+		return fmt.Errorf("invalid native derivation input")
+	}
+	switch raw[0] {
+	case '[':
+		if err := json.Unmarshal(raw, &decoded.Outputs); err != nil {
+			return err
+		}
+	case '{':
+		type object nativeDerivationInput
+		if err := json.Unmarshal(raw, (*object)(&decoded)); err != nil {
+			return err
+		}
+	default:
+		return fmt.Errorf("native derivation input must be an output array or object")
+	}
+	*input = decoded
+	return nil
+}
+
 type nativeDerivation struct {
-	Builder   string              `json:"builder"`
-	Env       map[string]string   `json:"env"`
-	InputDrvs map[string][]string `json:"inputDrvs"` // Nix legacy JSON
+	Builder   string                           `json:"builder"`
+	Env       map[string]string                `json:"env"`
+	InputDrvs map[string]nativeDerivationInput `json:"inputDrvs"`
 	Inputs    struct {
-		Drvs map[string]struct {
-			Outputs        []string                   `json:"outputs"`
-			DynamicOutputs map[string]json.RawMessage `json:"dynamicOutputs"`
-		} `json:"drvs"`
+		Drvs map[string]nativeDerivationInput `json:"drvs"`
 	} `json:"inputs"` // Nix version 4 JSON
 }
 
@@ -351,31 +379,40 @@ func decodeNativeDerivation(raw []byte) (nativeDerivation, error) {
 	panic("unreachable")
 }
 
-func (d nativeDerivation) inputReferences() ([]string, error) {
-	refs := map[string][]string{}
-	for name, outputs := range d.InputDrvs {
-		refs[name] = outputs
+func (input nativeDerivationInput) reference(name string) (string, error) {
+	if len(input.DynamicOutputs) != 0 {
+		return "", fmt.Errorf("dynamic Nix derivation outputs are not supported for activation")
 	}
-	for name, input := range d.Inputs.Drvs {
-		if len(input.DynamicOutputs) != 0 {
-			return nil, fmt.Errorf("dynamic Nix derivation outputs are not supported for activation")
+	if !strings.HasPrefix(name, "/") {
+		name = "/nix/store/" + name
+	}
+	if !nixStorePath.MatchString(name) || !strings.HasSuffix(name, ".drv") || len(input.Outputs) == 0 {
+		return "", fmt.Errorf("invalid native environment input %q", name)
+	}
+	for _, output := range input.Outputs {
+		if !nixOutputName.MatchString(output) {
+			return "", fmt.Errorf("invalid Nix output %q", output)
 		}
-		refs[name] = input.Outputs
+	}
+	return name + "^" + strings.Join(input.Outputs, ","), nil
+}
+
+func (d nativeDerivation) inputReferences() ([]string, error) {
+	refs := map[string]string{}
+	// Validate before applying exact-key precedence, so a version-4 entry cannot
+	// conceal unsupported or malformed legacy input information.
+	for _, inputs := range []map[string]nativeDerivationInput{d.InputDrvs, d.Inputs.Drvs} {
+		for name, input := range inputs {
+			ref, err := input.reference(name)
+			if err != nil {
+				return nil, err
+			}
+			refs[name] = ref
+		}
 	}
 	var result []string
-	for name, outputs := range refs {
-		if !strings.HasPrefix(name, "/") {
-			name = "/nix/store/" + name
-		}
-		if !nixStorePath.MatchString(name) || !strings.HasSuffix(name, ".drv") || len(outputs) == 0 {
-			return nil, fmt.Errorf("invalid native environment input %q", name)
-		}
-		for _, output := range outputs {
-			if !nixOutputName.MatchString(output) {
-				return nil, fmt.Errorf("invalid Nix output %q", output)
-			}
-		}
-		result = append(result, name+"^"+strings.Join(outputs, ","))
+	for _, ref := range refs {
+		result = append(result, ref)
 	}
 	if len(result) == 0 {
 		return nil, fmt.Errorf("native environment has no inputs")

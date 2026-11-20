@@ -186,6 +186,8 @@ fi
 				require.Contains(t, string(raw), "-run ^TestSubmission")
 				require.Contains(t, string(raw), "go test -count=1 -v -timeout=10m ./internal/retirementcheck")
 				require.Less(t, strings.Index(string(raw), "-run ^TestSubmission"), strings.Index(string(raw), "./internal/retirementcheck"))
+				require.Contains(t, string(raw), "go test -count=1 -v -timeout=10m ./internal/pathutil ./internal/portability ./pkg/shellcmd ./pkg/toolenv")
+				require.Contains(t, string(raw), "go test -count=1 -v -timeout=10m ./pkg/worker/compiler -run ^TestRealRepositoryNativePackages$")
 				require.Contains(t, string(raw), "-tags=integration -p 2")
 				require.Contains(t, string(raw), "TestWorkspaceDiff|ExampleWorkspaceDiff")
 				require.Contains(t, string(raw), "go build -buildvcs=false -o ")

@@ -2,14 +2,15 @@ package toolenv
 
 import (
 	"context"
-	"encoding/json"
+	"crypto/sha256"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/colony-2/c2j/internal/pathutil"
+	"github.com/colony-2/c2j/pkg/shellcmd"
 	"github.com/stretchr/testify/require"
 )
 
@@ -29,30 +30,33 @@ func TestNativeCaptureRejectsFailedHooksAndTemporaryPaths(t *testing.T) {
 	}
 }
 
-func TestNativeDerivationFormatsAndUnsupportedInputs(t *testing.T) {
-	store := "/nix/store/" + strings.Repeat("a", 32)
-	for _, version4 := range []bool{false, true} {
-		drv := nativeDerivation{Builder: store + "-bash/bin/bash", Env: map[string]string{"stdenv": store + "-stdenv"}, InputDrvs: map[string][]string{store + "-input.drv": {"dev", "out"}}}
-		document := any(map[string]any{store + "-shell.drv": drv})
-		if version4 {
-			document = map[string]any{"version": 4, "derivations": document}
-		}
-		data, err := json.Marshal(document)
-		require.NoError(t, err)
-		parsed, err := decodeNativeDerivation(data)
-		require.NoError(t, err)
-		refs, err := parsed.inputReferences()
-		require.NoError(t, err)
-		require.Equal(t, []string{store + "-input.drv^dev,out"}, refs)
+func TestNativeDerivationLiteralFixtures(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		refs []string
+	}{
+		{"ubuntu-nix-2.18.1", []string{
+			"/nix/store/3gs3nhybxpgf6wj1ik794b9ypysvh1gb-pkg-config-wrapper-0.29.2.drv^out",
+			"/nix/store/iih3d02zns7xn54kv6w3vv2j9zfh9qm3-stdenv-linux.drv^out",
+			"/nix/store/m5z7qjlfzjqrya90krpxvb3v7chz6gpk-gcc-wrapper-16.2.0.drv^out",
+			"/nix/store/skb0fi9ii07jk7xnbpi283s1fnawlk8l-bash-5.3p3.drv^out",
+		}},
+		{"legacy-array", []string{"/nix/store/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-input.drv^out", "/nix/store/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb-input.drv^dev,out"}},
+		{"version-4", []string{"/nix/store/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-input.drv^out", "/nix/store/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb-input.drv^dev,out"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			data, err := os.ReadFile(filepath.Join("testdata/native", tc.name+".json"))
+			require.NoError(t, err)
+			if tc.name == "ubuntu-nix-2.18.1" {
+				require.Equal(t, "f4e710eceebd3e8f4dcdc6a6553bb7b40b6c5e3ab93bdc55c5807da077a811ae", fmt.Sprintf("%x", sha256.Sum256(data)))
+			}
+			drv, err := decodeNativeDerivation(data)
+			require.NoError(t, err)
+			refs, err := drv.inputReferences()
+			require.NoError(t, err)
+			require.Equal(t, tc.refs, refs)
+		})
 	}
-	_, err := decodeNativeDerivation([]byte(`{"version":999}`))
-	require.ErrorContains(t, err, "unsupported")
-	_, err = (nativeDerivation{InputDrvs: map[string][]string{"/tmp/not-a-derivation": {"out"}}}).inputReferences()
-	require.ErrorContains(t, err, "invalid")
-	var dynamic nativeDerivation
-	require.NoError(t, json.Unmarshal([]byte(`{"inputs":{"drvs":{"some.drv":{"outputs":["out"],"dynamicOutputs":{"out":{}}}}}}`), &dynamic))
-	_, err = dynamic.inputReferences()
-	require.ErrorContains(t, err, "dynamic")
 }
 
 func TestNativeLibraryCoexistenceAndCompilerConflicts(t *testing.T) {
@@ -120,6 +124,170 @@ func TestRetainedRootReadiness(t *testing.T) {
 				require.NoError(t, os.Symlink(other, link))
 			}
 			require.Equal(t, change == "valid", toolReady(tool))
+		})
+	}
+}
+
+// Keep these JSON cases independent of the production representation.
+const nativeTestHeader = `{"shell":{"builder":"/nix/store/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-bash/bin/bash","env":{"stdenv":"/nix/store/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-stdenv"},`
+const nativeTestInput = `/nix/store/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-input.drv`
+
+func TestNativeDerivationInputValidation(t *testing.T) {
+	for _, location := range []string{"inputDrvs", "inputs"} {
+		for _, tc := range []struct{ name, entry, error string }{
+			{"array", `["dev","out"]`, ""},
+			{"object", `{"outputs":["out"],"dynamicOutputs":{}}`, ""},
+			{"omitted_dynamic", `{"outputs":["out"],"futureField":true}`, ""},
+			{"null_dynamic", `{"outputs":["out"],"dynamicOutputs":null}`, ""},
+			{"dynamic", `{"outputs":["out"],"dynamicOutputs":{"out":{}}}`, "dynamic"},
+			{"null", `null`, "input"},
+			{"string", `"out"`, "input"},
+			{"number", `7`, "input"},
+			{"boolean", `true`, "input"},
+			{"bad_outputs", `{"outputs":"out"}`, "unmarshal"},
+			{"bad_array", `["out",7]`, "unmarshal"},
+			{"bad_dynamic_array", `{"outputs":["out"],"dynamicOutputs":[]}`, "unmarshal"},
+			{"bad_dynamic_scalar", `{"outputs":["out"],"dynamicOutputs":true}`, "unmarshal"},
+			{"missing_outputs", `{}`, "invalid native"},
+			{"empty_outputs", `[]`, "invalid native"},
+			{"null_outputs", `{"outputs":null}`, "invalid native"},
+			{"empty_object_outputs", `{"outputs":[]}`, "invalid native"},
+			{"null_output", `[null]`, "invalid Nix output"},
+			{"empty_output", `[""]`, "invalid Nix output"},
+			{"bad_output", `["out^dev"]`, "invalid Nix output"},
+		} {
+			t.Run(location+"/"+tc.name, func(t *testing.T) {
+				entries := `{"` + nativeTestInput + `":` + tc.entry + `}`
+				if location == "inputs" {
+					entries = `{"drvs":` + entries + `}`
+				}
+				drv, err := decodeNativeDerivation([]byte(nativeTestHeader + `"` + location + `":` + entries + `}}`))
+				var refs []string
+				if err == nil {
+					refs, err = drv.inputReferences()
+				}
+				if tc.error != "" {
+					require.ErrorContains(t, err, tc.error)
+					return
+				}
+				require.NoError(t, err)
+				if tc.name == "array" {
+					require.Equal(t, []string{nativeTestInput + "^dev,out"}, refs)
+				} else {
+					require.Equal(t, []string{nativeTestInput + "^out"}, refs)
+				}
+			})
+		}
+	}
+	for _, path := range []string{"/tmp/input.drv", "/nix/store/bad.drv", "/nix/store/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-input", "../input.drv"} {
+		t.Run(path, func(t *testing.T) {
+			drv, err := decodeNativeDerivation([]byte(nativeTestHeader + `"inputDrvs":{"` + path + `":["out"]}}}`))
+			require.NoError(t, err)
+			_, err = drv.inputReferences()
+			require.ErrorContains(t, err, "invalid native")
+		})
+	}
+}
+
+func TestNativeDerivationMixedAndShadowedEntries(t *testing.T) {
+	for _, tc := range []struct{ name, legacy, modern, error string }{
+		{"precedence", `["dev"]`, `{"outputs":["out"]}`, ""},
+		{"legacy_dynamic", `{"outputs":["dev"],"dynamicOutputs":{"out":{}}}`, `{"outputs":["out"]}`, "dynamic"},
+		{"modern_dynamic", `["dev"]`, `{"outputs":["out"],"dynamicOutputs":{"out":{}}}`, "dynamic"},
+		{"shadowed_empty", `[]`, `{"outputs":["out"]}`, "invalid native"},
+		{"shadowed_bad_output", `["bad^output"]`, `{"outputs":["out"]}`, "invalid Nix output"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			data := nativeTestHeader + `"inputDrvs":{"` + nativeTestInput + `":` + tc.legacy + `,"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb-other.drv":{"outputs":["dev","out"]}},"inputs":{"drvs":{"` + nativeTestInput + `":` + tc.modern + `}}}}`
+			drv, err := decodeNativeDerivation([]byte(data))
+			require.NoError(t, err)
+			for i := 0; i < 10; i++ {
+				refs, err := drv.inputReferences()
+				if tc.error != "" {
+					require.ErrorContains(t, err, tc.error)
+					continue
+				}
+				require.NoError(t, err)
+				require.Equal(t, []string{nativeTestInput + "^out", "/nix/store/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb-other.drv^dev,out"}, refs)
+			}
+		})
+	}
+}
+
+// Exact-key precedence must not introduce deduplication of relative/absolute aliases.
+func TestNativeDerivationKeepsDistinctInputKeys(t *testing.T) {
+	data := nativeTestHeader + `"inputDrvs":{"` + nativeTestInput + `":["out"],"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-input.drv":{"outputs":["out"]}}}}`
+	drv, err := decodeNativeDerivation([]byte(data))
+	require.NoError(t, err)
+	refs, err := drv.inputReferences()
+	require.NoError(t, err)
+	require.Equal(t, []string{nativeTestInput + "^out", nativeTestInput + "^out"}, refs)
+}
+
+func TestNativeDerivationEnvelopeAndActivationValidation(t *testing.T) {
+	for _, tc := range []struct{ name, document, error string }{
+		{"version", `{"version":999}`, "unsupported"},
+		{"string_version", `{"version":"4","derivations":{}}`, "unsupported"},
+		{"no_derivations", `{"version":4}`, "JSON"},
+		{"bad_derivations", `{"version":4,"derivations":[]}`, "unmarshal"},
+		{"empty", `{}`, "exactly one"},
+		{"null", `null`, "exactly one"},
+		{"version4_empty", `{"version":4,"derivations":{}}`, "exactly one"},
+		{"version4_null", `{"version":4,"derivations":null}`, "exactly one"},
+		{"multiple", `{"a":{},"b":{}}`, "exactly one"},
+		{"version4_multiple", `{"version":4,"derivations":{"a":{},"b":{}}}`, "exactly one"},
+		{"array_document", `[]`, "unmarshal"},
+		{"truncated", `{`, "JSON"},
+		{"null_drv", `{"a":null}`, "builder or stdenv"},
+		{"relative_builder", `{"a":{"builder":"bash","env":{"stdenv":"/nix/store/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-stdenv"}}}`, "builder or stdenv"},
+		{"invalid_stdenv", `{"a":{"builder":"/bin/bash","env":{"stdenv":"/tmp/stdenv"}}}`, "builder or stdenv"},
+		{"structured", `{"a":{"env":{"__structuredAttrs":"1"}}}`, "structured"},
+		{"structured_json", `{"a":{"env":{"__json":"{}"}}}`, "structured"},
+		{"no_inputs", nativeTestHeader + `"inputDrvs":{}}}`, "no inputs"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			drv, err := decodeNativeDerivation([]byte(tc.document))
+			if err == nil {
+				_, err = drv.inputReferences()
+			}
+			require.ErrorContains(t, err, tc.error)
+		})
+	}
+}
+
+func TestNativePreparationRejectsInputsBeforeRealization(t *testing.T) {
+	for _, tc := range []struct{ name, entry, error string }{
+		{"malformed", `null`, "input"},
+		{"empty", `[]`, "invalid native"},
+		{"dynamic", `{"outputs":["out"],"dynamicOutputs":{"out":{}}}`, "dynamic"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			bin := t.TempDir()
+			log := filepath.Join(t.TempDir(), "operations")
+			data := nativeTestHeader + `"inputDrvs":{"` + nativeTestInput + `":` + tc.entry + `}}}`
+			script := "#!/bin/sh\nset -eu\n"
+			script += `for arg do
+ case "$arg" in
+ derivation) ` + shellcmd.LiteralLine("derivation") + ` >> ` + shellcmd.QuotePOSIX(log) + "\n" + shellcmd.LiteralLine(data) + `; exit 0;;
+ build) ` + shellcmd.LiteralLine("UNEXPECTED_REALIZATION") + ` >> ` + shellcmd.QuotePOSIX(log) + `; exit 99;;
+ esac
+done
+exit 98
+`
+			require.NoError(t, os.WriteFile(filepath.Join(bin, "nix"), []byte(script), 0700))
+			t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+			m := Manager{Root: t.TempDir()}
+			env, diag, err := m.prepareNative(context.Background(), []Tool{{Nix: &nixTool{Input: "/nix/store/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-input", Activate: true}}})
+			require.ErrorContains(t, err, tc.error)
+			require.Nil(t, env)
+			require.NotEmpty(t, diag.Identity)
+			require.Equal(t, "failed", diag.Outcome)
+			operations, err := os.ReadFile(log)
+			require.NoError(t, err)
+			require.Equal(t, "derivation\n", string(operations))
+			files, err := filepath.Glob(filepath.Join(m.Root, "native", "*", "*"))
+			require.NoError(t, err)
+			require.Empty(t, files, "no retained input roots, capture directory or ready manifest")
 		})
 	}
 }
