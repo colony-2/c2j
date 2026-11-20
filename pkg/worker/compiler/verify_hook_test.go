@@ -81,14 +81,16 @@ func TestVerifyHookSubmissionEnvironmentAndGate(t *testing.T) {
 	state := r.RecipeImpl.(*recipe.RecipeState)
 	node := state.States.States["test_integration"].Node.NodeImpl.(*recipe.NodeOp)
 	for _, fixture := range []struct {
-		name            string
-		failGate        bool
-		failedHelper    bool
-		missingWaitGoal bool
+		name             string
+		failGate         bool
+		failedHelper     bool
+		failedInspection bool
+		missingWaitGoal  bool
 	}{
 		{name: "healthy"},
 		{name: "broker-gate", failGate: true},
 		{name: "helper-gate", failedHelper: true},
+		{name: "inspection-gate", failedInspection: true},
 		{name: "missing-wait-help", missingWaitGoal: true},
 	} {
 		t.Run(fixture.name, func(t *testing.T) {
@@ -108,6 +110,25 @@ test "$GOWORK" = off
 printf '%s %s\n' "${0##*/}" "$*" >> "$COMMANDS"
 if [[ "$*" == *TestLeaseBoundRestartHelperSubmission* ]] && [ "$FAIL_HELPER" = true ]; then exit 42; fi
 if [[ "$*" == *TestBrokerOnlyCLI* ]] && [ "$FAIL_GATE" = true ]; then exit 42; fi
+if [[ "$*" == *TestTaskInspectionUsesBackendReadPermissions* ]] && [ "$FAIL_INSPECTION" = true ]; then exit 42; fi
+if [[ "$*" == *TestWorkspaceDiff* ]]; then
+  for pkg in pkg/jobinspect pkg/childbroker cmd/c2j/internal/cmd cmd/c2j pkg/worker/compiler; do
+    case "$pkg" in
+      pkg/jobinspect) test_name=TestWorkspaceDiffNativeProbe ;;
+      pkg/childbroker) test_name=TestWorkspaceDiffHelperProbe ;;
+      cmd/c2j/internal/cmd) test_name=TestWorkspaceDiffCLI_Probe ;;
+      cmd/c2j) test_name=TestWorkspaceDiffCLIProcessProbe ;;
+      pkg/worker/compiler) test_name=TestWorkspaceDiffCompilerProbe ;;
+    esac
+    printf '{"Action":"run","Package":"github.com/colony-2/c2j/%s","Test":"%s"}\n' "$pkg" "$test_name"
+    printf '{"Action":"pass","Package":"github.com/colony-2/c2j/%s","Test":"%s"}\n' "$pkg" "$test_name"
+  done
+  for item in pkg/worker/compiler:TestWorkspaceDiffCompilerReviewScopeWorkspace pkg/worker/compiler:TestWorkspaceDiffCompilerReviewFailedScope pkg/childbroker:TestWorkspaceDiffHelperReviewResponseContract; do
+    pkg="${item%%:*}"; test_name="${item#*:}"
+    printf '{"Action":"run","Package":"github.com/colony-2/c2j/%s","Test":"%s"}\n' "$pkg" "$test_name"
+    printf '{"Action":"pass","Package":"github.com/colony-2/c2j/%s","Test":"%s"}\n' "$pkg" "$test_name"
+  done
+fi
 if [ "$1" = build ]; then
   shift
   if [ "$1" = -buildvcs=false ]; then shift; fi
@@ -127,9 +148,9 @@ fi
 			commands := filepath.Join(root, "commands")
 			cmd := exec.Command("bash", "-c", node.Inputs["run"].(string))
 			cmd.Dir = root
-			cmd.Env = append(os.Environ(), "PATH="+bin+":"+os.Getenv("PATH"), "OUTBOX="+outbox, "COMMANDS="+commands, fmt.Sprintf("FAIL_GATE=%t", fixture.failGate), fmt.Sprintf("FAIL_HELPER=%t", fixture.failedHelper), fmt.Sprintf("MISSING_WAIT_GOAL=%t", fixture.missingWaitGoal), "C2J_CURRENT_JOB_ID=live", "C2J_CHILD_JOB_TOKEN=live", "C2J_WORKSPACE_ROOT=live", "C2J_JOBDB=embed:///", "C2J_TENANT_ID=live", "C2J_OBJECT_OUTBOX=live", "C2J_TEST_SUBMIT_BINARY=/stale/c2j")
+			cmd.Env = append(os.Environ(), "PATH="+bin+":"+os.Getenv("PATH"), "OUTBOX="+outbox, "COMMANDS="+commands, fmt.Sprintf("FAIL_GATE=%t", fixture.failGate), fmt.Sprintf("FAIL_HELPER=%t", fixture.failedHelper), fmt.Sprintf("FAIL_INSPECTION=%t", fixture.failedInspection), fmt.Sprintf("MISSING_WAIT_GOAL=%t", fixture.missingWaitGoal), "C2J_CURRENT_JOB_ID=live", "C2J_CHILD_JOB_TOKEN=live", "C2J_WORKSPACE_ROOT=live", "C2J_JOBDB=embed:///", "C2J_TENANT_ID=live", "C2J_OBJECT_OUTBOX=live", "C2J_TEST_SUBMIT_BINARY=/stale/c2j")
 			out, err := cmd.CombinedOutput()
-			if fixture.failGate || fixture.failedHelper {
+			if fixture.failGate || fixture.failedHelper || fixture.failedInspection {
 				require.Error(t, err)
 				require.Equal(t, 42, cmd.ProcessState.ExitCode())
 			} else if fixture.missingWaitGoal {
@@ -141,13 +162,19 @@ fi
 			raw, err := os.ReadFile(commands)
 			require.NoError(t, err)
 			helperGate := "go test -mod=readonly -count=1 -v -timeout=5m ./pkg/executionruntime -run ^TestLeaseBoundRestartHelperSubmission$\n"
+			inspectionGate := "go test -mod=readonly -count=1 -v -timeout=5m ./pkg/executionruntime -run ^TestTaskInspectionUsesBackendReadPermissions$\n"
 			require.True(t, strings.HasPrefix(string(raw), helperGate), "helper regression must run first, after identity isolation")
 			if fixture.failedHelper {
 				require.Equal(t, helperGate, string(raw), "failed helper regression must prevent every later command")
 			} else {
-				require.Contains(t, string(raw), "-run ^TestBrokerOnlyCLI")
+				require.True(t, strings.HasPrefix(string(raw), helperGate+inspectionGate), "inspection compatibility must run before later checks")
+				if fixture.failedInspection {
+					require.Equal(t, helperGate+inspectionGate, string(raw), "failed inspection regression must prevent every later command")
+				} else {
+					require.Contains(t, string(raw), "-run ^TestBrokerOnlyCLI")
+				}
 			}
-			if fixture.failGate || fixture.failedHelper {
+			if fixture.failGate || fixture.failedHelper || fixture.failedInspection {
 				require.NotContains(t, string(raw), "-tags=integration -p 2")
 				require.NotContains(t, string(raw), "./internal/retirementcheck")
 				require.NotContains(t, string(raw), "go build")
@@ -160,6 +187,7 @@ fi
 				require.Contains(t, string(raw), "go test -count=1 -v -timeout=10m ./internal/retirementcheck")
 				require.Less(t, strings.Index(string(raw), "-run ^TestSubmission"), strings.Index(string(raw), "./internal/retirementcheck"))
 				require.Contains(t, string(raw), "-tags=integration -p 2")
+				require.Contains(t, string(raw), "TestWorkspaceDiff|ExampleWorkspaceDiff")
 				require.Contains(t, string(raw), "go build -buildvcs=false -o ")
 				require.Contains(t, string(raw), "c2j submit --help\n")
 				require.Equal(t, 4, strings.Count(string(raw), "c2j test validate --file "))
@@ -169,6 +197,75 @@ fi
 					require.Contains(t, string(raw), "c2j test validate --file "+fixture+"\n")
 					require.Contains(t, string(raw), "c2j test run --file "+fixture+" --parallelism 1 --case-timeout 90s --out-dir ")
 				}
+			}
+		})
+	}
+}
+
+func TestVerifyHookWorkspaceDiffEvidenceGuard(t *testing.T) {
+	data, err := os.ReadFile("../../../.c2/recipes/hooks/build/verify.yaml")
+	require.NoError(t, err)
+	r, err := recipe.LoadRecipeFromString(data)
+	require.NoError(t, err)
+	state := r.RecipeImpl.(*recipe.RecipeState)
+	node := state.States.States["test_integration"].Node.NodeImpl.(*recipe.NodeOp)
+	shell := node.Inputs["run"].(string)
+	start := strings.Index(shell, "node - \"$scratch/saved-diff.json\" <<'JS'\n")
+	require.NotEqual(t, -1, start)
+	code := shell[start+len("node - \"$scratch/saved-diff.json\" <<'JS'\n"):]
+	end := strings.Index(code, "\nJS\n")
+	require.NotEqual(t, -1, end)
+	code = code[:end]
+	for _, mode := range []string{"passed", "missing", "skipped", "failed", "malformed", "missing-native", "unfinished", "missing-regression", "skipped-regression"} {
+		t.Run(mode, func(t *testing.T) {
+			var evidence strings.Builder
+			for _, pkg := range []string{"pkg/jobinspect", "pkg/childbroker", "cmd/c2j/internal/cmd", "cmd/c2j", "pkg/worker/compiler"} {
+				if mode == "missing" && pkg == "cmd/c2j" {
+					continue
+				}
+				action := "pass"
+				if mode == "skipped" && pkg == "pkg/childbroker" {
+					action = "skip"
+				}
+				if mode == "failed" && pkg == "pkg/jobinspect" {
+					action = "fail"
+				}
+				testName := map[string]string{"pkg/jobinspect": "TestWorkspaceDiffNativeProbe", "pkg/childbroker": "TestWorkspaceDiffHelperProbe", "cmd/c2j/internal/cmd": "TestWorkspaceDiffCLI_Probe", "cmd/c2j": "TestWorkspaceDiffCLIProcessProbe", "pkg/worker/compiler": "TestWorkspaceDiffCompilerProbe"}[pkg]
+				if mode == "missing-native" {
+					testName = "TestWorkspaceDiffRequest"
+				}
+				fmt.Fprintf(&evidence, "{\"Action\":\"run\",\"Package\":\"github.com/colony-2/c2j/%s\",\"Test\":%q}\n", pkg, testName)
+				if mode != "unfinished" {
+					fmt.Fprintf(&evidence, "{\"Action\":%q,\"Package\":\"github.com/colony-2/c2j/%s\",\"Test\":%q}\n", action, pkg, testName)
+				}
+			}
+			if mode != "missing-regression" {
+				for pkg, names := range map[string][]string{
+					"pkg/worker/compiler": {"TestWorkspaceDiffCompilerReviewScopeWorkspace", "TestWorkspaceDiffCompilerReviewFailedScope"},
+					"pkg/childbroker":     {"TestWorkspaceDiffHelperReviewResponseContract"},
+				} {
+					for _, name := range names {
+						action := "pass"
+						if mode == "skipped-regression" {
+							action = "skip"
+						}
+						fmt.Fprintf(&evidence, "{\"Action\":\"run\",\"Package\":\"github.com/colony-2/c2j/%s\",\"Test\":%q}\n", pkg, name)
+						fmt.Fprintf(&evidence, "{\"Action\":%q,\"Package\":\"github.com/colony-2/c2j/%s\",\"Test\":%q}\n", action, pkg, name)
+					}
+				}
+			}
+			if mode == "malformed" {
+				evidence.WriteString("not JSON\n")
+			}
+			path := filepath.Join(t.TempDir(), "events.json")
+			require.NoError(t, os.WriteFile(path, []byte(evidence.String()), 0600))
+			cmd := exec.Command("node", "-", path)
+			cmd.Stdin = strings.NewReader(code)
+			out, err := cmd.CombinedOutput()
+			if mode == "passed" {
+				require.NoError(t, err, string(out))
+			} else {
+				require.Error(t, err, string(out))
 			}
 		})
 	}

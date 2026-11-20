@@ -1,6 +1,28 @@
 # Persisted job inspection
 
-## Latest recorded workspace changes
+## Saved cumulative workspace diffs
+
+`WorkspaceDiffAPI.OpenWorkspaceDiff(ctx, request)` reads original saved cumulative
+patch bytes at the latest main state or an exact native task/scope boundary.
+Both `Service` and authenticated `childbroker.JobClient` implement this separate
+capability. Authenticated `workspace_diff` inspection returns metadata only.
+See [the saved-diff contract, Go examples and CLI migration](WORKSPACE_DIFF.md).
+
+```sh
+c2j job diff JOB
+c2j job diff JOB --task EXACT_TASK_ID --attempt 1 --boundary before --output saved.patch
+c2j job diff JOB --scope EXACT_SCOPE_ID --workspace main --boundary after --json
+c2j job changes JOB --scope EXACT_SCOPE_ID
+```
+
+Raw mode returns exact saved bytes. `--json` returns versioned metadata on stdout;
+unavailable comparisons emit metadata and exit nonzero. `job changes` is a
+deprecated metadata alias. New output files are created exclusively and removed
+on incomplete writes. Use `job log` and `job story` to discover native IDs,
+attempts and boundary evidence. The removed history/range/base flags return
+migration guidance. The Go history capabilities below remain available.
+
+## Go history and reconstructed comparisons
 
 `ChangesAPI` reads the authorized job's latest persisted main workspace using
 existing task records and Git bundles. It creates no capture, form attachment,
@@ -205,7 +227,7 @@ distinguish `workspace_unavailable`, `workspace_ambiguous`, `stale_selection`,
 `job_denied`, `repository_denied`, `repository_authentication`, `repository_unavailable`, `limit`,
 `git_unavailable`, `temporary_storage`, `backend`, `protocol`, `transport`,
 `canceled`, `deadline`, and `lease_lost`. Errors include version, operation,
-safe detail, missing hashes and limit name as applicable. Helper/CLI JSON retains
+safe detail, missing hashes and limit name as applicable. History helper JSON retains
 these categories; `errors.Is` preserves cancellation, deadlines and lease loss.
 Cancellation or deadlines during helper patch payload, terminal-status or final
 EOF reads retain their typed identity, and consumption closes the failed stream.
@@ -225,22 +247,10 @@ chapter windows and every task/attempt/artifact page with content hashes;
 fault injection; injected malformed content must also fail an independent Git oracle.
 See its [external consumer test](changestest/consumer_test.go).
 
-CLI (offline; inside tasks uses the authorized helper, including `self`):
-
-```sh
-c2j job changes JOB --json --limit 50
-c2j job changes JOB --json --limit 50 --cursor TOKEN
-c2j job diff JOB --all --output all.patch
-c2j job diff JOB --selection TOKEN --commit FULL_HASH --output -
-c2j job diff JOB --selection TOKEN --from FIRST --through LAST --output range.patch
-```
-
-Both commands accept `--base FULL_HASH`. `--selection` requires matching latest
-content. Existing snapshot commands retain historical selectors; these new
-commands select latest main only. History metadata is JSON. Diff stdout is raw
-patch bytes; `--json` sends metadata/diagnostics to stderr. Output files must not
-exist and are removed on incomplete writes. Reader failures exit nonzero;
-complete All patches can succeed with a separately reported unsupported history.
+The saved-diff CLI above replaces the former history-oriented `job changes`
+and `job diff` modes. Public Go `ChangesAPI.History` and `OpenDiff`, their
+configured policies, and authenticated history-helper consumers retain these
+interfaces and behavior. Saved-diff reads do not call those reconstruction APIs.
 
 ## General inspection
 

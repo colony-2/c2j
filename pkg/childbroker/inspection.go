@@ -3,10 +3,12 @@ package childbroker
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"net/http"
 	"net/url"
 	"strings"
@@ -38,31 +40,63 @@ func (s *Server) handleJobInspection(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid inspection request", 400)
 		return
 	}
-	ctx, cancel := context.WithCancel(s.executionContext)
-	defer cancel()
-	stop := context.AfterFunc(r.Context(), cancel)
+	ctx, cancel := context.WithCancelCause(s.executionContext)
+	defer cancel(nil)
+	stop := context.AfterFunc(r.Context(), func() { cancel(context.Cause(r.Context())) })
 	defer stop()
 	if access := permissions.FromContext(s.executionContext); access != nil {
-		stopScope := context.AfterFunc(access.Context(), cancel)
+		stopScope := context.AfterFunc(access.Context(), func() { cancel(context.Cause(access.Context())) })
 		defer stopScope()
 	}
 	w.Header().Set("Cache-Control", "no-store")
 	if strings.HasSuffix(r.URL.Path, "/download") {
 		reader, err := api.Download(ctx, q)
 		if err != nil {
-			http.Error(w, err.Error(), 400)
+			// Named downloads retain their existing diagnostic contract. Typed
+			// saved-diff errors belong to the authenticated exact-reference route.
+			if !downloadRequest(q) {
+				http.Error(w, err.Error(), 400)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(400)
+			diagnostic := jobinspect.WorkspaceDiffDiagnostic("storage", "artifact download failed", err)
+			status, _, typed := jobdb.CellErrorStatus(err)
+			if errors.Is(err, fs.ErrNotExist) || errors.Is(err, jobdb.ErrChapterNotFound) || typed && status == 404 {
+				diagnostic = &jobinspect.WorkspaceDiffError{Version: 1, Code: "missing", Detail: "saved artifact is no longer retained", Cause: err}
+			}
+			_ = json.NewEncoder(w).Encode(diagnostic)
 			return
 		}
+		var size *int64
+		if q.Reference != nil && q.Reference.SizeBytes >= 0 {
+			n := q.Reference.SizeBytes
+			size = &n
+		}
+		reader = jobinspect.NewWorkspaceDiffStream(ctx, reader, size)
 		defer reader.Close()
 		w.Header().Set("Content-Type", "application/octet-stream")
-		w.Header().Set("Trailer", "X-C2J-Download-Error")
-		if _, err = io.Copy(w, reader); err != nil {
-			w.Header().Set("X-C2J-Download-Error", "artifact stream incomplete")
+		w.Header().Set("X-C2J-Download-Version", "1")
+		w.Header().Set("Trailer", "X-C2J-Download-Error, X-C2J-Download-Complete")
+		_, err = io.Copy(w, reader)
+		err = errors.Join(err, reader.Close())
+		if err != nil {
+			raw, _ := json.Marshal(jobinspect.WorkspaceDiffDiagnostic("read", "artifact stream incomplete", err))
+			w.Header().Set("X-C2J-Download-Error", base64.RawURLEncoding.EncodeToString(raw))
+		} else {
+			w.Header().Set("X-C2J-Download-Complete", "1")
 		}
+
 		return
 	}
 	result, err := api.Inspect(ctx, q)
 	if err != nil {
+		if q.Operation == "workspace_diff" {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(400)
+			_ = json.NewEncoder(w).Encode(jobinspect.WorkspaceDiffDiagnostic("storage", "saved diff inspection failed", err))
+			return
+		}
 		if q.Operation == "metrics" && result != nil && result.Metrics != nil {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusUnprocessableEntity)
@@ -128,7 +162,7 @@ func (c JobClient) callPayload(ctx context.Context, q any, suffix string, typedE
 	if err != nil {
 		transport.CloseIdleConnections()
 		if ctx.Err() != nil {
-			return nil, ctx.Err()
+			return nil, context.Cause(ctx)
 		}
 		return nil, fmt.Errorf("task inspection helper unavailable")
 	}
@@ -139,6 +173,29 @@ func (c JobClient) callPayload(ctx context.Context, q any, suffix string, typedE
 	if resp.StatusCode != http.StatusOK {
 		defer resp.Body.Close()
 		b, readErr := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		if request, ok := q.(jobinspect.Request); ok && (request.Operation == "workspace_diff" || downloadRequest(request)) {
+			if readErr != nil {
+				return nil, jobinspect.WorkspaceDiffDiagnostic("transport", "cannot read helper diagnostic", readErr)
+			}
+			var diagnostic jobinspect.WorkspaceDiffError
+			if json.Unmarshal(b, &diagnostic) == nil && diagnostic.Version == 1 && diagnostic.Code != "" && diagnostic.Detail != "" {
+				switch diagnostic.Code {
+				case "canceled":
+					diagnostic.Cause = context.Canceled
+				case "timeout":
+					diagnostic.Cause = context.DeadlineExceeded
+				case "lease_lost":
+					diagnostic.Cause = jobdb.ErrExecutionLeaseLost
+				case "denied":
+					diagnostic.Cause = jobdb.ErrLeasePermissionDenied
+				}
+				return nil, &diagnostic
+			}
+			if resp.StatusCode == 401 || resp.StatusCode == 403 {
+				return nil, jobinspect.WorkspaceDiffDiagnostic("denied", "helper authorization denied", jobdb.ErrLeasePermissionDenied)
+			}
+			return nil, jobinspect.WorkspaceDiffDiagnostic("unsupported", "saved diff helper unsupported; upgrade worker and CLI together", nil)
+		}
 		if isChangesPayload(q) {
 			if readErr != nil {
 				return nil, changesMetadataReadError(ctx, readErr)
@@ -205,10 +262,23 @@ func (c JobClient) Inspect(ctx context.Context, q jobinspect.Request) (*jobinspe
 	}
 	defer resp.Body.Close()
 	var out jobinspect.Response
-	if err = json.NewDecoder(resp.Body).Decode(&out); err != nil {
+	decoder := json.NewDecoder(resp.Body)
+	if err = decoder.Decode(&out); err != nil {
+		if q.Operation == "workspace_diff" {
+			return nil, jobinspect.WorkspaceDiffDiagnostic("protocol", "invalid saved-diff inspection envelope", err)
+		}
 		return nil, err
 	}
+	if q.Operation == "workspace_diff" {
+		var trailing any
+		if err = decoder.Decode(&trailing); err != io.EOF {
+			return nil, jobinspect.WorkspaceDiffDiagnostic("protocol", "saved-diff inspection requires exactly one JSON response", err)
+		}
+	}
 	if out.Version != jobinspect.Version {
+		if q.Operation == "workspace_diff" {
+			return nil, jobinspect.WorkspaceDiffDiagnostic("protocol", "unsupported saved-diff inspection envelope version; upgrade worker and CLI together", nil)
+		}
 		if q.Family != nil {
 			return nil, fmt.Errorf("%w; upgrade the worker and CLI together", jobinspect.ErrFamilyProtocol)
 		}
@@ -224,6 +294,15 @@ func (c JobClient) Inspect(ctx context.Context, q jobinspect.Request) (*jobinspe
 	}
 	if q.Family != nil {
 		if err := jobinspect.ValidateFamilyResponse(&out); err != nil {
+			return nil, err
+		}
+	}
+	if q.Operation == "workspace_diff" {
+		options := jobinspect.WorkspaceDiffOptions{}
+		if q.WorkspaceDiff != nil {
+			options = *q.WorkspaceDiff
+		}
+		if err := jobinspect.ValidateWorkspaceDiff(jobinspect.WorkspaceDiffRequest{JobID: q.JobID, WorkspaceDiffOptions: options}, out.WorkspaceDiff); err != nil {
 			return nil, err
 		}
 	}
@@ -246,6 +325,78 @@ func (b *downloadBody) Read(p []byte) (int, error) {
 	n, err := b.ReadCloser.Read(p)
 	if err == io.EOF && b.response.Trailer.Get("X-C2J-Download-Error") != "" {
 		err = fmt.Errorf("artifact stream incomplete")
+	}
+	return n, err
+}
+
+func downloadRequest(q jobinspect.Request) bool {
+	return q.Operation == "artifact" && q.Reference != nil
+}
+
+var _ jobinspect.WorkspaceDiffAPI = JobClient{}
+
+func (c JobClient) OpenWorkspaceDiff(ctx context.Context, q jobinspect.WorkspaceDiffRequest) (*jobinspect.WorkspaceDiff, io.ReadCloser, error) {
+	if err := q.Validate(); err != nil {
+		return nil, nil, err
+	}
+	response, err := c.Inspect(ctx, jobinspect.Request{Operation: "workspace_diff", JobID: q.JobID, WorkspaceDiff: &q.WorkspaceDiffOptions})
+	if err != nil {
+		return nil, nil, jobinspect.WorkspaceDiffDiagnostic("protocol", "saved diff metadata failed", err)
+	}
+	m := response.WorkspaceDiff
+	if m.Status == "unavailable" {
+		return m, nil, nil
+	}
+	if m.Source == nil {
+		return m, io.NopCloser(bytes.NewReader(nil)), nil
+	}
+	resp, err := c.call(ctx, jobinspect.Request{Operation: "artifact", JobID: m.Source.Producer.JobID, Reference: &m.Source.Key}, true)
+	if err != nil {
+		var diagnostic *jobinspect.WorkspaceDiffError
+		if errors.As(err, &diagnostic) && diagnostic.Code == "missing" {
+			m.Status = "unavailable"
+			m.Source = nil
+			m.Bytes = nil
+			m.Reasons = []string{"saved artifact is no longer retained"}
+			return m, nil, nil
+		}
+		return nil, nil, jobinspect.WorkspaceDiffDiagnostic("transport", "saved diff download failed", err)
+	}
+	if resp.Header.Get("X-C2J-Download-Version") != "1" {
+		_ = resp.Body.Close()
+		return nil, nil, jobinspect.WorkspaceDiffDiagnostic("unsupported", "saved diff completion unsupported; upgrade worker and CLI together", nil)
+	}
+	body := &workspaceDownloadBody{ReadCloser: resp.Body, response: resp}
+	return m, jobinspect.NewWorkspaceDiffStream(ctx, body, m.Bytes), nil
+}
+
+type workspaceDownloadBody struct {
+	io.ReadCloser
+	response *http.Response
+}
+
+func (b *workspaceDownloadBody) Read(p []byte) (int, error) {
+	n, err := b.ReadCloser.Read(p)
+	if err == io.EOF {
+		if encoded := b.response.Trailer.Get("X-C2J-Download-Error"); encoded != "" {
+			raw, e := base64.RawURLEncoding.DecodeString(encoded)
+			var diagnostic jobinspect.WorkspaceDiffError
+			if e != nil || json.Unmarshal(raw, &diagnostic) != nil || diagnostic.Version != 1 || diagnostic.Code == "" || diagnostic.Detail == "" {
+				return n, jobinspect.WorkspaceDiffDiagnostic("protocol", "invalid artifact completion diagnostic", e)
+			}
+			switch diagnostic.Code {
+			case "canceled":
+				diagnostic.Cause = context.Canceled
+			case "timeout":
+				diagnostic.Cause = context.DeadlineExceeded
+			case "lease_lost":
+				diagnostic.Cause = jobdb.ErrExecutionLeaseLost
+			}
+			return n, &diagnostic
+		}
+		if b.response.Trailer.Get("X-C2J-Download-Complete") != "1" {
+			return n, jobinspect.WorkspaceDiffDiagnostic("protocol", "missing artifact completion", nil)
+		}
 	}
 	return n, err
 }

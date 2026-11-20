@@ -17,22 +17,23 @@ import (
 const Version = 1
 
 type Request struct {
-	Metrics   *metrics.Query     `json:"metrics,omitempty"`
-	Family    *FamilyOptions     `json:"family,omitempty"`
-	Events    LeaseEventOptions  `json:"events,omitzero"`
-	Operation string             `json:"operation"`
-	JobID     string             `json:"job_id,omitempty"`
-	Task      string             `json:"task,omitempty"`
-	Attempt   int                `json:"attempt,omitempty"`
-	Limit     int                `json:"limit,omitempty"`
-	Cursor    string             `json:"cursor,omitempty"`
-	Field     *string            `json:"field,omitempty"`
-	Name      string             `json:"name,omitempty"`
-	Reference *jobdb.ArtifactKey `json:"reference,omitempty"`
-	Workspace string             `json:"workspace,omitempty"`
-	Boundary  string             `json:"boundary,omitempty"`
-	Parent    string             `json:"parent,omitempty"`
-	Status    []jobdb.JobStatus  `json:"status,omitempty"`
+	WorkspaceDiff *WorkspaceDiffOptions `json:"workspace_diff,omitempty"`
+	Metrics       *metrics.Query        `json:"metrics,omitempty"`
+	Family        *FamilyOptions        `json:"family,omitempty"`
+	Events        LeaseEventOptions     `json:"events,omitzero"`
+	Operation     string                `json:"operation"`
+	JobID         string                `json:"job_id,omitempty"`
+	Task          string                `json:"task,omitempty"`
+	Attempt       int                   `json:"attempt,omitempty"`
+	Limit         int                   `json:"limit,omitempty"`
+	Cursor        string                `json:"cursor,omitempty"`
+	Field         *string               `json:"field,omitempty"`
+	Name          string                `json:"name,omitempty"`
+	Reference     *jobdb.ArtifactKey    `json:"reference,omitempty"`
+	Workspace     string                `json:"workspace,omitempty"`
+	Boundary      string                `json:"boundary,omitempty"`
+	Parent        string                `json:"parent,omitempty"`
+	Status        []jobdb.JobStatus     `json:"status,omitempty"`
 }
 
 type API interface {
@@ -41,22 +42,23 @@ type API interface {
 }
 
 type Response struct {
-	Metrics     *metrics.Result                `json:"metrics,omitempty"`
-	Family      *FamilyPage                    `json:"family,omitempty"`
-	Version     int                            `json:"version"`
-	LeaseEvents *jobdb.ListLeaseEventsResponse `json:"lease_events,omitempty"`
-	Job         *Job                           `json:"job,omitempty"`
-	Jobs        []Job                          `json:"jobs,omitempty"`
-	Tasks       []Task                         `json:"tasks,omitempty"`
-	Task        *Task                          `json:"task,omitempty"`
-	Scopes      []Scope                        `json:"scopes,omitempty"`
-	Result      *Result                        `json:"result,omitempty"`
-	Artifacts   []Artifact                     `json:"artifacts,omitempty"`
-	Fields      []Field                        `json:"fields,omitempty"`
-	Snapshot    *Snapshot                      `json:"snapshot,omitempty"`
-	Value       json.RawMessage                `json:"value,omitempty"`
-	NextCursor  string                         `json:"next_cursor,omitempty"`
-	Warnings    []string                       `json:"warnings,omitempty"`
+	WorkspaceDiff *WorkspaceDiff                 `json:"workspace_diff,omitempty"`
+	Metrics       *metrics.Result                `json:"metrics,omitempty"`
+	Family        *FamilyPage                    `json:"family,omitempty"`
+	Version       int                            `json:"version"`
+	LeaseEvents   *jobdb.ListLeaseEventsResponse `json:"lease_events,omitempty"`
+	Job           *Job                           `json:"job,omitempty"`
+	Jobs          []Job                          `json:"jobs,omitempty"`
+	Tasks         []Task                         `json:"tasks,omitempty"`
+	Task          *Task                          `json:"task,omitempty"`
+	Scopes        []Scope                        `json:"scopes,omitempty"`
+	Result        *Result                        `json:"result,omitempty"`
+	Artifacts     []Artifact                     `json:"artifacts,omitempty"`
+	Fields        []Field                        `json:"fields,omitempty"`
+	Snapshot      *Snapshot                      `json:"snapshot,omitempty"`
+	Value         json.RawMessage                `json:"value,omitempty"`
+	NextCursor    string                         `json:"next_cursor,omitempty"`
+	Warnings      []string                       `json:"warnings,omitempty"`
 }
 
 type Job struct {
@@ -99,11 +101,19 @@ type Task struct {
 	InventoryTruncated bool            `json:"inventory_truncated,omitempty"`
 }
 
+type ScopeAttempt struct {
+	Attempt int    `json:"attempt"`
+	Status  string `json:"status"`
+	Before  bool   `json:"before"`
+	After   bool   `json:"after"`
+}
+
 type Scope struct {
-	ID     string `json:"id"`
-	Parent string `json:"parent,omitempty"`
-	Site   string `json:"site,omitempty"`
-	Status string `json:"status"`
+	Attempts []ScopeAttempt `json:"attempts,omitempty"`
+	ID       string         `json:"id"`
+	Parent   string         `json:"parent,omitempty"`
+	Site     string         `json:"site,omitempty"`
+	Status   string         `json:"status"`
 }
 
 type Result struct {

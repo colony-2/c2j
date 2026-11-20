@@ -180,6 +180,8 @@ state:
           export GOWORK=off
           # Exact hidden-source restarts must pass through the lease-bound helper.
           go test -mod=readonly -count=1 -v -timeout=5m ./pkg/executionruntime -run '^TestLeaseBoundRestartHelperSubmission$'
+          # Saved-diff transport must preserve existing artifact-read diagnostics.
+          go test -mod=readonly -count=1 -v -timeout=5m ./pkg/executionruntime -run '^TestTaskInspectionUsesBackendReadPermissions$'
           # Fail early on compact failure formatting, persisted messages and real CLI output.
           go test -count=1 -v -timeout=10m ./pkg/ops/executiondiag ./pkg/ops/process ./pkg/recipe ./pkg/worker/commandop ./pkg/ops/extensions ./pkg/worker/ops ./pkg/worker/compiler ./cmd/c2j -run 'Test(Compact|ExecutionFailurePresentation|Capture|ExecuteProcessMasksDynamicallyResolvedGitCredentials|CommandCompact|CommandFailure|CommandDiagnostic|ExtensionCompact|ExtensionAutomatic|ExtensionCancellation|ExtensionCollectionFailure|ExtensionResultFailureReasons|ExecutionRequired|PreparedCompletion|CommandDiagnosticsNestedCatchResumeAndReplay|ExtensionExecutionLogCatchAndReplay|TaskWorkerCompact|VerifyHook)'
           # Preserve tool output through submit --run and both child-recipe fixture engines.
@@ -187,6 +189,42 @@ state:
           # Exercise broker-only process routing before the broader integration suite.
           go test -mod=readonly -count=1 -v -timeout=10m ./pkg/childbroker -run '^TestBrokerOnlyCLI'
           go test -mod=readonly -count=1 -v -timeout=5m ./cmd/c2j/internal/submitjob -run '^TestSubmission'
+          # Saved comparisons must execute assertions on every public surface.
+          saved_diff_status=0
+          go test -mod=readonly -count=1 -json -tags=integration -timeout=10m ./pkg/jobinspect ./pkg/childbroker ./cmd/c2j/internal/cmd ./cmd/c2j ./pkg/worker/compiler -run '^(TestWorkspaceDiff|ExampleWorkspaceDiff)' > "$scratch/saved-diff.json" || saved_diff_status=$?
+          cat "$scratch/saved-diff.json"
+          node - "$scratch/saved-diff.json" <<'JS'
+          const fs = require('node:fs');
+          const events = fs.readFileSync(process.argv[2], 'utf8').trim().split('\n').filter(Boolean).map(JSON.parse);
+          const packages = {
+            'pkg/jobinspect': /^TestWorkspaceDiffNative/,
+            'pkg/childbroker': /^TestWorkspaceDiffHelper/,
+            'cmd/c2j/internal/cmd': /^TestWorkspaceDiffCLI_/,
+            'cmd/c2j': /^TestWorkspaceDiffCLIProcess/,
+            'pkg/worker/compiler': /^TestWorkspaceDiffCompiler/
+          };
+          for (const [name, native] of Object.entries(packages)) {
+            const pkg = 'github.com/colony-2/c2j/' + name;
+            const tests = events.filter(e => e.Package === pkg && /^(TestWorkspaceDiff|ExampleWorkspaceDiff)/.test(e.Test || ''));
+            const runs = tests.filter(e => e.Action === 'run');
+            if (!runs.some(e => native.test(e.Test)) || runs.some(e => !tests.some(done => done.Test === e.Test && done.Action === 'pass')) || tests.some(e => e.Action === 'skip' || e.Action === 'fail')) {
+              throw new Error('Saved workspace-diff acceptance missing, skipped or failed: ' + pkg);
+            }
+          }
+          // Retain the four review repairs even if a test is renamed or removed.
+          const regressions = {
+            'pkg/worker/compiler': ['TestWorkspaceDiffCompilerReviewScopeWorkspace', 'TestWorkspaceDiffCompilerReviewFailedScope'],
+            'pkg/childbroker': ['TestWorkspaceDiffHelperReviewResponseContract']
+          };
+          for (const [name, required] of Object.entries(regressions)) {
+            for (const test of required) {
+              if (!events.some(e => e.Package === 'github.com/colony-2/c2j/' + name && e.Test === test && e.Action === 'pass')) {
+                throw new Error('Saved workspace-diff review regression missing: ' + test);
+              }
+            }
+          }
+          JS
+          test "$saved_diff_status" -eq 0
           # Inventory actual consumer method sets, including integration fixtures.
           go test -count=1 -v -timeout=10m ./internal/retirementcheck
           # Fail early on the real shallow-transport restore/persistence regression.

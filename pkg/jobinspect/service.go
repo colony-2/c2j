@@ -309,6 +309,23 @@ func (h *history) selected(id string, n int) (*attempt, error) {
 	return nil, fmt.Errorf("task %q attempt %d not found", id, n)
 }
 func (s *Service) Inspect(ctx context.Context, q Request) (*Response, error) {
+	if q.Operation == "workspace_diff" {
+		if err := validateWorkspaceInspection(q); err != nil {
+			return nil, err
+		}
+		options := WorkspaceDiffOptions{}
+		if q.WorkspaceDiff != nil {
+			options = *q.WorkspaceDiff
+		}
+		m, err := s.workspaceDiff(ctx, WorkspaceDiffRequest{JobID: q.JobID, WorkspaceDiffOptions: options})
+		if err != nil {
+			return nil, err
+		}
+		return &Response{Version: Version, WorkspaceDiff: m}, nil
+	}
+	if q.WorkspaceDiff != nil {
+		return nil, WorkspaceDiffDiagnostic("invalid_request", "workspace_diff options require workspace_diff operation", nil)
+	}
 	if q.Operation == "metrics" {
 		if q.Metrics == nil {
 			return nil, fmt.Errorf("metrics request requires versioned options")
@@ -429,6 +446,7 @@ func (s *Service) Inspect(ctx context.Context, q Request) (*Response, error) {
 			r.Tasks = append(r.Tasks, h.publicTask(a))
 		}
 	case "story":
+		h.scopes = newDiffHistory(h).discovery()
 		ids := make([]string, len(h.scopes))
 		for i, sc := range h.scopes {
 			ids[i] = sc.ID
@@ -738,6 +756,12 @@ func (s *Service) Download(ctx context.Context, q Request) (io.ReadCloser, error
 		if err := s.Authorize(ctx, k.JobId); err != nil {
 			return nil, err
 		}
+	}
+	if q.Reference != nil && (k.Name == "diff_from_base.diff" || k.Name == "diff_from_parent.diff") {
+		if k != *q.Reference {
+			return nil, WorkspaceDiffDiagnostic("protocol", "exact artifact key disagrees with retained reference", nil)
+		}
+		return s.openWorkspacePatch(ctx, k)
 	}
 	// A durable reference carried by an authorized outcome is provenance, not an
 	// arbitrary cross-job key supplied by the caller. Runtime policy still applies.

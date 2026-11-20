@@ -1,8 +1,8 @@
 package cmd
 
 import (
-	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 
@@ -11,45 +11,60 @@ import (
 	"github.com/spf13/cobra"
 )
 
-type changesOpener func(context.Context, string) (jobinspect.ChangesAPI, func(), string, error)
-
-// Execute preserves the failure exit code while avoiding a second plain-text
-// diagnostic from main after this command has successfully emitted JSON.
 type printedDiagnosticError struct{ cause error }
 
 func (e *printedDiagnosticError) Error() string { return e.cause.Error() }
 func (e *printedDiagnosticError) Unwrap() error { return e.cause }
 
-func openChanges(ctx context.Context, uri string) (jobinspect.ChangesAPI, func(), string, error) {
-	api, close, current, err := openInspection(ctx, uri)
-	if err != nil {
-		return nil, nil, "", err
-	}
-	changes, ok := api.(jobinspect.ChangesAPI)
-	if !ok {
-		close()
-		return nil, nil, "", fmt.Errorf("Changes unavailable; upgrade worker and CLI together")
-	}
-	return changes, close, current, nil
-}
-
-func newJobChangesCommands(uri *string, embed, jsonOutput *bool, open changesOpener) []*cobra.Command {
+func newJobChangesCommands(uri *string, embed, jsonOutput *bool, open inspectionOpener) []*cobra.Command {
 	var commands []*cobra.Command
 	for _, op := range []string{"changes", "diff"} {
-		q := jobinspect.DiffRequest{}
-		output := "-"
-		cmd := &cobra.Command{Use: op + " JOB", Short: map[string]string{"changes": "Read latest recorded main-workspace commit history", "diff": "Read an All, single or inclusive-range endpoint patch"}[op], Args: cobra.ExactArgs(1)}
-		cmd.Long = cmd.Short + ". Offline by default. Uses existing bundles; writes no job records.\nAn old selection or cursor fails after the recorded workspace advances."
+		var task, scope, workspace, boundary, output string
+		var attempt int
+		cmd := &cobra.Command{Use: op + " JOB", Short: "Read the saved cumulative workspace diff at a recorded point", Args: cobra.ExactArgs(1), SilenceUsage: true}
+		cmd.Long = cmd.Short + ". Raw saved bytes by default; --json reads metadata only.\nUse job log and job story for exact task/scope occurrence IDs and attempts.\nNo Git, commit history, reconstruction, or comparison-base override is used."
+		if op == "changes" {
+			cmd.Short = "Deprecated metadata alias for job diff --json"
+		}
 		cmd.RunE = func(cmd *cobra.Command, args []string) (err error) {
 			defer func() {
 				if err != nil && *jsonOutput {
-					if e := json.NewEncoder(cmd.ErrOrStderr()).Encode(jobinspect.ChangesDiagnostic(err)); e == nil {
+					var printed *printedDiagnosticError
+					if !errors.As(err, &printed) {
+						_ = json.NewEncoder(cmd.ErrOrStderr()).Encode(jobinspect.WorkspaceDiffDiagnostic("output", "saved workspace diff failed", err))
 						err = &printedDiagnosticError{cause: err}
 					}
 					cmd.SilenceErrors = true
 					cmd.SilenceUsage = true
 				}
 			}()
+			for _, name := range []string{"all", "commit", "from", "through", "base", "selection", "cursor", "limit"} {
+				if cmd.Flags().Changed(name) {
+					return jobinspect.WorkspaceDiffDiagnostic("invalid_request", "--"+name+" was removed; use --task or --scope with --attempt, --workspace and --boundary for saved cumulative diffs; --json reads metadata", nil)
+				}
+			}
+			if *jsonOutput && cmd.Flags().Changed("output") {
+				return jobinspect.WorkspaceDiffDiagnostic("invalid_request", "--json conflicts with --output; omit --output for metadata or omit --json for raw bytes", nil)
+			}
+			q := jobinspect.WorkspaceDiffRequest{JobID: args[0]}
+			if cmd.Flags().Changed("task") {
+				q.Task = &task
+			}
+			if cmd.Flags().Changed("scope") {
+				q.Scope = &scope
+			}
+			if cmd.Flags().Changed("attempt") {
+				q.Attempt = &attempt
+			}
+			if cmd.Flags().Changed("workspace") {
+				q.Workspace = &workspace
+			}
+			if cmd.Flags().Changed("boundary") {
+				q.Boundary = &boundary
+			}
+			if err = q.Validate(); err != nil {
+				return err
+			}
 			target := *uri
 			if *embed {
 				target = defaults.EmbedURL
@@ -59,7 +74,6 @@ func newJobChangesCommands(uri *string, embed, jsonOutput *bool, open changesOpe
 				return err
 			}
 			defer close()
-			q.JobID = args[0]
 			if q.JobID == "self" {
 				if current == "" {
 					return fmt.Errorf("self requires a current task")
@@ -67,57 +81,74 @@ func newJobChangesCommands(uri *string, embed, jsonOutput *bool, open changesOpe
 				q.JobID = current
 			}
 			if op == "changes" {
-				h, e := api.History(cmd.Context(), q.ChangesRequest)
+				fmt.Fprintln(cmd.ErrOrStderr(), "job changes is deprecated; use job diff --json")
+			}
+			var meta *jobinspect.WorkspaceDiff
+			var body io.ReadCloser
+			if *jsonOutput || op == "changes" {
+				r, e := api.Inspect(cmd.Context(), jobinspect.Request{Operation: "workspace_diff", JobID: q.JobID, WorkspaceDiff: &q.WorkspaceDiffOptions})
 				if e != nil {
 					return e
 				}
-				if e = writeInspectionFile(output, cmd.OutOrStdout(), func(w io.Writer) error { return json.NewEncoder(w).Encode(h) }); e != nil {
-					return e
+				meta = r.WorkspaceDiff
+				if err = jobinspect.ValidateWorkspaceDiff(q, meta); err != nil {
+					return err
 				}
-				if !h.Complete {
-					return h.Diagnostic
+				if err = writeInspectionFile(output, cmd.OutOrStdout(), func(w io.Writer) error { return json.NewEncoder(w).Encode(meta) }); err != nil {
+					return err
 				}
-				return nil
+			} else {
+				reader, ok := api.(jobinspect.WorkspaceDiffAPI)
+				if !ok {
+					return jobinspect.WorkspaceDiffDiagnostic("unsupported", "saved diff unavailable; upgrade worker and CLI together", nil)
+				}
+				meta, body, err = reader.OpenWorkspaceDiff(cmd.Context(), q)
+				if err != nil {
+					return err
+				}
+				if body != nil {
+					defer body.Close()
+				}
+				if err = jobinspect.ValidateWorkspaceDiff(q, meta); err != nil {
+					return err
+				}
+				if meta.Status != "unavailable" {
+					if body == nil {
+						return jobinspect.WorkspaceDiffDiagnostic("protocol", "saved patch stream is missing", nil)
+					}
+					if err = writeInspectionFile(output, cmd.OutOrStdout(), func(w io.Writer) error {
+						n, e := io.Copy(w, body)
+						e = errors.Join(e, body.Close())
+						if e != nil {
+							return e
+						}
+						if meta.Bytes != nil && n != *meta.Bytes {
+							return jobinspect.WorkspaceDiffDiagnostic("byte_count", "incomplete diff output", nil)
+						}
+						return nil
+					}); err != nil {
+						return err
+					}
+				}
 			}
-			meta, body, err := api.OpenDiff(cmd.Context(), q)
-			if err != nil {
-				return err
-			}
-			defer body.Close()
-			if err = writeInspectionFile(output, cmd.OutOrStdout(), func(w io.Writer) error {
-				n, e := io.Copy(w, body)
-				ce := body.Close()
-				if e != nil {
-					return e
-				}
-				if ce != nil {
-					return ce
-				}
-				if n != meta.Bytes {
-					return &jobinspect.ChangesError{Version: 1, Code: "transport", Detail: "incomplete diff output"}
-				}
-				return nil
-			}); err != nil {
-				return err
-			}
-			if *jsonOutput || meta.Diagnostic != nil {
-				return json.NewEncoder(cmd.ErrOrStderr()).Encode(meta)
+			if meta.Status == "unavailable" {
+				return jobinspect.WorkspaceDiffDiagnostic("unavailable", "saved cumulative comparison unavailable: "+fmt.Sprint(meta.Reasons), nil)
 			}
 			return nil
 		}
 		f := cmd.Flags()
-		f.StringVar(&q.Base, "base", "", "Explicit full-hash comparison base (otherwise recorded active base)")
-		f.StringVar(&q.Selection, "selection", "", "Expected selection returned by job changes; reject advancement")
-		f.StringVar(&output, "output", "-", "New output file; - writes JSON history or raw patch to stdout")
-		if op == "changes" {
-			f.IntVar(&q.Limit, "limit", 100, "Commit rows per page (1–500)")
-			f.StringVar(&q.Cursor, "cursor", "", "Selection-bound continuation cursor")
-		} else {
-			f.BoolVar(&q.All, "all", false, "Compare selected base to recorded head (default)")
-			f.StringVar(&q.Commit, "commit", "", "Compare predecessor to this full-hash member")
-			f.StringVar(&q.From, "from", "", "First full-hash member of an inclusive range")
-			f.StringVar(&q.Through, "through", "", "Last full-hash member of an inclusive range")
+		f.StringVar(&task, "task", "", "Exact native task occurrence ID")
+		f.StringVar(&scope, "scope", "", "Exact native scope occurrence ID")
+		f.IntVar(&attempt, "attempt", 0, "Positive attempt (omitted: latest recorded)")
+		f.StringVar(&workspace, "workspace", "", "Exact workspace ID or main")
+		f.StringVar(&boundary, "boundary", "", "before or after (omitted: after)")
+		f.StringVar(&output, "output", "-", "Write to a new file; - writes stdout")
+		f.Bool("all", false, "Removed: use saved point selectors")
+		for _, name := range []string{"commit", "from", "through", "base", "selection", "cursor", "limit"} {
+			f.String(name, "", "Removed: use saved point selectors")
+			_ = f.MarkHidden(name)
 		}
+		_ = f.MarkHidden("all")
 		commands = append(commands, cmd)
 	}
 	return commands
