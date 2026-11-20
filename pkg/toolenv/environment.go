@@ -10,7 +10,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"time"
 
@@ -27,20 +26,22 @@ type Scope struct {
 }
 
 type Tool struct {
-	Reference   string   `json:"reference"`
-	Bin         string   `json:"bin"`
-	Executables []string `json:"executables"`
-	Main        string   `json:"main,omitempty"`
-	Identity    string   `json:"identity"`
-	Nix         *nixTool `json:"nix,omitempty"`
+	Reference   string    `json:"reference"`
+	Bin         string    `json:"bin"`
+	Executables []string  `json:"executables"`
+	Main        string    `json:"main,omitempty"`
+	Identity    string    `json:"identity"`
+	Nix         *nixTool  `json:"nix,omitempty"`
+	Pnpm        *pnpmTool `json:"pnpm,omitempty"`
 }
 
 type ToolDiagnostic struct {
-	Reference string `json:"reference"`
-	Identity  string `json:"identity,omitempty"`
-	Scope     string `json:"scope"`
-	WallMS    int64  `json:"wall_ms"`
-	Outcome   string `json:"outcome"`
+	Reference string          `json:"reference"`
+	Identity  string          `json:"identity,omitempty"`
+	Scope     string          `json:"scope"`
+	WallMS    int64           `json:"wall_ms"`
+	Outcome   string          `json:"outcome"`
+	Pnpm      *pnpmDiagnostic `json:"pnpm,omitempty"`
 }
 
 type Diagnostics struct {
@@ -59,6 +60,7 @@ type Environment struct {
 	Variables map[string]string  `json:"variables,omitempty"`
 	Python    *PythonEnvironment `json:"python,omitempty"`
 	Native    *nativeEnvironment `json:"native,omitempty"`
+	Bindings  *bindingEvidence   `json:"bindings,omitempty"`
 }
 
 // Bind applies both executable selection and native activation to one op.
@@ -131,7 +133,11 @@ func (m *Manager) Prepare(ctx context.Context, scopes []Scope) (env Environment,
 			if e != nil {
 				outcome = "failed"
 			}
-			diag.Tools = append(diag.Tools, ToolDiagnostic{Reference: ref, Identity: tool.Identity, Scope: scope.ID, WallMS: time.Since(begin).Milliseconds(), Outcome: outcome})
+			d := ToolDiagnostic{Reference: ref, Identity: tool.Identity, Scope: scope.ID, WallMS: time.Since(begin).Milliseconds(), Outcome: outcome}
+			if tool.Pnpm != nil {
+				d.Pnpm = &tool.Pnpm.Diagnostic
+			}
+			diag.Tools = append(diag.Tools, d)
 			if e != nil {
 				return env, diag, e
 			}
@@ -184,6 +190,22 @@ func (m *Manager) Prepare(ctx context.Context, scopes []Scope) (env Environment,
 		return
 	}
 	defer unlock()
+	env.Path = dir
+	if hasPnpm(env.Tools) {
+		var saved bindingEvidence
+		if raw, e := os.ReadFile(filepath.Join(dir, "ready.json")); e == nil && json.Unmarshal(raw, &saved) == nil {
+			env.Bindings = &saved
+			if bindingsReady(env) {
+				return
+			}
+		}
+		env.Bindings = nil
+		// A partially repaired binding must never retain a ready marker.
+		if e := os.Remove(filepath.Join(dir, "ready.json")); e != nil && !os.IsNotExist(e) {
+			err = e
+			return
+		}
+	}
 	for name, target := range bindings {
 		// A same-scope collision must not silently fall through to a system version.
 		body := "#!/bin/sh\n" + shellcmd.LiteralLine("ambiguous declared tool; use a qualified runner") + " >&2\nexit 127\n"
@@ -198,10 +220,16 @@ func (m *Manager) Prepare(ctx context.Context, scopes []Scope) (env Environment,
 		return
 	}
 	env.Path = dir
+	if hasPnpm(env.Tools) {
+		env.Bindings, err = retainBindings(env)
+	}
 	return
 }
 
 func toolReady(t Tool) bool {
+	if strings.HasPrefix(t.Reference, "pnpm:") {
+		return pnpmReady(t)
+	}
 	if t.Nix != nil {
 		if !rootsReady(t.Nix.Roots) {
 			return false
@@ -244,6 +272,9 @@ func (e Environment) Ready() bool {
 	if e.Native != nil && !e.Native.ready() {
 		return false
 	}
+	if hasPnpm(e.Tools) && !bindingsReady(e) {
+		return false
+	}
 	return true
 }
 
@@ -255,11 +286,7 @@ func (m *Manager) prepareTool(ctx context.Context, ref string) (Tool, bool, erro
 	if err != nil {
 		return Tool{}, false, err
 	}
-	version := "v1"
-	if manager == "nix" {
-		version = "nix-v2"
-	}
-	id := key([]string{version, runtime.GOOS, runtime.GOARCH, ref})
+	id := packageIdentity(manager, ref)
 	dir := filepath.Join(m.Root, "packages", id)
 	if err = os.MkdirAll(filepath.Dir(dir), 0700); err != nil {
 		return Tool{}, false, err
@@ -300,15 +327,12 @@ func (m *Manager) prepareTool(ctx context.Context, ref string) (Tool, bool, erro
 		_, err = run([]string{"uv", "tool", "install", "--", spec}, map[string]string{"UV_TOOL_DIR": filepath.Join(dir, "tools"), "UV_TOOL_BIN_DIR": t.Bin})
 	case "pnpm":
 		t.Bin = filepath.Join(dir, "node_modules", ".bin")
-		err = os.WriteFile(filepath.Join(dir, "package.json"), []byte(`{"private":true}`), 0600)
-		if err == nil {
-			_, err = run([]string{"pnpm", "add", "--save-exact", "--", spec}, map[string]string{"CI": "true"})
-		}
+		err = preparePnpm(ctx, dir, spec, &t)
 	case "nix":
 		err = prepareNixTool(ctx, dir, spec, &t)
 	}
 	if err != nil {
-		return Tool{}, false, err
+		return t, false, err
 	}
 	entries, err := os.ReadDir(t.Bin)
 	if manager == "nix" && os.IsNotExist(err) {
@@ -353,6 +377,11 @@ func (m *Manager) prepareTool(ctx context.Context, ref string) (Tool, bool, erro
 			t.Main = ""
 		}
 	}
+	if manager == "pnpm" {
+		if err = retainPnpm(&t); err != nil {
+			return t, false, err
+		}
+	}
 	b, err := json.Marshal(t)
 	if err != nil {
 		return Tool{}, false, err
@@ -376,7 +405,9 @@ func nixSetupCommand(args ...string) []string {
 
 func writeExecutable(path, body string) error {
 	if b, err := os.ReadFile(path); err == nil && string(b) == body {
-		return nil
+		if st, e := os.Lstat(path); e == nil && st.Mode().IsRegular() && st.Mode().Perm() == 0700 {
+			return nil
+		}
 	}
 	if err := os.WriteFile(path+".tmp", []byte(body), 0700); err != nil {
 		return err

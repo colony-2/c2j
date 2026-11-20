@@ -34,7 +34,16 @@ func (f *runtimeFixture) buildSession(rt caseRuntime, tenant string, collector *
 			}
 		}
 	}
-	scopedRuntime := executionruntime.New(workerRuntime, execution.Allocation{SchemaVersion: 1})
+	allocation := execution.Allocation{SchemaVersion: 1}
+	if f.c.Runtime.Allocation != nil {
+		var err error
+		allocation, err = f.c.Runtime.Allocation.Normalize()
+		if err != nil {
+			return nil, err
+		}
+		f.report.FixtureAllocation = &allocation
+	}
+	scopedRuntime := executionruntime.New(workerRuntime, allocation)
 	builder := jobworkflow.NewEngineBuilder().WithRuntime(scopedRuntime).WithWorkerTenantId(tenant)
 	if f.scenario != nil {
 		builder.WithMaxActive(32)

@@ -4,7 +4,12 @@
     {
       "id": "VH-001-003-004-009-011-happy-path",
       "type": "integration_case",
-      "runtime": {},
+      "runtime": {
+        "allocation": {
+          "schema_version": 2,
+          "base": "ubuntu-26.04-arm64"
+        }
+      },
       "inputs": {
         "api_version": "c2.build-hook/v1",
         "request": "verify $(touch never-execute)",
@@ -178,13 +183,34 @@
         {
           "type": "cel_true",
           "expr": "calls.filter(c, c.node_path == \"c2j-build-verify/check_skills/check_skills\")[0].inputs.run.contains(\"npx -y skills add . --list --full-depth\")"
+        },
+        {
+          "type": "op_input_equals",
+          "node_path": "c2j-build-verify/test_integration/test_integration",
+          "path": "env.C2J_TEST_REAL_PNPM",
+          "value": "1"
+        },
+        {
+          "type": "op_input_equals",
+          "node_path": "c2j-build-verify/test_integration/test_integration",
+          "path": "env.C2J_REQUIRE_NATIVE_PNPM",
+          "value": "1"
+        },
+        {
+          "type": "cel_true",
+          "expr": "calls.filter(c, c.node_path == \"c2j-build-verify/check_environment/check_environment\")[0].inputs.run.contains(\"Linux aarch64\") && calls.filter(c, c.node_path == \"c2j-build-verify/check_environment/check_environment\")[0].inputs.run.contains(\"/proc/self/maps\") && calls.filter(c, c.node_path == \"c2j-build-verify/check_environment/check_environment\")[0].inputs.run.contains(\"Native pnpm acceptance failed: emulated executor\")"
         }
       ]
     },
     {
       "id": "VH-006-check_modules-failure",
       "type": "integration_case",
-      "runtime": {},
+      "runtime": {
+        "allocation": {
+          "schema_version": 2,
+          "base": "ubuntu-26.04-arm64"
+        }
+      },
       "inputs": {
         "api_version": "c2.build-hook/v1",
         "request": "verify $(touch never-execute)",
@@ -306,7 +332,12 @@
     {
       "id": "VH-006-test_integration-failure",
       "type": "integration_case",
-      "runtime": {},
+      "runtime": {
+        "allocation": {
+          "schema_version": 2,
+          "base": "ubuntu-26.04-arm64"
+        }
+      },
       "inputs": {
         "api_version": "c2.build-hook/v1",
         "request": "verify $(touch never-execute)",
@@ -428,7 +459,12 @@
     {
       "id": "VH-006-check_skills-failure",
       "type": "integration_case",
-      "runtime": {},
+      "runtime": {
+        "allocation": {
+          "schema_version": 2,
+          "base": "ubuntu-26.04-arm64"
+        }
+      },
       "inputs": {
         "api_version": "c2.build-hook/v1",
         "request": "verify $(touch never-execute)",
@@ -550,7 +586,12 @@
     {
       "id": "VH-007-010-timeout",
       "type": "integration_case",
-      "runtime": {},
+      "runtime": {
+        "allocation": {
+          "schema_version": 2,
+          "base": "ubuntu-26.04-arm64"
+        }
+      },
       "inputs": {
         "api_version": "c2.build-hook/v1",
         "request": "verify $(touch never-execute)",
@@ -667,7 +708,12 @@
     {
       "id": "VH-007-010-missing-outputs",
       "type": "integration_case",
-      "runtime": {},
+      "runtime": {
+        "allocation": {
+          "schema_version": 2,
+          "base": "ubuntu-26.04-arm64"
+        }
+      },
       "inputs": {
         "api_version": "c2.build-hook/v1",
         "request": "verify $(touch never-execute)",
@@ -779,7 +825,12 @@
     {
       "id": "VH-007-010-diagnostic-export-failure",
       "type": "integration_case",
-      "runtime": {},
+      "runtime": {
+        "allocation": {
+          "schema_version": 2,
+          "base": "ubuntu-26.04-arm64"
+        }
+      },
       "inputs": {
         "api_version": "c2.build-hook/v1",
         "request": "verify $(touch never-execute)",
@@ -898,7 +949,12 @@
     {
       "id": "VH-007-launch-check_environment",
       "type": "integration_case",
-      "runtime": {},
+      "runtime": {
+        "allocation": {
+          "schema_version": 2,
+          "base": "ubuntu-26.04-arm64"
+        }
+      },
       "inputs": {
         "api_version": "c2.build-hook/v1",
         "request": "verify $(touch never-execute)",
@@ -955,7 +1011,12 @@
     {
       "id": "VH-007-launch-check_modules",
       "type": "integration_case",
-      "runtime": {},
+      "runtime": {
+        "allocation": {
+          "schema_version": 2,
+          "base": "ubuntu-26.04-arm64"
+        }
+      },
       "inputs": {
         "api_version": "c2.build-hook/v1",
         "request": "verify $(touch never-execute)",
@@ -1066,7 +1127,12 @@
     {
       "id": "VH-007-launch-test_integration",
       "type": "integration_case",
-      "runtime": {},
+      "runtime": {
+        "allocation": {
+          "schema_version": 2,
+          "base": "ubuntu-26.04-arm64"
+        }
+      },
       "inputs": {
         "api_version": "c2.build-hook/v1",
         "request": "verify $(touch never-execute)",
@@ -1177,7 +1243,12 @@
     {
       "id": "VH-007-launch-check_skills",
       "type": "integration_case",
-      "runtime": {},
+      "runtime": {
+        "allocation": {
+          "schema_version": 2,
+          "base": "ubuntu-26.04-arm64"
+        }
+      },
       "inputs": {
         "api_version": "c2.build-hook/v1",
         "request": "verify $(touch never-execute)",
@@ -1288,7 +1359,12 @@
     {
       "id": "VH-010-missing-environment.log",
       "type": "integration_case",
-      "runtime": {},
+      "runtime": {
+        "allocation": {
+          "schema_version": 2,
+          "base": "ubuntu-26.04-arm64"
+        }
+      },
       "inputs": {
         "api_version": "c2.build-hook/v1",
         "request": "verify $(touch never-execute)",
@@ -1404,7 +1480,12 @@
     {
       "id": "VH-010-missing-modules.log",
       "type": "integration_case",
-      "runtime": {},
+      "runtime": {
+        "allocation": {
+          "schema_version": 2,
+          "base": "ubuntu-26.04-arm64"
+        }
+      },
       "inputs": {
         "api_version": "c2.build-hook/v1",
         "request": "verify $(touch never-execute)",
@@ -1520,7 +1601,12 @@
     {
       "id": "VH-010-missing-tests.log",
       "type": "integration_case",
-      "runtime": {},
+      "runtime": {
+        "allocation": {
+          "schema_version": 2,
+          "base": "ubuntu-26.04-arm64"
+        }
+      },
       "inputs": {
         "api_version": "c2.build-hook/v1",
         "request": "verify $(touch never-execute)",
@@ -1636,7 +1722,12 @@
     {
       "id": "VH-010-missing-skills.log",
       "type": "integration_case",
-      "runtime": {},
+      "runtime": {
+        "allocation": {
+          "schema_version": 2,
+          "base": "ubuntu-26.04-arm64"
+        }
+      },
       "inputs": {
         "api_version": "c2.build-hook/v1",
         "request": "verify $(touch never-execute)",
@@ -1752,7 +1843,12 @@
     {
       "id": "VH-010-missing-summary.md",
       "type": "integration_case",
-      "runtime": {},
+      "runtime": {
+        "allocation": {
+          "schema_version": 2,
+          "base": "ubuntu-26.04-arm64"
+        }
+      },
       "inputs": {
         "api_version": "c2.build-hook/v1",
         "request": "verify $(touch never-execute)",
@@ -1868,7 +1964,12 @@
     {
       "id": "VH-005-mandatory-tool-missing",
       "type": "integration_case",
-      "runtime": {},
+      "runtime": {
+        "allocation": {
+          "schema_version": 2,
+          "base": "ubuntu-26.04-arm64"
+        }
+      },
       "inputs": {
         "api_version": "c2.build-hook/v1",
         "request": "verify $(touch never-execute)",
@@ -1934,7 +2035,12 @@
     {
       "id": "VH-005-unavailable-environment-output",
       "type": "integration_case",
-      "runtime": {},
+      "runtime": {
+        "allocation": {
+          "schema_version": 2,
+          "base": "ubuntu-26.04-arm64"
+        }
+      },
       "inputs": {
         "api_version": "c2.build-hook/v1",
         "request": "verify $(touch never-execute)",
@@ -1996,7 +2102,12 @@
     {
       "id": "VH-005-incompatible-go-or-node",
       "type": "integration_case",
-      "runtime": {},
+      "runtime": {
+        "allocation": {
+          "schema_version": 2,
+          "base": "ubuntu-26.04-arm64"
+        }
+      },
       "inputs": {
         "api_version": "c2.build-hook/v1",
         "request": "verify $(touch never-execute)",
@@ -2062,7 +2173,12 @@
     {
       "id": "VH-002-unsupported-api",
       "type": "integration_case",
-      "runtime": {},
+      "runtime": {
+        "allocation": {
+          "schema_version": 2,
+          "base": "ubuntu-26.04-arm64"
+        }
+      },
       "inputs": {
         "api_version": "unsupported",
         "request": "verify $(touch never-execute)",
@@ -2126,7 +2242,12 @@
     {
       "id": "VH-010-report-failure",
       "type": "integration_case",
-      "runtime": {},
+      "runtime": {
+        "allocation": {
+          "schema_version": 2,
+          "base": "ubuntu-26.04-arm64"
+        }
+      },
       "inputs": {
         "api_version": "c2.build-hook/v1",
         "request": "verify $(touch never-execute)",
@@ -2227,7 +2348,12 @@
     {
       "id": "VH-011-012-019-020-report-roundtrip",
       "type": "integration_case",
-      "runtime": {},
+      "runtime": {
+        "allocation": {
+          "schema_version": 2,
+          "base": "ubuntu-26.04-arm64"
+        }
+      },
       "inputs": {
         "api_version": "c2.build-hook/v1",
         "request": "verify $(touch never-execute)",
@@ -2339,7 +2465,12 @@
     {
       "id": "VH-007-timeout-test_integration",
       "type": "integration_case",
-      "runtime": {},
+      "runtime": {
+        "allocation": {
+          "schema_version": 2,
+          "base": "ubuntu-26.04-arm64"
+        }
+      },
       "inputs": {
         "api_version": "c2.build-hook/v1",
         "request": "verify $(touch never-execute)",
@@ -2456,7 +2587,12 @@
     {
       "id": "VH-007-timeout-check_skills",
       "type": "integration_case",
-      "runtime": {},
+      "runtime": {
+        "allocation": {
+          "schema_version": 2,
+          "base": "ubuntu-26.04-arm64"
+        }
+      },
       "inputs": {
         "api_version": "c2.build-hook/v1",
         "request": "verify $(touch never-execute)",
@@ -2573,7 +2709,12 @@
     {
       "id": "VH-002-missing-api_version",
       "type": "integration_case",
-      "runtime": {},
+      "runtime": {
+        "allocation": {
+          "schema_version": 2,
+          "base": "ubuntu-26.04-arm64"
+        }
+      },
       "inputs": {
         "request": "verify $(touch never-execute)",
         "target_directory": "; touch never-execute",
@@ -2589,7 +2730,12 @@
     {
       "id": "VH-002-missing-request",
       "type": "integration_case",
-      "runtime": {},
+      "runtime": {
+        "allocation": {
+          "schema_version": 2,
+          "base": "ubuntu-26.04-arm64"
+        }
+      },
       "inputs": {
         "api_version": "c2.build-hook/v1",
         "target_directory": "; touch never-execute",
@@ -2605,7 +2751,12 @@
     {
       "id": "VH-002-missing-target_directory",
       "type": "integration_case",
-      "runtime": {},
+      "runtime": {
+        "allocation": {
+          "schema_version": 2,
+          "base": "ubuntu-26.04-arm64"
+        }
+      },
       "inputs": {
         "api_version": "c2.build-hook/v1",
         "request": "verify $(touch never-execute)",
@@ -2621,7 +2772,12 @@
     {
       "id": "VH-002-missing-candidate",
       "type": "integration_case",
-      "runtime": {},
+      "runtime": {
+        "allocation": {
+          "schema_version": 2,
+          "base": "ubuntu-26.04-arm64"
+        }
+      },
       "inputs": {
         "api_version": "c2.build-hook/v1",
         "request": "verify $(touch never-execute)",
@@ -2637,7 +2793,12 @@
     {
       "id": "VH-002-missing-base",
       "type": "integration_case",
-      "runtime": {},
+      "runtime": {
+        "allocation": {
+          "schema_version": 2,
+          "base": "ubuntu-26.04-arm64"
+        }
+      },
       "inputs": {
         "api_version": "c2.build-hook/v1",
         "request": "verify $(touch never-execute)",
@@ -2653,7 +2814,12 @@
     {
       "id": "VH-002-005-real-rejected-environment",
       "type": "integration_case",
-      "runtime": {},
+      "runtime": {
+        "allocation": {
+          "schema_version": 2,
+          "base": "ubuntu-26.04-arm64"
+        }
+      },
       "inputs": {
         "api_version": "unsupported",
         "request": "verify $(touch never-execute)",

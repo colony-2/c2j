@@ -64,6 +64,14 @@ Without it, existing cases retain the fast mock executor, including older cases
 labelled `integration_case`. Each runtime case has its own temporary database
 and Git repositories; no standalone server or Go project is required.
 
+For recipes with fixed execution requirements, `runtime.allocation` can provide
+synthetic facts to the case-local admission guard, for example
+`{schema_version: 2, base: ubuntu-26.04-amd64}`. Facts use the normal allocation
+validation rules; a wildcard is not an actual base. Reports identify these facts
+as `fixture_allocation`. This fixture does not provision an executor, change the
+host architecture or isolate passthrough commands. Use it for control-flow and
+reporting tests; it cannot certify native execution or worker readiness.
+
 ```yaml
 recipe: ../recipes/write-and-review.yaml
 cases:

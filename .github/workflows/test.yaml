@@ -33,6 +33,10 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '24'
+      - name: Set up pnpm bootstrap for private installation checks
+        uses: pnpm/action-setup@v4
+        with:
+          version: '12.21.0'
       - name: Set up uv for Python preparation tests
         uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
@@ -53,6 +57,9 @@ jobs:
         run: make check-mod
 
       - name: Run tests (Unix)
+        env:
+          C2J_TEST_REAL_PNPM: "1"
+          C2J_REQUIRE_NATIVE_PNPM: ${{ matrix.os == 'ubuntu-latest' && '1' || '' }}
         # The integration suite can exceed Go's default 10-minute package timeout.
         run: go test -v -tags=integration -timeout=20m ./...
       - name: Check bundled skill discovery

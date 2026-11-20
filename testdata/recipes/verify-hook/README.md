@@ -1,10 +1,11 @@
 # Verify hook scenarios
 
-Run the native runtime suite from the repository root:
+Build the candidate CLI and run the native runtime suite from the repository root:
 
 ```sh
-c2j test validate --file testdata/recipes/verify-hook/verify.test.json
-c2j test run --file testdata/recipes/verify-hook/verify.test.json --out-dir /tmp/c2j-verify-tests
+go build -o /tmp/c2j-verify-cli ./cmd/c2j
+/tmp/c2j-verify-cli test validate --file testdata/recipes/verify-hook/verify.test.json
+/tmp/c2j-verify-cli test run --file testdata/recipes/verify-hook/verify.test.json --out-dir /tmp/c2j-verify-tests
 GOPRIVATE='github.com/colony-2/*' go test ./pkg/worker/compiler -run '^TestVerifyHook' -count=1 -v
 ```
 
@@ -15,6 +16,14 @@ The report-roundtrip case runs the actual reporting shell with bound artifacts;
 the rejected-environment case runs the actual gate and reporting operations.
 The other commands are mocked: those cases do not certify the repository suite
 or the provisioned toolchain.
+
+The production hook selects `ubuntu-26.04-arm64`. These disposable fixtures
+supply a synthetic `runtime.allocation` so admission can exercise reporting and
+control flow locally. The result labels it `fixture_allocation`; it proves no
+native host, real pnpm payload acceptance or runtime activation. Live disposable
+fixtures below use the same synthetic admission facts while running real command
+bodies. Only verification of the actual repository candidate on a qualified
+executor supplies native acceptance.
 
 Missing required input cases require schema rejection. All three independent
 checks have separate failure, launch-failure and timeout cases. Each missing

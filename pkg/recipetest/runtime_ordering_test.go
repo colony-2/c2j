@@ -130,7 +130,9 @@ func TestOrderingGateBeforeResponse(t *testing.T) {
 
 func TestOrderingCancellation(t *testing.T) {
 	withRegisteredCoreOps(t, append(append(recipeops.GetOps(), inputop.GetOp()), commandop.GetOp())...)
-	result := runOrdering(t, orderingChild, "terminal", []InputFixture{{NodePath: "child/release", Response: map[string]any{}, AfterCall: &AfterCall{NodePath: "parent/unreachable", Occurrence: 1}}}, orderingParent, "1s", "deadline")
+	// Cancellation must reach an existing unfinished child. A one-second budget
+	// can expire during worker startup, before this test's prerequisite exists.
+	result := runOrdering(t, orderingChild, "terminal", []InputFixture{{NodePath: "child/release", Response: map[string]any{}, AfterCall: &AfterCall{NodePath: "parent/unreachable", Occurrence: 1}}}, orderingParent, "10s", "deadline")
 	require.NotEqual(t, "passed", result.Status)
 	require.Contains(t, result.FailureReason, "parent/unreachable")
 	require.Contains(t, result.FailureReason, "unfinished child")

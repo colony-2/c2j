@@ -49,6 +49,55 @@ not add importable dependencies to a project's Node or Python environment.
 Playwright's CLI declaration does not provision browser binaries or all browser
 system dependencies.
 
+## Private pnpm installations
+
+An authorized `pnpm:` declaration allows dependency lifecycle builds throughout
+its private installation, including transitive and selected optional dependencies.
+c2j writes this policy only in its tool-cache project; it does not approve builds
+in the managed repository or change user/global configuration. Exact references
+remain exact. The bootstrap must support `dangerouslyAllowAllBuilds` (pnpm 10.9
+or later). Conflicting build restrictions, script suppression, omitted optional
+dependencies and cross-platform overrides fail preparation rather than silently
+weakening the policy. Required build failures prevent the operation body from
+starting. This does not change the Nix prebuilt-only policy.
+
+Preparation records the bootstrap path, version, launcher type, available lifecycle
+Node identity, effective private policy and validation outcome in `setup.tools`.
+Failure diagnostics are retained in `_c2j/preparation.json`; raw configuration
+output is withheld and installer error text is bounded and redacted.
+
+The exact reference `pnpm:pnpm@12.10.1` additionally requires Linux amd64 or
+arm64 with glibc. Cold preparation selects the matching `@pnpm/exe.linux-x64`
+or `@pnpm/exe.linux-arm64` dependency and verifies its architecture-specific
+archive pin, package/platform metadata and ELF machine type, along with the
+pinned wrapper, all four installed aliases and actual `pnpm --version` execution.
+Only then is a ready cache record published. Other hosts fail this exact reference
+with their observed platform; evidence for one architecture cannot certify another.
+
+pnpm uses a new cache identity and private store/state directories. Older entries
+without retained evidence are rebuilt. Warm readiness reads local evidence and
+checks hashes, modes, symlink targets, package metadata, policy and generated
+bindings without invoking pnpm, Node or a registry. Damaged entries are repaired
+under the existing cross-process locks; failed or interrupted preparation cannot
+publish a ready entry. Evidence detects cache damage; it does not authenticate
+against an actor able to replace both the cache and its evidence.
+
+The build verify hook selects the existing `ubuntu-26.04-arm64` route and retains
+required tools and process-provenance checks. Basic worker readiness is separate
+from pnpm's offline correctness tests. Real payload preparation checks cold setup,
+warm reuse without bootstrap execution, aliases and damaged-cache repair. The
+separate offline test uses seccomp/TSYNC in a test subprocess to enforce network
+denial and verify cached execution, with before/after connectivity controls.
+A passing readiness check does not make an offline failure pass.
+
+The framework runs these tests through the existing hook before merge and owns
+verification and publication. The existing Linux amd64 CI row retains matching
+native acceptance; arm64 runs the matching payload tests, and other matrix rows
+retain portable build-policy tests. Known translation fails required native
+acceptance. These tests validate candidate source; the executor operator must
+separately establish that a preparation worker runs the published runtime before
+claiming activation.
+
 ## Python script environments
 
 On Linux and macOS workers, use `python` for libraries imported by scripts. `uv:` continues to install CLI

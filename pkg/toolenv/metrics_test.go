@@ -33,6 +33,12 @@ func metricSetupFixture(t *testing.T) (func() time.Time, string) {
 	t.Setenv("METRIC_BIN", bin)
 	script := `#!/bin/sh
 set -eu
+if [ "${0##*/}" = pnpm ]; then
+ case "$1" in
+  --version) echo 12.21.0; exit 0;;
+  config) echo '{"dangerouslyAllowAllBuilds":true,"strictDepBuilds":true,"ignoreScripts":false,"optional":true}'; exit 0;;
+ esac
+fi
 n=$(cat "$METRIC_CLOCK"); echo $((n+4)) > "$METRIC_CLOCK"
 : > "$METRIC_MARKER"
 case "$METRIC_MODE" in fail) echo "secret-manager-error /private/fixture https://private.invalid" >&2; exit 7;; cancel) sleep 60;; esac

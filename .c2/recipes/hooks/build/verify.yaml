@@ -3,7 +3,10 @@
 # a successful command whose enclosing state has not committed completion.
 id: c2j-build-verify
 version: "1.0.0"
-desc: Validate the candidate on this worker with independently recorded CI checks.
+desc: Validate the candidate on Linux arm64 with independently recorded CI checks.
+execution:
+  # Use the existing arm64 route for package preparation and offline tests.
+  base: ubuntu-26.04-arm64
 input_schema:
   api_version:
     type: string
@@ -60,10 +63,19 @@ state:
           printf 'Local platform: '; uname -s -m || true
           printf 'Observed HEAD: '; git rev-parse HEAD || true
           bad=0
+          if [ "$(uname -s -m)" != 'Linux aarch64' ]; then
+            printf 'Native pnpm acceptance requires Linux aarch64.\n'; bad=1
+          fi
+          # Preserve the completed provenance gate for the selected architecture.
+          if [ ! -r /proc/self/maps ]; then
+            printf 'Missing process maps for native acceptance provenance.\n'; bad=1
+          elif grep -E '/run/rosetta/rosetta|/qemu-x86_64|/qemu-aarch64' /proc/self/maps; then
+            printf 'Native pnpm acceptance failed: emulated executor; native execution is required.\n'; bad=1
+          fi
           if [ "$API_VERSION" != c2.build-hook/v1 ]; then
             printf 'Unsupported API version: %s\n' "$API_VERSION"; bad=1
           fi
-          for tool in bash git make go node npm npx; do
+          for tool in bash git make go node npm npx pnpm; do
             if ! command -v "$tool"; then printf 'Missing mandatory tool: %s\n' "$tool"; bad=1; fi
           done
           if command -v go >/dev/null; then
@@ -76,6 +88,7 @@ state:
           fi
           if command -v npm >/dev/null; then npm --version || bad=1; fi
           if command -v npx >/dev/null; then npx --version || bad=1; fi
+          if command -v pnpm >/dev/null; then pnpm --version || bad=1; fi
           bash --version | head -n 1 || true
           git --version || true
           make --version | head -n 1 || true
@@ -146,6 +159,9 @@ state:
           GOPRIVATE: github.com/colony-2/*
           GOTOOLCHAIN: local
           GOFLAGS: -mod=readonly
+          # Real private dependency builds and arm64 readiness and offline correctness.
+          C2J_TEST_REAL_PNPM: "1"
+          C2J_REQUIRE_NATIVE_PNPM: "1"
           OUTBOX: "${{ context.environment.op.outbox }}"
         run: |
           set -eu

@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -23,13 +22,12 @@ func seedRunnerTool(t *testing.T, m *Manager, ref, sentinel string, names ...str
 	t.Helper()
 	manager, _, err := execution.ParsePackage(ref)
 	require.NoError(t, err)
-	version := "v1"
-	if manager == "nix" {
-		version = "nix-v2"
-	}
-	id := key([]string{version, runtime.GOOS, runtime.GOARCH, ref})
+	id := packageIdentity(manager, ref)
 	dir := filepath.Join(m.Root, "packages", id)
 	bin := filepath.Join(dir, "bin with 'quotes'")
+	if manager == "pnpm" {
+		bin = filepath.Join(dir, "node_modules", ".bin")
+	}
 	require.NoError(t, os.MkdirAll(bin, 0700))
 	for _, name := range names {
 		// Log every call and emit an unambiguous argument stream.
@@ -48,10 +46,16 @@ func seedRunnerTool(t *testing.T, m *Manager, ref, sentinel string, names ...str
 		require.NoError(t, err)
 		tool.Nix = &nixTool{Input: identity, Roots: []retainedRoot{{Link: root, Target: identity}}}
 	}
-	require.True(t, toolReady(tool), "seeded fixture must be ready before publishing")
+	if manager == "pnpm" {
+		tool.Pnpm = &pnpmTool{Schema: pnpmSchema, Diagnostic: pnpmDiagnostic{Policy: pnpmPolicy, Validation: "validated"}}
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "package.json"), []byte(`{"private":true}`), 0600))
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "pnpm-workspace.yaml"), []byte(pnpmPolicy), 0600))
+		require.NoError(t, retainPnpm(&tool))
+	}
 	b, err := json.Marshal(tool)
 	require.NoError(t, err)
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "ready.json"), b, 0600))
+	require.True(t, toolReady(tool), "published fixture must be complete")
 }
 
 func runnerCommand(t *testing.T, env Environment, command ...string) (string, string, error) {

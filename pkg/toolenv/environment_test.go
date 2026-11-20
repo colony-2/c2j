@@ -20,6 +20,12 @@ func fakeManagers(t *testing.T) string {
 	t.Setenv("TOOL_INSTALL_LOG", log)
 	script := `#!/bin/sh
 set -eu
+if [ "${0##*/}" = pnpm ]; then
+ case "$1" in
+  --version) ` + shellcmd.LiteralLine("12.21.0") + `; exit 0;;
+  config) ` + shellcmd.LiteralLine(`{"dangerouslyAllowAllBuilds":true,"strictDepBuilds":true,"ignoreScripts":false,"optional":true}`) + `; exit 0;;
+ esac
+fi
 for spec do :; done
 printf '%s\n' "$spec" >> "$TOOL_INSTALL_LOG"
 [ "$spec" != broken ] || exit 4

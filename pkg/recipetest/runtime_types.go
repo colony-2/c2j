@@ -4,14 +4,19 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	inputop "github.com/colony-2/c2j/pkg/input"
 	"path/filepath"
 	"strings"
+
+	"github.com/colony-2/c2j/pkg/execution"
+	inputop "github.com/colony-2/c2j/pkg/input"
 )
 
 // RuntimeCase opts a case into real JobDB and worker execution. Legacy cases
 // (including integration_case) retain their existing executor when omitted.
 type RuntimeCase struct {
+	// Allocation supplies synthetic facts to the case-local admission guard.
+	// It does not provision an executor or certify the host running passthrough.
+	Allocation *execution.Allocation `json:"allocation,omitempty"`
 	// Backend defaults to the compatible in-memory runtime. sqlite creates a
 	// disposable on-disk database owned exclusively by this case.
 	Controls *RuntimeControls   `json:"controls,omitempty"`
@@ -95,6 +100,7 @@ type RepositoryReport struct {
 }
 
 type RuntimeReport struct {
+	FixtureAllocation     *execution.Allocation       `json:"fixture_allocation,omitempty"`
 	Events                []OrderingEvent             `json:"events,omitempty"`
 	Controls              *ControlReport              `json:"controls,omitempty"`
 	ObservationsVersion   int                         `json:"observations_version,omitempty"`
@@ -152,6 +158,10 @@ func validateRuntimeCase(opts HarnessOptions, c Case) []Issue {
 	}
 	if c.Runtime.Backend != "" && c.Runtime.Backend != "memory" && c.Runtime.Backend != "sqlite" {
 		add(fmt.Errorf("unknown runtime backend %q; use memory or sqlite", c.Runtime.Backend))
+	}
+	if c.Runtime.Allocation != nil {
+		_, err := c.Runtime.Allocation.Normalize()
+		add(err)
 	}
 	add(validateControls(c.Runtime))
 	if c.Runtime.Controls != nil && c.Runtime.Controls.Scenario != nil && c.ExpectError != "" {

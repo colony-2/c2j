@@ -57,7 +57,9 @@ cases:
   - {type: cel_true, expr: "size(outputs.merged_hash) == 40 && repositories.root.head == outputs.merged_hash && repositories.root.new_commits == 1 && repositories.root.files['checkpoint.txt'] == 'persisted' && repositories.root.clean"}
 `)
 	var output bytes.Buffer
-	err := Run(context.Background(), Options{FilePath: filepath.Join(root, "native.test.yaml"), OutDir: filepath.Join(root, "results"), Stdout: &output, Execution: ExecutionOptions{Timeout: "10s"}})
+	// This covers worker startup and real Git persistence/merge, not latency.
+	// Keep a bounded budget that permits all persistence assertions to run.
+	err := Run(context.Background(), Options{FilePath: filepath.Join(root, "native.test.yaml"), OutDir: filepath.Join(root, "results"), Stdout: &output, Execution: ExecutionOptions{Timeout: "60s"}})
 	data, _ := os.ReadFile(filepath.Join(root, "results/summary.json"))
 	require.NoError(t, err, "%s\n%s", output.String(), data)
 }

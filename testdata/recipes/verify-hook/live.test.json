@@ -44,6 +44,10 @@
             "records": 8,
             "bytes": 1048576
           }
+        },
+        "allocation": {
+          "schema_version": 2,
+          "base": "ubuntu-26.04-arm64"
         }
       },
       "mocks": {
@@ -125,6 +129,10 @@
             "records": 8,
             "bytes": 1048576
           }
+        },
+        "allocation": {
+          "schema_version": 2,
+          "base": "ubuntu-26.04-arm64"
         }
       },
       "mocks": {
@@ -210,6 +218,10 @@
             "records": 8,
             "bytes": 1048576
           }
+        },
+        "allocation": {
+          "schema_version": 2,
+          "base": "ubuntu-26.04-arm64"
         }
       },
       "mocks": {
@@ -296,6 +308,10 @@
             "records": 8,
             "bytes": 1048576
           }
+        },
+        "allocation": {
+          "schema_version": 2,
+          "base": "ubuntu-26.04-arm64"
         }
       },
       "mocks": {
@@ -381,6 +397,10 @@
             "records": 8,
             "bytes": 1048576
           }
+        },
+        "allocation": {
+          "schema_version": 2,
+          "base": "ubuntu-26.04-arm64"
         }
       },
       "mocks": {
@@ -466,6 +486,10 @@
             "records": 8,
             "bytes": 1048576
           }
+        },
+        "allocation": {
+          "schema_version": 2,
+          "base": "ubuntu-26.04-arm64"
         }
       },
       "mocks": {
@@ -543,6 +567,10 @@
             "records": 8,
             "bytes": 1048576
           }
+        },
+        "allocation": {
+          "schema_version": 2,
+          "base": "ubuntu-26.04-arm64"
         }
       },
       "mocks": {
