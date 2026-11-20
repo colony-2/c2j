@@ -501,6 +501,10 @@ var c2jJobSchema = json.RawMessage(`{
           "cell"
         ],
         "properties": {
+          "available_at": {
+            "type": "string",
+            "format": "date-time"
+          },
           "execution": {
             "type": "object"
           },

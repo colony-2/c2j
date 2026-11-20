@@ -186,6 +186,14 @@ state:
           done
           # Bound concurrent fixture work and allow the full compiler suite to finish.
           go test -count=1 -v -tags=integration -p 2 -timeout=20m ./...
+          # Check the linked CLI as well as its packages: submissions must expose
+          # every supported wait option in the executable being reviewed.
+          go build -buildvcs=false -o "$scratch/c2j" ./cmd/c2j
+          "$scratch/c2j" submit --help > "$scratch/submit-help.txt"
+          for flag in --wait-job --wait-job-success --wait-goal --wait-until; do
+            grep -q -- "$flag " "$scratch/submit-help.txt"
+          done
+          cat "$scratch/submit-help.txt"
       catch:
         - when: "failure.kind != 'cancellation'"
           continue:

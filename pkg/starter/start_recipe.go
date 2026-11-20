@@ -156,6 +156,11 @@ func StartRecipeJobWithOptions(ctx context.Context, startJob workflowctl.StartJo
 // PrepareRecipeJob resolves the complete semantic request without publishing it.
 // Retain this value through Descriptor before attempting selected publication.
 func PrepareRecipeJob(ctx context.Context, startJob workflowctl.StartJob, opts StartRecipeJobOptions, recipes ...recipe.Recipe) (jobdb.SubmitJob, error) {
+	// Keep caller mutations from changing the prepared request or its input.
+	if startJob.AvailableAt != nil {
+		instant := startJob.AvailableAt.UTC()
+		startJob.AvailableAt = &instant
+	}
 	if err := jobdb.ValidateCellName(startJob.Cell); err != nil {
 		return jobdb.SubmitJob{}, fmt.Errorf("cell name is required: %w", err)
 	}
@@ -253,6 +258,7 @@ func PrepareRecipeJob(ctx context.Context, startJob workflowctl.StartJob, opts S
 	}
 
 	job := jobdb.SubmitJob{
+		AvailableAt:  startJob.AvailableAt,
 		Cell:         startJob.Cell,
 		CellRepo:     startJob.CellRepo,
 		TenantId:     startJob.TenantId,

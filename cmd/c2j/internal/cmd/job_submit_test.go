@@ -9,9 +9,12 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/c2j/pkg/recipejob"
+	"github.com/colony-2/c2j/pkg/workflowctl"
+	"github.com/colony-2/jobdb/pkg/jobdb"
 	remoteruntime "github.com/colony-2/jobdb/pkg/jobdb/runtime/remote"
 	toyruntime "github.com/colony-2/jobdb/pkg/jobdb/runtime/toy"
 	"github.com/stretchr/testify/require"
@@ -25,7 +28,7 @@ func TestSubmitHelpPromotesConventions(t *testing.T) {
 	if err := cmd.Execute(); err != nil {
 		t.Fatal(err)
 	}
-	for _, flag := range []string{"--advanced-recipe", "--advanced-recipe-file", "--title", "--prompt-file"} {
+	for _, flag := range []string{"--advanced-recipe", "--advanced-recipe-file", "--title", "--prompt-file", "--wait-job", "--wait-job-success", "--wait-goal", "--wait-until"} {
 		if !strings.Contains(out.String(), flag) {
 			t.Fatalf("help missing %s: %s", flag, &out)
 		}
@@ -208,5 +211,69 @@ func TestSubmitPromptFileErrors(t *testing.T) {
 			cmd.SetArgs(append(tc.args, "--cell", "app", "--cell-repo", celltest.Repo(root), "--jobdb", "http://127.0.0.1:1/tenant"))
 			require.ErrorContains(t, cmd.Execute(), tc.want)
 		})
+	}
+}
+
+func TestSubmitWaitFlagsReachHTTPPublication(t *testing.T) {
+	ctx := celltest.Context(context.Background())
+	root := t.TempDir()
+	db := toyruntime.New()
+	celltest.Create(t, db, "waits", "app", celltest.Repo(root))
+	targets := map[string]jobdb.JobHandle{}
+	for _, id := range []string{"literal,a", "success", "goal-source"} {
+		ref, err := db.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "waits", Cell: "app", CellRepo: celltest.Repo(root), JobID: id, JobType: "work", Data: jobdb.NewTaskDataOrPanic(nil)}})
+		require.NoError(t, err)
+		targets[id] = ref
+	}
+	server := httptest.NewServer(celltest.Handler(remoteruntime.NewConsumerServer(db)))
+	defer server.Close()
+	year := time.Now().Year() + 1
+	requested := time.Date(year, 1, 1, 12, 20, 0, 123456789, time.FixedZone("offset", 19800))
+	want := requested.UTC().Format(time.RFC3339Nano)
+	for _, custom := range []bool{false, true} {
+		cmd := newSubmitCmd()
+		var out, stderr bytes.Buffer
+		cmd.SetOut(&out)
+		cmd.SetErr(&stderr)
+		args := []string{"continue", "--cell", "app", "--cell-repo", celltest.Repo(root), "--jobdb", server.URL + "/waits", "--json", "--wait-goal", targets["goal-source"].GoalID, "--wait-job", " literal,a ", "--wait-job-success", "success", "--wait-job", "literal,a", "--wait-until", requested.Format(time.RFC3339Nano)}
+		if custom {
+			args = append(args, "--advanced-recipe", "custom")
+		}
+		cmd.SetArgs(args)
+		require.NoError(t, cmd.Execute())
+		var identity map[string]any
+		require.NoError(t, json.Unmarshal(out.Bytes(), &identity))
+		require.Len(t, identity, 7, "JSON must retain its identity-only shape")
+		key := jobdb.JobKey{TenantId: "waits", JobId: identity["job_id"].(string)}
+		chapter, err := db.GetChapter(ctx, jobdb.ChapterRef{JobKey: key, Ordinal: 0})
+		require.NoError(t, err)
+		var start workflowctl.StartJob
+		require.NoError(t, json.Unmarshal(chapter.Body.(jobdb.JobStartChapter).Input.Data, &start))
+		require.Equal(t, []jobdb.Dependency{
+			{Target: jobdb.DependencyTarget{GoalID: targets["goal-source"].GoalID}, Condition: jobdb.JobPrereqSuccess},
+			{Target: jobdb.DependencyTarget{JobID: "literal,a"}, Condition: jobdb.JobPrereqComplete},
+			{Target: jobdb.DependencyTarget{JobID: "success"}, Condition: jobdb.JobPrereqSuccess},
+		}, start.Dependencies)
+		require.Equal(t, want, start.AvailableAt.Format(time.RFC3339Nano))
+		require.Contains(t, stderr.String(), "Requested earliest start: "+want+" (input zone: +05:30)")
+	}
+}
+
+func TestSubmitWaitFlagErrorsBeforePublication(t *testing.T) {
+	for _, args := range [][]string{
+		{"--wait-job"}, {"--wait-job="}, {"--wait-job-success="}, {"--wait-goal="}, {"--wait-until="},
+		{"--wait-job", "a", "--wait-job-success", "a"},
+		{"--wait-job-success", "a", "--wait-job", "a"},
+		{"--wait-until", "1h", "--wait-until", "1h"},
+		{"--replay", "missing", "--wait-job="},
+		{"--replay", "missing", "--wait-until="},
+	} {
+		cmd := newSubmitCmd()
+		cmd.SetOut(&bytes.Buffer{})
+		cmd.SetErr(&bytes.Buffer{})
+		cmd.SetArgs(append(args, "--jobdb", "http://127.0.0.1:1/t", "--cell", "app", "prompt"))
+		err := cmd.Execute()
+		require.Error(t, err)
+		require.NotContains(t, err.Error(), "connection refused")
 	}
 }

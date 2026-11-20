@@ -54,6 +54,25 @@ func Run(ctx context.Context, opts Options) error {
 	if err := requirePrompt(&opts, inputs); err != nil {
 		return err
 	}
+	dependencies, err := opts.dependencies()
+	if err != nil {
+		return err
+	}
+	var availableAt *time.Time
+	if len(opts.WaitUntil) == 1 {
+		clock := opts.Clock
+		if clock == nil {
+			clock = time.Now
+		}
+		resolved, zone, err := resolveWaitTime(opts.WaitUntil[0], clock(), opts.Location)
+		if err != nil {
+			return err
+		}
+		availableAt = &resolved
+		if _, err := fmt.Fprintf(opts.Stderr, "Requested earliest start: %s (input zone: %s)\n", resolved.Format(time.RFC3339Nano), zone); err != nil {
+			return err
+		}
+	}
 
 	c2jops.Register()
 
@@ -113,6 +132,8 @@ func Run(ctx context.Context, opts Options) error {
 		jobID = ksuid.New().String()
 	}
 	start, err := recipejob.BuildStartJob(recipejob.BuildStartJobRequest{
+		Dependencies:          dependencies,
+		AvailableAt:           availableAt,
 		ExecutionRequirements: opts.ExecutionRequirements,
 		TenantID:              opts.TenantID,
 		JobID:                 jobID,
@@ -161,6 +182,9 @@ func Run(ctx context.Context, opts Options) error {
 			}
 		}
 		if err != nil {
+			return err
+		}
+		if err := validatePreparedWaits(descriptor, dependencies, availableAt); err != nil {
 			return err
 		}
 		retained := retainedSubmission{Version: 1, RuntimeURL: opts.SWFURL, TenantID: opts.TenantID, Broker: hasBroker, Descriptor: descriptor}

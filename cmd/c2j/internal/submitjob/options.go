@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/colony-2/c2j/cmd/c2j/internal/defaults"
 	"github.com/colony-2/c2j/cmd/c2j/internal/executionflags"
@@ -14,7 +15,13 @@ import (
 )
 
 type Options struct {
-	route                 *submissionRoute
+	route     *submissionRoute
+	Waits     []Wait
+	WaitUntil []string
+	// Clock and Location allow callers to resolve relative/local times consistently.
+	// Defaults are time.Now and time.Local.
+	Clock                 func() time.Time
+	Location              *time.Location
 	GoalID                string
 	JobID                 string
 	RequestFile           string
@@ -92,6 +99,15 @@ func (o *Options) Complete(ctx context.Context) error {
 }
 
 func (o Options) Validate() error {
+	if o.ReplayFile != "" && (len(o.Waits) > 0 || len(o.WaitUntil) > 0) {
+		return fmt.Errorf("--replay cannot override the retained semantic request with waits")
+	}
+	if _, err := o.dependencies(); err != nil {
+		return err
+	}
+	if len(o.WaitUntil) > 1 {
+		return fmt.Errorf("--wait-until accepts at most one occurrence")
+	}
 	if o.ReplayFile != "" && (o.GoalID != "" || o.JobID != "" || o.RequestFile != "" || o.PromptSet || o.Prompt != "" || o.PromptFile != "" || o.Title != "" || o.PromptFileSet || o.TitleSet || o.InputsJSON != "" || o.InputsFile != "" || o.Recipe != "" || o.RecipeFile != "" || len(o.ArtifactSpecs) > 0 || o.FromWorkspace || o.FromWorkspaceNow || o.Self || o.Cell != "" || o.CellRepo != "" || !o.ExecutionRequirements.Empty()) {
 		return fmt.Errorf("--replay cannot override the retained semantic request")
 	}

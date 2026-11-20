@@ -80,3 +80,25 @@ func TestBuildStartJobDefaultsRecipeAndRef(t *testing.T) {
 		t.Fatalf("GitRef = %q", start.GitRef)
 	}
 }
+
+func TestBuildStartJobAvailabilityOwnsUTCValue(t *testing.T) {
+	instant := time.Date(2027, 1, 1, 12, 20, 0, 123456789, time.FixedZone("offset", 19800))
+	want := instant.UTC()
+	req := BuildStartJobRequest{TenantID: "t", Target: ResolvedTarget{RepositorySource: "github.com/acme/app", CellName: "app"}, AvailableAt: &instant}
+	start, err := BuildStartJob(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	instant = instant.Add(time.Hour)
+	if start.AvailableAt == nil || *start.AvailableAt != want {
+		t.Fatalf("availability = %v, want %v", start.AvailableAt, want)
+	}
+	req.AvailableAt = nil
+	start, err = BuildStartJob(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if start.AvailableAt != nil {
+		t.Fatal("omitted availability added")
+	}
+}

@@ -80,8 +80,18 @@ func TestVerifyHookSubmissionEnvironmentAndGate(t *testing.T) {
 	require.NoError(t, err)
 	state := r.RecipeImpl.(*recipe.RecipeState)
 	node := state.States.States["test_integration"].Node.NodeImpl.(*recipe.NodeOp)
-	for _, failGate := range []string{"", "TestLeaseBoundRestartHelperSubmission", "TestBrokerOnlyCLI"} {
-		t.Run("fail="+failGate, func(t *testing.T) {
+	for _, fixture := range []struct {
+		name            string
+		failGate        bool
+		failedHelper    bool
+		missingWaitGoal bool
+	}{
+		{name: "healthy"},
+		{name: "broker-gate", failGate: true},
+		{name: "helper-gate", failedHelper: true},
+		{name: "missing-wait-help", missingWaitGoal: true},
+	} {
+		t.Run(fixture.name, func(t *testing.T) {
 			root := t.TempDir()
 			bin := filepath.Join(root, "bin")
 			outbox := filepath.Join(root, "outbox")
@@ -96,22 +106,35 @@ for variable in ${!C2J_CURRENT_@} ${!C2J_CHILD_JOB_@} ${!C2J_WORKSPACE_@}; do ex
 test -z "${C2J_JOBDB+x}${C2J_TENANT_ID+x}${C2J_OBJECT_OUTBOX+x}${C2J_TEST_SUBMIT_BINARY+x}"
 test "$GOWORK" = off
 printf '%s %s\n' "${0##*/}" "$*" >> "$COMMANDS"
-if [ -n "$FAIL_GATE" ] && [[ "$*" == *"$FAIL_GATE"* ]]; then exit 42; fi
+if [[ "$*" == *TestLeaseBoundRestartHelperSubmission* ]] && [ "$FAIL_HELPER" = true ]; then exit 42; fi
+if [[ "$*" == *TestBrokerOnlyCLI* ]] && [ "$FAIL_GATE" = true ]; then exit 42; fi
 if [ "$1" = build ]; then
-  test "$#" = 4 && test "$2" = -o && test "$4" = ./cmd/c2j
-  cp -- "$0" "$3"
-  chmod 0700 "$3"
+  shift
+  if [ "$1" = -buildvcs=false ]; then shift; fi
+  test "$#" = 3 && test "$1" = -o && test "$3" = ./cmd/c2j
+  cp -- "$0" "$2"
+  chmod 0700 "$2"
+fi
+if [ "$1" = submit ]; then
+  test "$#" = 2 && test "$2" = --help
+  for flag in --wait-job --wait-job-success --wait-goal --wait-until; do
+    if [ "$MISSING_WAIT_GOAL" = true ] && [ "$flag" = --wait-goal ]; then continue; fi
+    printf '  %s value\n' "$flag"
+  done
 fi
 `
 			require.NoError(t, os.WriteFile(filepath.Join(bin, "go"), []byte(mock), 0700))
 			commands := filepath.Join(root, "commands")
 			cmd := exec.Command("bash", "-c", node.Inputs["run"].(string))
 			cmd.Dir = root
-			cmd.Env = append(os.Environ(), "PATH="+bin+":"+os.Getenv("PATH"), "OUTBOX="+outbox, "COMMANDS="+commands, "FAIL_GATE="+failGate, "C2J_CURRENT_JOB_ID=live", "C2J_CHILD_JOB_TOKEN=live", "C2J_WORKSPACE_ROOT=live", "C2J_JOBDB=embed:///", "C2J_TENANT_ID=live", "C2J_OBJECT_OUTBOX=live", "C2J_TEST_SUBMIT_BINARY=/stale/c2j")
+			cmd.Env = append(os.Environ(), "PATH="+bin+":"+os.Getenv("PATH"), "OUTBOX="+outbox, "COMMANDS="+commands, fmt.Sprintf("FAIL_GATE=%t", fixture.failGate), fmt.Sprintf("FAIL_HELPER=%t", fixture.failedHelper), fmt.Sprintf("MISSING_WAIT_GOAL=%t", fixture.missingWaitGoal), "C2J_CURRENT_JOB_ID=live", "C2J_CHILD_JOB_TOKEN=live", "C2J_WORKSPACE_ROOT=live", "C2J_JOBDB=embed:///", "C2J_TENANT_ID=live", "C2J_OBJECT_OUTBOX=live", "C2J_TEST_SUBMIT_BINARY=/stale/c2j")
 			out, err := cmd.CombinedOutput()
-			if failGate != "" {
+			if fixture.failGate || fixture.failedHelper {
 				require.Error(t, err)
 				require.Equal(t, 42, cmd.ProcessState.ExitCode())
+			} else if fixture.missingWaitGoal {
+				require.Error(t, err)
+				require.Equal(t, 1, cmd.ProcessState.ExitCode())
 			} else {
 				require.NoError(t, err, string(out))
 			}
@@ -119,12 +142,12 @@ fi
 			require.NoError(t, err)
 			helperGate := "go test -mod=readonly -count=1 -v -timeout=5m ./pkg/executionruntime -run ^TestLeaseBoundRestartHelperSubmission$\n"
 			require.True(t, strings.HasPrefix(string(raw), helperGate), "helper regression must run first, after identity isolation")
-			if failGate == "TestLeaseBoundRestartHelperSubmission" {
+			if fixture.failedHelper {
 				require.Equal(t, helperGate, string(raw), "failed helper regression must prevent every later command")
 			} else {
 				require.Contains(t, string(raw), "-run ^TestBrokerOnlyCLI")
 			}
-			if failGate != "" {
+			if fixture.failGate || fixture.failedHelper {
 				require.NotContains(t, string(raw), "-tags=integration -p 2")
 				require.NotContains(t, string(raw), "./internal/retirementcheck")
 				require.NotContains(t, string(raw), "go build")
@@ -137,6 +160,8 @@ fi
 				require.Contains(t, string(raw), "go test -count=1 -v -timeout=10m ./internal/retirementcheck")
 				require.Less(t, strings.Index(string(raw), "-run ^TestSubmission"), strings.Index(string(raw), "./internal/retirementcheck"))
 				require.Contains(t, string(raw), "-tags=integration -p 2")
+				require.Contains(t, string(raw), "go build -buildvcs=false -o ")
+				require.Contains(t, string(raw), "c2j submit --help\n")
 				require.Equal(t, 4, strings.Count(string(raw), "c2j test validate --file "))
 				require.Equal(t, 4, strings.Count(string(raw), "c2j test run --file "))
 				for _, suite := range []string{"admission-ordering", "advancement", "cancellation", "worker-recovery"} {

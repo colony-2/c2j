@@ -173,6 +173,10 @@
         },
         {
           "type": "cel_true",
+          "expr": "calls.filter(c, c.node_path == \"c2j-build-verify/test_integration/test_integration\")[0].inputs.run.contains(\"go build -buildvcs=false\") && calls.filter(c, c.node_path == \"c2j-build-verify/test_integration/test_integration\")[0].inputs.run.contains(\"submit --help\") && calls.filter(c, c.node_path == \"c2j-build-verify/test_integration/test_integration\")[0].inputs.run.contains(\"for flag in --wait-job --wait-job-success --wait-goal --wait-until; do\")"
+        },
+        {
+          "type": "cel_true",
           "expr": "calls.filter(c, c.node_path == \"c2j-build-verify/check_skills/check_skills\")[0].inputs.run.contains(\"npx -y skills add . --list --full-depth\")"
         }
       ]

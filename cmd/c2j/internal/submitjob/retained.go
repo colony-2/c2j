@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
+	"time"
 
 	"github.com/colony-2/c2j/cmd/c2j/internal/runjob"
 	"github.com/colony-2/c2j/cmd/c2j/internal/swfruntime"
@@ -16,6 +18,22 @@ import (
 	"github.com/colony-2/c2j/pkg/workflowctl"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 )
+
+// Check fresh CLI preparation before saving or publishing. Historical replay
+// continues to use Descriptor.Job as authoritative, without rebuilding input.
+func validatePreparedWaits(d starter.Descriptor, deps []jobdb.Dependency, availableAt *time.Time) error {
+	var input workflowctl.StartJob
+	if err := json.Unmarshal(d.Input, &input); err != nil {
+		return err
+	}
+	sameTime := func(a, b *time.Time) bool {
+		return a == nil && b == nil || a != nil && b != nil && a.Equal(*b)
+	}
+	if !slices.Equal(d.Job.Dependencies, deps) || !slices.Equal(input.Dependencies, deps) || !sameTime(d.Job.AvailableAt, availableAt) || !sameTime(input.AvailableAt, availableAt) {
+		return fmt.Errorf("prepared submission changed dependencies or earliest start time")
+	}
+	return nil
+}
 
 type retainedSubmission struct {
 	Version    int                `json:"version"`

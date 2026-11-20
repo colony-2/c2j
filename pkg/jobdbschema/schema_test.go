@@ -238,10 +238,10 @@ func TestRestoredGoalSchema(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if hash != "sha256:effefa237ec37c489b9239d3bccb270e86f68e0520acea50fd8151f638d7783e" {
+	if hash != "sha256:041adb37419b109a42f8c49c2a57d028b4e87733228a8b374c4c4bca3450916a" {
 		t.Fatalf("unexpected schema hash: %s", hash)
 	}
-	for _, extra := range []string{"", `,"goal_id":"stale"`, `,"unknown":true`, `,"job_id":12`} {
+	for _, extra := range []string{"", `,"available_at":"2027-01-01T12:20:00.123456789Z"`, `,"available_at":12`, `,"goal_id":"stale"`, `,"unknown":true`, `,"job_id":12`} {
 		t.Run(extra, func(t *testing.T) {
 			rt := toyruntime.New()
 			ctx := celltest.Context(context.Background())
@@ -252,10 +252,11 @@ func TestRestoredGoalSchema(t *testing.T) {
 			}
 			raw := json.RawMessage(`{"tenantId":"tenant","cell":"test","cell_repo":"example.test/test","recipe":"build","context":{},"inputs":{"goal_id":"nested"}` + extra + `}`)
 			_, err = rt.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "tenant", JobID: "dest", JobType: "recipe", Cell: "test", CellRepo: "example.test/test", Schema: &jobdb.JobSchemaSelector{Hash: hash}, Data: &jobdb.SimpleTaskData{Data: raw}}})
-			if extra == "" && err != nil {
+			valid := extra == "" || extra == `,"available_at":"2027-01-01T12:20:00.123456789Z"`
+			if valid && err != nil {
 				t.Fatal(err)
 			}
-			if extra != "" && err == nil {
+			if !valid && err == nil {
 				t.Fatal("invalid input accepted")
 			}
 		})

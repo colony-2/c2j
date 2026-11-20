@@ -43,6 +43,8 @@ type JobInspection struct {
 }
 
 type StartJob struct {
+	// AvailableAt is an earliest execution instant, resolved before preparation.
+	AvailableAt *time.Time `json:"available_at,omitempty"`
 	// Title labels the job metadata without adding a recipe input.
 	Title        string                 `json:"title,omitempty"`
 	GoalID       string                 `json:"goal_id,omitempty"`

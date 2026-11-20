@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/c2j/pkg/cellref"
@@ -67,6 +68,10 @@ func TestSelectedCLILostResponseRetainsExactRequest(t *testing.T) {
 	defer server.Close()
 	uri := testJobDBURI(server.URL, "selected")
 	opts := Options{JobDBURI: uri, WorkingDir: root, Cell: "app", RecipeFile: recipeFile, Prompt: "new instructions", PromptSet: true, GoalID: source.GoalID, JobID: "dest", RequestFile: requestFile, JSONOutput: true, Stdout: &bytes.Buffer{}}
+	prereq, err := rt.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "selected", JobID: "prereq", Cell: "app", CellRepo: celltest.Repo(root), JobType: "work", Data: jobdb.NewTaskDataOrPanic(nil)}})
+	require.NoError(t, err)
+	opts.Waits = []Wait{{WaitJob, "prereq"}, {WaitGoal, prereq.GoalID}}
+	opts.WaitUntil = []string{"1h"}
 	firstErr := Run(ctx, opts)
 	require.Error(t, firstErr)
 	t.Logf("first result: %v; committed responses: %d", firstErr, publications.Load())
@@ -76,6 +81,9 @@ func TestSelectedCLILostResponseRetainsExactRequest(t *testing.T) {
 	require.NoError(t, err)
 	var saved retainedSubmission
 	require.NoError(t, json.Unmarshal(raw, &saved))
+	require.Len(t, saved.Descriptor.Job.Dependencies, 2)
+	require.NotNil(t, saved.Descriptor.Job.AvailableAt)
+	require.NoError(t, validatePreparedWaits(saved.Descriptor, saved.Descriptor.Job.Dependencies, saved.Descriptor.Job.AvailableAt))
 	require.Equal(t, "dest", saved.Descriptor.Job.JobID)
 	require.Equal(t, source.GoalID, saved.Descriptor.Job.GoalID)
 	var prepared map[string]json.RawMessage
@@ -106,6 +114,26 @@ func TestSelectedCLILostResponseRetainsExactRequest(t *testing.T) {
 	changedFile := filepath.Join(t.TempDir(), "changed.json")
 	require.NoError(t, saveRetained(changedFile, changed))
 	require.ErrorIs(t, Run(ctx, Options{JobDBURI: uri, ReplayFile: changedFile, Stdout: &bytes.Buffer{}}), jobdb.ErrExistingJobMismatch)
+	for name, mutate := range map[string]func(*retainedSubmission){
+		"omit-time": func(d *retainedSubmission) { d.Descriptor.Job.AvailableAt = nil },
+		"change-nanosecond": func(d *retainedSubmission) {
+			instant := d.Descriptor.Job.AvailableAt.Add(time.Nanosecond)
+			d.Descriptor.Job.AvailableAt = &instant
+		},
+		"omit-dependencies": func(d *retainedSubmission) { d.Descriptor.Job.Dependencies = nil },
+		"change-condition": func(d *retainedSubmission) {
+			deps := append([]jobdb.Dependency(nil), d.Descriptor.Job.Dependencies...)
+			deps[0].Condition = jobdb.JobPrereqSuccess
+			d.Descriptor.Job.Dependencies = deps
+		},
+	} {
+		changed := saved
+		mutate(&changed)
+		path := filepath.Join(t.TempDir(), name+".json")
+		require.NoError(t, saveRetained(path, changed))
+		require.ErrorIs(t, Run(ctx, Options{JobDBURI: uri, ReplayFile: path, Stdout: &bytes.Buffer{}}), jobdb.ErrExistingJobMismatch)
+	}
+
 }
 func TestSelectedCLIWorkspaceRoutes(t *testing.T) {
 	for _, mode := range []string{"incoming", "current", "direct-current"} {
@@ -149,11 +177,18 @@ func TestSelectedCLIWorkspaceRoutes(t *testing.T) {
 				opts.Cell = "active"
 				opts.CellRepo = celltest.Repo(root)
 			}
+			prereq, e := rt.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "0", JobID: "prereq", Cell: "active", CellRepo: celltest.Repo(root), JobType: "work", Data: jobdb.NewTaskDataOrPanic(nil)}})
+			require.NoError(t, e)
+			opts.Waits = []Wait{{WaitJobSuccess, "prereq"}, {WaitGoal, prereq.GoalID}}
+			opts.WaitUntil = []string{"1h"}
 			require.NoError(t, Run(ctx, opts))
 			raw, e := os.ReadFile(opts.RequestFile)
 			require.NoError(t, e)
 			var retained retainedSubmission
 			require.NoError(t, json.Unmarshal(raw, &retained))
+			require.Len(t, retained.Descriptor.Job.Dependencies, 2)
+			require.NotNil(t, retained.Descriptor.Job.AvailableAt)
+			require.NoError(t, validatePreparedWaits(retained.Descriptor, retained.Descriptor.Job.Dependencies, retained.Descriptor.Job.AvailableAt))
 			require.Equal(t, source.GoalID, retained.Descriptor.Job.GoalID)
 			if mode != "incoming" {
 				require.NotEmpty(t, retained.Descriptor.Artifacts)

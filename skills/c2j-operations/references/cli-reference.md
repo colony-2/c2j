@@ -102,6 +102,10 @@ Key flags:
 - `--inputs-json`
 - `--inputs-file`
 - `--artifact`
+- `--wait-job` (repeatable exact terminal completion)
+- `--wait-job-success` (repeatable exact success)
+- `--wait-goal` (repeatable goal success, including a replacement)
+- `--wait-until` (one earliest start time or positive duration)
 - `--self`
 - `--cell`
 - `--run`
@@ -109,6 +113,14 @@ Key flags:
 - `--json`
 
 The recipe-selection flags are mutually exclusive. `--json` and `--run` are mutually exclusive. `--recipe` and `--recipe-file` are hidden, deprecated aliases on `submit`.
+
+Wait requirements combine with AND. Submission returns immediately; an
+unsuccessful exact-success or explicitly failed goal requirement prevents recipe
+execution. Open goals may wait indefinitely. Local date/clock input uses the
+submitting timezone; durations start after prompt input, before preparation.
+All wait flags conflict with retained `--replay`, which keeps the original UTC
+instant and dependencies. See [submission waits](https://github.com/colony-2/c2j/blob/main/README.md#waiting-for-jobs-goals-and-time)
+for accepted time forms, validation, runner behavior and backend compatibility.
 
 Normal selection resolves `git+https://github.com/colony-2/recipes.git//build.yaml@main` directly, skipping target-cell lookup. Use `--advanced-recipe build` for the target cell's `.c2/recipes/build.yaml`, with the shared fallback only when missing. `--cell` selects the target, not the submitting project's recipes. Named recipes use committed content; explicit advanced files embed local edits. All CLI-submitted recipes must declare `prompt` in `input_schema`.
 

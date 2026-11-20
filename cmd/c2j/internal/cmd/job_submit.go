@@ -22,7 +22,15 @@ The prompt becomes inputs.prompt. Use --prompt-file to read it from a text file;
 if no prompt is supplied, it is requested interactively.
 The optional --title becomes inputs.title and is included in job metadata.
 Build submissions also set inputs.type to "build".
-Custom recipes are an advanced use case: use --advanced-recipe[-file].`,
+Custom recipes are an advanced use case: use --advanced-recipe[-file].
+
+Submission returns immediately. Every --wait-job, --wait-job-success, --wait-goal
+and --wait-until requirement must clear before execution. Completion includes
+failure and cancellation; success waits do not. A replacement can satisfy a goal
+wait, while an open goal can remain pending indefinitely. Local date/clock times
+use this process's timezone; durations start at submission, before preparation.
+--run uses the existing runner to wait (15 minutes by default); prerequisites
+need another worker. A runner timeout leaves the durable submission pending.`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			runOpts := opts
@@ -45,6 +53,7 @@ Custom recipes are an advanced use case: use --advanced-recipe[-file].`,
 	}
 
 	flags := cmd.Flags()
+	opts.AddWaitFlags(flags)
 	flags.StringVar(&opts.GoalID, "goal", "", "Select an existing open primary goal (requires --job-id and --request-file)")
 	flags.StringVar(&opts.JobID, "job-id", "", "Explicit destination job ID")
 	flags.StringVar(&opts.RequestFile, "request-file", "", "Create a retained resolved request before selected publication")
@@ -70,7 +79,7 @@ Custom recipes are an advanced use case: use --advanced-recipe[-file].`,
 	flags.BoolVar(&opts.Self, "self", false, "Target the current cell explicitly (also the default when --cell is omitted)")
 	flags.StringVar(&opts.CellRepo, "cell-repo", "", "Optional repository assertion for an already registered cell")
 	flags.StringVar(&opts.Cell, "cell", "", "Target cell name")
-	flags.BoolVarP(&opts.RunAfterSubmit, "run", "r", false, "Run the submitted job immediately after submission")
+	flags.BoolVarP(&opts.RunAfterSubmit, "run", "r", false, "Start the runner after submission, waiting for readiness")
 	flags.BoolVar(&useEmbed, "embed", false, "Use embedded JobDB (equivalent to --jobdb "+defaults.EmbedURL+")")
 	flags.BoolVar(&opts.JSONOutput, "json", false, "Emit the submitted job identity as JSON")
 

@@ -413,6 +413,84 @@ It cannot be combined with a positional prompt or `inputs.prompt`, but other
 inputs can still be supplied through `--inputs-json` or `--inputs-file`. It
 leaves stdin available for subsequent interaction with `--run`.
 
+### Waiting for jobs, goals and time
+
+Submit now and require all named dependencies and the optional earliest start
+time before execution:
+
+```bash
+c2j submit "Clean up after both checks" --wait-job CHECK_A --wait-job CHECK_B
+c2j submit "Continue after this build succeeds" --wait-job-success BUILD
+c2j submit "Continue after the repair succeeds" --wait-goal REPAIR_GOAL
+c2j submit "Run this afternoon" --wait-until '1:30pm'
+c2j submit "Run in January" --wait-until '2027-01-01 12:20'
+c2j submit "Follow up later" --wait-job CHECK --wait-goal REPAIR_GOAL --wait-until 1h30m --json
+```
+
+`--wait-job` requires the exact job to reach any terminal outcome, including
+failure, timeout or cancellation. `--wait-job-success` requires that exact job
+to succeed; terminal failure prevents recipe execution and is recorded as a
+dependency failure. Retrying attempts, suspension and expired leases are not
+terminal completion. Another candidate cannot satisfy an exact-job wait.
+
+`--wait-goal` requires the goal's winning candidate to succeed. Failed or
+cancelled candidates leave an open goal pending, possibly indefinitely; a
+successful replacement can satisfy it. Explicit goal failure permanently fails
+the requirement without cancelling its candidates. This flag does not select
+the submitted job's own primary goal; `--goal` retains that separate meaning.
+
+Each dependency flag takes one literal ID and can be repeated. IDs are trimmed,
+commas remain literal, and identical requirements collapse in their original
+order. Empty IDs, self-dependencies and naming one job under both job flags are
+errors. Targets must already exist in the same tenant; JobDB validates targets
+and cycles atomically at publication. A rejected publication can leave staged
+history or artifacts, but no executable consumer.
+
+`--wait-until` accepts one RFC3339 instant with `Z` or numeric offset, local
+`YYYY-MM-DD HH:MM[:SS]`, local `H:MMam/pm` (case-insensitive), local
+`HH:MM[:SS]`, or a positive Go duration such as `1h30m`. Local forms use the
+submitting process's timezone. Clock-only input selects today if later than
+the current local clock, otherwise the next calendar date. Ambiguous or
+nonexistent local times are rejected; use an explicit RFC3339 offset instead.
+Dated times must be in the future. Date-only input, timezone abbreviations,
+bare numbers and day/month duration units are unsupported.
+
+The time is resolved once after prompt input and before remote preparation or
+workspace capture. Preparation consumes the delay; durations do not start at
+dependency completion. The resolved UTC instant is printed on stderr with
+nanosecond precision, leaving JSON stdout unchanged. Workspace files are
+captured during submission, so later edits do not enter a delayed job. All wait
+flags conflict with `--replay`; replay preserves the original resolved request.
+
+The portable CLI interval is `1677-09-21T00:12:43.145224192Z` through
+`2262-04-11T23:47:16.854775807Z`, with the future check applied in addition.
+Eligibility is an earliest start condition: host/database clocks, polling and
+worker capacity can delay actual execution. Listings expose mutable scheduler
+availability, rather than immutable submission history.
+
+Submission returns immediately without a waiting CLI. With `--run`, the existing
+runner retries every five seconds and waits up to fifteen minutes by default.
+Prerequisites need another worker; timeout or interruption leaves the durable
+submission pending and does not fail an open prerequisite goal.
+
+Time submissions require updated c2j brokers/workers that preserve
+`available_at`. This checkout pins JobDB
+`v0.0.94-0.20261119021921-f885723cc03c`: toy retains future availability after
+dependencies clear and reports the stored time; SQLite rejects availability
+outside its representable range before publishing executable work. Native and
+HTTP acquisition, broker submission through native/HTTP leases and submit-only
+delegation, workspace capture and retained replay are checked locally.
+
+PostgreSQL deployments require pgjobdb revision
+`456b2e25750ae4fa69c23e427b1bbd2772445fe6` or a containing revision, including
+its installed SQL, for upward microsecond rounding, readable-range validation
+and UTC-safe reads. `runtime.NewSQLDB` applies that SQL; native SQL users must
+run the backend installer's Apply and Verify steps. Updating only the Go code
+does not update an existing database's functions. The CLI's portable range does
+not narrow PostgreSQL's native API interval. A valid handle cannot detect an
+intermediary that strips or weakens constraints; arbitrary such intermediaries
+remain outside the supported-route guarantee.
+
 ### Build input contract
 
 Build submissions include `type: build` alongside the prompt:

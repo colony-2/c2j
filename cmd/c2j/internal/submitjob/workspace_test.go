@@ -57,7 +57,7 @@ func TestSubmitWorkspaceNowRunsOnFreshWorker(t *testing.T) {
 	defer server.Close()
 	uri := testJobDBURI(server.URL, "workspace-submit")
 	var stdout bytes.Buffer
-	require.NoError(t, Run(ctx, Options{JobDBURI: uri, WorkingDir: root, RecipeFile: recipePath, Prompt: "read", FromWorkspaceNow: true, JSONOutput: true, Stdout: &stdout}))
+	require.NoError(t, Run(ctx, Options{JobDBURI: uri, WorkingDir: root, RecipeFile: recipePath, Prompt: "read", FromWorkspaceNow: true, WaitUntil: []string{"1s"}, Stderr: &bytes.Buffer{}, JSONOutput: true, Stdout: &stdout}))
 	var submitted submitResult
 	require.NoError(t, json.Unmarshal(stdout.Bytes(), &submitted))
 	require.NoError(t, os.WriteFile(filepath.Join(root, "value.txt"), []byte("after submission"), 0644))
@@ -102,11 +102,15 @@ func TestSubmitWorkspaceFlagsThroughBroker(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(root, "value.txt"), []byte("during task"), 0644))
 	for _, now := range []bool{false, true} {
 		var stdout bytes.Buffer
-		require.NoError(t, Run(ctx, Options{JobDBURI: "embed:///", WorkingDir: t.TempDir(), RecipeFile: recipePath, Prompt: "read", FromWorkspace: !now, FromWorkspaceNow: now, JSONOutput: true, Stdout: &stdout}))
+		require.NoError(t, Run(ctx, Options{JobDBURI: "embed:///", WorkingDir: t.TempDir(), RecipeFile: recipePath, Prompt: "read", FromWorkspace: !now, FromWorkspaceNow: now, JSONOutput: true, Stdout: &stdout, Waits: []Wait{{WaitJob, "a"}, {WaitJobSuccess, "b"}, {WaitGoal, "g"}}, WaitUntil: []string{"1h"}}))
+		require.Len(t, capture.last.Dependencies, 3)
+		require.NotNil(t, capture.last.AvailableAt)
 		raw, err := capture.last.Data.GetData()
 		require.NoError(t, err)
 		var start workflowctl.StartJob
 		require.NoError(t, json.Unmarshal(raw, &start))
+		require.Equal(t, capture.last.Dependencies, start.Dependencies)
+		require.True(t, capture.last.AvailableAt.Equal(*start.AvailableAt))
 		require.Equal(t, "active", start.JobContext.Workflow.CellName)
 		require.Equal(t, "https://"+celltest.Repo(root)+".git", start.JobContext.GitBase.BaseRepo)
 		require.Equal(t, "parent", start.Parent.JobID)

@@ -22,6 +22,7 @@ import (
 )
 
 type BuildStartJobRequest struct {
+	AvailableAt           *time.Time
 	Dependencies          []jobdb.Dependency
 	ExecutionRequirements execution.Requirements
 	TenantID              string
@@ -94,7 +95,13 @@ func BuildStartJob(req BuildStartJobRequest) (workflowctl.StartJob, error) {
 	if err != nil {
 		return workflowctl.StartJob{}, err
 	}
+	var availableAt *time.Time
+	if req.AvailableAt != nil {
+		instant := req.AvailableAt.UTC()
+		availableAt = &instant
+	}
 	return workflowctl.StartJob{
+		AvailableAt:  availableAt,
 		Cell:         cellName,
 		CellRepo:     cellRepo,
 		Dependencies: append([]jobdb.Dependency(nil), req.Dependencies...),
