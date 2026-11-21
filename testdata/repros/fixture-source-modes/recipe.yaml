@@ -1,0 +1,40 @@
+id: fixture-source-modes
+version: '1'
+sequence:
+- id: inspect
+  op: command_execution
+  inputs:
+    run: |
+      set -eu
+      test "$(./direct-run)" = imported
+      test "$(./nested/run.sh)" = imported
+      test ! -x direct-plain
+      test ! -x nested/plain.sh
+      test ! -x inline
+      for path in direct-run nested/run.sh; do
+        test "$(git ls-tree HEAD -- "$path" | cut -d ' ' -f 1)" = 100755
+      done
+      for path in direct-plain nested/plain.sh inline; do
+        test "$(git ls-tree HEAD -- "$path" | cut -d ' ' -f 1)" = 100644
+      done
+      test -z "$(git status --porcelain)"
+      test "$(git rev-list --count HEAD)" = 1
+      printf '%s' preserved
+- id: effect
+  op: command_execution
+  inputs: {run: unused}
+- id: inspect-effect
+  op: command_execution
+  inputs:
+    run: |
+      set -eu
+      test -x direct-run
+      test "$(./direct-run)" = imported
+      test ! -x inline
+      test ! -x effect-new
+      test "$(cat effect-new)" = ordinary
+      test -z "$(git status --porcelain)"
+      printf '%s' unchanged
+outputs:
+  modes: '${{ sequence.inspect.outputs.stdout }}'
+  effects: '${{ sequence["inspect-effect"].outputs.stdout }}'

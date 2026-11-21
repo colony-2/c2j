@@ -166,7 +166,7 @@
         },
         {
           "type": "cel_true",
-          "expr": "calls.filter(c, c.node_path == \"c2j-build-verify/test_integration/test_integration\")[0].inputs.run.contains(\"go test -count=1 -json -tags=integration -p 2 -timeout=20m ./...\")"
+          "expr": "calls.filter(c, c.node_path == \"c2j-build-verify/test_integration/test_integration\")[0].inputs.run.contains(\"go test -count=1 -json -tags=integration -p 2 -timeout=30m ./...\")"
         },
         {
           "type": "cel_true",

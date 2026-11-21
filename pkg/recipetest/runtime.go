@@ -483,6 +483,23 @@ func writeFixture(root, name string, content []byte) error {
 	return os.WriteFile(dest, content, 0644)
 }
 
+// writeFixtureWithMode applies imported permissions even when the destination
+// already exists or the creation mode was filtered by the process umask.
+// Inline fixtures and mock effects intentionally retain writeFixture semantics.
+func writeFixtureWithMode(root, name string, content []byte, mode fs.FileMode) error {
+	dest, err := fixtureWriteDestination(root, name)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(dest), 0755); err != nil {
+		return err
+	}
+	if err := os.WriteFile(dest, content, mode); err != nil {
+		return err
+	}
+	return os.Chmod(dest, mode)
+}
+
 func (f *runtimeFixture) invoke(deps coreops.OpDependencies, ctx context.Context, op string, real func(coreops.OpDependencies, context.Context, map[string]any) (map[string]any, error), in map[string]any) (opOutput map[string]any, invokeErr error) {
 	controlledInvocation := false
 	g := deps.GitContext()
@@ -903,7 +920,7 @@ func copyFixtureSource(root, name, source string) error {
 		if err != nil {
 			return err
 		}
-		return writeFixture(root, name, data)
+		return writeFixtureWithMode(root, name, data, 0644|(info.Mode().Perm()&0111))
 	}
 	return filepath.WalkDir(source, func(path string, entry fs.DirEntry, err error) error {
 		if err != nil {

@@ -1,0 +1,31 @@
+recipe: recipe.yaml
+cases:
+- id: executable-imports
+  type: integration_case
+  runtime:
+    cells:
+      root:
+        files: {inline: ordinary, direct-run: replaced}
+        file_sources:
+          direct-run: sources/run.sh
+          direct-plain: sources/plain.sh
+          nested: sources/tree
+  mocks:
+    ops:
+    - match: {node_path: fixture-source-modes/inspect}
+      behavior: {mode: passthrough}
+    - match: {node_path: fixture-source-modes/effect}
+      behavior:
+        mode: return
+        outputs: {success: true}
+        effects:
+          worktree:
+            direct-run: "#!/bin/sh\nprintf '%s' imported\n"
+            inline: ordinary
+            effect-new: ordinary
+    - match: {node_path: fixture-source-modes/inspect-effect}
+      behavior: {mode: passthrough}
+  assertions:
+  - {type: output_equals, path: modes, value: preserved}
+  - {type: output_equals, path: effects, value: unchanged}
+  - {type: cel_true, expr: 'repositories.root.clean && repositories.root.new_commits == 0 && size(repositories.root.changed_files) == 0'}

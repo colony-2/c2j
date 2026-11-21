@@ -80,6 +80,7 @@ func TestVerifyHookSubmissionEnvironmentAndGate(t *testing.T) {
 	require.NoError(t, err)
 	state := r.RecipeImpl.(*recipe.RecipeState)
 	node := state.States.States["test_integration"].Node.NodeImpl.(*recipe.NodeOp)
+	require.Equal(t, "90m", node.Inputs["timeout"])
 	for _, fixture := range []struct {
 		name            string
 		failGate        string
@@ -95,6 +96,7 @@ func TestVerifyHookSubmissionEnvironmentAndGate(t *testing.T) {
 		{name: "artifact-file-gate", failGate: "TestArtifactFile"},
 		{name: "artifact-metadata-gate", failGate: "TestNixOpDescriptionDoesNotInstall"},
 		{name: "packaged-artifact-gate", failGate: "TestRealNixArtifactFiles"},
+		{name: "fixture-source-gate", failGate: "Test(FixtureSource|NativeRuntimeFixtureSourceModes)"},
 		{name: "full-suite", failGate: "-tags=integration -p 2"},
 		{name: "missing-wait-help", missingWaitGoal: true},
 	} {
@@ -187,6 +189,7 @@ fi
 				"^TestArtifactFile|^TestNixOpDescriptionDoesNotInstall$",
 				"^TestRealNixArtifactFiles$",
 				"^TestBrokerOnlyCLI",
+				"^Test(FixtureSource|NativeRuntimeFixtureSourceModes)",
 			}
 			previous, stopped := -1, false
 			for _, gate := range gates {
@@ -212,7 +215,7 @@ fi
 				}
 			}
 			if fixture.failGate == "-tags=integration -p 2" {
-				require.Contains(t, string(raw), "go test -count=1 -json -tags=integration -p 2 -timeout=20m ./...\n")
+				require.Contains(t, string(raw), "go test -count=1 -json -tags=integration -p 2 -timeout=30m ./...\n")
 				require.NotContains(t, string(raw), "c2j submit --help\n", "full-suite failure must stop verification before the final help check")
 			} else if fixture.failGate != "" {
 				require.NotContains(t, string(raw), "-tags=integration -p 2")
@@ -228,12 +231,15 @@ fi
 				require.Less(t, strings.Index(string(raw), "-run ^TestSubmission"), strings.Index(string(raw), "./internal/retirementcheck"))
 				require.Contains(t, string(raw), "go test -count=1 -v -timeout=10m ./internal/pathutil ./internal/portability ./pkg/shellcmd ./pkg/toolenv")
 				require.Contains(t, string(raw), "go test -count=1 -v -timeout=10m ./pkg/worker/compiler -run ^TestRealRepositoryNativePackages$")
-				require.Contains(t, string(raw), "go test -count=1 -json -tags=integration -p 2 -timeout=20m ./...\n")
+				require.Contains(t, string(raw), "go test -count=1 -json -tags=integration -p 2 -timeout=30m ./...\n")
 				require.Contains(t, string(raw), "TestWorkspaceDiff|ExampleWorkspaceDiff")
 				require.Contains(t, string(raw), "go build -buildvcs=false -o ")
 				require.Contains(t, string(raw), "c2j submit --help\n")
-				require.Equal(t, 4, strings.Count(string(raw), "c2j test validate --file "))
-				require.Equal(t, 4, strings.Count(string(raw), "c2j test run --file "))
+				require.Contains(t, string(raw), "./pkg/recipetest ./cmd/c2j/internal/testjob -run ^Test(FixtureSource|NativeRuntimeFixtureSourceModes)")
+				require.Contains(t, string(raw), "c2j test validate --file testdata/repros/fixture-source-modes/modes.test.yaml\n")
+				require.Contains(t, string(raw), "c2j test run --file testdata/repros/fixture-source-modes/modes.test.yaml --out-dir ")
+				require.Equal(t, 5, strings.Count(string(raw), "c2j test validate --file "))
+				require.Equal(t, 5, strings.Count(string(raw), "c2j test run --file "))
 				for _, suite := range []string{"admission-ordering", "advancement", "cancellation", "worker-recovery"} {
 					fixture := "pkg/recipetest/testdata/native-scenarios/" + suite + ".test.json"
 					require.Contains(t, string(raw), "c2j test validate --file "+fixture+"\n")

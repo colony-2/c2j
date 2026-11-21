@@ -287,3 +287,14 @@ func TestNativeRuntimeInvalidActorsStopBeforeExecution(t *testing.T) {
 		require.ErrorContains(t, err, "actor")
 	}
 }
+
+func TestNativeRuntimeFixtureSourceModes(t *testing.T) {
+	suite, err := filepath.Abs("../../../../testdata/repros/fixture-source-modes/modes.test.yaml")
+	require.NoError(t, err)
+	var output bytes.Buffer
+	results := t.TempDir()
+	err = Run(context.Background(), Options{FilePath: suite, OutDir: results, Stdout: &output, Execution: ExecutionOptions{Timeout: "60s"}})
+	data, readErr := os.ReadFile(filepath.Join(results, "summary.json"))
+	require.NoError(t, readErr)
+	require.NoError(t, err, "%s\n%s", output.String(), data)
+}

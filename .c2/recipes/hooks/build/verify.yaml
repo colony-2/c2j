@@ -196,6 +196,9 @@ state:
           go test -mod=readonly -count=1 -v -timeout=12m ./pkg/worker/compiler -run '^TestRealNixArtifactFiles$'
           # Exercise broker-only process routing before the broader integration suite.
           go test -mod=readonly -count=1 -v -timeout=10m ./pkg/childbroker -run '^TestBrokerOnlyCLI'
+          # Imported scripts must enter the initial Git tree with their execute
+          # bits intact, then run without permission repairs or new commits.
+          go test -count=1 -v -timeout=5m ./pkg/recipetest ./cmd/c2j/internal/testjob -run '^Test(FixtureSource|NativeRuntimeFixtureSourceModes)'
           go test -mod=readonly -count=1 -v -timeout=5m ./cmd/c2j/internal/submitjob -run '^TestSubmission'
           # Lease parentage must pass real runtime, CLI and worker checks without skips.
           go build -mod=readonly -o "$scratch/c2j-parentage" ./cmd/c2j
@@ -272,6 +275,8 @@ state:
           # Includes late-bound dispatch prohibitions and native admission targets.
           go test -race ./pkg/recipetest -run '^TestScenario' -count=1 -timeout=20m
           go build -o "$scratch/c2j" ./cmd/c2j
+          "$scratch/c2j" test validate --file testdata/repros/fixture-source-modes/modes.test.yaml
+          "$scratch/c2j" test run --file testdata/repros/fixture-source-modes/modes.test.yaml --out-dir "$scratch/fixture-source-modes"
           for suite in admission-ordering advancement cancellation worker-recovery; do
             fixture="pkg/recipetest/testdata/native-scenarios/$suite.test.json"
             "$scratch/c2j" test validate --file "$fixture"
@@ -279,7 +284,9 @@ state:
           done
           # Bound concurrent fixture work; JSON streams progress from every package
           # immediately, retaining the active test if the command is interrupted.
-          go test -count=1 -json -tags=integration -p 2 -timeout=20m ./...
+          # The compiler's many serial cases can exhaust 20m in aggregate;
+          # retain every case's own execution deadline.
+          go test -count=1 -json -tags=integration -p 2 -timeout=30m ./...
           # Check the linked CLI as well as its packages: submissions must expose
           # every supported wait option in the executable being reviewed.
           go build -buildvcs=false -o "$scratch/c2j" ./cmd/c2j

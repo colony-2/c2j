@@ -231,7 +231,19 @@ Passthrough commands run in the worker environment inside disposable test
 worktrees, with normal snapshots. The former `runtime.command_sandbox` override
 has been removed. Provision any isolation around the worker externally.
 `cells.<cell>.file_sources` accepts file or directory sources relative to the
-suite. Directory trees exclude `.git` and reject symlinks.
+suite. Each imported regular file gets ordinary `0644` permissions plus its
+source execute bits (`0644 | (source_mode & 0111)`), for both direct files and
+directory members. These permissions are applied explicitly, regardless of umask
+or an existing destination's permissions: nonexecutable imports clear old execute
+bits, and executable imports set the source execute mask. Other source permissions
+and special bits are not copied. Imports happen before the initial fixture Git
+commit, so a source script with mode `0755` starts with committed mode `100755`
+and can run directly without dirtying the worktree. Git records only executable
+versus nonexecutable state, not individual permission bits. Inline `files` and
+mock-effect writes retain their existing ordinary-file behavior. Directory trees
+exclude `.git` directories and
+reject symlinks; imported files must be regular files, and destination confinement and
+symlink protections still apply.
 
 A case-level `expect_error: "substring"` expresses an expected execution failure
 in either executor. Unexpected success, unrelated failures, validation failures,
