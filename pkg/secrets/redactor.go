@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/colony-2/c2j/pkg/extensionwait"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 )
 
@@ -107,7 +108,7 @@ func (s *Redactor) Error(err error) error {
 	}
 	safe := s.Redact(err.Error())
 	if safe != err.Error() || s.secretErrorCause(err, 0) {
-		return errors.New(safe)
+		return extensionwait.Redacted(err, safe)
 	}
 	return err
 }

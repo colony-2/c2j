@@ -135,3 +135,13 @@ func Request(ctx context.Context, operation string) func(error) {
 		})
 	}
 }
+
+// Discard closes sampling without producing a timing or producer envelope.
+func (t *Timing) Discard() {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if !t.closed {
+		t.closeCPU()
+		t.closed = true
+	}
+}

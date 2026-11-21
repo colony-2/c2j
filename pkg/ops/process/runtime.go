@@ -3,7 +3,9 @@ package process
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -19,15 +21,17 @@ import (
 type RunRequest struct {
 	// CleanEnv is for preparation subprocesses that must not inherit worker state.
 	// Commands in this mode must use an absolute executable path.
-	CleanEnv      bool
-	WorkspaceRoot string
-	WorkingDir    string
-	Shell         string
-	Run           string
-	Command       []string
-	Env           map[string]string
-	Stdin         []byte
-	Capture       *Capture
+	CleanEnv bool
+	// StopTreeOnExitCode ends remaining managed children after this control exit.
+	StopTreeOnExitCode int
+	WorkspaceRoot      string
+	WorkingDir         string
+	Shell              string
+	Run                string
+	Command            []string
+	Env                map[string]string
+	Stdin              []byte
+	Capture            *Capture
 }
 
 func ExecuteProcess(ctx context.Context, req RunRequest) (stdout, stderr []byte, runErr error) {
@@ -125,6 +129,27 @@ func executeOnHost(ctx context.Context, req RunRequest, workingDir string) ([]by
 		cmd.Stderr = req.Capture.writer(1)
 		results = func() ([]byte, []byte) { return req.Capture.RawBytes(0), req.Capture.RawBytes(1) }
 	}
+	// Observe the shell's exit before waiting for inherited output pipes. A
+	// background child can keep those pipes open after the shell requests a wait.
+	var readers, writers []*os.File
+	var destinations []io.Writer
+	if req.StopTreeOnExitCode > 0 {
+		destinations = []io.Writer{cmd.Stdout, cmd.Stderr}
+		for i := range destinations {
+			r, w, e := os.Pipe()
+			if e != nil {
+				return nil, nil, e
+			}
+			defer r.Close()
+			defer w.Close()
+			readers, writers = append(readers, r), append(writers, w)
+			if i == 0 {
+				cmd.Stdout = w
+			} else {
+				cmd.Stderr = w
+			}
+		}
+	}
 	finish := func(err error) ([]byte, []byte, error) { out, diagnostic := results(); return out, diagnostic, err }
 	configureProcessTree(cmd)
 	if req.Capture != nil {
@@ -134,6 +159,14 @@ func executeOnHost(ctx context.Context, req RunRequest, workingDir string) ([]by
 	if err := cmd.Start(); err != nil {
 		return finish(err)
 	}
+	drained := make(chan struct{}, len(readers))
+	for i, reader := range readers {
+		_ = writers[i].Close()
+		go func() {
+			_, _ = io.Copy(destinations[i], reader)
+			drained <- struct{}{}
+		}()
+	}
 	if req.Capture != nil {
 		req.Capture.Started = started.UTC()
 		req.Capture.Launched = true
@@ -142,7 +175,26 @@ func executeOnHost(ctx context.Context, req RunRequest, workingDir string) ([]by
 
 	waitCh := make(chan error, 1)
 	go func() {
-		waitCh <- cmd.Wait()
+		err := cmd.Wait()
+		var exit *exec.ExitError
+		if req.StopTreeOnExitCode > 0 && errors.As(err, &exit) && exit.ExitCode() == req.StopTreeOnExitCode {
+			cleanupErr := stopExitedProcessTree(cmd)
+			if req.Capture != nil {
+				req.Capture.TreeCleanupError = cleanupErr
+			}
+			if cleanupErr != nil {
+				for _, reader := range readers {
+					_ = reader.Close()
+				}
+				if req.Capture == nil {
+					err = errors.Join(err, cleanupErr)
+				}
+			}
+		}
+		for range readers {
+			<-drained
+		}
+		waitCh <- err
 	}()
 
 	select {

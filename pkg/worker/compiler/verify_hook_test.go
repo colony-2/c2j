@@ -90,6 +90,7 @@ func TestVerifyHookSubmissionEnvironmentAndGate(t *testing.T) {
 		{name: "broker-gate", failGate: "TestBrokerOnlyCLI"},
 		{name: "helper-gate", failGate: "TestLeaseBoundRestartHelperSubmission"},
 		{name: "inspection-gate", failGate: "TestTaskInspectionUsesBackendReadPermissions"},
+		{name: "extension-wait-gate", failGate: "^TestExtensionWait"},
 		{name: "scenario-gate", failGate: "TestPnpmVerifyHook"},
 		{name: "catalog-gate", failGate: "TestExecutionBaseCatalog"},
 		{name: "submission-inputs-gate", failGate: "^TestRecipeSubmissionInputs"},
@@ -122,6 +123,19 @@ fi
 test "$GOWORK" = off
 printf '%s %s\n' "${0##*/}" "$*" >> "$COMMANDS"
 if [ -n "$FAIL_GATE" ] && [[ "$*" == *"$FAIL_GATE"* ]]; then exit 42; fi
+if [[ "$*" == *'-run ^TestExtensionWait' ]]; then
+  for pkg in extensionwait ops/extensions worker/ops metricsruntime secrets executionruntime worker/compiler childbroker; do
+    printf '{"Action":"run","Package":"github.com/colony-2/c2j/pkg/%s","Test":"TestExtensionWaitFixture"}\n' "$pkg"
+    printf '{"Action":"pass","Package":"github.com/colony-2/c2j/pkg/%s","Test":"TestExtensionWaitFixture"}\n' "$pkg"
+  done
+  for backend in toy sqlite remote; do
+    for target in job_target goal_target; do
+      for action in run pass; do
+        printf '{"Action":"%s","Package":"github.com/colony-2/c2j/pkg/executionruntime","Test":"TestExtensionWaitBindingAdmission/%s/%s"}\n' "$action" "$backend" "$target"
+      done
+    done
+  done
+fi
 if [[ "$*" == *TestLeaseParentage* ]]; then
   for item in cmd/c2j/internal/submitjob:TestLeaseParentageMissingBroker cmd/c2j/internal/submitjob:TestLeaseParentageStandalone cmd/c2j/internal/submitjob:TestLeaseParentageBrokerBoundaries cmd/c2j/internal/submitjob:TestSubmissionWaitBrokerLeaseRoutes cmd/c2j/internal/submitjob:TestRun_BrokerSubmissionAndConfiguredImmediateExecution pkg/childbroker:TestBrokerOnlyCLI pkg/childbroker:TestLeaseParentageLostOrdinaryResponse pkg/executionruntime:TestLeaseParentageSuppliedLease pkg/worker/compiler:TestLeaseParentageWorkerCLI pkg/worker/compiler:TestWorkerBrokerSubmitsIncomingAndLiveWorkspace cmd/c2j/internal/cmd:TestSubmitHelpPromotesConventions; do
     pkg="${item%%:*}"; test_name="${item#*:}"
@@ -173,14 +187,20 @@ fi
 			cmd.Dir = root
 			cmd.Env = append(os.Environ(), "PATH="+bin+":"+os.Getenv("PATH"), "OUTBOX="+outbox, "COMMANDS="+commands, "FAIL_GATE="+fixture.failGate, fmt.Sprintf("MISSING_WAIT_GOAL=%t", fixture.missingWaitGoal), "C2J_CURRENT_JOB_ID=live", "C2J_CHILD_JOB_TOKEN=live", "C2J_WORKSPACE_ROOT=live", "C2J_JOBDB=embed:///", "C2J_TENANT_ID=live", "C2J_OBJECT_OUTBOX=live", "C2J_TEST_SUBMIT_BINARY=/stale/c2j", "C2J_REQUIRE_EXECUTION_BASE_CATALOG=true")
 			out, err := cmd.CombinedOutput()
+			log, logErr := os.ReadFile(filepath.Join(outbox, "tests.log"))
+			require.NoError(t, logErr)
 			if fixture.failGate != "" {
 				require.Error(t, err)
-				require.Equal(t, 42, cmd.ProcessState.ExitCode())
+				expectedExit := 42
+				if fixture.failGate == "^TestExtensionWait" {
+					expectedExit = 1
+				}
+				require.Equal(t, expectedExit, cmd.ProcessState.ExitCode(), "%s\n%s", out, log)
 			} else if fixture.missingWaitGoal {
 				require.Error(t, err)
 				require.Equal(t, 1, cmd.ProcessState.ExitCode())
 			} else {
-				require.NoError(t, err, string(out))
+				require.NoError(t, err, "%s\n%s", out, log)
 			}
 			raw, err := os.ReadFile(commands)
 			require.NoError(t, err)
@@ -190,6 +210,7 @@ fi
 			gates := []string{
 				"TestLeaseBoundRestartHelperSubmission$",
 				"TestTaskInspectionUsesBackendReadPermissions$",
+				"^TestExtensionWait",
 				"^TestPnpmVerifyHook$",
 				"^TestExecutionBaseCatalog",
 				"^TestRecipeSubmissionInputs",

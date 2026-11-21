@@ -14,6 +14,7 @@ import (
 
 	"github.com/colony-2/c2j/pkg/execution"
 	"github.com/colony-2/c2j/pkg/executioncatalog"
+	"github.com/colony-2/c2j/pkg/extensionwait"
 	"github.com/colony-2/c2j/pkg/jobrestart"
 	"github.com/colony-2/c2j/pkg/permissions"
 	"github.com/colony-2/jobdb/pkg/jobdb"
@@ -132,6 +133,8 @@ type lease struct {
 type leaseState struct {
 	metricsSnapshot *jobdb.ChapterMetadataValue
 	demand          *execution.Demand
+	pendingWait     *waitGate
+	retireWait      bool
 	blocked         error
 }
 
@@ -189,12 +192,16 @@ func (l *lease) forget() {
 func (l *lease) StopKeepAlive() { l.forget(); l.ExecutionLease.StopKeepAlive() }
 
 func (l *lease) prepareReschedule(ctx context.Context, req jobdb.RescheduleExecutionRequest) (jobdb.RescheduleExecutionRequest, *execution.Demand, bool, error) {
+	current, err := l.current()
+	if err != nil {
+		return req, nil, false, err
+	}
 	l.runtime.mu.Lock()
-	d := l.demand
+	d, pending, retire := l.demand, l.pendingWait, l.retireWait
 	l.runtime.mu.Unlock()
 	candidate := d
 	if l.runtime.BaseCatalog.Required && req.ClientPayloadUpdate != nil {
-		raw, _, err := clientpayload.Apply(l.ClientPayload(), l.ClientPayloadRevision(), req.ClientPayloadUpdate)
+		raw, _, err := clientpayload.Apply(current.ClientPayload(), current.ClientPayloadRevision(), req.ClientPayloadUpdate)
 		if err != nil {
 			return req, nil, false, err
 		}
@@ -212,27 +219,63 @@ func (l *lease) prepareReschedule(ctx context.Context, req jobdb.RescheduleExecu
 			return req, nil, false, err
 		}
 	}
-	if req.ClientPayloadUpdate == nil && d != nil {
-		current, err := execution.PayloadDemand(l.ClientPayload())
+	revision := current.ClientPayloadRevision()
+	raw, _, err := clientpayload.Apply(current.ClientPayload(), revision, req.ClientPayloadUpdate)
+	if err != nil {
+		return req, nil, false, err
+	}
+	changed := req.ClientPayloadUpdate != nil
+	gate, err := payloadGate(current.ClientPayload())
+	if err != nil {
+		return req, nil, false, err
+	}
+	if pending != nil {
+		records, err := current.waitHistory(context.Background())
+		if err != nil {
+			return req, nil, false, err
+		}
+		if err := bindDeadline(records, pending); err != nil {
+			return req, nil, false, err
+		}
+		gate = pending
+		if req.DependencyWait != nil {
+			req.DependencyWait.Deadline = gate.Deadline
+		} else if req.WaitUntil != nil && gate.Deadline != nil && gate.Deadline.Before(*req.WaitUntil) {
+			at := *gate.Deadline
+			req.WaitUntil = &at
+		}
+	}
+	if gate != nil || retire {
+		if retire && pending == nil {
+			gate = nil
+		}
+		raw, err = payloadWithGate(raw, gate)
+		if err != nil {
+			return req, nil, false, err
+		}
+		changed = true
+	}
+	published := false
+	if d != nil {
+		previous, err := execution.PayloadDemand(raw)
 		if err != nil {
 			return req, nil, false, err
 		}
 		comparable := *d
 		comparable.Overrides = execution.Requirements{}
 		comparable.Effective.CapabilitiesDeclared = false
-		if current == nil || !reflect.DeepEqual(*current, comparable) {
-			copy := *d
-			raw, err := execution.PayloadWithDemand(l.ClientPayload(), copy)
+		if previous == nil || !reflect.DeepEqual(*previous, comparable) {
+			raw, err = execution.PayloadWithDemand(raw, *d)
 			if err != nil {
 				return req, nil, false, err
 			}
-			revision := l.ClientPayloadRevision()
-			req.ClientPayloadUpdate = &jobdb.ClientPayloadUpdate{Mode: "reset", Value: json.RawMessage(raw), ExpectedRevision: &revision}
-			return req, &copy, true, nil
+			changed, published = true, true
 		}
-		return req, current, false, nil
 	}
-	return req, d, false, nil
+	if changed {
+		req.ClientPayloadUpdate = &jobdb.ClientPayloadUpdate{Mode: "reset", Value: raw, ExpectedRevision: &revision}
+	}
+	return req, d, published, nil
 }
 
 func (l *lease) Reschedule(ctx context.Context, req jobdb.RescheduleExecutionRequest) error {
@@ -240,14 +283,38 @@ func (l *lease) Reschedule(ctx context.Context, req jobdb.RescheduleExecutionReq
 	if err != nil {
 		return err
 	}
-	err = l.ExecutionLease.Reschedule(ctx, req)
+	current, e := l.current()
+	if e != nil {
+		return e
+	}
+	err = current.ExecutionLease.Reschedule(ctx, req)
 	l.forget()
 	return err
 }
 
 func (l *lease) Complete(ctx context.Context, req jobdb.CompleteExecutionRequest) error {
+	current, err := l.current()
+	if err != nil {
+		return err
+	}
+	gate, err := payloadGate(current.ClientPayload())
+	if err != nil {
+		return err
+	}
+	if gate != nil {
+		revision := current.ClientPayloadRevision()
+		raw, _, err := clientpayload.Apply(current.ClientPayload(), revision, req.ClientPayloadUpdate)
+		if err != nil {
+			return err
+		}
+		raw, err = payloadWithGate(raw, nil)
+		if err != nil {
+			return err
+		}
+		req.ClientPayloadUpdate = &jobdb.ClientPayloadUpdate{Mode: "reset", Value: raw, ExpectedRevision: &revision}
+	}
 	req = l.finalizeMetrics(ctx, req)
-	err := l.ExecutionLease.Complete(ctx, req)
+	err = current.ExecutionLease.Complete(ctx, req)
 	l.forget()
 	return err
 }
@@ -284,6 +351,15 @@ func (w *guardedTask) RunTask(local context.Context, ctx jobworkflow.TaskContext
 	if blocked != nil {
 		return nil, blocked
 	}
+	gate, parked, err := l.waitAdmission(local, ctx)
+	if err != nil || parked {
+		return nil, err
+	}
+	if gate != nil && gate.Deadline != nil {
+		var cancel context.CancelFunc
+		local, cancel = context.WithDeadlineCause(local, *gate.Deadline, gate.timeout())
+		defer cancel()
+	}
 	// Recipe-resolution tasks run before a scope is staged. Scoped recipe work
 	// always replays first, including when claimed through a pending-task route.
 	needs := execution.Requirements{}
@@ -303,6 +379,17 @@ func (w *guardedTask) RunTask(local context.Context, ctx jobworkflow.TaskContext
 		}
 	}
 	out, err := w.runWithGitProfile(local, ctx, input, l)
+	if extensionwait.IsDiscard(err) {
+		if _, eligible := extensionwait.Eligible(err); !eligible {
+			return l.handleWait(ctx, err)
+		}
+	}
+	if gate != nil && gate.Deadline != nil && !time.Now().Before(*gate.Deadline) {
+		return nil, gate.timeout()
+	}
+	if extensionwait.IsDiscard(err) {
+		return l.handleWait(ctx, err)
+	}
 	var required *execution.Required
 	if !errors.As(err, &required) {
 		return out, err

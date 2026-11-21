@@ -13,6 +13,7 @@ import (
 	recipeartifacts "github.com/colony-2/c2j/pkg/artifacts"
 	"github.com/colony-2/c2j/pkg/configuration"
 	"github.com/colony-2/c2j/pkg/execution"
+	"github.com/colony-2/c2j/pkg/extensionwait"
 	"github.com/colony-2/c2j/pkg/jobcontext"
 	"github.com/colony-2/c2j/pkg/metrics"
 	"github.com/colony-2/c2j/pkg/ops"
@@ -55,7 +56,7 @@ func executeExtension(deps ops.OpDependencies, ctx context.Context, input Execut
 	report.Selector = input.Selector
 	processFailure := false
 	defer func() {
-		if execution.IsRequired(runErr) {
+		if extensionwait.IsDiscard(runErr) || execution.IsRequired(runErr) {
 			return
 		}
 		exit := 0
@@ -165,6 +166,10 @@ func executeExtension(deps ops.OpDependencies, ctx context.Context, input Execut
 		return nil, err
 	}
 	env[execution.AllocationEnv] = string(allocationJSON)
+	env[extensionwait.CapabilityEnv] = "0"
+	if process.CheckedTreeCleanupSupported {
+		env[extensionwait.CapabilityEnv] = "1"
+	}
 	if err := prepareObjectOutbox(deps, env); err != nil {
 		return nil, err
 	}
@@ -189,6 +194,27 @@ func executeExtension(deps ops.OpDependencies, ctx context.Context, input Execut
 		}
 	}
 	var exit *exec.ExitError
+	if ctx.Err() == nil && errors.As(err, &exit) && exit.ExitCode() == extensionwait.ExitCode {
+		if report.Capture.Truncated(0) {
+			return nil, fmt.Errorf("extension wait response exceeded execution capture limit")
+		}
+		raw := stdout
+		if !scripted {
+			raw = report.Capture.RawBytes(0)
+		}
+		request, decodeErr := extensionwait.Decode(raw, process.CaptureLimit)
+		if decodeErr != nil {
+			return nil, decodeErr
+		}
+		if err := secrets.FromContext(ctx).CheckOutput(request); err != nil {
+			return nil, err
+		}
+		control := extensionwait.New(request)
+		if report.Capture.TreeCleanupError != nil {
+			return nil, errors.Join(control, errors.New("extension wait process-tree cleanup failed"))
+		}
+		return nil, control
+	}
 	if ctx.Err() == nil && errors.As(err, &exit) && exit.ExitCode() == executionRequiredExit {
 		if report.Capture.Truncated(0) {
 			return nil, fmt.Errorf("extension execution_required response exceeded execution capture limit")
@@ -253,13 +279,14 @@ func executeExtension(deps ops.OpDependencies, ctx context.Context, input Execut
 
 func extensionRunRequest(resolved *ResolvedOp, env map[string]string, stdin []byte) process.RunRequest {
 	return process.RunRequest{
-		WorkspaceRoot: resolved.ProjectRoot,
-		WorkingDir:    resolved.WorkingDir(),
-		Shell:         resolved.Spec.Shell,
-		Run:           resolved.Spec.Run,
-		Command:       resolved.Spec.Command,
-		Env:           env,
-		Stdin:         stdin,
+		WorkspaceRoot:      resolved.ProjectRoot,
+		StopTreeOnExitCode: extensionwait.ExitCode,
+		WorkingDir:         resolved.WorkingDir(),
+		Shell:              resolved.Spec.Shell,
+		Run:                resolved.Spec.Run,
+		Command:            resolved.Spec.Command,
+		Env:                env,
+		Stdin:              stdin,
 	}
 }
 

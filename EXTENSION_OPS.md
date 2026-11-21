@@ -373,3 +373,73 @@ Run just the packaged-op integration test with:
 ```sh
 go test ./pkg/worker/compiler -run '^TestRealNixExtension$' -v
 ```
+
+## Discard an attempt and wait
+
+A worker advertising `C2J_EXTENSION_WAIT_VERSION=1` accepts a wait control on
+**exit 76**. Checked process-tree cleanup currently requires a Unix worker;
+other platforms advertise `0` and cannot acknowledge these waits. Write exactly
+one JSON object to stdout:
+
+```json
+{
+  "wait": {
+    "version": 1,
+    "until": "2026-12-01T09:00:00Z",
+    "dependencies": [
+      {"job": "BUILD_JOB_ID", "condition": "complete"},
+      {"goal": "REPAIR_GOAL_ID", "condition": "success"}
+    ]
+  }
+}
+```
+
+Supply a timestamp, at least one dependency, or both. All conditions must become
+ready. An exact job accepts `complete` (any terminal outcome) or `success`. A goal
+accepts `success` and can obtain its winner through a replacement job; an open
+goal can remain pending indefinitely. A failed exact-job success prerequisite or
+explicitly failed goal fails the waiting consumer through normal dependency
+failure semantics. Target IDs are literal and belong to the consumer's tenant.
+Self-waits, missing targets and dependency cycles are rejected.
+
+Use RFC3339 timestamps with an explicit `Z` or numeric offset and up to nine
+fractional digits. c2j normalizes them to UTC and accepts the inclusive portable
+range `1677-09-21T00:12:43.145224192Z`–`2262-04-11T23:47:16.854775807Z`.
+Already-reached timestamps are valid. Relative durations and local times are not.
+Identical dependencies collapse in first-occurrence order; conflicting conditions
+for one target fail. Nulls, duplicate keys, unknown fields, extra JSON and controls
+larger than the process capture limit (4 MiB) fail validation. Do not mix a wait
+with output, artifacts, objects, metrics, `execution_required` or saved state.
+Scheduling values undergo the ordinary secret-output checks.
+
+A valid wait **throws away the attempt**. c2j publishes none of its workspace
+edits or commits, outbox files, objects, stdout/stderr diagnostics, preparation
+results or producer/task metrics. It closes invocation resources and checks that
+the entire disposable work directory was removed before scheduling the wait.
+Cleanup or uncertain handoff failures stop that activation rather than accepting
+a successful wait. Earlier completed tasks and their committed work remain.
+
+The operation stays unfinished. After readiness, c2j restores its incoming
+workspace and existing inputs into fresh paths and invokes it again from the
+beginning. There is no resume input, saved response, continuation file or saved
+extension-resolution result. Existing pins keep their normal meaning; mutable
+selectors undergo normal resolution again. Only eventual ordinary success
+produces the operation output. A valid wait consumes no failure retry or compiler
+operation-chain step. Enclosing deadlines continue across waits, recovery and
+fresh execution; the manifest timeout still bounds each process launch. A one
+second minimum requeue delay prevents immediately-ready controls from spinning.
+
+c2j cannot undo external API writes, submitted jobs or shared-cache effects.
+Decide to wait before irreversible actions, or make reruns tolerate repetition
+and rediscover external identities through the existing inputs or external
+system. Consumer cancellation stops its wait without cancelling its targets.
+After an acknowledged handoff, scheduling conditions survive worker replacement;
+a crash before publication can cause a fresh run before those conditions were
+registered. An acknowledgment lost in transit is recovered from durable scheduler
+state rather than by continuing the old activation.
+
+Upgrade every executing and orchestrating worker before emitting waits. Older
+workers treat exit 76 as an ordinary failure and may capture edits. The capability
+environment variable is controlled by c2j, overriding manifest and invocation
+environment settings. Exit 0 retains its business-output meaning (including a
+business property named `wait`); exit 75 retains execution negotiation semantics.

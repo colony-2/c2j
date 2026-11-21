@@ -61,8 +61,9 @@ type Server struct {
 	host          string
 	port          int
 
-	server *http.Server
-	once   sync.Once
+	server   *http.Server
+	once     sync.Once
+	closeErr error
 
 	mu      sync.Mutex
 	started []jobcontext.StartedJobContext
@@ -186,16 +187,15 @@ func start(ctx context.Context, opts Options, openListener func() (net.Listener,
 }
 
 func (s *Server) Close() error {
-	var err error
 	s.once.Do(func() {
 		if s.server == nil {
 			return
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
-		err = s.server.Shutdown(ctx)
+		s.closeErr = s.server.Shutdown(ctx)
 	})
-	return err
+	return s.closeErr
 }
 
 func (s *Server) Env() map[string]string {

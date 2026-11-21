@@ -184,6 +184,35 @@ state:
           go test -mod=readonly -count=1 -v -timeout=5m ./pkg/executionruntime -run '^TestLeaseBoundRestartHelperSubmission$'
           # Saved-diff transport must preserve existing artifact-read diagnostics.
           go test -mod=readonly -count=1 -v -timeout=5m ./pkg/executionruntime -run '^TestTaskInspectionUsesBackendReadPermissions$'
+          # Extension waits must discard before publication and survive durable scheduling.
+          # Record actual subtests; a successful command with no collected cases is insufficient.
+          wait_status=0
+          go test -mod=readonly -count=1 -json -tags=integration -timeout=10m ./pkg/extensionwait ./pkg/ops/extensions ./pkg/worker/ops ./pkg/metricsruntime ./pkg/secrets ./pkg/executionruntime ./pkg/worker/compiler ./pkg/childbroker -run '^TestExtensionWait' > "$scratch/extension-waits.jsonl" 2> "$scratch/extension-waits.stderr" || wait_status=$?
+          cat "$scratch/extension-waits.jsonl"
+          cat "$scratch/extension-waits.stderr"
+          test "$wait_status" -eq 0
+          node - "$scratch/extension-waits.jsonl" <<'JS'
+          const fs = require('node:fs');
+          const events = fs.readFileSync(process.argv[2], 'utf8').trim().split('\n').filter(Boolean).map(JSON.parse);
+          for (const name of ['extensionwait', 'ops/extensions', 'worker/ops', 'metricsruntime', 'secrets', 'executionruntime', 'worker/compiler', 'childbroker']) {
+            const pkg = 'github.com/colony-2/c2j/pkg/' + name;
+            const tests = events.filter(e => e.Package === pkg && /^TestExtensionWait/.test(e.Test || ''));
+            const runs = tests.filter(e => e.Action === 'run');
+            if (!runs.length || runs.some(e => !tests.some(done => done.Test === e.Test && done.Action === 'pass')) || tests.some(e => e.Action === 'skip' || e.Action === 'fail')) {
+              throw new Error('Extension wait acceptance missing, skipped or failed: ' + pkg);
+            }
+          }
+          // Admission must reject satisfied bindings for different unfinished targets.
+          for (const backend of ['toy', 'sqlite', 'remote']) {
+            for (const target of ['job_target', 'goal_target']) {
+              const test = 'TestExtensionWaitBindingAdmission/' + backend + '/' + target;
+              const eventsForTest = events.filter(e => e.Package === 'github.com/colony-2/c2j/pkg/executionruntime' && e.Test === test);
+              if (!eventsForTest.some(e => e.Action === 'run') || !eventsForTest.some(e => e.Action === 'pass')) {
+                throw new Error('Extension wait binding acceptance missing: ' + test);
+              }
+            }
+          }
+          JS
           # Validate this hook's native scenario contract before expensive suites.
           go test -mod=readonly -count=1 -v -timeout=5m ./pkg/recipetest -run '^TestPnpmVerifyHook$'
           # Reject unsupported bases before submission, execution and handoff.

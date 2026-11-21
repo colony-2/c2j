@@ -9,6 +9,7 @@ import (
 
 	"github.com/colony-2/c2j/pkg/execution"
 	"github.com/colony-2/c2j/pkg/executioncatalog"
+	"github.com/colony-2/c2j/pkg/extensionwait"
 	"github.com/colony-2/c2j/pkg/gitprofile"
 	"github.com/colony-2/c2j/pkg/jobref"
 	"github.com/colony-2/c2j/pkg/metricsruntime"
@@ -75,6 +76,10 @@ func (w *guardedTask) runWithGitProfile(base context.Context, tc jobworkflow.Tas
 	})
 	local, gitStderr := gitprofile.WithStderrLog(local)
 	defer func() {
+		if extensionwait.IsDiscard(runErr) {
+			result = nil
+			return
+		}
 		stderr := gitStderr.Bytes()
 		if len(stderr) == 0 {
 			return

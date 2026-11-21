@@ -11,6 +11,7 @@ import (
 	"github.com/colony-2/c2j/pkg/configuration"
 	"github.com/colony-2/c2j/pkg/contextual"
 	"github.com/colony-2/c2j/pkg/execution"
+	"github.com/colony-2/c2j/pkg/extensionwait"
 	"github.com/colony-2/c2j/pkg/git/gitstate"
 	"github.com/colony-2/c2j/pkg/metricsruntime"
 	"github.com/colony-2/c2j/pkg/ops"
@@ -99,7 +100,7 @@ func (t *taskWorker) RunTask(local context.Context, ctx jobworkflow.TaskContext,
 	var prepMS int64
 	var prepared bool
 	defer func() {
-		if execution.IsRequired(runErr) || jobworkflow.IsExecutionSuspended(runErr) {
+		if extensionwait.IsDiscard(runErr) || execution.IsRequired(runErr) || jobworkflow.IsExecutionSuspended(runErr) {
 			return
 		}
 		if runErr == nil || (air.Setup == nil && air.Preparation.Extension == nil && len(air.Preparation.Scopes) == 0 && configDiag == nil && !configuration.Contains(air.Input) && !secrets.Contains(air.Input)) {
@@ -247,6 +248,9 @@ func (t *taskWorker) RunTask(local context.Context, ctx jobworkflow.TaskContext,
 		prepared = true
 		return bodyCtx, nil
 	})
+	if extensionwait.IsDiscard(err) {
+		return nil, err
+	}
 	if execution.IsRequired(err) || jobworkflow.IsExecutionSuspended(err) {
 		if stop := opCtx.Err(); stop != nil {
 			return nil, stop

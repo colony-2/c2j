@@ -80,3 +80,26 @@ there is no preparation checkpoint or ref-pinning guarantee. Ordinary pinned
 revisions and accepted snapshots keep their existing restoration semantics.
 Late preparation failures log config provenance, including the digest, workspace
 scope and restored revision when available, without changing handoff schemas.
+
+## Extension wait gates
+
+Exit-76 extension waits discard the invocation before yielding its unfinished
+task. The guard reads `c2j.extension_wait` in client payload before Git, tools,
+configuration or process setup. Its versioned gate binds normalized prerequisites,
+a fixed earliest launch time and retained absolute deadline to `InvocationID` and
+`AttemptNumber`. It contains no extension progress or business inputs.
+
+The lease wrapper atomically composes this gate, execution demand and unrelated
+client JSON under the current renewable lease's payload revision. Dependencies
+use a fresh binding ID for each response. Once satisfied, a separate timed
+reschedule enforces the timestamp; structured dependencies are never combined
+with legacy timing. Resume uses the enclosing job route and clears stale task
+coordinates. A released gate remains until its bound outcome commits, protecting
+its original deadline across another crash, then is removed at a later
+reschedule or completion. Completed replay never reads mutable gate conditions.
+
+Deadline extraction understands the pinned JobDB execution version 4 chapters
+and `__execution_prefix_v3` declaration metadata, including continuation budgets.
+Unreadable active history, unsupported gates and unexplained identity or binding
+mismatches fail closed. Check this integration when upgrading JobDB's compact
+history format. See the [extension contract](../../EXTENSION_OPS.md#discard-an-attempt-and-wait).

@@ -6,6 +6,7 @@ import (
 	"errors"
 
 	"github.com/colony-2/c2j/pkg/execution"
+	"github.com/colony-2/c2j/pkg/extensionwait"
 	"github.com/colony-2/c2j/pkg/secrets"
 	"github.com/colony-2/c2j/pkg/task"
 	"github.com/colony-2/jobdb/pkg/jobdb"
@@ -51,6 +52,10 @@ func Kind(w wf.TaskWorker) task.OutputKind {
 	return ""
 }
 func FinishTask(t *Timing, kind task.OutputKind, out jobdb.TaskData, err error) (jobdb.TaskData, error) {
+	if extensionwait.IsDiscard(err) {
+		t.Discard()
+		return nil, err
+	}
 	channels := t.Finish(err)
 	if execution.IsRequired(err) || wf.IsExecutionSuspended(err) {
 		return out, err

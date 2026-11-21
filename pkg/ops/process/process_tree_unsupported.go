@@ -3,9 +3,12 @@
 package process
 
 import (
+	"errors"
 	"os/exec"
 	"time"
 )
+
+const CheckedTreeCleanupSupported = false
 
 const processTerminationGrace = 2 * time.Second
 
@@ -21,4 +24,8 @@ func killProcessTree(cmd *exec.Cmd) {
 		return
 	}
 	_ = cmd.Process.Kill()
+}
+
+func stopExitedProcessTree(*exec.Cmd) error {
+	return errors.New("checked extension wait process-tree cleanup is unsupported on this platform")
 }

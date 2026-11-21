@@ -28,6 +28,7 @@ import (
 	"github.com/colony-2/c2j/pkg/childbroker"
 	"github.com/colony-2/c2j/pkg/contextual"
 	"github.com/colony-2/c2j/pkg/execution"
+	"github.com/colony-2/c2j/pkg/extensionwait"
 	"github.com/colony-2/c2j/pkg/git/common"
 	"github.com/colony-2/c2j/pkg/git/gitcommit"
 	"github.com/colony-2/c2j/pkg/git/gitstate"
@@ -47,9 +48,10 @@ import (
 )
 
 type opExecutor struct {
-	deps       ops.ServiceDependencies2
-	reg        ActivityRegistration
-	controller workspaceController
+	deps          ops.ServiceDependencies2
+	reg           ActivityRegistration
+	controller    workspaceController
+	removeWaitDir func(string) error
 }
 
 type workspaceController interface {
@@ -234,6 +236,16 @@ func (t opExecutor) doPrepared(ctx context.Context, jobTool ops.JobTool, req Act
 		return zero, nil, fmt.Errorf("create temp worktree: %w", err)
 	}
 	worktreePath := filepath.Join(workDir, "worktree")
+	defer func() {
+		if extensionwait.IsDiscard(err) {
+			output, outputArtifacts = zero, nil
+			remove := t.removeWaitDir
+			if remove == nil {
+				remove = os.RemoveAll
+			}
+			err = extensionwait.Cleaned(err, remove(workDir))
+		}
+	}()
 
 	defer func() {
 		if err == nil {
@@ -507,6 +519,10 @@ func (t opExecutor) doPrepared(ctx context.Context, jobTool ops.JobTool, req Act
 		return zero, nil, err
 	}
 	protectedEnv[execution.AllocationEnv] = string(allocationJSON)
+	protectedEnv[extensionwait.CapabilityEnv] = "0"
+	if process.CheckedTreeCleanupSupported {
+		protectedEnv[extensionwait.CapabilityEnv] = "1"
+	}
 	protectedEnv["C2J_WORKSPACE_CELL_NAME"] = req.GitTaskContext.GetWorkspaceCellName()
 	if req.GitTaskContext.Workspace != nil {
 		protectedEnv["C2J_WORKSPACE_SCOPE_ID"] = req.GitTaskContext.Workspace.ScopeID
@@ -523,7 +539,11 @@ func (t opExecutor) doPrepared(ctx context.Context, jobTool ops.JobTool, req Act
 		if err != nil {
 			return zero, nil, fmt.Errorf("start child job broker: %w", err)
 		}
-		defer broker.Close()
+		defer func() {
+			if closeErr := broker.Close(); closeErr != nil && extensionwait.IsDiscard(err) {
+				err = errors.Join(err, errors.New("extension wait broker cleanup failed"))
+			}
+		}()
 		ctx = childbroker.WithLocalSubmitter(ctx, broker)
 		opCtx = childbroker.WithLocalSubmitter(opCtx, broker)
 		protectedEnv = jobcontext.MergeProtectedEnv(protectedEnv, broker.Env())
@@ -602,7 +622,7 @@ func (t opExecutor) doPrepared(ctx context.Context, jobTool ops.JobTool, req Act
 	metricsruntime.Execution(opCtx)
 	logger.Debug("Op body started", "event", "op.body.started")
 	outputData, stepErr := reg.Step.Invoke(opDeps, opCtx, hydratedInput)
-	if execution.IsRequired(stepErr) {
+	if extensionwait.IsDiscard(stepErr) || execution.IsRequired(stepErr) {
 		return zero, nil, stepErr
 	}
 	phase = "process_op_output"

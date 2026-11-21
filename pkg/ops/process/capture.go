@@ -21,22 +21,24 @@ const observationLimit = 65536
 // always drain the pipes, even after the memory/observation budget is exhausted.
 // Use one Capture per process. Read results only after ExecuteProcess returns.
 type Capture struct {
-	LaunchAttempted bool
-	raw             [2]bytes.Buffer
-	rawOmitted      [2]bool
-	safeRaw         [2][]byte
-	mu              sync.Mutex
-	events          []observation
-	size            int
-	omitted         [2]bool
-	redactParts     func([]string, bool) []string
-	Request         RunRequest
-	Started         time.Time
-	Duration        time.Duration
-	Launched        bool
-	Err             error
-	safe            [2][]string
-	sealed          bool
+	// TreeCleanupError is provisional and must never be published for a discarded attempt.
+	TreeCleanupError error
+	LaunchAttempted  bool
+	raw              [2]bytes.Buffer
+	rawOmitted       [2]bool
+	safeRaw          [2][]byte
+	mu               sync.Mutex
+	events           []observation
+	size             int
+	omitted          [2]bool
+	redactParts      func([]string, bool) []string
+	Request          RunRequest
+	Started          time.Time
+	Duration         time.Duration
+	Launched         bool
+	Err              error
+	safe             [2][]string
+	sealed           bool
 }
 type observation struct {
 	stream int

@@ -8,6 +8,8 @@ import (
 	"time"
 )
 
+const CheckedTreeCleanupSupported = true
+
 const processTerminationGrace = 2 * time.Second
 
 func configureProcessTree(cmd *exec.Cmd) {
@@ -30,4 +32,16 @@ func signalProcessGroup(cmd *exec.Cmd, sig syscall.Signal) {
 	if err == syscall.ESRCH {
 		return
 	}
+}
+
+// The group can outlive its original shell after a control exit.
+func stopExitedProcessTree(cmd *exec.Cmd) error {
+	if cmd == nil || cmd.Process == nil {
+		return nil
+	}
+	err := syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+	if err == syscall.ESRCH {
+		return nil
+	}
+	return err
 }
