@@ -153,6 +153,11 @@ if [ "$1" = build ]; then
   cp -- "$0" "$2"
   chmod 0700 "$2"
 fi
+if [[ "$*" == *standalone-squash-history.test.json* ]]; then
+  test "$GIT_TEMPLATE_DIR" = "$PWD/pkg/recipetest/testdata/native-scenarios/standalone-squash-template"
+elif [[ "$*" == *"-tags=integration -p 2"* ]]; then
+  test -z "${GIT_TEMPLATE_DIR+x}"
+fi
 if [ "$1" = submit ]; then
   test "$#" = 2 && test "$2" = --help
   for flag in --wait-job --wait-job-success --wait-goal --wait-until; do
@@ -233,6 +238,7 @@ fi
 				require.Less(t, strings.Index(string(raw), "-run ^TestSubmission"), strings.Index(string(raw), "./internal/retirementcheck"))
 				require.Contains(t, string(raw), "go test -count=1 -v -timeout=10m ./internal/pathutil ./internal/portability ./pkg/shellcmd ./pkg/toolenv")
 				require.Contains(t, string(raw), "go test -count=1 -v -timeout=10m ./pkg/worker/compiler -run ^TestRealRepositoryNativePackages$")
+				require.Contains(t, string(raw), "./pkg/git/squashrebasemerge ./pkg/worker/compiler -run ^TestStandaloneSquash")
 				require.Contains(t, string(raw), "go test -count=1 -json -tags=integration -p 2 -timeout=30m ./...\n")
 				require.Contains(t, string(raw), "TestWorkspaceDiff|ExampleWorkspaceDiff")
 				require.Contains(t, string(raw), "go build -buildvcs=false -o ")
@@ -240,12 +246,16 @@ fi
 				require.Contains(t, string(raw), "./pkg/recipetest ./cmd/c2j/internal/testjob -run ^Test(FixtureSource|NativeRuntimeFixtureSourceModes)")
 				require.Contains(t, string(raw), "c2j test validate --file testdata/repros/fixture-source-modes/modes.test.yaml\n")
 				require.Contains(t, string(raw), "c2j test run --file testdata/repros/fixture-source-modes/modes.test.yaml --out-dir ")
-				require.Equal(t, 5, strings.Count(string(raw), "c2j test validate --file "))
-				require.Equal(t, 5, strings.Count(string(raw), "c2j test run --file "))
-				for _, suite := range []string{"admission-ordering", "advancement", "cancellation", "worker-recovery"} {
+				require.Equal(t, 6, strings.Count(string(raw), "c2j test validate --file "))
+				require.Equal(t, 6, strings.Count(string(raw), "c2j test run --file "))
+				for _, suite := range []string{"admission-ordering", "advancement", "cancellation", "worker-recovery", "standalone-squash-history"} {
 					fixture := "pkg/recipetest/testdata/native-scenarios/" + suite + ".test.json"
 					require.Contains(t, string(raw), "c2j test validate --file "+fixture+"\n")
-					require.Contains(t, string(raw), "c2j test run --file "+fixture+" --parallelism 1 --case-timeout 90s --out-dir ")
+					timeout := "90s"
+					if suite == "standalone-squash-history" {
+						timeout = "3m"
+					}
+					require.Contains(t, string(raw), "c2j test run --file "+fixture+" --parallelism 1 --case-timeout "+timeout+" --out-dir ")
 				}
 			}
 		})

@@ -1,0 +1,11 @@
+# Exercise real shallow transport for disposable local fixture repositories.
+# Git's local clone optimization otherwise ignores --depth. Set GIT_TEMPLATE_DIR
+# only for this fixture process; this is copied into its disposable repositories.
+[url "file:///"]
+    insteadOf = /
+# Rapid depth changes must not race detached maintenance in disposable repos.
+# Disable modern maintenance and the legacy automatic gc path locally.
+[maintenance]
+    auto = false
+[gc]
+    auto = 0

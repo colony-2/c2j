@@ -1,0 +1,99 @@
+id: standalone-history
+version: '1'
+input_schema:
+  negative: {type: boolean, default_value: false}
+inputs: {negative: '${{ inputs.negative }}'}
+sequence:
+- id: prepare
+  op: command_execution
+  inputs:
+    shell: bash
+    env:
+      SOURCE: '${{ context.git.repo }}'
+      BASE: '${{ context.git.execution.base_hash }}'
+      OUTBOX: '${{ context.environment.op.outbox }}'
+    run: bash standalone-squash-history.sh prepare
+- id: hidden
+  op: command_execution
+  inputs:
+    shell: bash
+    env:
+      BASE: '${{ json_parse(sequence.prepare.outputs.stdout).base }}'
+      CANDIDATE: '${{ json_parse(sequence.prepare.outputs.stdout).candidate }}'
+    run: bash standalone-squash-history.sh hidden
+- id: squash
+  op: squash
+  inputs:
+    base_hash: '${{ inputs.negative ? json_parse(sequence.prepare.outputs.stdout).unrelated : json_parse(sequence.prepare.outputs.stdout).base }}'
+    commit_message: Native preserved correction
+  catch:
+  - when: 'inputs.negative && failure.kind != "cancellation"'
+    continue:
+      outputs: {rejected: true, message: '${{ failure.message }}'}
+- id: check
+  op: command_execution
+  artifacts:
+    before.head: '${{ sequence.prepare.artifacts["before.head"] }}'
+    before.tree: '${{ sequence.prepare.artifacts["before.tree"] }}'
+    before.diff: '${{ sequence.prepare.artifacts["before.diff"] }}'
+    before.index: '${{ sequence.prepare.artifacts["before.index"] }}'
+    before.status: '${{ sequence.prepare.artifacts["before.status"] }}'
+  inputs:
+    shell: bash
+    env:
+      MODE: '${{ inputs.negative ? "rejected" : "check" }}'
+      BASE: '${{ json_parse(sequence.prepare.outputs.stdout).base }}'
+      CANDIDATE: '${{ json_parse(sequence.prepare.outputs.stdout).candidate }}'
+      INBOX: '${{ context.environment.op.inbox }}'
+    run: bash standalone-squash-history.sh "$MODE"
+- id: advance
+  when: '!inputs.negative'
+  op: command_execution
+  inputs:
+    shell: bash
+    env: {SOURCE: '${{ context.git.repo }}'}
+    run: bash standalone-squash-history.sh advance
+- id: rebase
+  when: '!inputs.negative'
+  op: rebase
+  inputs: {target_base_hash: '${{ sequence.advance.outputs.stdout }}'}
+- id: check_rebase
+  when: '!inputs.negative'
+  op: command_execution
+  artifacts:
+    before.head: '${{ sequence.prepare.artifacts["before.head"] }}'
+    before.tree: '${{ sequence.prepare.artifacts["before.tree"] }}'
+    before.diff: '${{ sequence.prepare.artifacts["before.diff"] }}'
+    before.index: '${{ sequence.prepare.artifacts["before.index"] }}'
+    before.status: '${{ sequence.prepare.artifacts["before.status"] }}'
+  inputs:
+    shell: bash
+    env:
+      BASE: '${{ context.git.execution.base_hash }}'
+      REBASED: 'true'
+      INBOX: '${{ context.environment.op.inbox }}'
+    run: bash standalone-squash-history.sh check
+- id: repeat
+  when: '!inputs.negative'
+  op: squash
+  inputs: {commit_message: Native repeated correction}
+- id: check_repeat
+  when: '!inputs.negative'
+  op: command_execution
+  artifacts:
+    before.head: '${{ sequence.prepare.artifacts["before.head"] }}'
+    before.tree: '${{ sequence.prepare.artifacts["before.tree"] }}'
+    before.diff: '${{ sequence.prepare.artifacts["before.diff"] }}'
+    before.index: '${{ sequence.prepare.artifacts["before.index"] }}'
+    before.status: '${{ sequence.prepare.artifacts["before.status"] }}'
+  inputs:
+    shell: bash
+    env:
+      BASE: '${{ context.git.execution.base_hash }}'
+      REBASED: 'true'
+      INBOX: '${{ context.environment.op.inbox }}'
+    run: bash standalone-squash-history.sh check
+
+outputs:
+  squash: '${{ sequence.squash.outputs }}'
+  checked: '${{ sequence.check.outputs.exit_code }}'

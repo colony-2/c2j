@@ -63,10 +63,18 @@ func managedEmptyBase(inv ops.OpDependencies, path string) bool {
 }
 
 func executeSquash(inv ops.OpDependencies, ctx context.Context, input SquashInput) (SquashOutput, error) {
-	return squash(ctx, input, managedEmptyBase(inv, input.RepoPath))
+	source := ""
+	if inv != nil && inv.WorktreePath() == input.RepoPath {
+		source = inv.GitContext().BaseRepo
+	}
+	return squashFrom(ctx, input, managedEmptyBase(inv, input.RepoPath), source)
 }
 
 func squash(ctx context.Context, input SquashInput, emptyBase bool) (SquashOutput, error) {
+	return squashFrom(ctx, input, emptyBase, "")
+}
+
+func squashFrom(ctx context.Context, input SquashInput, emptyBase bool, source string) (SquashOutput, error) {
 	var result SquashOutput
 	if err := requireCleanWorkspace(ctx, input.RepoPath); err != nil {
 		return result, err
@@ -87,6 +95,14 @@ func squash(ctx context.Context, input SquashInput, emptyBase bool) (SquashOutpu
 		ok, err := isAncestor(ctx, input.RepoPath, base, head)
 		if err != nil {
 			return result, err
+		}
+		if !ok && source != "" {
+			// Recover only published boundaries from this managed workspace's
+			// source. The candidate may exist solely in its saved snapshot.
+			ok, err = hasAncestor(ctx, input.RepoPath, source, base, head)
+			if err != nil {
+				return result, fmt.Errorf("verify squash ancestry: %w", err)
+			}
 		}
 		if !ok {
 			return result, fmt.Errorf("squash base must be an ancestor of HEAD")
@@ -234,6 +250,9 @@ func mergeFrom(ctx context.Context, input MergeInput, emptyBase bool, source str
 
 func requireCleanWorkspace(ctx context.Context, path string) error {
 	if err := common.ValidateRepositoryContext(ctx, path); err != nil {
+		if cause := context.Cause(ctx); cause != nil {
+			return errors.Join(err, cause)
+		}
 		return err
 	}
 	status, err := common.ExecuteGitCommand(ctx, path, "status", "--porcelain")

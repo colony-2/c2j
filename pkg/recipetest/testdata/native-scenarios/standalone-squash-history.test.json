@@ -1,0 +1,171 @@
+{
+  "recipe": "standalone-squash-history.yaml",
+  "cases": [
+    {
+      "id": "hidden-history-reopened-refresh",
+      "type": "integration_case",
+      "inputs": {
+        "negative": false
+      },
+      "runtime": {
+        "backend": "sqlite",
+        "cells": {
+          "root": {
+            "files": {
+              "obsolete.txt": "delete this\n"
+            },
+            "file_sources": {
+              "standalone-squash-history.sh": "standalone-squash-history.sh"
+            }
+          }
+        },
+        "controls": {
+          "scenario": {
+            "jobs": {
+              "root": {
+                "root": true
+              }
+            },
+            "dispatch_holds": [
+              {
+                "id": "cycle0",
+                "job": "root",
+                "task": {
+                  "task_type": "squash:squash",
+                  "node_path": "standalone-history/squash",
+                  "attempt": 1,
+                  "occurrence": 1
+                }
+              }
+            ],
+            "events": [
+              {
+                "id": "cycle0",
+                "kind": "dispatch",
+                "hold": "cycle0"
+              }
+            ],
+            "actions": [
+              {
+                "id": "cycle0stop",
+                "after_all": [
+                  "cycle0"
+                ],
+                "do": "stop_worker"
+              },
+              {
+                "id": "cycle0reopen",
+                "after_all": [
+                  "cycle0stop"
+                ],
+                "do": "reopen_runtime"
+              },
+              {
+                "id": "cycle0release",
+                "after_all": [
+                  "cycle0reopen"
+                ],
+                "do": "release",
+                "target": "cycle0"
+              },
+              {
+                "id": "cycle0start",
+                "after_all": [
+                  "cycle0release"
+                ],
+                "do": "start_worker"
+              }
+            ],
+            "outcomes": {
+              "root": {
+                "status": "completed"
+              }
+            }
+          }
+        }
+      },
+      "mocks": {
+        "ops": [
+          {
+            "match": {
+              "op": "command_execution"
+            },
+            "repeat": true,
+            "behavior": {
+              "mode": "passthrough"
+            }
+          }
+        ]
+      },
+      "assertions": [
+        {
+          "expr": "outputs.checked == 0",
+          "type": "cel_true"
+        },
+        {
+          "expr": "calls.exists(c, c.node_path == \"standalone-history/hidden\" && c.outputs.exit_code == 0)",
+          "type": "cel_true"
+        },
+        {
+          "expr": "controls.scenario.complete && controls.dispatch_complete",
+          "type": "cel_true"
+        },
+        {
+          "expr": "calls.exists(c, c.node_path == \"standalone-history/check_repeat\" && c.outputs.exit_code == 0)",
+          "type": "cel_true"
+        },
+        {
+          "expr": "calls.exists(a, a.node_path == \"standalone-history/hidden\" && calls.exists(b, b.node_path == \"standalone-history/check\" && a.outputs.stdout != b.outputs.stdout))",
+          "type": "cel_true"
+        }
+      ]
+    },
+    {
+      "id": "unrelated-preserved",
+      "type": "integration_case",
+      "inputs": {
+        "negative": true
+      },
+      "runtime": {
+        "backend": "sqlite",
+        "cells": {
+          "root": {
+            "files": {
+              "obsolete.txt": "delete this\n"
+            },
+            "file_sources": {
+              "standalone-squash-history.sh": "standalone-squash-history.sh"
+            }
+          }
+        }
+      },
+      "mocks": {
+        "ops": [
+          {
+            "match": {
+              "op": "command_execution"
+            },
+            "repeat": true,
+            "behavior": {
+              "mode": "passthrough"
+            }
+          }
+        ]
+      },
+      "assertions": [
+        {
+          "expr": "outputs.checked == 0",
+          "type": "cel_true"
+        },
+        {
+          "expr": "calls.exists(c, c.node_path == \"standalone-history/hidden\" && c.outputs.exit_code == 0)",
+          "type": "cel_true"
+        },
+        {
+          "expr": "outputs.squash.rejected && outputs.squash.message.contains(\"squash base must be an ancestor of HEAD\")",
+          "type": "cel_true"
+        }
+      ]
+    }
+  ]
+}
