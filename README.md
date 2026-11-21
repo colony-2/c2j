@@ -535,7 +535,11 @@ c2j submit "Review the changes" --advanced-recipe-file ./recipes/review.yaml --r
 
 `--advanced-recipe` accepts a target-cell recipe name or explicit git selector. `--advanced-recipe-file` embeds a local YAML file, including uncommitted changes. These flags are mutually exclusive. The old `--recipe`/`--recipe-file` flags remain hidden, deprecated aliases on `submit`; `c2j test` retains its existing flag names. Custom names and explicit selectors do not get a hosted fallback; only the name `build` does.
 
-Custom recipes submitted through the CLI must also declare the prompt in their input schema:
+Every recipe submission may contain `title` and `prompt`, even when the recipe
+does not declare them. Both remain in the recorded submission and eligible text
+is stored in job metadata. The recipe receives each field only if it explicitly
+declares that name in `input_schema`. Other undeclared inputs still fail
+validation. A recipe that reads the prompt should declare it:
 
 ```yaml
 input_schema:
@@ -543,6 +547,13 @@ input_schema:
     type: string
     required: true
 ```
+
+This behavior requires upgraded workers (or the updated Go evaluator library).
+An upgraded CLI alone cannot change validation on an older worker. Existing
+declarations retain their types, required fields and defaults; no schema-version
+bump is needed. Previously rejected jobs need an explicit submission restart or
+a new submission. Historical replay remains read-only and can report a history
+mismatch where the old worker rejected inputs before recording a recipe scope.
 
 ### Passing inputs
 
@@ -587,7 +598,9 @@ c2j submit "Update the review interface" --title "Improve review UI" --embed
 
 `--title` inserts the supplied text as `inputs.title`. You can also supply `title`
 in `--inputs-json` or `--inputs-file`. Custom recipes should declare `title` in
-their input schema when accepting it. A nonblank string title is stored verbatim
+their input schema when consuming it. Undeclared `title` and `prompt` are
+removed before recipe evaluation, including input-dependent profile selection. A nonblank string title is stored
+verbatim
 in job metadata and exposed as optional `title` in job, recipe-job, child-job,
 and goal-candidate responses. Empty or whitespace-only values, non-string values,
 and secret references are omitted from title metadata. Responses preserve stored

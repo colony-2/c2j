@@ -139,3 +139,16 @@ func validChoiceOptions() []interface{} {
 		map[string]interface{}{"value": "cancel", "label": "Cancel"},
 	}
 }
+
+func TestRecipeSubmissionInputsOperationContractsStayStrict(t *testing.T) {
+	for _, validation := range []bool{false, true} {
+		for _, key := range []string{"title", "prompt"} {
+			err := validateOpInputType(reflect.TypeOf(struct {
+				Value string `json:"value"`
+			}{}), map[string]any{"value": "run", key: "text"}, validation)
+			if err == nil {
+				t.Fatalf("operation validation=%t accepted undeclared %s", validation, key)
+			}
+		}
+	}
+}

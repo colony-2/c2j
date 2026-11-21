@@ -1,0 +1,39 @@
+{
+  "Key": {
+    "tenantId": "submission-inputs",
+    "jobId": "3MQXgjNnikEEaDxnVHtByTda8DK"
+  },
+  "Output": {
+    "all": {
+      "prompt": "  Inspect\n日本語  ",
+      "title": "  Café\nTitle  "
+    },
+    "c2j_metrics": {
+      "coverage": {
+        "cpu": {
+          "availability": "unavailable",
+          "measured_seconds": 0,
+          "process_seconds": 0
+        },
+        "history": "complete",
+        "phases": {},
+        "reports": {
+          "producer": {
+            "absent": 2
+          },
+          "runtime": {
+            "absent": 2
+          }
+        }
+      },
+      "cutoff": 4,
+      "history_view": "effective",
+      "reducer_version": 1,
+      "restart_partition": "unavailable",
+      "series": {},
+      "source": "computed",
+      "version": 1
+    },
+    "called": true
+  }
+}

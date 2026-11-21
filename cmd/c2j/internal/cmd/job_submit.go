@@ -21,6 +21,9 @@ Explicit bare recipe names look in the target cell's .c2/recipes directory.
 The prompt becomes inputs.prompt. Use --prompt-file to read it from a text file;
 if no prompt is supplied, it is requested interactively.
 The optional --title becomes inputs.title and is included in job metadata.
+Title and prompt are recorded even if the recipe does not declare them. The
+recipe receives each only when declared in input_schema; other unknown inputs
+still fail validation. The CLI requires a nonblank prompt.
 Build submissions also set inputs.type to "build".
 Custom recipes are an advanced use case: use --advanced-recipe[-file].
 

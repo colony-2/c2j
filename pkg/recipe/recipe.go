@@ -140,7 +140,7 @@ func (n RecipeMetadata) ValidateInputShapeAndFillDefaults(data map[string]interf
 	if err != nil {
 		return nil, err
 	}
-	return contract.Apply(data)
+	return contract.ApplyRecipe(data)
 }
 
 type RecipeSequence struct {

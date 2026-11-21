@@ -31,6 +31,22 @@ func (c InputContract) Apply(data map[string]interface{}) (map[string]interface{
 	return applyInputFields("", c.schema, nil, data)
 }
 
+// ApplyRecipe prepares root recipe inputs. Submission title and prompt remain
+// recorded on the job, but reach the recipe only when explicitly declared.
+// Other unknown fields still fail the normal input contract.
+func (c InputContract) ApplyRecipe(data map[string]interface{}) (map[string]interface{}, error) {
+	inputs := make(map[string]interface{}, len(data))
+	for key, value := range data {
+		if key == "title" || key == "prompt" {
+			if _, declared := c.schema[key]; !declared {
+				continue
+			}
+		}
+		inputs[key] = value
+	}
+	return c.Apply(inputs)
+}
+
 // ApplyIncluded also preserves the legacy contract for includes with no declared
 // inputs. The version adapter selects that policy, not the compiler.
 func (c InputContract) ApplyIncluded(data map[string]interface{}) (map[string]interface{}, error) {

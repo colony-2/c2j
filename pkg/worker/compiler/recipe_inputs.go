@@ -10,5 +10,5 @@ func prepareRecipeInputs(meta recipe.RecipeMetadata, raw map[string]interface{},
 	if opts.Mode == ExecutionModeValidate && raw == nil {
 		return contract.ValidationDefaults()
 	}
-	return contract.Apply(raw)
+	return contract.ApplyRecipe(raw)
 }

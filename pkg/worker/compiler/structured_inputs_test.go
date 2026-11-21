@@ -290,3 +290,26 @@ func TestEmptyIncludeSchemaVersions(t *testing.T) {
 		}
 	}
 }
+
+func TestRecipeSubmissionInputsIncludesStayStrict(t *testing.T) {
+	for _, version := range []int{0, 1, 2} {
+		for _, key := range []string{"title", "prompt"} {
+			for _, declaredSchema := range []bool{false, true} {
+				schema := map[string]recipe.InputSchema{}
+				raw := map[string]any{key: "text"}
+				if declaredSchema {
+					schema["value"] = recipe.InputSchema{Type: "string"}
+					raw["value"] = "run"
+				}
+				meta := recipe.NodeMetadata{Internal: &recipe.NodeInternalMetadata{Inline: &recipe.InlineInclusionMetadata{}, CompositeSchemaVersion: version, CompositeInputSchema: schema}}
+				got, err := prepareCompositeInputs(meta, raw)
+				if !declaredSchema && version < 2 {
+					require.NoError(t, err)
+					require.Equal(t, raw, got)
+				} else {
+					require.ErrorContains(t, err, key)
+				}
+			}
+		}
+	}
+}

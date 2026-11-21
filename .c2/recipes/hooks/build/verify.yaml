@@ -186,6 +186,8 @@ state:
           go test -mod=readonly -count=1 -v -timeout=5m ./pkg/executionruntime -run '^TestTaskInspectionUsesBackendReadPermissions$'
           # Validate this hook's native scenario contract before expensive suites.
           go test -mod=readonly -count=1 -v -timeout=5m ./pkg/recipetest -run '^TestPnpmVerifyHook$'
+          # Submission text must be recorded while only declared fields reach recipes.
+          go test -mod=readonly -count=1 -v -timeout=10m ./pkg/recipe ./pkg/worker/compiler ./pkg/recipejob ./pkg/recipetest ./pkg/childbroker ./pkg/starter ./cmd/c2j/internal/submitjob -run '^TestRecipeSubmissionInputs|^TestSelectedBrokerRealDispatchAndReplay$|^TestExplicitTitle(Selection|TransportAndDescriptor)$|^TestSubmissionPrompt|^Test(Title|LoadInputs)'
           # Fail early on compact failure formatting, persisted messages and real CLI output.
           go test -count=1 -v -timeout=10m ./pkg/ops/executiondiag ./pkg/ops/process ./pkg/recipe ./pkg/worker/commandop ./pkg/ops/extensions ./pkg/worker/ops ./pkg/worker/compiler ./cmd/c2j -run 'Test(Compact|ExecutionFailurePresentation|Capture|ExecuteProcessMasksDynamicallyResolvedGitCredentials|CommandCompact|CommandFailure|CommandDiagnostic|ExtensionCompact|ExtensionAutomatic|ExtensionCancellation|ExtensionCollectionFailure|ExtensionResultFailureReasons|ExecutionRequired|PreparedCompletion|CommandDiagnosticsNestedCatchResumeAndReplay|ExtensionExecutionLogCatchAndReplay|TaskWorkerCompact|VerifyHook)'
           # Preserve tool output through submit --run and both child-recipe fixture engines.

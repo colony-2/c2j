@@ -24,7 +24,9 @@ Use context prefixes. Do not write bare `outputs.foo`.
 
 Common references:
 
-- `inputs.<name>`: submitted inputs or defaults.
+- `inputs.<name>`: declared recipe inputs or defaults. Submission `title` and
+  `prompt` are recorded but absent here (including whole-map access and root
+  profile selection) unless explicitly declared in the root `input_schema`.
 - `sequence.<node>.outputs.<field>`: previous sibling node outputs.
 - `sequence.<node>.artifacts`: previous sibling artifacts.
 - `states.<state>.outputs.<field>`: completed state outputs.

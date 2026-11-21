@@ -10,6 +10,8 @@ import (
 	"github.com/colony-2/c2j/pkg/jobcontext"
 	"github.com/colony-2/c2j/pkg/jobdbschema"
 	"github.com/colony-2/c2j/pkg/jobref"
+	"github.com/colony-2/c2j/pkg/recipejob"
+	"github.com/colony-2/c2j/pkg/starter"
 	"github.com/stretchr/testify/require"
 	"net/http"
 	"net/http/httptest"
@@ -1271,4 +1273,76 @@ outputs:
 	require.NoError(t, err)
 	require.Len(t, jobs.Jobs, 2)
 	parentagetest.Check(t, ctx, rt, parent.Key(), started[0].JobID)
+}
+
+func TestRecipeSubmissionInputsCLISources(t *testing.T) {
+	for _, source := range []string{"positional", "prompt-file", "json", "json-file", "yaml-file"} {
+		t.Run(source, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(celltest.Context(context.Background()), 20*time.Second)
+			defer cancel()
+			root := t.TempDir()
+			path := filepath.Join(root, "submission-inputs.yaml")
+			require.NoError(t, os.WriteFile(path, []byte("id: submission-inputs\ninputs: {all: '${{ inputs }}'}\nsequence: []\noutputs: {all: '${{ inputs.all }}'}\n"), 0600))
+			repo, _ := createGitRepo(t)
+			rt := toyruntime.New()
+			celltest.Create(t, rt, "submission-inputs", "app", celltest.Repo(repo))
+			server := httptest.NewServer(celltest.Handler(remoteruntime.NewConsumerServer(rt)))
+			defer server.Close()
+			prompt, title := "  Inspect café\n日本語  ", "  Title\nλ  "
+			var stdout, stderr bytes.Buffer
+			opts := Options{JobDBURI: testJobDBURI(server.URL, "submission-inputs"), RecipeFile: path, Cell: "app", CellRepo: celltest.Repo(repo), Title: title, JSONOutput: true, Stdout: &stdout, Stderr: &stderr}
+			switch source {
+			case "positional":
+				opts.Prompt = prompt
+			case "prompt-file":
+				opts.PromptFile = filepath.Join(root, "prompt.md")
+				require.NoError(t, os.WriteFile(opts.PromptFile, []byte(prompt), 0600))
+			case "json", "json-file":
+				raw, err := json.Marshal(map[string]any{"prompt": prompt})
+				require.NoError(t, err)
+				if source == "json" {
+					opts.InputsJSON = string(raw)
+				} else {
+					opts.InputsFile = filepath.Join(root, "inputs.json")
+					require.NoError(t, os.WriteFile(opts.InputsFile, raw, 0600))
+				}
+			case "yaml-file":
+				opts.InputsFile = filepath.Join(root, "inputs.yaml")
+				// JSON double-quoted strings are also valid YAML scalar strings.
+				scalar, err := json.Marshal(prompt)
+				require.NoError(t, err)
+				require.NoError(t, os.WriteFile(opts.InputsFile, []byte("prompt: "+string(scalar)+"\n"), 0600))
+			}
+			require.NoError(t, Run(ctx, opts), stderr.String())
+			var submitted struct {
+				JobID string `json:"job_id"`
+			}
+			require.NoError(t, json.Unmarshal(stdout.Bytes(), &submitted))
+			require.NotEmpty(t, submitted.JobID)
+			require.NoError(t, runjob.Run(ctx, runjob.Options{JobID: submitted.JobID, JobDBURI: opts.JobDBURI, WaitTimeout: 5 * time.Second, PollInterval: 10 * time.Millisecond, InputMode: "fail", Stdout: &bytes.Buffer{}, Stderr: &stderr}), stderr.String())
+			key := jobdb.JobKey{TenantId: "submission-inputs", JobId: submitted.JobID}
+			chapters, err := rt.ListChapters(ctx, jobdb.ListChaptersRequest{JobKey: key})
+			require.NoError(t, err)
+			first, ok := chapters[0].Body.(jobdb.JobStartChapter)
+			require.True(t, ok)
+			var start workflowctl.StartJob
+			require.NoError(t, json.Unmarshal(first.Input.Data, &start))
+			require.Equal(t, map[string]any{"title": title, "prompt": prompt}, start.Inputs)
+			require.Equal(t, recipejob.InputHash(start.Inputs), start.InputHash)
+			sdk, err := jobworkflow.NewEngineBuilder().WithRuntime(rt).BuildEngine()
+			require.NoError(t, err)
+			output, err := swfutil.JobResult(ctx, sdk, key)
+			require.NoError(t, err)
+			var got map[string]any
+			require.NoError(t, json.Unmarshal(output.GetDataOrPanic(), &got))
+			require.Equal(t, map[string]any{}, got["all"])
+			page, err := rt.ListJobs(ctx, jobdb.ListJobsRequest{TenantIds: []string{"submission-inputs"}, JobKeys: []jobdb.JobKey{key}})
+			require.NoError(t, err)
+			require.Len(t, page.Jobs, 1)
+			var meta starter.JobMetadata
+			require.NoError(t, json.Unmarshal(page.Jobs[0].Metadata, &meta))
+			require.Equal(t, title, meta.Title)
+			require.Equal(t, prompt, meta.Prompt)
+		})
+	}
 }

@@ -57,7 +57,7 @@ input_schema:
     default_value: 10
 ```
 
-Submitted data may not contain keys absent from `input_schema`. The schema validates submitted values; bind values needed by the executable container in root `inputs` (for example `message: "${{ inputs.message }}"`). Declaring a schema field alone does not forward it into the body.
+Submitted data may not contain keys absent from `input_schema`, except root submission `title` and `prompt`: these are recorded but reach the recipe only when explicitly declared. This exception does not apply to includes, operation calls or nested objects. The schema validates submitted values; bind values needed by the executable container in root `inputs` (for example `message: "${{ inputs.message }}"`). Declaring a schema field alone does not forward it into the body.
 
 ## Nodes
 

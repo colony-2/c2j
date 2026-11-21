@@ -53,7 +53,7 @@ func TestSelectedBrokerRealDispatchAndReplay(t *testing.T) {
 	require.NoError(t, err)
 	defer server.Close()
 	broker := jobcontext.ChildJobBroker{Endpoint: server.localEndpoint, Token: server.token, SessionID: server.sessionID}
-	req, err := NewSubmitRequest(ctx, workflowctl.StartJob{TenantId: "tenant", JobID: "dest", GoalID: source.GoalID, Title: "  Child café\n  ", Inputs: map[string]any{"value": "original"}, RecipeName: "build", Cell: "work", CellRepo: "example.test/work"}, []jobdb.Artifact{jobdb.NewArtifactFromBytes("input.txt", []byte("input café\n"))})
+	req, err := NewSubmitRequest(ctx, workflowctl.StartJob{TenantId: "tenant", JobID: "dest", GoalID: source.GoalID, Title: "  Child café\n  ", Inputs: map[string]any{"value": "original", "title": "Input title", "prompt": "Input prompt"}, RecipeName: "build", Cell: "work", CellRepo: "example.test/work"}, []jobdb.Artifact{jobdb.NewArtifactFromBytes("input.txt", []byte("input café\n"))})
 	require.NoError(t, err)
 	d, err := PrepareSelected(ctx, broker, req)
 	require.NoError(t, err)
@@ -136,6 +136,7 @@ func TestSelectedBrokerRealDispatchAndReplay(t *testing.T) {
 	var metadata starter.JobMetadata
 	require.NoError(t, json.Unmarshal(summaries.Jobs[0].Metadata, &metadata))
 	require.Equal(t, req.Start.Title, metadata.Title)
+	require.Equal(t, req.Start.Inputs["prompt"], metadata.Prompt)
 
 	revoked.Store(true)
 	_, err = SubmitSelected(ctx, broker, d)

@@ -197,3 +197,22 @@ sequence: []
 	_, err = rec.GetMetadata().ValidateInputShapeAndFillDefaults(map[string]any{"data": map[string]any{"extra": secrets.Reference{Name: "token"}}})
 	require.ErrorContains(t, err, "data.extra")
 }
+
+func TestRecipeSubmissionInputsNestedObjectsStayStrict(t *testing.T) {
+	for _, key := range []string{"title", "prompt"} {
+		for _, declared := range []bool{false, true} {
+			properties := map[string]InputSchema{}
+			if declared {
+				properties[key] = InputSchema{Type: "string"}
+			}
+			meta := RecipeMetadata{SchemaVersion: 2, InputSchema: map[string]InputSchema{"data": {Type: "object", Properties: properties, AdditionalProperties: &InputAdditionalProperties{Allowed: false}}}}
+			got, err := meta.ValidateInputShapeAndFillDefaults(map[string]any{"title": "label", "prompt": "description", "data": map[string]any{key: "nested"}})
+			if declared {
+				require.NoError(t, err)
+				require.Equal(t, map[string]any{key: "nested"}, got["data"])
+			} else {
+				require.ErrorContains(t, err, "data."+key)
+			}
+		}
+	}
+}
