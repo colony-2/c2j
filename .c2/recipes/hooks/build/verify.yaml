@@ -178,7 +178,7 @@ state:
           for variable in ${!C2J_CURRENT_@} ${!C2J_CHILD_JOB_@} ${!C2J_WORKSPACE_@}; do
             unset "$variable"
           done
-          unset C2J_JOBDB C2J_TENANT_ID C2J_OBJECT_OUTBOX C2J_TEST_SUBMIT_BINARY
+          unset C2J_JOBDB C2J_TENANT_ID C2J_OBJECT_OUTBOX C2J_TEST_SUBMIT_BINARY C2J_REQUIRE_EXECUTION_BASE_CATALOG
           export GOWORK=off
           # Exact hidden-source restarts must pass through the lease-bound helper.
           go test -mod=readonly -count=1 -v -timeout=5m ./pkg/executionruntime -run '^TestLeaseBoundRestartHelperSubmission$'
@@ -186,6 +186,8 @@ state:
           go test -mod=readonly -count=1 -v -timeout=5m ./pkg/executionruntime -run '^TestTaskInspectionUsesBackendReadPermissions$'
           # Validate this hook's native scenario contract before expensive suites.
           go test -mod=readonly -count=1 -v -timeout=5m ./pkg/recipetest -run '^TestPnpmVerifyHook$'
+          # Reject unsupported bases before submission, execution and handoff.
+          go test -count=1 -v -timeout=5m ./pkg/execution ./pkg/executioncatalog ./pkg/executionruntime ./pkg/gitprofile ./pkg/starter ./pkg/recipejob ./pkg/childbroker ./pkg/jobdbschema ./pkg/worker/compiler ./cmd/c2j/internal/cmd ./cmd/c2j/internal/runjob ./cmd/c2j/internal/submitjob -run '^TestExecutionBaseCatalog'
           # Submission text must be recorded while only declared fields reach recipes.
           go test -mod=readonly -count=1 -v -timeout=10m ./pkg/recipe ./pkg/worker/compiler ./pkg/recipejob ./pkg/recipetest ./pkg/childbroker ./pkg/starter ./cmd/c2j/internal/submitjob -run '^TestRecipeSubmissionInputs|^TestSelectedBrokerRealDispatchAndReplay$|^TestExplicitTitle(Selection|TransportAndDescriptor)$|^TestSubmissionPrompt|^Test(Title|LoadInputs)'
           # Fail early on compact failure formatting, persisted messages and real CLI output.

@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/colony-2/c2j/cmd/c2j/internal/c2jops"
+	"github.com/colony-2/c2j/cmd/c2j/internal/defaults"
 	"github.com/colony-2/c2j/cmd/c2j/internal/jobutil"
 	"github.com/colony-2/c2j/cmd/c2j/internal/swfruntime"
 	"github.com/colony-2/c2j/pkg/input"
@@ -135,6 +136,10 @@ type runnerDeps struct {
 }
 
 func buildDeps(ctx context.Context, opts Options) (*runnerDeps, func(), error) {
+	policy, err := defaults.ExecutionBasePolicy(opts.SWFURL, opts.TenantID, nil)
+	if err != nil {
+		return nil, nil, err
+	}
 	handle, err := swfruntime.OpenWorker(ctx, opts.SWFURL, opts.TenantID)
 	if err != nil {
 		return nil, nil, fmt.Errorf("open JobDB runtime: %w", err)
@@ -206,6 +211,7 @@ func buildDeps(ctx context.Context, opts Options) (*runnerDeps, func(), error) {
 		stopRuntime:  handle.Cleanup,
 	}
 	deps.executionRuntime = executionruntime.New(handle.Runtime, opts.Allocation)
+	deps.executionRuntime.BaseCatalog = policy
 	deps.executionRuntime.RestartAPI = &restartservice.Service{Engine: handle.Engine, Tenant: opts.TenantID, Provider: celProvider, Resolver: recipeSourceResolver, Submit: (restartservice.TaskSubmitter{Engine: handle.Engine, Registry: handle.Runtime.(jobdb.JobSchemaRegistry)}).Submit}
 	for i, worker := range deps.taskWorkers {
 		deps.taskWorkers[i] = deps.executionRuntime.WrapTaskWorker(worker)

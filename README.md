@@ -1191,3 +1191,6 @@ See [native response semantics](GUIDE-Native-Recipe-Testing.md#scripted-response
 for selectors, timing, scope, JSON encoding, retry receipts and actionable errors.
 Bindings and ordering controls require a supporting release; a checkout build
 establishes local behavior, not public release availability.
+
+For deployments that require supported base selectors, see
+[execution-base discovery and admission](GUIDE-Execution-Base-Catalog.md).

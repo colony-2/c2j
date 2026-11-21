@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/colony-2/c2j/internal/dispatchtest"
+	"github.com/colony-2/c2j/pkg/executioncatalog"
 	"github.com/colony-2/c2j/pkg/hookpolicy"
 	"github.com/colony-2/c2j/pkg/jobdbschema"
 	"github.com/colony-2/c2j/pkg/jobinspect"
@@ -84,7 +85,7 @@ func (r *Runtime) restrictedAccess(parent context.Context, tc jobworkflow.TaskCo
 		if current == nil || current.leaseState != original.leaseState || tc.Context().Err() != nil {
 			return jobref.Ref{}, jobdb.ErrExecutionLeaseLost
 		}
-		handle, err := r.appendOnLease(call, current.ExecutionLease, req)
+		handle, err := r.appendOnLease(current.submissionContext(call), current.ExecutionLease, req)
 		if err != nil {
 			return jobref.Ref{}, err
 		}
@@ -105,6 +106,9 @@ func (r *Runtime) restrictedAccess(parent context.Context, tc jobworkflow.TaskCo
 		}
 		if req.Job.PriorJobKey.TenantId != tc.JobKey.TenantId {
 			return jobref.Ref{}, jobdb.ErrLeasePermissionDenied
+		}
+		if err := executioncatalog.CheckRestart(current.submissionContext(call), req); err != nil {
+			return jobref.Ref{}, err
 		}
 		handle, err := current.ExecutionLease.SubmitRestartJob(call, req)
 		if err != nil {
@@ -171,7 +175,7 @@ func (r *Runtime) restrictedAccess(parent context.Context, tc jobworkflow.TaskCo
 					if err != nil {
 						return jobref.Ref{}, err
 					}
-					handle, err := r.appendOnLease(call, child, req)
+					handle, err := r.appendOnLease(original.submissionContext(call), child, req)
 					if err != nil {
 						return jobref.Ref{}, err
 					}
@@ -181,6 +185,9 @@ func (r *Runtime) restrictedAccess(parent context.Context, tc jobworkflow.TaskCo
 				submit = func(call context.Context, job jobdb.SubmitJob) (jobref.Ref, error) {
 					child, err := get(call)
 					if err != nil {
+						return jobref.Ref{}, err
+					}
+					if err := executioncatalog.CheckSubmission(original.submissionContext(call), job); err != nil {
 						return jobref.Ref{}, err
 					}
 					handle, err := child.SubmitJob(call, jobdb.SubmitJobRequest{Job: job})
@@ -254,6 +261,9 @@ func (l leaseAppender) StartOrAppendJob(ctx context.Context, req jobdb.StartOrAp
 	return l.ExecutionLease.StartOrAppendJob(ctx, jobdb.StartOrAppendJobRequest{Job: req})
 }
 func (r *Runtime) appendOnLease(ctx context.Context, lease jobdb.ExecutionLease, req jobdb.StartOrAppendJob) (jobdb.JobHandle, error) {
+	if err := executioncatalog.CheckSubmission(ctx, req.Job); err != nil {
+		return jobdb.JobHandle{}, err
+	}
 	registry, _ := r.ConsumerRuntime.(jobdb.JobSchemaRegistry)
 	return jobdbschema.Append(ctx, leaseAppender{lease}, registry, req)
 }

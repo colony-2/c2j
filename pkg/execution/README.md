@@ -142,3 +142,7 @@ are excluded from resource-admission checks. Upgrade consumers of the shared Go
 model (including Pulse) before submitting declarations with this new optional
 field. See [execution tools](../../EXECUTION_TOOLS.md#python-script-environments)
 for scope order and the installation contract.
+
+Offered-base admission is opt-in and separate from allocation matching. See the
+[base catalog guide](../../GUIDE-Execution-Base-Catalog.md) for typed discovery,
+publication, policy wiring, refusal codes and existing-wait recovery.

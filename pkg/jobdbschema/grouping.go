@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/colony-2/c2j/pkg/executioncatalog"
 	"github.com/colony-2/c2j/pkg/jobref"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 )
@@ -21,6 +22,9 @@ func Append(ctx context.Context, submit AppendSubmitter, registry jobdb.JobSchem
 			return jobdb.JobHandle{}, err
 		}
 	}
+	if err := executioncatalog.CheckSubmission(ctx, req.Job); err != nil {
+		return jobdb.JobHandle{}, err
+	}
 	h, err := submit.StartOrAppendJob(ctx, req)
 	if !errors.Is(err, jobdb.ErrJobSchemaNotFound) {
 		return h, err
@@ -28,11 +32,17 @@ func Append(ctx context.Context, submit AppendSubmitter, registry jobdb.JobSchem
 	if err := Register(ctx, registry, req.Job.TenantId); err != nil {
 		return jobdb.JobHandle{}, fmt.Errorf("register grouped recipe schema: %w", err)
 	}
+	if err := executioncatalog.CheckSubmission(ctx, req.Job); err != nil {
+		return jobdb.JobHandle{}, err
+	}
 	return submit.StartOrAppendJob(ctx, req)
 }
 
 func (e WorkflowEngine) StartOrAppendJob(ctx context.Context, req jobdb.StartOrAppendJob) (jobdb.JobHandle, error) {
 	if req.Job.JobType != "recipe" {
+		if err := executioncatalog.CheckSubmission(ctx, req.Job); err != nil {
+			return jobdb.JobHandle{}, err
+		}
 		return e.Engine.StartOrAppendJob(ctx, req)
 	}
 	return Append(ctx, e.Engine, e.Registry, req)

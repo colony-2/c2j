@@ -12,6 +12,7 @@ import (
 
 	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/c2j/pkg/execution"
+	"github.com/colony-2/c2j/pkg/executioncatalog"
 	"github.com/colony-2/c2j/pkg/executionruntime"
 	coreops "github.com/colony-2/c2j/pkg/ops"
 	extops "github.com/colony-2/c2j/pkg/ops/extensions"
@@ -22,13 +23,16 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func runNegotiatingRecipe(t *testing.T, rt jobdb.ConsumerRuntime, key jobdb.JobKey, allocation execution.Allocation, supplied bool) (jobworkflow.JobRunOutcome, error) {
+func runNegotiatingRecipe(t *testing.T, rt jobdb.ConsumerRuntime, key jobdb.JobKey, allocation execution.Allocation, supplied bool, policies ...executioncatalog.Policy) (jobworkflow.JobRunOutcome, error) {
 	t.Helper()
 	registry, err := workerops.NewActivityRegistry()
 	require.NoError(t, err)
 	engine, err := jobworkflow.NewEngineBuilder().WithRuntime(rt).BuildEngine()
 	require.NoError(t, err)
 	guard := executionruntime.New(rt, allocation)
+	if len(policies) > 0 {
+		guard.BaseCatalog = policies[0]
+	}
 	deps := coreops.NewServiceDepsBuilder().WithWorkflowControl(&workerworkflow.SWFWorkflowControl{Engine: engine}).Build()
 	ws, err := NewRecipeWorkerWithOptions(deps, registry, RecipeJobWorkerOptions{Allocation: allocation, StageExecution: guard.Stage, WrapTaskWorker: guard.WrapTaskWorker})
 	require.NoError(t, err)
@@ -206,4 +210,52 @@ catch:
 	require.NoError(t, err)
 	require.Nil(t, out.Handoff)
 	require.Contains(t, gitLifecycleOutput(t, out)["message"], "already satisfied")
+}
+
+func TestExecutionBaseCatalogExtensionNegotiationRefusal(t *testing.T) {
+	withRegisteredOps(t, extops.GetExecutionOp())
+	for _, backend := range []string{"sqlite", "remote"} {
+		t.Run(backend, func(t *testing.T) {
+			repo := filepath.Join(t.TempDir(), "repo")
+			workspaceRepo(t, repo, "source")
+			commitHookFile(t, repo, "ops/refused/op.yaml", `name: refused
+shell: sh
+run: |
+  printf '{"execution_required":{"base":"macos-sequoia-15.7.7-arm64"}}'
+  exit 75
+input_schema: {type: object}
+output_schema: {type: object}
+`)
+			rt := newTimeoutReproRuntime(t, backend).ConsumerRuntime
+			key := submitGitLifecycle(t, rt, repo, `id: git-lifecycle
+execution: {base: '*'}
+sequence:
+ - id: negotiate
+   op: ./ops/refused
+   retry: {maximum_attempts: 3}
+   catch:
+    - when: "failure.code == 'UNSUPPORTED_EXECUTION_BASE' && failure.retryable == false"
+      continue:
+       outputs:
+        code: "${{ failure.code }}"
+        choices: "${{ failure.attrs.named_bases }}"
+outputs: {result: '${{ sequence.negotiate.outputs }}'}
+`)
+			now := time.Now().UTC()
+			c := execution.BaseCatalog{Version: 1, Scope: execution.CatalogScope{Runtime: "https://test-jobdb", Tenant: key.TenantId}, Complete: true, NamedBases: []string{"linux", "macos-15-arm64"}, Dynamic: []execution.DynamicBaseRule{}, Generation: "one", PublishedAt: now.Add(-time.Minute), ExpiresAt: now.Add(time.Hour)}
+			raw, err := json.Marshal(c)
+			require.NoError(t, err)
+			_, err = rt.(jobdb.ConfigurationAdmin).SetTenantConfigurationValue(celltest.Context(context.Background()), jobdb.SetTenantConfigurationValueRequest{TenantID: key.TenantId, Name: execution.BaseCatalogKey, Value: raw})
+			require.NoError(t, err)
+			out, err := runNegotiatingRecipe(t, rt, key, execution.Allocation{SchemaVersion: execution.SchemaVersion, Base: "linux"}, false, executioncatalog.Policy{Required: true, Scope: c.Scope})
+			require.NoError(t, err)
+			result := gitLifecycleOutput(t, out)["result"].(map[string]any)
+			require.Equal(t, executioncatalog.Unsupported, result["code"])
+			require.Equal(t, []any{"linux", "macos-15-arm64"}, result["choices"])
+			info, err := rt.GetJob(celltest.Context(context.Background()), key)
+			require.NoError(t, err)
+			require.Empty(t, info.ClientPayload)
+			require.Nil(t, out.Handoff)
+		})
+	}
 }

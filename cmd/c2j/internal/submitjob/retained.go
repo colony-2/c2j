@@ -9,9 +9,11 @@ import (
 	"slices"
 	"time"
 
+	"github.com/colony-2/c2j/cmd/c2j/internal/defaults"
 	"github.com/colony-2/c2j/cmd/c2j/internal/runjob"
 	"github.com/colony-2/c2j/cmd/c2j/internal/swfruntime"
 	"github.com/colony-2/c2j/pkg/childbroker"
+	"github.com/colony-2/c2j/pkg/executioncatalog"
 	"github.com/colony-2/c2j/pkg/jobcontext"
 	"github.com/colony-2/c2j/pkg/jobref"
 	"github.com/colony-2/c2j/pkg/starter"
@@ -106,6 +108,12 @@ func replaySelected(ctx context.Context, opts Options, route *submissionRoute) e
 		return err
 	}
 	if handle != nil {
+		p, e := defaults.ExecutionBasePolicy(opts.SWFURL, opts.TenantID, handle.Configuration)
+		if e != nil {
+			handle.Cleanup()
+			return e
+		}
+		ctx = executioncatalog.WithPolicy(ctx, p)
 		defer handle.Cleanup()
 	}
 	return publishRetained(ctx, opts, retained, route.broker, handle)

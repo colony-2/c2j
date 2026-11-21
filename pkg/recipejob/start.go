@@ -12,6 +12,7 @@ import (
 	recipeartifacts "github.com/colony-2/c2j/pkg/artifacts"
 	"github.com/colony-2/c2j/pkg/contextual"
 	"github.com/colony-2/c2j/pkg/execution"
+	"github.com/colony-2/c2j/pkg/executioncatalog"
 	"github.com/colony-2/c2j/pkg/jobcontext"
 	"github.com/colony-2/c2j/pkg/jobref"
 	"github.com/colony-2/c2j/pkg/recipe"
@@ -22,6 +23,7 @@ import (
 )
 
 type BuildStartJobRequest struct {
+	BaseCatalog           *executioncatalog.Policy
 	AvailableAt           *time.Time
 	Dependencies          []jobdb.Dependency
 	ExecutionRequirements execution.Requirements
@@ -147,6 +149,9 @@ func SubmitRecipeJob(ctx context.Context, req BuildStartJobRequest, submitter Su
 	start, err := BuildStartJob(req)
 	if err != nil {
 		return jobref.Ref{}, err
+	}
+	if req.BaseCatalog != nil {
+		ctx = executioncatalog.WithPolicy(ctx, *req.BaseCatalog)
 	}
 	return starter.StartRecipeJob(ctx, start, submitter, recipes...)
 }

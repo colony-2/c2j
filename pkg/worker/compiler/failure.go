@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"strings"
 
+	"github.com/colony-2/c2j/pkg/executioncatalog"
 	"github.com/colony-2/c2j/pkg/recipe"
 	"github.com/colony-2/c2j/pkg/template"
 	"github.com/colony-2/c2j/pkg/workflow"
@@ -139,6 +140,9 @@ func normalizeRuntimeFailure(err error, resCtx *template.ResolutionContext, meta
 			failure.Attrs = jsonCompatibleMap(appErr.Payload.Attrs)
 			if code, ok := failure.Attrs["code"].(string); ok {
 				failure.Code = code
+				if code == executioncatalog.Unsupported {
+					failure.Retryable = false
+				}
 			}
 		}
 	case errors.Is(err, jobdb.ErrJobCancelled), errors.Is(err, context.Canceled):

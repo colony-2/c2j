@@ -8,6 +8,7 @@ import (
 	"slices"
 
 	"github.com/colony-2/c2j/pkg/execution"
+	"github.com/colony-2/c2j/pkg/executioncatalog"
 	"github.com/colony-2/c2j/pkg/gitprofile"
 	"github.com/colony-2/c2j/pkg/jobref"
 	"github.com/colony-2/c2j/pkg/metricsruntime"
@@ -40,6 +41,7 @@ func (w *guardedTask) runWithGitProfile(base context.Context, tc jobworkflow.Tas
 		defer func() { result, runErr = metricsruntime.FinishTask(timing, kind, result, runErr) }()
 	}
 
+	local = original.submissionContext(local)
 	local = execution.WithEnvironment(local, w.runtime.Allocation)
 	local = execution.WithRepositoryAdmission(local, func(ctx context.Context, defaults execution.Requirements) error {
 		w.runtime.mu.Lock()
@@ -54,13 +56,19 @@ func (w *guardedTask) runWithGitProfile(base context.Context, tc jobworkflow.Tas
 			return err
 		}
 		d.Effective = effective
-		w.runtime.Stage(tc.JobKey, d)
+		if err := original.checkBase(tc.Context(), effective, taskBaseSource(tc.InvocationID, tc.Step)+" (repository defaults)"); err != nil {
+			return err
+		}
 		mismatches, err := execution.Compare(effective, w.runtime.Allocation)
 		if err != nil {
 			return err
 		}
+		w.runtime.Stage(tc.JobKey, d)
 		if len(mismatches) > 0 {
 			_, err = original.yieldEnvironment(tc, mismatches)
+			if err != nil && !jobworkflow.IsExecutionSuspended(err) {
+				original.restoreDemand(staged)
+			}
 			return err
 		}
 		return nil
@@ -191,6 +199,7 @@ func (w *guardedTask) runWithGitProfile(base context.Context, tc jobworkflow.Tas
 			return resolveCell(call, name, false)
 		},
 	})
+	scopeContext = executioncatalog.WithPolicy(scopeContext, original.catalogPolicy())
 	scope, err := gitprofile.NewScope(scopeContext, request.GitProfile, snapshot, resolve, "", tc.JobKey.TenantId)
 	if err != nil {
 		return nil, err
@@ -218,6 +227,9 @@ func (r *Runtime) submitOnCurrentLease(ctx context.Context, tc jobworkflow.TaskC
 	r.mu.Unlock()
 	if current == nil || current.leaseState != original.leaseState || tc.Context().Err() != nil {
 		return jobdb.JobHandle{}, jobdb.ErrExecutionLeaseLost
+	}
+	if err := executioncatalog.CheckSubmission(current.submissionContext(ctx), job); err != nil {
+		return jobdb.JobHandle{}, err
 	}
 	return current.ExecutionLease.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: job})
 }

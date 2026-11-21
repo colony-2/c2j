@@ -91,6 +91,7 @@ func TestVerifyHookSubmissionEnvironmentAndGate(t *testing.T) {
 		{name: "helper-gate", failGate: "TestLeaseBoundRestartHelperSubmission"},
 		{name: "inspection-gate", failGate: "TestTaskInspectionUsesBackendReadPermissions"},
 		{name: "scenario-gate", failGate: "TestPnpmVerifyHook"},
+		{name: "catalog-gate", failGate: "TestExecutionBaseCatalog"},
 		{name: "submission-inputs-gate", failGate: "^TestRecipeSubmissionInputs"},
 		{name: "compact-gate", failGate: "Test(Compact|ExecutionFailurePresentation"},
 		{name: "fixture-gate", failGate: "Run_EmbedExtensionFailureCompletesWithOriginalError"},
@@ -113,7 +114,7 @@ func TestVerifyHookSubmissionEnvironmentAndGate(t *testing.T) {
 			mock := `#!/bin/bash
 set -eu
 for variable in ${!C2J_CURRENT_@} ${!C2J_CHILD_JOB_@} ${!C2J_WORKSPACE_@}; do exit 91; done
-test -z "${C2J_JOBDB+x}${C2J_TENANT_ID+x}${C2J_OBJECT_OUTBOX+x}"
+test -z "${C2J_JOBDB+x}${C2J_TENANT_ID+x}${C2J_OBJECT_OUTBOX+x}${C2J_REQUIRE_EXECUTION_BASE_CATALOG+x}"
 if [ -n "${C2J_TEST_SUBMIT_BINARY+x}" ]; then
   [[ "$*" == *TestLeaseParentage* ]]
   [[ "$C2J_TEST_SUBMIT_BINARY" == */c2j-parentage ]]
@@ -170,7 +171,7 @@ fi
 			commands := filepath.Join(root, "commands")
 			cmd := exec.Command("bash", "-c", node.Inputs["run"].(string))
 			cmd.Dir = root
-			cmd.Env = append(os.Environ(), "PATH="+bin+":"+os.Getenv("PATH"), "OUTBOX="+outbox, "COMMANDS="+commands, "FAIL_GATE="+fixture.failGate, fmt.Sprintf("MISSING_WAIT_GOAL=%t", fixture.missingWaitGoal), "C2J_CURRENT_JOB_ID=live", "C2J_CHILD_JOB_TOKEN=live", "C2J_WORKSPACE_ROOT=live", "C2J_JOBDB=embed:///", "C2J_TENANT_ID=live", "C2J_OBJECT_OUTBOX=live", "C2J_TEST_SUBMIT_BINARY=/stale/c2j")
+			cmd.Env = append(os.Environ(), "PATH="+bin+":"+os.Getenv("PATH"), "OUTBOX="+outbox, "COMMANDS="+commands, "FAIL_GATE="+fixture.failGate, fmt.Sprintf("MISSING_WAIT_GOAL=%t", fixture.missingWaitGoal), "C2J_CURRENT_JOB_ID=live", "C2J_CHILD_JOB_TOKEN=live", "C2J_WORKSPACE_ROOT=live", "C2J_JOBDB=embed:///", "C2J_TENANT_ID=live", "C2J_OBJECT_OUTBOX=live", "C2J_TEST_SUBMIT_BINARY=/stale/c2j", "C2J_REQUIRE_EXECUTION_BASE_CATALOG=true")
 			out, err := cmd.CombinedOutput()
 			if fixture.failGate != "" {
 				require.Error(t, err)
@@ -190,6 +191,7 @@ fi
 				"TestLeaseBoundRestartHelperSubmission$",
 				"TestTaskInspectionUsesBackendReadPermissions$",
 				"^TestPnpmVerifyHook$",
+				"^TestExecutionBaseCatalog",
 				"^TestRecipeSubmissionInputs",
 				"Test(Compact|ExecutionFailurePresentation",
 				"^Test(Run_EmbedExtensionFailureCompletesWithOriginalError|RecipeFixtures)",

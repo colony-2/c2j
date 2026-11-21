@@ -16,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/colony-2/c2j/pkg/executioncatalog"
 	"github.com/colony-2/c2j/pkg/gitprofile"
 	"github.com/colony-2/c2j/pkg/jobcontext"
 	"github.com/colony-2/c2j/pkg/jobref"
@@ -368,6 +369,9 @@ func (s *Server) submit(ctx context.Context, req SubmitRequest) (SubmitResponse,
 		}
 		*req.prepare = descriptor
 		return SubmitResponse{}, nil
+	}
+	if err := executioncatalog.CheckSubmission(ctx, job); err != nil {
+		return SubmitResponse{}, err
 	}
 	key, err := s.submitter.SubmitJobRef(ctx, job)
 	if err == nil && job.GoalID != "" {

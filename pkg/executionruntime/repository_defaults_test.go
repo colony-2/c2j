@@ -127,6 +127,10 @@ func TestRepositoryDefaultsRealRestoredWorkspace(t *testing.T) {
 		t.Run(mode, func(t *testing.T) { testRepositoryDefaultsRestoredWorkspace(t, mode) })
 	}
 }
+func TestExecutionBaseCatalogRestoredDefaultsBeforeInstaller(t *testing.T) {
+	testRepositoryDefaultsRestoredWorkspace(t, "catalog")
+}
+
 func testRepositoryDefaultsRestoredWorkspace(t *testing.T, mode string) {
 	ctx := celltest.Context(context.Background())
 	bin, cache, installRoot := t.TempDir(), t.TempDir(), t.TempDir()
@@ -188,6 +192,9 @@ chmod +x "$UV_TOOL_BIN_DIR/defaults-tool"
 	logger := slog.New(slog.NewJSONHandler(&logs, nil))
 	run := func(alloc execution.Allocation) (jobworkflow.JobRunOutcome, *compiler.ExecutionHandoff) {
 		rt := New(base, alloc)
+		if mode == "catalog" {
+			rt.BaseCatalog = installCatalog(t, &fixture{runtime: base}, "macos-15-arm64")
+		}
 		ws, err := compiler.NewRecipeWorkerWithOptions(coreops.NewServiceDepsBuilder().Build(), reg, compiler.RecipeJobWorkerOptions{Allocation: alloc, StageExecution: rt.Stage, WrapTaskWorker: rt.WrapTaskWorker})
 		require.NoError(t, err)
 		taskWorkers := make([]jobworkflow.TaskWorker, 0, len(ws.TaskWorkers))
@@ -219,6 +226,18 @@ chmod +x "$UV_TOOL_BIN_DIR/defaults-tool"
 		initial = execution.Allocation{SchemaVersion: execution.SchemaVersion}
 	}
 	out, event := run(initial)
+	if mode == "catalog" {
+		require.Equal(t, jobworkflow.JobRunFailed, out.Status)
+		require.ErrorContains(t, out.JobError, "UNSUPPORTED_EXECUTION_BASE")
+		require.Nil(t, event)
+		require.Zero(t, calls)
+		_, statErr := os.Stat(installLog)
+		require.True(t, os.IsNotExist(statErr), "installer ran before refusal")
+		info, err := base.GetJob(ctx, ref.Key())
+		require.NoError(t, err)
+		require.Empty(t, info.ClientPayload)
+		return
+	}
 	require.Equal(t, jobworkflow.JobRunSuspended, out.Status, "%+v", out)
 	require.NotNil(t, event)
 	require.Zero(t, calls)

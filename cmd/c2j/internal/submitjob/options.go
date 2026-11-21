@@ -12,6 +12,7 @@ import (
 	"github.com/colony-2/c2j/cmd/c2j/internal/defaults"
 	"github.com/colony-2/c2j/cmd/c2j/internal/executionflags"
 	"github.com/colony-2/c2j/pkg/execution"
+	"github.com/colony-2/c2j/pkg/executioncatalog"
 )
 
 type Options struct {
@@ -61,6 +62,9 @@ type Options struct {
 }
 
 func (o *Options) Complete(ctx context.Context) error {
+	if _, err := executioncatalog.RequiredFromEnv(); err != nil {
+		return err
+	}
 	r, err := o.ExecutionRequirements.Normalize()
 	if err != nil {
 		return err

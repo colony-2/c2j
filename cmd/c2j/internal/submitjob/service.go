@@ -10,10 +10,12 @@ import (
 	"time"
 
 	"github.com/colony-2/c2j/cmd/c2j/internal/c2jops"
+	"github.com/colony-2/c2j/cmd/c2j/internal/defaults"
 	"github.com/colony-2/c2j/cmd/c2j/internal/runjob"
 	"github.com/colony-2/c2j/cmd/c2j/internal/swfruntime"
 	"github.com/colony-2/c2j/pkg/cellref"
 	"github.com/colony-2/c2j/pkg/childbroker"
+	"github.com/colony-2/c2j/pkg/executioncatalog"
 	"github.com/colony-2/c2j/pkg/jobref"
 	"github.com/colony-2/c2j/pkg/recipe"
 	"github.com/colony-2/c2j/pkg/recipejob"
@@ -104,6 +106,13 @@ func Run(ctx context.Context, opts Options) error {
 			runtimeHandle.Cleanup()
 		}
 	}()
+	if !hasBroker {
+		p, e := defaults.ExecutionBasePolicy(opts.SWFURL, opts.TenantID, runtimeHandle.Configuration)
+		if e != nil {
+			return e
+		}
+		ctx = executioncatalog.WithPolicy(ctx, p)
+	}
 	if hasBroker {
 		target, err = recipejob.ResolveRegisteredTarget(ctx, target, func(ctx context.Context, name string) (jobdb.ResolvedCell, error) {
 			return childbroker.ResolveCell(ctx, broker, name)

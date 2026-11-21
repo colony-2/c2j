@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/colony-2/c2j/pkg/executioncatalog"
 	"github.com/colony-2/c2j/pkg/jobref"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 )
@@ -82,6 +83,9 @@ func (d Descriptor) Request() (jobdb.SubmitJob, error) {
 func (d Descriptor) Submit(ctx context.Context, submitter jobref.Submitter) (jobref.Ref, error) {
 	job, err := d.Request()
 	if err != nil {
+		return jobref.Ref{}, err
+	}
+	if err := executioncatalog.CheckSubmission(ctx, job); err != nil {
 		return jobref.Ref{}, err
 	}
 	ref, err := submitter.SubmitJobRef(ctx, job)

@@ -249,6 +249,27 @@ func (r lostResponseRuntime) GetJobLease(ctx context.Context, req jobdb.GetJobLe
 
 type lostResponseLease struct{ jobdb.ExecutionLease }
 
+func (l lostResponseLease) LeaseSchemaHash() string {
+	if schema, ok := l.ExecutionLease.(interface{ LeaseSchemaHash() string }); ok {
+		return schema.LeaseSchemaHash()
+	}
+	return ""
+}
+
+func (l lostResponseLease) LeaseToken() string {
+	if token, ok := l.ExecutionLease.(interface{ LeaseToken() string }); ok {
+		return token.LeaseToken()
+	}
+	return ""
+}
+
+func (l lostResponseLease) LeaseWorkerID() string {
+	if worker, ok := l.ExecutionLease.(interface{ LeaseWorkerID() string }); ok {
+		return worker.LeaseWorkerID()
+	}
+	return ""
+}
+
 func (l lostResponseLease) Reschedule(ctx context.Context, req jobdb.RescheduleExecutionRequest) error {
 	if err := l.ExecutionLease.Reschedule(ctx, req); err != nil {
 		return err

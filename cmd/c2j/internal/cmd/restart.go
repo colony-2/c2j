@@ -12,6 +12,7 @@ import (
 	"github.com/colony-2/c2j/cmd/c2j/internal/defaults"
 	"github.com/colony-2/c2j/cmd/c2j/internal/swfruntime"
 	"github.com/colony-2/c2j/pkg/childbroker"
+	"github.com/colony-2/c2j/pkg/executioncatalog"
 	"github.com/colony-2/c2j/pkg/jobcontext"
 	"github.com/colony-2/c2j/pkg/jobref"
 	"github.com/colony-2/c2j/pkg/jobrestart"
@@ -72,6 +73,11 @@ func openRestart(ctx context.Context, uri string) (jobrestart.API, func(), strin
 	if err != nil {
 		return nil, nil, "", err
 	}
+	policy, err := defaults.ExecutionBasePolicy(target.RuntimeURL, target.TenantID, h.Configuration)
+	if err != nil {
+		h.Cleanup()
+		return nil, nil, "", err
+	}
 	c2jops.Register()
 	// JobDB requires a registered workset even when replay supplies its own
 	// read-only worker. Keep this private inspection engine off the live driver.
@@ -82,7 +88,7 @@ func openRestart(ctx context.Context, uri string) (jobrestart.API, func(), strin
 	}
 	service := &restartservice.Service{Engine: replayEngine, Tenant: target.TenantID}
 	service.Submit = func(ctx context.Context, key jobdb.JobKey, scope string, patch *task.ContextPatch, opts starter.RestartOptions) (jobref.Ref, error) {
-		return starter.RestartRecipeJob(ctx, h.Engine, key, scope, patch, opts)
+		return starter.RestartRecipeJob(executioncatalog.WithPolicy(ctx, policy), h.Engine, key, scope, patch, opts)
 	}
 	return service, func() { _ = h.Cleanup() }, "", nil
 }

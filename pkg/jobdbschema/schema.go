@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/colony-2/c2j/pkg/executioncatalog"
 	"github.com/colony-2/c2j/pkg/jobref"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
@@ -1346,12 +1347,18 @@ func (s Submitter) SubmitJob(ctx context.Context, job jobdb.SubmitJob) (jobdb.Jo
 			return jobdb.JobHandle{}, fmt.Errorf("set c2j job schema: %w", err)
 		}
 	}
+	if err := executioncatalog.CheckSubmission(ctx, job); err != nil {
+		return jobdb.JobHandle{}, err
+	}
 	key, err := s.JobSubmitter.SubmitJob(ctx, job)
 	if !isJobSchemaNotFound(err) {
 		return key, err
 	}
 	if registerErr := Register(ctx, s.Registry, job.TenantId); registerErr != nil {
 		return jobdb.JobHandle{}, fmt.Errorf("register c2j job schema after schema miss: %w", registerErr)
+	}
+	if err := executioncatalog.CheckSubmission(ctx, job); err != nil {
+		return jobdb.JobHandle{}, err
 	}
 	return s.JobSubmitter.SubmitJob(ctx, job)
 }
@@ -1363,6 +1370,9 @@ func (s Submitter) SubmitRestartJob(ctx context.Context, req jobdb.SubmitRestart
 	if err := SetSubmitRestartJobSchema(&req.Job); err != nil {
 		return jobdb.JobHandle{}, fmt.Errorf("set c2j job schema: %w", err)
 	}
+	if err := executioncatalog.CheckRestart(ctx, req); err != nil {
+		return jobdb.JobHandle{}, err
+	}
 	key, err := s.RestartSubmitter.SubmitRestartJob(ctx, req)
 	if !isJobSchemaNotFound(err) {
 		return key, err
@@ -1370,11 +1380,17 @@ func (s Submitter) SubmitRestartJob(ctx context.Context, req jobdb.SubmitRestart
 	if registerErr := Register(ctx, s.Registry, req.Job.PriorJobKey.TenantId); registerErr != nil {
 		return jobdb.JobHandle{}, fmt.Errorf("register c2j job schema after schema miss: %w", registerErr)
 	}
+	if err := executioncatalog.CheckRestart(ctx, req); err != nil {
+		return jobdb.JobHandle{}, err
+	}
 	return s.RestartSubmitter.SubmitRestartJob(ctx, req)
 }
 
 func (e WorkflowEngine) SubmitJob(ctx context.Context, job jobdb.SubmitJob) (jobdb.JobHandle, error) {
 	if job.JobType != "recipe" {
+		if err := executioncatalog.CheckSubmission(ctx, job); err != nil {
+			return jobdb.JobHandle{}, err
+		}
 		return e.Engine.SubmitJob(ctx, job)
 	}
 	return Submitter{
@@ -1385,6 +1401,9 @@ func (e WorkflowEngine) SubmitJob(ctx context.Context, job jobdb.SubmitJob) (job
 
 func (e WorkflowEngine) SubmitRestartJob(ctx context.Context, req jobdb.SubmitRestartJobRequest) (jobdb.JobHandle, error) {
 	if req.Job.Schema == nil {
+		if err := executioncatalog.CheckRestart(ctx, req); err != nil {
+			return jobdb.JobHandle{}, err
+		}
 		return e.Engine.SubmitRestartJob(ctx, req)
 	}
 	return Submitter{

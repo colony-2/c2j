@@ -20,6 +20,8 @@ import (
 	"time"
 
 	"github.com/colony-2/c2j/internal/repository"
+	"github.com/colony-2/c2j/pkg/execution"
+	"github.com/colony-2/c2j/pkg/executioncatalog"
 	"github.com/colony-2/c2j/pkg/secrets"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 )
@@ -43,6 +45,7 @@ type Response struct {
 }
 
 type Scope struct {
+	catalog      executioncatalog.Policy
 	ctx          context.Context
 	cancel       context.CancelFunc
 	dir          string
@@ -101,7 +104,7 @@ func NewScope(ctx context.Context, selection Selection, snapshot jobdb.Configura
 		return nil, err
 	}
 	ctx, cancel := context.WithCancel(ctx)
-	s := &Scope{ctx: ctx, cancel: cancel, dir: dir, name: name, profile: p, snapshot: snapshot, resolve: resolve, selection: selection}
+	s := &Scope{catalog: executioncatalog.FromContext(ctx), ctx: ctx, cancel: cancel, dir: dir, name: name, profile: p, snapshot: snapshot, resolve: resolve, selection: selection}
 	s.namespace = dir
 	if len(namespace) > 0 {
 		s.namespace = namespace[0]
@@ -212,7 +215,25 @@ func (s *Scope) AllowSecrets(names []string) {
 
 // Fork is for trusted recipe preparation, not the subprocess control API.
 func (s *Scope) Fork(ctx context.Context, selection Selection) (*Scope, error) {
-	return NewScope(ctx, selection, s.snapshot, s.resolve, "", s.namespace)
+	p := s.catalog
+	inner := p.Read
+	if inner != nil {
+		p.Read = func(call context.Context) (jobdb.ConfigurationSnapshot, error) {
+			if err := s.ctx.Err(); err != nil {
+				return jobdb.ConfigurationSnapshot{}, err
+			}
+			call, cancel := context.WithCancel(call)
+			stop := context.AfterFunc(s.ctx, cancel)
+			defer stop()
+			defer cancel()
+			snapshot, err := inner(call)
+			if parentErr := s.ctx.Err(); parentErr != nil {
+				return jobdb.ConfigurationSnapshot{}, parentErr
+			}
+			return snapshot, err
+		}
+	}
+	return NewScope(executioncatalog.WithPolicy(ctx, p), selection, s.snapshot, s.resolve, "", s.namespace)
 }
 
 // CacheNamespace prevents source sharing across tenants and routing profiles.
@@ -282,7 +303,17 @@ func (s *Scope) serve(w http.ResponseWriter, r *http.Request) {
 	s.mu.Unlock()
 	res := Response{}
 	switch req.Operation {
+	case "execution_bases":
+		view, err := s.catalog.Discover(ctx)
+		res.Value, _ = json.Marshal(view)
+		if err != nil {
+			res.Error = err.Error()
+		}
 	case "config":
+		if req.Name == execution.BaseCatalogKey {
+			res.Error = "reserved configuration; use c2j execution bases"
+			break
+		}
 		res.Value = s.snapshot.Values[req.Name]
 		if res.Value == nil {
 			res.Error = "configuration name is absent"
@@ -358,6 +389,9 @@ func Call(ctx context.Context, socket string, req Request) (Response, error) {
 		return Response{}, errors.New("invalid execution resolver response")
 	}
 	if out.Error != "" {
+		if req.Operation == "execution_bases" {
+			return out, errors.New(out.Error)
+		}
 		return Response{}, errors.New(out.Error)
 	}
 	return out, nil

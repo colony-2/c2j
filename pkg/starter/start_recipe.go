@@ -10,6 +10,7 @@ import (
 	"github.com/colony-2/c2j/internal/dispatchtest"
 	"github.com/colony-2/c2j/internal/scenariotest"
 	"github.com/colony-2/c2j/pkg/execution"
+	"github.com/colony-2/c2j/pkg/executioncatalog"
 	"github.com/colony-2/c2j/pkg/jobcontext"
 	"github.com/colony-2/c2j/pkg/jobdbschema"
 	"github.com/colony-2/c2j/pkg/jobref"
@@ -127,6 +128,7 @@ func StartRecipeJob(ctx context.Context, startJob workflowctl.StartJob, engine a
 }
 
 type StartRecipeJobOptions struct {
+	BaseCatalog           *executioncatalog.Policy
 	ExecutionRequirements execution.Requirements
 	GoalID                string
 	JobID                 string
@@ -140,6 +142,12 @@ func StartRecipeJobWithOptions(ctx context.Context, startJob workflowctl.StartJo
 	}
 	job, err := PrepareRecipeJob(ctx, startJob, opts, recipes...)
 	if err != nil {
+		return jobref.Ref{}, err
+	}
+	if opts.BaseCatalog != nil {
+		ctx = executioncatalog.WithPolicy(ctx, *opts.BaseCatalog)
+	}
+	if err := executioncatalog.CheckSubmission(ctx, job); err != nil {
 		return jobref.Ref{}, err
 	}
 	finish, err := beginTestSubmission(ctx, startJob, "submit")
@@ -346,6 +354,13 @@ func RestartRecipeJob(ctx context.Context, engine any, prior jobdb.JobKey, scope
 	if initial.Diagnostic != "" {
 		return jobref.Ref{}, fmt.Errorf("initial execution requirements: %s", initial.Diagnostic)
 	}
+	if initial.Initial == nil && executioncatalog.FromContext(ctx).Required {
+		raw, err := execution.PayloadWithDemand(nil, execution.Demand{SchemaVersion: execution.DemandSchemaVersion, RecipeResolution: "unresolved"})
+		if err != nil {
+			return jobref.Ref{}, err
+		}
+		req.ClientPayloadUpdate = &jobdb.ClientPayloadUpdate{Mode: "reset", Value: raw}
+	}
 	if initial.Initial != nil {
 		raw, err := execution.PayloadWithDemand(nil, initial.Initial.Demand)
 		if err != nil {
@@ -379,6 +394,9 @@ func RestartRecipeJob(ctx context.Context, engine any, prior jobdb.JobKey, scope
 	submitter, ok := engine.(jobref.RestartSubmitter)
 	if !ok {
 		return jobref.Ref{}, fmt.Errorf("restart submitter must preserve the complete job reference")
+	}
+	if err := executioncatalog.CheckRestart(ctx, jobdb.SubmitRestartJobRequest{Job: req, RequestID: opts.RequestID}); err != nil {
+		return jobref.Ref{}, err
 	}
 	return submitter.SubmitRestartJobRef(ctx, jobdb.SubmitRestartJobRequest{Job: req, RequestID: opts.RequestID})
 }

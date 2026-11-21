@@ -13,13 +13,17 @@ import (
 	"time"
 
 	"github.com/colony-2/c2j/pkg/execution"
+	"github.com/colony-2/c2j/pkg/executioncatalog"
 	"github.com/colony-2/c2j/pkg/jobrestart"
 	"github.com/colony-2/c2j/pkg/permissions"
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	"github.com/colony-2/jobdb/pkg/jobdb/clientpayload"
 	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
 )
 
 type Runtime struct {
+	// BaseCatalog is driver-owned policy; zero value preserves compatibility.
+	BaseCatalog executioncatalog.Policy
 	// RestartAPI is a driver-provided, authorized restart service.
 	RestartAPI jobrestart.API
 	jobdb.ConsumerRuntime
@@ -184,10 +188,30 @@ func (l *lease) forget() {
 
 func (l *lease) StopKeepAlive() { l.forget(); l.ExecutionLease.StopKeepAlive() }
 
-func (l *lease) prepareReschedule(req jobdb.RescheduleExecutionRequest) (jobdb.RescheduleExecutionRequest, *execution.Demand, bool, error) {
+func (l *lease) prepareReschedule(ctx context.Context, req jobdb.RescheduleExecutionRequest) (jobdb.RescheduleExecutionRequest, *execution.Demand, bool, error) {
 	l.runtime.mu.Lock()
 	d := l.demand
 	l.runtime.mu.Unlock()
+	candidate := d
+	if l.runtime.BaseCatalog.Required && req.ClientPayloadUpdate != nil {
+		raw, _, err := clientpayload.Apply(l.ClientPayload(), l.ClientPayloadRevision(), req.ClientPayloadUpdate)
+		if err != nil {
+			return req, nil, false, err
+		}
+		candidate, err = execution.PayloadDemand(raw)
+		if err != nil {
+			return req, nil, false, err
+		}
+	}
+	if candidate != nil {
+		if err := l.checkBase(ctx, candidate.Effective, "reschedule.execution.base"); err != nil {
+			return req, nil, false, err
+		}
+	} else if l.runtime.BaseCatalog.Required {
+		if err := l.checkBase(ctx, execution.Requirements{}, "reschedule.execution.base"); err != nil {
+			return req, nil, false, err
+		}
+	}
 	if req.ClientPayloadUpdate == nil && d != nil {
 		current, err := execution.PayloadDemand(l.ClientPayload())
 		if err != nil {
@@ -212,7 +236,7 @@ func (l *lease) prepareReschedule(req jobdb.RescheduleExecutionRequest) (jobdb.R
 }
 
 func (l *lease) Reschedule(ctx context.Context, req jobdb.RescheduleExecutionRequest) error {
-	req, _, _, err := l.prepareReschedule(req)
+	req, _, _, err := l.prepareReschedule(ctx, req)
 	if err != nil {
 		return err
 	}
@@ -262,6 +286,13 @@ func (w *guardedTask) RunTask(local context.Context, ctx jobworkflow.TaskContext
 	}
 	// Recipe-resolution tasks run before a scope is staged. Scoped recipe work
 	// always replays first, including when claimed through a pending-task route.
+	needs := execution.Requirements{}
+	if d != nil {
+		needs = d.Effective
+	}
+	if err := l.checkBase(ctx.Context(), needs, taskBaseSource(ctx.InvocationID, ctx.Step)); err != nil {
+		return nil, err
+	}
 	if d != nil {
 		mismatches, err := execution.Compare(d.Effective, r.Allocation)
 		if err != nil {
@@ -296,8 +327,15 @@ func (w *guardedTask) RunTask(local context.Context, ctx jobworkflow.TaskContext
 	if err != nil {
 		return nil, err
 	}
+	if err := l.checkBase(ctx.Context(), negotiated.Effective, taskBaseSource(ctx.InvocationID, ctx.Step)+" (extension execution_required)"); err != nil {
+		return nil, err
+	}
 	r.Stage(ctx.JobKey, negotiated)
-	return l.yieldEnvironment(ctx, mismatches)
+	out, err = l.yieldEnvironment(ctx, mismatches)
+	if err != nil && !jobworkflow.IsExecutionSuspended(err) {
+		l.restoreDemand(d)
+	}
+	return out, err
 }
 
 func (l *lease) yieldEnvironment(ctx jobworkflow.TaskContext, mismatches []execution.Mismatch) (jobdb.TaskData, error) {
@@ -305,9 +343,9 @@ func (l *lease) yieldEnvironment(ctx jobworkflow.TaskContext, mismatches []execu
 	// than the task route on the acquired lease. Resume recipe replay, not stale
 	// pending-task coordinates from that earlier handoff.
 	req := jobdb.RescheduleExecutionRequest{NextRoute: jobdb.Route{JobType: l.Route().JobType}}
-	req, publishedDemand, published, err := l.prepareReschedule(req)
+	req, publishedDemand, published, err := l.prepareReschedule(ctx.Context(), req)
 	if err != nil {
-		return l.blockExecution(err)
+		return nil, err
 	}
 	metadata, err := json.Marshal(execution.Handoff{Kind: "environment_required", JobKey: ctx.JobKey, Demand: *publishedDemand, Allocation: l.runtime.Allocation, Mismatches: mismatches, Published: published})
 	if err != nil {
