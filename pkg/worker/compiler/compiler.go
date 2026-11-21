@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/colony-2/c2j/internal/jsonexact"
 	recipeartifacts "github.com/colony-2/c2j/pkg/artifacts"
 	"github.com/colony-2/c2j/pkg/configuration"
 	"github.com/colony-2/c2j/pkg/contextual"
@@ -544,7 +545,11 @@ func (d DefaultRecipeExecutor) executeOpAttempt(ctx workflow.Context, parentReso
 						return nil, e
 					}
 					var declared map[string]interface{}
-					if e = json.Unmarshal(raw, &declared); e != nil {
+					decode := json.Unmarshal
+					if extensionRequest != nil {
+						decode = jsonexact.Unmarshal
+					}
+					if e = decode(raw, &declared); e != nil {
 						return nil, e
 					}
 					if extensionRequest == nil && len(chain) > 0 {

@@ -10,6 +10,7 @@ import (
 	"reflect"
 	"strings"
 
+	"github.com/colony-2/c2j/internal/jsonexact"
 	"github.com/colony-2/c2j/pkg/execution"
 	"github.com/colony-2/c2j/pkg/git/selectorcache"
 	"github.com/colony-2/c2j/pkg/objects"
@@ -51,6 +52,14 @@ type ResolvedOp struct {
 	compiledInput   *jsonschemav6.Schema
 	compiledOutput  *jsonschemav6.Schema
 	inputDefaults   *InputDefaults
+	artifactFiles   []string
+}
+
+// Durable manifests can contain int64 artifact keys in defaults. Preserve their
+// JSON integers rather than rounding generic schema values through float64.
+func (r *ResolvedOp) UnmarshalJSON(data []byte) error {
+	type wire ResolvedOp
+	return jsonexact.Unmarshal(data, (*wire)(r))
 }
 
 func IsSelector(selector string) bool {
@@ -105,6 +114,9 @@ func (r *ResolvedOp) ValidateMaterializedInputs(raw map[string]interface{}) erro
 	return r.validateInputSchema(raw)
 }
 func (r *ResolvedOp) validateInputSchema(raw map[string]interface{}) error {
+	if _, err := r.ArtifactFileKeys(raw); err != nil {
+		return err
+	}
 	payload := raw
 	if r.compiledInput != nil {
 		value, err := objects.JSONValue(payload)
@@ -371,6 +383,11 @@ func RestoreResolvedOp(resolved *ResolvedOp) (*ResolvedOp, error) {
 		return nil, err
 	}
 	submittedSelector := resolved.Selector
+	names, err := artifactFileProperties(spec.InputSchema, spec.OutputSchema)
+	if err != nil {
+		return nil, fmt.Errorf("extension selector %q: %w", submittedSelector, err)
+	}
+	resolved.artifactFiles = names
 	if secrets.HasAnnotation(spec.OutputSchema) {
 		return nil, fmt.Errorf("extension selector %q: secret output annotations are not supported", submittedSelector)
 	}

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/colony-2/c2j/internal/jsonexact"
 	"github.com/colony-2/c2j/pkg/config"
 	"github.com/colony-2/c2j/pkg/configuration"
 	"github.com/colony-2/c2j/pkg/execution"
@@ -15,6 +16,7 @@ import (
 	"github.com/colony-2/c2j/pkg/secrets"
 	"github.com/colony-2/c2j/pkg/template"
 	"github.com/colony-2/c2j/pkg/toolenv"
+	"github.com/colony-2/jobdb/pkg/jobdb"
 )
 
 // PreparationRequest contains identities, never resolved configuration or credentials.
@@ -50,7 +52,7 @@ func ResolveInvocation(ctx context.Context, inv *ActivityInvocationRequest) (Too
 				return req, err
 			}
 			var withDefaults map[string]any
-			if err := json.Unmarshal(raw, &withDefaults); err != nil {
+			if err := jsonexact.Unmarshal(raw, &withDefaults); err != nil {
 				return req, err
 			}
 			if withDefaults == nil {
@@ -76,7 +78,7 @@ func ResolveInvocation(ctx context.Context, inv *ActivityInvocationRequest) (Too
 				return req, err
 			}
 			var original map[string]any
-			if err := json.Unmarshal(raw, &original); err != nil {
+			if err := jsonexact.Unmarshal(raw, &original); err != nil {
 				return req, err
 			}
 			if _, err := resolved.ApplyInvocationDefaults(inputs); err != nil {
@@ -178,6 +180,25 @@ func validatePreparedInputs(inv *ActivityInvocationRequest, req ToolSetupRequest
 		}
 		inputs = defaulted.(map[string]any)
 		inv.Input["inputs"] = inputs
+		keys, err := req.Extension.ArtifactFileKeys(inputs)
+		if err != nil {
+			return err
+		}
+		// Size is metadata, not storage identity; preserve every public reference's
+		// size while collecting only one handle per producer job/task/name.
+		seen := map[jobdb.ArtifactKey]bool{}
+		for _, key := range inv.ArtifactKeys {
+			key.SizeBytes = 0
+			seen[key] = true
+		}
+		for _, key := range keys {
+			identity := key
+			identity.SizeBytes = 0
+			if !seen[identity] {
+				inv.ArtifactKeys = append(inv.ArtifactKeys, key)
+				seen[identity] = true
+			}
+		}
 		if err := req.Extension.ValidateInvocationInputs(inputs); err != nil {
 			return fmt.Errorf("failed to validate selector inputs: %w", err)
 		}

@@ -112,6 +112,12 @@ func executeExtension(deps ops.OpDependencies, ctx context.Context, input Execut
 	if err != nil {
 		return nil, err
 	}
+	var cancel context.CancelFunc
+	if d, err := parseDurationOrZero(resolved.Spec.Timeout); err == nil && d > 0 {
+		ctx, cancel = context.WithTimeout(ctx, d)
+		defer cancel()
+	}
+
 	report.ResolvedSelector, report.ResolvedCommit = resolved.ResolvedSelector, resolved.ResolvedCommit
 	report.Roots = append(report.Roots, executiondiag.Root{Name: "extension_source", Path: resolved.ProjectRoot})
 	report.Capture.Request = extensionRunRequest(resolved, nil, nil)
@@ -139,6 +145,11 @@ func executeExtension(deps ops.OpDependencies, ctx context.Context, input Execut
 	if err != nil {
 		return nil, fmt.Errorf("restore extension objects: %w", err)
 	}
+	payload, cleanup, err := resolved.stageArtifactFiles(ctx, deps, payload)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { runErr = errors.Join(runErr, cleanup()) }()
 	inJSON, err := json.Marshal(payload)
 	if err != nil {
 		return nil, fmt.Errorf("marshal extension input: %w", err)
@@ -156,12 +167,6 @@ func executeExtension(deps ops.OpDependencies, ctx context.Context, input Execut
 	env[execution.AllocationEnv] = string(allocationJSON)
 	if err := prepareObjectOutbox(deps, env); err != nil {
 		return nil, err
-	}
-
-	var cancel context.CancelFunc
-	if d, err := parseDurationOrZero(resolved.Spec.Timeout); err == nil && d > 0 {
-		ctx, cancel = context.WithTimeout(ctx, d)
-		defer cancel()
 	}
 
 	runReq := extensionRunRequest(resolved, env, inJSON)

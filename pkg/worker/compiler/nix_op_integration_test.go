@@ -18,6 +18,7 @@ import (
 
 	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/c2j/internal/nixtest"
+	"github.com/colony-2/c2j/pkg/artifacts"
 	"github.com/colony-2/c2j/pkg/execution"
 	"github.com/colony-2/c2j/pkg/executionruntime"
 	"github.com/colony-2/c2j/pkg/jobdbschema"
@@ -28,6 +29,7 @@ import (
 	"github.com/colony-2/c2j/pkg/swfutil"
 	"github.com/colony-2/c2j/pkg/toolenv"
 	workerops "github.com/colony-2/c2j/pkg/worker/ops"
+	workerworkflow "github.com/colony-2/c2j/pkg/worker/workflow"
 	"github.com/colony-2/c2j/pkg/workflowctl"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	toyruntime "github.com/colony-2/jobdb/pkg/jobdb/runtime/toy"
@@ -36,6 +38,10 @@ import (
 )
 
 func TestRealNixExtension(t *testing.T) {
+	testRealNixExtension(t, false)
+}
+
+func testRealNixExtension(t *testing.T, directFiles bool) {
 	if !nixtest.InContainer(t) {
 		return
 	}
@@ -66,6 +72,17 @@ case "$input" in *'"enabled":false'*) ;; *) exit 10;; esac
 case "$input" in *'token-private-value'*) ;; *) exit 11;; esac
 printf '{"output":{"message":"hello"}}'
 `)
+	trace := filepath.Join(t.TempDir(), "trace")
+	document := []byte("packaged document\x00\xff\r\n${{ untouched.value }}")
+	prefix := []byte("packaged prefix\r\n")
+	prefixPath := filepath.Join(t.TempDir(), "prefix")
+	if directFiles {
+		binary, err := os.Executable()
+		require.NoError(t, err)
+		payload, err = os.ReadFile(binary)
+		require.NoError(t, err)
+		require.NoError(t, os.WriteFile(prefixPath, prefix, 0600))
+	}
 	var downloads atomic.Int32
 	server := httptest.NewServer(celltest.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		downloads.Add(1)
@@ -74,6 +91,18 @@ printf '{"output":{"message":"hello"}}'
 	t.Cleanup(server.Close)
 	hash := sha256.Sum256(payload)
 	manifest := []byte(`{"name":"echo","command":["bin/op"],"input_schema":{"type":"object","required":["message"],"properties":{"message":{"type":"string","default":"hello"},"api":{"type":"object","properties":{"enabled":{"type":"boolean","default":"${{ context.config.?enabled.orValue(false) }}"},"token":{"type":"string","x-secret":true,"default":"${{ context.secrets.token }}"}}}}},"output_schema":{"type":"object","required":["message"],"properties":{"message":{"type":"string"}}}}`)
+	if directFiles {
+		var spec map[string]any
+		require.NoError(t, json.Unmarshal(manifest, &spec))
+		spec["command"] = []string{"bin/op", "-test.run=^TestArtifactFileProbeProcess$"}
+		spec["env"] = map[string]string{"C2J_ARTIFACT_FILE_PROBE": "1", "C2J_ARTIFACT_FILE_TRACE": trace}
+		props := spec["input_schema"].(map[string]any)["properties"].(map[string]any)
+		for _, name := range []string{"instructions_file", "prompt_prefix_file"} {
+			props[name] = map[string]any{"type": "object", "x-c2j-artifact-file": true}
+		}
+		manifest, err = json.Marshal(spec)
+		require.NoError(t, err)
+	}
 	definition := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(definition, "op.json"), manifest, 0600))
 	flake := fmt.Sprintf(`{
@@ -96,6 +125,21 @@ printf '{"output":{"message":"hello"}}'
 }`, system, system, server.URL+"/binary", "sha256-"+base64.StdEncoding.EncodeToString(hash[:]))
 	require.NoError(t, os.WriteFile(filepath.Join(definition, "flake.nix"), []byte(flake), 0600))
 	selector := "nix:path:" + definition + "#echo"
+	if directFiles {
+		t.Run("enclosing_handler_conflict", func(t *testing.T) {
+			var conflicting map[string]any
+			require.NoError(t, json.Unmarshal(manifest, &conflicting))
+			conflicting["input_schema"].(map[string]any)["allOf"] = []any{map[string]any{"properties": map[string]any{"instructions_file": map[string]any{"x-c2j-object-type": "example.session/v1"}}}}
+			raw, err := json.Marshal(conflicting)
+			require.NoError(t, err)
+			require.NoError(t, os.WriteFile(filepath.Join(definition, "op.json"), raw, 0600))
+			defer func() { require.NoError(t, os.WriteFile(filepath.Join(definition, "op.json"), manifest, 0600)) }()
+			_, err = extops.Resolve(ctx, selector, extops.ResolveOptions{})
+			require.ErrorContains(t, err, "input_schema.allOf[0].properties.instructions_file")
+			require.ErrorContains(t, err, "conflicts with secret, checkpoint or reference")
+			require.EqualValues(t, 0, downloads.Load(), "invalid packaged metadata must not fetch the payload")
+		})
+	}
 	described, err := extops.Resolve(ctx, selector, extops.ResolveOptions{})
 	require.NoError(t, err)
 	require.False(t, described.Ready())
@@ -138,13 +182,16 @@ printf '{"output":{"message":"hello"}}'
 	require.NoError(t, os.RemoveAll(cacheRoot))
 	run("nix-store", "--delete", described.Nix.StorePath)
 	withRegisteredOps(t, extops.GetExecutionOp())
-	registry, err := workerops.NewActivityRegistry()
-	require.NoError(t, err)
-	ws, err := NewRecipeWorker(coreops.NewServiceDepsBuilder().Build(), registry)
-	require.NoError(t, err)
 	provider := &testSecretProvider{}
 	rt := toyruntime.New(toyruntime.WithSecretProvider(provider))
 	guard := executionruntime.New(rt, execution.Allocation{SchemaVersion: 1})
+	artifactEngine, err := jobworkflow.NewEngineBuilder().WithRuntime(guard).BuildEngine()
+	require.NoError(t, err)
+	registry, err := workerops.NewActivityRegistry()
+	require.NoError(t, err)
+	deps := coreops.NewServiceDepsBuilder().WithWorkflowControl(&workerworkflow.SWFWorkflowControl{Engine: artifactEngine}).Build()
+	ws, err := NewRecipeWorker(deps, registry)
+	require.NoError(t, err)
 	var workers []jobworkflow.TaskWorker
 	for _, w := range ws.TaskWorkers {
 		workers = append(workers, guard.WrapTaskWorker(w))
@@ -155,8 +202,12 @@ printf '{"output":{"message":"hello"}}'
 	go engine.Run(ctx)
 	job, git := GenerateTestContext()
 	start := func(rec *recipe.Recipe) jobdb.JobKey {
+		var attached []jobdb.Artifact
+		if directFiles {
+			attached = []jobdb.Artifact{jobdb.NewArtifactFromBytes("document", document)}
+		}
 		celltest.Create(t, rt, "nix-ops", "test", celltest.Repo(job.GitBase.BaseRepo))
-		keyRef, err := starter.StartRecipeJob(ctx, workflowctl.StartJob{TenantId: "nix-ops", RecipeName: rec.GetMetdata().ID, JobContext: job, GitRef: git.ParentRef, Cell: "test", CellRepo: celltest.Repo(job.GitBase.BaseRepo)}, engine, *rec)
+		keyRef, err := starter.StartRecipeJob(ctx, workflowctl.StartJob{TenantId: "nix-ops", RecipeName: rec.GetMetdata().ID, Artifacts: attached, JobContext: job, GitRef: git.ParentRef, Cell: "test", CellRepo: celltest.Repo(job.GitBase.BaseRepo)}, engine, *rec)
 		key := keyRef.Key()
 		require.NoError(t, err)
 		require.NoError(t, jobworkflow.WaitForJobToComplete(ctx, 30*time.Second, key, engine))
@@ -168,29 +219,28 @@ printf '{"output":{"message":"hello"}}'
 	_, err = swfutil.JobResult(ctx, engine, invalidKey)
 	require.Error(t, err)
 	require.NoFileExists(t, described.Nix.StorePath, "invalid inputs must not fetch the payload")
-	rec, err := recipe.LoadRecipeFromString([]byte(fmt.Sprintf(`id: nix-op
-perms: {jobdb: {secrets: {resolve: [token]}}}
-sequence:
-  - id: echo
-    op: %s
-  - id: branches
-    state:
-      initial: idle
-      states:
-        idle:
-          sequence: []
-        unused:
-          op: nix:github:does-not-exist/no-op#missing
-outputs:
-  message: "${{ sequence.echo.outputs.message }}"
-`, selector)))
-	require.NoError(t, err)
+	if directFiles {
+		assertFileLaunches(t, trace, 0)
+	}
+	rec := realNixExtensionRecipe(t, selector, directFiles, prefixPath)
 	key := start(rec)
 	result, err := swfutil.JobResult(ctx, engine, key)
 	require.NoError(t, err)
 	raw, err := result.GetData()
 	require.NoError(t, err)
-	requireJobOutputJSONEq(t, `{"message":"hello"}`, raw)
+	if directFiles {
+		var output map[string]any
+		require.NoError(t, json.Unmarshal(raw, &output))
+		require.Equal(t, "hello", output["message"])
+		assertFileDigest(t, output, "instructions_file", document)
+		assertFileDigest(t, output, "prompt_prefix_file", prefix)
+		records := fileTrace(t, trace)
+		require.Len(t, records, 1)
+		assertFileCleanup(t, records)
+		t.Log("actual packaged consumer read both direct references and exact bytes")
+	} else {
+		requireJobOutputJSONEq(t, `{"message":"hello"}`, raw)
+	}
 	history, err := engine.GetJobRun(ctx, jobdb.GetJobRunRequest{JobKey: key, IncludeOutputs: true})
 	require.NoError(t, err)
 	setupSeen := false
@@ -211,6 +261,9 @@ outputs:
 	historyJSON, err := json.Marshal(history)
 	require.NoError(t, err)
 	require.NotContains(t, string(historyJSON), "token-private-value")
+	if directFiles {
+		require.NoError(t, os.Remove(prefixPath))
+	}
 	// Cached replay needs neither definitions, installed output, nor any cache.
 	require.NoError(t, os.RemoveAll(cacheRoot))
 	run("nix-store", "--delete", described.Nix.StorePath)
@@ -222,4 +275,35 @@ outputs:
 	require.NoError(t, err)
 	require.JSONEq(t, string(raw), string(replayed))
 	require.Equal(t, [][]string{{"token"}}, provider.Calls(), "replay does not retrieve default secrets")
+	if directFiles {
+		require.Len(t, fileTrace(t, trace), 1, "packaged replay must not launch consumer")
+	}
+}
+
+func realNixExtensionRecipe(t *testing.T, selector string, directFiles bool, prefixPath string) *recipe.Recipe {
+	t.Helper()
+	fileInputs, fileOutputs := "", ""
+	if directFiles {
+		fileInputs = "    inputs:\n      instructions_file: '${{ context.artifacts[\"document\"] }}'\n      prompt_prefix_file: " + fileJSON(t, artifacts.NewExternalRef("prefix", "file://"+prefixPath, false)) + "\n"
+		fileOutputs = "  instructions_file: '${{ sequence.echo.outputs.instructions_file }}'\n  prompt_prefix_file: '${{ sequence.echo.outputs.prompt_prefix_file }}'\n"
+	}
+	rec, err := recipe.LoadRecipeFromString([]byte(fmt.Sprintf(`id: nix-op
+perms: {jobdb: {secrets: {resolve: [token]}}}
+sequence:
+  - id: echo
+    op: %s
+%s  - id: branches
+    state:
+      initial: idle
+      states:
+        idle:
+          sequence: []
+        unused:
+          op: nix:github:does-not-exist/no-op#missing
+outputs:
+  message: "${{ sequence.echo.outputs.message }}"
+%s`, selector, fileInputs, fileOutputs)))
+	require.NoError(t, err)
+
+	return rec
 }

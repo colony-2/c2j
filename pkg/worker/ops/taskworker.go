@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/colony-2/c2j/internal/jsonexact"
 	"github.com/colony-2/c2j/pkg/configuration"
 	"github.com/colony-2/c2j/pkg/contextual"
 	"github.com/colony-2/c2j/pkg/execution"
@@ -76,7 +77,11 @@ func (t *taskWorker) RunTask(local context.Context, ctx jobworkflow.TaskContext,
 		return nil, err
 	}
 	air := ActivityInvocationRequest{}
-	if err := json.Unmarshal(d, &air); err != nil {
+	decode := json.Unmarshal
+	if t.reg.Metadata.Type == extops.ExecutionOpType {
+		decode = jsonexact.Unmarshal
+	}
+	if err := decode(d, &air); err != nil {
 		return nil, err
 	}
 	logger = logger.With("node_path", air.GitTaskContext.NodePath, "invoke_hash", air.GitTaskContext.InvokeHash)

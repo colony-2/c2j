@@ -72,6 +72,85 @@ c2j submit --recipe-file ./analyze.yaml \
   --inputs-json '{"text":"Hello"}' --run --embed
 ```
 
+## Artifact file inputs
+
+An extension can ask c2j to stage ordinary artifact references as files. Declare
+`x-c2j-artifact-file: true` on direct root input properties in both source and
+packaged manifests:
+
+```yaml
+input_schema:
+  type: object
+  properties:
+    instructions_file:
+      type: object
+      x-c2j-artifact-file: true
+    prompt_prefix_file:
+      type: object
+      x-c2j-artifact-file: true
+```
+
+Recipes pass references directly, without explicit artifact bindings:
+
+```yaml
+op: ./ops/analyze
+inputs:
+  instructions_file: '${{ context.artifacts["instructions.md"] }}'
+  prompt_prefix_file: '${{ sequence.prepare.artifacts["prefix.md"] }}'
+```
+
+Ordinary `required` and default rules control omission. Present values must be
+stored references with the complete `stored.key` (`jobId`, `taskOrdinal`, `name`,
+`sizeBytes`), or external references with `name` and `external.url`. Ordinal zero
+and unknown size `-1` are valid. External references support absolute local
+`file` URLs (empty or `localhost` host, no query or fragment) and HTTP/HTTPS URLs.
+HTTP requires a successful 2xx response, verified TLS and HTTP(S)-only redirects.
+`expand` must be false or omitted. Raw paths, bare URL strings, caller-built file
+descriptors, artifact sets, attached-result markers, checkpoints and inline
+value artifacts are invalid in annotated properties. Unknown reference members
+and mixed payloads also fail before the consumer starts.
+
+The subprocess receives each annotated property as exactly `{ref, path}`:
+
+```json
+{"instructions_file":{"ref":{"kind":"external","name":"instructions.md","external":{"url":"https://example.org/instructions.md"}},"path":"/invocation/artifact-files-RANDOM/000000"}}
+```
+
+Read the supplied absolute path during this invocation. c2j copies exact bytes
+into private regular files, including empty or binary data; it does not interpret
+text, interpolate expressions, decompress HTTP content or normalize newlines.
+Local symlinks may resolve to regular files; directories and special files fail.
+Stored lookup uses the consuming tenant and the complete producer job/task/name
+identity, independently of the outer logical name. c2j validates and stages every
+file before starting the consumer.
+
+Only transient subprocess stdin gets descriptors. Recorded inputs, prepared
+metadata, compact attachments and automatic snapshots retain references. Secrets,
+checkpoints and unrelated inputs retain their existing handling. A consumer that
+prints its inputs or returns file contents can still disclose them in its output.
+
+Files are removed on ordinary completion, failure and cooperative cancellation,
+including partial staging failure. Every retry stages fresh bytes; completed
+replay uses the recorded result without fetching or staging again. External
+contents may change between attempts; use stored artifacts for stable bytes.
+Abrupt worker or machine death can leave temporary files. Paths cannot be reused
+in later invocations.
+
+The annotation accepts only boolean `true`, only on direct root input properties
+with `type: object`. Nested, definition, item, branch and output declarations fail
+manifest loading. Secret/checkpoint annotations and schema references cannot be
+combined on the same file property, including overlapping declarations in enclosing
+compositions, matching patterns and applicable additional-property schemas. Schema
+references on the enclosing input instance are also unsupported when file inputs
+are annotated. Unrelated child properties, unused definitions, defaults and
+examples are excluded from handler-conflict discovery.
+
+Upgrade every compiler/preparer and executing worker before enabling this
+annotation: older c2j versions silently ignore it. Then update both consumer
+manifests, implement the stdin descriptor reader, and rebuild the consumer package.
+Installed `share/c2j/op.json` must match `passthru.c2j`. A dependency update in a
+consumer's Go module does not upgrade deployed c2j workers.
+
 ## Python libraries
 
 An extension `op.yaml` can select a complete Python environment:

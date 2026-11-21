@@ -30,7 +30,7 @@ printf '%s' "$NIX_TEST_DESCRIPTION"
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 	manifest := map[string]any{
 		"name": "echo", "command": []string{"bin/echo"},
-		"input_schema":  map[string]any{"type": "object", "properties": map[string]any{"message": map[string]any{"type": "string", "default": "hello"}}},
+		"input_schema":  map[string]any{"type": "object", "properties": map[string]any{"message": map[string]any{"type": "string", "default": "hello"}, "instructions_file": map[string]any{"type": "object", "x-c2j-artifact-file": true}}},
 		"output_schema": map[string]any{"type": "object"},
 	}
 	for _, tc := range []struct {
@@ -38,6 +38,17 @@ printf '%s' "$NIX_TEST_DESCRIPTION"
 		mutate        func(map[string]any)
 	}{
 		{"valid", "", func(m map[string]any) {}},
+		{"invalid file annotation", "must be boolean true", func(m map[string]any) {
+			m["input_schema"] = map[string]any{"type": "object", "properties": map[string]any{"instructions_file": map[string]any{"type": "object", "x-c2j-artifact-file": false}}}
+		}},
+		{"file checkpoint branch conflict", "conflicts with secret, checkpoint or reference", func(m map[string]any) {
+			m["input_schema"] = map[string]any{"type": "object", "properties": map[string]any{"instructions_file": map[string]any{"type": "object", "x-c2j-artifact-file": true, "anyOf": []any{map[string]any{"allOf": []any{map[string]any{"x-c2j-object-type": "example.session/v1"}}}}}}}
+		}},
+		{"file enclosing checkpoint conflict", "conflicts with secret, checkpoint or reference", func(m map[string]any) {
+			schema := fileInputSchema()
+			schema["allOf"] = []any{map[string]any{"properties": map[string]any{"instructions_file": map[string]any{"x-c2j-object-type": "example.session/v1"}}}}
+			m["input_schema"] = schema
+		}},
 		{"nix dependency", "declare Nix dependencies", func(m map[string]any) { m["dependencies"] = []string{"nix:nixpkgs#jq"} }},
 		{"escape", "under bin/", func(m map[string]any) { m["command"] = []string{"bin/../../evil"} }},
 		{"missing schema", "requires input_schema", func(m map[string]any) { delete(m, "input_schema") }},
@@ -58,6 +69,8 @@ printf '%s' "$NIX_TEST_DESCRIPTION"
 				return
 			}
 			require.NoError(t, err)
+			require.Equal(t, []string{"instructions_file"}, r.artifactFiles)
+			t.Log("mocked Nix metadata only; no package executable ran")
 			require.False(t, r.Ready())
 			input := map[string]any{}
 			_, err = r.ApplyInvocationDefaults(input)

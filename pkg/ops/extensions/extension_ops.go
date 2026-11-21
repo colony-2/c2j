@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/colony-2/c2j/internal/jsonexact"
 	"github.com/colony-2/c2j/pkg/execution"
 	"github.com/colony-2/c2j/pkg/objects"
 	"github.com/colony-2/c2j/pkg/secrets"
@@ -66,6 +67,7 @@ func parseSchema(m map[string]any) (*invschema.Schema, *jsonschemav6.Schema, err
 	if err != nil {
 		return nil, nil, err
 	}
+	expanded = expandArtifactFileSchema(expanded, m)
 	b, err := json.Marshal(expanded)
 	if err != nil {
 		return nil, nil, fmt.Errorf("marshal schema: %w", err)
@@ -97,7 +99,11 @@ func parseSchema(m map[string]any) (*invschema.Schema, *jsonschemav6.Schema, err
 	comp := jsonschemav6.NewCompiler()
 	comp.DefaultDraft(jsonschemav6.Draft2020)
 	var docValue any
-	if err := json.Unmarshal(b, &docValue); err != nil {
+	decode := json.Unmarshal
+	if names, _ := artifactFileProperties(m, nil); len(names) > 0 {
+		decode = jsonexact.Unmarshal
+	}
+	if err := decode(b, &docValue); err != nil {
 		return &doc, nil, fmt.Errorf("decode schema: %w", err)
 	}
 	if err := comp.AddResource("inmem://op-schema.json", docValue); err != nil {

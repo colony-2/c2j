@@ -81,16 +81,19 @@ func TestVerifyHookSubmissionEnvironmentAndGate(t *testing.T) {
 	state := r.RecipeImpl.(*recipe.RecipeState)
 	node := state.States.States["test_integration"].Node.NodeImpl.(*recipe.NodeOp)
 	for _, fixture := range []struct {
-		name             string
-		failGate         bool
-		failedHelper     bool
-		failedInspection bool
-		missingWaitGoal  bool
+		name            string
+		failGate        string
+		missingWaitGoal bool
 	}{
 		{name: "healthy"},
-		{name: "broker-gate", failGate: true},
-		{name: "helper-gate", failedHelper: true},
-		{name: "inspection-gate", failedInspection: true},
+		{name: "broker-gate", failGate: "TestBrokerOnlyCLI"},
+		{name: "helper-gate", failGate: "TestLeaseBoundRestartHelperSubmission"},
+		{name: "inspection-gate", failGate: "TestTaskInspectionUsesBackendReadPermissions"},
+		{name: "compact-gate", failGate: "Test(Compact|ExecutionFailurePresentation"},
+		{name: "fixture-gate", failGate: "Run_EmbedExtensionFailureCompletesWithOriginalError"},
+		{name: "artifact-file-gate", failGate: "TestArtifactFile"},
+		{name: "artifact-metadata-gate", failGate: "TestNixOpDescriptionDoesNotInstall"},
+		{name: "packaged-artifact-gate", failGate: "TestRealNixArtifactFiles"},
 		{name: "missing-wait-help", missingWaitGoal: true},
 	} {
 		t.Run(fixture.name, func(t *testing.T) {
@@ -108,9 +111,7 @@ for variable in ${!C2J_CURRENT_@} ${!C2J_CHILD_JOB_@} ${!C2J_WORKSPACE_@}; do ex
 test -z "${C2J_JOBDB+x}${C2J_TENANT_ID+x}${C2J_OBJECT_OUTBOX+x}${C2J_TEST_SUBMIT_BINARY+x}"
 test "$GOWORK" = off
 printf '%s %s\n' "${0##*/}" "$*" >> "$COMMANDS"
-if [[ "$*" == *TestLeaseBoundRestartHelperSubmission* ]] && [ "$FAIL_HELPER" = true ]; then exit 42; fi
-if [[ "$*" == *TestBrokerOnlyCLI* ]] && [ "$FAIL_GATE" = true ]; then exit 42; fi
-if [[ "$*" == *TestTaskInspectionUsesBackendReadPermissions* ]] && [ "$FAIL_INSPECTION" = true ]; then exit 42; fi
+if [ -n "$FAIL_GATE" ] && [[ "$*" == *"$FAIL_GATE"* ]]; then exit 42; fi
 if [[ "$*" == *TestWorkspaceDiff* ]]; then
   for pkg in pkg/jobinspect pkg/childbroker cmd/c2j/internal/cmd cmd/c2j pkg/worker/compiler; do
     case "$pkg" in
@@ -148,9 +149,9 @@ fi
 			commands := filepath.Join(root, "commands")
 			cmd := exec.Command("bash", "-c", node.Inputs["run"].(string))
 			cmd.Dir = root
-			cmd.Env = append(os.Environ(), "PATH="+bin+":"+os.Getenv("PATH"), "OUTBOX="+outbox, "COMMANDS="+commands, fmt.Sprintf("FAIL_GATE=%t", fixture.failGate), fmt.Sprintf("FAIL_HELPER=%t", fixture.failedHelper), fmt.Sprintf("FAIL_INSPECTION=%t", fixture.failedInspection), fmt.Sprintf("MISSING_WAIT_GOAL=%t", fixture.missingWaitGoal), "C2J_CURRENT_JOB_ID=live", "C2J_CHILD_JOB_TOKEN=live", "C2J_WORKSPACE_ROOT=live", "C2J_JOBDB=embed:///", "C2J_TENANT_ID=live", "C2J_OBJECT_OUTBOX=live", "C2J_TEST_SUBMIT_BINARY=/stale/c2j")
+			cmd.Env = append(os.Environ(), "PATH="+bin+":"+os.Getenv("PATH"), "OUTBOX="+outbox, "COMMANDS="+commands, "FAIL_GATE="+fixture.failGate, fmt.Sprintf("MISSING_WAIT_GOAL=%t", fixture.missingWaitGoal), "C2J_CURRENT_JOB_ID=live", "C2J_CHILD_JOB_TOKEN=live", "C2J_WORKSPACE_ROOT=live", "C2J_JOBDB=embed:///", "C2J_TENANT_ID=live", "C2J_OBJECT_OUTBOX=live", "C2J_TEST_SUBMIT_BINARY=/stale/c2j")
 			out, err := cmd.CombinedOutput()
-			if fixture.failGate || fixture.failedHelper || fixture.failedInspection {
+			if fixture.failGate != "" {
 				require.Error(t, err)
 				require.Equal(t, 42, cmd.ProcessState.ExitCode())
 			} else if fixture.missingWaitGoal {
@@ -164,17 +165,39 @@ fi
 			helperGate := "go test -mod=readonly -count=1 -v -timeout=5m ./pkg/executionruntime -run ^TestLeaseBoundRestartHelperSubmission$\n"
 			inspectionGate := "go test -mod=readonly -count=1 -v -timeout=5m ./pkg/executionruntime -run ^TestTaskInspectionUsesBackendReadPermissions$\n"
 			require.True(t, strings.HasPrefix(string(raw), helperGate), "helper regression must run first, after identity isolation")
-			if fixture.failedHelper {
+			gates := []string{
+				"TestLeaseBoundRestartHelperSubmission$",
+				"TestTaskInspectionUsesBackendReadPermissions$",
+				"Test(Compact|ExecutionFailurePresentation",
+				"^Test(Run_EmbedExtensionFailureCompletesWithOriginalError|RecipeFixtures)",
+				"^TestArtifactFile|^TestNixOpDescriptionDoesNotInstall$",
+				"^TestRealNixArtifactFiles$",
+				"^TestBrokerOnlyCLI",
+			}
+			previous, stopped := -1, false
+			for _, gate := range gates {
+				if stopped {
+					require.NotContains(t, string(raw), gate, "failed gate must prevent every later gate")
+					continue
+				}
+				position := strings.Index(string(raw), gate)
+				require.Greater(t, position, previous, "regression gates must run in order: %s", gate)
+				previous = position
+				if fixture.failGate != "" && strings.Contains(gate, fixture.failGate) {
+					stopped = true
+					lines := strings.Split(strings.TrimSpace(string(raw)), "\n")
+					require.Contains(t, lines[len(lines)-1], gate, "failed gate must be the last command")
+				}
+			}
+			if fixture.failGate == "TestLeaseBoundRestartHelperSubmission" {
 				require.Equal(t, helperGate, string(raw), "failed helper regression must prevent every later command")
 			} else {
 				require.True(t, strings.HasPrefix(string(raw), helperGate+inspectionGate), "inspection compatibility must run before later checks")
-				if fixture.failedInspection {
+				if fixture.failGate == "TestTaskInspectionUsesBackendReadPermissions" {
 					require.Equal(t, helperGate+inspectionGate, string(raw), "failed inspection regression must prevent every later command")
-				} else {
-					require.Contains(t, string(raw), "-run ^TestBrokerOnlyCLI")
 				}
 			}
-			if fixture.failGate || fixture.failedHelper || fixture.failedInspection {
+			if fixture.failGate != "" {
 				require.NotContains(t, string(raw), "-tags=integration -p 2")
 				require.NotContains(t, string(raw), "./internal/retirementcheck")
 				require.NotContains(t, string(raw), "go build")

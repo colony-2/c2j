@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/colony-2/c2j/internal/jsonexact"
 	"github.com/colony-2/c2j/pkg/git/gitstate"
 	workerops "github.com/colony-2/c2j/pkg/worker/ops"
 	"github.com/colony-2/jobdb/pkg/jobdb"
@@ -79,7 +80,13 @@ func (a *thinpackForwarder) prepareInput(taskType string, data jobdb.TaskData) (
 		return nil, err
 	}
 	var req workerops.ActivityInvocationRequest
-	if err = json.Unmarshal(payload, &req); err != nil {
+	// Extension references carry int64 keys in generic maps. Workspace forwarding
+	// must preserve those numbers when it rewrites an invocation envelope.
+	decode := json.Unmarshal
+	if strings.HasPrefix(taskType, "extension_execution:") {
+		decode = jsonexact.Unmarshal
+	}
+	if err = decode(payload, &req); err != nil {
 		return nil, err
 	}
 	if req.GitTaskContext.Workspace != nil {

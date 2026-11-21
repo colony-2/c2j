@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/colony-2/c2j/internal/jsonexact"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 )
 
@@ -45,6 +46,11 @@ func (in *ActivityInvocationRequest) RestoreInput(ctx context.Context, artifacts
 		var payload ActivityInvocationRequest
 		if err := json.Unmarshal(raw, &payload); err != nil {
 			return nil, fmt.Errorf("invalid invocation input artifact: %w", err)
+		}
+		if payload.Preparation.Extension != nil {
+			if err := jsonexact.Unmarshal(raw, &payload); err != nil {
+				return nil, err
+			}
 		}
 		in.Input, in.Artifacts, in.Preparation = payload.Input, payload.Artifacts, payload.Preparation
 		in.InputArtifact = ""
