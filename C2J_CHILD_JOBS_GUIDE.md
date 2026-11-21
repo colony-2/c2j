@@ -40,8 +40,8 @@ depends on their results.
   execution environment, including any externally provisioned worker image.
 - Preserve the injected `C2J_CURRENT_*` and `C2J_CHILD_JOB_*` variables when
   launching subprocesses.
-- Configure the nested CLI's JobDB target and use the same tenant as the
-  parent. Supply `--jobdb`, `C2J_JOBDB`, or project configuration.
+- Broker-only submission needs no direct JobDB configuration. If you supply
+  `--jobdb`, `C2J_JOBDB`, or project configuration, use the parent's tenant.
 - Ensure workers have access to the target repository and required recipes.
 
 For example, configure a remote runtime in the shell where you use c2j:
@@ -51,8 +51,9 @@ export C2J_JOBDB=https://jobdb.example.com/dev
 ```
 
 The precedence is `--jobdb`, then `C2J_JOBDB`, then the project's `jobdb`
-configuration. The injected current-job variables do **not** configure the
-JobDB URL. In particular, `C2J_TENANT_ID` alone is not sufficient.
+configuration. The broker supplies the submission route and tenant. Direct
+configuration is required for standalone submission, listing and `--run`;
+`C2J_TENANT_ID` alone does not supply a URL.
 
 Brokered submission goes to the parent's runtime. Listing and running jobs
 connect through the CLI's configured JobDB URL, so configure the actual parent
@@ -60,7 +61,7 @@ service, not just another service with the same tenant name.
 
 ## 3. Submit from inside a command or extension
 
-With the inherited environment and JobDB configuration in place:
+With the inherited worker environment in place:
 
 ```bash
 # Build is the default.
@@ -445,14 +446,19 @@ All three broker variables are required together. Broker context also requires
 valid current-job context. The broker owns the parent identity and replaces
 client-supplied attribution with its current parent context.
 
-### Metadata-only submission versus a formal child
+### Required submission route in task context
 
 | Environment | Submission behavior |
 |---|---|
 | No current-job or broker context | Ordinary top-level submission. |
-| Valid current-job context, no broker | Top-level submission with c2j parent-attribution metadata; not a formal JobDB child. |
+| Valid current-job context, no broker | Error before preparation or publication, including versionless legacy context. |
 | Valid current-job and broker context | Lease-scoped submission with formal parentage and op attribution. |
 | Partial context or an unusable advertised broker | Error; no silent fallback to top-level submission. |
+
+If current-job context is present without a broker, preserve the worker-provided
+environment or upgrade CLI and worker together. A direct URL, project setting
+or `--embed` cannot repair a missing broker. Historical metadata-only jobs are
+unchanged; their attribution does not establish runtime parentage.
 
 Manually exporting parent IDs does not grant access to the parent's lease or
 make a job appear in formal child listing. Attribution metadata is not an
@@ -490,7 +496,9 @@ a container gateway or grant extra network access to independently launched tool
 
 Nested CLI submissions receive generated job IDs. Repeating a successful
 `c2j submit` creates another job; the shared invocation hash is attribution,
-not an idempotency key. There is no CLI `submit --job-id` option.
+not an idempotency key. `--job-id` fixes the destination identity; it does not
+grant extra submission authority. Selected-goal retained requests require
+operator authority and remain forbidden to submit-only tasks.
 
 Do not blindly retry a submission after an ambiguous transport failure: the
 broker may already have accepted it. Inspect children for the relevant parent
@@ -510,6 +518,7 @@ explicitly.
 | `--jobdb is required` | Configure `--jobdb`, `C2J_JOBDB`, or project `jobdb`; current tenant variables do not provide a URL. |
 | Current tenant/job variables required | Preserve the complete current-job context; do not forward only selected op fields. |
 | Child broker variables required | Forward endpoint, token, and session ID together. |
+| Current job context requires a child job broker | Preserve the worker-provided environment or upgrade CLI and worker together; direct configuration cannot replace the broker. |
 | Broker connection refused or authorization rejected | Check session lifetime and worker-local reachability; do not reuse credentials from another invocation. |
 | Tenant mismatch | Parent-linked submission and listing must use the parent's tenant. |
 | Missing prompt or unknown `prompt`/`type` input | Pass a prompt explicitly and declare the relevant input schema; build recipes receive both fields. |

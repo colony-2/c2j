@@ -146,7 +146,7 @@
           "type": "op_input_equals",
           "node_path": "c2j-build-verify/test_integration/test_integration",
           "path": "timeout",
-          "value": "60m"
+          "value": "90m"
         },
         {
           "type": "op_input_equals",
@@ -166,7 +166,7 @@
         },
         {
           "type": "cel_true",
-          "expr": "calls.filter(c, c.node_path == \"c2j-build-verify/test_integration/test_integration\")[0].inputs.run.contains(\"go test -count=1 -v -tags=integration -p 2 -timeout=20m ./...\")"
+          "expr": "calls.filter(c, c.node_path == \"c2j-build-verify/test_integration/test_integration\")[0].inputs.run.contains(\"go test -count=1 -json -tags=integration -p 2 -timeout=20m ./...\")"
         },
         {
           "type": "cel_true",

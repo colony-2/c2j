@@ -38,7 +38,7 @@ func TestVerifyHookDelayedRecovery(t *testing.T) {
 				machine := rec.RecipeImpl.(*recipe.RecipeState)
 				require.Zero(t, machine.Timeout)
 				states := []string{"check_environment", "check_modules", "test_integration", "check_skills", "summarize"}
-				budgets := []string{"2m", "5m", "60m", "5m", "2m"}
+				budgets := []string{"2m", "5m", "90m", "5m", "2m"}
 				logs := []string{"environment.log", "modules.log", "tests.log", "skills.log", "summary.md"}
 				for i, name := range states {
 					node := machine.States.States[name].NodeImpl.(*recipe.NodeOp)

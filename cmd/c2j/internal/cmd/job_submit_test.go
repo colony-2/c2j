@@ -33,6 +33,9 @@ func TestSubmitHelpPromotesConventions(t *testing.T) {
 			t.Fatalf("help missing %s: %s", flag, &out)
 		}
 	}
+	for _, text := range []string{"current job context requires a child job broker", "worker-provided environment", "upgrade CLI and worker together", "--embed cannot replace the broker", "Broker-only submission needs no direct JobDB configuration", "formal parent"} {
+		require.Contains(t, out.String(), text)
+	}
 	for _, name := range []string{"build", "evolve"} {
 		if cmd.Flags().Lookup(name) != nil || strings.Contains(out.String(), "--"+name) {
 			t.Fatalf("obsolete mode flag %s is still exposed", name)

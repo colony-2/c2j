@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/colony-2/c2j/internal/celltest"
+	"github.com/colony-2/c2j/internal/parentagetest"
 	"github.com/colony-2/c2j/pkg/cellref"
 	"github.com/colony-2/c2j/pkg/childbroker"
 	"github.com/colony-2/c2j/pkg/jobcontext"
@@ -176,6 +177,7 @@ func TestSubmissionWaitBrokerLeaseRoutes(t *testing.T) {
 				consumer, err := f.wire.GetJobLease(f.ctx, jobdb.GetJobLeaseRequest{JobKey: ready, WorkerID: "consumer", Routes: []jobdb.Route{{JobType: "recipe"}}})
 				require.NoError(t, err)
 				require.NotNil(t, consumer)
+				parentagetest.Check(t, f.ctx, f.wire, parent.JobKey, key.JobId, ready.JobId)
 			})
 		}
 	}

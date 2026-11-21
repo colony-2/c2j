@@ -89,11 +89,13 @@ func TestVerifyHookSubmissionEnvironmentAndGate(t *testing.T) {
 		{name: "broker-gate", failGate: "TestBrokerOnlyCLI"},
 		{name: "helper-gate", failGate: "TestLeaseBoundRestartHelperSubmission"},
 		{name: "inspection-gate", failGate: "TestTaskInspectionUsesBackendReadPermissions"},
+		{name: "scenario-gate", failGate: "TestPnpmVerifyHook"},
 		{name: "compact-gate", failGate: "Test(Compact|ExecutionFailurePresentation"},
 		{name: "fixture-gate", failGate: "Run_EmbedExtensionFailureCompletesWithOriginalError"},
 		{name: "artifact-file-gate", failGate: "TestArtifactFile"},
 		{name: "artifact-metadata-gate", failGate: "TestNixOpDescriptionDoesNotInstall"},
 		{name: "packaged-artifact-gate", failGate: "TestRealNixArtifactFiles"},
+		{name: "full-suite", failGate: "-tags=integration -p 2"},
 		{name: "missing-wait-help", missingWaitGoal: true},
 	} {
 		t.Run(fixture.name, func(t *testing.T) {
@@ -108,10 +110,21 @@ func TestVerifyHookSubmissionEnvironmentAndGate(t *testing.T) {
 			mock := `#!/bin/bash
 set -eu
 for variable in ${!C2J_CURRENT_@} ${!C2J_CHILD_JOB_@} ${!C2J_WORKSPACE_@}; do exit 91; done
-test -z "${C2J_JOBDB+x}${C2J_TENANT_ID+x}${C2J_OBJECT_OUTBOX+x}${C2J_TEST_SUBMIT_BINARY+x}"
+test -z "${C2J_JOBDB+x}${C2J_TENANT_ID+x}${C2J_OBJECT_OUTBOX+x}"
+if [ -n "${C2J_TEST_SUBMIT_BINARY+x}" ]; then
+  [[ "$*" == *TestLeaseParentage* ]]
+  [[ "$C2J_TEST_SUBMIT_BINARY" == */c2j-parentage ]]
+fi
 test "$GOWORK" = off
 printf '%s %s\n' "${0##*/}" "$*" >> "$COMMANDS"
 if [ -n "$FAIL_GATE" ] && [[ "$*" == *"$FAIL_GATE"* ]]; then exit 42; fi
+if [[ "$*" == *TestLeaseParentage* ]]; then
+  for item in cmd/c2j/internal/submitjob:TestLeaseParentageMissingBroker cmd/c2j/internal/submitjob:TestLeaseParentageStandalone cmd/c2j/internal/submitjob:TestLeaseParentageBrokerBoundaries cmd/c2j/internal/submitjob:TestSubmissionWaitBrokerLeaseRoutes cmd/c2j/internal/submitjob:TestRun_BrokerSubmissionAndConfiguredImmediateExecution pkg/childbroker:TestBrokerOnlyCLI pkg/childbroker:TestLeaseParentageLostOrdinaryResponse pkg/executionruntime:TestLeaseParentageSuppliedLease pkg/worker/compiler:TestLeaseParentageWorkerCLI pkg/worker/compiler:TestWorkerBrokerSubmitsIncomingAndLiveWorkspace cmd/c2j/internal/cmd:TestSubmitHelpPromotesConventions; do
+    pkg="${item%%:*}"; test_name="${item#*:}"
+    printf '{"Action":"run","Package":"github.com/colony-2/c2j/%s","Test":"%s"}\n' "$pkg" "$test_name"
+    printf '{"Action":"pass","Package":"github.com/colony-2/c2j/%s","Test":"%s"}\n' "$pkg" "$test_name"
+  done
+fi
 if [[ "$*" == *TestWorkspaceDiff* ]]; then
   for pkg in pkg/jobinspect pkg/childbroker cmd/c2j/internal/cmd cmd/c2j pkg/worker/compiler; do
     case "$pkg" in
@@ -132,7 +145,7 @@ if [[ "$*" == *TestWorkspaceDiff* ]]; then
 fi
 if [ "$1" = build ]; then
   shift
-  if [ "$1" = -buildvcs=false ]; then shift; fi
+  if [ "$1" = -buildvcs=false ] || [ "$1" = -mod=readonly ]; then shift; fi
   test "$#" = 3 && test "$1" = -o && test "$3" = ./cmd/c2j
   cp -- "$0" "$2"
   chmod 0700 "$2"
@@ -168,6 +181,7 @@ fi
 			gates := []string{
 				"TestLeaseBoundRestartHelperSubmission$",
 				"TestTaskInspectionUsesBackendReadPermissions$",
+				"^TestPnpmVerifyHook$",
 				"Test(Compact|ExecutionFailurePresentation",
 				"^Test(Run_EmbedExtensionFailureCompletesWithOriginalError|RecipeFixtures)",
 				"^TestArtifactFile|^TestNixOpDescriptionDoesNotInstall$",
@@ -197,7 +211,10 @@ fi
 					require.Equal(t, helperGate+inspectionGate, string(raw), "failed inspection regression must prevent every later command")
 				}
 			}
-			if fixture.failGate != "" {
+			if fixture.failGate == "-tags=integration -p 2" {
+				require.Contains(t, string(raw), "go test -count=1 -json -tags=integration -p 2 -timeout=20m ./...\n")
+				require.NotContains(t, string(raw), "c2j submit --help\n", "full-suite failure must stop verification before the final help check")
+			} else if fixture.failGate != "" {
 				require.NotContains(t, string(raw), "-tags=integration -p 2")
 				require.NotContains(t, string(raw), "./internal/retirementcheck")
 				require.NotContains(t, string(raw), "go build")
@@ -211,7 +228,7 @@ fi
 				require.Less(t, strings.Index(string(raw), "-run ^TestSubmission"), strings.Index(string(raw), "./internal/retirementcheck"))
 				require.Contains(t, string(raw), "go test -count=1 -v -timeout=10m ./internal/pathutil ./internal/portability ./pkg/shellcmd ./pkg/toolenv")
 				require.Contains(t, string(raw), "go test -count=1 -v -timeout=10m ./pkg/worker/compiler -run ^TestRealRepositoryNativePackages$")
-				require.Contains(t, string(raw), "-tags=integration -p 2")
+				require.Contains(t, string(raw), "go test -count=1 -json -tags=integration -p 2 -timeout=20m ./...\n")
 				require.Contains(t, string(raw), "TestWorkspaceDiff|ExampleWorkspaceDiff")
 				require.Contains(t, string(raw), "go build -buildvcs=false -o ")
 				require.Contains(t, string(raw), "c2j submit --help\n")
@@ -281,6 +298,68 @@ func TestVerifyHookWorkspaceDiffEvidenceGuard(t *testing.T) {
 			}
 			if mode == "malformed" {
 				evidence.WriteString("not JSON\n")
+			}
+			path := filepath.Join(t.TempDir(), "events.json")
+			require.NoError(t, os.WriteFile(path, []byte(evidence.String()), 0600))
+			cmd := exec.Command("node", "-", path)
+			cmd.Stdin = strings.NewReader(code)
+			out, err := cmd.CombinedOutput()
+			if mode == "passed" {
+				require.NoError(t, err, string(out))
+			} else {
+				require.Error(t, err, string(out))
+			}
+		})
+	}
+}
+
+func TestVerifyHookLeaseParentageEvidenceGuard(t *testing.T) {
+	data, err := os.ReadFile("../../../.c2/recipes/hooks/build/verify.yaml")
+	require.NoError(t, err)
+	r, err := recipe.LoadRecipeFromString(data)
+	require.NoError(t, err)
+	node := r.RecipeImpl.(*recipe.RecipeState).States.States["test_integration"].Node.NodeImpl.(*recipe.NodeOp)
+	shell := node.Inputs["run"].(string)
+	marker := "node - \"$scratch/parentage.json\" <<'JS'\n"
+	start := strings.Index(shell, marker)
+	require.NotEqual(t, -1, start)
+	code := shell[start+len(marker):]
+	end := strings.Index(code, "\nJS\n")
+	require.NotEqual(t, -1, end)
+	code = code[:end]
+	required := map[string][]string{
+		"cmd/c2j/internal/submitjob": {"TestLeaseParentageMissingBroker", "TestLeaseParentageStandalone", "TestLeaseParentageBrokerBoundaries", "TestSubmissionWaitBrokerLeaseRoutes", "TestRun_BrokerSubmissionAndConfiguredImmediateExecution"},
+		"pkg/childbroker":            {"TestBrokerOnlyCLI", "TestLeaseParentageLostOrdinaryResponse"},
+		"pkg/executionruntime":       {"TestLeaseParentageSuppliedLease"},
+		"pkg/worker/compiler":        {"TestLeaseParentageWorkerCLI", "TestWorkerBrokerSubmitsIncomingAndLiveWorkspace"},
+		"cmd/c2j/internal/cmd":       {"TestSubmitHelpPromotesConventions"},
+	}
+	for _, mode := range []string{"passed", "missing", "skipped", "failed", "unfinished", "subcase-skipped", "malformed"} {
+		t.Run(mode, func(t *testing.T) {
+			var evidence strings.Builder
+			for pkg, names := range required {
+				for _, name := range names {
+					action := "pass"
+					if name == "TestLeaseParentageWorkerCLI" {
+						switch mode {
+						case "missing":
+							continue
+						case "skipped":
+							action = "skip"
+						case "failed":
+							action = "fail"
+						case "unfinished":
+							action = "run"
+						}
+					}
+					fmt.Fprintf(&evidence, "{\"Action\":%q,\"Package\":%q,\"Test\":%q}\n", action, "github.com/colony-2/c2j/"+pkg, name)
+				}
+			}
+			if mode == "subcase-skipped" {
+				evidence.WriteString("{\"Action\":\"skip\",\"Package\":\"github.com/colony-2/c2j/pkg/executionruntime\",\"Test\":\"TestLeaseParentageSuppliedLease/remote\"}\n")
+			}
+			if mode == "malformed" {
+				evidence.WriteString("{bad json\n")
 			}
 			path := filepath.Join(t.TempDir(), "events.json")
 			require.NoError(t, os.WriteFile(path, []byte(evidence.String()), 0600))

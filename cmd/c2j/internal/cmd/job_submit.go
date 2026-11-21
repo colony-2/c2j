@@ -24,6 +24,13 @@ The optional --title becomes inputs.title and is included in job metadata.
 Build submissions also set inputs.type to "build".
 Custom recipes are an advanced use case: use --advanced-recipe[-file].
 
+Inside a running task, current job context requires a child job broker.
+Preserve the worker-provided environment or upgrade CLI and worker together if
+it is missing; direct JobDB configuration and --embed cannot replace the broker.
+Broker-only submission needs no direct JobDB configuration and records the
+running job as the formal parent. Optional direct configuration must use the
+current tenant; --run also needs a direct JobDB target.
+
 Submission returns immediately. Every --wait-job, --wait-job-success, --wait-goal
 and --wait-until requirement must clear before execution. Completion includes
 failure and cancellation; success waits do not. A replacement can satisfy a goal

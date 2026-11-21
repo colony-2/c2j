@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/colony-2/c2j/internal/celltest"
+	"github.com/colony-2/c2j/internal/parentagetest"
 	"github.com/colony-2/c2j/pkg/cellref"
 	"github.com/colony-2/c2j/pkg/childbroker"
 	"github.com/colony-2/c2j/pkg/contextual"
@@ -20,6 +21,7 @@ import (
 	workerops "github.com/colony-2/c2j/pkg/worker/ops"
 	workerworkflow "github.com/colony-2/c2j/pkg/worker/workflow"
 	"github.com/colony-2/c2j/pkg/workflowctl"
+	"github.com/colony-2/jobdb/pkg/jobdb"
 	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
 	"github.com/stretchr/testify/require"
 )
@@ -111,6 +113,10 @@ outputs:
 					want = "during task"
 				}
 				require.Equal(t, want, result["outputs"].(map[string]any)["text"])
+				children, err := eng.ListJobs(celltest.Context(context.Background()), jobdb.ListJobsRequest{TenantIds: []string{ref.TenantID}, ParentJobIDs: []string{ref.JobID}})
+				require.NoError(t, err)
+				require.Len(t, children.Jobs, 1)
+				parentagetest.Check(t, celltest.Context(context.Background()), eng.(*guardedTestEngine).guard, ref.Key(), children.Jobs[0].JobKey.JobId)
 			})
 		}
 	}

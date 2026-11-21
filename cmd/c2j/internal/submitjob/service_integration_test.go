@@ -25,6 +25,7 @@ import (
 	"github.com/colony-2/c2j/cmd/c2j/internal/runjob"
 	"github.com/colony-2/c2j/cmd/c2j/internal/swfruntime"
 	"github.com/colony-2/c2j/internal/celltest"
+	"github.com/colony-2/c2j/internal/parentagetest"
 	"github.com/colony-2/c2j/pkg/execution"
 	"github.com/colony-2/c2j/pkg/swfutil"
 	"github.com/colony-2/c2j/pkg/worker/compiler"
@@ -1216,8 +1217,14 @@ func TestRun_BrokerSubmissionAndConfiguredImmediateExecution(t *testing.T) {
 	require.NoError(t, err)
 	engine := jobdbschema.WorkflowEngine{Engine: sdk, Registry: rt}
 	ctx = jobref.WithScope(ctx, jobref.Scope{ResolveCell: cellref.Registry(rt, "broker-run")})
-	current := jobcontext.Current{TenantID: "broker-run", GoalID: "parent-goal", JobID: "parent", InvocationHash: "parent-invocation"}
-	broker, err := childbroker.Start(ctx, childbroker.Options{Current: current, Submitter: engine})
+	parent, err := engine.SubmitJobRef(ctx, jobdb.SubmitJob{TenantId: "broker-run", JobID: "parent", JobType: "work", Cell: "app", CellRepo: celltest.Repo(root), Data: jobdb.NewTaskDataOrPanic(nil)})
+	require.NoError(t, err)
+	lease, err := rt.GetJobLease(ctx, jobdb.GetJobLeaseRequest{JobKey: parent.Key(), WorkerID: "parent", Routes: []jobdb.Route{{JobType: "work"}}, LeaseDuration: time.Minute})
+	require.NoError(t, err)
+	require.NotNil(t, lease)
+	require.NoError(t, jobdbschema.Register(ctx, rt, "broker-run"))
+	current := jobcontext.Current{TenantID: "broker-run", GoalID: parent.GoalID, JobID: "parent", InvocationHash: "parent-invocation"}
+	broker, err := childbroker.Start(ctx, childbroker.Options{Current: current, Submitter: waitLeaseSubmitter{lease}})
 	require.NoError(t, err)
 	defer broker.Close()
 	for k, v := range jobcontext.EnvForCurrent(current) {
@@ -1262,5 +1269,6 @@ outputs:
 	require.Equal(t, "execute through direct runtime", result["received"])
 	jobs, err := rt.ListJobs(ctx, jobdb.ListJobsRequest{TenantIds: []string{"broker-run"}})
 	require.NoError(t, err)
-	require.Len(t, jobs.Jobs, 1)
+	require.Len(t, jobs.Jobs, 2)
+	parentagetest.Check(t, ctx, rt, parent.Key(), started[0].JobID)
 }

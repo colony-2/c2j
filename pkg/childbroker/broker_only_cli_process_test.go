@@ -16,12 +16,14 @@ import (
 	"time"
 
 	"github.com/colony-2/c2j/internal/celltest"
+	"github.com/colony-2/c2j/internal/parentagetest"
 	"github.com/colony-2/c2j/pkg/cellref"
 	"github.com/colony-2/c2j/pkg/git/gitstate"
 	"github.com/colony-2/c2j/pkg/gitprofile"
 	"github.com/colony-2/c2j/pkg/jobcontext"
 	"github.com/colony-2/c2j/pkg/jobdbschema"
 	"github.com/colony-2/c2j/pkg/jobref"
+	"github.com/colony-2/c2j/pkg/permissions"
 	"github.com/colony-2/c2j/pkg/recipe"
 	"github.com/colony-2/c2j/pkg/starter"
 	"github.com/colony-2/c2j/pkg/workflowctl"
@@ -78,9 +80,24 @@ type brokerOnlyFixture struct {
 	loseResponse  bool
 	responseMode  string
 	lastRequest   SubmitRequest
+	privileged    bool
+}
+
+type brokerSubmitFunc func(context.Context, jobdb.SubmitJob) (jobref.Ref, error)
+
+func (f brokerSubmitFunc) SubmitJobRef(ctx context.Context, job jobdb.SubmitJob) (jobref.Ref, error) {
+	return f(ctx, job)
 }
 
 func newBrokerOnlyFixture(t *testing.T, binary string) *brokerOnlyFixture {
+	return brokerOnlyFixtureWithAuthority(t, binary, false)
+}
+
+// Selected-request compatibility requires operator authority; it does not prove task parentage.
+func newPrivilegedBrokerOnlyFixture(t *testing.T, binary string) *brokerOnlyFixture {
+	return brokerOnlyFixtureWithAuthority(t, binary, true)
+}
+func brokerOnlyFixtureWithAuthority(t *testing.T, binary string, privileged bool) *brokerOnlyFixture {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(celltest.Context(runtimetest.PrimaryGoalContext(context.Background())), time.Minute)
 	t.Cleanup(cancel)
@@ -103,6 +120,7 @@ func newBrokerOnlyFixture(t *testing.T, binary string) *brokerOnlyFixture {
 	src, err := engine.SubmitJobRef(ctx, jobdb.SubmitJob{TenantId: brokerOnlyTenant, JobID: "source", Cell: "app", CellRepo: celltest.Repo(f.root), JobType: "work", Data: jobdb.NewTaskDataOrPanic(nil)})
 	require.NoError(t, err)
 	f.source = src
+	f.privileged = privileged
 	f.current = jobcontext.Current{TenantID: brokerOnlyTenant, JobID: "source", GoalID: src.GoalID, CellID: src.CellID, CellRepo: src.CellRepo, JobType: starter.RecipeJobType, OpType: "command_execution", OpStep: "submit", OpTaskType: "activity:command_execution", CellName: "app", RepositorySource: celltest.Repo(f.root), GitRef: "main", InvocationPath: "sequence.submit", InvocationSequence: 7, InvocationHash: "invocation"}
 	profile, err := gitprofile.NewScope(ctx, gitprofile.Selection{Explicit: true}, jobdb.ConfigurationSnapshot{}, nil, binary)
 	require.NoError(t, err)
@@ -110,7 +128,22 @@ func newBrokerOnlyFixture(t *testing.T, binary string) *brokerOnlyFixture {
 	ctx = gitprofile.WithScope(ctx, profile)
 	ctx = jobref.WithScope(ctx, jobref.Scope{ResolveCell: cellref.Registry(f.rt, brokerOnlyTenant)})
 	f.ctx = ctx
-	f.broker, err = Start(ctx, Options{Current: f.current, Submitter: engine, Workspace: &workspacesubmit.Source{Git: gitstate.GlobalGitTaskContext{BaseRepo: celltest.Repo(f.root), BaseRef: "main", ResolvedBaseHash: base, CellName: "app"}, Worktree: f.root}})
+	var submitter Submitter = engine
+	if !privileged {
+		require.NoError(t, jobdbschema.Register(ctx, f.rt, brokerOnlyTenant))
+		lease, err := f.rt.GetJobLease(ctx, jobdb.GetJobLeaseRequest{JobKey: src.Key(), WorkerID: "parent", Routes: []jobdb.Route{{JobType: "work"}}, LeaseDuration: time.Minute})
+		require.NoError(t, err)
+		require.NotNil(t, lease)
+		access := permissions.NewAccess(ctx, permissions.JobDB{Jobs: permissions.JobPermissions{Submit: true}}, nil, func(call context.Context, job jobdb.SubmitJob) (jobref.Ref, error) {
+			h, err := lease.SubmitJob(call, jobdb.SubmitJobRequest{Job: job})
+			if err != nil {
+				return jobref.Ref{}, err
+			}
+			return jobref.FromHandle(h)
+		})
+		submitter = brokerSubmitFunc(access.Submit)
+	}
+	f.broker, err = Start(ctx, Options{Current: f.current, Submitter: submitter, Workspace: &workspacesubmit.Source{Git: gitstate.GlobalGitTaskContext{BaseRepo: celltest.Repo(f.root), BaseRef: "main", ResolvedBaseHash: base, CellName: "app"}, Worktree: f.root}})
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, f.broker.Close()) })
 	handler := f.broker.server.Handler
@@ -149,7 +182,7 @@ func newBrokerOnlyFixture(t *testing.T, binary string) *brokerOnlyFixture {
 			}
 			return
 		}
-		if f.loseResponse && strings.HasSuffix(r.URL.Path, "/primary-goal") {
+		if f.loseResponse && r.Method == http.MethodPost && !strings.HasSuffix(r.URL.Path, "/prepare") {
 			recorder := httptest.NewRecorder()
 			handler.ServeHTTP(recorder, r)
 			if recorder.Code == 200 {
@@ -288,6 +321,9 @@ func (f *brokerOnlyFixture) checkSubmission(raw []byte, goal string) SubmitRespo
 		require.Equal(f.t, payload.YAML, found["broker_only.recipe.yaml"])
 	}
 	f.inventory(1)
+	if !f.privileged {
+		parentagetest.Check(f.t, f.ctx, f.rt, f.source.Key(), ref.JobID)
+	}
 	return ref
 }
 
@@ -360,7 +396,12 @@ func (f *brokerOnlyFixture) assertUnchanged(raw []byte) {
 func brokerOnlyPositiveCases(t *testing.T, binary string) {
 	for _, mode := range []string{"incoming", "current", "selected", "lost-response"} {
 		t.Run(mode, func(t *testing.T) {
-			f := newBrokerOnlyFixture(t, binary)
+			var f *brokerOnlyFixture
+			if mode == "selected" || mode == "lost-response" {
+				f = newPrivilegedBrokerOnlyFixture(t, binary)
+			} else {
+				f = newBrokerOnlyFixture(t, binary)
+			}
 			args := f.args()
 			if mode == "incoming" || mode == "current" {
 				require.NoError(t, os.WriteFile(filepath.Join(f.root, "committed.txt"), []byte("new commit\n"), 0600))
@@ -641,7 +682,7 @@ func brokerOnlyNegativeCases(t *testing.T, binary string) {
 func brokerOnlyReplayCases(t *testing.T, binary string) {
 	for _, fault := range []string{"route-to-direct", "route-from-direct", "added-destination", "removed-destination", "changed-destination", "tenant", "envelope-version", "descriptor-version", "artifact-integrity", "parent", "invocation", "profile", "renewed-session", "override", "existing-mismatch"} {
 		t.Run("replay-"+fault, func(t *testing.T) {
-			f := newBrokerOnlyFixture(t, binary)
+			f := newPrivilegedBrokerOnlyFixture(t, binary)
 			raw := f.retained()
 			args := []string{"--replay", f.request, "--json"}
 			changes := map[string]string{}
@@ -741,4 +782,25 @@ func brokerOnlyReplayCases(t *testing.T, binary string) {
 			f.assertUnchanged(raw)
 		})
 	}
+}
+
+// An ordinary submission has no retained automatic retry. Reconcile the known
+// destination after response loss; the accepted child keeps its original parent.
+func TestLeaseParentageLostOrdinaryResponse(t *testing.T) {
+	binary := os.Getenv("C2J_TEST_SUBMIT_BINARY")
+	if binary == "" {
+		binary = filepath.Join(t.TempDir(), "c2j")
+		c := exec.Command("go", "build", "-mod=readonly", "-o", binary, "./cmd/c2j")
+		c.Dir = testRepoRoot(t)
+		out, err := c.CombinedOutput()
+		require.NoError(t, err, string(out))
+	}
+	f := newBrokerOnlyFixture(t, binary)
+	f.loseResponse = true
+	args := append(f.args(), "--job-id", "ambiguous-destination")
+	out, err := f.run(args, nil)
+	require.Error(t, err, string(out))
+	require.EqualValues(t, 1, f.publications.Load(), "no automatic publication retry")
+	f.inventory(1)
+	parentagetest.Check(t, f.ctx, f.rt, f.source.Key(), "ambiguous-destination")
 }

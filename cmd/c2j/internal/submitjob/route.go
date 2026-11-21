@@ -37,6 +37,11 @@ func resolveSubmissionRoute(ctx context.Context, o *Options) (*submissionRoute, 
 	if err != nil {
 		return nil, err
 	}
+	// Task identity without its lease-backed broker must never fall back to
+	// standalone publication: attribution alone does not create a formal child.
+	if hasParent && !hasBroker {
+		return nil, fmt.Errorf("current job context requires a child job broker; preserve the worker-provided environment or upgrade CLI and worker together")
+	}
 	route := &submissionRoute{broker: broker, hasBroker: hasBroker}
 	if hasParent {
 		route.parent = &parent
