@@ -89,6 +89,7 @@ func TestVerifyHookSubmissionEnvironmentAndGate(t *testing.T) {
 		missingWaitGoal bool
 	}{
 		{name: "healthy"},
+		{name: "clone-gate", failGate: "^TestCloneDuringRepack$"},
 		{name: "broker-gate", failGate: "TestBrokerOnlyCLI"},
 		{name: "helper-gate", failGate: "TestLeaseBoundRestartHelperSubmission"},
 		{name: "inspection-gate", failGate: "TestTaskInspectionUsesBackendReadPermissions"},
@@ -130,6 +131,9 @@ fi
 test "$GOWORK" = off
 printf '%s %s\n' "${0##*/}" "$*" >> "$COMMANDS"
 if [ -n "$FAIL_GATE" ] && [[ "$*" == *"$FAIL_GATE"* ]]; then exit 42; fi
+if [[ "$*" == *'-run ^TestCloneDuringRepack$' ]]; then
+  cat "$CLONE_GATE_EVENTS"
+fi
 if [[ "$*" == *'-run ^TestExecutionBaseCatalog' ]]; then
   cat "$CATALOG_GATE_EVENTS"
 fi
@@ -207,19 +211,21 @@ fi
 			require.NoError(t, os.WriteFile(catalogEvents, catalogGateEvidence(t, node.Inputs["run"].(string)), 0600))
 			historyEvents := filepath.Join(root, "history-events.json")
 			require.NoError(t, os.WriteFile(historyEvents, inputHistoryGateEvidence("passed"), 0600))
+			cloneEvents := filepath.Join(root, "clone-events.json")
+			require.NoError(t, os.WriteFile(cloneEvents, cloneGateEvidence("passed"), 0600))
 			require.NoError(t, os.WriteFile(filepath.Join(bin, "go"), []byte(mock), 0700))
 			commands := filepath.Join(root, "commands")
 			cmd := exec.Command("bash", "-c", node.Inputs["run"].(string))
 			cmd.Dir = root
 			cmd.Env = append(os.Environ(), "PATH="+bin+":"+os.Getenv("PATH"), "OUTBOX="+outbox, "COMMANDS="+commands, "FAIL_GATE="+fixture.failGate, fmt.Sprintf("MISSING_WAIT_GOAL=%t", fixture.missingWaitGoal), "C2J_CURRENT_JOB_ID=live", "C2J_CHILD_JOB_TOKEN=live", "C2J_WORKSPACE_ROOT=live", "C2J_JOBDB=embed:///", "C2J_TENANT_ID=live", "C2J_OBJECT_OUTBOX=live", "C2J_TEST_SUBMIT_BINARY=/stale/c2j", "C2J_REQUIRE_EXECUTION_BASE_CATALOG=true")
-			cmd.Env = append(cmd.Env, "HISTORY_GATE_EVENTS="+historyEvents, "CATALOG_GATE_EVENTS="+catalogEvents)
+			cmd.Env = append(cmd.Env, "HISTORY_GATE_EVENTS="+historyEvents, "CATALOG_GATE_EVENTS="+catalogEvents, "CLONE_GATE_EVENTS="+cloneEvents)
 			out, err := cmd.CombinedOutput()
 			log, logErr := os.ReadFile(filepath.Join(outbox, "tests.log"))
 			require.NoError(t, logErr)
 			if fixture.failGate != "" {
 				require.Error(t, err)
 				expectedExit := 42
-				if fixture.failGate == "^TestExtensionWait" {
+				if fixture.failGate == "^TestExtensionWait" || fixture.failGate == "^TestCloneDuringRepack$" {
 					expectedExit = 1
 				}
 				require.Equal(t, expectedExit, cmd.ProcessState.ExitCode(), "%s\n%s", out, log)
@@ -231,6 +237,13 @@ fi
 			}
 			raw, err := os.ReadFile(commands)
 			require.NoError(t, err)
+			cloneGate := "go test -mod=readonly -race -count=1 -json -timeout=5m ./pkg/git/gitshallow -run ^TestCloneDuringRepack$\n"
+			require.True(t, strings.HasPrefix(string(raw), cloneGate), "clone maintenance must run before later gates")
+			raw = bytes.TrimPrefix(raw, []byte(cloneGate))
+			if fixture.failGate == "^TestCloneDuringRepack$" {
+				require.Empty(t, raw, "failed clone regression must prevent every later command")
+				return
+			}
 			// Retained history precedes the existing regression chain, using the
 			// built executable and then the race checks. Keep all legacy gate
 			// ordering and stop-on-failure assertions below.
@@ -662,6 +675,72 @@ func TestVerifyHookExecutionBaseEvidenceGuard(t *testing.T) {
 			command := exec.Command("node", "-", path)
 			command.Stdin = strings.NewReader(code)
 			out, err := command.CombinedOutput()
+			if mode == "passed" {
+				require.NoError(t, err, string(out))
+			} else {
+				require.Error(t, err, string(out))
+			}
+		})
+	}
+}
+
+func cloneGateEvidence(mode string) []byte {
+	if mode == "empty" {
+		return nil
+	}
+	if mode == "malformed" {
+		return []byte("not JSON\n")
+	}
+	var evidence strings.Builder
+	for _, name := range []string{"filesystem-control", "transport-control", "helper", "deleted-filesystem-source", "deleted-transport-source", "cancelled-helper"} {
+		if mode == "missing/"+name {
+			continue
+		}
+		test := "TestCloneDuringRepack/" + name
+		if mode != "unstarted" {
+			fmt.Fprintf(&evidence, "{\"Action\":\"run\",\"Package\":\"github.com/colony-2/c2j/pkg/git/gitshallow\",\"Test\":%q}\n", test)
+		}
+		if mode != "unfinished" {
+			action := "pass"
+			if name == "helper" {
+				switch mode {
+				case "skipped":
+					action = "skip"
+				case "failed":
+					action = "fail"
+				}
+			}
+			fmt.Fprintf(&evidence, "{\"Action\":%q,\"Package\":\"github.com/colony-2/c2j/pkg/git/gitshallow\",\"Test\":%q}\n", action, test)
+		}
+	}
+	return []byte(evidence.String())
+}
+
+func TestVerifyHookCloneEvidenceGuard(t *testing.T) {
+	data, err := os.ReadFile("../../../.c2/recipes/hooks/build/verify.yaml")
+	require.NoError(t, err)
+	r, err := recipe.LoadRecipeFromString(data)
+	require.NoError(t, err)
+	node := r.RecipeImpl.(*recipe.RecipeState).States.States["test_integration"].Node.NodeImpl.(*recipe.NodeOp)
+	shell := node.Inputs["run"].(string)
+	marker := "node - \"$scratch/clone-repack.json\" <<'JS'\n"
+	start := strings.Index(shell, marker)
+	require.NotEqual(t, -1, start)
+	code := shell[start+len(marker):]
+	end := strings.Index(code, "\nJS\n")
+	require.NotEqual(t, -1, end)
+	code = code[:end]
+	for _, mode := range []string{
+		"passed", "empty", "malformed", "unstarted", "unfinished", "skipped", "failed",
+		"missing/filesystem-control", "missing/transport-control", "missing/helper",
+		"missing/deleted-filesystem-source", "missing/deleted-transport-source", "missing/cancelled-helper",
+	} {
+		t.Run(mode, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "events.json")
+			require.NoError(t, os.WriteFile(path, cloneGateEvidence(mode), 0600))
+			cmd := exec.Command("node", "-", path)
+			cmd.Stdin = strings.NewReader(code)
+			out, err := cmd.CombinedOutput()
 			if mode == "passed" {
 				require.NoError(t, err, string(out))
 			} else {

@@ -66,8 +66,9 @@ func GitShallowClone(ctx context.Context, input GitShallowCloneInput) (*GitShall
 		return nil, fmt.Errorf("failed to create parent directory: %w", err)
 	}
 
-	// Perform shallow clone with depth 1
-	cmd := gitprofile.Command(ctx, "clone", "--depth", "1", "--no-single-branch", input.SourceDir, input.TargetDir)
+	// Use transport even for local paths: filesystem cloning can lose loose
+	// objects when source maintenance packs and removes them during the copy.
+	cmd := gitprofile.Command(ctx, "clone", "--no-local", "--depth", "1", "--no-single-branch", input.SourceDir, input.TargetDir)
 	if output, err := gitprofile.CombinedOutput(ctx, cmd); err != nil {
 		return nil, fmt.Errorf("failed to clone repository: %w (output: %s)", err, output)
 	}

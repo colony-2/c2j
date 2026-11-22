@@ -282,3 +282,124 @@ func TestClone(t *testing.T) {
 		}
 	})
 }
+
+// Ref selection, origin identity and failure ownership must remain unchanged
+// when local clones use the same transport as remote clones.
+func TestCloneCompatibility(t *testing.T) {
+	source := t.TempDir()
+	git := func(dir string, args ...string) string {
+		t.Helper()
+		cmd := exec.Command("git", args...)
+		cmd.Dir = dir
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+		return strings.TrimSpace(string(out))
+	}
+	git(source, "init", "-b", "main")
+	git(source, "config", "user.email", "clone@example.test")
+	git(source, "config", "user.name", "Clone Test")
+	git(source, "config", "gc.auto", "0")
+	file := filepath.Join(source, "content")
+	if err := os.WriteFile(file, []byte("historical bytes\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	git(source, "add", ".")
+	git(source, "commit", "-m", "historical")
+	historical := git(source, "rev-parse", "HEAD")
+	blob := git(source, "rev-parse", "HEAD:content")
+	git(source, "branch", "historical")
+	if err := os.WriteFile(file, []byte("current bytes\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	git(source, "commit", "-am", "current")
+	head := git(source, "rev-parse", "HEAD")
+	for _, url := range []bool{false, true} {
+		origin := source
+		name := "local"
+		if url {
+			origin, name = "file://"+source, "file-url"
+		}
+		for _, ref := range []string{head, historical, "historical"} {
+			t.Run(name+"/"+ref, func(t *testing.T) {
+				target := filepath.Join(t.TempDir(), "clone")
+				_, err := GitShallowClone(context.Background(), GitShallowCloneInput{SourceDir: origin, TargetDir: target, CommitHash: ref})
+				if err != nil {
+					t.Fatal(err)
+				}
+				want, content := historical, "historical bytes\n"
+				if ref == head {
+					want, content = head, "current bytes\n"
+				}
+				if got := git(target, "rev-parse", "HEAD"); got != want {
+					t.Fatalf("HEAD=%s, want %s", got, want)
+				}
+				if got := git(target, "remote", "get-url", "origin"); got != origin {
+					t.Fatalf("origin=%q, want %q", got, origin)
+				}
+				if got := git(target, "rev-list", "--count", "HEAD"); got != "1" {
+					t.Fatalf("depth=%s", got)
+				}
+				data, err := os.ReadFile(filepath.Join(target, "content"))
+				if err != nil || string(data) != content {
+					t.Fatalf("content=%q, err=%v", data, err)
+				}
+				git(target, "fsck", "--full")
+			})
+		}
+	}
+	t.Run("caller-owned-target", func(t *testing.T) {
+		target := t.TempDir()
+		sentinel := filepath.Join(target, "keep")
+		if err := os.WriteFile(sentinel, []byte("keep"), 0644); err != nil {
+			t.Fatal(err)
+		}
+		_, err := GitShallowClone(context.Background(), GitShallowCloneInput{SourceDir: source, TargetDir: target, CommitHash: head})
+		if err == nil {
+			t.Fatal("nonempty target accepted")
+		}
+		if data, err := os.ReadFile(sentinel); err != nil || string(data) != "keep" {
+			t.Fatalf("caller-owned target changed: %q, %v", data, err)
+		}
+	})
+	for _, tc := range []struct{ name, ref, phase string }{
+		{"missing-ref", "does-not-exist", "failed to fetch"},
+		{"non-commit-checkout", blob, "failed to checkout"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			target := filepath.Join(t.TempDir(), "clone")
+			_, err := GitShallowClone(context.Background(), GitShallowCloneInput{SourceDir: source, TargetDir: target, CommitHash: tc.ref})
+			if err == nil || !strings.Contains(err.Error(), tc.phase) {
+				t.Fatalf("expected %s failure: %v", tc.phase, err)
+			}
+			if _, err := os.Stat(target); !os.IsNotExist(err) {
+				t.Fatalf("owned failed target remains: %v", err)
+			}
+			if got := git(source, "rev-parse", "HEAD"); got != head {
+				t.Fatalf("source changed: %s", got)
+			}
+			git(source, "fsck", "--full")
+		})
+	}
+	t.Run("corrupt-source", func(t *testing.T) {
+		object := filepath.Join(source, ".git", "objects", blob[:2], blob[2:])
+		data, err := os.ReadFile(object)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() {
+			if err := os.WriteFile(object, data, 0444); err != nil {
+				t.Error(err)
+			}
+		}()
+		if err := os.Remove(object); err != nil {
+			t.Fatal(err)
+		}
+		_, err = GitShallowClone(context.Background(), GitShallowCloneInput{SourceDir: source, TargetDir: filepath.Join(t.TempDir(), "clone"), CommitHash: head})
+		// Clone requests all branches, including the historical ref whose blob is missing.
+		if err == nil || !strings.Contains(err.Error(), "failed to clone") {
+			t.Fatalf("corrupt source did not fail cloning: %v", err)
+		}
+	})
+}

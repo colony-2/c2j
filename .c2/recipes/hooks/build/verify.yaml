@@ -182,6 +182,23 @@ state:
           done
           unset C2J_JOBDB C2J_TENANT_ID C2J_OBJECT_OUTBOX C2J_TEST_SUBMIT_BINARY C2J_REQUIRE_EXECUTION_BASE_CATALOG
           export GOWORK=off
+          # Real object maintenance must not break native local workspaces.
+          # Require every control to run; missing compiler/interposition is not a pass.
+          clone_status=0
+          go test -mod=readonly -race -count=1 -json -timeout=5m ./pkg/git/gitshallow -run '^TestCloneDuringRepack$' > "$scratch/clone-repack.json" || clone_status=$?
+          cat "$scratch/clone-repack.json"
+          test "$clone_status" -eq 0
+          node - "$scratch/clone-repack.json" <<'JS'
+          const fs = require('node:fs');
+          const events = fs.readFileSync(process.argv[2], 'utf8').trim().split('\n').filter(Boolean).map(JSON.parse);
+          for (const name of ['filesystem-control', 'transport-control', 'helper', 'deleted-filesystem-source', 'deleted-transport-source', 'cancelled-helper']) {
+            const test = 'TestCloneDuringRepack/' + name;
+            const rows = events.filter(e => e.Test === test);
+            if (!rows.some(e => e.Action === 'run') || !rows.some(e => e.Action === 'pass') || rows.some(e => e.Action === 'skip' || e.Action === 'fail')) {
+              throw new Error('Clone maintenance acceptance missing, skipped or failed: ' + test);
+            }
+          }
+          JS
           # Native retained history must pass through the built CLI and live helper.
           go build -mod=readonly -o "$scratch/c2j-input-history" ./cmd/c2j
           export C2J_TEST_INPUT_HISTORY_BINARY="$scratch/c2j-input-history"
