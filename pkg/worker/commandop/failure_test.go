@@ -116,16 +116,23 @@ func TestCommandDiagnosticsPreserveNativeTimeoutCause(t *testing.T) {
 }
 
 func TestCommandDiagnosticsDoNotChangeSuccessOrContinue(t *testing.T) {
-	for _, input := range []CommandExecutionInput{
-		{Run: "printf 'ok\n'"},
-		{Run: "printf 'ok\n'; exit 7", ContinueOnError: true},
-		{Run: "printf 'ok\n'; sleep 5", Timeout: "200ms", ContinueOnError: true},
+	for _, tc := range []struct {
+		name  string
+		input CommandExecutionInput
+	}{
+		{name: "success", input: CommandExecutionInput{Run: "printf 'ok\n'"}},
+		{name: "continued_exit", input: CommandExecutionInput{Run: "printf 'ok\n'; exit 7", ContinueOnError: true}},
+		{name: "continued_timeout", input: CommandExecutionInput{Run: "printf 'ok\n'; sleep 5", Timeout: "200ms", ContinueOnError: true}},
 	} {
-		deps := ops.NewOpDependenciesBuilder().WithJobTool(diagnosticJobTool{}).Build()
-		output, err := execute(deps, celltest.Context(context.Background()), input)
-		require.NoError(t, err)
-		require.Equal(t, "ok", output.Stdout)
-		require.Empty(t, deps.GetOutputArtifacts())
+		t.Run(tc.name, func(t *testing.T) {
+			deps := ops.NewOpDependenciesBuilder().WithJobTool(diagnosticJobTool{}).Build()
+			started := time.Now()
+			output, err := execute(deps, celltest.Context(context.Background()), tc.input)
+			t.Logf("elapsed=%s input_timeout=%q continue_on_error=%t output=%+v error=%v", time.Since(started), tc.input.Timeout, tc.input.ContinueOnError, output, err)
+			require.NoError(t, err)
+			require.Equal(t, "ok", output.Stdout)
+			require.Empty(t, deps.GetOutputArtifacts())
+		})
 	}
 }
 

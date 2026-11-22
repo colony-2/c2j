@@ -81,7 +81,10 @@ func ParseWithinRecipeResolutionTaskData(td jobdb.TaskData) (*WithinRecipeResolu
 	return ParseWithinRecipeResolutionJSON(raw)
 }
 
-func ParseWithinRecipeResolutionJSON(raw []byte) (*WithinRecipeResolutionResult, error) {
+func ParseWithinRecipeResolutionJSON(raw []byte) (resultValue *WithinRecipeResolutionResult, resultErr error) {
+	defer func() {
+		resultErr = jobdb.ClassifyExecutionInfrastructure(resultErr, jobdb.ExecutionInfrastructureDurableDecode, "c2j.within_resolution", nil, nil)
+	}()
 	if len(raw) == 0 {
 		return nil, fmt.Errorf("within recipe resolution payload is empty")
 	}
@@ -103,7 +106,7 @@ func parseWithinRecipeResolutionTaskInput(input jobdb.TaskData) (*withinRecipeRe
 	}
 	req := withinRecipeResolutionTaskInput{}
 	if err := json.Unmarshal(raw, &req); err != nil {
-		return nil, fmt.Errorf("decode within recipe resolution input: %w", err)
+		return nil, jobdb.ClassifyExecutionInfrastructure(fmt.Errorf("decode within recipe resolution input: %w", err), jobdb.ExecutionInfrastructureDurableDecode, "c2j.internal_task_input", nil, nil)
 	}
 	return &req, nil
 }

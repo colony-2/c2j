@@ -808,6 +808,7 @@ Important behavior:
 
 - completed jobs return successfully
 - failed jobs return a non-zero exit code
+- replay and classified infrastructure errors stop the worker while preserving the job; see [recovery and version diagnostics](GUIDE-Replay-Recovery.md)
 - suspended jobs may wait, prompt, or fail depending on flags
 - when input is pending, interactive terminals default to prompting
 - in CI or non-terminal mode, input handling defaults to `ops`

@@ -3,7 +3,9 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"debug/buildinfo"
 	"encoding/json"
 	"net/http/httptest"
 	"os"
@@ -15,9 +17,12 @@ import (
 	"time"
 
 	"github.com/colony-2/c2j/internal/celltest"
+	"github.com/colony-2/c2j/pkg/worker/compiler"
+	"github.com/colony-2/c2j/pkg/workflow"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/remote"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/toy"
+	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
 	"github.com/stretchr/testify/require"
 )
 
@@ -54,6 +59,36 @@ func testStampedBuildProvenance(t *testing.T, flags string) {
 	build := exec.CommandContext(ctx, "go", "build", "-buildvcs=false", "-ldflags", ldflags, "-o", binary, ".")
 	output, err := build.CombinedOutput()
 	require.NoError(t, err, "%s", output)
+	builtInfo, err := buildinfo.ReadFile(binary)
+	require.NoError(t, err)
+	linkedJobDBVersion := ""
+	for _, dep := range builtInfo.Deps {
+		if dep.Path == "github.com/colony-2/jobdb" {
+			if dep.Replace != nil {
+				dep = dep.Replace
+			}
+			linkedJobDBVersion = dep.Version
+			if linkedJobDBVersion == "" {
+				linkedJobDBVersion = "(devel)"
+			}
+			break
+		}
+	}
+	require.NotEmpty(t, linkedJobDBVersion, "built CLI must link JobDB")
+	// These processes own isolated fixture jobs, not the live managed task.
+	// Keep the tool and Git credential environment for building the binary.
+	var cliEnv []string
+	for _, kv := range os.Environ() {
+		key, _, _ := strings.Cut(kv, "=")
+		if strings.HasPrefix(key, "C2J_CURRENT_") || strings.HasPrefix(key, "C2J_CHILD_JOB_") || strings.HasPrefix(key, "C2J_WORKSPACE_") {
+			continue
+		}
+		switch key {
+		case "C2J_JOBDB", "C2J_TENANT_ID", "C2J_OBJECT_OUTBOX":
+			continue
+		}
+		cliEnv = append(cliEnv, kv)
+	}
 
 	repo := t.TempDir()
 	for _, args := range [][]string{
@@ -70,13 +105,14 @@ func testStampedBuildProvenance(t *testing.T, flags string) {
 	cli := func(t *testing.T, args ...string) []byte {
 		t.Helper()
 		cmd := exec.CommandContext(ctx, binary, args...)
+		cmd.Env = cliEnv
 		cmd.Dir = repo
 		out, err := cmd.CombinedOutput()
 		require.NoError(t, err, "%s", out)
 		return out
 	}
 	require.Equal(t, "c2j version "+version+"\n", string(cli(t, "version")))
-	for _, mode := range []string{"run", "run one", "run with-lease", "submit --run"} {
+	for _, mode := range []string{"run", "run one", "run with-lease", "submit --run", "run mismatch", "run with-lease mismatch"} {
 		t.Run(mode, func(t *testing.T) {
 			rt := toy.New()
 			server := httptest.NewServer(celltest.Handler(remote.NewConsumerServer(rt)))
@@ -98,11 +134,27 @@ func testStampedBuildProvenance(t *testing.T, flags string) {
 				require.NoError(t, json.Unmarshal(out, &submitted), "%s", out)
 				key.JobId = submitted.JobID
 				// Provenance checks need no health listener or fixed host port.
-				run := append(strings.Fields(mode), "--jobdb", uri, "--job-id", key.JobId, "--ci", "--health-port", "0")
-				if mode == "run with-lease" {
+				mismatch := strings.HasSuffix(mode, " mismatch")
+				var before []jobdb.Chapter
+				if mismatch {
+					seedWorker := jobworkflow.ExecutionWorker{JobType: "recipe", Execute: func(c jobworkflow.ExecutionContext, in jobdb.JobData) (jobdb.JobData, error) {
+						_, e := workflow.ValueCall(c, "cell-context", compiler.CellContextTaskType, jobdb.RunPolicy{}, map[string]any{"compiler": "recorded-build"})
+						return in, e
+					}}
+					seed, e := jobworkflow.GetJobForRun(ctx, rt, jobworkflow.GetJobForRunRequest{JobKey: key, JobWorker: seedWorker, ConsumerVersions: map[string]string{"c2j": "recorded-build"}})
+					require.NoError(t, e)
+					waiting, e := seed.Run(nil)
+					require.NoError(t, e)
+					require.Equal(t, jobworkflow.JobRunSuspended, waiting.Status)
+					before, e = rt.ListChapters(ctx, jobdb.ListChaptersRequest{JobKey: key})
+					require.NoError(t, e)
+				}
+				// These build-identity checks do not need the shared health listener.
+				run := append(strings.Fields(strings.TrimSuffix(mode, " mismatch")), "--jobdb", uri, "--job-id", key.JobId, "--ci", "--health-port", "0")
+				if strings.HasPrefix(mode, "run with-lease") {
 					client, err := remote.New(server.URL, server.Client())
 					require.NoError(t, err)
-					lease, err := client.GetJobLease(ctx, jobdb.GetJobLeaseRequest{JobKey: key, WorkerID: "dispatcher", Routes: []jobdb.Route{{JobType: "recipe"}}, LeaseDuration: time.Minute})
+					lease, err := client.GetJobLease(ctx, jobdb.GetJobLeaseRequest{JobKey: key, WorkerID: "dispatcher", Routes: []jobdb.Route{{JobType: "recipe"}, {JobType: "recipe", TaskType: compiler.CellContextTaskType}}, LeaseDuration: time.Minute})
 					require.NoError(t, err)
 					capability, err := remote.ExportLease(lease)
 					require.NoError(t, err)
@@ -111,6 +163,39 @@ func testStampedBuildProvenance(t *testing.T, flags string) {
 					leaseFile := filepath.Join(t.TempDir(), "lease.json")
 					require.NoError(t, os.WriteFile(leaseFile, encoded, 0600))
 					run = append(run, "--lease-file", leaseFile)
+				}
+				if mismatch {
+					command := exec.CommandContext(ctx, binary, run...)
+					command.Env = cliEnv
+					command.Dir = repo
+					var stdout, stderr bytes.Buffer
+					command.Stdout = &stdout
+					command.Stderr = &stderr
+					e := command.Run()
+					var exit *exec.ExitError
+					require.ErrorAs(t, e, &exit)
+					require.Equal(t, 1, exit.ExitCode())
+					var diagnostic struct {
+						Kind     string              `json:"kind"`
+						Versions map[string]string   `json:"versions"`
+						Writers  []map[string]string `json:"writers"`
+					}
+					require.NoError(t, json.Unmarshal(stderr.Bytes(), &diagnostic), stderr.String())
+					require.Equal(t, "execution_infrastructure_error", diagnostic.Kind)
+					require.Equal(t, version, diagnostic.Versions["c2j"])
+					require.Equal(t, commit, diagnostic.Versions["c2j.commit"])
+					require.Equal(t, linkedJobDBVersion, diagnostic.Versions["jobdb"])
+					require.Len(t, diagnostic.Writers, 1)
+					require.Equal(t, "recorded-build", diagnostic.Writers[0]["c2j"])
+					require.NotContains(t, stderr.String(), "Error:")
+					require.Equal(t, 1, strings.Count(stderr.String(), "\n"))
+					after, e := rt.ListChapters(ctx, jobdb.ListChaptersRequest{JobKey: key})
+					require.NoError(t, e)
+					require.Equal(t, before, after)
+					info, e := rt.GetJob(ctx, key)
+					require.NoError(t, e)
+					require.NotEqual(t, jobdb.JobStatusCompleted, info.Status)
+					return
 				}
 				cli(t, run...)
 			}

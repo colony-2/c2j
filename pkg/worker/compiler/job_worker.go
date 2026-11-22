@@ -145,7 +145,7 @@ func (j recipeJobWorker) Run(ctx jobworkflow.ExecutionContext, jobData jobdb.Job
 	}
 	input, artifacts, err := decodeRecipeInput(data, artifacts)
 	if err != nil {
-		return nil, fmt.Errorf("decode recipe job input: %w", err)
+		return nil, jobdb.ClassifyExecutionInfrastructure(fmt.Errorf("decode recipe job input: %w", err), jobdb.ExecutionInfrastructureDurableDecode, "c2j.submission", &jobKey, nil)
 	}
 	recipes := newRetriever(artifacts)
 

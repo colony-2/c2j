@@ -65,7 +65,7 @@ func resolveWorkspaceTask(ctx context.Context, data jobdb.TaskData, owners ...jo
 	}
 	var req WorkspaceResolutionInput
 	if err = json.Unmarshal(raw, &req); err != nil {
-		return nil, err
+		return nil, jobdb.ClassifyExecutionInfrastructure(err, jobdb.ExecutionInfrastructureDurableDecode, "c2j.internal_task_input", nil, nil)
 	}
 	if permissions.FromContext(ctx) == nil {
 		return nil, fmt.Errorf("permission-scoped workspace requires executionruntime.WrapTaskWorker")
@@ -215,7 +215,7 @@ func enterWorkspace(ctx workflow.Context, parent *template.ResolutionContext, me
 			return nil, e
 		}
 		if result.Workspace.ScopeID != req.ScopeID || (result.Workspace.InitialHash == "" && result.Workspace.Initial != "empty") || result.Workspace.Initial != req.Initial || result.Git.BaseRepo == "" {
-			return nil, fmt.Errorf("invalid workspace resolution result")
+			return nil, jobdb.ClassifyExecutionInfrastructure(fmt.Errorf("invalid workspace resolution result"), jobdb.ExecutionInfrastructureDurableDecode, "c2j.workspace_resolution", nil, nil)
 		}
 	}
 	result.Git.GitAuthor = incoming.GitTask.GitAuthor

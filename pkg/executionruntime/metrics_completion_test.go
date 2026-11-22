@@ -236,12 +236,11 @@ func TestMetricsUncertainCompletionRecovery(t *testing.T) {
 					return h.Run(nil)
 				}
 				out, err := run(fault)
-				if partial {
-					require.ErrorContains(t, err, "injected lost metric completion")
-				} else {
-					require.NoError(t, err)
-					require.Equal(t, wf.JobRunCompleted, out.Status, "%v", out.JobError)
-				}
+				// A lost response is an invocation infrastructure failure even if
+				// the backend committed completion. Durable state, not a guessed
+				// success response, determines what a fresh runner can recover.
+				require.ErrorContains(t, err, "injected lost metric completion")
+				require.True(t, jobdb.IsExecutionInfrastructureError(err))
 				require.True(t, fault.fired.Load())
 				before, err := base.ListChapters(ctx, jobdb.ListChaptersRequest{JobKey: f.key})
 				require.NoError(t, err)

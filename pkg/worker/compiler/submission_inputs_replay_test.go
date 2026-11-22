@@ -37,6 +37,13 @@ func TestRecipeSubmissionInputsHistoricalReplayAndRestart(t *testing.T) {
 			var expected submissionInputsFixture
 			require.NoError(t, json.Unmarshal(raw, &expected))
 			ctx := celltest.Context(context.Background())
+			// Upgrade only the disposable legacy copy; normal opens stay strict.
+			plan, err := sqlite.CheckGoalMigration(ctx, path)
+			require.NoError(t, err)
+			require.Contains(t, []string{"CONVERTIBLE", "CONVERTIBLE_WITH_NOTICES"}, plan.Verdict)
+			migrated, err := sqlite.MigrateGoals(ctx, path)
+			require.NoError(t, err)
+			require.Equal(t, "MIGRATED", migrated.Verdict)
 			rt, err := sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: path, MaxInlineArtifactBytes: 10 << 20})
 			require.NoError(t, err)
 			defer rt.Close(ctx)

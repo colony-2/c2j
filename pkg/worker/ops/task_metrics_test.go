@@ -295,7 +295,8 @@ func TestTaskMetricsPreparationFailures(t *testing.T) {
 }
 
 // JobDB writes and queue waits dwarf the task but occur outside the admission
-// wrapper. Persist a real failed preparation result and compare its envelope.
+// wrapper. Compare a real failed preparation envelope without serializing an
+// infrastructure failure into a terminal task or job outcome.
 type metricAppendDelay struct {
 	jobdb.ConsumerRuntime
 	seconds *atomic.Int64
@@ -329,24 +330,41 @@ func TestAdmittedTaskMetricsExcludeQueueAndAppend(t *testing.T) {
 	payload := jobdb.NewArtifactFromBytes("broken.json", []byte(`{`))
 	delayed := admittedMetricInputWorker{TaskWorker: worker, seconds: &seconds, artifact: payload}
 	wrapped := metricsruntime.WrapWorker(rt.WrapTaskWorker(delayed), coretask.OutputKindActivityInvocationOutput)
-	handle, err := wf.GetJobForRun(ctx, rt, wf.GetJobForRunRequest{JobKey: job.JobKey, JobWorker: orchestration, TaskWorkers: []wf.TaskWorker{wrapped}, WorkerID: "fixture", LeaseDuration: time.Minute})
+	captured := &admittedMetricCapture{TaskWorker: wrapped}
+	handle, err := wf.GetJobForRun(ctx, rt, wf.GetJobForRunRequest{JobKey: job.JobKey, JobWorker: orchestration, TaskWorkers: []wf.TaskWorker{captured}, WorkerID: "fixture", LeaseDuration: time.Minute})
 	require.NoError(t, err)
 	outcome, err := handle.Run(nil)
-	require.NoError(t, err)
-	require.Equal(t, wf.JobRunFailed, outcome.Status)
+	require.True(t, jobdb.IsExecutionInfrastructureError(err), "%v", err)
+	require.NotEqual(t, wf.JobRunFailed, outcome.Status)
 	run, err := jobdb.GetJobRun(ctx, rt, jobdb.GetJobRunRequest{JobKey: job.JobKey, IncludeOutputs: true})
 	require.NoError(t, err)
 	tasks, err := swfutil.ExecutionTasks(run)
 	require.NoError(t, err)
-	require.Len(t, tasks, 1)
-	require.Len(t, tasks[0].Attempts, 1)
-	stored := tasks[0].Attempts[0].Output
-	require.NotNil(t, stored)
-	env := metricEnvelope(t, &jobdb.SimpleTaskData{Data: stored.Data})
+	require.Empty(t, tasks, "infrastructure failure must not persist a failed task attempt")
+	// A corrupt private input now aborts the invocation. Its admitted timing is
+	// still measurable locally, but must not become a durable failed task result.
+	info, readErr := rt.GetJob(ctx, job.JobKey)
+	require.NoError(t, readErr)
+	require.NotEqual(t, jobdb.JobStatusCompleted, info.Status)
+	env := metricEnvelope(t, captured.output)
 	require.Equal(t, "not_started", env.Metrics.Runtime.Phases["execution"])
 	metricSpan(t, env.Metrics.Runtime, "c2j_task_duration_seconds", map[string]string{"phase": "preparation", "outcome": "failed"}, 17)
 	require.Positive(t, source.writes.Load())
 	require.Greater(t, seconds.Load(), int64(2000))
+}
+
+type admittedMetricCapture struct {
+	wf.TaskWorker
+	output jobdb.TaskData
+}
+
+func (w *admittedMetricCapture) Run(tc wf.TaskContext, in jobdb.TaskData) (jobdb.TaskData, error) {
+	return w.RunTask(tc.Context(), tc, in)
+}
+func (w *admittedMetricCapture) RunTask(local context.Context, tc wf.TaskContext, in jobdb.TaskData) (jobdb.TaskData, error) {
+	out, err := coretask.RunLocal(w.TaskWorker, local, tc, in)
+	w.output = out
+	return out, err
 }
 
 type admittedMetricInputWorker struct {

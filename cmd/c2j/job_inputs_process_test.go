@@ -688,8 +688,20 @@ func TestInputHistoryCLIProcessRemoteOrigin(t *testing.T) {
 		db, e := sqliteruntime.NewFromConfig(ctx, sqliteruntime.Config{DBPath: filepath.Join(t.TempDir(), "legacy.db")})
 		require.NoError(t, e)
 		defer db.Close(ctx)
-		backend := &inputhistorytest.Policy{ConsumerRuntime: db}
-		transport := httptest.NewServer(celltest.Handler(remote.NewConsumerServer(originRuntime{Runtime: consumerfixture.New(db), policy: backend})))
+		// Freeze the pre-semantic-error wire response. Linking today's server
+		// would silently turn this legacy fixture into a typed-denial server.
+		var deniedPath atomic.Value
+		deniedPath.Store("")
+		var denials atomic.Int32
+		current := remote.NewConsumerServer(consumerfixture.New(db))
+		transport := httptest.NewServer(celltest.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Method == http.MethodGet && r.URL.Path == deniedPath.Load().(string) {
+				denials.Add(1)
+				http.Error(w, "lease permission denied", http.StatusInternalServerError)
+				return
+			}
+			current.ServeHTTP(w, r)
+		})))
 		defer transport.Close()
 		rt, e := remote.New(transport.URL, transport.Client())
 		require.NoError(t, e)
@@ -698,9 +710,11 @@ func TestInputHistoryCLIProcessRemoteOrigin(t *testing.T) {
 		helper := inputServer(t, ctx, rt, f)
 		out, diag, code := inputProcess(t, binary, helper.Env(), "list", "self", "--json")
 		require.Zero(t, code, string(diag))
-		backend.Deny(f.Job.JobId, true)
+		deniedPath.Store("/v1/tenants/" + f.Job.TenantId + "/jobs/" + f.Job.JobId)
 		out, diag, code = inputProcess(t, binary, helper.Env(), "list", "self", "--json")
 		inputError(t, out, diag, code, "storage")
+		require.Equal(t, int32(1), denials.Load(), "legacy denial must not retry")
+		require.NotContains(t, string(diag), "lease permission denied")
 	})
 }
 

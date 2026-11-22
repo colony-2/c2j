@@ -18,6 +18,9 @@ func TestSelectedSubmissionUsesTrustedLocalAdministrator(t *testing.T) {
 	require.NoError(t, err)
 	req.Job.JobID = "selected"
 	req.Job.GoalID = source.GoalID
+	_, err = rt.SubmitJob(ctx, req)
+	require.ErrorIs(t, err, jobdb.ErrGoalConflict)
+	require.NoError(t, rt.CancelJob(ctx, jobdb.CancelJobRequest{JobKey: source.JobKey}))
 	selected, err := rt.SubmitJob(ctx, req)
 	require.NoError(t, err)
 	require.Equal(t, source.GoalID, selected.GoalID)

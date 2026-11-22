@@ -153,10 +153,14 @@ func TestGroupingBackendRejectionsNeverFallBack(t *testing.T) {
 				wrapped := jobdbschema.WorkflowEngine{Engine: eng, Registry: f.eng.Registry}
 				_, err = starter.StartOrAppendRecipeJob(f.ctx, f.start, grouping.Spec{Present: true, Value: map[string]any{"key": "rejected", "content": map[string]any{}}}, wrapped, f.rec)
 				require.Error(t, err)
-				if transport == "sqlite" || errors.Is(failure, jobdb.ErrAppendBusy) {
+				if transport == "sqlite" || errors.Is(failure, jobdb.ErrAppendBusy) || errors.Is(failure, jobdb.ErrLeasePermissionDenied) || errors.Is(failure, jobdb.ErrChapterApplicationPayloadTooLarge) {
 					require.ErrorIs(t, err, failure)
+					require.False(t, jobdb.IsExecutionInfrastructureError(err), "known semantic rejections must keep their classification")
 				} else {
-					require.ErrorContains(t, err, failure.Error())
+					// Arbitrary backend messages have no safe wire contract. The
+					// client reports an uncertain runtime failure without exposing them.
+					require.True(t, jobdb.IsExecutionInfrastructureError(err))
+					require.NotContains(t, err.Error(), failure.Error())
 				}
 				require.Equal(t, 1, fault.appends)
 				require.Zero(t, fault.starts)

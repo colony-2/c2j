@@ -82,7 +82,7 @@ func TestVerifyHookSubmissionEnvironmentAndGate(t *testing.T) {
 	require.NoError(t, err)
 	state := r.RecipeImpl.(*recipe.RecipeState)
 	node := state.States.States["test_integration"].Node.NodeImpl.(*recipe.NodeOp)
-	require.Equal(t, "90m", node.Inputs["timeout"])
+	require.Equal(t, "120m", node.Inputs["timeout"])
 	for _, fixture := range []struct {
 		name            string
 		failGate        string
@@ -96,6 +96,7 @@ func TestVerifyHookSubmissionEnvironmentAndGate(t *testing.T) {
 		{name: "managed-regressions-gate", failGate: "^Test(JobInspectionExpiredLifetimeBeforeDispatch"},
 		{name: "extension-wait-gate", failGate: "^TestExtensionWait"},
 		{name: "git-cleanup-gate", failGate: "^TestChanges"},
+		{name: "native-hook-gate", failGate: "^TestVerifyHook"},
 		{name: "scenario-gate", failGate: "TestPnpmVerifyHook"},
 		{name: "catalog-gate", failGate: "TestExecutionBaseCatalog"},
 		{name: "submission-inputs-gate", failGate: "^TestRecipeSubmissionInputs"},
@@ -234,6 +235,7 @@ fi
 			// built executable and then the race checks. Keep all legacy gate
 			// ordering and stop-on-failure assertions below.
 			if fixture.name == "healthy" {
+				require.Contains(t, string(raw), "|WithLeaseCLIErrorOutput|VerifyHook)", "lease-error CLI regressions must run before the broad suite")
 				require.Contains(t, string(raw), "go test -mod=readonly -count=3 -v -tags=integration -timeout=5m ./pkg/childbroker ./pkg/worker/compiler ./pkg/executionruntime -run ^Test(JobInspectionExpiredLifetimeBeforeDispatch|MetricsHelperAuthenticationExactnessAndIncompleteHistory|ExtensionWaitManifestTimeout|InputHistoryHelperExpiredLifetimeBeforeDispatch|ExtensionWaitReadinessClockRecheck)$\n")
 			}
 			lines := strings.SplitN(string(raw), "\n", 4)
@@ -255,6 +257,7 @@ fi
 				"^Test(JobInspectionExpiredLifetimeBeforeDispatch",
 				"^TestExtensionWait",
 				"^TestChanges(J30J32GitDiagnosticIdentity|J32L07GitProcessGroupCleanup|J30L07RepositoryTransferCleanup|ProcessExitObservation)$",
+				"^TestVerifyHook",
 				"^TestPnpmVerifyHook$",
 				"^TestExecutionBaseCatalog",
 				"^TestRecipeSubmissionInputs",

@@ -375,6 +375,8 @@ outputs: {}
 	_, err = restartService.RestartRecipeJob(ctx, restartRequest)
 	require.Error(t, err, "existing selector validation remains authoritative")
 	restartRequest.ChapterOrdinal = nil
+	// Keep the source actionable while the independent restart remains queued.
+	restartRequest.Goal.Mode = "new"
 	restartResult, err := restartService.RestartRecipeJob(ctx, restartRequest)
 	require.NoError(t, err)
 	require.NotEqual(t, h.JobKey.JobId, restartResult.JobID)

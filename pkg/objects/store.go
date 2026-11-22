@@ -194,7 +194,7 @@ func (s *Store) Publish(ctx context.Context, objectType string, metadata any, fi
 	return r, nil
 }
 
-func (s *Store) Open(ctx context.Context, ref Ref, expectedType string) (*Snapshot, error) {
+func (s *Store) Open(ctx context.Context, ref Ref, expectedType string) (snapshot *Snapshot, resultErr error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -210,6 +210,8 @@ func (s *Store) Open(ctx context.Context, ref Ref, expectedType string) (*Snapsh
 	if s.config.GetArtifact == nil {
 		return nil, fmt.Errorf("object artifact resolver is unavailable")
 	}
+	key := jobdb.JobKey{TenantId: ref.TenantID, JobId: ref.Artifact.JobId}
+	defer func() { resultErr = jobdb.ClassifyRuntimeIO(resultErr, "c2j.checkpoint_read", &key, nil) }()
 	art, err := s.config.GetArtifact(ref.Artifact)
 	if err != nil {
 		return nil, err
@@ -249,10 +251,10 @@ func (s *Store) Open(ctx context.Context, ref Ref, expectedType string) (*Snapsh
 		return nil, err
 	}
 	if info.Size() != ref.Artifact.SizeBytes {
-		return nil, fmt.Errorf("object checkpoint size mismatch")
+		return nil, jobdb.ClassifyExecutionInfrastructure(fmt.Errorf("object checkpoint size mismatch"), jobdb.ExecutionInfrastructureDurableDecode, "c2j.checkpoint_decode", &key, nil)
 	}
 	if fmt.Sprintf("%x", hash.Sum(nil)) != ref.SHA256 {
-		return nil, fmt.Errorf("object checkpoint digest mismatch")
+		return nil, jobdb.ClassifyExecutionInfrastructure(fmt.Errorf("object checkpoint digest mismatch"), jobdb.ExecutionInfrastructureDurableDecode, "c2j.checkpoint_decode", &key, nil)
 	}
 	if _, err = f.Seek(0, 0); err != nil {
 		return nil, err
@@ -263,7 +265,7 @@ func (s *Store) Open(ctx context.Context, ref Ref, expectedType string) (*Snapsh
 		return nil, err
 	}
 	if first.Name != "manifest.json" || first.Typeflag != tar.TypeReg || first.Size > 1024*1024 {
-		return nil, fmt.Errorf("invalid object manifest")
+		return nil, jobdb.ClassifyExecutionInfrastructure(fmt.Errorf("invalid object manifest"), jobdb.ExecutionInfrastructureDurableDecode, "c2j.checkpoint_decode", &key, nil)
 	}
 	b, err := io.ReadAll(tr)
 	if err != nil {
@@ -273,10 +275,10 @@ func (s *Store) Open(ctx context.Context, ref Ref, expectedType string) (*Snapsh
 	d := json.NewDecoder(bytes.NewReader(b))
 	d.DisallowUnknownFields()
 	if err = d.Decode(&m); err != nil {
-		return nil, err
+		return nil, jobdb.ClassifyExecutionInfrastructure(err, jobdb.ExecutionInfrastructureDurableDecode, "c2j.checkpoint_decode", &key, nil)
 	}
 	if m.Format != Version || m.Type != ref.Type {
-		return nil, fmt.Errorf("object manifest type or version mismatch")
+		return nil, jobdb.ClassifyExecutionInfrastructure(fmt.Errorf("object manifest type or version mismatch"), jobdb.ExecutionInfrastructureDurableDecode, "c2j.checkpoint_decode", &key, nil)
 	}
 	seen := map[string]bool{}
 	for {
@@ -291,7 +293,7 @@ func (s *Store) Open(ctx context.Context, ref Ref, expectedType string) (*Snapsh
 			return nil, err
 		}
 		if !validPath(h.Name) || !strings.HasPrefix(h.Name, "files/") || seen[h.Name] {
-			return nil, fmt.Errorf("invalid or duplicate object entry %q", h.Name)
+			return nil, jobdb.ClassifyExecutionInfrastructure(fmt.Errorf("invalid or duplicate object entry %q", h.Name), jobdb.ExecutionInfrastructureDurableDecode, "c2j.checkpoint_decode", &key, nil)
 		}
 		seen[h.Name] = true
 		target := filepath.Join(dir, filepath.FromSlash(h.Name))

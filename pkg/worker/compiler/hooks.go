@@ -67,7 +67,7 @@ func initialHookBase(ctx workflow.Context, parent *template.ResolutionContext) (
 		return "", err
 	}
 	if !isFullGitHash(result.Workspace.InitialHash) {
-		return "", fmt.Errorf("invalid initial hook base")
+		return "", jobdb.ClassifyExecutionInfrastructure(fmt.Errorf("invalid initial hook base"), jobdb.ExecutionInfrastructureDurableDecode, "c2j.hook_base", nil, nil)
 	}
 	return result.Workspace.InitialHash, nil
 }
@@ -87,7 +87,7 @@ func (hookPolicyWorker) RunTask(ctx context.Context, tc jobworkflow.TaskContext,
 		return nil, err
 	}
 	if err = json.Unmarshal(raw, &req); err != nil {
-		return nil, err
+		return nil, jobdb.ClassifyExecutionInfrastructure(err, jobdb.ExecutionInfrastructureDurableDecode, "c2j.internal_task_input", nil, nil)
 	}
 	metricsruntime.Execution(ctx)
 	id, err := hookpolicy.Identity(req.Repository)
@@ -182,7 +182,7 @@ func (w hookResolveWorker) RunTask(ctx context.Context, tc jobworkflow.TaskConte
 		return nil, err
 	}
 	if err = json.Unmarshal(raw, &req); err != nil {
-		return nil, err
+		return nil, jobdb.ClassifyExecutionInfrastructure(err, jobdb.ExecutionInfrastructureDurableDecode, "c2j.internal_task_input", nil, nil)
 	}
 	id, err := hookpolicy.Identity(req.GitTaskContext.BaseRepo)
 	if err != nil || id != req.Input["repository"] {

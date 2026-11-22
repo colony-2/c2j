@@ -62,10 +62,11 @@ func RunWithLease(ctx context.Context, opts Options, leaseFile string) (runErr e
 	}
 	deps, cleanup, err := build(ctx, opts)
 	if err != nil {
-		return exitError{code: exitCodeFailure, err: err}
+		return reportExecutionFailure(ctx, opts, nil, exitError{code: exitCodeFailure, err: err})
 	}
 	defer cleanup()
 	health.attach(deps.executionRuntime)
+	defer func() { runErr = reportExecutionFailure(ctx, opts, deps.runtime, runErr) }()
 	if deps.importLease == nil {
 		return exitError{code: exitCodeFailure, err: jobdb.ErrLeaseRenewalUnsupported}
 	}

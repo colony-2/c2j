@@ -15,6 +15,10 @@ func Execute(info buildinfo.Info) (int, error) {
 	defer func() { slog.SetDefault(previous); log.SetOutput(writer); log.SetFlags(flags) }()
 	root := newRootCmd(info)
 	if err := root.Execute(); err != nil {
+		var reported interface{ DiagnosticPrinted() bool }
+		if errors.As(err, &reported) && reported.DiagnosticPrinted() {
+			return 1, nil
+		}
 		var printed *printedDiagnosticError
 		if errors.As(err, &printed) {
 			return 1, nil

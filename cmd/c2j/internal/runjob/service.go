@@ -59,10 +59,11 @@ func Run(ctx context.Context, opts Options) (runErr error) {
 	}
 	deps, cleanup, err := build(ctx, opts)
 	if err != nil {
-		return exitError{code: exitCodeFailure, err: err}
+		return reportExecutionFailure(ctx, opts, nil, exitError{code: exitCodeFailure, err: err})
 	}
 	defer cleanup()
 	health.attach(deps.executionRuntime)
+	defer func() { runErr = reportExecutionFailure(ctx, opts, deps.runtime, runErr) }()
 
 	jobKey := jobdb.JobKey{TenantId: opts.TenantID, JobId: opts.JobID}
 	renderer := newStoryProgressRenderer(opts.Stdout, "cached", !opts.CI && isTerminalWriter(opts.Stdout))
@@ -272,7 +273,9 @@ func replayCachedHistory(ctx context.Context, deps *runnerDeps, jobKey jobdb.Job
 		if errors.Is(err, jobdb.ErrJobNotFound) {
 			return fmt.Errorf("job %s/%s not found", jobKey.TenantId, jobKey.JobId)
 		}
-		fmt.Fprintf(stderr, "warning: unable to inspect prior run history: %v\n", err)
+		if !jobdb.IsExecutionInfrastructureError(err) {
+			fmt.Fprintf(stderr, "warning: unable to inspect prior run history: %v\n", err)
+		}
 		return nil
 	}
 	if len(run.Attempts) == 0 {
@@ -313,7 +316,9 @@ func replayCachedHistory(ctx context.Context, deps *runnerDeps, jobKey jobdb.Job
 	if _, ok := recipe.CompactErrorMessage(err); ok {
 		return nil
 	}
-	fmt.Fprintf(stderr, "warning: replay unavailable: %v\n", err)
+	if !jobdb.IsExecutionInfrastructureError(err) {
+		fmt.Fprintf(stderr, "warning: replay unavailable: %v\n", err)
+	}
 	return nil
 }
 

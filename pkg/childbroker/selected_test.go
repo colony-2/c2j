@@ -80,6 +80,12 @@ func TestSelectedBrokerRealDispatchAndReplay(t *testing.T) {
 	delete(canonicalHistorical, "title") // This field did not exist in historical request data.
 	historical.Input, err = json.Marshal(canonicalHistorical)
 	require.NoError(t, err)
+	// Admission must reject a new candidate while the source is active.
+	_, err = SubmitSelected(ctx, broker, historical)
+	require.ErrorIs(t, err, jobdb.ErrGoalConflict)
+	_, err = rt.GetJob(ctx, jobdb.JobKey{TenantId: "tenant", JobId: "historical"})
+	require.ErrorIs(t, err, jobdb.ErrJobNotFound)
+	require.NoError(t, rt.CancelJob(ctx, jobdb.CancelJobRequest{JobKey: source.JobKey}))
 	historicalRef, err := SubmitSelected(ctx, broker, historical)
 	require.NoError(t, err)
 	require.Equal(t, source.GoalID, historicalRef.GoalID)
@@ -98,6 +104,7 @@ func TestSelectedBrokerRealDispatchAndReplay(t *testing.T) {
 
 	_, err = rt.GetJob(ctx, jobdb.JobKey{TenantId: "tenant", JobId: "dest"})
 	require.ErrorIs(t, err, jobdb.ErrJobNotFound)
+	require.NoError(t, rt.CancelJob(ctx, jobdb.CancelJobRequest{JobKey: jobdb.JobKey{TenantId: historicalRef.TenantID, JobId: historicalRef.JobID}}))
 	ref, err := SubmitSelected(ctx, broker, d)
 	require.NoError(t, err)
 	require.Equal(t, source.GoalID, ref.GoalID)
@@ -241,6 +248,8 @@ func TestSelectedBrokerCLIProcess(t *testing.T) {
 	celltest.Create(t, rt, "0", "app", "example.test/app")
 	source, err := rt.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "0", JobID: "source", Cell: "app", CellRepo: "example.test/app", JobType: "work", Data: jobdb.NewTaskDataOrPanic(nil)}})
 	require.NoError(t, err)
+	// This operator-authorized fixture publishes a sequential successor.
+	require.NoError(t, rt.CancelJob(ctx, jobdb.CancelJobRequest{JobKey: source.JobKey}))
 	sdk, err := workflow.NewEngineBuilder().WithRuntime(rt).BuildEngine()
 	require.NoError(t, err)
 	engine := jobdbschema.WorkflowEngine{Engine: sdk, Registry: rt}

@@ -80,7 +80,7 @@ type executionControlError struct{ error }
 func (e *executionControlError) Unwrap() error { return e.error }
 func isExecutionControlError(err error) bool {
 	var control *executionControlError
-	return errors.As(err, &control)
+	return errors.As(err, &control) || jobdb.IsExecutionInfrastructureError(err)
 }
 
 // apply reconstructs a durable directive even when its task result was cached.

@@ -156,7 +156,7 @@ state:
         working_directory: "${{ context.environment.op.worktree_path }}"
         # Cold builds and serial gates precede the queued, two-package suite.
         # Allow that whole schedule to finish without weakening package deadlines.
-        timeout: 90m
+        timeout: 120m
         continue_on_error: true
         capture_diagnostics: always
         env:
@@ -257,6 +257,14 @@ state:
           JS
           # Verify bounded Git descendant cleanup and diagnostic identity before broad checks.
           go test -mod=readonly -race -count=1 -v -tags=integration -timeout=5m ./pkg/jobinspect -run '^TestChanges(J30J32GitDiagnosticIdentity|J32L07GitProcessGroupCleanup|J30L07RepositoryTransferCleanup|ProcessExitObservation)$'
+          # Expired inspection scopes must not enter storage while shutdown is pending.
+          go test -mod=readonly -count=10 -v -timeout=2m ./pkg/childbroker -run '^(TestJobInspectionCancelledAdmission|TestMetricsHelperAuthenticationExactnessAndIncompleteHistory|TestJobInspectionAuthentication)$'
+          # Process-group signals precede descendant exit; verify bounded cleanup observation.
+          go test -mod=readonly -count=3 -v -timeout=3m ./pkg/jobinspect -run '^TestChanges(J30L07RepositoryTransferCleanup|J32L07GitProcessGroupCleanup|J30J32GitDiagnosticIdentity|J32L08CancelArrivingArtifact)$'
+          # Real late-output functions must start before deadline/cancellation cleanup is exercised.
+          go test -mod=readonly -count=3 -v -timeout=5m ./pkg/worker/compiler -run '^TestLateIncludeOutputProcessLifetime$'
+          # Check native recovery and shell expectations against the same hook.
+          go test -mod=readonly -count=1 -v -timeout=2m ./pkg/worker/compiler -run '^TestVerifyHook'
           # Validate this hook's native scenario contract before expensive suites.
           go test -mod=readonly -count=1 -v -timeout=5m ./pkg/recipetest -run '^TestPnpmVerifyHook$'
           # Require named catalog checks, actual CLI process exits and no skipped acceptance.
@@ -296,9 +304,13 @@ state:
           JS
           unset C2J_TEST_EXECUTION_BASES_BINARY
           # Submission text must be recorded while only declared fields reach recipes.
+          # Upgrade disposable legacy submission copies before replay/restart.
+          go test -mod=readonly -count=3 -v -timeout=2m ./pkg/worker/compiler -run '^TestRecipeSubmissionInputsHistoricalReplayAndRestart$'
           go test -mod=readonly -count=1 -v -timeout=10m ./pkg/recipe ./pkg/worker/compiler ./pkg/recipejob ./pkg/recipetest ./pkg/childbroker ./pkg/starter ./cmd/c2j/internal/submitjob -run '^TestRecipeSubmissionInputs|^TestSelectedBrokerRealDispatchAndReplay$|^TestExplicitTitle(Selection|TransportAndDescriptor)$|^TestSubmissionPrompt|^Test(Title|LoadInputs)'
           # Fail early on compact failure formatting, persisted messages and real CLI output.
-          go test -count=1 -v -timeout=10m ./pkg/ops/executiondiag ./pkg/ops/process ./pkg/recipe ./pkg/worker/commandop ./pkg/ops/extensions ./pkg/worker/ops ./pkg/worker/compiler ./cmd/c2j -run 'Test(Compact|ExecutionFailurePresentation|Capture|ExecuteProcessMasksDynamicallyResolvedGitCredentials|CommandCompact|CommandFailure|CommandDiagnostic|ExtensionCompact|ExtensionAutomatic|ExtensionCancellation|ExtensionCollectionFailure|ExtensionResultFailureReasons|ExecutionRequired|PreparedCompletion|CommandDiagnosticsNestedCatchResumeAndReplay|ExtensionExecutionLogCatchAndReplay|TaskWorkerCompact|VerifyHook)'
+          # Keep named command outcomes visible across repeated success/continue cases.
+          go test -mod=readonly -count=25 -v -timeout=60s ./pkg/worker/commandop -run '^TestCommandDiagnosticsDoNotChangeSuccessOrContinue$'
+          go test -count=1 -v -timeout=10m ./pkg/ops/executiondiag ./pkg/ops/process ./pkg/recipe ./pkg/worker/commandop ./pkg/ops/extensions ./pkg/worker/ops ./pkg/worker/compiler ./cmd/c2j -run 'Test(Compact|ExecutionFailurePresentation|Capture|ExecuteProcessMasksDynamicallyResolvedGitCredentials|CommandCompact|CommandFailure|CommandDiagnostic|ExtensionCompact|ExtensionAutomatic|ExtensionCancellation|ExtensionCollectionFailure|ExtensionResultFailureReasons|ExecutionRequired|PreparedCompletion|CommandDiagnosticsNestedCatchResumeAndReplay|ExtensionExecutionLogCatchAndReplay|TaskWorkerCompact|WithLeaseCLIErrorOutput|VerifyHook)'
           # Exercise stamped run modes and lease diagnostics before the broad suite.
           go test -mod=readonly -count=1 -v -tags=integration -timeout=10m ./cmd/c2j -run '^Test(ReleaseBuildRecordsConsumerVersions|WithLeaseCLIErrorOutput)$'
           # Preserve tool output through submit --run and both child-recipe fixture engines.
@@ -309,6 +321,8 @@ state:
           go test -mod=readonly -count=1 -v -timeout=12m ./pkg/worker/compiler -run '^TestRealNixArtifactFiles$'
           # Exercise broker-only process routing before the broader integration suite.
           go test -mod=readonly -count=1 -v -timeout=10m ./pkg/childbroker -run '^TestBrokerOnlyCLI'
+          # Selected successors honor atomic goal admission and exact receipt replay.
+          go test -mod=readonly -count=1 -v -timeout=10m ./pkg/childbroker ./cmd/c2j/internal/submitjob ./pkg/recipejob -run '^(TestSelectedBroker|TestSelectedCLI|TestSelectedGoal)'
           # Imported scripts must enter the initial Git tree with their execute
           # bits intact, then run without permission repairs or new commits.
           go test -count=1 -v -timeout=5m ./pkg/recipetest ./cmd/c2j/internal/testjob -run '^Test(FixtureSource|NativeRuntimeFixtureSourceModes)'
@@ -419,6 +433,14 @@ state:
             "$scratch/c2j" test run --file "$fixture" --parallelism 1 --case-timeout "$case_timeout" --out-dir "$scratch/native-$suite"
             unset GIT_TEMPLATE_DIR
           done
+          # Fail early if an incompatible worker can destroy resumable jobs or
+          # lose bounded diagnostics. Use the same tests for acquired/supplied leases.
+          go test -count=1 -v -timeout=2m ./cmd/c2j/internal/runjob ./pkg/worker/compiler ./pkg/objects ./pkg/worker/ops -run '^(TestReplayWrongWorker|TestExecutionDiagnostic|TestInfrastructure|TestCheckpointInfrastructure|TestInvocationInfrastructure)'
+          # Keep cancelled grouped reads and definite append rejections distinct
+          # from infrastructure failures when adopting the JobDB preservation fix.
+          go test -count=1 -v -timeout=2m ./pkg/worker/compiler -run '^TestGrouping(SuccessorWaitsAndNoWriteLease|BackendRejectionsNeverFallBack|TransportFailureDoesNotResubmit)$'
+          # Retained-goal adoption, explicit legacy-copy migration and optional inbox reads.
+          go test -mod=readonly -count=1 -v -tags=integration -timeout=5m ./internal/consumerfixture ./internal/localruntime ./pkg/executionruntime ./pkg/input ./pkg/joblist ./pkg/story ./pkg/story/live ./pkg/story/internal/service ./pkg/worker/compiler -run '^(TestC05RetainedServerCapabilities|TestSelectedSubmissionUsesTrustedLocalAdministrator|TestDAGPersistedSubmissionRelationships|TestHistorySQLiteCompilerLineage|TestIncludeHiddenSQLiteHTTP|TestInbox|TestStoryServicePreservesReconstructionErrorCauses|TestStoryReplay|TestRestartContinuesGoalAndReconcilesAfterWinning|TestGoalBrokerRestartReceiptReplay|TestRestartPreFix|TestResumePreFix|TestRestartContextUnfinishedHistory|TestHistoricalGoalIdentityExecutionRestartAndReplay|TestHookAbsentLegacy)'
           # Bound concurrent fixture work; JSON streams progress from every package
           # immediately, retaining the active test if the command is interrupted.
           # The compiler's many serial cases can exhaust 20m in aggregate;

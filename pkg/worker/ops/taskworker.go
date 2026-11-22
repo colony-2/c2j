@@ -85,7 +85,7 @@ func (t *taskWorker) RunTask(local context.Context, ctx jobworkflow.TaskContext,
 		decode = jsonexact.Unmarshal
 	}
 	if err := decode(d, &air); err != nil {
-		return nil, err
+		return nil, jobdb.ClassifyExecutionInfrastructure(err, jobdb.ExecutionInfrastructureDurableDecode, "c2j.invocation_input", &ctx.JobKey, nil)
 	}
 	logger = logger.With("node_path", air.GitTaskContext.NodePath, "invoke_hash", air.GitTaskContext.InvokeHash)
 	inArt, err := input.GetArtifacts()

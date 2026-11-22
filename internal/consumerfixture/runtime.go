@@ -22,6 +22,7 @@ type Ports interface {
 	jobdb.JobSchemaRegistry
 	jobdb.JobDeletionRuntime
 	jobdb.PrimaryGoalSelectionCapability
+	jobdb.JobGoalCapability
 	StartOrAppendJobWithLeaseByID(context.Context, jobdb.JobKey, string, string, jobdb.StartOrAppendJobRequest) (jobdb.JobHandle, error)
 	RenewExecutionLeaseByID(context.Context, jobdb.JobKey, string, string, time.Duration) (jobdb.RenewableExecutionLease, error)
 	ValidateExecutionLeaseByID(context.Context, jobdb.JobKey, string, string) (jobdb.LeaseValidity, error)

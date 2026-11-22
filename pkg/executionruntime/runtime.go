@@ -47,6 +47,11 @@ func New(runtime jobdb.ConsumerRuntime, allocation execution.Allocation) *Runtim
 	return r
 }
 
+// ReadExecutionProvenance forwards the optional reader hidden by embedding.
+func (r *Runtime) ReadExecutionProvenance(ctx context.Context, req jobdb.ReadExecutionProvenanceRequest) (jobdb.ExecutionProvenance, error) {
+	return jobdb.ReadExecutionProvenance(ctx, r.ConsumerRuntime, req)
+}
+
 func (r *Runtime) ListLeaseEvents(ctx context.Context, req jobdb.ListLeaseEventsRequest) (jobdb.ListLeaseEventsResponse, error) {
 	return jobdb.ListLeaseEvents(ctx, r.ConsumerRuntime, req)
 }

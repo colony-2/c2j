@@ -21,7 +21,7 @@ func TestIncludeHiddenSQLiteHTTP(t *testing.T) {
 	rt, err := sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: dbPath})
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, rt.Close(ctx)) })
-	created := time.Now().UTC().Add(-time.Hour)
+	created := time.Now().UTC()
 	for _, row := range []struct{ tenant, id, repo string }{
 		{"tenant", "a", "app"}, {"tenant", "b", "app"}, {"tenant", "c", "app"},
 		{"tenant", "wrong-repo", "other"}, {"other", "wrong-tenant", "app"},
@@ -32,12 +32,12 @@ func TestIncludeHiddenSQLiteHTTP(t *testing.T) {
 		_, err = rt.SubmitJob(ctx, jobdb.SubmitJobRequest{RequestTime: created, Job: jobdb.SubmitJob{TenantId: row.tenant, JobID: row.id, JobType: "recipe", Metadata: meta, Data: jobdb.NewTaskDataOrPanic("input"), Cell: row.repo, CellRepo: "github.com/acme/" + row.repo}})
 		require.NoError(t, err)
 	}
-	// Normalize persisted fixture timestamps: SQLite submissions use wall-clock creation,
-	// not RequestTime. Equal timestamps exercise the cursor's ID tie-breaker.
+	// Retained creation timestamps are protected. Exercise the guard, then
+	// paginate using the actual wall-clock submission order.
 	db, err := sql.Open("sqlite", dbPath)
 	require.NoError(t, err)
 	_, err = db.ExecContext(ctx, "UPDATE jobdb_jobs SET created_at_ns = ?", created.UnixNano())
-	require.NoError(t, err)
+	require.ErrorContains(t, err, "immutable")
 	require.NoError(t, db.Close())
 	_, err = rt.DeleteJobs(ctx, jobdb.DeleteJobsRequest{TenantID: "tenant", JobIDs: []string{"b"}})
 	require.NoError(t, err)
@@ -95,7 +95,7 @@ func TestIncludeHiddenSQLiteHTTP(t *testing.T) {
 	require.Empty(t, traverse(q))
 	q.GoalIDs = nil
 	before := created.Add(-time.Second)
-	after := created.Add(time.Second)
+	after := time.Now().UTC().Add(time.Second)
 	q.CreatedAfter = &after
 	require.Empty(t, traverse(q))
 	q.CreatedAfter = &before

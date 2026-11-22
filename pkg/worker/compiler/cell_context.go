@@ -27,7 +27,7 @@ func (cellContextWorker) RunTask(local context.Context, tc jobworkflow.TaskConte
 	metricsruntime.Execution(local)
 	h := tc.Job()
 	if h.Cell == "" || h.CellID == "" || h.CellRepo == "" {
-		return nil, fmt.Errorf("job is missing stored cell ownership")
+		return nil, jobdb.ClassifyExecutionInfrastructure(fmt.Errorf("job is missing stored cell ownership"), jobdb.ExecutionInfrastructureDurableDecode, "c2j.cell_context", &h.JobKey, nil)
 	}
 	return jobdb.NewTaskData(jobdb.ResolvedCell{Cell: h.Cell, CellID: h.CellID, CellRepo: h.CellRepo})
 }
@@ -45,12 +45,12 @@ func recordedCell(ctx jobworkflow.ExecutionContext) (jobdb.ResolvedCell, error) 
 		return cell, err
 	}
 	if cell.Cell == "" || cell.CellID == "" || cell.CellRepo == "" {
-		return cell, fmt.Errorf("job is missing recorded cell ownership")
+		return cell, jobdb.ClassifyExecutionInfrastructure(fmt.Errorf("job is missing recorded cell ownership"), jobdb.ExecutionInfrastructureDurableDecode, "c2j.cell_context", nil, nil)
 	}
 	// Names may change, but stable ownership and the job's repo snapshot cannot.
 	owner := ctx.Job()
 	if cell.CellID != owner.CellID || cell.CellRepo != owner.CellRepo {
-		return cell, fmt.Errorf("recorded cell ownership differs from the job")
+		return cell, jobdb.ClassifyExecutionInfrastructure(fmt.Errorf("recorded cell ownership differs from the job"), jobdb.ExecutionInfrastructureDurableDecode, "c2j.cell_context", nil, nil)
 	}
 	return cell, nil
 }

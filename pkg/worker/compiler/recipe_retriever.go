@@ -61,7 +61,7 @@ func (r *recipeRetriever) GetRecipe(name string) (recipe.Recipe, error) {
 
 	yamlBytes, err := art.Bytes(ctx)
 	if err != nil {
-		return recipe.Recipe{}, fmt.Errorf("failed to read artifact bytes for %s: %w", name, err)
+		return recipe.Recipe{}, jobdb.ClassifyRuntimeIO(fmt.Errorf("failed to read artifact bytes for %s: %w", name, err), "c2j.recipe_artifact", nil, nil)
 	}
 
 	// Deserialize the recipe. Embedded artifacts may be in authored YAML form or in
@@ -88,7 +88,7 @@ func (r *recipeRetriever) GetRecipeYAML(name string) ([]byte, error) {
 
 	yamlBytes, err := art.Bytes(context.Background())
 	if err != nil {
-		return nil, fmt.Errorf("failed to read artifact bytes for %s: %w", name, err)
+		return nil, jobdb.ClassifyRuntimeIO(fmt.Errorf("failed to read artifact bytes for %s: %w", name, err), "c2j.recipe_artifact", nil, nil)
 	}
 	return yamlBytes, nil
 }

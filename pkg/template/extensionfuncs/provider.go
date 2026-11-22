@@ -16,6 +16,7 @@ import (
 	extops "github.com/colony-2/c2j/pkg/ops/extensions"
 	"github.com/colony-2/c2j/pkg/recipe"
 	"github.com/colony-2/c2j/pkg/template/funcregistry"
+	"github.com/colony-2/jobdb/pkg/jobdb"
 	"github.com/google/cel-go/cel"
 	celtypes "github.com/google/cel-go/common/types"
 	"github.com/google/cel-go/common/types/ref"
@@ -125,7 +126,7 @@ type importedFunction struct {
 func loadPackage(ctx context.Context, selector string, opts BuildOptions) (*loadedPackage, error) {
 	resolved, err := capturedPackage(ctx, selector, opts.CapturedPackages)
 	if err != nil {
-		return nil, err
+		return nil, jobdb.ClassifyRuntimeIO(err, "c2j.cel_capture", nil, nil)
 	}
 	if resolved == nil {
 		resolved, err = extops.ResolvePath(ctx, selector, extops.ResolveOptions{

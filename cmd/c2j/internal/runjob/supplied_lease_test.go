@@ -41,6 +41,7 @@ type suppliedCLI struct {
 	nonHeartbeatRequests   atomic.Int32
 	denyClaims             atomic.Bool
 	failRenewAfter         atomic.Int32
+	failHistory            atomic.Bool
 }
 
 func newSuppliedCLI(t *testing.T, yaml string, duration time.Duration, providers ...jobdb.SecretProvider) *suppliedCLI {
@@ -63,6 +64,10 @@ func newSuppliedCLI(t *testing.T, yaml string, duration time.Duration, providers
 		if f.denyClaims.Load() && (r.URL.Path == "/v1/jobs/poll" || strings.HasSuffix(r.URL.Path, "/lease")) {
 			f.acquisitions.Add(1)
 			http.Error(w, "claim forbidden", http.StatusForbidden)
+			return
+		}
+		if f.failHistory.Load() && r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/chapters") {
+			http.Error(w, "secret history backend response", http.StatusServiceUnavailable)
 			return
 		}
 		if strings.HasSuffix(r.URL.Path, "/keepalive") {

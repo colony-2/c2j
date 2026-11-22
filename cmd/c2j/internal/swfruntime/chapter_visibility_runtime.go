@@ -47,6 +47,12 @@ func (r *chapterVisibilityRuntime) DeleteJobs(ctx context.Context, req jobdb.Del
 	return admin.DeleteJobs(ctx, req)
 }
 
+// ReadExecutionProvenance forwards bounded, authorized diagnostic reads without
+// falling back to normal chapter decoding or the visibility polling path.
+func (r *chapterVisibilityRuntime) ReadExecutionProvenance(ctx context.Context, req jobdb.ReadExecutionProvenanceRequest) (jobdb.ExecutionProvenance, error) {
+	return jobdb.ReadExecutionProvenance(ctx, r.ConsumerRuntime, req)
+}
+
 func (r *chapterVisibilityRuntime) ListLeaseEvents(ctx context.Context, req jobdb.ListLeaseEventsRequest) (jobdb.ListLeaseEventsResponse, error) {
 	return jobdb.ListLeaseEvents(ctx, r.ConsumerRuntime, req)
 }

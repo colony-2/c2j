@@ -82,6 +82,7 @@ func TestSelectedGoalFreshRecipeAndDescriptor(t *testing.T) {
 	req := recipejob.BuildStartJobRequest{TenantID: "tenant", JobID: "source", Target: recipejob.ResolvedTarget{CellName: "work", CellRepo: "example.test/work", RepositorySource: "https://example.test/work.git", DefaultRef: "main"}, Recipe: "build", Inputs: map[string]any{"prompt": "source"}}
 	source, err := recipejob.SubmitRecipeJob(ctx, req, engine)
 	require.NoError(t, err)
+	require.NoError(t, rt.CancelJob(ctx, jobdb.CancelJobRequest{JobKey: source.Key()}))
 	req.JobID = "fresh"
 	req.GoalID = source.GoalID
 	req.Inputs = map[string]any{"prompt": "new instructions", "resume_from": map[string]any{"job": "source", "opaque": "exact"}}
@@ -151,6 +152,16 @@ func TestSelectedGoalRejectionsHaveNoPublicSideEffects(t *testing.T) {
 			require.NoError(t, err)
 			job, err := starter.PrepareRecipeJob(ctx, workflowctl.StartJob{TenantId: "tenant", JobID: "accepted", GoalID: source.GoalID, Cell: "work", CellRepo: "example.test/work", RecipeName: "build"}, starter.StartRecipeJobOptions{})
 			require.NoError(t, err)
+			before, err := rt.ListGoals(ctx, jobdb.ListGoalsRequest{TenantId: "tenant"})
+			require.NoError(t, err)
+			_, err = engine.SubmitJobRef(ctx, job)
+			require.ErrorIs(t, err, jobdb.ErrGoalConflict)
+			_, err = rt.GetJob(ctx, jobdb.JobKey{TenantId: "tenant", JobId: "accepted"})
+			require.ErrorIs(t, err, jobdb.ErrJobNotFound)
+			after, err := rt.ListGoals(ctx, jobdb.ListGoalsRequest{TenantId: "tenant"})
+			require.NoError(t, err)
+			require.Equal(t, before, after, "rejected admission must not change goals")
+			require.NoError(t, rt.CancelJob(ctx, jobdb.CancelJobRequest{JobKey: source.JobKey}))
 			_, err = engine.SubmitJobRef(ctx, job)
 			require.NoError(t, err)
 			// A fresh-submit receipt cannot be reused as a Restart operation.

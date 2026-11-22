@@ -41,11 +41,11 @@ func (in *ActivityInvocationRequest) RestoreInput(ctx context.Context, artifacts
 		}
 		raw, err := artifact.Bytes(ctx)
 		if err != nil {
-			return nil, err
+			return nil, jobdb.ClassifyRuntimeIO(err, "c2j.invocation_artifact", nil, nil)
 		}
 		var payload ActivityInvocationRequest
 		if err := json.Unmarshal(raw, &payload); err != nil {
-			return nil, fmt.Errorf("invalid invocation input artifact: %w", err)
+			return nil, jobdb.ClassifyExecutionInfrastructure(fmt.Errorf("invalid invocation input artifact: %w", err), jobdb.ExecutionInfrastructureDurableDecode, "c2j.invocation_artifact", nil, nil)
 		}
 		if payload.Preparation.Extension != nil {
 			if err := jsonexact.Unmarshal(raw, &payload); err != nil {
@@ -56,5 +56,5 @@ func (in *ActivityInvocationRequest) RestoreInput(ctx context.Context, artifacts
 		in.InputArtifact = ""
 		return append(artifacts[:i:i], artifacts[i+1:]...), nil
 	}
-	return nil, fmt.Errorf("missing invocation input artifact %q", in.InputArtifact)
+	return nil, jobdb.ClassifyExecutionInfrastructure(fmt.Errorf("missing invocation input artifact %q", in.InputArtifact), jobdb.ExecutionInfrastructureDurableDecode, "c2j.invocation_artifact", nil, nil)
 }

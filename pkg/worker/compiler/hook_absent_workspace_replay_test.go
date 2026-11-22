@@ -133,6 +133,13 @@ func TestHookAbsentLegacyWorkspaceReplay(t *testing.T) {
 				Output map[string]any
 			}
 			require.NoError(t, json.Unmarshal(raw, &expected))
+			// Explicitly upgrade the disposable legacy copy before opening it.
+			plan, err := sqlite.CheckGoalMigration(testBackground(), path)
+			require.NoError(t, err)
+			require.Contains(t, []string{"CONVERTIBLE", "CONVERTIBLE_WITH_NOTICES"}, plan.Verdict)
+			migrated, err := sqlite.MigrateGoals(testBackground(), path)
+			require.NoError(t, err)
+			require.Equal(t, "MIGRATED", migrated.Verdict)
 			rt, err := sqlite.NewFromConfig(testBackground(), sqlite.Config{DBPath: path, MaxInlineArtifactBytes: 10 << 20})
 			require.NoError(t, err)
 			defer rt.Close(testBackground())

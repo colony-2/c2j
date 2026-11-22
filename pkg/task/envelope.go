@@ -6,6 +6,7 @@ import (
 
 	"github.com/colony-2/c2j/internal/jsonexact"
 	"github.com/colony-2/c2j/pkg/metrics"
+	"github.com/colony-2/jobdb/pkg/jobdb"
 )
 
 // OutputEnvelope is a versioned wrapper for persisted task outputs.
@@ -58,7 +59,10 @@ func (e OutputEnvelope) DecodePayload(dst any) error {
 
 // UnwrapInternal is only for known internal-worker result readers. Legacy raw
 // results remain valid. It must not be applied to arbitrary business objects.
-func UnwrapInternal(raw []byte) ([]byte, error) {
+func UnwrapInternal(raw []byte) (payload []byte, resultErr error) {
+	defer func() {
+		resultErr = jobdb.ClassifyExecutionInfrastructure(resultErr, jobdb.ExecutionInfrastructureDurableDecode, "c2j.internal_result", nil, nil)
+	}()
 	var env OutputEnvelope
 	if err := json.Unmarshal(raw, &env); err != nil {
 		return nil, err
@@ -79,5 +83,5 @@ func DecodeInternal(raw []byte, dst any) error {
 	if e != nil {
 		return e
 	}
-	return jsonexact.Unmarshal(payload, dst)
+	return jobdb.ClassifyExecutionInfrastructure(jsonexact.Unmarshal(payload, dst), jobdb.ExecutionInfrastructureDurableDecode, "c2j.internal_result", nil, nil)
 }

@@ -39,6 +39,8 @@ func TestSelectedCLILostResponseRetainsExactRequest(t *testing.T) {
 	celltest.Create(t, rt, "selected", "app", celltest.Repo(root))
 	source, err := rt.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "selected", JobID: "source", Cell: "app", CellRepo: celltest.Repo(root), JobType: "work", Data: jobdb.NewTaskDataOrPanic(nil)}})
 	require.NoError(t, err)
+	// Selected publication replaces a terminal candidate.
+	require.NoError(t, rt.CancelJob(ctx, jobdb.CancelJobRequest{JobKey: source.JobKey}))
 	recipeFile := filepath.Join(t.TempDir(), "recipe.yaml")
 	require.NoError(t, os.WriteFile(recipeFile, []byte(workspaceSubmitRecipe), 0600))
 	requestFile := filepath.Join(t.TempDir(), "request.json")
@@ -146,6 +148,8 @@ func TestSelectedCLIWorkspaceRoutes(t *testing.T) {
 			celltest.Create(t, rt, "0", "active", celltest.Repo(root))
 			source, err := rt.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "0", JobID: "source", Cell: "active", CellRepo: celltest.Repo(root), JobType: "work", Data: jobdb.NewTaskDataOrPanic(nil)}})
 			require.NoError(t, err)
+			// Selected publication replaces a terminal candidate.
+			require.NoError(t, rt.CancelJob(ctx, jobdb.CancelJobRequest{JobKey: source.JobKey}))
 			recipePath := filepath.Join(t.TempDir(), "recipe.yaml")
 			require.NoError(t, os.WriteFile(recipePath, []byte(workspaceSubmitRecipe), 0600))
 			require.NoError(t, os.WriteFile(filepath.Join(root, "value.txt"), []byte("during task"), 0600))

@@ -134,11 +134,11 @@ func (lateSelectWorker) RunTask(ctx context.Context, tc jobworkflow.TaskContext,
 		return nil, err
 	}
 	if err = json.Unmarshal(raw, &s); err != nil {
-		return nil, err
+		return nil, jobdb.ClassifyExecutionInfrastructure(err, jobdb.ExecutionInfrastructureDurableDecode, "c2j.internal_task_input", nil, nil)
 	}
 	metricsruntime.Execution(ctx)
 	if err = validateLateSelection(s); err != nil {
-		return nil, err
+		return nil, jobdb.ClassifyExecutionInfrastructure(err, jobdb.ExecutionInfrastructureDurableDecode, "c2j.late_selection", nil, nil)
 	}
 	return jobdb.NewTaskData(s)
 }
@@ -177,10 +177,10 @@ func (w lateCaptureWorker) RunTask(ctx context.Context, tc jobworkflow.TaskConte
 		return nil, err
 	}
 	if err = json.Unmarshal(raw, &req); err != nil {
-		return nil, err
+		return nil, jobdb.ClassifyExecutionInfrastructure(err, jobdb.ExecutionInfrastructureDurableDecode, "c2j.internal_task_input", nil, nil)
 	}
 	if err = validateLateSelection(req.Selection); err != nil {
-		return nil, err
+		return nil, jobdb.ClassifyExecutionInfrastructure(err, jobdb.ExecutionInfrastructureDurableDecode, "c2j.late_selection", nil, nil)
 	}
 	if req.Permissions == nil {
 		return nil, fmt.Errorf("late capture requires caller authority")
@@ -279,10 +279,10 @@ func prepareLateInclude(ctx workflow.Context, parent *template.ResolutionContext
 		return recipe.Node{}, err
 	}
 	if err = validateLateSelection(selection); err != nil {
-		return recipe.Node{}, err
+		return recipe.Node{}, jobdb.ClassifyExecutionInfrastructure(err, jobdb.ExecutionInfrastructureDurableDecode, "c2j.late_selection", nil, nil)
 	}
 	if selection.Invocation != invocation || n.Internal == nil || n.Internal.Late == nil || !reflect.DeepEqual(selection.Declaration, *n.Internal.Late) {
-		return recipe.Node{}, fmt.Errorf("recorded late selection disagrees with declaring callsite")
+		return recipe.Node{}, jobdb.ClassifyExecutionInfrastructure(fmt.Errorf("recorded late selection disagrees with declaring callsite"), jobdb.ExecutionInfrastructureDurableDecode, "c2j.late_selection", nil, nil)
 	}
 	// Live authority/profile are only needed for unfinished capture work.
 	captured, err := ctx.JobContext.DoTask(jobworkflow.TaskCall{Site: "late:" + invocation + ":capture", TaskType: lateCaptureTaskType, ContractVersion: 1, Command: raw}, func(build context.Context) (jobdb.TaskData, error) {
@@ -307,7 +307,7 @@ func prepareLateInclude(ctx workflow.Context, parent *template.ResolutionContext
 		return recipe.Node{}, err
 	}
 	if !reflect.DeepEqual(result.Selection, selection) || result.RecipeYAMLArtifact != ResolvedRecipeYAMLArtifactName {
-		return recipe.Node{}, fmt.Errorf("late capture disagrees with accepted selection")
+		return recipe.Node{}, jobdb.ClassifyExecutionInfrastructure(fmt.Errorf("late capture disagrees with accepted selection"), jobdb.ExecutionInfrastructureDurableDecode, "c2j.late_capture", nil, nil)
 	}
 	artifact, err := findResolvedRecipeYAMLArtifact(captured, result.RecipeYAMLArtifact)
 	if err != nil {
@@ -318,14 +318,14 @@ func prepareLateInclude(ctx workflow.Context, parent *template.ResolutionContext
 		return recipe.Node{}, err
 	}
 	if sha256Hex(bytes) != result.ContentSHA256 {
-		return recipe.Node{}, fmt.Errorf("late definition artifact digest mismatch")
+		return recipe.Node{}, jobdb.ClassifyExecutionInfrastructure(fmt.Errorf("late definition artifact digest mismatch"), jobdb.ExecutionInfrastructureDurableDecode, "c2j.late_capture", nil, nil)
 	}
 	rec, err := recipe.LoadInternalRecipeFromString(bytes)
 	if err != nil {
-		return recipe.Node{}, fmt.Errorf("invalid captured late definition: %w", err)
+		return recipe.Node{}, jobdb.ClassifyExecutionInfrastructure(fmt.Errorf("invalid captured late definition: %w", err), jobdb.ExecutionInfrastructureDurableDecode, "c2j.late_capture", nil, nil)
 	}
 	if m := rec.GetMetadata().Internal; m == nil || m.RootRepository == nil || *m.RootRepository != selection.Declaration.RootRepository || m.DefinitionSource == nil || !reflect.DeepEqual(*m.DefinitionSource, recipeSourceSnapshot(selection.resolution())) {
-		return recipe.Node{}, fmt.Errorf("captured late definition has inconsistent original root")
+		return recipe.Node{}, jobdb.ClassifyExecutionInfrastructure(fmt.Errorf("captured late definition has inconsistent original root"), jobdb.ExecutionInfrastructureDurableDecode, "c2j.late_capture", nil, nil)
 	}
 	loaded := loadedInlineRecipe{Recipe: *rec, Raw: bytes, Snapshot: recipeSourceSnapshot(selection.resolution()), TrustedSource: selection.TrustedSource, PermissionBoundary: selection.PermissionBoundary}
 	wrapper, err := inlineWrapperNode(n, *rec, loaded, n.Internal.Late.CallsitePath, "")
@@ -347,17 +347,17 @@ func prepareLateInclude(ctx workflow.Context, parent *template.ResolutionContext
 	seq.Internal.HookSourceRef = selection.Commit
 	if len(rec.GetMetadata().Extensions.Functions) > 0 {
 		if len(rec.GetMetadata().Internal.FunctionPackages) == 0 {
-			return recipe.Node{}, fmt.Errorf("captured late CEL packages are missing")
+			return recipe.Node{}, jobdb.ClassifyExecutionInfrastructure(fmt.Errorf("captured late CEL packages are missing"), jobdb.ExecutionInfrastructureDurableDecode, "c2j.late_capture", nil, nil)
 		}
 		for _, imp := range rec.GetMetadata().Extensions.Functions {
 			resolved := result.Functions.ResolvedSelectors[imp.Selector]
 			key, ok, err := selectorRepoRefKey(imp.Selector, selection.Repository, selection.Commit)
 			if err != nil || !ok || resolved != imp.Selector || !isFullGitHash(result.Functions.ResolvedGitRefs[key]) {
-				return recipe.Node{}, fmt.Errorf("captured late CEL resolution metadata is missing or inconsistent")
+				return recipe.Node{}, jobdb.ClassifyExecutionInfrastructure(fmt.Errorf("captured late CEL resolution metadata is missing or inconsistent"), jobdb.ExecutionInfrastructureDurableDecode, "c2j.late_capture", nil, nil)
 			}
 			for _, pkg := range rec.GetMetadata().Internal.FunctionPackages {
 				if pkg.Selector == imp.Selector && (pkg.ResolvedSelector != resolved || pkg.ResolvedCommit != result.Functions.ResolvedGitRefs[key]) {
-					return recipe.Node{}, fmt.Errorf("captured late CEL package disagrees with resolution metadata")
+					return recipe.Node{}, jobdb.ClassifyExecutionInfrastructure(fmt.Errorf("captured late CEL package disagrees with resolution metadata"), jobdb.ExecutionInfrastructureDurableDecode, "c2j.late_capture", nil, nil)
 				}
 			}
 		}

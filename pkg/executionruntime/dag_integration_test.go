@@ -90,7 +90,11 @@ func TestDAGPersistedSubmissionRelationships(t *testing.T) {
 			submit(nil, "selected", "foreign", "c2j", "recipe", nil)
 			submit(nil, "metadata-pretender", "tenant", "c2j", "recipe", json.RawMessage(`{"parent_job_id":"selected"}`))
 			_, err = rt.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "tenant", JobID: "same-goal", GoalID: selected.GoalID, Cell: "c2j", CellRepo: "example.test/c2j", JobType: "recipe", Data: jobdb.NewTaskDataOrPanic(nil)}})
-			require.NoError(t, err)
+			// Membership alone cannot manufacture a submission edge; an active
+			// candidate also prevents another candidate joining its goal.
+			require.ErrorIs(t, err, jobdb.ErrGoalConflict)
+			_, err = rt.GetJob(ctx, jobdb.JobKey{TenantId: "tenant", JobId: "same-goal"})
+			require.ErrorIs(t, err, jobdb.ErrJobNotFound)
 			_, err = rt.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "tenant", JobID: "wait-linked", Cell: "c2j", CellRepo: "example.test/c2j", JobType: "recipe", Prerequisites: []jobdb.JobPrerequisite{{JobID: selected.JobKey.JobId, Condition: jobdb.JobPrereqComplete}}, Data: jobdb.NewTaskDataOrPanic(nil)}})
 			require.NoError(t, err)
 			owner := rt.leases[selected.JobKey]

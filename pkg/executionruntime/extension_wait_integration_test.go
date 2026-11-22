@@ -690,10 +690,17 @@ func TestExtensionWaitSuppliedLeaseGate(t *testing.T) {
 			require.NoError(t, e)
 			require.Equal(t, wf.JobRunSuspended, out.Status)
 			require.EqualValues(t, 1, f.task.runs.Load())
-			waitReady(t, f.gate(t))
-			out, e = f.run(t)
+			// A run drives one activation, so also exercise ordinary claims while
+			// the time gate is still pending. Stop immediately on errors or a
+			// terminal outcome, then require exactly one resumed task execution.
+			require.Eventually(t, func() bool {
+				out, e = f.run(t)
+				return e != nil || (out.Status != wf.JobRunSuspended && out.Status != wf.JobRunNotLeaseable)
+			}, 5*time.Second, 25*time.Millisecond)
 			require.NoError(t, e)
-			require.Equal(t, wf.JobRunCompleted, out.Status, "%v", out.JobError)
+			require.Equal(t, wf.JobRunCompleted, out.Status, "%+v", out)
+			require.EqualValues(t, 2, f.task.runs.Load())
+			require.Equal(t, f.task.identities[0], f.task.identities[1])
 		})
 	}
 }

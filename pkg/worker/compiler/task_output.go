@@ -8,6 +8,7 @@ import (
 	"github.com/colony-2/c2j/internal/jsonexact"
 	coretask "github.com/colony-2/c2j/pkg/task"
 	workerops "github.com/colony-2/c2j/pkg/worker/ops"
+	"github.com/colony-2/jobdb/pkg/jobdb"
 )
 
 type decodedTaskOutput struct {
@@ -18,11 +19,11 @@ type decodedTaskOutput struct {
 func decodeTaskOutput(outputData []byte) (decodedTaskOutput, error) {
 	var env coretask.OutputEnvelope
 	if err := decodeJSONStrict(outputData, &env); err != nil {
-		return decodedTaskOutput{}, fmt.Errorf("decode task output envelope: %w", err)
+		return decodedTaskOutput{}, jobdb.ClassifyExecutionInfrastructure(fmt.Errorf("decode task output envelope: %w", err), jobdb.ExecutionInfrastructureDurableDecode, "c2j.activity_result", nil, nil)
 	}
 
 	if env.Version != 1 && env.Version != coretask.OutputEnvelopeVersion {
-		return decodedTaskOutput{}, fmt.Errorf("unsupported task output envelope version: %d", env.Version)
+		return decodedTaskOutput{}, jobdb.ClassifyExecutionInfrastructure(fmt.Errorf("unsupported task output envelope version: %d", env.Version), jobdb.ExecutionInfrastructureDurableDecode, "c2j.activity_result", nil, nil)
 	}
 
 	switch env.Kind {
@@ -33,7 +34,7 @@ func decodeTaskOutput(outputData []byte) (decodedTaskOutput, error) {
 		}
 		return decodedTaskOutput{Kind: env.Kind, Activity: act}, nil
 	default:
-		return decodedTaskOutput{}, fmt.Errorf("unsupported task output kind: %q", env.Kind)
+		return decodedTaskOutput{}, jobdb.ClassifyExecutionInfrastructure(fmt.Errorf("unsupported task output kind: %q", env.Kind), jobdb.ExecutionInfrastructureDurableDecode, "c2j.activity_result", nil, nil)
 	}
 }
 
@@ -47,7 +48,7 @@ func decodeActivityInvocationOutput(payload []byte) (workerops.ActivityInvocatio
 	// Allow the "raw" variant (used by manual completions) as long as the output is an object.
 	var raw workerops.ActivityInvocationOutputRaw
 	if err := decodeJSONStrict(payload, &raw); err != nil {
-		return workerops.ActivityInvocationOutput{}, fmt.Errorf("decode activity output payload: %w", err)
+		return workerops.ActivityInvocationOutput{}, jobdb.ClassifyExecutionInfrastructure(fmt.Errorf("decode activity output payload: %w", err), jobdb.ExecutionInfrastructureDurableDecode, "c2j.activity_result", nil, nil)
 	}
 	coerced := map[string]interface{}{}
 	if raw.Output != nil {

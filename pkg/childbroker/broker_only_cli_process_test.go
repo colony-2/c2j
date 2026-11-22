@@ -121,6 +121,10 @@ func brokerOnlyFixtureWithAuthority(t *testing.T, binary string, privileged bool
 	require.NoError(t, err)
 	f.source = src
 	f.privileged = privileged
+	if privileged {
+		// A selected successor requires the prior candidate to be terminal.
+		require.NoError(t, f.rt.CancelJob(ctx, jobdb.CancelJobRequest{JobKey: src.Key()}))
+	}
 	f.current = jobcontext.Current{TenantID: brokerOnlyTenant, JobID: "source", GoalID: src.GoalID, CellID: src.CellID, CellRepo: src.CellRepo, JobType: starter.RecipeJobType, OpType: "command_execution", OpStep: "submit", OpTaskType: "activity:command_execution", CellName: "app", RepositorySource: celltest.Repo(f.root), GitRef: "main", InvocationPath: "sequence.submit", InvocationSequence: 7, InvocationHash: "invocation"}
 	profile, err := gitprofile.NewScope(ctx, gitprofile.Selection{Explicit: true}, jobdb.ConfigurationSnapshot{}, nil, binary)
 	require.NoError(t, err)

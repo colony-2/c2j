@@ -13,7 +13,6 @@ import (
 	"github.com/colony-2/c2j/pkg/jobdbschema"
 	"github.com/colony-2/c2j/pkg/jobinspect"
 	"github.com/colony-2/c2j/pkg/joblist"
-	"github.com/colony-2/c2j/pkg/jobref"
 	"github.com/colony-2/c2j/pkg/starter"
 	"github.com/colony-2/c2j/pkg/workflowctl"
 	"github.com/colony-2/jobdb/pkg/jobdb"
@@ -26,16 +25,18 @@ import (
 func TestHistoricalGoalIdentityExecutionRestartAndReplay(t *testing.T) {
 	for _, backend := range []string{"sqlite", "remote"} {
 		for _, duplicate := range []string{"", "stale-payload-goal"} {
-			t.Run(backend+"/"+duplicate, func(t *testing.T) {
-				ctx := celltest.Context(context.Background())
-				rt := newTimeoutReproRuntime(t, backend)
-				registry := rt.ConsumerRuntime.(jobdb.JobSchemaRegistry)
-				registered, err := registry.RegisterJobSchema(ctx, jobdb.RegisterJobSchemaRequest{TenantId: "tenant", Schema: jobdbschematest.LegacyGoalSchema})
-				require.NoError(t, err)
-				require.Equal(t, "sha256:3b77b87e6349ecd231839a13ddfa30d0da797cb019ff56dd81c5b7260c394750", registered.SchemaHash)
-				celltest.Create(t, rt, "tenant", "test", "example.test/test")
-				input := workflowctl.StartJob{TenantId: "tenant", Cell: "test", CellRepo: "example.test/test", RecipeName: "identity", GoalID: duplicate, JobContext: contextual.JobContext{Workflow: contextual.WorkflowContext{GoalID: "stale-context-goal"}}}
-				data := jobdb.NewTaskDataOrPanic(input, jobdb.NewArtifactFromBytes("identity"+starter.RecipeArtifactSuffix, []byte(`id: identity
+			for _, target := range []string{"submission", "identity"} {
+				for _, mode := range []string{"continue", "new"} {
+					t.Run(backend+"/"+duplicate+"/"+target+"/"+mode, func(t *testing.T) {
+						ctx := celltest.Context(context.Background())
+						rt := newTimeoutReproRuntime(t, backend)
+						registry := rt.ConsumerRuntime.(jobdb.JobSchemaRegistry)
+						registered, err := registry.RegisterJobSchema(ctx, jobdb.RegisterJobSchemaRequest{TenantId: "tenant", Schema: jobdbschematest.LegacyGoalSchema})
+						require.NoError(t, err)
+						require.Equal(t, "sha256:3b77b87e6349ecd231839a13ddfa30d0da797cb019ff56dd81c5b7260c394750", registered.SchemaHash)
+						celltest.Create(t, rt, "tenant", "test", "example.test/test")
+						input := workflowctl.StartJob{TenantId: "tenant", Cell: "test", CellRepo: "example.test/test", RecipeName: "identity", GoalID: duplicate, JobContext: contextual.JobContext{Workflow: contextual.WorkflowContext{GoalID: "stale-context-goal"}}}
+						data := jobdb.NewTaskDataOrPanic(input, jobdb.NewArtifactFromBytes("identity"+starter.RecipeArtifactSuffix, []byte(`id: identity
 schema_version: 2
 sequence:
  - id: checkpoint
@@ -47,82 +48,96 @@ sequence:
 outputs:
  goal: '${{ sequence.identity.outputs.goal }}'
 `)))
-				original, err := data.GetData()
-				require.NoError(t, err)
-				handle, err := rt.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "tenant", JobType: "recipe", Cell: "test", CellRepo: "example.test/test", Data: data, Schema: &jobdb.JobSchemaSelector{Hash: registered.SchemaHash}, RunPolicy: jobdb.DefaultRunPolicy()}})
-				require.NoError(t, err)
-				_, err = runGitLifecycle(t, goalCompletionInterruption{rt}, handle.JobKey)
-				require.ErrorContains(t, err, "injected interruption")
-				engine, err := jobworkflow.NewEngineBuilder().WithRuntime(rt).WithWorkerTenantId("tenant").PlusWorkers(NewRecipeJobWorker(RecipeJobWorkerOptions{})).BuildEngine()
-				require.NoError(t, err)
-				history, err := jobdb.GetJobRun(ctx, rt, jobdb.GetJobRunRequest{JobKey: handle.JobKey})
-				require.NoError(t, err)
-				var scope string
-				for _, e := range history.Execution {
-					if e.Record.Kind == "scope" && strings.Contains(e.Record.ID, `scope:"sequence:identity"`) {
-						scope = e.Record.ID
-					}
-				}
-				require.NotEmpty(t, scope)
-				submitter := jobdbschema.WorkflowEngine{Engine: engine, Registry: registry}
-				var refs []jobref.Ref
-				for _, restartScope := range []string{starter.SubmissionRestartScopeID, scope} {
-					for _, mode := range []string{"continue", "new"} {
-						ref, err := starter.RestartRecipeJob(ctx, submitter, handle.JobKey, restartScope, nil, starter.RestartOptions{Goal: mode, RequestID: fmt.Sprintf("restart-%s-%s", restartScope, mode)})
+						original, err := data.GetData()
+						require.NoError(t, err)
+						handle, err := rt.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "tenant", JobType: "recipe", Cell: "test", CellRepo: "example.test/test", Data: data, Schema: &jobdb.JobSchemaSelector{Hash: registered.SchemaHash}, RunPolicy: jobdb.DefaultRunPolicy()}})
+						require.NoError(t, err)
+						_, err = runGitLifecycle(t, goalCompletionInterruption{rt}, handle.JobKey)
+						require.ErrorContains(t, err, "injected interruption")
+						engine, err := jobworkflow.NewEngineBuilder().WithRuntime(rt).WithWorkerTenantId("tenant").PlusWorkers(NewRecipeJobWorker(RecipeJobWorkerOptions{})).BuildEngine()
+						require.NoError(t, err)
+						history, err := jobdb.GetJobRun(ctx, rt, jobdb.GetJobRunRequest{JobKey: handle.JobKey})
+						require.NoError(t, err)
+						var scope string
+						for _, e := range history.Execution {
+							if e.Record.Kind == "scope" && strings.Contains(e.Record.ID, `scope:"sequence:identity"`) {
+								scope = e.Record.ID
+							}
+						}
+						require.NotEmpty(t, scope)
+						submitter := jobdbschema.WorkflowEngine{Engine: engine, Registry: registry}
+						restartScope := scope
+						if target == "submission" {
+							restartScope = starter.SubmissionRestartScopeID
+						}
+						opts := starter.RestartOptions{Goal: mode, RequestID: fmt.Sprintf("restart-%s-%s", restartScope, mode)}
+						if mode == "continue" {
+							_, err := starter.RestartRecipeJob(ctx, submitter, handle.JobKey, restartScope, nil, opts)
+							require.ErrorIs(t, err, jobdb.ErrGoalConflict, "a live source prevents a second active candidate")
+							require.NoError(t, rt.CancelJob(ctx, jobdb.CancelJobRequest{JobKey: handle.JobKey}))
+						}
+						ref, err := starter.RestartRecipeJob(ctx, submitter, handle.JobKey, restartScope, nil, opts)
 						require.NoError(t, err)
 						if mode == "continue" {
 							require.Equal(t, handle.GoalID, ref.GoalID)
 						} else {
 							require.NotEqual(t, handle.GoalID, ref.GoalID)
 						}
-						refs = append(refs, ref)
-					}
+						restarted, err := runGitLifecycle(t, rt, ref.Key())
+						require.NoError(t, err)
+						require.Equal(t, ref.GoalID, gitLifecycleOutput(t, restarted)["goal"])
+						info, err := rt.GetJob(ctx, ref.Key())
+						require.NoError(t, err)
+						require.Equal(t, ref.GoalID, info.GoalID)
+						page, err := rt.ListJobs(ctx, jobdb.ListJobsRequest{TenantIds: []string{"tenant"}, JobKeys: []jobdb.JobKey{ref.Key()}})
+						require.NoError(t, err)
+						require.Len(t, page.Jobs, 1)
+						require.Equal(t, ref.GoalID, joblist.JobFromSummary(page.Jobs[0]).GoalID)
+						inspected, err := (&jobinspect.Service{Runtime: rt, Tenant: "tenant"}).Inspect(ctx, jobinspect.Request{Operation: "show", JobID: ref.JobID})
+						require.NoError(t, err)
+						require.Equal(t, ref.GoalID, inspected.Job.Goal)
+						chapters, err := rt.ListChapters(ctx, jobdb.ListChaptersRequest{JobKey: ref.Key()})
+						require.NoError(t, err)
+						require.NotEmpty(t, chapters)
+						retained, ok := chapters[0].Body.(jobdb.JobStartChapter)
+						require.True(t, ok)
+						require.Equal(t, []byte(original), []byte(retained.Input.Data))
+						if mode == "new" {
+							out, err := runGitLifecycle(t, rt, handle.JobKey)
+							require.NoError(t, err)
+							require.Equal(t, handle.GoalID, gitLifecycleOutput(t, out)["goal"])
+						}
+						replay, err := engine.ReplayJobRun(ctx, jobworkflow.ReplayRunRequest{JobKey: handle.JobKey, JobWorker: NewRecipeJobWorker(RecipeJobWorkerOptions{ReadOnlyReplay: true})})
+						if mode == "continue" {
+							// Cancellation preserves this interrupted source without inventing
+							// the job result that its old worker never committed.
+							var miss jobworkflow.ReplayCacheMissError
+							require.ErrorAs(t, err, &miss)
+							require.Equal(t, jobworkflow.ReplayCacheMissJobResultMissing, miss.Reason)
+						} else {
+							require.NoError(t, err)
+							raw, err := replay.GetData()
+							require.NoError(t, err)
+							var replayed map[string]any
+							require.NoError(t, json.Unmarshal(raw, &replayed))
+							require.Equal(t, handle.GoalID, replayed["goal"])
+						}
+						// The original input remains byte-for-byte unchanged after execution/replay.
+						chapters, err = rt.ListChapters(ctx, jobdb.ListChaptersRequest{JobKey: handle.JobKey})
+						require.NoError(t, err)
+						require.NotEmpty(t, chapters)
+						body, ok := chapters[0].Body.(jobdb.JobStartChapter)
+						require.True(t, ok)
+						require.Equal(t, []byte(original), []byte(body.Input.Data))
+					})
 				}
-				for _, ref := range refs {
-					restarted, err := runGitLifecycle(t, rt, ref.Key())
-					require.NoError(t, err)
-					require.Equal(t, ref.GoalID, gitLifecycleOutput(t, restarted)["goal"])
-					info, err := rt.GetJob(ctx, ref.Key())
-					require.NoError(t, err)
-					require.Equal(t, ref.GoalID, info.GoalID)
-					page, err := rt.ListJobs(ctx, jobdb.ListJobsRequest{TenantIds: []string{"tenant"}, JobKeys: []jobdb.JobKey{ref.Key()}})
-					require.NoError(t, err)
-					require.Len(t, page.Jobs, 1)
-					require.Equal(t, ref.GoalID, joblist.JobFromSummary(page.Jobs[0]).GoalID)
-					inspected, err := (&jobinspect.Service{Runtime: rt, Tenant: "tenant"}).Inspect(ctx, jobinspect.Request{Operation: "show", JobID: ref.JobID})
-					require.NoError(t, err)
-					require.Equal(t, ref.GoalID, inspected.Job.Goal)
-					chapters, err := rt.ListChapters(ctx, jobdb.ListChaptersRequest{JobKey: ref.Key()})
-					require.NoError(t, err)
-					require.NotEmpty(t, chapters)
-					retained, ok := chapters[0].Body.(jobdb.JobStartChapter)
-					require.True(t, ok)
-					require.Equal(t, []byte(original), []byte(retained.Input.Data))
-				}
-				out, err := runGitLifecycle(t, rt, handle.JobKey)
-				require.NoError(t, err)
-				require.Equal(t, handle.GoalID, gitLifecycleOutput(t, out)["goal"])
-				replay, err := engine.ReplayJobRun(ctx, jobworkflow.ReplayRunRequest{JobKey: handle.JobKey, JobWorker: NewRecipeJobWorker(RecipeJobWorkerOptions{ReadOnlyReplay: true})})
-				require.NoError(t, err)
-				raw, err := replay.GetData()
-				require.NoError(t, err)
-				var replayed map[string]any
-				require.NoError(t, json.Unmarshal(raw, &replayed))
-				require.Equal(t, handle.GoalID, replayed["goal"])
-				// The original input remains byte-for-byte unchanged after execution/replay.
-				chapters, err := rt.ListChapters(ctx, jobdb.ListChaptersRequest{JobKey: handle.JobKey})
-				require.NoError(t, err)
-				require.NotEmpty(t, chapters)
-				body, ok := chapters[0].Body.(jobdb.JobStartChapter)
-				require.True(t, ok)
-				require.Equal(t, []byte(original), []byte(body.Input.Data))
-			})
+			}
 		}
 	}
 }
 
-// Leave a fully executed job runnable, so continue restarts are prepared while
-// its goal is still open. Successful goals correctly reject new continuations.
+// Leave a fully executed job runnable. New-goal restarts leave it resumable;
+// continue restarts first cancel it to satisfy single-active-candidate admission.
 type goalCompletionInterruption struct{ jobdb.ConsumerRuntime }
 type goalCompletionLease struct{ jobdb.ExecutionLease }
 

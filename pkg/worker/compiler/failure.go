@@ -58,7 +58,7 @@ func (e *catchRouteError) Error() string {
 }
 
 func newRecipeFailureError(failure *recipe.RuntimeFailure, err error) error {
-	if failure == nil {
+	if failure == nil || jobdb.IsExecutionInfrastructureError(err) {
 		return err
 	}
 	return &recipeFailureError{Failure: failure.Clone(), Err: err}

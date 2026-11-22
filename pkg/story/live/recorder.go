@@ -102,6 +102,7 @@ type Recorder struct {
 
 	currentOpNode  *model.JobRunStoryNode
 	currentOpSteps map[string]*ordinalStepTracker
+	inboxGetter    jobdb.ArtifactGetter
 }
 
 type jobAttemptTiming struct {
@@ -188,6 +189,7 @@ func BuildJobRunStory(ctx context.Context, engine replayJobRunner, jobKey jobdb.
 		recorded = &run
 	}
 	rec := NewRecorder(Options{Context: ctx, JobKey: jobKey, Logger: logger})
+	rec.inboxGetter, _ = engine.(jobdb.ArtifactGetter)
 	events := newReplayEvents(rec.Observer())
 	workerOpts := compiler.RecipeJobWorkerOptions{
 		Logger:                 compilerLogger,
@@ -401,7 +403,7 @@ func (r *Recorder) OnTaskStart(event jobworkflow.TaskStartEvent) {
 	}
 
 	applyTaskInputToNode(attNode, event.Input)
-	attNode.Inbox = inbox.Project(r.ctx, event.Input)
+	attNode.Inbox = r.projectTaskInbox(event.Input)
 	tr.attemptNodes = append(tr.attemptNodes, attNode)
 	tr.byAttempt[event.AttemptNumber] = attNode
 	copyAttemptIntoStep(tr.stepNode, attNode)

@@ -154,7 +154,7 @@ func findResolvedRecipeYAMLArtifact(td jobdb.TaskData, name string) (jobdb.Artif
 	}
 	artifacts, err := td.GetArtifacts()
 	if err != nil {
-		return nil, fmt.Errorf("list resolved recipe artifacts: %w", err)
+		return nil, jobdb.ClassifyRuntimeIO(fmt.Errorf("list resolved recipe artifacts: %w", err), "c2j.resolved_recipe_artifact", nil, nil)
 	}
 	var found jobdb.Artifact
 	for _, art := range artifacts {
@@ -162,7 +162,7 @@ func findResolvedRecipeYAMLArtifact(td jobdb.TaskData, name string) (jobdb.Artif
 			continue
 		}
 		if found != nil {
-			return nil, fmt.Errorf("duplicate resolved recipe artifact %q", name)
+			return nil, jobdb.ClassifyExecutionInfrastructure(fmt.Errorf("duplicate resolved recipe artifact %q", name), jobdb.ExecutionInfrastructureDurableDecode, "c2j.resolved_recipe_artifact", nil, nil)
 		}
 		found = art
 	}
@@ -175,12 +175,12 @@ func readResolvedRecipeYAML(ctx context.Context, name, inline string, art jobdb.
 		var err error
 		raw, err = art.Bytes(ctx)
 		if err != nil {
-			return nil, fmt.Errorf("read resolved recipe artifact %q: %w", art.Name(), err)
+			return nil, jobdb.ClassifyRuntimeIO(fmt.Errorf("read resolved recipe artifact %q: %w", art.Name(), err), "c2j.resolved_recipe_artifact", nil, nil)
 		}
 	} else if strings.TrimSpace(inline) != "" {
 		raw = []byte(inline)
 	} else if name != "" {
-		return nil, fmt.Errorf("resolved recipe artifact %q is missing", name)
+		return nil, jobdb.ClassifyExecutionInfrastructure(fmt.Errorf("resolved recipe artifact %q is missing", name), jobdb.ExecutionInfrastructureDurableDecode, "c2j.resolved_recipe_artifact", nil, nil)
 	}
 	if len(bytes.TrimSpace(raw)) == 0 {
 		return nil, fmt.Errorf("resolved recipe YAML is empty")
@@ -188,7 +188,10 @@ func readResolvedRecipeYAML(ctx context.Context, name, inline string, art jobdb.
 	return raw, nil
 }
 
-func ParseResolvedRecipeSourceJSON(raw []byte) (*ResolvedRecipeSource, error) {
+func ParseResolvedRecipeSourceJSON(raw []byte) (resultValue *ResolvedRecipeSource, resultErr error) {
+	defer func() {
+		resultErr = jobdb.ClassifyExecutionInfrastructure(resultErr, jobdb.ExecutionInfrastructureDurableDecode, "c2j.root_resolution", nil, nil)
+	}()
 	if len(raw) == 0 {
 		return nil, fmt.Errorf("resolved recipe source payload is empty")
 	}
@@ -448,7 +451,7 @@ func (w rootSourceResolutionTaskWorker) RunTask(local context.Context, taskCtx j
 	}
 	req := rootSourceResolutionTaskInput{}
 	if err := json.Unmarshal(raw, &req); err != nil {
-		return nil, fmt.Errorf("decode recipe source resolution input: %w", err)
+		return nil, jobdb.ClassifyExecutionInfrastructure(fmt.Errorf("decode recipe source resolution input: %w", err), jobdb.ExecutionInfrastructureDurableDecode, "c2j.internal_task_input", nil, nil)
 	}
 
 	if w.resolver == nil {

@@ -146,7 +146,7 @@
           "type": "op_input_equals",
           "node_path": "c2j-build-verify/test_integration/test_integration",
           "path": "timeout",
-          "value": "90m"
+          "value": "120m"
         },
         {
           "type": "op_input_equals",
@@ -182,6 +182,14 @@
         },
         {
           "type": "cel_true",
+          "expr": "calls.filter(c, c.node_path == \"c2j-build-verify/test_integration/test_integration\")[0].inputs.run.contains(\"-run '^(TestReplayWrongWorker|TestExecutionDiagnostic|TestInfrastructure|TestCheckpointInfrastructure|TestInvocationInfrastructure)'\")"
+        },
+        {
+          "type": "cel_true",
+          "expr": "calls.filter(c, c.node_path == \"c2j-build-verify/test_integration/test_integration\")[0].inputs.run.contains(\"-run '^TestGrouping(SuccessorWaitsAndNoWriteLease|BackendRejectionsNeverFallBack|TransportFailureDoesNotResubmit)$'\")"
+        },
+        {
+          "type": "cel_true",
           "expr": "calls.filter(c, c.node_path == \"c2j-build-verify/check_skills/check_skills\")[0].inputs.run.contains(\"npx -y skills add . --list --full-depth\")"
         },
         {
@@ -199,6 +207,38 @@
         {
           "type": "cel_true",
           "expr": "calls.filter(c, c.node_path == \"c2j-build-verify/check_environment/check_environment\")[0].inputs.run.contains(\"Linux aarch64\") && calls.filter(c, c.node_path == \"c2j-build-verify/check_environment/check_environment\")[0].inputs.run.contains(\"/proc/self/maps\") && calls.filter(c, c.node_path == \"c2j-build-verify/check_environment/check_environment\")[0].inputs.run.contains(\"Native pnpm acceptance failed: emulated executor\")"
+        },
+        {
+          "type": "cel_true",
+          "expr": "calls.filter(c, c.node_path == \"c2j-build-verify/test_integration/test_integration\")[0].inputs.run.contains(\"-run '^(TestSelectedBroker|TestSelectedCLI|TestSelectedGoal)'\")"
+        },
+        {
+          "type": "cel_true",
+          "expr": "calls.filter(c, c.node_path == \"c2j-build-verify/test_integration/test_integration\")[0].inputs.run.contains(\"TestC05RetainedServerCapabilities|TestSelectedSubmissionUsesTrustedLocalAdministrator\") && calls.filter(c, c.node_path == \"c2j-build-verify/test_integration/test_integration\")[0].inputs.run.contains(\"TestHistoricalGoalIdentityExecutionRestartAndReplay|TestHookAbsentLegacy\")"
+        },
+        {
+          "type": "cel_true",
+          "expr": "calls.filter(c, c.node_path == \"c2j-build-verify/test_integration/test_integration\")[0].inputs.run.contains(\"go test -mod=readonly -count=10 -v -timeout=2m ./pkg/childbroker -run '^(TestJobInspectionCancelledAdmission|TestMetricsHelperAuthenticationExactnessAndIncompleteHistory|TestJobInspectionAuthentication)$'\")"
+        },
+        {
+          "type": "cel_true",
+          "expr": "calls.filter(c, c.node_path == \"c2j-build-verify/test_integration/test_integration\")[0].inputs.run.contains(\"go test -mod=readonly -count=3 -v -timeout=2m ./pkg/worker/compiler -run '^TestRecipeSubmissionInputsHistoricalReplayAndRestart$'\")"
+        },
+        {
+          "type": "cel_true",
+          "expr": "calls.filter(c, c.node_path == \"c2j-build-verify/test_integration/test_integration\")[0].inputs.run.contains(\"go test -mod=readonly -count=3 -v -timeout=3m ./pkg/jobinspect -run '^TestChanges(J30L07RepositoryTransferCleanup|J32L07GitProcessGroupCleanup|J30J32GitDiagnosticIdentity|J32L08CancelArrivingArtifact)$'\")"
+        },
+        {
+          "type": "cel_true",
+          "expr": "calls.filter(c, c.node_path == \"c2j-build-verify/test_integration/test_integration\")[0].inputs.run.contains(\"go test -mod=readonly -count=3 -v -timeout=5m ./pkg/worker/compiler -run '^TestLateIncludeOutputProcessLifetime$'\")"
+        },
+        {
+          "type": "cel_true",
+          "expr": "calls.filter(c, c.node_path == \"c2j-build-verify/test_integration/test_integration\")[0].inputs.run.contains(\"go test -mod=readonly -count=25 -v -timeout=60s ./pkg/worker/commandop -run '^TestCommandDiagnosticsDoNotChangeSuccessOrContinue$'\")"
+        },
+        {
+          "type": "cel_true",
+          "expr": "calls.filter(c, c.node_path == \"c2j-build-verify/test_integration/test_integration\")[0].inputs.run.contains(\"go test -mod=readonly -count=1 -v -timeout=2m ./pkg/worker/compiler -run '^TestVerifyHook'\")"
         }
       ]
     },

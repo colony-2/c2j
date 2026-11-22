@@ -152,6 +152,7 @@ func TestInboxPublicRetainedRecords(t *testing.T) {
 								}
 							}
 							check(deniedStory.Root)
+							require.Equal(t, st.Root.Status, deniedStory.Root.Status, "optional inbox failure must not truncate replay")
 							deniedReq := story.GetInboxValueRequest{ProjectID: "story", JobID: handle.JobKey.JobId, JobAttempt: st.Root.JobAttempt, InvocationID: found.InvocationID, TaskOrdinal: *found.TaskOrdinal, TaskAttempt: found.Attempt, Binding: "docs/message.txt"}
 							_, err = deniedSvc.GetInboxValue(ctx, deniedReq)
 							require.EqualError(t, err, "inbox: "+denial.reason)
@@ -160,6 +161,7 @@ func TestInboxPublicRetainedRecords(t *testing.T) {
 					after, err := rt.ListChapters(ctx, jobdb.ListChaptersRequest{JobKey: handle.JobKey})
 					require.NoError(t, err)
 					require.Equal(t, before, after)
+					require.Equal(t, succeedAt, task.calls.Load(), "inspection never executes tasks")
 				})
 			}
 		}

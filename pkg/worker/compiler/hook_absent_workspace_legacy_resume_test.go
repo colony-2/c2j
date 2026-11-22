@@ -178,6 +178,13 @@ func TestHookAbsentLegacyInterruptedResumeAndRestart(t *testing.T) {
 				_, err = io.Copy(dst, unzip)
 				require.NoError(t, err)
 				require.NoError(t, dst.Close())
+				// Explicitly upgrade the disposable legacy copy before opening it.
+				plan, err := sqlite.CheckGoalMigration(ctx, path)
+				require.NoError(t, err)
+				require.Contains(t, []string{"CONVERTIBLE", "CONVERTIBLE_WITH_NOTICES"}, plan.Verdict)
+				migrated, err := sqlite.MigrateGoals(ctx, path)
+				require.NoError(t, err)
+				require.Equal(t, "MIGRATED", migrated.Verdict)
 				rt, err := sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: path, MaxInlineArtifactBytes: 10 << 20})
 				require.NoError(t, err)
 				defer rt.Close(ctx)

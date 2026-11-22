@@ -43,6 +43,7 @@ func TestC05RetainedServerCapabilities(t *testing.T) {
 				require.NoError(t, err)
 			}
 			require.True(t, retained.SupportsPrimaryGoalSelection())
+			require.Equal(t, db.JobGoalCapabilities(), retained.JobGoalCapabilities())
 			celltest.Create(t, rt, "tenant", "test", "example.test/test")
 			admin := rt.(jobdb.ConfigurationAdmin)
 			revision, err := admin.SetTenantConfigurationValue(ctx, jobdb.SetTenantConfigurationValueRequest{TenantID: "tenant", Name: "setting", Value: json.RawMessage(`{"n":9007199254740993}`)})
@@ -58,9 +59,6 @@ func TestC05RetainedServerCapabilities(t *testing.T) {
 			require.NotEmpty(t, schemas)
 			owner, err := rt.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "tenant", JobID: "owner", JobType: "work", Cell: "test", CellRepo: "example.test/test", Data: jobdb.NewTaskDataOrPanic(nil)}})
 			require.NoError(t, err)
-			selected, err := rt.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "tenant", JobID: "selected", GoalID: owner.GoalID, JobType: "work", Cell: "test", CellRepo: "example.test/test", Data: jobdb.NewTaskDataOrPanic(nil)}})
-			require.NoError(t, err)
-			require.Equal(t, owner.GoalID, selected.GoalID)
 			require.NoError(t, rt.ClearCrashConcern(ctx, jobdb.ClearCrashConcernRequest{JobKey: owner.JobKey, Reason: "reviewed"}))
 			lease, err := rt.GetJobLease(ctx, jobdb.GetJobLeaseRequest{JobKey: owner.JobKey, WorkerID: "worker", Routes: []jobdb.Route{{JobType: "work"}}, LeaseDuration: time.Minute})
 			require.NoError(t, err)
@@ -92,6 +90,10 @@ func TestC05RetainedServerCapabilities(t *testing.T) {
 			require.ErrorIs(t, rt.ClearCrashConcern(ctx, jobdb.ClearCrashConcernRequest{JobKey: owner.JobKey, Reason: "active"}), jobdb.ErrConflict)
 			require.NoError(t, rt.CancelJob(ctx, jobdb.CancelJobRequest{JobKey: owner.JobKey, Reason: "stop"}))
 			require.ErrorIs(t, renewed.KeepAlive(ctx), jobdb.ErrExecutionLeaseLost)
+			// The prior candidate is now terminal, so selected admission is legal.
+			selected, err := rt.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "tenant", JobID: "selected", GoalID: owner.GoalID, JobType: "work", Cell: "test", CellRepo: "example.test/test", Data: jobdb.NewTaskDataOrPanic(nil)}})
+			require.NoError(t, err)
+			require.Equal(t, owner.GoalID, selected.GoalID)
 			require.NoError(t, rt.CancelJob(ctx, jobdb.CancelJobRequest{JobKey: child.JobKey}))
 			deleted, err := rt.(jobdb.JobDeletionRuntime).DeleteJobs(ctx, jobdb.DeleteJobsRequest{TenantID: "tenant", JobIDs: []string{child.JobKey.JobId}, DryRun: true})
 			require.NoError(t, err)

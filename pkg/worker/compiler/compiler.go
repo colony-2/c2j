@@ -662,6 +662,9 @@ func (d DefaultRecipeExecutor) executeOpAttempt(ctx workflow.Context, parentReso
 			})
 
 			if err != nil {
+				if jobdb.IsExecutionInfrastructureError(err) {
+					return err
+				}
 				failure := normalizeRuntimeFailure(err, resCtx, metadata, recipe.FailureNodeOp, op)
 				attachTaskFailureAttributes(failure, out)
 				if _, restored := failureFromError(err); !restored {

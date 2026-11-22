@@ -94,8 +94,7 @@ func TestLateIncludeMissingAndCorruptStoredCaptures(t *testing.T) {
 			f.available.Store(false)
 			reads := f.reads.Load()
 			guard = lateGuard(rt)
-			out := lateRun(t, guard, key, w, lateTasks(t, guard, probe)...)
-			require.Equal(t, jobworkflow.JobRunFailed, out.Status)
+			lateRunInfrastructureFailure(t, guard, key, w, lateTasks(t, guard, probe)...)
 			require.Empty(t, probe.calls)
 			require.Equal(t, reads, f.reads.Load())
 		})
@@ -203,8 +202,14 @@ func TestLateIncludeRejectsDamagedCaptureContracts(t *testing.T) {
 					tasks[i] = guard.WrapTaskWorker(lateDamagedCaptureWorker{TaskWorker: lateCaptureWorker{resolver: resolver}, mode: mode})
 				}
 			}
-			out := lateRun(t, guard, key, w, tasks...)
-			require.Equal(t, jobworkflow.JobRunFailed, out.Status)
+			if mode == "duplicate-reference" {
+				// Duplicate attachments are rejected while constructing the task
+				// result, before a capture is persisted. This remains validation.
+				out := lateRun(t, guard, key, w, tasks...)
+				require.Equal(t, jobworkflow.JobRunFailed, out.Status)
+			} else {
+				lateRunInfrastructureFailure(t, guard, key, w, tasks...)
+			}
 			require.Empty(t, probe.calls)
 			require.Greater(t, f.reads.Load(), int32(0))
 			s, _, _ := lateRecordOutputs(t, rt, key)
@@ -234,8 +239,7 @@ func TestLateIncludeDamagedCELCaptureDoesNotRefresh(t *testing.T) {
 					tasks[i] = guard.WrapTaskWorker(lateDamagedCaptureWorker{TaskWorker: lateCaptureWorker{}, mode: mode, after: func() { reads = f.reads.Load(); f.available.Store(false) }})
 				}
 			}
-			out := lateRun(t, guard, key, w, tasks...)
-			require.Equal(t, jobworkflow.JobRunFailed, out.Status)
+			lateRunInfrastructureFailure(t, guard, key, w, tasks...)
 			require.Empty(t, probe.calls)
 			require.Greater(t, reads, int32(0))
 			require.Equal(t, reads, f.reads.Load())
@@ -244,4 +248,19 @@ func TestLateIncludeDamagedCELCaptureDoesNotRefresh(t *testing.T) {
 			require.Len(t, c, 1)
 		})
 	}
+}
+
+// Corrupt retained capture protocols stop this invocation. They cannot become
+// a stored recipe failure or trigger a refresh of the original source.
+func lateRunInfrastructureFailure(t *testing.T, rt jobdb.ConsumerRuntime, key jobdb.JobKey, worker jobworkflow.ExecutionWorker, tasks ...jobworkflow.TaskWorker) {
+	t.Helper()
+	h, err := jobworkflow.GetJobForRun(lateTestContext(), rt, jobworkflow.GetJobForRunRequest{JobKey: key, JobWorker: worker, TaskWorkers: tasks, WorkerID: "late-tests", LeaseDuration: time.Minute})
+	require.NoError(t, err)
+	out, err := h.Run(nil)
+	require.True(t, jobdb.IsExecutionInfrastructureError(err), "%v", err)
+	require.NotEqual(t, jobworkflow.JobRunFailed, out.Status)
+	info, err := rt.GetJob(lateTestContext(), key)
+	require.NoError(t, err)
+	require.NotEqual(t, jobdb.JobStatusCompleted, info.Status)
+	require.Empty(t, info.CompletionStatus)
 }

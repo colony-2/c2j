@@ -96,6 +96,7 @@ reschedules a wait instead of waiting within the current invocation.
 | Different execution environment needed | Emit the existing `environment_required` JSON and exit 0. |
 | User input required | Default `--input-mode ops` emits `input_required` JSON and exits 3. `--input-mode fail` exits 3 without the form. |
 | Invalid, expired, lost, or unrenewable lease; execution/transport failure | Exit nonzero, normally 1; never acquire a replacement lease. |
+| Replay mismatch or classified durable-state/infrastructure error | Exit 1 with one JSON diagnostic on stderr; stop renewal without initiating failure completion or rescheduling. See [recovery](GUIDE-Replay-Recovery.md). |
 | Mismatched configured job or tenant | Exit 5 without executing work. |
 
 Story progress is also written to stdout. `--ci` selects progress suitable for

@@ -39,6 +39,13 @@ func openPreNumericRestartFixture(t *testing.T, backend string) (*restartFixture
 	_, err = sqlDB.ExecContext(ctx, string(raw))
 	require.NoError(t, err)
 	require.NoError(t, sqlDB.Close())
+	// Explicitly upgrade the disposable legacy copy before opening it.
+	plan, err := sqlite.CheckGoalMigration(ctx, path)
+	require.NoError(t, err)
+	require.Contains(t, []string{"CONVERTIBLE", "CONVERTIBLE_WITH_NOTICES"}, plan.Verdict)
+	migrated, err := sqlite.MigrateGoals(ctx, path)
+	require.NoError(t, err)
+	require.Equal(t, "MIGRATED", migrated.Verdict)
 	db, err := sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: path})
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close(ctx)) })

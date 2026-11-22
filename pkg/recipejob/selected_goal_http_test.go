@@ -26,6 +26,10 @@ func TestSelectedGoalHTTPUnavailableAndIncomplete(t *testing.T) {
 			var ordinary atomic.Int32
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				w.Header().Set("Content-Type", "application/json")
+				if r.URL.Path == "/v1/capabilities/job-goals" {
+					w.Write([]byte(`{"immutableMembership":true,"atomicAdmission":true,"terminalFailureRecords":true}`))
+					return
+				}
 				if r.URL.Path == "/v1/capabilities/primary-goal-selection" {
 					if mode == "legacy" {
 						http.NotFound(w, r)
@@ -77,6 +81,7 @@ func TestSelectedGoalHTTPRevokedReplay(t *testing.T) {
 	celltest.Create(t, rt, "tenant", "work", "example.test/work")
 	source, err := rt.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "tenant", JobID: "source", JobType: "work", Cell: "work", CellRepo: "example.test/work", Data: jobdb.NewTaskDataOrPanic(nil)}})
 	require.NoError(t, err)
+	require.NoError(t, rt.CancelJob(ctx, jobdb.CancelJobRequest{JobKey: source.JobKey}))
 	var revoked atomic.Bool
 	handler := remote.NewConsumerServer(rt)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
