@@ -3,6 +3,7 @@ package recipetest
 import (
 	"context"
 	"fmt"
+	"github.com/colony-2/c2j/pkg/input/historybridge"
 
 	"github.com/colony-2/c2j/internal/dispatchtest"
 	"github.com/colony-2/c2j/internal/scenariotest"
@@ -54,6 +55,7 @@ func (f *runtimeFixture) buildSession(rt caseRuntime, tenant string, collector *
 	}
 	engine = jobdbschema.WorkflowEngine{Engine: engine, Registry: rt}
 	f.ctl = &workerworkflow.SWFWorkflowControl{Engine: engine}
+	scopedRuntime.InputHistory = historybridge.Factory(workerRuntime, f.ctl)
 	deps := coreops.NewServiceDepsBuilder().WithWorkflowControl(f.ctl).Build()
 	registry, err := workerops.NewActivityRegistry()
 	if err != nil {

@@ -8,6 +8,12 @@ presence-aware JSON and typed error handling. Configure the control with your
 existing JobDB engine and tenant authorization. Keep one history service alive
 across requests.
 
+The helper-only [CLI bridge](../../GUIDE-Task-Input-History.md) uses this same
+service through `historybridge.Factory`. Worker composition supplies trusted
+tenant/task authority. The adapter checks selected-job permission before cached
+reads and verifies context-aware original-producer streams, including private
+frozen inputs. `pkg/jobinputs` keeps transport contracts independent of `input`.
+
 The public methods and DTOs are in [history.go](history.go). `errors.Is` recognizes
 `ErrHistoryEntryNotFound`, `ErrHistoryArtifactNotFound`,
 `ErrHistoryInvalidCursor`, `ErrHistorySnapshotExpired`, `ErrHistoryUnsupported`

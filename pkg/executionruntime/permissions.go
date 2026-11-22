@@ -12,6 +12,7 @@ import (
 	"github.com/colony-2/c2j/pkg/executioncatalog"
 	"github.com/colony-2/c2j/pkg/hookpolicy"
 	"github.com/colony-2/c2j/pkg/jobdbschema"
+	"github.com/colony-2/c2j/pkg/jobinputs"
 	"github.com/colony-2/c2j/pkg/jobinspect"
 	"github.com/colony-2/c2j/pkg/jobref"
 	"github.com/colony-2/c2j/pkg/jobrestart"
@@ -227,6 +228,15 @@ func (r *Runtime) restrictedAccess(parent context.Context, tc jobworkflow.TaskCo
 	provider := r.selfProvider(tc, original, access, policies, issuedDelegation.Load)
 	inspectionCtx := jobinspect.WithAPI(permissions.WithAccess(ctx, access), r.inspection(access, tc, original))
 	inspectionCtx = jobrestart.WithAPI(inspectionCtx, r.restartInspection(access, tc, original))
+	inspectionCtx = jobinputs.WithFactory(inspectionCtx, func() (jobinputs.API, error) {
+		if r.InputHistory == nil {
+			return nil, nil
+		}
+		guard := r.inspection(access, tc, original).(*jobinspect.Service).Authorize
+		return r.InputHistory(jobinputs.Authority{Tenant: tc.JobKey.TenantId, Guard: guard, Bind: func(call context.Context) (context.Context, context.CancelFunc) {
+			return r.bindHistory(call, access, tc, original)
+		}})
+	})
 	return access, selfinfo.WithProvider(inspectionCtx, provider), cancel, nil
 }
 

@@ -91,6 +91,7 @@ func TestVerifyHookSubmissionEnvironmentAndGate(t *testing.T) {
 		{name: "helper-gate", failGate: "TestLeaseBoundRestartHelperSubmission"},
 		{name: "inspection-gate", failGate: "TestTaskInspectionUsesBackendReadPermissions"},
 		{name: "health-gate", failGate: "^TestHealth"},
+		{name: "managed-regressions-gate", failGate: "^Test(JobInspectionExpiredLifetimeBeforeDispatch"},
 		{name: "extension-wait-gate", failGate: "^TestExtensionWait"},
 		{name: "git-cleanup-gate", failGate: "^TestChanges"},
 		{name: "scenario-gate", failGate: "TestPnpmVerifyHook"},
@@ -125,6 +126,9 @@ fi
 test "$GOWORK" = off
 printf '%s %s\n' "${0##*/}" "$*" >> "$COMMANDS"
 if [ -n "$FAIL_GATE" ] && [[ "$*" == *"$FAIL_GATE"* ]]; then exit 42; fi
+if [[ "$*" == *'TestHistory|TestInputHistory'* ]]; then
+  cat "$HISTORY_GATE_EVENTS"
+fi
 if [[ "$*" == *'-run ^TestExtensionWait' ]]; then
   for pkg in extensionwait ops/extensions worker/ops metricsruntime secrets executionruntime worker/compiler childbroker; do
     printf '{"Action":"run","Package":"github.com/colony-2/c2j/pkg/%s","Test":"TestExtensionWaitFixture"}\n' "$pkg"
@@ -192,11 +196,14 @@ if [ "$1" = submit ]; then
   done
 fi
 `
+			historyEvents := filepath.Join(root, "history-events.json")
+			require.NoError(t, os.WriteFile(historyEvents, inputHistoryGateEvidence("passed"), 0600))
 			require.NoError(t, os.WriteFile(filepath.Join(bin, "go"), []byte(mock), 0700))
 			commands := filepath.Join(root, "commands")
 			cmd := exec.Command("bash", "-c", node.Inputs["run"].(string))
 			cmd.Dir = root
 			cmd.Env = append(os.Environ(), "PATH="+bin+":"+os.Getenv("PATH"), "OUTBOX="+outbox, "COMMANDS="+commands, "FAIL_GATE="+fixture.failGate, fmt.Sprintf("MISSING_WAIT_GOAL=%t", fixture.missingWaitGoal), "C2J_CURRENT_JOB_ID=live", "C2J_CHILD_JOB_TOKEN=live", "C2J_WORKSPACE_ROOT=live", "C2J_JOBDB=embed:///", "C2J_TENANT_ID=live", "C2J_OBJECT_OUTBOX=live", "C2J_TEST_SUBMIT_BINARY=/stale/c2j", "C2J_REQUIRE_EXECUTION_BASE_CATALOG=true")
+			cmd.Env = append(cmd.Env, "HISTORY_GATE_EVENTS="+historyEvents)
 			out, err := cmd.CombinedOutput()
 			log, logErr := os.ReadFile(filepath.Join(outbox, "tests.log"))
 			require.NoError(t, logErr)
@@ -215,6 +222,20 @@ fi
 			}
 			raw, err := os.ReadFile(commands)
 			require.NoError(t, err)
+			// Retained history precedes the existing regression chain, using the
+			// built executable and then the race checks. Keep all legacy gate
+			// ordering and stop-on-failure assertions below.
+			if fixture.name == "healthy" {
+				require.Contains(t, string(raw), "go test -mod=readonly -count=3 -v -tags=integration -timeout=5m ./pkg/childbroker ./pkg/worker/compiler ./pkg/executionruntime -run ^Test(JobInspectionExpiredLifetimeBeforeDispatch|MetricsHelperAuthenticationExactnessAndIncompleteHistory|ExtensionWaitManifestTimeout|InputHistoryHelperExpiredLifetimeBeforeDispatch|ExtensionWaitReadinessClockRecheck)$\n")
+			}
+			lines := strings.SplitN(string(raw), "\n", 4)
+			require.Len(t, lines, 4)
+			require.True(t, strings.HasPrefix(lines[0], "go build -mod=readonly -o "))
+			require.True(t, strings.HasSuffix(lines[0], "/c2j-input-history ./cmd/c2j"))
+			require.Contains(t, lines[1], "-run ^(TestHistory|TestInputHistory)")
+			require.Contains(t, lines[2], "go test -race -mod=readonly")
+			require.True(t, strings.HasSuffix(lines[2], "-run ^TestInputHistory"))
+			raw = []byte(lines[3])
 			helperGate := "go test -mod=readonly -count=1 -v -timeout=5m ./pkg/executionruntime -run ^TestLeaseBoundRestartHelperSubmission$\n"
 			inspectionGate := "go test -mod=readonly -count=1 -v -timeout=5m ./pkg/executionruntime -run ^TestTaskInspectionUsesBackendReadPermissions$\n"
 			healthGate := "go test -mod=readonly -race -count=1 -v -timeout=10m ./cmd/c2j/internal/cmd ./cmd/c2j/internal/runjob ./pkg/task ./pkg/executionruntime ./pkg/worker/ops ./pkg/ops/extensions -run ^TestHealth|^TestPrompt\n"
@@ -223,6 +244,7 @@ fi
 				"TestLeaseBoundRestartHelperSubmission$",
 				"TestTaskInspectionUsesBackendReadPermissions$",
 				"^TestHealth",
+				"^Test(JobInspectionExpiredLifetimeBeforeDispatch",
 				"^TestExtensionWait",
 				"^TestChanges(J30J32GitDiagnosticIdentity|J32L07GitProcessGroupCleanup|J30L07RepositoryTransferCleanup|ProcessExitObservation)$",
 				"^TestPnpmVerifyHook$",
@@ -299,6 +321,81 @@ fi
 					}
 					require.Contains(t, string(raw), "c2j test run --file "+fixture+" --parallelism 1 --case-timeout "+timeout+" --out-dir ")
 				}
+			}
+		})
+	}
+}
+
+func inputHistoryGateEvidence(mode string) []byte {
+	var evidence strings.Builder
+	for pkg, names := range map[string][]string{
+		"pkg/jobinputs":           {"TestInputHistoryProtocol", "TestInputHistoryVerifiedBytes", "TestInputHistoryBlockedCancellation"},
+		"pkg/input":               {"TestHistorySQLiteRetainedWaitSnapshotsAndProducerBytes"},
+		"pkg/input/historybridge": {"TestInputHistoryAdapterSnapshotsAndAuthority", "TestInputHistoryPrivateRestoreFailures", "TestInputHistoryConcurrentReaderIsolation"},
+		"pkg/executionruntime":    {"TestInputHistoryLeaseLifetime", "TestInputHistoryRenewalPreservesAuthority", "TestInputHistoryActiveTaskCancellation", "TestInputHistoryCachedOperationsLifetime"},
+		"pkg/childbroker":         {"TestInputHistoryHelperAuthenticationAndClaims", "TestInputHistoryHelperFinalAuthority", "TestInputHistoryHelperTransport", "TestInputHistoryHelperExpiredLifetimeBeforeDispatch", "TestInputHistoryHelperExpiredLifetimeBeforeDispatch/request-canceled/list", "TestInputHistoryHelperExpiredLifetimeBeforeDispatch/request-canceled/show", "TestInputHistoryHelperExpiredLifetimeBeforeDispatch/request-canceled/artifact"},
+		"cmd/c2j/internal/cmd":    {"TestInputHistoryAtomicFiles", "TestInputHistoryCLIValidation"},
+		"cmd/c2j/internal/runjob": {"TestInputHistoryRunnerComposition"},
+		"pkg/recipetest":          {"TestInputHistoryRecipeTestComposition"},
+		"cmd/c2j":                 {"TestInputHistoryCLIProcessRetainedRecords", "TestInputHistoryCLIProcessTransport", "TestInputHistoryCLIProcessAuthorityBeforeCompletion", "TestInputHistoryCLIProcessRemoteOrigin", "TestInputHistoryCLIProcessRetainedRecords/published-http", "TestInputHistoryCLIProcessRemoteOrigin/denied", "TestInputHistoryCLIProcessRemoteOrigin/wrapped-denied", "TestInputHistoryCLIProcessRemoteOrigin/producer-denied", "TestInputHistoryCLIProcessRemoteOrigin/producer-open-denied", "TestInputHistoryCLIProcessRemoteOrigin/short", "TestInputHistoryCLIProcessRemoteOrigin/legacy-server-denial"},
+	} {
+		for _, name := range names {
+			if (mode == "missing" && name == "TestInputHistoryCLIProcessRemoteOrigin") || (mode == "missing-published-server" && name == "TestInputHistoryCLIProcessRetainedRecords/published-http") || (mode == "missing-history-lifetime" && strings.HasPrefix(name, "TestInputHistoryHelperExpiredLifetimeBeforeDispatch")) {
+				continue
+			}
+			fmt.Fprintf(&evidence, "{\"Action\":\"run\",\"Package\":\"github.com/colony-2/c2j/%s\",\"Test\":%q}\n", pkg, name)
+			if mode != "unfinished" {
+				action := "pass"
+				if name == "TestInputHistoryCLIProcessRemoteOrigin" {
+					if mode == "skipped" {
+						action = "skip"
+					}
+					if mode == "failed" {
+						action = "fail"
+					}
+				}
+				fmt.Fprintf(&evidence, "{\"Action\":%q,\"Package\":\"github.com/colony-2/c2j/%s\",\"Test\":%q}\n", action, pkg, name)
+			}
+		}
+	}
+	if mode == "skipped-child" || mode == "failed-child" {
+		action := "skip"
+		if mode == "failed-child" {
+			action = "fail"
+		}
+		fmt.Fprintf(&evidence, "{\"Action\":%q,\"Package\":\"github.com/colony-2/c2j/cmd/c2j\",\"Test\":\"TestInputHistoryCLIProcessRemoteOrigin/read\"}\n", action)
+	}
+	if mode == "malformed" {
+		evidence.WriteString("not JSON\n")
+	}
+	return []byte(evidence.String())
+}
+
+func TestVerifyHookInputHistoryEvidenceGuard(t *testing.T) {
+	data, err := os.ReadFile("../../../.c2/recipes/hooks/build/verify.yaml")
+	require.NoError(t, err)
+	r, err := recipe.LoadRecipeFromString(data)
+	require.NoError(t, err)
+	node := r.RecipeImpl.(*recipe.RecipeState).States.States["test_integration"].Node.NodeImpl.(*recipe.NodeOp)
+	shell := node.Inputs["run"].(string)
+	marker := "node - \"$scratch/input-history.json\" <<'JS'\n"
+	start := strings.Index(shell, marker)
+	require.NotEqual(t, -1, start)
+	code := shell[start+len(marker):]
+	end := strings.Index(code, "\nJS\n")
+	require.NotEqual(t, -1, end)
+	code = code[:end]
+	for _, mode := range []string{"passed", "missing", "missing-published-server", "missing-history-lifetime", "skipped", "failed", "unfinished", "skipped-child", "failed-child", "malformed"} {
+		t.Run(mode, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "events.json")
+			require.NoError(t, os.WriteFile(path, inputHistoryGateEvidence(mode), 0600))
+			cmd := exec.Command("node", "-", path)
+			cmd.Stdin = strings.NewReader(code)
+			out, err := cmd.CombinedOutput()
+			if mode == "passed" {
+				require.NoError(t, err, string(out))
+			} else {
+				require.Error(t, err, string(out))
 			}
 		})
 	}

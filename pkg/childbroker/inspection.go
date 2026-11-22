@@ -14,6 +14,7 @@ import (
 	"strings"
 
 	"github.com/colony-2/c2j/pkg/jobcontext"
+	"github.com/colony-2/c2j/pkg/jobinputs"
 	"github.com/colony-2/c2j/pkg/jobinspect"
 	"github.com/colony-2/c2j/pkg/permissions"
 	"github.com/colony-2/jobdb/pkg/jobdb"
@@ -45,12 +46,25 @@ func (s *Server) handleJobInspection(w http.ResponseWriter, r *http.Request) {
 	stop := context.AfterFunc(r.Context(), func() { cancel(context.Cause(r.Context())) })
 	defer stop()
 	if access := permissions.FromContext(s.executionContext); access != nil {
-		stopScope := context.AfterFunc(access.Context(), func() { cancel(context.Cause(access.Context())) })
+		scope := access.Context()
+		stopScope := context.AfterFunc(scope, func() { cancel(context.Cause(scope)) })
 		defer stopScope()
+		if cause := context.Cause(scope); cause != nil {
+			cancel(cause)
+		}
+	}
+	// AfterFunc callbacks run asynchronously. Reject lifetimes already ended
+	// at dispatch even when the API does not itself observe cancellation.
+	if cause := context.Cause(r.Context()); cause != nil {
+		cancel(cause)
 	}
 	w.Header().Set("Cache-Control", "no-store")
+	err := context.Cause(ctx)
 	if strings.HasSuffix(r.URL.Path, "/download") {
-		reader, err := api.Download(ctx, q)
+		var reader io.ReadCloser
+		if err == nil {
+			reader, err = api.Download(ctx, q)
+		}
 		if err != nil {
 			// Named downloads retain their existing diagnostic contract. Typed
 			// saved-diff errors belong to the authenticated exact-reference route.
@@ -89,7 +103,10 @@ func (s *Server) handleJobInspection(w http.ResponseWriter, r *http.Request) {
 
 		return
 	}
-	result, err := api.Inspect(ctx, q)
+	var result *jobinspect.Response
+	if err == nil {
+		result, err = api.Inspect(ctx, q)
+	}
 	if err != nil {
 		if q.Operation == "workspace_diff" {
 			w.Header().Set("Content-Type", "application/json")
@@ -173,6 +190,18 @@ func (c JobClient) callPayload(ctx context.Context, q any, suffix string, typedE
 	if resp.StatusCode != http.StatusOK {
 		defer resp.Body.Close()
 		b, readErr := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		if _, ok := q.(jobinputs.Request); ok {
+			if readErr != nil {
+				return nil, jobinputs.Diagnostic("transport", "cannot read history diagnostic", readErr)
+			}
+			if d, e := jobinputs.DecodeError(b); e == nil {
+				return nil, d
+			}
+			if resp.StatusCode == 401 || resp.StatusCode == 403 {
+				return nil, jobinputs.Diagnostic("denied", "helper authentication denied", jobdb.ErrLeasePermissionDenied)
+			}
+			return nil, jobinputs.Diagnostic("unsupported", "history helper unavailable; upgrade worker and CLI together", nil)
+		}
 		if request, ok := q.(jobinspect.Request); ok && (request.Operation == "workspace_diff" || downloadRequest(request)) {
 			if readErr != nil {
 				return nil, jobinspect.WorkspaceDiffDiagnostic("transport", "cannot read helper diagnostic", readErr)

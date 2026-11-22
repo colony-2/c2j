@@ -14,13 +14,13 @@ import (
 
 func (r *Runtime) inspection(access *permissions.Access, tc jobworkflow.TaskContext, owner *lease) jobinspect.API {
 	return &jobinspect.Service{Runtime: r.ConsumerRuntime, Tenant: tc.JobKey.TenantId, Authorize: func(call context.Context, _ string) error {
-		if err := call.Err(); err != nil {
+		if err := context.Cause(call); err != nil {
 			return err
 		}
-		if err := access.Context().Err(); err != nil {
+		if err := context.Cause(access.Context()); err != nil {
 			return err
 		}
-		if err := tc.Context().Err(); err != nil {
+		if err := context.Cause(tc.Context()); err != nil {
 			return err
 		}
 		r.mu.Lock()

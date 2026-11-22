@@ -19,6 +19,7 @@ import (
 	"github.com/colony-2/c2j/pkg/executioncatalog"
 	"github.com/colony-2/c2j/pkg/gitprofile"
 	"github.com/colony-2/c2j/pkg/jobcontext"
+	"github.com/colony-2/c2j/pkg/jobinputs"
 	"github.com/colony-2/c2j/pkg/jobref"
 	"github.com/colony-2/c2j/pkg/recipe"
 	"github.com/colony-2/c2j/pkg/selfinfo"
@@ -48,6 +49,8 @@ type Options struct {
 }
 
 type Server struct {
+	inputs           jobinputs.API
+	cancelHistory    context.CancelFunc
 	self             selfinfo.Provider
 	workspace        *workspacesubmit.Source
 	executionContext context.Context
@@ -154,6 +157,15 @@ func start(ctx context.Context, opts Options, openListener func() (net.Listener,
 		port:             tcpAddr.Port,
 	}
 
+	historyCtx, cancelHistory := context.WithCancel(ctx)
+	broker.executionContext = historyCtx
+	broker.cancelHistory = cancelHistory
+	broker.inputs, err = jobinputs.NewFromContext(historyCtx)
+	if err != nil {
+		cancelHistory()
+		_ = listener.Close()
+		return nil, err
+	}
 	mux := http.NewServeMux()
 	mux.HandleFunc(submitPath, broker.handleSubmit)
 	mux.HandleFunc(submitPath+"/primary-goal", broker.handleSubmit)
@@ -163,6 +175,8 @@ func start(ctx context.Context, opts Options, openListener func() (net.Listener,
 	mux.HandleFunc(submitPath+"/cell", broker.handleResolveCell)
 	mux.HandleFunc(submitPath+"/cells", broker.handleCreateCell)
 	mux.HandleFunc(submitPath+"/inspect", broker.handleJobInspection)
+	mux.HandleFunc(submitPath+"/inspect/inputs", broker.handleInputHistory)
+	mux.HandleFunc(submitPath+"/inspect/inputs/artifact", broker.handleInputHistory)
 	mux.HandleFunc(submitPath+"/restart", broker.handleRestart)
 	mux.HandleFunc(submitPath+"/inspect/download", broker.handleJobInspection)
 	mux.HandleFunc(submitPath+"/inspect/changes", broker.handleChanges)
@@ -188,6 +202,12 @@ func start(ctx context.Context, opts Options, openListener func() (net.Listener,
 
 func (s *Server) Close() error {
 	s.once.Do(func() {
+		if s.cancelHistory != nil {
+			s.cancelHistory()
+		}
+		s.mu.Lock()
+		s.inputs = nil
+		s.mu.Unlock()
 		if s.server == nil {
 			return
 		}

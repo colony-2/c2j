@@ -14,6 +14,7 @@ import (
 
 	"github.com/colony-2/c2j/pkg/jobcontext"
 	"github.com/colony-2/c2j/pkg/jobinspect"
+	"github.com/colony-2/c2j/pkg/permissions"
 	"github.com/colony-2/c2j/pkg/selfinfo"
 	"github.com/stretchr/testify/require"
 )
@@ -210,4 +211,47 @@ func TestFamilyLegacyHelperRejection(t *testing.T) {
 	_, err := client.Inspect(context.Background(), jobinspect.Request{Operation: "family-node", JobID: "selected", Limit: 100, Family: &jobinspect.FamilyOptions{Version: 1}})
 	require.ErrorContains(t, err, "upgrade")
 	require.Zero(t, calls)
+}
+
+// An API need not cooperate with cancellation. The authenticated helper must
+// reject an already-ended lifetime before invoking either inspection boundary.
+func TestJobInspectionExpiredLifetimeBeforeDispatch(t *testing.T) {
+	for _, lifetime := range []string{"execution", "scope", "request"} {
+		for _, route := range []string{"metadata", "metrics", "download"} {
+			t.Run(lifetime+"/"+route, func(t *testing.T) {
+				probe := &inspectionProbe{}
+				execution, endExecution := context.WithCancel(context.Background())
+				defer endExecution()
+				scope, endScope := context.WithCancel(context.Background())
+				defer endScope()
+				request, endRequest := context.WithCancel(context.Background())
+				defer endRequest()
+				access := permissions.NewAccess(scope, permissions.JobDB{}, nil, nil)
+				ctx := jobinspect.WithAPI(permissions.WithAccess(execution, access), probe)
+				server := &Server{executionContext: ctx, token: "token", sessionID: "session"}
+				path, payload := "/inspect", `{"operation":"show","job_id":"selected"}`
+				if route == "metrics" {
+					payload = `{"operation":"metrics","job_id":"selected","metrics":{}}`
+				} else if route == "download" {
+					path, payload = "/inspect/download", `{"job_id":"selected","name":"bytes"}`
+				}
+				r := httptest.NewRequest(http.MethodPost, path, strings.NewReader(payload)).WithContext(request)
+				r.Header.Set("Authorization", "Bearer token")
+				r.Header.Set(sessionHeader, "session")
+				switch lifetime {
+				case "execution":
+					endExecution()
+				case "scope":
+					endScope()
+				case "request":
+					endRequest()
+				}
+				w := httptest.NewRecorder()
+				server.handleJobInspection(w, r)
+				require.Zero(t, probe.calls.Load(), "expired lifetime must not enter the API")
+				require.Equal(t, http.StatusBadRequest, w.Code)
+				require.Contains(t, w.Body.String(), context.Canceled.Error())
+			})
+		}
+	}
 }

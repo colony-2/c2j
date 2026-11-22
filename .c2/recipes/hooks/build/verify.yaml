@@ -135,6 +135,8 @@ state:
           mkdir -p "$TMPDIR" "$GOCACHE" "$GOMODCACHE" "$npm_config_cache" "$XDG_CACHE_HOME"
           exec > "$OUTBOX/modules.log" 2>&1
           make check-mod
+          # The published server fixture has its own dependency, not a root pin upgrade.
+          go -C cmd/c2j/testdata/input-history-server mod tidy -diff
       catch:
         - when: "failure.kind != 'cancellation'"
           continue:
@@ -180,12 +182,50 @@ state:
           done
           unset C2J_JOBDB C2J_TENANT_ID C2J_OBJECT_OUTBOX C2J_TEST_SUBMIT_BINARY C2J_REQUIRE_EXECUTION_BASE_CATALOG
           export GOWORK=off
+          # Native retained history must pass through the built CLI and live helper.
+          go build -mod=readonly -o "$scratch/c2j-input-history" ./cmd/c2j
+          export C2J_TEST_INPUT_HISTORY_BINARY="$scratch/c2j-input-history"
+          input_history_status=0
+          go test -mod=readonly -count=1 -json -tags=integration -timeout=10m ./pkg/jobinputs ./pkg/input ./pkg/input/historybridge ./pkg/executionruntime ./pkg/childbroker ./cmd/c2j/internal/cmd ./cmd/c2j/internal/runjob ./pkg/recipetest ./cmd/c2j -run '^(TestHistory|TestInputHistory)' > "$scratch/input-history.json" || input_history_status=$?
+          cat "$scratch/input-history.json"
+          node - "$scratch/input-history.json" <<'JS'
+          const fs = require('node:fs');
+          const events = fs.readFileSync(process.argv[2], 'utf8').trim().split('\n').filter(Boolean).map(JSON.parse);
+          const required = {
+            'pkg/jobinputs': ['TestInputHistoryProtocol', 'TestInputHistoryVerifiedBytes', 'TestInputHistoryBlockedCancellation'],
+            'pkg/input': ['TestHistorySQLiteRetainedWaitSnapshotsAndProducerBytes'],
+            'pkg/input/historybridge': ['TestInputHistoryAdapterSnapshotsAndAuthority', 'TestInputHistoryPrivateRestoreFailures', 'TestInputHistoryConcurrentReaderIsolation'],
+            'pkg/executionruntime': ['TestInputHistoryLeaseLifetime', 'TestInputHistoryRenewalPreservesAuthority', 'TestInputHistoryActiveTaskCancellation', 'TestInputHistoryCachedOperationsLifetime'],
+            'pkg/childbroker': ['TestInputHistoryHelperAuthenticationAndClaims', 'TestInputHistoryHelperFinalAuthority', 'TestInputHistoryHelperTransport', 'TestInputHistoryHelperExpiredLifetimeBeforeDispatch', 'TestInputHistoryHelperExpiredLifetimeBeforeDispatch/request-canceled/list', 'TestInputHistoryHelperExpiredLifetimeBeforeDispatch/request-canceled/show', 'TestInputHistoryHelperExpiredLifetimeBeforeDispatch/request-canceled/artifact'],
+            'cmd/c2j/internal/cmd': ['TestInputHistoryAtomicFiles', 'TestInputHistoryCLIValidation'],
+            'cmd/c2j/internal/runjob': ['TestInputHistoryRunnerComposition'],
+            'pkg/recipetest': ['TestInputHistoryRecipeTestComposition'],
+            'cmd/c2j': ['TestInputHistoryCLIProcessRetainedRecords', 'TestInputHistoryCLIProcessTransport', 'TestInputHistoryCLIProcessAuthorityBeforeCompletion', 'TestInputHistoryCLIProcessRemoteOrigin', 'TestInputHistoryCLIProcessRetainedRecords/published-http', 'TestInputHistoryCLIProcessRemoteOrigin/denied', 'TestInputHistoryCLIProcessRemoteOrigin/wrapped-denied', 'TestInputHistoryCLIProcessRemoteOrigin/producer-denied', 'TestInputHistoryCLIProcessRemoteOrigin/producer-open-denied', 'TestInputHistoryCLIProcessRemoteOrigin/short', 'TestInputHistoryCLIProcessRemoteOrigin/legacy-server-denial']
+          };
+          for (const [suffix, names] of Object.entries(required)) {
+            const pkg = 'github.com/colony-2/c2j/' + suffix;
+            for (const name of names) {
+              const rows = events.filter(e => e.Package === pkg && (e.Test === name || (e.Test || '').startsWith(name + '/')));
+              if (!rows.some(e => e.Test === name && e.Action === 'pass') || rows.some(e => e.Action === 'skip' || e.Action === 'fail')) {
+                throw new Error('Retained input history acceptance missing, skipped or failed: ' + pkg + '/' + name);
+              }
+            }
+          }
+          if (events.some(e => /^(TestHistory|TestInputHistory)/.test(e.Test || '') && (e.Action === 'skip' || e.Action === 'fail'))) {
+            throw new Error('Retained input history required coverage failed or skipped');
+          }
+          JS
+          test "$input_history_status" -eq 0
+          go test -race -mod=readonly -count=1 -timeout=10m ./pkg/jobinputs ./pkg/input/historybridge ./pkg/executionruntime ./pkg/childbroker -run '^TestInputHistory'
+          unset C2J_TEST_INPUT_HISTORY_BINARY
           # Exact hidden-source restarts must pass through the lease-bound helper.
           go test -mod=readonly -count=1 -v -timeout=5m ./pkg/executionruntime -run '^TestLeaseBoundRestartHelperSubmission$'
           # Saved-diff transport must preserve existing artifact-read diagnostics.
           go test -mod=readonly -count=1 -v -timeout=5m ./pkg/executionruntime -run '^TestTaskInspectionUsesBackendReadPermissions$'
           # Keep helper and inspection first; probe task/lease transitions and prompt cancellation.
           go test -mod=readonly -race -count=1 -v -timeout=10m ./cmd/c2j/internal/cmd ./cmd/c2j/internal/runjob ./pkg/task ./pkg/executionruntime ./pkg/worker/ops ./pkg/ops/extensions -run '^TestHealth|^TestPrompt'
+          # Repeat cancellation, timeout and scheduler readiness regressions before the full suite.
+          go test -mod=readonly -count=3 -v -tags=integration -timeout=5m ./pkg/childbroker ./pkg/worker/compiler ./pkg/executionruntime -run '^Test(JobInspectionExpiredLifetimeBeforeDispatch|MetricsHelperAuthenticationExactnessAndIncompleteHistory|ExtensionWaitManifestTimeout|InputHistoryHelperExpiredLifetimeBeforeDispatch|ExtensionWaitReadinessClockRecheck)$'
           # Extension waits must discard before publication and survive durable scheduling.
           # Record actual subtests; a successful command with no collected cases is insufficient.
           wait_status=0

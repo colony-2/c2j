@@ -153,12 +153,56 @@ func (f *extensionWaitFixture) finish(t *testing.T, target jobdb.JobHandle, succ
 }
 func waitReady(t *testing.T, g *waitGate) {
 	t.Helper()
+	waitReadyWithClock(t, g, time.Now, time.Sleep)
+}
+
+func waitReadyWithClock(t *testing.T, g *waitGate, now func() time.Time, sleep func(time.Duration)) {
+	t.Helper()
 	at := g.NotBefore
 	if g.Request.Until != nil && g.Request.Until.After(at) {
 		at = *g.Request.Until
 	}
-	if d := time.Until(at); d > 0 {
-		time.Sleep(d + 20*time.Millisecond)
+	// Retained timestamps use wall time; timer completion alone does not prove
+	// readiness when the wall clock moves during a monotonic sleep.
+	limit := time.Now().Add(max(at.Sub(now()), 0) + 5*time.Second)
+	for {
+		d := at.Sub(now())
+		if d <= 0 {
+			return
+		}
+		require.True(t, time.Now().Before(limit), "wall clock did not reach scheduler readiness: %s", at)
+		sleep(min(d+20*time.Millisecond, 100*time.Millisecond))
+	}
+}
+
+func TestExtensionWaitReadinessClockRecheck(t *testing.T) {
+	for _, useUntil := range []bool{false, true} {
+		t.Run(fmt.Sprintf("until_%t", useUntil), func(t *testing.T) {
+			start := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+			at := start.Add(100 * time.Millisecond)
+			g := &waitGate{NotBefore: at}
+			if useUntil {
+				g.NotBefore = start
+				g.Request.Until = &at
+			}
+			current, sleeps := start, 0
+			now := func() time.Time { return current }
+			sleep := func(d time.Duration) {
+				require.Positive(t, d)
+				sleeps++
+				// First timer returns while wall time is still before readiness.
+				if sleeps == 1 {
+					current = at.Add(-time.Millisecond)
+				} else {
+					current = at
+				}
+			}
+			waitReadyWithClock(t, g, now, sleep)
+			require.Equal(t, at, current, "timer wake-up must be followed by a wall-time recheck")
+			require.Equal(t, 2, sleeps)
+			waitReadyWithClock(t, g, now, sleep)
+			require.Equal(t, 2, sleeps, "an already-ready gate must not sleep")
+		})
 	}
 }
 func TestExtensionWaitScheduling(t *testing.T) {
@@ -201,13 +245,17 @@ func TestExtensionWaitScheduling(t *testing.T) {
 							f.finish(t, target, terminal == "success")
 						}
 						waitReady(t, g)
+						require.False(t, time.Now().Before(g.NotBefore), "scheduler resumed before not_before: %s", g.NotBefore)
+						binding, err := f.rt.GetDependencyWait(waitTestContext(context.Background()), jobdb.DependencyWaitKey{JobKey: f.key, WaitID: g.ID})
+						require.NoError(t, err)
+						require.NotEqual(t, jobdb.DependencyPending, binding.State, "%+v", binding)
 						out, e = f.run(t)
 						require.NoError(t, e)
 						if condition == "success" && terminal != "success" {
 							require.Equal(t, wf.JobRunFailed, out.Status)
 							require.EqualValues(t, 1, f.task.runs.Load())
 						} else {
-							require.Equal(t, wf.JobRunCompleted, out.Status, "%v", out.JobError)
+							require.Equal(t, wf.JobRunCompleted, out.Status, "error=%v gate=%+v runs=%d binding=%+v", out.JobError, f.gate(t), f.task.runs.Load(), binding)
 							require.EqualValues(t, 2, f.task.runs.Load())
 						}
 					})

@@ -6,6 +6,10 @@ The separate operator action `c2j job clear-crash-concern JOB` resets a blocked
 job's crash counter. See [crash-concern recovery](GUIDE-Cortex-RecipeJob-API.md#clear-crash-concern)
 for its credentials, behavior, and Go API.
 
+For exact retained input evidence, use [task input history](GUIDE-Task-Input-History.md).
+Its `job inputs list/show/artifact` commands require the authenticated helper and
+have no standalone credential route.
+
 ## Find the relevant work
 
 ```sh

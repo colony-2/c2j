@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/colony-2/c2j/pkg/executionruntime"
+	"github.com/colony-2/c2j/pkg/input/historybridge"
 	restartservice "github.com/colony-2/c2j/pkg/jobrestart/service"
 	"io"
 	"log/slog"
@@ -223,6 +224,7 @@ func buildDeps(ctx context.Context, opts Options) (*runnerDeps, func(), error) {
 	}
 	deps.executionRuntime = executionruntime.New(handle.Runtime, opts.Allocation)
 	deps.executionRuntime.BaseCatalog = policy
+	deps.executionRuntime.InputHistory = historybridge.Factory(handle.Runtime, &workerworkflow.SWFWorkflowControl{Engine: handle.Engine})
 	deps.executionRuntime.RestartAPI = &restartservice.Service{Engine: handle.Engine, Tenant: opts.TenantID, Provider: celProvider, Resolver: recipeSourceResolver, Submit: (restartservice.TaskSubmitter{Engine: handle.Engine, Registry: handle.Runtime.(jobdb.JobSchemaRegistry)}).Submit}
 	for i, worker := range deps.taskWorkers {
 		deps.taskWorkers[i] = deps.executionRuntime.WrapTaskWorker(worker)

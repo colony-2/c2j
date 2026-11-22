@@ -15,6 +15,7 @@ import (
 	"github.com/colony-2/c2j/pkg/execution"
 	"github.com/colony-2/c2j/pkg/executioncatalog"
 	"github.com/colony-2/c2j/pkg/extensionwait"
+	"github.com/colony-2/c2j/pkg/jobinputs"
 	"github.com/colony-2/c2j/pkg/jobrestart"
 	"github.com/colony-2/c2j/pkg/permissions"
 	"github.com/colony-2/jobdb/pkg/jobdb"
@@ -27,6 +28,8 @@ type Runtime struct {
 	BaseCatalog executioncatalog.Policy
 	// RestartAPI is a driver-provided, authorized restart service.
 	RestartAPI jobrestart.API
+	// InputHistory constructs a native history adapter for each helper authority.
+	InputHistory jobinputs.Factory
 	jobdb.ConsumerRuntime
 	// Issuer translates recipe grants into task-scoped delegation requests.
 	Issuer     permissions.Issuer
@@ -115,6 +118,9 @@ func (r *Runtime) accept(_ context.Context, l jobdb.ExecutionLease) (jobdb.Execu
 func (r *Runtime) wrapLease(l jobdb.ExecutionLease, state *leaseState) jobdb.ExecutionLease {
 	wrapped := &lease{ExecutionLease: l, runtime: r, leaseState: state}
 	r.mu.Lock()
+	if old := r.leases[l.Job().JobKey]; old != nil {
+		old.notifyHistoryLocked()
+	}
 	if previous := r.leases[l.Job().JobKey]; previous != nil && previous.leaseState != state {
 		r.clearActivityLocked()
 	}
@@ -135,6 +141,7 @@ type lease struct {
 // All refreshed snapshots share invocation state. Renewal must not lose staged
 // execution demand or a failure that has already blocked subsequent tasks.
 type leaseState struct {
+	historyChanged  chan struct{} // guarded by runtime.mu; wakes expiry/renewal watchers
 	metricsSnapshot *jobdb.ChapterMetadataValue
 	demand          *execution.Demand
 	pendingWait     *waitGate
@@ -198,6 +205,7 @@ func (l *lease) forget() {
 	l.runtime.mu.Lock()
 	defer l.runtime.mu.Unlock()
 	if current := l.runtime.leases[l.Job().JobKey]; current != nil && current.leaseState == l.leaseState {
+		current.notifyHistoryLocked()
 		delete(l.runtime.leases, l.Job().JobKey)
 		l.runtime.clearActivityLocked()
 	}

@@ -259,12 +259,15 @@ output_schema: {type: object, required: [ready]}
 
 func TestExtensionWaitManifestTimeout(t *testing.T) {
 	withRegisteredOps(t, extops.GetExecutionOp())
+	// The manifest budget includes Git/worktree preparation. Allow ordinary
+	// startup, then wait beyond that budget before checking the fresh launch.
+	const manifestTimeout = 10 * time.Second
 	repo := filepath.Join(t.TempDir(), "repo")
 	workspaceRepo(t, repo, "source")
 	counter := filepath.Join(t.TempDir(), "runs")
 	commitHookFile(t, repo, "ops/wait/op.yaml", fmt.Sprintf(`name: bounded-launch
 shell: sh
-timeout: 300ms
+timeout: %s
 run: |
   cat >/dev/null
   printf '%%s\n' "$C2J_CURRENT_INVOCATION_HASH" >> %q
@@ -272,10 +275,10 @@ run: |
     printf '{"wait":{"version":1,"until":"2000-01-01T00:00:00Z"}}'
     exit 76
   fi
-  exec sleep 5
+  exec sleep 60
 input_schema: {type: object}
 output_schema: {type: object}
-`, counter, counter))
+`, manifestTimeout, counter, counter))
 	rt := newTimeoutReproRuntime(t, "sqlite").ConsumerRuntime
 	key := submitGitLifecycle(t, rt, repo, `id: git-lifecycle
 op: ./ops/wait
@@ -286,15 +289,22 @@ catch:
 `)
 	out, err := runNegotiatingRecipe(t, rt, key, execution.Allocation{SchemaVersion: 2}, false)
 	require.NoError(t, err)
-	require.Equal(t, wf.JobRunSuspended, out.Status, "%v", out.JobError)
-	time.Sleep(1100 * time.Millisecond)
+	if out.Status != wf.JobRunSuspended {
+		runs, readErr := os.ReadFile(counter)
+		var result map[string]any
+		if out.Status == wf.JobRunCompleted {
+			result = gitLifecycleOutput(t, out)
+		}
+		t.Fatalf("first launch: wanted SUSPENDED, got %s; job_error=%v; caught=%v; message=%v; runs=%q; read_error=%v", out.Status, out.JobError, result["caught"], result["message"], runs, readErr)
+	}
+	time.Sleep(manifestTimeout + 100*time.Millisecond)
 	started := time.Now()
 	out, err = runNegotiatingRecipe(t, rt, key, execution.Allocation{SchemaVersion: 2}, true)
 	require.NoError(t, err)
 	result := gitLifecycleOutput(t, out)
 	require.Equal(t, true, result["caught"])
 	require.Equal(t, "Timed out", result["message"])
-	require.Less(t, time.Since(started), 4*time.Second, "manifest timeout must bound the fresh launch")
+	require.Less(t, time.Since(started), manifestTimeout+5*time.Second, "manifest timeout must bound the fresh launch")
 	raw, err := os.ReadFile(counter)
 	require.NoError(t, err)
 	lines := strings.Fields(string(raw))
