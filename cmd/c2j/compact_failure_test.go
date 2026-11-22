@@ -110,7 +110,9 @@ func TestCompactFailureCLI(t *testing.T) {
 				server := httptest.NewServer(celltest.Handler(remote.NewConsumerServer(db)))
 				defer server.Close()
 				for attempt := 0; attempt < 2; attempt++ {
-					command := exec.Command(os.Args[0], "-test.run=^TestLeaseDiagnosticProcess$", "--", "run", "--job-id", h.JobKey.JobId, "--jobdb", server.URL+"/test", "--ci")
+					// Replay diagnostics do not need a health listener. Avoid the
+					// default host port, which may belong to the verification worker.
+					command := exec.Command(os.Args[0], "-test.run=^TestLeaseDiagnosticProcess$", "--", "run", "--job-id", h.JobKey.JobId, "--jobdb", server.URL+"/test", "--ci", "--health-port", "0")
 					command.Env = append(os.Environ(), "C2J_TEST_LEASE_PROCESS=1")
 					command.Dir = root
 					var stdout, stderr bytes.Buffer

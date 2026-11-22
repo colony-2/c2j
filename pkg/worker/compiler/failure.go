@@ -140,7 +140,7 @@ func normalizeRuntimeFailure(err error, resCtx *template.ResolutionContext, meta
 			failure.Attrs = jsonCompatibleMap(appErr.Payload.Attrs)
 			if code, ok := failure.Attrs["code"].(string); ok {
 				failure.Code = code
-				if code == executioncatalog.Unsupported {
+				if code == executioncatalog.Unsupported || code == executioncatalog.UnsupportedRequirements {
 					failure.Retryable = false
 				}
 			}

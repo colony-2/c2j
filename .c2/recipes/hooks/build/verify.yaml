@@ -259,12 +259,48 @@ state:
           go test -mod=readonly -race -count=1 -v -tags=integration -timeout=5m ./pkg/jobinspect -run '^TestChanges(J30J32GitDiagnosticIdentity|J32L07GitProcessGroupCleanup|J30L07RepositoryTransferCleanup|ProcessExitObservation)$'
           # Validate this hook's native scenario contract before expensive suites.
           go test -mod=readonly -count=1 -v -timeout=5m ./pkg/recipetest -run '^TestPnpmVerifyHook$'
-          # Reject unsupported bases before submission, execution and handoff.
-          go test -count=1 -v -timeout=5m ./pkg/execution ./pkg/executioncatalog ./pkg/executionruntime ./pkg/gitprofile ./pkg/starter ./pkg/recipejob ./pkg/childbroker ./pkg/jobdbschema ./pkg/worker/compiler ./cmd/c2j/internal/cmd ./cmd/c2j/internal/runjob ./cmd/c2j/internal/submitjob -run '^TestExecutionBaseCatalog'
+          # Require named catalog checks, actual CLI process exits and no skipped acceptance.
+          export C2J_TEST_EXECUTION_BASES_BINARY="$scratch/c2j-input-history"
+          go test -mod=readonly -count=1 -json -tags=integration -timeout=10m ./pkg/execution ./pkg/executioncatalog ./pkg/executionruntime ./pkg/gitprofile ./pkg/starter ./pkg/recipejob ./pkg/childbroker ./pkg/jobdbschema ./pkg/worker/compiler ./cmd/c2j/internal/cmd ./cmd/c2j/internal/runjob ./cmd/c2j/internal/submitjob ./cmd/c2j -run '^TestExecutionBaseCatalog' > "$scratch/execution-bases.json"
+          cat "$scratch/execution-bases.json"
+          node - "$scratch/execution-bases.json" <<'JS'
+          const fs = require('node:fs');
+          const events = fs.readFileSync(process.argv[2], 'utf8').trim().split('\n').filter(Boolean).map(JSON.parse);
+          const required = {
+            "pkg/execution": ["TestExecutionBaseCatalogSchema", "TestExecutionBaseCatalogMatching"],
+            "pkg/executioncatalog": ["TestExecutionBaseCatalogFreshPolicy", "TestExecutionBaseCatalogCompletePolicy"],
+            "pkg/executionruntime": ["TestExecutionBaseCatalogCompleteRuntime", "TestExecutionBaseCatalogCompleteCallbacks", "TestExecutionBaseCatalogRestoredDefaultsBeforeInstaller", "TestExecutionBaseCatalogFinalPublicationWithdrawalRestoresCandidate", "TestExecutionBaseCatalogFencesReadAgainstLeaseLoss"],
+            "pkg/gitprofile": ["TestExecutionBaseCatalogScopedDiscoveryAndHiding", "TestExecutionBaseCatalogScopeFencesInflightDiscovery", "TestExecutionBaseCatalogForkFencesInflightDiscovery"],
+            "pkg/starter": ["TestExecutionBaseCatalogPublicationAndPurePreparation", "TestExecutionBaseCatalogRestartInitialDemand", "TestExecutionBaseCatalogRestartCompleteRequirements", "TestExecutionBaseCatalogDisabledOCI"],
+            "pkg/recipejob": ["TestExecutionBaseCatalogLibraryRequiredAndZeroPolicy", "TestExecutionBaseCatalogLibraryCompleteRequirements"],
+            "pkg/childbroker": ["TestExecutionBaseCatalogOrdinaryAndSelectedBroker"],
+            "pkg/jobdbschema": ["TestExecutionBaseCatalogSchemaRegistrationRechecksPublication", "TestExecutionBaseCatalogEnginePassThrough"],
+            "pkg/worker/compiler": ["TestExecutionBaseCatalogSerializedFailure", "TestExecutionBaseCatalogExtensionNegotiationRefusal"],
+            "cmd/c2j/internal/cmd": ["TestExecutionBaseCatalogFocusedEdits", "TestExecutionBaseCatalogConditionalPublication", "TestExecutionBaseCatalogObservedSnapshotConflict", "TestExecutionBaseCatalogMutationSnapshotConflict", "TestExecutionBaseCatalogScopedCLIFormats"],
+            "cmd/c2j/internal/runjob": ["TestExecutionBaseCatalogRequiredDriverAcquiredAndSupplied"],
+            "cmd/c2j/internal/submitjob": ["TestExecutionBaseCatalogStandaloneSubmission"],
+            "cmd/c2j": ["TestExecutionBaseCatalogCLIProcess", "TestExecutionBaseCatalogCLIProcess/E01_E02_focused_session", "TestExecutionBaseCatalogCLIProcess/E01_C13_helper_and_denials", "TestExecutionBaseCatalogCLIProcess/E01_unavailable_authority"]
+          };
+          for (const [suffix, names] of Object.entries(required)) {
+            const pkg = 'github.com/colony-2/c2j/' + suffix;
+            for (const name of names) {
+              const rows = events.filter(e => e.Package === pkg && (e.Test === name || (e.Test || '').startsWith(name + '/')));
+              if (!rows.some(e => e.Test === name && e.Action === 'run') || !rows.some(e => e.Test === name && e.Action === 'pass') || rows.some(e => e.Action === 'skip' || e.Action === 'fail')) {
+                throw new Error('Execution base acceptance missing, skipped or failed: ' + pkg + '/' + name);
+              }
+            }
+          }
+          if (events.some(e => /^TestExecutionBaseCatalog/.test(e.Test || '') && (e.Action === 'skip' || e.Action === 'fail'))) {
+            throw new Error('Execution base acceptance failed or skipped');
+          }
+          JS
+          unset C2J_TEST_EXECUTION_BASES_BINARY
           # Submission text must be recorded while only declared fields reach recipes.
           go test -mod=readonly -count=1 -v -timeout=10m ./pkg/recipe ./pkg/worker/compiler ./pkg/recipejob ./pkg/recipetest ./pkg/childbroker ./pkg/starter ./cmd/c2j/internal/submitjob -run '^TestRecipeSubmissionInputs|^TestSelectedBrokerRealDispatchAndReplay$|^TestExplicitTitle(Selection|TransportAndDescriptor)$|^TestSubmissionPrompt|^Test(Title|LoadInputs)'
           # Fail early on compact failure formatting, persisted messages and real CLI output.
           go test -count=1 -v -timeout=10m ./pkg/ops/executiondiag ./pkg/ops/process ./pkg/recipe ./pkg/worker/commandop ./pkg/ops/extensions ./pkg/worker/ops ./pkg/worker/compiler ./cmd/c2j -run 'Test(Compact|ExecutionFailurePresentation|Capture|ExecuteProcessMasksDynamicallyResolvedGitCredentials|CommandCompact|CommandFailure|CommandDiagnostic|ExtensionCompact|ExtensionAutomatic|ExtensionCancellation|ExtensionCollectionFailure|ExtensionResultFailureReasons|ExecutionRequired|PreparedCompletion|CommandDiagnosticsNestedCatchResumeAndReplay|ExtensionExecutionLogCatchAndReplay|TaskWorkerCompact|VerifyHook)'
+          # Exercise stamped run modes and lease diagnostics before the broad suite.
+          go test -mod=readonly -count=1 -v -tags=integration -timeout=10m ./cmd/c2j -run '^Test(ReleaseBuildRecordsConsumerVersions|WithLeaseCLIErrorOutput)$'
           # Preserve tool output through submit --run and both child-recipe fixture engines.
           go test -count=1 -v -tags=integration -timeout=10m ./cmd/c2j/internal/submitjob ./pkg/input/test-fixtures -run '^Test(Run_EmbedExtensionFailureCompletesWithOriginalError|RecipeFixtures)'
           # Gate direct-file subprocess acceptance and enclosing-schema conflicts (source/mocked Nix).

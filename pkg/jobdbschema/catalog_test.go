@@ -3,6 +3,7 @@ package jobdbschema
 import (
 	"context"
 	"encoding/json"
+	"github.com/colony-2/c2j/internal/executiontest"
 	"testing"
 	"time"
 
@@ -31,7 +32,7 @@ func TestExecutionBaseCatalogSchemaRegistrationRechecksPublication(t *testing.T)
 		t.Run(kind, func(t *testing.T) {
 			now := time.Now().UTC()
 			base := "macos-15-arm64"
-			catalog := execution.BaseCatalog{Version: 1, Scope: execution.CatalogScope{Runtime: "https://test", Tenant: "tenant"}, Complete: true, NamedBases: []string{base}, Dynamic: []execution.DynamicBaseRule{}, Generation: "one", PublishedAt: now.Add(-time.Minute), ExpiresAt: now.Add(time.Hour)}
+			catalog := execution.BaseCatalog{Version: 1, Scope: execution.CatalogScope{Runtime: "https://test", Tenant: "tenant"}, Complete: true, Offerings: executiontest.Offerings(base), Generation: "one", PublishedAt: now.Add(-time.Minute), ExpiresAt: now.Add(time.Hour)}
 			reads := 0
 			policy := executioncatalog.Policy{Required: true, Scope: catalog.Scope, Read: func(context.Context) (jobdb.ConfigurationSnapshot, error) {
 				reads++
@@ -40,7 +41,7 @@ func TestExecutionBaseCatalogSchemaRegistrationRechecksPublication(t *testing.T)
 				return jobdb.ConfigurationSnapshot{Revision: catalog.Generation, Values: map[string]json.RawMessage{execution.BaseCatalogKey: raw}}, nil
 			}}
 			registry := withdrawingSchemaRegistry{captureRegistry: &captureRegistry{}, withdraw: func() {
-				catalog.NamedBases = []string{}
+				catalog.Offerings = executiontest.Offerings()
 				catalog.Generation = "withdrawn"
 			}}
 			ctx := executioncatalog.WithPolicy(context.Background(), policy)
@@ -89,7 +90,7 @@ func (e *catalogCaptureEngine) StartOrAppendJob(context.Context, jobdb.StartOrAp
 
 func TestExecutionBaseCatalogEnginePassThrough(t *testing.T) {
 	now := time.Now().UTC()
-	catalog := execution.BaseCatalog{Version: 1, Scope: execution.CatalogScope{Runtime: "https://test", Tenant: "tenant"}, Complete: true, NamedBases: []string{}, Dynamic: []execution.DynamicBaseRule{}, Generation: "one", PublishedAt: now.Add(-time.Minute), ExpiresAt: now.Add(time.Hour)}
+	catalog := execution.BaseCatalog{Version: 1, Scope: execution.CatalogScope{Runtime: "https://test", Tenant: "tenant"}, Complete: true, Offerings: executiontest.Offerings(), Generation: "one", PublishedAt: now.Add(-time.Minute), ExpiresAt: now.Add(time.Hour)}
 	raw, err := json.Marshal(catalog)
 	require.NoError(t, err)
 	policy := executioncatalog.Policy{Required: true, Scope: catalog.Scope, Read: func(context.Context) (jobdb.ConfigurationSnapshot, error) {

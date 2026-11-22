@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/colony-2/c2j/internal/executiontest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -215,47 +216,65 @@ catch:
 func TestExecutionBaseCatalogExtensionNegotiationRefusal(t *testing.T) {
 	withRegisteredOps(t, extops.GetExecutionOp())
 	for _, backend := range []string{"sqlite", "remote"} {
-		t.Run(backend, func(t *testing.T) {
-			repo := filepath.Join(t.TempDir(), "repo")
-			workspaceRepo(t, repo, "source")
-			commitHookFile(t, repo, "ops/refused/op.yaml", `name: refused
+		for _, kind := range []string{"base", "capability", "cpu", "memory"} {
+			t.Run(backend+"/"+kind, func(t *testing.T) {
+				request := `{"execution_required":{"base":"macos-sequoia-15.7.7-arm64"}}`
+				want := executioncatalog.Unsupported
+				switch kind {
+				case "capability":
+					request = `{"execution_required":{"base":"linux","capabilities":["special"]}}`
+					want = executioncatalog.UnsupportedRequirements
+				case "cpu":
+					request = `{"execution_required":{"base":"linux","resources":{"cpu":"16"}}}`
+					want = executioncatalog.UnsupportedRequirements
+				case "memory":
+					request = `{"execution_required":{"base":"linux","resources":{"memory":"64Gi"}}}`
+					want = executioncatalog.UnsupportedRequirements
+				}
+				repo := filepath.Join(t.TempDir(), "repo")
+				workspaceRepo(t, repo, "source")
+				commitHookFile(t, repo, "ops/refused/op.yaml", `name: refused
 shell: sh
 run: |
-  printf '{"execution_required":{"base":"macos-sequoia-15.7.7-arm64"}}'
+  printf '%s' '`+request+`'
   exit 75
 input_schema: {type: object}
 output_schema: {type: object}
 `)
-			rt := newTimeoutReproRuntime(t, backend).ConsumerRuntime
-			key := submitGitLifecycle(t, rt, repo, `id: git-lifecycle
+				rt := newTimeoutReproRuntime(t, backend).ConsumerRuntime
+				key := submitGitLifecycle(t, rt, repo, `id: git-lifecycle
 execution: {base: '*'}
 sequence:
  - id: negotiate
    op: ./ops/refused
    retry: {maximum_attempts: 3}
    catch:
-    - when: "failure.code == 'UNSUPPORTED_EXECUTION_BASE' && failure.retryable == false"
+    - when: "failure.code == '`+want+`' && failure.retryable == false"
       continue:
        outputs:
         code: "${{ failure.code }}"
         choices: "${{ failure.attrs.named_bases }}"
 outputs: {result: '${{ sequence.negotiate.outputs }}'}
 `)
-			now := time.Now().UTC()
-			c := execution.BaseCatalog{Version: 1, Scope: execution.CatalogScope{Runtime: "https://test-jobdb", Tenant: key.TenantId}, Complete: true, NamedBases: []string{"linux", "macos-15-arm64"}, Dynamic: []execution.DynamicBaseRule{}, Generation: "one", PublishedAt: now.Add(-time.Minute), ExpiresAt: now.Add(time.Hour)}
-			raw, err := json.Marshal(c)
-			require.NoError(t, err)
-			_, err = rt.(jobdb.ConfigurationAdmin).SetTenantConfigurationValue(celltest.Context(context.Background()), jobdb.SetTenantConfigurationValueRequest{TenantID: key.TenantId, Name: execution.BaseCatalogKey, Value: raw})
-			require.NoError(t, err)
-			out, err := runNegotiatingRecipe(t, rt, key, execution.Allocation{SchemaVersion: execution.SchemaVersion, Base: "linux"}, false, executioncatalog.Policy{Required: true, Scope: c.Scope})
-			require.NoError(t, err)
-			result := gitLifecycleOutput(t, out)["result"].(map[string]any)
-			require.Equal(t, executioncatalog.Unsupported, result["code"])
-			require.Equal(t, []any{"linux", "macos-15-arm64"}, result["choices"])
-			info, err := rt.GetJob(celltest.Context(context.Background()), key)
-			require.NoError(t, err)
-			require.Empty(t, info.ClientPayload)
-			require.Nil(t, out.Handoff)
-		})
+				now := time.Now().UTC()
+				c := execution.BaseCatalog{Version: 1, Scope: execution.CatalogScope{Runtime: "https://test-jobdb", Tenant: key.TenantId}, Complete: true, Offerings: executiontest.Offerings("linux", "macos-15-arm64"), Generation: "one", PublishedAt: now.Add(-time.Minute), ExpiresAt: now.Add(time.Hour)}
+				cpuMax, memoryMax := "8", "32Gi"
+				c.Offerings[0].Resources.CPU = &execution.ResourceRule{State: "range", Max: &cpuMax}
+				c.Offerings[0].Resources.Memory = &execution.ResourceRule{State: "range", Max: &memoryMax}
+				raw, err := json.Marshal(c)
+				require.NoError(t, err)
+				_, err = rt.(jobdb.ConfigurationAdmin).SetTenantConfigurationValue(celltest.Context(context.Background()), jobdb.SetTenantConfigurationValueRequest{TenantID: key.TenantId, Name: execution.BaseCatalogKey, Value: raw})
+				require.NoError(t, err)
+				out, err := runNegotiatingRecipe(t, rt, key, execution.Allocation{SchemaVersion: execution.SchemaVersion, Base: "linux"}, false, executioncatalog.Policy{Required: true, Scope: c.Scope})
+				require.NoError(t, err)
+				result := gitLifecycleOutput(t, out)["result"].(map[string]any)
+				require.Equal(t, want, result["code"])
+				require.Equal(t, []any{"linux", "macos-15-arm64"}, result["choices"])
+				info, err := rt.GetJob(celltest.Context(context.Background()), key)
+				require.NoError(t, err)
+				require.Empty(t, info.ClientPayload)
+				require.Nil(t, out.Handoff)
+			})
+		}
 	}
 }

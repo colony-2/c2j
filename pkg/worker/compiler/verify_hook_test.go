@@ -1,7 +1,9 @@
 package compiler
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -98,6 +100,7 @@ func TestVerifyHookSubmissionEnvironmentAndGate(t *testing.T) {
 		{name: "catalog-gate", failGate: "TestExecutionBaseCatalog"},
 		{name: "submission-inputs-gate", failGate: "^TestRecipeSubmissionInputs"},
 		{name: "compact-gate", failGate: "Test(Compact|ExecutionFailurePresentation"},
+		{name: "cli-process-gate", failGate: "^Test(ReleaseBuildRecordsConsumerVersions|WithLeaseCLIErrorOutput)$"},
 		{name: "fixture-gate", failGate: "Run_EmbedExtensionFailureCompletesWithOriginalError"},
 		{name: "artifact-file-gate", failGate: "TestArtifactFile"},
 		{name: "artifact-metadata-gate", failGate: "TestNixOpDescriptionDoesNotInstall"},
@@ -126,6 +129,9 @@ fi
 test "$GOWORK" = off
 printf '%s %s\n' "${0##*/}" "$*" >> "$COMMANDS"
 if [ -n "$FAIL_GATE" ] && [[ "$*" == *"$FAIL_GATE"* ]]; then exit 42; fi
+if [[ "$*" == *'-run ^TestExecutionBaseCatalog' ]]; then
+  cat "$CATALOG_GATE_EVENTS"
+fi
 if [[ "$*" == *'TestHistory|TestInputHistory'* ]]; then
   cat "$HISTORY_GATE_EVENTS"
 fi
@@ -196,6 +202,8 @@ if [ "$1" = submit ]; then
   done
 fi
 `
+			catalogEvents := filepath.Join(root, "catalog-events.json")
+			require.NoError(t, os.WriteFile(catalogEvents, catalogGateEvidence(t, node.Inputs["run"].(string)), 0600))
 			historyEvents := filepath.Join(root, "history-events.json")
 			require.NoError(t, os.WriteFile(historyEvents, inputHistoryGateEvidence("passed"), 0600))
 			require.NoError(t, os.WriteFile(filepath.Join(bin, "go"), []byte(mock), 0700))
@@ -203,7 +211,7 @@ fi
 			cmd := exec.Command("bash", "-c", node.Inputs["run"].(string))
 			cmd.Dir = root
 			cmd.Env = append(os.Environ(), "PATH="+bin+":"+os.Getenv("PATH"), "OUTBOX="+outbox, "COMMANDS="+commands, "FAIL_GATE="+fixture.failGate, fmt.Sprintf("MISSING_WAIT_GOAL=%t", fixture.missingWaitGoal), "C2J_CURRENT_JOB_ID=live", "C2J_CHILD_JOB_TOKEN=live", "C2J_WORKSPACE_ROOT=live", "C2J_JOBDB=embed:///", "C2J_TENANT_ID=live", "C2J_OBJECT_OUTBOX=live", "C2J_TEST_SUBMIT_BINARY=/stale/c2j", "C2J_REQUIRE_EXECUTION_BASE_CATALOG=true")
-			cmd.Env = append(cmd.Env, "HISTORY_GATE_EVENTS="+historyEvents)
+			cmd.Env = append(cmd.Env, "HISTORY_GATE_EVENTS="+historyEvents, "CATALOG_GATE_EVENTS="+catalogEvents)
 			out, err := cmd.CombinedOutput()
 			log, logErr := os.ReadFile(filepath.Join(outbox, "tests.log"))
 			require.NoError(t, logErr)
@@ -251,6 +259,7 @@ fi
 				"^TestExecutionBaseCatalog",
 				"^TestRecipeSubmissionInputs",
 				"Test(Compact|ExecutionFailurePresentation",
+				"^Test(ReleaseBuildRecordsConsumerVersions|WithLeaseCLIErrorOutput)$",
 				"^Test(Run_EmbedExtensionFailureCompletesWithOriginalError|RecipeFixtures)",
 				"^TestArtifactFile|^TestNixOpDescriptionDoesNotInstall$",
 				"^TestRealNixArtifactFiles$",
@@ -565,6 +574,91 @@ func TestVerifyHookLeaseParentageEvidenceGuard(t *testing.T) {
 			cmd := exec.Command("node", "-", path)
 			cmd.Stdin = strings.NewReader(code)
 			out, err := cmd.CombinedOutput()
+			if mode == "passed" {
+				require.NoError(t, err, string(out))
+			} else {
+				require.Error(t, err, string(out))
+			}
+		})
+	}
+}
+
+// Read the hook's required test map so the shell recorder can exercise gate
+// ordering. This fake is control-flow evidence, not feature acceptance.
+func catalogGateEvidence(t *testing.T, run string) []byte {
+	t.Helper()
+	marker := "const required = {\n  \"pkg/execution\""
+	start := strings.Index(run, marker)
+	require.GreaterOrEqual(t, start, 0)
+	start += len("const required = ")
+	end := strings.Index(run[start:], "\n};")
+	require.GreaterOrEqual(t, end, 0)
+	var required map[string][]string
+	require.NoError(t, json.Unmarshal([]byte(run[start:start+end+2]), &required))
+	var out bytes.Buffer
+	for suffix, names := range required {
+		for _, name := range names {
+			for _, action := range []string{"run", "pass"} {
+				require.NoError(t, json.NewEncoder(&out).Encode(map[string]string{"Package": "github.com/colony-2/c2j/" + suffix, "Test": name, "Action": action}))
+			}
+		}
+	}
+	return out.Bytes()
+}
+
+func TestVerifyHookExecutionBaseEvidenceGuard(t *testing.T) {
+	data, err := os.ReadFile("../../../.c2/recipes/hooks/build/verify.yaml")
+	require.NoError(t, err)
+	r, err := recipe.LoadRecipeFromString(data)
+	require.NoError(t, err)
+	state := r.RecipeImpl.(*recipe.RecipeState)
+	node := state.States.States["test_integration"].Node.NodeImpl.(*recipe.NodeOp)
+	shell := node.Inputs["run"].(string)
+	marker := "node - \"$scratch/execution-bases.json\" <<'JS'\n"
+	start := strings.Index(shell, marker)
+	require.GreaterOrEqual(t, start, 0)
+	code := shell[start+len(marker):]
+	end := strings.Index(code, "\nJS\n")
+	require.GreaterOrEqual(t, end, 0)
+	code = code[:end]
+	events := catalogGateEvidence(t, shell)
+	for _, mode := range []string{"passed", "missing-process", "unfinished", "skipped", "failed", "skipped-child", "empty", "malformed"} {
+		t.Run(mode, func(t *testing.T) {
+			var output bytes.Buffer
+			for _, line := range bytes.Split(events, []byte("\n")) {
+				if len(line) == 0 {
+					continue
+				}
+				var e map[string]string
+				require.NoError(t, json.Unmarshal(line, &e))
+				if mode == "missing-process" && e["Package"] == "github.com/colony-2/c2j/cmd/c2j" {
+					continue
+				}
+				if mode == "unfinished" && e["Action"] == "pass" {
+					continue
+				}
+				if mode == "skipped" && e["Action"] == "pass" {
+					e["Action"] = "skip"
+				}
+				if mode == "failed" && e["Action"] == "pass" {
+					e["Action"] = "fail"
+				}
+				require.NoError(t, json.NewEncoder(&output).Encode(e))
+			}
+			if mode == "skipped-child" {
+				output.WriteString(`{"Action":"skip","Package":"github.com/colony-2/c2j/pkg/execution","Test":"TestExecutionBaseCatalogSchema/required-child"}`)
+			}
+			if mode == "empty" {
+				output.Reset()
+			}
+			if mode == "malformed" {
+				output.WriteString("{not JSON}")
+			}
+			path := filepath.Join(t.TempDir(), "events.json")
+			require.NoError(t, os.WriteFile(path, output.Bytes(), 0600))
+			command := exec.Command("node", "-", path)
+			command.Stdin = strings.NewReader(code)
+			out, err := command.CombinedOutput()
 			if mode == "passed" {
 				require.NoError(t, err, string(out))
 			} else {

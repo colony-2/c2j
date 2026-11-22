@@ -1,132 +1,165 @@
-# Discover and refuse unsupported execution bases
+# Choose and edit execution bases
 
-A base selector can be syntactically valid yet name an environment nobody offers.
-An upgraded c2j submitter or worker can check a deployment's declared offering
-before publishing that demand. A refused request includes supported choices and
-uses ordinary recipe failure handling. Pulse placement is unchanged.
-
-Use `c2j execution bases --json` before selecting a name. Inside an operation this
-uses its read-only execution helper; outside a job it reads the selected JobDB
-tenant. Human output explicitly describes support, not free capacity. Busy,
-warming and temporarily unreachable hosts still belong in the offering.
-
-Names retain case-sensitive, whole-name `*` matching. c2j does not infer versions,
-create aliases or substitute another base. Omitted base and exactly `*` remain
-unconstrained. Offered names do not certify an OS patch release or installed tools.
-
-## Publish the offering
-
-One authorized deployment publisher declares the complete tenant-wide offering
-across all eligible providers/controllers. Publish through a provisioning context:
+Use `c2j execution bases` to see declared capabilities and CPU/memory request
+limits. The catalog describes support, including busy hosts; it does not measure
+free capacity or provision an executor. `get` uses the same readable view, with an
+optional exact base filter. Add `--json` to any command for structured output.
 
 ```sh
-c2j execution bases set --jobdb https://jobdb.example/tenant --file bases.json
-c2j execution bases get --jobdb https://jobdb.example/tenant
-c2j execution bases --jobdb https://jobdb.example/tenant --json
+c2j execution bases --jobdb https://jobdb.example/tenant
+c2j execution bases get linux --jobdb https://jobdb.example/tenant --json
+c2j execution bases check 'linux*' --capability docker --cpu 4 --memory 8Gi \
+  --jobdb https://jobdb.example/tenant --json
 ```
 
-`set` accepts JSON (or `--file -` for stdin). Example only; obtain actual names and
-prerequisites from the deployment owner:
+Unlisted bases and capabilities are **not allowed**. Names match case-sensitively
+using whole-name `*` matching. Omitted base and exactly `*` search all declared
+offerings. One offering must satisfy the complete request: capabilities from one
+configuration cannot be combined with limits from another. An empty catalog
+allows no requests, even when a request has no explicit constraints. Explicit
+`oci:` selectors and OCI declarations are unsupported.
+
+CPU/memory columns describe explicit requests. Omission uses provider defaults
+and adds no constraint. Rules are inclusive ranges, `unbounded` (any positive
+value), or `not allowed` (explicit requests prohibited). A request below a minimum
+is refused, not rounded up. CPU uses cores/millicores, memory uses SI/IEC units;
+values must be positive and exactly representable. Packages, Python and storage
+are outside this catalog's policy. Runtime allocation matching still checks actual
+resources independently.
+
+## Declare support without constructing JSON
+
+An authorized publisher uses a provisioning context, outside job operations:
+
+```sh
+# Include --jobdb https://jobdb.example/tenant on each command, or configure it.
+c2j execution bases init --valid-for 24h
+c2j execution bases add linux --capability docker \
+  --cpu-min 500m --cpu-max 8 --memory-min 1Gi --memory-max 32Gi
+c2j execution bases add macos --cpu-not-allowed --memory-unbounded
+c2j execution bases capability add linux docker.workspace-mounts
+c2j execution bases capability remove linux docker
+c2j execution bases capability clear linux
+c2j execution bases ranges set linux --cpu-max 16 --memory-max 64Gi
+c2j execution bases ranges set linux --cpu-max none
+c2j execution bases ranges set linux --cpu-unbounded
+c2j execution bases renew --valid-for 24h
+c2j execution bases remove macos
+```
+
+`init` requires positive validity and refuses to overwrite an existing catalog.
+`add` requires a CPU declaration and a memory declaration. Repeat `--capability`
+to declare a set; omission declares no capabilities. Range edits preserve
+unspecified endpoints. `none` clears an endpoint; clearing the last endpoint
+makes a resource unbounded. State switches clear bounds. Conflicting state/bound
+options and inverted ranges fail without writing.
+
+`--offer NAME` selects a configuration, defaulting to `default`. For example,
+`add linux --offer kvm --capability virtualization.kvm --cpu-unbounded
+--memory-unbounded` declares another complete configuration. Capability/range
+edits require that offering to exist. `remove linux --offer kvm` removes only it;
+`remove linux` removes every offering of that base.
+
+Scope, generation and publication time are generated. Ordinary edits preserve
+expiry; only `renew --valid-for` extends validity. Administrators can inspect an
+expired structural record (`status: expired`, nonzero exit) and renew it without
+changing offerings. Malformed records require a complete replacement. No-op edits
+preserve revision, generation and timestamps.
+
+## JSON and publication
+
+Inspection emits `{status, scope, revision?, reason?, catalog?, filtered?}`.
+`bases` and `get` share that envelope. `get BASE` marks its projection
+`filtered: true` and `catalog.complete: false`; it cannot be imported as a full
+catalog. Unknown bases return `not_found`. Check output includes a normalized
+request, decision, satisfying offering identities, and offering-specific reasons
+for every mismatch. Decisions are `allowed`, `not_allowed`, `invalid_request`,
+`not_configured`, and `unavailable`.
+
+Inspection succeeds for authoritative or optionally unconfigured views. Checks
+succeed only when allowed; other decisions exit nonzero. Successful edits and
+no-ops exit zero. JSON commands emit one object on stdout, with errors on stderr;
+flag-parser errors may leave stdout empty. Mutation receipts include `changed`,
+scope, revision, generation, expiry and changes.
+
+Advanced publishers can use `set --file PATH` (`-` reads bounded stdin) to import
+one complete catalog object. Export the `catalog` property of an unfiltered JSON
+view, rather than the view envelope. The sole current format is:
 
 ```json
 {
   "version": 1,
   "scope": {"runtime": "https://jobdb.example", "tenant": "tenant"},
   "complete": true,
-  "named_bases": ["macos-15-arm64", "macos-26-arm64"],
-  "dynamic": [{"kind": "oci"}],
-  "generation": "offering-2026-11-20-1",
-  "published_at": "2026-11-20T00:00:00Z",
-  "expires_at": "2026-11-21T00:00:00Z"
+  "offerings": [{
+    "base": "linux", "name": "default", "capabilities": ["docker"],
+    "resources": {
+      "cpu": {"state": "range", "min": "500m", "max": "8"},
+      "memory": {"state": "range", "min": "1Gi", "max": "32Gi"}
+    }
+  }],
+  "generation": "example",
+  "published_at": "2026-11-22T06:00:00Z",
+  "expires_at": "2026-11-23T06:00:00Z"
 }
 ```
 
-Use the runtime URL and tenant from the resolved JobDB target. Embedded JobDB uses
-runtime `embed:///` and tenant `0`. Scope must match exactly. Declare explicit
-arrays, including `[]` for no named bases or no dynamic namespaces. `complete`
-must be true. Names must be unique and concrete; dynamic version-one rules accept
-only `oci`. Unknown fields, duplicate JSON members, duplicate rules, unknown
-versions and invalid authority are rejected. Validity uses UTC and requires
-`published_at <= now < expires_at`. The encoded record is limited to 64 KiB.
+Use a currently valid UTC interval and the exact resolved runtime/tenant scope.
+Embedded JobDB uses `embed:///` and tenant `0`. Every offering needs explicit
+non-null capabilities, resources, CPU/memory rules and resource states. A range
+needs at least one non-null endpoint; other states forbid endpoints. Names and
+capabilities are sorted canonically. Duplicate members/identities/capabilities,
+case aliases of JSON fields, unknown fields, invalid quantities, trailing JSON,
+invalid UTF-8, and input/canonical content over 64 KiB are rejected. This replaces
+the unused names/dynamic catalog format directly; no old-format reader is provided.
 
-An OCI rule admits a concrete `oci:...` request to the provider's normal image and
-platform validation. It does not promise every registry image exists. A wildcard
-with no named match that intersects the open OCI namespace returns
-`CANNOT_VERIFY_EXECUTION_BASE`; refine it to a concrete base. A disjoint selector
-returns `UNSUPPORTED_EXECUTION_BASE`.
+The reserved tenant key remains `_c2j_execution_bases`. Each mutation reads one
+snapshot, changes only selected properties and conditionally writes only that key
+against the same revision. Unrelated configuration is preserved. Conflicts retain
+the winner and return without retrying. A lost response triggers exact-content
+readback, never another write. Uncertainty retains the exact candidate in the
+administration diagnostic; compare it before retrying. Changed imports generate
+fresh generation/publication metadata; metadata-only differences are no-ops.
 
-The reserved JobDB tenant record is `_c2j_execution_bases`. Generic scoped config
-reads deny that exact key, including direct socket requests. Use typed discovery.
-This separates interfaces; authorized JobDB administrators can still inspect raw
-configuration. Management commands refuse operation contexts before discovering
-administration credentials, and operations receive no write capability.
+Inside operations, discovery/get/check use the authenticated read-only execution
+helper. Target overrides are rejected. Mutations refuse operation contexts before
+opening files or discovering administration credentials. A missing/expired helper
+does not fall back to ambient administrator access. Generic scoped configuration
+reads continue to deny the reserved key. Capability declarations do not grant
+permissions.
 
-Publication replaces only this key, conditional on the observed configuration
-revision. Unrelated configuration remains intact. A concurrent winner is retained
-and the losing publisher must reread. A lost response triggers a fresh exact-content
-readback, never a second write. If uncertain, retain the original generation and
-payload until you have resolved whether that write committed. A changed record
-requires a new generation.
+## Admission boundaries
 
-## Enable admission
+Publish accurate offerings, then enable `C2J_REQUIRE_EXECUTION_BASE_CATALOG=true`
+in standalone drivers to require catalog admission. Missing/false disables catalog
+reads for admission; explicit OCI selectors still fail. Invalid boolean settings
+fail option validation. A missing, malformed, expired or unreadable required
+catalog cannot authorize work and is never treated as an empty denylist.
 
-Upgrade all participating submitters and workers, publish the complete offering,
-then set `C2J_REQUIRE_EXECUTION_BASE_CATALOG=true` in standalone c2j drivers. The
-policy is independent of the catalog record: deleting or expiring the record
-cannot disable required admission. An absent/false variable retains existing
-unconfigured behavior; malformed booleans fail option validation.
+Library drivers set `executionruntime.Runtime.BaseCatalog` to an
+`executioncatalog.Policy` with `Required: true` and trusted scope. The runtime
+supplies a fresh current-owner-lease reader. Keep task workers wrapped with
+`WrapTaskWorker` and use `Stage` as the compiler staging callback. Submission
+drivers supply an authorized reader through `starter.StartRecipeJobOptions.BaseCatalog`,
+`recipejob.BuildStartJobRequest.BaseCatalog`, or `executioncatalog.WithPolicy`.
+Preparation and descriptor construction remain pure; final submission/restart/
+append recheck current authority. Operation environment variables cannot weaken
+the parent's policy.
 
-Library drivers can set `executionruntime.Runtime.BaseCatalog` to an
-`executioncatalog.Policy`, with `Required: true` and a trusted scope. The runtime
-supplies a fresh current-owner-lease reader; do not give child leases configuration
-grants. Acquired and supplied leases use this same policy. All task workers must
-still use `WrapTaskWorker`, and the compiler must use `Stage` as its execution
-staging callback.
+Each required check reads fresh authority once, bounded by ten seconds and any
+earlier caller deadline. Known initial requirements are checked before submission.
+Repository defaults are combined and checked before dependency installation;
+exit-75 requirements before staging/handoff; actual reschedule payloads before
+publication or lease release. Refused candidates restore prior staged demand.
+Completed task results replay without checking their historical requirements.
 
-Submission drivers supply `Policy.Read` using their authorized target's fresh
-configuration reader. Use `starter.StartRecipeJobOptions.BaseCatalog`,
-`recipejob.BuildStartJobRequest.BaseCatalog`, or
-`executioncatalog.WithPolicy(ctx, policy)` for descriptor and lower-level c2j
-submission adapters. Preparation and descriptor construction remain pure. Keep
-policy attached through final publication, including restart and append callbacks.
-Zero-policy constructors/callers retain existing behavior. A required policy
-without a reader fails closed. Operation subprocess environment overrides cannot
-lower the parent broker's policy or switch it to ambient admin credentials.
+`UNSUPPORTED_EXECUTION_BASE` means no matching base (or an explicit OCI selector).
+`UNSUPPORTED_EXECUTION_REQUIREMENTS` means matching bases exist but no complete
+offering accepts the request. Both are nonretryable application refusals with
+source, scope, revision, generation and reasons. Required-authority failures use
+`EXECUTION_BASE_CATALOG_UNAVAILABLE`, an infrastructure error. Lease loss and
+cancellation retain their identities.
 
-Admission reads once per check, with a ten-second limit capped by caller deadlines.
-It does not cache authority between tasks, retry internally, poll or reschedule a
-refusal. It checks known initial demand before new submission; unresolved future
-requirements are checked when their real unfinished task executes. Repository
-defaults are combined and checked before dependency installation. Exit-75 combined
-requirements are checked before staging or yielding. Changed reschedule payloads
-are checked before their conditional write. Completed task results replay without
-revalidating their historical environments.
-
-`UNSUPPORTED_EXECUTION_BASE` is an application failure with selector, real boundary
-source, sorted choices, dynamic rules, trusted scope, revision and generation. Its
-recipe failure is nonretryable. Existing bounded recipe recovery still applies;
-retrying an unchanged request cannot publish it. `CANNOT_VERIFY_EXECUTION_BASE` is
-a nonretryable system failure requiring a more precise request. Missing, expired,
-malformed or unreadable required authority returns
-`EXECUTION_BASE_CATALOG_UNAVAILABLE`, an infrastructure failure. Lease loss and
-cancellation retain their ownership/cancellation meaning.
-
-## Correct existing waits
-
-Catalog publication does not drain an already-stranded job or retract demand
-withdrawn after a successful check. Correct the owner's saved recipe/hook and
-restart at a boundary that reloads it, or submit a corrected job while preserving
-old evidence. Retrying the same pinned task cannot load an edited hook from main.
-Do not invent a task failure for a task no upgraded worker has reached.
-
-For job `3MJfwiz2fzcZLbInFqDakTKw3PK`, the retained request is
-`macos-sequoia-15.7.7-arm64`. Confirm the actual offered Apple Silicon host and
-signing prerequisites before selecting its replacement. Keep Linux/fixture tests
-and the mandatory real macOS signing check. This change neither mutates that job
-nor installs signing tools.
-
-Raw JobDB clients and old c2j binaries can still publish unchecked demand. Confirm
-that provider-launched c2j workers can upgrade independently of Pulse before
-requiring admission. Register additions before use, renew authority before expiry,
-and drain withdrawals where possible. Local SQLite/HTTP tests establish c2j
-behavior; they do not establish deployment inventory, rollout or real Mac success.
+Catalog edits do not retract already published demand or restart stranded jobs.
+Correct the owner's request and restart at a boundary that reloads it. These
+commands neither install tools nor establish provider availability.

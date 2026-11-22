@@ -46,6 +46,11 @@ requirements combine by union; providers report actual capabilities separately.
 Use repeatable `--require-capability NAME` for submission and
 `--execution-capability NAME` for supplied facts. See the
 [capability contracts](pkg/execution/README.md#execution-capabilities).
+Use `c2j execution bases` to see allowed capabilities and CPU/memory ranges,
+including explicit restrictions. `bases check` explains a complete request;
+`--json` provides structured output. Operators can edit one base, capability or
+range through focused commands; see the [base catalog guide](GUIDE-Execution-Base-Catalog.md).
+
 Node-level `execution_needs` adds scoped requirements and templatable resource/base overrides that
 inherit within a job and restore the parent on exit. Completed tasks replay
 without requesting their historical environments. Pass actual executor facts using individual `--execution-*` flags

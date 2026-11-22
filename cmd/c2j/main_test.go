@@ -84,8 +84,9 @@ func TestWithLeaseCLIErrorOutput(t *testing.T) {
 			}
 			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 			defer cancel()
+			// Exercise lease diagnostics even when the default health port is busy.
 			command := exec.CommandContext(ctx, os.Args[0], "-test.run=^TestLeaseDiagnosticProcess$", "--",
-				"run", "with-lease", "--ci", "--job-id", "job", "--lease-file", "-", "--jobdb", target)
+				"run", "with-lease", "--ci", "--job-id", "job", "--lease-file", "-", "--jobdb", target, "--health-port", "0")
 			command.Env = append(os.Environ(), "C2J_TEST_LEASE_PROCESS=1")
 			command.Dir = t.TempDir()
 			command.Stdin = strings.NewReader(`{"version":2,"tenantId":"tenant","jobId":"job","leaseId":"lease","leaseToken":"` + token + `"}`)

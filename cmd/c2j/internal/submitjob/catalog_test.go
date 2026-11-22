@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"github.com/colony-2/c2j/internal/celltest"
+	"github.com/colony-2/c2j/internal/executiontest"
 	"github.com/colony-2/c2j/pkg/execution"
 	"github.com/colony-2/c2j/pkg/executioncatalog"
 	"github.com/colony-2/jobdb/pkg/jobdb"
@@ -33,7 +34,7 @@ func TestExecutionBaseCatalogStandaloneSubmission(t *testing.T) {
 	server := httptest.NewServer(celltest.Handler(remote.NewConsumerServer(rt)))
 	defer server.Close()
 	now := time.Now().UTC()
-	c := execution.BaseCatalog{Version: 1, Scope: execution.CatalogScope{Runtime: server.URL, Tenant: "t"}, Complete: true, NamedBases: []string{"macos-15-arm64"}, Dynamic: []execution.DynamicBaseRule{}, Generation: "one", PublishedAt: now.Add(-time.Minute), ExpiresAt: now.Add(time.Hour)}
+	c := execution.BaseCatalog{Version: 1, Scope: execution.CatalogScope{Runtime: server.URL, Tenant: "t"}, Complete: true, Offerings: executiontest.Offerings("macos-15-arm64"), Generation: "one", PublishedAt: now.Add(-time.Minute), ExpiresAt: now.Add(time.Hour)}
 	raw, _ := json.Marshal(c)
 	_, err := rt.SetTenantConfigurationValue(ctx, jobdb.SetTenantConfigurationValueRequest{TenantID: "t", Name: execution.BaseCatalogKey, Value: raw})
 	require.NoError(t, err)
@@ -46,6 +47,25 @@ func TestExecutionBaseCatalogStandaloneSubmission(t *testing.T) {
 	jobs, err := rt.ListJobs(ctx, jobdb.ListJobsRequest{TenantIds: []string{"t"}})
 	require.NoError(t, err)
 	require.Empty(t, jobs.Jobs)
+
+	for _, needs := range []execution.Requirements{
+		{Capabilities: []string{"special"}},
+		{Resources: execution.Resources{CPU: catalogString("16")}},
+		{Resources: execution.Resources{Memory: catalogString("64Gi")}},
+	} {
+		c.Offerings[0].Resources.CPU = &execution.ResourceRule{State: "range", Max: catalogString("8")}
+		c.Offerings[0].Resources.Memory = &execution.ResourceRule{State: "range", Max: catalogString("32Gi")}
+		raw, _ = json.Marshal(c)
+		_, err = rt.SetTenantConfigurationValue(ctx, jobdb.SetTenantConfigurationValueRequest{TenantID: "t", Name: execution.BaseCatalogKey, Value: raw})
+		require.NoError(t, err)
+		base = "macos-15-arm64"
+		needs.Base = &base
+		err = Run(ctx, Options{JobDBURI: server.URL + "/t", RecipeFile: file, Cell: "app", CellRepo: "example.test/app", Prompt: "probe", ExecutionRequirements: needs, Stdout: &out, Stderr: &out})
+		require.ErrorContains(t, err, executioncatalog.UnsupportedRequirements)
+		jobs, err = rt.ListJobs(ctx, jobdb.ListJobsRequest{TenantIds: []string{"t"}})
+		require.NoError(t, err)
+		require.Empty(t, jobs.Jobs)
+	}
 	base = "macos-15-arm64"
 	err = Run(ctx, Options{JobDBURI: server.URL + "/t", RecipeFile: file, Cell: "app", CellRepo: "example.test/app", Prompt: "probe", ExecutionRequirements: execution.Requirements{Base: &base}, Stdout: &out, Stderr: &out})
 	require.NoError(t, err)
@@ -53,3 +73,5 @@ func TestExecutionBaseCatalogStandaloneSubmission(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, jobs.Jobs, 1)
 }
+
+func catalogString(s string) *string { return &s }

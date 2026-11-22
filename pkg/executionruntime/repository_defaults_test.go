@@ -193,7 +193,7 @@ chmod +x "$UV_TOOL_BIN_DIR/defaults-tool"
 	run := func(alloc execution.Allocation) (jobworkflow.JobRunOutcome, *compiler.ExecutionHandoff) {
 		rt := New(base, alloc)
 		if mode == "catalog" {
-			rt.BaseCatalog = installCatalog(t, &fixture{runtime: base}, "macos-15-arm64")
+			rt.BaseCatalog = installCatalog(t, &fixture{runtime: base}, "linux-amd64")
 		}
 		ws, err := compiler.NewRecipeWorkerWithOptions(coreops.NewServiceDepsBuilder().Build(), reg, compiler.RecipeJobWorkerOptions{Allocation: alloc, StageExecution: rt.Stage, WrapTaskWorker: rt.WrapTaskWorker})
 		require.NoError(t, err)
@@ -228,7 +228,7 @@ chmod +x "$UV_TOOL_BIN_DIR/defaults-tool"
 	out, event := run(initial)
 	if mode == "catalog" {
 		require.Equal(t, jobworkflow.JobRunFailed, out.Status)
-		require.ErrorContains(t, out.JobError, "UNSUPPORTED_EXECUTION_BASE")
+		require.ErrorContains(t, out.JobError, "UNSUPPORTED_EXECUTION_REQUIREMENTS")
 		require.Nil(t, event)
 		require.Zero(t, calls)
 		_, statErr := os.Stat(installLog)

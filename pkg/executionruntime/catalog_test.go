@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/colony-2/c2j/internal/executiontest"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -29,7 +30,7 @@ func installCatalog(t *testing.T, f *fixture, names ...string) executioncatalog.
 	if names == nil {
 		names = []string{}
 	}
-	c := execution.BaseCatalog{Version: 1, Scope: execution.CatalogScope{Runtime: "https://test-jobdb", Tenant: "tenant"}, Complete: true, NamedBases: names, Dynamic: []execution.DynamicBaseRule{}, Generation: "generation", PublishedAt: now.Add(-time.Minute), ExpiresAt: now.Add(time.Hour)}
+	c := execution.BaseCatalog{Version: 1, Scope: execution.CatalogScope{Runtime: "https://test-jobdb", Tenant: "tenant"}, Complete: true, Offerings: executiontest.Offerings(names...), Generation: "generation", PublishedAt: now.Add(-time.Minute), ExpiresAt: now.Add(time.Hour)}
 	raw, err := json.Marshal(c)
 	require.NoError(t, err)
 	_, err = f.runtime.(jobdb.ConfigurationAdmin).SetTenantConfigurationValue(celltest.Context(context.Background()), jobdb.SetTenantConfigurationValueRequest{TenantID: "tenant", Name: execution.BaseCatalogKey, Value: raw})
@@ -436,11 +437,11 @@ func TestExecutionBaseCatalogFinalPublicationWithdrawalRestoresCandidate(t *test
 	f, tasks := newNodeFixture(t, "sqlite", `id: withdrawal
 op: needs_a
 `)
-	p := installCatalog(t, f, "macos-15-arm64")
+	p := installLimitedCatalog(t, f)
 	ctx := celltest.Context(context.Background())
 	allowed, err := f.runtime.(jobdb.ConfigurationAdmin).GetTenantConfiguration(ctx, "tenant")
 	require.NoError(t, err)
-	installCatalog(t, f)
+	installCatalog(t, f, "linux")
 	withdrawn, err := f.runtime.(jobdb.ConfigurationAdmin).GetTenantConfiguration(ctx, "tenant")
 	require.NoError(t, err)
 	raw, err := f.runtime.GetJobLease(ctx, jobdb.GetJobLeaseRequest{JobKey: f.key, WorkerID: "owner", Routes: []jobdb.Route{{JobType: "recipe"}}, LeaseDuration: time.Minute})
@@ -448,11 +449,11 @@ op: needs_a
 	held := &withdrawingCatalogLease{RenewableExecutionLease: raw.(jobdb.RenewableExecutionLease), allowed: allowed, withdrawn: withdrawn, reads: &atomic.Int32{}}
 	rt := New(f.runtime, baseAllocation("linux"))
 	rt.BaseCatalog = p
-	probe := &catalogRepositoryProbe{repositoryTask: &repositoryTask{nodeTask: tasks[0], defaults: execution.Requirements{Base: str("macos-15-arm64")}}, rt: rt}
+	probe := &catalogRepositoryProbe{repositoryTask: &repositoryTask{nodeTask: tasks[0], defaults: execution.Requirements{Base: str("linux"), Capabilities: []string{"docker"}}}, rt: rt}
 	out, err := runFixtureLease(t, f, rt, held, []jobworkflow.TaskWorker{probe})
 	require.NoError(t, err)
 	require.Equal(t, jobworkflow.JobRunFailed, out.Status)
-	require.ErrorContains(t, out.JobError, executioncatalog.Unsupported)
+	require.ErrorContains(t, out.JobError, executioncatalog.UnsupportedRequirements)
 	require.GreaterOrEqual(t, held.reads.Load(), int32(4))
 	require.Contains(t, out.JobError.Error(), "reschedule.execution.base")
 	require.NotNil(t, probe.after)
@@ -475,8 +476,8 @@ func (l *withdrawingCatalogLease) Renew(ctx context.Context) (jobdb.RenewableExe
 	return &withdrawingCatalogLease{RenewableExecutionLease: next, reads: l.reads, allowed: l.allowed, withdrawn: l.withdrawn}, nil
 }
 
-func TestExecutionBaseCatalogInvalidAuthorityAndOpenNamespaceDoNotPublish(t *testing.T) {
-	for _, kind := range []string{"missing", "malformed", "expired", "open_namespace"} {
+func TestExecutionBaseCatalogInvalidAuthorityAndUnmatchedWildcardDoNotPublish(t *testing.T) {
+	for _, kind := range []string{"missing", "malformed", "expired", "unmatched_wildcard"} {
 		t.Run(kind, func(t *testing.T) {
 			f, tasks := newNodeFixture(t, "toy", `id: invalid
 op: needs_a
@@ -485,14 +486,14 @@ execution_needs: {base: 'o*'}
 			p := executioncatalog.Policy{Required: true, Scope: execution.CatalogScope{Runtime: "https://test-jobdb", Tenant: "tenant"}}
 			raw := json.RawMessage(`{"version":2}`)
 			want := executioncatalog.Unavailable
-			if kind == "expired" || kind == "open_namespace" {
+			if kind == "expired" || kind == "unmatched_wildcard" {
 				now := time.Now().UTC()
 				expiry := now.Add(-time.Second)
-				if kind == "open_namespace" {
+				if kind == "unmatched_wildcard" {
 					expiry = now.Add(time.Hour)
-					want = executioncatalog.CannotVerify
+					want = executioncatalog.Unsupported
 				}
-				c := execution.BaseCatalog{Version: 1, Scope: p.Scope, Complete: true, NamedBases: []string{}, Dynamic: []execution.DynamicBaseRule{{Kind: "oci"}}, Generation: "one", PublishedAt: now.Add(-time.Hour), ExpiresAt: expiry}
+				c := execution.BaseCatalog{Version: 1, Scope: p.Scope, Complete: true, Offerings: executiontest.Offerings(), Generation: "one", PublishedAt: now.Add(-time.Hour), ExpiresAt: expiry}
 				raw, _ = json.Marshal(c)
 			}
 			if kind != "missing" {
@@ -505,6 +506,116 @@ execution_needs: {base: 'o*'}
 			require.Zero(t, tasks[0].runs.Load())
 			require.Nil(t, out.Handoff)
 			info, err := f.runtime.GetJob(celltest.Context(context.Background()), f.key)
+			require.NoError(t, err)
+			require.Empty(t, info.ClientPayload)
+		})
+	}
+}
+
+func installLimitedCatalog(t *testing.T, f *fixture) executioncatalog.Policy {
+	t.Helper()
+	p := installCatalog(t, f, "linux")
+	now := time.Now().UTC()
+	c := execution.BaseCatalog{Version: 1, Scope: p.Scope, Complete: true, Offerings: executiontest.Offerings("linux"), Generation: "limited", PublishedAt: now.Add(-time.Minute), ExpiresAt: now.Add(time.Hour)}
+	c.Offerings[0].Capabilities = []string{"docker"}
+	c.Offerings[0].Resources.CPU = &execution.ResourceRule{State: "range", Min: str("500m"), Max: str("8")}
+	c.Offerings[0].Resources.Memory = &execution.ResourceRule{State: "range", Min: str("1Gi"), Max: str("32Gi")}
+	raw, err := json.Marshal(c)
+	require.NoError(t, err)
+	_, err = f.runtime.(jobdb.ConfigurationAdmin).SetTenantConfigurationValue(celltest.Context(context.Background()), jobdb.SetTenantConfigurationValueRequest{TenantID: "tenant", Name: execution.BaseCatalogKey, Value: raw})
+	require.NoError(t, err)
+	return p
+}
+func TestExecutionBaseCatalogCompleteRuntime(t *testing.T) {
+	for _, backend := range []string{"toy", "sqlite", "remote"} {
+		for _, kind := range []string{"R01_allowed", "R01_allocation_still_required", "R02_capability", "R02_cpu", "R02_memory"} {
+			t.Run(backend+"/"+kind, func(t *testing.T) {
+				decl := "{base: linux, capabilities: [docker], resources: {cpu: 2, memory: 8Gi}}"
+				switch kind {
+				case "R02_capability":
+					decl = "{base: linux, capabilities: [special]}"
+				case "R02_cpu":
+					decl = "{base: linux, resources: {cpu: 16}}"
+				case "R02_memory":
+					decl = "{base: linux, resources: {memory: 64Gi}}"
+				}
+				f, tasks := newNodeFixture(t, backend, "id: complete\nop: needs_a\nexecution_needs: "+decl+"\n")
+				p := installLimitedCatalog(t, f)
+				alloc := execution.Allocation{SchemaVersion: execution.SchemaVersion, Base: "linux", Capabilities: []string{"docker", "special"}, Resources: execution.Resources{CPU: str("32"), Memory: str("128Gi")}}
+				if kind == "R01_allocation_still_required" {
+					alloc.Capabilities = nil
+				}
+				out := runCatalogNode(t, f, p, alloc, f.tasks)
+				switch kind {
+				case "R01_allowed":
+					require.Equal(t, jobworkflow.JobRunCompleted, out.Status, "%v", out.JobError)
+					require.EqualValues(t, 1, tasks[0].runs.Load())
+				case "R01_allocation_still_required":
+					require.Equal(t, jobworkflow.JobRunSuspended, out.Status)
+					require.Zero(t, tasks[0].runs.Load())
+					require.NotNil(t, out.Handoff)
+				default:
+					require.Equal(t, jobworkflow.JobRunFailed, out.Status)
+					require.ErrorContains(t, out.JobError, executioncatalog.UnsupportedRequirements)
+					require.Zero(t, tasks[0].runs.Load())
+					require.Nil(t, out.Handoff)
+					info, err := f.runtime.GetJob(celltest.Context(context.Background()), f.key)
+					require.NoError(t, err)
+					require.Empty(t, info.ClientPayload)
+				}
+			})
+		}
+	}
+}
+func TestExecutionBaseCatalogCompleteCallbacks(t *testing.T) {
+	for _, kind := range []string{"capability", "cpu", "memory", "oci_disabled"} {
+		t.Run(kind, func(t *testing.T) {
+			f, _ := newNodeFixture(t, "sqlite", "id: callback\nop: needs_a\n")
+			p := installLimitedCatalog(t, f)
+			needs := execution.Requirements{Base: str("linux")}
+			want := executioncatalog.UnsupportedRequirements
+			switch kind {
+			case "capability":
+				needs.Capabilities = []string{"special"}
+			case "cpu":
+				needs.Resources.CPU = str("16")
+			case "memory":
+				needs.Resources.Memory = str("64Gi")
+			case "oci_disabled":
+				p.Required = false
+				needs.Base = str("oci:alpine")
+				want = "OCI"
+			}
+			rt := New(f.runtime, baseAllocation("linux"))
+			rt.BaseCatalog = p
+			ctx := celltest.Context(context.Background())
+			raw, err := f.runtime.GetJobLease(ctx, jobdb.GetJobLeaseRequest{JobKey: f.key, WorkerID: "owner", Routes: []jobdb.Route{{JobType: "recipe"}}, LeaseDuration: time.Minute})
+			require.NoError(t, err)
+			held, err := rt.accept(ctx, raw)
+			require.NoError(t, err)
+			defer held.StopKeepAlive()
+			initial, err := execution.Initial(nil, true, needs)
+			require.NoError(t, err)
+			metadata, _ := json.Marshal(map[string]any{"execution": initial})
+			payload, err := execution.PayloadWithDemand(nil, execution.Demand{SchemaVersion: execution.DemandSchemaVersion, RecipeResolution: "resolved", Effective: needs})
+			require.NoError(t, err)
+			before, err := f.runtime.ListJobs(ctx, jobdb.ListJobsRequest{TenantIds: []string{"tenant"}})
+			require.NoError(t, err)
+			job := jobdb.SubmitJob{TenantId: "tenant", Cell: "test", CellRepo: celltest.Repo(""), JobType: "recipe", Data: jobdb.NewTaskDataOrPanic(nil), Metadata: metadata}
+			_, err = held.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: job})
+			require.ErrorContains(t, err, want)
+			_, err = held.StartOrAppendJob(ctx, jobdb.StartOrAppendJobRequest{Job: jobdb.StartOrAppendJob{Job: job, AppendKey: "bad", MaxInputs: 2}})
+			require.ErrorContains(t, err, want)
+			_, err = held.SubmitRestartJob(ctx, jobdb.SubmitRestartJobRequest{Job: jobdb.SubmitRestartJob{PriorJobKey: f.key, ClientPayloadUpdate: &jobdb.ClientPayloadUpdate{Mode: "reset", Value: payload}}})
+			require.ErrorContains(t, err, want)
+			after, err := f.runtime.ListJobs(ctx, jobdb.ListJobsRequest{TenantIds: []string{"tenant"}})
+			require.NoError(t, err)
+			require.Equal(t, len(before.Jobs), len(after.Jobs))
+			revision := raw.ClientPayloadRevision()
+			err = held.Reschedule(ctx, jobdb.RescheduleExecutionRequest{NextRoute: jobdb.Route{JobType: "recipe"}, ClientPayloadUpdate: &jobdb.ClientPayloadUpdate{Mode: "reset", Value: payload, ExpectedRevision: &revision}})
+			require.ErrorContains(t, err, want)
+			require.NoError(t, raw.KeepAlive(ctx))
+			info, err := f.runtime.GetJob(ctx, f.key)
 			require.NoError(t, err)
 			require.Empty(t, info.ClientPayload)
 		})

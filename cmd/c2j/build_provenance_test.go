@@ -97,7 +97,8 @@ func testStampedBuildProvenance(t *testing.T, flags string) {
 				}
 				require.NoError(t, json.Unmarshal(out, &submitted), "%s", out)
 				key.JobId = submitted.JobID
-				run := append(strings.Fields(mode), "--jobdb", uri, "--job-id", key.JobId, "--ci")
+				// Provenance checks need no health listener or fixed host port.
+				run := append(strings.Fields(mode), "--jobdb", uri, "--job-id", key.JobId, "--ci", "--health-port", "0")
 				if mode == "run with-lease" {
 					client, err := remote.New(server.URL, server.Client())
 					require.NoError(t, err)

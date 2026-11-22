@@ -222,7 +222,7 @@ func (l *lease) prepareReschedule(ctx context.Context, req jobdb.RescheduleExecu
 	d, pending, retire := l.demand, l.pendingWait, l.retireWait
 	l.runtime.mu.Unlock()
 	candidate := d
-	if l.runtime.BaseCatalog.Required && req.ClientPayloadUpdate != nil {
+	if req.ClientPayloadUpdate != nil {
 		raw, _, err := clientpayload.Apply(current.ClientPayload(), current.ClientPayloadRevision(), req.ClientPayloadUpdate)
 		if err != nil {
 			return req, nil, false, err

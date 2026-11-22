@@ -3,6 +3,7 @@ package gitprofile
 import (
 	"context"
 	"encoding/json"
+	"github.com/colony-2/c2j/internal/executiontest"
 	"path/filepath"
 	"testing"
 	"time"
@@ -15,7 +16,10 @@ import (
 
 func TestExecutionBaseCatalogScopedDiscoveryAndHiding(t *testing.T) {
 	now := time.Now().UTC()
-	c := execution.BaseCatalog{Version: 1, Scope: execution.CatalogScope{Runtime: "https://test", Tenant: "t"}, Complete: true, NamedBases: []string{"linux"}, Dynamic: []execution.DynamicBaseRule{}, Generation: "one", PublishedAt: now.Add(-time.Minute), ExpiresAt: now.Add(time.Hour)}
+	c := execution.BaseCatalog{Version: 1, Scope: execution.CatalogScope{Runtime: "https://test", Tenant: "t"}, Complete: true, Offerings: executiontest.Offerings("linux"), Generation: "one", PublishedAt: now.Add(-time.Minute), ExpiresAt: now.Add(time.Hour)}
+	min, max := "500m", "8"
+	c.Offerings[0].Capabilities = []string{"docker"}
+	c.Offerings[0].Resources.CPU = &execution.ResourceRule{State: "range", Min: &min, Max: &max}
 	reads := 0
 	p := executioncatalog.Policy{Required: true, Scope: c.Scope, Read: func(context.Context) (jobdb.ConfigurationSnapshot, error) {
 		reads++
@@ -36,8 +40,13 @@ func TestExecutionBaseCatalogScopedDiscoveryAndHiding(t *testing.T) {
 	res, err = Call(context.Background(), socket, Request{Operation: "execution_bases"})
 	require.NoError(t, err)
 	require.Contains(t, string(res.Value), `"generation":"one"`)
+	var view executioncatalog.View
+	require.NoError(t, json.Unmarshal(res.Value, &view))
+	require.Equal(t, []string{"docker"}, view.Catalog.Offerings[0].Capabilities)
+	require.Equal(t, "500m", *view.Catalog.Offerings[0].Resources.CPU.Min)
+	require.Equal(t, "8", *view.Catalog.Offerings[0].Resources.CPU.Max)
 	c.Generation = "two"
-	c.NamedBases = []string{"macos-15-arm64"}
+	c.Offerings = executiontest.Offerings("macos-15-arm64")
 	res, err = Call(context.Background(), socket, Request{Operation: "execution_bases"})
 	require.NoError(t, err)
 	require.Contains(t, string(res.Value), "macos-15-arm64")
