@@ -286,8 +286,9 @@ state:
               throw new Error('Saved workspace-diff acceptance missing, skipped or failed: ' + pkg);
             }
           }
-          // Retain the four review repairs even if a test is renamed or removed.
+          // Require named recovery and review repairs even if selectors change.
           const regressions = {
+            'pkg/jobinspect': ['TestWorkspaceDiffPatchlessObserverEvidence', 'TestWorkspaceDiffNativePatchlessObservers', 'TestWorkspaceDiffNativePatchlessObserverRejections', 'TestWorkspaceDiffNativePatchlessObserverSources', 'TestWorkspaceDiffNativePatchlessObserverAttemptsAndCutoffs'],
             'pkg/worker/compiler': ['TestWorkspaceDiffCompilerReviewScopeWorkspace', 'TestWorkspaceDiffCompilerReviewFailedScope'],
             'pkg/childbroker': ['TestWorkspaceDiffHelperReviewResponseContract']
           };
@@ -295,6 +296,16 @@ state:
             for (const test of required) {
               if (!events.some(e => e.Package === 'github.com/colony-2/c2j/' + name && e.Test === test && e.Action === 'pass')) {
                 throw new Error('Saved workspace-diff review regression missing: ' + test);
+              }
+            }
+          }
+          for (const backend of ['SQLite', 'HTTP']) {
+            for (const variant of ['omitted-parent', 'parent-present']) {
+              for (const selection of ['producer', 'observer-one', 'observer-two', 'latest']) {
+                const test = `TestWorkspaceDiffNativePatchlessObservers/${backend}/${variant}/${selection}`;
+                if (!events.some(e => e.Package === 'github.com/colony-2/c2j/pkg/jobinspect' && e.Test === test && e.Action === 'pass')) {
+                  throw new Error('Patchless observer recovery missing: ' + test);
+                }
               }
             }
           }

@@ -112,6 +112,15 @@ Completed points exclude later retries/producers. Open scopes expose durable pro
 
 The reader prefers `diff_from_base.diff`. A parent-only file requires recognized version-1 managed producer endpoint proof. A task-context `parent_hash`, a filename or cumulative-file absence cannot provide that proof. Ordinary history-advanced tasks without actual-parent proof remain unavailable. Explicit empty bases retain absent hashes.
 
+Patchless unchanged observers may omit the legacy output parent hash only when
+recorded before/after comparisons are identical, fixed resolved-base and incoming
+and output heads agree, and the exact incoming snapshot still leads to the original
+eligible source. Nonempty invocation metadata must agree with the observed workspace.
+An initially empty workspace can later have a materialized active base; entry
+provenance does not redefine that base. Any saved-patch artifact or reference,
+including malformed references, retains strict producer validation. Matching hashes
+without the recorded snapshot link never authorize patch reuse.
+
 Full integrity requires reading to EOF and checking Close. `WorkspaceDiffError` provides version, code, detail and local unwrap cause. Cancellation, deadlines and lease loss preserve recognized identities. Missing/expired bytes are unavailable when confirmed; denial, storage, protocol, transport, count, read and close faults are errors. The authenticated exact-reference route adds completion signaling while preserving existing download callers.
 
 ## Backend limits and scope

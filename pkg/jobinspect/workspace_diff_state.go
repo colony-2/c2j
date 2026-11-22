@@ -768,8 +768,23 @@ func diffUnavailable(m *WorkspaceDiff, reason string) {
 }
 
 func (d *diffHistory) savedPatch(v *diffState) (*Artifact, string) {
-	if v.a.activity.Git.PersistHash != v.w.HeadCommit || v.a.activity.Git.ParentHash != v.w.BaseCommit || v.a.contract != 1 {
+	patchEvidence := hasSavedPatchEvidence(v.a)
+	if v.a.contract != 1 || v.a.activity.Git.PersistHash != v.w.HeadCommit {
 		return nil, "invalid saved patch producer/workspace binding"
+	}
+	if patchEvidence || v.a.activity.Git.ParentHash != "" {
+		if v.a.activity.Git.ParentHash != v.w.BaseCommit {
+			return nil, "invalid saved patch producer/workspace binding"
+		}
+	} else if v.w.BaseCommit != "" && !unchangedObserverWithoutParent(v) {
+		return nil, "invalid unchanged workspace observer proof"
+	}
+	// A recognized no-work rebase can follow a newer base during restore,
+	// before its recorded observations. Preserve its separate empty-state proof.
+	if !patchEvidence && !(diffEmpty(v) && trustedDiffRebase(v)) {
+		if before := incomingDiffState(v.a); before != nil && sameDiffState(*before, v.w) && conflictingObserverMetadata(v) {
+			return nil, "conflicting unchanged workspace observer metadata"
+		}
 	}
 	// Explicit references in the envelope must agree with physical output
 	// membership; the general inspection view intentionally merges by name.

@@ -155,10 +155,19 @@ if [[ "$*" == *TestWorkspaceDiff* ]]; then
     printf '{"Action":"run","Package":"github.com/colony-2/c2j/%s","Test":"%s"}\n' "$pkg" "$test_name"
     printf '{"Action":"pass","Package":"github.com/colony-2/c2j/%s","Test":"%s"}\n' "$pkg" "$test_name"
   done
-  for item in pkg/worker/compiler:TestWorkspaceDiffCompilerReviewScopeWorkspace pkg/worker/compiler:TestWorkspaceDiffCompilerReviewFailedScope pkg/childbroker:TestWorkspaceDiffHelperReviewResponseContract; do
+  for item in pkg/jobinspect:TestWorkspaceDiffPatchlessObserverEvidence pkg/jobinspect:TestWorkspaceDiffNativePatchlessObservers pkg/jobinspect:TestWorkspaceDiffNativePatchlessObserverRejections pkg/jobinspect:TestWorkspaceDiffNativePatchlessObserverSources pkg/jobinspect:TestWorkspaceDiffNativePatchlessObserverAttemptsAndCutoffs pkg/worker/compiler:TestWorkspaceDiffCompilerReviewScopeWorkspace pkg/worker/compiler:TestWorkspaceDiffCompilerReviewFailedScope pkg/childbroker:TestWorkspaceDiffHelperReviewResponseContract; do
     pkg="${item%%:*}"; test_name="${item#*:}"
     printf '{"Action":"run","Package":"github.com/colony-2/c2j/%s","Test":"%s"}\n' "$pkg" "$test_name"
     printf '{"Action":"pass","Package":"github.com/colony-2/c2j/%s","Test":"%s"}\n' "$pkg" "$test_name"
+  done
+  for backend in SQLite HTTP; do
+    for variant in omitted-parent parent-present; do
+      for selection in producer observer-one observer-two latest; do
+        test_name="TestWorkspaceDiffNativePatchlessObservers/$backend/$variant/$selection"
+        printf '{"Action":"run","Package":"github.com/colony-2/c2j/pkg/jobinspect","Test":"%s"}\n' "$test_name"
+        printf '{"Action":"pass","Package":"github.com/colony-2/c2j/pkg/jobinspect","Test":"%s"}\n' "$test_name"
+      done
+    done
   done
 fi
 if [ "$1" = build ]; then
@@ -299,7 +308,18 @@ func TestVerifyHookWorkspaceDiffEvidenceGuard(t *testing.T) {
 	end := strings.Index(code, "\nJS\n")
 	require.NotEqual(t, -1, end)
 	code = code[:end]
-	for _, mode := range []string{"passed", "missing", "skipped", "failed", "malformed", "missing-native", "unfinished", "missing-regression", "skipped-regression"} {
+	modes := []string{"passed", "missing", "skipped", "failed", "malformed", "missing-native", "unfinished", "missing-regression", "skipped-regression", "missing-observer", "skipped-observer-selection", "failed-observer-selection", "unfinished-observer-selection"}
+	var observerSelections []string
+	for _, backend := range []string{"SQLite", "HTTP"} {
+		for _, variant := range []string{"omitted-parent", "parent-present"} {
+			for _, selection := range []string{"producer", "observer-one", "observer-two", "latest"} {
+				name := "TestWorkspaceDiffNativePatchlessObservers/" + backend + "/" + variant + "/" + selection
+				observerSelections = append(observerSelections, name)
+				modes = append(modes, "missing-selection/"+name)
+			}
+		}
+	}
+	for _, mode := range modes {
 		t.Run(mode, func(t *testing.T) {
 			var evidence strings.Builder
 			for _, pkg := range []string{"pkg/jobinspect", "pkg/childbroker", "cmd/c2j/internal/cmd", "cmd/c2j", "pkg/worker/compiler"} {
@@ -324,10 +344,14 @@ func TestVerifyHookWorkspaceDiffEvidenceGuard(t *testing.T) {
 			}
 			if mode != "missing-regression" {
 				for pkg, names := range map[string][]string{
+					"pkg/jobinspect":      {"TestWorkspaceDiffPatchlessObserverEvidence", "TestWorkspaceDiffNativePatchlessObservers", "TestWorkspaceDiffNativePatchlessObserverRejections", "TestWorkspaceDiffNativePatchlessObserverSources", "TestWorkspaceDiffNativePatchlessObserverAttemptsAndCutoffs"},
 					"pkg/worker/compiler": {"TestWorkspaceDiffCompilerReviewScopeWorkspace", "TestWorkspaceDiffCompilerReviewFailedScope"},
 					"pkg/childbroker":     {"TestWorkspaceDiffHelperReviewResponseContract"},
 				} {
 					for _, name := range names {
+						if mode == "missing-observer" && name == "TestWorkspaceDiffPatchlessObserverEvidence" {
+							continue
+						}
 						action := "pass"
 						if mode == "skipped-regression" {
 							action = "skip"
@@ -335,6 +359,26 @@ func TestVerifyHookWorkspaceDiffEvidenceGuard(t *testing.T) {
 						fmt.Fprintf(&evidence, "{\"Action\":\"run\",\"Package\":\"github.com/colony-2/c2j/%s\",\"Test\":%q}\n", pkg, name)
 						fmt.Fprintf(&evidence, "{\"Action\":%q,\"Package\":\"github.com/colony-2/c2j/%s\",\"Test\":%q}\n", action, pkg, name)
 					}
+				}
+			}
+			for _, name := range observerSelections {
+				if mode == "missing-selection/"+name {
+					continue
+				}
+				action := "pass"
+				if name == "TestWorkspaceDiffNativePatchlessObservers/HTTP/omitted-parent/latest" {
+					switch mode {
+					case "skipped-observer-selection":
+						action = "skip"
+					case "failed-observer-selection":
+						action = "fail"
+					case "unfinished-observer-selection":
+						action = "run"
+					}
+				}
+				fmt.Fprintf(&evidence, "{\"Action\":\"run\",\"Package\":\"github.com/colony-2/c2j/pkg/jobinspect\",\"Test\":%q}\n", name)
+				if action != "run" {
+					fmt.Fprintf(&evidence, "{\"Action\":%q,\"Package\":\"github.com/colony-2/c2j/pkg/jobinspect\",\"Test\":%q}\n", action, name)
 				}
 			}
 			if mode == "malformed" {
@@ -349,6 +393,13 @@ func TestVerifyHookWorkspaceDiffEvidenceGuard(t *testing.T) {
 				require.NoError(t, err, string(out))
 			} else {
 				require.Error(t, err, string(out))
+				if mode == "missing-observer" {
+					require.Contains(t, string(out), "Saved workspace-diff review regression missing: TestWorkspaceDiffPatchlessObserverEvidence")
+				} else if name, missing := strings.CutPrefix(mode, "missing-selection/"); missing {
+					require.Contains(t, string(out), "Patchless observer recovery missing: "+name)
+				} else if strings.HasSuffix(mode, "-observer-selection") {
+					require.Contains(t, string(out), "Saved workspace-diff acceptance missing, skipped or failed: github.com/colony-2/c2j/pkg/jobinspect")
+				}
 			}
 		})
 	}

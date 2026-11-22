@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
@@ -289,6 +290,12 @@ func TestDAGBudgets(t *testing.T) {
 	require.Equal(t, "request_limit", boundary(d, "parent").Reason)
 }
 func TestDAGTimeoutAndObservation(t *testing.T) {
+	// Advance the context deadline only when the scripted read blocks. Host
+	// scheduling must not expire it before the selected observation is accepted.
+	synctest.Test(t, testDAGTimeoutAndObservation)
+}
+
+func testDAGTimeoutAndObservation(t *testing.T) {
 	a := familyFixture()
 	o := DefaultDAGOptions()
 	o.Timeout = 10 * time.Millisecond
@@ -418,16 +425,18 @@ func TestDAGSubtreeSelfParentAndDescendantConflict(t *testing.T) {
 }
 
 func TestDAGRejectsSuccessfulResponseAfterCancellation(t *testing.T) {
-	a := familyFixture()
-	o := DefaultDAGOptions()
-	o.Timeout = time.Millisecond
-	a.scripted = func(ctx context.Context, q Request) (*FamilyPage, error) {
-		<-ctx.Done()
-		return &FamilyPage{Version: 1, Nodes: []FamilyNode{node(q.JobID, "")}}, nil
-	}
-	_, err := ReadDAG(context.Background(), a, "selected", o)
-	require.ErrorIs(t, err, context.DeadlineExceeded)
-	require.Len(t, a.calls, 1)
+	synctest.Test(t, func(t *testing.T) {
+		a := familyFixture()
+		o := DefaultDAGOptions()
+		o.Timeout = time.Millisecond
+		a.scripted = func(ctx context.Context, q Request) (*FamilyPage, error) {
+			<-ctx.Done()
+			return &FamilyPage{Version: 1, Nodes: []FamilyNode{node(q.JobID, "")}}, nil
+		}
+		_, err := ReadDAG(context.Background(), a, "selected", o)
+		require.ErrorIs(t, err, context.DeadlineExceeded)
+		require.Len(t, a.calls, 1)
+	})
 }
 func TestDAGInvalidAncestorFromSummaryService(t *testing.T) {
 	rt := &familyRuntime{page: jobdb.ListJobsResponse{Jobs: []jobdb.JobSummary{{JobKey: jobdb.JobKey{TenantId: "foreign", JobId: "root"}}}}}

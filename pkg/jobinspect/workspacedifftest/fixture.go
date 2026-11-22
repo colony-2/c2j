@@ -22,24 +22,30 @@ import (
 )
 
 type Step struct {
-	Before, After        coretask.WorkspaceState
-	Parent, Base, Bundle []byte
-	Omit                 bool
-	ParentOnly           bool
-	Arbitrary            bool
-	Refs                 map[string]artifacts.Ref
-	Output               map[string]any
+	EnvelopeVersion       int
+	Before, After         coretask.WorkspaceState
+	InputGit              *gitstate.GlobalGitTaskContext
+	OutputGit             *contextual.GitCommitContext
+	OmitBefore, OmitAfter bool
+	Parent, Base, Bundle  []byte
+	Omit                  bool
+	ParentOnly            bool
+	Arbitrary             bool
+	Refs                  map[string]artifacts.Ref
+	Output                map[string]any
 }
 type Fixture struct {
 	Job       jobdb.JobKey
 	Steps     []Step
 	Directory string
+	Oracle    []byte
 }
 
 // Build uses the real patch writer, then a native execution worker to retain
 // exact files and fixed incoming snapshot keys. No reader-generated diff is
 // used as an oracle. Compiler tests separately exercise actual recipe flow.
 type Options struct {
+	FixedBase           bool
 	Transform           func([]Step) []Step
 	BeforeTask          func(int) error
 	Incoming            *jobdb.ArtifactKey
@@ -105,6 +111,19 @@ func BuildWithOptions(ctx context.Context, rt jobdb.ConsumerRuntime, dir string,
 		after.HeadCommit = p.CommitHash
 		f.Steps = append(f.Steps, Step{Before: before, After: after, Parent: parent, Base: base, Bundle: bundle})
 		before = after
+		if opt.FixedBase && i == 0 {
+			before.BaseCommit, before.EmptyBase = after.HeadCommit, false
+		}
+	}
+	if opt.FixedBase {
+		oracle, err := changestest.Git(ctx, repo, "diff", "--unified=10", before.BaseCommit, before.HeadCommit)
+		if err != nil {
+			return nil, err
+		}
+		f.Oracle = []byte(oracle)
+		if !bytes.Equal(f.Oracle, f.Steps[2].Base) {
+			return nil, fmt.Errorf("writer differs from independent Git oracle")
+		}
 	}
 	// An unchanged point intentionally has no new patch or snapshot.
 	f.Steps = append(f.Steps, Step{Before: before, After: before})
@@ -129,6 +148,9 @@ func BuildWithOptions(ctx context.Context, rt jobdb.ConsumerRuntime, dir string,
 					}
 					return c.DoTask(call, func(context.Context) (jobdb.TaskData, error) {
 						g := gitstate.GlobalGitTaskContext{BaseRepo: step.Before.Repository, CellName: "saved", ResolvedBaseHash: step.Before.BaseCommit, ParentHash: step.Before.BaseCommit, PersistHash: step.Before.HeadCommit, Workspace: &contextual.WorkspaceContext{Cell: step.Before.Cell, ScopeID: step.Before.ScopeID, Initial: "empty"}}
+						if step.InputGit != nil {
+							g = *step.InputGit
+						}
 						input := map[string]any{"context": g, "input": map[string]any{"index": i}}
 						var arts []jobdb.Artifact
 						if last == nil && opt.Incoming != nil {
@@ -229,9 +251,21 @@ func (w *taskWorker) Run(_ wf.TaskContext, in jobdb.TaskData) (jobdb.TaskData, e
 	}
 	step := w.steps[input.Input.Index]
 	payload := map[string]any{"workspace_before": step.Before, "workspace_after": step.After, "workspace_scope_id": step.After.ScopeID, "git": contextual.GitCommitContext{PersistHash: step.After.HeadCommit, ParentHash: step.After.BaseCommit}, "output": step.Output, "artifact_refs": step.Refs}
+	if step.OutputGit != nil {
+		payload["git"] = *step.OutputGit
+	}
+	if step.OmitBefore {
+		delete(payload, "workspace_before")
+	}
+	if step.OmitAfter {
+		delete(payload, "workspace_after")
+	}
 	env, err := coretask.NewOutputEnvelope(coretask.OutputKindActivityInvocationOutput, payload)
 	if err != nil {
 		return nil, err
+	}
+	if step.EnvelopeVersion != 0 {
+		env.Version = step.EnvelopeVersion
 	}
 	var arts []jobdb.Artifact
 	patch := func(name string, data []byte) jobdb.Artifact {

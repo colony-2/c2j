@@ -41,8 +41,15 @@ func testLateIncludeFunctionLifetime(t *testing.T, phase string) {
 					f := newLateGitFixture(t)
 					startedMarker := filepath.Join(t.TempDir(), phase+"-started")
 					lateMarker := filepath.Join(t.TempDir(), phase+"-continued")
+					effectDelay := 2 * time.Second
+					if stop == "deadline" {
+						// The scope includes Git selection, capture and function imports.
+						// Give that setup room on loaded hosts, while keeping the real
+						// process's effect beyond the scope's entire timeout budget.
+						effectDelay = 4 * time.Second
+					}
 					writeFunctionPackage(t, filepath.Join(f.dir, "tools", "functions"), "name: selectors\ntimeout: 10s\nfunctions:\n- name: slow_selector\n  mode: function\n  execution: sh selector.sh\n  args: [{name: value, schema: {type: string}}]\n  returns: {schema: {type: string}}\n", map[string]string{
-						"selector.sh": "printf started > " + shellcmd.QuotePOSIX(startedMarker) + "\nsleep 2\nprintf forbidden > " + shellcmd.QuotePOSIX(lateMarker) + "\ncat\n",
+						"selector.sh": fmt.Sprintf("printf started > %s\nsleep %.0f\nprintf forbidden > %s\ncat\n", shellcmd.QuotePOSIX(startedMarker), effectDelay.Seconds(), shellcmd.QuotePOSIX(lateMarker)),
 					})
 					child := "id: child\ninput_schema:\n value: {type: string, default_value: fallback}\nsequence:\n- id: body\n  op: scope_probe\n  inputs: {name: body}\noutputs: {value: good}\n"
 					if phase == "vars" || phase == "outputs" {
@@ -66,9 +73,7 @@ func testLateIncludeFunctionLifetime(t *testing.T, phase string) {
 					call := fmt.Sprintf("include: {bind: late, recipe: %q}\ncatch:\n- when: true\n  continue: {outputs: {value: forbidden-success}}\n", selector)
 					call = inputBinding + call
 					if stop == "deadline" {
-						// Leave setup ample time to start the real process. Its effect
-						// is delayed two seconds beyond startup, past this deadline.
-						call = "timeout: 1s\n" + call
+						call = "timeout: 3s\n" + call
 					}
 					body := latePolicyRecipe(layout != "sequence", call)
 					if layout == "state-machine-catch" {
@@ -134,7 +139,7 @@ func testLateIncludeFunctionLifetime(t *testing.T, phase string) {
 					require.NoError(t, err, "exercise a running %s function", phase)
 					// Wait beyond the script's write so leaked descendants are detected
 					// even if execution returned promptly when its scope expired.
-					time.Sleep(time.Until(info.ModTime().Add(2100 * time.Millisecond)))
+					time.Sleep(time.Until(info.ModTime().Add(effectDelay + 100*time.Millisecond)))
 					require.NoFileExists(t, lateMarker, "%s function survived its execution context", phase)
 					require.Empty(t, probe.calls)
 					s, c, run := lateRecordOutputs(t, rt, key)
