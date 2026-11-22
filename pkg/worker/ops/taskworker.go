@@ -39,6 +39,8 @@ func (t *taskWorker) Run(tc jobworkflow.TaskContext, input jobdb.TaskData) (jobd
 }
 
 func (t *taskWorker) RunTask(local context.Context, ctx jobworkflow.TaskContext, input jobdb.TaskData) (result jobdb.TaskData, runErr error) {
+	updateActivity, finishActivity := coretask.BeginActivity(local, t.name)
+	defer finishActivity()
 	redactor := secrets.RedactorFromContext(local)
 	if redactor == nil {
 		redactor = secrets.NewRedactor()
@@ -93,6 +95,15 @@ func (t *taskWorker) RunTask(local context.Context, ctx jobworkflow.TaskContext,
 	inArt, err = air.RestoreInput(local, inArt)
 	if err != nil {
 		return nil, err
+	}
+	selector := ""
+	if air.Preparation.Extension != nil {
+		selector = air.Preparation.Extension.Selector
+	} else if t.reg.Metadata.Type == extops.ExecutionOpType {
+		selector, _ = air.Input["selector"].(string)
+	}
+	if selector != "" {
+		updateActivity(extops.DisplaySelector(selector))
 	}
 	prepStart := time.Now()
 	var configDiag *configuration.Diagnostics

@@ -184,6 +184,8 @@ state:
           go test -mod=readonly -count=1 -v -timeout=5m ./pkg/executionruntime -run '^TestLeaseBoundRestartHelperSubmission$'
           # Saved-diff transport must preserve existing artifact-read diagnostics.
           go test -mod=readonly -count=1 -v -timeout=5m ./pkg/executionruntime -run '^TestTaskInspectionUsesBackendReadPermissions$'
+          # Keep helper and inspection first; probe task/lease transitions and prompt cancellation.
+          go test -mod=readonly -race -count=1 -v -timeout=10m ./cmd/c2j/internal/cmd ./cmd/c2j/internal/runjob ./pkg/task ./pkg/executionruntime ./pkg/worker/ops ./pkg/ops/extensions -run '^TestHealth|^TestPrompt'
           # Extension waits must discard before publication and survive durable scheduling.
           # Record actual subtests; a successful command with no collected cases is insufficient.
           wait_status=0
@@ -213,6 +215,8 @@ state:
             }
           }
           JS
+          # Verify bounded Git descendant cleanup and diagnostic identity before broad checks.
+          go test -mod=readonly -race -count=1 -v -tags=integration -timeout=5m ./pkg/jobinspect -run '^TestChanges(J30J32GitDiagnosticIdentity|J32L07GitProcessGroupCleanup|J30L07RepositoryTransferCleanup|ProcessExitObservation)$'
           # Validate this hook's native scenario contract before expensive suites.
           go test -mod=readonly -count=1 -v -timeout=5m ./pkg/recipetest -run '^TestPnpmVerifyHook$'
           # Reject unsupported bases before submission, execution and handoff.

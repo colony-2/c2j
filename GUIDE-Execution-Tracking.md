@@ -13,6 +13,21 @@ Extensions can derive requirements from their inputs and request a handoff with
 exit 75. See [extension execution negotiation](GUIDE-Extension-Execution-Negotiation.md)
 for allocation information, capability requests, and the prepared package list.
 
+## Probe a running worker
+
+For Pulse providers, `run`, `run one`, and `run with-lease` host JSON health
+snapshots at `GET /health` on `0.0.0.0:8080`. See the
+[response example and field meanings](README.md#worker-health-probes).
+Use `--health-port=0` to disable hosting or select another port with
+`--health-port=9321`. An occupied port fails before execution or lease import.
+
+Worker start time stays fixed across ordinary waits/reclaims. Task start time
+resets for each live attempt, or on entering a new framework interval. Internal
+resolution and replay remain `framework`. Expiry is the last known renewed
+lease timestamp, never the task deadline; no retained lease or unknown expiry
+returns null. HTTP 200 confirms snapshot availability, including unleased waits
+and retained past expirations. It does not prove fresh lease authority.
+
 ## Declare requirements
 
 Every recipe root form can declare optional requirements:

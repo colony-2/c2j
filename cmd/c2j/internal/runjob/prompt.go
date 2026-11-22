@@ -2,6 +2,7 @@ package runjob
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"io"
 	"strconv"
@@ -10,7 +11,10 @@ import (
 	"github.com/colony-2/c2j/pkg/input"
 )
 
-func promptForInput(stdin io.Reader, stdout io.Writer, details *input.UserInputDetails) (input.FormResponse, error) {
+func promptForInput(ctx context.Context, stdin io.Reader, stdout io.Writer, details *input.UserInputDetails) (input.FormResponse, error) {
+	if err := ctx.Err(); err != nil {
+		return input.FormResponse{}, err
+	}
 	reader := bufio.NewReader(stdin)
 	form := details.Form
 
@@ -23,7 +27,7 @@ func promptForInput(stdin io.Reader, stdout io.Writer, details *input.UserInputD
 			fmt.Fprintf(stdout, "\n%s\n", strings.TrimSpace(*form.Title))
 		}
 		for _, field := range *form.Fields {
-			value, err := promptField(reader, stdout, field)
+			value, err := promptField(ctx, reader, stdout, field)
 			if err != nil {
 				return input.FormResponse{}, err
 			}
@@ -40,7 +44,7 @@ func promptForInput(stdin io.Reader, stdout io.Writer, details *input.UserInputD
 	if form.Type != nil {
 		fieldType = string(*form.Type)
 	}
-	value, err := promptQuestion(reader, stdout, question, fieldType, form.Options)
+	value, err := promptQuestion(ctx, reader, stdout, question, fieldType, form.Options)
 	if err != nil {
 		return input.FormResponse{}, err
 	}
@@ -48,11 +52,14 @@ func promptForInput(stdin io.Reader, stdout io.Writer, details *input.UserInputD
 	return resp, nil
 }
 
-func promptField(reader *bufio.Reader, stdout io.Writer, field input.APIFormField) (interface{}, error) {
-	return promptQuestion(reader, stdout, field.Question, string(field.Type), field.Options)
+func promptField(ctx context.Context, reader *bufio.Reader, stdout io.Writer, field input.APIFormField) (interface{}, error) {
+	return promptQuestion(ctx, reader, stdout, field.Question, string(field.Type), field.Options)
 }
 
-func promptQuestion(reader *bufio.Reader, stdout io.Writer, question string, fieldType string, options *[]input.APIOption) (interface{}, error) {
+func promptQuestion(ctx context.Context, reader *bufio.Reader, stdout io.Writer, question string, fieldType string, options *[]input.APIOption) (interface{}, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	fmt.Fprintf(stdout, "\n%s\n", strings.TrimSpace(question))
 	if options != nil && len(*options) > 0 {
 		for i, option := range *options {
@@ -64,7 +71,7 @@ func promptQuestion(reader *bufio.Reader, stdout io.Writer, question string, fie
 		}
 	}
 	fmt.Fprint(stdout, "> ")
-	raw, err := reader.ReadString('\n')
+	raw, err := readPromptLine(ctx, reader)
 	if err != nil {
 		return nil, err
 	}
@@ -75,6 +82,32 @@ func promptQuestion(reader *bufio.Reader, stdout io.Writer, question string, fie
 		}
 	}
 	return parsePromptValue(fieldType, raw), nil
+}
+
+func readPromptLine(ctx context.Context, reader *bufio.Reader) (string, error) {
+	type result struct {
+		line string
+		err  error
+	}
+	// io.Reader has no cancellation contract, and stdin belongs to the caller.
+	// Isolate only the read so cancellation can return without closing stdin or
+	// allowing background prompt output or response submission. A blocked read
+	// finishes when the caller supplies input or closes its reader; the buffered
+	// channel lets it finish even after this wait has been canceled.
+	ready := make(chan result, 1)
+	go func() {
+		line, err := reader.ReadString('\n')
+		ready <- result{line: line, err: err}
+	}()
+	select {
+	case <-ctx.Done():
+		return "", ctx.Err()
+	case read := <-ready:
+		if err := ctx.Err(); err != nil {
+			return "", err
+		}
+		return read.line, read.err
+	}
 }
 
 func resolveOptionSelection(raw string, options []input.APIOption, fieldType string) (interface{}, bool) {

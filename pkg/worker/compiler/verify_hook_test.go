@@ -90,7 +90,9 @@ func TestVerifyHookSubmissionEnvironmentAndGate(t *testing.T) {
 		{name: "broker-gate", failGate: "TestBrokerOnlyCLI"},
 		{name: "helper-gate", failGate: "TestLeaseBoundRestartHelperSubmission"},
 		{name: "inspection-gate", failGate: "TestTaskInspectionUsesBackendReadPermissions"},
+		{name: "health-gate", failGate: "^TestHealth"},
 		{name: "extension-wait-gate", failGate: "^TestExtensionWait"},
+		{name: "git-cleanup-gate", failGate: "^TestChanges"},
 		{name: "scenario-gate", failGate: "TestPnpmVerifyHook"},
 		{name: "catalog-gate", failGate: "TestExecutionBaseCatalog"},
 		{name: "submission-inputs-gate", failGate: "^TestRecipeSubmissionInputs"},
@@ -215,11 +217,14 @@ fi
 			require.NoError(t, err)
 			helperGate := "go test -mod=readonly -count=1 -v -timeout=5m ./pkg/executionruntime -run ^TestLeaseBoundRestartHelperSubmission$\n"
 			inspectionGate := "go test -mod=readonly -count=1 -v -timeout=5m ./pkg/executionruntime -run ^TestTaskInspectionUsesBackendReadPermissions$\n"
+			healthGate := "go test -mod=readonly -race -count=1 -v -timeout=10m ./cmd/c2j/internal/cmd ./cmd/c2j/internal/runjob ./pkg/task ./pkg/executionruntime ./pkg/worker/ops ./pkg/ops/extensions -run ^TestHealth|^TestPrompt\n"
 			require.True(t, strings.HasPrefix(string(raw), helperGate), "helper regression must run first, after identity isolation")
 			gates := []string{
 				"TestLeaseBoundRestartHelperSubmission$",
 				"TestTaskInspectionUsesBackendReadPermissions$",
+				"^TestHealth",
 				"^TestExtensionWait",
+				"^TestChanges(J30J32GitDiagnosticIdentity|J32L07GitProcessGroupCleanup|J30L07RepositoryTransferCleanup|ProcessExitObservation)$",
 				"^TestPnpmVerifyHook$",
 				"^TestExecutionBaseCatalog",
 				"^TestRecipeSubmissionInputs",
@@ -251,6 +256,11 @@ fi
 				require.True(t, strings.HasPrefix(string(raw), helperGate+inspectionGate), "inspection compatibility must run before later checks")
 				if fixture.failGate == "TestTaskInspectionUsesBackendReadPermissions" {
 					require.Equal(t, helperGate+inspectionGate, string(raw), "failed inspection regression must prevent every later command")
+				} else {
+					require.True(t, strings.HasPrefix(string(raw), helperGate+inspectionGate+healthGate), "health race checks must follow helper and inspection regressions")
+					if fixture.failGate == "^TestHealth" {
+						require.Equal(t, helperGate+inspectionGate+healthGate, string(raw), "failed health regression must prevent every later command")
+					}
 				}
 			}
 			if fixture.failGate == "-tags=integration -p 2" {

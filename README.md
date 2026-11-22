@@ -807,6 +807,42 @@ Important behavior:
 - when input is pending, interactive terminals default to prompting
 - in CI or non-terminal mode, input handling defaults to `ops`
 
+### Worker health probes
+
+`run`, `run one`, and `run with-lease` serve `GET /health` as JSON on
+`0.0.0.0:8080` for the invocation's lifetime. Use `--health-port=9321` to
+choose a port or `--health-port=0` to disable hosting. Concurrent workers in
+one network namespace need distinct ports. A port conflict fails before work
+is claimed or a supplied lease is imported.
+
+```json
+{
+  "tenant_id": "example-tenant",
+  "job_id": "example-job",
+  "started_at": "2026-11-21T21:00:00Z",
+  "observed_at": "2026-11-21T21:02:10Z",
+  "task_type": "extension_execution:extension_execution",
+  "extension_op": "./ops/check",
+  "current_task_started_at": "2026-11-21T21:01:30Z",
+  "lease_expires_at": "2026-11-21T21:03:00Z"
+}
+```
+
+`started_at` is this worker invocation's start time; `observed_at` is the
+snapshot time. An operation includes input loading, preparation and cleanup.
+Outside live operations, including cached replay and waits, `task_type` is
+`framework` and its start marks that continuous interval. Overlapping operations
+report the newest still active attempt. `extension_op` is null for built-ins
+and until extension inputs load; URL credentials are removed from selectors.
+
+`lease_expires_at` is the latest locally known server expiry, or null without
+a retained lease or known expiry. HTTP 200 means the worker served a snapshot;
+providers should assess task age and expiry themselves. It does not establish
+fresh authority or detect every hung operation. Probes make no backend requests.
+The plain HTTP endpoint has no application authentication and exposes only these
+fields. Providers connect using the worker's routable address. The listener
+closes on exit; an unexpected serving failure cancels execution and fails the run.
+
 ### Execute a dispatched lease
 
 When a dispatcher has already claimed work, use its protected capability file:

@@ -33,6 +33,7 @@ type Runtime struct {
 	Allocation execution.Allocation
 	mu         sync.Mutex
 	leases     map[jobdb.JobKey]*lease
+	activity   *runActivity
 }
 
 func New(runtime jobdb.ConsumerRuntime, allocation execution.Allocation) *Runtime {
@@ -114,6 +115,9 @@ func (r *Runtime) accept(_ context.Context, l jobdb.ExecutionLease) (jobdb.Execu
 func (r *Runtime) wrapLease(l jobdb.ExecutionLease, state *leaseState) jobdb.ExecutionLease {
 	wrapped := &lease{ExecutionLease: l, runtime: r, leaseState: state}
 	r.mu.Lock()
+	if previous := r.leases[l.Job().JobKey]; previous != nil && previous.leaseState != state {
+		r.clearActivityLocked()
+	}
 	r.leases[l.Job().JobKey] = wrapped
 	r.mu.Unlock()
 	if _, ok := l.(jobdb.RenewableExecutionLease); ok {
@@ -165,7 +169,16 @@ func (l *renewableLease) Renew(ctx context.Context) (jobdb.RenewableExecutionLea
 		l.forget()
 		return nil, err
 	}
-	return l.runtime.wrapLease(next, l.leaseState).(jobdb.RenewableExecutionLease), nil
+	r := l.runtime
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	current := r.leases[l.Job().JobKey]
+	if current == nil || current.leaseState != l.leaseState {
+		return nil, jobdb.ErrExecutionLeaseLost
+	}
+	wrapped := &lease{ExecutionLease: next, runtime: r, leaseState: l.leaseState}
+	r.leases[l.Job().JobKey] = wrapped
+	return &renewableLease{wrapped}, nil
 }
 
 func (l *lease) LeaseToken() string {
@@ -186,6 +199,7 @@ func (l *lease) forget() {
 	defer l.runtime.mu.Unlock()
 	if current := l.runtime.leases[l.Job().JobKey]; current != nil && current.leaseState == l.leaseState {
 		delete(l.runtime.leases, l.Job().JobKey)
+		l.runtime.clearActivityLocked()
 	}
 }
 
@@ -378,6 +392,7 @@ func (w *guardedTask) RunTask(local context.Context, ctx jobworkflow.TaskContext
 			return l.yieldEnvironment(ctx, mismatches)
 		}
 	}
+	local = r.activityContext(local, ctx.JobKey, l.leaseState)
 	out, err := w.runWithGitProfile(local, ctx, input, l)
 	if extensionwait.IsDiscard(err) {
 		if _, eligible := extensionwait.Eligible(err); !eligible {

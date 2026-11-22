@@ -76,3 +76,19 @@ func TestOptionsValidateRequiresJobDB(t *testing.T) {
 		t.Fatalf("Validate() = %v, want --jobdb required", err)
 	}
 }
+
+func TestHealthPortOptions(t *testing.T) {
+	for _, port := range []int{-1, 0, 1234, 65535, 65536} {
+		opts := Options{JobID: "job", JobDBURI: "http://localhost/tenant", HealthPort: port}
+		if err := opts.Complete(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+		if opts.HealthPort != port {
+			t.Fatalf("port changed: %d", opts.HealthPort)
+		}
+		err := opts.Validate()
+		if (err != nil) != (port < 0 || port > 65535) {
+			t.Fatalf("port %d: %v", port, err)
+		}
+	}
+}

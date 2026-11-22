@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"time"
 
 	storylive "github.com/colony-2/c2j/pkg/story/live"
 	"github.com/colony-2/c2j/pkg/worker/compiler"
@@ -16,7 +17,8 @@ import (
 
 // RunWithLease consumes a remote capability from a protected file or stdin.
 // The invocation ends on completion or rescheduling and never claims a lease.
-func RunWithLease(ctx context.Context, opts Options, leaseFile string) error {
+func RunWithLease(ctx context.Context, opts Options, leaseFile string) (runErr error) {
+	started := time.Now()
 	if opts.InputMode == "" {
 		opts.InputMode = "ops"
 	}
@@ -37,15 +39,33 @@ func RunWithLease(ctx context.Context, opts Options, leaseFile string) error {
 		return exitError{code: exitCodeFailure, err: err}
 	}
 	capability, err := remoteruntime.DecodeLeaseCapability(encoded)
+	var identity struct {
+		TenantID string `json:"tenantId"`
+		JobID    string `json:"jobId"`
+	}
+	_ = json.Unmarshal(encoded, &identity)
 	clear(encoded)
 	if err != nil {
 		return exitError{code: exitCodeFailure, err: fmt.Errorf("decode supplied lease: %w", err)}
 	}
-	deps, cleanup, err := buildDeps(ctx, opts)
+	if identity.TenantID != opts.TenantID || identity.JobID != opts.JobID {
+		return exitError{code: exitCodeInvalidIdentity, err: fmt.Errorf("supplied lease does not match --jobdb tenant and --job-id: %w", jobdb.ErrExecutionLeaseLost)}
+	}
+	ctx, health, err := startHealth(ctx, opts, started)
+	if err != nil {
+		return exitError{code: exitCodeFailure, err: err}
+	}
+	defer func() { runErr = health.close(runErr) }()
+	build := opts.buildDependencies
+	if build == nil {
+		build = buildDeps
+	}
+	deps, cleanup, err := build(ctx, opts)
 	if err != nil {
 		return exitError{code: exitCodeFailure, err: err}
 	}
 	defer cleanup()
+	health.attach(deps.executionRuntime)
 	if deps.importLease == nil {
 		return exitError{code: exitCodeFailure, err: jobdb.ErrLeaseRenewalUnsupported}
 	}

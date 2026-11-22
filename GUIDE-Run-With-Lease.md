@@ -9,6 +9,20 @@ Ordinary `c2j run` and `run one` claim a specific job. Polling commands
 `run any` and `run loop` have been removed; Pulse owns discovery and dispatch.
 Recipes need no changes.
 
+## Provider health probes
+
+The command serves JSON at `GET /health` on `0.0.0.0:8080` until it exits.
+Set `--health-port` to a different port for workers sharing a network namespace,
+or use `--health-port=0` to disable it. A bind failure occurs before capability
+import or renewal. Local tenant/job validation also precedes binding.
+
+The [health response example](README.md#worker-health-probes) lists invocation
+start, live operation type and start, extension selector, and current lease
+expiry. The expiry follows the supplied lease's renewed snapshots; it is null
+before import or when no lease is retained. HTTP 200 confirms a served snapshot,
+including framework work without a lease; providers assess expiry and task age.
+Hosting adds no replacement claims, heartbeat, or backend calls per probe.
+
 ## Dispatcher handoff
 
 With JobDB v0.0.22 or newer, export a remote lease deliberately:

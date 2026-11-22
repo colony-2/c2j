@@ -38,6 +38,7 @@ type suppliedCLI struct {
 	encoded                []byte
 	stdout, stderr         bytes.Buffer
 	acquisitions, renewals atomic.Int32
+	nonHeartbeatRequests   atomic.Int32
 	denyClaims             atomic.Bool
 	failRenewAfter         atomic.Int32
 }
@@ -56,6 +57,9 @@ func newSuppliedCLI(t *testing.T, yaml string, duration time.Duration, providers
 	f := &suppliedCLI{backend: rt}
 	handler := remote.NewConsumerServer(rt)
 	server := httptest.NewServer(celltest.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.HasSuffix(r.URL.Path, "/keepalive") {
+			f.nonHeartbeatRequests.Add(1)
+		}
 		if f.denyClaims.Load() && (r.URL.Path == "/v1/jobs/poll" || strings.HasSuffix(r.URL.Path, "/lease")) {
 			f.acquisitions.Add(1)
 			http.Error(w, "claim forbidden", http.StatusForbidden)

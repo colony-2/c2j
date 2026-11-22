@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"context"
 	"os"
 	"time"
 
@@ -32,6 +31,7 @@ func newRunWithLeaseCmd() *cobra.Command {
 	}
 	flags := cmd.Flags()
 	opts.ExecutionFlags.AddFlags(flags)
+	flags.IntVar(&opts.HealthPort, "health-port", 8080, "Run health HTTP port on 0.0.0.0; 0 disables hosting")
 	flags.StringVar(&leaseFile, "lease-file", "", "Owner-only lease capability file; - reads redirected stdin")
 	flags.StringVar(&opts.JobID, "job-id", "", "Expected job ID (must match the supplied lease)")
 	flags.StringVar(&opts.JobDBURI, "jobdb", "", "Remote JobDB URI (http(s)://host/tenant; tenant must match the lease)")
@@ -57,12 +57,14 @@ func newRunOneSpecificCmd(use string) *cobra.Command {
 			if useEmbed {
 				runOpts.JobDBURI = defaults.EmbedURL
 			}
-			return runjob.Run(context.Background(), runOpts)
+			runOpts.Stdin, runOpts.Stdout, runOpts.Stderr = cmd.InOrStdin(), cmd.OutOrStdout(), cmd.ErrOrStderr()
+			return runjob.Run(cmd.Context(), runOpts)
 		},
 	}
 
 	flags := cmd.Flags()
 	opts.ExecutionFlags.AddFlags(flags)
+	flags.IntVar(&opts.HealthPort, "health-port", 8080, "Run health HTTP port on 0.0.0.0; 0 disables hosting")
 	flags.StringVar(&opts.JobID, "job-id", "", "Job ID to execute")
 	flags.StringVar(&opts.JobDBURI, "jobdb", "", "JobDB URI (http(s)://host/tenant or embed:///)")
 	flags.DurationVar(&opts.WaitTimeout, "wait-timeout", 15*time.Minute, "How long to wait on external blocking work before exiting")

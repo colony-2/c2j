@@ -38,7 +38,8 @@ const (
 	exitCodeInvalidIdentity = 5
 )
 
-func Run(ctx context.Context, opts Options) error {
+func Run(ctx context.Context, opts Options) (runErr error) {
+	started := time.Now()
 	if err := opts.Complete(ctx); err != nil {
 		return exitError{code: exitCodeFailure, err: err}
 	}
@@ -46,11 +47,21 @@ func Run(ctx context.Context, opts Options) error {
 		return exitError{code: exitCodeInvalidIdentity, err: err}
 	}
 
-	deps, cleanup, err := buildDeps(ctx, opts)
+	ctx, health, err := startHealth(ctx, opts, started)
+	if err != nil {
+		return exitError{code: exitCodeFailure, err: err}
+	}
+	defer func() { runErr = health.close(runErr) }()
+	build := opts.buildDependencies
+	if build == nil {
+		build = buildDeps
+	}
+	deps, cleanup, err := build(ctx, opts)
 	if err != nil {
 		return exitError{code: exitCodeFailure, err: err}
 	}
 	defer cleanup()
+	health.attach(deps.executionRuntime)
 
 	jobKey := jobdb.JobKey{TenantId: opts.TenantID, JobId: opts.JobID}
 	renderer := newStoryProgressRenderer(opts.Stdout, "cached", !opts.CI && isTerminalWriter(opts.Stdout))
@@ -329,7 +340,11 @@ func handleOutcome(ctx context.Context, opts Options, deps *runnerDeps, jobKey j
 			return false, exitError{code: exitCodeWaitTimeout, err: fmt.Errorf("timed out waiting: %s", describeBlocking(outcome))}
 		}
 		fmt.Fprintf(opts.Stdout, "waiting: %s\n", describeBlocking(outcome))
-		time.Sleep(opts.PollInterval)
+		select {
+		case <-ctx.Done():
+			return false, ctx.Err()
+		case <-time.After(opts.PollInterval):
+		}
 		return true, nil
 	default:
 		return false, exitError{code: exitCodeFailure, err: fmt.Errorf("unexpected job outcome %s", outcome.Status)}
@@ -364,7 +379,7 @@ func handlePendingInput(ctx context.Context, opts Options, runtime *input.Runtim
 		if details.Form.RequestId != nil && *details.Form.RequestId != "" {
 			return false, exitError{code: exitCodeInputRequired, err: fmt.Errorf("review or structured input required for job %s; use --input-mode ops to read the form and an input client to respond", jobKey.JobId)}
 		}
-		resp, err := promptForInput(opts.Stdin, opts.Stdout, details)
+		resp, err := promptForInput(ctx, opts.Stdin, opts.Stdout, details)
 		if err != nil {
 			return false, exitError{code: exitCodeFailure, err: err}
 		}

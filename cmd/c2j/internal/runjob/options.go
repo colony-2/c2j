@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -16,6 +17,8 @@ import (
 )
 
 type Options struct {
+	// HealthPort is zero for library callers; CLI flags default to 8080.
+	HealthPort     int
 	ExecutionFlags executionflags.Options
 	Allocation     execution.Allocation
 	JobID          string
@@ -34,6 +37,10 @@ type Options struct {
 	Stdin          io.Reader
 	Stdout         io.Writer
 	Stderr         io.Writer
+
+	// Private injection points let tests use ephemeral listeners and setup barriers.
+	healthListen      func(string, string) (net.Listener, error)
+	buildDependencies func(context.Context, Options) (*runnerDeps, func(), error)
 }
 
 func (o *Options) Complete(ctx context.Context) error {
@@ -105,6 +112,9 @@ func (o *Options) Complete(ctx context.Context) error {
 }
 
 func (o Options) Validate() error {
+	if o.HealthPort < 0 || o.HealthPort > 65535 {
+		return fmt.Errorf("--health-port must be between 0 and 65535")
+	}
 	if strings.TrimSpace(o.JobID) == "" {
 		return fmt.Errorf("--job-id is required")
 	}

@@ -4,6 +4,8 @@ package jobinspect_test
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -25,6 +27,67 @@ type arrivingChangesRuntime struct {
 	started chan struct{}
 	closed  chan struct{}
 }
+
+// SIGKILL delivery and descendant exit are asynchronous. Wait reaps the direct
+// child, but a descendant can still appear runnable while finishing its exit.
+// Require a terminal observation within a bound; a live survivor must still fail.
+func waitChangesProcessExit(ctx context.Context, pid string) (string, error) {
+	var state string
+	for {
+		if err := ctx.Err(); err != nil {
+			return state, err
+		}
+		raw, err := exec.CommandContext(ctx, "ps", "-o", "stat=", "-p", pid).Output()
+		observed := strings.TrimSpace(string(raw))
+		if err != nil {
+			// ps exits 1 when the requested process no longer exists. Other
+			// failures, including an unavailable ps, are not proof of cleanup.
+			var exit *exec.ExitError
+			if ctx.Err() != nil {
+				return state, ctx.Err()
+			}
+			if observed != "" || !errors.As(err, &exit) || exit.ExitCode() != 1 || len(exit.Stderr) != 0 {
+				return state, err
+			}
+		}
+		state = observed
+		if state == "" || strings.HasPrefix(state, "Z") {
+			return state, nil
+		}
+		select {
+		case <-ctx.Done():
+			return state, ctx.Err()
+		case <-time.After(5 * time.Millisecond):
+		}
+	}
+}
+
+func requireChangesProcessExit(t *testing.T, pid []byte) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	state, err := waitChangesProcessExit(ctx, strings.TrimSpace(string(pid)))
+	require.NoError(t, err, "process %s did not stop; last observed state: %q", pid, state)
+}
+
+func TestChangesProcessExitObservation(t *testing.T) {
+	process := exec.Command("sleep", "30")
+	require.NoError(t, process.Start())
+	t.Cleanup(func() { _ = process.Process.Kill(); _ = process.Wait() })
+	pid := fmt.Sprint(process.Process.Pid)
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	_, err := waitChangesProcessExit(ctx, pid)
+	require.ErrorIs(t, err, context.DeadlineExceeded, "a live survivor must fail the cleanup check")
+	require.NoError(t, process.Process.Kill())
+	requireChangesProcessExit(t, []byte(pid)) // A zombie is stopped even before Wait reaps it.
+	require.Error(t, process.Wait())
+	requireChangesProcessExit(t, []byte(pid)) // The reaped process is absent.
+	t.Setenv("PATH", t.TempDir())
+	_, err = waitChangesProcessExit(context.Background(), pid)
+	require.ErrorIs(t, err, exec.ErrNotFound, "a failed probe must not be mistaken for cleanup")
+}
+
 type arrivingChangesArtifact struct {
 	jobdb.ArtifactReader
 	started, closed chan struct{}
@@ -122,8 +185,7 @@ func TestChangesJ32L07GitProcessGroupCleanup(t *testing.T) {
 			for _, name := range []string{"parent", "child"} {
 				pid, e := os.ReadFile(filepath.Join(dir, name))
 				require.NoError(t, e)
-				state, _ := exec.Command("ps", "-o", "stat=", "-p", strings.TrimSpace(string(pid))).Output()
-				require.True(t, len(strings.TrimSpace(string(state))) == 0 || strings.HasPrefix(strings.TrimSpace(string(state)), "Z"), "process %s still running: %s", pid, state)
+				requireChangesProcessExit(t, pid)
 			}
 			files, e := os.ReadDir(tmp)
 			require.NoError(t, e)
@@ -188,8 +250,7 @@ func TestChangesJ30J32GitDiagnosticIdentity(t *testing.T) {
 						for _, path := range []string{marker, marker + ".child"} {
 							pid, err := os.ReadFile(path)
 							require.NoError(t, err)
-							state, _ := exec.Command("ps", "-o", "stat=", "-p", strings.TrimSpace(string(pid))).Output()
-							require.True(t, len(strings.TrimSpace(string(state))) == 0 || strings.HasPrefix(strings.TrimSpace(string(state)), "Z"), "process %s still running: %s", pid, state)
+							requireChangesProcessExit(t, pid)
 						}
 						files, err := os.ReadDir(temp)
 						require.NoError(t, err)
@@ -255,8 +316,7 @@ func TestChangesJ30L07RepositoryTransferCleanup(t *testing.T) {
 						for _, path := range []string{marker, marker + ".child"} {
 							pid, err := os.ReadFile(path)
 							require.NoError(t, err)
-							state, _ := exec.Command("ps", "-o", "stat=", "-p", strings.TrimSpace(string(pid))).Output()
-							require.True(t, len(strings.TrimSpace(string(state))) == 0 || strings.HasPrefix(strings.TrimSpace(string(state)), "Z"), "process %s still running: %s", pid, state)
+							requireChangesProcessExit(t, pid)
 						}
 					}
 					files, err := os.ReadDir(tmp)
