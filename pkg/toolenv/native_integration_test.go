@@ -58,7 +58,12 @@ int main(void) {
 	out, stderr, err := process.ExecuteProcess(ctx, process.RunRequest{CleanEnv: true, WorkingDir: work, Command: []string{filepath.Join(work, "probe")}})
 	require.NoError(t, err, string(stderr))
 	require.Contains(t, string(out), "native-libraries-ok")
-	// Serialization and cache reuse must not invoke any manager or activation hook.
+	_, err = runNix(ctx, work, "store", "gc")
+	require.NoError(t, err)
+	require.True(t, env.Ready())
+	run(env)
+	// Serialization and cache reuse after collection must not invoke managers or
+	// activation hooks.
 	t.Run("offline_warm", func(t *testing.T) {
 		t.Setenv("PATH", t.TempDir())
 		raw, err := json.Marshal(env)
@@ -74,10 +79,6 @@ int main(void) {
 		}
 		run(again)
 	})
-	_, err = runNix(ctx, work, "store", "gc")
-	require.NoError(t, err)
-	require.True(t, env.Ready())
-	run(env)
 	// Losing a GC root makes readiness fail and repairs only future preparation.
 	require.NoError(t, os.Remove(env.Native.Roots[0].Link))
 	require.False(t, env.Ready())

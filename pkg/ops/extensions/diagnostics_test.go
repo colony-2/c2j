@@ -14,6 +14,7 @@ import (
 	"github.com/colony-2/c2j/pkg/ops"
 	"github.com/colony-2/c2j/pkg/ops/executiondiag"
 	"github.com/colony-2/c2j/pkg/secrets"
+	"github.com/colony-2/c2j/pkg/shellcmd"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	"github.com/stretchr/testify/require"
 )
@@ -85,12 +86,37 @@ func TestExtensionJSONSurvivesLargeDiagnostics(t *testing.T) {
 	require.Contains(t, readDiagnostic(t, deps), "Capture truncated")
 }
 func TestExtensionCancellationAndRedaction(t *testing.T) {
-	deps := diagnosticExtension(t, `printf private-; sleep .03; printf credential; printf private-credential >&2; sleep 5`, "{type: object}")
+	ready := filepath.Join(t.TempDir(), "output-ready")
+	deps := diagnosticExtension(t, `printf private-; sleep .03; printf credential; printf private-credential >&2; : > `+shellcmd.QuotePOSIX(ready)+`; sleep 30`, "{type: object}")
 	redactor := secrets.NewRedactor()
 	require.NoError(t, redactor.Register("private-credential"))
-	ctx, cancel := context.WithTimeout(secrets.WithRedactor(celltest.Context(context.Background()), redactor), 150*time.Millisecond)
+	bound, cancel := context.WithTimeout(secrets.WithRedactor(celltest.Context(context.Background()), redactor), 10*time.Second)
 	defer cancel()
+	ctx, expire := context.WithCancelCause(bound)
+	defer expire(context.Canceled)
+	// Cancel only after the child emits the complete secret on both streams.
+	// A fixed deadline can interrupt the split write on a busy executor, before
+	// the complete value that this test expects to redact has been printed.
+	emitted := make(chan bool, 1)
+	go func() {
+		tick := time.NewTicker(10 * time.Millisecond)
+		defer tick.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				emitted <- false
+				return
+			case <-tick.C:
+				if _, err := os.Stat(ready); err == nil {
+					emitted <- true
+					expire(context.DeadlineExceeded)
+					return
+				}
+			}
+		}
+	}()
 	_, err := executeExtension(deps, ctx, ExecutionInput{Selector: "./check"})
+	require.True(t, <-emitted, "child must emit both secret writes before cancellation")
 	require.ErrorIs(t, err, context.DeadlineExceeded)
 	var failure *executiondiag.Failure
 	require.ErrorAs(t, err, &failure)

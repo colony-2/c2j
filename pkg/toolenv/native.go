@@ -104,24 +104,34 @@ func prepareNixTool(ctx context.Context, dir, spec string, tool *Tool) error {
 	if !nixStorePath.MatchString(meta.Drv) || !strings.HasSuffix(meta.Drv, ".drv") || !nixStorePath.MatchString(meta.Input) || !nixStorePath.MatchString(meta.Bin) || len(meta.Outputs) == 0 {
 		return fmt.Errorf("invalid Nix package output metadata for %s", spec)
 	}
-	var names []string
+	selected := map[string]bool{}
 	for name, path := range meta.Outputs {
 		if !nixOutputName.MatchString(name) || !nixStorePath.MatchString(path) {
 			return fmt.Errorf("invalid Nix output %q", name)
 		}
-		names = append(names, name)
+		selected[path] = true
 	}
-	sort.Strings(names)
-	// Explicit outputs avoid relying on profile output selection. The out-links
-	// retain each output and its transitive runtime/propagated-input closure.
-	if _, err := runNix(ctx, dir, "build", "--out-link", filepath.Join(dir, "result"), "--", meta.Drv+"^"+strings.Join(names, ",")); err != nil {
+	if !selected[meta.Input] || !selected[meta.Bin] {
+		return fmt.Errorf("Nix input and binary outputs must be selected for %s", spec)
+	}
+	var paths []string
+	for path := range selected {
+		paths = append(paths, path)
+	}
+	sort.Strings(paths)
+	// Evaluation already selected the exact outputs. Requesting drv^outputs
+	// instead can force a build for substitution-disabled wrapper derivations,
+	// even when their output paths have trusted substitutes. Out-links retain
+	// every selected output and its transitive closure.
+	args := append([]string{"build", "--out-link", filepath.Join(dir, "result"), "--"}, paths...)
+	if _, err := runNix(ctx, dir, args...); err != nil {
 		return err
 	}
 	roots, err := outputRoots(dir, "result")
 	if err != nil {
 		return err
 	}
-	for _, path := range meta.Outputs {
+	for _, path := range paths {
 		found := false
 		for _, root := range roots {
 			found = found || root.Target == path

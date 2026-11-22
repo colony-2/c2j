@@ -278,6 +278,16 @@ the shell or a `print-dev-env` capture derivation. If a required output needs
 building, setup fails before the op starts. Legacy and version-4 derivation JSON
 are supported; structured attributes and dynamic outputs fail explicitly.
 
+Package metadata selects the default, development, binary and library outputs.
+c2j validates that complete selection, including the activation input and binary
+output, then realizes the sorted, unique evaluated store paths. It does not
+request the package derivation again: a wrapper can forbid derivation
+substitution while its exact outputs are available from a trusted cache.
+Every selected path must have a retained out-link before readiness is published.
+Nix retains their referenced closures. Signature requirements and configured
+cache trust remain unchanged. Valid `nix-v2` cache entries remain reusable;
+missing or retargeted roots invalidate reuse and trigger preparation again.
+
 ## Scope and execution
 
 Recipe and node declarations are inherited. Tools are prepared when execution
@@ -351,9 +361,25 @@ installation, qualified execution, warm reuse, and rejection of source builds.
 Native tests compile and run against OpenSSL and zlib with implicit and declared
 compilers, verify activation after garbage collection and without managers on
 PATH, and exercise repository config through a real recipe task.
+Signed-cache regressions build an input-addressed, substitution-disabled wrapper
+in a separate producer, then copy its signed cache to independent cold consumers.
+They compare the old derivation request with exact-path preparation, reject
+missing/untrusted outputs and missing closure members, and verify all selected
+outputs and payload execution survive collection while an unrooted sentinel is
+removed. They also check manager-free offline reuse, damaged-root repair, disabled
+import-from-derivation and failure before a repository command body executes.
+Private fixture keys remain in the disposable producer.
+
+`TestRealC2opsEnvironment` uses all fourteen declarations from c2ops hook revision
+`36c8a3c70cfa8179e445115e635820c97675f4eb`, including native activation, executable
+bindings and warm reuse. It requires Linux aarch64. The candidate hook also runs
+this test on its actual worker with `C2J_TEST_C2OPS_LOCAL=1`; it does not collect
+garbage in the worker store. These package checks do not replace a fresh complete
+c2ops hook invocation through the existing nonpublishing merge-check entrypoint
+after runtime activation.
 The test needs network access and skips when Docker is unavailable or `-short`
 is set. To run the package tests alone:
-`go test ./pkg/toolenv -run 'TestReal(Nix|NativeEnvironment)' -v`.
+`go test ./pkg/toolenv -run 'TestReal(Nix|NativeEnvironment|C2opsEnvironment)' -v -timeout=20m`.
 For the repository-to-command test:
 `go test ./pkg/worker/compiler -run TestRealRepositoryNativePackages -v`.
 The implementation was validated on Linux ARM64 with Nix 2.35.1; other

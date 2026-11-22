@@ -3,16 +3,107 @@ package toolenv
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/colony-2/c2j/internal/pathutil"
 	"github.com/colony-2/c2j/pkg/shellcmd"
 	"github.com/stretchr/testify/require"
 )
+
+// The recorder deliberately fails realization: argument and validation tests
+// must not depend on writable store paths or claim to test Nix substitution.
+func TestNixEvaluatedOutputRequest(t *testing.T) {
+	const a = "/nix/store/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-a"
+	const b = "/nix/store/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb-b"
+	const c = "/nix/store/cccccccccccccccccccccccccccccccc-c"
+	for _, tc := range []struct {
+		name      string
+		change    func(map[string]any)
+		wantBuild bool
+	}{
+		{"sorted_unique_paths", func(m map[string]any) {}, true},
+		{"invalid_derivation", func(m map[string]any) { m["drv"] = a }, false},
+		{"invalid_input", func(m map[string]any) { m["input"] = "/tmp/input" }, false},
+		{"unselected_input", func(m map[string]any) { m["input"] = c }, false},
+		{"unselected_bin", func(m map[string]any) { m["bin"] = c }, false},
+		{"invalid_bin", func(m map[string]any) { m["bin"] = b + "/bin" }, false},
+		{"empty_outputs", func(m map[string]any) { m["outputs"] = map[string]string{} }, false},
+		{"invalid_name", func(m map[string]any) { m["outputs"] = map[string]string{"out^dev": a} }, false},
+		{"invalid_path", func(m map[string]any) { m["outputs"] = map[string]string{"out": "/tmp/out"} }, false},
+		{"wrong_type", func(m map[string]any) { m["outputs"] = []string{a} }, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			meta := map[string]any{"drv": a + ".drv", "input": a, "bin": b,
+				"outputs": map[string]string{"z": a, "out": b, "dev": a, "lib": b}}
+			tc.change(meta)
+			raw, err := json.Marshal(meta)
+			require.NoError(t, err)
+			log := recordNix(t, string(raw), "exit 19")
+			m := Manager{Root: t.TempDir()}
+			_, diag, err := m.Prepare(t.Context(), []Scope{{ID: "op", Packages: []string{"nix:test#tool"}}})
+			require.Error(t, err)
+			require.Equal(t, "failed", diag.Tools[0].Outcome)
+			commands, err := os.ReadFile(log)
+			require.NoError(t, err)
+			require.Equal(t, tc.wantBuild, strings.Contains(string(commands), "\nbuild\n"))
+			if tc.wantBuild {
+				parts := strings.Split(string(commands), "\nbuild\n")
+				args := strings.Split(strings.TrimSuffix(parts[1], "\n"), "\n")
+				require.Len(t, args, 5)
+				require.Equal(t, "--out-link", args[0])
+				require.Equal(t, []string{"--", a, b}, args[2:])
+			}
+			manifests, err := filepath.Glob(filepath.Join(m.Root, "packages", "*", "ready.json"))
+			require.NoError(t, err)
+			require.Empty(t, manifests)
+		})
+	}
+}
+
+func recordNix(t *testing.T, metadata, build string) string {
+	t.Helper()
+	bin := t.TempDir()
+	log := filepath.Join(t.TempDir(), "commands")
+	script := `#!/bin/sh
+set -eu
+printf '%s\n' "$@" >> ` + shellcmd.QuotePOSIX(log) + `
+[ "$1" = --extra-experimental-features ]; shift 2
+[ "$1" = --max-jobs ] && [ "$2" = 0 ]; shift 2
+[ "$1" = --builders ] && [ -z "$2" ]; shift 2
+[ "$1" = --option ] && [ "$2" = allow-import-from-derivation ] && [ "$3" = false ]; shift 3
+case "$1" in
+eval) ` + shellcmd.LiteralLine(metadata) + `;;
+build) ` + build + `;;
+*) exit 98;;
+esac
+`
+	require.NoError(t, os.WriteFile(filepath.Join(bin, "nix"), []byte(script), 0700))
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	return log
+}
+
+func TestNixSuccessfulRealizationRequiresRoots(t *testing.T) {
+	const path = "/nix/store/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-output"
+	for _, build := range []string{"exit 0", "ln -s /tmp \"$3\"", "ln -s " + path + " \"$3\"", "ln -s /tmp \"$3\"; exit 1"} {
+		t.Run(build, func(t *testing.T) {
+			recordNix(t, `{"drv":"`+path+`.drv","input":"`+path+`","bin":"`+path+`","outputs":{"out":"`+path+`"}}`, build)
+			m := Manager{Root: t.TempDir()}
+			env, diag, err := m.Prepare(t.Context(), []Scope{{ID: "op", Packages: []string{"nix:test#tool"}}})
+			require.Error(t, err)
+			require.False(t, env.Ready())
+			require.Equal(t, "failed", diag.Tools[0].Outcome)
+			manifests, err := filepath.Glob(filepath.Join(m.Root, "packages", "*", "ready.json"))
+			require.NoError(t, err)
+			require.Empty(t, manifests)
+		})
+	}
+}
 
 func TestNativeCaptureRejectsFailedHooksAndTemporaryPaths(t *testing.T) {
 	bash, err := exec.LookPath("bash")

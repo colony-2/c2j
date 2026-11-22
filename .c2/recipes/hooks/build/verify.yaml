@@ -264,6 +264,11 @@ state:
           # Ubuntu cold/warm acceptance runs separately with no skipped probes.
           go test -count=1 -v -timeout=10m ./internal/pathutil ./internal/portability ./pkg/shellcmd ./pkg/toolenv
           go test -count=1 -v -timeout=10m ./pkg/worker/compiler -run '^TestRealRepositoryNativePackages$'
+          # Validate every unchanged c2ops declaration and native activation on
+          # this Linux aarch64 allocation, including manager-free warm reuse.
+          # Disposable signed-cache regressions above still require Docker;
+          # this host check cannot establish their cold-store acceptance.
+          C2J_TEST_C2OPS_LOCAL=1 go test -count=1 -v -timeout=15m ./pkg/toolenv -run '^TestRealC2opsEnvironment$'
           # Saved comparisons must execute assertions on every public surface.
           saved_diff_status=0
           go test -mod=readonly -count=1 -json -tags=integration -timeout=10m ./pkg/jobinspect ./pkg/childbroker ./cmd/c2j/internal/cmd ./cmd/c2j ./pkg/worker/compiler -run '^(TestWorkspaceDiff|ExampleWorkspaceDiff)' > "$scratch/saved-diff.json" || saved_diff_status=$?

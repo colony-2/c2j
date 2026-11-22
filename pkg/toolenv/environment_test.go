@@ -135,7 +135,8 @@ set -eu
 case "$1" in
  build)
   [ "$2" = --out-link ]
-  [ "$5" = '/nix/store/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-missing.drv^out' ]
+  [ "$4" = -- ] && [ "$#" = 5 ]
+  [ "$5" = '/nix/store/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-missing' ]
   ` + shellcmd.LiteralLine("no prebuilt output available; builds disabled") + ` >&2
   exit 1
   ;;

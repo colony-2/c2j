@@ -31,34 +31,11 @@ func InContainer(t *testing.T, fixtures ...string) bool {
 
 func run(t *testing.T, fixtures []string) {
 	t.Helper()
-	docker, err := exec.LookPath("docker")
-	if err != nil {
-		t.Skip("Nix integration test: Docker is not installed")
-	}
-	probeCtx, cancelProbe := context.WithTimeout(t.Context(), 15*time.Second)
-	out, err := exec.CommandContext(probeCtx, docker, "info", "--format", "{{.OSType}}/{{.Architecture}}").Output()
-	cancelProbe()
-	if err != nil {
-		t.Skipf("Nix integration test: Docker is unavailable: %v: %s", err, out)
-	}
-	var arch string
-	switch strings.TrimSpace(string(out)) {
-	case "linux/aarch64", "linux/arm64":
-		arch = "arm64"
-	case "linux/x86_64", "linux/amd64":
-		arch = "amd64"
-	default:
-		t.Skipf("Nix integration test: unsupported Docker platform %s", out)
-	}
+	docker, arch := dockerPlatform(t)
 	ctx, cancel := context.WithTimeout(t.Context(), 9*time.Minute)
 	defer cancel()
 	dir := t.TempDir()
-	binary := filepath.Join(dir, "toolenv.test")
-	// A static Linux binary also works with a remote daemon or Docker Desktop.
-	build := exec.CommandContext(ctx, "go", "test", "-c", "-o", binary, ".")
-	build.Env = append(os.Environ(), "CGO_ENABLED=0", "GOOS=linux", "GOARCH="+arch)
-	out, err = build.CombinedOutput()
-	require.NoError(t, err, string(out))
+	binary := buildBinary(t, ctx, dir, arch)
 	run := func(args ...string) []byte {
 		t.Helper()
 		out, err := exec.CommandContext(ctx, docker, args...).CombinedOutput()
@@ -87,4 +64,39 @@ func run(t *testing.T, fixtures []string) {
 	}
 	t.Logf("%s", run("start", "--attach", id))
 	require.Equal(t, "0", strings.TrimSpace(string(run("inspect", "--format", "{{.State.ExitCode}}", id))), "Nix container tests failed")
+}
+
+func dockerPlatform(t *testing.T) (string, string) {
+	t.Helper()
+	docker, err := exec.LookPath("docker")
+	if err != nil {
+		t.Skip("Nix integration test: Docker is not installed")
+	}
+	probeCtx, cancelProbe := context.WithTimeout(t.Context(), 15*time.Second)
+	out, err := exec.CommandContext(probeCtx, docker, "info", "--format", "{{.OSType}}/{{.Architecture}}").Output()
+	cancelProbe()
+	if err != nil {
+		t.Skipf("Nix integration test: Docker is unavailable: %v: %s", err, out)
+	}
+	var arch string
+	switch strings.TrimSpace(string(out)) {
+	case "linux/aarch64", "linux/arm64":
+		arch = "arm64"
+	case "linux/x86_64", "linux/amd64":
+		arch = "amd64"
+	default:
+		t.Skipf("Nix integration test: unsupported Docker platform %s", out)
+	}
+	return docker, arch
+}
+
+func buildBinary(t *testing.T, ctx context.Context, dir, arch string) string {
+	t.Helper()
+	binary := filepath.Join(dir, "toolenv.test")
+	// A static Linux binary also works with a remote daemon or Docker Desktop.
+	build := exec.CommandContext(ctx, "go", "test", "-c", "-o", binary, ".")
+	build.Env = append(os.Environ(), "CGO_ENABLED=0", "GOOS=linux", "GOARCH="+arch)
+	out, err := build.CombinedOutput()
+	require.NoError(t, err, string(out))
+	return binary
 }
