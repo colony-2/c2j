@@ -119,7 +119,7 @@ func TestSelectedRecipeJobLoadsDetailsExplicitly(t *testing.T) {
 	require.Equal(t, r.info.Status, got.Status)
 	require.Empty(t, got.OtherGoalIDs)
 	require.Equal(t, []string{"other"}, r.info.OtherGoalIDs)
-	require.Equal(t, r.info.GoalID, got.GoalID)
+	require.Empty(t, got.GoalID)
 	require.Equal(t, r.info.BlockingWait, got.BlockingWait)
 	require.Equal(t, r.info.WaitFor, got.WaitFor)
 	require.Equal(t, r.info.NextRoute, got.NextRoute)

@@ -33,7 +33,7 @@ func (c *captureEngine) ListJobs(_ context.Context, req jobdb.ListJobsRequest) (
 
 func TestRestartRecipeJobExactSourceMetadata(t *testing.T) {
 	prior := jobdb.JobKey{TenantId: "tenant", JobId: "hidden-source"}
-	for _, goal := range []string{"", "continue", "new"} {
+	for _, goal := range []string{"", "new"} {
 		t.Run("goal="+goal, func(t *testing.T) {
 			engine := &captureEngine{info: jobdb.JobSummary{Cell: "source-cell"}}
 			_, err := RestartRecipeJob(context.Background(), engine, prior, "scope", nil, RestartOptions{Goal: goal, RequestID: "request"})
@@ -45,7 +45,7 @@ func TestRestartRecipeJobExactSourceMetadata(t *testing.T) {
 			require.NotNil(t, engine.last)
 			require.Equal(t, prior, engine.last.PriorJobKey)
 			require.Equal(t, "source-cell", engine.last.Cell)
-			require.Equal(t, goal != "new", engine.last.ShareGoal)
+			require.False(t, engine.last.ShareGoal)
 		})
 	}
 }
@@ -74,7 +74,7 @@ func TestRestartRecipeJobInvalidOptionsNeverSubmit(t *testing.T) {
 		name, scope, goal, requestID, want string
 	}{
 		{name: "blank scope", scope: " \t", requestID: "request", want: "scope ID is required"},
-		{name: "unsupported goal", scope: "scope", goal: "other", requestID: "request", want: "goal mode must be continue or new"},
+		{name: "unsupported goal", scope: "scope", goal: "other", requestID: "request", want: "goal sharing is unsupported"},
 		{name: "blank request", scope: "scope", requestID: " \t", want: "restart request ID is required"},
 	} {
 		t.Run(fixture.name, func(t *testing.T) {
@@ -114,7 +114,12 @@ func stringPtr(s string) *string { return &s }
 func (c *captureEngine) SubmitRestartJobRef(_ context.Context, request jobdb.SubmitRestartJobRequest) (jobref.Ref, error) {
 	req := request.Job
 	c.last = &req
-	return jobref.Ref{TenantID: req.PriorJobKey.TenantId, JobID: "restarted", GoalID: "goal"}, nil
+	return jobref.Ref{TenantID: req.PriorJobKey.TenantId, JobID: "restarted", GoalID: "goal", Cell: func() string {
+		if req.Cell != "" {
+			return req.Cell
+		}
+		return "test"
+	}(), CellID: "cell", CellRepo: "example.test/test"}, nil
 }
 
 func TestRestartRecipeJob_NoPatch(t *testing.T) {
@@ -167,7 +172,7 @@ func TestRestartRecipeJob_FromSubmission(t *testing.T) {
 		require.Nil(t, engine.last.ExecutionRestart)
 		require.Zero(t, engine.last.LastStepToKeep)
 		require.Equal(t, "source-cell", engine.last.Cell)
-		require.True(t, engine.last.ShareGoal)
+		require.False(t, engine.last.ShareGoal)
 		require.Nil(t, engine.last.ExtraTaskInput)
 		require.Nil(t, engine.last.ExtraTaskOutput)
 		assertHashOnlySchemaSelector(t, engine.last.Schema)

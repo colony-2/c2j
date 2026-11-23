@@ -4,6 +4,9 @@ package jobref
 import (
 	"context"
 	"fmt"
+	"strings"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
 )
@@ -13,14 +16,31 @@ type Ref struct {
 	CellID   string `json:"cell_id"`
 	CellRepo string `json:"cell_repo"`
 	TenantID string `json:"tenant_id"`
-	GoalID   string `json:"goal_id"`
+	GoalID   string `json:"goal_id,omitempty"`
 	JobID    string `json:"job_id"`
 }
 
 func (r Ref) Key() jobdb.JobKey { return jobdb.JobKey{TenantId: r.TenantID, JobId: r.JobID} }
 func (r Ref) Validate() error {
-	if r.TenantID == "" || r.GoalID == "" || r.JobID == "" {
-		return fmt.Errorf("job reference requires tenant, goal, and job IDs")
+	for _, field := range []struct{ name, value string }{{"tenant", r.TenantID}, {"job", r.JobID}, {"cell ID", r.CellID}, {"repository", r.CellRepo}} {
+		if !utf8.ValidString(field.value) || field.value == "" || field.value != strings.TrimSpace(field.value) || strings.IndexFunc(field.value, unicode.IsControl) >= 0 {
+			return fmt.Errorf("job reference requires valid captured %s", field.name)
+		}
+	}
+	if err := r.Key().Validate(); err != nil {
+		return err
+	}
+	if r.CellID == "" {
+		return fmt.Errorf("job reference requires tenant, job and captured cell IDs")
+	}
+	if err := jobdb.ValidateCellName(r.Cell); err != nil {
+		return fmt.Errorf("job reference cell: %w", err)
+	}
+	if r.CellRepo == "" {
+		return fmt.Errorf("job reference requires captured repository")
+	}
+	if _, err := jobdb.NormalizeCellRepo(r.CellRepo); err != nil {
+		return fmt.Errorf("job reference repository: %w", err)
 	}
 	return nil
 }
@@ -28,8 +48,35 @@ func (r Ref) Validate() error {
 // ValidateSelected rejects ambiguous or contradictory selected receipts without
 // reconstructing captured identity from requests or current registry state.
 func (r Ref) ValidateSelected(job jobdb.SubmitJob) error {
-	if r.Validate() != nil || r.Cell == "" || r.CellID == "" || r.CellRepo == "" || r.TenantID != job.TenantId || r.JobID != job.JobID || r.GoalID != job.GoalID {
+	assertions := job
+	assertions.Cell = "" // Legacy accepted aliases may have been renamed; trust the captured native receipt.
+	if r.ValidateSubmission(assertions) != nil || r.Cell == "" || r.CellID == "" || r.CellRepo == "" || r.TenantID != job.TenantId || r.JobID != job.JobID || r.GoalID != job.GoalID {
 		return jobdb.ErrSubmissionReceiptUnavailable
+	}
+	return nil
+}
+
+// ValidateSubmission compares captured identity to the frozen request. An
+// omitted assertion is never filled from today's cell registry.
+func (r Ref) ValidateSubmission(job jobdb.SubmitJob) error {
+	if err := r.Validate(); err != nil {
+		return err
+	}
+	if r.TenantID != job.TenantId || (job.JobID != "" && r.JobID != job.JobID) || (job.Cell != "" && r.Cell != job.Cell) {
+		return fmt.Errorf("submission receipt identity mismatch")
+	}
+	if job.CellRepo != "" {
+		want, err := jobdb.NormalizeCellRepo(job.CellRepo)
+		if err != nil {
+			return err
+		}
+		got, err := jobdb.NormalizeCellRepo(r.CellRepo)
+		if err != nil {
+			return err
+		}
+		if got != want {
+			return fmt.Errorf("submission receipt repository mismatch")
+		}
 	}
 	return nil
 }
@@ -62,4 +109,11 @@ func WithScope(ctx context.Context, s Scope) context.Context {
 func FromContext(ctx context.Context) (Scope, bool) {
 	s, ok := ctx.Value(scopeKey{}).(Scope)
 	return s, ok
+}
+
+// HistoricalRecovery is an explicitly configured connection for frozen owner
+// requests. It is separate from fresh submission and restricted lease routes.
+type HistoricalRecovery interface {
+	ReplaySubmitJobRef(context.Context, jobdb.SubmitJob) (Ref, error)
+	ReplayRestartJobRef(context.Context, jobdb.SubmitRestartJobRequest) (Ref, error)
 }

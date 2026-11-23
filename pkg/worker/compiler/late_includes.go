@@ -324,6 +324,9 @@ func prepareLateInclude(ctx workflow.Context, parent *template.ResolutionContext
 	if err != nil {
 		return recipe.Node{}, jobdb.ClassifyExecutionInfrastructure(fmt.Errorf("invalid captured late definition: %w", err), jobdb.ExecutionInfrastructureDurableDecode, "c2j.late_capture", nil, nil)
 	}
+	if err := recipe.ValidateJobSemantics(*rec, parent.TaskExecutionContext().JobSemanticsVersion); err != nil {
+		return recipe.Node{}, err
+	}
 	if m := rec.GetMetadata().Internal; m == nil || m.RootRepository == nil || *m.RootRepository != selection.Declaration.RootRepository || m.DefinitionSource == nil || !reflect.DeepEqual(*m.DefinitionSource, recipeSourceSnapshot(selection.resolution())) {
 		return recipe.Node{}, jobdb.ClassifyExecutionInfrastructure(fmt.Errorf("captured late definition has inconsistent original root"), jobdb.ExecutionInfrastructureDurableDecode, "c2j.late_capture", nil, nil)
 	}

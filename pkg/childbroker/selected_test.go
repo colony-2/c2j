@@ -55,7 +55,7 @@ func TestSelectedBrokerRealDispatchAndReplay(t *testing.T) {
 	broker := jobcontext.ChildJobBroker{Endpoint: server.localEndpoint, Token: server.token, SessionID: server.sessionID}
 	req, err := NewSubmitRequest(ctx, workflowctl.StartJob{TenantId: "tenant", JobID: "dest", GoalID: source.GoalID, Title: "  Child café\n  ", Inputs: map[string]any{"value": "original", "title": "Input title", "prompt": "Input prompt"}, RecipeName: "build", Cell: "work", CellRepo: "example.test/work"}, []jobdb.Artifact{jobdb.NewArtifactFromBytes("input.txt", []byte("input café\n"))})
 	require.NoError(t, err)
-	d, err := PrepareSelected(ctx, broker, req)
+	d, err := prepareLegacyBroker(ctx, current, req)
 	require.NoError(t, err)
 	wire, err := json.Marshal(req)
 	require.NoError(t, err)
@@ -77,6 +77,10 @@ func TestSelectedBrokerRealDispatchAndReplay(t *testing.T) {
 	require.NoError(t, err)
 	var canonicalHistorical map[string]any
 	require.NoError(t, json.Unmarshal(rawHistorical, &canonicalHistorical))
+	delete(canonicalHistorical, "job_semantics_version")
+	if context, ok := canonicalHistorical["context"].(map[string]any); ok {
+		delete(context, "job_semantics_version")
+	}
 	delete(canonicalHistorical, "title") // This field did not exist in historical request data.
 	historical.Input, err = json.Marshal(canonicalHistorical)
 	require.NoError(t, err)
@@ -159,11 +163,11 @@ func TestSelectedBrokerRealDispatchAndReplay(t *testing.T) {
 	require.ErrorIs(t, err, jobdb.ErrExistingJobMismatch)
 	req.Start.JobID = "after-close"
 	_, err = Submit(ctx, broker, req)
-	require.ErrorIs(t, err, jobdb.ErrGoalConflict)
+	require.ErrorIs(t, err, jobdb.ErrPrimaryGoalSelectionUnsupported)
 	req.Start.GoalID = "missing"
 	req.Start.JobID = "missing"
 	_, err = Submit(ctx, broker, req)
-	require.ErrorIs(t, err, jobdb.ErrGoalNotFound)
+	require.ErrorIs(t, err, jobdb.ErrPrimaryGoalSelectionUnsupported)
 }
 func TestSelectedBrokerOlderRoutesRedirectAndIncomplete(t *testing.T) {
 	for _, mode := range []string{"old", "redirect", "incomplete"} {
@@ -189,16 +193,13 @@ func TestSelectedBrokerOlderRoutesRedirectAndIncomplete(t *testing.T) {
 			}))
 			defer server.Close()
 			_, err := Submit(context.Background(), jobcontext.ChildJobBroker{Endpoint: server.URL + submitPath}, SubmitRequest{Start: workflowctl.StartJob{TenantId: "t", JobID: "dest", GoalID: "goal"}})
-			if mode == "incomplete" {
-				require.ErrorIs(t, err, jobdb.ErrSubmissionReceiptUnavailable)
-			} else {
-				require.ErrorIs(t, err, jobdb.ErrPrimaryGoalSelectionUnsupported)
-			}
+			require.ErrorIs(t, err, jobdb.ErrPrimaryGoalSelectionUnsupported)
 
 			// Retained envelopes must choose the dedicated route without relying on
 			// an optional duplicated selector in Start.
 			descriptor, e := starter.NewDescriptor(context.Background(), jobdb.SubmitJob{TenantId: "t", JobID: "dest", GoalID: "goal", Data: jobdb.NewTaskDataOrPanic(nil)})
 			require.NoError(t, e)
+			descriptor.Version = 1
 			_, e = Submit(context.Background(), jobcontext.ChildJobBroker{Endpoint: server.URL + submitPath}, SubmitRequest{Descriptor: &descriptor})
 			if mode == "incomplete" {
 				require.ErrorIs(t, e, jobdb.ErrSubmissionReceiptUnavailable)
@@ -232,7 +233,7 @@ func TestSelectedBrokerRejectsSubmitOnlyScope(t *testing.T) {
 	require.NoError(t, err)
 	defer server.Close()
 	_, err = Submit(ctx, jobcontext.ChildJobBroker{Endpoint: server.localEndpoint, Token: server.token, SessionID: server.sessionID}, SubmitRequest{Start: workflowctl.StartJob{TenantId: "t", JobID: "dest", GoalID: "goal", Cell: "work", CellRepo: "example.test/work", RecipeName: "build"}})
-	require.ErrorIs(t, err, jobdb.ErrPrimaryGoalSelectionForbidden)
+	require.ErrorIs(t, err, jobdb.ErrPrimaryGoalSelectionUnsupported)
 	require.Zero(t, calls)
 }
 
@@ -267,12 +268,12 @@ func TestSelectedBrokerCLIProcess(t *testing.T) {
 	workspace := t.TempDir()
 	writeWorkerBrokerWorkspace(t, workspace)
 	requestFile := filepath.Join(workspace, "request.json")
-	stdout, stderr, err := process.ExecuteProcess(ctx, process.RunRequest{WorkspaceRoot: workspace, WorkingDir: workspace, Command: []string{binary, "submit", "New instructions", "--embed", "--cell", "app", "--cell-repo", "example.test/app", "--advanced-recipe-file", "child.yaml", "--goal", source.GoalID, "--job-id", "cli-selected", "--request-file", requestFile, "--json"}, Env: env})
+	stdout, stderr, err := process.ExecuteProcess(ctx, process.RunRequest{WorkspaceRoot: workspace, WorkingDir: workspace, Command: []string{binary, "submit", "New instructions", "--embed", "--cell", "app", "--cell-repo", "example.test/app", "--advanced-recipe-file", "child.yaml", "--job-id", "cli-selected", "--request-file", requestFile, "--json"}, Env: env})
 	require.NoError(t, err, string(stderr))
 	var accepted SubmitResponse
 	require.NoError(t, json.Unmarshal(stdout, &accepted))
 	require.Equal(t, source.CellID, accepted.CellID)
-	require.Equal(t, source.GoalID, accepted.GoalID)
+	require.Empty(t, accepted.GoalID)
 	require.Equal(t, "cli-selected", accepted.JobID)
 	require.NoError(t, os.Remove(filepath.Join(workspace, "child.yaml")))
 	stdout, stderr, err = process.ExecuteProcess(ctx, process.RunRequest{WorkspaceRoot: workspace, WorkingDir: workspace, Command: []string{binary, "submit", "--embed", "--replay", requestFile, "--json"}, Env: env})
@@ -289,11 +290,34 @@ func TestSelectedBrokerLegacyOrdinaryStillUsable(t *testing.T) {
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte(`{"tenant_id":"t","job_id":"ordinary","goal_id":"new-goal"}`))
+		w.Write([]byte(`{"tenant_id":"t","job_id":"ordinary","goal_id":"new-goal","cell":"work","cell_id":"immutable","cell_repo":"example.test/work"}`))
 	}))
 	defer server.Close()
 	ref, err := Submit(context.Background(), jobcontext.ChildJobBroker{Endpoint: server.URL + submitPath}, SubmitRequest{Start: workflowctl.StartJob{TenantId: "t", JobID: "ordinary", Cell: "work", RecipeName: "build"}})
 	require.NoError(t, err)
 	require.Equal(t, "new-goal", ref.GoalID)
-	require.Empty(t, ref.CellID, "historical ordinary receipt validation remains compatible")
+	require.Equal(t, "immutable", ref.CellID)
+}
+
+// Reconstruct a saved legacy request without using fresh goal selection.
+func prepareLegacyBroker(ctx context.Context, current jobcontext.Current, req SubmitRequest) (starter.Descriptor, error) {
+	start := req.Start
+	goal := start.GoalID
+	start.GoalID = ""
+	parent := jobcontext.ParentFromCurrent(current)
+	start.Parent = &parent
+	for _, a := range req.Artifacts {
+		start.Artifacts = append(start.Artifacts, jobdb.NewArtifactFromBytes(a.Name, a.Data))
+	}
+	j, err := starter.PrepareRecipeJob(ctx, start, starter.StartRecipeJobOptions{})
+	if err != nil {
+		return starter.Descriptor{}, err
+	}
+	j.GoalID = goal
+	if j.Schema != nil {
+		j.Schema.Schema = jobdbschema.Schema()
+	}
+	d, err := starter.NewDescriptor(ctx, j)
+	d.Version = 1
+	return d, err
 }

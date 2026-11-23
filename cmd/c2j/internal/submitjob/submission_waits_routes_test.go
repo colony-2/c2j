@@ -34,7 +34,7 @@ func (s waitLeaseSubmitter) SubmitJobRef(ctx context.Context, job jobdb.SubmitJo
 }
 
 func TestSubmissionWaitCLIStateSurvivesSQLiteReopen(t *testing.T) {
-	for _, kind := range []WaitKind{WaitJob, WaitJobSuccess, WaitGoal} {
+	for _, kind := range []WaitKind{WaitJob, WaitJobSuccess} {
 		for _, timeFirst := range []bool{false, true} {
 			order := "dependency-first"
 			if timeFirst {
@@ -147,7 +147,7 @@ func TestSubmissionWaitBrokerLeaseRoutes(t *testing.T) {
 				b := f.target(t, "b", "")
 				c := f.target(t, "c", "")
 				opts := f.opts
-				opts.Waits = []Wait{{WaitJob, "a"}, {WaitJobSuccess, "b"}, {WaitGoal, c.GoalID}}
+				opts.Waits = []Wait{{WaitJob, "a"}, {WaitJobSuccess, "b"}, {WaitJobSuccess, c.JobKey.JobId}}
 				opts.WaitUntil = []string{"1h"}
 				anchor := time.Now().UTC()
 				opts.Clock = func() time.Time { return anchor }

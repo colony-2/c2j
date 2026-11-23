@@ -32,6 +32,9 @@ type Service struct {
 }
 
 func (s *Service) Restart(ctx context.Context, q Request) (*Response, error) {
+	if q.Goal != "" && q.Goal != "new" {
+		return nil, fmt.Errorf("goal sharing is unsupported; restart creates an independent job")
+	}
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}

@@ -130,15 +130,14 @@ outputs:
 				require.EqualValues(t, 1, source.calls.Load(), "inspection never resolves the source")
 				version = 2
 				req := story.RestartRecipeJobRequest{ProjectID: "submission", JobID: handle.JobKey.JobId, ScopeID: st.RestartScopes[0].ScopeID, RequestID: uuid.NewString()}
-				if !failSource {
-					req.Goal.Mode = "new"
-				}
 				restarted, err := svc.RestartRecipeJob(ctx, req)
 				require.NoError(t, err)
-				if failSource {
-					require.Equal(t, handle.GoalID, restarted.GoalID, "repair continues the original goal")
-				}
+				require.Empty(t, restarted.GoalID, "current DTOs omit live goal identity")
 				key := jobdb.JobKey{TenantId: restarted.TenantID, JobId: restarted.JobID}
+				require.NotEqual(t, handle.JobKey, key)
+				independent, err := rt.GetJob(ctx, key)
+				require.NoError(t, err)
+				require.NotEqual(t, handle.GoalID, independent.GoalID, "legacy backend must receive an independent restart")
 				run(key, jobworkflow.JobRunCompleted)
 				require.EqualValues(t, 2, cell.calls.Load())
 				require.EqualValues(t, 2, source.calls.Load())
@@ -166,8 +165,8 @@ outputs:
 // Counts only the API under test, separately from fixture and assertion reads.
 type submissionHistoryEngine struct {
 	jobworkflow.Engine
-	t              *testing.T
-	reads, replays int
+	t                           *testing.T
+	reads, replays, submissions int
 }
 
 func (e *submissionHistoryEngine) GetJobRun(ctx context.Context, q jobdb.GetJobRunRequest) (jobdb.GetJobRunResponse, error) {
@@ -179,6 +178,8 @@ func (e *submissionHistoryEngine) ReplayJobRun(ctx context.Context, q jobworkflo
 	return e.Engine.ReplayJobRun(ctx, q)
 }
 func (e *submissionHistoryEngine) SubmitRestartJob(ctx context.Context, q jobdb.SubmitRestartJobRequest) (jobdb.JobHandle, error) {
+	e.submissions++
+	require.False(e.t, q.Job.ShareGoal, "fresh restarts explicitly request independent jobs")
 	require.Zero(e.t, q.Job.LastStepToKeep)
 	require.Nil(e.t, q.Job.ExecutionRestart, "both selectors must request fresh execution")
 	return e.Engine.SubmitRestartJob(ctx, q)
@@ -377,12 +378,16 @@ outputs:
 							}
 							return result.Ref.Key(), nil
 						}
-						if state == "executed" {
-							_, err := restart("inadmissible-continuation", "")
-							require.ErrorIs(t, err, jobdb.ErrGoalConflict, "a succeeded goal still prevents ordinary continuation")
-						}
-						destination, err := restart("accepted-restart", "new")
+						submissions := history.submissions
+						_, err = restart("inadmissible-continuation", "continue")
+						require.ErrorContains(t, err, "unsupported")
+						require.Equal(t, submissions, history.submissions, "retired sharing must reject before native submission")
+						destination, err := restart("accepted-restart", "")
 						require.NoError(t, err)
+						require.NotEqual(t, key, destination)
+						destinationInfo, err := rt.GetJob(ctx, destination)
+						require.NoError(t, err)
+						require.NotEqual(t, beforeInfo.GoalID, destinationInfo.GoalID)
 						again, err := restart("accepted-restart", "new")
 						require.NoError(t, err)
 						require.Equal(t, destination, again)
@@ -411,8 +416,9 @@ outputs:
 						again, err = restart("accepted-restart", "new")
 						require.NoError(t, err)
 						require.Equal(t, destination, again, "receipt replay survives completed execution")
-						_, err = restart("accepted-restart", "")
-						require.Error(t, err, "changed request parameters must conflict")
+						again, err = restart("accepted-restart", "")
+						require.NoError(t, err)
+						require.Equal(t, destination, again, "both independent aliases replay the original receipt after execution")
 						after, err := rt.ListChapters(ctx, jobdb.ListChaptersRequest{JobKey: key})
 						require.NoError(t, err)
 						require.Equal(t, before, after)

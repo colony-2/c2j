@@ -30,7 +30,7 @@ func (o *Options) AddWaitFlags(flags *pflag.FlagSet) {
 	}{
 		{WaitJob, "Require this exact job to reach any terminal outcome; repeatable"},
 		{WaitJobSuccess, "Require this exact job to succeed (terminal failure blocks execution); repeatable"},
-		{WaitGoal, "Require this goal's winning candidate to succeed (an open goal can wait indefinitely); repeatable"},
+		{WaitGoal, "Unsupported: use --wait-job or --wait-job-success"},
 	} {
 		kind := flag.kind
 		flags.Var(&waitFlag{append: func(value string) { o.Waits = append(o.Waits, Wait{Kind: kind, ID: value}) }}, string(kind), flag.help)
@@ -68,7 +68,7 @@ func (o Options) dependencies() ([]jobdb.Dependency, error) {
 				d.Condition = jobdb.JobPrereqComplete
 			}
 		case WaitGoal:
-			d.Target.GoalID = w.ID
+			return nil, fmt.Errorf("--wait-goal is unsupported; use --wait-job or --wait-job-success")
 		default:
 			return nil, fmt.Errorf("unknown wait kind %q", w.Kind)
 		}

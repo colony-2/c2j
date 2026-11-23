@@ -53,8 +53,8 @@ type ResultInput struct {
 }
 
 func (in ResultInput) started() (StartedJob, error) {
-	if (in.Target.Job == "") == (in.Target.Goal == "") {
-		return StartedJob{}, fmt.Errorf("target requires exactly one job or goal")
+	if in.Target.Goal != "" || in.Target.Job == "" {
+		return StartedJob{}, fmt.Errorf("target.job is required; goal targets are unsupported")
 	}
 	return StartedJob{Target: in.Target, Wait: in.Wait}, nil
 }
@@ -65,7 +65,7 @@ type StartedJob struct {
 	CellRepo string        `json:"cell_repo,omitempty"`
 	Result   *ResultSource `json:"result,omitempty"`
 	JobID    string        `json:"job_id"`
-	GoalID   string        `json:"goal_id"`
+	GoalID   string        `json:"goal_id,omitempty"`
 	TenantID string        `json:"tenant_id"`
 	Target   WaitTarget    `json:"target,omitempty"`
 	Wait     WaitPolicy    `json:"wait,omitempty"`
@@ -83,7 +83,7 @@ type MultipleRecipeOutput struct {
 }
 
 type StartedJobs struct {
-	GoalIDs []string     `json:"goal_ids"`
+	GoalIDs []string     `json:"goal_ids,omitempty"`
 	Items   []StartedJob `json:"items"`
 	Wait    WaitPolicy   `json:"wait,omitempty"`
 	JobIDs  []string     `json:"job_ids"`
@@ -153,7 +153,7 @@ func waitAndNoResult(deps ops.OpDependencies, ctx context.Context, input Started
 		if err != nil {
 			return input, err
 		}
-		input.Items[i].Result = &ResultSource{Goal: binding.Target.GoalID, Job: binding.SatisfiedByJobID}
+		input.Items[i].Result = &ResultSource{Job: binding.SatisfiedByJobID}
 	}
 	return input, nil
 }
@@ -164,7 +164,7 @@ func waitAndGetRecipeOutput(deps ops.OpDependencies, ctx context.Context, input 
 		return SingleRecipeOutput{}, err
 	}
 	result, err := getRecipeOutput(deps, ctx, StartedJob{JobID: binding.SatisfiedByJobID})
-	result.Result = ResultSource{Goal: binding.Target.GoalID, Job: binding.SatisfiedByJobID}
+	result.Result = ResultSource{Job: binding.SatisfiedByJobID}
 	return result, err
 }
 
@@ -173,30 +173,17 @@ func getRecipeOutput(deps ops.OpDependencies, ctx context.Context, input Started
 	if deps == nil || deps.JobTool() == nil || deps.WorkflowControl() == nil {
 		return zero, fmt.Errorf("result collection requires job tool and workflow control")
 	}
-	if input.Target.Job != "" && input.Target.Goal != "" {
-		return zero, fmt.Errorf("target requires exactly one job or goal")
+	if input.Target.Goal != "" {
+		return zero, fmt.Errorf("goal targets are unsupported; use target.job")
 	}
-	if input.Target.Goal != "" || input.Target.Job != "" {
-		if input.Target.Goal != "" {
-			inspector, ok := deps.WorkflowControl().(goalInspector)
-			if !ok {
-				return zero, fmt.Errorf("goal inspection unavailable")
-			}
-			goal, err := inspector.GetGoal(ctx, jobdb.GoalKey{TenantId: deps.JobTool().GetJobKey().TenantId, GoalID: input.Target.Goal})
-			if err != nil {
-				return zero, err
-			}
-			if goal.State == jobdb.GoalFailed && goal.Failure != nil {
-				return zero, &jobdb.GoalFailedError{Failure: *goal.Failure}
-			}
-			if goal.State != jobdb.GoalSucceeded {
-				return zero, fmt.Errorf("goal %s is still open", input.Target.Goal)
-			}
-			input.JobID = goal.SuccessfulJobID
-			input.GoalID = goal.GoalKey.GoalID
-		} else {
-			input.JobID = input.Target.Job
-		}
+	if _, err := input.Wait.normalized(true); err != nil {
+		return zero, err
+	}
+	if input.TenantID != "" && input.TenantID != deps.JobTool().GetJobKey().TenantId {
+		return zero, fmt.Errorf("cross-tenant result collection is unsupported")
+	}
+	if input.Target.Job != "" {
+		input.JobID = input.Target.Job
 	}
 	if input.JobID == "" {
 		return zero, fmt.Errorf("result job is required")
@@ -211,7 +198,7 @@ func getRecipeOutput(deps ops.OpDependencies, ctx context.Context, input Started
 		return zero, err
 	}
 
-	return SingleRecipeOutput{Outputs: decoded.Outputs, Artifacts: decoded.Artifacts, GitResult: decoded.GitResult, Result: ResultSource{Job: input.JobID, Goal: input.GoalID}}, nil
+	return SingleRecipeOutput{Outputs: decoded.Outputs, Artifacts: decoded.Artifacts, GitResult: decoded.GitResult, Result: ResultSource{Job: input.JobID}}, nil
 }
 
 func startSingleJob(deps ops.OpDependencies, ctx context.Context, input SingleRecipeWithRef) (StartedJob, error) {
@@ -226,7 +213,7 @@ func startSingleJob(deps ops.OpDependencies, ctx context.Context, input SingleRe
 	if err != nil {
 		return StartedJob{}, err
 	}
-	return StartedJob{Cell: keys[0].Cell, CellID: keys[0].CellID, CellRepo: keys[0].CellRepo, JobID: keys[0].JobID, GoalID: keys[0].GoalID, TenantID: keys[0].TenantID, Wait: input.Wait}, nil
+	return StartedJob{Cell: keys[0].Cell, CellID: keys[0].CellID, CellRepo: keys[0].CellRepo, JobID: keys[0].JobID, TenantID: keys[0].TenantID, Wait: input.Wait}, nil
 }
 
 func startMultipleJobs(deps ops.OpDependencies, ctx context.Context, input MultipleRecipes) (StartedJobs, error) {
@@ -259,11 +246,10 @@ func startMultipleJobs(deps ops.OpDependencies, ctx context.Context, input Multi
 	}
 	// Preserve the declared inheritance policy here: grouped and ordinary entries
 	// can resolve it differently. Only Items carry normalized, executable waits.
-	out := StartedJobs{JobIDs: ids, GoalIDs: make([]string, len(keys)), Items: make([]StartedJob, len(keys)), Wait: input.Wait}
+	out := StartedJobs{JobIDs: ids, Items: make([]StartedJob, len(keys)), Wait: input.Wait}
 	for i, k := range keys {
-		out.GoalIDs[i] = k.GoalID
 		wait := resolved[i].Wait
-		out.Items[i] = StartedJob{Cell: k.Cell, CellID: k.CellID, CellRepo: k.CellRepo, JobID: k.JobID, GoalID: k.GoalID, TenantID: k.TenantID, Wait: wait}
+		out.Items[i] = StartedJob{Cell: k.Cell, CellID: k.CellID, CellRepo: k.CellRepo, JobID: k.JobID, TenantID: k.TenantID, Wait: wait}
 	}
 	return out, nil
 }
@@ -303,7 +289,6 @@ func parentContextFromDeps(deps ops.OpDependencies) jobcontext.Parent {
 		parent.JobType = starter.RecipeJobType
 		if tool, ok := jobTool.(interface{ GetJobRef() jobref.Ref }); ok {
 			ref := tool.GetJobRef()
-			parent.GoalID = ref.GoalID
 			parent.CellID, parent.CellName, parent.CellRepo = ref.CellID, ref.Cell, ref.CellRepo
 		}
 	}

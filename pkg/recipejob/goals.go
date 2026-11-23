@@ -2,23 +2,22 @@ package recipejob
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/colony-2/c2j/pkg/joblist"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 )
 
-// GoalReader is the authoritative read surface, separate from lifecycle writes.
+// GoalReader retains source compatibility and historical dependency reads.
+// Live goal helpers below reject without calling the backend.
 type GoalReader interface {
 	GetGoal(context.Context, jobdb.GoalKey) (jobdb.GoalInfo, error)
 	GetDependencyWait(context.Context, jobdb.DependencyWaitKey) (jobdb.DependencyWaitInfo, error)
 }
 
 func GetGoal(ctx context.Context, reader GoalReader, key jobdb.GoalKey) (jobdb.GoalInfo, error) {
-	if err := key.Validate(); err != nil {
-		return jobdb.GoalInfo{}, err
-	}
-	return reader.GetGoal(ctx, key)
+	return jobdb.GoalInfo{}, fmt.Errorf("goal queries are unsupported; select an exact job: %w", errors.ErrUnsupported)
 }
 
 type GoalCandidatesRequest struct {
@@ -28,25 +27,9 @@ type GoalCandidatesRequest struct {
 	PageToken string
 }
 
-// ListGoalCandidates includes all job types, primary and additional members,
-// and archived/hidden candidates. The backend owns filtering and pagination.
-// A page is not a complete candidate count or a source of goal state.
+// ListGoalCandidates is retained for source compatibility and returns unsupported.
 func ListGoalCandidates(ctx context.Context, lister Lister, req GoalCandidatesRequest) (joblist.Page, error) {
-	if err := (jobdb.GoalKey{TenantId: req.TenantID, GoalID: req.GoalID}).Validate(); err != nil {
-		return joblist.Page{}, err
-	}
-	if req.PageSize < 0 {
-		return joblist.Page{}, fmt.Errorf("page size must not be negative")
-	}
-	page, err := lister.ListJobs(ctx, jobdb.ListJobsRequest{TenantIds: []string{req.TenantID}, GoalIDs: []string{req.GoalID}, Stores: []jobdb.JobStore{jobdb.JobStoreActive, jobdb.JobStoreArchived}, IncludeHidden: true, PageSize: req.PageSize, PageToken: req.PageToken})
-	if err != nil {
-		return joblist.Page{}, err
-	}
-	out := joblist.Page{Jobs: make([]joblist.Job, 0, len(page.Jobs)), NextPageToken: page.NextPageToken}
-	for _, j := range page.Jobs {
-		out.Jobs = append(out.Jobs, joblist.JobFromSummary(j))
-	}
-	return out, nil
+	return joblist.Page{}, fmt.Errorf("goal operations are unsupported; select an exact job: %w", errors.ErrUnsupported)
 }
 
 // GoalFailureAdmin is the tenant lifecycle capability, separate from reads and
@@ -56,29 +39,25 @@ type GoalFailureAdmin interface {
 }
 
 func FailGoal(ctx context.Context, admin GoalFailureAdmin, req jobdb.FailGoalRequest) (jobdb.GoalInfo, error) {
-	if err := req.Validate(); err != nil {
-		return jobdb.GoalInfo{}, err
-	}
-	return admin.FailGoal(ctx, req)
+	return jobdb.GoalInfo{}, fmt.Errorf("goal operations are unsupported; select an exact job: %w", errors.ErrUnsupported)
 }
 
-// GoalDiscovery exposes tenant inspection separately from lifecycle authority.
-// Requests and responses retain JobDB filters, counts, cursors and wait bindings.
+// GoalDiscovery retains legacy signatures; only exact dependency history is live.
 type GoalDiscovery interface {
 	ListGoals(context.Context, jobdb.ListGoalsRequest) (jobdb.ListGoalsResponse, error)
 	ListDependencyWaits(context.Context, jobdb.ListDependencyWaitsRequest) (jobdb.ListDependencyWaitsResponse, error)
 }
 
 func ListGoals(ctx context.Context, reader GoalDiscovery, req jobdb.ListGoalsRequest) (jobdb.ListGoalsResponse, error) {
-	if err := validateListGoals(req); err != nil {
-		return jobdb.ListGoalsResponse{}, err
-	}
-	return reader.ListGoals(ctx, req)
+	return jobdb.ListGoalsResponse{}, fmt.Errorf("goal operations are unsupported; select an exact job: %w", errors.ErrUnsupported)
 }
 
 // ListDependencyWaits retains consumer history. Target queries select only
 // unresolved pending edges, never historical reverse dependencies.
 func ListDependencyWaits(ctx context.Context, reader GoalDiscovery, req jobdb.ListDependencyWaitsRequest) (jobdb.ListDependencyWaitsResponse, error) {
+	if req.Target != nil && req.Target.GoalID != "" {
+		return jobdb.ListDependencyWaitsResponse{}, fmt.Errorf("goal targets are unsupported: %w", errors.ErrUnsupported)
+	}
 	if err := req.Validate(); err != nil {
 		return jobdb.ListDependencyWaitsResponse{}, err
 	}

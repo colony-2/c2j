@@ -38,6 +38,11 @@ func TestBrokerHTTPPreservesSubmissionWaits(t *testing.T) {
 			req, err := NewSubmitRequest(ctx, start, nil)
 			require.NoError(t, err)
 			_, err = Submit(ctx, brokerConfig(t, server), req)
+			if tc.name == "goal" || tc.name == "mixed" {
+				require.ErrorContains(t, err, "goal dependencies are unsupported")
+				require.Empty(t, capture.lastKey.JobId)
+				return
+			}
 			require.NoError(t, err)
 			require.Equal(t, tc.deps, capture.last.Dependencies)
 			require.Equal(t, tc.available, capture.last.AvailableAt)

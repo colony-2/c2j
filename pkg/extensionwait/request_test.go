@@ -17,7 +17,7 @@ func TestExtensionWaitDecode(t *testing.T) {
 	}{
 		{"W01_time", `{"wait":{"version":1,"until":"2026-12-01T10:00:00+01:00"}}`, true},
 		{"W01_past", `{"wait":{"version":1,"until":"2000-01-01T00:00:00Z"}}`, true},
-		{"W02_jobs_goals_and", `{"wait":{"version":1,"until":"2026-12-01T09:00:00Z","dependencies":[{"job":"j","condition":"complete"},{"goal":"g","condition":"success"}]}}`, true},
+		{"W02_goals_retired", `{"wait":{"version":1,"until":"2026-12-01T09:00:00Z","dependencies":[{"job":"j","condition":"complete"},{"goal":"g","condition":"success"}]}}`, false},
 		{"W02_success", `{"wait":{"version":1,"dependencies":[{"job":"j","condition":"success"}]}}`, true},
 		{"W03_case", `{"WAIT":{"version":1,"until":"2000-01-01T00:00:00Z"}}`, false},
 		{"W04_empty_second_target", `{"wait":{"version":1,"dependencies":[{"job":"j","goal":"","condition":"success"}]}}`, false},
@@ -65,7 +65,7 @@ func TestExtensionWaitDecode(t *testing.T) {
 		})
 	}
 	t.Run("W07_normalization", func(t *testing.T) {
-		r, e := Decode([]byte(`{"wait":{"version":1,"dependencies":[{"job":"same","condition":"success"},{"job":"same","condition":"success"},{"goal":"same","condition":"success"}]}}`), 4<<20)
+		r, e := Decode([]byte(`{"wait":{"version":1,"dependencies":[{"job":"same","condition":"success"},{"job":"same","condition":"success"},{"job":"other","condition":"success"}]}}`), 4<<20)
 		require.NoError(t, e)
 		require.Len(t, r.Dependencies, 2)
 	})

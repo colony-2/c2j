@@ -34,7 +34,7 @@ func checkTitleJSON(t *testing.T, value any, title, goal string) {
 		require.Equal(t, title, fields["title"])
 	}
 	require.Equal(t, "unchanged prompt", fields["prompt"])
-	require.Equal(t, goal, fields["goal_id"])
+	require.NotContains(t, fields, "goal_id")
 }
 
 func TestSubmittedTitleMetadataAndListings(t *testing.T) {
@@ -89,11 +89,7 @@ func TestSubmittedTitleMetadataAndListings(t *testing.T) {
 					require.Len(t, page.Jobs, 1)
 					checkTitleJSON(t, page.Jobs[0], tc.want, ref.GoalID)
 					checkTitleJSON(t, joblist.JobFromSummary(listed.Jobs[0]), tc.want, ref.GoalID)
-					candidates, err := recipejob.ListGoalCandidates(ctx, guard, recipejob.GoalCandidatesRequest{TenantID: "t", GoalID: ref.GoalID})
-					require.NoError(t, err)
-					require.Len(t, candidates.Jobs, 1)
-					checkTitleJSON(t, candidates.Jobs[0], tc.want, ref.GoalID)
-					require.EqualValues(t, 2, guard.calls.Load())
+					require.EqualValues(t, 1, guard.calls.Load())
 				})
 			}
 		})
@@ -132,13 +128,9 @@ func TestTitleProjectionsUseOnlySummaryMetadata(t *testing.T) {
 				require.NoError(t, err)
 				require.Len(t, page.Jobs, 1)
 				checkTitleJSON(t, page.Jobs[0], title, "goal")
-				candidates, err := recipejob.ListGoalCandidates(ctx, lister, recipejob.GoalCandidatesRequest{TenantID: "tenant", GoalID: "goal", PageSize: 1, PageToken: "cursor"})
-				require.NoError(t, err)
-				require.Len(t, candidates.Jobs, 1)
-				require.Equal(t, "next", candidates.NextPageToken)
-				checkTitleJSON(t, candidates.Jobs[0], title, "goal")
+
 			}
-			require.EqualValues(t, 8, guard.calls.Load(), "one summary query per response; all other runtime reads are unavailable")
+			require.EqualValues(t, 6, guard.calls.Load(), "one summary query per response; all other runtime reads are unavailable")
 		})
 	}
 }

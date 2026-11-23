@@ -28,7 +28,7 @@ func (p *restartProbe) Restart(_ context.Context, q jobrestart.Request) (*jobres
 		return nil, p.failure
 	}
 	return &jobrestart.Response{
-		Ref:     &jobref.Ref{JobID: "new", GoalID: "goal", TenantID: "tenant", Cell: "source"},
+		Ref:     &jobref.Ref{JobID: "new", GoalID: "goal", TenantID: "tenant", Cell: "source", CellID: "immutable", CellRepo: "example.test/source"},
 		Points:  &jobrestart.Points{ProjectID: "tenant", JobID: q.JobID, RestartScopes: []jobrestart.RestartScope{{ScopeID: "opaque", ChapterOrdinal: 9, Title: "Recorded title", Path: []string{"x"}, StartedAt: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)}}},
 		Context: &jobrestart.RestartContext{ProjectID: "tenant", JobID: q.JobID, ScopeID: "opaque", ChapterOrdinal: 9, Job: map[string]any{"git": map[string]any{"ref": "main"}}, Visible: map[string]any{"vars": map[string]any{"actual_name": "full"}, "inputs": nil, "sequence": map[string]any{"prior": map[string]any{"outputs": map[string]any{"secret": "[REDACTED]"}}}}, RedactedPaths: []string{"/visible/sequence/prior/outputs/secret"}},
 	}, nil
@@ -73,7 +73,7 @@ func TestRestartExplicitSelectors(t *testing.T) {
 		out, err := executeRestartTest(newRestartCommand(restartTestOpen(p)), append([]string{"job", "--request-id", "id"}, args...)...)
 		require.NoError(t, err)
 		require.Contains(t, out, `"job_id":"new"`)
-		require.Equal(t, "continue", p.requests[0].Goal)
+		require.Equal(t, "new", p.requests[0].Goal)
 	}
 }
 func joinArgs(args []string) string { raw, _ := json.Marshal(args); return string(raw) }

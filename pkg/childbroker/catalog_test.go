@@ -34,8 +34,7 @@ func TestExecutionBaseCatalogOrdinaryAndSelectedBroker(t *testing.T) {
 	require.ErrorContains(t, err, executioncatalog.UnsupportedRequirements)
 	require.Empty(t, s.started)
 	require.Empty(t, capture.lastKey.JobId)
-	start.JobID = "selected"
-	start.GoalID = "goal"
+	start.JobID = "prepared"
 	var d starter.Descriptor
 	_, err = s.submit(context.Background(), SubmitRequest{Start: start, prepare: &d})
 	require.NoError(t, err, "descriptor preparation remains pure")

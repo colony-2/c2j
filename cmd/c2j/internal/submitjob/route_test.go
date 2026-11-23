@@ -47,7 +47,7 @@ func TestSubmissionRoute(t *testing.T) {
 			t.Setenv(jobcontext.ChildJobSessionIDEnv, "")
 		}, "current job context requires a child job broker"},
 		{"tenant-convenience", func(t *testing.T, o *Options) { clearSubmissionEnv(t); t.Setenv(jobcontext.TenantIDEnv, "tenant") }, "--jobdb is required"},
-		{"partial-parent", func(t *testing.T, o *Options) { t.Setenv(jobcontext.CurrentGoalIDEnv, "") }, "required"},
+		{"partial-parent", func(t *testing.T, o *Options) { t.Setenv(jobcontext.CurrentJobIDEnv, "") }, "required"},
 		{"bad-sequence", func(t *testing.T, o *Options) { t.Setenv(jobcontext.CurrentInvocationSequenceEnv, "seven") }, "integer"},
 		{"partial-broker", func(t *testing.T, o *Options) { t.Setenv(jobcontext.ChildJobSessionIDEnv, "") }, "required"},
 		{"bad-version", func(t *testing.T, o *Options) { t.Setenv(jobcontext.CurrentContextVersionEnv, "2") }, "version"},

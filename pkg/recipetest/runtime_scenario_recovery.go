@@ -91,7 +91,7 @@ func (f *runtimeFixture) restartScenarioJob(ctx context.Context, rt caseRuntime,
 		return err
 	}
 	receipt.ContextSHA256 = contentDigest(contextRaw)
-	request := jobrestart.Request{Operation: "submit", JobID: j.Ref.JobID, Selector: selector, RequestID: spec.RequestID, Goal: "continue"}
+	request := jobrestart.Request{Operation: "submit", JobID: j.Ref.JobID, Selector: selector, RequestID: spec.RequestID}
 	raw, err := json.Marshal(request)
 	if err != nil {
 		return err
@@ -109,8 +109,8 @@ func (f *runtimeFixture) restartScenarioJob(ctx context.Context, rt caseRuntime,
 		return err
 	}
 	ref := *response.Ref
-	if ref.JobID == j.Ref.JobID || ref.GoalID != j.Ref.GoalID {
-		return fmt.Errorf("restart must create a distinct job in the continued goal")
+	if ref.JobID == j.Ref.JobID || (ref.GoalID != "" && ref.GoalID == j.Ref.GoalID) {
+		return fmt.Errorf("restart must create a distinct independent job")
 	}
 	f.mu.Lock()
 	s.report.Jobs[spec.Continuation] = ScenarioJobReport{Ref: ref}

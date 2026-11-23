@@ -267,7 +267,7 @@ func (j recipeJobWorker) Run(ctx jobworkflow.ExecutionContext, jobData jobdb.Job
 			return nil, fmt.Errorf("workspace snapshot artifact %q is missing", name)
 		}
 	}
-	runContext.Workflow.GoalID = ctx.Job().GoalID
+	runContext.Workflow.GoalID = ""
 	submittedRefs, err := submittedArtifactRefs(input, artifacts, hasEmbeddedRecipeArtifact)
 	if err != nil {
 		logger.Debug("recipe job: failed to index submitted artifacts",

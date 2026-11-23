@@ -63,7 +63,8 @@ func (f *waitFixture) submit(t *testing.T, opts Options) jobdb.JobKey {
 	require.NoError(t, Run(f.ctx, opts))
 	var ref submitResult
 	require.NoError(t, json.Unmarshal(out.Bytes(), &ref))
-	require.NotEmpty(t, ref.GoalID)
+	require.Empty(t, ref.GoalID)
+	require.NotEmpty(t, ref.JobID)
 	return jobdb.JobKey{TenantId: ref.TenantID, JobId: ref.JobID}
 }
 
@@ -93,7 +94,7 @@ func (f *waitFixture) blocked(t *testing.T, key jobdb.JobKey) {
 
 func TestSubmissionWaitOutcomes(t *testing.T) {
 	for _, backend := range []string{"toy", "sqlite"} {
-		for _, kind := range []WaitKind{WaitJob, WaitJobSuccess, WaitGoal} {
+		for _, kind := range []WaitKind{WaitJob, WaitJobSuccess} {
 			for _, status := range []string{"succeeded", "failed_app", "failed_system", "failed_timeout", "cancelled"} {
 				t.Run(backend+"/"+string(kind)+"/"+status, func(t *testing.T) {
 					f := newWaitFixture(t, backend)
@@ -150,26 +151,28 @@ func TestSubmissionWaitAllOfAndGoalReplacement(t *testing.T) {
 			b := f.target(t, "b", "")
 			original := f.target(t, "original", "")
 			opts := f.opts
-			opts.Waits = []Wait{{WaitJob, "a"}, {WaitJobSuccess, "b"}, {WaitGoal, original.GoalID}}
+			opts.Waits = []Wait{{WaitJob, "a"}, {WaitJobSuccess, "b"}, {WaitJobSuccess, original.JobKey.JobId}}
 			key := f.submit(t, opts)
 			f.finish(t, a.JobKey, "failed_app")
 			f.blocked(t, key)
 			f.finish(t, b.JobKey, "succeeded")
 			f.blocked(t, key)
 			f.finish(t, original.JobKey, "cancelled")
-			f.blocked(t, key)
 			replacement := f.target(t, "replacement", original.GoalID)
 			f.finish(t, replacement.JobKey, "succeeded")
 			lease, err := f.wire.GetJobLease(f.ctx, jobdb.GetJobLeaseRequest{JobKey: key, WorkerID: "consumer", Routes: []jobdb.Route{{JobType: "recipe"}}})
 			require.NoError(t, err)
 			require.NotNil(t, lease)
+			wait, err := f.db.GetDependencyWait(f.ctx, jobdb.DependencyWaitKey{JobKey: key, WaitID: "submission"})
+			require.NoError(t, err)
+			require.Equal(t, jobdb.DependencyFailed, wait.State, "a successful sibling cannot satisfy original's success dependency")
 		})
 	}
 }
 
 func TestSubmissionWaitDependencyReleasePreservesFutureTime(t *testing.T) {
 	for _, backend := range []string{"toy", "sqlite"} {
-		for _, kind := range []WaitKind{WaitJob, WaitJobSuccess, WaitGoal} {
+		for _, kind := range []WaitKind{WaitJob, WaitJobSuccess} {
 			t.Run(backend+"/"+string(kind), func(t *testing.T) {
 				f := newWaitFixture(t, backend)
 				target := f.target(t, "target", "")
@@ -196,12 +199,12 @@ func TestSubmissionWaitAlreadySatisfiedAndRejectedTargets(t *testing.T) {
 			target := f.target(t, "target", "")
 			f.finish(t, target.JobKey, "succeeded")
 			opts := f.opts
-			opts.Waits = []Wait{{WaitJob, "target"}, {WaitGoal, target.GoalID}}
+			opts.Waits = []Wait{{WaitJob, "target"}}
 			key := f.submit(t, opts)
 			lease, err := f.wire.GetJobLease(f.ctx, jobdb.GetJobLeaseRequest{JobKey: key, WorkerID: "consumer", Routes: []jobdb.Route{{JobType: "recipe"}}})
 			require.NoError(t, err)
 			require.NotNil(t, lease)
-			for _, kind := range []WaitKind{WaitJob, WaitJobSuccess, WaitGoal} {
+			for _, kind := range []WaitKind{WaitJob, WaitJobSuccess} {
 				opts := f.opts
 				opts.JobID = "rejected-" + string(kind)
 				opts.Waits = []Wait{{kind, "missing"}}
@@ -306,7 +309,7 @@ func TestSubmissionWaitRunnerTimeoutKeepsPendingJob(t *testing.T) {
 	f := newWaitFixture(t, "sqlite")
 	target := f.target(t, "target", "")
 	opts := f.opts
-	opts.Waits = []Wait{{WaitGoal, target.GoalID}}
+	opts.Waits = []Wait{{WaitJobSuccess, target.JobKey.JobId}}
 	opts.WaitUntil = []string{"1h"}
 	key := f.submit(t, opts)
 	var logs bytes.Buffer

@@ -136,9 +136,8 @@ func collectStartedJobs(ctx context.Context, lister childJobLister, current jobc
 		MetadataFilter: metadataFilter,
 	}
 	out := jobcontext.StartedJobsContext{
-		GoalIDs: []string{},
-		JobIDs:  []string{},
-		Items:   []jobcontext.StartedJobContext{},
+		JobIDs: []string{},
+		Items:  []jobcontext.StartedJobContext{},
 	}
 	for {
 		items, nextPage, err := lister.ListJobs(ctx, req)
@@ -152,11 +151,9 @@ func collectStartedJobs(ctx context.Context, lister childJobLister, current jobc
 				continue
 			}
 			out.JobIDs = append(out.JobIDs, jobID)
-			out.GoalIDs = append(out.GoalIDs, summary.GoalID)
 			out.Items = append(out.Items, jobcontext.StartedJobContext{
 				Cell: summary.Cell, CellID: summary.CellID, CellRepo: summary.CellRepo,
 				TenantID:             summary.JobKey.TenantId,
-				GoalID:               summary.GoalID,
 				JobID:                jobID,
 				RecipeName:           recipeNameFromMetadata(summary.Metadata),
 				Status:               string(summary.Status),
@@ -284,7 +281,6 @@ func (t opExecutor) doPrepared(ctx context.Context, jobTool ops.JobTool, req Act
 	currentJob := currentJobContext(jobTool.GetJobKey(), reg, req.GitTaskContext)
 	if refTool, ok := jobTool.(interface{ GetJobRef() jobref.Ref }); ok {
 		ref := refTool.GetJobRef()
-		currentJob.GoalID = ref.GoalID
 		currentJob.CellID, currentJob.CellName, currentJob.CellRepo = ref.CellID, ref.Cell, ref.CellRepo
 	}
 	if id := jobTool.InvocationID(); id != "" {

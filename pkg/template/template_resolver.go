@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/colony-2/c2j/pkg/jobsemantics"
 	"reflect"
 	"strings"
 	"time"
@@ -256,7 +257,7 @@ func (rc *ResolutionContext) initializeCEL() (*ResolutionContext, error) {
 			FunctionOptionsWithContext(types.Adapter, funcregistry.ContextProvider) ([]cel.EnvOption, error)
 		}
 		ctxProvider := func() contextual.TaskExecutionContext {
-			return rc.TaskExecutionContext()
+			return rc.templateExecutionContext()
 		}
 		if cp, ok := options.CELOptionsProvider.(interface {
 			FunctionOptionsWithRuntimeContext(types.Adapter, funcregistry.ContextProvider, context.Context) ([]cel.EnvOption, error)
@@ -289,6 +290,12 @@ func (rc *ResolutionContext) TaskExecutionContext() contextual.TaskExecutionCont
 	rc.TemplateData.Context.GitTask.Execution = contextual.GitExecutionReferences{BaseHash: contextual.GitExecutionBaseSentinel, HeadHash: contextual.GitExecutionHeadSentinel}
 	rc.TemplateData.Context.Metrics = rc.Options.MetricsJob.Snapshot()
 	return rc.TemplateData.Context
+}
+
+func (rc *ResolutionContext) templateExecutionContext() contextual.TaskExecutionContext {
+	current := rc.TaskExecutionContext()
+	current.Workflow.GoalID = "" // Preserve saved bytes/patches, omit live exports.
+	return current
 }
 
 func jsonParseEnvOption(adapter types.Adapter) cel.EnvOption {
@@ -558,6 +565,9 @@ func (rc *ResolutionContext) EvaluateCEL(expr string) (bool, error) {
 
 // evaluateCELExpression evaluates a CEL expression and returns any type
 func (rc *ResolutionContext) evaluateCELExpression(expr string) (interface{}, error) {
+	if err := jobsemantics.CheckExpression(expr); err != nil {
+		return nil, fmt.Errorf("failed to compile CEL expression: %w", err)
+	}
 	// Handle empty expressions
 	if expr == "" {
 		return "", nil
@@ -602,7 +612,7 @@ func (rc *ResolutionContext) evaluateCELExpression(expr string) (interface{}, er
 		"transition": rc.TemplateData.Transition.AsMap(),
 		"failure":    rc.TemplateData.Failure,
 		"scope":      rc.scopeMetadata(),
-		"context":    rc.TaskExecutionContext(),
+		"context":    rc.templateExecutionContext(),
 		"item":       rc.localValue("item"),
 		"index":      rc.localValue("index"),
 	}

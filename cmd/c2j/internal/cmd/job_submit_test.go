@@ -238,7 +238,7 @@ func TestSubmitWaitFlagsReachHTTPPublication(t *testing.T) {
 		var out, stderr bytes.Buffer
 		cmd.SetOut(&out)
 		cmd.SetErr(&stderr)
-		args := []string{"continue", "--cell", "app", "--cell-repo", celltest.Repo(root), "--jobdb", server.URL + "/waits", "--json", "--wait-goal", targets["goal-source"].GoalID, "--wait-job", " literal,a ", "--wait-job-success", "success", "--wait-job", "literal,a", "--wait-until", requested.Format(time.RFC3339Nano)}
+		args := []string{"continue", "--cell", "app", "--cell-repo", celltest.Repo(root), "--jobdb", server.URL + "/waits", "--json", "--wait-job", " literal,a ", "--wait-job-success", "success", "--wait-job", "literal,a", "--wait-until", requested.Format(time.RFC3339Nano)}
 		if custom {
 			args = append(args, "--advanced-recipe", "custom")
 		}
@@ -246,14 +246,13 @@ func TestSubmitWaitFlagsReachHTTPPublication(t *testing.T) {
 		require.NoError(t, cmd.Execute())
 		var identity map[string]any
 		require.NoError(t, json.Unmarshal(out.Bytes(), &identity))
-		require.Len(t, identity, 7, "JSON must retain its identity-only shape")
+		require.Len(t, identity, 6, "JSON must retain its identity-only shape")
 		key := jobdb.JobKey{TenantId: "waits", JobId: identity["job_id"].(string)}
 		chapter, err := db.GetChapter(ctx, jobdb.ChapterRef{JobKey: key, Ordinal: 0})
 		require.NoError(t, err)
 		var start workflowctl.StartJob
 		require.NoError(t, json.Unmarshal(chapter.Body.(jobdb.JobStartChapter).Input.Data, &start))
 		require.Equal(t, []jobdb.Dependency{
-			{Target: jobdb.DependencyTarget{GoalID: targets["goal-source"].GoalID}, Condition: jobdb.JobPrereqSuccess},
 			{Target: jobdb.DependencyTarget{JobID: "literal,a"}, Condition: jobdb.JobPrereqComplete},
 			{Target: jobdb.DependencyTarget{JobID: "success"}, Condition: jobdb.JobPrereqSuccess},
 		}, start.Dependencies)

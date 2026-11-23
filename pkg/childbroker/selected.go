@@ -3,7 +3,6 @@ package childbroker
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"github.com/colony-2/c2j/pkg/gitprofile"
 	"net/http"
 	"reflect"
@@ -17,47 +16,17 @@ import (
 // PrepareSelected resolves workspace bytes and recipes without publishing.
 // The caller must persist the returned descriptor before SubmitSelected.
 func PrepareSelected(ctx context.Context, broker jobcontext.ChildJobBroker, req SubmitRequest) (starter.Descriptor, error) {
-	if req.Start.GoalID == "" {
-		return starter.Descriptor{}, fmt.Errorf("primary goal is required")
-	}
-	broker.Endpoint += "/primary-goal/prepare"
-	// Use the ordinary RPC codec at this dedicated path: its response holds a
-	// descriptor in a distinct envelope, never an accepted job identity.
-	return prepareSelectedRPC(ctx, broker, req)
+	return starter.Descriptor{}, jobdb.ErrPrimaryGoalSelectionUnsupported
 }
 func (s *Server) handlePrepareSelected(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		w.WriteHeader(405)
-		return
-	}
-	if !s.authorized(r) {
-		w.WriteHeader(401)
-		return
-	}
-	var req SubmitRequest
-	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 128<<20)).Decode(&req); err != nil {
-		writeSelectionError(w, err)
-		return
-	}
-	if req.Start.GoalID == "" || req.Descriptor != nil {
-		writeSelectionError(w, jobdb.ErrInvalidDependency)
-		return
-	}
-	var d starter.Descriptor
-	req.prepare = &d
-	if _, err := s.submit(r.Context(), req); err != nil {
-		writeSelectionError(w, err)
-		return
-	}
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(d)
+	writeSelectionError(w, jobdb.ErrPrimaryGoalSelectionUnsupported)
 }
 func (s *Server) submitDescriptor(ctx context.Context, d starter.Descriptor) (SubmitResponse, error) {
 	job, err := d.Request()
 	if err != nil {
 		return SubmitResponse{}, err
 	}
-	if job.GoalID == "" || job.JobType != starter.RecipeJobType || job.TenantId != s.current.TenantID {
+	if (job.GoalID != "" && d.Version != 1) || job.JobType != starter.RecipeJobType || job.TenantId != s.current.TenantID {
 		return SubmitResponse{}, jobdb.ErrPrimaryGoalSelectionForbidden
 	}
 	var start workflowctl.StartJob
@@ -65,7 +34,13 @@ func (s *Server) submitDescriptor(ctx context.Context, d starter.Descriptor) (Su
 		return SubmitResponse{}, err
 	}
 	expectedParent := jobcontext.ParentFromCurrent(s.current)
-	if start.Parent == nil || !reflect.DeepEqual(*start.Parent, expectedParent) || !reflect.DeepEqual(start.JobContext.GitProfile, gitprofile.InheritedSelection(s.executionContext)) {
+	parent := start.Parent
+	if parent != nil {
+		copyParent := *parent
+		copyParent.GoalID = ""
+		parent = &copyParent
+	}
+	if parent == nil || !reflect.DeepEqual(*parent, expectedParent) || !reflect.DeepEqual(start.JobContext.GitProfile, gitprofile.InheritedSelection(s.executionContext)) {
 		return SubmitResponse{}, jobdb.ErrPrimaryGoalSelectionForbidden
 	}
 	var meta starter.JobMetadata
@@ -82,14 +57,29 @@ func (s *Server) submitDescriptor(ctx context.Context, d starter.Descriptor) (Su
 		return SubmitResponse{}, err
 	}
 	s.record(ref, start)
-	return SubmitResponse{Cell: ref.Cell, CellID: ref.CellID, CellRepo: ref.CellRepo, TenantID: ref.TenantID, JobID: ref.JobID, GoalID: ref.GoalID, Recipe: start.RecipeName}, nil
+	response := SubmitResponse{Cell: ref.Cell, CellID: ref.CellID, CellRepo: ref.CellRepo, TenantID: ref.TenantID, JobID: ref.JobID, Recipe: start.RecipeName}
+	if d.Version == 1 && job.GoalID != "" {
+		response.GoalID = ref.GoalID
+	} // Frozen historical receipt, not current context.
+	return response, nil
 }
+
+// SubmitPrepared publishes a retained ordinary or historical descriptor using
+// the current invocation's original submission authority.
+func SubmitPrepared(ctx context.Context, broker jobcontext.ChildJobBroker, d starter.Descriptor) (SubmitResponse, error) {
+	job, err := d.Request()
+	if err != nil {
+		return SubmitResponse{}, err
+	}
+	return Submit(ctx, broker, SubmitRequest{Descriptor: &d, Start: workflowctl.StartJob{TenantId: job.TenantId, JobID: job.JobID, GoalID: job.GoalID}})
+}
+
 func SubmitSelected(ctx context.Context, broker jobcontext.ChildJobBroker, d starter.Descriptor) (SubmitResponse, error) {
 	job, err := d.Request()
 	if err != nil {
 		return SubmitResponse{}, err
 	}
-	if job.GoalID == "" {
+	if d.Version != 1 || job.GoalID == "" {
 		return SubmitResponse{}, jobdb.ErrInvalidDependency
 	}
 	return Submit(ctx, broker, SubmitRequest{Descriptor: &d, Start: workflowctl.StartJob{TenantId: job.TenantId, JobID: job.JobID, GoalID: job.GoalID}})

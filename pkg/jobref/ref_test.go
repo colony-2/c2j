@@ -15,5 +15,25 @@ func TestSelectedReceiptAllSixFieldsRequired(t *testing.T) {
 		mutate(&ref)
 		require.ErrorIs(t, ref.ValidateSelected(job), jobdb.ErrSubmissionReceiptUnavailable)
 	}
-	require.NoError(t, (Ref{TenantID: "tenant", JobID: "legacy", GoalID: "goal"}).Validate(), "ordinary historical references remain valid")
+	require.Error(t, (Ref{TenantID: "tenant", JobID: "legacy", GoalID: "goal"}).Validate(), "historical decoding alone does not prove captured ownership")
+}
+
+func TestExactJobMalformedCapturedIdentity(t *testing.T) {
+	valid := Ref{TenantID: "t", JobID: "j", Cell: "app", CellID: "immutable", CellRepo: "example.test/app"}
+	for _, value := range []string{"", " ", " leading", "trailing ", "control\n", string([]byte{0xff})} {
+		for _, field := range []string{"tenant", "job", "cell ID", "repository"} {
+			ref := valid
+			switch field {
+			case "tenant":
+				ref.TenantID = value
+			case "job":
+				ref.JobID = value
+			case "cell ID":
+				ref.CellID = value
+			case "repository":
+				ref.CellRepo = value
+			}
+			require.Error(t, ref.Validate(), "%s=%q", field, value)
+		}
+	}
 }

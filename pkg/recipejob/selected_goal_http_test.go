@@ -64,11 +64,7 @@ func TestSelectedGoalHTTPUnavailableAndIncomplete(t *testing.T) {
 			require.NoError(t, err)
 			engine := goalEngine(t, rt)
 			_, err = starter.StartRecipeJob(context.Background(), workflowctl.StartJob{TenantId: "tenant", JobID: "dest", GoalID: "goal", Cell: "work", CellRepo: "example.test/work", RecipeName: "build"}, engine)
-			if mode == "incomplete" {
-				require.ErrorIs(t, err, jobdb.ErrSubmissionReceiptUnavailable)
-			} else {
-				require.ErrorIs(t, err, jobdb.ErrPrimaryGoalSelectionUnsupported)
-			}
+			require.ErrorContains(t, err, "unsupported")
 			require.Zero(t, ordinary.Load())
 		})
 	}
@@ -97,9 +93,9 @@ func TestSelectedGoalHTTPRevokedReplay(t *testing.T) {
 	client, err := remote.New(server.URL, server.Client())
 	require.NoError(t, err)
 	engine := goalEngine(t, client)
-	job, err := starter.PrepareRecipeJob(ctx, workflowctl.StartJob{TenantId: "tenant", JobID: "dest", GoalID: source.GoalID, Cell: "work", CellRepo: "example.test/work", RecipeName: "build"}, starter.StartRecipeJobOptions{})
+	job, err := prepareLegacyRecipe(ctx, workflowctl.StartJob{TenantId: "tenant", JobID: "dest", GoalID: source.GoalID, Cell: "work", CellRepo: "example.test/work", RecipeName: "build"}, starter.StartRecipeJobOptions{})
 	require.NoError(t, err)
-	d, err := starter.NewDescriptor(ctx, job)
+	d, err := legacyDescriptor(ctx, job)
 	require.NoError(t, err)
 	first, err := d.Submit(ctx, engine)
 	require.NoError(t, err)
@@ -107,7 +103,7 @@ func TestSelectedGoalHTTPRevokedReplay(t *testing.T) {
 	_, err = d.Submit(ctx, engine)
 	require.ErrorIs(t, err, jobdb.ErrPrimaryGoalSelectionForbidden)
 	job.JobID = "unpublished"
-	unpublished, err := starter.NewDescriptor(ctx, job)
+	unpublished, err := legacyDescriptor(ctx, job)
 	require.NoError(t, err)
 	_, err = unpublished.Submit(ctx, engine)
 	require.ErrorIs(t, err, jobdb.ErrPrimaryGoalSelectionForbidden)

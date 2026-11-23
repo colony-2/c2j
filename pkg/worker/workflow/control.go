@@ -73,7 +73,6 @@ func (s *SWFWorkflowControl) InspectJob(ctx context.Context, key jobdb.JobKey) (
 		Terminal:  isTerminalInspectionStatus(run.Job.Status),
 		StartedAt: run.Job.CreatedAt,
 	}
-	inspection.GoalID = run.Job.GoalID
 	inspection.BlockingWait = run.Job.BlockingWait
 
 	if !run.Start.CreatedAt.IsZero() {
@@ -274,11 +273,5 @@ func (s *SWFWorkflowControl) GetJobRun(ctx context.Context, req jobdb.GetJobRunR
 }
 
 func (s *SWFWorkflowControl) GetGoal(ctx context.Context, key jobdb.GoalKey) (jobdb.GoalInfo, error) {
-	rt, ok := s.Engine.(interface {
-		GetGoal(context.Context, jobdb.GoalKey) (jobdb.GoalInfo, error)
-	})
-	if !ok {
-		return jobdb.GoalInfo{}, fmt.Errorf("goal runtime unavailable")
-	}
-	return rt.GetGoal(ctx, key)
+	return jobdb.GoalInfo{}, fmt.Errorf("goal operations are unsupported; select an exact job")
 }

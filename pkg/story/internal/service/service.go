@@ -830,6 +830,9 @@ func errorChainForLog(err error) []string {
 }
 
 func (s *Service) RestartRecipeJob(ctx context.Context, req model.RestartRecipeJobRequest) (*model.RestartRecipeJobResponse, error) {
+	if req.Goal.Mode != "" && req.Goal.Mode != "new" {
+		return nil, fmt.Errorf("goal sharing is unsupported; restart creates an independent job")
+	}
 	if err := jobrestart.ValidatePatch(req.Patch); err != nil {
 		return nil, err
 	}
@@ -884,7 +887,7 @@ func (s *Service) RestartRecipeJob(ctx context.Context, req model.RestartRecipeJ
 		return nil, err
 	}
 
-	return &model.RestartRecipeJobResponse{JobID: newKey.JobID, GoalID: newKey.GoalID, TenantID: newKey.TenantID}, nil
+	return &model.RestartRecipeJobResponse{JobID: newKey.JobID, TenantID: newKey.TenantID}, nil
 }
 
 func (s *Service) GetArtifactByOrdinal(ctx context.Context, req model.GetArtifactByOrdinalRequest) (*model.ArtifactData, error) {

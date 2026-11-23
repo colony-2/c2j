@@ -33,7 +33,7 @@ type Execution struct {
 	Source             string             `json:"source"`
 	ReasonCode         string             `json:"reason_code,omitempty"`
 	TenantID           *string            `json:"tenant_id"`
-	GoalID             *string            `json:"goal_id"`
+	GoalID             *string            `json:"goal_id,omitempty"`
 	JobID              *string            `json:"job_id"`
 	JobType            *string            `json:"job_type"`
 	TaskID             *string            `json:"task_id"`
@@ -208,7 +208,6 @@ func (i *Info) SetCurrent(c jobcontext.Current, source string) {
 	e.Source = source
 	e.ReasonCode = ""
 	e.TenantID = String(c.TenantID)
-	e.GoalID = String(c.GoalID)
 	e.JobID = String(c.JobID)
 	e.JobType = String(c.JobType)
 	e.TaskType = String(c.OpTaskType)

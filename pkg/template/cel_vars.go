@@ -80,7 +80,6 @@ func jobsContextValue(jobs jobcontext.StartedJobsContext) map[string]interface{}
 		items = append(items, map[string]interface{}{
 			"tenant_id":              item.TenantID,
 			"job_id":                 item.JobID,
-			"goal_id":                item.GoalID,
 			"recipe":                 item.RecipeName,
 			"status":                 item.Status,
 			"parent_invocation_hash": item.ParentInvocationHash,
@@ -88,8 +87,7 @@ func jobsContextValue(jobs jobcontext.StartedJobsContext) map[string]interface{}
 	}
 
 	return map[string]interface{}{
-		"job_ids":  jobIDs,
-		"goal_ids": jobs.GoalIDs,
-		"items":    items,
+		"job_ids": jobIDs,
+		"items":   items,
 	}
 }

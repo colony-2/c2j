@@ -92,7 +92,11 @@ func TestStartRecipeJobUsesRecipeTimeoutAsDurableJobTotalTimeout(t *testing.T) {
 
 func (c *captureSubmitter) SubmitJobRef(_ context.Context, job jobdb.SubmitJob) (jobref.Ref, error) {
 	c.job = job
-	return jobref.Ref{GoalID: "test-goal", TenantID: job.TenantId, JobID: job.JobID}, nil
+	id := job.JobID
+	if id == "" {
+		id = "generated"
+	}
+	return jobref.Ref{Cell: job.Cell, CellID: "captured-cell", CellRepo: job.CellRepo, GoalID: "test-goal", TenantID: job.TenantId, JobID: id}, nil
 }
 
 func TestJobMetadataFromStartJob_JSONFields(t *testing.T) {

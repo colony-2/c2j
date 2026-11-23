@@ -61,7 +61,7 @@ func TestFamilyCompactRead(t *testing.T) {
 			require.Equal(t, "runtime-parent", n.Parent)
 			require.Equal(t, "Test title", n.Title)
 			require.Equal(t, "generic", n.JobType)
-			require.Equal(t, "goal", n.Goal)
+			require.Empty(t, n.Goal)
 			require.Equal(t, "FUTURE_STATUS", n.Status)
 			require.Equal(t, "future_outcome", n.CompletionStatus)
 			require.True(t, n.CancelRequested)

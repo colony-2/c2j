@@ -42,7 +42,7 @@ func (w *childIdentityTask) RunTask(local context.Context, ctx workflow.TaskCont
 	if err != nil {
 		return nil, err
 	}
-	if child.GoalID == "" || repeated.GoalID != child.GoalID || repeated.TenantID != child.TenantID || repeated.JobID != child.JobID {
+	if repeated.TenantID != child.TenantID || repeated.JobID != child.JobID {
 		return nil, fmt.Errorf("repeated submission changed child identity")
 	}
 	w.ids = append(w.ids, child.JobID)
@@ -102,7 +102,8 @@ func TestChildSubmissionIdentityAcrossExecutionRetries(t *testing.T) {
 					require.Equal(t, []int{1, 2}, task.attempts)
 				} else {
 					require.NotEqual(t, task.ids[0], task.ids[1])
-					require.NotEqual(t, task.goals[0], task.goals[1])
+					require.Empty(t, task.goals[0])
+					require.Empty(t, task.goals[1])
 					require.NotEqual(t, task.tasks[0], task.tasks[1])
 					require.Equal(t, []int{1, 1}, task.attempts)
 				}

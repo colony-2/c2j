@@ -13,6 +13,7 @@ import (
 	"github.com/colony-2/c2j/pkg/execution"
 	"github.com/colony-2/c2j/pkg/extensionwait"
 	"github.com/colony-2/c2j/pkg/git/gitstate"
+	"github.com/colony-2/c2j/pkg/jobsemantics"
 	"github.com/colony-2/c2j/pkg/metricsruntime"
 	"github.com/colony-2/c2j/pkg/ops"
 	extops "github.com/colony-2/c2j/pkg/ops/extensions"
@@ -105,6 +106,10 @@ func (t *taskWorker) RunTask(local context.Context, ctx jobworkflow.TaskContext,
 	if selector != "" {
 		updateActivity(extops.DisplaySelector(selector))
 	}
+	if err := jobsemantics.CheckOperation(air.JobSemanticsVersion, t.reg.Metadata.Type, air.Input, true); err != nil {
+		return nil, err
+	}
+	local = jobsemantics.WithVersion(local, air.JobSemanticsVersion)
 	prepStart := time.Now()
 	var configDiag *configuration.Diagnostics
 	var resolved *extops.ResolvedOp

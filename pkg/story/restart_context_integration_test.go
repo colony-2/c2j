@@ -443,14 +443,14 @@ func TestSubmissionRestartPreservesInputsAndArtifacts(t *testing.T) {
 	}
 }
 
-func TestRestartContinuesGoalAndReconcilesAfterWinning(t *testing.T) {
+func TestExactJobStoryIndependentRestartAndReconciliation(t *testing.T) {
 	for _, backend := range []string{"sqlite", "remote"} {
 		t.Run(backend, func(t *testing.T) {
 			f := newRestartFixture(t, backend, `id: fixture
 sequence:
  - id: work
    op: restart_context_probe
-   inputs: {value: '${{ context.workflow.goal_id }}'}
+   inputs: {value: '${{ context.workflow.job_id }}'}
 outputs:
  value: ${{ sequence.work.outputs.value }}
 `, true)
@@ -465,7 +465,7 @@ outputs:
 			req := story.RestartRecipeJobRequest{ProjectID: f.key.TenantId, JobID: f.key.JobId, ScopeID: st.Root.RestartScopeID, RequestID: "repair-attempt"}
 			restarted, err := f.service.RestartRecipeJob(f.ctx, req)
 			require.NoError(t, err)
-			require.Equal(t, info.GoalID, restarted.GoalID)
+			require.Empty(t, restarted.GoalID)
 			require.Equal(t, f.key.TenantId, restarted.TenantID)
 			require.NotEmpty(t, restarted.JobID)
 			require.NotEmpty(t, info.CellID)
@@ -474,12 +474,12 @@ outputs:
 			require.Equal(t, info.CellID, accepted.CellID)
 			require.Equal(t, info.Cell, accepted.Cell)
 			require.Equal(t, info.CellRepo, accepted.CellRepo)
-			require.Equal(t, restarted.GoalID, accepted.GoalID)
+			require.NotEqual(t, info.GoalID, accepted.GoalID)
 			f.task.fail.Store(false)
 			f.run(t, jobdb.JobKey{TenantId: restarted.TenantID, JobId: restarted.JobID})
 			goal, err = f.runtime.GetGoal(f.ctx, goalKey)
 			require.NoError(t, err)
-			require.Equal(t, restarted.JobID, goal.SuccessfulJobID)
+			require.Equal(t, jobdb.GoalOpen, goal.State, "independent restart cannot settle the source legacy goal")
 			again, err := f.service.RestartRecipeJob(f.ctx, req)
 			require.NoError(t, err)
 			require.Equal(t, restarted, again)
@@ -500,17 +500,15 @@ outputs:
 			}
 			retries.Wait()
 			req.RequestID = "different-attempt"
-			_, err = f.service.RestartRecipeJob(f.ctx, req)
-			require.ErrorIs(t, err, jobdb.ErrGoalConflict)
 			req.Goal.Mode = "new"
 			fresh, err := f.service.RestartRecipeJob(f.ctx, req)
 			require.NoError(t, err)
-			require.NotEqual(t, restarted.GoalID, fresh.GoalID)
+			require.NotEqual(t, restarted.JobID, fresh.JobID)
 			freshKey := jobdb.JobKey{TenantId: fresh.TenantID, JobId: fresh.JobID}
 			f.run(t, freshKey)
 			freshStory := f.story(t, freshKey)
-			require.Equal(t, fresh.GoalID, freshStory.GoalID)
-			require.Equal(t, fresh.GoalID, freshStory.Root.Output.(map[string]any)["value"])
+			require.Empty(t, freshStory.GoalID)
+			require.Equal(t, fresh.JobID, freshStory.Root.Output.(map[string]any)["value"])
 		})
 	}
 }
@@ -595,7 +593,8 @@ func TestGoalBrokerRestartReceiptReplay(t *testing.T) {
 			require.NotNil(t, first.Ref)
 			ref := *first.Ref
 			require.NotEmpty(t, ref.JobID)
-			require.Equal(t, jobref.Ref{TenantID: f.key.TenantId, JobID: ref.JobID, GoalID: original.GoalID, Cell: original.Cell, CellID: original.CellID, CellRepo: original.CellRepo}, ref)
+			require.Equal(t, jobref.Ref{TenantID: f.key.TenantId, JobID: ref.JobID, GoalID: ref.GoalID, Cell: original.Cell, CellID: original.CellID, CellRepo: original.CellRepo}, ref)
+			require.NotEqual(t, original.GoalID, ref.GoalID)
 			f.task.fail.Store(false)
 			f.run(t, ref.Key())
 			goal, err := f.runtime.GetGoal(f.ctx, jobdb.GoalKey{TenantId: ref.TenantID, GoalID: ref.GoalID})
@@ -610,7 +609,7 @@ func TestGoalBrokerRestartReceiptReplay(t *testing.T) {
 				require.Equal(t, ref.CellID, item.CellID)
 				require.Equal(t, ref.CellRepo, item.CellRepo)
 				require.Equal(t, ref.Cell, item.Cell)
-				require.Equal(t, ref.GoalID, item.GoalID)
+				require.Empty(t, item.GoalID)
 				require.Equal(t, ref.JobID, item.JobID)
 				require.Equal(t, ref.TenantID, item.TenantID)
 			}

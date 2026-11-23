@@ -101,7 +101,7 @@ type SubmitResponse struct {
 	Cell     string `json:"cell"`
 	CellID   string `json:"cell_id"`
 	CellRepo string `json:"cell_repo"`
-	GoalID   string `json:"goal_id"`
+	GoalID   string `json:"goal_id,omitempty"`
 	TenantID string `json:"tenant_id"`
 	JobID    string `json:"job_id"`
 	Recipe   string `json:"recipe"`
@@ -168,6 +168,7 @@ func start(ctx context.Context, opts Options, openListener func() (net.Listener,
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc(submitPath, broker.handleSubmit)
+	mux.HandleFunc(submitPath+"/prepare", broker.handlePrepare)
 	mux.HandleFunc(submitPath+"/primary-goal", broker.handleSubmit)
 	mux.HandleFunc(submitPath+"/primary-goal/prepare", broker.handlePrepareSelected)
 	mux.HandleFunc(submitPath+"/workspace", broker.handleWorkspace)
@@ -251,16 +252,14 @@ func (s *Server) StartedJobs() jobcontext.StartedJobsContext {
 	defer s.mu.Unlock()
 
 	out := jobcontext.StartedJobsContext{
-		GoalIDs: make([]string, 0, len(s.started)),
-		JobIDs:  make([]string, 0, len(s.started)),
-		Items:   make([]jobcontext.StartedJobContext, 0, len(s.started)),
+		JobIDs: make([]string, 0, len(s.started)),
+		Items:  make([]jobcontext.StartedJobContext, 0, len(s.started)),
 	}
 	for _, item := range s.started {
 		if strings.TrimSpace(item.JobID) == "" {
 			continue
 		}
 		out.JobIDs = append(out.JobIDs, item.JobID)
-		out.GoalIDs = append(out.GoalIDs, item.GoalID)
 		out.Items = append(out.Items, item)
 	}
 	return out
@@ -283,7 +282,11 @@ func (s *Server) handleSubmit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if (req.Start.GoalID != "" || req.Descriptor != nil) && r.URL.Path != submitPath+"/primary-goal" {
+	selected := req.Start.GoalID != ""
+	if req.Descriptor != nil {
+		selected = req.Descriptor.Job.GoalID != ""
+	}
+	if selected && r.URL.Path != submitPath+"/primary-goal" {
 		writeSelectionError(w, jobdb.ErrPrimaryGoalSelectionUnsupported)
 		return
 	}
@@ -316,6 +319,9 @@ func (s *Server) authorized(r *http.Request) bool {
 }
 
 func (s *Server) submit(ctx context.Context, req SubmitRequest) (SubmitResponse, error) {
+	if req.Start.GoalID != "" && req.Descriptor == nil {
+		return SubmitResponse{}, jobdb.ErrPrimaryGoalSelectionUnsupported
+	}
 	if s.submitter == nil {
 		return SubmitResponse{}, fmt.Errorf("submission unavailable for this invocation")
 	}
@@ -394,8 +400,8 @@ func (s *Server) submit(ctx context.Context, req SubmitRequest) (SubmitResponse,
 		return SubmitResponse{}, err
 	}
 	key, err := s.submitter.SubmitJobRef(ctx, job)
-	if err == nil && job.GoalID != "" {
-		err = key.ValidateSelected(job)
+	if err == nil {
+		err = key.ValidateSubmission(job)
 	}
 	if err != nil {
 		return SubmitResponse{}, fmt.Errorf("submit child job: %w", err)
@@ -405,7 +411,6 @@ func (s *Server) submit(ctx context.Context, req SubmitRequest) (SubmitResponse,
 	return SubmitResponse{
 		Cell: key.Cell, CellID: key.CellID, CellRepo: key.CellRepo,
 		TenantID: key.TenantID,
-		GoalID:   key.GoalID,
 		JobID:    key.JobID,
 		Recipe:   start.RecipeName,
 	}, nil
@@ -417,7 +422,6 @@ func (s *Server) record(key jobref.Ref, start workflowctl.StartJob) {
 	s.started = append(s.started, jobcontext.StartedJobContext{
 		Cell: key.Cell, CellID: key.CellID, CellRepo: key.CellRepo,
 		TenantID:             key.TenantID,
-		GoalID:               key.GoalID,
 		JobID:                key.JobID,
 		RecipeName:           start.RecipeName,
 		ParentInvocationHash: s.current.InvocationHash,
@@ -450,6 +454,9 @@ func Submit(ctx context.Context, broker jobcontext.ChildJobBroker, req SubmitReq
 }
 
 func submit(ctx context.Context, broker jobcontext.ChildJobBroker, req SubmitRequest, client *http.Client) (SubmitResponse, error) {
+	if req.Start.GoalID != "" && req.Descriptor == nil {
+		return SubmitResponse{}, jobdb.ErrPrimaryGoalSelectionUnsupported
+	}
 	endpoint := strings.TrimSpace(broker.Endpoint)
 	if endpoint == "" {
 		return SubmitResponse{}, fmt.Errorf("child job broker endpoint is required")
@@ -469,9 +476,7 @@ func submit(ctx context.Context, broker jobcontext.ChildJobBroker, req SubmitReq
 		if err != nil {
 			return SubmitResponse{}, err
 		}
-		if job.GoalID == "" {
-			return SubmitResponse{}, jobdb.ErrInvalidDependency
-		}
+
 		if req.Start.GoalID != "" && req.Start.GoalID != job.GoalID || req.Start.JobID != "" && req.Start.JobID != job.JobID || req.Start.TenantId != "" && req.Start.TenantId != job.TenantId {
 			return SubmitResponse{}, jobdb.ErrExistingJobMismatch
 		}
@@ -521,10 +526,28 @@ func submit(ctx context.Context, broker jobcontext.ChildJobBroker, req SubmitReq
 	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
 		return SubmitResponse{}, fmt.Errorf("decode child job broker response: %w", err)
 	}
-	if req.Start.GoalID != "" {
+	{
 		ref := jobref.Ref{TenantID: out.TenantID, JobID: out.JobID, GoalID: out.GoalID, Cell: out.Cell, CellID: out.CellID, CellRepo: out.CellRepo}
-		if err := ref.ValidateSelected(jobdb.SubmitJob{TenantId: req.Start.TenantId, JobID: req.Start.JobID, GoalID: req.Start.GoalID}); err != nil {
-			return SubmitResponse{}, err
+		assertions := jobdb.SubmitJob{TenantId: req.Start.TenantId, JobID: req.Start.JobID, GoalID: req.Start.GoalID, Cell: req.Start.Cell, CellRepo: req.Start.CellRepo}
+		if req.Descriptor != nil {
+			// Prepared requests have already frozen the workspace destination.
+			assertions = req.Descriptor.Job
+		} else if req.WorkspaceMode != "" && !req.ExplicitTarget {
+			// The broker chooses the invocation's workspace cell/repository.
+			// Start's placeholders are not target assertions in this mode.
+			// The server validates the native receipt against the resolved job;
+			// the client still requires complete captured ownership below.
+			assertions.Cell = ""
+			assertions.CellRepo = ""
+		}
+		var validateErr error
+		if req.Start.GoalID != "" {
+			validateErr = ref.ValidateSelected(assertions)
+		} else {
+			validateErr = ref.ValidateSubmission(assertions)
+		}
+		if validateErr != nil {
+			return SubmitResponse{}, validateErr
 		}
 	}
 	return out, nil

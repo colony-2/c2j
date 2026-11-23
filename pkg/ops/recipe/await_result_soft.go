@@ -48,17 +48,15 @@ func awaitResultSoft(deps ops.OpDependencies, ctx context.Context, input AwaitRe
 	if deps == nil || deps.JobTool() == nil || deps.WorkflowControl() == nil {
 		return ChildStatusOutput{}, fmt.Errorf("wait requires job tool and workflow control")
 	}
-	if (input.Target.Job == "") == (input.Target.Goal == "") {
-		return ChildStatusOutput{}, fmt.Errorf("target requires exactly one job or goal")
+	if input.Target.Goal != "" {
+		return ChildStatusOutput{}, fmt.Errorf("goal targets are unsupported; use target.job")
 	}
-	if input.Wait.On == "job" && input.Target.Goal != "" {
-		return ChildStatusOutput{}, fmt.Errorf("exact job wait requires target.job")
+	policy, err := input.Wait.normalized(false)
+	if err != nil {
+		return ChildStatusOutput{}, err
 	}
-	if input.Wait.On == "job" && input.Wait.Condition != "" && input.Wait.Condition != "complete" {
+	if policy.Condition != "complete" {
 		return ChildStatusOutput{}, fmt.Errorf("soft job waits require complete")
-	}
-	if input.Wait.On != "job" {
-		return awaitGoalSoft(deps, ctx, input)
 	}
 	jobID := strings.TrimSpace(input.Target.Job)
 	if jobID == "" {
@@ -111,7 +109,6 @@ func isSoftChildTerminalError(err error) bool {
 func childStatusFromInspection(deps ops.OpDependencies, inspection workflowctl.JobInspection) (ChildStatusOutput, error) {
 	out := ChildStatusOutput{
 		JobID:       inspection.JobKey.JobId,
-		GoalID:      inspection.GoalID,
 		Result:      ResultSource{Job: inspection.JobKey.JobId},
 		Terminal:    inspection.Terminal,
 		Status:      normalizeChildStatus(inspection.Status, inspection.Terminal),
@@ -215,86 +212,4 @@ func formatInspectionTime(t time.Time) string {
 func awaitExactTerminal(deps ops.OpDependencies, ctx context.Context, id string) error {
 	_, err := awaitChild(deps, ctx, StartedJob{JobID: id, Wait: WaitPolicy{On: "job", Condition: "complete"}}, false)
 	return err
-}
-func awaitGoalSoft(deps ops.OpDependencies, ctx context.Context, in AwaitResultSoftInput) (ChildStatusOutput, error) {
-	if in.Wait.On != "" && in.Wait.On != "goal" {
-		return ChildStatusOutput{}, fmt.Errorf("wait.on must be goal or job")
-	}
-	if in.Wait.Condition != "" && in.Wait.Condition != "success" {
-		return ChildStatusOutput{}, fmt.Errorf("goal waits require success")
-	}
-	if in.Timeout != "" || in.PollInterval != "" {
-		return ChildStatusOutput{}, fmt.Errorf("use the enclosing node timeout")
-	}
-	if in.Target.Job != "" && in.Target.Goal != "" {
-		return ChildStatusOutput{}, fmt.Errorf("target requires exactly one job or goal")
-	}
-	id := in.Target.Goal
-	job := in.Target.Job
-	if id == "" && job != "" {
-		inspector, ok := deps.WorkflowControl().(workflowctl.JobInspector)
-		if !ok {
-			return ChildStatusOutput{}, fmt.Errorf("job inspection unavailable")
-		}
-		info, err := inspector.InspectJob(ctx, jobdb.JobKey{TenantId: deps.JobTool().GetJobKey().TenantId, JobId: job})
-		if err != nil {
-			return ChildStatusOutput{}, err
-		}
-		id = info.GoalID
-	}
-	if id == "" {
-		return ChildStatusOutput{}, fmt.Errorf("goal target is required")
-	}
-	out := ChildStatusOutput{JobID: job, GoalID: id}
-	if in.ReturnWhen == returnWhenCurrentStatus {
-		reader, ok := deps.WorkflowControl().(goalInspector)
-		if !ok {
-			return out, fmt.Errorf("goal inspection unavailable")
-		}
-		goal, err := reader.GetGoal(ctx, jobdb.GoalKey{TenantId: deps.JobTool().GetJobKey().TenantId, GoalID: id})
-		if err != nil {
-			return out, err
-		}
-		out.GoalState = goal.State
-		out.Terminal = goal.State != jobdb.GoalOpen
-		out.Status = strings.ToLower(string(goal.State))
-		out.GoalFailure = goal.Failure
-		if goal.Failure != nil {
-			out.FailureMessage = goal.Failure.Message
-			out.FailureKind = "goal_failed"
-		}
-		if goal.State == jobdb.GoalOpen || goal.State == jobdb.GoalFailed {
-			return out, nil
-		}
-		out.Result = ResultSource{Goal: id, Job: goal.SuccessfulJobID}
-	} else {
-		if in.ReturnWhen != "" && in.ReturnWhen != returnWhenTerminal {
-			return out, fmt.Errorf("unsupported return_when %q", in.ReturnWhen)
-		}
-		binding, err := awaitChild(deps, ctx, StartedJob{GoalID: id}, true)
-		if err != nil {
-			var failed *jobdb.GoalFailedError
-			if errors.As(err, &failed) {
-				out.Terminal = true
-				out.Status = "failed"
-				out.GoalState = jobdb.GoalFailed
-				out.GoalFailure = &failed.Failure
-				out.FailureMessage = failed.Failure.Message
-				out.FailureKind = "goal_failed"
-				return out, nil
-			}
-			return out, err
-		}
-		out.Result = ResultSource{Goal: id, Job: binding.SatisfiedByJobID}
-	}
-	result, err := getRecipeOutput(deps, ctx, StartedJob{JobID: out.Result.Job})
-	if err != nil {
-		return out, err
-	}
-	out.GoalState = jobdb.GoalSucceeded
-	out.Terminal = true
-	out.Status = "completed"
-	out.Outputs = result.Outputs
-	out.Artifacts = result.Artifacts
-	return out, nil
 }

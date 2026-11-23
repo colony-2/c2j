@@ -33,11 +33,10 @@ func TestIncludeHiddenRecipeRequests(t *testing.T) {
 	ctx := celltest.Context(context.Background())
 	for _, include := range []bool{false, true} {
 		start, end := time.Unix(1, 0), time.Unix(2, 0)
-		r := ListRecipeJobsRequest{TenantID: "tenant", CellNames: []string{"test"}, IncludeHidden: include, GoalIDs: []string{"goal"}, JobIDs: []string{"job"}, Statuses: []jobdb.JobStatus{jobdb.JobStatusCancelled}, Stores: []jobdb.JobStore{jobdb.JobStoreArchived}, CreatedAfter: &start, CreatedBefore: &end, PageSize: 2, PageToken: "cursor"}
+		r := ListRecipeJobsRequest{TenantID: "tenant", CellNames: []string{"test"}, IncludeHidden: include, JobIDs: []string{"job"}, Statuses: []jobdb.JobStatus{jobdb.JobStatusCancelled}, Stores: []jobdb.JobStore{jobdb.JobStoreArchived}, CreatedAfter: &start, CreatedBefore: &end, PageSize: 2, PageToken: "cursor"}
 		req, err := BuildListJobsRequest(r)
 		require.NoError(t, err)
 		require.Equal(t, include, req.IncludeHidden)
-		require.Equal(t, r.GoalIDs, req.GoalIDs)
 		require.Equal(t, r.Statuses, req.Statuses)
 		require.Equal(t, r.Stores, req.Stores)
 		require.Equal(t, r.CreatedAfter, req.CreatedAfter)

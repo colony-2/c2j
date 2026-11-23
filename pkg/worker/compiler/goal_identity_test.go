@@ -44,7 +44,7 @@ sequence:
  - id: identity
    sequence: []
    outputs:
-    goal: '${{ context.workflow.goal_id }}'
+    goal: '${{ context.workflow.job_id }}'
 outputs:
  goal: '${{ sequence.identity.outputs.goal }}'
 `)))
@@ -72,30 +72,31 @@ outputs:
 						}
 						opts := starter.RestartOptions{Goal: mode, RequestID: fmt.Sprintf("restart-%s-%s", restartScope, mode)}
 						if mode == "continue" {
-							_, err := starter.RestartRecipeJob(ctx, submitter, handle.JobKey, restartScope, nil, opts)
-							require.ErrorIs(t, err, jobdb.ErrGoalConflict, "a live source prevents a second active candidate")
-							require.NoError(t, rt.CancelJob(ctx, jobdb.CancelJobRequest{JobKey: handle.JobKey}))
+							before, err := rt.ListJobs(ctx, jobdb.ListJobsRequest{TenantIds: []string{"tenant"}})
+							require.NoError(t, err)
+							_, err = starter.RestartRecipeJob(ctx, submitter, handle.JobKey, restartScope, nil, opts)
+							require.ErrorContains(t, err, "goal sharing is unsupported")
+							after, err := rt.ListJobs(ctx, jobdb.ListJobsRequest{TenantIds: []string{"tenant"}})
+							require.NoError(t, err)
+							require.Equal(t, before, after, "unsupported mode must not publish a restart")
+							return
 						}
 						ref, err := starter.RestartRecipeJob(ctx, submitter, handle.JobKey, restartScope, nil, opts)
 						require.NoError(t, err)
-						if mode == "continue" {
-							require.Equal(t, handle.GoalID, ref.GoalID)
-						} else {
-							require.NotEqual(t, handle.GoalID, ref.GoalID)
-						}
+						require.NotEqual(t, handle.GoalID, ref.GoalID)
 						restarted, err := runGitLifecycle(t, rt, ref.Key())
 						require.NoError(t, err)
-						require.Equal(t, ref.GoalID, gitLifecycleOutput(t, restarted)["goal"])
+						require.Equal(t, ref.JobID, gitLifecycleOutput(t, restarted)["goal"])
 						info, err := rt.GetJob(ctx, ref.Key())
 						require.NoError(t, err)
 						require.Equal(t, ref.GoalID, info.GoalID)
 						page, err := rt.ListJobs(ctx, jobdb.ListJobsRequest{TenantIds: []string{"tenant"}, JobKeys: []jobdb.JobKey{ref.Key()}})
 						require.NoError(t, err)
 						require.Len(t, page.Jobs, 1)
-						require.Equal(t, ref.GoalID, joblist.JobFromSummary(page.Jobs[0]).GoalID)
+						require.Empty(t, joblist.JobFromSummary(page.Jobs[0]).GoalID)
 						inspected, err := (&jobinspect.Service{Runtime: rt, Tenant: "tenant"}).Inspect(ctx, jobinspect.Request{Operation: "show", JobID: ref.JobID})
 						require.NoError(t, err)
-						require.Equal(t, ref.GoalID, inspected.Job.Goal)
+						require.Empty(t, inspected.Job.Goal)
 						chapters, err := rt.ListChapters(ctx, jobdb.ListChaptersRequest{JobKey: ref.Key()})
 						require.NoError(t, err)
 						require.NotEmpty(t, chapters)
@@ -105,23 +106,15 @@ outputs:
 						if mode == "new" {
 							out, err := runGitLifecycle(t, rt, handle.JobKey)
 							require.NoError(t, err)
-							require.Equal(t, handle.GoalID, gitLifecycleOutput(t, out)["goal"])
+							require.Equal(t, handle.JobKey.JobId, gitLifecycleOutput(t, out)["goal"])
 						}
 						replay, err := engine.ReplayJobRun(ctx, jobworkflow.ReplayRunRequest{JobKey: handle.JobKey, JobWorker: NewRecipeJobWorker(RecipeJobWorkerOptions{ReadOnlyReplay: true})})
-						if mode == "continue" {
-							// Cancellation preserves this interrupted source without inventing
-							// the job result that its old worker never committed.
-							var miss jobworkflow.ReplayCacheMissError
-							require.ErrorAs(t, err, &miss)
-							require.Equal(t, jobworkflow.ReplayCacheMissJobResultMissing, miss.Reason)
-						} else {
-							require.NoError(t, err)
-							raw, err := replay.GetData()
-							require.NoError(t, err)
-							var replayed map[string]any
-							require.NoError(t, json.Unmarshal(raw, &replayed))
-							require.Equal(t, handle.GoalID, replayed["goal"])
-						}
+						require.NoError(t, err)
+						raw, err := replay.GetData()
+						require.NoError(t, err)
+						var replayed map[string]any
+						require.NoError(t, json.Unmarshal(raw, &replayed))
+						require.Equal(t, handle.JobKey.JobId, replayed["goal"])
 						// The original input remains byte-for-byte unchanged after execution/replay.
 						chapters, err = rt.ListChapters(ctx, jobdb.ListChaptersRequest{JobKey: handle.JobKey})
 						require.NoError(t, err)
@@ -136,8 +129,8 @@ outputs:
 	}
 }
 
-// Leave a fully executed job runnable. New-goal restarts leave it resumable;
-// continue restarts first cancel it to satisfy single-active-candidate admission.
+// Leave a fully executed job runnable. Independent restarts preserve its history;
+// unsupported sharing modes must leave it untouched.
 type goalCompletionInterruption struct{ jobdb.ConsumerRuntime }
 type goalCompletionLease struct{ jobdb.ExecutionLease }
 

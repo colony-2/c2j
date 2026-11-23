@@ -91,7 +91,7 @@ func (s *Service) load(ctx context.Context, id string) (*history, error) {
 	h := &history{run: run, attempts: map[string][]*attempt{}}
 	var meta starter.JobMetadata
 	_ = json.Unmarshal(run.Job.Metadata, &meta)
-	h.job = Job{ID: id, Tenant: s.Tenant, Goal: run.Job.GoalID, Parent: meta.ParentJobID, Status: string(run.Job.Status), CompletionStatus: run.Job.CompletionStatus, CompletionDetail: run.Job.CompletionDetail, CreatedAt: run.Job.CreatedAt}
+	h.job = Job{ID: id, Tenant: s.Tenant, Parent: meta.ParentJobID, Status: string(run.Job.Status), CompletionStatus: run.Job.CompletionStatus, CompletionDetail: run.Job.CompletionDetail, CreatedAt: run.Job.CreatedAt}
 	if page, e := s.Runtime.ListJobs(ctx, jobdb.ListJobsRequest{TenantIds: []string{s.Tenant}, JobKeys: []jobdb.JobKey{run.Job.JobKey}, IncludeHidden: true, PageSize: 1}); e == nil && len(page.Jobs) == 1 {
 		h.job.Cell = page.Jobs[0].Cell
 		h.job.Parent = page.Jobs[0].ParentJobID
@@ -799,7 +799,7 @@ func (s *Service) list(ctx context.Context, q Request) (*Response, error) {
 	}
 	r := &Response{Version: Version, NextCursor: page.NextPageToken, Jobs: []Job{}}
 	for _, j := range page.Jobs {
-		r.Jobs = append(r.Jobs, Job{ID: j.JobKey.JobId, Tenant: j.JobKey.TenantId, Cell: j.Cell, Goal: j.GoalID, Parent: j.ParentJobID, Status: string(j.Status), CompletionStatus: j.CompletionStatus, CreatedAt: j.CreatedAt})
+		r.Jobs = append(r.Jobs, Job{ID: j.JobKey.JobId, Tenant: j.JobKey.TenantId, Cell: j.Cell, Parent: j.ParentJobID, Status: string(j.Status), CompletionStatus: j.CompletionStatus, CreatedAt: j.CreatedAt})
 	}
 	return r, nil
 }

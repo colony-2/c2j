@@ -55,7 +55,7 @@ func (j *TaskBasedJobTool) StartOrAppendJobRef(ctx context.Context, req jobdb.St
 	}
 	ref, err := j.Restricted.StartOrAppend(ctx, req)
 	if err == nil {
-		j.started = append(j.started, jobcontext.StartedJobContext{Cell: ref.Cell, CellID: ref.CellID, CellRepo: ref.CellRepo, TenantID: ref.TenantID, JobID: ref.JobID, GoalID: ref.GoalID})
+		j.started = append(j.started, jobcontext.StartedJobContext{Cell: ref.Cell, CellID: ref.CellID, CellRepo: ref.CellRepo, TenantID: ref.TenantID, JobID: ref.JobID})
 	}
 	return ref, err
 }

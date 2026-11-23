@@ -16,7 +16,7 @@ import (
 
 var c2jJobSchema = json.RawMessage(`{
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "description": "c2j recipe execution chapter schema v6 (inherited Git profile)",
+  "description": "c2j recipe execution chapter schema v7 (exact-job interpretation)",
   "firstChapterShape": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "type": "object",
@@ -366,6 +366,7 @@ var c2jJobSchema = json.RawMessage(`{
       "jobContext": {
         "type": "object",
         "properties": {
+          "job_semantics_version": { "type": "integer", "enum": [1, 2] },
           "git_profile": {
             "type": "object",
             "properties": {
@@ -502,6 +503,7 @@ var c2jJobSchema = json.RawMessage(`{
           "cell"
         ],
         "properties": {
+          "job_semantics_version": { "type": "integer", "enum": [1, 2] },
           "available_at": {
             "type": "string",
             "format": "date-time"
@@ -1283,6 +1285,9 @@ type Submitter struct {
 type WorkflowEngine struct {
 	jobworkflow.Engine
 	Registry jobdb.JobSchemaRegistry
+	// Recovery is optional and owner-scoped. Only frozen historical requests
+	// select it; fresh and lease submissions retain their normal paths.
+	Recovery jobref.HistoricalRecovery
 }
 
 func Schema() json.RawMessage {
@@ -1367,8 +1372,10 @@ func (s Submitter) SubmitRestartJob(ctx context.Context, req jobdb.SubmitRestart
 	if s.RestartSubmitter == nil {
 		return jobdb.JobHandle{}, errors.New("submit c2j restart job: submitter is nil")
 	}
-	if err := SetSubmitRestartJobSchema(&req.Job); err != nil {
-		return jobdb.JobHandle{}, fmt.Errorf("set c2j job schema: %w", err)
+	if req.Job.Schema == nil {
+		if err := SetSubmitRestartJobSchema(&req.Job); err != nil {
+			return jobdb.JobHandle{}, fmt.Errorf("set c2j job schema: %w", err)
+		}
 	}
 	if err := executioncatalog.CheckRestart(ctx, req); err != nil {
 		return jobdb.JobHandle{}, err
@@ -1387,7 +1394,7 @@ func (s Submitter) SubmitRestartJob(ctx context.Context, req jobdb.SubmitRestart
 }
 
 func (e WorkflowEngine) SubmitJob(ctx context.Context, job jobdb.SubmitJob) (jobdb.JobHandle, error) {
-	if job.JobType != "recipe" {
+	if job.JobType != "recipe" || job.Schema == nil {
 		if err := executioncatalog.CheckSubmission(ctx, job); err != nil {
 			return jobdb.JobHandle{}, err
 		}
@@ -1435,9 +1442,6 @@ func (e WorkflowEngine) SubmitJobRef(ctx context.Context, job jobdb.SubmitJob) (
 	return ref, err
 }
 func (e WorkflowEngine) SubmitRestartJobRef(ctx context.Context, req jobdb.SubmitRestartJobRequest) (jobref.Ref, error) {
-	if err := SetSubmitRestartJobSchema(&req.Job); err != nil {
-		return jobref.Ref{}, err
-	}
 	h, err := e.SubmitRestartJob(ctx, req)
 	if err != nil {
 		return jobref.Ref{}, err
@@ -1446,13 +1450,7 @@ func (e WorkflowEngine) SubmitRestartJobRef(ctx context.Context, req jobdb.Submi
 }
 
 func (e WorkflowEngine) GetGoal(ctx context.Context, key jobdb.GoalKey) (jobdb.GoalInfo, error) {
-	rt, ok := e.Registry.(interface {
-		GetGoal(context.Context, jobdb.GoalKey) (jobdb.GoalInfo, error)
-	})
-	if !ok {
-		return jobdb.GoalInfo{}, fmt.Errorf("goal runtime unavailable")
-	}
-	return rt.GetGoal(ctx, key)
+	return jobdb.GoalInfo{}, fmt.Errorf("goal operations are unsupported; select an exact job")
 }
 
 // ClearCrashConcern exposes operator recovery through the same caller-owned
@@ -1481,25 +1479,16 @@ func (e WorkflowEngine) GetDependencyWait(ctx context.Context, key jobdb.Depende
 }
 
 func (e WorkflowEngine) FailGoal(ctx context.Context, req jobdb.FailGoalRequest) (jobdb.GoalInfo, error) {
-	rt, ok := e.Registry.(interface {
-		FailGoal(context.Context, jobdb.FailGoalRequest) (jobdb.GoalInfo, error)
-	})
-	if !ok {
-		return jobdb.GoalInfo{}, fmt.Errorf("goal runtime unavailable")
-	}
-	return rt.FailGoal(ctx, req)
+	return jobdb.GoalInfo{}, fmt.Errorf("goal operations are unsupported; select an exact job")
 }
 
 func (e WorkflowEngine) ListGoals(ctx context.Context, req jobdb.ListGoalsRequest) (jobdb.ListGoalsResponse, error) {
-	rt, ok := e.Registry.(interface {
-		ListGoals(context.Context, jobdb.ListGoalsRequest) (jobdb.ListGoalsResponse, error)
-	})
-	if !ok {
-		return jobdb.ListGoalsResponse{}, fmt.Errorf("goal runtime unavailable")
-	}
-	return rt.ListGoals(ctx, req)
+	return jobdb.ListGoalsResponse{}, fmt.Errorf("goal operations are unsupported; select an exact job")
 }
 func (e WorkflowEngine) ListDependencyWaits(ctx context.Context, req jobdb.ListDependencyWaitsRequest) (jobdb.ListDependencyWaitsResponse, error) {
+	if req.Target != nil && req.Target.GoalID != "" {
+		return jobdb.ListDependencyWaitsResponse{}, fmt.Errorf("goal targets are unsupported")
+	}
 	rt, ok := e.Registry.(interface {
 		ListDependencyWaits(context.Context, jobdb.ListDependencyWaitsRequest) (jobdb.ListDependencyWaitsResponse, error)
 	})
@@ -1547,4 +1536,23 @@ func (e WorkflowEngine) RetireCell(ctx context.Context, req jobdb.RetireCellRequ
 		return jobdb.Cell{}, fmt.Errorf("cell registry unavailable")
 	}
 	return rt.RetireCell(ctx, req)
+}
+
+func (e WorkflowEngine) ReplaySubmitJobRef(ctx context.Context, job jobdb.SubmitJob) (jobref.Ref, error) {
+	if e.Recovery != nil {
+		if err := executioncatalog.CheckSubmission(ctx, job); err != nil {
+			return jobref.Ref{}, err
+		}
+		return e.Recovery.ReplaySubmitJobRef(ctx, job)
+	}
+	return e.SubmitJobRef(ctx, job)
+}
+func (e WorkflowEngine) ReplayRestartJobRef(ctx context.Context, request jobdb.SubmitRestartJobRequest) (jobref.Ref, error) {
+	if e.Recovery != nil {
+		if err := executioncatalog.CheckRestart(ctx, request); err != nil {
+			return jobref.Ref{}, err
+		}
+		return e.Recovery.ReplayRestartJobRef(ctx, request)
+	}
+	return e.SubmitRestartJobRef(ctx, request)
 }

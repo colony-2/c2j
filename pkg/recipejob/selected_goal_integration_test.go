@@ -10,7 +10,7 @@ import (
 	"testing"
 
 	"github.com/colony-2/c2j/internal/celltest"
-	"github.com/colony-2/c2j/pkg/jobcontext"
+
 	"github.com/colony-2/c2j/pkg/jobdbschema"
 	"github.com/colony-2/c2j/pkg/jobref"
 	"github.com/colony-2/c2j/pkg/recipejob"
@@ -74,58 +74,15 @@ func TestSelectedGoalConformanceThroughC2J(t *testing.T) {
 		}
 	}
 }
-func TestSelectedGoalFreshRecipeAndDescriptor(t *testing.T) {
+func TestExactJobFreshGoalSelectionUnsupported(t *testing.T) {
 	rt := toy.New()
 	engine := goalEngine(t, rt)
-	ctx := runtimetest.PrimaryGoalContext(context.Background())
+	ctx := celltest.Context(context.Background())
 	celltest.Create(t, rt, "tenant", "work", "example.test/work")
-	req := recipejob.BuildStartJobRequest{TenantID: "tenant", JobID: "source", Target: recipejob.ResolvedTarget{CellName: "work", CellRepo: "example.test/work", RepositorySource: "https://example.test/work.git", DefaultRef: "main"}, Recipe: "build", Inputs: map[string]any{"prompt": "source"}}
-	source, err := recipejob.SubmitRecipeJob(ctx, req, engine)
-	require.NoError(t, err)
-	require.NoError(t, rt.CancelJob(ctx, jobdb.CancelJobRequest{JobKey: source.Key()}))
-	req.JobID = "fresh"
-	req.GoalID = source.GoalID
-	req.Inputs = map[string]any{"prompt": "new instructions", "resume_from": map[string]any{"job": "source", "opaque": "exact"}}
-	start, err := recipejob.BuildStartJob(req)
-	require.NoError(t, err)
-	job, err := starter.PrepareRecipeJob(ctx, start, starter.StartRecipeJobOptions{})
-	require.NoError(t, err)
-	d, err := starter.NewDescriptor(ctx, job)
-	require.NoError(t, err)
-	raw, err := json.Marshal(d)
-	require.NoError(t, err)
-	var replay starter.Descriptor
-	require.NoError(t, json.Unmarshal(raw, &replay))
-	ref, err := replay.Submit(ctx, engine)
-	require.NoError(t, err)
-	require.Equal(t, source.GoalID, ref.GoalID)
-	chapters, err := rt.ListChapters(ctx, jobdb.ListChaptersRequest{JobKey: ref.Key()})
-	require.NoError(t, err)
-	require.Len(t, chapters, 1)
-	body := chapters[0].Body.(jobdb.JobStartChapter)
-	var captured workflowctl.StartJob
-	require.NoError(t, json.Unmarshal(body.Input.Data, &captured))
-	require.Equal(t, req.Inputs, captured.Inputs)
-	info, err := rt.GetJob(ctx, ref.Key())
-	require.NoError(t, err)
-	require.Empty(t, info.OtherGoalIDs)
-	_, err = rt.FailGoal(ctx, jobdb.FailGoalRequest{GoalKey: jobdb.GoalKey{TenantId: "tenant", GoalID: ref.GoalID}, Message: "done"})
-	require.NoError(t, err)
-	again, err := replay.Submit(ctx, engine)
-	require.NoError(t, err)
-	require.Equal(t, ref, again)
-	changed := replay
-	changed.Job.GoalID = "missing"
-	_, err = changed.Submit(ctx, engine)
-	require.ErrorIs(t, err, jobdb.ErrExistingJobMismatch)
-	req.JobID = "ordinary"
-	req.GoalID = ""
-	req.Inputs["goal_id"] = source.GoalID
-	req.Parent = &jobcontext.Parent{TenantID: "tenant", JobID: "source", GoalID: source.GoalID}
-	req.Dependencies = []jobdb.Dependency{{Target: jobdb.DependencyTarget{JobID: source.JobID}, Condition: jobdb.JobPrereqComplete}}
-	ordinary, err := recipejob.SubmitRecipeJob(ctx, req, engine)
-	require.NoError(t, err)
-	require.NotEqual(t, source.GoalID, ordinary.GoalID)
+	_, err := starter.StartRecipeJob(ctx, workflowctl.StartJob{TenantId: "tenant", JobID: "fresh", GoalID: "retired", Cell: "work", CellRepo: "example.test/work", RecipeName: "build"}, engine)
+	require.ErrorContains(t, err, "goal selection is unsupported")
+	_, err = rt.GetJob(ctx, jobdb.JobKey{TenantId: "tenant", JobId: "fresh"})
+	require.ErrorIs(t, err, jobdb.ErrJobNotFound)
 }
 
 func TestSelectedGoalRejectionsHaveNoPublicSideEffects(t *testing.T) {
@@ -150,7 +107,7 @@ func TestSelectedGoalRejectionsHaveNoPublicSideEffects(t *testing.T) {
 			engine := goalEngine(t, rt)
 			source, err := rt.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "tenant", JobID: "source", JobType: "work", Cell: "work", CellRepo: "example.test/work", Data: jobdb.NewTaskDataOrPanic(nil)}})
 			require.NoError(t, err)
-			job, err := starter.PrepareRecipeJob(ctx, workflowctl.StartJob{TenantId: "tenant", JobID: "accepted", GoalID: source.GoalID, Cell: "work", CellRepo: "example.test/work", RecipeName: "build"}, starter.StartRecipeJobOptions{})
+			job, err := prepareLegacyRecipe(ctx, workflowctl.StartJob{TenantId: "tenant", JobID: "accepted", GoalID: source.GoalID, Cell: "work", CellRepo: "example.test/work", RecipeName: "build"}, starter.StartRecipeJobOptions{})
 			require.NoError(t, err)
 			before, err := rt.ListGoals(ctx, jobdb.ListGoalsRequest{TenantId: "tenant"})
 			require.NoError(t, err)
@@ -226,13 +183,14 @@ func TestSelectedGoalReceiptReplayWithLaterActiveSuccessor(t *testing.T) {
 				require.Equal(t, jobdb.JobStatusCancelled, info.Status)
 			}
 			cancel(source.Key())
-			req.JobID, req.GoalID = "accepted", source.GoalID
+			req.JobID = "accepted"
 			start, err := recipejob.BuildStartJob(req)
 			require.NoError(t, err)
+			start.GoalID = source.GoalID
 			start.Artifacts = []jobdb.Artifact{jobdb.NewArtifactFromBytes("input.txt", []byte("input café\n"))}
-			job, err := starter.PrepareRecipeJob(ctx, start, starter.StartRecipeJobOptions{})
+			job, err := prepareLegacyRecipe(ctx, start, starter.StartRecipeJobOptions{})
 			require.NoError(t, err)
-			descriptor, err := starter.NewDescriptor(ctx, job)
+			descriptor, err := legacyDescriptor(ctx, job)
 			require.NoError(t, err)
 			wire, err := json.Marshal(descriptor)
 			require.NoError(t, err)
@@ -247,7 +205,9 @@ func TestSelectedGoalReceiptReplayWithLaterActiveSuccessor(t *testing.T) {
 			require.JSONEq(t, string(saved.Input), string(acceptedInput))
 			cancel(accepted.Key())
 			req.JobID = "successor"
-			successor, err := recipejob.SubmitRecipeJob(ctx, req, engine)
+			next := job
+			next.JobID = "successor"
+			successor, err := engine.SubmitJobRef(ctx, next)
 			require.NoError(t, err, "the pinned backend must permit this sequential successor setup")
 			require.Equal(t, accepted.GoalID, successor.GoalID)
 			active, err := rt.GetJob(ctx, successor.Key())
@@ -257,7 +217,7 @@ func TestSelectedGoalReceiptReplayWithLaterActiveSuccessor(t *testing.T) {
 			require.NoError(t, err)
 			require.Equal(t, accepted, replay)
 			t.Log("exact accepted descriptor replayed while later successor is READY")
-			_, err = recipejob.FailGoal(ctx, engine, jobdb.FailGoalRequest{GoalKey: jobdb.GoalKey{TenantId: accepted.TenantID, GoalID: accepted.GoalID}, Message: "closed"})
+			_, err = rt.FailGoal(ctx, jobdb.FailGoalRequest{GoalKey: jobdb.GoalKey{TenantId: accepted.TenantID, GoalID: accepted.GoalID}, Message: "closed"})
 			require.NoError(t, err)
 			replay, err = saved.Submit(ctx, engine)
 			require.NoError(t, err)
@@ -278,4 +238,23 @@ func TestSelectedGoalReceiptReplayWithLaterActiveSuccessor(t *testing.T) {
 			require.Equal(t, "input café\n", string(data))
 		})
 	}
+}
+
+// Test-only reconstruction of already retained legacy requests. Production fresh
+// preparation rejects selected goals; fixtures never use that path to select.
+func prepareLegacyRecipe(ctx context.Context, start workflowctl.StartJob, opts starter.StartRecipeJobOptions) (jobdb.SubmitJob, error) {
+	goal := start.GoalID
+	start.GoalID = ""
+	opts.GoalID = ""
+	j, err := starter.PrepareRecipeJob(ctx, start, opts)
+	j.GoalID = goal
+	if j.Schema != nil {
+		j.Schema.Schema = jobdbschema.Schema()
+	}
+	return j, err
+}
+func legacyDescriptor(ctx context.Context, j jobdb.SubmitJob) (starter.Descriptor, error) {
+	d, err := starter.NewDescriptor(ctx, j)
+	d.Version = 1
+	return d, err
 }

@@ -31,7 +31,7 @@ type submitResult struct {
 	Cell     string `json:"cell"`
 	CellID   string `json:"cell_id"`
 	CellRepo string `json:"cell_repo"`
-	GoalID   string `json:"goal_id"`
+	GoalID   string `json:"goal_id,omitempty"`
 	TenantID string `json:"tenant_id"`
 	JobID    string `json:"job_id"`
 	Recipe   string `json:"recipe"`
@@ -164,7 +164,7 @@ func Run(ctx context.Context, opts Options) error {
 			return err
 		}
 	}
-	if opts.GoalID != "" {
+	if opts.RequestFile != "" {
 		var recipes []recipe.Recipe
 		if embeddedRecipe != nil {
 			recipes = append(recipes, *embeddedRecipe)
@@ -182,7 +182,7 @@ func Run(ctx context.Context, opts Options) error {
 				req.WorkspaceMode = workspacesubmit.Now
 			}
 			req.ExplicitTarget = strings.TrimSpace(opts.Cell) != ""
-			descriptor, err = childbroker.PrepareSelected(ctx, broker, req)
+			descriptor, err = childbroker.Prepare(ctx, broker, req)
 		} else {
 			var job jobdb.SubmitJob
 			job, err = starter.PrepareRecipeJob(ctx, start, starter.StartRecipeJobOptions{}, recipes...)
@@ -285,6 +285,7 @@ func Run(ctx context.Context, opts Options) error {
 }
 
 func writeSubmitResult(opts Options, result submitResult) error {
+	result.GoalID = ""
 	if opts.JSONOutput {
 		return json.NewEncoder(opts.Stdout).Encode(result)
 	}

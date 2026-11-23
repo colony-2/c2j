@@ -81,7 +81,7 @@ sequence:
     inputs: {}
 - id: await
   op: recipe.await_result_soft
-  inputs: {target: {goal: "${{ sequence.submit.jobs.goal_ids[0] }}"}}
+  inputs: {target: {job: "${{ sequence.submit.jobs.job_ids[0] }}"}}
 outputs:
   accepted: ${{ sequence.await.outputs.outputs.accepted }}
 `)
@@ -104,7 +104,9 @@ cases:
   - {type: op_call_count, node_path: parent/submit, value: 1}
 `)
 	var output bytes.Buffer
-	err := Run(context.Background(), Options{FilePath: filepath.Join(root, "child.test.yaml"), OutDir: filepath.Join(root, "results"), Stdout: &output, Execution: ExecutionOptions{Timeout: "10s"}})
+	// Native parent/child setup includes Git restoration and durable polling;
+	// allow the same loaded-host budget as the neighboring native-runtime case.
+	err := Run(context.Background(), Options{FilePath: filepath.Join(root, "child.test.yaml"), OutDir: filepath.Join(root, "results"), Stdout: &output, Execution: ExecutionOptions{Timeout: "60s"}})
 	data, _ := os.ReadFile(filepath.Join(root, "results/summary.json"))
 	require.NoError(t, err, "%s\n%s", output.String(), data)
 }

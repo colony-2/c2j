@@ -74,9 +74,9 @@ type RecipeJob struct {
 	SchemaHash          string                       `json:"schema_hash,omitempty"`
 	// Complete blocking waits are loaded only by explicit job inspection; lists carry a summary.
 	BlockingWait *jobdb.DependencyWaitInfo `json:"blocking_wait,omitempty"`
-	GoalID       string                    `json:"goal_id"`
+	GoalID       string                    `json:"goal_id,omitempty"`
 	// Deprecated: empty in current views; retained for historical JSON decoding.
-	OtherGoalIDs []string `json:"other_goal_ids"`
+	OtherGoalIDs []string `json:"other_goal_ids,omitempty"`
 	// Completion fields are persisted terminal results, separate from scheduler Status.
 	// Empty status means unavailable. Unknown statuses are preserved verbatim.
 	CompletionStatus string `json:"completion_status,omitempty"`
@@ -119,6 +119,9 @@ type workflowLister interface {
 }
 
 func BuildListJobsRequest(req ListRecipeJobsRequest) (jobdb.ListJobsRequest, error) {
+	if len(req.GoalIDs) != 0 {
+		return jobdb.ListJobsRequest{}, fmt.Errorf("goal filters are unsupported; use job IDs")
+	}
 	tenantID := strings.TrimSpace(req.TenantID)
 	if tenantID == "" {
 		return jobdb.ListJobsRequest{}, fmt.Errorf("tenant ID is required")
@@ -142,14 +145,14 @@ func BuildListJobsRequest(req ListRecipeJobsRequest) (jobdb.ListJobsRequest, err
 	}
 
 	return jobdb.ListJobsRequest{
-		IncludeHidden:  req.IncludeHidden,
-		TenantIds:      []string{tenantID},
-		Statuses:       append([]jobdb.JobStatus(nil), req.Statuses...),
-		Stores:         append([]jobdb.JobStore(nil), req.Stores...),
-		JobTypes:       []string{starter.RecipeJobType},
-		JobTasks:       append([]jobdb.JobTaskFilter(nil), req.JobTasks...),
-		JobKeys:        jobKeys,
-		GoalIDs:        append([]string(nil), req.GoalIDs...),
+		IncludeHidden: req.IncludeHidden,
+		TenantIds:     []string{tenantID},
+		Statuses:      append([]jobdb.JobStatus(nil), req.Statuses...),
+		Stores:        append([]jobdb.JobStore(nil), req.Stores...),
+		JobTypes:      []string{starter.RecipeJobType},
+		JobTasks:      append([]jobdb.JobTaskFilter(nil), req.JobTasks...),
+		JobKeys:       jobKeys,
+
 		MetadataFilter: metadataFilter,
 		CellNames:      req.CellNames,
 		CreatedAfter:   req.CreatedAfter,
@@ -302,7 +305,6 @@ func StartedJobsContextFromRecipeJobs(jobs []RecipeJob) jobcontext.StartedJobsCo
 			continue
 		}
 		out.JobIDs = append(out.JobIDs, job.JobID)
-		out.GoalIDs = append(out.GoalIDs, job.GoalID)
 		parentInvocationHash := ""
 		if job.Parent != nil {
 			parentInvocationHash = job.Parent.InvocationHash
@@ -311,7 +313,6 @@ func StartedJobsContextFromRecipeJobs(jobs []RecipeJob) jobcontext.StartedJobsCo
 			Cell: job.CellName, CellID: job.CellID, CellRepo: job.RepositorySource,
 			TenantID:             job.TenantID,
 			JobID:                job.JobID,
-			GoalID:               job.GoalID,
 			RecipeName:           job.RecipeName,
 			Status:               string(job.Status),
 			ParentInvocationHash: parentInvocationHash,
@@ -355,7 +356,6 @@ func GetRecipeJob(ctx context.Context, lister Lister, req GetRecipeJobRequest) (
 		return RecipeJob{}, err
 	}
 	job.Status = info.Status
-	job.GoalID = info.GoalID
 	job.BlockingWait = info.BlockingWait
 	job.BlockingWaitSummary = nil
 	if info.BlockingWait != nil {
@@ -388,7 +388,6 @@ func RecipeJobFromSummary(summary jobdb.JobSummary) (RecipeJob, bool, error) {
 		BlockingWaitSummary:   joblist.CloneBlockingWaitSummary(summary.BlockingWaitSummary),
 		Metadata:              append(json.RawMessage(nil), summary.Metadata...),
 		SchemaHash:            summary.SchemaHash,
-		GoalID:                summary.GoalID,
 		CompletionStatus:      summary.CompletionStatus,
 		CompletionDetail:      summary.CompletionDetail,
 		ClientPayload:         append(json.RawMessage(nil), summary.ClientPayload...),
@@ -458,7 +457,6 @@ func parentFromMetadata(meta *starter.JobMetadata) jobcontext.Parent {
 	return jobcontext.Parent{
 		TenantID:           meta.ParentTenantID,
 		JobID:              meta.ParentJobID,
-		GoalID:             meta.ParentGoalID,
 		JobType:            meta.ParentJobType,
 		OpType:             meta.ParentOpType,
 		OpStep:             meta.ParentOpStep,

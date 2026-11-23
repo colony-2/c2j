@@ -21,7 +21,7 @@ type RestartRecipeJobRequest struct {
 }
 
 type RestartRecipeJobResponse struct {
-	GoalID   string `json:"goal_id"`
+	GoalID   string `json:"goal_id,omitempty"`
 	TenantID string `json:"tenant_id"`
 	JobID    string `json:"job_id"`
 }

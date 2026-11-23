@@ -13,6 +13,7 @@ import (
 
 func TestGetRecipeOutputSuccess(t *testing.T) {
 	artifact := jobdb.NewArtifactFromBytes("child-art", []byte("data"))
+	jobdb.AssignArtifactKey(artifact, jobdb.ArtifactKey{JobId: "job-1", TaskOrdinal: 1, Name: "child-art"})
 	payload := workerops.ActivityInvocationOutput{OpOutput: map[string]interface{}{"value": "ok"}}
 	jobData, err := jobdb.NewTaskData(payload, artifact)
 	if err != nil {

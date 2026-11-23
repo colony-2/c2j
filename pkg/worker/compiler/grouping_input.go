@@ -7,6 +7,7 @@ import (
 
 	"github.com/colony-2/c2j/internal/jsonexact"
 	"github.com/colony-2/c2j/pkg/grouping"
+	"github.com/colony-2/c2j/pkg/jobsemantics"
 	"github.com/colony-2/c2j/pkg/workflowctl"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 )
@@ -67,6 +68,24 @@ func decodeRecipeInput(data []byte, artifacts []jobdb.Artifact) (workflowctl.Sta
 			return start, nil, err
 		}
 	}
+	var snapshot map[string]json.RawMessage
+	rawStart := data
+	if hasStart {
+		rawStart = fields["start"]
+	}
+	if err := json.Unmarshal(rawStart, &snapshot); err != nil {
+		return start, nil, err
+	}
+	if raw, ok := snapshot["job_semantics_version"]; ok && string(raw) != "1" && string(raw) != "2" {
+		return start, nil, fmt.Errorf("job_semantics_version must be integer 1 or 2")
+	}
+	if err := jobsemantics.Validate(start.JobSemanticsVersion); err != nil {
+		return start, nil, err
+	}
+	if start.JobContext.JobSemanticsVersion != 0 && start.JobContext.JobSemanticsVersion != start.JobSemanticsVersion {
+		return start, nil, fmt.Errorf("contradictory job_semantics_version in stored context")
+	}
+	start.JobContext.JobSemanticsVersion = start.JobSemanticsVersion
 	if start.Inputs != nil {
 		start.Inputs = jsonexact.Native(start.Inputs).(map[string]any)
 	}

@@ -17,7 +17,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestGoalWaitTimeoutAndConsumerCancellation(t *testing.T) {
+func TestExactJobWaitTimeoutAndConsumerCancellation(t *testing.T) {
 	for _, backend := range []string{"sqlite", "http"} {
 		for _, cancelled := range []bool{false, true} {
 			name := backend + "/timeout"
@@ -78,28 +78,10 @@ func TestGoalWaitTimeoutAndConsumerCancellation(t *testing.T) {
 					w, e := engine.GetDependencyWait(ctx, key)
 					return e == nil && w.State == want
 				}, 5*time.Second, 10*time.Millisecond)
-				reverse, err := engine.ListDependencyWaits(ctx, jobdb.ListDependencyWaitsRequest{TenantId: "t", Target: &jobdb.DependencyTarget{GoalID: child.GoalID}})
+				reverse, err := engine.ListDependencyWaits(ctx, jobdb.ListDependencyWaitsRequest{TenantId: "t", Target: &jobdb.DependencyTarget{JobID: child.JobKey.JobId}})
 				require.NoError(t, err)
 				require.Empty(t, reverse.Waits)
-				goal, err := engine.GetGoal(ctx, jobdb.GoalKey{TenantId: "t", GoalID: child.GoalID})
-				require.NoError(t, err)
-				require.Equal(t, jobdb.GoalOpen, goal.State)
-				if !cancelled {
-					// A soft goal wait softens goal failure, not the enclosing task timeout.
-					out := run()
-					require.Equal(t, wf.JobRunFailed, out.Status)
-					require.Error(t, out.JobError)
-				}
-				// A later producer success must not revive the interrupted consumer.
-				producer := wf.ExecutionWorker{JobType: "producer", Execute: func(_ wf.ExecutionContext, in wf.JobData) (wf.JobData, error) { return in, nil }}
-				r, err := wf.GetJobForRun(ctx, rt, wf.GetJobForRunRequest{JobKey: child.JobKey, JobWorker: producer, WorkerID: "producer", LeaseDuration: time.Minute})
-				require.NoError(t, err)
-				_, err = r.Run(nil)
-				require.NoError(t, err)
-				retained, err := engine.GetDependencyWait(ctx, key)
-				require.NoError(t, err)
-				require.Equal(t, want, retained.State)
-				require.Empty(t, retained.Dependencies[0].SatisfiedByJobID)
+
 			})
 		}
 	}

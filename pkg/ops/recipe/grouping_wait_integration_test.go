@@ -105,15 +105,15 @@ func TestGroupedWaitsRepairCancellationAndSharedResults(t *testing.T) {
 						require.NoError(t, err)
 					}
 					if i == 3 {
-						w.input.Wait = WaitPolicy{On: "goal", Condition: "success"}
+						w.input.Wait = WaitPolicy{On: "job", Condition: "success"}
 					}
 					if i == 5 {
-						// The saved pre-grouping shape has no wait/grouping fields.
+						// Compatible historical input explicitly selected the exact job.
 						w.input = StartedJob{}
 					}
 					parents, tasks = append(parents, h), append(tasks, w)
 				}
-				legacyJSON, err := json.Marshal(map[string]any{"job_id": a.JobID, "goal_id": a.GoalID})
+				legacyJSON, err := json.Marshal(map[string]any{"job_id": a.JobID, "goal_id": a.GoalID, "wait": map[string]any{"on": "job", "condition": "success"}})
 				require.NoError(t, err)
 				legacyConsumer := wf.ExecutionWorker{JobType: "consumer", Execute: func(c wf.ExecutionContext, _ jobdb.JobData) (jobdb.JobData, error) {
 					return c.DoTask(wf.TaskCall{Site: "wait", TaskType: "grouped-wait", ContractVersion: 1, Command: []byte(`{}`)}, func(context.Context) (jobdb.TaskData, error) { return jobdb.NewTaskData(json.RawMessage(legacyJSON)) })
@@ -183,39 +183,46 @@ func TestGroupedWaitsRepairCancellationAndSharedResults(t *testing.T) {
 					require.Equal(t, exact[0], exact[1])
 				}
 				require.Equal(t, wf.JobRunCompleted, run(parents[2].JobKey, consumer, tasks[2]).Status, "terminal completion does not require success")
-				winner := a.JobID
 				if outcome != "success" {
 					repair, err := rt.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "tenant", Cell: "test", JobType: "recipe", JobID: "repair", GoalID: a.GoalID, Data: jobdb.NewTaskDataOrPanic(nil)}})
 					require.NoError(t, err)
 					require.Equal(t, wf.JobRunCompleted, run(repair.JobKey, producer).Status)
-					winner = repair.JobKey.JobId
 				}
 				out := run(parents[3].JobKey, consumer, tasks[3])
-				require.Equal(t, wf.JobRunCompleted, out.Status, "%v", out.JobError)
-				var got SingleRecipeOutput
-				require.NoError(t, json.Unmarshal(out.Output.GetDataOrPanic(), &got))
-				require.Equal(t, ResultSource{Goal: a.GoalID, Job: winner}, got.Result)
-				require.Equal(t, winner, got.Outputs["producer"])
+				if outcome == "success" {
+					require.Equal(t, wf.JobRunCompleted, out.Status)
+					var got SingleRecipeOutput
+					require.NoError(t, json.Unmarshal(out.Output.GetDataOrPanic(), &got))
+					require.Equal(t, ResultSource{Job: a.JobID}, got.Result)
+					require.Equal(t, a.JobID, got.Outputs["producer"])
+				} else {
+					require.Equal(t, wf.JobRunFailed, out.Status, "a successful sibling cannot repair an exact wait")
+				}
 				cancelled, err := rt.GetJob(ctx, parents[0].JobKey)
 				require.NoError(t, err)
 				require.Equal(t, jobdb.JobStatusCancelled, cancelled.Status)
-				// The explicit goal policy and result source survive replay.
+				// The exact policy and recorded outcome survive replay.
 				replay, err := wf.NewEngineBuilder().WithRuntime(rt).WithWorkerTenantId("tenant").PlusWorkers(consumer, tasks[3]).BuildEngine()
 				require.NoError(t, err)
 				_, err = replay.ReplayJobRun(ctx, wf.ReplayRunRequest{JobKey: parents[3].JobKey})
-				require.NoError(t, err, fmt.Sprint(out.JobError))
-				// Resume a durable old-format input with omitted waits. Even for a
-				// failed original batch it follows the repaired goal, not the new
-				// grouped exact-job default. Replay retains the recorded winner.
+				if outcome == "success" {
+					require.NoError(t, err, fmt.Sprint(out.JobError))
+				} else {
+					require.Error(t, err)
+				}
+				// Explicit exact legacy policy survives durable suspension.
 				legacy := run(parents[5].JobKey, legacyConsumer, tasks[5])
-				require.Equal(t, wf.JobRunCompleted, legacy.Status, "%v", legacy.JobError)
-				require.NoError(t, json.Unmarshal(legacy.Output.GetDataOrPanic(), &got))
-				require.Equal(t, ResultSource{Goal: a.GoalID, Job: winner}, got.Result)
-				legacyReplay, err := wf.NewEngineBuilder().WithRuntime(rt).WithWorkerTenantId("tenant").PlusWorkers(legacyConsumer, tasks[5]).BuildEngine()
-				require.NoError(t, err)
-				replayed, err := legacyReplay.ReplayJobRun(ctx, wf.ReplayRunRequest{JobKey: parents[5].JobKey})
-				require.NoError(t, err)
-				require.JSONEq(t, string(legacy.Output.GetDataOrPanic()), string(replayed.GetDataOrPanic()))
+				if outcome == "success" {
+					require.Equal(t, wf.JobRunCompleted, legacy.Status)
+					legacyReplay, err := wf.NewEngineBuilder().WithRuntime(rt).WithWorkerTenantId("tenant").PlusWorkers(legacyConsumer, tasks[5]).BuildEngine()
+					require.NoError(t, err)
+					replayed, err := legacyReplay.ReplayJobRun(ctx, wf.ReplayRunRequest{JobKey: parents[5].JobKey})
+					require.NoError(t, err)
+					require.JSONEq(t, string(legacy.Output.GetDataOrPanic()), string(replayed.GetDataOrPanic()))
+				} else {
+					require.Equal(t, wf.JobRunFailed, legacy.Status)
+				}
+
 			})
 		}
 	}

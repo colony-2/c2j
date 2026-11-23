@@ -41,7 +41,15 @@ func TestScenarioBindingRejectsUnprovedIdentity(t *testing.T) {
 		require.NoError(t, f.bindScenarioJobs(ctx, rt, "binding"))
 		require.NotContains(t, f.scenario.report.Jobs, "receiver")
 	})
-	for _, field := range []string{"tenant", "cell", "goal", "repository"} {
+	t.Run("goal-free native receipt", func(t *testing.T) {
+		f := fixture()
+		r := receipt
+		r.Ref.GoalID = ""
+		f.scenario.report.Receipts = []scenariotest.Submission{r}
+		require.NoError(t, f.bindScenarioJobs(ctx, rt, "binding"))
+		require.Equal(t, target.JobID, f.scenario.report.Jobs["receiver"].Ref.JobID)
+	})
+	for _, field := range []string{"tenant", "cell", "cell_id", "goal", "repository", "missing_cell_id"} {
 		t.Run(field, func(t *testing.T) {
 			f := fixture()
 			r := receipt
@@ -50,6 +58,10 @@ func TestScenarioBindingRejectsUnprovedIdentity(t *testing.T) {
 				r.Ref.TenantID = "foreign"
 			case "cell":
 				r.Ref.Cell = "foreign"
+			case "cell_id":
+				r.Ref.CellID = "foreign"
+			case "missing_cell_id":
+				r.Ref.CellID = ""
 			case "goal":
 				r.Ref.GoalID = "foreign"
 			case "repository":
@@ -126,4 +138,43 @@ func TestScenarioBindingRejectsUnprovedIdentity(t *testing.T) {
 			require.True(t, f.report.Controls.Dispatch[1].Entered, "retain the actual earlier entry, not a retrospective denial")
 		})
 	}
+}
+
+func TestScenarioSubmissionRefContract(t *testing.T) {
+	native := jobref.Ref{TenantID: "tenant", JobID: "job", Cell: "root", CellID: "cell-id", CellRepo: "example.test/repo", GoalID: "historical-goal"}
+	for _, outputGoal := range []string{"", native.GoalID} {
+		for _, receiptGoal := range []string{"", native.GoalID} {
+			t.Run("output="+outputGoal+"/receipt="+receiptGoal, func(t *testing.T) {
+				output, receipt := native, native
+				output.GoalID, receipt.GoalID = outputGoal, receiptGoal
+				require.True(t, sameScenarioSubmissionRef(output, receipt))
+				for _, field := range []string{"tenant", "job", "cell", "cell_id", "repository"} {
+					t.Run(field, func(t *testing.T) {
+						for _, value := range []string{"foreign", ""} {
+							bad := output
+							switch field {
+							case "tenant":
+								bad.TenantID = value
+							case "job":
+								bad.JobID = value
+							case "cell":
+								bad.Cell = value
+							case "cell_id":
+								bad.CellID = value
+							case "repository":
+								bad.CellRepo = value
+							}
+							require.False(t, sameScenarioSubmissionRef(bad, receipt), "changed or missing output identity")
+							require.False(t, sameScenarioSubmissionRef(receipt, bad), "changed or missing native identity")
+						}
+					})
+				}
+			})
+		}
+	}
+	t.Run("contradictory historical metadata", func(t *testing.T) {
+		bad := native
+		bad.GoalID = "foreign"
+		require.False(t, sameScenarioSubmissionRef(bad, native))
+	})
 }

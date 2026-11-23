@@ -13,6 +13,7 @@ import (
 
 	"github.com/colony-2/c2j/internal/localruntime"
 	"github.com/colony-2/c2j/pkg/jobdbschema"
+	"github.com/colony-2/c2j/pkg/jobrecovery"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	remoteruntime "github.com/colony-2/jobdb/pkg/jobdb/runtime/remote"
 	sqliteruntime "github.com/colony-2/jobdb/pkg/jobdb/runtime/sqlite"
@@ -98,6 +99,13 @@ func openRemote(swfURL string, workerTenantID string) (*Handle, error) {
 		return nil, err
 	}
 
+	recovery, err := jobrecovery.New(swfURL, client)
+	if err != nil {
+		return nil, err
+	}
+	owned := engine.(jobdbschema.WorkflowEngine)
+	owned.Recovery = recovery
+	engine = owned
 	return &Handle{
 		Runtime:       runtime,
 		Engine:        engine,

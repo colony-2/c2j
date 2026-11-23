@@ -92,41 +92,19 @@ func (r onlyListDependencyWaits) ListDependencyWaits(ctx context.Context, req jo
 	return r.call(ctx, req)
 }
 
-func TestGoalForwardingIndividualCapabilities(t *testing.T) {
+func TestExactJobFacadeRejectsLiveGoals(t *testing.T) {
+	engine := WorkflowEngine{}
+	_, err := engine.GetGoal(context.Background(), jobdb.GoalKey{})
+	require.ErrorContains(t, err, "unsupported")
+	_, err = engine.ListGoals(context.Background(), jobdb.ListGoalsRequest{})
+	require.ErrorContains(t, err, "unsupported")
+	_, err = engine.FailGoal(context.Background(), jobdb.FailGoalRequest{})
+	require.ErrorContains(t, err, "unsupported")
+}
+func TestHistoricalWaitForwardingIndividualCapabilities(t *testing.T) {
 	ctx := context.WithValue(context.Background(), struct{}{}, "preserve context")
 	base := goalSchemaOnly{}
-	_, broad := any(base).(jobdb.GoalRuntime)
-	require.False(t, broad)
-	// Reflection catches accidental addition of a removed forwarding method.
-	require.NotContains(t, methodNames(WorkflowEngine{}), "AddGoalCandidate")
 	backendError := errors.New("backend failed")
-
-	t.Run("GetGoal", func(t *testing.T) {
-		req := jobdb.GoalKey{TenantId: "t", GoalID: "g"}
-		want := jobdb.GoalInfo{GoalKey: jobdb.GoalKey{TenantId: "t", GoalID: "g"}, State: jobdb.GoalOpen}
-		var failure error
-		calls := 0
-		registry := onlyGetGoal{call: func(gotCtx context.Context, got jobdb.GoalKey) (jobdb.GoalInfo, error) {
-			calls++
-			require.Equal(t, ctx, gotCtx)
-			require.Equal(t, req, got)
-			return want, failure
-		}}
-		_, broad := any(registry).(jobdb.GoalRuntime)
-		require.False(t, broad)
-		require.NotContains(t, methodNames(registry), "AddGoalCandidate")
-		engine := WorkflowEngine{Registry: registry}
-		got, err := engine.GetGoal(ctx, req)
-		require.NoError(t, err)
-		require.Equal(t, want, got)
-		failure = backendError
-		_, err = engine.GetGoal(ctx, req)
-		require.Same(t, backendError, err)
-		require.Equal(t, 2, calls)
-		_, err = (WorkflowEngine{Registry: base}).GetGoal(ctx, req)
-		require.EqualError(t, err, "goal runtime unavailable")
-	})
-
 	t.Run("GetDependencyWait", func(t *testing.T) {
 		req := jobdb.DependencyWaitKey{JobKey: jobdb.JobKey{TenantId: "t", JobId: "consumer"}, WaitID: "w"}
 		want := jobdb.DependencyWaitInfo{WaitID: "w", State: jobdb.DependencyPending}
@@ -152,59 +130,6 @@ func TestGoalForwardingIndividualCapabilities(t *testing.T) {
 		_, err = (WorkflowEngine{Registry: base}).GetDependencyWait(ctx, req)
 		require.EqualError(t, err, "goal runtime unavailable")
 	})
-
-	t.Run("FailGoal", func(t *testing.T) {
-		req := jobdb.FailGoalRequest{GoalKey: jobdb.GoalKey{TenantId: "t", GoalID: "g"}, Message: " café\n"}
-		want := jobdb.GoalInfo{GoalKey: jobdb.GoalKey{TenantId: "t", GoalID: "g"}, State: jobdb.GoalFailed}
-		var failure error
-		calls := 0
-		registry := onlyFailGoal{call: func(gotCtx context.Context, got jobdb.FailGoalRequest) (jobdb.GoalInfo, error) {
-			calls++
-			require.Equal(t, ctx, gotCtx)
-			require.Equal(t, req, got)
-			return want, failure
-		}}
-		_, broad := any(registry).(jobdb.GoalRuntime)
-		require.False(t, broad)
-		require.NotContains(t, methodNames(registry), "AddGoalCandidate")
-		engine := WorkflowEngine{Registry: registry}
-		got, err := engine.FailGoal(ctx, req)
-		require.NoError(t, err)
-		require.Equal(t, want, got)
-		failure = backendError
-		_, err = engine.FailGoal(ctx, req)
-		require.Same(t, backendError, err)
-		require.Equal(t, 2, calls)
-		_, err = (WorkflowEngine{Registry: base}).FailGoal(ctx, req)
-		require.EqualError(t, err, "goal runtime unavailable")
-	})
-
-	t.Run("ListGoals", func(t *testing.T) {
-		req := jobdb.ListGoalsRequest{TenantId: "t", PageToken: "cursor"}
-		want := jobdb.ListGoalsResponse{NextPageToken: "next"}
-		var failure error
-		calls := 0
-		registry := onlyListGoals{call: func(gotCtx context.Context, got jobdb.ListGoalsRequest) (jobdb.ListGoalsResponse, error) {
-			calls++
-			require.Equal(t, ctx, gotCtx)
-			require.Equal(t, req, got)
-			return want, failure
-		}}
-		_, broad := any(registry).(jobdb.GoalRuntime)
-		require.False(t, broad)
-		require.NotContains(t, methodNames(registry), "AddGoalCandidate")
-		engine := WorkflowEngine{Registry: registry}
-		got, err := engine.ListGoals(ctx, req)
-		require.NoError(t, err)
-		require.Equal(t, want, got)
-		failure = backendError
-		_, err = engine.ListGoals(ctx, req)
-		require.Same(t, backendError, err)
-		require.Equal(t, 2, calls)
-		_, err = (WorkflowEngine{Registry: base}).ListGoals(ctx, req)
-		require.EqualError(t, err, "goal runtime unavailable")
-	})
-
 	t.Run("ListDependencyWaits", func(t *testing.T) {
 		req := jobdb.ListDependencyWaitsRequest{TenantId: "t", ConsumerJobID: "consumer"}
 		want := jobdb.ListDependencyWaitsResponse{NextPageToken: "next"}
@@ -230,6 +155,7 @@ func TestGoalForwardingIndividualCapabilities(t *testing.T) {
 		_, err = (WorkflowEngine{Registry: base}).ListDependencyWaits(ctx, req)
 		require.EqualError(t, err, "goal runtime unavailable")
 	})
+
 }
 
 func methodNames(v any) []string {

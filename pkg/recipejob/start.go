@@ -44,9 +44,15 @@ type Submitter interface {
 }
 
 func BuildStartJob(req BuildStartJobRequest) (workflowctl.StartJob, error) {
-	if err := jobdb.ValidatePrimaryGoalSelection(jobdb.SubmitJob{TenantId: req.TenantID, JobID: req.JobID, GoalID: req.GoalID}); err != nil {
-		return workflowctl.StartJob{}, err
+	if req.GoalID != "" {
+		return workflowctl.StartJob{}, fmt.Errorf("goal selection is unsupported; submit an independent job")
 	}
+	for _, dep := range req.Dependencies {
+		if dep.Target.GoalID != "" {
+			return workflowctl.StartJob{}, fmt.Errorf("goal dependencies are unsupported; select an exact job")
+		}
+	}
+
 	tenantID := strings.TrimSpace(req.TenantID)
 	if tenantID == "" {
 		return workflowctl.StartJob{}, fmt.Errorf("tenant ID is required")

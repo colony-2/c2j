@@ -16,6 +16,7 @@ import (
 	"github.com/colony-2/c2j/pkg/git/gitstate"
 	"github.com/colony-2/c2j/pkg/input/formdefaults"
 	"github.com/colony-2/c2j/pkg/jobcontext"
+	"github.com/colony-2/c2j/pkg/jobsemantics"
 	"github.com/colony-2/c2j/pkg/objects"
 	"github.com/colony-2/c2j/pkg/ops"
 	extops "github.com/colony-2/c2j/pkg/ops/extensions"
@@ -99,6 +100,18 @@ func ExecuteRecipeWithExecutor(exec RecipeExecutor, ctx workflow.Context, r reci
 }
 
 func (d DefaultRecipeExecutor) ExecuteRecipe(ctx workflow.Context, r recipe.Recipe, rawRecipeInputs map[string]interface{}, execCtx contextual.JobContext, commitContext contextual.GitCommitContext, opts ...ExecutionOptions) (map[string]interface{}, []jobdb.Artifact, error) {
+	if err := jobsemantics.Validate(execCtx.JobSemanticsVersion); err != nil {
+		return nil, nil, err
+	}
+	if execCtx.JobSemanticsVersion == jobsemantics.Current {
+		if err := recipe.ValidateJobSemantics(r, execCtx.JobSemanticsVersion); err != nil {
+			return nil, nil, err
+		}
+	} else if err := recipe.ValidateJobConditions(r); err != nil {
+		// Legacy waits keep their frozen interpretation, but retired raw CEL
+		// must still be rejected before any earlier recipe effects.
+		return nil, nil, err
+	}
 	ctx.SourceHooks = r.GetMetadata().SourceHooks
 	if err := ctx.SourceHooks.Validate(); err != nil {
 		return nil, nil, err
@@ -462,6 +475,10 @@ func (d DefaultRecipeExecutor) executeOpAttempt(ctx workflow.Context, parentReso
 			return NormalizedOpInput{}, fmt.Errorf("failed to resolve templates op inputs: %w", err)
 		}
 
+		if err := jobsemantics.CheckOperation(resCtx.TaskExecutionContext().JobSemanticsVersion, op, resolvedNodeInputs, true); err != nil {
+			return NormalizedOpInput{}, fmt.Errorf("node %s: %w", metadata.ID, err)
+		}
+
 		if extensionRequest != nil {
 			if selectorOp != nil && !configuration.Contains(resolvedNodeInputs) {
 				if err := selectorOp.ValidateInvocationInputs(resolvedNodeInputs); err != nil {
@@ -631,13 +648,14 @@ func (d DefaultRecipeExecutor) executeOpAttempt(ctx workflow.Context, parentReso
 					preparation.Scopes = append(preparation.Scopes, scope)
 				}
 				invocation := workerops.ActivityInvocationRequest{
-					GitProfile:     resCtx.GitProfile,
-					Preparation:    preparation,
-					Input:          input,
-					Const:          resCtx.EffectiveConst,
-					GitTaskContext: *gitstate.NewGlobalGitTaskContext(resCtx.TaskExecutionContext()),
-					ArtifactKeys:   invocationKeys,
-					Artifacts:      resolvedArtifacts,
+					JobSemanticsVersion: resCtx.TaskExecutionContext().JobSemanticsVersion,
+					GitProfile:          resCtx.GitProfile,
+					Preparation:         preparation,
+					Input:               input,
+					Const:               resCtx.EffectiveConst,
+					GitTaskContext:      *gitstate.NewGlobalGitTaskContext(resCtx.TaskExecutionContext()),
+					ArtifactKeys:        invocationKeys,
+					Artifacts:           resolvedArtifacts,
 				}
 				p := resCtx.Permissions
 				invocation.Permissions = &p

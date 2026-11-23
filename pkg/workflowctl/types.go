@@ -43,6 +43,7 @@ type JobInspection struct {
 }
 
 type StartJob struct {
+	JobSemanticsVersion int `json:"job_semantics_version,omitempty"`
 	// AvailableAt is an earliest execution instant, resolved before preparation.
 	AvailableAt *time.Time `json:"available_at,omitempty"`
 	// Title labels the job metadata without adding a recipe input.

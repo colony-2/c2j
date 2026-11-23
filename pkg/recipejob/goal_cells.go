@@ -2,6 +2,8 @@ package recipejob
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"slices"
 
 	"github.com/colony-2/jobdb/pkg/jobdb"
@@ -17,26 +19,7 @@ type CellGoalDiscovery interface {
 // discovery request has no cell selector; the candidate job IDs retain its
 // native pagination and whole-goal counts without trusting application metadata.
 func ListGoalsInCells(ctx context.Context, rt CellGoalDiscovery, req jobdb.ListGoalsRequest, cells []string) (jobdb.ListGoalsResponse, error) {
-	if err := validateListGoals(req); err != nil {
-		return jobdb.ListGoalsResponse{}, err
-	}
-	if cells == nil {
-		return ListGoals(ctx, rt, req)
-	}
-	candidate := jobdb.GoalCandidateFilter{}
-	if req.Candidate != nil {
-		candidate = *req.Candidate
-	}
-	ids, err := JobIDsInCells(ctx, rt, req.TenantId, cells, candidate.JobIDs)
-	if err != nil {
-		return jobdb.ListGoalsResponse{}, err
-	}
-	if len(ids) == 0 {
-		return jobdb.ListGoalsResponse{Goals: []jobdb.GoalSummary{}}, nil
-	}
-	candidate.JobIDs = ids
-	req.Candidate = &candidate
-	return ListGoals(ctx, rt, req)
+	return jobdb.ListGoalsResponse{}, fmt.Errorf("goal queries are unsupported; select an exact job: %w", errors.ErrUnsupported)
 }
 
 // JobIDsInCells resolves ownership using JobDB's first-class selector before administrative filtering.

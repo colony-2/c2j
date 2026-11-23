@@ -7,6 +7,7 @@ import (
 
 	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/c2j/pkg/ops"
+	"github.com/colony-2/c2j/pkg/workflowctl"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 )
 
@@ -47,8 +48,8 @@ func TestAwaitChildGroupPropagatesSystemAwaitError(t *testing.T) {
 
 func TestCollectChildGroupSoftensOnlyTerminalChildErrors(t *testing.T) {
 	ctl := &fakeWorkflowControl{
-		jobResultFunc: func(ctx context.Context, key jobdb.JobKey) (jobdb.JobData, error) {
-			return nil, &jobdb.JobFailedError{Cause: jobdb.AppError{Payload: jobdb.AppErrorPayload{Message: "child failed"}}}
+		inspectFunc: func(ctx context.Context, key jobdb.JobKey) (workflowctl.JobInspection, error) {
+			return workflowctl.JobInspection{JobKey: key, Terminal: true, Status: "failed", FailureMessage: "child failed"}, nil
 		},
 	}
 	deps := ops.NewOpDependenciesBuilder().
@@ -76,8 +77,8 @@ func TestCollectChildGroupSoftensOnlyTerminalChildErrors(t *testing.T) {
 
 func TestCollectChildGroupPropagatesUnexpectedResultError(t *testing.T) {
 	ctl := &fakeWorkflowControl{
-		jobResultFunc: func(ctx context.Context, key jobdb.JobKey) (jobdb.JobData, error) {
-			return nil, errors.New("result store down")
+		inspectFunc: func(ctx context.Context, key jobdb.JobKey) (workflowctl.JobInspection, error) {
+			return workflowctl.JobInspection{}, errors.New("result store down")
 		},
 	}
 	deps := ops.NewOpDependenciesBuilder().

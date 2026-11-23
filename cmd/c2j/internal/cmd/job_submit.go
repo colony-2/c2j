@@ -34,10 +34,9 @@ Broker-only submission needs no direct JobDB configuration and records the
 running job as the formal parent. Optional direct configuration must use the
 current tenant; --run also needs a direct JobDB target.
 
-Submission returns immediately. Every --wait-job, --wait-job-success, --wait-goal
+Submission returns immediately. Every --wait-job, --wait-job-success
 and --wait-until requirement must clear before execution. Completion includes
-failure and cancellation; success waits do not. A replacement can satisfy a goal
-wait, while an open goal can remain pending indefinitely. Local date/clock times
+failure and cancellation; success waits do not. Each wait targets its exact job; replacements have independent outcomes. Local date/clock times
 use this process's timezone; durations start at submission, before preparation.
 --run uses the existing runner to wait (15 minutes by default); prerequisites
 need another worker. A runner timeout leaves the durable submission pending.`,
@@ -64,9 +63,9 @@ need another worker. A runner timeout leaves the durable submission pending.`,
 
 	flags := cmd.Flags()
 	opts.AddWaitFlags(flags)
-	flags.StringVar(&opts.GoalID, "goal", "", "Select an existing open primary goal (requires --job-id and --request-file)")
+	flags.StringVar(&opts.GoalID, "goal", "", "Unsupported legacy goal selection; submit an independent job")
 	flags.StringVar(&opts.JobID, "job-id", "", "Explicit destination job ID")
-	flags.StringVar(&opts.RequestFile, "request-file", "", "Create a retained resolved request before selected publication")
+	flags.StringVar(&opts.RequestFile, "request-file", "", "Retain a resolved ordinary request before publication")
 	flags.StringVar(&opts.ReplayFile, "replay", "", "Replay a retained request unchanged after an ambiguous result")
 	executionflags.AddRequirementFlags(flags, &opts.ExecutionRequirements)
 	opts.ExecutionFlags.AddFlags(flags)

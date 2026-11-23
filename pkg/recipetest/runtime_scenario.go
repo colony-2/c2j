@@ -192,7 +192,7 @@ func (f *runtimeFixture) bindScenarioJobs(ctx context.Context, rt caseRuntime, t
 					return err
 				}
 				var got jobref.Ref
-				if json.Unmarshal(raw, &got) != nil || got != ref {
+				if json.Unmarshal(raw, &got) != nil || !sameScenarioSubmissionRef(got, ref) {
 					return fmt.Errorf("submission output does not reconcile with native receipt for %s", name)
 				}
 			}
@@ -207,7 +207,7 @@ func (f *runtimeFixture) bindScenarioJobs(ctx context.Context, rt caseRuntime, t
 		if ref.JobID == "" {
 			ref = jobref.Ref{TenantID: tenant, JobID: id, GoalID: info.GoalID, Cell: info.Cell, CellID: info.CellID, CellRepo: info.CellRepo}
 		}
-		if ref.TenantID != tenant || ref.Cell != info.Cell || ref.GoalID != info.GoalID || ref.CellID != info.CellID || ref.CellRepo != info.CellRepo {
+		if ref.Validate() != nil || ref.TenantID != tenant || ref.Cell != info.Cell || (ref.GoalID != "" && ref.GoalID != info.GoalID) || ref.CellID != info.CellID || ref.CellRepo != info.CellRepo {
 			return fmt.Errorf("named job %s native identity mismatch", name)
 		}
 		f.mu.Lock()
@@ -236,6 +236,20 @@ func (f *runtimeFixture) bindScenarioJobs(ctx context.Context, rt caseRuntime, t
 		}
 	}
 	return nil
+}
+
+// Current outputs omit goal metadata that a legacy native receipt may retain.
+// All captured job ownership must still agree; contradictory supplied historical
+// metadata is rejected when both sides carry it.
+func sameScenarioSubmissionRef(output, receipt jobref.Ref) bool {
+	if output.Validate() != nil || receipt.Validate() != nil {
+		return false
+	}
+	if output.GoalID != "" && receipt.GoalID != "" && output.GoalID != receipt.GoalID {
+		return false
+	}
+	output.GoalID, receipt.GoalID = "", ""
+	return output == receipt
 }
 func scenarioPointer(v any, p string) (any, error) {
 	if p == "" {
@@ -367,19 +381,14 @@ func (f *runtimeFixture) observeScenarioJobs(ctx context.Context, rt caseRuntime
 		}
 		inspection, known := s.inspections[key.JobId]
 		if !known || !inspection.Terminal {
-			inspection, err = f.ctl.InspectJob(ctx, key)
+			inspection, err = f.ctl.InspectJob(safeCtx, key)
 			if err != nil {
 				return err
 			}
 			s.inspections[key.JobId] = inspection
 		}
-		goal, err := rt.GetGoal(ctx, jobdb.GoalKey{TenantId: tenant, GoalID: info.GoalID})
-		if err != nil {
-			return err
-		}
 		j.State = ControlJobState{JobID: key.JobId, Status: string(info.Status), Completion: info.CompletionStatus, FailureKind: inspection.FailureKind, HasOutput: inspection.Output != nil}
 		j.FailureMessage = inspection.FailureMessage
-		j.Goal = &goal
 		j.BlockingWait = info.BlockingWait
 		f.mu.Lock()
 		var safe ScenarioJobReport

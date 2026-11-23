@@ -125,8 +125,15 @@ outputs:
 }
 
 func TestSequenceNodeWhenInvalidCondition(t *testing.T) {
-	for _, condition := range []string{"inputs.", "inputs.missing", "42"} {
-		t.Run(condition, func(t *testing.T) {
+	for _, tc := range []struct {
+		condition string
+		wantError string
+	}{
+		{condition: "inputs.", wantError: "invalid raw CEL expression"},
+		{condition: "inputs.missing", wantError: `failed to evaluate when for node "guarded"`},
+		{condition: "42", wantError: `failed to evaluate when for node "guarded"`},
+	} {
+		t.Run(tc.condition, func(t *testing.T) {
 			content := fmt.Sprintf(`id: invalid
 version: "1.0.0"
 sequence:
@@ -135,11 +142,44 @@ sequence:
     op: sleep
     inputs: {duration: 1ms}
 outputs: {finished: true}
-`, condition)
+`, tc.condition)
 			checkSequenceWhenCase(t, content, Case{
 				ID: "invalid", Type: "recipe_case",
 				Options: map[string]any{"validation_mode": "structure_only"},
-			}, `failed to evaluate when for node "guarded"`)
+			}, tc.wantError)
+		})
+	}
+}
+
+func TestSequenceNodeWhenPreflightBeforeEffects(t *testing.T) {
+	for _, tc := range []struct {
+		condition string
+		wantError string
+	}{
+		{condition: "inputs.", wantError: "invalid raw CEL expression"},
+		{condition: "${{ context.workflow.goal_id }}", wantError: "invalid raw CEL expression"},
+		{condition: "context.workflow.goal_id != '{{ literal }}'", wantError: "retired live goal context"},
+	} {
+		t.Run(tc.condition, func(t *testing.T) {
+			content := fmt.Sprintf(`id: invalid
+version: "1.0.0"
+sequence:
+  - id: earlier
+    op: sleep
+    inputs: {duration: 1ms}
+  - id: guarded
+    when: %q
+    op: sleep
+    inputs: {duration: 1ms}
+outputs: {finished: true}
+`, tc.condition)
+			// Structure-only mode still preflights CEL. The shared helper
+			// asserts zero calls in both the fast and native JobDB runners,
+			// including the activity preceding the rejected condition.
+			checkSequenceWhenCase(t, content, Case{
+				ID: "preflight", Type: "recipe_case",
+				Options: map[string]any{"validation_mode": "structure_only"},
+			}, tc.wantError)
 		})
 	}
 }

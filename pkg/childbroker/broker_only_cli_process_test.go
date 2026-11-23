@@ -280,9 +280,9 @@ func (f *brokerOnlyFixture) checkSubmission(raw []byte, goal string) SubmitRespo
 	require.NoError(f.t, json.Unmarshal(raw, &ref), string(raw))
 	require.Equal(f.t, SubmitResponse{Cell: "app", CellID: f.source.CellID, CellRepo: f.source.CellRepo, TenantID: brokerOnlyTenant, JobID: ref.JobID, GoalID: ref.GoalID, Recipe: "broker_only"}, ref)
 	require.NotEmpty(f.t, ref.JobID)
-	require.NotEmpty(f.t, ref.GoalID)
+	require.Empty(f.t, ref.GoalID)
 	if goal != "" {
-		require.Equal(f.t, goal, ref.GoalID)
+		require.Empty(f.t, ref.GoalID)
 	}
 	key := jobdb.JobKey{TenantId: ref.TenantID, JobId: ref.JobID}
 	chapters, err := f.rt.ListChapters(f.ctx, jobdb.ListChaptersRequest{JobKey: key})
@@ -373,9 +373,9 @@ func (f *brokerOnlyFixture) retained() []byte {
 	f.t.Helper()
 	rec, err := recipe.LoadRecipeFromReader(strings.NewReader(brokerOnlyRecipe))
 	require.NoError(f.t, err)
-	req, err := NewSubmitRequest(f.ctx, workflowctl.StartJob{TenantId: brokerOnlyTenant, JobID: "dest", GoalID: f.source.GoalID, Cell: "app", CellRepo: f.source.CellRepo, RecipeName: "broker_only", Inputs: map[string]any{"prompt": "instructions café", "value": "exact"}}, []jobdb.Artifact{jobdb.NewArtifactFromBytes("notes", []byte("attachment café\n"))}, *rec)
+	req, err := NewSubmitRequest(f.ctx, workflowctl.StartJob{TenantId: brokerOnlyTenant, JobID: "dest", Cell: "app", CellRepo: f.source.CellRepo, RecipeName: "broker_only", Inputs: map[string]any{"prompt": "instructions café", "value": "exact"}}, []jobdb.Artifact{jobdb.NewArtifactFromBytes("notes", []byte("attachment café\n"))}, *rec)
 	require.NoError(f.t, err)
-	d, err := PrepareSelected(f.ctx, brokerConfig(f.t, f.broker), req)
+	d, err := Prepare(f.ctx, brokerConfig(f.t, f.broker), req)
 	require.NoError(f.t, err)
 	raw, err := json.Marshal(struct {
 		Version    int                `json:"version"`
@@ -389,7 +389,7 @@ func (f *brokerOnlyFixture) retained() []byte {
 	return raw
 }
 func (f *brokerOnlyFixture) selectedArgs() []string {
-	return append(f.args(), "--goal", f.source.GoalID, "--job-id", "dest", "--request-file", f.request)
+	return append(f.args(), "--job-id", "dest", "--request-file", f.request)
 }
 func (f *brokerOnlyFixture) assertUnchanged(raw []byte) {
 	f.t.Helper()
@@ -564,7 +564,7 @@ func brokerOnlyNegativeCases(t *testing.T, binary string) {
 							}
 						}
 					case "partial-current":
-						changes[jobcontext.CurrentGoalIDEnv] = ""
+						changes[jobcontext.CurrentJobIDEnv] = ""
 					case "bad-sequence":
 						changes[jobcontext.CurrentInvocationSequenceEnv] = "seven"
 					case "bad-version":
@@ -721,7 +721,7 @@ func brokerOnlyReplayCases(t *testing.T, binary string) {
 			case "envelope-version":
 				doc.Version = 2
 			case "descriptor-version":
-				doc.Descriptor.Version = 2
+				doc.Descriptor.Version = 3
 			case "artifact-integrity":
 				require.NotEmpty(t, doc.Descriptor.Artifacts)
 				doc.Descriptor.Artifacts[0].Data = []byte("corrupt")
@@ -772,7 +772,7 @@ func brokerOnlyReplayCases(t *testing.T, binary string) {
 				require.NoError(t, err, string(out))
 				var ref SubmitResponse
 				require.NoError(t, json.Unmarshal(out, &ref))
-				require.Equal(t, SubmitResponse{Cell: "app", CellID: f.source.CellID, CellRepo: f.source.CellRepo, TenantID: brokerOnlyTenant, JobID: "dest", GoalID: f.source.GoalID, Recipe: "broker_only"}, ref)
+				require.Equal(t, SubmitResponse{Cell: "app", CellID: f.source.CellID, CellRepo: f.source.CellRepo, TenantID: brokerOnlyTenant, JobID: "dest", Recipe: "broker_only"}, ref)
 				f.inventory(1)
 			} else {
 				require.Error(t, err, string(out))

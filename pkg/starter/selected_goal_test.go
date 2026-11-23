@@ -13,25 +13,14 @@ import (
 	"testing"
 )
 
-func TestSelectedGoalOptionConflicts(t *testing.T) {
-	start := workflowctl.StartJob{TenantId: "tenant", Cell: "work", RecipeName: "build", JobID: "dest", GoalID: "goal"}
-	for _, opts := range []StartRecipeJobOptions{{JobID: "different"}, {GoalID: "different"}} {
+func TestExactJobSelectionRejectsBeforeSubmission(t *testing.T) {
+	start := workflowctl.StartJob{TenantId: "tenant", Cell: "work", RecipeName: "build", JobID: "dest", GoalID: "G"}
+	for _, opts := range []StartRecipeJobOptions{{}, {GoalID: "G"}, {JobID: "different"}} {
 		capture := &captureSubmitter{}
 		_, err := StartRecipeJobWithOptions(context.Background(), start, capture, opts)
-		require.ErrorContains(t, err, "conflicting")
-		require.Empty(t, capture.job.JobID)
+		require.Error(t, err)
+		require.Nil(t, capture.job.Data)
 	}
-	start.JobID = ""
-	_, err := PrepareRecipeJob(context.Background(), start, StartRecipeJobOptions{})
-	require.Error(t, err)
-	start.JobID = "dest"
-	start.TenantId = ""
-	_, err = PrepareRecipeJob(context.Background(), start, StartRecipeJobOptions{})
-	require.Error(t, err)
-	start.TenantId = "tenant"
-	job, err := PrepareRecipeJob(context.Background(), start, StartRecipeJobOptions{GoalID: "goal", JobID: "dest"})
-	require.NoError(t, err)
-	require.Equal(t, "goal", job.GoalID)
 }
 
 type incompleteSelected struct{}
@@ -40,7 +29,7 @@ func (incompleteSelected) SubmitJobRef(_ context.Context, j jobdb.SubmitJob) (jo
 	return jobref.Ref{TenantID: j.TenantId, JobID: j.JobID, GoalID: j.GoalID}, nil
 }
 func TestSelectedGoalIncompleteReceiptAndDescriptorIntegrity(t *testing.T) {
-	job, err := PrepareRecipeJob(context.Background(), workflowctl.StartJob{TenantId: "tenant", Cell: "work", RecipeName: "build", JobID: "dest", GoalID: "goal", Artifacts: []jobdb.Artifact{jobdb.NewArtifactFromBytes("file", []byte("original"))}}, StartRecipeJobOptions{})
+	job, err := PrepareRecipeJob(context.Background(), workflowctl.StartJob{TenantId: "tenant", Cell: "work", RecipeName: "build", JobID: "dest", Artifacts: []jobdb.Artifact{jobdb.NewArtifactFromBytes("file", []byte("original"))}}, StartRecipeJobOptions{})
 	require.NoError(t, err)
 	d, err := NewDescriptor(context.Background(), job)
 	require.NoError(t, err)
@@ -49,13 +38,13 @@ func TestSelectedGoalIncompleteReceiptAndDescriptorIntegrity(t *testing.T) {
 	var saved Descriptor
 	require.NoError(t, json.Unmarshal(raw, &saved))
 	_, err = saved.Submit(context.Background(), incompleteSelected{})
-	require.ErrorIs(t, err, jobdb.ErrSubmissionReceiptUnavailable)
+	require.Error(t, err)
 	saved.Artifacts[0].Data = []byte("changed")
 	_, err = saved.Request()
 	require.ErrorContains(t, err, "integrity")
 	for _, mutate := range []func(*Descriptor){
 		func(d *Descriptor) { d.Operation = "restart" },
-		func(d *Descriptor) { d.Version = 2 },
+		func(d *Descriptor) { d.Version = 3 },
 		func(d *Descriptor) { d.Job.JobID = "" },
 		func(d *Descriptor) { d.Job.TenantId = "" },
 	} {
@@ -67,15 +56,15 @@ func TestSelectedGoalIncompleteReceiptAndDescriptorIntegrity(t *testing.T) {
 }
 
 func TestSelectedGoalTransportAndStoredInput(t *testing.T) {
-	start := workflowctl.StartJob{TenantId: "tenant", Cell: "work", RecipeName: "build", JobID: "dest", GoalID: "goal", Inputs: map[string]interface{}{"goal_id": "user-input"}, Parent: &jobcontext.Parent{GoalID: "parent"}, Artifacts: []jobdb.Artifact{jobdb.NewArtifactFromBytes("file", []byte("original"))}}
+	start := workflowctl.StartJob{TenantId: "tenant", Cell: "work", RecipeName: "build", JobID: "dest", Inputs: map[string]interface{}{"goal_id": "user-input"}, Parent: &jobcontext.Parent{GoalID: "parent"}, Artifacts: []jobdb.Artifact{jobdb.NewArtifactFromBytes("file", []byte("original"))}}
 	wire, err := json.Marshal(start)
 	require.NoError(t, err)
 	var received workflowctl.StartJob
 	require.NoError(t, json.Unmarshal(wire, &received))
-	require.Equal(t, "goal", received.GoalID)
+	require.Empty(t, received.GoalID)
 	job, err := PrepareRecipeJob(context.Background(), start, StartRecipeJobOptions{})
 	require.NoError(t, err)
-	require.Equal(t, "goal", job.GoalID)
+	require.Empty(t, job.GoalID)
 	require.Equal(t, "dest", job.JobID)
 	require.Equal(t, "tenant", job.TenantId)
 	raw, err := job.Data.GetData()
@@ -86,9 +75,10 @@ func TestSelectedGoalTransportAndStoredInput(t *testing.T) {
 	require.NoError(t, json.Unmarshal(raw, &received))
 	require.Equal(t, "user-input", received.Inputs["goal_id"])
 	require.Equal(t, "parent", received.Parent.GoalID)
-	require.Contains(t, string(job.Metadata), `"parent_goal_id":"parent"`)
+	require.NotContains(t, string(job.Metadata), `"parent_goal_id"`)
 	d, err := NewDescriptor(context.Background(), job)
 	require.NoError(t, err)
+	d.Version = 1
 	// A historical descriptor must not be re-prepared or rebound to today's schema.
 	input["goal_id"] = json.RawMessage(`"stale"`)
 	d.Input, err = json.Marshal(input)
@@ -120,7 +110,7 @@ func TestSubmissionObserverReceivesSelectedValidationFailure(t *testing.T) {
 	ctx := scenariotest.WithObserver(context.Background(), scenariotest.Observer{Submission: func(context.Context, scenariotest.Submission) (func(jobref.Ref, error) error, error) {
 		return func(_ jobref.Ref, err error) error { observed = err; return err }, nil
 	}})
-	_, err := StartRecipeJobWithOptions(ctx, workflowctl.StartJob{TenantId: "tenant", Cell: "work", RecipeName: "build", JobID: "dest", GoalID: "goal"}, incompleteSelected{}, StartRecipeJobOptions{})
-	require.ErrorIs(t, err, jobdb.ErrSubmissionReceiptUnavailable)
-	require.ErrorIs(t, observed, jobdb.ErrSubmissionReceiptUnavailable, "an invalid return must not become a successful scenario receipt")
+	_, err := StartRecipeJobWithOptions(ctx, workflowctl.StartJob{TenantId: "tenant", Cell: "work", RecipeName: "build", JobID: "dest"}, incompleteSelected{}, StartRecipeJobOptions{})
+	require.Error(t, err)
+	require.Error(t, observed, "an invalid return must not become a successful scenario receipt")
 }

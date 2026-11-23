@@ -245,6 +245,16 @@ state:
           go test -mod=readonly -race -count=1 -v -timeout=10m ./cmd/c2j/internal/cmd ./cmd/c2j/internal/runjob ./pkg/task ./pkg/executionruntime ./pkg/worker/ops ./pkg/ops/extensions -run '^TestHealth|^TestPrompt'
           # Repeat cancellation, timeout and scheduler readiness regressions before the full suite.
           go test -mod=readonly -count=3 -v -tags=integration -timeout=5m ./pkg/childbroker ./pkg/worker/compiler ./pkg/executionruntime -run '^Test(JobInspectionExpiredLifetimeBeforeDispatch|MetricsHelperAuthenticationExactnessAndIncompleteHistory|ExtensionWaitManifestTimeout|InputHistoryHelperExpiredLifetimeBeforeDispatch|ExtensionWaitReadinessClockRecheck)$'
+          # Check raw CEL rejection and sequence behavior in both recipe-test runners before writes/effects.
+          go test -mod=readonly -count=1 -v -timeout=5m ./pkg/jobsemantics ./pkg/recipe ./pkg/template ./pkg/starter ./pkg/worker/compiler ./pkg/recipetest -run '^TestExactJobQuotedMarker|^TestSequenceNodeWhen'
+          # Gate exact-job admission, include/restart interpretation and original receipts.
+          # Replay committed legacy receipts through the pinned two-module backend fixture; never strip mode.
+          # Include typed raw-CEL preflight, precision-preserving reservations and frozen repository assertions.
+          go test -mod=readonly -count=1 -v -timeout=5m ./pkg/jobref ./pkg/jobsemantics ./pkg/recipe ./pkg/jobcontext ./pkg/template ./pkg/ops/recipe ./pkg/starter ./pkg/recipejob ./pkg/jobdbschema ./pkg/jobrecovery ./cmd/c2j/internal/swfruntime ./pkg/story/... ./pkg/childbroker ./pkg/worker/compiler ./pkg/worker/ops ./cmd/c2j/internal/cmd -run '^TestExactJob|^TestHistoricalGoalIdentityExecutionRestartAndReplay$|^TestSubmitterPreservesPersistedSchemaSelector$|^TestChildSubmissionIdentity'
+          # Reconcile current goal-free output with legacy receipts without losing ownership checks.
+          go test -mod=readonly -count=1 -v -timeout=5m ./pkg/recipetest -run '^TestScenarioSubmissionRefContract$|^TestScenarioBindingRejectsUnprovedIdentity$'
+          # Exercise exact-job fixture waits, independent submission restarts and protected context.
+          go test -mod=readonly -count=1 -v -tags=integration -timeout=5m ./cmd/c2j/internal/testjob ./pkg/recipetest ./pkg/story ./pkg/worker/commandop -run '^TestNativeRuntimeSubmitsAndAwaitsChild$|^TestOrderingUnreachableGateWithoutBarrier$|^TestSubmission(RestartRerunsSetup|OnlyRestartExecution)$|^TestCommandExecutionActivity_Execute_InjectsProtectedCurrentJobEnv$'
           # Extension waits must discard before publication and survive durable scheduling.
           # Record actual subtests; a successful command with no collected cases is insufficient.
           wait_status=0
@@ -263,7 +273,7 @@ state:
               throw new Error('Extension wait acceptance missing, skipped or failed: ' + pkg);
             }
           }
-          // Admission must reject satisfied bindings for different unfinished targets.
+          // Admission rejects different exact targets and retired goal syntax before activation.
           for (const backend of ['toy', 'sqlite', 'remote']) {
             for (const target of ['job_target', 'goal_target']) {
               const test = 'TestExtensionWaitBindingAdmission/' + backend + '/' + target;
@@ -288,8 +298,10 @@ state:
           go test -mod=readonly -count=1 -v -timeout=5m ./pkg/recipetest -run '^TestPnpmVerifyHook$'
           # Require named catalog checks, actual CLI process exits and no skipped acceptance.
           export C2J_TEST_EXECUTION_BASES_BINARY="$scratch/c2j-input-history"
-          go test -mod=readonly -count=1 -json -tags=integration -timeout=10m ./pkg/execution ./pkg/executioncatalog ./pkg/executionruntime ./pkg/gitprofile ./pkg/starter ./pkg/recipejob ./pkg/childbroker ./pkg/jobdbschema ./pkg/worker/compiler ./cmd/c2j/internal/cmd ./cmd/c2j/internal/runjob ./cmd/c2j/internal/submitjob ./cmd/c2j -run '^TestExecutionBaseCatalog' > "$scratch/execution-bases.json"
+          catalog_status=0
+          go test -mod=readonly -count=1 -json -tags=integration -timeout=10m ./pkg/execution ./pkg/executioncatalog ./pkg/executionruntime ./pkg/gitprofile ./pkg/starter ./pkg/recipejob ./pkg/childbroker ./pkg/jobdbschema ./pkg/worker/compiler ./cmd/c2j/internal/cmd ./cmd/c2j/internal/runjob ./cmd/c2j/internal/submitjob ./cmd/c2j -run '^TestExecutionBaseCatalog' > "$scratch/execution-bases.json" || catalog_status=$?
           cat "$scratch/execution-bases.json"
+          if [ "$catalog_status" -ne 0 ]; then exit "$catalog_status"; fi
           node - "$scratch/execution-bases.json" <<'JS'
           const fs = require('node:fs');
           const events = fs.readFileSync(process.argv[2], 'utf8').trim().split('\n').filter(Boolean).map(JSON.parse);
@@ -349,8 +361,12 @@ state:
           # Lease parentage must pass real runtime, CLI and worker checks without skips.
           go build -mod=readonly -o "$scratch/c2j-parentage" ./cmd/c2j
           export C2J_TEST_SUBMIT_BINARY="$scratch/c2j-parentage"
-          go test -mod=readonly -count=1 -json -tags=integration -timeout=10m ./cmd/c2j/internal/submitjob ./pkg/childbroker ./pkg/executionruntime ./pkg/worker/compiler ./cmd/c2j/internal/cmd -run '^(TestLeaseParentage|TestSubmissionRoute|TestSubmissionWaitBrokerLeaseRoutes|TestBrokerOnlyCLI|TestSelectedCLI|TestSelectedBroker|TestWorkerBrokerSubmitsIncomingAndLiveWorkspace|TestRun_BrokerSubmissionAndConfiguredImmediateExecution|TestSubmitHelp)' > "$scratch/parentage.json"
+          # Export failed test events before the scratch cleanup removes them.
+          parentage_status=0
+          go test -mod=readonly -count=1 -json -tags=integration -timeout=10m ./cmd/c2j/internal/submitjob ./pkg/childbroker ./pkg/executionruntime ./pkg/worker/compiler ./cmd/c2j/internal/cmd -run '^(TestLeaseParentage|TestSubmissionRoute|TestSubmissionWaitBrokerLeaseRoutes|TestBrokerOnlyCLI|TestSelectedCLI|TestSelectedBroker|TestWorkerBrokerSubmitsIncomingAndLiveWorkspace|TestRun_BrokerSubmissionAndConfiguredImmediateExecution|TestSubmitHelp)' > "$scratch/parentage.json" 2> "$scratch/parentage.stderr" || parentage_status=$?
           cat "$scratch/parentage.json"
+          cat "$scratch/parentage.stderr"
+          if [ "$parentage_status" -ne 0 ]; then exit "$parentage_status"; fi
           node - "$scratch/parentage.json" <<'JS'
           const fs = require('node:fs');
           const events = fs.readFileSync(process.argv[2], 'utf8').trim().split('\n').filter(Boolean).map(JSON.parse);

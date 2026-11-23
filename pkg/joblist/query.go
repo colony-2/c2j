@@ -40,6 +40,9 @@ type Query struct {
 // BuildRequest owns cell filtering, validation, and CLI-compatible query
 // defaults. Most callers should use Client.List instead of assembling a backend.
 func BuildRequest(tenantID string, query Query) (jobdb.ListJobsRequest, error) {
+	if len(query.GoalIDs) != 0 {
+		return jobdb.ListJobsRequest{}, fmt.Errorf("goal filters are unsupported; use job IDs")
+	}
 	invalid := func(err error) (jobdb.ListJobsRequest, error) {
 		return jobdb.ListJobsRequest{}, fmt.Errorf("%w: %v", ErrInvalidInput, err)
 	}
@@ -91,7 +94,7 @@ func BuildRequest(tenantID string, query Query) (jobdb.ListJobsRequest, error) {
 	req := jobdb.ListJobsRequest{
 		IncludeHidden: query.IncludeHidden,
 		TenantIds:     []string{tenantID}, Statuses: statuses, Stores: StoresForStatuses(statuses),
-		JobTypes: append([]string(nil), query.JobTypes...), GoalIDs: append([]string(nil), query.GoalIDs...),
+		JobTypes: append([]string(nil), query.JobTypes...),
 		JobKeys:  keys,
 		JobTasks: append([]jobdb.JobTaskFilter(nil), query.JobTasks...), CellNames: slices.Clone(query.CellNames),
 		CreatedAfter: cloneTime(query.CreatedAfter), CreatedBefore: cloneTime(query.CreatedBefore),

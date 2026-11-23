@@ -25,7 +25,7 @@ func TestC02InspectHistoricalProducer(t *testing.T) {
 		got, err := ctl.InspectJob(context.Background(), key)
 		require.NoError(t, err)
 		require.Empty(t, got.OtherGoalIDs)
-		require.Equal(t, "H", got.GoalID)
+		require.Empty(t, got.GoalID)
 		require.Equal(t, wait, got.BlockingWait)
 		require.Equal(t, reason, got.FailureMessage)
 		require.True(t, got.Terminal)

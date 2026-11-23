@@ -26,7 +26,7 @@ func TestExplicitTitleSelection(t *testing.T) {
 }
 
 func TestExplicitTitleTransportAndDescriptor(t *testing.T) {
-	start := workflowctl.StartJob{TenantId: "tenant", Cell: "work", RecipeName: "build", JobID: "child", GoalID: "goal", Title: "  Café\nUI  ", Inputs: map[string]any{"value": "original", "title": "Input title", "prompt": "Input prompt"}}
+	start := workflowctl.StartJob{TenantId: "tenant", Cell: "work", RecipeName: "build", JobID: "child", Title: "  Café\nUI  ", Inputs: map[string]any{"value": "original", "title": "Input title", "prompt": "Input prompt"}}
 	wire, err := json.Marshal(start)
 	require.NoError(t, err)
 	var received workflowctl.StartJob

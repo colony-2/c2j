@@ -12,11 +12,10 @@ func TestWaitFlagsPreserveLiteralOrder(t *testing.T) {
 	var opts Options
 	flags := pflag.NewFlagSet("waits", pflag.ContinueOnError)
 	opts.AddWaitFlags(flags)
-	require.NoError(t, flags.Parse([]string{"--wait-goal", " same ", "--wait-job", "a,b", "--wait-job-success", "same", "--wait-job", "a,b", "--wait-until", "1h"}))
+	require.NoError(t, flags.Parse([]string{"--wait-job", "a,b", "--wait-job-success", "same", "--wait-job", "a,b", "--wait-until", "1h"}))
 	deps, err := opts.dependencies()
 	require.NoError(t, err)
 	require.Equal(t, []jobdb.Dependency{
-		{Target: jobdb.DependencyTarget{GoalID: "same"}, Condition: jobdb.JobPrereqSuccess},
 		{Target: jobdb.DependencyTarget{JobID: "a,b"}, Condition: jobdb.JobPrereqComplete},
 		{Target: jobdb.DependencyTarget{JobID: "same"}, Condition: jobdb.JobPrereqSuccess},
 	}, deps)
@@ -27,7 +26,7 @@ func TestWaitValidation(t *testing.T) {
 	for _, waits := range [][]Wait{
 		{{WaitJob, "x"}, {WaitJobSuccess, "x"}},
 		{{WaitJobSuccess, "x"}, {WaitJob, "x"}},
-		{{WaitJob, " "}}, {{WaitJobSuccess, ""}}, {{WaitGoal, "\t"}},
+		{{WaitGoal, "goal"}}, {{WaitJob, " "}}, {{WaitJobSuccess, ""}}, {{WaitGoal, "\t"}},
 		{{WaitJob, "self"}}, {{WaitJobSuccess, " self "}}, {{"unknown", "x"}},
 	} {
 		opts := Options{Waits: waits, JobID: "self", TenantID: "t", SWFURL: "http://test"}

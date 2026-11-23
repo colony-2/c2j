@@ -44,12 +44,11 @@ func TestGroupedOperationRoutingAndWaits(t *testing.T) {
 	many, err := startMultipleJobs(deps, ctx, MultipleRecipes{GitRef: "main", Recipes: []SingleRecipe{recipe, {Name: "ordinary", CellName: "test"}}})
 	require.NoError(t, err)
 	require.Equal(t, WaitPolicy{On: "job", Condition: "complete"}, many.Items[0].Wait)
-	require.Equal(t, WaitPolicy{On: "goal", Condition: "success"}, many.Items[1].Wait)
+	require.Equal(t, WaitPolicy{On: "job", Condition: "complete"}, many.Items[1].Wait)
 	many, err = startMultipleJobs(deps, ctx, MultipleRecipes{GitRef: "main", Wait: WaitPolicy{On: "goal"}, Recipes: []SingleRecipe{recipe}})
-	require.NoError(t, err)
-	require.Equal(t, "goal", many.Items[0].Wait.On)
+	require.ErrorContains(t, err, "unsupported")
 	require.Len(t, ctl.startRequests, 1)
-	require.Len(t, tool.requests, 3)
+	require.Len(t, tool.requests, 2)
 	q := tool.requests[0]
 	require.Empty(t, q.Job.JobID)
 	require.Empty(t, q.Job.GoalID)
@@ -67,7 +66,6 @@ func TestGroupedOperationRoutingAndWaits(t *testing.T) {
 func TestMultipleRecipeWaitInheritanceBeforeNormalization(t *testing.T) {
 	jobComplete := WaitPolicy{On: "job", Condition: "complete"}
 	jobSuccess := WaitPolicy{On: "job", Condition: "success"}
-	goalSuccess := WaitPolicy{On: "goal", Condition: "success"}
 	grouped := SingleRecipe{Name: "batch", CellName: "test", Grouping: groupedSpec()}
 	ordinary := SingleRecipe{Name: "ordinary", CellName: "test"}
 	withWait := func(child SingleRecipe, wait WaitPolicy) SingleRecipe {
@@ -85,12 +83,12 @@ func TestMultipleRecipeWaitInheritanceBeforeNormalization(t *testing.T) {
 		{name: "entry completion on grouped entry", children: []SingleRecipe{withWait(grouped, WaitPolicy{Condition: "complete"})}, want: []WaitPolicy{jobComplete}},
 		{name: "mixed entries resolve inherited completion", wait: WaitPolicy{Condition: "complete"}, children: []SingleRecipe{grouped, withWait(ordinary, WaitPolicy{On: "job"})}, want: []WaitPolicy{jobComplete, jobComplete}},
 		{name: "entry success overrides inherited completion", wait: WaitPolicy{Condition: "complete"}, children: []SingleRecipe{withWait(grouped, WaitPolicy{Condition: "success"})}, want: []WaitPolicy{jobSuccess}},
-		{name: "entry goal resets inherited condition", wait: jobComplete, children: []SingleRecipe{withWait(grouped, WaitPolicy{On: "goal"})}, want: []WaitPolicy{goalSuccess}},
+		{name: "entry goal resets inherited condition", wait: jobComplete, children: []SingleRecipe{withWait(grouped, WaitPolicy{On: "goal"})}, err: "unsupported"},
 		{name: "entry job overrides inherited goal", wait: WaitPolicy{On: "goal"}, children: []SingleRecipe{withWait(grouped, jobComplete)}, want: []WaitPolicy{jobComplete}},
-		{name: "mixed defaults stay distinct", children: []SingleRecipe{grouped, ordinary}, want: []WaitPolicy{jobComplete, goalSuccess}},
-		{name: "ordinary inherited completion remains invalid", wait: WaitPolicy{Condition: "complete"}, children: []SingleRecipe{grouped, ordinary}, err: "goal and result waits require success"},
-		{name: "explicit goal completion remains invalid", wait: WaitPolicy{On: "goal", Condition: "complete"}, children: []SingleRecipe{grouped}, err: "goal and result waits require success"},
-		{name: "invalid inherited target", wait: WaitPolicy{On: "invalid"}, children: []SingleRecipe{grouped}, err: "wait.on must be goal or job"},
+		{name: "mixed defaults stay distinct", children: []SingleRecipe{grouped, ordinary}, want: []WaitPolicy{jobComplete, jobComplete}},
+		{name: "ordinary inherited completion", wait: WaitPolicy{Condition: "complete"}, children: []SingleRecipe{grouped, ordinary}, want: []WaitPolicy{jobComplete, jobComplete}},
+		{name: "explicit goal completion remains invalid", wait: WaitPolicy{On: "goal", Condition: "complete"}, children: []SingleRecipe{grouped}, err: "unsupported"},
+		{name: "invalid inherited target", wait: WaitPolicy{On: "invalid"}, children: []SingleRecipe{grouped}, err: "unsupported"},
 		{name: "invalid inherited condition", wait: WaitPolicy{Condition: "invalid"}, children: []SingleRecipe{grouped}, err: "wait.condition must be success or complete"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

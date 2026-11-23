@@ -10,7 +10,9 @@ import (
 
 	recipeartifacts "github.com/colony-2/c2j/pkg/artifacts"
 	"github.com/colony-2/c2j/pkg/grouping"
+	"github.com/colony-2/c2j/pkg/jobsemantics"
 	"github.com/colony-2/c2j/pkg/ops"
+	"github.com/colony-2/c2j/pkg/workflowctl"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	"github.com/segmentio/ksuid"
 )
@@ -93,10 +95,10 @@ type ChildGroupSummary struct {
 }
 
 type ChildGroupOutput struct {
-	ChildGoalIDs         []string                       `json:"child_goal_ids"`
-	RequiredChildGoalIDs []string                       `json:"required_child_goal_ids"`
-	OptionalChildGoalIDs []string                       `json:"optional_child_goal_ids"`
-	FailedChildGoalIDs   []string                       `json:"failed_child_goal_ids"`
+	ChildGoalIDs         []string                       `json:"child_goal_ids,omitempty"`
+	RequiredChildGoalIDs []string                       `json:"required_child_goal_ids,omitempty"`
+	OptionalChildGoalIDs []string                       `json:"optional_child_goal_ids,omitempty"`
+	FailedChildGoalIDs   []string                       `json:"failed_child_goal_ids,omitempty"`
 	Ok                   bool                           `json:"ok"`
 	Mode                 string                         `json:"mode,omitempty"`
 	ChildJobIDs          []string                       `json:"child_job_ids,omitempty"`
@@ -141,7 +143,13 @@ func startChildGroup(deps ops.OpDependencies, ctx context.Context, input ChildGr
 		if input.Children[i].Wait != nil {
 			policy = *input.Children[i].Wait
 		}
-		effective, err := policy.forSubmission(input.Children[i].Grouping.Present, normalizeChildGroupMode(input.Mode) == "run_and_get_result" && input.Children[i].Grouping.Present)
+		result := normalizeChildGroupMode(input.Mode) == "run_and_get_result"
+		if jobsemantics.Version(ctx) < jobsemantics.Current && !input.Children[i].Grouping.Present {
+			// Old explicit exact-job child policies defaulted to completion.
+			// Keep that interpretation without rewriting their saved commands.
+			result = false
+		}
+		effective, err := policy.forSubmission(input.Children[i].Grouping.Present, result)
 		if err != nil {
 			return ChildGroupStepState{}, fmt.Errorf("child %d: %w", i, err)
 		}
@@ -247,7 +255,6 @@ func startChildGroup(deps ops.OpDependencies, ctx context.Context, input ChildGr
 		record.Status = "started"
 		record.JobID = key.JobID
 		record.TenantID = key.TenantID
-		record.GoalID = key.GoalID
 		state.Children = append(state.Children, record)
 	}
 
@@ -262,18 +269,15 @@ func awaitChildGroup(deps ops.OpDependencies, ctx context.Context, state ChildGr
 		}
 		binding, err := awaitChild(deps, ctx, StartedJob{JobID: child.JobID, GoalID: child.GoalID, Wait: child.Wait}, false)
 		if err != nil {
-			if binding.State == jobdb.DependencyFailed || errors.Is(err, jobdb.ErrGoalFailed) || errors.Is(err, jobdb.ErrJobFailed) || errors.Is(err, jobdb.ErrJobCancelled) {
+			if binding.State == jobdb.DependencyFailed || errors.Is(err, jobdb.ErrJobFailed) || errors.Is(err, jobdb.ErrJobCancelled) {
+				child.Result = ResultSource{Job: child.JobID}
 				child.Status = "failed"
 				child.Error = err.Error()
-				var failed *jobdb.GoalFailedError
-				if errors.As(err, &failed) {
-					child.GoalFailure = &failed.Failure
-				}
 				continue
 			}
 			return state, err
 		}
-		child.Result = ResultSource{Goal: binding.Target.GoalID, Job: binding.SatisfiedByJobID}
+		child.Result = ResultSource{Job: binding.SatisfiedByJobID}
 	}
 
 	return state, nil
@@ -282,27 +286,39 @@ func awaitChildGroup(deps ops.OpDependencies, ctx context.Context, state ChildGr
 func collectChildGroup(deps ops.OpDependencies, ctx context.Context, state ChildGroupStepState) (ChildGroupOutput, error) {
 	for i := range state.Children {
 		child := &state.Children[i]
-		if child.Status != "started" || strings.TrimSpace(child.JobID) == "" {
+		if (child.Status != "started" && child.Status != "failed") || strings.TrimSpace(child.JobID) == "" {
 			continue
 		}
 		if child.Result.Job == "" {
 			return ChildGroupOutput{}, fmt.Errorf("child %s has no recorded result binding", child.Key)
 		}
-		result, err := getChildGroupRecipeOutput(deps, ctx, child.Result.Job)
-		if err != nil {
-			if !errors.Is(err, jobdb.ErrJobFailed) && !errors.Is(err, jobdb.ErrJobCancelled) {
+		if inspector, ok := deps.WorkflowControl().(workflowctl.JobInspector); ok {
+			inspection, err := inspector.InspectJob(ctx, jobdb.JobKey{TenantId: deps.JobTool().GetJobKey().TenantId, JobId: child.Result.Job})
+			if err != nil {
 				return ChildGroupOutput{}, err
 			}
-			child.Status = "failed"
-			if errors.Is(err, jobdb.ErrJobCancelled) {
-				child.Status = "cancelled"
+			status, err := childStatusFromInspection(deps, inspection)
+			if err != nil {
+				return ChildGroupOutput{}, err
 			}
-			child.Error = err.Error()
-			continue
+			if !status.Terminal {
+				return ChildGroupOutput{}, fmt.Errorf("child %s has no terminal result", child.Key)
+			}
+			child.Status, child.Outputs, child.Artifacts, child.Error = status.Status, status.Outputs, status.Artifacts, status.FailureMessage
+		} else {
+			result, err := getChildGroupRecipeOutput(deps, ctx, child.Result.Job)
+			if err != nil {
+				if !errors.Is(err, jobdb.ErrJobFailed) && !errors.Is(err, jobdb.ErrJobCancelled) {
+					return ChildGroupOutput{}, err
+				}
+				child.Status, child.Error = "failed", err.Error()
+				if errors.Is(err, jobdb.ErrJobCancelled) {
+					child.Status = "cancelled"
+				}
+				continue
+			}
+			child.Status, child.Outputs, child.Artifacts = "completed", result.Outputs, result.Artifacts
 		}
-		child.Status = "completed"
-		child.Outputs = result.Outputs
-		child.Artifacts = result.Artifacts
 	}
 	return buildChildGroupOutput(deps, state)
 }
@@ -349,13 +365,10 @@ func buildChildGroupOutput(deps ops.OpDependencies, state ChildGroupStepState) (
 		}
 		if child.JobID != "" {
 			out.ChildJobIDs = append(out.ChildJobIDs, child.JobID)
-			out.ChildGoalIDs = append(out.ChildGoalIDs, child.GoalID)
 			if child.Required {
 				out.RequiredChildJobIDs = append(out.RequiredChildJobIDs, child.JobID)
-				out.RequiredChildGoalIDs = append(out.RequiredChildGoalIDs, child.GoalID)
 			} else {
 				out.OptionalChildJobIDs = append(out.OptionalChildJobIDs, child.JobID)
-				out.OptionalChildGoalIDs = append(out.OptionalChildGoalIDs, child.GoalID)
 			}
 		}
 		for name, ref := range child.Artifacts {
@@ -372,10 +385,9 @@ func buildChildGroupOutput(deps ops.OpDependencies, state ChildGroupStepState) (
 			out.Summary.Started++
 		case "completed":
 			out.Summary.Completed++
-		case "failed", "cancelled":
+		case "failed", "cancelled", "timed_out", "unknown":
 			out.Summary.Failed++
 			out.FailedChildJobIDs = append(out.FailedChildJobIDs, child.JobID)
-			out.FailedChildGoalIDs = append(out.FailedChildGoalIDs, child.GoalID)
 			issue := childGroupIssue(child, "child_failed", child.Error)
 			if child.Required {
 				out.Summary.FailedRequired++
@@ -461,15 +473,13 @@ func childGroupStartedJobIDs(children []ChildGroupChildRecord) []string {
 
 func childGroupIssue(child ChildGroupChildRecord, code string, message string) map[string]interface{} {
 	return map[string]interface{}{
-		"code":         code,
-		"message":      strings.TrimSpace(message),
-		"child":        child.Key,
-		"job_id":       child.JobID,
-		"goal_id":      child.GoalID,
-		"result":       child.Result,
-		"goal_failure": child.GoalFailure,
-		"recipe":       child.Recipe,
-		"required":     child.Required,
+		"code":     code,
+		"message":  strings.TrimSpace(message),
+		"child":    child.Key,
+		"job_id":   child.JobID,
+		"result":   child.Result,
+		"recipe":   child.Recipe,
+		"required": child.Required,
 	}
 }
 
@@ -488,13 +498,11 @@ func childGroupOutputIssues(child ChildGroupChildRecord, key string) []map[strin
 	out := make([]map[string]interface{}, 0, len(items))
 	for _, item := range items {
 		issue := map[string]interface{}{
-			"child":        child.Key,
-			"job_id":       child.JobID,
-			"goal_id":      child.GoalID,
-			"result":       child.Result,
-			"goal_failure": child.GoalFailure,
-			"recipe":       child.Recipe,
-			"required":     child.Required,
+			"child":    child.Key,
+			"job_id":   child.JobID,
+			"result":   child.Result,
+			"recipe":   child.Recipe,
+			"required": child.Required,
 		}
 		switch typed := item.(type) {
 		case map[string]interface{}:
@@ -518,15 +526,13 @@ func childGroupJobAggregate(children []ChildGroupChildRecord) []map[string]inter
 			continue
 		}
 		out = append(out, map[string]interface{}{
-			"key":          child.Key,
-			"index":        child.Index,
-			"recipe":       child.Recipe,
-			"job_id":       child.JobID,
-			"goal_id":      child.GoalID,
-			"result":       child.Result,
-			"goal_failure": child.GoalFailure,
-			"required":     child.Required,
-			"status":       child.Status,
+			"key":      child.Key,
+			"index":    child.Index,
+			"recipe":   child.Recipe,
+			"job_id":   child.JobID,
+			"result":   child.Result,
+			"required": child.Required,
+			"status":   child.Status,
 		})
 	}
 	return out
@@ -536,15 +542,13 @@ func childGroupReviewChildren(children []ChildGroupChildRecord) []map[string]int
 	out := make([]map[string]interface{}, 0, len(children))
 	for _, child := range children {
 		entry := map[string]interface{}{
-			"key":          child.Key,
-			"index":        child.Index,
-			"recipe":       child.Recipe,
-			"job_id":       child.JobID,
-			"goal_id":      child.GoalID,
-			"result":       child.Result,
-			"goal_failure": child.GoalFailure,
-			"required":     child.Required,
-			"status":       child.Status,
+			"key":      child.Key,
+			"index":    child.Index,
+			"recipe":   child.Recipe,
+			"job_id":   child.JobID,
+			"result":   child.Result,
+			"required": child.Required,
+			"status":   child.Status,
 		}
 		if child.Error != "" {
 			entry["error"] = child.Error

@@ -109,7 +109,11 @@ func TestScenarioWorkerRecovery(t *testing.T) {
 	s := r.Runtime.Controls.Scenario
 	require.Len(t, s.Receipts, 3)
 	require.Equal(t, "failed_app", s.Jobs["receiver"].State.Completion)
-	require.Equal(t, s.Jobs["continuation"].Ref.JobID, s.Jobs["receiver"].Goal.SuccessfulJobID)
+	require.Equal(t, "success", s.Jobs["continuation"].State.Completion)
+	require.NotEqual(t, s.Jobs["receiver"].Ref.JobID, s.Jobs["continuation"].Ref.JobID)
+	if s.Jobs["receiver"].Ref.GoalID != "" && s.Jobs["continuation"].Ref.GoalID != "" {
+		require.NotEqual(t, s.Jobs["receiver"].Ref.GoalID, s.Jobs["continuation"].Ref.GoalID, "legacy backend restart must be independent")
+	}
 	require.Equal(t, s.Jobs["receiver"].Ref.JobID, s.Retained["restored-document"].ArtifactKey.JobId)
 }
 func TestScenarioIsolation(t *testing.T) {

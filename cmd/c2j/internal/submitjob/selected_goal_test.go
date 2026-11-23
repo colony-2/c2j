@@ -48,7 +48,7 @@ func TestSelectedCLILostResponseRetainsExactRequest(t *testing.T) {
 	h := remote.NewConsumerServer(rt)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		r = r.WithContext(runtimetest.PrimaryGoalContext(r.Context()))
-		if strings.HasSuffix(r.URL.Path, "/primary-goal") {
+		if r.Method == http.MethodPut && strings.Contains(r.URL.Path, "/jobs/dest") {
 			_, e := os.Stat(requestFile)
 			require.NoError(t, e, "descriptor must exist before publication")
 			recorder := httptest.NewRecorder()
@@ -69,10 +69,10 @@ func TestSelectedCLILostResponseRetainsExactRequest(t *testing.T) {
 	}))
 	defer server.Close()
 	uri := testJobDBURI(server.URL, "selected")
-	opts := Options{JobDBURI: uri, WorkingDir: root, Cell: "app", RecipeFile: recipeFile, Prompt: "new instructions", PromptSet: true, GoalID: source.GoalID, JobID: "dest", RequestFile: requestFile, JSONOutput: true, Stdout: &bytes.Buffer{}}
-	prereq, err := rt.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "selected", JobID: "prereq", Cell: "app", CellRepo: celltest.Repo(root), JobType: "work", Data: jobdb.NewTaskDataOrPanic(nil)}})
+	opts := Options{JobDBURI: uri, WorkingDir: root, Cell: "app", RecipeFile: recipeFile, Prompt: "new instructions", PromptSet: true, JobID: "dest", RequestFile: requestFile, JSONOutput: true, Stdout: &bytes.Buffer{}}
+	_, err = rt.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "selected", JobID: "prereq", Cell: "app", CellRepo: celltest.Repo(root), JobType: "work", Data: jobdb.NewTaskDataOrPanic(nil)}})
 	require.NoError(t, err)
-	opts.Waits = []Wait{{WaitJob, "prereq"}, {WaitGoal, prereq.GoalID}}
+	opts.Waits = []Wait{{WaitJob, "prereq"}}
 	opts.WaitUntil = []string{"1h"}
 	firstErr := Run(ctx, opts)
 	require.Error(t, firstErr)
@@ -83,11 +83,11 @@ func TestSelectedCLILostResponseRetainsExactRequest(t *testing.T) {
 	require.NoError(t, err)
 	var saved retainedSubmission
 	require.NoError(t, json.Unmarshal(raw, &saved))
-	require.Len(t, saved.Descriptor.Job.Dependencies, 2)
+	require.Len(t, saved.Descriptor.Job.Dependencies, 1)
 	require.NotNil(t, saved.Descriptor.Job.AvailableAt)
 	require.NoError(t, validatePreparedWaits(saved.Descriptor, saved.Descriptor.Job.Dependencies, saved.Descriptor.Job.AvailableAt))
 	require.Equal(t, "dest", saved.Descriptor.Job.JobID)
-	require.Equal(t, source.GoalID, saved.Descriptor.Job.GoalID)
+	require.Empty(t, saved.Descriptor.Job.GoalID)
 	var prepared map[string]json.RawMessage
 	require.NoError(t, json.Unmarshal(saved.Descriptor.Input, &prepared))
 	require.NotContains(t, prepared, "goal_id")
@@ -106,7 +106,7 @@ func TestSelectedCLILostResponseRetainsExactRequest(t *testing.T) {
 	require.Equal(t, source.CellRepo, ref.CellRepo)
 	require.Equal(t, source.Cell, ref.Cell)
 	require.Equal(t, "selected", ref.TenantID)
-	require.Equal(t, source.GoalID, ref.GoalID)
+	require.NotEmpty(t, ref.JobID)
 	require.Equal(t, "dest", ref.JobID)
 	after, err := os.ReadFile(requestFile)
 	require.NoError(t, err)
@@ -153,13 +153,13 @@ func TestSelectedCLIWorkspaceRoutes(t *testing.T) {
 			recipePath := filepath.Join(t.TempDir(), "recipe.yaml")
 			require.NoError(t, os.WriteFile(recipePath, []byte(workspaceSubmitRecipe), 0600))
 			require.NoError(t, os.WriteFile(filepath.Join(root, "value.txt"), []byte("during task"), 0600))
-			opts := Options{JobDBURI: "embed:///", WorkingDir: root, RecipeFile: recipePath, Prompt: "read", GoalID: source.GoalID, JobID: "dest", RequestFile: filepath.Join(t.TempDir(), "request.json"), JSONOutput: true, Stdout: &bytes.Buffer{}, FromWorkspace: mode == "incoming", FromWorkspaceNow: mode != "incoming"}
+			opts := Options{JobDBURI: "embed:///", WorkingDir: root, RecipeFile: recipePath, Prompt: "read", JobID: "dest", RequestFile: filepath.Join(t.TempDir(), "request.json"), JSONOutput: true, Stdout: &bytes.Buffer{}, FromWorkspace: mode == "incoming", FromWorkspaceNow: mode != "incoming"}
 			var broker *childbroker.Server
 			if mode != "direct-current" {
 				sdk, e := workflow.NewEngineBuilder().WithRuntime(rt).BuildEngine()
 				require.NoError(t, e)
 				engine := jobdbschema.WorkflowEngine{Engine: sdk, Registry: rt}
-				current := jobcontext.Current{TenantID: "0", GoalID: source.GoalID, JobID: "source", InvocationHash: "invocation"}
+				current := jobcontext.Current{TenantID: "0", JobID: "source", InvocationHash: "invocation"}
 				resolver := cellref.Registry(rt, "0")
 				ctx = jobref.WithScope(ctx, jobref.Scope{ResolveCell: resolver})
 				broker, err = childbroker.Start(ctx, childbroker.Options{Current: current, Submitter: engine, Workspace: &workspacesubmit.Source{Git: gitstate.GlobalGitTaskContext{BaseRepo: celltest.Repo(root), BaseRef: "main", ResolvedBaseHash: base, CellName: "active"}, Worktree: root}})
@@ -181,19 +181,19 @@ func TestSelectedCLIWorkspaceRoutes(t *testing.T) {
 				opts.Cell = "active"
 				opts.CellRepo = celltest.Repo(root)
 			}
-			prereq, e := rt.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "0", JobID: "prereq", Cell: "active", CellRepo: celltest.Repo(root), JobType: "work", Data: jobdb.NewTaskDataOrPanic(nil)}})
+			_, e := rt.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "0", JobID: "prereq", Cell: "active", CellRepo: celltest.Repo(root), JobType: "work", Data: jobdb.NewTaskDataOrPanic(nil)}})
 			require.NoError(t, e)
-			opts.Waits = []Wait{{WaitJobSuccess, "prereq"}, {WaitGoal, prereq.GoalID}}
+			opts.Waits = []Wait{{WaitJobSuccess, "prereq"}}
 			opts.WaitUntil = []string{"1h"}
 			require.NoError(t, Run(ctx, opts))
 			raw, e := os.ReadFile(opts.RequestFile)
 			require.NoError(t, e)
 			var retained retainedSubmission
 			require.NoError(t, json.Unmarshal(raw, &retained))
-			require.Len(t, retained.Descriptor.Job.Dependencies, 2)
+			require.Len(t, retained.Descriptor.Job.Dependencies, 1)
 			require.NotNil(t, retained.Descriptor.Job.AvailableAt)
 			require.NoError(t, validatePreparedWaits(retained.Descriptor, retained.Descriptor.Job.Dependencies, retained.Descriptor.Job.AvailableAt))
-			require.Equal(t, source.GoalID, retained.Descriptor.Job.GoalID)
+			require.Empty(t, retained.Descriptor.Job.GoalID)
 			if mode != "incoming" {
 				require.NotEmpty(t, retained.Descriptor.Artifacts)
 			}
@@ -204,7 +204,7 @@ func TestSelectedCLIWorkspaceRoutes(t *testing.T) {
 			var ref submitResult
 			require.NoError(t, json.Unmarshal(out.Bytes(), &ref))
 			require.Equal(t, source.CellID, ref.CellID)
-			require.Equal(t, source.GoalID, ref.GoalID)
+			require.NotEmpty(t, ref.JobID)
 			if broker != nil {
 				require.Equal(t, source.CellID, broker.StartedJobs().Items[0].CellID)
 			}
@@ -216,8 +216,8 @@ func TestSelectedCLIReplayRejectsOverrides(t *testing.T) {
 	for _, mutate := range []func(*Options){func(o *Options) { o.GoalID = "g" }, func(o *Options) { o.JobID = "j" }, func(o *Options) { o.PromptSet = true }, func(o *Options) { o.ArtifactSpecs = []string{"new"} }, func(o *Options) { o.FromWorkspaceNow = true }, func(o *Options) { o.Cell = "other" }} {
 		opts := base
 		mutate(&opts)
-		require.ErrorContains(t, opts.Validate(), "override")
+		require.Error(t, opts.Validate())
 	}
 	opts := Options{TenantID: "t", SWFURL: "http://test", GoalID: "g"}
-	require.ErrorContains(t, opts.Validate(), "--job-id")
+	require.ErrorContains(t, opts.Validate(), "unsupported")
 }

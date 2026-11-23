@@ -102,8 +102,8 @@ func TestSubmitWorkspaceFlagsThroughBroker(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(root, "value.txt"), []byte("during task"), 0644))
 	for _, now := range []bool{false, true} {
 		var stdout bytes.Buffer
-		require.NoError(t, Run(ctx, Options{JobDBURI: "embed:///", WorkingDir: t.TempDir(), RecipeFile: recipePath, Prompt: "read", FromWorkspace: !now, FromWorkspaceNow: now, JSONOutput: true, Stdout: &stdout, Waits: []Wait{{WaitJob, "a"}, {WaitJobSuccess, "b"}, {WaitGoal, "g"}}, WaitUntil: []string{"1h"}}))
-		require.Len(t, capture.last.Dependencies, 3)
+		require.NoError(t, Run(ctx, Options{JobDBURI: "embed:///", WorkingDir: t.TempDir(), RecipeFile: recipePath, Prompt: "read", FromWorkspace: !now, FromWorkspaceNow: now, JSONOutput: true, Stdout: &stdout, Waits: []Wait{{WaitJob, "a"}, {WaitJobSuccess, "b"}}, WaitUntil: []string{"1h"}}))
+		require.Len(t, capture.last.Dependencies, 2)
 		require.NotNil(t, capture.last.AvailableAt)
 		raw, err := capture.last.Data.GetData()
 		require.NoError(t, err)

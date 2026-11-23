@@ -2,6 +2,7 @@ package jobcontext
 
 import (
 	"fmt"
+	"github.com/colony-2/c2j/pkg/jobref"
 	"strconv"
 	"strings"
 )
@@ -39,7 +40,7 @@ const (
 type Current struct {
 	CellID             string `json:"cell_id,omitempty"`
 	CellRepo           string `json:"cell_repo,omitempty"`
-	GoalID             string `json:"goal_id"`
+	GoalID             string `json:"goal_id,omitempty"`
 	TenantID           string `json:"tenant_id,omitempty"`
 	JobID              string `json:"job_id,omitempty"`
 	JobType            string `json:"job_type,omitempty"`
@@ -57,7 +58,7 @@ type Current struct {
 type Parent struct {
 	CellID             string `json:"cell_id,omitempty"`
 	CellRepo           string `json:"cell_repo,omitempty"`
-	GoalID             string `json:"goal_id"`
+	GoalID             string `json:"goal_id,omitempty"`
 	TenantID           string `json:"tenant_id,omitempty"`
 	JobID              string `json:"job_id,omitempty"`
 	JobType            string `json:"job_type,omitempty"`
@@ -76,7 +77,7 @@ type StartedJobContext struct {
 	Cell                 string `json:"cell,omitempty"`
 	CellID               string `json:"cell_id,omitempty"`
 	CellRepo             string `json:"cell_repo,omitempty"`
-	GoalID               string `json:"goal_id"`
+	GoalID               string `json:"goal_id,omitempty"`
 	TenantID             string `json:"tenant_id,omitempty"`
 	JobID                string `json:"job_id,omitempty"`
 	RecipeName           string `json:"recipe,omitempty"`
@@ -85,7 +86,7 @@ type StartedJobContext struct {
 }
 
 type StartedJobsContext struct {
-	GoalIDs []string            `json:"goal_ids"`
+	GoalIDs []string            `json:"goal_ids,omitempty"`
 	JobIDs  []string            `json:"job_ids"`
 	Items   []StartedJobContext `json:"items"`
 }
@@ -98,9 +99,8 @@ type ChildJobBroker struct {
 
 func EmptyStartedJobsContext() StartedJobsContext {
 	return StartedJobsContext{
-		JobIDs:  []string{},
-		GoalIDs: []string{},
-		Items:   []StartedJobContext{},
+		JobIDs: []string{},
+		Items:  []StartedJobContext{},
 	}
 }
 
@@ -117,7 +117,6 @@ func ParentFromCurrent(c Current) Parent {
 		CellID: c.CellID, CellRepo: c.CellRepo,
 		TenantID:           strings.TrimSpace(c.TenantID),
 		JobID:              strings.TrimSpace(c.JobID),
-		GoalID:             strings.TrimSpace(c.GoalID),
 		JobType:            strings.TrimSpace(c.JobType),
 		OpType:             strings.TrimSpace(c.OpType),
 		OpStep:             strings.TrimSpace(c.OpStep),
@@ -139,7 +138,7 @@ func EnvForCurrent(c Current) map[string]string {
 	env[CurrentContextVersionEnv] = CurrentContextVersion
 	env[CurrentTenantIDEnv] = strings.TrimSpace(c.TenantID)
 	env[CurrentJobIDEnv] = strings.TrimSpace(c.JobID)
-	env[CurrentGoalIDEnv] = strings.TrimSpace(c.GoalID)
+	env[CurrentGoalIDEnv] = "" // Clear inherited legacy identity.
 	env[TenantIDEnv] = strings.TrimSpace(c.TenantID)
 	setIfNotEmpty(env, CurrentJobTypeEnv, c.JobType)
 	setIfNotEmpty(env, CurrentOpTypeEnv, c.OpType)
@@ -207,8 +206,8 @@ func CurrentFromEnv(getenv func(string) string) (Current, bool, error) {
 	if !hasAnyCurrentEnv(current, seqRaw) {
 		return Current{}, false, nil
 	}
-	if current.TenantID == "" || current.JobID == "" || current.GoalID == "" {
-		return Current{}, true, fmt.Errorf("%s, %s and %s are required when c2j current job context is present", CurrentTenantIDEnv, CurrentJobIDEnv, CurrentGoalIDEnv)
+	if current.TenantID == "" || current.JobID == "" {
+		return Current{}, true, fmt.Errorf("%s and %s are required when c2j current job context is present", CurrentTenantIDEnv, CurrentJobIDEnv)
 	}
 	return current, true, nil
 }
@@ -271,20 +270,23 @@ func MergeStartedJobs(groups ...StartedJobsContext) (StartedJobsContext, error) 
 			return out, fmt.Errorf("started job projections require complete items")
 		}
 		for _, item := range group.Items {
-			if item.TenantID == "" || item.JobID == "" || item.GoalID == "" {
-				return out, fmt.Errorf("started job requires tenant, goal and job IDs")
+			if err := (jobref.Ref{TenantID: item.TenantID, JobID: item.JobID, Cell: item.Cell, CellID: item.CellID, CellRepo: item.CellRepo}).Validate(); err != nil {
+				return out, err
+			}
+			if len(out.Items) > 0 && out.Items[0].TenantID != item.TenantID {
+				return out, fmt.Errorf("cross-tenant started jobs are unsupported")
 			}
 			key := item.TenantID + "\x00" + item.JobID
 			if idx, ok := seen[key]; ok {
-				if out.Items[idx].GoalID != item.GoalID {
-					return out, fmt.Errorf("conflicting goal identities for job %s", item.JobID)
+				if out.Items[idx].Cell != item.Cell || out.Items[idx].CellID != item.CellID || out.Items[idx].CellRepo != item.CellRepo {
+					return out, fmt.Errorf("conflicting captured identities for job %s", item.JobID)
 				}
 				continue
 			}
+			item.GoalID = ""
 			seen[key] = len(out.Items)
 			out.Items = append(out.Items, item)
 			out.JobIDs = append(out.JobIDs, item.JobID)
-			out.GoalIDs = append(out.GoalIDs, item.GoalID)
 		}
 	}
 	return out, nil

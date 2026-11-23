@@ -127,7 +127,7 @@ func TestBrokerSubmitFromC2JInWorkerEnvironment(t *testing.T) {
 	if err := json.Unmarshal([]byte(strings.TrimSpace(string(stdout))), &submitted); err != nil {
 		t.Fatalf("decode c2j submit output %q: %v\nstderr:\n%s", string(stdout), err, string(stderr))
 	}
-	if submitted.TenantID != "0" || submitted.JobID == "" || submitted.GoalID == "" || submitted.Recipe != "child_from_worker" {
+	if submitted.TenantID != "0" || submitted.JobID == "" || submitted.Recipe != "child_from_worker" {
 		t.Fatalf("unexpected c2j submit output: %#v", submitted)
 	}
 	if submitter.calls != 1 {
@@ -146,15 +146,15 @@ func TestBrokerSubmitFromC2JInWorkerEnvironment(t *testing.T) {
 	}
 
 	started := broker.StartedJobs()
-	if len(started.GoalIDs) != 1 || started.GoalIDs[0] != submitted.GoalID || started.Items[0].GoalID != submitted.GoalID {
-		t.Fatalf("lost goal metadata: %#v", started)
+	if len(started.GoalIDs) != 0 || started.Items[0].GoalID != "" {
+		t.Fatalf("unexpected live goal metadata: %#v", started)
 	}
 	var meta starter.JobMetadata
 	if err := json.Unmarshal(submitter.last.Metadata, &meta); err != nil {
 		t.Fatalf("metadata decode: %v", err)
 	}
-	if meta.ParentGoalID != current.GoalID {
-		t.Fatalf("lost parent goal: %#v", meta)
+	if meta.ParentGoalID != "" {
+		t.Fatalf("unexpected parent goal: %#v", meta)
 	}
 	if meta.ParentTenantID != "0" || meta.ParentJobID != "parent-worker" || meta.ParentInvocationHash != "invoke-worker" {
 		t.Fatalf("broker did not attach parent metadata: %#v", meta)

@@ -15,6 +15,7 @@ import (
 	"github.com/colony-2/c2j/pkg/jobdbschema"
 	"github.com/colony-2/c2j/pkg/jobref"
 	"github.com/colony-2/c2j/pkg/jobrestart"
+	"github.com/colony-2/c2j/pkg/jobsemantics"
 	"github.com/colony-2/c2j/pkg/recipe"
 	"github.com/colony-2/c2j/pkg/secrets"
 	"github.com/colony-2/c2j/pkg/task"
@@ -111,7 +112,6 @@ func JobMetadataFromStartJob(startJob workflowctl.StartJob) JobMetadata {
 func applyParentMetadata(meta *JobMetadata, parent jobcontext.Parent) {
 	meta.ParentTenantID = parent.TenantID
 	meta.ParentJobID = parent.JobID
-	meta.ParentGoalID = parent.GoalID
 	meta.ParentJobType = parent.JobType
 	meta.ParentOpType = parent.OpType
 	meta.ParentOpStep = parent.OpStep
@@ -155,15 +155,32 @@ func StartRecipeJobWithOptions(ctx context.Context, startJob workflowctl.StartJo
 		return jobref.Ref{}, err
 	}
 	ref, err := submitter.SubmitJobRef(ctx, job)
-	if err == nil && job.GoalID != "" {
-		err = ref.ValidateSelected(job)
+	if err == nil {
+		assertions := job
+		if assertions.CellRepo == "" {
+			assertions.Cell = ""
+		} // Backend resolves aliases; receipt captures the canonical name.
+		err = ref.ValidateSubmission(assertions)
 	}
 	return ref, finish(ref, err)
 }
 
 // PrepareRecipeJob resolves the complete semantic request without publishing it.
-// Retain this value through Descriptor before attempting selected publication.
+// Retain this value through Descriptor before attempting publication.
 func PrepareRecipeJob(ctx context.Context, startJob workflowctl.StartJob, opts StartRecipeJobOptions, recipes ...recipe.Recipe) (jobdb.SubmitJob, error) {
+	if startJob.JobSemanticsVersion != 0 && startJob.JobSemanticsVersion != jobsemantics.Current {
+		return jobdb.SubmitJob{}, fmt.Errorf("fresh preparation requires job_semantics_version 2; replay retained descriptors unchanged")
+	}
+	if startJob.JobContext.JobSemanticsVersion != 0 && startJob.JobContext.JobSemanticsVersion != jobsemantics.Current {
+		return jobdb.SubmitJob{}, fmt.Errorf("contradictory job_semantics_version in context")
+	}
+	startJob.JobSemanticsVersion = jobsemantics.Current
+	startJob.JobContext.JobSemanticsVersion = jobsemantics.Current
+	for _, r := range recipes {
+		if err := recipe.ValidateJobSemantics(r, jobsemantics.Current); err != nil {
+			return jobdb.SubmitJob{}, err
+		}
+	}
 	// Keep caller mutations from changing the prepared request or its input.
 	if startJob.AvailableAt != nil {
 		instant := startJob.AvailableAt.UTC()
@@ -175,17 +192,16 @@ func PrepareRecipeJob(ctx context.Context, startJob workflowctl.StartJob, opts S
 	if opts.JobID != "" && startJob.JobID != "" && opts.JobID != startJob.JobID {
 		return jobdb.SubmitJob{}, fmt.Errorf("conflicting destination job IDs")
 	}
-	if opts.GoalID != "" && startJob.GoalID != "" && opts.GoalID != startJob.GoalID {
-		return jobdb.SubmitJob{}, fmt.Errorf("conflicting primary goal IDs")
-	}
-	if opts.GoalID != "" {
-		startJob.GoalID = opts.GoalID
+	if opts.GoalID != "" || startJob.GoalID != "" {
+		return jobdb.SubmitJob{}, fmt.Errorf("goal selection is unsupported; submit an independent job")
 	}
 	if opts.JobID != "" {
 		startJob.JobID = opts.JobID
 	}
-	if err := jobdb.ValidatePrimaryGoalSelection(jobdb.SubmitJob{TenantId: startJob.TenantId, JobID: startJob.JobID, GoalID: startJob.GoalID}); err != nil {
-		return jobdb.SubmitJob{}, err
+	for _, dep := range append(append([]jobdb.Dependency(nil), startJob.Dependencies...), opts.Dependencies...) {
+		if dep.Target.GoalID != "" {
+			return jobdb.SubmitJob{}, fmt.Errorf("goal dependencies are unsupported; select an exact job")
+		}
 	}
 
 	initial, err := execution.Initial(nil, false, opts.ExecutionRequirements)
@@ -310,18 +326,21 @@ type RestartOptions struct {
 	RequestID string
 }
 
-// RestartRecipeJob starts a fresh continuation at a recipe scope or submission.
-func RestartRecipeJob(ctx context.Context, engine any, prior jobdb.JobKey, scopeID string, patch *task.ContextPatch, opts RestartOptions) (jobref.Ref, error) {
+// PrepareRestartJob freezes an independent continuation at a recipe scope or submission.
+func PrepareRestartJob(ctx context.Context, engine any, prior jobdb.JobKey, scopeID string, patch *task.ContextPatch, opts RestartOptions) (jobdb.SubmitRestartJobRequest, error) {
+	if opts.Goal != "" && opts.Goal != "new" {
+		return jobdb.SubmitRestartJobRequest{}, fmt.Errorf("goal sharing is unsupported; restart creates an independent job")
+	}
 	if err := jobrestart.ValidatePatch(patch); err != nil {
-		return jobref.Ref{}, err
+		return jobdb.SubmitRestartJobRequest{}, err
 	}
 	if strings.TrimSpace(scopeID) == "" {
-		return jobref.Ref{}, fmt.Errorf("scope ID is required")
+		return jobdb.SubmitRestartJobRequest{}, fmt.Errorf("scope ID is required")
 	}
-	req := jobdb.SubmitRestartJob{PriorJobKey: prior, ExecutionRestart: &jobdb.ExecutionRestart{ScopeID: scopeID}}
+	req := jobdb.SubmitRestartJob{ShareGoal: false, PriorJobKey: prior, ExecutionRestart: &jobdb.ExecutionRestart{ScopeID: scopeID}}
 	if scopeID == SubmissionRestartScopeID {
 		if patch != nil && len(*patch) > 0 {
-			return jobref.Ref{}, fmt.Errorf("submission restart does not support context patches; select a recipe scope to patch execution context")
+			return jobdb.SubmitRestartJobRequest{}, fmt.Errorf("submission restart does not support context patches; select a recipe scope to patch execution context")
 		}
 		// Keep the original input and its artifacts, but no execution header,
 		// setup task results, or prior scope continuations.
@@ -332,7 +351,7 @@ func RestartRecipeJob(ctx context.Context, engine any, prior jobdb.JobKey, scope
 		ListJobs(context.Context, jobdb.ListJobsRequest) (jobdb.ListJobsResponse, error)
 	})
 	if !ok {
-		return jobref.Ref{}, fmt.Errorf("restart metadata reader is unavailable")
+		return jobdb.SubmitRestartJobRequest{}, fmt.Errorf("restart metadata reader is unavailable")
 	}
 	jobs, err := reader.ListJobs(ctx, jobdb.ListJobsRequest{
 		TenantIds: []string{prior.TenantId}, JobKeys: []jobdb.JobKey{prior},
@@ -342,63 +361,88 @@ func RestartRecipeJob(ctx context.Context, engine any, prior jobdb.JobKey, scope
 		Stores:        []jobdb.JobStore{jobdb.JobStoreActive, jobdb.JobStoreArchived}, PageSize: 1,
 	})
 	if err != nil {
-		return jobref.Ref{}, err
+		return jobdb.SubmitRestartJobRequest{}, err
 	}
 	if len(jobs.Jobs) != 1 {
-		return jobref.Ref{}, fmt.Errorf("restart source job: %w", jobdb.ErrJobNotFound)
+		return jobdb.SubmitRestartJobRequest{}, fmt.Errorf("restart source job: %w", jobdb.ErrJobNotFound)
 	}
 	req.Cell = jobs.Jobs[0].Cell
 	// Restart from the original scheduling hint, never the prior job's latest
 	// demand: the selected scope may precede any of its runtime changes.
 	initial := execution.Inspect(jobs.Jobs[0].Metadata, nil)
 	if initial.Diagnostic != "" {
-		return jobref.Ref{}, fmt.Errorf("initial execution requirements: %s", initial.Diagnostic)
+		return jobdb.SubmitRestartJobRequest{}, fmt.Errorf("initial execution requirements: %s", initial.Diagnostic)
 	}
 	if initial.Initial == nil && executioncatalog.FromContext(ctx).Required {
 		raw, err := execution.PayloadWithDemand(nil, execution.Demand{SchemaVersion: execution.DemandSchemaVersion, RecipeResolution: "unresolved"})
 		if err != nil {
-			return jobref.Ref{}, err
+			return jobdb.SubmitRestartJobRequest{}, err
 		}
 		req.ClientPayloadUpdate = &jobdb.ClientPayloadUpdate{Mode: "reset", Value: raw}
 	}
 	if initial.Initial != nil {
 		raw, err := execution.PayloadWithDemand(nil, initial.Initial.Demand)
 		if err != nil {
-			return jobref.Ref{}, err
+			return jobdb.SubmitRestartJobRequest{}, err
 		}
 		req.ClientPayloadUpdate = &jobdb.ClientPayloadUpdate{Mode: "reset", Value: raw}
 	}
 
 	if err := jobdbschema.SetSubmitRestartJobSchema(&req); err != nil {
-		return jobref.Ref{}, err
+		return jobdb.SubmitRestartJobRequest{}, err
 	}
 
 	if patch != nil && req.ExecutionRestart != nil {
 		raw, err := json.Marshal(patch)
 		if err != nil {
-			return jobref.Ref{}, err
+			return jobdb.SubmitRestartJobRequest{}, err
 		}
 		req.ExecutionRestart.Payload = raw
 	}
 
-	switch opts.Goal {
-	case "", "continue":
-		req.ShareGoal = true
-	case "new":
-	default:
-		return jobref.Ref{}, fmt.Errorf("goal mode must be continue or new")
-	}
 	if strings.TrimSpace(opts.RequestID) == "" {
-		return jobref.Ref{}, fmt.Errorf("restart request ID is required")
+		return jobdb.SubmitRestartJobRequest{}, fmt.Errorf("restart request ID is required")
+	}
+	return jobdb.SubmitRestartJobRequest{Job: req, RequestID: opts.RequestID}, nil
+}
+
+// RestartRecipeJob prepares and submits a new independent restart. Hosts that
+// need durable recovery should persist PrepareRestartJob's complete request
+// before publication, then call ReplayRestartJob with that unchanged request.
+func RestartRecipeJob(ctx context.Context, engine any, prior jobdb.JobKey, scopeID string, patch *task.ContextPatch, opts RestartOptions) (jobref.Ref, error) {
+	request, err := PrepareRestartJob(ctx, engine, prior, scopeID, patch, opts)
+	if err != nil {
+		return jobref.Ref{}, err
 	}
 	submitter, ok := engine.(jobref.RestartSubmitter)
 	if !ok {
 		return jobref.Ref{}, fmt.Errorf("restart submitter must preserve the complete job reference")
 	}
-	if err := executioncatalog.CheckRestart(ctx, jobdb.SubmitRestartJobRequest{Job: req, RequestID: opts.RequestID}); err != nil {
+	return ReplayRestartJob(ctx, submitter, request)
+}
+
+// ReplayRestartJob resends the frozen original operation using its original
+// request ID. It never reselects a boundary, rebuilds a patch, strips sharing
+// mode, changes routes, or falls back to a fresh operation. Legacy ShareGoal
+// remains semantic input to the backend's original idempotent receipt.
+func ReplayRestartJob(ctx context.Context, submitter jobref.RestartSubmitter, request jobdb.SubmitRestartJobRequest) (jobref.Ref, error) {
+	if strings.TrimSpace(request.RequestID) == "" {
+		return jobref.Ref{}, fmt.Errorf("restart request ID is required")
+	}
+	if err := executioncatalog.CheckRestart(ctx, request); err != nil {
 		return jobref.Ref{}, err
 	}
-	return submitter.SubmitRestartJobRef(ctx, jobdb.SubmitRestartJobRequest{Job: req, RequestID: opts.RequestID})
+	var ref jobref.Ref
+	var err error
+	if recovery, ok := submitter.(jobref.HistoricalRecovery); ok && request.Job.ShareGoal {
+		ref, err = recovery.ReplayRestartJobRef(ctx, request)
+	} else {
+		ref, err = submitter.SubmitRestartJobRef(ctx, request)
+	}
+	if err == nil {
+		err = ref.ValidateSubmission(jobdb.SubmitJob{TenantId: request.Job.PriorJobKey.TenantId, JobID: request.Job.JobID, Cell: request.Job.Cell, CellRepo: request.Job.CellRepo})
+	}
+	return ref, err
 }
 
 func beginTestSubmission(ctx context.Context, start workflowctl.StartJob, kind string) (func(jobref.Ref, error) error, error) {

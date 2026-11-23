@@ -231,14 +231,22 @@ func TestSubmitterPreservesPersistedSchemaSelector(t *testing.T) {
 	if capture.last.Schema.Hash != prior.Hash {
 		t.Fatal("replaced retained schema selector")
 	}
+	restartCapture := &missingSchemaRestartSubmitter{calls: 1}
+	_, err = (Submitter{RestartSubmitter: restartCapture}).SubmitRestartJob(context.Background(), jobdb.SubmitRestartJobRequest{RequestID: "original", Job: jobdb.SubmitRestartJob{PriorJobKey: jobdb.JobKey{TenantId: "tenant", JobId: "source"}, Schema: prior}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if restartCapture.last.Schema.Hash != prior.Hash {
+		t.Fatal("replaced retained restart schema selector")
+	}
 }
 
-func TestRestoredGoalSchema(t *testing.T) {
+func TestExactJobSchema(t *testing.T) {
 	hash, err := Hash()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if hash != "sha256:041adb37419b109a42f8c49c2a57d028b4e87733228a8b374c4c4bca3450916a" {
+	if hash != "sha256:649def981380e3c981d0b8ddcd651ea06af5889a01a9885ca08710397c913532" {
 		t.Fatalf("unexpected schema hash: %s", hash)
 	}
 	for _, extra := range []string{"", `,"available_at":"2027-01-01T12:20:00.123456789Z"`, `,"available_at":12`, `,"goal_id":"stale"`, `,"unknown":true`, `,"job_id":12`} {

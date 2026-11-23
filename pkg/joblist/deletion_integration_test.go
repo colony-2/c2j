@@ -92,7 +92,10 @@ func TestIncludeHiddenSQLiteHTTP(t *testing.T) {
 	require.Empty(t, traverse(q))
 	q.JobTasks = nil
 	q.GoalIDs = []string{"missing-goal"}
-	require.Empty(t, traverse(q))
+	beforeCalls := calls
+	_, err = c.List(ctx, q)
+	require.ErrorContains(t, err, "unsupported")
+	require.Equal(t, beforeCalls, calls)
 	q.GoalIDs = nil
 	before := created.Add(-time.Second)
 	after := time.Now().UTC().Add(time.Second)

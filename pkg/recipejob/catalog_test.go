@@ -17,7 +17,7 @@ type catalogCapture struct{ calls int }
 
 func (c *catalogCapture) SubmitJobRef(_ context.Context, j jobdb.SubmitJob) (jobref.Ref, error) {
 	c.calls++
-	return jobref.Ref{TenantID: j.TenantId, JobID: "accepted", GoalID: "goal"}, nil
+	return jobref.Ref{TenantID: j.TenantId, JobID: "accepted", Cell: j.Cell, CellID: "immutable", CellRepo: "example.test/app"}, nil
 }
 func TestExecutionBaseCatalogLibraryRequiredAndZeroPolicy(t *testing.T) {
 	p := executioncatalog.Policy{Required: true}

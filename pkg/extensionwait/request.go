@@ -118,7 +118,10 @@ func Decode(raw []byte, limit int) (Request, error) {
 	}
 	seen := map[string]string{}
 	for _, wire := range w.Dependencies {
-		if (wire.Job == nil) == (wire.Goal == nil) {
+		if wire.Goal != nil {
+			return Request{}, errors.New("extension wait goal targets are unsupported; select an exact job")
+		}
+		if wire.Job == nil {
 			return bad()
 		}
 		dep := Dependency{Condition: wire.Condition}
@@ -127,12 +130,6 @@ func Decode(raw []byte, limit int) (Request, error) {
 				return bad()
 			}
 			dep.Job = *wire.Job
-		}
-		if wire.Goal != nil {
-			if strings.TrimSpace(*wire.Goal) == "" {
-				return bad()
-			}
-			dep.Goal = *wire.Goal
 		}
 		if dep.Condition != "success" && !(dep.Job != "" && dep.Condition == "complete") {
 			return bad()

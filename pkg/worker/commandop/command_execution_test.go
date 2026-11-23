@@ -78,6 +78,7 @@ func TestCommandExecutionActivity_Execute_WithEnvironmentVariables(t *testing.T)
 }
 
 func TestCommandExecutionActivity_Execute_InjectsProtectedCurrentJobEnv(t *testing.T) {
+	t.Setenv("C2J_CURRENT_GOAL_ID", "inherited-goal")
 	ctx := context.Background()
 	deps := ops.NewOpDependenciesBuilder().
 		WithCurrentJobContext(jobcontext.Current{
@@ -106,7 +107,7 @@ func TestCommandExecutionActivity_Execute_InjectsProtectedCurrentJobEnv(t *testi
 	if err != nil {
 		t.Fatalf("execute(): %v", err)
 	}
-	if output.Stdout != "tenant:job-1:goal-1:0:hash-1" {
+	if output.Stdout != "tenant:job-1::0:hash-1" {
 		t.Fatalf("stdout = %q", output.Stdout)
 	}
 }

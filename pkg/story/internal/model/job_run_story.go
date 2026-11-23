@@ -20,9 +20,9 @@ type GetJobRunStoryRequest struct {
 // against recorded task outcomes from swf.GetJobRunResponse.
 type JobRunStory struct {
 	BlockingWait *jobdb.DependencyWaitInfo `json:"blocking_wait,omitempty"`
-	GoalID       string                    `json:"goal_id"`
+	GoalID       string                    `json:"goal_id,omitempty"`
 	// Deprecated: empty in current views; retained for historical JSON decoding.
-	OtherGoalIDs  []string       `json:"other_goal_ids"`
+	OtherGoalIDs  []string       `json:"other_goal_ids,omitempty"`
 	RestartScopes []RestartScope `json:"restart_scopes,omitempty"`
 
 	JobID              string            `json:"job_id"`

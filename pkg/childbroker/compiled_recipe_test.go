@@ -26,7 +26,7 @@ type recipeCapture struct {
 func (c *recipeCapture) SubmitJobRef(_ context.Context, job jobdb.SubmitJob) (jobref.Ref, error) {
 	c.job = job
 	c.calls++
-	return jobref.Ref{GoalID: "test-goal", TenantID: job.TenantId, JobID: job.JobID}, nil
+	return jobref.Ref{TenantID: job.TenantId, JobID: job.JobID, Cell: job.Cell, CellID: "immutable", CellRepo: job.CellRepo}, nil
 }
 
 func TestBrokerCompiledIncludeRoundTrip(t *testing.T) {

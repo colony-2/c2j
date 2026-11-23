@@ -11,24 +11,19 @@ import "github.com/colony-2/c2j/pkg/recipejob"
 
 ## Contract
 
-New c2j recipe jobs persist the target repository in JobDB metadata:
-
-- metadata JSON field: `repo`
-- Go field: `starter.JobMetadata.RepositorySource`
-- field constant: `starter.MetaFieldRepo`
-
-The value is the normalized repository source used by c2j submit semantics, for
-example `github.com/acme/app` becomes `https://github.com/acme/app.git`.
+Submission returns captured tenant, job, cell name, immutable cell ID and repository
+identity in `jobref.Ref`. Treat that returned identity as authoritative; do not
+reconstruct a receipt from a later registry lookup. Both goal-bearing legacy
+handles and goal-free handles are accepted. `GoalID` is optional passive history.
+Current list/read/child/story/context projections omit live goal identity.
 
 Submitted nonblank string `inputs.title` is stored as optional metadata `title`
 (`starter.JobMetadata.Title`, `starter.MetaFieldTitle`). `RecipeJob.Title` and
-`joblist.Job.Title` expose it as optional JSON `title`, alongside the unchanged
-`prompt` and `goal_id`. List, single-job, child-job, and goal-candidate projections
-use the metadata already present on the summary, with no additional reads.
-Stored titles are preserved verbatim; missing or empty titles are omitted.
-Cortex owns the nonblank `title → prompt → goal_id` display fallback. Submission
-does not index whitespace-only titles, non-string values, or secret references.
-CLI users can populate the input with `c2j submit "prompt" --title "Job title"`.
+`joblist.Job.Title` expose it alongside `prompt`. These projections use summary
+metadata without additional reads. Stored titles remain verbatim; empty titles,
+whitespace-only values and secret references are not indexed. Cortex owns its
+display fallback using available job fields. CLI users can set
+`c2j submit "prompt" --title "Job title"`.
 
 The public `pkg/recipejob` package exposes:
 
@@ -211,7 +206,7 @@ JSON success output is `{"tenant_id":"tenant","job_id":"JOB","cleared":true}`;
 errors return nonzero without a success result.
 
 Cortex can use its existing caller-owned runtime or the
-`jobdbschema.WorkflowEngine` it uses for goal management:
+`jobdbschema.WorkflowEngine` wrapper:
 
 ```go
 err := recipejob.ClearCrashConcern(ctx, runtime, jobdb.ClearCrashConcernRequest{
@@ -223,7 +218,8 @@ err := recipejob.ClearCrashConcern(ctx, runtime, jobdb.ClearCrashConcernRequest{
 
 The helper accepts the narrow `recipejob.CrashConcernAdmin` interface. A
 `jobdb.ConsumerRuntime` implements it directly. `jobdbschema.WorkflowEngine`
-forwards through its `Registry` runtime, as its goal lifecycle methods do. The
+forwards through its `Registry` runtime. Retired goal lifecycle helpers return
+unsupported errors before backend calls. The
 upstream `workflow.Engine` interface alone does not expose this method; retain
 the runtime or the c2j wrapper when wiring host management APIs.
 
@@ -232,7 +228,7 @@ by task submission or inspection permissions and is not exposed through the task
 helper. Delegated lease credentials are rejected by JobDB. Hosts should put it
 behind the same operator access controls as their other job lifecycle actions.
 
-Clearing preserves the job ID, goal membership, history, payload, routing,
+Clearing preserves the job ID, retained history, payload, routing,
 dependencies, availability, and execution deadlines. It does not acquire a lease
 or execute the job; workers resume normal scheduling when eligible. This differs
 from `c2j restart`, which creates a new continuation job. Success does not promise
@@ -300,7 +296,8 @@ need no per-row enrichment. Full `blocking_wait` remains unloaded in lists;
 `blocking_wait_summary` exposes wait identity and deadline. Explicit selected
 detail, inspection and stories retain complete waits and saved producer bindings.
 Deprecated `other_goal_ids` is empty in every current c2j view; saved JSON still
-decodes historical values, and backend goal queries retain historical membership.
+decodes historical values. Current goal filters, queries and lifecycle helpers
+return unsupported errors; they never broaden a request to an unfiltered list.
 All application metadata is retained as `metadata`.
 
 Waiting rows interpret supplied payloads locally. Missing payloads are stored
@@ -344,3 +341,111 @@ When supplied, those filters must also match hidden terminal jobs. This uses Job
 it does not restore jobs or return purged records. Keep the option and other
 filters fixed throughout pagination. The read-only `joblist.Query` exposes the
 same boolean. No API is deprecated by this addition.
+
+## Consumer-first exact-job interpretation
+
+Ordinary goal-free creation and independent restart work against legacy JobDB
+`v0.0.94-0.20261119021921-f885723cc03c`, before server goal retirement. Ordinary
+create/restart and owner-lease child routes remain the backend interfaces. New
+restarts explicitly send `ShareGoal: false`; omitted `starter.RestartOptions.Goal`
+and the deprecated `"new"` spelling mean independent restart. `"continue"` rejects
+before preparing or publishing. Restart leaves the source running and preserves
+existing exact dependencies on it.
+
+New ordinary recipe waits select the exact job and default to `complete`.
+Result waits select that job and require `success`. Completion and soft inspection
+retain failed/cancelled status and available partial output. A successful sibling
+never repairs another job's dependency or replaces its artifact producer. Retired
+goal targets, selection, query filters and wait modes fail explicitly. Opaque
+application fields named `goal_id` remain data. Static admission also checks raw CEL
+conditions on nodes, catches, state transitions and children, including shared
+definitions. `recipe.ValidateJobConditions` applies that check to legacy execution
+without changing its frozen wait policy; arbitrary application maps and quoted
+CEL literals remain data.
+
+Raw conditions use `jobsemantics.CheckExpression` on the complete CEL expression;
+quoted `{{ ... }}` text never changes its grammar. Interpolated values use
+`jobsemantics.CheckTemplate` instead, including expressions with quoted closing
+delimiters. Both paths reject live goal access before fresh publication; saved
+condition preflight applies before task effects for absent/1/2 snapshots. These
+checks preserve quoted CEL literals and application data. Invalid raw CEL,
+including interpolation supplied as a raw condition, rejects before effects.
+`jobsemantics.CheckChildCondition` retains the child's supported raw-CEL and
+interpolated forms while checking the complete raw expression first.
+
+Fresh preparation persists `job_semantics_version: 2` in immutable start input and
+carried context. Missing/1 remains legacy interpretation; it does not silently
+receive current defaults. Unsupported implicit legacy goal waits reject before
+incompatible effects. Explicit historical exact-job policies, captured includes,
+command bytes, operation task contract 1, settled witnesses and artifact keys
+remain authoritative. The chapter schema is v7, hash
+`sha256:649def981380e3c981d0b8ddcd651ea06af5889a01a9885ca08710397c913532`.
+Historical schema selectors are retained unchanged.
+
+Use `starter.PrepareRecipeJob` followed by `starter.NewDescriptor` for durable
+ordinary preparation. Persist the complete format-2 descriptor before its first
+`Submit`. It reserves a destination ID, captures bytes and artifact digests, and
+preserves nested JSON numbers when inserting the reserved ID, and checks current
+interpretation and retired syntax before publication. The broker
+exposes `childbroker.Prepare` and `SubmitPrepared`; CLI `--request-file` and
+`--replay-request` support this ordinary path under the original authority.
+
+For durable restart, call `starter.PrepareRestartJob(ctx, engine, source,
+scopeID, patch, starter.RestartOptions{RequestID: stableID})`, persist the complete
+returned `jobdb.SubmitRestartJobRequest`, then call
+`starter.ReplayRestartJob(ctx, submitter, savedRequest)`. Keep the original request
+ID, destination when supplied, source, sharing mode, boundary and ordered patch.
+Do not prepare again from later editor/source state after uncertainty. Reacquire
+only current credentials for the same authorized operation/parent. Receipts must
+match the frozen tenant/job/cell and any supplied repository assertion, using
+normalized repository identity. An omitted historical repository assertion stays
+optional.
+
+Legacy format-1 selected descriptors and frozen restart requests replay through
+their original idempotent endpoints unchanged. This follows the human direction
+that request IDs satisfy recovery. There is no new receipt-only API or dependency.
+These legacy endpoints can create the original operation on a miss; this is not
+a read-only lookup guarantee. A changed semantic request conflicts. Unsupported,
+missing, denied or malformed responses remain errors without dropping mode or
+switching to an ordinary/new operation.
+
+The current SDK pin `28ba72a3ea5a` refuses these historical modes against legacy
+servers without its new capability route, even for committed receipts. Owner
+hosts can configure the c2j recovery boundary using the **same** runtime URL and
+authenticated HTTP client as their ordinary owner connection:
+
+```go
+recovery, err := jobrecovery.New(runtimeURL, ownerHTTPClient)
+// Handle err before constructing the wrapper.
+engine := jobdbschema.WorkflowEngine{
+    Engine: nativeEngine, Registry: runtime, Recovery: recovery,
+}
+```
+
+Import `github.com/colony-2/c2j/pkg/jobrecovery`. The CLI remote runtime configures
+this connection automatically. Pass this wrapper to starter replay, or forward
+`jobref.HistoricalRecovery` through any host submitter wrapper. Only format-1
+selected descriptors and frozen
+sharing restarts select `jobref.HistoricalRecovery`; fresh create and independent
+restart keep their normal SDK paths. Without configuration the SDK's safe refusal
+still applies. The adapter uses the original primary-selection discovery and
+protected PUT endpoint, or original explicit/request-ID restart endpoint. It
+preserves the complete frozen body and validates the returned identity, including
+repository assertions. It does not advertise new capabilities, prepare a schema,
+change the SDK pin, follow redirects or retry through another endpoint.
+
+This adapter is owner-scoped. Never attach it to a lease/task/delegated submitter
+or substitute stronger credentials; restricted requests retain their original
+restricted endpoint and authority. The legacy selected endpoint itself rejects
+lease tokens. No public JobDB compatibility option is added: the cancelled option
+is separate from c2j's required historical reconciliation. Positive committed
+receipt tests run a separate server/SQLite backend built from JobDB
+`f885723cc03c` in [the pinned fixture](testdata/exactjob-legacy/README.md).
+
+Source delivery does not upgrade deployed workers or retire server goals. Cortex
+should pin the immutable c2j commit produced by managed publication; this worktree
+has no new published c2j revision yet. The PostgreSQL harness in
+[testdata/exactjob-postgres](testdata/exactjob-postgres/README.md) records the checked
+legacy compatibility matrix and current concurrent-creation limitation. Full
+acceptance and an external published-module host check remain required before
+claiming release completion.

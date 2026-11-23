@@ -7,7 +7,7 @@ Go module is `github.com/colony-2/c2j`.
 ## Responsibilities and interfaces
 
 - The [CLI](cmd/c2j/internal/cmd/root.go) exposes job submission, execution,
-  listing, restart, goal management, and recipe testing, together with cell,
+  listing, independent restart, and recipe testing, together with cell,
   configuration, secret, Git, and bundled skill tooling. Cell resolution uses
   `.c2/config.yaml` or supported project detection; see the [user guide](README.md).
 - [Recipe definitions](pkg/recipe), the [compiler](pkg/worker/compiler), and

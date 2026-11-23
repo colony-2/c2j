@@ -34,7 +34,7 @@ func TestC02ReconstructHistoricalProducer(t *testing.T) {
 	got, err := BuildJobRunStory(context.Background(), engine, key, nil, nil)
 	require.NoError(t, err)
 	require.Empty(t, got.OtherGoalIDs)
-	require.Equal(t, "H", got.GoalID)
+	require.Empty(t, got.GoalID)
 	require.Equal(t, wait, got.BlockingWait)
 	require.Equal(t, RecordedRestartScopes(run), got.RestartScopes)
 	require.NotEmpty(t, got.RestartScopes)

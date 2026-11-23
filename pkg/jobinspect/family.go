@@ -119,7 +119,7 @@ func (s *Service) family(ctx context.Context, q Request) (*Response, error) {
 		if j.ArchivedAt != nil {
 			store = jobdb.JobStoreArchived
 		}
-		out.Nodes = append(out.Nodes, FamilyNode{ID: j.JobKey.JobId, Tenant: j.JobKey.TenantId, Parent: j.ParentJobID, Cell: j.Cell, JobType: j.JobType, Title: meta.Title, Goal: j.GoalID, Status: string(j.Status), CompletionStatus: j.CompletionStatus, CancelRequested: j.CancelRequested, CreatedAt: j.CreatedAt, Store: store, ArchivedAt: j.ArchivedAt})
+		out.Nodes = append(out.Nodes, FamilyNode{ID: j.JobKey.JobId, Tenant: j.JobKey.TenantId, Parent: j.ParentJobID, Cell: j.Cell, JobType: j.JobType, Title: meta.Title, Status: string(j.Status), CompletionStatus: j.CompletionStatus, CancelRequested: j.CancelRequested, CreatedAt: j.CreatedAt, Store: store, ArchivedAt: j.ArchivedAt})
 	}
 	if q.Operation == "family-node" {
 		if len(out.Nodes) == 0 {

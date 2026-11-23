@@ -2,43 +2,51 @@ package jobcontext
 
 import (
 	"encoding/json"
-	"testing"
-
 	"github.com/stretchr/testify/require"
+	"testing"
 )
 
-func TestGoalMetadataMergePreservesPairs(t *testing.T) {
-	a := StartedJobContext{TenantID: "t", JobID: "a", GoalID: "g", RecipeName: "one"}
-	b := StartedJobContext{TenantID: "t", JobID: "b", GoalID: "g", RecipeName: "two"}
-	c := StartedJobContext{TenantID: "u", JobID: "a", GoalID: "other"}
-	out, err := MergeStartedJobs(StartedJobsContext{Items: []StartedJobContext{a, b}}, StartedJobsContext{Items: []StartedJobContext{a, c}})
+func TestExactJobContextMerge(t *testing.T) {
+	a := StartedJobContext{TenantID: "t", JobID: "a", Cell: "app", CellID: "cell", CellRepo: "example.test/app", GoalID: "historical"}
+	b := a
+	b.JobID = "b"
+	b.GoalID = ""
+	out, err := MergeStartedJobs(StartedJobsContext{Items: []StartedJobContext{a, b}}, StartedJobsContext{Items: []StartedJobContext{a}})
 	require.NoError(t, err)
-	require.Equal(t, []string{"a", "b", "a"}, out.JobIDs)
-	require.Equal(t, []string{"g", "g", "other"}, out.GoalIDs)
-	require.Equal(t, []StartedJobContext{a, b, c}, out.Items)
-	conflict := a
-	conflict.GoalID = "different"
-	_, err = MergeStartedJobs(out, StartedJobsContext{Items: []StartedJobContext{conflict}})
-	require.ErrorContains(t, err, "conflicting goal")
+	require.Equal(t, []string{"a", "b"}, out.JobIDs)
+	require.Empty(t, out.GoalIDs)
+	require.Empty(t, out.Items[0].GoalID)
+	for _, change := range []func(*StartedJobContext){func(v *StartedJobContext) { v.Cell = "other" }, func(v *StartedJobContext) { v.CellID = "other" }, func(v *StartedJobContext) { v.CellRepo = "example.test/other" }} {
+		conflict := a
+		change(&conflict)
+		_, err = MergeStartedJobs(out, StartedJobsContext{Items: []StartedJobContext{conflict}})
+		require.ErrorContains(t, err, "conflicting captured")
+	}
 	incomplete := a
-	incomplete.GoalID = ""
+	incomplete.JobID = ""
 	_, err = MergeStartedJobs(StartedJobsContext{Items: []StartedJobContext{incomplete}})
 	require.Error(t, err)
-	empty, err := MergeStartedJobs()
+	raw, err := json.Marshal(EmptyStartedJobsContext())
 	require.NoError(t, err)
-	raw, err := json.Marshal(empty)
-	require.NoError(t, err)
-	require.JSONEq(t, `{"items":[],"job_ids":[],"goal_ids":[]}`, string(raw))
+	require.JSONEq(t, `{"items":[],"job_ids":[]}`, string(raw))
+	var historical StartedJobsContext
+	require.NoError(t, json.Unmarshal([]byte(`{"items":[{"tenant_id":"t","job_id":"a","goal_id":"G"}],"goal_ids":["G"]}`), &historical))
+	require.Equal(t, "G", historical.Items[0].GoalID)
 }
-func TestCurrentGoalProtectedAndRequired(t *testing.T) {
-	env := EnvForCurrent(Current{TenantID: "tenant", JobID: "child", GoalID: "goal"})
+
+func TestExactJobContextEnvironment(t *testing.T) {
+	env := EnvForCurrent(Current{TenantID: "tenant", JobID: "child", GoalID: "old"})
 	env = MergeProtectedEnv(map[string]string{CurrentGoalIDEnv: "forged"}, env)
 	current, present, err := CurrentFromEnv(func(k string) string { return env[k] })
 	require.NoError(t, err)
 	require.True(t, present)
-	require.Equal(t, "goal", current.GoalID)
-	require.Equal(t, "goal", ParentFromCurrent(current).GoalID)
+	require.Empty(t, current.GoalID)
+	require.Empty(t, ParentFromCurrent(current).GoalID)
 	delete(env, CurrentGoalIDEnv)
 	_, _, err = CurrentFromEnv(func(k string) string { return env[k] })
-	require.ErrorContains(t, err, CurrentGoalIDEnv)
+	require.NoError(t, err)
+	env[CurrentGoalIDEnv] = "saved"
+	current, _, err = CurrentFromEnv(func(k string) string { return env[k] })
+	require.NoError(t, err)
+	require.Equal(t, "saved", current.GoalID, "historical context remains decodable")
 }

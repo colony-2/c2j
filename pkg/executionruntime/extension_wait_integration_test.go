@@ -261,39 +261,20 @@ func TestExtensionWaitScheduling(t *testing.T) {
 					})
 				}
 			}
-			t.Run("W28_goal_replacement", func(t *testing.T) {
-				f := newExtensionWaitFixture(t, backend, extensionwait.Request{Version: 1}, jobdb.RunPolicy{})
-				first := f.target(t, "first", "")
-				f.task.request.Dependencies = []extensionwait.Dependency{{Goal: first.GoalID, Condition: "success"}}
-				out, e := f.run(t)
-				require.NoError(t, e)
-				require.Equal(t, wf.JobRunSuspended, out.Status, "%v", out.JobError)
-				f.finish(t, first, false)
-				_, e = f.run(t)
-				require.True(t, e != nil || out.Status == wf.JobRunSuspended)
-				second := f.target(t, "replacement", first.GoalID)
-				f.finish(t, second, true)
-				waitReady(t, f.gate(t))
-				out, e = f.run(t)
-				require.NoError(t, e)
-				require.Equal(t, wf.JobRunCompleted, out.Status, "%v", out.JobError)
-			})
-			t.Run("W28_goal_failure", func(t *testing.T) {
-				f := newExtensionWaitFixture(t, backend, extensionwait.Request{Version: 1}, jobdb.RunPolicy{Retry: jobdb.RetryPolicy{MaximumAttempts: 1}})
-				target := f.target(t, "first", "")
-				f.task.request.Dependencies = []extensionwait.Dependency{{Goal: target.GoalID, Condition: "success"}}
-				out, e := f.run(t)
-				require.NoError(t, e)
-				require.Equal(t, wf.JobRunSuspended, out.Status)
-				f.finish(t, target, false)
-				_, e = f.rt.FailGoal(waitTestContext(context.Background()), jobdb.FailGoalRequest{GoalKey: jobdb.GoalKey{TenantId: f.key.TenantId, GoalID: target.GoalID}, Message: "stop"})
-				require.NoError(t, e)
-				waitReady(t, f.gate(t))
-				out, e = f.run(t)
-				require.NoError(t, e)
-				require.Equal(t, wf.JobRunFailed, out.Status)
-				require.EqualValues(t, 1, f.task.runs.Load())
-			})
+			for _, condition := range []string{"success", "complete"} {
+				t.Run("W28_retired_goal_"+condition, func(t *testing.T) {
+					f := newExtensionWaitFixture(t, backend, extensionwait.Request{Version: 1}, jobdb.RunPolicy{})
+					first := f.target(t, "first", "")
+					f.task.request.Dependencies = []extensionwait.Dependency{{Goal: first.GoalID, Condition: condition}}
+					out, err := f.run(t)
+					require.True(t, err != nil || out.Status != wf.JobRunCompleted)
+					require.Nil(t, f.gate(t), "retired syntax cannot publish a gate")
+					waits, err := f.rt.ListDependencyWaits(waitTestContext(context.Background()), jobdb.ListDependencyWaitsRequest{TenantId: f.key.TenantId, ConsumerJobID: f.key.JobId})
+					require.NoError(t, err)
+					require.Empty(t, waits.Waits, "retired syntax cannot register a dependency")
+					require.EqualValues(t, 1, f.task.runs.Load())
+				})
+			}
 			t.Run("W29_dependencies_first", func(t *testing.T) {
 				until := time.Now().UTC().Add(1600 * time.Millisecond)
 				f := newExtensionWaitFixture(t, backend, extensionwait.Request{Version: 1, Until: &until, Dependencies: []extensionwait.Dependency{{Job: "target", Condition: "success"}}}, jobdb.RunPolicy{})
@@ -361,7 +342,8 @@ func TestExtensionWaitRepeatedBeyond64(t *testing.T) {
 		require.NoError(t, e)
 		require.Equal(t, wf.JobRunSuspended, out.Status, "activation %d: %v", i, out.JobError)
 		g := f.gate(t)
-		require.False(t, seen[g.ID])
+		require.NotNil(t, g)
+		require.False(t, seen[g.ID], "activation %d: runs=%d gate=%s not_before=%s now=%s handoff=%+v", i, f.task.runs.Load(), g.ID, g.NotBefore, time.Now().UTC(), out.Handoff)
 		seen[g.ID] = true
 		waitReady(t, g)
 	}
@@ -833,17 +815,17 @@ func TestExtensionWaitBindingAdmission(t *testing.T) {
 		t.Run(backend, func(t *testing.T) {
 			budget := jobdb.Duration(time.Hour)
 			f := newExtensionWaitFixture(t, backend, extensionwait.Request{Version: 1}, jobdb.RunPolicy{InvocationTimeout: &budget})
-			a, goalA := f.target(t, "job-a", ""), f.target(t, "goal-job-a", "")
+			a, second := f.target(t, "job-a", ""), f.target(t, "job-second", "")
 			f.target(t, "job-b", "")
 			goalB := f.target(t, "goal-job-b", "")
-			f.task.request.Dependencies = []extensionwait.Dependency{{Job: "job-a", Condition: "success"}, {Goal: goalA.GoalID, Condition: "success"}}
+			f.task.request.Dependencies = []extensionwait.Dependency{{Job: "job-a", Condition: "success"}, {Job: second.JobKey.JobId, Condition: "success"}}
 			out, err := f.run(t)
 			require.NoError(t, err)
 			require.Equal(t, wf.JobRunSuspended, out.Status)
 			g := f.gate(t)
 			require.NotNil(t, g.Deadline)
 			f.finish(t, a, true)
-			f.finish(t, goalA, true)
+			f.finish(t, second, true)
 			waitReady(t, g)
 			if f.reopen != nil {
 				f.reopen()
@@ -872,7 +854,9 @@ func TestExtensionWaitBindingAdmission(t *testing.T) {
 					b.Deadline = &at
 				}},
 				{name: "job_target", gate: func(g *waitGate) { g.Request.Dependencies[0].Job = "job-b" }},
-				{name: "goal_target", gate: func(g *waitGate) { g.Request.Dependencies[1].Goal = goalB.GoalID }},
+				{name: "goal_target", gate: func(g *waitGate) {
+					g.Request.Dependencies[1] = extensionwait.Dependency{Goal: goalB.GoalID, Condition: "success"}
+				}},
 				{name: "target_kind", gate: func(g *waitGate) {
 					g.Request.Dependencies[0] = extensionwait.Dependency{Goal: goalB.GoalID, Condition: "success"}
 				}},
@@ -920,7 +904,11 @@ func TestExtensionWaitBindingAdmission(t *testing.T) {
 						require.NoError(t, err)
 						require.NotNil(t, admitted)
 					} else {
-						require.ErrorContains(t, err, "dependency binding does not match gate")
+						if test.name == "goal_target" || test.name == "target_kind" {
+							require.ErrorContains(t, err, "invalid extension wait request")
+						} else {
+							require.ErrorContains(t, err, "dependency binding does not match gate")
+						}
 						require.Nil(t, admitted)
 					}
 					require.Nil(t, l.pendingWait)

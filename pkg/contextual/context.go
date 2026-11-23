@@ -62,7 +62,7 @@ type RecipeSourceContext struct {
 
 // WorkflowContext provides high-level workflow/session identifiers.
 type WorkflowContext struct {
-	GoalID    string `json:"goal_id"`
+	GoalID    string `json:"goal_id,omitempty"`
 	CellID    string `json:"cell_id,omitempty"`
 	CellName  string `json:"cell,omitempty"`
 	JobID     string `json:"job_id,omitempty"`
@@ -71,6 +71,7 @@ type WorkflowContext struct {
 
 // ExecutionContext holds typed workflow context available to templates. It is created per task.
 type JobContext struct {
+	JobSemanticsVersion  int                      `json:"job_semantics_version,omitempty"`
 	Grouping             *grouping.Context        `json:"grouping,omitempty"`
 	InheritedPermissions *permissions.State       `json:"inherited_permissions,omitempty"`
 	GitProfile           gitprofile.Selection     `json:"git_profile,omitzero"`
@@ -95,9 +96,10 @@ type TaskContext struct {
 
 func NewTaskExecutionContext(ctx JobContext, ctx2 TaskContext) TaskExecutionContext {
 	return TaskExecutionContext{
-		Metrics:   metrics.Empty(0),
-		Grouping:  ctx.Grouping,
-		Workspace: ctx.Workspace, CellResolution: ctx.CellResolution,
+		Metrics:             metrics.Empty(0),
+		JobSemanticsVersion: ctx.JobSemanticsVersion,
+		Grouping:            ctx.Grouping,
+		Workspace:           ctx.Workspace, CellResolution: ctx.CellResolution,
 		Environment:  ctx.Environment,
 		Artifacts:    cloneArtifactRefs(ctx.Artifacts),
 		Workflow:     ctx.Workflow,
@@ -120,10 +122,11 @@ func NewTaskExecutionContext(ctx JobContext, ctx2 TaskContext) TaskExecutionCont
 }
 
 type TaskExecutionContext struct {
-	Metrics        metrics.Snapshot  `json:"metrics"`
-	Grouping       *grouping.Context `json:"grouping,omitempty"`
-	Workspace      *WorkspaceContext `json:"workspace,omitempty"`
-	CellResolution *cellref.Context  `json:"cell_resolution,omitempty"`
+	JobSemanticsVersion int               `json:"job_semantics_version,omitempty"`
+	Metrics             metrics.Snapshot  `json:"metrics"`
+	Grouping            *grouping.Context `json:"grouping,omitempty"`
+	Workspace           *WorkspaceContext `json:"workspace,omitempty"`
+	CellResolution      *cellref.Context  `json:"cell_resolution,omitempty"`
 	// embed these directly from task and job contexts for easier resolution.
 	Environment  EnvironmentContext       `json:"environment,omitempty"`
 	Artifacts    map[string]artifacts.Ref `json:"artifacts,omitempty"`
@@ -171,8 +174,9 @@ type InvocationCtx struct {
 
 func (t TaskExecutionContext) JobContext() JobContext {
 	return JobContext{
-		Grouping:  t.Grouping,
-		Workspace: t.Workspace, CellResolution: t.CellResolution,
+		JobSemanticsVersion: t.JobSemanticsVersion,
+		Grouping:            t.Grouping,
+		Workspace:           t.Workspace, CellResolution: t.CellResolution,
 		Environment: t.Environment,
 		Artifacts:   cloneArtifactRefs(t.Artifacts),
 		Workflow:    t.Workflow,

@@ -105,10 +105,10 @@ func TestLeaseParentageSuppliedLease(t *testing.T) {
 				require.Error(t, err)
 				selected := req
 				selected.Start.GoalID = parent.GoalID
-				descriptor, err := childbroker.PrepareSelected(ctx, broker, selected)
-				require.NoError(t, err)
-				_, err = childbroker.SubmitSelected(ctx, broker, descriptor)
-				require.Error(t, err, "submit-only task must not select a primary goal")
+				_, err = childbroker.PrepareSelected(ctx, broker, selected)
+				require.ErrorContains(t, err, "primary goal selection is unsupported")
+				_, err = base.GetJob(ctx, jobdb.JobKey{TenantId: "test", JobId: "child"})
+				require.ErrorIs(t, err, jobdb.ErrJobNotFound, "rejected preparation must not publish")
 				result, err := childbroker.Submit(ctx, broker, req)
 				require.NoError(t, err)
 				require.Equal(t, "child", result.JobID)

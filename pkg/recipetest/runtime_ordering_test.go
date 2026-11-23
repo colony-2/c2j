@@ -282,12 +282,23 @@ func TestOrderingUnreachableGateWithoutBarrier(t *testing.T) {
 	withRegisteredCoreOps(t, append(append(recipeops.GetOps(), inputop.GetOp()), commandop.GetOp())...)
 	parent := strings.Replace(orderingParent, "outputs:\n  report:", `- id: await
   op: recipe.await_result_soft
-  inputs: {target: {goal: "${{ sequence.submit.jobs.goal_ids[0] }}"}}
+  inputs: {target: {job: "${{ sequence.submit.jobs.job_ids[0] }}"}}
 outputs:
   report:`, 1)
-	result := runOrdering(t, orderingChild, "", []InputFixture{{NodePath: "child/release", Response: map[string]any{}, AfterCall: &AfterCall{NodePath: "unreachable", Occurrence: 1}}}, parent, "1s", "deadline")
+	// As in TestOrderingCancellation, the deadline must allow native worker
+	// startup before exercising an unreachable gate on an unfinished child.
+	result := runOrdering(t, orderingChild, "", []InputFixture{{NodePath: "child/release", Response: map[string]any{}, AfterCall: &AfterCall{NodePath: "unreachable", Occurrence: 1}}}, parent, "10s", "deadline")
 	require.NotEqual(t, "passed", result.Status)
 	require.Contains(t, result.FailureReason, "unreachable")
+	require.NotNil(t, result.Runtime)
+	var enteredAwait bool
+	for _, event := range result.Runtime.Events {
+		if event.Kind == "operation_entry" && event.NodePath == "parent/await" {
+			enteredAwait = true
+		}
+		require.NotEqual(t, "response_release", event.Kind, "unreachable gate must retain its response")
+	}
+	require.True(t, enteredAwait, "exact-job await must execute before the deadline")
 }
 
 func TestOrderingDeniedCorrectionKeepsOriginalChild(t *testing.T) {

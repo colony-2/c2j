@@ -12,7 +12,7 @@ import (
 	"github.com/colony-2/jobdb/pkg/jobdb"
 )
 
-func prepareSelectedRPC(ctx context.Context, broker jobcontext.ChildJobBroker, req SubmitRequest) (starter.Descriptor, error) {
+func prepareRPC(ctx context.Context, broker jobcontext.ChildJobBroker, req SubmitRequest) (starter.Descriptor, error) {
 	var out starter.Descriptor
 	body, err := json.Marshal(req)
 	if err != nil {

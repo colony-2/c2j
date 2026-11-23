@@ -25,9 +25,9 @@ type Job struct {
 	ParentJobID         string                       `json:"parent_job_id,omitempty"`
 	// Complete blocking waits are loaded only by explicit job inspection; lists carry a summary.
 	BlockingWait *jobdb.DependencyWaitInfo `json:"blocking_wait,omitempty"`
-	GoalID       string                    `json:"goal_id"`
+	GoalID       string                    `json:"goal_id,omitempty"`
 	// Deprecated: empty in current views; retained for historical JSON decoding.
-	OtherGoalIDs []string `json:"other_goal_ids"`
+	OtherGoalIDs []string `json:"other_goal_ids,omitempty"`
 	// Completion fields are persisted terminal results, separate from scheduler Status.
 	// Empty status means unavailable. Unknown statuses are preserved verbatim.
 	CompletionStatus string `json:"completion_status,omitempty"`
@@ -94,7 +94,6 @@ func JobFromSummary(job jobdb.JobSummary) Job {
 		ParentJobID:         job.ParentJobID,
 		Prompt:              meta.Prompt,
 		Title:               meta.Title,
-		GoalID:              job.GoalID,
 		CompletionStatus:    job.CompletionStatus,
 		CompletionDetail:    job.CompletionDetail,
 		ClientPayload:       append(json.RawMessage(nil), job.ClientPayload...),

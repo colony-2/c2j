@@ -48,7 +48,7 @@ See [the complete compilable application](../../examples/listjobs/main.go).
 from summary metadata, preserving stored strings verbatim. Empty fields are
 omitted. No additional job, history, recipe, artifact, or goal reads are needed.
 Clients may choose a display fallback such as nonblank title, then nonblank
-prompt, then goal ID; the API does not populate missing titles itself.
+prompt, then job ID; the API does not populate missing titles itself.
 
 ## Explicit configuration and selectors
 
@@ -129,7 +129,7 @@ information, not a lease or a promise that a job remains runnable.
 
 ## Compact list contract
 
-Lists retain identity, primary goal, parent, schema hash, status, stored route,
+Lists retain job/cell identity, parent, schema hash, status, stored route,
 completion status/detail, task coordinates, prerequisite IDs, timestamps,
 cancellation flag, full client payload and revision, and all application
 `Metadata` when supplied by JobDB. c2j also projects familiar labels from metadata.
@@ -142,9 +142,10 @@ success. Query `COMPLETED` explicitly to include completed jobs. A failed attemp
 does not establish final failure while a job is retrying.
 
 `OtherGoalIDs` is deprecated and empty in current c2j lists, detail, inspection
-and stories. Saved JSON still decodes historical values. Use backend goal
-queries for historical membership; an empty secondary field does not indicate
-whether detail was loaded.
+and stories. `GoalID` is also omitted from current projections. Saved JSON still
+decodes historical values. Nonempty goal filters reject before any backend call;
+they never broaden a request into an unfiltered list. Dependency history retains
+its recorded targets and producer witnesses.
 
 Lists carry `BlockingWaitSummary` and leave the full `BlockingWait` unloaded.
 Use JobDB `GetJob` for a selected job or `GetDependencyWait` for one wait.

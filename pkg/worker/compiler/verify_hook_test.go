@@ -95,6 +95,11 @@ func TestVerifyHookSubmissionEnvironmentAndGate(t *testing.T) {
 		{name: "inspection-gate", failGate: "TestTaskInspectionUsesBackendReadPermissions"},
 		{name: "health-gate", failGate: "^TestHealth"},
 		{name: "managed-regressions-gate", failGate: "^Test(JobInspectionExpiredLifetimeBeforeDispatch"},
+		{name: "quoted-marker-gate", failGate: "^TestExactJobQuotedMarker"},
+		{name: "sequence-when-gate", failGate: "^TestSequenceNodeWhen"},
+		{name: "exact-job-gate", failGate: "^TestExactJob|"},
+		{name: "scenario-receipt-gate", failGate: "^TestScenarioSubmissionRefContract"},
+		{name: "exact-job-consumer-gate", failGate: "^TestNativeRuntimeSubmitsAndAwaitsChild$"},
 		{name: "extension-wait-gate", failGate: "^TestExtensionWait"},
 		{name: "git-cleanup-gate", failGate: "^TestChanges"},
 		{name: "native-hook-gate", failGate: "^TestVerifyHook"},
@@ -108,6 +113,7 @@ func TestVerifyHookSubmissionEnvironmentAndGate(t *testing.T) {
 		{name: "artifact-metadata-gate", failGate: "TestNixOpDescriptionDoesNotInstall"},
 		{name: "packaged-artifact-gate", failGate: "TestRealNixArtifactFiles"},
 		{name: "fixture-source-gate", failGate: "Test(FixtureSource|NativeRuntimeFixtureSourceModes)"},
+		{name: "parentage-gate", failGate: "TestLeaseParentage"},
 		{name: "full-suite", failGate: "-tags=integration -p 2"},
 		{name: "missing-wait-help", missingWaitGoal: true},
 	} {
@@ -130,7 +136,11 @@ if [ -n "${C2J_TEST_SUBMIT_BINARY+x}" ]; then
 fi
 test "$GOWORK" = off
 printf '%s %s\n' "${0##*/}" "$*" >> "$COMMANDS"
-if [ -n "$FAIL_GATE" ] && [[ "$*" == *"$FAIL_GATE"* ]]; then exit 42; fi
+if [ -n "$FAIL_GATE" ] && [[ "$*" == *"$FAIL_GATE"* ]]; then
+  printf 'failed gate stdout: %s\n' "$FAIL_GATE"
+  printf 'failed gate stderr: %s\n' "$FAIL_GATE" >&2
+  exit 42
+fi
 if [[ "$*" == *'-run ^TestCloneDuringRepack$' ]]; then
   cat "$CLONE_GATE_EVENTS"
 fi
@@ -224,6 +234,8 @@ fi
 			require.NoError(t, logErr)
 			if fixture.failGate != "" {
 				require.Error(t, err)
+				require.Contains(t, string(log), "failed gate stdout: "+fixture.failGate)
+				require.Contains(t, string(log), "failed gate stderr: "+fixture.failGate)
 				expectedExit := 42
 				if fixture.failGate == "^TestExtensionWait" || fixture.failGate == "^TestCloneDuringRepack$" {
 					expectedExit = 1
@@ -268,6 +280,10 @@ fi
 				"TestTaskInspectionUsesBackendReadPermissions$",
 				"^TestHealth",
 				"^Test(JobInspectionExpiredLifetimeBeforeDispatch",
+				"^TestExactJobQuotedMarker|^TestSequenceNodeWhen",
+				"^TestExactJob|",
+				"^TestScenarioSubmissionRefContract$|^TestScenarioBindingRejectsUnprovedIdentity$",
+				"^TestNativeRuntimeSubmitsAndAwaitsChild$|^TestOrderingUnreachableGateWithoutBarrier$|^TestSubmission(RestartRerunsSetup|OnlyRestartExecution)$|^TestCommandExecutionActivity_Execute_InjectsProtectedCurrentJobEnv$",
 				"^TestExtensionWait",
 				"^TestChanges(J30J32GitDiagnosticIdentity|J32L07GitProcessGroupCleanup|J30L07RepositoryTransferCleanup|ProcessExitObservation)$",
 				"^TestVerifyHook",
@@ -297,6 +313,13 @@ fi
 					require.Contains(t, lines[len(lines)-1], gate, "failed gate must be the last command")
 				}
 			}
+			if strings.Contains(string(raw), "^TestExactJobQuotedMarker") {
+				require.Contains(t, string(raw), "go test -mod=readonly -count=1 -v -timeout=5m ./pkg/jobsemantics ./pkg/recipe ./pkg/template ./pkg/starter ./pkg/worker/compiler ./pkg/recipetest -run ^TestExactJobQuotedMarker|^TestSequenceNodeWhen\n", "marker regressions must exercise admission, evaluation, saved backend execution and both recipe-test runners")
+			}
+			if strings.Contains(string(raw), "^TestExactJob|") {
+				require.Contains(t, string(raw), "./pkg/jobdbschema ./pkg/jobrecovery ./cmd/c2j/internal/swfruntime", "legacy committed receipt acceptance and owner connection wiring must gate verification")
+				require.Contains(t, string(raw), "./pkg/jobref ./pkg/jobsemantics ./pkg/recipe ./pkg/jobcontext", "exact-job gate must collect typed raw-CEL regressions alongside submission/replay checks")
+			}
 			if fixture.failGate == "TestLeaseBoundRestartHelperSubmission" {
 				require.Equal(t, helperGate, string(raw), "failed helper regression must prevent every later command")
 			} else {
@@ -313,6 +336,11 @@ fi
 			if fixture.failGate == "-tags=integration -p 2" {
 				require.Contains(t, string(raw), "go test -count=1 -json -tags=integration -p 2 -timeout=30m ./...\n")
 				require.NotContains(t, string(raw), "c2j submit --help\n", "full-suite failure must stop verification before the final help check")
+			} else if fixture.failGate == "TestLeaseParentage" {
+				require.Contains(t, string(raw), "go build -mod=readonly -o ")
+				require.NotContains(t, string(raw), "./internal/pathutil")
+				require.NotContains(t, string(raw), "./internal/retirementcheck")
+				require.NotContains(t, string(raw), "-tags=integration -p 2")
 			} else if fixture.failGate != "" {
 				require.NotContains(t, string(raw), "-tags=integration -p 2")
 				require.NotContains(t, string(raw), "./internal/retirementcheck")

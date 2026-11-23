@@ -28,6 +28,10 @@ const thinPackSentinel = gitstate.ThinPackArtifactName
 
 // ActivityInvocationRequest wraps the invocation metadata and original input payload.
 type ActivityInvocationRequest struct {
+	// JobSemanticsVersion belongs to the owning immutable start, including
+	// deferred captures and tasks already queued when a worker is replaced.
+	JobSemanticsVersion int `json:"job_semantics_version,omitempty"`
+
 	// InputSecrets records compiler-authorized references, not lease grants.
 	InputSecrets     []string                       `json:"input_secrets,omitempty"`
 	Permissions      *permissions.State             `json:"permissions,omitempty"`

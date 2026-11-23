@@ -13,6 +13,7 @@ import (
 	recipeartifacts "github.com/colony-2/c2j/pkg/artifacts"
 	"github.com/colony-2/c2j/pkg/configuration"
 	"github.com/colony-2/c2j/pkg/contextual"
+	"github.com/colony-2/c2j/pkg/jobsemantics"
 	"github.com/colony-2/c2j/pkg/secrets"
 	"github.com/colony-2/c2j/pkg/template/funcregistry"
 	"github.com/colony-2/jobdb/pkg/jobdb"
@@ -259,7 +260,7 @@ func (rc *ResolutionContext) goTemplateFuncMap() texttemplate.FuncMap {
 	}
 	if provider, ok := rc.Options.CELOptionsProvider.(goTemplateFuncProvider); ok {
 		ctxProvider := func() contextual.TaskExecutionContext {
-			return rc.TaskExecutionContext()
+			return rc.templateExecutionContext()
 		}
 		for name, fn := range provider.TemplateFuncsWithContext(ctxProvider) {
 			if _, exists := funcMap[name]; exists {
@@ -274,7 +275,7 @@ func (rc *ResolutionContext) goTemplateFuncMap() texttemplate.FuncMap {
 }
 
 func (rc *ResolutionContext) goTemplateContextMap() map[string]interface{} {
-	ctx := rc.TaskExecutionContext()
+	ctx := rc.templateExecutionContext()
 
 	return map[string]interface{}{
 		"environment": map[string]interface{}{
@@ -302,7 +303,6 @@ func (rc *ResolutionContext) goTemplateContextMap() map[string]interface{} {
 			"cell_id":    ctx.Workflow.CellID,
 			"cell":       ctx.Workflow.CellName,
 			"job_id":     ctx.Workflow.JobID,
-			"goal_id":    ctx.Workflow.GoalID,
 			"project_id": ctx.Workflow.ProjectId,
 		},
 		"git": map[string]interface{}{
@@ -388,6 +388,10 @@ func (rc *ResolutionContext) ResolveTemplateWithMode(expr string, mode RenderMod
 	// For pure CEL mode, this is a when condition - no {{ }} expected
 	if mode == ModePureCEL {
 		return rc.EvaluateCEL(expr)
+	}
+
+	if err := jobsemantics.CheckTemplate(expr); err != nil {
+		return nil, err
 	}
 
 	// For interpolation mode, check if it looks like a template

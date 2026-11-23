@@ -97,8 +97,8 @@ func replaySelected(ctx context.Context, opts Options, route *submissionRoute) e
 	if err != nil {
 		return err
 	}
-	if job.TenantId != retained.TenantID || job.GoalID == "" {
-		return fmt.Errorf("invalid retained selected submission")
+	if job.TenantId != retained.TenantID {
+		return fmt.Errorf("invalid retained submission")
 	}
 	if route.hasBroker != retained.Broker {
 		return fmt.Errorf("retained submission route changed")
@@ -125,9 +125,9 @@ func publishRetained(ctx context.Context, opts Options, d retainedSubmission, br
 	}
 	var result submitResult
 	if d.Broker {
-		ref, err := childbroker.SubmitSelected(ctx, broker, d.Descriptor)
+		ref, err := childbroker.SubmitPrepared(ctx, broker, d.Descriptor)
 		if err != nil {
-			return fmt.Errorf("selected submission ambiguous or rejected; retain request and destination: %w", err)
+			return fmt.Errorf("submission ambiguous or rejected; retain request and destination: %w", err)
 		}
 		if ref.Cell != d.Descriptor.Job.Cell || ref.CellRepo != d.Descriptor.Job.CellRepo || ref.Recipe != start.RecipeName {
 			return jobdb.ErrSubmissionReceiptUnavailable
@@ -140,7 +140,7 @@ func publishRetained(ctx context.Context, opts Options, d retainedSubmission, br
 		}
 		ref, err := d.Descriptor.Submit(ctx, submitter)
 		if err != nil {
-			return fmt.Errorf("selected submission ambiguous or rejected; retain request and destination: %w", err)
+			return fmt.Errorf("submission ambiguous or rejected; retain request and destination: %w", err)
 		}
 		result = submitResult{Cell: ref.Cell, CellID: ref.CellID, CellRepo: ref.CellRepo, TenantID: ref.TenantID, JobID: ref.JobID, GoalID: ref.GoalID, Recipe: start.RecipeName}
 	}

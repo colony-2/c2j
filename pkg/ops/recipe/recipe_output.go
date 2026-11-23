@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/colony-2/c2j/internal/jsonexact"
 	recipeartifacts "github.com/colony-2/c2j/pkg/artifacts"
 	"github.com/colony-2/c2j/pkg/contextual"
 	"github.com/colony-2/c2j/pkg/git/gitstate"
@@ -37,8 +38,11 @@ func decodeRecipeJobOutput(deps ops.OpDependencies, data jobdb.JobData) (recipeJ
 	if len(rawData) > 0 {
 		out.OutputAvailable = true
 		var raw map[string]interface{}
-		if err := json.Unmarshal(rawData, &raw); err != nil {
+		if err := jsonexact.Unmarshal(rawData, &raw); err != nil {
 			return recipeJobOutput{}, err
+		}
+		if raw != nil {
+			raw = jsonexact.Native(raw).(map[string]any)
 		}
 		if git, ok := raw["git"]; ok {
 			buf, err := json.Marshal(git)
@@ -80,7 +84,10 @@ func decodeRecipeJobOutput(deps ops.OpDependencies, data jobdb.JobData) (recipeJ
 		out.ArtifactsAvailable = true
 	}
 	for _, artifact := range artifacts {
-		if artifact != nil && objects.IsInternalArtifact(artifact.Name()) {
+		if artifact == nil {
+			return recipeJobOutput{}, fmt.Errorf("nil result artifact")
+		}
+		if objects.IsInternalArtifact(artifact.Name()) {
 			continue
 		}
 		// A child's snapshot belongs to that child, even when the awaiting
@@ -96,7 +103,7 @@ func decodeRecipeJobOutput(deps ops.OpDependencies, data jobdb.JobData) (recipeJ
 		}
 		ref, err := recipeartifacts.RefFromArtifact(artifact)
 		if err != nil {
-			continue
+			return recipeJobOutput{}, fmt.Errorf("result artifact reference: %w", err)
 		}
 		name := ref.NameValue()
 		if name == "" {

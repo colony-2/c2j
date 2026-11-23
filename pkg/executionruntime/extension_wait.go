@@ -392,6 +392,11 @@ func (l *lease) handleWait(tc wf.TaskContext, err error) (jobdb.TaskData, error)
 	if tc.InvocationID == "" || tc.AttemptNumber < 1 {
 		return l.blockExecution(errors.Join(err, errors.New("extension wait requires a versioned leased task"), jobdb.ErrExecutionLeaseLost))
 	}
+	for _, dependency := range d.Request.Dependencies {
+		if dependency.Goal != "" {
+			return l.blockExecution(errors.Join(err, errors.New("extension wait goal targets are unsupported; select an exact job")))
+		}
+	}
 	g := &waitGate{Version: 1, ID: "extension-wait-" + ksuid.New().String(), Invocation: tc.InvocationID, Attempt: tc.AttemptNumber, Request: d.Request, NotBefore: time.Now().UTC().Add(time.Second)}
 	// Carry the first cap forward on repeated waits, even if a recovered engine
 	// has restarted its in-memory invocation timer.

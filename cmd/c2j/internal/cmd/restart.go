@@ -96,7 +96,10 @@ func newRestartCmd() *cobra.Command { return newRestartCommand(openRestart) }
 func newRestartCommand(open restartOpener) *cobra.Command {
 	var uri, scope, mode, id, patchFile string
 	var chapter int64
-	command := &cobra.Command{Use: "restart JOB", Short: "Restart from a recorded scope, continuing its goal by default", Long: restartHelp, Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+	command := &cobra.Command{Use: "restart JOB", Short: "Restart from a recorded scope, creating an independent job", Long: restartHelp, Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+		if mode != "" && mode != "new" {
+			return fmt.Errorf("goal sharing is unsupported; restart creates an independent job")
+		}
 		selector, err := restartSelector(cmd, scope, chapter)
 		if err != nil {
 			return err
@@ -132,7 +135,7 @@ func newRestartCommand(open restartOpener) *cobra.Command {
 	}}
 	command.Flags().StringVar(&uri, "jobdb", "", "JobDB URI (defaults from project or C2J_JOBDB)")
 	addRestartSelector(command, &scope, &chapter)
-	command.Flags().StringVar(&mode, "goal", "continue", "Goal mode: continue or new")
+	command.Flags().StringVar(&mode, "goal", "new", "Deprecated: only new (independent restart) is supported")
 	command.Flags().StringVar(&id, "request-id", "", "Stable request ID; reuse only for the same restart payload")
 	command.Flags().StringVar(&patchFile, "patch-file", "", "RFC 6902 JSON Patch operation-array file")
 	_ = command.MarkFlagRequired("request-id")

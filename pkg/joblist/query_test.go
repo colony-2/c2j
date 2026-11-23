@@ -71,11 +71,10 @@ func TestCompactListingPassesEmptyPageThrough(t *testing.T) {
 
 func TestIncludeHiddenRequestAndValidation(t *testing.T) {
 	for _, include := range []bool{false, true} {
-		q := joblist.Query{CellNames: []string{"app"}, IncludeHidden: include, GoalIDs: []string{"goal"}, JobIDs: []string{"job"}, JobTasks: []jobdb.JobTaskFilter{{JobType: "recipe", TaskType: "step"}}, PageSize: 2, PageToken: " token "}
+		q := joblist.Query{CellNames: []string{"app"}, IncludeHidden: include, JobIDs: []string{"job"}, JobTasks: []jobdb.JobTaskFilter{{JobType: "recipe", TaskType: "step"}}, PageSize: 2, PageToken: " token "}
 		req, err := joblist.BuildRequest("tenant", q)
 		require.NoError(t, err)
 		require.Equal(t, include, req.IncludeHidden)
-		require.Equal(t, []string{"goal"}, req.GoalIDs)
 		require.Equal(t, q.JobTasks, req.JobTasks)
 		require.Equal(t, 2, req.PageSize)
 		require.Equal(t, "token", req.PageToken)
