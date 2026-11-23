@@ -84,9 +84,10 @@ func TestVerifyHookSubmissionEnvironmentAndGate(t *testing.T) {
 	node := state.States.States["test_integration"].Node.NodeImpl.(*recipe.NodeOp)
 	require.Equal(t, "120m", node.Inputs["timeout"])
 	for _, fixture := range []struct {
-		name            string
-		failGate        string
-		missingWaitGoal bool
+		name                     string
+		failGate                 string
+		missingWaitGoal          bool
+		missingCompilerReadiness bool
 	}{
 		{name: "healthy"},
 		{name: "clone-gate", failGate: "^TestCloneDuringRepack$"},
@@ -114,8 +115,10 @@ func TestVerifyHookSubmissionEnvironmentAndGate(t *testing.T) {
 		{name: "packaged-artifact-gate", failGate: "TestRealNixArtifactFiles"},
 		{name: "fixture-source-gate", failGate: "Test(FixtureSource|NativeRuntimeFixtureSourceModes)"},
 		{name: "parentage-gate", failGate: "TestLeaseParentage"},
+		{name: "response-legacy-isolation-gate", failGate: "TestResponsePersistenceLegacyIsolation"},
 		{name: "full-suite", failGate: "-tags=integration -p 2"},
 		{name: "missing-wait-help", missingWaitGoal: true},
+		{name: "missing-compiler-readiness", missingCompilerReadiness: true},
 	} {
 		t.Run(fixture.name, func(t *testing.T) {
 			root := t.TempDir()
@@ -151,9 +154,15 @@ if [[ "$*" == *'TestHistory|TestInputHistory'* ]]; then
   cat "$HISTORY_GATE_EVENTS"
 fi
 if [[ "$*" == *'-run ^TestExtensionWait' ]]; then
-  for pkg in extensionwait ops/extensions worker/ops metricsruntime secrets executionruntime worker/compiler childbroker; do
+  for pkg in extensionwait ops/extensions worker/ops metricsruntime secrets executionruntime worker/compiler childbroker recipetest; do
     printf '{"Action":"run","Package":"github.com/colony-2/c2j/pkg/%s","Test":"TestExtensionWaitFixture"}\n' "$pkg"
     printf '{"Action":"pass","Package":"github.com/colony-2/c2j/pkg/%s","Test":"TestExtensionWaitFixture"}\n' "$pkg"
+  done
+  for test_name in TestExtensionWaitCompilerBeyond64 TestExtensionWaitCompilerReadiness; do
+    if [ "$MISSING_COMPILER_READINESS" = true ] && [ "$test_name" = TestExtensionWaitCompilerReadiness ]; then continue; fi
+    for action in run pass; do
+      printf '{"Action":"%s","Package":"github.com/colony-2/c2j/pkg/worker/compiler","Test":"%s"}\n' "$action" "$test_name"
+    done
   done
   for backend in toy sqlite remote; do
     for target in job_target goal_target; do
@@ -209,6 +218,12 @@ if [[ "$*" == *standalone-squash-history.test.json* ]]; then
 elif [[ "$*" == *"-tags=integration -p 2"* ]]; then
   test -z "${GIT_TEMPLATE_DIR+x}"
 fi
+if [[ "$*" == *'test run --file testdata/repros/native-response-persistence/unexpected-error.test.yaml'* ]]; then
+  test "${@: -2:1}" = --out-dir
+  mkdir -p "${@: -1}"
+  printf '%s\n' '{"results":[{"status":"failed","run":{"runtime":{"submissions":[{"attempted":true,"api_error":{"kind":"storage"},"complete":false,"durable":{"status":"absent"},"fault":{"removed":true,"hits":1}}]}}}]}' > "${@: -1}/summary.json"
+  exit 4
+fi
 if [ "$1" = submit ]; then
   test "$#" = 2 && test "$2" = --help
   for flag in --wait-job --wait-job-success --wait-goal --wait-until; do
@@ -227,7 +242,7 @@ fi
 			commands := filepath.Join(root, "commands")
 			cmd := exec.Command("bash", "-c", node.Inputs["run"].(string))
 			cmd.Dir = root
-			cmd.Env = append(os.Environ(), "PATH="+bin+":"+os.Getenv("PATH"), "OUTBOX="+outbox, "COMMANDS="+commands, "FAIL_GATE="+fixture.failGate, fmt.Sprintf("MISSING_WAIT_GOAL=%t", fixture.missingWaitGoal), "C2J_CURRENT_JOB_ID=live", "C2J_CHILD_JOB_TOKEN=live", "C2J_WORKSPACE_ROOT=live", "C2J_JOBDB=embed:///", "C2J_TENANT_ID=live", "C2J_OBJECT_OUTBOX=live", "C2J_TEST_SUBMIT_BINARY=/stale/c2j", "C2J_REQUIRE_EXECUTION_BASE_CATALOG=true")
+			cmd.Env = append(os.Environ(), "PATH="+bin+":"+os.Getenv("PATH"), "OUTBOX="+outbox, "COMMANDS="+commands, "FAIL_GATE="+fixture.failGate, fmt.Sprintf("MISSING_WAIT_GOAL=%t", fixture.missingWaitGoal), fmt.Sprintf("MISSING_COMPILER_READINESS=%t", fixture.missingCompilerReadiness), "C2J_CURRENT_JOB_ID=live", "C2J_CHILD_JOB_TOKEN=live", "C2J_WORKSPACE_ROOT=live", "C2J_JOBDB=embed:///", "C2J_TENANT_ID=live", "C2J_OBJECT_OUTBOX=live", "C2J_TEST_SUBMIT_BINARY=/stale/c2j", "C2J_REQUIRE_EXECUTION_BASE_CATALOG=true")
 			cmd.Env = append(cmd.Env, "HISTORY_GATE_EVENTS="+historyEvents, "CATALOG_GATE_EVENTS="+catalogEvents, "CLONE_GATE_EVENTS="+cloneEvents)
 			out, err := cmd.CombinedOutput()
 			log, logErr := os.ReadFile(filepath.Join(outbox, "tests.log"))
@@ -241,7 +256,7 @@ fi
 					expectedExit = 1
 				}
 				require.Equal(t, expectedExit, cmd.ProcessState.ExitCode(), "%s\n%s", out, log)
-			} else if fixture.missingWaitGoal {
+			} else if fixture.missingWaitGoal || fixture.missingCompilerReadiness {
 				require.Error(t, err)
 				require.Equal(t, 1, cmd.ProcessState.ExitCode())
 			} else {
@@ -254,6 +269,13 @@ fi
 			raw = bytes.TrimPrefix(raw, []byte(cloneGate))
 			if fixture.failGate == "^TestCloneDuringRepack$" {
 				require.Empty(t, raw, "failed clone regression must prevent every later command")
+				return
+			}
+			if fixture.missingCompilerReadiness {
+				require.Contains(t, string(log), "Compiler scheduler readiness acceptance missing: TestExtensionWaitCompilerReadiness")
+				lines := strings.Split(strings.TrimSpace(string(raw)), "\n")
+				require.Contains(t, lines[len(lines)-1], "-run ^TestExtensionWait")
+				require.NotContains(t, string(raw), "-tags=integration -p 2", "missing readiness evidence must stop later checks")
 				return
 			}
 			// Retained history precedes the existing regression chain, using the
@@ -341,6 +363,11 @@ fi
 				require.NotContains(t, string(raw), "./internal/pathutil")
 				require.NotContains(t, string(raw), "./internal/retirementcheck")
 				require.NotContains(t, string(raw), "-tags=integration -p 2")
+			} else if fixture.failGate == "TestResponsePersistenceLegacyIsolation" {
+				lines := strings.Split(strings.TrimSpace(string(raw)), "\n")
+				require.Contains(t, lines[len(lines)-1], "-run ^(TestResponsePersistenceLegacyIsolation|TestResponsePersistenceScopeOnlyAfterLegacyWait|TestResponsePersistenceRootBeforeControlledChild|TestResponsePersistenceChildBeforeControlledGrandchild|TestResponsePersistenceLateChildLegacyIsolation|TestResponseSubmissionLegacyCannotBypassGate)$")
+				require.NotContains(t, string(raw), "./pkg/recipetest ./cmd/c2j/internal/testjob -run ^(TestResponsePersistence|TestResponseSubmission)")
+				require.NotContains(t, string(raw), "-tags=integration -p 2")
 			} else if fixture.failGate != "" {
 				require.NotContains(t, string(raw), "-tags=integration -p 2")
 				require.NotContains(t, string(raw), "./internal/retirementcheck")
@@ -365,6 +392,19 @@ fi
 				require.Contains(t, string(raw), "c2j test run --file testdata/repros/fixture-source-modes/modes.test.yaml --out-dir ")
 				require.Equal(t, 6, strings.Count(string(raw), "c2j test validate --file "))
 				require.Equal(t, 6, strings.Count(string(raw), "c2j test run --file "))
+				// Reconciliation must retain the upstream preservation gates alongside
+				// the candidate's response controls.
+				require.Contains(t, string(raw), "-run ^(TestReplayWrongWorker|TestExecutionDiagnostic|TestInfrastructure|TestCheckpointInfrastructure|TestInvocationInfrastructure)")
+				require.Contains(t, string(raw), "-run ^TestGrouping(SuccessorWaitsAndNoWriteLease|BackendRejectionsNeverFallBack|TransportFailureDoesNotResubmit)$")
+				require.Contains(t, string(raw), "TestC05RetainedServerCapabilities")
+				require.Less(t, strings.Index(string(raw), "-run ^(TestReplayWrongWorker"), strings.Index(string(raw), "-run ^(TestResponsePersistence"))
+				require.Contains(t, string(raw), "./pkg/recipetest ./cmd/c2j/internal/testjob -run ^(TestResponsePersistence|TestResponseSubmission)")
+				require.Contains(t, string(raw), "./pkg/recipetest -run ^(TestResponsePersistenceLegacyIsolation|TestResponsePersistenceScopeOnlyAfterLegacyWait|TestResponsePersistenceRootBeforeControlledChild|TestResponsePersistenceChildBeforeControlledGrandchild|TestResponsePersistenceLateChildLegacyIsolation|TestResponseSubmissionLegacyCannotBypassGate)$")
+				require.Contains(t, string(raw), "go test -mod=readonly -race -count=1 -timeout=10m ./pkg/recipetest -run ^(TestResponsePersistence|TestResponseSubmission)")
+				require.Contains(t, string(raw), "c2j-input-history test validate --file testdata/repros/native-response-persistence/response-persistence.test.yaml")
+				require.Contains(t, string(raw), "c2j-input-history test run --file testdata/repros/native-response-persistence/response-persistence.test.yaml")
+				require.Contains(t, string(raw), "c2j-input-history test run --file testdata/repros/native-response-persistence/unexpected-error.test.yaml")
+
 				for _, suite := range []string{"admission-ordering", "advancement", "cancellation", "worker-recovery", "standalone-squash-history"} {
 					fixture := "pkg/recipetest/testdata/native-scenarios/" + suite + ".test.json"
 					require.Contains(t, string(raw), "c2j test validate --file "+fixture+"\n")
@@ -780,6 +820,63 @@ func TestVerifyHookCloneEvidenceGuard(t *testing.T) {
 		t.Run(mode, func(t *testing.T) {
 			path := filepath.Join(t.TempDir(), "events.json")
 			require.NoError(t, os.WriteFile(path, cloneGateEvidence(mode), 0600))
+			cmd := exec.Command("node", "-", path)
+			cmd.Stdin = strings.NewReader(code)
+			out, err := cmd.CombinedOutput()
+			if mode == "passed" {
+				require.NoError(t, err, string(out))
+			} else {
+				require.Error(t, err, string(out))
+			}
+		})
+	}
+}
+
+func TestVerifyHookResponsePersistenceEvidenceGuard(t *testing.T) {
+	data, err := os.ReadFile("../../../.c2/recipes/hooks/build/verify.yaml")
+	require.NoError(t, err)
+	r, err := recipe.LoadRecipeFromString(data)
+	require.NoError(t, err)
+	node := r.RecipeImpl.(*recipe.RecipeState).States.States["test_integration"].Node.NodeImpl.(*recipe.NodeOp)
+	shell := node.Inputs["run"].(string)
+	marker := "node - \"$scratch/response-unexpected/summary.json\" <<'JS'\n"
+	start := strings.Index(shell, marker)
+	require.NotEqual(t, -1, start)
+	code := shell[start+len(marker):]
+	end := strings.Index(code, "\nJS\n")
+	require.NotEqual(t, -1, end)
+	code = code[:end]
+	for _, mode := range []string{"passed", "accepted", "unattempted", "missing-error", "complete", "stored", "not-removed", "not-hit", "empty"} {
+		t.Run(mode, func(t *testing.T) {
+			submission := map[string]any{
+				"attempted": true, "api_error": map[string]any{"kind": "storage"}, "complete": false,
+				"durable": map[string]any{"status": "absent"}, "fault": map[string]any{"removed": true, "hits": 1},
+			}
+			status := "failed"
+			switch mode {
+			case "accepted":
+				status = "passed"
+			case "unattempted":
+				submission["attempted"] = false
+			case "missing-error":
+				delete(submission, "api_error")
+			case "complete":
+				submission["complete"] = true
+			case "stored":
+				submission["durable"] = map[string]any{"status": "present"}
+			case "not-removed":
+				submission["fault"] = map[string]any{"removed": false, "hits": 1}
+			case "not-hit":
+				submission["fault"] = map[string]any{"removed": true, "hits": 0}
+			}
+			results := []any{map[string]any{"status": status, "run": map[string]any{"runtime": map[string]any{"submissions": []any{submission}}}}}
+			if mode == "empty" {
+				results = nil
+			}
+			raw, err := json.Marshal(map[string]any{"results": results})
+			require.NoError(t, err)
+			path := filepath.Join(t.TempDir(), "summary.json")
+			require.NoError(t, os.WriteFile(path, raw, 0600))
 			cmd := exec.Command("node", "-", path)
 			cmd.Stdin = strings.NewReader(code)
 			out, err := cmd.CombinedOutput()

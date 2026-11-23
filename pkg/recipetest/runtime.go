@@ -31,29 +31,30 @@ import (
 )
 
 type runtimeFixture struct {
-	nativeMu         sync.Mutex
-	scenario         *scenarioState
-	submissionMu     sync.Mutex
-	entrySeen        map[string]bool
-	rootJobID        string
-	gateCounts       map[int]int
-	waiting          map[string]bool
-	retainedCleanups []func()
-	controlWorktrees map[string]string
-	barriers         []*barrierState
-	mu               sync.Mutex
-	opts             HarnessOptions
-	c                Case
-	root             string
-	cells            map[string]string
-	seededRepos      map[string]string
-	fixtureFailure   string
-	selected         map[string]int
-	callIndexes      map[string]int
-	used             map[int]struct{}
-	responses        map[int]bool
-	report           RuntimeReport
-	ctl              *workerworkflow.SWFWorkflowControl
+	controlledResponses map[int]*controlledResponse
+	nativeMu            sync.Mutex
+	scenario            *scenarioState
+	submissionMu        sync.Mutex
+	entrySeen           map[string]bool
+	rootJobID           string
+	gateCounts          map[int]int
+	waiting             map[string]bool
+	retainedCleanups    []func()
+	controlWorktrees    map[string]string
+	barriers            []*barrierState
+	mu                  sync.Mutex
+	opts                HarnessOptions
+	c                   Case
+	root                string
+	cells               map[string]string
+	seededRepos         map[string]string
+	fixtureFailure      string
+	selected            map[string]int
+	callIndexes         map[string]int
+	used                map[int]struct{}
+	responses           map[int]bool
+	report              RuntimeReport
+	ctl                 *workerworkflow.SWFWorkflowControl
 }
 
 func runRuntimeCase(parent context.Context, opts HarnessOptions, tenant string, req caseInput, prepared preparedCase) (result CaseRunResult) {
@@ -232,6 +233,8 @@ func runRuntimeCase(parent context.Context, opts HarnessOptions, tenant string, 
 					session = fresh
 					input, e = inputop.NewRuntime(f.ctl, nil)
 					return e
+				case "expire_response_lease":
+					return f.expireResponseLease(ctx, a.Target)
 				case "start_worker":
 					if session.cancel != nil {
 						return fmt.Errorf("worker already running")
@@ -275,7 +278,11 @@ func runRuntimeCase(parent context.Context, opts HarnessOptions, tenant string, 
 			}
 			break
 		}
-		if err = f.answerInputs(ctx, tenant, input); err != nil {
+		if err = f.pumpResponseSubmissions(ctx, rt, tenant, input); err != nil {
+			result.FailureReason = f.controlError(err).Error()
+			break
+		}
+		if err = f.answerInputs(ctx, rt, tenant, input); err != nil {
 			result.FailureReason = err.Error()
 			break
 		}
@@ -775,7 +782,7 @@ func (f *runtimeFixture) invoke(deps coreops.OpDependencies, ctx context.Context
 	return out, nil
 }
 
-func (f *runtimeFixture) answerInputs(ctx context.Context, tenant string, input *inputop.Runtime) error {
+func (f *runtimeFixture) answerInputs(ctx context.Context, rt caseRuntime, tenant string, input *inputop.Runtime) error {
 	pending, err := input.ListPendingInputs(ctx, tenant)
 	if err != nil {
 		return err
@@ -795,10 +802,38 @@ func (f *runtimeFixture) answerInputs(ctx context.Context, tenant string, input 
 		if err != nil {
 			continue
 		}
-		matched := false
+		if f.hasResponseSubmissions() {
+			// A child can become pending after the scenario's binding snapshot.
+			// Resolve its native identity before deciding which responder owns it.
+			if err := f.bindScenarioJobs(ctx, rt, tenant); err != nil {
+				return f.controlError(err)
+			}
+			if f.hasUnboundResponse(item.Id, nodePath, cell) {
+				// Submission may be visible before its provenance is published.
+				// Observe again rather than let a broad legacy match consume it.
+				continue
+			}
+		}
+		matched := f.hasControlledResponse(item.Id)
+		if matched {
+			// A worker may publish this wait after the submission pump ran.
+			// Capture it before allowing a matching legacy fixture to answer.
+			for i, response := range f.c.Runtime.Responses {
+				if s := response.Submission; s != nil && f.scenario.report.Jobs[s.Pending.Job].Ref.JobID == item.Id {
+					if err := f.captureResponseSubmission(ctx, rt, tenant, i, input); err != nil {
+						return f.controlError(err)
+					}
+				}
+			}
+		}
+		// Reserve only that native request, including while its submission or
+		// recovery gates are pending. Other occurrences can use legacy fixtures.
+		if f.reservesPendingResponse(tenant, item.Id, form.RequestID) {
+			continue
+		}
 		deferred := false
 		for i, response := range f.c.Runtime.Responses {
-			if f.responses[i] || response.NodePath != nodePath {
+			if response.Submission != nil || f.responses[i] || response.NodePath != nodePath {
 				continue
 			}
 			if response.Cell != "" && response.Cell != cell {
@@ -1122,6 +1157,9 @@ type caseRuntime interface {
 func newCaseRuntime(ctx context.Context, root, tenant string, spec *RuntimeCase) (caseRuntime, func() error, error) {
 	provider := runtimeSecretProvider{tenant: tenant, values: spec.Secrets}
 	if spec.Backend == "sqlite" {
+		if err := registerResponseFaultProbe(); err != nil {
+			return nil, nil, err
+		}
 		rt, err := sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: filepath.Join(root, "jobs.db"), SecretProvider: provider})
 		if err != nil {
 			return nil, nil, err

@@ -21,6 +21,7 @@ import (
 	workerworkflow "github.com/colony-2/c2j/pkg/worker/workflow"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -46,7 +47,12 @@ func runNegotiatingRecipe(t *testing.T, rt jobdb.ConsumerRuntime, key jobdb.JobK
 	if supplied {
 		lease, err := rt.GetJobLease(ctx, jobdb.GetJobLeaseRequest{JobKey: key, Routes: []jobdb.Route{{JobType: "recipe"}}, WorkerID: req.WorkerID, LeaseDuration: time.Minute})
 		require.NoError(t, err)
-		require.NotNil(t, lease)
+		// SQLite can return a typed nil lease when the native job is not ready.
+		if !assert.NotNil(t, lease) {
+			info, infoErr := rt.GetJob(ctx, key)
+			run, runErr := jobdb.GetJobRun(ctx, rt, jobdb.GetJobRunRequest{JobKey: key})
+			t.Fatalf("native lease unavailable at %s: job=%+v job_error=%v schedule=%+v schedule_error=%v", time.Now().UTC().Format(time.RFC3339Nano), info, infoErr, run.Job, runErr)
+		}
 		return guard.RunWithLease(ctx, lease, req, nil)
 	}
 	run, err := jobworkflow.GetJobForRun(ctx, guard, req)

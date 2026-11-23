@@ -1,0 +1,1272 @@
+cases:
+    - assertions:
+        - node_path: persistence/continuation
+          type: op_call_count
+          value: 1
+        - expr: size(submissions) > 0 && submissions.all(s, s.version == 1 && s.complete && s.attempted && s.matched && s.pending.task.attempt == 1 && size(s.pending.task.invocation_id) > 0 && s.before.input_unchanged && s.after.input_unchanged) && controls.complete && controls.scenario.complete
+          type: cel_true
+        - expr: size(submissions) == 2 && submissions[0].returned_receipt == null && submissions[0].durable.status == 'absent' && size(submissions[0].checkpoints) == 1 && submissions[0].checkpoints[0].state.dispatches == 0 && submissions[0].checkpoints[0].state.actionable && submissions[0].checkpoints[0].state.lease == null && submissions[0].fault.hits == 1 && submissions[0].fault.removed && submissions[1].returned_receipt == submissions[1].durable.receipt && size(reviews) == 1
+          type: cel_true
+        - expr: submissions[0].checkpoints[0].recovery_mode == 'not_required' && submissions[0].checkpoints[0].replay == null && submissions[0].checkpoints[0].state.session == submissions[0].after.session
+          type: cel_true
+      id: form-claim
+      inputs:
+        structured: false
+      mocks:
+        ops:
+            - behavior:
+                error:
+                    message: ORIGINAL_NATIVE_CAUSE
+                mode: fail
+              match:
+                node_path: persistence/original
+            - behavior:
+                error:
+                    message: RECOVERY_NATIVE_CAUSE
+                mode: fail
+              match:
+                node_path: persistence/recovery
+            - behavior:
+                mode: return
+                outputs:
+                    ok: true
+              match:
+                node_path: persistence/continuation
+      runtime:
+        backend: sqlite
+        controls:
+            barriers: null
+            scenario:
+                actions:
+                    - after_all:
+                        - pending
+                      do: stop_worker
+                      id: stop
+                    - after_all:
+                        - healthy-attempted
+                      do: start_worker
+                      id: finish
+                events:
+                    - id: pending
+                      kind: response
+                      phase: pending
+                      response: faulted
+                    - id: attempted
+                      kind: response
+                      phase: attempted
+                      response: faulted
+                    - id: recovered
+                      kind: response
+                      phase: recovered
+                      response: faulted
+                      status: pending
+                    - id: healthy-attempted
+                      kind: response
+                      phase: attempted
+                      response: healthy
+                jobs:
+                    root:
+                        root: true
+                limits: {}
+                outcomes:
+                    root:
+                        status: completed
+                retain:
+                    - id: frozen-generation
+                      job: root
+                      task:
+                        attempt: 1
+                        node_path: persistence/reply
+                        occurrence: 1
+                        task_type: input:generate_form
+                    - id: original-input
+                      job: root
+                      part: input
+                      task:
+                        attempt: 1
+                        node_path: persistence/original
+                        occurrence: 1
+                        task_type: command_execution:command_execution
+                    - id: recovery-input
+                      job: root
+                      part: input
+                      task:
+                        attempt: 1
+                        node_path: persistence/recovery
+                        occurrence: 1
+                        task_type: command_execution:command_execution
+        responses:
+            - actor:
+                id: synthetic-human
+                kind: human
+              cell: root
+              fields:
+                context: diagnosis
+              node_path: persistence/reply
+              submission:
+                after_all:
+                    - stop
+                expect_error:
+                    kind: storage
+                fault: claim
+                id: faulted
+                pending:
+                    job: root
+                    task:
+                        attempt: 1
+                        node_path: persistence/reply
+                        occurrence: 1
+                        task_type: input:collect_user_input
+            - actor:
+                id: synthetic-human
+                kind: human
+              cell: root
+              fields:
+                context: diagnosis
+              node_path: persistence/reply
+              submission:
+                after_all:
+                    - recovered
+                id: healthy
+                pending:
+                    job: root
+                    task:
+                        attempt: 1
+                        node_path: persistence/reply
+                        occurrence: 1
+                        task_type: input:collect_user_input
+      type: integration_case
+    - assertions:
+        - node_path: persistence/continuation
+          type: op_call_count
+          value: 1
+        - expr: size(submissions) > 0 && submissions.all(s, s.version == 1 && s.complete && s.attempted && s.matched && s.pending.task.attempt == 1 && size(s.pending.task.invocation_id) > 0 && s.before.input_unchanged && s.after.input_unchanged) && controls.complete && controls.scenario.complete
+          type: cel_true
+        - expr: size(submissions) == 2 && submissions[0].returned_receipt == null && submissions[0].durable.status == 'absent' && size(submissions[0].checkpoints) == 1 && submissions[0].checkpoints[0].state.dispatches == 0 && submissions[0].checkpoints[0].state.actionable && submissions[0].checkpoints[0].state.lease == null && submissions[0].fault.hits == 1 && submissions[0].fault.removed && submissions[1].returned_receipt == submissions[1].durable.receipt && size(reviews) == 1
+          type: cel_true
+        - expr: submissions[0].after.lease != null && !submissions[0].after.actionable && submissions[0].checkpoints[0].recovery_mode == 'worker_replay' && submissions[0].checkpoints[0].replay.suspended && submissions[0].checkpoints[0].replay.session > submissions[0].after.session
+          type: cel_true
+      id: form-response_output
+      inputs:
+        structured: false
+      mocks:
+        ops:
+            - behavior:
+                error:
+                    message: ORIGINAL_NATIVE_CAUSE
+                mode: fail
+              match:
+                node_path: persistence/original
+            - behavior:
+                error:
+                    message: RECOVERY_NATIVE_CAUSE
+                mode: fail
+              match:
+                node_path: persistence/recovery
+            - behavior:
+                mode: return
+                outputs:
+                    ok: true
+              match:
+                node_path: persistence/continuation
+      runtime:
+        backend: sqlite
+        controls:
+            barriers: null
+            scenario:
+                actions:
+                    - after_all:
+                        - pending
+                      do: stop_worker
+                      id: stop
+                    - after_all:
+                        - attempted
+                      do: expire_response_lease
+                      id: expire
+                      target: faulted
+                    - after_all:
+                        - expire
+                      do: reopen_runtime
+                      id: reopen
+                    - after_all:
+                        - reopen
+                      do: start_worker
+                      id: start
+                    - after_all:
+                        - recovered
+                      do: stop_worker
+                      id: stop-again
+                    - after_all:
+                        - healthy-attempted
+                      do: start_worker
+                      id: finish
+                events:
+                    - id: pending
+                      kind: response
+                      phase: pending
+                      response: faulted
+                    - id: attempted
+                      kind: response
+                      phase: attempted
+                      response: faulted
+                    - id: recovered
+                      kind: response
+                      phase: recovered
+                      response: faulted
+                      status: pending
+                    - id: healthy-attempted
+                      kind: response
+                      phase: attempted
+                      response: healthy
+                jobs:
+                    root:
+                        root: true
+                limits: {}
+                outcomes:
+                    root:
+                        status: completed
+                retain:
+                    - id: frozen-generation
+                      job: root
+                      task:
+                        attempt: 1
+                        node_path: persistence/reply
+                        occurrence: 1
+                        task_type: input:generate_form
+                    - id: original-input
+                      job: root
+                      part: input
+                      task:
+                        attempt: 1
+                        node_path: persistence/original
+                        occurrence: 1
+                        task_type: command_execution:command_execution
+                    - id: recovery-input
+                      job: root
+                      part: input
+                      task:
+                        attempt: 1
+                        node_path: persistence/recovery
+                        occurrence: 1
+                        task_type: command_execution:command_execution
+        responses:
+            - actor:
+                id: synthetic-human
+                kind: human
+              cell: root
+              fields:
+                context: diagnosis
+              node_path: persistence/reply
+              submission:
+                after_all:
+                    - stop
+                expect_error:
+                    kind: input_not_pending
+                fault: response_output
+                id: faulted
+                pending:
+                    job: root
+                    task:
+                        attempt: 1
+                        node_path: persistence/reply
+                        occurrence: 1
+                        task_type: input:collect_user_input
+            - actor:
+                id: synthetic-human
+                kind: human
+              cell: root
+              fields:
+                context: diagnosis
+              node_path: persistence/reply
+              submission:
+                after_all:
+                    - stop-again
+                id: healthy
+                pending:
+                    job: root
+                    task:
+                        attempt: 1
+                        node_path: persistence/reply
+                        occurrence: 1
+                        task_type: input:collect_user_input
+      type: integration_case
+    - assertions:
+        - node_path: persistence/continuation
+          type: op_call_count
+          value: 1
+        - expr: size(submissions) > 0 && submissions.all(s, s.version == 1 && s.complete && s.attempted && s.matched && s.pending.task.attempt == 1 && size(s.pending.task.invocation_id) > 0 && s.before.input_unchanged && s.after.input_unchanged) && controls.complete && controls.scenario.complete
+          type: cel_true
+        - expr: size(submissions) == 1 && submissions[0].returned_receipt == null && submissions[0].durable.status == 'present' && submissions[0].fault.hits == 1 && submissions[0].fault.removed && size(submissions[0].checkpoints) == 2 && submissions[0].checkpoints.all(c, c.state.dispatches == 1 && c.state.durable.receipt == submissions[0].durable.receipt && c.state.input_unchanged) && submissions[0].checkpoints[1].state.position > submissions[0].checkpoints[0].state.position && size(reviews) == 0
+          type: cel_true
+      id: form-settlement
+      inputs:
+        structured: false
+      mocks:
+        ops:
+            - behavior:
+                error:
+                    message: ORIGINAL_NATIVE_CAUSE
+                mode: fail
+              match:
+                node_path: persistence/original
+            - behavior:
+                error:
+                    message: RECOVERY_NATIVE_CAUSE
+                mode: fail
+              match:
+                node_path: persistence/recovery
+            - behavior:
+                mode: return
+                outputs:
+                    ok: true
+              match:
+                node_path: persistence/continuation
+      runtime:
+        backend: sqlite
+        controls:
+            barriers: null
+            scenario:
+                actions:
+                    - after_all:
+                        - pending
+                      do: stop_worker
+                      id: stop
+                    - after_all:
+                        - attempted
+                      do: expire_response_lease
+                      id: expire
+                      target: faulted
+                    - after_all:
+                        - expire
+                      do: reopen_runtime
+                      id: reopen
+                    - after_all:
+                        - reopen
+                      do: start_worker
+                      id: start
+                    - after_all:
+                        - recovered
+                      do: stop_worker
+                      id: stop-complete
+                    - after_all:
+                        - stop-complete
+                      do: reopen_runtime
+                      id: reopen-complete
+                events:
+                    - id: pending
+                      kind: response
+                      phase: pending
+                      response: faulted
+                    - id: attempted
+                      kind: response
+                      phase: attempted
+                      response: faulted
+                    - id: recovered
+                      kind: response
+                      phase: recovered
+                      response: faulted
+                      status: completed
+                    - after_all:
+                        - reopen-complete
+                      id: reobserved
+                      kind: response
+                      phase: recovered
+                      response: faulted
+                      status: completed
+                jobs:
+                    root:
+                        root: true
+                limits: {}
+                outcomes:
+                    root:
+                        status: completed
+                retain:
+                    - id: frozen-generation
+                      job: root
+                      task:
+                        attempt: 1
+                        node_path: persistence/reply
+                        occurrence: 1
+                        task_type: input:generate_form
+                    - id: original-input
+                      job: root
+                      part: input
+                      task:
+                        attempt: 1
+                        node_path: persistence/original
+                        occurrence: 1
+                        task_type: command_execution:command_execution
+                    - id: recovery-input
+                      job: root
+                      part: input
+                      task:
+                        attempt: 1
+                        node_path: persistence/recovery
+                        occurrence: 1
+                        task_type: command_execution:command_execution
+        responses:
+            - actor:
+                id: synthetic-human
+                kind: human
+              cell: root
+              fields:
+                context: diagnosis
+              node_path: persistence/reply
+              submission:
+                after_all:
+                    - stop
+                expect_error:
+                    kind: storage
+                fault: settlement
+                id: faulted
+                pending:
+                    job: root
+                    task:
+                        attempt: 1
+                        node_path: persistence/reply
+                        occurrence: 1
+                        task_type: input:collect_user_input
+      type: integration_case
+    - assertions:
+        - node_path: persistence/continuation
+          type: op_call_count
+          value: 1
+        - expr: size(submissions) > 0 && submissions.all(s, s.version == 1 && s.complete && s.attempted && s.matched && s.pending.task.attempt == 1 && size(s.pending.task.invocation_id) > 0 && s.before.input_unchanged && s.after.input_unchanged) && controls.complete && controls.scenario.complete
+          type: cel_true
+        - expr: submissions[0].returned_receipt == submissions[0].durable.receipt && submissions[0].durable.status == 'present' && size(reviews) == 1
+          type: cel_true
+      id: form-healthy
+      inputs:
+        structured: false
+      mocks:
+        ops:
+            - behavior:
+                error:
+                    message: ORIGINAL_NATIVE_CAUSE
+                mode: fail
+              match:
+                node_path: persistence/original
+            - behavior:
+                error:
+                    message: RECOVERY_NATIVE_CAUSE
+                mode: fail
+              match:
+                node_path: persistence/recovery
+            - behavior:
+                mode: return
+                outputs:
+                    ok: true
+              match:
+                node_path: persistence/continuation
+      runtime:
+        backend: sqlite
+        controls:
+            barriers: null
+            scenario:
+                actions:
+                    - after_all:
+                        - pending
+                      do: stop_worker
+                      id: stop
+                    - after_all:
+                        - attempted
+                      do: start_worker
+                      id: finish
+                events:
+                    - id: pending
+                      kind: response
+                      phase: pending
+                      response: faulted
+                    - id: attempted
+                      kind: response
+                      phase: attempted
+                      response: faulted
+                jobs:
+                    root:
+                        root: true
+                limits: {}
+                outcomes:
+                    root:
+                        status: completed
+                retain:
+                    - id: frozen-generation
+                      job: root
+                      task:
+                        attempt: 1
+                        node_path: persistence/reply
+                        occurrence: 1
+                        task_type: input:generate_form
+                    - id: original-input
+                      job: root
+                      part: input
+                      task:
+                        attempt: 1
+                        node_path: persistence/original
+                        occurrence: 1
+                        task_type: command_execution:command_execution
+                    - id: recovery-input
+                      job: root
+                      part: input
+                      task:
+                        attempt: 1
+                        node_path: persistence/recovery
+                        occurrence: 1
+                        task_type: command_execution:command_execution
+        responses:
+            - actor:
+                id: synthetic-human
+                kind: human
+              cell: root
+              fields:
+                context: diagnosis
+              node_path: persistence/reply
+              submission:
+                after_all:
+                    - stop
+                id: faulted
+                pending:
+                    job: root
+                    task:
+                        attempt: 1
+                        node_path: persistence/reply
+                        occurrence: 1
+                        task_type: input:collect_user_input
+      type: integration_case
+    - assertions:
+        - node_path: persistence/continuation
+          type: op_call_count
+          value: 0
+        - expr: size(submissions) > 0 && submissions.all(s, s.version == 1 && s.complete && s.attempted && s.matched && s.pending.task.attempt == 1 && size(s.pending.task.invocation_id) > 0 && s.before.input_unchanged && s.after.input_unchanged) && controls.complete && controls.scenario.complete
+          type: cel_true
+        - expr: submissions[0].after.status == 'CANCELLED' && submissions[0].after.handle_present && !submissions[0].after.actionable && submissions[0].after.dispatches == 0 && submissions[0].durable.status == 'absent' && submissions[0].returned_receipt == null && size(reviews) == 0
+          type: cel_true
+      id: form-cancellation
+      inputs:
+        structured: false
+      mocks:
+        ops:
+            - behavior:
+                error:
+                    message: ORIGINAL_NATIVE_CAUSE
+                mode: fail
+              match:
+                node_path: persistence/original
+            - behavior:
+                error:
+                    message: RECOVERY_NATIVE_CAUSE
+                mode: fail
+              match:
+                node_path: persistence/recovery
+      runtime:
+        backend: sqlite
+        controls:
+            barriers: null
+            scenario:
+                actions:
+                    - after_all:
+                        - pending
+                      do: stop_worker
+                      id: stop
+                    - after_all:
+                        - stop
+                      do: cancel_job
+                      id: cancel
+                      target: root
+                events:
+                    - id: pending
+                      kind: response
+                      phase: pending
+                      response: faulted
+                    - id: attempted
+                      kind: response
+                      phase: attempted
+                      response: faulted
+                jobs:
+                    root:
+                        root: true
+                limits: {}
+                outcomes:
+                    root:
+                        status: cancelled
+                retain:
+                    - id: frozen-generation
+                      job: root
+                      task:
+                        attempt: 1
+                        node_path: persistence/reply
+                        occurrence: 1
+                        task_type: input:generate_form
+                    - id: original-input
+                      job: root
+                      part: input
+                      task:
+                        attempt: 1
+                        node_path: persistence/original
+                        occurrence: 1
+                        task_type: command_execution:command_execution
+                    - id: recovery-input
+                      job: root
+                      part: input
+                      task:
+                        attempt: 1
+                        node_path: persistence/recovery
+                        occurrence: 1
+                        task_type: command_execution:command_execution
+        responses:
+            - actor:
+                id: synthetic-human
+                kind: human
+              cell: root
+              fields:
+                context: diagnosis
+              node_path: persistence/reply
+              submission:
+                after_all:
+                    - cancel
+                expect_error:
+                    kind: storage
+                id: faulted
+                pending:
+                    job: root
+                    task:
+                        attempt: 1
+                        node_path: persistence/reply
+                        occurrence: 1
+                        task_type: input:collect_user_input
+      type: integration_case
+    - assertions:
+        - node_path: persistence/continuation
+          type: op_call_count
+          value: 1
+        - expr: size(submissions) > 0 && submissions.all(s, s.version == 1 && s.complete && s.attempted && s.matched && s.pending.task.attempt == 1 && size(s.pending.task.invocation_id) > 0 && s.before.input_unchanged && s.after.input_unchanged) && controls.complete && controls.scenario.complete
+          type: cel_true
+        - expr: size(submissions) == 2 && submissions[0].returned_receipt == null && submissions[0].durable.status == 'absent' && size(submissions[0].checkpoints) == 1 && submissions[0].checkpoints[0].state.dispatches == 0 && submissions[0].checkpoints[0].state.actionable && submissions[0].checkpoints[0].state.lease == null && submissions[0].fault.hits == 1 && submissions[0].fault.removed && submissions[1].returned_receipt == submissions[1].durable.receipt && size(reviews) == 1
+          type: cel_true
+        - expr: submissions[0].checkpoints[0].recovery_mode == 'not_required' && submissions[0].checkpoints[0].replay == null && submissions[0].checkpoints[0].state.session == submissions[0].after.session
+          type: cel_true
+      id: structured-claim
+      inputs:
+        structured: true
+      mocks:
+        ops:
+            - behavior:
+                error:
+                    message: ORIGINAL_NATIVE_CAUSE
+                mode: fail
+              match:
+                node_path: persistence/original
+            - behavior:
+                error:
+                    message: RECOVERY_NATIVE_CAUSE
+                mode: fail
+              match:
+                node_path: persistence/recovery
+            - behavior:
+                mode: return
+                outputs:
+                    ok: true
+              match:
+                node_path: persistence/continuation
+      runtime:
+        backend: sqlite
+        controls:
+            barriers: null
+            scenario:
+                actions:
+                    - after_all:
+                        - pending
+                      do: stop_worker
+                      id: stop
+                    - after_all:
+                        - healthy-attempted
+                      do: start_worker
+                      id: finish
+                events:
+                    - id: pending
+                      kind: response
+                      phase: pending
+                      response: faulted
+                    - id: attempted
+                      kind: response
+                      phase: attempted
+                      response: faulted
+                    - id: recovered
+                      kind: response
+                      phase: recovered
+                      response: faulted
+                      status: pending
+                    - id: healthy-attempted
+                      kind: response
+                      phase: attempted
+                      response: healthy
+                jobs:
+                    root:
+                        root: true
+                limits: {}
+                outcomes:
+                    root:
+                        status: completed
+                retain:
+                    - id: frozen-generation
+                      job: root
+                      task:
+                        attempt: 1
+                        node_path: persistence/reply
+                        occurrence: 1
+                        task_type: input:generate_form
+                    - id: original-input
+                      job: root
+                      part: input
+                      task:
+                        attempt: 1
+                        node_path: persistence/original
+                        occurrence: 1
+                        task_type: command_execution:command_execution
+                    - id: recovery-input
+                      job: root
+                      part: input
+                      task:
+                        attempt: 1
+                        node_path: persistence/recovery
+                        occurrence: 1
+                        task_type: command_execution:command_execution
+        responses:
+            - actor:
+                id: synthetic-human
+                kind: human
+              cell: root
+              node_path: persistence/reply
+              response:
+                context: diagnosis
+              submission:
+                after_all:
+                    - stop
+                expect_error:
+                    kind: storage
+                fault: claim
+                id: faulted
+                pending:
+                    job: root
+                    task:
+                        attempt: 1
+                        node_path: persistence/reply
+                        occurrence: 1
+                        task_type: input:collect_user_input
+            - actor:
+                id: synthetic-human
+                kind: human
+              cell: root
+              node_path: persistence/reply
+              response:
+                context: diagnosis
+              submission:
+                after_all:
+                    - recovered
+                id: healthy
+                pending:
+                    job: root
+                    task:
+                        attempt: 1
+                        node_path: persistence/reply
+                        occurrence: 1
+                        task_type: input:collect_user_input
+      type: integration_case
+    - assertions:
+        - node_path: persistence/continuation
+          type: op_call_count
+          value: 1
+        - expr: size(submissions) > 0 && submissions.all(s, s.version == 1 && s.complete && s.attempted && s.matched && s.pending.task.attempt == 1 && size(s.pending.task.invocation_id) > 0 && s.before.input_unchanged && s.after.input_unchanged) && controls.complete && controls.scenario.complete
+          type: cel_true
+        - expr: size(submissions) == 2 && submissions[0].returned_receipt == null && submissions[0].durable.status == 'absent' && size(submissions[0].checkpoints) == 1 && submissions[0].checkpoints[0].state.dispatches == 0 && submissions[0].checkpoints[0].state.actionable && submissions[0].checkpoints[0].state.lease == null && submissions[0].fault.hits == 1 && submissions[0].fault.removed && submissions[1].returned_receipt == submissions[1].durable.receipt && size(reviews) == 1
+          type: cel_true
+        - expr: submissions[0].after.lease != null && !submissions[0].after.actionable && submissions[0].checkpoints[0].recovery_mode == 'worker_replay' && submissions[0].checkpoints[0].replay.suspended && submissions[0].checkpoints[0].replay.session > submissions[0].after.session
+          type: cel_true
+      id: structured-response_output
+      inputs:
+        structured: true
+      mocks:
+        ops:
+            - behavior:
+                error:
+                    message: ORIGINAL_NATIVE_CAUSE
+                mode: fail
+              match:
+                node_path: persistence/original
+            - behavior:
+                error:
+                    message: RECOVERY_NATIVE_CAUSE
+                mode: fail
+              match:
+                node_path: persistence/recovery
+            - behavior:
+                mode: return
+                outputs:
+                    ok: true
+              match:
+                node_path: persistence/continuation
+      runtime:
+        backend: sqlite
+        controls:
+            barriers: null
+            scenario:
+                actions:
+                    - after_all:
+                        - pending
+                      do: stop_worker
+                      id: stop
+                    - after_all:
+                        - attempted
+                      do: expire_response_lease
+                      id: expire
+                      target: faulted
+                    - after_all:
+                        - expire
+                      do: reopen_runtime
+                      id: reopen
+                    - after_all:
+                        - reopen
+                      do: start_worker
+                      id: start
+                    - after_all:
+                        - recovered
+                      do: stop_worker
+                      id: stop-again
+                    - after_all:
+                        - healthy-attempted
+                      do: start_worker
+                      id: finish
+                events:
+                    - id: pending
+                      kind: response
+                      phase: pending
+                      response: faulted
+                    - id: attempted
+                      kind: response
+                      phase: attempted
+                      response: faulted
+                    - id: recovered
+                      kind: response
+                      phase: recovered
+                      response: faulted
+                      status: pending
+                    - id: healthy-attempted
+                      kind: response
+                      phase: attempted
+                      response: healthy
+                jobs:
+                    root:
+                        root: true
+                limits: {}
+                outcomes:
+                    root:
+                        status: completed
+                retain:
+                    - id: frozen-generation
+                      job: root
+                      task:
+                        attempt: 1
+                        node_path: persistence/reply
+                        occurrence: 1
+                        task_type: input:generate_form
+                    - id: original-input
+                      job: root
+                      part: input
+                      task:
+                        attempt: 1
+                        node_path: persistence/original
+                        occurrence: 1
+                        task_type: command_execution:command_execution
+                    - id: recovery-input
+                      job: root
+                      part: input
+                      task:
+                        attempt: 1
+                        node_path: persistence/recovery
+                        occurrence: 1
+                        task_type: command_execution:command_execution
+        responses:
+            - actor:
+                id: synthetic-human
+                kind: human
+              cell: root
+              node_path: persistence/reply
+              response:
+                context: diagnosis
+              submission:
+                after_all:
+                    - stop
+                expect_error:
+                    kind: input_not_pending
+                fault: response_output
+                id: faulted
+                pending:
+                    job: root
+                    task:
+                        attempt: 1
+                        node_path: persistence/reply
+                        occurrence: 1
+                        task_type: input:collect_user_input
+            - actor:
+                id: synthetic-human
+                kind: human
+              cell: root
+              node_path: persistence/reply
+              response:
+                context: diagnosis
+              submission:
+                after_all:
+                    - stop-again
+                id: healthy
+                pending:
+                    job: root
+                    task:
+                        attempt: 1
+                        node_path: persistence/reply
+                        occurrence: 1
+                        task_type: input:collect_user_input
+      type: integration_case
+    - assertions:
+        - node_path: persistence/continuation
+          type: op_call_count
+          value: 1
+        - expr: size(submissions) > 0 && submissions.all(s, s.version == 1 && s.complete && s.attempted && s.matched && s.pending.task.attempt == 1 && size(s.pending.task.invocation_id) > 0 && s.before.input_unchanged && s.after.input_unchanged) && controls.complete && controls.scenario.complete
+          type: cel_true
+        - expr: size(submissions) == 1 && submissions[0].returned_receipt == null && submissions[0].durable.status == 'present' && submissions[0].fault.hits == 1 && submissions[0].fault.removed && size(submissions[0].checkpoints) == 2 && submissions[0].checkpoints.all(c, c.state.dispatches == 1 && c.state.durable.receipt == submissions[0].durable.receipt && c.state.input_unchanged) && submissions[0].checkpoints[1].state.position > submissions[0].checkpoints[0].state.position && size(reviews) == 0
+          type: cel_true
+      id: structured-settlement
+      inputs:
+        structured: true
+      mocks:
+        ops:
+            - behavior:
+                error:
+                    message: ORIGINAL_NATIVE_CAUSE
+                mode: fail
+              match:
+                node_path: persistence/original
+            - behavior:
+                error:
+                    message: RECOVERY_NATIVE_CAUSE
+                mode: fail
+              match:
+                node_path: persistence/recovery
+            - behavior:
+                mode: return
+                outputs:
+                    ok: true
+              match:
+                node_path: persistence/continuation
+      runtime:
+        backend: sqlite
+        controls:
+            barriers: null
+            scenario:
+                actions:
+                    - after_all:
+                        - pending
+                      do: stop_worker
+                      id: stop
+                    - after_all:
+                        - attempted
+                      do: expire_response_lease
+                      id: expire
+                      target: faulted
+                    - after_all:
+                        - expire
+                      do: reopen_runtime
+                      id: reopen
+                    - after_all:
+                        - reopen
+                      do: start_worker
+                      id: start
+                    - after_all:
+                        - recovered
+                      do: stop_worker
+                      id: stop-complete
+                    - after_all:
+                        - stop-complete
+                      do: reopen_runtime
+                      id: reopen-complete
+                events:
+                    - id: pending
+                      kind: response
+                      phase: pending
+                      response: faulted
+                    - id: attempted
+                      kind: response
+                      phase: attempted
+                      response: faulted
+                    - id: recovered
+                      kind: response
+                      phase: recovered
+                      response: faulted
+                      status: completed
+                    - after_all:
+                        - reopen-complete
+                      id: reobserved
+                      kind: response
+                      phase: recovered
+                      response: faulted
+                      status: completed
+                jobs:
+                    root:
+                        root: true
+                limits: {}
+                outcomes:
+                    root:
+                        status: completed
+                retain:
+                    - id: frozen-generation
+                      job: root
+                      task:
+                        attempt: 1
+                        node_path: persistence/reply
+                        occurrence: 1
+                        task_type: input:generate_form
+                    - id: original-input
+                      job: root
+                      part: input
+                      task:
+                        attempt: 1
+                        node_path: persistence/original
+                        occurrence: 1
+                        task_type: command_execution:command_execution
+                    - id: recovery-input
+                      job: root
+                      part: input
+                      task:
+                        attempt: 1
+                        node_path: persistence/recovery
+                        occurrence: 1
+                        task_type: command_execution:command_execution
+        responses:
+            - actor:
+                id: synthetic-human
+                kind: human
+              cell: root
+              node_path: persistence/reply
+              response:
+                context: diagnosis
+              submission:
+                after_all:
+                    - stop
+                expect_error:
+                    kind: storage
+                fault: settlement
+                id: faulted
+                pending:
+                    job: root
+                    task:
+                        attempt: 1
+                        node_path: persistence/reply
+                        occurrence: 1
+                        task_type: input:collect_user_input
+      type: integration_case
+    - assertions:
+        - node_path: persistence/continuation
+          type: op_call_count
+          value: 1
+        - expr: size(submissions) > 0 && submissions.all(s, s.version == 1 && s.complete && s.attempted && s.matched && s.pending.task.attempt == 1 && size(s.pending.task.invocation_id) > 0 && s.before.input_unchanged && s.after.input_unchanged) && controls.complete && controls.scenario.complete
+          type: cel_true
+        - expr: submissions[0].returned_receipt == submissions[0].durable.receipt && submissions[0].durable.status == 'present' && size(reviews) == 1
+          type: cel_true
+      id: structured-healthy
+      inputs:
+        structured: true
+      mocks:
+        ops:
+            - behavior:
+                error:
+                    message: ORIGINAL_NATIVE_CAUSE
+                mode: fail
+              match:
+                node_path: persistence/original
+            - behavior:
+                error:
+                    message: RECOVERY_NATIVE_CAUSE
+                mode: fail
+              match:
+                node_path: persistence/recovery
+            - behavior:
+                mode: return
+                outputs:
+                    ok: true
+              match:
+                node_path: persistence/continuation
+      runtime:
+        backend: sqlite
+        controls:
+            barriers: null
+            scenario:
+                actions:
+                    - after_all:
+                        - pending
+                      do: stop_worker
+                      id: stop
+                    - after_all:
+                        - attempted
+                      do: start_worker
+                      id: finish
+                events:
+                    - id: pending
+                      kind: response
+                      phase: pending
+                      response: faulted
+                    - id: attempted
+                      kind: response
+                      phase: attempted
+                      response: faulted
+                jobs:
+                    root:
+                        root: true
+                limits: {}
+                outcomes:
+                    root:
+                        status: completed
+                retain:
+                    - id: frozen-generation
+                      job: root
+                      task:
+                        attempt: 1
+                        node_path: persistence/reply
+                        occurrence: 1
+                        task_type: input:generate_form
+                    - id: original-input
+                      job: root
+                      part: input
+                      task:
+                        attempt: 1
+                        node_path: persistence/original
+                        occurrence: 1
+                        task_type: command_execution:command_execution
+                    - id: recovery-input
+                      job: root
+                      part: input
+                      task:
+                        attempt: 1
+                        node_path: persistence/recovery
+                        occurrence: 1
+                        task_type: command_execution:command_execution
+        responses:
+            - actor:
+                id: synthetic-human
+                kind: human
+              cell: root
+              node_path: persistence/reply
+              response:
+                context: diagnosis
+              submission:
+                after_all:
+                    - stop
+                id: faulted
+                pending:
+                    job: root
+                    task:
+                        attempt: 1
+                        node_path: persistence/reply
+                        occurrence: 1
+                        task_type: input:collect_user_input
+      type: integration_case
+    - assertions:
+        - node_path: persistence/continuation
+          type: op_call_count
+          value: 0
+        - expr: size(submissions) > 0 && submissions.all(s, s.version == 1 && s.complete && s.attempted && s.matched && s.pending.task.attempt == 1 && size(s.pending.task.invocation_id) > 0 && s.before.input_unchanged && s.after.input_unchanged) && controls.complete && controls.scenario.complete
+          type: cel_true
+        - expr: submissions[0].after.status == 'CANCELLED' && submissions[0].after.handle_present && !submissions[0].after.actionable && submissions[0].after.dispatches == 0 && submissions[0].durable.status == 'absent' && submissions[0].returned_receipt == null && size(reviews) == 0
+          type: cel_true
+      id: structured-cancellation
+      inputs:
+        structured: true
+      mocks:
+        ops:
+            - behavior:
+                error:
+                    message: ORIGINAL_NATIVE_CAUSE
+                mode: fail
+              match:
+                node_path: persistence/original
+            - behavior:
+                error:
+                    message: RECOVERY_NATIVE_CAUSE
+                mode: fail
+              match:
+                node_path: persistence/recovery
+      runtime:
+        backend: sqlite
+        controls:
+            barriers: null
+            scenario:
+                actions:
+                    - after_all:
+                        - pending
+                      do: stop_worker
+                      id: stop
+                    - after_all:
+                        - stop
+                      do: cancel_job
+                      id: cancel
+                      target: root
+                events:
+                    - id: pending
+                      kind: response
+                      phase: pending
+                      response: faulted
+                    - id: attempted
+                      kind: response
+                      phase: attempted
+                      response: faulted
+                jobs:
+                    root:
+                        root: true
+                limits: {}
+                outcomes:
+                    root:
+                        status: cancelled
+                retain:
+                    - id: frozen-generation
+                      job: root
+                      task:
+                        attempt: 1
+                        node_path: persistence/reply
+                        occurrence: 1
+                        task_type: input:generate_form
+                    - id: original-input
+                      job: root
+                      part: input
+                      task:
+                        attempt: 1
+                        node_path: persistence/original
+                        occurrence: 1
+                        task_type: command_execution:command_execution
+                    - id: recovery-input
+                      job: root
+                      part: input
+                      task:
+                        attempt: 1
+                        node_path: persistence/recovery
+                        occurrence: 1
+                        task_type: command_execution:command_execution
+        responses:
+            - actor:
+                id: synthetic-human
+                kind: human
+              cell: root
+              node_path: persistence/reply
+              response:
+                context: diagnosis
+              submission:
+                after_all:
+                    - cancel
+                expect_error:
+                    kind: storage
+                id: faulted
+                pending:
+                    job: root
+                    task:
+                        attempt: 1
+                        node_path: persistence/reply
+                        occurrence: 1
+                        task_type: input:collect_user_input
+      type: integration_case
+recipe: recipe.yaml

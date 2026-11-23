@@ -56,8 +56,9 @@ type OrderingEvent struct {
 
 type InputFixture struct {
 	// Actor selects a synthetic identity for this response only; nil uses recipe-test/test.
-	Actor     *inputop.Actor `json:"actor,omitempty"`
-	AfterCall *AfterCall     `json:"after_call,omitempty"`
+	Submission *ResponseSubmission `json:"submission,omitempty"`
+	Actor      *inputop.Actor      `json:"actor,omitempty"`
+	AfterCall  *AfterCall          `json:"after_call,omitempty"`
 	// After gates this native submission on a prepared control event. The pending
 	// form is captured on one controller pass before submission on a later pass.
 	After       string            `json:"after,omitempty"`
@@ -100,6 +101,7 @@ type RepositoryReport struct {
 }
 
 type RuntimeReport struct {
+	Submissions           []SubmissionAttempt         `json:"submissions,omitempty"`
 	FixtureAllocation     *execution.Allocation       `json:"fixture_allocation,omitempty"`
 	Events                []OrderingEvent             `json:"events,omitempty"`
 	Controls              *ControlReport              `json:"controls,omitempty"`
@@ -140,6 +142,9 @@ func fixturePath(root, name string) (string, error) {
 
 func validateRuntimeCase(opts HarnessOptions, c Case) []Issue {
 	issues := validateResponses(c)
+	if err := validateResponseSubmissions(c); err != nil {
+		issues = append(issues, Issue{Code: "invalid_runtime_fixture", Message: err.Error()})
+	}
 	add := func(err error) {
 		if err != nil {
 			issues = append(issues, Issue{Code: "invalid_runtime_fixture", Message: err.Error()})
@@ -317,6 +322,9 @@ func validateFixtureActor(actor *inputop.Actor) error {
 func (r *InputFixture) UnmarshalJSON(data []byte) error {
 	var fields map[string]json.RawMessage
 	if err := json.Unmarshal(data, &fields); err != nil {
+		return err
+	}
+	if err := strictSubmissionMember(data); err != nil {
 		return err
 	}
 	// Match encoding/json's field-name aliases so capitalization cannot bypass

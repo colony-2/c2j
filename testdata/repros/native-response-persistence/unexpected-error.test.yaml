@@ -1,0 +1,129 @@
+cases:
+    - assertions:
+        - node_path: persistence/continuation
+          type: op_call_count
+          value: 1
+      id: unexpected-error
+      mocks:
+        ops:
+            - behavior:
+                error:
+                    message: ORIGINAL_NATIVE_CAUSE
+                mode: fail
+              match:
+                node_path: persistence/original
+            - behavior:
+                error:
+                    message: RECOVERY_NATIVE_CAUSE
+                mode: fail
+              match:
+                node_path: persistence/recovery
+            - behavior:
+                mode: return
+                outputs:
+                    ok: true
+              match:
+                node_path: persistence/continuation
+      runtime:
+        backend: sqlite
+        controls:
+            barriers: null
+            scenario:
+                actions:
+                    - after_all:
+                        - pending
+                      do: stop_worker
+                      id: stop
+                    - after_all:
+                        - healthy-attempted
+                      do: start_worker
+                      id: finish
+                events:
+                    - id: pending
+                      kind: response
+                      phase: pending
+                      response: faulted
+                    - id: attempted
+                      kind: response
+                      phase: attempted
+                      response: faulted
+                    - id: recovered
+                      kind: response
+                      phase: recovered
+                      response: faulted
+                      status: pending
+                    - id: healthy-attempted
+                      kind: response
+                      phase: attempted
+                      response: healthy
+                jobs:
+                    root:
+                        root: true
+                limits: {}
+                outcomes:
+                    root:
+                        status: completed
+                retain:
+                    - id: frozen-generation
+                      job: root
+                      task:
+                        attempt: 1
+                        node_path: persistence/reply
+                        occurrence: 1
+                        task_type: input:generate_form
+                    - id: original-input
+                      job: root
+                      part: input
+                      task:
+                        attempt: 1
+                        node_path: persistence/original
+                        occurrence: 1
+                        task_type: command_execution:command_execution
+                    - id: recovery-input
+                      job: root
+                      part: input
+                      task:
+                        attempt: 1
+                        node_path: persistence/recovery
+                        occurrence: 1
+                        task_type: command_execution:command_execution
+        responses:
+            - actor:
+                id: synthetic-human
+                kind: human
+              cell: root
+              fields:
+                context: diagnosis
+              node_path: persistence/reply
+              submission:
+                after_all:
+                    - stop
+                fault: claim
+                id: faulted
+                pending:
+                    job: root
+                    task:
+                        attempt: 1
+                        node_path: persistence/reply
+                        occurrence: 1
+                        task_type: input:collect_user_input
+            - actor:
+                id: synthetic-human
+                kind: human
+              cell: root
+              fields:
+                context: diagnosis
+              node_path: persistence/reply
+              submission:
+                after_all:
+                    - recovered
+                id: healthy
+                pending:
+                    job: root
+                    task:
+                        attempt: 1
+                        node_path: persistence/reply
+                        occurrence: 1
+                        task_type: input:collect_user_input
+      type: integration_case
+recipe: recipe.yaml

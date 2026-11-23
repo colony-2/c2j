@@ -108,7 +108,7 @@ outputs: {result: '${{ sequence.waiting.outputs }}'}
 			require.NoError(t, err)
 			require.Equal(t, info.ClientPayloadRevision, after.ClientPayloadRevision)
 			// Actual elapsed-time scheduling, followed by a supplied-lease worker change.
-			time.Sleep(1100 * time.Millisecond)
+			waitForCompilerJobReady(t, rt, key, 1, time.Sleep)
 			out, err = runNegotiatingRecipe(t, rt, key, allocation, true)
 			require.NoError(t, err)
 			result := gitLifecycleOutput(t, out)["result"].(map[string]any)
@@ -170,6 +170,7 @@ outputs: {result: '${{ sequence.waiting.outputs }}'}
 	ctx := celltest.Context(context.Background())
 	var firstInvocation string
 	for i := 0; i < 65; i++ {
+		waitForCompilerJobReady(t, rt, key, i, time.Sleep)
 		out, err := runNegotiatingRecipe(t, rt, key, execution.Allocation{SchemaVersion: 2}, i%2 == 1)
 		require.NoError(t, err)
 		require.Equal(t, wf.JobRunSuspended, out.Status, "activation %d: %v", i, out.JobError)
@@ -186,15 +187,14 @@ outputs: {result: '${{ sequence.waiting.outputs }}'}
 		}
 		require.NoError(t, json.Unmarshal(info.ClientPayload, &payload))
 		g := payload.C2J.Gate
+		require.False(t, g.NotBefore.IsZero(), "activation %d: missing gate time", i)
 		require.Equal(t, 1, g.Attempt)
 		if i == 0 {
 			firstInvocation = g.Invocation
 		}
 		require.Equal(t, firstInvocation, g.Invocation)
-		if d := time.Until(g.NotBefore); d > 0 {
-			time.Sleep(d + 20*time.Millisecond)
-		}
 	}
+	waitForCompilerJobReady(t, rt, key, 65, time.Sleep)
 	out, err := runNegotiatingRecipe(t, rt, key, execution.Allocation{SchemaVersion: 2}, false)
 	require.NoError(t, err)
 	result := gitLifecycleOutput(t, out)["result"].(map[string]any)
@@ -206,6 +206,62 @@ outputs: {result: '${{ sequence.waiting.outputs }}'}
 	for _, line := range lines {
 		require.Equal(t, lines[0], line)
 	}
+}
+
+// Timer completion does not establish wall-clock eligibility. Observe the native
+// scheduler before each activation, and fail rather than retry other states.
+func waitForCompilerJobReady(t *testing.T, rt jobdb.ConsumerRuntime, key jobdb.JobKey, activation int, sleep func(time.Duration)) {
+	t.Helper()
+	ctx := celltest.Context(context.Background())
+	run, err := jobdb.GetJobRun(ctx, rt, jobdb.GetJobRunRequest{JobKey: key})
+	require.NoError(t, err)
+	limit := time.Now().Add(max(time.Until(run.Job.AvailableAt), 0) + 5*time.Second)
+	for {
+		info, err := rt.GetJob(ctx, key)
+		require.NoError(t, err)
+		diagnostic := fmt.Sprintf("activation=%d at=%s status=%s route=%+v available_at=%s execution=%+v gate=%s", activation, time.Now().UTC().Format(time.RFC3339Nano), info.Status, info.NextRoute, run.Job.AvailableAt.Format(time.RFC3339Nano), info.ExecutionState, info.ClientPayload)
+		if info.Status == jobdb.JobStatusReady {
+			t.Log(diagnostic)
+			return
+		}
+		require.Equal(t, jobdb.JobStatusAwaitingFuture, info.Status, diagnostic)
+		require.True(t, time.Now().Before(limit), "scheduler readiness deadline: %s", diagnostic)
+		sleep(min(max(time.Until(run.Job.AvailableAt), 0)+20*time.Millisecond, 100*time.Millisecond))
+	}
+}
+
+func TestExtensionWaitCompilerReadiness(t *testing.T) {
+	rt := newTimeoutReproRuntime(t, "sqlite").ConsumerRuntime
+	key := submitTimeoutRepro(t, rt, "compiler-readiness", jobdb.RunPolicy{})
+	ctx := celltest.Context(context.Background())
+	lease, err := rt.GetJobLease(ctx, jobdb.GetJobLeaseRequest{JobKey: key, Routes: []jobdb.Route{{JobType: "repro"}}, WorkerID: "seed", LeaseDuration: time.Minute})
+	require.NoError(t, err)
+	require.NotNil(t, lease)
+	until := time.Now().UTC().Add(time.Second)
+	require.NoError(t, lease.Reschedule(ctx, jobdb.RescheduleExecutionRequest{NextRoute: jobdb.Route{JobType: "recipe"}, WaitUntil: &until}))
+	sleeps := 0
+	waitForCompilerJobReady(t, rt, key, 1, func(d time.Duration) {
+		sleeps++
+		if sleeps == 1 {
+			// Simulate a timer waking before wall time reaches readiness. The old
+			// single sleep would submit now and receive (nil lease, nil error).
+			info, err := rt.GetJob(ctx, key)
+			require.NoError(t, err)
+			require.Equal(t, jobdb.JobStatusAwaitingFuture, info.Status)
+			early, err := rt.GetJobLease(ctx, jobdb.GetJobLeaseRequest{JobKey: key, Routes: []jobdb.Route{{JobType: "recipe"}}, WorkerID: "early", LeaseDuration: time.Minute})
+			require.NoError(t, err)
+			require.Nil(t, early)
+			t.Logf("early wake: status=%s until=%s at=%s lease=nil error=nil", info.Status, until.Format(time.RFC3339Nano), time.Now().UTC().Format(time.RFC3339Nano))
+			return
+		}
+		time.Sleep(d)
+	})
+	require.Greater(t, sleeps, 1, "early wake must recheck scheduler readiness")
+	lease, err = rt.GetJobLease(ctx, jobdb.GetJobLeaseRequest{JobKey: key, Routes: []jobdb.Route{{JobType: "recipe"}}, WorkerID: "ready", LeaseDuration: time.Minute})
+	require.NoError(t, err)
+	require.NotNil(t, lease)
+	// Release the test's lease without executing or cancelling the fixture.
+	require.NoError(t, lease.Reschedule(ctx, jobdb.RescheduleExecutionRequest{NextRoute: jobdb.Route{JobType: "recipe"}}))
 }
 
 func TestExtensionWaitSelectorResolution(t *testing.T) {
@@ -244,7 +300,7 @@ output_schema: {type: object, required: [ready]}
 			require.NoError(t, e)
 			require.Equal(t, wf.JobRunSuspended, out.Status, "%v", out.JobError)
 			commitHookFile(t, source, "ops/wait/op.yaml", manifest(2))
-			time.Sleep(1100 * time.Millisecond)
+			waitForCompilerJobReady(t, rt, key, 1, time.Sleep)
 			out, e = runNegotiatingRecipe(t, rt, key, execution.Allocation{SchemaVersion: 2}, false)
 			require.NoError(t, e)
 			result := gitLifecycleOutput(t, out)["result"].(map[string]any)

@@ -441,11 +441,24 @@ func (f *runtimeFixture) pumpScenario(ctx context.Context, rt caseRuntime, tenan
 		if s.facts[e.ID] {
 			continue
 		}
+		readyGate := true
+		for _, p := range e.AfterAll {
+			readyGate = readyGate && (s.facts[p] || s.actions[p])
+		}
+		if !readyGate {
+			continue
+		}
 		fact := ScenarioFact{ID: e.ID}
 		j := s.report.Jobs[e.Job]
 		fact.JobID = j.Ref.JobID
 		ready := false
 		switch e.Kind {
+		case "response":
+			var err error
+			ready, fact, err = f.responseFact(ctx, rt, tenant, e)
+			if err != nil {
+				return false, f.controlError(err)
+			}
 		case "submission":
 			ready = j.Ref.JobID != ""
 		case "dispatch":
@@ -533,6 +546,11 @@ func (f *runtimeFixture) pumpScenario(ctx context.Context, rt caseRuntime, tenan
 		}
 		// Reopen replaces runtime-bound readers. Resume inspection on the next pass.
 		if a.Do == "reopen_runtime" || a.Do == "start_worker" || a.Do == "stop_worker" {
+			return false, nil
+		}
+	}
+	for i, response := range f.c.Runtime.Responses {
+		if response.Submission != nil && !f.responses[i] {
 			return false, nil
 		}
 	}
@@ -654,7 +672,10 @@ func (f *runtimeFixture) releaseScenarioHold(ctx context.Context, rt caseRuntime
 func (f *runtimeFixture) checkScenarioSize() error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	raw, err := json.Marshal(f.scenario.report)
+	raw, err := json.Marshal(struct {
+		Scenario    *ScenarioReport
+		Submissions []SubmissionAttempt
+	}{f.scenario.report, f.report.Submissions})
 	if err != nil {
 		return err
 	}

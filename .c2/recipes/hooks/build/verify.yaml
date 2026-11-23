@@ -256,21 +256,29 @@ state:
           # Exercise exact-job fixture waits, independent submission restarts and protected context.
           go test -mod=readonly -count=1 -v -tags=integration -timeout=5m ./cmd/c2j/internal/testjob ./pkg/recipetest ./pkg/story ./pkg/worker/commandop -run '^TestNativeRuntimeSubmitsAndAwaitsChild$|^TestOrderingUnreachableGateWithoutBarrier$|^TestSubmission(RestartRerunsSetup|OnlyRestartExecution)$|^TestCommandExecutionActivity_Execute_InjectsProtectedCurrentJobEnv$'
           # Extension waits must discard before publication and survive durable scheduling.
+          # Include the harness's gate fixture so evidence-contract drift fails here.
           # Record actual subtests; a successful command with no collected cases is insufficient.
           wait_status=0
-          go test -mod=readonly -count=1 -json -tags=integration -timeout=10m ./pkg/extensionwait ./pkg/ops/extensions ./pkg/worker/ops ./pkg/metricsruntime ./pkg/secrets ./pkg/executionruntime ./pkg/worker/compiler ./pkg/childbroker -run '^TestExtensionWait' > "$scratch/extension-waits.jsonl" 2> "$scratch/extension-waits.stderr" || wait_status=$?
+          go test -mod=readonly -count=1 -json -tags=integration -timeout=10m ./pkg/extensionwait ./pkg/ops/extensions ./pkg/worker/ops ./pkg/metricsruntime ./pkg/secrets ./pkg/executionruntime ./pkg/worker/compiler ./pkg/childbroker ./pkg/recipetest -run '^TestExtensionWait' > "$scratch/extension-waits.jsonl" 2> "$scratch/extension-waits.stderr" || wait_status=$?
           cat "$scratch/extension-waits.jsonl"
           cat "$scratch/extension-waits.stderr"
           test "$wait_status" -eq 0
           node - "$scratch/extension-waits.jsonl" <<'JS'
           const fs = require('node:fs');
           const events = fs.readFileSync(process.argv[2], 'utf8').trim().split('\n').filter(Boolean).map(JSON.parse);
-          for (const name of ['extensionwait', 'ops/extensions', 'worker/ops', 'metricsruntime', 'secrets', 'executionruntime', 'worker/compiler', 'childbroker']) {
+          for (const name of ['extensionwait', 'ops/extensions', 'worker/ops', 'metricsruntime', 'secrets', 'executionruntime', 'worker/compiler', 'childbroker', 'recipetest']) {
             const pkg = 'github.com/colony-2/c2j/pkg/' + name;
             const tests = events.filter(e => e.Package === pkg && /^TestExtensionWait/.test(e.Test || ''));
             const runs = tests.filter(e => e.Action === 'run');
             if (!runs.length || runs.some(e => !tests.some(done => done.Test === e.Test && done.Action === 'pass')) || tests.some(e => e.Action === 'skip' || e.Action === 'fail')) {
               throw new Error('Extension wait acceptance missing, skipped or failed: ' + pkg);
+            }
+          }
+          // Require the repeated supplied-lease path and early-timer readiness probe.
+          for (const test of ['TestExtensionWaitCompilerBeyond64', 'TestExtensionWaitCompilerReadiness']) {
+            const rows = events.filter(e => e.Package === 'github.com/colony-2/c2j/pkg/worker/compiler' && e.Test === test);
+            if (!rows.some(e => e.Action === 'run') || !rows.some(e => e.Action === 'pass')) {
+              throw new Error('Compiler scheduler readiness acceptance missing: ' + test);
             }
           }
           // Admission rejects different exact targets and retired goal syntax before activation.
@@ -284,6 +292,7 @@ state:
             }
           }
           JS
+          # End extension-wait acceptance gate.
           # Verify bounded Git descendant cleanup and diagnostic identity before broad checks.
           go test -mod=readonly -race -count=1 -v -tags=integration -timeout=5m ./pkg/jobinspect -run '^TestChanges(J30J32GitDiagnosticIdentity|J32L07GitProcessGroupCleanup|J30L07RepositoryTransferCleanup|ProcessExitObservation)$'
           # Expired inspection scopes must not enter storage while shutdown is pending.
@@ -476,6 +485,24 @@ state:
           go test -count=1 -v -timeout=2m ./pkg/worker/compiler -run '^TestGrouping(SuccessorWaitsAndNoWriteLease|BackendRejectionsNeverFallBack|TransportFailureDoesNotResubmit)$'
           # Retained-goal adoption, explicit legacy-copy migration and optional inbox reads.
           go test -mod=readonly -count=1 -v -tags=integration -timeout=5m ./internal/consumerfixture ./internal/localruntime ./pkg/executionruntime ./pkg/input ./pkg/joblist ./pkg/story ./pkg/story/live ./pkg/story/internal/service ./pkg/worker/compiler -run '^(TestC05RetainedServerCapabilities|TestSelectedSubmissionUsesTrustedLocalAdministrator|TestDAGPersistedSubmissionRelationships|TestHistorySQLiteCompilerLineage|TestIncludeHiddenSQLiteHTTP|TestInbox|TestStoryServicePreservesReconstructionErrorCauses|TestStoryReplay|TestRestartContinuesGoalAndReconcilesAfterWinning|TestGoalBrokerRestartReceiptReplay|TestRestartPreFix|TestResumePreFix|TestRestartContextUnfinishedHistory|TestHistoricalGoalIdentityExecutionRestartAndReplay|TestHookAbsentLegacy)'
+          # Allow ancestor replies before child creation; reserve targets across provenance gaps.
+          go test -mod=readonly -count=1 -v -timeout=1m ./pkg/recipetest -run '^(TestResponsePersistenceLegacyIsolation|TestResponsePersistenceScopeOnlyAfterLegacyWait|TestResponsePersistenceRootBeforeControlledChild|TestResponsePersistenceChildBeforeControlledGrandchild|TestResponsePersistenceLateChildLegacyIsolation|TestResponseSubmissionLegacyCannotBypassGate)$'
+          # Exercise real selected SQLite submission faults and independent outcomes.
+          go test -mod=readonly -count=1 -v -timeout=5m ./pkg/recipetest ./cmd/c2j/internal/testjob -run '^(TestResponsePersistence|TestResponseSubmission)'
+          go test -mod=readonly -race -count=1 -timeout=10m ./pkg/recipetest -run '^(TestResponsePersistence|TestResponseSubmission)'
+          "$scratch/c2j-input-history" test validate --file testdata/repros/native-response-persistence/response-persistence.test.yaml
+          "$scratch/c2j-input-history" test run --file testdata/repros/native-response-persistence/response-persistence.test.yaml --out-dir "$scratch/response-persistence"
+          if "$scratch/c2j-input-history" test run --file testdata/repros/native-response-persistence/unexpected-error.test.yaml --out-dir "$scratch/response-unexpected"; then
+            printf 'Unexpected submission error incorrectly passed.\n'; exit 1
+          fi
+          node - "$scratch/response-unexpected/summary.json" <<'JS'
+          const fs = require('node:fs');
+          const r = JSON.parse(fs.readFileSync(process.argv[2], 'utf8')).results;
+          const s = r[0]?.run?.runtime?.submissions?.[0];
+          if (r.length !== 1 || r[0].status !== 'failed' || !s?.attempted || !s.api_error || s.complete || s.durable?.status !== 'absent' || !s.fault?.removed || s.fault.hits !== 1) {
+            throw new Error('Unexpected submission error lacks failed acceptance and native evidence');
+          }
+          JS
           # Bound concurrent fixture work; JSON streams progress from every package
           # immediately, retaining the active test if the command is interrupted.
           # The compiler's many serial cases can exhaust 20m in aggregate;

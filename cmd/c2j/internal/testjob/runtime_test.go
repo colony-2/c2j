@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -299,4 +300,58 @@ func TestNativeRuntimeFixtureSourceModes(t *testing.T) {
 	data, readErr := os.ReadFile(filepath.Join(results, "summary.json"))
 	require.NoError(t, readErr)
 	require.NoError(t, err, "%s\n%s", output.String(), data)
+}
+
+func TestResponsePersistenceNativeSuite(t *testing.T) {
+	suite, err := filepath.Abs("../../../../testdata/repros/native-response-persistence/response-persistence.test.yaml")
+	require.NoError(t, err)
+	var output bytes.Buffer
+	out := t.TempDir()
+	require.NoError(t, Run(context.Background(), Options{FilePath: suite, OutDir: out, Stdout: &output, Execution: ExecutionOptions{Timeout: "30s"}}), output.String())
+	raw, err := os.ReadFile(filepath.Join(out, "summary.json"))
+	require.NoError(t, err)
+	var report struct {
+		Results []struct {
+			Status string `json:"status"`
+			Run    struct {
+				Runtime struct {
+					Submissions []struct {
+						Version   int    `json:"version"`
+						Attempted bool   `json:"attempted"`
+						Complete  bool   `json:"complete"`
+						APIError  string `json:"api_error"`
+						Durable   struct {
+							Status string `json:"status"`
+						} `json:"durable"`
+					} `json:"submissions"`
+				} `json:"runtime"`
+			} `json:"run"`
+		} `json:"results"`
+	}
+	require.NoError(t, json.Unmarshal(raw, &report))
+	require.Len(t, report.Results, 10)
+	for _, r := range report.Results {
+		require.Equal(t, "passed", r.Status)
+		require.NotEmpty(t, r.Run.Runtime.Submissions)
+		for _, s := range r.Run.Runtime.Submissions {
+			require.Equal(t, 1, s.Version)
+			require.True(t, s.Attempted)
+			require.True(t, s.Complete)
+			require.Contains(t, []string{"present", "absent"}, s.Durable.Status)
+		}
+	}
+	output.Reset()
+	out = t.TempDir()
+	err = Run(context.Background(), Options{FilePath: filepath.Join(filepath.Dir(suite), "unexpected-error.test.yaml"), OutDir: out, Stdout: &output, Execution: ExecutionOptions{Timeout: "30s"}})
+	require.Error(t, err)
+	raw, err = os.ReadFile(filepath.Join(out, "summary.json"))
+	require.NoError(t, err)
+	require.NoError(t, json.Unmarshal(raw, &report))
+	require.Len(t, report.Results, 1)
+	require.Equal(t, "failed", report.Results[0].Status)
+	s := report.Results[0].Run.Runtime.Submissions[0]
+	require.True(t, s.Attempted)
+	require.False(t, s.Complete)
+	require.NotEmpty(t, s.APIError)
+	require.Equal(t, "absent", s.Durable.Status)
 }

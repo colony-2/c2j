@@ -56,12 +56,15 @@ type DispatchHold struct {
 	Disposition string        `json:"disposition,omitempty"`
 }
 type ScenarioEvent struct {
-	ID     string         `json:"id"`
-	Kind   string         `json:"kind"`
-	Job    string         `json:"job,omitempty"`
-	Hold   string         `json:"hold,omitempty"`
-	Task   *TaskSelection `json:"task,omitempty"`
-	Status string         `json:"status,omitempty"`
+	AfterAll []string       `json:"after_all,omitempty"`
+	Response string         `json:"response,omitempty"`
+	Phase    string         `json:"phase,omitempty"`
+	ID       string         `json:"id"`
+	Kind     string         `json:"kind"`
+	Job      string         `json:"job,omitempty"`
+	Hold     string         `json:"hold,omitempty"`
+	Task     *TaskSelection `json:"task,omitempty"`
+	Status   string         `json:"status,omitempty"`
 }
 type ScenarioAction struct {
 	ID       string           `json:"id"`
@@ -99,6 +102,7 @@ type ScenarioLimits struct {
 	ReportBytes int `json:"report_bytes,omitempty"`
 }
 type ScenarioReport struct {
+	Replays   []ResponseReplay             `json:"replays,omitempty"`
 	Version   int                          `json:"version"`
 	Jobs      map[string]ScenarioJobReport `json:"jobs"`
 	Receipts  []scenariotest.Submission    `json:"receipts"`
@@ -396,9 +400,16 @@ func validateScenario(c *RuntimeCase) error {
 			return fmt.Errorf("duplicate or invalid event %s", e.ID)
 		}
 		refs[e.ID] = true
+		if e.Kind != "response" && (e.Response != "" || e.Phase != "") {
+			return fmt.Errorf("response fields require response event")
+		}
 		switch e.Kind {
 		case "submission", "settled", "task_result":
 			if err := job(e.Job); err != nil {
+				return err
+			}
+		case "response":
+			if err := validateResponseEvent(c, e); err != nil {
 				return err
 			}
 		case "dispatch":
@@ -449,6 +460,10 @@ func validateScenario(c *RuntimeCase) error {
 			if err := job(a.Target); err != nil {
 				return err
 			}
+		case "expire_response_lease":
+			if !responseSubmissionExists(c, a.Target) {
+				return fmt.Errorf("unknown response %s", a.Target)
+			}
 		case "stop_worker", "reopen_runtime", "start_worker":
 			if a.Target != "" {
 				return fmt.Errorf("lifecycle action has no target")
@@ -469,6 +484,9 @@ func validateScenario(c *RuntimeCase) error {
 		} else if a.Restart != nil {
 			return fmt.Errorf("restart selection on non-restart action")
 		}
+	}
+	if err := responseDependencyGraph(c, refs, graph); err != nil {
+		return err
 	}
 	visiting, done := map[string]bool{}, map[string]bool{}
 	var visit func(string) error

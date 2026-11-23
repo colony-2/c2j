@@ -1,0 +1,39 @@
+schema_version: 2
+id: persistence
+version: "1"
+input_schema:
+  structured: {type: boolean, default_value: false}
+inputs:
+  structured: "${{ inputs.structured }}"
+sequence:
+- id: original
+  op: command_execution
+  inputs: {run: original}
+  catch:
+  - when: true
+    continue:
+      outputs:
+        cause: {kind: '${{ failure.kind }}', message: '${{ failure.message }}'}
+- id: recovery
+  op: command_execution
+  inputs: {run: recovery}
+  catch:
+  - when: true
+    continue:
+      outputs:
+        cause: {kind: '${{ failure.kind }}', message: '${{ failure.message }}'}
+- id: reply
+  op: input
+  inputs:
+    form: '${{ inputs.structured ? {"request": {"title": "Retained diagnosis", "original": sequence.original.outputs.cause, "recovery": sequence.recovery.outputs.cause}, "response_schema": {"type": "object", "required": ["context"], "properties": {"context": {"type": "string"} } } } : {"kind": "review", "title": "Retained diagnosis", "documents": {}, "fields": [{"id": "context", "type": "short_answer", "required": true, "question": jq({"original": sequence.original.outputs.cause, "recovery": sequence.recovery.outputs.cause}, "tojson") }]} }}'
+  catch:
+  - when: true
+    continue:
+      outputs: {caught: true}
+- id: continuation
+  op: command_execution
+  inputs: {run: unused}
+outputs:
+  answer: '${{ sequence.reply.outputs }}'
+  original: '${{ sequence.original.outputs.cause }}'
+  recovery: '${{ sequence.recovery.outputs.cause }}'

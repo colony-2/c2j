@@ -86,6 +86,9 @@ func (f *runtimeFixture) buildSession(rt caseRuntime, tenant string, collector *
 		}, StageExecution: scopedRuntime.Stage,
 	})
 	if err == nil {
+		if f.hasResponseSubmissions() {
+			workers.JobWorker = responseJobWorker{workers.JobWorker, f, rt}
+		}
 		err = engine.RegisterWorkers(workers)
 	}
 	if err != nil {

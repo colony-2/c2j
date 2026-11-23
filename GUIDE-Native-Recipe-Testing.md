@@ -967,3 +967,149 @@ These fixtures use disposable repositories and a neutral publication probe.
 Recipes owns its declarative publication cases and product assertions. Adoption
 requires the supporting CLI/worker build together; it does not require a new
 scheduler, storage, merge or permission interface.
+
+## Response-scoped persistence controls
+
+To distinguish an answer that was never stored from one stored despite an API
+error, add `submission` to a `runtime.responses` entry. This opt-in feature
+requires `backend: sqlite` and a native `controls.scenario`. Existing response
+fixtures and production submission APIs retain their behavior.
+
+```yaml
+runtime:
+  backend: sqlite
+  responses:
+  - node_path: example/reply
+    fields: {context: diagnostic reply}
+    submission:
+      id: output-failure
+      pending:
+        job: root
+        task:
+          task_type: input:collect_user_input
+          node_path: example/reply
+          attempt: 1
+          occurrence: 1
+      after_all: [worker-stopped]
+      fault: response_output
+      expect_error: {kind: input_not_pending}
+```
+
+This fragment needs a containing scenario. The complete
+[ten-case example](testdata/repros/native-response-persistence/response-persistence.test.yaml)
+and its [build and adoption instructions](testdata/repros/native-response-persistence/README.md)
+are runnable from the repository root.
+
+| Member | Meaning |
+| --- | --- |
+| `id` | Unique nonblank fixture label. The generated native submission ID remains the response index string and is recorded separately. |
+| `pending` | Named scenario job and exact native task selector. Require `input:collect_user_input`, positive task attempt and positive occurrence. Node, invocation and scope selectors retain native identity; outer node/cell must agree. |
+| `after_all` | Scenario event/action prerequisites for the API call. Capture happens before these gates, permitting capture, stop/join, cancel, then attempted reply. Existing `after` and `after_call` gates also apply. |
+| `fault` | Optional `claim`, `response_output` or `settlement`. Reject one selected real SQLite write, with no fixture-authored SQL. Omitting an expected error retains unexpected-error failure. |
+| `expect_error` | Optional typed `kind`: `storage`, `input_not_pending`, `stale_request` or `validation`; optional nonblank `contains` narrows the actual message. Omission requires success. |
+
+Malformed, null, unknown and duplicate new members fail validation, as do
+ambiguous declarations, inconsistent selectors, unknown references and dependency
+cycles. Controlled submissions cannot combine with case/runtime `expect_error`.
+Cancellation/deadline errors and preparation, control, inspection or recovery
+failures cannot be accepted as submission errors. Unexpected errors and unexpected
+success fail immediately after preserving available API/state evidence.
+
+Selection uses persisted native task descriptors and wait records, including
+unresolved waits without results. It freezes tenant/job, invocation/scope, task
+attempt, wait and output ordinals, request ID, form and input hashes. With a
+workspace scope, selection uses that context; otherwise it records the native
+containing scope. Repeated controller visits or reopen never renumber occurrences
+or replace a captured target with another actionable input.
+
+Once captured, that tenant/job/request is reserved for controlled submission,
+including while its submission or recovery gates are pending. Legacy responses
+at the same node/cell cannot answer it. They remain available for other native
+occurrences, including earlier or later inputs in the same job.
+Before legacy matching, the controller refreshes named job identities for each
+pending input. Roots and provably distinct submitting parents can receive legacy
+replies before their controlled descendants are created. Disjointness requires a
+selected caller identity, different unique fixture bindings, or incompatible
+native creation provenance, including the actual creating operation's selected
+fixture effects. An unpublished binding is never assumed distinct merely because
+a native receipt is present. Other aliases are not assumed
+distinct: they can select the same child. With insufficient provenance, legacy
+answering waits for identity resolution. An unresolved identity cannot become
+successful acceptance at the case deadline.
+
+Controlled calls require stopped, joined workers. After capture and reply
+preparation, the harness installs triggers limited to the selected job, captured
+scheduler payload, output ordinal and response claim lease. A driver counter
+records an actual trigger hit independently of public API error translation.
+Triggers are removed and their removal verified immediately after the one API
+call, including mismatch/failure paths, before recovery can start. Unused faults,
+unsupported storage boundaries and incomplete evidence fail the case.
+
+Use response events to gate scenario actions and later replies:
+
+```yaml
+events:
+- {id: captured, kind: response, response: output-failure, phase: pending}
+- {id: attempted, kind: response, response: output-failure, phase: attempted}
+- {id: restored, kind: response, response: output-failure, phase: recovered, status: pending}
+actions:
+- {id: worker-stopped, do: stop_worker, after_all: [captured]}
+- {id: expire, do: expire_response_lease, target: output-failure, after_all: [attempted]}
+- {id: reopen, do: reopen_runtime, after_all: [expire]}
+- {id: resume, do: start_worker, after_all: [reopen]}
+```
+
+`pending` means captured native identity; `attempted` requires complete API/state
+inspection and removed faults. `recovered` requires `status: pending | completed`.
+An optional response-event `after_all` permits a distinct checkpoint after an
+explicit reopen; contradictory job/task/hold fields are rejected. These event
+gates use the same reference and cycle validation as actions and submissions.
+
+A claim rejection can publish recovered-pending directly with workers joined,
+only after proving an actual rejected claim, unchanged actionable input/form,
+absent output/receipts/lease and zero subsequent task dispatches. It records
+`recovery_mode: not_required`, with no worker replay. An output-write failure
+requires actual later-session native job replay and suspension, recording
+`recovery_mode: worker_replay` and replay evidence. It cannot use the claim
+exception. Checkpoints are snapshots captured before their event is published.
+Both branches require a separately declared healthy reply to complete normally.
+
+`expire_response_lease` is fixture-only: it requires joined workers, a reached and
+removed recovery fault, and the exact recorded recovery lease ID, owner and
+expiry. It updates only that disposable lease's expiration, never output, routing
+or settlement. Missing/changed leases fail. Settlement recovery uses the stored
+answer without a second submission; recovered-completed preserves its receipt.
+Explicit native cancellation needs no lease manipulation or recovery event.
+Scenario completion waits for all controlled attempts even if a job is already
+terminal. Nothing cancels a job automatically to satisfy an outcome or catch.
+
+`runtime.submissions` (also CEL `submissions`) contains version-1 attempt records:
+
+- `id`, `response_index`, `submission_id`, `pending` and `actor` keep fixture and
+  native identities separate. `pending.form` is the frozen form; hashes retain
+  exact form/input provenance.
+- `attempted`, `api_error`, `error_kind`, `expected_error`, `matched` and explicit
+  nullable `returned_receipt` describe only the API call.
+- `durable.status` is `present`, `absent`, `unreadable` or `incomplete`, with an
+  independently read receipt and exact output ordinal. The reader selects only
+  the native result ID and its output envelope, verifying request/submission IDs;
+  receipt-shaped attempted inputs never establish acceptance. Replay may occupy
+  an empty output slot with an activation; it is not an accepted response.
+- `before`, `after` and `checkpoints[].state` separate native status, waiting
+  coordinates/handle, actionable discovery, lease, durable output, retained input
+  equality, session/position and task dispatches since capture. Original and
+  recovery diagnostics remain in the frozen form and immutable native wait input.
+- `fault` records trigger/predicate, arm/hit/removal and captured claim lease.
+  Checkpoints additionally record recovery mode and native replay identity.
+  `controls.scenario.replays` observes actual job-worker entry/return, preserving
+  native task-result observers. No collection task worker is fabricated.
+- `complete`, `errors` and explicit `omitted` diagnostics describe evidence
+  completeness. The existing control and scenario bounds apply. Exact comparisons
+  prevented by secret redaction or overflow fail; reported omissions never imply
+  absent durable data. Successful API calls alone enter legacy `reviews`.
+
+Matching a submission error only permits further observation. Terminal outcomes,
+continuation counts, preserved causes and required checkpoints remain independent
+acceptance obligations. The example intentionally keeps approved RF-40
+terminal-response-persistence acceptance **FAILED**: harness support does not
+resolve unavailable persistence into an honest terminal production result.
