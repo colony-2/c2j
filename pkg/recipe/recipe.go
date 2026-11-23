@@ -67,6 +67,11 @@ func (n *Recipe) UnmarshalYAML(node *yamlv3.Node) error {
 		return fmt.Errorf("root node must either be an op, sequence, state, or child_group at %d:%d", node.Line, node.Column)
 	}
 
+	_, isOp := impl.(*RecipeOp)
+	if err := checkOptionalInputsField(raw, isOp); err != nil {
+		return fmt.Errorf("%w at %d:%d", err, node.Line, node.Column)
+	}
+
 	// Second pass: decode into concrete type
 	if err := node.Decode(impl); err != nil {
 		return err
@@ -79,6 +84,9 @@ func (n *Recipe) UnmarshalYAML(node *yamlv3.Node) error {
 	}
 
 	if op, ok := impl.(*RecipeOp); ok {
+		if err := CheckOptionalOpInputs(op.Op, op.NodeMetadata); err != nil {
+			return fmt.Errorf("%w at %d:%d", err, node.Line, node.Column)
+		}
 		err := checkOpInputs(op.Op, op.Inputs, node.Line, node.Column)
 		if err != nil {
 			return err

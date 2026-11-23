@@ -63,6 +63,10 @@ func (n *Node) UnmarshalYAML(node *yamlv3.Node) error {
 		return fmt.Errorf("intermediate node must either be a op, sequence, state, include, shared reference, or a child_group at %d:%d. tree: %s", node.Line, node.Column, foo)
 	}
 
+	if err := checkOptionalInputsField(raw, nodeOp != nil); err != nil {
+		return fmt.Errorf("%w at %d:%d", err, node.Line, node.Column)
+	}
+
 	// Second pass: decode into concrete type
 	if err := node.Decode(impl); err != nil {
 		return err
@@ -75,6 +79,9 @@ func (n *Node) UnmarshalYAML(node *yamlv3.Node) error {
 	}
 
 	if nodeOp != nil {
+		if err := CheckOptionalOpInputs(nodeOp.Op, nodeOp.NodeMetadata); err != nil {
+			return fmt.Errorf("%w at %d:%d", err, node.Line, node.Column)
+		}
 		if err := checkOpInputs(nodeOp.Op, nodeOp.Inputs, node.Line, node.Column); err != nil {
 			return err
 		}
@@ -319,6 +326,7 @@ func (NodeOp) JSONSchema() *jsonschema.Schema {
 		Type:                 "object",
 		AdditionalProperties: &jsonschema.Schema{},
 	})
+	selectorProperties.Set("optional_inputs", optionalOpInputsSchema())
 	schema.OneOf = append(schema.OneOf, &jsonschema.Schema{
 		Type:       "object",
 		Properties: selectorProperties,
@@ -342,6 +350,7 @@ type NodeMetadata struct {
 	Timeout        Duration               `yaml:"timeout,omitempty"`
 	Retry          *RetryPolicy           `yaml:"retry,omitempty"`
 	Inputs         map[string]interface{} `yaml:"inputs,omitempty"`
+	OptionalInputs map[string]string      `yaml:"optional_inputs,omitempty" json:"optional_inputs,omitempty" jsonschema:"-"`
 	Vars           map[string]interface{} `yaml:"vars,omitempty"`
 	Artifacts      map[string]interface{} `yaml:"artifacts,omitempty"`
 	When           cel.CELExpr            `yaml:"when,omitempty"` // Conditional execution

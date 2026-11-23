@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"strings"
 	"time"
 
@@ -400,6 +401,9 @@ func (d DefaultRecipeExecutor) executeOpAttempt(ctx workflow.Context, parentReso
 	if metadata.Inputs == nil {
 		metadata.Inputs = map[string]interface{}{}
 	}
+	if err := recipe.CheckOptionalOpInputs(op, metadata); err != nil {
+		return err
+	}
 	artifactsDefined := metadata.Artifacts != nil
 	if metadata.Artifacts == nil {
 		metadata.Artifacts = map[string]interface{}{}
@@ -424,10 +428,7 @@ func (d DefaultRecipeExecutor) executeOpAttempt(ctx workflow.Context, parentReso
 		registeredOp ops.RegisterableOp
 		chain        []ops.TaskStep
 		taskPrefix   string
-		selectorOp   interface {
-			ApplyInvocationDefaults(map[string]interface{}) (bool, error)
-			ValidateInvocationInputs(map[string]interface{}) error
-		}
+		selectorOp   *extops.ResolvedOp
 	)
 	if isSelectorOp(op) {
 		pinnedSelector := resolvedSelector(op, resCtx.Options.ResolvedSelectors)
@@ -451,8 +452,10 @@ func (d DefaultRecipeExecutor) executeOpAttempt(ctx workflow.Context, parentReso
 				return err
 			}
 			selectorOp = resolved
-			if _, err := selectorOp.ApplyInvocationDefaults(metadata.Inputs); err != nil {
-				return err
+			if len(metadata.OptionalInputs) == 0 {
+				if _, err := selectorOp.ApplyInvocationDefaults(metadata.Inputs); err != nil {
+					return err
+				}
 			}
 		}
 	} else {
@@ -469,12 +472,13 @@ func (d DefaultRecipeExecutor) executeOpAttempt(ctx workflow.Context, parentReso
 
 	}
 
-	resolveNormalizedInputs := func(resCtx *template.ResolutionContext, inputs map[string]interface{}) (NormalizedOpInput, error) {
+	resolveNormalizedInputs := func(resCtx *template.ResolutionContext, inputs, optional map[string]any) (NormalizedOpInput, error) {
 		resolvedNodeInputs, err := resCtx.ResolveInputs(inputs)
 		if err != nil {
 			return NormalizedOpInput{}, fmt.Errorf("failed to resolve templates op inputs: %w", err)
 		}
 
+		maps.Copy(resolvedNodeInputs, optional)
 		if err := jobsemantics.CheckOperation(resCtx.TaskExecutionContext().JobSemanticsVersion, op, resolvedNodeInputs, true); err != nil {
 			return NormalizedOpInput{}, fmt.Errorf("node %s: %w", metadata.ID, err)
 		}
@@ -535,6 +539,9 @@ func (d DefaultRecipeExecutor) executeOpAttempt(ctx workflow.Context, parentReso
 		{
 
 			commandInput := map[string]any{"recipe": ctx.RecipeDigest, "node": resCtx.TaskExecutionContext().Invocation.NodePath, "op": op, "inputs": metadata.Inputs, "step": taskType, "artifacts": metadata.Artifacts}
+			if len(metadata.OptionalInputs) > 0 {
+				commandInput["optional_inputs"] = metadata.OptionalInputs
+			}
 			if i > 0 {
 				commandInput["prior"] = stepInput
 			}
@@ -554,6 +561,7 @@ func (d DefaultRecipeExecutor) executeOpAttempt(ctx workflow.Context, parentReso
 				// Input builders are serial orchestration; the worker receives
 				// only the serialized TaskData produced below.
 				buildResolver := resCtx
+				preparedExtension := extensionRequest
 				var normalized NormalizedOpInput
 				input := stepInput
 				if i == 0 {
@@ -574,7 +582,14 @@ func (d DefaultRecipeExecutor) executeOpAttempt(ctx workflow.Context, parentReso
 							return nil, e
 						}
 					}
-					normalized, e = resolveNormalizedInputs(buildResolver, declared)
+					var optional map[string]any
+					if len(metadata.OptionalInputs) > 0 {
+						optional, preparedExtension, e = resolveOptionalSelectorInputs(buildResolver, metadata.OptionalInputs, declared, extensionRequest, selectorOp)
+						if e != nil {
+							return nil, e
+						}
+					}
+					normalized, e = resolveNormalizedInputs(buildResolver, declared, optional)
 					if e != nil {
 						return nil, e
 					}
@@ -630,7 +645,7 @@ func (d DefaultRecipeExecutor) executeOpAttempt(ctx workflow.Context, parentReso
 					}
 					invocationKeys = acc.Keys()
 				}
-				preparation := workerops.PreparationRequest{Extension: extensionRequest, Execution: resCtx.ExecutionNeeds}
+				preparation := workerops.PreparationRequest{Extension: preparedExtension, Execution: resCtx.ExecutionNeeds}
 				if ctx.CurrentExecution != nil {
 					preparation.Execution = ctx.CurrentExecution()
 				}
@@ -788,6 +803,9 @@ func (d DefaultRecipeExecutor) innerSequence(ctx workflow.Context, parentCtx *te
 		return fmt.Errorf("failed to resolve sequence vars: %w", err)
 	}
 	if err := resCtx.ResolveExecutionNeeds(metadata.ExecutionNeeds); err != nil {
+		return err
+	}
+	if handled, err := runIncludeMock(ctx, parentCtx, resCtx, metadata, resolvedInputs); handled {
 		return err
 	}
 	if err := seedSequencePlaceholders(resCtx, sequence); err != nil {

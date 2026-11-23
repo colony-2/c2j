@@ -110,6 +110,7 @@ type RuntimeReport struct {
 	ObservationCollection *ObservationCollection      `json:"observation_collection,omitempty"`
 	ObservationArtifacts  []ObservationArtifact       `json:"observation_artifacts,omitempty"`
 	Repositories          map[string]RepositoryReport `json:"repositories,omitempty"`
+	IncludeCalls          []IncludeCall               `json:"include_calls,omitempty"`
 	Calls                 []OpCall                    `json:"calls"`
 	Reviews               []ReviewCall                `json:"reviews,omitempty"`
 }

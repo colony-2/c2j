@@ -563,8 +563,16 @@ func (rc *ResolutionContext) EvaluateCEL(expr string) (bool, error) {
 	return boolOut, nil
 }
 
-// evaluateCELExpression evaluates a CEL expression and returns any type
-func (rc *ResolutionContext) evaluateCELExpression(expr string) (interface{}, error) {
+func (rc *ResolutionContext) evaluateCELExpression(expr string) (any, error) {
+	value, err := rc.evaluateCELValue(expr)
+	if err != nil {
+		return nil, err
+	}
+	return nativeTemplateResult(value), nil
+}
+
+// evaluateCELValue retains the CEL value until the caller has inspected its type.
+func (rc *ResolutionContext) evaluateCELValue(expr string) (any, error) {
 	if err := jobsemantics.CheckExpression(expr); err != nil {
 		return nil, fmt.Errorf("failed to compile CEL expression: %w", err)
 	}
@@ -587,6 +595,9 @@ func (rc *ResolutionContext) evaluateCELExpression(expr string) (interface{}, er
 
 	// In validate mode avoid executing user functions; if any are present, return a placeholder.
 	if rc.Options.Mode == ModeValidate && hasForbiddenCalls(ast.Expr()) {
+		if ast.OutputType().TypeName() == types.OptionalType.TypeName() {
+			return types.OptionalNone, nil
+		}
 		return placeholderFromCELType(ast.OutputType()), nil
 	}
 
@@ -626,7 +637,7 @@ func (rc *ResolutionContext) evaluateCELExpression(expr string) (interface{}, er
 		return nil, fmt.Errorf("failed to evaluate CEL expression: %w", err)
 	}
 
-	return nativeTemplateResult(result), nil
+	return result, nil
 }
 
 // resolveValue recursively resolves templates in a value (uses interpolation mode by default)

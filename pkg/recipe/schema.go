@@ -136,6 +136,7 @@ func getNodeSchema(r *jsonschema.Reflector) (*jsonschema.Schema, error) {
 		Type:                 "object",
 		AdditionalProperties: &jsonschema.Schema{},
 	})
+	selectorNode.Properties.Set("optional_inputs", optionalOpInputsSchema())
 	selectorNode.Required = append(selectorNode.Required, "op")
 	selectorNode.Title = "selector-op"
 	items = append(items, selectorNode)
@@ -221,6 +222,7 @@ func (Recipe) JSONSchema() *jsonschema.Schema {
 	state := stripSchema(reflector.Reflect(RecipeState{}))
 	state.Required = append(state.Required, "state")
 	op := stripSchema(reflector.Reflect(RecipeOp{}))
+	op.Properties.Set("optional_inputs", optionalOpInputsSchema())
 	op.Required = append(op.Required, "op")
 	childGroup := stripSchema(reflector.Reflect(RecipeChildGroup{}))
 	childGroup.Required = append(childGroup.Required, "child_group")

@@ -3,11 +3,14 @@ package compiler
 import (
 	"context"
 	"fmt"
+	"maps"
 	"strings"
 
 	"github.com/colony-2/c2j/pkg/contextual"
 	coreops "github.com/colony-2/c2j/pkg/ops"
 	extops "github.com/colony-2/c2j/pkg/ops/extensions"
+	"github.com/colony-2/c2j/pkg/template"
+	workerops "github.com/colony-2/c2j/pkg/worker/ops"
 )
 
 func isSelectorOp(opName string) bool {
@@ -88,4 +91,35 @@ func selectorDeclaredRepository(execCtx contextual.JobContext) (string, string) 
 		return "", ""
 	}
 	return repoSource, repoRef
+}
+
+// resolveOptionalSelectorInputs preserves which expressions supplied values for
+// the worker's deferred default merge. Validation applies defaults immediately.
+func resolveOptionalSelectorInputs(
+	resCtx *template.ResolutionContext,
+	expressions map[string]string,
+	declared map[string]any,
+	request *workerops.ExtensionResolutionRequest,
+	validationOp *extops.ResolvedOp,
+) (map[string]any, *workerops.ExtensionResolutionRequest, error) {
+	present, err := resCtx.ResolveOptionalInputs(expressions)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	prepared := *request
+	prepared.RawInputs = maps.Clone(declared)
+	for key := range present {
+		prepared.RawInputs[key] = expressions[key]
+	}
+	if validationOp != nil {
+		maps.Copy(declared, prepared.RawInputs)
+		if _, err := validationOp.ApplyInvocationDefaults(declared); err != nil {
+			return nil, nil, err
+		}
+		for key := range present {
+			delete(declared, key)
+		}
+	}
+	return present, &prepared, nil
 }

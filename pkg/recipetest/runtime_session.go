@@ -6,6 +6,7 @@ import (
 	"github.com/colony-2/c2j/pkg/input/historybridge"
 
 	"github.com/colony-2/c2j/internal/dispatchtest"
+	"github.com/colony-2/c2j/internal/includetest"
 	"github.com/colony-2/c2j/internal/scenariotest"
 	"github.com/colony-2/c2j/pkg/execution"
 	"github.com/colony-2/c2j/pkg/executionruntime"
@@ -89,6 +90,9 @@ func (f *runtimeFixture) buildSession(rt caseRuntime, tenant string, collector *
 		if f.hasResponseSubmissions() {
 			workers.JobWorker = responseJobWorker{workers.JobWorker, f, rt}
 		}
+		if len(f.c.Mocks.Includes) > 0 {
+			workers.TaskWorkers[includetest.TaskType] = scopedRuntime.WrapTaskWorker(includeMockWorker{fixture: f})
+		}
 		err = engine.RegisterWorkers(workers)
 	}
 	if err != nil {
@@ -101,6 +105,9 @@ func (f *runtimeFixture) startSession(ctx context.Context, s *workerSession) err
 		return fmt.Errorf("worker session already started")
 	}
 	local, cancel := context.WithCancel(ctx)
+	if len(f.c.Mocks.Includes) > 0 {
+		local = includetest.WithControl(local, includetest.Control{Matches: f.matchesIncludeMock, Reject: f.rejectIncludeMock})
+	}
 	s.cancel = cancel
 	s.done = make(chan struct{})
 	if f.c.Runtime.Controls != nil {

@@ -106,6 +106,24 @@ c2j submit --recipe-file ./analyze.yaml \
   --inputs-json '{"text":"Hello"}' --run --embed
 ```
 
+### Forwarding optional inputs
+
+Use `optional_inputs` on a direct extension call to forward an override only
+when a CEL optional contains a value.
+
+```yaml
+op: ./compress
+inputs:
+  file: ${{ inputs.file }}
+optional_inputs:
+  level: ${{ inputs.?level }}
+```
+
+Each entry must be a single CEL expression that returns an optional. A missing
+`level` leaves the key out so the extension can apply its default. Present values,
+including `0`, `false`, and `null`, are passed through to extension schema
+validation. Declare a key in only one of the two input blocks.
+
 ## Artifact file inputs
 
 An extension can ask c2j to stage ordinary artifact references as files. Declare

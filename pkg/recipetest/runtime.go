@@ -50,6 +50,8 @@ type runtimeFixture struct {
 	cells               map[string]string
 	seededRepos         map[string]string
 	fixtureFailure      string
+	includeInvocations  map[string]int
+	includeUsed         map[string]int
 	selected            map[string]int
 	callIndexes         map[string]int
 	used                map[int]struct{}
@@ -150,6 +152,10 @@ func runRuntimeCase(parent context.Context, opts HarnessOptions, tenant string, 
 	}
 	controlCtx := ctx
 	f.rootJobID = key.Key().JobId
+	if len(f.c.Mocks.Includes) > 0 {
+		f.includeInvocations = map[string]int{}
+		f.includeUsed = map[string]int{}
+	}
 	f.gateCounts = map[int]int{}
 	f.waiting = map[string]bool{}
 	if f.scenario != nil {
@@ -419,6 +425,7 @@ func runRuntimeCase(parent context.Context, opts HarnessOptions, tenant string, 
 			markFailure(&result, "mock_unused", fmt.Sprintf("required mock %d was not used", i))
 		}
 	}
+	f.finishIncludeMocks(&result)
 	for i := range f.c.Runtime.Responses {
 		if !f.responses[i] {
 			markFailure(&result, "response_unused", fmt.Sprintf("required input response %d was not used", i))

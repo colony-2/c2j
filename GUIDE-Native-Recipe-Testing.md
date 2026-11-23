@@ -227,6 +227,45 @@ a real schema gate. Ordered one-shot mocks remain the default; a required mock
 that is never used fails the case. Calls record small input artifact contents
 in `calls[].artifacts` for feedback/document-routing assertions.
 
+Use `mocks.includes` in a native case to replace the bodies of includes
+authored in the parent recipe. Each call-site path has its own ordered list of
+responses. Paths start at `root`. Append the state key for a state and the
+zero-based bracketed index for an entry in a sequence, such as `root/[0]`
+or `root/review/[0]`.
+
+```yaml
+runtime: {}
+mocks:
+  includes:
+    root/check_package:
+      - mode: return
+        outputs: {ready: false}
+      - mode: return
+        outputs: {ready: true}
+        artifacts: {check.txt: "package is ready"}
+    root/publish_package:
+      - mode: return
+        outputs: {version: "1.2.0"}
+assertions:
+  - type: cel_true
+    expr: 'include_calls.map(c, c.node_path) == ["root/check_package", "root/check_package", "root/publish_package"]'
+  - type: cel_true
+    expr: 'include_calls[2].inputs.package == "sample"'
+```
+
+Eager and late includes resolve the target and bind its inputs as usual. The
+mock supplies outputs and artifacts at the include boundary. The parent checks
+`expect_outputs` and follows its own transitions. Unmatched include bodies run
+under the ordinary native test rules. Cell hooks use their own fixture controls.
+
+Each enabled body attempt consumes one response, including a retry or a new state
+visit. Replay uses the recorded response. Use `mode: fail` with
+`error: {message: "try again", code: unavailable}` to exercise retry or catch.
+The test fails for an unknown site, an extra call, an invalid output contract,
+or an unused response without `optional: true`. Reports and CEL assertions expose
+`include_calls` in call order, including bound inputs and `artifact_refs` for
+explicit input artifact bindings.
+
 Passthrough commands run in the worker environment inside disposable test
 worktrees, with normal snapshots. The former `runtime.command_sandbox` override
 has been removed. Provision any isolation around the worker externally.

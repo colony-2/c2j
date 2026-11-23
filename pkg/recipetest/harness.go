@@ -70,7 +70,8 @@ type Case struct {
 }
 
 type Mocks struct {
-	Ops []OpMock `json:"ops,omitempty" validate:"omitempty,dive"`
+	Includes map[string][]IncludeMockResponse `json:"includes,omitempty"`
+	Ops      []OpMock                         `json:"ops,omitempty" validate:"omitempty,dive"`
 }
 
 type OpMock struct {
@@ -422,6 +423,7 @@ func prepareCase(ctx context.Context, opts HarnessOptions, tenantID string, req 
 	validate.Errors = append(validate.Errors, validateRecipeSemantics(req)...)
 	validate.Errors = append(validate.Errors, validateDependencyAvailability(opts, req)...)
 	validate.Errors = append(validate.Errors, validateRuntimeCase(opts, req.Case)...)
+	validate.Errors = append(validate.Errors, validateIncludeMocks(req.Case, recipeDef)...)
 	validate.Warnings = warns
 	validate.Valid = len(validate.Errors) == 0
 	return preparedCase{Recipe: recipeDef, ResolvedHash: recipeHash, Validation: validate}
@@ -1887,7 +1889,7 @@ func failureCategoryFromError(err error) string {
 
 // evaluateAssertion evaluates a read-only declaration against observed behavior.
 func evaluateAssertion(expr string, outputs map[string]any, artifacts map[string][]byte, status string, report *RuntimeReport) (bool, string) {
-	env, err := cel.NewEnv(cel.Variable("events", cel.ListType(cel.DynType)), cel.Variable("controls", cel.DynType), cel.Variable("outputs", cel.DynType), cel.Variable("artifacts", cel.DynType), cel.Variable("status", cel.StringType), cel.Variable("calls", cel.ListType(cel.DynType)), cel.Variable("reviews", cel.ListType(cel.DynType)), cel.Variable("submissions", cel.ListType(cel.DynType)), cel.Variable("repositories", cel.DynType), cel.Variable("observations", cel.ListType(cel.DynType)), cel.Variable("observation_collection", cel.DynType))
+	env, err := cel.NewEnv(cel.Variable("events", cel.ListType(cel.DynType)), cel.Variable("controls", cel.DynType), cel.Variable("outputs", cel.DynType), cel.Variable("artifacts", cel.DynType), cel.Variable("status", cel.StringType), cel.Variable("calls", cel.ListType(cel.DynType)), cel.Variable("include_calls", cel.ListType(cel.DynType)), cel.Variable("reviews", cel.ListType(cel.DynType)), cel.Variable("submissions", cel.ListType(cel.DynType)), cel.Variable("repositories", cel.DynType), cel.Variable("observations", cel.ListType(cel.DynType)), cel.Variable("observation_collection", cel.DynType))
 	if err != nil {
 		return false, err.Error()
 	}
@@ -1916,6 +1918,10 @@ func evaluateAssertion(expr string, outputs map[string]any, artifacts map[string
 	if calls == nil {
 		calls = []any{}
 	}
+	includeCalls := data["include_calls"]
+	if includeCalls == nil {
+		includeCalls = []any{}
+	}
 	submissions := data["submissions"]
 	if submissions == nil {
 		submissions = []any{}
@@ -1940,7 +1946,7 @@ func evaluateAssertion(expr string, outputs map[string]any, artifacts map[string
 	if collection == nil {
 		collection = map[string]any{"complete": false}
 	}
-	value, _, err := program.Eval(map[string]any{"events": events, "controls": data["controls"], "observations": observations, "observation_collection": collection, "outputs": outputs, "artifacts": texts, "status": status, "calls": calls, "reviews": reviews, "submissions": submissions, "repositories": repositories})
+	value, _, err := program.Eval(map[string]any{"events": events, "controls": data["controls"], "observations": observations, "observation_collection": collection, "outputs": outputs, "artifacts": texts, "status": status, "calls": calls, "include_calls": includeCalls, "reviews": reviews, "submissions": submissions, "repositories": repositories})
 	if err != nil {
 		return false, err.Error()
 	}
