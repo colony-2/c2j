@@ -19,6 +19,7 @@ import (
 	"github.com/colony-2/c2j/pkg/execution"
 	"github.com/colony-2/c2j/pkg/joblist"
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	jobdbcelltest "github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/remote"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/toy"
 	"github.com/stretchr/testify/require"
@@ -205,7 +206,7 @@ func TestRemoteCompactPagination(t *testing.T) {
 }
 
 func TestConcurrentTenantRepositoryIsolationWithRealBackend(t *testing.T) {
-	runtime := toy.New()
+	runtime := toy.New(toy.WithProjects(jobdbcelltest.UnrestrictedProjects{}))
 	for _, tenant := range []string{"one", "two"} {
 		for _, repo := range []string{"app", "other"} {
 			for i := 0; i < 3; i++ {

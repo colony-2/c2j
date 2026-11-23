@@ -21,6 +21,7 @@ import (
 	"github.com/colony-2/c2j/pkg/worker/workflow"
 	"github.com/colony-2/c2j/pkg/workflowctl"
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	jobdbcelltest "github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	sqliteruntime "github.com/colony-2/jobdb/pkg/jobdb/runtime/sqlite"
 	toyruntime "github.com/colony-2/jobdb/pkg/jobdb/runtime/toy"
 	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
@@ -48,7 +49,7 @@ func newToyEngine(t *testing.T, workerTenantID string, gen func(string) (jobdb.J
 	if gen != nil {
 		opts = append(opts, toyruntime.WithJobIDGenerator(gen))
 	}
-	runtime := toyruntime.New(opts...)
+	runtime := toyruntime.New(append([]toyruntime.Option{toyruntime.WithProjects(jobdbcelltest.UnrestrictedProjects{})}, opts...)...)
 	if workerTenantID != "" {
 		require.NoError(t, jobdbschema.Register(celltest.Context(context.Background()), runtime, workerTenantID))
 	}
@@ -228,7 +229,7 @@ inputs:
 	workSet, err := compiler.NewRecipeWorker(workerDeps, registry, nil)
 	require.NoError(t, err)
 
-	embedded, err := sqliteruntime.StartEmbeddedRuntime(ctx)
+	embedded, err := sqliteruntime.StartEmbeddedRuntime(ctx, sqliteruntime.WithProjects(jobdbcelltest.UnrestrictedProjects{}))
 	require.NoError(t, err)
 	defer embedded.Shutdown()
 

@@ -7,6 +7,7 @@ import (
 	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/c2j/pkg/swfutil"
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	jobdbcelltest "github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/toy"
 	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
 )
@@ -36,7 +37,7 @@ func (c mockScopeContext) DoScope(site string, opts jobworkflow.ScopeOptions, bo
 	})
 }
 func runMockScope(tasks jobworkflow.ExecutionContext, site string, opts jobworkflow.ScopeOptions, body func(jobworkflow.ExecutionContext) (jobdb.JobData, error)) (jobdb.JobData, error) {
-	rt := toy.New()
+	rt := toy.New(toy.WithProjects(jobdbcelltest.UnrestrictedProjects{}))
 	ctx := celltest.Context(context.Background())
 	if _, err := celltest.Register(ctx, rt, "scope-tests", "test", "example.test/test"); err != nil {
 		return nil, err

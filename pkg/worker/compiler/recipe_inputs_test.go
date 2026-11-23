@@ -17,6 +17,7 @@ import (
 	"github.com/colony-2/c2j/pkg/swfutil"
 	"github.com/colony-2/c2j/pkg/workflowctl"
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	jobdbcelltest "github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/sqlite"
 	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
 	"github.com/stretchr/testify/require"
@@ -145,7 +146,7 @@ func TestRecipeSubmissionInputsChildJobs(t *testing.T) {
 		require.Equal(t, wants[name], child["outputs"].(map[string]any)["all"])
 	}
 	stop()
-	rt, err := sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: dbPath})
+	rt, err := sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: dbPath, Projects: jobdbcelltest.UnrestrictedProjects{}})
 	require.NoError(t, err)
 	defer rt.Close(ctx)
 	listed, err := rt.ListJobs(ctx, jobdb.ListJobsRequest{TenantIds: []string{"object-tests"}})

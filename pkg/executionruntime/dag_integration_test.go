@@ -17,6 +17,7 @@ import (
 	"github.com/colony-2/c2j/pkg/permissions"
 	"github.com/colony-2/c2j/pkg/selfinfo"
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	jobdbcelltest "github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/remote"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/sqlite"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/toy"
@@ -33,9 +34,9 @@ func TestDAGPersistedSubmissionRelationships(t *testing.T) {
 				return jobdb.WithPrimaryGoalSelectionAuthorizer(celltest.Context(ctx), func(context.Context, jobdb.GoalKey, jobdb.ResolvedCell) error { return nil })
 			}
 			ctx := fixtureContext(context.Background())
-			var base jobdb.ConsumerRuntime = toy.New()
+			var base jobdb.ConsumerRuntime = toy.New(toy.WithProjects(jobdbcelltest.UnrestrictedProjects{}))
 			if backend == "sqlite" || backend == "http-sqlite" {
-				db, err := sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: filepath.Join(t.TempDir(), "jobs.db")})
+				db, err := sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: filepath.Join(t.TempDir(), "jobs.db"), Projects: jobdbcelltest.UnrestrictedProjects{}})
 				require.NoError(t, err)
 				defer db.Close(ctx)
 				base = db

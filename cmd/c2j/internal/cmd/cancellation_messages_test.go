@@ -16,6 +16,7 @@ import (
 	"github.com/colony-2/c2j/pkg/jobinspect"
 	"github.com/colony-2/c2j/pkg/selfinfo"
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	jobdbcelltest "github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/remote"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/sqlite"
 	"github.com/stretchr/testify/require"
@@ -23,7 +24,7 @@ import (
 
 func TestJobShowPersistedCancellationMessage(t *testing.T) {
 	ctx := celltest.Context(context.Background())
-	db, err := sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: filepath.Join(t.TempDir(), "jobs.db")})
+	db, err := sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: filepath.Join(t.TempDir(), "jobs.db"), Projects: jobdbcelltest.UnrestrictedProjects{}})
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close(ctx)) })
 	server := httptest.NewServer(celltest.Handler(remote.NewConsumerServer(db)))

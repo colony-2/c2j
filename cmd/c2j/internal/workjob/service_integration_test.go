@@ -20,6 +20,7 @@ import (
 	"github.com/colony-2/c2j/pkg/starter"
 	"github.com/colony-2/c2j/pkg/workflowctl"
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	jobdbcelltest "github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	remoteruntime "github.com/colony-2/jobdb/pkg/jobdb/runtime/remote"
 	toyruntime "github.com/colony-2/jobdb/pkg/jobdb/runtime/toy"
 	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
@@ -49,7 +50,7 @@ func TestReadyCountsAvailableJobsByTenant(t *testing.T) {
 
 	tenantID := "tenant-ready-count"
 	otherTenantID := "tenant-ready-other"
-	underlying := toyruntime.New()
+	underlying := toyruntime.New(toyruntime.WithProjects(jobdbcelltest.UnrestrictedProjects{}))
 	submitEngine := newSchemaAwareSubmitEngine(t, underlying)
 	server := httptest.NewServer(celltest.Handler(remoteruntime.NewConsumerServer(underlying)))
 	defer server.Close()

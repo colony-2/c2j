@@ -10,6 +10,7 @@ import (
 	"github.com/colony-2/c2j/pkg/template"
 	"github.com/colony-2/c2j/pkg/workflow"
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	jobdbcelltest "github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/toy"
 	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
 	"github.com/stretchr/testify/require"
@@ -38,7 +39,7 @@ func TestTaskLateCompletionCannotReplaceHandledOutput(t *testing.T) {
 		Continue: &recipe.CatchContinue{Outputs: map[string]any{"value": "handled"}},
 	}}}
 	synctest.Test(t, func(t *testing.T) {
-		rt := toy.New()
+		rt := toy.New(toy.WithProjects(jobdbcelltest.UnrestrictedProjects{}))
 		release := make(chan struct{})
 		finished := make(chan struct{})
 		job, git := GenerateTestContext()

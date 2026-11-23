@@ -9,6 +9,7 @@ import (
 )
 
 func Context(ctx context.Context) context.Context {
+	ctx = jobdb.WithProjectAdministration(ctx, func(context.Context) error { return nil })
 	return jobdb.WithCellAuthority(ctx, jobdb.CellAuthority{Principal: "c2j-local-admin", TenantID: "*", Permissions: map[string]bool{
 		"cells.create": true, "cells.get": true, "cells.list": true, "cells.update": true, "cells.retire": true, "jobs.submit": true, "jobs.list": true, "jobs.acquire": true,
 	}})

@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/colony-2/c2j/internal/resourceretry"
 	"github.com/colony-2/c2j/pkg/execution"
 	"github.com/colony-2/c2j/pkg/executioncatalog"
 	"github.com/colony-2/c2j/pkg/extensionwait"
@@ -319,6 +320,27 @@ func (l *lease) Reschedule(ctx context.Context, req jobdb.RescheduleExecutionReq
 	return err
 }
 
+// Forward the optional port explicitly; embedding ExecutionLease hides it.
+// Demand publication uses the same payload CAS as ordinary rescheduling.
+func (l *lease) RescheduleResourceBackoff(ctx context.Context, req jobdb.ResourceBackoffRequest) (jobdb.ResourceBackoffReceipt, error) {
+	prepared, _, _, err := l.prepareReschedule(ctx, jobdb.RescheduleExecutionRequest{ClientPayloadUpdate: req.ClientPayloadUpdate})
+	if err != nil {
+		return jobdb.ResourceBackoffReceipt{}, err
+	}
+	current, err := l.current()
+	if err != nil {
+		return jobdb.ResourceBackoffReceipt{}, err
+	}
+	port, ok := current.ExecutionLease.(jobdb.ResourceBackoffLease)
+	if !ok {
+		return jobdb.ResourceBackoffReceipt{}, jobdb.ErrResourceBackoffUnsupported
+	}
+	req.ClientPayloadUpdate = prepared.ClientPayloadUpdate
+	receipt, err := port.RescheduleResourceBackoff(ctx, req)
+	l.forget()
+	return receipt, err
+}
+
 func (l *lease) Complete(ctx context.Context, req jobdb.CompleteExecutionRequest) error {
 	current, err := l.current()
 	if err != nil {
@@ -406,6 +428,8 @@ func (w *guardedTask) RunTask(local context.Context, ctx jobworkflow.TaskContext
 		}
 	}
 	local = r.activityContext(local, ctx.JobKey, l.leaseState)
+	_, port := l.ExecutionLease.(jobdb.ResourceBackoffLease)
+	local = resourceretry.WithSupport(local, port && l.ExecutionState().ResourceBackoff.Validate(true) == nil)
 	out, err := w.runWithGitProfile(local, ctx, input, l)
 	if extensionwait.IsDiscard(err) {
 		if _, eligible := extensionwait.Eligible(err); !eligible {
@@ -417,6 +441,21 @@ func (w *guardedTask) RunTask(local context.Context, ctx jobworkflow.TaskContext
 	}
 	if extensionwait.IsDiscard(err) {
 		return l.handleWait(ctx, err)
+	}
+	if resourceretry.Is(err) {
+		if stop := context.Cause(ctx.Context()); stop != nil {
+			return nil, stop
+		}
+		if stop := context.Cause(local); stop != nil {
+			return nil, stop
+		}
+		if !resourceretry.Supported(local) {
+			return nil, jobdb.ClassifyExecutionInfrastructure(jobdb.ErrResourceBackoffUnsupported, jobdb.ExecutionInfrastructureRuntimeIO, "resource_backoff", nil, nil)
+		}
+		if ctx.Logger != nil {
+			ctx.Logger.Info("Waiting for temporary resource shortage", "reason", jobdb.ResourceBackoffReason)
+		}
+		return nil, jobworkflow.EAGAINWait(ctx)
 	}
 	var required *execution.Required
 	if !errors.As(err, &required) {

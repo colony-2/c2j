@@ -18,6 +18,7 @@ import (
 	c2workflow "github.com/colony-2/c2j/pkg/worker/workflow"
 	"github.com/colony-2/c2j/pkg/workflowctl"
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	jobdbcelltest "github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	sqliteruntime "github.com/colony-2/jobdb/pkg/jobdb/runtime/sqlite"
 	workflow "github.com/colony-2/jobdb/pkg/workflow"
 	"github.com/stretchr/testify/require"
@@ -137,7 +138,7 @@ func TestStructuredInputSQLiteAttachmentsReplayAndStaleSubmission(t *testing.T) 
 func testStructuredInputSQLite(t *testing.T, offloaded bool) {
 	ctx := celltest.Context(context.Background())
 	dbPath := filepath.Join(t.TempDir(), "jobs.db")
-	rt, err := sqliteruntime.NewFromConfig(ctx, sqliteruntime.Config{DBPath: dbPath, MaxChapterApplicationPayloadBytes: 4 * 1024 * 1024})
+	rt, err := sqliteruntime.NewFromConfig(ctx, sqliteruntime.Config{DBPath: dbPath, MaxChapterApplicationPayloadBytes: 4 * 1024 * 1024, Projects: jobdbcelltest.UnrestrictedProjects{}})
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = rt.Close(ctx) })
 	makeRuntime := func() (*Runtime, workflow.Engine) {
@@ -172,7 +173,7 @@ func testStructuredInputSQLite(t *testing.T, offloaded bool) {
 	require.NoError(t, err)
 	require.Equal(t, first.RequestID, form.RequestID)
 	require.NoError(t, rt.Close(ctx))
-	rt, err = sqliteruntime.NewFromConfig(ctx, sqliteruntime.Config{DBPath: dbPath, MaxChapterApplicationPayloadBytes: 4 * 1024 * 1024})
+	rt, err = sqliteruntime.NewFromConfig(ctx, sqliteruntime.Config{DBPath: dbPath, MaxChapterApplicationPayloadBytes: 4 * 1024 * 1024, Projects: jobdbcelltest.UnrestrictedProjects{}})
 	require.NoError(t, err)
 	r, engine := makeRuntime()
 	restored, err := r.GetForm(ctx, "tenant", "review")

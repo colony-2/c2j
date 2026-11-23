@@ -18,6 +18,7 @@ import (
 	"github.com/colony-2/c2j/pkg/story"
 	"github.com/colony-2/c2j/pkg/worker/compiler"
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	jobdbcelltest "github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/remote"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/sqlite"
 	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
@@ -46,7 +47,7 @@ func openPreNumericRestartFixture(t *testing.T, backend string) (*restartFixture
 	migrated, err := sqlite.MigrateGoals(ctx, path)
 	require.NoError(t, err)
 	require.Equal(t, "MIGRATED", migrated.Verdict)
-	db, err := sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: path})
+	db, err := sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: path, Projects: jobdbcelltest.UnrestrictedProjects{}})
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close(ctx)) })
 	guard := &inspectionRuntime{Runtime: consumerfixture.New(db)}

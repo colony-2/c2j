@@ -148,6 +148,9 @@ func openEmbed(ctx context.Context, parsed *url.URL, rawURL string, workerTenant
 	setupCtx, cancel := context.WithTimeout(setupCtx, defaultSetupTimeout)
 	defer cancel()
 
+	if err := prepareEmbedProjects(setupCtx, root); err != nil {
+		return cleanupOnErr(fmt.Errorf("prepare embedded projects: %w", err))
+	}
 	baseRuntime, err := sqliteruntime.NewFromConfig(setupCtx, sqliteruntime.Config{
 		DBPath: filepath.Join(root, "swf.db"),
 	})

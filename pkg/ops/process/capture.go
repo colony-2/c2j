@@ -21,6 +21,8 @@ const observationLimit = 65536
 // always drain the pipes, even after the memory/observation budget is exhausted.
 // Use one Capture per process. Read results only after ExecuteProcess returns.
 type Capture struct {
+	// TreeCleanupComplete is set only after a requested managed-tree stop succeeds.
+	TreeCleanupComplete bool
 	// TreeCleanupError is provisional and must never be published for a discarded attempt.
 	TreeCleanupError error
 	LaunchAttempted  bool

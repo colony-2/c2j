@@ -14,6 +14,7 @@ import (
 	"github.com/colony-2/c2j/pkg/ops"
 	"github.com/colony-2/c2j/pkg/permissions"
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	jobdbcelltest "github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/toy"
 	wf "github.com/colony-2/jobdb/pkg/workflow"
 	"github.com/stretchr/testify/require"
@@ -50,7 +51,7 @@ func TestGroupedSubmissionCheckpointReplayAndDuplicateWindow(t *testing.T) {
 		t.Run(fmt.Sprint(retry), func(t *testing.T) {
 			synctest.Test(t, func(t *testing.T) {
 				ctx := celltest.Context(context.Background())
-				raw := toy.New()
+				raw := toy.New(toy.WithProjects(jobdbcelltest.UnrestrictedProjects{}))
 				rt := executionruntime.New(raw, execution.Allocation{SchemaVersion: 1})
 				celltest.Create(t, rt, "tenant", "test", "example.test/test")
 				require.NoError(t, jobdbschema.Register(ctx, raw, "tenant"))

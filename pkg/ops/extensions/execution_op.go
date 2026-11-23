@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/colony-2/c2j/internal/preparedtest"
+	"github.com/colony-2/c2j/internal/resourceretry"
 	recipeartifacts "github.com/colony-2/c2j/pkg/artifacts"
 	"github.com/colony-2/c2j/pkg/configuration"
 	"github.com/colony-2/c2j/pkg/execution"
@@ -56,7 +57,7 @@ func executeExtension(deps ops.OpDependencies, ctx context.Context, input Execut
 	report.Selector = input.Selector
 	processFailure := false
 	defer func() {
-		if extensionwait.IsDiscard(runErr) || execution.IsRequired(runErr) {
+		if extensionwait.IsDiscard(runErr) || execution.IsRequired(runErr) || resourceretry.Is(runErr) {
 			return
 		}
 		exit := 0
@@ -111,6 +112,9 @@ func executeExtension(deps ops.OpDependencies, ctx context.Context, input Execut
 		resolved, err = RestoreResolvedOp(resolved)
 	}
 	if err != nil {
+		if ctx.Err() == nil && resourceretry.CreationFailure(err) {
+			return nil, resourceretry.Restart("preparation_diagnostic", "preparation")
+		}
 		return nil, err
 	}
 	var cancel context.CancelFunc
@@ -160,6 +164,11 @@ func executeExtension(deps ops.OpDependencies, ctx context.Context, input Execut
 		env[k] = v
 	}
 	env = jobcontext.MergeProtectedEnv(env, deps.ProtectedEnv())
+	delete(env, resourceretry.CapabilityEnv)
+	resourceControlSupported := process.CheckedTreeCleanupSupported && resourceretry.Supported(ctx)
+	if resourceControlSupported {
+		env[resourceretry.CapabilityEnv] = "1"
+	}
 	allocation := execution.CurrentEnvironment(ctx)
 	allocationJSON, err := json.Marshal(allocation)
 	if err != nil {
@@ -175,6 +184,9 @@ func executeExtension(deps ops.OpDependencies, ctx context.Context, input Execut
 	}
 
 	runReq := extensionRunRequest(resolved, env, inJSON)
+	// The exit status is available before output EOF. Stop the managed group
+	// on a possible resource control exit, even if it still holds the pipes.
+	runReq.StopTreeOnFailure = resourceControlSupported
 	runReq = report.Prepare(runReq)
 	stdout, scripted, err := preparedtest.Complete(ctx, preparedtest.Invocation{
 		Selector: input.Selector, ResolvedSelector: resolved.ResolvedSelector,
@@ -191,6 +203,14 @@ func executeExtension(deps ops.OpDependencies, ctx context.Context, input Execut
 		report.Capture.Err = err
 		if len(stdout) > process.CaptureLimit {
 			return nil, fmt.Errorf("scripted extension stdout exceeded execution capture limit")
+		}
+	}
+	if ctx.Err() == nil && resourceretry.Is(err) {
+		return nil, err
+	}
+	if ctx.Err() == nil && resourceControlSupported && cleanExit(err, 1) && !report.Capture.Truncated(0) && !report.Capture.Truncated(1) {
+		if retryErr := resourceRetryAfterExit(report.Capture.RawBytes(0), report.Capture, err); retryErr != nil {
+			return nil, retryErr
 		}
 	}
 	var exit *exec.ExitError
@@ -279,6 +299,7 @@ func executeExtension(deps ops.OpDependencies, ctx context.Context, input Execut
 
 func extensionRunRequest(resolved *ResolvedOp, env map[string]string, stdin []byte) process.RunRequest {
 	return process.RunRequest{
+		ResourceRetry:      true,
 		WorkspaceRoot:      resolved.ProjectRoot,
 		StopTreeOnExitCode: extensionwait.ExitCode,
 		WorkingDir:         resolved.WorkingDir(),
@@ -311,6 +332,9 @@ func decodeExecutionEnvelope(stdout []byte) (map[string]interface{}, map[string]
 	}
 	if err := dec.Decode(&raw); err != nil {
 		return nil, nil, err
+	}
+	if control, ok := raw["control"].(map[string]interface{}); ok && control["type"] == resourceRetryControlType {
+		return nil, nil, fmt.Errorf("resource_retry requires its negotiated nonzero exit status")
 	}
 
 	outputs := raw

@@ -30,6 +30,7 @@ import (
 	workflow "github.com/colony-2/c2j/pkg/worker/workflow"
 	"github.com/colony-2/c2j/pkg/workflowctl"
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	jobdbcelltest "github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	sqliteruntime "github.com/colony-2/jobdb/pkg/jobdb/runtime/sqlite"
 	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
 	"github.com/stretchr/testify/assert"
@@ -69,7 +70,7 @@ func TestRecipeFixturesRealEngine(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	embedded, err := sqliteruntime.StartEmbeddedRuntime(ctx)
+	embedded, err := sqliteruntime.StartEmbeddedRuntime(ctx, sqliteruntime.WithProjects(jobdbcelltest.UnrestrictedProjects{}))
 	require.NoError(t, err)
 	t.Cleanup(embedded.Shutdown)
 

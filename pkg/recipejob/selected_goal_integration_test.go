@@ -17,6 +17,7 @@ import (
 	"github.com/colony-2/c2j/pkg/starter"
 	"github.com/colony-2/c2j/pkg/workflowctl"
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	jobdbcelltest "github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/remote"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/sqlite"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/toy"
@@ -48,9 +49,9 @@ func TestSelectedGoalConformanceThroughC2J(t *testing.T) {
 	for _, backend := range []string{"toy", "sqlite"} {
 		for _, transport := range []string{"direct", "http"} {
 			t.Run(backend+"/"+transport, func(t *testing.T) {
-				var rt jobdb.ConsumerRuntime = toy.New()
+				var rt jobdb.ConsumerRuntime = toy.New(toy.WithProjects(jobdbcelltest.UnrestrictedProjects{}))
 				if backend == "sqlite" {
-					embedded, err := sqlite.StartEmbeddedRuntime(context.Background())
+					embedded, err := sqlite.StartEmbeddedRuntime(context.Background(), sqlite.WithProjects(jobdbcelltest.UnrestrictedProjects{}))
 					require.NoError(t, err)
 					t.Cleanup(func() { embedded.Shutdown() })
 					rt = embedded.Runtime
@@ -75,7 +76,7 @@ func TestSelectedGoalConformanceThroughC2J(t *testing.T) {
 	}
 }
 func TestExactJobFreshGoalSelectionUnsupported(t *testing.T) {
-	rt := toy.New()
+	rt := toy.New(toy.WithProjects(jobdbcelltest.UnrestrictedProjects{}))
 	engine := goalEngine(t, rt)
 	ctx := celltest.Context(context.Background())
 	celltest.Create(t, rt, "tenant", "work", "example.test/work")
@@ -89,7 +90,7 @@ func TestSelectedGoalRejectionsHaveNoPublicSideEffects(t *testing.T) {
 	for _, transport := range []string{"direct", "http"} {
 		t.Run(transport, func(t *testing.T) {
 			ctx := runtimetest.PrimaryGoalContext(context.Background())
-			raw := toy.New()
+			raw := toy.New(toy.WithProjects(jobdbcelltest.UnrestrictedProjects{}))
 			celltest.Create(t, raw, "tenant", "work", "example.test/work")
 			celltest.Create(t, raw, "tenant", "other", "example.test/other")
 			celltest.Create(t, raw, "different", "work", "example.test/work")
@@ -157,7 +158,7 @@ func TestSelectedGoalReceiptReplayWithLaterActiveSuccessor(t *testing.T) {
 	for _, transport := range []string{"sqlite", "http"} {
 		t.Run(transport, func(t *testing.T) {
 			ctx := runtimetest.PrimaryGoalContext(context.Background())
-			db, err := sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: filepath.Join(t.TempDir(), "jobs.db")})
+			db, err := sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: filepath.Join(t.TempDir(), "jobs.db"), Projects: jobdbcelltest.UnrestrictedProjects{}})
 			require.NoError(t, err)
 			t.Cleanup(func() { require.NoError(t, db.Close(ctx)) })
 			var rt jobdb.ConsumerRuntime = db

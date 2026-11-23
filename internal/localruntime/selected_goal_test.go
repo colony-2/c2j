@@ -3,13 +3,14 @@ package localruntime
 import (
 	"context"
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	jobdbcelltest "github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/toy"
 	"github.com/stretchr/testify/require"
 	"testing"
 )
 
 func TestSelectedSubmissionUsesTrustedLocalAdministrator(t *testing.T) {
-	rt := New(toy.New())
+	rt := New(toy.New(toy.WithProjects(jobdbcelltest.UnrestrictedProjects{})))
 	ctx := context.Background()
 	_, err := rt.CreateCell(ctx, jobdb.CreateCellRequest{TenantID: "t", Name: "work", Repo: "example.test/work"})
 	require.NoError(t, err)

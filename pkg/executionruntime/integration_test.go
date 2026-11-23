@@ -1,6 +1,7 @@
 package executionruntime
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -23,6 +24,7 @@ import (
 	workerops "github.com/colony-2/c2j/pkg/worker/ops"
 	"github.com/colony-2/c2j/pkg/workflowctl"
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	jobdbcelltest "github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/remote"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/sqlite"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/toy"
@@ -87,15 +89,20 @@ func registerExecutionOps(t *testing.T) {
 func newFixture(t *testing.T, backend, memory string, patch *execution.Requirements, submissions ...*execution.Submission) *fixture {
 	t.Helper()
 	ctx := celltest.Context(context.Background())
-	var rt jobdb.ConsumerRuntime = toy.New()
+	// Resource/admission routing fixtures use synthetic tenant IDs. This explicit
+	// test-only catalog supplies no administration and is never used in production.
+	projects := jobdbcelltest.UnrestrictedProjects{}
+	var rt jobdb.ConsumerRuntime = toy.New(toy.WithProjects(projects))
 	if backend == "sqlite" || backend == "remote" {
-		s, err := sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: filepath.Join(t.TempDir(), "jobs.db")})
+		s, err := sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: filepath.Join(t.TempDir(), "jobs.db"), Projects: projects})
 		require.NoError(t, err)
 		t.Cleanup(func() { require.NoError(t, s.Close(ctx)) })
 		rt = s
 	}
 	if backend == "remote" {
-		server := httptest.NewServer(celltest.Handler(remote.NewConsumerServer(rt)))
+		handler, err := remote.NewConsumerServerWithOptions(rt, remote.ServerOptions{LeaseTokenSigningKey: bytes.Repeat([]byte{7}, 32)})
+		require.NoError(t, err)
+		server := httptest.NewServer(celltest.Handler(handler))
 		t.Cleanup(server.Close)
 		r, err := remote.New(server.URL, server.Client())
 		require.NoError(t, err)
@@ -318,7 +325,7 @@ func TestDeferredResolutionPinsRequirementsWithoutProvisionerResolution(t *testi
 		t.Run(initialMemory, func(t *testing.T) {
 			ctx := celltest.Context(context.Background())
 			registerExecutionOps(t)
-			rt := toy.New()
+			rt := toy.New(toy.WithProjects(jobdbcelltest.UnrestrictedProjects{}))
 			engine, err := jobworkflow.NewEngineBuilder().WithRuntime(rt).BuildEngine()
 			require.NoError(t, err)
 			r, err := recipe.LoadRecipeFromString([]byte("id: deferred\nexecution:\n  resources:\n    memory: 16Gi\nop: execution_finish\n"))
@@ -386,7 +393,7 @@ func TestInlineDeclarationIsRetainedAndYieldsBeforeIncludedBody(t *testing.T) {
 	require.NoError(t, err)
 	inline := expanded.Recipe.RecipeImpl.(*recipe.RecipeSequence).Sequence[0].GetMetadata().Internal.Inline
 	require.Equal(t, "16Gi", *inline.Execution.Resources.Memory)
-	rt := toy.New()
+	rt := toy.New(toy.WithProjects(jobdbcelltest.UnrestrictedProjects{}))
 	engine, err := jobworkflow.NewEngineBuilder().WithRuntime(rt).BuildEngine()
 	require.NoError(t, err)
 	jobContext, git := compiler.GenerateTestContext()

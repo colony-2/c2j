@@ -16,6 +16,7 @@ import (
 	"github.com/colony-2/c2j/pkg/selfinfo"
 	"github.com/colony-2/c2j/pkg/starter"
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	jobdbcelltest "github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/remote"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/toy"
 	wf "github.com/colony-2/jobdb/pkg/workflow"
@@ -26,7 +27,7 @@ func TestTaskInspectionReadsTerminalChildWithoutSubmitGrant(t *testing.T) {
 	for _, backend := range []string{"toy", "remote"} {
 		t.Run(backend, func(t *testing.T) {
 			ctx := celltest.Context(context.Background())
-			var base jobdb.ConsumerRuntime = toy.New()
+			var base jobdb.ConsumerRuntime = toy.New(toy.WithProjects(jobdbcelltest.UnrestrictedProjects{}))
 			if backend == "remote" {
 				s := httptest.NewServer(celltest.Handler(remote.NewConsumerServer(base)))
 				defer s.Close()

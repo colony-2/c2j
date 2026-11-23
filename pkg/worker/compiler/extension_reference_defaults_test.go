@@ -23,6 +23,7 @@ import (
 	workerops "github.com/colony-2/c2j/pkg/worker/ops"
 	"github.com/colony-2/c2j/pkg/workflowctl"
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	jobdbcelltest "github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	toyruntime "github.com/colony-2/jobdb/pkg/jobdb/runtime/toy"
 	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
 	"github.com/stretchr/testify/require"
@@ -113,9 +114,9 @@ run: ` + fmt.Sprintf("%q\n", script)
 			if tc.outage {
 				provider.err = fmt.Errorf("outage")
 			}
-			rt := toyruntime.New(toyruntime.WithSecretProvider(provider))
+			rt := toyruntime.New(toyruntime.WithProjects(jobdbcelltest.UnrestrictedProjects{}), toyruntime.WithSecretProvider(provider))
 			if tc.noProvider {
-				rt = toyruntime.New()
+				rt = toyruntime.New(toyruntime.WithProjects(jobdbcelltest.UnrestrictedProjects{}))
 			}
 			if tc.config != "" {
 				_, err := rt.SetTenantConfigurationValue(ctx, jobdb.SetTenantConfigurationValueRequest{TenantID: "extension-defaults", Name: "base_url", Value: json.RawMessage(tc.config)})

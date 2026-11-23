@@ -19,6 +19,7 @@ import (
 	"github.com/colony-2/c2j/pkg/secrets"
 	"github.com/colony-2/c2j/pkg/swfutil"
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	jobdbcelltest "github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/remote"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/toy"
 	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
@@ -54,7 +55,7 @@ func TestGitDiagnosticsSurviveFailedTaskAndReplay(t *testing.T) {
 				input := jobdb.NewTaskDataOrPanic(ActivityInvocationRequest{
 					Input: map[string]interface{}{}, GitTaskContext: gitstate.GlobalGitTaskContext{BaseRepo: baseRepo, BaseRef: baseHash},
 				})
-				var base jobdb.ConsumerRuntime = toy.New()
+				var base jobdb.ConsumerRuntime = toy.New(toy.WithProjects(jobdbcelltest.UnrestrictedProjects{}))
 				if backend == "remote" {
 					server := httptest.NewServer(celltest.Handler(remote.NewConsumerServer(base)))
 					defer server.Close()

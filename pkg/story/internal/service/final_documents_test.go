@@ -13,6 +13,7 @@ import (
 	"github.com/colony-2/c2j/pkg/artifacts"
 	"github.com/colony-2/c2j/pkg/story/internal/model"
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	jobdbcelltest "github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	sqliteruntime "github.com/colony-2/jobdb/pkg/jobdb/runtime/sqlite"
 	workflow "github.com/colony-2/jobdb/pkg/workflow"
 	"github.com/stretchr/testify/require"
@@ -140,7 +141,7 @@ func TestFinalDocumentSelectionAndReadErrors(t *testing.T) {
 
 func TestFinalDocumentsSQLiteForwardedProducer(t *testing.T) {
 	ctx := celltest.Context(context.Background())
-	rt, err := sqliteruntime.NewFromConfig(ctx, sqliteruntime.Config{DBPath: filepath.Join(t.TempDir(), "documents.db")})
+	rt, err := sqliteruntime.NewFromConfig(ctx, sqliteruntime.Config{DBPath: filepath.Join(t.TempDir(), "documents.db"), Projects: jobdbcelltest.UnrestrictedProjects{}})
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, rt.Close(ctx)) })
 	celltest.Create(t, rt, "tenant", "test", "example.test/test")
@@ -220,7 +221,7 @@ func (e finalTransportEngine) GetArtifact(tenant string, key jobdb.ArtifactKey) 
 
 func TestFinalDocumentsSQLiteMissingBytesKeepsMembership(t *testing.T) {
 	ctx := celltest.Context(context.Background())
-	rt, err := sqliteruntime.NewFromConfig(ctx, sqliteruntime.Config{DBPath: filepath.Join(t.TempDir(), "missing.db")})
+	rt, err := sqliteruntime.NewFromConfig(ctx, sqliteruntime.Config{DBPath: filepath.Join(t.TempDir(), "missing.db"), Projects: jobdbcelltest.UnrestrictedProjects{}})
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, rt.Close(ctx)) })
 	celltest.Create(t, rt, "tenant", "test", "example.test/test")

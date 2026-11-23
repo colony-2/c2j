@@ -16,6 +16,7 @@ import (
 	"github.com/colony-2/c2j/pkg/jobinspect"
 	"github.com/colony-2/c2j/pkg/jobinspect/changestest"
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	jobdbcelltest "github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/remote"
 	sqliteruntime "github.com/colony-2/jobdb/pkg/jobdb/runtime/sqlite"
 	"github.com/stretchr/testify/require"
@@ -24,7 +25,7 @@ import (
 func changesBackend(t *testing.T, backend string) (context.Context, jobdb.ConsumerRuntime) {
 	t.Helper()
 	ctx := celltest.Context(context.Background())
-	rt, e := sqliteruntime.NewFromConfig(ctx, sqliteruntime.Config{DBPath: filepath.Join(t.TempDir(), "changes.db")})
+	rt, e := sqliteruntime.NewFromConfig(ctx, sqliteruntime.Config{DBPath: filepath.Join(t.TempDir(), "changes.db"), Projects: jobdbcelltest.UnrestrictedProjects{}})
 	require.NoError(t, e)
 	t.Cleanup(func() { require.NoError(t, rt.Close(ctx)) })
 	var runtime jobdb.ConsumerRuntime = rt

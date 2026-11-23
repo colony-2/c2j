@@ -10,6 +10,7 @@ import (
 	"github.com/colony-2/c2j/pkg/template"
 	"github.com/colony-2/c2j/pkg/workflow"
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	jobdbcelltest "github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/toy"
 	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
 	"github.com/stretchr/testify/require"
@@ -26,7 +27,7 @@ func (w *snapshotWitness) MarshalJSON() ([]byte, error) {
 
 func TestSerialScopesAndInputBuildersDoNotSnapshotPriorOutputs(t *testing.T) {
 	registerCatchOp(t, "scope_probe")
-	rt := toy.New()
+	rt := toy.New(toy.WithProjects(jobdbcelltest.UnrestrictedProjects{}))
 	job, git := GenerateTestContext()
 	task := &scopeProbeTask{calls: map[string]int{}, git: git}
 	w := jobworkflow.ExecutionWorker{JobType: "no-snapshots", Execute: func(exec jobworkflow.ExecutionContext, _ jobdb.JobData) (jobdb.JobData, error) {
@@ -86,7 +87,7 @@ func TestScopeOutputPublishedOnlyAfterAcceptance(t *testing.T) {
 	for _, kind := range []template.ScopeType{template.ScopeOp, template.ScopeSequence, template.ScopeStateMachine, template.ScopeState} {
 		for _, reject := range []bool{false, true} {
 			t.Run(fmt.Sprintf("%s/reject=%v", kind, reject), func(t *testing.T) {
-				rt := toy.New()
+				rt := toy.New(toy.WithProjects(jobdbcelltest.UnrestrictedProjects{}))
 				job, git := GenerateTestContext()
 				var observedErr error
 				observations := 0
@@ -160,7 +161,7 @@ func TestScopeOutputPublishedOnlyAfterAcceptance(t *testing.T) {
 func TestStateOwnsNestedOpPublication(t *testing.T) {
 	for _, reject := range []bool{false, true} {
 		t.Run(fmt.Sprintf("reject=%v", reject), func(t *testing.T) {
-			rt := toy.New()
+			rt := toy.New(toy.WithProjects(jobdbcelltest.UnrestrictedProjects{}))
 			job, git := GenerateTestContext()
 			var observedErr error
 			var observed []template.ScopeType

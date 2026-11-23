@@ -24,6 +24,7 @@ import (
 	"github.com/colony-2/c2j/pkg/worker/workflow"
 	"github.com/colony-2/c2j/pkg/workflowctl"
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	jobdbcelltest "github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/remote"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/sqlite"
 	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
@@ -130,7 +131,7 @@ outputs:
 					tasks = append(tasks, w)
 				}
 				dbPath := filepath.Join(t.TempDir(), "jobs.db")
-				store, err := sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: dbPath})
+				store, err := sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: dbPath, Projects: jobdbcelltest.UnrestrictedProjects{}})
 				require.NoError(t, err)
 				t.Cleanup(func() { _ = store.Close(ctx) })
 				var rt jobdb.ConsumerRuntime = store
@@ -196,7 +197,7 @@ outputs:
 				// Reopen persistent storage before resuming the same prepared request.
 				if backend == "sqlite" {
 					require.NoError(t, store.Close(ctx))
-					store, err = sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: dbPath})
+					store, err = sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: dbPath, Projects: jobdbcelltest.UnrestrictedProjects{}})
 					require.NoError(t, err)
 					rt = store
 					engine, err = jobworkflow.NewEngineBuilder().WithRuntime(rt).BuildEngine()

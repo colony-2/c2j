@@ -9,6 +9,7 @@ import (
 	"github.com/colony-2/c2j/pkg/execution"
 	"github.com/colony-2/c2j/pkg/executioncatalog"
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	jobdbcelltest "github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/remote"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/toy"
 	"github.com/stretchr/testify/require"
@@ -29,7 +30,7 @@ func TestExecutionBaseCatalogStandaloneSubmission(t *testing.T) {
 	}
 	t.Setenv(executioncatalog.RequireEnv, "true")
 	ctx := celltest.Context(context.Background())
-	rt := toy.New()
+	rt := toy.New(toy.WithProjects(jobdbcelltest.UnrestrictedProjects{}))
 	celltest.Create(t, rt, "t", "app", "example.test/app")
 	server := httptest.NewServer(celltest.Handler(remote.NewConsumerServer(rt)))
 	defer server.Close()

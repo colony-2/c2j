@@ -7,6 +7,7 @@ import (
 
 	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	jobdbcelltest "github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/toy"
 	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
 )
@@ -79,7 +80,7 @@ func (g *callbackGate) close() {
 }
 
 func runIsolatedScope(tasks *testJobContext, site string, opts jobworkflow.ScopeOptions, body func(jobworkflow.ExecutionContext) (jobdb.JobData, error)) (jobdb.JobData, error) {
-	rt := toy.New()
+	rt := toy.New(toy.WithProjects(jobdbcelltest.UnrestrictedProjects{}))
 	ctx := celltest.Context(tasks.Context())
 	if _, err := celltest.Register(ctx, rt, tasks.jobKey.TenantId, "test", "example.test/test"); err != nil {
 		return nil, err

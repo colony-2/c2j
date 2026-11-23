@@ -10,6 +10,7 @@ import (
 
 	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	jobdbcelltest "github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	sqliteruntime "github.com/colony-2/jobdb/pkg/jobdb/runtime/sqlite"
 	toyruntime "github.com/colony-2/jobdb/pkg/jobdb/runtime/toy"
 	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
@@ -25,9 +26,9 @@ func TestClientPayloadSurvivesYieldAndExternalTaskCompletion(t *testing.T) {
 			defer cancel()
 			var rt jobdb.ConsumerRuntime
 			if backend == "toy" {
-				rt = toyruntime.New()
+				rt = toyruntime.New(toyruntime.WithProjects(jobdbcelltest.UnrestrictedProjects{}))
 			} else {
-				db, err := sqliteruntime.NewFromConfig(ctx, sqliteruntime.Config{DBPath: filepath.Join(t.TempDir(), "jobs.db")})
+				db, err := sqliteruntime.NewFromConfig(ctx, sqliteruntime.Config{DBPath: filepath.Join(t.TempDir(), "jobs.db"), Projects: jobdbcelltest.UnrestrictedProjects{}})
 				require.NoError(t, err)
 				t.Cleanup(func() {
 					require.NoError(t, db.Close(celltest.Context(context.Background())))

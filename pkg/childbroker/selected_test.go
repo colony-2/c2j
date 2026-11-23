@@ -23,6 +23,7 @@ import (
 	"github.com/colony-2/c2j/pkg/starter"
 	"github.com/colony-2/c2j/pkg/workflowctl"
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	jobdbcelltest "github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/sqlite"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/toy"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtimetest"
@@ -31,7 +32,7 @@ import (
 )
 
 func TestSelectedBrokerRealDispatchAndReplay(t *testing.T) {
-	rt, err := sqlite.NewFromConfig(context.Background(), sqlite.Config{DBPath: filepath.Join(t.TempDir(), "jobs.db")})
+	rt, err := sqlite.NewFromConfig(context.Background(), sqlite.Config{DBPath: filepath.Join(t.TempDir(), "jobs.db"), Projects: jobdbcelltest.UnrestrictedProjects{}})
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, rt.Close(context.Background())) })
 	ctx := runtimetest.PrimaryGoalContext(context.Background())
@@ -245,7 +246,7 @@ func TestSelectedBrokerCLIProcess(t *testing.T) {
 	build.Dir = testRepoRoot(t)
 	out, err := build.CombinedOutput()
 	require.NoError(t, err, string(out))
-	rt := toy.New()
+	rt := toy.New(toy.WithProjects(jobdbcelltest.UnrestrictedProjects{}))
 	celltest.Create(t, rt, "0", "app", "example.test/app")
 	source, err := rt.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "0", JobID: "source", Cell: "app", CellRepo: "example.test/app", JobType: "work", Data: jobdb.NewTaskDataOrPanic(nil)}})
 	require.NoError(t, err)

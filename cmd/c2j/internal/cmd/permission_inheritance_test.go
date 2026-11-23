@@ -32,6 +32,7 @@ import (
 	workerops "github.com/colony-2/c2j/pkg/worker/ops"
 	"github.com/colony-2/c2j/pkg/workflowctl"
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	jobdbcelltest "github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/remote"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/toy"
 	wf "github.com/colony-2/jobdb/pkg/workflow"
@@ -114,7 +115,7 @@ func TestPermissionInheritanceAuthenticatedGitAndResume(t *testing.T) {
 			t.Run(backendName+"/"+secretName, func(t *testing.T) {
 				ctx, cancel := context.WithTimeout(celltest.Context(context.Background()), time.Minute)
 				defer cancel()
-				base := toy.New(toy.WithSecretProvider(inheritanceSecrets{name: secretName}))
+				base := toy.New(toy.WithProjects(jobdbcelltest.UnrestrictedProjects{}), toy.WithSecretProvider(inheritanceSecrets{name: secretName}))
 				var runtime jobdb.ConsumerRuntime = base
 				if backendName == "remote" {
 					server := httptest.NewServer(celltest.Handler(remote.NewConsumerServer(base)))

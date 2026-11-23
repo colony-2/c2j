@@ -44,11 +44,12 @@ func ValidateRepositoryContext(ctx context.Context, repoPath string) error {
 	}
 
 	// Use git rev-parse to find the git directory
-	cmd := gitprofile.Command(ctx, "rev-parse", "--git-dir")
-	cmd.Dir = repoPath
-	output, err := gitprofile.CombinedOutput(ctx, cmd)
+	output, err := ExecuteGitCommand(ctx, repoPath, "rev-parse", "--git-dir")
 	if err != nil {
-		return fmt.Errorf("not a git repository (or any of the parent directories): %s", repoPath)
+		// A failed validation can be a process-start or infrastructure failure,
+		// rather than evidence that the repository is invalid. Keep its cause
+		// and failed diagnostic available to preparation error handling.
+		return fmt.Errorf("not a git repository (or any of the parent directories): %s: %w", repoPath, err)
 	}
 
 	// Verify we got a valid response

@@ -19,6 +19,7 @@ import (
 	"github.com/colony-2/c2j/pkg/worker/compiler"
 	"github.com/colony-2/c2j/pkg/workflowctl"
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	jobdbcelltest "github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/remote"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/sqlite"
 	wf "github.com/colony-2/jobdb/pkg/workflow"
@@ -69,7 +70,7 @@ func TestStoryAPIExposesUnfinishedTask(t *testing.T) {
 			t.Run(backend+"/"+mode, func(t *testing.T) {
 				ctx, cancel := context.WithTimeout(celltest.Context(context.Background()), 15*time.Second)
 				defer cancel()
-				db, err := sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: filepath.Join(t.TempDir(), "jobs.db")})
+				db, err := sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: filepath.Join(t.TempDir(), "jobs.db"), Projects: jobdbcelltest.UnrestrictedProjects{}})
 				require.NoError(t, err)
 				defer db.Close(celltest.Context(context.Background()))
 				var rt jobdb.ConsumerRuntime = db
@@ -212,7 +213,7 @@ func newStoryBarrierTask(t *testing.T, name string, result jobdb.TaskData) (*sto
 
 func storyTestRuntime(t *testing.T, ctx context.Context, backend string) jobdb.ConsumerRuntime {
 	t.Helper()
-	db, err := sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: filepath.Join(t.TempDir(), "jobs.db")})
+	db, err := sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: filepath.Join(t.TempDir(), "jobs.db"), Projects: jobdbcelltest.UnrestrictedProjects{}})
 	require.NoError(t, err)
 	t.Cleanup(func() {
 		require.NoError(t, db.Close(celltest.Context(context.Background())))

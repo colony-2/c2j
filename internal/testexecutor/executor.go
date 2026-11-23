@@ -19,6 +19,7 @@ import (
 	"github.com/colony-2/c2j/pkg/worker/ops"
 	workflow "github.com/colony-2/c2j/pkg/worker/workflow"
 	"github.com/colony-2/c2j/pkg/workflowctl"
+	jobdbcelltest "github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	toyruntime "github.com/colony-2/jobdb/pkg/jobdb/runtime/toy"
 	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
 	"go.uber.org/zap"
@@ -95,7 +96,7 @@ func (e *StandaloneExecutor) ExecuteWithRegistry(
 	runCtx, stop := context.WithCancel(ctx)
 	defer stop()
 	ctx = celltest.Context(ctx)
-	runtime := toyruntime.New()
+	runtime := toyruntime.New(toyruntime.WithProjects(jobdbcelltest.UnrestrictedProjects{}))
 	executionRuntime := executionruntime.New(runtime, e.allocation)
 	workset, err := compiler.NewRecipeWorkerWithOptions(deps, e.registry, compiler.RecipeJobWorkerOptions{
 		Allocation: e.allocation, StageExecution: executionRuntime.Stage,

@@ -15,6 +15,7 @@ import (
 	"github.com/colony-2/c2j/cmd/c2j/internal/swfruntime"
 	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	jobdbcelltest "github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/remote"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/sqlite"
 	"github.com/stretchr/testify/require"
@@ -32,7 +33,7 @@ func newDeletionFixture(t *testing.T, backend string) *deletionFixture {
 		t.Setenv("HOME", t.TempDir())
 		return f
 	}
-	rt, err := sqlite.NewFromConfig(celltest.Context(context.Background()), sqlite.Config{DBPath: filepath.Join(t.TempDir(), "jobdb.sqlite")})
+	rt, err := sqlite.NewFromConfig(celltest.Context(context.Background()), sqlite.Config{DBPath: filepath.Join(t.TempDir(), "jobdb.sqlite"), Projects: jobdbcelltest.UnrestrictedProjects{}})
 	require.NoError(t, err)
 	t.Cleanup(func() {
 		require.NoError(t, rt.Close(celltest.Context(context.Background())))
@@ -75,6 +76,7 @@ func (f *deletionFixture) run(t *testing.T, opts Options) Result {
 }
 
 func TestDeletionSelectionAcrossRuntimes(t *testing.T) {
+	const otherProject = "c2"
 	for _, backend := range []string{"embed", "remote"} {
 		t.Run(backend, func(t *testing.T) {
 			ctx := celltest.Context(context.Background())
@@ -83,7 +85,7 @@ func TestDeletionSelectionAcrossRuntimes(t *testing.T) {
 			for _, row := range []struct{ tenant, id, repo, recipe string }{
 				{f.tenant, "backend", "backend", "build"}, {f.tenant, "frontend", "frontend", "build"},
 				{f.tenant, "wrong-cell", "other", "build"}, {f.tenant, "wrong-recipe", "backend", "test"},
-				{f.tenant, "excluded-id", "backend", "build"}, {"other-tenant", "backend", "backend", "build"},
+				{f.tenant, "excluded-id", "backend", "build"}, {otherProject, "backend", "backend", "build"},
 			} {
 				metadata, err := json.Marshal(map[string]string{"repo": "https://github.com/acme/" + row.repo + ".git", "recipe": row.recipe})
 				require.NoError(t, err)
@@ -138,7 +140,7 @@ func TestDeletionSelectionAcrossRuntimes(t *testing.T) {
 			newLease, err := h.Runtime.GetJobLease(ctx, jobdb.GetJobLeaseRequest{JobKey: key, Routes: []jobdb.Route{{JobType: "test"}}, WorkerID: "test", LeaseDuration: time.Hour})
 			require.NoError(t, err)
 			require.Nil(t, newLease)
-			listed, err = h.Runtime.ListJobs(ctx, jobdb.ListJobsRequest{TenantIds: []string{"other-tenant"}})
+			listed, err = h.Runtime.ListJobs(ctx, jobdb.ListJobsRequest{TenantIds: []string{otherProject}})
 			require.NoError(t, err)
 			require.Len(t, listed.Jobs, 1)
 			require.NoError(t, h.Cleanup())

@@ -20,6 +20,7 @@ import (
 	"github.com/colony-2/c2j/pkg/jobinspect/changestest"
 	"github.com/colony-2/c2j/pkg/selfinfo"
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	jobdbcelltest "github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/remote"
 	sqliteruntime "github.com/colony-2/jobdb/pkg/jobdb/runtime/sqlite"
 	"github.com/stretchr/testify/require"
@@ -59,7 +60,7 @@ func TestChangesHelperJ37J41L09(t *testing.T) {
 		t.Run(backend, func(t *testing.T) {
 			ctx, cancel := context.WithCancel(celltest.Context(context.Background()))
 			defer cancel()
-			rt, e := sqliteruntime.NewFromConfig(ctx, sqliteruntime.Config{DBPath: filepath.Join(t.TempDir(), "helper.db")})
+			rt, e := sqliteruntime.NewFromConfig(ctx, sqliteruntime.Config{DBPath: filepath.Join(t.TempDir(), "helper.db"), Projects: jobdbcelltest.UnrestrictedProjects{}})
 			require.NoError(t, e)
 			defer rt.Close(ctx)
 			var runtime jobdb.ConsumerRuntime = rt

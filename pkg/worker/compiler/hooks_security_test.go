@@ -24,6 +24,7 @@ import (
 	"github.com/colony-2/c2j/pkg/swfutil"
 	"github.com/colony-2/c2j/pkg/workflowctl"
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	jobdbcelltest "github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	toyruntime "github.com/colony-2/jobdb/pkg/jobdb/runtime/toy"
 	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
 	"github.com/stretchr/testify/require"
@@ -32,7 +33,7 @@ import (
 func hookTestEngine(t *testing.T, ws *jobworkflow.WorkSet) (context.Context, jobworkflow.Engine, *toyruntime.Runtime, *testSecretProvider) {
 	t.Helper()
 	provider := &testSecretProvider{}
-	rt := toyruntime.New(toyruntime.WithSecretProvider(provider))
+	rt := toyruntime.New(toyruntime.WithProjects(jobdbcelltest.UnrestrictedProjects{}), toyruntime.WithSecretProvider(provider))
 	guard := executionruntime.New(rt, execution.Allocation{SchemaVersion: 1})
 	var workers []jobworkflow.TaskWorker
 	for _, w := range ws.TaskWorkers {

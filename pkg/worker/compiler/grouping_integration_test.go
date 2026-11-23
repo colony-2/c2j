@@ -29,6 +29,7 @@ import (
 	workerworkflow "github.com/colony-2/c2j/pkg/worker/workflow"
 	"github.com/colony-2/c2j/pkg/workflowctl"
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	jobdbcelltest "github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/remote"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/sqlite"
 	wf "github.com/colony-2/jobdb/pkg/workflow"
@@ -40,7 +41,7 @@ func TestGroupingRealReceiverSQLiteAndHTTP(t *testing.T) {
 	for _, transport := range []string{"sqlite", "http"} {
 		t.Run(transport, func(t *testing.T) {
 			ctx := celltest.Context(context.Background())
-			db, err := sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: filepath.Join(t.TempDir(), "jobs.db")})
+			db, err := sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: filepath.Join(t.TempDir(), "jobs.db"), Projects: jobdbcelltest.UnrestrictedProjects{}})
 			require.NoError(t, err)
 			t.Cleanup(func() { require.NoError(t, db.Close(ctx)) })
 			var runtime jobdb.ConsumerRuntime = db
@@ -181,7 +182,7 @@ outputs:
 
 func TestGroupingHTTPRegistersMissingSchema(t *testing.T) {
 	ctx := celltest.Context(context.Background())
-	db, err := sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: filepath.Join(t.TempDir(), "jobs.db")})
+	db, err := sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: filepath.Join(t.TempDir(), "jobs.db"), Projects: jobdbcelltest.UnrestrictedProjects{}})
 	require.NoError(t, err)
 	defer db.Close(ctx)
 	handler := remote.NewConsumerServer(db)

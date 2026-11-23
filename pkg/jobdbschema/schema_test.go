@@ -9,12 +9,13 @@ import (
 
 	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	jobdbcelltest "github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	toyruntime "github.com/colony-2/jobdb/pkg/jobdb/runtime/toy"
 )
 
 func TestSchemaRegistersWithJobDB(t *testing.T) {
 	ctx := celltest.Context(context.Background())
-	runtime := toyruntime.New()
+	runtime := toyruntime.New(toyruntime.WithProjects(jobdbcelltest.UnrestrictedProjects{}))
 
 	info, err := runtime.RegisterJobSchema(ctx, jobdb.RegisterJobSchemaRequest{
 		TenantId: "tenant",
@@ -251,7 +252,7 @@ func TestExactJobSchema(t *testing.T) {
 	}
 	for _, extra := range []string{"", `,"available_at":"2027-01-01T12:20:00.123456789Z"`, `,"available_at":12`, `,"goal_id":"stale"`, `,"unknown":true`, `,"job_id":12`} {
 		t.Run(extra, func(t *testing.T) {
-			rt := toyruntime.New()
+			rt := toyruntime.New(toyruntime.WithProjects(jobdbcelltest.UnrestrictedProjects{}))
 			ctx := celltest.Context(context.Background())
 			celltest.Create(t, rt, "tenant", "test", "example.test/test")
 			_, err := rt.RegisterJobSchema(ctx, jobdb.RegisterJobSchemaRequest{TenantId: "tenant", Schema: Schema()})
@@ -306,7 +307,7 @@ func TestSchemaInheritedGitProfile(t *testing.T) {
 	} {
 		t.Run(tc.profile, func(t *testing.T) {
 			ctx := celltest.Context(context.Background())
-			rt := toyruntime.New()
+			rt := toyruntime.New(toyruntime.WithProjects(jobdbcelltest.UnrestrictedProjects{}))
 			celltest.Create(t, rt, "tenant", "test", "example.test/test")
 			hash, err := Hash()
 			if err != nil {

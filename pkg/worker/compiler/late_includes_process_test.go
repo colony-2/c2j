@@ -12,6 +12,7 @@ import (
 	"github.com/colony-2/c2j/pkg/recipe"
 	coretask "github.com/colony-2/c2j/pkg/task"
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	jobdbcelltest "github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	sqliteruntime "github.com/colony-2/jobdb/pkg/jobdb/runtime/sqlite"
 	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
 	"github.com/stretchr/testify/require"
@@ -62,7 +63,7 @@ func TestLateIncludeProcessExecutor(t *testing.T) {
 		t.Skip("child-process executor")
 	}
 	registerCatchOp(t, "scope_probe")
-	rt, err := sqliteruntime.NewFromConfig(testBackground(), sqliteruntime.Config{DBPath: db})
+	rt, err := sqliteruntime.NewFromConfig(testBackground(), sqliteruntime.Config{DBPath: db, Projects: jobdbcelltest.UnrestrictedProjects{}})
 	require.NoError(t, err)
 	defer rt.Close(testBackground())
 	raw, err := os.ReadFile(os.Getenv("C2J_LATE_PROCESS_RECIPE"))
@@ -123,7 +124,7 @@ func TestLateIncludeProcessLoss(t *testing.T) {
 			require.NoError(t, os.WriteFile(recipePath, bytes, 0600))
 			inputBytes, _ := json.Marshal(map[string]any{"target": f.selector("child.yaml", commit)})
 			require.NoError(t, os.WriteFile(inputPath, inputBytes, 0600))
-			rt, err := sqliteruntime.NewFromConfig(testBackground(), sqliteruntime.Config{DBPath: db})
+			rt, err := sqliteruntime.NewFromConfig(testBackground(), sqliteruntime.Config{DBPath: db, Projects: jobdbcelltest.UnrestrictedProjects{}})
 			require.NoError(t, err)
 			defer rt.Close(testBackground())
 			w := lateWorker(t, rec, func() map[string]any { return map[string]any{"target": "changed-invalid-selector"} })

@@ -27,6 +27,7 @@ import (
 	workerops "github.com/colony-2/c2j/pkg/worker/ops"
 	"github.com/colony-2/c2j/pkg/workflowctl"
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	jobdbcelltest "github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/remote"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/toy"
 	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
@@ -132,7 +133,7 @@ func TestRecipeGitProfilesAcrossRenewalAndScopeChanges(t *testing.T) {
 			ctx, cancel := context.WithTimeout(celltest.Context(context.Background()), time.Minute)
 			defer cancel()
 			provider := &freshGitProvider{}
-			base := toy.New(toy.WithSecretProvider(provider))
+			base := toy.New(toy.WithProjects(jobdbcelltest.UnrestrictedProjects{}), toy.WithSecretProvider(provider))
 			var runtime jobdb.ConsumerRuntime = base
 			if strings.HasPrefix(backend, "remote") {
 				server := httptest.NewServer(celltest.Handler(remote.NewConsumerServer(base)))

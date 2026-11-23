@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/colony-2/c2j/internal/resourceretry"
 	"github.com/colony-2/c2j/internal/scenariotest"
 
 	"github.com/colony-2/c2j/pkg/cellref"
@@ -114,6 +115,9 @@ func resolveWorkspaceTask(ctx context.Context, data jobdb.TaskData, owners ...jo
 			return nil, fmt.Errorf("invalid workspace.initial %q", req.Initial)
 		}
 		if _, err := common.ExecuteGitCommand(ctx, "", "check-ref-format", "refs/heads/"+strings.TrimPrefix(target.Ref, "refs/heads/")); err != nil {
+			if ctx.Err() == nil && resourceretry.CreationFailure(err) {
+				return nil, resourceretry.Restart("preparation_diagnostic", "preparation")
+			}
 			return nil, fmt.Errorf("empty workspace requires a branch: %w", err)
 		}
 		return jobdb.NewTaskData(WorkspaceResolutionOutput{
@@ -123,6 +127,9 @@ func resolveWorkspaceTask(ctx context.Context, data jobdb.TaskData, owners ...jo
 	}
 	resolved, err := selectorcache.Default().Resolve(ctx, selectorcache.ResolveRequest{RepositoryURL: target.Repository, Ref: target.Ref})
 	if err != nil {
+		if ctx.Err() == nil && resourceretry.CreationFailure(err) {
+			return nil, resourceretry.Restart("preparation_diagnostic", "preparation")
+		}
 		return nil, fmt.Errorf("resolve workspace %q: %w", req.Cell, err)
 	}
 	policy := ""

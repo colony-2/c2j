@@ -19,6 +19,7 @@ import (
 	"github.com/colony-2/c2j/pkg/ops"
 	workerworkflow "github.com/colony-2/c2j/pkg/worker/workflow"
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	jobdbcelltest "github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/remote"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/sqlite"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/toy"
@@ -90,11 +91,11 @@ func TestExactJobBackendIsolation(t *testing.T) {
 						}
 						if backend == "toy" {
 							if rt == nil {
-								rt = toy.New()
+								rt = toy.New(toy.WithProjects(jobdbcelltest.UnrestrictedProjects{}))
 							}
 							return
 						}
-						local, e := sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: path})
+						local, e := sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: path, Projects: jobdbcelltest.UnrestrictedProjects{}})
 						require.NoError(t, e)
 						closeDB = func() { require.NoError(t, local.Close(ctx)) }
 						rt = local

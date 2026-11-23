@@ -21,6 +21,7 @@ import (
 	"github.com/colony-2/c2j/pkg/swfutil"
 	coretask "github.com/colony-2/c2j/pkg/task"
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	jobdbcelltest "github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/toy"
 	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
 	"github.com/stretchr/testify/require"
@@ -86,7 +87,7 @@ func TestTaskWorkerRunReturnsTaskDataOnFailure(t *testing.T) {
 
 	t.Run("persist_and_replay", func(t *testing.T) {
 		ctx := celltest.Context(context.Background())
-		rt := executionruntime.New(toy.New(), execution.Allocation{SchemaVersion: 1})
+		rt := executionruntime.New(toy.New(toy.WithProjects(jobdbcelltest.UnrestrictedProjects{})), execution.Allocation{SchemaVersion: 1})
 		orchestrator := jobworkflow.ExecutionWorker{JobType: "diagnostics", Execute: func(c jobworkflow.ExecutionContext, data jobdb.JobData) (jobdb.JobData, error) {
 			return c.DoTask(jobworkflow.TaskCall{Site: "failure", TaskType: worker.Name(), ContractVersion: 1, Command: json.RawMessage(`{}`), Policy: jobdb.RunPolicy{Retry: jobdb.RetryPolicy{MaximumAttempts: 1}}}, func(context.Context) (jobdb.TaskData, error) { return data, nil })
 		}}
@@ -176,7 +177,7 @@ func TestTaskWorkerRunCancelsStepWithExecutionContext(t *testing.T) {
 		},
 	})
 
-	rt := executionruntime.New(toy.New(), execution.Allocation{SchemaVersion: 1})
+	rt := executionruntime.New(toy.New(toy.WithProjects(jobdbcelltest.UnrestrictedProjects{})), execution.Allocation{SchemaVersion: 1})
 	celltest.Create(t, rt, "tenant", "test", "example.test/test")
 	job, err := rt.SubmitJob(executionCtx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "tenant", JobType: "cancel-step", Data: input, Cell: "test", CellRepo: "example.test/test"}})
 	require.NoError(t, err)

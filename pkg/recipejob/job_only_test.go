@@ -20,6 +20,7 @@ import (
 	"github.com/colony-2/c2j/pkg/starter"
 	"github.com/colony-2/c2j/pkg/workflowctl"
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	jobdbcelltest "github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/remote"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/sqlite"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/toy"
@@ -51,9 +52,9 @@ func TestExactJobConsumerReceiptsAndRestart(t *testing.T) {
 						tenant = ksuid.New().String()
 					}
 					ctx := celltest.Context(context.Background())
-					var rt jobdb.ConsumerRuntime = toy.New()
+					var rt jobdb.ConsumerRuntime = toy.New(toy.WithProjects(jobdbcelltest.UnrestrictedProjects{}))
 					if backend == "sqlite" || backend == "http" {
-						db, e := sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: filepath.Join(t.TempDir(), "jobs.db")})
+						db, e := sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: filepath.Join(t.TempDir(), "jobs.db"), Projects: jobdbcelltest.UnrestrictedProjects{}})
 						require.NoError(t, e)
 						t.Cleanup(func() { require.NoError(t, db.Close(ctx)) })
 						rt = db
@@ -185,9 +186,9 @@ func TestExactJobLegacyFrozenRecovery(t *testing.T) {
 				tenant = ksuid.New().String()
 			}
 			ctx := jobdb.WithPrimaryGoalSelectionAuthorizer(celltest.Context(context.Background()), func(context.Context, jobdb.GoalKey, jobdb.ResolvedCell) error { return nil })
-			var rt jobdb.ConsumerRuntime = toy.New()
+			var rt jobdb.ConsumerRuntime = toy.New(toy.WithProjects(jobdbcelltest.UnrestrictedProjects{}))
 			if backend == "sqlite" || backend == "http" {
-				db, e := sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: filepath.Join(t.TempDir(), "legacy.db")})
+				db, e := sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: filepath.Join(t.TempDir(), "legacy.db"), Projects: jobdbcelltest.UnrestrictedProjects{}})
 				require.NoError(t, e)
 				t.Cleanup(func() { require.NoError(t, db.Close(ctx)) })
 				rt = db

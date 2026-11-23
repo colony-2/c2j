@@ -33,6 +33,7 @@ import (
 	"github.com/colony-2/c2j/pkg/worker/compiler"
 	"github.com/colony-2/c2j/pkg/workflowctl"
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	jobdbcelltest "github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	remoteruntime "github.com/colony-2/jobdb/pkg/jobdb/runtime/remote"
 	toyruntime "github.com/colony-2/jobdb/pkg/jobdb/runtime/toy"
 	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
@@ -78,7 +79,7 @@ outputs:
 
 	baseRepo, _ := createGitRepo(t)
 
-	underlying := toyruntime.New()
+	underlying := toyruntime.New(toyruntime.WithProjects(jobdbcelltest.UnrestrictedProjects{}))
 	celltest.Create(t, underlying, tenantID, "app", celltest.Repo(baseRepo))
 	server := httptest.NewServer(celltest.Handler(remoteruntime.NewConsumerServer(underlying)))
 	defer server.Close()
@@ -200,7 +201,7 @@ outputs:
 
 	baseRepo, _ := createGitRepo(t)
 
-	underlying := toyruntime.New()
+	underlying := toyruntime.New(toyruntime.WithProjects(jobdbcelltest.UnrestrictedProjects{}))
 	celltest.Create(t, underlying, tenantID, "app", celltest.Repo(baseRepo))
 	server := httptest.NewServer(celltest.Handler(remoteruntime.NewConsumerServer(underlying)))
 	defer server.Close()
@@ -328,7 +329,7 @@ outputs:
 		t.Fatalf("write brief: %v", err)
 	}
 
-	underlying := toyruntime.New()
+	underlying := toyruntime.New(toyruntime.WithProjects(jobdbcelltest.UnrestrictedProjects{}))
 	celltest.Create(t, underlying, tenantID, "app", celltest.Repo(baseRepo))
 	server := httptest.NewServer(celltest.Handler(remoteruntime.NewConsumerServer(underlying)))
 	defer server.Close()
@@ -469,7 +470,7 @@ outputs:
 	mustWriteRepoFile(t, baseRepo, ".c2/recipes/nucleus_submit_ref_recipe.yaml", recipeYAML)
 	commitRepo(t, baseRepo, "add bare recipe")
 
-	underlying := toyruntime.New()
+	underlying := toyruntime.New(toyruntime.WithProjects(jobdbcelltest.UnrestrictedProjects{}))
 	celltest.Create(t, underlying, tenantID, "app", celltest.Repo(baseRepo))
 	server := httptest.NewServer(celltest.Handler(remoteruntime.NewConsumerServer(underlying)))
 	defer server.Close()
@@ -549,7 +550,7 @@ func TestRun_DefaultBuildUsesSharedRecipe(t *testing.T) {
 			mustWriteRepoFile(t, root, ".c2/recipes/build.yaml", "invalid: [")
 			mustWriteRepoFile(t, root, ".c2/config.yaml", "self:\n  cell: app\n  repo: "+celltest.Repo(root)+"\n  ref: main\n")
 			commitRepo(t, root, "local recipe must not override default")
-			base := toyruntime.New()
+			base := toyruntime.New(toyruntime.WithProjects(jobdbcelltest.UnrestrictedProjects{}))
 			server := httptest.NewServer(celltest.Handler(remoteruntime.NewConsumerServer(base)))
 			defer server.Close()
 			var stdout bytes.Buffer
@@ -630,7 +631,7 @@ outputs:
 	mustWriteRepoFile(t, baseRepo, ".c2/config.yaml", "self:\n  cell: app\n  repo: "+celltest.Repo(baseRepo)+"\n  ref: main\n")
 	commitRepo(t, baseRepo, "add self config and default recipe")
 
-	underlying := toyruntime.New()
+	underlying := toyruntime.New(toyruntime.WithProjects(jobdbcelltest.UnrestrictedProjects{}))
 	celltest.Create(t, underlying, tenantID, "app", celltest.Repo(baseRepo))
 	server := httptest.NewServer(celltest.Handler(remoteruntime.NewConsumerServer(underlying)))
 	defer server.Close()
@@ -735,7 +736,7 @@ outputs:
 			mustWriteRepoFile(t, submittingRepo, ".c2/recipes/"+kind+".yaml", "invalid: [")
 			mustWriteRepoFile(t, submittingRepo, ".c2/config.yaml", "self:\n  cell: app\n  repo: "+celltest.Repo(submittingRepo)+"\n  ref: main\n")
 			commitRepo(t, submittingRepo, "unrelated submitting cell")
-			underlying := toyruntime.New()
+			underlying := toyruntime.New(toyruntime.WithProjects(jobdbcelltest.UnrestrictedProjects{}))
 			celltest.Create(t, underlying, "target-conventions", "app", celltest.Repo(targetRepo))
 			server := httptest.NewServer(celltest.Handler(remoteruntime.NewConsumerServer(underlying)))
 			defer server.Close()
@@ -820,7 +821,7 @@ outputs:
 
 			baseRepo, _ := createGitRepo(t)
 
-			underlying := toyruntime.New()
+			underlying := toyruntime.New(toyruntime.WithProjects(jobdbcelltest.UnrestrictedProjects{}))
 			celltest.Create(t, underlying, tenantID, "app", celltest.Repo(baseRepo))
 			server := httptest.NewServer(celltest.Handler(remoteruntime.NewConsumerServer(underlying)))
 			defer server.Close()
@@ -1213,7 +1214,7 @@ func TestRun_BrokerSubmissionAndConfiguredImmediateExecution(t *testing.T) {
 	ctx, cancel := context.WithTimeout(celltest.Context(context.Background()), 30*time.Second)
 	defer cancel()
 	root, _ := createGitRepo(t)
-	rt := toyruntime.New()
+	rt := toyruntime.New(toyruntime.WithProjects(jobdbcelltest.UnrestrictedProjects{}))
 	celltest.Create(t, rt, "broker-run", "app", celltest.Repo(root))
 	sdk, err := jobworkflow.NewEngineBuilder().WithRuntime(rt).BuildEngine()
 	require.NoError(t, err)
@@ -1284,7 +1285,7 @@ func TestRecipeSubmissionInputsCLISources(t *testing.T) {
 			path := filepath.Join(root, "submission-inputs.yaml")
 			require.NoError(t, os.WriteFile(path, []byte("id: submission-inputs\ninputs: {all: '${{ inputs }}'}\nsequence: []\noutputs: {all: '${{ inputs.all }}'}\n"), 0600))
 			repo, _ := createGitRepo(t)
-			rt := toyruntime.New()
+			rt := toyruntime.New(toyruntime.WithProjects(jobdbcelltest.UnrestrictedProjects{}))
 			celltest.Create(t, rt, "submission-inputs", "app", celltest.Repo(repo))
 			server := httptest.NewServer(celltest.Handler(remoteruntime.NewConsumerServer(rt)))
 			defer server.Close()

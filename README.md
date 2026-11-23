@@ -101,7 +101,7 @@ Use `c2j job metrics JOB` to inspect tagged task counters, gauges and histograms
 [Task metrics](GUIDE-Task-Metrics.md) explains emission, automatic timings,
 CPU coverage, ordinal/scope filters and completion snapshots.
 
-Use `c2j job clear-crash-concern JOB` to reset a job's crash counter and allow
+Use `c2j job clear-crash-concern JOB` to restore a job's crash credit and allow
 normal scheduling to resume on the same job. It supports `--jobdb`, `--embed`,
 `--reason`, `--worker-id`, and `--json`. See [crash-concern recovery](GUIDE-Cortex-RecipeJob-API.md#clear-crash-concern)
 for the CLI and public Go API used by hosts such as Cortex.
@@ -192,6 +192,10 @@ JobDB before first submission. For an embedded runtime:
 ```bash
 c2j cell create <cell-name> --repo <repository> --jobdb embed:///
 ```
+
+Fresh embedded stores initialize the local `0` and `c2` projects. Existing stores
+require explicit offline JobDB migration and project installation; see
+[embedded upgrade requirements](pkg/executionruntime/README.md#resource-backoff).
 
 Configuration alone does not register a cell. Submissions use the build recipe:
 

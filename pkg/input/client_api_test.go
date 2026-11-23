@@ -16,6 +16,7 @@ import (
 	c2workflow "github.com/colony-2/c2j/pkg/worker/workflow"
 	"github.com/colony-2/c2j/pkg/workflowctl"
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	jobdbcelltest "github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	sqliteruntime "github.com/colony-2/jobdb/pkg/jobdb/runtime/sqlite"
 	workflow "github.com/colony-2/jobdb/pkg/workflow"
 	"github.com/stretchr/testify/require"
@@ -310,7 +311,7 @@ func TestFormRequestedTimeIsPersistedForEveryMode(t *testing.T) {
 
 func TestPendingInputSQLitePaginationBeyondBackendPageLimit(t *testing.T) {
 	ctx := celltest.Context(context.Background())
-	db, err := sqliteruntime.NewFromConfig(ctx, sqliteruntime.Config{DBPath: t.TempDir() + "/jobs.db"})
+	db, err := sqliteruntime.NewFromConfig(ctx, sqliteruntime.Config{DBPath: t.TempDir() + "/jobs.db", Projects: jobdbcelltest.UnrestrictedProjects{}})
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close(ctx) })
 	engine, err := workflow.NewEngineBuilder().WithRuntime(db).BuildEngine()

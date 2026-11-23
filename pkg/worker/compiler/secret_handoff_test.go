@@ -14,6 +14,7 @@ import (
 	"github.com/colony-2/c2j/pkg/workflow"
 	"github.com/colony-2/c2j/pkg/workflowctl"
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	jobdbcelltest "github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/toy"
 	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
 	"github.com/stretchr/testify/require"
@@ -80,7 +81,7 @@ func TestRecipeReplayDoesNotWaitForPreviousActivationCleanup(t *testing.T) {
 		t.Run(mode, func(t *testing.T) {
 			synctest.Test(t, func(t *testing.T) {
 				ctx := celltest.Context(context.Background())
-				base := toy.New()
+				base := toy.New(toy.WithProjects(jobdbcelltest.UnrestrictedProjects{}))
 				celltest.Create(t, base, "handoff", "test", "example.test/test")
 				child, err := base.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{
 					TenantId: "handoff", JobType: "child", Data: jobdb.NewTaskDataOrPanic(nil), Cell: "test", CellRepo: "example.test/test",

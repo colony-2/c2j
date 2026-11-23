@@ -11,6 +11,7 @@ import (
 	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/c2j/pkg/joblist"
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	jobdbcelltest "github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/sqlite"
 	"github.com/stretchr/testify/require"
 )
@@ -18,7 +19,7 @@ import (
 func TestIncludeHiddenSQLiteHTTP(t *testing.T) {
 	ctx := celltest.Context(context.Background())
 	dbPath := filepath.Join(t.TempDir(), "jobs.db")
-	rt, err := sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: dbPath})
+	rt, err := sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: dbPath, Projects: jobdbcelltest.UnrestrictedProjects{}})
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, rt.Close(ctx)) })
 	created := time.Now().UTC()

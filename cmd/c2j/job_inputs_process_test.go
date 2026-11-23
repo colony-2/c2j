@@ -29,6 +29,7 @@ import (
 	"github.com/colony-2/c2j/pkg/jobinputs"
 	"github.com/colony-2/c2j/pkg/selfinfo"
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	jobdbcelltest "github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/remote"
 	sqliteruntime "github.com/colony-2/jobdb/pkg/jobdb/runtime/sqlite"
 	"github.com/stretchr/testify/require"
@@ -102,7 +103,7 @@ func TestInputHistoryCLIProcessRetainedRecords(t *testing.T) {
 	for _, backend := range []string{"sqlite", "http", "published-http"} {
 		t.Run(backend, func(t *testing.T) {
 			ctx := celltest.Context(context.Background())
-			db, e := sqliteruntime.NewFromConfig(ctx, sqliteruntime.Config{DBPath: filepath.Join(t.TempDir(), "retained.db"), MaxChapterApplicationPayloadBytes: 4 * 1024 * 1024})
+			db, e := sqliteruntime.NewFromConfig(ctx, sqliteruntime.Config{DBPath: filepath.Join(t.TempDir(), "retained.db"), MaxChapterApplicationPayloadBytes: 4 * 1024 * 1024, Projects: jobdbcelltest.UnrestrictedProjects{}})
 			require.NoError(t, e)
 			defer db.Close(ctx)
 			var rt jobdb.ConsumerRuntime = db
@@ -490,7 +491,7 @@ func TestInputHistoryCLIProcessAuthorityBeforeCompletion(t *testing.T) {
 	for _, cause := range []error{context.Canceled, jobdb.ErrExecutionLeaseLost} {
 		t.Run(cause.Error(), func(t *testing.T) {
 			ctx := celltest.Context(context.Background())
-			db, e := sqliteruntime.NewFromConfig(ctx, sqliteruntime.Config{DBPath: filepath.Join(t.TempDir(), "blocked.db")})
+			db, e := sqliteruntime.NewFromConfig(ctx, sqliteruntime.Config{DBPath: filepath.Join(t.TempDir(), "blocked.db"), Projects: jobdbcelltest.UnrestrictedProjects{}})
 			require.NoError(t, e)
 			defer db.Close(ctx)
 			f, e := inputhistorytest.Build(ctx, db)
@@ -685,7 +686,7 @@ func TestInputHistoryCLIProcessRemoteOrigin(t *testing.T) {
 	// reject access without retry or credential substitution, never imply success.
 	t.Run("legacy-server-denial", func(t *testing.T) {
 		ctx := celltest.Context(context.Background())
-		db, e := sqliteruntime.NewFromConfig(ctx, sqliteruntime.Config{DBPath: filepath.Join(t.TempDir(), "legacy.db")})
+		db, e := sqliteruntime.NewFromConfig(ctx, sqliteruntime.Config{DBPath: filepath.Join(t.TempDir(), "legacy.db"), Projects: jobdbcelltest.UnrestrictedProjects{}})
 		require.NoError(t, e)
 		defer db.Close(ctx)
 		// Freeze the pre-semantic-error wire response. Linking today's server

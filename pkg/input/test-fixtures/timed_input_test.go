@@ -26,6 +26,7 @@ import (
 	"github.com/colony-2/c2j/pkg/worker/workflow"
 	"github.com/colony-2/c2j/pkg/workflowctl"
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	jobdbcelltest "github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/remote"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/sqlite"
 	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
@@ -61,7 +62,7 @@ func newTimedInputFixture(t *testing.T, source, scope string) *timedInputFixture
 	var closeStore func()
 	var workers *jobworkflow.WorkSet
 	open := func() {
-		db, err := sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: dbPath})
+		db, err := sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: dbPath, Projects: jobdbcelltest.UnrestrictedProjects{}})
 		require.NoError(t, err)
 		server := httptest.NewServer(celltest.Handler(remote.NewConsumerServer(db)))
 		closeStore = func() { server.Close(); require.NoError(t, db.Close(ctx)) }

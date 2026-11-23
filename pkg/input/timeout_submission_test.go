@@ -9,6 +9,7 @@ import (
 	"github.com/colony-2/c2j/internal/celltest"
 	c2workflow "github.com/colony-2/c2j/pkg/worker/workflow"
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	jobdbcelltest "github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/toy"
 	workflow "github.com/colony-2/jobdb/pkg/workflow"
 	"github.com/stretchr/testify/require"
@@ -19,7 +20,7 @@ func TestInputSubmissionRacesTimeoutPickup(t *testing.T) {
 		t.Run(scenario, func(t *testing.T) {
 			synctest.Test(t, func(t *testing.T) {
 				ctx := celltest.Context(context.Background())
-				rt := toy.New()
+				rt := toy.New(toy.WithProjects(jobdbcelltest.UnrestrictedProjects{}))
 				form := InputForm{Question: "Continue?", Type: "short_answer"}
 				inner := (structuredWorker{forms: []InputForm{form}}).executionWorker()
 				worker := workflow.ExecutionWorker{JobType: "recipe", Execute: func(c workflow.ExecutionContext, d jobdb.JobData) (jobdb.JobData, error) {

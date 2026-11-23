@@ -14,6 +14,7 @@ import (
 	coreops "github.com/colony-2/c2j/pkg/ops"
 	"github.com/colony-2/c2j/pkg/permissions"
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	jobdbcelltest "github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/toy"
 	workflow "github.com/colony-2/jobdb/pkg/workflow"
 	"github.com/stretchr/testify/require"
@@ -64,7 +65,7 @@ func TestChildSubmissionIdentityAcrossExecutionRetries(t *testing.T) {
 		t.Run(boundary, func(t *testing.T) {
 			synctest.Test(t, func(t *testing.T) {
 				ctx := celltest.Context(context.Background())
-				raw := toy.New()
+				raw := toy.New(toy.WithProjects(jobdbcelltest.UnrestrictedProjects{}))
 				rt := executionruntime.New(raw, execution.Allocation{SchemaVersion: 1})
 				_, registerErr := raw.RegisterJobSchema(ctx, jobdb.RegisterJobSchemaRequest{TenantId: "test", Schema: jobdbschema.Schema()})
 				require.NoError(t, registerErr)
@@ -119,7 +120,7 @@ func TestChildSubmissionIdentityAcrossExecutionRetries(t *testing.T) {
 
 func TestChildSubmissionIdentityAcrossSuspension(t *testing.T) {
 	ctx := celltest.Context(context.Background())
-	raw := toy.New()
+	raw := toy.New(toy.WithProjects(jobdbcelltest.UnrestrictedProjects{}))
 	rt := executionruntime.New(raw, execution.Allocation{SchemaVersion: 1})
 	_, err := raw.RegisterJobSchema(ctx, jobdb.RegisterJobSchemaRequest{TenantId: "test", Schema: jobdbschema.Schema()})
 	require.NoError(t, err)

@@ -19,6 +19,7 @@ import (
 	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/c2j/pkg/gitprofile"
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	jobdbcelltest "github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/remote"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/sqlite"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/toy"
@@ -109,7 +110,7 @@ func TestGitProfileManagement(t *testing.T) {
 			t.Setenv("C2J_JOBDB", "")
 			t.Setenv("C2J_TENANT_ID", "ignored")
 			t.Setenv("JOBDB_BEARER_TOKEN", "test-token")
-			rt := toy.New()
+			rt := toy.New(toy.WithProjects(jobdbcelltest.UnrestrictedProjects{}))
 			handler := remote.NewConsumerServer(rt)
 			server := httptest.NewServer(celltest.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				if r.Header.Get("Authorization") != "Bearer test-token" {
@@ -205,7 +206,7 @@ func TestSuppliedCredentialStoredSeparately(t *testing.T) {
 	// This exercises provisioning against the test server, outside a live task scope.
 	t.Setenv(gitprofile.SocketEnv, "")
 	ctx := celltest.Context(context.Background())
-	rt, err := sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: filepath.Join(t.TempDir(), "jobs.db")})
+	rt, err := sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: filepath.Join(t.TempDir(), "jobs.db"), Projects: jobdbcelltest.UnrestrictedProjects{}})
 	require.NoError(t, err)
 	defer rt.Close(ctx)
 	t.Setenv("JOBDB_BEARER_TOKEN", "test-token")

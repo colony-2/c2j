@@ -21,6 +21,7 @@ import (
 	"github.com/colony-2/c2j/pkg/jobinspect/workspacedifftest"
 	"github.com/colony-2/c2j/pkg/selfinfo"
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	jobdbcelltest "github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/sqlite"
 	"github.com/stretchr/testify/require"
 )
@@ -78,7 +79,7 @@ func (a *workspaceDownloadFailureAPI) Download(context.Context, jobinspect.Reque
 
 func TestWorkspaceDiffHelperI06I07I08M03E04E05(t *testing.T) {
 	ctx := celltest.Context(context.Background())
-	db, err := sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: filepath.Join(t.TempDir(), "helper.db")})
+	db, err := sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: filepath.Join(t.TempDir(), "helper.db"), Projects: jobdbcelltest.UnrestrictedProjects{}})
 	require.NoError(t, err)
 	defer db.Close(ctx)
 	celltest.Create(t, db, "saved-tests", "saved", "example.test/saved")
@@ -251,7 +252,7 @@ func (b *workspaceBlockedBody) Close() error {
 }
 func TestWorkspaceDiffHelperI07E06CancellationDuringDownload(t *testing.T) {
 	ctx := celltest.Context(context.Background())
-	db, err := sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: filepath.Join(t.TempDir(), "cancellation.db")})
+	db, err := sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: filepath.Join(t.TempDir(), "cancellation.db"), Projects: jobdbcelltest.UnrestrictedProjects{}})
 	require.NoError(t, err)
 	defer db.Close(ctx)
 	celltest.Create(t, db, "saved-tests", "saved", "example.test/saved")
@@ -323,7 +324,7 @@ func (a *workspaceExpiryAPI) Inspect(ctx context.Context, q jobinspect.Request) 
 }
 func TestWorkspaceDiffHelperA01ExpiredAfterMetadata(t *testing.T) {
 	ctx := celltest.Context(context.Background())
-	db, err := sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: filepath.Join(t.TempDir(), "expiry.db")})
+	db, err := sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: filepath.Join(t.TempDir(), "expiry.db"), Projects: jobdbcelltest.UnrestrictedProjects{}})
 	require.NoError(t, err)
 	defer db.Close(ctx)
 	celltest.Create(t, db, "saved-tests", "saved", "example.test/saved")

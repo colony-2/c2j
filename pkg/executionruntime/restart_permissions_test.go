@@ -19,6 +19,7 @@ import (
 	"github.com/colony-2/c2j/pkg/selfinfo"
 	"github.com/colony-2/c2j/pkg/workflowctl"
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	jobdbcelltest "github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/remote"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/sqlite"
 	wf "github.com/colony-2/jobdb/pkg/workflow"
@@ -38,7 +39,7 @@ func TestLeaseBoundRestartHelperSubmission(t *testing.T) {
 	} {
 		t.Run(fixture.name, func(t *testing.T) {
 			ctx := celltest.Context(context.Background())
-			db, err := sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: filepath.Join(t.TempDir(), "jobs.db")})
+			db, err := sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: filepath.Join(t.TempDir(), "jobs.db"), Projects: jobdbcelltest.UnrestrictedProjects{}})
 			require.NoError(t, err)
 			defer db.Close(ctx)
 			var base jobdb.ConsumerRuntime = db

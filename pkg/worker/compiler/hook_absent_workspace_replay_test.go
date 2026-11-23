@@ -19,6 +19,7 @@ import (
 
 	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	jobdbcelltest "github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/sqlite"
 	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
 	"github.com/stretchr/testify/require"
@@ -42,7 +43,7 @@ func TestGenerateAbsentHookLegacyFixtures(t *testing.T) {
 			workspaceRepo(t, repo, "A")
 			workspaceTestWorker(t)
 			path := filepath.Join(t.TempDir(), "jobs.db")
-			rt, err := sqlite.NewFromConfig(testBackground(), sqlite.Config{DBPath: path, MaxInlineArtifactBytes: 10 << 20})
+			rt, err := sqlite.NewFromConfig(testBackground(), sqlite.Config{DBPath: path, MaxInlineArtifactBytes: 10 << 20, Projects: jobdbcelltest.UnrestrictedProjects{}})
 			require.NoError(t, err)
 			call := ` - id: hook
    workspace: {cell: test}
@@ -140,7 +141,7 @@ func TestHookAbsentLegacyWorkspaceReplay(t *testing.T) {
 			migrated, err := sqlite.MigrateGoals(testBackground(), path)
 			require.NoError(t, err)
 			require.Equal(t, "MIGRATED", migrated.Verdict)
-			rt, err := sqlite.NewFromConfig(testBackground(), sqlite.Config{DBPath: path, MaxInlineArtifactBytes: 10 << 20})
+			rt, err := sqlite.NewFromConfig(testBackground(), sqlite.Config{DBPath: path, MaxInlineArtifactBytes: 10 << 20, Projects: jobdbcelltest.UnrestrictedProjects{}})
 			require.NoError(t, err)
 			defer rt.Close(testBackground())
 			ctx := celltest.Context(testBackground())

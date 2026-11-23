@@ -18,6 +18,7 @@ import (
 	"github.com/colony-2/c2j/pkg/worker/compiler"
 	"github.com/colony-2/c2j/pkg/workflowctl"
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	jobdbcelltest "github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/remote"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/sqlite"
 	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
@@ -34,7 +35,7 @@ func TestInboxPublicRetainedRecords(t *testing.T) {
 			for _, succeedAt := range []int32{1, 4} {
 				t.Run(fmt.Sprintf("%s/%d/success-at-%d", backend, size, succeedAt), func(t *testing.T) {
 					ctx := celltest.Context(context.Background())
-					db, err := sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: filepath.Join(t.TempDir(), "jobs.db")})
+					db, err := sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: filepath.Join(t.TempDir(), "jobs.db"), Projects: jobdbcelltest.UnrestrictedProjects{}})
 					require.NoError(t, err)
 					t.Cleanup(func() { require.NoError(t, db.Close(ctx)) })
 					var rt jobdb.ConsumerRuntime = db

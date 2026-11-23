@@ -13,6 +13,7 @@ import (
 	"github.com/colony-2/c2j/pkg/starter"
 	"github.com/colony-2/c2j/pkg/workflowctl"
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	jobdbcelltest "github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/remote"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/sqlite"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/toy"
@@ -71,7 +72,7 @@ func TestSelectedGoalHTTPUnavailableAndIncomplete(t *testing.T) {
 }
 func TestSelectedGoalHTTPRevokedReplay(t *testing.T) {
 	ctx := runtimetest.PrimaryGoalContext(context.Background())
-	rt, err := sqlite.NewFromConfig(context.Background(), sqlite.Config{DBPath: filepath.Join(t.TempDir(), "jobs.db")})
+	rt, err := sqlite.NewFromConfig(context.Background(), sqlite.Config{DBPath: filepath.Join(t.TempDir(), "jobs.db"), Projects: jobdbcelltest.UnrestrictedProjects{}})
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, rt.Close(context.Background())) })
 	celltest.Create(t, rt, "tenant", "work", "example.test/work")
@@ -117,7 +118,7 @@ func TestSelectedGoalHTTPRevokedReplay(t *testing.T) {
 
 func TestSelectedGoalLegacyHTTPPreservesOrdinary(t *testing.T) {
 	ctx := runtimetest.PrimaryGoalContext(context.Background())
-	raw := toy.New()
+	raw := toy.New(toy.WithProjects(jobdbcelltest.UnrestrictedProjects{}))
 	celltest.Create(t, raw, "tenant", "work", "example.test/work")
 	handler := remote.NewConsumerServer(raw)
 	var selectedCalls atomic.Int32

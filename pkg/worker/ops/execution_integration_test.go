@@ -18,6 +18,7 @@ import (
 	workerops "github.com/colony-2/c2j/pkg/worker/ops"
 	"github.com/colony-2/c2j/pkg/workflowctl"
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	jobdbcelltest "github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/toy"
 	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
 	"github.com/stretchr/testify/require"
@@ -46,7 +47,7 @@ func TestExecutionDirectiveFromRealOperationReachesSuppliedLeaseOutcome(t *testi
 	registry, err := workerops.NewActivityRegistry()
 	require.NoError(t, err)
 	small := "2Gi"
-	rt := toy.New()
+	rt := toy.New(toy.WithProjects(jobdbcelltest.UnrestrictedProjects{}))
 	wrapped := executionruntime.New(rt, execution.Allocation{SchemaVersion: 1, Resources: execution.Resources{Memory: &small}})
 	ws, err := compiler.NewRecipeWorkerWithOptions(coreops.NewServiceDepsBuilder().Build(), registry, compiler.RecipeJobWorkerOptions{Allocation: wrapped.Allocation, StageExecution: wrapped.Stage, WrapTaskWorker: wrapped.WrapTaskWorker})
 	require.NoError(t, err)

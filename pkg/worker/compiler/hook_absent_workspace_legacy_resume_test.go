@@ -14,6 +14,7 @@ import (
 	"github.com/colony-2/c2j/internal/repository"
 	coreops "github.com/colony-2/c2j/pkg/ops"
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	jobdbcelltest "github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/sqlite"
 	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
 	"github.com/stretchr/testify/require"
@@ -43,7 +44,7 @@ func TestGenerateAbsentHookLegacyInterruptedFixtures(t *testing.T) {
 				publications := 0
 				registerLegacyAbsentWorkers(t, &publications)
 				path := filepath.Join(t.TempDir(), "jobs.db")
-				rt, err := sqlite.NewFromConfig(testBackground(), sqlite.Config{DBPath: path, MaxInlineArtifactBytes: 10 << 20})
+				rt, err := sqlite.NewFromConfig(testBackground(), sqlite.Config{DBPath: path, MaxInlineArtifactBytes: 10 << 20, Projects: jobdbcelltest.UnrestrictedProjects{}})
 				require.NoError(t, err)
 				// Canonical ownership is durable; only the embedding's clone transport
 				// changes when the bundled source is restored at another temporary path.
@@ -66,7 +67,7 @@ func TestGenerateAbsentHookLegacyInterruptedFixtures(t *testing.T) {
 				require.NoError(t, rt.Close(testBackground()))
 				gzipLegacyDatabase(t, path, filepath.Join(dir, name+".db.gz"))
 				// The old compiler supplies exact expected context and workspace counters.
-				rt, err = sqlite.NewFromConfig(testBackground(), sqlite.Config{DBPath: path, MaxInlineArtifactBytes: 10 << 20})
+				rt, err = sqlite.NewFromConfig(testBackground(), sqlite.Config{DBPath: path, MaxInlineArtifactBytes: 10 << 20, Projects: jobdbcelltest.UnrestrictedProjects{}})
 				require.NoError(t, err)
 				out, err := runGitLifecycle(t, rt, key)
 				require.NoError(t, err)
@@ -185,7 +186,7 @@ func TestHookAbsentLegacyInterruptedResumeAndRestart(t *testing.T) {
 				migrated, err := sqlite.MigrateGoals(ctx, path)
 				require.NoError(t, err)
 				require.Equal(t, "MIGRATED", migrated.Verdict)
-				rt, err := sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: path, MaxInlineArtifactBytes: 10 << 20})
+				rt, err := sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: path, MaxInlineArtifactBytes: 10 << 20, Projects: jobdbcelltest.UnrestrictedProjects{}})
 				require.NoError(t, err)
 				defer rt.Close(ctx)
 				publications := 0

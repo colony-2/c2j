@@ -26,6 +26,7 @@ import (
 	workerops "github.com/colony-2/c2j/pkg/worker/ops"
 	"github.com/colony-2/c2j/pkg/workflowctl"
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	jobdbcelltest "github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	sqliteruntime "github.com/colony-2/jobdb/pkg/jobdb/runtime/sqlite"
 	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
 	"github.com/stretchr/testify/require"
@@ -81,7 +82,7 @@ func TestValueArtifactPersistedHandoffRecovery(t *testing.T) {
 			repo := t.TempDir()
 			workspaceRepo(t, repo, "A")
 			db := filepath.Join(t.TempDir(), "jobs.db")
-			rt, err := sqliteruntime.NewFromConfig(ctx, sqliteruntime.Config{DBPath: db})
+			rt, err := sqliteruntime.NewFromConfig(ctx, sqliteruntime.Config{DBPath: db, Projects: jobdbcelltest.UnrestrictedProjects{}})
 			require.NoError(t, err)
 			closed := false
 			t.Cleanup(func() {

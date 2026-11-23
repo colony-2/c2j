@@ -14,6 +14,7 @@ import (
 	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/c2j/internal/consumerfixture"
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	jobdbcelltest "github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/remote"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/sqlite"
 	sqlitesecrets "github.com/colony-2/jobdb/pkg/jobdb/secrets/sqlite"
@@ -38,7 +39,7 @@ func TestC05RetainedDevSecretAdministration(t *testing.T) {
 		for _, decorator := range []string{"backend", "retained"} {
 			t.Run(constructor+"/"+decorator, func(t *testing.T) {
 				ctx := celltest.Context(context.Background())
-				db, err := sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: filepath.Join(t.TempDir(), "jobs.db")})
+				db, err := sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: filepath.Join(t.TempDir(), "jobs.db"), Projects: jobdbcelltest.UnrestrictedProjects{}})
 				require.NoError(t, err)
 				t.Cleanup(func() { require.NoError(t, db.Close(ctx)) })
 				var rt jobdb.ConsumerRuntime = db
@@ -91,7 +92,7 @@ func TestC05RetainedDevSecretErrors(t *testing.T) {
 	t.Cleanup(func() { require.NoError(t, provider.Close()) })
 	for _, configured := range []bool{true, false} {
 		name := "configured"
-		config := sqlite.Config{DBPath: filepath.Join(t.TempDir(), "jobs.db"), SecretLimits: jobdb.SecretLimits{MaxResponseBytes: 128}}
+		config := sqlite.Config{DBPath: filepath.Join(t.TempDir(), "jobs.db"), SecretLimits: jobdb.SecretLimits{MaxResponseBytes: 128}, Projects: jobdbcelltest.UnrestrictedProjects{}}
 		if !configured {
 			name = "external-provider"
 			config.SecretProvider = provider // No development store, as on the backend.

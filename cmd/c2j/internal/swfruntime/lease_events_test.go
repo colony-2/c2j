@@ -12,6 +12,7 @@ import (
 	"github.com/colony-2/c2j/pkg/executionruntime"
 	"github.com/colony-2/c2j/pkg/jobinspect"
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	jobdbcelltest "github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/remote"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/toy"
 	"github.com/stretchr/testify/require"
@@ -25,7 +26,7 @@ func TestLeaseEventsThroughRuntimeWrappers(t *testing.T) {
 			if backend == "embed" {
 				t.Setenv("HOME", t.TempDir())
 			} else {
-				server := httptest.NewServer(celltest.Handler(remote.NewConsumerServer(toy.New())))
+				server := httptest.NewServer(celltest.Handler(remote.NewConsumerServer(toy.New(toy.WithProjects(jobdbcelltest.UnrestrictedProjects{})))))
 				t.Cleanup(server.Close)
 				url = server.URL
 			}
@@ -33,14 +34,14 @@ func TestLeaseEventsThroughRuntimeWrappers(t *testing.T) {
 			require.NoError(t, err)
 			t.Cleanup(func() { require.NoError(t, handle.Cleanup()) })
 			rt := executionruntime.New(handle.Runtime, execution.Allocation{})
-			celltest.Create(t, rt, "tenant", "test", "example.test/test")
-			h, err := rt.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "tenant", JobType: "test", Cell: "test", CellRepo: "example.test/test", Data: jobdb.NewTaskDataOrPanic(nil)}})
+			celltest.Create(t, rt, "0", "test", "example.test/test")
+			h, err := rt.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "0", JobType: "test", Cell: "test", CellRepo: "example.test/test", Data: jobdb.NewTaskDataOrPanic(nil)}})
 			require.NoError(t, err)
 			lease, err := rt.GetJobLease(ctx, jobdb.GetJobLeaseRequest{JobKey: h.JobKey, WorkerID: "test-worker", Routes: []jobdb.Route{{JobType: "test"}}, LeaseDuration: time.Minute})
 			require.NoError(t, err)
 			require.NotNil(t, lease)
 			t.Cleanup(lease.StopKeepAlive)
-			service := &jobinspect.Service{Runtime: rt, Tenant: "tenant"}
+			service := &jobinspect.Service{Runtime: rt, Tenant: "0"}
 			page, err := service.ListJobLeaseEvents(ctx, h.JobKey.JobId, jobinspect.LeaseEventOptions{})
 			require.NoError(t, err)
 			require.Len(t, page.Events, 1)
@@ -53,7 +54,7 @@ func TestLeaseEventsThroughRuntimeWrappers(t *testing.T) {
 
 func TestLeaseEventsUnsupportedThroughRuntimeWrappers(t *testing.T) {
 	rt := executionruntime.New(withChapterVisibility(localruntime.New(unsupportedEventsRuntime{})), execution.Allocation{})
-	service := &jobinspect.Service{Runtime: rt, Tenant: "tenant"}
+	service := &jobinspect.Service{Runtime: rt, Tenant: "0"}
 	_, err := service.ListJobLeaseEvents(context.Background(), "job", jobinspect.LeaseEventOptions{})
 	require.ErrorIs(t, err, jobdb.ErrLeaseEventsUnsupported)
 }

@@ -12,6 +12,7 @@ import (
 	"github.com/colony-2/c2j/pkg/permissions"
 	"github.com/colony-2/c2j/pkg/selfinfo"
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	jobdbcelltest "github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/toy"
 	"github.com/stretchr/testify/require"
 )
@@ -19,7 +20,7 @@ import (
 func TestCellCreateInsideTaskUsesBroker(t *testing.T) {
 	ctx, cancel := context.WithCancel(celltest.Context(context.Background()))
 	defer cancel()
-	rt := toy.New()
+	rt := toy.New(toy.WithProjects(jobdbcelltest.UnrestrictedProjects{}))
 	access := permissions.NewAccess(ctx, permissions.JobDB{Cells: permissions.CellPermissions{Create: true, CellNames: []string{"reports"}}}, nil, nil, rt.CreateCell)
 	current := jobcontext.Current{TenantID: "task-tenant", JobID: "parent", GoalID: "goal"}
 	broker, err := childbroker.Start(permissions.WithAccess(ctx, access), childbroker.Options{Current: current, Self: func() selfinfo.Info { return selfinfo.Unknown("test") }})

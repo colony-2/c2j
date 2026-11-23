@@ -32,6 +32,7 @@ import (
 	workerworkflow "github.com/colony-2/c2j/pkg/worker/workflow"
 	"github.com/colony-2/c2j/pkg/workflowctl"
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	jobdbcelltest "github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	toyruntime "github.com/colony-2/jobdb/pkg/jobdb/runtime/toy"
 	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
 	"github.com/stretchr/testify/require"
@@ -183,7 +184,7 @@ printf '{"output":{"message":"hello"}}'
 	run("nix-store", "--delete", described.Nix.StorePath)
 	withRegisteredOps(t, extops.GetExecutionOp())
 	provider := &testSecretProvider{}
-	rt := toyruntime.New(toyruntime.WithSecretProvider(provider))
+	rt := toyruntime.New(toyruntime.WithProjects(jobdbcelltest.UnrestrictedProjects{}), toyruntime.WithSecretProvider(provider))
 	guard := executionruntime.New(rt, execution.Allocation{SchemaVersion: 1})
 	artifactEngine, err := jobworkflow.NewEngineBuilder().WithRuntime(guard).BuildEngine()
 	require.NoError(t, err)

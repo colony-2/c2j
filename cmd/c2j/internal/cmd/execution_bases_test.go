@@ -19,6 +19,7 @@ import (
 	"github.com/colony-2/c2j/pkg/executioncatalog"
 	"github.com/colony-2/c2j/pkg/gitprofile"
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	jobdbcelltest "github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/remote"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/sqlite"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/toy"
@@ -35,7 +36,7 @@ func TestExecutionBaseCatalogCommands(t *testing.T) {
 	t.Setenv(gitprofile.SocketEnv, "")
 	t.Setenv(executioncatalog.RequireEnv, "true")
 	ctx := celltest.Context(context.Background())
-	rt, err := sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: filepath.Join(t.TempDir(), "db")})
+	rt, err := sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: filepath.Join(t.TempDir(), "db"), Projects: jobdbcelltest.UnrestrictedProjects{}})
 	require.NoError(t, err)
 	defer rt.Close(ctx)
 	server := httptest.NewServer(celltest.Handler(remote.NewConsumerServer(rt)))
@@ -121,7 +122,7 @@ func (a *faultCatalogAdmin) SetTenantConfigurationValue(ctx context.Context, q j
 func TestExecutionBaseCatalogConditionalPublication(t *testing.T) {
 	for _, mode := range []string{"conflict", "lost", "uncommitted", "readback-failed"} {
 		t.Run(mode, func(t *testing.T) {
-			rt := toy.New()
+			rt := toy.New(toy.WithProjects(jobdbcelltest.UnrestrictedProjects{}))
 			scope := execution.CatalogScope{Runtime: "https://test", Tenant: "t"}
 			c := cliCatalog(scope)
 			raw, _ := json.Marshal(c)
@@ -219,7 +220,7 @@ func TestExecutionBaseCatalogFocusedEdits(t *testing.T) {
 	t.Setenv(gitprofile.SocketEnv, "")
 	t.Setenv(executioncatalog.RequireEnv, "false")
 	ctx := celltest.Context(context.Background())
-	rt, err := sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: filepath.Join(t.TempDir(), "db")})
+	rt, err := sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: filepath.Join(t.TempDir(), "db"), Projects: jobdbcelltest.UnrestrictedProjects{}})
 	require.NoError(t, err)
 	defer rt.Close(ctx)
 	server := httptest.NewServer(celltest.Handler(remote.NewConsumerServer(rt)))
@@ -399,7 +400,7 @@ func TestExecutionBaseCatalogFocusedEdits(t *testing.T) {
 // Interleave an unrelated edit after reading. The stale candidate must conflict;
 // refreshing the expected revision would silently erase the winning catalog.
 func TestExecutionBaseCatalogObservedSnapshotConflict(t *testing.T) {
-	rt := toy.New()
+	rt := toy.New(toy.WithProjects(jobdbcelltest.UnrestrictedProjects{}))
 	ctx := context.Background()
 	scope := execution.CatalogScope{Runtime: "https://test", Tenant: "t"}
 	c := cliCatalog(scope)
@@ -447,7 +448,7 @@ func (a *advancingCatalogAdmin) SetTenantConfigurationValue(ctx context.Context,
 	return a.ConfigurationAdmin.SetTenantConfigurationValue(ctx, request)
 }
 func TestExecutionBaseCatalogMutationSnapshotConflict(t *testing.T) {
-	rt := toy.New()
+	rt := toy.New(toy.WithProjects(jobdbcelltest.UnrestrictedProjects{}))
 	ctx := context.Background()
 	scope := execution.CatalogScope{Runtime: "https://test", Tenant: "t"}
 	c := cliCatalog(scope)

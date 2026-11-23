@@ -27,6 +27,7 @@ import (
 	"github.com/colony-2/c2j/pkg/worker/workflow"
 	"github.com/colony-2/c2j/pkg/workflowctl"
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	jobdbcelltest "github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	sqliteruntime "github.com/colony-2/jobdb/pkg/jobdb/runtime/sqlite"
 	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
 	"github.com/stretchr/testify/assert"
@@ -96,7 +97,7 @@ outputs:
 	require.NoError(t, err)
 	workers, err := compiler.NewRecipeWorkerWithOptions(deps, registry, compiler.RecipeJobWorkerOptions{RootSourceResolver: rootResolver})
 	require.NoError(t, err)
-	embedded, err := sqliteruntime.StartEmbeddedRuntime(ctx)
+	embedded, err := sqliteruntime.StartEmbeddedRuntime(ctx, sqliteruntime.WithProjects(jobdbcelltest.UnrestrictedProjects{}))
 	require.NoError(t, err)
 	t.Cleanup(embedded.Shutdown)
 	_, err = embedded.Runtime.CreateCell(ctx, jobdb.CreateCellRequest{TenantID: "test-tenant", Name: "beta", Repo: celltest.Repo(betaRepo)})

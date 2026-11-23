@@ -10,6 +10,7 @@ import (
 
 	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	jobdbcelltest "github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/remote"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/sqlite"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/toy"
@@ -81,9 +82,9 @@ func (r *timeoutReproRuntime) lastHandoff(t *testing.T) timeoutReproHandoff {
 
 func newTimeoutReproRuntime(t *testing.T, backend string) *timeoutReproRuntime {
 	t.Helper()
-	var rt jobdb.ConsumerRuntime = toy.New()
+	var rt jobdb.ConsumerRuntime = toy.New(toy.WithProjects(jobdbcelltest.UnrestrictedProjects{}))
 	if backend != "toy" {
-		s, err := sqlite.NewFromConfig(celltest.Context(context.Background()), sqlite.Config{DBPath: filepath.Join(t.TempDir(), "jobs.db")})
+		s, err := sqlite.NewFromConfig(celltest.Context(context.Background()), sqlite.Config{DBPath: filepath.Join(t.TempDir(), "jobs.db"), Projects: jobdbcelltest.UnrestrictedProjects{}})
 		require.NoError(t, err)
 		t.Cleanup(func() {
 			require.NoError(t, s.Close(celltest.Context(context.Background())))

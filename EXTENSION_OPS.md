@@ -9,6 +9,40 @@ Extensions can emit optional tagged metric deltas in their output wrapper,
 including known usage before an ordinary failure. See [task metrics](GUIDE-Task-Metrics.md#emit-from-an-extension)
 for the versioned wire format, limits and failure behavior.
 
+## Temporary resource shortages
+
+When the runner supplies `C2J_RESOURCE_RETRY_CONTROL=1`, an extension can request
+restart from its durable input after a temporary process/thread creation failure.
+After stopping all local execution and completing cleanup, emit exactly this
+bounded JSON object on stdout and exit **1**:
+
+```json
+{"control":{"type":"resource_retry","version":1,"reason":"resource_temporarily_unavailable","source":"local_spawn","phase":"launch","replay":"restart_from_input"}}
+```
+
+The allowed source/phase pairs are `local_spawn`/`launch`,
+`local_spawn`/`preparation`, and `preparation_diagnostic`/`preparation`.
+The complete stdout control must fit in 4096 bytes. Additional fields, duplicate
+keys, mixed outputs/objects/artifacts, incomplete capture and unknown versions
+are rejected. A root `control` in a successful response is an error. Exit 75
+continues to mean execution-requirements negotiation.
+
+The extension must establish that the entire invocation can safely restart.
+Recognizing EAGAIN alone does not establish that permission: a previously started
+action-capable process, including an earlier repair turn, prevents this control.
+Known preparation and a rejected first action-process start are eligible. A
+launched outer extension can still be doing preparation. Cancellation, timeout,
+capture and cleanup failures take precedence. Do not infer safety from a missing
+tool event, no Git diff or a session identifier.
+
+The runner advertises the capability only on a lease with confirmed durable
+backend support. Manifest, invocation, inherited and tool environment values
+cannot enable it. Without negotiation, preserve ordinary failure behavior.
+JobDB computes the wait and resumes the unfinished recipe attempt; this control
+does not consume recipe retries or enter catches. Its default wait starts at
+2 seconds, doubles to a 30-second ceiling, and uses bounded jitter. Existing
+deadlines still apply. Deploy backend support and the reader before producers.
+
 ## Calling an op
 
 ```yaml

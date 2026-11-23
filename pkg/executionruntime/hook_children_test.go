@@ -13,6 +13,7 @@ import (
 	"github.com/colony-2/c2j/pkg/permissions"
 	"github.com/colony-2/c2j/pkg/workflowctl"
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	jobdbcelltest "github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/remote"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/toy"
 	wf "github.com/colony-2/jobdb/pkg/workflow"
@@ -55,7 +56,7 @@ func (i *hookLeaseCapture) IssueRestrictedLease(ctx context.Context, tc permissi
 }
 func TestHookRemoteTokenCannotBypassControllerOrReadConfiguration(t *testing.T) {
 	ctx := celltest.Context(context.Background())
-	base := toy.New(toy.WithSecretProvider(&freshGitProvider{}))
+	base := toy.New(toy.WithProjects(jobdbcelltest.UnrestrictedProjects{}), toy.WithSecretProvider(&freshGitProvider{}))
 	server := httptest.NewServer(celltest.Handler(remote.NewConsumerServer(base)))
 	defer server.Close()
 	client, err := remote.New(server.URL, server.Client())

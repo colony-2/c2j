@@ -18,6 +18,7 @@ import (
 	"github.com/colony-2/c2j/pkg/starter"
 	"github.com/colony-2/c2j/pkg/workflowctl"
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	jobdbcelltest "github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/sqlite"
 	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
 	"github.com/stretchr/testify/require"
@@ -84,7 +85,7 @@ func TestGenerateRecipeSubmissionInputsLegacyFixtures(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			sentinel := submissionInputsSentinel(t)
 			path := filepath.Join(t.TempDir(), "jobs.db")
-			rt, err := sqlite.NewFromConfig(testBackground(), sqlite.Config{DBPath: path, MaxInlineArtifactBytes: 10 << 20})
+			rt, err := sqlite.NewFromConfig(testBackground(), sqlite.Config{DBPath: path, MaxInlineArtifactBytes: 10 << 20, Projects: jobdbcelltest.UnrestrictedProjects{}})
 			require.NoError(t, err)
 			key := submitSubmissionInputs(t, rt, declared)
 			out := probeRun(t, rt, key, NewRecipeJobWorker(RecipeJobWorkerOptions{}), sentinel)

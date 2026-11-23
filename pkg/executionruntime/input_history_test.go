@@ -19,6 +19,7 @@ import (
 	"github.com/colony-2/c2j/pkg/jobinputs"
 	"github.com/colony-2/c2j/pkg/permissions"
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	jobdbcelltest "github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	sqliteruntime "github.com/colony-2/jobdb/pkg/jobdb/runtime/sqlite"
 	wf "github.com/colony-2/jobdb/pkg/workflow"
 	"github.com/stretchr/testify/require"
@@ -137,7 +138,7 @@ func TestInputHistoryRenewalPreservesAuthority(t *testing.T) {
 }
 func TestInputHistoryCachedOperationsLifetime(t *testing.T) {
 	ctx := celltest.Context(context.Background())
-	db, e := sqliteruntime.NewFromConfig(ctx, sqliteruntime.Config{DBPath: filepath.Join(t.TempDir(), "history.db")})
+	db, e := sqliteruntime.NewFromConfig(ctx, sqliteruntime.Config{DBPath: filepath.Join(t.TempDir(), "history.db"), Projects: jobdbcelltest.UnrestrictedProjects{}})
 	require.NoError(t, e)
 	defer db.Close(ctx)
 	f, e := inputhistorytest.Build(ctx, db)
@@ -201,7 +202,7 @@ type blockedDescriptor struct {
 func (d blockedDescriptor) Open() (io.ReadCloser, error) { return d.source, nil }
 func TestInputHistoryActiveTaskCancellation(t *testing.T) {
 	ctx := celltest.Context(context.Background())
-	db, e := sqliteruntime.NewFromConfig(ctx, sqliteruntime.Config{DBPath: filepath.Join(t.TempDir(), "task.db")})
+	db, e := sqliteruntime.NewFromConfig(ctx, sqliteruntime.Config{DBPath: filepath.Join(t.TempDir(), "task.db"), Projects: jobdbcelltest.UnrestrictedProjects{}})
 	require.NoError(t, e)
 	defer db.Close(ctx)
 	f, e := inputhistorytest.Build(ctx, db)

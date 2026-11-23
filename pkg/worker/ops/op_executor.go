@@ -24,6 +24,7 @@ import (
 
 	"github.com/colony-2/c2j/internal/dispatchtest"
 	"github.com/colony-2/c2j/internal/preparedtest"
+	"github.com/colony-2/c2j/internal/resourceretry"
 	recipeartifacts "github.com/colony-2/c2j/pkg/artifacts"
 	"github.com/colony-2/c2j/pkg/childbroker"
 	"github.com/colony-2/c2j/pkg/contextual"
@@ -248,7 +249,7 @@ func (t opExecutor) doPrepared(ctx context.Context, jobTool ops.JobTool, req Act
 		if err == nil {
 			return
 		}
-		err = secrets.FromContext(ctx).Error(err)
+		err = resourceretry.Redact(err, secrets.FromContext(ctx).Error)
 		logger.Debug("Task operation processing stopped",
 			"event", "op.processing.stopped", "phase", phase,
 			"duration_ms", time.Since(start).Milliseconds(),
@@ -300,7 +301,17 @@ func (t opExecutor) doPrepared(ctx context.Context, jobTool ops.JobTool, req Act
 		contextual.OpArtifactOutboxSentinel: outbox,
 	}
 
-	defer dispatchtest.Cleanup(ctx, func() { removeWorkDir(worktreePath) })
+	defer func() {
+		if resourceretry.Is(err) {
+			// A restart never reuses a partially expanded workspace. Cleanup must
+			// finish before the outer worker can request durable rescheduling.
+			if cleanupErr := os.RemoveAll(workDir); cleanupErr != nil {
+				err = errors.Join(err, fmt.Errorf("remove resource-retry workspace: %w", cleanupErr))
+			}
+			return
+		}
+		dispatchtest.Cleanup(ctx, func() { removeWorkDir(worktreePath) })
+	}()
 
 	incomingGitContext := req.GitTaskContext
 	if req.GitTaskContext.Workspace != nil {
@@ -443,12 +454,18 @@ func (t opExecutor) doPrepared(ctx context.Context, jobTool ops.JobTool, req Act
 	// Call Restore with full context (includes WorktreePath)
 	phase = "restore_git_state"
 	if err := controller.Restore(ctx, fullContext, thinPackArtifact); err != nil {
+		if ctx.Err() == nil && resourceretry.CreationFailure(err) {
+			return zero, nil, resourceretry.Restart("preparation_diagnostic", "preparation")
+		}
 		return zero, nil, err
 	}
 	// Persist observations separately from GitResult: observing a floating ref
 	// must not pin subsequent execution, but inspection needs the exact checkout.
 	observedHead, observeErr := common.HeadCommit(ctx, fullContext.WorktreePath, fullContext.Workspace.HasEmptyBase(fullContext.ResolvedBaseHash, fullContext.ParentHash))
 	if observeErr != nil {
+		if ctx.Err() == nil && resourceretry.CreationFailure(observeErr) {
+			return zero, nil, resourceretry.Restart("preparation_diagnostic", "preparation")
+		}
 		return zero, nil, observeErr
 	}
 	before := coretask.WorkspaceState{Repository: fullContext.BaseRepo, Cell: fullContext.GetWorkspaceCellName(), BaseRef: fullContext.BaseRef, BaseCommit: fullContext.ResolvedBaseHash, HeadCommit: observedHead, EmptyBase: fullContext.Workspace.HasEmptyBase(fullContext.ResolvedBaseHash, fullContext.ParentHash)}
@@ -456,6 +473,9 @@ func (t opExecutor) doPrepared(ctx context.Context, jobTool ops.JobTool, req Act
 		before.ScopeID = fullContext.Workspace.ScopeID
 	}
 	defer func() {
+		if resourceretry.Is(err) {
+			return
+		}
 		output.WorkspaceBefore = &before
 		if req.Const || output.GitResult != (contextual.GitCommitContext{}) {
 			after := before
@@ -536,8 +556,8 @@ func (t opExecutor) doPrepared(ctx context.Context, jobTool ops.JobTool, req Act
 			return zero, nil, fmt.Errorf("start child job broker: %w", err)
 		}
 		defer func() {
-			if closeErr := broker.Close(); closeErr != nil && extensionwait.IsDiscard(err) {
-				err = errors.Join(err, errors.New("extension wait broker cleanup failed"))
+			if closeErr := broker.Close(); closeErr != nil && (extensionwait.IsDiscard(err) || resourceretry.Is(err)) {
+				err = errors.Join(err, errors.New("restart control broker cleanup failed"))
 			}
 		}()
 		ctx = childbroker.WithLocalSubmitter(ctx, broker)
@@ -618,6 +638,12 @@ func (t opExecutor) doPrepared(ctx context.Context, jobTool ops.JobTool, req Act
 	metricsruntime.Execution(opCtx)
 	logger.Debug("Op body started", "event", "op.body.started")
 	outputData, stepErr := reg.Step.Invoke(opDeps, opCtx, hydratedInput)
+	if resourceretry.Is(stepErr) {
+		if stop := context.Cause(opCtx); stop != nil {
+			return zero, nil, stop
+		}
+		return zero, nil, stepErr
+	}
 	if extensionwait.IsDiscard(stepErr) || execution.IsRequired(stepErr) {
 		return zero, nil, stepErr
 	}

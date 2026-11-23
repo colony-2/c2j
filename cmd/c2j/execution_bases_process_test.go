@@ -17,6 +17,7 @@ import (
 	"github.com/colony-2/c2j/pkg/executioncatalog"
 	"github.com/colony-2/c2j/pkg/gitprofile"
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	jobdbcelltest "github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/remote"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/sqlite"
 	"github.com/stretchr/testify/require"
@@ -31,7 +32,7 @@ func TestExecutionBaseCatalogCLIProcess(t *testing.T) {
 		require.NoError(t, err, string(out))
 	}
 	ctx := celltest.Context(context.Background())
-	rt, err := sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: filepath.Join(t.TempDir(), "db")})
+	rt, err := sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: filepath.Join(t.TempDir(), "db"), Projects: jobdbcelltest.UnrestrictedProjects{}})
 	require.NoError(t, err)
 	defer rt.Close(ctx)
 	server := httptest.NewServer(celltest.Handler(remote.NewConsumerServer(rt)))

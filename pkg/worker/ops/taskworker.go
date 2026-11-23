@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/colony-2/c2j/internal/jsonexact"
+	"github.com/colony-2/c2j/internal/resourceretry"
 	"github.com/colony-2/c2j/pkg/configuration"
 	"github.com/colony-2/c2j/pkg/contextual"
 	"github.com/colony-2/c2j/pkg/execution"
@@ -63,7 +64,7 @@ func (t *taskWorker) RunTask(local context.Context, ctx jobworkflow.TaskContext,
 	defer func() {
 		outcome := "succeeded"
 		switch {
-		case jobworkflow.IsExecutionSuspended(runErr), execution.IsRequired(runErr):
+		case jobworkflow.IsExecutionSuspended(runErr), execution.IsRequired(runErr), resourceretry.Is(runErr):
 			outcome = "waiting"
 		case errors.Is(runErr, context.Canceled):
 			outcome = "canceled"
@@ -116,7 +117,7 @@ func (t *taskWorker) RunTask(local context.Context, ctx jobworkflow.TaskContext,
 	var prepMS int64
 	var prepared bool
 	defer func() {
-		if extensionwait.IsDiscard(runErr) || execution.IsRequired(runErr) || jobworkflow.IsExecutionSuspended(runErr) {
+		if extensionwait.IsDiscard(runErr) || execution.IsRequired(runErr) || jobworkflow.IsExecutionSuspended(runErr) || resourceretry.Is(runErr) {
 			return
 		}
 		if runErr == nil || (air.Setup == nil && air.Preparation.Extension == nil && len(air.Preparation.Scopes) == 0 && configDiag == nil && !configuration.Contains(air.Input) && !secrets.Contains(air.Input)) {
@@ -168,6 +169,9 @@ func (t *taskWorker) RunTask(local context.Context, ctx jobworkflow.TaskContext,
 	req, err := ResolveInvocation(opCtx, &air)
 	resolved = req.Extension
 	if err != nil {
+		if opCtx.Err() == nil && resourceretry.CreationFailure(err) {
+			return nil, resourceretry.Restart("preparation_diagnostic", "preparation")
+		}
 		return nil, err
 	}
 	if req.Extension != nil && req.Extension.Spec.Timeout != "" {
@@ -267,7 +271,7 @@ func (t *taskWorker) RunTask(local context.Context, ctx jobworkflow.TaskContext,
 	if extensionwait.IsDiscard(err) {
 		return nil, err
 	}
-	if execution.IsRequired(err) || jobworkflow.IsExecutionSuspended(err) {
+	if execution.IsRequired(err) || jobworkflow.IsExecutionSuspended(err) || resourceretry.Is(err) {
 		if stop := opCtx.Err(); stop != nil {
 			return nil, stop
 		}

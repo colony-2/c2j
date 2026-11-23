@@ -16,6 +16,7 @@ import (
 	"github.com/colony-2/c2j/pkg/artifacts"
 	extops "github.com/colony-2/c2j/pkg/ops/extensions"
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	jobdbcelltest "github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	sqliteruntime "github.com/colony-2/jobdb/pkg/jobdb/runtime/sqlite"
 	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
 	"github.com/stretchr/testify/require"
@@ -50,7 +51,7 @@ func TestArtifactFileRetryAndReopenedReplay(t *testing.T) {
 			artifactFileManifest(t, repo, trace, "fail-once", extra)
 			source := fmt.Sprintf("id: artifact-files\nop: ./op\nretry: {maximum_attempts: 2, initial_interval: 1ms}\ninputs: {instructions_file: %s}\n", fileJSON(t, ref))
 			db := filepath.Join(t.TempDir(), "jobs.db")
-			rt, err := sqliteruntime.NewFromConfig(ctx, sqliteruntime.Config{DBPath: db})
+			rt, err := sqliteruntime.NewFromConfig(ctx, sqliteruntime.Config{DBPath: db, Projects: jobdbcelltest.UnrestrictedProjects{}})
 			require.NoError(t, err)
 			closed := false
 			defer func() {
@@ -85,7 +86,7 @@ func TestArtifactFileRetryAndReopenedReplay(t *testing.T) {
 			}
 			server.Close()
 			// Replace the worker and its database connection; remove source/tools too.
-			fresh, err := sqliteruntime.NewFromConfig(ctx, sqliteruntime.Config{DBPath: db})
+			fresh, err := sqliteruntime.NewFromConfig(ctx, sqliteruntime.Config{DBPath: db, Projects: jobdbcelltest.UnrestrictedProjects{}})
 			require.NoError(t, err)
 			defer fresh.Close(ctx)
 			t.Setenv("PATH", t.TempDir())

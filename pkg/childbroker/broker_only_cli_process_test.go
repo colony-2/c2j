@@ -29,6 +29,7 @@ import (
 	"github.com/colony-2/c2j/pkg/workflowctl"
 	"github.com/colony-2/c2j/pkg/workspacesubmit"
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	jobdbcelltest "github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/toy"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtimetest"
 	workflow "github.com/colony-2/jobdb/pkg/workflow"
@@ -101,7 +102,7 @@ func brokerOnlyFixtureWithAuthority(t *testing.T, binary string, privileged bool
 	t.Helper()
 	ctx, cancel := context.WithTimeout(celltest.Context(runtimetest.PrimaryGoalContext(context.Background())), time.Minute)
 	t.Cleanup(cancel)
-	f := &brokerOnlyFixture{t: t, ctx: ctx, binary: binary, root: t.TempDir(), home: t.TempDir(), request: filepath.Join(t.TempDir(), "request.json"), rt: toy.New()}
+	f := &brokerOnlyFixture{t: t, ctx: ctx, binary: binary, root: t.TempDir(), home: t.TempDir(), request: filepath.Join(t.TempDir(), "request.json"), rt: toy.New(toy.WithProjects(jobdbcelltest.UnrestrictedProjects{}))}
 	f.git("init", "-b", "main")
 	f.git("config", "user.email", "fixture@example.test")
 	f.git("config", "user.name", "Fixture")

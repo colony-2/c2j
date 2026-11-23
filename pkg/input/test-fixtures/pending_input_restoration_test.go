@@ -25,6 +25,7 @@ import (
 	"github.com/colony-2/c2j/pkg/worker/workflow"
 	"github.com/colony-2/c2j/pkg/workflowctl"
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	jobdbcelltest "github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/sqlite"
 	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
 	"github.com/stretchr/testify/require"
@@ -114,7 +115,7 @@ outputs:
 	resolver := compiler.NewRecipeSourceResolver(compiler.RecipeSourceResolverOptions{RecipeRefResolver: compiler.NewProviderBackedRecipeRefResolver(provider)})
 	workers, err := compiler.NewRecipeWorkerWithOptions(deps, registry, compiler.RecipeJobWorkerOptions{RootSourceResolver: resolver})
 	require.NoError(t, err)
-	db, err := sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: filepath.Join(t.TempDir(), "jobs.db"), MaxChapterApplicationPayloadBytes: 4 * 1024 * 1024})
+	db, err := sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: filepath.Join(t.TempDir(), "jobs.db"), MaxChapterApplicationPayloadBytes: 4 * 1024 * 1024, Projects: jobdbcelltest.UnrestrictedProjects{}})
 	require.NoError(t, err)
 	defer func() {
 		require.NoError(t, db.Close(celltest.Context(context.Background())))

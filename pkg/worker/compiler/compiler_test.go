@@ -21,6 +21,7 @@ import (
 	"github.com/colony-2/c2j/pkg/worker/ops"
 	"github.com/colony-2/c2j/pkg/workflowctl"
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	jobdbcelltest "github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	toyruntime "github.com/colony-2/jobdb/pkg/jobdb/runtime/toy"
 	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
 	"github.com/stretchr/testify/assert"
@@ -43,7 +44,7 @@ func newToyEngine(t *testing.T, workerTenantID string, gen func(string) (jobdb.J
 	if gen != nil {
 		opts = append(opts, toyruntime.WithJobIDGenerator(gen))
 	}
-	runtime := toyruntime.New(opts...)
+	runtime := toyruntime.New(append([]toyruntime.Option{toyruntime.WithProjects(jobdbcelltest.UnrestrictedProjects{})}, opts...)...)
 	ctx = seedTestCells(t, ctx, runtime, workerTenantID, cells...)
 	guard := executionruntime.New(runtime, execution.Allocation{SchemaVersion: 1})
 	builder := jobworkflow.NewEngineBuilder().WithRuntime(guard)
@@ -65,7 +66,7 @@ func newToyEngineWithWorkSet(t *testing.T, workerTenantID string, ws *jobworkflo
 	if gen != nil {
 		opts = append(opts, toyruntime.WithJobIDGenerator(gen))
 	}
-	runtime := toyruntime.New(opts...)
+	runtime := toyruntime.New(append([]toyruntime.Option{toyruntime.WithProjects(jobdbcelltest.UnrestrictedProjects{})}, opts...)...)
 	ctx = seedTestCells(t, ctx, runtime, workerTenantID, cells...)
 	guard := executionruntime.New(runtime, execution.Allocation{SchemaVersion: 1})
 	builder := jobworkflow.NewEngineBuilder().WithRuntime(guard)

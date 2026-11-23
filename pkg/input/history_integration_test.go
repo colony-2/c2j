@@ -25,6 +25,7 @@ import (
 	c2workflow "github.com/colony-2/c2j/pkg/worker/workflow"
 	"github.com/colony-2/c2j/pkg/workflowctl"
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	jobdbcelltest "github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	sqliteruntime "github.com/colony-2/jobdb/pkg/jobdb/runtime/sqlite"
 	workflow "github.com/colony-2/jobdb/pkg/workflow"
 	"github.com/stretchr/testify/require"
@@ -35,7 +36,7 @@ import (
 func TestHistorySQLiteRetainedWaitSnapshotsAndProducerBytes(t *testing.T) {
 	ctx := celltest.Context(context.Background())
 	path := filepath.Join(t.TempDir(), "history.db")
-	rt, err := sqliteruntime.NewFromConfig(ctx, sqliteruntime.Config{DBPath: path, MaxChapterApplicationPayloadBytes: 4 * 1024 * 1024})
+	rt, err := sqliteruntime.NewFromConfig(ctx, sqliteruntime.Config{DBPath: path, MaxChapterApplicationPayloadBytes: 4 * 1024 * 1024, Projects: jobdbcelltest.UnrestrictedProjects{}})
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = rt.Close(ctx) })
 	celltest.Create(t, rt, "tenant", "test", "example.test/test")
@@ -120,7 +121,7 @@ func TestHistorySQLiteRetainedWaitSnapshotsAndProducerBytes(t *testing.T) {
 	require.Equal(t, "pending", two.Entries[2].State)
 	// Reopen the backend while the private-input wait is retained.
 	require.NoError(t, rt.Close(ctx))
-	rt, err = sqliteruntime.NewFromConfig(ctx, sqliteruntime.Config{DBPath: path, MaxChapterApplicationPayloadBytes: 4 * 1024 * 1024})
+	rt, err = sqliteruntime.NewFromConfig(ctx, sqliteruntime.Config{DBPath: path, MaxChapterApplicationPayloadBytes: 4 * 1024 * 1024, Projects: jobdbcelltest.UnrestrictedProjects{}})
 	require.NoError(t, err)
 	engine, err = workflow.NewEngineBuilder().WithRuntime(rt).BuildEngine()
 	require.NoError(t, err)
@@ -209,7 +210,7 @@ func TestHistorySQLiteRetainedWaitSnapshotsAndProducerBytes(t *testing.T) {
 
 func TestHistorySQLiteExactRawAndForbiddenPaths(t *testing.T) {
 	ctx := celltest.Context(context.Background())
-	rt, err := sqliteruntime.NewFromConfig(ctx, sqliteruntime.Config{DBPath: filepath.Join(t.TempDir(), "raw.db"), MaxChapterApplicationPayloadBytes: 4 * 1024 * 1024})
+	rt, err := sqliteruntime.NewFromConfig(ctx, sqliteruntime.Config{DBPath: filepath.Join(t.TempDir(), "raw.db"), MaxChapterApplicationPayloadBytes: 4 * 1024 * 1024, Projects: jobdbcelltest.UnrestrictedProjects{}})
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = rt.Close(ctx) })
 	celltest.Create(t, rt, "tenant", "test", "example.test/test")
@@ -280,7 +281,7 @@ func TestHistorySQLiteExactRawAndForbiddenPaths(t *testing.T) {
 // This checks production invocation IDs, not hand-authored execution records.
 func TestHistorySQLiteCompilerLineage(t *testing.T) {
 	ctx := celltest.Context(context.Background())
-	rt, err := sqliteruntime.NewFromConfig(ctx, sqliteruntime.Config{DBPath: filepath.Join(t.TempDir(), "compiler.db")})
+	rt, err := sqliteruntime.NewFromConfig(ctx, sqliteruntime.Config{DBPath: filepath.Join(t.TempDir(), "compiler.db"), Projects: jobdbcelltest.UnrestrictedProjects{}})
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, rt.Close(ctx)) })
 	jobCtx, gitCtx := compiler.GenerateTestContext()
@@ -370,6 +371,9 @@ outputs: {}
 	require.NoError(t, err)
 	selected := p.Entries[0].Locator.Restart
 	restartRequest := story.RestartRecipeJobRequest{ProjectID: "history", JobID: h.JobKey.JobId, ScopeID: selected.ScopeID, RequestID: "history-restart"}
+	// This history test keeps the original input session live. Its independent
+	// restart therefore needs a new goal under JobDB's atomic admission rule.
+	restartRequest.Goal.Mode = "new"
 	conflictingOrdinal := int64(0)
 	restartRequest.ChapterOrdinal = &conflictingOrdinal
 	_, err = restartService.RestartRecipeJob(ctx, restartRequest)
@@ -476,7 +480,7 @@ func (historyReadRuntime) GetJobLease(context.Context, jobdb.GetJobLeaseRequest)
 
 func TestHistorySQLiteUnavailableMembersAndNonmembers(t *testing.T) {
 	ctx := celltest.Context(context.Background())
-	rt, err := sqliteruntime.NewFromConfig(ctx, sqliteruntime.Config{DBPath: filepath.Join(t.TempDir(), "missing.db")})
+	rt, err := sqliteruntime.NewFromConfig(ctx, sqliteruntime.Config{DBPath: filepath.Join(t.TempDir(), "missing.db"), Projects: jobdbcelltest.UnrestrictedProjects{}})
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, rt.Close(ctx)) })
 	celltest.Create(t, rt, "tenant", "test", "example.test/test")
@@ -537,7 +541,7 @@ func (r *historyCountReader) GetArtifactLazy(ctx context.Context, tenant string,
 // a present-day filename lookup.
 func TestHistorySQLiteSameProducerDifferentOrdinals(t *testing.T) {
 	ctx := celltest.Context(context.Background())
-	rt, err := sqliteruntime.NewFromConfig(ctx, sqliteruntime.Config{DBPath: filepath.Join(t.TempDir(), "ordinals.db")})
+	rt, err := sqliteruntime.NewFromConfig(ctx, sqliteruntime.Config{DBPath: filepath.Join(t.TempDir(), "ordinals.db"), Projects: jobdbcelltest.UnrestrictedProjects{}})
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, rt.Close(ctx)) })
 	celltest.Create(t, rt, "tenant", "test", "example.test/test")
@@ -618,7 +622,7 @@ func TestHistorySQLiteReceiptProducerProvenance(t *testing.T) {
 	for _, fixture := range historyReceiptFixtures(t) {
 		t.Run(fixture.name, func(t *testing.T) {
 			ctx := celltest.Context(context.Background())
-			rt, err := sqliteruntime.NewFromConfig(ctx, sqliteruntime.Config{DBPath: filepath.Join(t.TempDir(), "receipts.db")})
+			rt, err := sqliteruntime.NewFromConfig(ctx, sqliteruntime.Config{DBPath: filepath.Join(t.TempDir(), "receipts.db"), Projects: jobdbcelltest.UnrestrictedProjects{}})
 			require.NoError(t, err)
 			t.Cleanup(func() { require.NoError(t, rt.Close(ctx)) })
 			celltest.Create(t, rt, "tenant", "test", "example.test/test")
@@ -659,7 +663,7 @@ func (historyMergeTask) Run(_ workflow.TaskContext, data jobdb.TaskData) (jobdb.
 
 func TestHistorySQLiteSharedMergeSnapshotDuringPagination(t *testing.T) {
 	ctx := celltest.Context(context.Background())
-	rt, err := sqliteruntime.NewFromConfig(ctx, sqliteruntime.Config{DBPath: filepath.Join(t.TempDir(), "shared.db")})
+	rt, err := sqliteruntime.NewFromConfig(ctx, sqliteruntime.Config{DBPath: filepath.Join(t.TempDir(), "shared.db"), Projects: jobdbcelltest.UnrestrictedProjects{}})
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, rt.Close(ctx)) })
 	celltest.Create(t, rt, "tenant", "test", "example.test/test")

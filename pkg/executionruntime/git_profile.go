@@ -7,6 +7,7 @@ import (
 	"errors"
 	"slices"
 
+	"github.com/colony-2/c2j/internal/resourceretry"
 	"github.com/colony-2/c2j/pkg/execution"
 	"github.com/colony-2/c2j/pkg/executioncatalog"
 	"github.com/colony-2/c2j/pkg/extensionwait"
@@ -30,7 +31,7 @@ func (w *guardedTask) runWithGitProfile(base context.Context, tc jobworkflow.Tas
 	defer redactor.Close()
 	stop := context.AfterFunc(tc.Context(), redactor.Close)
 	defer stop()
-	defer func() { runErr = redactor.Error(runErr) }()
+	defer func() { runErr = resourceretry.Redact(runErr, redactor.Error) }()
 	local := secrets.WithRedactor(base, redactor)
 	kind := metricsruntime.Kind(w.TaskWorker)
 	if kind == "" {
@@ -76,7 +77,7 @@ func (w *guardedTask) runWithGitProfile(base context.Context, tc jobworkflow.Tas
 	})
 	local, gitStderr := gitprofile.WithStderrLog(local)
 	defer func() {
-		if extensionwait.IsDiscard(runErr) {
+		if extensionwait.IsDiscard(runErr) || resourceretry.Is(runErr) {
 			result = nil
 			return
 		}
@@ -212,7 +213,7 @@ func (w *guardedTask) runWithGitProfile(base context.Context, tc jobworkflow.Tas
 	defer scope.Close()
 	scope.AllowSecrets(access.Grant().Secrets.Resolve)
 	out, err := task.RunLocal(w.TaskWorker, scope.Context(), tc, input)
-	err = scope.Error(err)
+	err = resourceretry.Redact(err, scope.Error)
 	if out != nil {
 		raw, e := out.GetData()
 		if e != nil {

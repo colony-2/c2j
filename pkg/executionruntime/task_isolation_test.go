@@ -18,6 +18,7 @@ import (
 	"github.com/colony-2/c2j/pkg/permissions"
 	"github.com/colony-2/c2j/pkg/secrets"
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	jobdbcelltest "github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/remote"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/toy"
 	wf "github.com/colony-2/jobdb/pkg/workflow"
@@ -125,7 +126,7 @@ func TestTaskStateIsolatedAcrossConnectionsAndSuccessiveTasks(t *testing.T) {
 	}
 	results := []chan runResult{make(chan runResult, 1), make(chan runResult, 1)}
 	for slot := range 2 {
-		base := toy.New(toy.WithSecretProvider(connectionSecretProvider(slot)))
+		base := toy.New(toy.WithProjects(jobdbcelltest.UnrestrictedProjects{}), toy.WithSecretProvider(connectionSecretProvider(slot)))
 		profile, err := json.Marshal(gitprofile.Profile{Version: 1, Entries: []gitprofile.Entry{{URL: "https://git.example/", Username: "bot", SecretRef: "git"}}})
 		require.NoError(t, err)
 		for name, value := range map[string]json.RawMessage{gitprofile.ReadOnlyKey: json.RawMessage(`"work"`), gitprofile.ProfilePrefix + "work": profile} {

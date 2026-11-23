@@ -12,6 +12,7 @@ import (
 	"github.com/colony-2/c2j/pkg/jobref"
 	"github.com/colony-2/c2j/pkg/permissions"
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	jobdbcelltest "github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/remote"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/toy"
 	wf "github.com/colony-2/jobdb/pkg/workflow"
@@ -23,7 +24,7 @@ func TestWorkspaceLookupIndependentOfSubmission(t *testing.T) {
 		for _, policy := range []string{"empty", "submit-own-cell"} {
 			t.Run(backend+"/"+policy, func(t *testing.T) {
 				ctx := celltest.Context(context.Background())
-				var base jobdb.ConsumerRuntime = toy.New()
+				var base jobdb.ConsumerRuntime = toy.New(toy.WithProjects(jobdbcelltest.UnrestrictedProjects{}))
 				if backend == "remote" {
 					server := httptest.NewServer(celltest.Handler(remote.NewConsumerServer(base)))
 					t.Cleanup(server.Close)

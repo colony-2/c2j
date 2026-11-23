@@ -13,12 +13,19 @@ import (
 	"strings"
 	"time"
 
+	"github.com/colony-2/c2j/internal/resourceretry"
 	"github.com/colony-2/c2j/pkg/contextual"
 	"github.com/colony-2/c2j/pkg/gitprofile"
 	"github.com/colony-2/c2j/pkg/shellcmd"
 )
 
 type RunRequest struct {
+	// ResourceRetry permits restart only if this process never started. A
+	// launched process must supply its own negotiated affirmative evidence.
+	ResourceRetry bool
+	// StopTreeOnFailure also ends managed children after exit 1, which can
+	// carry a negotiated resource control. Output may still be in the pipes.
+	StopTreeOnFailure bool
 	// CleanEnv is for preparation subprocesses that must not inherit worker state.
 	// Commands in this mode must use an absolute executable path.
 	CleanEnv bool
@@ -41,7 +48,7 @@ func ExecuteProcess(ctx context.Context, req RunRequest) (stdout, stderr []byte,
 		defer func() {
 			stdout = []byte(scope.Redact(string(stdout)))
 			stderr = []byte(scope.Redact(string(stderr)))
-			runErr = scope.Error(runErr)
+			runErr = resourceretry.Redact(runErr, scope.Error)
 		}()
 	}
 	if req.Capture != nil {
@@ -120,6 +127,18 @@ func executeOnHost(ctx context.Context, req RunRequest, workingDir string) ([]by
 		}
 		cmd.Env = gitprofile.Env(ctx, cmd.Env)
 	}
+	// This capability belongs to the runner, after every inherited, authored,
+	// tool and omitted-variable layer. Input environment cannot negotiate it.
+	filtered := cmd.Env[:0]
+	for _, entry := range cmd.Env {
+		if !strings.HasPrefix(entry, resourceretry.CapabilityEnv+"=") {
+			filtered = append(filtered, entry)
+		}
+	}
+	cmd.Env = filtered
+	if req.ResourceRetry && CheckedTreeCleanupSupported && resourceretry.Supported(ctx) {
+		cmd.Env = append(cmd.Env, resourceretry.CapabilityEnv+"=1")
+	}
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
@@ -130,10 +149,10 @@ func executeOnHost(ctx context.Context, req RunRequest, workingDir string) ([]by
 		results = func() ([]byte, []byte) { return req.Capture.RawBytes(0), req.Capture.RawBytes(1) }
 	}
 	// Observe the shell's exit before waiting for inherited output pipes. A
-	// background child can keep those pipes open after the shell requests a wait.
+	// background child can keep those pipes open after a control exit.
 	var readers, writers []*os.File
 	var destinations []io.Writer
-	if req.StopTreeOnExitCode > 0 {
+	if req.StopTreeOnExitCode > 0 || req.StopTreeOnFailure {
 		destinations = []io.Writer{cmd.Stdout, cmd.Stderr}
 		for i := range destinations {
 			r, w, e := os.Pipe()
@@ -156,7 +175,10 @@ func executeOnHost(ctx context.Context, req RunRequest, workingDir string) ([]by
 		req.Capture.LaunchAttempted = true
 	}
 	started := time.Now()
-	if err := cmd.Start(); err != nil {
+	if err := startProcess(ctx, cmd); err != nil {
+		if req.ResourceRetry && ctx.Err() == nil && resourceretry.CreationFailure(err) {
+			return finish(resourceretry.Restart("local_spawn", "launch"))
+		}
 		return finish(err)
 	}
 	drained := make(chan struct{}, len(readers))
@@ -177,10 +199,12 @@ func executeOnHost(ctx context.Context, req RunRequest, workingDir string) ([]by
 	go func() {
 		err := cmd.Wait()
 		var exit *exec.ExitError
-		if req.StopTreeOnExitCode > 0 && errors.As(err, &exit) && exit.ExitCode() == req.StopTreeOnExitCode {
+		if errors.As(err, &exit) && (req.StopTreeOnFailure && exit.ExitCode() == 1 ||
+			req.StopTreeOnExitCode > 0 && exit.ExitCode() == req.StopTreeOnExitCode) {
 			cleanupErr := stopExitedProcessTree(cmd)
 			if req.Capture != nil {
 				req.Capture.TreeCleanupError = cleanupErr
+				req.Capture.TreeCleanupComplete = cleanupErr == nil
 			}
 			if cleanupErr != nil {
 				for _, reader := range readers {
@@ -214,6 +238,16 @@ func executeOnHost(ctx context.Context, req RunRequest, workingDir string) ([]by
 		}
 		return finish(fmt.Errorf("process canceled: %w", cause))
 	}
+}
+
+// A private context seam allows tests to reject Start without exhausting the host.
+type startProcessKey struct{}
+
+func startProcess(ctx context.Context, cmd *exec.Cmd) error {
+	if start, ok := ctx.Value(startProcessKey{}).(func(*exec.Cmd) error); ok {
+		return start(cmd)
+	}
+	return cmd.Start()
 }
 
 func BuildProcessEnv(env map[string]string) []string {

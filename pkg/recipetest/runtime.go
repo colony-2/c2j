@@ -26,6 +26,7 @@ import (
 	workerworkflow "github.com/colony-2/c2j/pkg/worker/workflow"
 	"github.com/colony-2/c2j/pkg/workflowctl"
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	jobdbcelltest "github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/sqlite"
 	toyruntime "github.com/colony-2/jobdb/pkg/jobdb/runtime/toy"
 )
@@ -1154,17 +1155,20 @@ type caseRuntime interface {
 	jobdb.ConfigurationAdmin
 }
 
+// newCaseRuntime owns isolated test stores and synthetic project IDs. Its
+// explicit test-only admission supplies no catalog administration and is never
+// used by the embedded or remote worker runtime.
 func newCaseRuntime(ctx context.Context, root, tenant string, spec *RuntimeCase) (caseRuntime, func() error, error) {
 	provider := runtimeSecretProvider{tenant: tenant, values: spec.Secrets}
 	if spec.Backend == "sqlite" {
 		if err := registerResponseFaultProbe(); err != nil {
 			return nil, nil, err
 		}
-		rt, err := sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: filepath.Join(root, "jobs.db"), SecretProvider: provider})
+		rt, err := sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: filepath.Join(root, "jobs.db"), SecretProvider: provider, Projects: jobdbcelltest.UnrestrictedProjects{}})
 		if err != nil {
 			return nil, nil, err
 		}
 		return rt, func() error { return rt.Close(context.WithoutCancel(ctx)) }, nil
 	}
-	return toyruntime.New(toyruntime.WithSecretProvider(provider)), func() error { return nil }, nil
+	return toyruntime.New(toyruntime.WithProjects(jobdbcelltest.UnrestrictedProjects{}), toyruntime.WithSecretProvider(provider)), func() error { return nil }, nil
 }

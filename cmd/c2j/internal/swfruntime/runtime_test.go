@@ -28,13 +28,13 @@ func TestOpenEmbedPersistsJobsAcrossReopen(t *testing.T) {
 		t.Fatalf("Open(embed): %v", err)
 	}
 
-	_, err = handle.Configuration.SetTenantConfigurationValue(ctx, jobdb.SetTenantConfigurationValueRequest{TenantID: "tenant-embed-test", Name: "profile", Value: json.RawMessage(`"read"`)})
+	_, err = handle.Configuration.SetTenantConfigurationValue(ctx, jobdb.SetTenantConfigurationValueRequest{TenantID: "0", Name: "profile", Value: json.RawMessage(`"read"`)})
 	require.NoError(t, err)
-	require.NoError(t, handle.Secrets.SetDevSecret(ctx, "tenant-embed-test", "token", "fixture-value"))
+	require.NoError(t, handle.Secrets.SetDevSecret(ctx, "0", "token", "fixture-value"))
 	data := jobdb.NewTaskDataOrPanic(map[string]any{"job_id": "job-1"})
-	celltest.Create(t, handle.Engine, "tenant-embed-test", "test", "example.test/test")
+	celltest.Create(t, handle.Engine, "0", "test", "example.test/test")
 	jobKeyHandle, err := handle.Engine.SubmitJob(ctx, jobdb.SubmitJob{
-		TenantId:  "tenant-embed-test",
+		TenantId:  "0",
 		JobID:     "job-1",
 		JobType:   "alpha",
 		Data:      data,
@@ -68,7 +68,7 @@ func TestOpenEmbedPersistsJobsAcrossReopen(t *testing.T) {
 	if info.Status != jobdb.JobStatusReady {
 		t.Fatalf("job status = %s, want %s", info.Status, jobdb.JobStatusReady)
 	}
-	snapshot, err := reopened.Configuration.GetTenantConfiguration(ctx, "tenant-embed-test")
+	snapshot, err := reopened.Configuration.GetTenantConfiguration(ctx, "0")
 	require.NoError(t, err)
 	require.JSONEq(t, `"read"`, string(snapshot.Values["profile"]))
 	lease, err := reopened.Runtime.GetJobLease(ctx, jobdb.GetJobLeaseRequest{JobKey: jobKey, WorkerID: "admin-test", Routes: []jobdb.Route{{JobType: "alpha"}}, LeaseDuration: time.Minute})
@@ -78,7 +78,7 @@ func TestOpenEmbedPersistsJobsAcrossReopen(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "fixture-value", values.Secrets["token"].Value)
 	lease.StopKeepAlive()
-	require.NoError(t, reopened.Secrets.RemoveDevSecret(ctx, "tenant-embed-test", "token"))
+	require.NoError(t, reopened.Secrets.RemoveDevSecret(ctx, "0", "token"))
 
 }
 

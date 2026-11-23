@@ -8,6 +8,7 @@ import (
 
 	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	jobdbcelltest "github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/remote"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/toy"
 	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
@@ -96,7 +97,7 @@ func TestCentralIssuerAcceptsParentBoundLeaseAndRejectsInvalidMetadata(t *testin
 
 func TestLocalAttenuationAndRenewalRespectHardDeadline(t *testing.T) {
 	ctx := celltest.Context(context.Background())
-	base := toy.New()
+	base := toy.New(toy.WithProjects(jobdbcelltest.UnrestrictedProjects{}))
 	server := httptest.NewServer(celltest.Handler(remote.NewConsumerServer(base)))
 	defer server.Close()
 	client, err := remote.New(server.URL, server.Client())

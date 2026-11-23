@@ -15,6 +15,7 @@ import (
 	coretask "github.com/colony-2/c2j/pkg/task"
 	workerops "github.com/colony-2/c2j/pkg/worker/ops"
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	jobdbcelltest "github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/toy"
 	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
 	"github.com/stretchr/testify/require"
@@ -49,7 +50,7 @@ func TestVerifyHookDelayedRecovery(t *testing.T) {
 					// Control: the old five-minute state rejects a successful result on recovery.
 					machine.States.States["check_modules"].NodeImpl.(*recipe.NodeOp).Timeout = recipe.Duration(5 * time.Minute)
 				}
-				rt := toy.New()
+				rt := toy.New(toy.WithProjects(jobdbcelltest.UnrestrictedProjects{}))
 				job, git := GenerateTestContext()
 				worker := jobworkflow.ExecutionWorker{JobType: "verify-recovery", Execute: func(exec jobworkflow.ExecutionContext, _ jobdb.JobData) (jobdb.JobData, error) {
 					out, artifacts, err := ExecuteRecipe(catchWorkflowContext(exec), *rec, map[string]any{

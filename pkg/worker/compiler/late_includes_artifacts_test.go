@@ -15,6 +15,7 @@ import (
 	"github.com/colony-2/c2j/pkg/recipe"
 	coretask "github.com/colony-2/c2j/pkg/task"
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	jobdbcelltest "github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	sqliteruntime "github.com/colony-2/jobdb/pkg/jobdb/runtime/sqlite"
 	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
 	"github.com/stretchr/testify/require"
@@ -29,7 +30,7 @@ func TestLateIncludeMissingAndCorruptStoredCaptures(t *testing.T) {
 			rec := f.expand(t, fmt.Sprintf("id: root\nsequence:\n- id: call\n  include: {bind: late, recipe: %q}\n", f.selector("child.yaml", commit)))
 			dir := t.TempDir()
 			blobDir := filepath.Join(dir, "blobs")
-			rt, err := sqliteruntime.NewFromConfig(testBackground(), sqliteruntime.Config{DBPath: filepath.Join(dir, "jobs.db"), BlobDir: blobDir})
+			rt, err := sqliteruntime.NewFromConfig(testBackground(), sqliteruntime.Config{DBPath: filepath.Join(dir, "jobs.db"), BlobDir: blobDir, Projects: jobdbcelltest.UnrestrictedProjects{}})
 			require.NoError(t, err)
 			defer rt.Close(testBackground())
 			w := lateWorker(t, rec, nil)

@@ -25,6 +25,7 @@ import (
 	workerops "github.com/colony-2/c2j/pkg/worker/ops"
 	workerworkflow "github.com/colony-2/c2j/pkg/worker/workflow"
 	"github.com/colony-2/c2j/pkg/workflowctl"
+	jobdbcelltest "github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	sqliteruntime "github.com/colony-2/jobdb/pkg/jobdb/runtime/sqlite"
 	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
 	"github.com/stretchr/testify/require"
@@ -162,7 +163,7 @@ func objectEngine(t *testing.T) jobworkflow.Engine {
 func objectEngineAt(t *testing.T, dbPath string) (jobworkflow.Engine, func()) {
 	t.Helper()
 	ctx, cancel := context.WithCancel(celltest.Context(context.Background()))
-	rt, err := sqliteruntime.NewFromConfig(ctx, sqliteruntime.Config{DBPath: dbPath})
+	rt, err := sqliteruntime.NewFromConfig(ctx, sqliteruntime.Config{DBPath: dbPath, Projects: jobdbcelltest.UnrestrictedProjects{}})
 	require.NoError(t, err)
 	guard := executionruntime.New(rt, execution.Allocation{SchemaVersion: 1})
 	eng, err := jobworkflow.NewEngineBuilder().WithRuntime(guard).WithWorkerTenantId("object-tests").BuildEngine()

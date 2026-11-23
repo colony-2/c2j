@@ -18,6 +18,7 @@ import (
 	"github.com/colony-2/c2j/pkg/jobref"
 	"github.com/colony-2/c2j/pkg/workflowctl"
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	jobdbcelltest "github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/remote"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/sqlite"
 	"github.com/stretchr/testify/require"
@@ -58,7 +59,7 @@ func TestSubmissionWaitCLIStateSurvivesSQLiteReopen(t *testing.T) {
 				t.Cleanup(closeStore)
 				openStore := func() *waitFixture {
 					var err error
-					store, err = sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: path})
+					store, err = sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: path, Projects: jobdbcelltest.UnrestrictedProjects{}})
 					require.NoError(t, err)
 					server = httptest.NewServer(celltest.Handler(remote.NewConsumerServer(store)))
 					wire, err := remote.New(server.URL, server.Client())

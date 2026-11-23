@@ -26,6 +26,7 @@ import (
 	workerops "github.com/colony-2/c2j/pkg/worker/ops"
 	"github.com/colony-2/c2j/pkg/workflowctl"
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	jobdbcelltest "github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	toyruntime "github.com/colony-2/jobdb/pkg/jobdb/runtime/toy"
 	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
 	"github.com/stretchr/testify/require"
@@ -314,7 +315,7 @@ func TestSquashRebaseMergeRecoversMissingOutcomeOnNewWorker(t *testing.T) {
 				}
 				return ws
 			}
-			base := toyruntime.New()
+			base := toyruntime.New(toyruntime.WithProjects(jobdbcelltest.UnrestrictedProjects{}))
 			rt := &publicationStorageFaultRuntime{ConsumerRuntime: base}
 			first := newWorker()
 			eng, err := jobworkflow.NewEngineBuilder().WithRuntime(base).WithWorkerTenantId("recovery").PlusWorkers(first.JobWorker).BuildEngine()

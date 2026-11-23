@@ -95,6 +95,9 @@ func TestVerifyHookSubmissionEnvironmentAndGate(t *testing.T) {
 		{name: "helper-gate", failGate: "TestLeaseBoundRestartHelperSubmission"},
 		{name: "inspection-gate", failGate: "TestTaskInspectionUsesBackendReadPermissions"},
 		{name: "health-gate", failGate: "^TestHealth"},
+		{name: "resource-preparation-gate", failGate: "TestResourceRetryValidation"},
+		{name: "resource-backoff-gate", failGate: "./internal/resourceretry"},
+		{name: "project-admission-gate", failGate: "./internal/localruntime"},
 		{name: "managed-regressions-gate", failGate: "^Test(JobInspectionExpiredLifetimeBeforeDispatch"},
 		{name: "quoted-marker-gate", failGate: "^TestExactJobQuotedMarker"},
 		{name: "sequence-when-gate", failGate: "^TestSequenceNodeWhen"},
@@ -282,6 +285,7 @@ fi
 			// built executable and then the race checks. Keep all legacy gate
 			// ordering and stop-on-failure assertions below.
 			if fixture.name == "healthy" {
+				require.Contains(t, string(raw), "go test -mod=readonly -race -count=1 -v -timeout=5m ./internal/resourceretry ./pkg/ops/process ./pkg/ops/extensions ./pkg/worker/ops ./pkg/worker/compiler ./pkg/executionruntime ./pkg/metricsruntime -run ^TestResourceRetry\n")
 				require.Contains(t, string(raw), "|WithLeaseCLIErrorOutput|VerifyHook)", "lease-error CLI regressions must run before the broad suite")
 				require.Contains(t, string(raw), "go test -mod=readonly -count=3 -v -tags=integration -timeout=5m ./pkg/childbroker ./pkg/worker/compiler ./pkg/executionruntime -run ^Test(JobInspectionExpiredLifetimeBeforeDispatch|MetricsHelperAuthenticationExactnessAndIncompleteHistory|ExtensionWaitManifestTimeout|InputHistoryHelperExpiredLifetimeBeforeDispatch|ExtensionWaitReadinessClockRecheck)$\n")
 			}
@@ -301,6 +305,8 @@ fi
 				"TestLeaseBoundRestartHelperSubmission$",
 				"TestTaskInspectionUsesBackendReadPermissions$",
 				"^TestHealth",
+				"TestResourceRetryValidation",
+				"./internal/resourceretry",
 				"^Test(JobInspectionExpiredLifetimeBeforeDispatch",
 				"^TestExactJobQuotedMarker|^TestSequenceNodeWhen",
 				"^TestExactJob|",
@@ -319,6 +325,8 @@ fi
 				"^TestRealNixArtifactFiles$",
 				"^TestBrokerOnlyCLI",
 				"^Test(FixtureSource|NativeRuntimeFixtureSourceModes)",
+				"^(TestLeaseParentage|",
+				"./internal/localruntime ./cmd/c2j/internal/swfruntime ./cmd/c2j/internal/deletejobs",
 			}
 			previous, stopped := -1, false
 			for _, gate := range gates {
@@ -371,7 +379,11 @@ fi
 			} else if fixture.failGate != "" {
 				require.NotContains(t, string(raw), "-tags=integration -p 2")
 				require.NotContains(t, string(raw), "./internal/retirementcheck")
-				require.NotContains(t, string(raw), "go build")
+				if fixture.failGate != "./internal/localruntime" && fixture.failGate != "TestLeaseParentage" {
+					require.NotContains(t, string(raw), "go build")
+				} else {
+					require.NotContains(t, string(raw), "go build -buildvcs=false", "failed late gate must prevent the later CLI build")
+				}
 				require.NotContains(t, string(raw), "c2j test")
 			} else {
 				require.Contains(t, string(raw), "Test(Compact|ExecutionFailurePresentation")

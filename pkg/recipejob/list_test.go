@@ -11,6 +11,7 @@ import (
 	"github.com/colony-2/c2j/pkg/jobref"
 	"github.com/colony-2/c2j/pkg/starter"
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	jobdbcelltest "github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	toyruntime "github.com/colony-2/jobdb/pkg/jobdb/runtime/toy"
 	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
 )
@@ -129,7 +130,7 @@ func TestListChildRecipeJobsFiltersByParentInvocation(t *testing.T) {
 	ctx, cancel := context.WithTimeout(celltest.Context(context.Background()), 10*time.Second)
 	defer cancel()
 
-	runtime := toyruntime.New()
+	runtime := toyruntime.New(toyruntime.WithProjects(jobdbcelltest.UnrestrictedProjects{}))
 	engine, err := jobworkflow.NewEngineBuilder().WithRuntime(runtime).BuildEngine()
 	if err != nil {
 		t.Fatalf("BuildEngine(): %v", err)
@@ -244,7 +245,7 @@ func TestListChildRecipeJobsFiltersByParentInvocation(t *testing.T) {
 func newListTestEngine(t *testing.T) jobworkflow.Engine {
 	t.Helper()
 
-	runtime := toyruntime.New()
+	runtime := toyruntime.New(toyruntime.WithProjects(jobdbcelltest.UnrestrictedProjects{}))
 	engine, err := jobworkflow.NewEngineBuilder().WithRuntime(runtime).BuildEngine()
 	if err != nil {
 		t.Fatalf("BuildEngine(): %v", err)

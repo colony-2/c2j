@@ -16,6 +16,7 @@ import (
 	"github.com/colony-2/c2j/pkg/logging"
 	recipeops "github.com/colony-2/c2j/pkg/ops"
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	jobdbcelltest "github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/toy"
 	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
 	"github.com/stretchr/testify/require"
@@ -50,7 +51,7 @@ func TestResumedJobLogsOnlyNewTaskExecution(t *testing.T) {
 		}
 		return result, nil
 	}}
-	rt := executionruntime.New(toy.New(), execution.Allocation{SchemaVersion: 1})
+	rt := executionruntime.New(toy.New(toy.WithProjects(jobdbcelltest.UnrestrictedProjects{})), execution.Allocation{SchemaVersion: 1})
 	celltest.Create(t, rt, "test", "test", "example.test/test")
 	job, err := rt.SubmitJob(celltest.Context(context.Background()), jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "test", JobType: orchestrator.Name(), Data: input, Cell: "test", CellRepo: "example.test/test"}})
 	require.NoError(t, err)

@@ -13,6 +13,7 @@ import (
 	coreops "github.com/colony-2/c2j/pkg/ops"
 	extops "github.com/colony-2/c2j/pkg/ops/extensions"
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	jobdbcelltest "github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	toyruntime "github.com/colony-2/jobdb/pkg/jobdb/runtime/toy"
 	"github.com/stretchr/testify/require"
 )
@@ -51,7 +52,7 @@ func TestArtifactFileSecretsCheckpointDefaultsAndBindings(t *testing.T) {
 	}}
 	artifactFileManifest(t, repo, trace, "", map[string]any{"input_schema": schema, "env": map[string]string{"C2J_ARTIFACT_FILE_PROBE": "1", "C2J_ARTIFACT_FILE_TRACE": trace, "C2J_ARTIFACT_CHECK_TOKEN": "1"}})
 	provider := &testSecretProvider{}
-	rt := toyruntime.New(toyruntime.WithSecretProvider(provider))
+	rt := toyruntime.New(toyruntime.WithProjects(jobdbcelltest.UnrestrictedProjects{}), toyruntime.WithSecretProvider(provider))
 	_, err := rt.SetTenantConfigurationValue(celltest.Context(context.Background()), jobdb.SetTenantConfigurationValueRequest{TenantID: "file-tests", Name: "greeting", Value: json.RawMessage(`"configured"`)})
 	require.NoError(t, err)
 	source := `id: artifact-files

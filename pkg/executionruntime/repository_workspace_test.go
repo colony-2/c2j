@@ -18,6 +18,7 @@ import (
 	"github.com/colony-2/c2j/pkg/worker/compiler"
 	workerops "github.com/colony-2/c2j/pkg/worker/ops"
 	"github.com/colony-2/c2j/pkg/workflowctl"
+	jobdbcelltest "github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/toy"
 	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
 	"github.com/stretchr/testify/require"
@@ -41,7 +42,7 @@ func TestRepositoryDefaultsPersistedEditsAndWorkspaces(t *testing.T) {
 			require.NoError(t, err, string(out))
 		}
 	}
-	base := toy.New()
+	base := toy.New(toy.WithProjects(jobdbcelltest.UnrestrictedProjects{}))
 	for name, root := range repos {
 		celltest.Create(t, base, "tenant", name, celltest.Repo(root))
 	}

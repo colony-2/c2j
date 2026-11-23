@@ -24,6 +24,7 @@ import (
 	storylive "github.com/colony-2/c2j/pkg/story/live"
 	"github.com/colony-2/c2j/pkg/workflowctl"
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	jobdbcelltest "github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/remote"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/sqlite"
 	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
@@ -48,7 +49,7 @@ func newSuppliedCLI(t *testing.T, yaml string, duration time.Duration, providers
 	t.Helper()
 	c2jops.Register()
 	ctx := celltest.Context(context.Background())
-	cfg := sqlite.Config{DBPath: filepath.Join(t.TempDir(), "jobs.db")}
+	cfg := sqlite.Config{DBPath: filepath.Join(t.TempDir(), "jobs.db"), Projects: jobdbcelltest.UnrestrictedProjects{}}
 	if len(providers) > 0 {
 		cfg.SecretProvider = providers[0]
 	}

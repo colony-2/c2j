@@ -30,6 +30,7 @@ import (
 	workflow "github.com/colony-2/c2j/pkg/worker/workflow"
 	"github.com/colony-2/c2j/pkg/workflowctl"
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	jobdbcelltest "github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	toyruntime "github.com/colony-2/jobdb/pkg/jobdb/runtime/toy"
 	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
 	"github.com/stretchr/testify/assert"
@@ -724,7 +725,7 @@ func executeRecipeWithArtifacts(
 	}
 	tenantID := "default"
 	ctx = celltest.Context(ctx)
-	runtime := toyruntime.New()
+	runtime := toyruntime.New(toyruntime.WithProjects(jobdbcelltest.UnrestrictedProjects{}))
 	guard := executionruntime.New(runtime, execution.Allocation{SchemaVersion: 1})
 	for i, tw := range taskWorkers {
 		taskWorkers[i] = guard.WrapTaskWorker(tw)

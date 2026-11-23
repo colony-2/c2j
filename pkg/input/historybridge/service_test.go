@@ -15,6 +15,7 @@ import (
 	"github.com/colony-2/c2j/pkg/input"
 	"github.com/colony-2/c2j/pkg/jobinputs"
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	jobdbcelltest "github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	sqliteruntime "github.com/colony-2/jobdb/pkg/jobdb/runtime/sqlite"
 	"github.com/stretchr/testify/require"
 )
@@ -42,7 +43,7 @@ func authority() jobinputs.Authority {
 func bridgeFixture(t *testing.T) (context.Context, *inputhistorytest.Fixture, *policy) {
 	t.Helper()
 	ctx := celltest.Context(context.Background())
-	rt, e := sqliteruntime.NewFromConfig(ctx, sqliteruntime.Config{DBPath: filepath.Join(t.TempDir(), "history.db"), MaxChapterApplicationPayloadBytes: 4 * 1024 * 1024})
+	rt, e := sqliteruntime.NewFromConfig(ctx, sqliteruntime.Config{DBPath: filepath.Join(t.TempDir(), "history.db"), MaxChapterApplicationPayloadBytes: 4 * 1024 * 1024, Projects: jobdbcelltest.UnrestrictedProjects{}})
 	require.NoError(t, e)
 	t.Cleanup(func() { require.NoError(t, rt.Close(ctx)) })
 	f, e := inputhistorytest.Build(ctx, rt)

@@ -16,6 +16,7 @@ import (
 	"github.com/colony-2/c2j/pkg/git/gitstate"
 	recipeops "github.com/colony-2/c2j/pkg/ops"
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	jobdbcelltest "github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/toy"
 	"github.com/stretchr/testify/require"
 )
@@ -40,7 +41,7 @@ func TestExtensionWaitWorkspaceDiscard(t *testing.T) {
 			defer cleanup()
 			var dir string
 			jobContext := celltest.Context(context.Background())
-			externalJobs := toy.New()
+			externalJobs := toy.New(toy.WithProjects(jobdbcelltest.UnrestrictedProjects{}))
 			celltest.Create(t, externalJobs, "test", "test", "example.test/test")
 			var submitted jobdb.JobHandle
 			external := filepath.Join(t.TempDir(), "external-cache")

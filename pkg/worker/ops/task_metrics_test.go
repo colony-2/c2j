@@ -29,6 +29,7 @@ import (
 	coretask "github.com/colony-2/c2j/pkg/task"
 	"github.com/colony-2/c2j/pkg/toolenv"
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	jobdbcelltest "github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	wf "github.com/colony-2/jobdb/pkg/workflow"
 	"github.com/stretchr/testify/require"
 )
@@ -310,7 +311,7 @@ func (r *metricAppendDelay) PutChapter(ctx context.Context, req jobdb.PutChapter
 }
 func TestAdmittedTaskMetricsExcludeQueueAndAppend(t *testing.T) {
 	var seconds atomic.Int64
-	source := &metricAppendDelay{ConsumerRuntime: toy.New(), seconds: &seconds}
+	source := &metricAppendDelay{ConsumerRuntime: toy.New(toy.WithProjects(jobdbcelltest.UnrestrictedProjects{})), seconds: &seconds}
 	rt := executionruntime.New(source, execution.Allocation{SchemaVersion: 1})
 	clock := func() time.Time { return time.Unix(seconds.Load(), 0) }
 	ctx := preparedtest.WithClock(celltest.Context(context.Background()), clock)

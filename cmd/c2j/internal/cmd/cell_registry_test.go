@@ -10,13 +10,14 @@ import (
 
 	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	jobdbcelltest "github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/remote"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/toy"
 	"github.com/stretchr/testify/require"
 )
 
 func TestCellCreateAndList(t *testing.T) {
-	rt := toy.New()
+	rt := toy.New(toy.WithProjects(jobdbcelltest.UnrestrictedProjects{}))
 	server := httptest.NewServer(celltest.Handler(remote.NewConsumerServer(rt)))
 	defer server.Close()
 	run := func(args ...string) ([]byte, error) {

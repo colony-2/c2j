@@ -16,6 +16,7 @@ import (
 	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/c2j/pkg/workflowctl"
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	jobdbcelltest "github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/remote"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/sqlite"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/toy"
@@ -34,9 +35,9 @@ type waitFixture struct {
 func newWaitFixture(t *testing.T, backend string) *waitFixture {
 	t.Helper()
 	ctx := celltest.Context(runtimetest.PrimaryGoalContext(context.Background()))
-	var db jobdb.ConsumerRuntime = toy.New()
+	var db jobdb.ConsumerRuntime = toy.New(toy.WithProjects(jobdbcelltest.UnrestrictedProjects{}))
 	if backend == "sqlite" {
-		rt, err := sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: filepath.Join(t.TempDir(), "jobs.db")})
+		rt, err := sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: filepath.Join(t.TempDir(), "jobs.db"), Projects: jobdbcelltest.UnrestrictedProjects{}})
 		require.NoError(t, err)
 		t.Cleanup(func() { require.NoError(t, rt.Close(context.Background())) })
 		db = rt

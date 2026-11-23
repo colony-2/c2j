@@ -10,6 +10,7 @@ import (
 
 	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	jobdbcelltest "github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/remote"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/sqlite"
 	wf "github.com/colony-2/jobdb/pkg/workflow"
@@ -47,7 +48,7 @@ func TestWorkspaceDiffObservationImmutablePrefix(t *testing.T) {
 	for _, backend := range []string{"SQLite", "HTTP"} {
 		t.Run(backend, func(t *testing.T) {
 			ctx := celltest.Context(context.Background())
-			local, err := sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: filepath.Join(t.TempDir(), "jobs.db")})
+			local, err := sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: filepath.Join(t.TempDir(), "jobs.db"), Projects: jobdbcelltest.UnrestrictedProjects{}})
 			require.NoError(t, err)
 			t.Cleanup(func() { require.NoError(t, local.Close(ctx)) })
 			var rt jobdb.ConsumerRuntime = local

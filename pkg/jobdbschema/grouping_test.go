@@ -8,6 +8,7 @@ import (
 
 	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	jobdbcelltest "github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/toy"
 	"github.com/stretchr/testify/require"
 )
@@ -52,7 +53,7 @@ func TestGroupedAppendSchema(t *testing.T) {
 	} {
 		t.Run(tc.raw, func(t *testing.T) {
 			ctx := celltest.Context(context.Background())
-			rt := toy.New()
+			rt := toy.New(toy.WithProjects(jobdbcelltest.UnrestrictedProjects{}))
 			celltest.Create(t, rt, "tenant", "test", "example.test/test")
 			require.NoError(t, Register(ctx, rt, "tenant"))
 			req := jobdb.StartOrAppendJob{AppendKey: "key", Append: json.RawMessage(tc.raw), Job: jobdb.SubmitJob{TenantId: "tenant", Cell: "test", JobType: "recipe", Data: jobdb.NewTaskDataOrPanic(map[string]any{"tenantId": "tenant", "cell": "test", "recipe": "batch", "context": map[string]any{}})}}
@@ -69,7 +70,7 @@ func TestGroupedAppendSchema(t *testing.T) {
 
 func TestGroupedSchemaKeepsOrdinaryStartClosed(t *testing.T) {
 	ctx := celltest.Context(context.Background())
-	rt := toy.New()
+	rt := toy.New(toy.WithProjects(jobdbcelltest.UnrestrictedProjects{}))
 	celltest.Create(t, rt, "tenant", "test", "example.test/test")
 	require.NoError(t, Register(ctx, rt, "tenant"))
 	for _, tc := range []struct {

@@ -13,6 +13,7 @@ import (
 
 	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	jobdbcelltest "github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	remoteruntime "github.com/colony-2/jobdb/pkg/jobdb/runtime/remote"
 	toyruntime "github.com/colony-2/jobdb/pkg/jobdb/runtime/toy"
 	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
@@ -238,7 +239,7 @@ self:
 
 func startListTestRuntime(ctx context.Context) (*httptest.Server, string, jobdb.JobStatus, error) {
 	tenantID := "tenant-list-test"
-	underlying := toyruntime.New()
+	underlying := toyruntime.New(toyruntime.WithProjects(jobdbcelltest.UnrestrictedProjects{}))
 	server := httptest.NewServer(celltest.Handler(remoteruntime.NewConsumerServer(underlying)))
 
 	runtime, err := remoteruntime.New(server.URL, server.Client())

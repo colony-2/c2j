@@ -11,6 +11,7 @@ import (
 	"github.com/colony-2/c2j/pkg/execution"
 	"github.com/colony-2/c2j/pkg/permissions"
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	jobdbcelltest "github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/remote"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/toy"
 	wf "github.com/colony-2/jobdb/pkg/workflow"
@@ -30,7 +31,7 @@ func (f delegationTask) RunTask(ctx context.Context, tc wf.TaskContext, in jobdb
 
 func TestRestrictedAccessUsesTaskDelegationAndOperationLimit(t *testing.T) {
 	ctx := celltest.Context(context.Background())
-	base := toy.New(toy.WithSecretProvider(&freshGitProvider{}))
+	base := toy.New(toy.WithProjects(jobdbcelltest.UnrestrictedProjects{}), toy.WithSecretProvider(&freshGitProvider{}))
 	server := httptest.NewServer(celltest.Handler(remote.NewConsumerServer(base)))
 	defer server.Close()
 	client, err := remote.New(server.URL, server.Client())
@@ -120,7 +121,7 @@ func TestRestrictedAccessUsesTaskDelegationAndOperationLimit(t *testing.T) {
 }
 
 func TestRuntimeDelegationUnsupported(t *testing.T) {
-	rt := New(toy.New(), execution.Allocation{})
+	rt := New(toy.New(toy.WithProjects(jobdbcelltest.UnrestrictedProjects{})), execution.Allocation{})
 	_, err := rt.CreateDelegation(celltest.Context(context.Background()), nil, jobdb.CreateDelegationRequest{})
 	require.ErrorIs(t, err, jobdb.ErrLeaseDelegationUnsupported)
 }
@@ -133,7 +134,7 @@ func TestTaskWithoutTimeoutUsesParentBoundRestrictedLease(t *testing.T) {
 		}
 		t.Run(name, func(t *testing.T) {
 			ctx := celltest.Context(context.Background())
-			base := toy.New(toy.WithSecretProvider(&freshGitProvider{}))
+			base := toy.New(toy.WithProjects(jobdbcelltest.UnrestrictedProjects{}), toy.WithSecretProvider(&freshGitProvider{}))
 			server := httptest.NewServer(celltest.Handler(remote.NewConsumerServer(base)))
 			defer server.Close()
 			client, err := remote.New(server.URL, server.Client())
@@ -195,7 +196,7 @@ func TestTaskRequestsCannotOmitPermissionEnforcement(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx := celltest.Context(context.Background())
 			provider := &freshGitProvider{}
-			base := toy.New(toy.WithSecretProvider(provider))
+			base := toy.New(toy.WithProjects(jobdbcelltest.UnrestrictedProjects{}), toy.WithSecretProvider(provider))
 			server := httptest.NewServer(celltest.Handler(remote.NewConsumerServer(base)))
 			defer server.Close()
 			client, err := remote.New(server.URL, server.Client())

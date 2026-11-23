@@ -20,6 +20,7 @@ import (
 	"github.com/colony-2/c2j/pkg/worker/compiler"
 	"github.com/colony-2/c2j/pkg/workflow"
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	jobdbcelltest "github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/remote"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/toy"
 	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
@@ -114,7 +115,7 @@ func testStampedBuildProvenance(t *testing.T, flags string) {
 	require.Equal(t, "c2j version "+version+"\n", string(cli(t, "version")))
 	for _, mode := range []string{"run", "run one", "run with-lease", "submit --run", "run mismatch", "run with-lease mismatch"} {
 		t.Run(mode, func(t *testing.T) {
-			rt := toy.New()
+			rt := toy.New(toy.WithProjects(jobdbcelltest.UnrestrictedProjects{}))
 			server := httptest.NewServer(celltest.Handler(remote.NewConsumerServer(rt)))
 			defer server.Close()
 			uri := server.URL + "/provenance"

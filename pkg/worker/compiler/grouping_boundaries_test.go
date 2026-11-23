@@ -30,6 +30,7 @@ import (
 	workerworkflow "github.com/colony-2/c2j/pkg/worker/workflow"
 	"github.com/colony-2/c2j/pkg/workflowctl"
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	jobdbcelltest "github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/remote"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/sqlite"
 	wf "github.com/colony-2/jobdb/pkg/workflow"
@@ -53,7 +54,7 @@ func newGroupingFixture(t *testing.T, transport, yaml string) *groupingFixture {
 	t.Helper()
 	ctx := celltest.Context(context.Background())
 	dbPath := filepath.Join(t.TempDir(), "grouping.db")
-	db, err := sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: dbPath})
+	db, err := sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: dbPath, Projects: jobdbcelltest.UnrestrictedProjects{}})
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close(ctx)) })
 	var rt jobdb.ConsumerRuntime = db

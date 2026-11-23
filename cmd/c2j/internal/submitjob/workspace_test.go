@@ -22,6 +22,7 @@ import (
 	"github.com/colony-2/c2j/pkg/workflowctl"
 	"github.com/colony-2/c2j/pkg/workspacesubmit"
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	jobdbcelltest "github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	remoteruntime "github.com/colony-2/jobdb/pkg/jobdb/runtime/remote"
 	toyruntime "github.com/colony-2/jobdb/pkg/jobdb/runtime/toy"
 	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
@@ -51,7 +52,7 @@ func TestSubmitWorkspaceNowRunsOnFreshWorker(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(root, "value.txt"), []byte("captured"), 0644))
 	recipePath := filepath.Join(t.TempDir(), "recipe.yaml")
 	require.NoError(t, os.WriteFile(recipePath, []byte(workspaceSubmitRecipe), 0644))
-	rt := toyruntime.New()
+	rt := toyruntime.New(toyruntime.WithProjects(jobdbcelltest.UnrestrictedProjects{}))
 	celltest.Create(t, rt, "workspace-submit", "app", celltest.Repo(root))
 	server := httptest.NewServer(celltest.Handler(remoteruntime.NewConsumerServer(rt)))
 	defer server.Close()

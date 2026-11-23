@@ -15,6 +15,7 @@ import (
 	"github.com/colony-2/c2j/pkg/recipejob"
 	"github.com/colony-2/c2j/pkg/workflowctl"
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	jobdbcelltest "github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	remoteruntime "github.com/colony-2/jobdb/pkg/jobdb/runtime/remote"
 	toyruntime "github.com/colony-2/jobdb/pkg/jobdb/runtime/toy"
 	"github.com/stretchr/testify/require"
@@ -52,7 +53,7 @@ func TestSubmitHelpPromotesConventions(t *testing.T) {
 func TestSubmitTitleFlag(t *testing.T) {
 	root := t.TempDir()
 	t.Chdir(root)
-	db := toyruntime.New()
+	db := toyruntime.New(toyruntime.WithProjects(jobdbcelltest.UnrestrictedProjects{}))
 	celltest.Create(t, db, "tenant", "app", celltest.Repo(root))
 	server := httptest.NewServer(celltest.Handler(remoteruntime.NewConsumerServer(db)))
 	defer server.Close()
@@ -101,7 +102,7 @@ func TestSubmitRejectsConflictingRecipeFlags(t *testing.T) {
 func TestSubmitConventionsWithInteractivePromptAndJSON(t *testing.T) {
 	root := t.TempDir()
 	t.Chdir(root)
-	db := toyruntime.New()
+	db := toyruntime.New(toyruntime.WithProjects(jobdbcelltest.UnrestrictedProjects{}))
 	celltest.Create(t, db, "tenant", "app", celltest.Repo(root))
 	server := httptest.NewServer(celltest.Handler(remoteruntime.NewConsumerServer(db)))
 	defer server.Close()
@@ -160,7 +161,7 @@ func TestSubmitPromptFile(t *testing.T) {
 	prompt := "  Implement café support.\n\nKeep `code` and $VARIABLE literal.\n"
 	require.NoError(t, os.WriteFile("prompt.md", []byte(prompt), 0600))
 	require.NoError(t, os.WriteFile("inputs.yaml", []byte("extra: retained\n"), 0600))
-	db := toyruntime.New()
+	db := toyruntime.New(toyruntime.WithProjects(jobdbcelltest.UnrestrictedProjects{}))
 	celltest.Create(t, db, "tenant", "app", celltest.Repo(root))
 	server := httptest.NewServer(celltest.Handler(remoteruntime.NewConsumerServer(db)))
 	defer server.Close()
@@ -220,7 +221,7 @@ func TestSubmitPromptFileErrors(t *testing.T) {
 func TestSubmitWaitFlagsReachHTTPPublication(t *testing.T) {
 	ctx := celltest.Context(context.Background())
 	root := t.TempDir()
-	db := toyruntime.New()
+	db := toyruntime.New(toyruntime.WithProjects(jobdbcelltest.UnrestrictedProjects{}))
 	celltest.Create(t, db, "waits", "app", celltest.Repo(root))
 	targets := map[string]jobdb.JobHandle{}
 	for _, id := range []string{"literal,a", "success", "goal-source"} {

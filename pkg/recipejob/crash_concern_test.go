@@ -13,6 +13,7 @@ import (
 	"github.com/colony-2/c2j/pkg/jobdbschema"
 	"github.com/colony-2/c2j/pkg/recipejob"
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	jobdbcelltest "github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/remote"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/sqlite"
 	wf "github.com/colony-2/jobdb/pkg/workflow"
@@ -57,7 +58,7 @@ func TestClearCrashConcernRecovery(t *testing.T) {
 		t.Run(backend, func(t *testing.T) {
 			ctx := celltest.Context(context.Background())
 			path := filepath.Join(t.TempDir(), "jobs.db")
-			base, err := sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: path})
+			base, err := sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: path, Projects: jobdbcelltest.UnrestrictedProjects{}})
 			require.NoError(t, err)
 			t.Cleanup(func() { require.NoError(t, base.Close(ctx)) })
 			var rt jobdb.ConsumerRuntime = base
@@ -87,10 +88,10 @@ func TestClearCrashConcernRecovery(t *testing.T) {
 			req := jobdb.ClearCrashConcernRequest{JobKey: key, WorkerID: "operator", Reason: "repaired"}
 			require.ErrorIs(t, recipejob.ClearCrashConcern(ctx, engine, req), jobdb.ErrConflict, "live leases cannot be reset")
 
-			// Seed persisted crash counters without timing-dependent lease expiry loops.
+			// Exhaust persisted crash credit without timing-dependent lease expiry loops.
 			db, err := sql.Open("sqlite", path)
 			require.NoError(t, err)
-			_, err = db.ExecContext(ctx, `UPDATE jobdb_jobs SET consecutive_expirations=5, lease_expires_at_ns=0 WHERE job_id='job'`)
+			_, err = db.ExecContext(ctx, `UPDATE jobdb_jobs SET crash_budget_remaining=0, lease_expires_at_ns=0 WHERE job_id='job'`)
 			require.NoError(t, err)
 			require.NoError(t, db.Close())
 			before, err := rt.GetJob(ctx, key)

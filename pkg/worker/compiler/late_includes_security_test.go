@@ -20,6 +20,7 @@ import (
 	"github.com/colony-2/c2j/pkg/recipe"
 	"github.com/colony-2/c2j/pkg/workflow"
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	jobdbcelltest "github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	sqliteruntime "github.com/colony-2/jobdb/pkg/jobdb/runtime/sqlite"
 	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
 	"github.com/stretchr/testify/require"
@@ -103,7 +104,7 @@ func TestLateIncludeAuthorityAndRootTrust(t *testing.T) {
 			}
 			rec := root.expand(t, fmt.Sprintf("id: root\n%ssequence:\n- id: call\n  include: {bind: late, recipe: %q}\n%s", rootPerms, target.selector(path, selected), callPerms))
 			provider := &testSecretProvider{}
-			rt, err := sqliteruntime.NewFromConfig(lateTestContext(), sqliteruntime.Config{DBPath: filepath.Join(t.TempDir(), "jobs.db"), SecretProvider: provider})
+			rt, err := sqliteruntime.NewFromConfig(lateTestContext(), sqliteruntime.Config{DBPath: filepath.Join(t.TempDir(), "jobs.db"), SecretProvider: provider, Projects: jobdbcelltest.UnrestrictedProjects{}})
 			require.NoError(t, err)
 			defer rt.Close(testBackground())
 			guard := lateGuard(rt)

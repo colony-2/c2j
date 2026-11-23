@@ -14,6 +14,7 @@ import (
 	"github.com/colony-2/c2j/pkg/starter"
 	"github.com/colony-2/c2j/pkg/worker/compiler"
 	"github.com/colony-2/c2j/pkg/workflowctl"
+	jobdbcelltest "github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/remote"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/toy"
 	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
@@ -22,7 +23,7 @@ import (
 
 func TestRunReportsEnvironmentHandoffAndResumes(t *testing.T) {
 	c2jops.Register()
-	rt := toy.New()
+	rt := toy.New(toy.WithProjects(jobdbcelltest.UnrestrictedProjects{}))
 	ctx := celltest.Context(context.Background())
 	engine, err := jobworkflow.NewEngineBuilder().WithRuntime(rt).BuildEngine()
 	require.NoError(t, err)
@@ -62,7 +63,7 @@ func TestRunReportsEnvironmentHandoffAndResumes(t *testing.T) {
 
 func TestRunNodeExecutionNeedsGuardsRealOperation(t *testing.T) {
 	c2jops.Register()
-	rt := toy.New()
+	rt := toy.New(toy.WithProjects(jobdbcelltest.UnrestrictedProjects{}))
 	ctx := celltest.Context(context.Background())
 	engine, err := jobworkflow.NewEngineBuilder().WithRuntime(rt).BuildEngine()
 	require.NoError(t, err)

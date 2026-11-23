@@ -17,6 +17,7 @@ import (
 	extops "github.com/colony-2/c2j/pkg/ops/extensions"
 	workerops "github.com/colony-2/c2j/pkg/worker/ops"
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	jobdbcelltest "github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	sqliteruntime "github.com/colony-2/jobdb/pkg/jobdb/runtime/sqlite"
 	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
 	"github.com/stretchr/testify/require"
@@ -50,7 +51,7 @@ inputs:
  instructions_file: %s
 `, fileJSON(t, reference))
 	db := filepath.Join(t.TempDir(), "jobs.db")
-	rt, err := sqliteruntime.NewFromConfig(ctx, sqliteruntime.Config{DBPath: db})
+	rt, err := sqliteruntime.NewFromConfig(ctx, sqliteruntime.Config{DBPath: db, Projects: jobdbcelltest.UnrestrictedProjects{}})
 	require.NoError(t, err)
 	closed := false
 	defer func() {
@@ -97,7 +98,7 @@ inputs:
 	require.NoFileExists(t, trace)
 	require.NoError(t, rt.Close(ctx))
 	closed = true
-	fresh, err := sqliteruntime.NewFromConfig(ctx, sqliteruntime.Config{DBPath: db})
+	fresh, err := sqliteruntime.NewFromConfig(ctx, sqliteruntime.Config{DBPath: db, Projects: jobdbcelltest.UnrestrictedProjects{}})
 	require.NoError(t, err)
 	defer fresh.Close(ctx)
 	out, err = runGitLifecycle(t, fresh, key)

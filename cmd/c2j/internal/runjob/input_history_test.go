@@ -21,6 +21,7 @@ import (
 	"github.com/colony-2/c2j/pkg/worker/compiler"
 	"github.com/colony-2/c2j/pkg/workflowctl"
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	jobdbcelltest "github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/remote"
 	sqliteruntime "github.com/colony-2/jobdb/pkg/jobdb/runtime/sqlite"
 	wf "github.com/colony-2/jobdb/pkg/workflow"
@@ -37,7 +38,7 @@ func TestInputHistoryRunnerComposition(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(celltest.Context(context.Background()), 30*time.Second)
 	defer cancel()
-	db, e := sqliteruntime.NewFromConfig(ctx, sqliteruntime.Config{DBPath: filepath.Join(t.TempDir(), "runner.db")})
+	db, e := sqliteruntime.NewFromConfig(ctx, sqliteruntime.Config{DBPath: filepath.Join(t.TempDir(), "runner.db"), Projects: jobdbcelltest.UnrestrictedProjects{}})
 	require.NoError(t, e)
 	defer db.Close(context.Background())
 	f, e := inputhistorytest.Build(ctx, db)

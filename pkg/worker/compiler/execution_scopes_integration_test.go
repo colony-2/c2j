@@ -18,6 +18,7 @@ import (
 	coretask "github.com/colony-2/c2j/pkg/task"
 	workerops "github.com/colony-2/c2j/pkg/worker/ops"
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	jobdbcelltest "github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/toy"
 	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
 	"github.com/stretchr/testify/require"
@@ -326,7 +327,7 @@ func TestExecutionScopesBlockBudgetCancelsWorker(t *testing.T) {
 	for _, parent := range []string{"sequence", "state-machine"} {
 		t.Run(parent, func(t *testing.T) {
 			synctest.Test(t, func(t *testing.T) {
-				rt := toy.New()
+				rt := toy.New(toy.WithProjects(jobdbcelltest.UnrestrictedProjects{}))
 				rec := probeRecipe(probeNode("blocked"), probeNode("unreachable"))
 				if parent == "sequence" {
 					rec.RecipeImpl.(*recipe.RecipeSequence).Timeout = recipe.Duration(time.Minute)
@@ -367,7 +368,7 @@ func TestExecutionScopesStepRetryTimeoutDoesNotRestartParent(t *testing.T) {
 			return input, nil
 		})).BuildOrPanic())
 	synctest.Test(t, func(t *testing.T) {
-		rt := toy.New()
+		rt := toy.New(toy.WithProjects(jobdbcelltest.UnrestrictedProjects{}))
 		node := probeNode("blocked")
 		node.NodeImpl.(*recipe.NodeOp).Timeout = recipe.Duration(time.Minute)
 		rec := probeRecipe(node)
@@ -395,7 +396,7 @@ func TestExecutionScopesExhaustedStepTimeoutDoesNotRestartParent(t *testing.T) {
 			return input, nil
 		})).BuildOrPanic())
 	synctest.Test(t, func(t *testing.T) {
-		rt := toy.New()
+		rt := toy.New(toy.WithProjects(jobdbcelltest.UnrestrictedProjects{}))
 		node := probeNode("blocked")
 		node.NodeImpl.(*recipe.NodeOp).Retry = &recipe.RetryPolicy{MaximumAttempts: 2}
 		rec := probeRecipe(node)
@@ -548,7 +549,7 @@ func (scopeUntimedTask) Run(ctx jobworkflow.TaskContext, _ jobdb.TaskData) (jobd
 
 func TestExecutionScopesUntimedOpHasNoDeadline(t *testing.T) {
 	registerCatchOp(t, "scope_probe")
-	rt := toy.New()
+	rt := toy.New(toy.WithProjects(jobdbcelltest.UnrestrictedProjects{}))
 	w := probeWorker(t, probeRecipe(probeNode("untimed")))
 	key := probeSubmit(t, rt, w)
 	out := probeRun(t, rt, key, w, scopeUntimedTask{})

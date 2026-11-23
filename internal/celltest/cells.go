@@ -1,4 +1,7 @@
 // Package celltest provides fresh cell fixtures and explicit local Git mappings.
+// Synthetic-tenant fixtures must explicitly configure JobDB's test-only project
+// control on their isolated runtime; these helpers never install or import a
+// production project catalog.
 package celltest
 
 import (

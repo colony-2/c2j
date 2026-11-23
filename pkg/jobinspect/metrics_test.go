@@ -17,6 +17,7 @@ import (
 	"github.com/colony-2/c2j/pkg/metricshistory"
 	coretask "github.com/colony-2/c2j/pkg/task"
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	jobdbcelltest "github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/remote"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/sqlite"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/toy"
@@ -76,9 +77,9 @@ func TestMetricsLateAcceptedWriteAfterCancellation(t *testing.T) {
 	for _, backend := range []string{"toy", "sqlite", "remote"} {
 		t.Run(backend, func(t *testing.T) {
 			ctx := celltest.Context(context.Background())
-			var base jobdb.ConsumerRuntime = toy.New()
+			var base jobdb.ConsumerRuntime = toy.New(toy.WithProjects(jobdbcelltest.UnrestrictedProjects{}))
 			if backend != "toy" {
-				s, err := sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: filepath.Join(t.TempDir(), "jobs.db")})
+				s, err := sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: filepath.Join(t.TempDir(), "jobs.db"), Projects: jobdbcelltest.UnrestrictedProjects{}})
 				require.NoError(t, err)
 				t.Cleanup(func() { require.NoError(t, s.Close(ctx)) })
 				base = s

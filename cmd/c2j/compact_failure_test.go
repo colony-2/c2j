@@ -26,6 +26,7 @@ import (
 	workerops "github.com/colony-2/c2j/pkg/worker/ops"
 	"github.com/colony-2/c2j/pkg/workflowctl"
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	jobdbcelltest "github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/remote"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/sqlite"
 	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
@@ -77,7 +78,7 @@ func TestCompactFailureCLI(t *testing.T) {
 				runGit("commit", "--allow-empty", "-m", "fixture")
 				yaml := "id: compact-cli\nversion: '1'\ninput_schema: {}\nsequence:\n - id: tools\n" + node + "outputs: {}\n"
 				ctx := celltest.Context(context.Background())
-				db, e := sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: filepath.Join(root, "jobs.db")})
+				db, e := sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: filepath.Join(root, "jobs.db"), Projects: jobdbcelltest.UnrestrictedProjects{}})
 				require.NoError(t, e)
 				defer db.Close(ctx)
 				cellRepo := celltest.Repo(repo)

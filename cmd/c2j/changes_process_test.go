@@ -24,6 +24,7 @@ import (
 	"github.com/colony-2/c2j/pkg/jobinspect/workspacedifftest"
 	"github.com/colony-2/c2j/pkg/selfinfo"
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	jobdbcelltest "github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/remote"
 	sqliteruntime "github.com/colony-2/jobdb/pkg/jobdb/runtime/sqlite"
 	"github.com/stretchr/testify/require"
@@ -58,7 +59,7 @@ func TestWorkspaceDiffCLIProcessC01C02C03C05I06K03K04(t *testing.T) {
 	for _, backend := range []string{"sqlite", "http"} {
 		t.Run(backend, func(t *testing.T) {
 			ctx := celltest.Context(context.Background())
-			db, e := sqliteruntime.NewFromConfig(ctx, sqliteruntime.Config{DBPath: filepath.Join(t.TempDir(), "process.db")})
+			db, e := sqliteruntime.NewFromConfig(ctx, sqliteruntime.Config{DBPath: filepath.Join(t.TempDir(), "process.db"), Projects: jobdbcelltest.UnrestrictedProjects{}})
 			require.NoError(t, e)
 			t.Cleanup(func() { require.NoError(t, db.Close(ctx)) })
 			var rt jobdb.ConsumerRuntime = db

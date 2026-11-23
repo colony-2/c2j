@@ -10,6 +10,7 @@ import (
 	"github.com/colony-2/c2j/pkg/recipe"
 	coretask "github.com/colony-2/c2j/pkg/task"
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	jobdbcelltest "github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/toy"
 	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
 	"github.com/stretchr/testify/require"
@@ -25,7 +26,7 @@ func (p *unreadableProbeTask) Run(_ jobworkflow.TaskContext, _ jobdb.TaskData) (
 
 func TestInfrastructureCorruptResultBypassesRecipeCatchAndRetry(t *testing.T) {
 	registerCatchOp(t, "scope_probe")
-	rt := toy.New()
+	rt := toy.New(toy.WithProjects(jobdbcelltest.UnrestrictedProjects{}))
 	ctx := celltest.Context(context.Background())
 	node := probeNode("corrupt")
 	node.NodeImpl.(*recipe.NodeOp).Catch = []recipe.CatchClause{{ID: "must-not-handle", When: catchExpr(t, "true"), Continue: &recipe.CatchContinue{Outputs: map[string]any{"ok": true}}}}

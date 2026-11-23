@@ -24,6 +24,7 @@ import (
 	workerops "github.com/colony-2/c2j/pkg/worker/ops"
 	"github.com/colony-2/c2j/pkg/workflowctl"
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	jobdbcelltest "github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/toy"
 	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
 	"github.com/stretchr/testify/require"
@@ -171,7 +172,7 @@ chmod +x "$UV_TOOL_BIN_DIR/defaults-tool"
 		require.NoError(t, err)
 		refName = strings.TrimSpace(string(raw))
 	}
-	base := toy.New()
+	base := toy.New(toy.WithProjects(jobdbcelltest.UnrestrictedProjects{}))
 	celltest.Create(t, base, "tenant", "local", celltest.Repo(repo))
 	calls := 0
 	op := coreops.NewActivityMappedOpV2[struct{}, map[string]any](coreops.OpMetadata{Type: "repository_defaults_real"}, func(deps coreops.OpDependencies, ctx context.Context, in struct{}) (map[string]any, error) {

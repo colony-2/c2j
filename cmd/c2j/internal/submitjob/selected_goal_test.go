@@ -22,6 +22,7 @@ import (
 	"github.com/colony-2/c2j/pkg/jobref"
 	"github.com/colony-2/c2j/pkg/workspacesubmit"
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	jobdbcelltest "github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/remote"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/sqlite"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/toy"
@@ -32,7 +33,7 @@ import (
 
 func TestSelectedCLILostResponseRetainsExactRequest(t *testing.T) {
 	ctx := celltest.Context(runtimetest.PrimaryGoalContext(context.Background()))
-	rt, err := sqlite.NewFromConfig(context.Background(), sqlite.Config{DBPath: filepath.Join(t.TempDir(), "jobs.db")})
+	rt, err := sqlite.NewFromConfig(context.Background(), sqlite.Config{DBPath: filepath.Join(t.TempDir(), "jobs.db"), Projects: jobdbcelltest.UnrestrictedProjects{}})
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, rt.Close(context.Background())) })
 	root, _ := createGitRepo(t)
@@ -144,7 +145,7 @@ func TestSelectedCLIWorkspaceRoutes(t *testing.T) {
 			root, base := createGitRepo(t)
 			require.NoError(t, os.MkdirAll(filepath.Join(root, ".c2"), 0755))
 			require.NoError(t, os.WriteFile(filepath.Join(root, ".c2", "config.yaml"), []byte("self:\n  cell: active\n  repo: "+celltest.Repo(root)+"\n"), 0600))
-			rt := toy.New()
+			rt := toy.New(toy.WithProjects(jobdbcelltest.UnrestrictedProjects{}))
 			celltest.Create(t, rt, "0", "active", celltest.Repo(root))
 			source, err := rt.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: jobdb.SubmitJob{TenantId: "0", JobID: "source", Cell: "active", CellRepo: celltest.Repo(root), JobType: "work", Data: jobdb.NewTaskDataOrPanic(nil)}})
 			require.NoError(t, err)

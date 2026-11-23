@@ -19,6 +19,7 @@ import (
 	"github.com/colony-2/c2j/pkg/starter"
 	"github.com/colony-2/c2j/pkg/workflowctl"
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	jobdbcelltest "github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	remoteruntime "github.com/colony-2/jobdb/pkg/jobdb/runtime/remote"
 	toyruntime "github.com/colony-2/jobdb/pkg/jobdb/runtime/toy"
 	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
@@ -60,7 +61,7 @@ outputs:
 		t.Fatalf("load recipe: %v", err)
 	}
 
-	underlying := toyruntime.New()
+	underlying := toyruntime.New(toyruntime.WithProjects(jobdbcelltest.UnrestrictedProjects{}))
 	submitEngine, err := jobworkflow.NewEngineBuilder().WithRuntime(underlying).BuildEngine()
 	if err != nil {
 		t.Fatalf("build submit engine: %v", err)

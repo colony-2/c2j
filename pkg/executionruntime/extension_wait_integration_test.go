@@ -16,6 +16,7 @@ import (
 	"github.com/colony-2/c2j/pkg/execution"
 	"github.com/colony-2/c2j/pkg/extensionwait"
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	jobdbcelltest "github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/remote"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/sqlite"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/toy"
@@ -69,17 +70,17 @@ type extensionWaitFixture struct {
 func newExtensionWaitFixture(t *testing.T, backend string, request extensionwait.Request, policy jobdb.RunPolicy, jobPolicy ...jobdb.RunPolicy) *extensionWaitFixture {
 	t.Helper()
 	ctx := waitTestContext(context.Background())
-	var rt jobdb.ConsumerRuntime = toy.New()
+	var rt jobdb.ConsumerRuntime = toy.New(toy.WithProjects(jobdbcelltest.UnrestrictedProjects{}))
 	var reopen func()
 	if backend != "toy" {
 		path := filepath.Join(t.TempDir(), "wait.db")
-		db, err := sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: path})
+		db, err := sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: path, Projects: jobdbcelltest.UnrestrictedProjects{}})
 		require.NoError(t, err)
 		rt = db
 		t.Cleanup(func() { require.NoError(t, db.Close(ctx)) })
 		reopen = func() {
 			require.NoError(t, db.Close(ctx))
-			db, err = sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: path})
+			db, err = sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: path, Projects: jobdbcelltest.UnrestrictedProjects{}})
 			require.NoError(t, err)
 			rt = db
 		}

@@ -14,6 +14,7 @@ import (
 	"github.com/colony-2/c2j/pkg/gitprofile"
 	"github.com/colony-2/c2j/pkg/hookpolicy"
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	jobdbcelltest "github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/remote"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/toy"
 	"github.com/stretchr/testify/require"
@@ -21,7 +22,7 @@ import (
 
 func TestHookPermissionCLI(t *testing.T) {
 	t.Setenv(gitprofile.SocketEnv, "")
-	rt := toy.New()
+	rt := toy.New(toy.WithProjects(jobdbcelltest.UnrestrictedProjects{}))
 	_, createErr := rt.CreateCell(celltest.Context(context.Background()), jobdb.CreateCellRequest{TenantID: "tenant", Name: "service", Repo: "example.com/service"})
 	require.NoError(t, createErr)
 	server := httptest.NewServer(celltest.Handler(remote.NewConsumerServer(rt)))
@@ -98,7 +99,7 @@ func (r hookConflictRuntime) SetTenantConfigurationValue(ctx context.Context, re
 }
 func TestHookPermissionCLIRejectsConcurrentEdit(t *testing.T) {
 	t.Setenv(gitprofile.SocketEnv, "")
-	rt := toy.New()
+	rt := toy.New(toy.WithProjects(jobdbcelltest.UnrestrictedProjects{}))
 	_, createErr := rt.CreateCell(celltest.Context(context.Background()), jobdb.CreateCellRequest{TenantID: "tenant", Name: "service", Repo: "example.com/service"})
 	require.NoError(t, createErr)
 	server := httptest.NewServer(celltest.Handler(remote.NewConsumerServer(hookConflictRuntime{rt})))
@@ -116,7 +117,7 @@ func TestHookPermissionCLIRejectsConcurrentEdit(t *testing.T) {
 
 func TestHookPermissionCLITextOutput(t *testing.T) {
 	t.Setenv(gitprofile.SocketEnv, "")
-	rt := toy.New()
+	rt := toy.New(toy.WithProjects(jobdbcelltest.UnrestrictedProjects{}))
 	_, createErr := rt.CreateCell(celltest.Context(context.Background()), jobdb.CreateCellRequest{TenantID: "tenant", Name: "service", Repo: "example.com/service"})
 	require.NoError(t, createErr)
 	server := httptest.NewServer(celltest.Handler(remote.NewConsumerServer(rt)))

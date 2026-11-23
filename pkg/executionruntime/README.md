@@ -103,3 +103,46 @@ and `__execution_prefix_v3` declaration metadata, including continuation budgets
 Unreadable active history, unsupported gates and unexplained identity or binding
 mismatches fail closed. Check this integration when upgrading JobDB's compact
 history format. See the [extension contract](../../EXTENSION_OPS.md#discard-an-attempt-and-wait).
+
+## Resource backoff
+
+Recognized EAGAIN failures during workspace resolution/restore and eligible
+extension preparation or first process startup return an internal restart marker.
+Only designated failed creation diagnostics are recognized; an ordinary command
+body's resource-looking output does not authorize replay. Negotiated extension
+controls carry affirmative restart evidence; see [the extension contract](../../EXTENSION_OPS.md#temporary-resource-shortages).
+
+The guarded worker returns JobDB's `workflow.EAGAINWait` after cleanup, before
+failure formatting or output publication. Its optional lease port forwards the
+request and atomically publishes staged execution demand using the existing
+payload revision check. JobDB owns durable counts, scheduling gates, crash
+credit, original deadlines and continuation checkpoints. Uncertain or rejected
+acknowledgments stop through the infrastructure-error path. Neither arbitrary
+recipe errors nor post-action extension failures become resource waits.
+
+Durability protocol version 1 is required; unsupported backends fail closed.
+HTTP servers must retain stable lease-token signing authority to advertise this
+support. The in-memory toy backend does not advertise restart durability.
+Existing SQLite stores require JobDB's offline migration to format 14, with all
+writers stopped and a backup. This JobDB version also requires explicit project
+catalog installation and admission. Fresh embedded roots explicitly install the
+catalog with the local `0` and `c2` projects before opening providers. Existing
+embedded roots remain fenced until the owner completes offline migration and
+installation, including inventory of independent secrets, blobs, backups, keys
+and writers. Remote installations remain the server owner’s responsibility.
+Recipe authors need no retry settings, and already failed jobs require an
+explicit restart.
+
+For an existing embedded database at `~/.c2/embed/default/swf.db`, stop every
+writer and back up all participants. Use the pinned JobDB CLI's `sqlite
+check-migrate --db PATH` and `sqlite migrate --db PATH` for older goal formats.
+Then use `project installation inspect --database PATH --participants-sha256
+SHA256`, review its inventory, and `project installation install --database PATH
+--inventory FILE --seed 0` (also `--seed c2` when inventoried). The SHA-256 must
+describe the owner's verified independent providers, backups and keys; c2j
+cannot infer it for an existing installation. An empty or partially initialized
+database is also fenced for explicit recovery.
+
+The dependency enforces atomic goal admission: a new job in an existing goal
+requires prior members to be terminal. An independent restart while its source
+is active must explicitly select a new goal. c2j preserves these backend errors.

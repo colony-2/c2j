@@ -9,6 +9,7 @@ import (
 	inputop "github.com/colony-2/c2j/pkg/input"
 	coreops "github.com/colony-2/c2j/pkg/ops"
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	jobdbcelltest "github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/sqlite"
 	"github.com/stretchr/testify/require"
 )
@@ -25,7 +26,7 @@ func TestRuntimeSQLitePersistence(t *testing.T) {
 	before, err := rt.GetJob(ctx, handle.JobKey)
 	require.NoError(t, err)
 	require.NoError(t, closeRuntime())
-	reopened, err := sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: filepath.Join(root, "jobs.db")})
+	reopened, err := sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: filepath.Join(root, "jobs.db"), Projects: jobdbcelltest.UnrestrictedProjects{}})
 	require.NoError(t, err)
 	defer func() { require.NoError(t, reopened.Close(ctx)) }()
 	info, err := reopened.GetJob(ctx, handle.JobKey)

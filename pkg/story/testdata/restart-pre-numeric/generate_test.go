@@ -19,6 +19,7 @@ import (
 	"github.com/colony-2/c2j/pkg/worker/compiler"
 	"github.com/colony-2/c2j/pkg/workflowctl"
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	jobdbcelltest "github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/sqlite"
 	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
 	"github.com/stretchr/testify/require"
@@ -85,7 +86,7 @@ func TestGeneratePreNumericRestartHistory(t *testing.T) {
 	dir := os.Getenv("C2J_LEGACY_FIXTURE_DIR")
 	require.NotEmpty(t, dir)
 	ctx := celltest.Context(context.Background())
-	db, err := sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: filepath.Join(dir, "jobs.db"), MaxInlineArtifactBytes: 1 << 20})
+	db, err := sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: filepath.Join(dir, "jobs.db"), MaxInlineArtifactBytes: 1 << 20, Projects: jobdbcelltest.UnrestrictedProjects{}})
 	require.NoError(t, err)
 	defer func() { require.NoError(t, db.Close(ctx)) }()
 	coreops.Register(coreops.NewActivityMappedOpV2[restartProbeInput, map[string]any](coreops.OpMetadata{Type: restartProbeOp}, func(coreops.OpDependencies, context.Context, restartProbeInput) (map[string]any, error) {

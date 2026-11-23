@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 
+	"github.com/colony-2/c2j/internal/resourceretry"
 	"github.com/colony-2/c2j/pkg/execution"
 	"github.com/colony-2/c2j/pkg/extensionwait"
 	"github.com/colony-2/c2j/pkg/secrets"
@@ -52,7 +53,7 @@ func Kind(w wf.TaskWorker) task.OutputKind {
 	return ""
 }
 func FinishTask(t *Timing, kind task.OutputKind, out jobdb.TaskData, err error) (jobdb.TaskData, error) {
-	if extensionwait.IsDiscard(err) {
+	if extensionwait.IsDiscard(err) || resourceretry.Is(err) {
 		t.Discard()
 		return nil, err
 	}

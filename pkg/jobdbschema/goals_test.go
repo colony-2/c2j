@@ -8,6 +8,7 @@ import (
 
 	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	jobdbcelltest "github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/toy"
 	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
 	"github.com/stretchr/testify/require"
@@ -24,7 +25,7 @@ func (r *submissionNoReads) GetJob(context.Context, jobdb.JobKey) (jobdb.JobInfo
 	panic("submission must preserve the response without identity lookup")
 }
 func TestSubmitReferencePreservesIdentityWithoutRead(t *testing.T) {
-	raw := toy.New()
+	raw := toy.New(toy.WithProjects(jobdbcelltest.UnrestrictedProjects{}))
 	rt := &submissionNoReads{ConsumerRuntime: raw, JobSchemaRegistry: raw}
 	sdk, err := jobworkflow.NewEngineBuilder().WithRuntime(rt).BuildEngine()
 	require.NoError(t, err)

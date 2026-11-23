@@ -11,6 +11,7 @@ import (
 
 	"github.com/colony-2/c2j/internal/celltest"
 	"github.com/colony-2/jobdb/pkg/jobdb"
+	jobdbcelltest "github.com/colony-2/jobdb/pkg/jobdb/celltest"
 	"github.com/colony-2/jobdb/pkg/jobdb/runtime/sqlite"
 	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
 	"github.com/stretchr/testify/require"
@@ -44,7 +45,7 @@ func TestRecipeSubmissionInputsHistoricalReplayAndRestart(t *testing.T) {
 			migrated, err := sqlite.MigrateGoals(ctx, path)
 			require.NoError(t, err)
 			require.Equal(t, "MIGRATED", migrated.Verdict)
-			rt, err := sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: path, MaxInlineArtifactBytes: 10 << 20})
+			rt, err := sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: path, MaxInlineArtifactBytes: 10 << 20, Projects: jobdbcelltest.UnrestrictedProjects{}})
 			require.NoError(t, err)
 			defer rt.Close(ctx)
 			before, err := rt.ListChapters(ctx, jobdb.ListChaptersRequest{JobKey: expected.Key})
@@ -99,7 +100,7 @@ func TestRecipeSubmissionInputsHistoricalReplayAndRestart(t *testing.T) {
 
 func TestRecipeSubmissionInputsCandidateReplay(t *testing.T) {
 	sentinel := submissionInputsSentinel(t)
-	rt, err := sqlite.NewFromConfig(testBackground(), sqlite.Config{DBPath: filepath.Join(t.TempDir(), "jobs.db")})
+	rt, err := sqlite.NewFromConfig(testBackground(), sqlite.Config{DBPath: filepath.Join(t.TempDir(), "jobs.db"), Projects: jobdbcelltest.UnrestrictedProjects{}})
 	require.NoError(t, err)
 	defer rt.Close(testBackground())
 	key := submitSubmissionInputs(t, rt, false)
