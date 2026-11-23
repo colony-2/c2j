@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/colony-2/c2j/pkg/git/common"
+	"github.com/colony-2/c2j/pkg/git/internal/historyfetch"
 )
 
 // verifyMergeAncestry distinguishes an already-published candidate from a
@@ -57,7 +58,7 @@ func fetchMergeTarget(ctx context.Context, repo, destination, branch string) (st
 	}
 	target := fields[0]
 	if !common.CommitExists(ctx, repo, target) {
-		if _, err := common.ExecuteGitCommand(ctx, repo, "fetch", "--no-tags", "--depth=1", "--", destination, target); err != nil {
+		if err := historyfetch.Target(ctx, repo, []string{"--no-tags"}, []string{"--", destination, target}); err != nil {
 			return "", fmt.Errorf("fetch merge target: %w", err)
 		}
 	}

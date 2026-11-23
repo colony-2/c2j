@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/colony-2/c2j/pkg/git/common"
+	"github.com/colony-2/jobdb/pkg/jobdb"
 	"github.com/stretchr/testify/require"
 )
 
@@ -192,4 +193,40 @@ func TestMergePreservesIndividualCommits(t *testing.T) {
 	require.Equal(t, hashes[2], out.MergedHash)
 	require.Equal(t, hashes[1], revParse(t, remote, "main^"))
 	require.Equal(t, hashes[0], revParse(t, remote, "main^^"))
+}
+
+func TestMergeMissingTargetRetainsCompleteHistory(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+	published := filepath.Join(root, "remote.git")
+	initBareRemote(t, published)
+	source := filepath.Join(root, "source")
+	runGit(t, root, "git", "init", "-b", "main", source)
+	require.NoError(t, common.EnsureGitIdentity(ctx, source))
+	writeFile(t, source, "base", "seed")
+	runGit(t, source, "git", "add", ".")
+	runGit(t, source, "git", "commit", "-m", "base")
+	base := revParse(t, source, "HEAD")
+	runGit(t, source, "git", "push", published, "HEAD:refs/heads/main")
+	workspace := filepath.Join(root, "work")
+	runGit(t, root, "git", "clone", "--no-local", "-b", "main", published, workspace)
+	require.NoError(t, common.EnsureGitIdentity(ctx, workspace))
+	writeFile(t, workspace, "feature", "candidate")
+	runGit(t, workspace, "git", "add", ".")
+	runGit(t, workspace, "git", "commit", "-m", "candidate")
+	candidate := revParse(t, workspace, "HEAD")
+	writeFile(t, source, "base", "advanced upstream")
+	runGit(t, source, "git", "commit", "-am", "upstream advancement")
+	target := revParse(t, source, "HEAD")
+	runGit(t, source, "git", "push", published, "HEAD:refs/heads/main")
+	require.False(t, common.CommitExists(ctx, workspace, target))
+
+	_, err := merge(ctx, MergeInput{RepoPath: workspace, UpstreamRepo: published, UpstreamBranch: "main", PreparedBaseHash: base}, false)
+	var appErr *jobdb.AppError
+	require.ErrorAs(t, err, &appErr)
+	require.Equal(t, MergeUpstreamAdvancedCode, appErr.Payload.Attrs["code"])
+	require.Equal(t, candidate, revParse(t, workspace, "HEAD"))
+	require.Equal(t, target, revParse(t, published, "refs/heads/main"))
+	require.Equal(t, "false", revParse(t, workspace, "--is-shallow-repository"))
+	runGit(t, workspace, "git", "merge-base", "--is-ancestor", base, target)
 }

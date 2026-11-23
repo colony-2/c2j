@@ -36,15 +36,10 @@ const [base, published, candidate, unrelated, dir] = process.argv.slice(2);
 process.stdout.write(JSON.stringify({base, published, candidate, unrelated, dir}));
 JS
   ;;
-hidden)
+restored)
   test "$(git rev-parse HEAD)" = "$CANDIDATE"
-  git cat-file -e "$BASE^{commit}"
-  if git merge-base --is-ancestor "$BASE" HEAD; then
-    printf 'Fixture did not hide the published ancestry\n' >&2; exit 1
-  else
-    test "$?" -eq 1
-  fi
-  test -f .git/shallow
+  test "$(git rev-parse --is-shallow-repository)" = false
+  git merge-base --is-ancestor "$BASE" HEAD
   printf '%s' "$PWD"
   ;;
 check|rejected)

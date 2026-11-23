@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/colony-2/c2j/pkg/git/common"
+	"github.com/colony-2/c2j/pkg/git/internal/historyfetch"
 )
 
 type workspaceSnapshot struct {
@@ -308,7 +309,7 @@ func ensureTargetAvailable(ctx context.Context, repoPath, remoteName, target str
 		return fmt.Errorf("target base hash %s not found locally and no remote configured", shortHash(target))
 	}
 
-	if _, err := common.ExecuteGitCommand(ctx, repoPath, "fetch", "--depth", "1", remoteName, target); err != nil {
+	if err := historyfetch.Target(ctx, repoPath, nil, []string{remoteName, target}); err != nil {
 		return fmt.Errorf("fetch remote %s: %w", remoteName, err)
 	}
 

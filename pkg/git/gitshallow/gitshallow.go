@@ -2,12 +2,8 @@ package gitshallow
 
 import (
 	"context"
-	"fmt"
-	"github.com/colony-2/c2j/pkg/gitprofile"
-	"os"
-	"path/filepath"
 
-	"github.com/colony-2/c2j/pkg/git/common"
+	"github.com/colony-2/c2j/pkg/git/internal/transportclone"
 )
 
 // GitShallowCloneInput represents the input parameters for the GitShallowClone activity
@@ -25,68 +21,8 @@ type GitShallowCloneOutput struct {
 // GitShallowClone performs a shallow clone of a local git repository to another directory
 // This is a  activity that can be invoked as part of recipe workflows
 func GitShallowClone(ctx context.Context, input GitShallowCloneInput) (*GitShallowCloneOutput, error) {
-	// Validate inputs
-	if input.SourceDir == "" {
-		return nil, fmt.Errorf("source directory cannot be empty")
-	}
-	if input.TargetDir == "" {
-		return nil, fmt.Errorf("target directory cannot be empty")
-	}
-	if input.CommitHash == "" {
-		return nil, fmt.Errorf("commit hash cannot be empty")
-	}
-
-	// For local paths ensure the source is a git repository; remote URLs are validated by git clone itself.
-	if !common.IsRemoteRepository(input.SourceDir) {
-		if err := common.ValidateRepositoryContext(ctx, input.SourceDir); err != nil {
-			return nil, fmt.Errorf("source directory validation failed: %w", err)
-		}
-	}
-
-	if info, err := os.Stat(input.TargetDir); err == nil {
-		// Exists but not a directory
-		if !info.IsDir() {
-			return nil, fmt.Errorf("target path exists but is not a directory: %s", input.TargetDir)
-		}
-
-		// Exists and is a directory; check if non-empty
-		entries, readErr := os.ReadDir(input.TargetDir)
-		if readErr != nil {
-			return nil, fmt.Errorf("failed to read target directory: %w", readErr)
-		}
-
-		if len(entries) > 0 {
-			return nil, fmt.Errorf("target directory already exists and is not empty: %s", input.TargetDir)
-		}
-	}
-
-	// Create parent directory if needed
-	parentDir := filepath.Dir(input.TargetDir)
-	if err := os.MkdirAll(parentDir, 0755); err != nil {
-		return nil, fmt.Errorf("failed to create parent directory: %w", err)
-	}
-
-	// Use transport even for local paths: filesystem cloning can lose loose
-	// objects when source maintenance packs and removes them during the copy.
-	cmd := gitprofile.Command(ctx, "clone", "--no-local", "--depth", "1", "--no-single-branch", input.SourceDir, input.TargetDir)
-	if output, err := gitprofile.CombinedOutput(ctx, cmd); err != nil {
-		return nil, fmt.Errorf("failed to clone repository: %w (output: %s)", err, output)
-	}
-
-	// Fetch the specific commit
-	_, err := common.ExecuteGitCommand(ctx, input.TargetDir, "fetch", "--depth", "1", "origin", input.CommitHash)
-	if err != nil {
-		// Clean up on failure
-		os.RemoveAll(input.TargetDir)
-		return nil, fmt.Errorf("failed to fetch commit %s: %w", input.CommitHash, err)
-	}
-
-	// Checkout the specific commit
-	_, err = common.ExecuteGitCommand(ctx, input.TargetDir, "checkout", input.CommitHash)
-	if err != nil {
-		// Clean up on failure
-		os.RemoveAll(input.TargetDir)
-		return nil, fmt.Errorf("failed to checkout commit %s: %w", input.CommitHash, err)
+	if err := transportclone.Clone(ctx, input.SourceDir, input.TargetDir, input.CommitHash, transportclone.DepthOne); err != nil {
+		return nil, err
 	}
 
 	return &GitShallowCloneOutput{

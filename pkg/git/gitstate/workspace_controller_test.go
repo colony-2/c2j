@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/colony-2/c2j/pkg/contextual"
 	"github.com/colony-2/c2j/pkg/git/common"
 	"github.com/stretchr/testify/require"
 )
@@ -827,4 +828,215 @@ func TestControllerPersistWithDiffs_ArtifactCleanup(t *testing.T) {
 	_, err = os.Stat(tempDir)
 	require.Error(t, err)
 	require.True(t, os.IsNotExist(err))
+}
+
+func TestManagedWorkspaceRetainsApprovalBase(t *testing.T) {
+	source, base, _ := setupGitRepo(t)
+	runGit(t, source, "git", "branch", "-M", "main")
+	write := func(repo, contents string) {
+		t.Helper()
+		require.NoError(t, os.WriteFile(filepath.Join(repo, "README.md"), []byte(contents), 0644))
+	}
+	const original = "original\ncontext\nneighbor\nlast line\n"
+	const approved = "approved\ncontext\nneighbor\nlast line\n"
+	const advanced = "original\ncontext\nrenamed neighbor\nlast line\n"
+	const expected = "approved\ncontext\nrenamed neighbor\nlast line\n"
+	write(source, original)
+	runGit(t, source, "git", "commit", "-am", "approval base")
+	ancestor := base
+	base = gitRevParse(t, source, "HEAD")
+	blob := gitRevParse(t, source, "HEAD:README.md")
+	runGit(t, source, "git", "checkout", "-b", "approval")
+	write(source, approved)
+	runGit(t, source, "git", "commit", "-am", "approved edit")
+	patch := runGitOutput(t, source, "git", "diff", "--full-index", base, "HEAD")
+	patchFile := filepath.Join(t.TempDir(), "approved.patch")
+	require.NoError(t, os.WriteFile(patchFile, []byte(patch), 0600))
+	runGit(t, source, "git", "checkout", "main")
+	runGit(t, source, "git", "branch", "-D", "approval")
+	write(source, advanced)
+	runGit(t, source, "git", "commit", "-am", "neighboring context")
+	tip := gitRevParse(t, source, "HEAD")
+	write(source, expected)
+	runGit(t, source, "git", "add", "README.md")
+	tree := strings.TrimSpace(runGitOutput(t, source, "git", "write-tree"))
+	runGit(t, source, "git", "reset", "--hard", tip)
+
+	for _, fixture := range []struct{ name, remote, policy, want string }{
+		{"pinned-path", source, "", base},
+		{"floating-file-url", (&url.URL{Scheme: "file", Path: source}).String(), contextual.WorkspaceFollowPerTask, tip},
+	} {
+		t.Run(fixture.name, func(t *testing.T) {
+			workspace := filepath.Join(t.TempDir(), "worktree")
+			task := newTaskContext(fixture.remote, "main", workspace, ".")
+			task.Workspace = &contextual.WorkspaceContext{InitialHash: base, RefPolicy: fixture.policy}
+			task.ResolvedBaseHash, task.PersistHash, task.ParentHash = base, "", ""
+			require.NoError(t, NewController(nil).Restore(context.Background(), task, nil))
+			require.Equal(t, fixture.want, gitRevParse(t, workspace, "HEAD"))
+			require.Equal(t, fixture.want, task.ResolvedBaseHash)
+			origin := strings.TrimSpace(runGitOutput(t, workspace, "git", "remote", "get-url", "origin"))
+			require.Equal(t, source, origin)
+			t.Logf("origin=%s selected=%s base=%s ancestor=%s blob=%s expectedTree=%s; reflog expire then gc --prune=now", origin, fixture.want, base, ancestor, blob, tree)
+			maintainGitWorkspace(t, workspace)
+			if fixture.policy != "" {
+				cmd := exec.Command("git", "cat-file", "-p", blob)
+				cmd.Dir = workspace
+				output, err := cmd.CombinedOutput()
+				require.NoError(t, err, "approval's original blob unavailable after maintenance: %s", output)
+				require.Equal(t, original, string(output))
+				runGit(t, workspace, "git", "apply", "--3way", "--index", patchFile)
+				require.Equal(t, tree, strings.TrimSpace(runGitOutput(t, workspace, "git", "write-tree")))
+			}
+			runGit(t, workspace, "git", "merge-base", "--is-ancestor", ancestor, base)
+			runGit(t, workspace, "git", "merge-base", "--is-ancestor", base, "HEAD")
+			require.Equal(t, "false", gitRevParse(t, workspace, "--is-shallow-repository"))
+		})
+	}
+}
+
+func maintainGitWorkspace(t *testing.T, workspace string) {
+	t.Helper()
+	runGit(t, workspace, "git", "reflog", "expire", "--expire=now", "--expire-unreachable=now", "--all")
+	runGit(t, workspace, "git", "gc", "--prune=now")
+}
+
+func TestManagedWorkspaceSnapshotBaseRetention(t *testing.T) {
+	ctx := context.Background()
+	source, seed, _ := setupGitRepo(t)
+	controller := NewController(nil)
+	consumer := newTaskContext(source, seed, filepath.Join(t.TempDir(), "consumer"), ".")
+	require.NoError(t, controller.Restore(ctx, consumer, nil))
+
+	require.NoError(t, os.WriteFile(filepath.Join(source, "README.md"), []byte("historical blob\n"), 0644))
+	runGit(t, source, "git", "commit", "-am", "historical blob")
+	ancestor := gitRevParse(t, source, "HEAD")
+	blob := gitRevParse(t, source, "HEAD:README.md")
+	require.NoError(t, os.WriteFile(filepath.Join(source, "README.md"), []byte("snapshot base\n"), 0644))
+	runGit(t, source, "git", "commit", "-am", "snapshot base")
+	base := gitRevParse(t, source, "HEAD")
+	producer := newTaskContext(source, base, filepath.Join(t.TempDir(), "producer"), ".")
+	require.NoError(t, controller.Restore(ctx, producer, nil))
+	require.NoError(t, os.WriteFile(filepath.Join(producer.WorktreePath, "approved"), []byte("candidate\n"), 0644))
+	_, pack, err := controller.Persist(ctx, producer)
+	require.NoError(t, err)
+	require.NotNil(t, pack)
+	tree := gitRevParse(t, producer.WorktreePath, "HEAD^{tree}")
+	require.False(t, common.CommitExists(ctx, consumer.WorktreePath, base))
+	require.False(t, common.CommitExists(ctx, consumer.WorktreePath, ancestor))
+	consumer.ResolvedBaseHash, consumer.ParentHash, consumer.PersistHash = base, base, producer.PersistHash
+
+	runGit(t, consumer.WorktreePath, "git", "remote", "rename", "origin", "alternate")
+	unavailable := filepath.Join(t.TempDir(), "unavailable.git")
+	runGit(t, consumer.WorktreePath, "git", "remote", "add", "origin", unavailable)
+	require.ErrorContains(t, controller.Restore(ctx, consumer, pack), "fetch snapshot base "+base+" from origin")
+	require.Equal(t, seed, gitRevParse(t, consumer.WorktreePath, "HEAD"))
+	require.False(t, common.CommitExists(ctx, consumer.WorktreePath, base))
+	require.Equal(t, unavailable, strings.TrimSpace(runGitOutput(t, consumer.WorktreePath, "git", "remote", "get-url", "origin")))
+	runGit(t, consumer.WorktreePath, "git", "remote", "set-url", "origin", source)
+
+	for attempt := 1; attempt <= 2; attempt++ {
+		if attempt == 2 {
+			runGit(t, consumer.WorktreePath, "git", "checkout", "--detach", seed)
+		}
+		require.NoError(t, controller.Restore(ctx, consumer, pack))
+		t.Logf("restore=%d base=%s ancestor=%s blob=%s tree=%s; reflog expire then gc --prune=now", attempt, base, ancestor, blob, tree)
+		maintainGitWorkspace(t, consumer.WorktreePath)
+		require.Equal(t, "historical blob\n", runGitOutput(t, consumer.WorktreePath, "git", "cat-file", "-p", blob))
+		runGit(t, consumer.WorktreePath, "git", "merge-base", "--is-ancestor", ancestor, "HEAD")
+		require.Equal(t, producer.PersistHash, gitRevParse(t, consumer.WorktreePath, "HEAD"))
+		require.Equal(t, tree, gitRevParse(t, consumer.WorktreePath, "HEAD^{tree}"))
+		require.Equal(t, "false", gitRevParse(t, consumer.WorktreePath, "--is-shallow-repository"))
+	}
+	require.NoError(t, controller.Restore(ctx, consumer, nil))
+}
+
+func TestManagedWorkspaceIncompleteSourceRecovery(t *testing.T) {
+	ctx := context.Background()
+	upstream, _, _ := setupGitRepo(t)
+	runGit(t, upstream, "git", "branch", "-M", "main")
+	write := func(repo, content string) {
+		t.Helper()
+		require.NoError(t, os.WriteFile(filepath.Join(repo, "README.md"), []byte(content), 0644))
+	}
+	const original = "original\ncontext\nneighbor\nlast\n"
+	const approved = "approved\ncontext\nneighbor\nlast\n"
+	const advanced = "original\ncontext\nchanged neighbor\nlast\n"
+	const combined = "approved\ncontext\nchanged neighbor\nlast\n"
+	write(upstream, original)
+	runGit(t, upstream, "git", "commit", "-am", "approval base")
+	ancestor := gitRevParse(t, upstream, "HEAD")
+	blob := gitRevParse(t, upstream, "HEAD:README.md")
+	write(upstream, approved)
+	patch := runGitOutput(t, upstream, "git", "diff", "--full-index", "HEAD")
+	patchFile := filepath.Join(t.TempDir(), "approval.patch")
+	require.NoError(t, os.WriteFile(patchFile, []byte(patch), 0600))
+	write(upstream, advanced)
+	runGit(t, upstream, "git", "commit", "-am", "advanced source")
+	base := gitRevParse(t, upstream, "HEAD")
+	source := filepath.Join(t.TempDir(), "declared")
+	runGit(t, filepath.Dir(source), "git", "clone", "--depth=1", "file://"+upstream, source)
+	controller := NewController(nil)
+	producer := newTaskContext(upstream, base, filepath.Join(t.TempDir(), "producer"), ".")
+	require.NoError(t, controller.Restore(ctx, producer, nil))
+	require.NoError(t, os.WriteFile(filepath.Join(producer.WorktreePath, "approved"), []byte("candidate\n"), 0644))
+	_, pack, err := controller.Persist(ctx, producer)
+	require.NoError(t, err)
+	consumer := newTaskContext(source, base, filepath.Join(t.TempDir(), "consumer"), ".")
+	consumer.PersistHash = producer.PersistHash
+	require.NoError(t, controller.Restore(ctx, consumer, pack))
+	maintainGitWorkspace(t, consumer.WorktreePath)
+	_, err = common.ExecuteGitCommand(ctx, consumer.WorktreePath, "apply", "--3way", "--index", patchFile)
+	require.ErrorContains(t, err, "necessary blob")
+	for _, args := range [][]string{{"cat-file", "-e", blob}, {"merge-base", "--is-ancestor", ancestor, "HEAD"}} {
+		_, err := common.ExecuteGitCommand(ctx, consumer.WorktreePath, args...)
+		require.Error(t, err, "incomplete source unexpectedly satisfied %v", args)
+	}
+	t.Logf("declared origin=%s lacks history for ancestor=%s blob=%s; repair declared source using its authorized origin and recreate", source, ancestor, blob)
+
+	runGit(t, source, "git", "fetch", "--unshallow", "origin")
+	require.Equal(t, "false", gitRevParse(t, source, "--is-shallow-repository"))
+	consumer.WorktreePath = filepath.Join(t.TempDir(), "recreated")
+	require.NoError(t, controller.Restore(ctx, consumer, pack))
+	maintainGitWorkspace(t, consumer.WorktreePath)
+	require.Equal(t, source, strings.TrimSpace(runGitOutput(t, consumer.WorktreePath, "git", "remote", "get-url", "origin")))
+	require.Equal(t, producer.PersistHash, gitRevParse(t, consumer.WorktreePath, "HEAD"))
+	require.Equal(t, gitRevParse(t, producer.WorktreePath, "HEAD^{tree}"), gitRevParse(t, consumer.WorktreePath, "HEAD^{tree}"))
+	require.Equal(t, original, runGitOutput(t, consumer.WorktreePath, "git", "cat-file", "-p", blob))
+	runGit(t, consumer.WorktreePath, "git", "merge-base", "--is-ancestor", ancestor, "HEAD")
+	write(producer.WorktreePath, combined)
+	runGit(t, producer.WorktreePath, "git", "add", "README.md")
+	wantTree := strings.TrimSpace(runGitOutput(t, producer.WorktreePath, "git", "write-tree"))
+	runGit(t, consumer.WorktreePath, "git", "apply", "--3way", "--index", patchFile)
+	require.Equal(t, wantTree, strings.TrimSpace(runGitOutput(t, consumer.WorktreePath, "git", "write-tree")))
+}
+
+func TestManagedWorkspaceClonePhaseCleanup(t *testing.T) {
+	source, base, _ := setupGitRepo(t)
+	blob := gitRevParse(t, source, "HEAD:README.md")
+	runGit(t, source, "git", "tag", "blob", blob)
+	controller := NewController(nil)
+	for _, fixture := range []struct{ name, selected, want string }{
+		{"fetch-failure", "refs/heads/not-advertised", "failed to fetch commit"},
+		{"checkout-failure", "refs/tags/blob", "failed to checkout commit"},
+		{"existing-destination", base, "target directory already exists and is not empty"},
+	} {
+		t.Run(fixture.name, func(t *testing.T) {
+			workspace := filepath.Join(t.TempDir(), "worktree")
+			marker := filepath.Join(workspace, "keep")
+			existing := fixture.name == "existing-destination"
+			if existing {
+				require.NoError(t, os.Mkdir(workspace, 0755))
+				require.NoError(t, os.WriteFile(marker, []byte("caller-owned"), 0644))
+			}
+			task := newTaskContext(source, fixture.selected, workspace, ".")
+			require.ErrorContains(t, controller.Restore(context.Background(), task, nil), fixture.want)
+			if existing {
+				contents, err := os.ReadFile(marker)
+				require.NoError(t, err)
+				require.Equal(t, "caller-owned", string(contents))
+			} else {
+				require.NoDirExists(t, workspace)
+			}
+		})
+	}
 }

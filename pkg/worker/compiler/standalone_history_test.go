@@ -85,6 +85,11 @@ func TestStandaloneSquashPersistedRefresh(t *testing.T) {
 					tip := git(source, "rev-parse", "HEAD")
 					git(repo, "fetch", "--depth=1", url, tip)
 					git(repo, "reset", "--hard", tip)
+					if failedFetch {
+						git(source, "branch", "recorded-base", base)
+						git(source, "fetch", "--depth=1", url, tip)
+						assert.Equal(t, "true", git(source, "rev-parse", "--is-shallow-repository"))
+					}
 					assert.NoError(t, os.WriteFile(filepath.Join(repo, "binary"), []byte{0, 255, 128, 0, 10}, 0600))
 					assert.NoError(t, os.WriteFile(filepath.Join(repo, "executable"), []byte("#!/bin/sh\nexit 0\n"), 0755))
 					assert.NoError(t, os.Symlink("binary", filepath.Join(repo, "symbolic link")))
@@ -113,6 +118,7 @@ func TestStandaloneSquashPersistedRefresh(t *testing.T) {
 						assert.Equal(t, expectedBase, git(repo, "rev-parse", "HEAD^"))
 					}
 					if in.Stage == "squashed" {
+						assert.Equal(t, "false", git(repo, "rev-parse", "--is-shallow-repository"))
 						assert.Equal(t, tree, git(repo, "rev-parse", "HEAD^{tree}"))
 						assert.NoError(t, os.WriteFile(filepath.Join(source, "upstream"), []byte("incorporated upstream\n"), 0644))
 						git(source, "add", ".")

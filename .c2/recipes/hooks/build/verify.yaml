@@ -191,10 +191,12 @@ state:
           node - "$scratch/clone-repack.json" <<'JS'
           const fs = require('node:fs');
           const events = fs.readFileSync(process.argv[2], 'utf8').trim().split('\n').filter(Boolean).map(JSON.parse);
-          for (const name of ['filesystem-control', 'transport-control', 'helper', 'deleted-filesystem-source', 'deleted-transport-source', 'cancelled-helper']) {
+          const pkg = 'github.com/colony-2/c2j/pkg/git/gitshallow';
+          for (const name of ['filesystem-control', 'transport-control', 'helper', 'deleted-filesystem-source', 'deleted-transport-source', 'cancelled-helper', 'managed-repack', 'deleted-managed-source', 'cancelled-managed']) {
             const test = 'TestCloneDuringRepack/' + name;
-            const rows = events.filter(e => e.Test === test);
-            if (!rows.some(e => e.Action === 'run') || !rows.some(e => e.Action === 'pass') || rows.some(e => e.Action === 'skip' || e.Action === 'fail')) {
+            const actions = events.filter(event => event.Package === pkg && event.Test === test &&
+              ['run', 'pass', 'skip', 'fail'].includes(event.Action)).map(event => event.Action);
+            if (actions.length !== 2 || actions[0] !== 'run' || actions[1] !== 'pass') {
               throw new Error('Clone maintenance acceptance missing, skipped or failed: ' + test);
             }
           }

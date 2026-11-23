@@ -13,14 +13,14 @@ sequence:
       BASE: '${{ context.git.execution.base_hash }}'
       OUTBOX: '${{ context.environment.op.outbox }}'
     run: bash standalone-squash-history.sh prepare
-- id: hidden
+- id: restored
   op: command_execution
   inputs:
     shell: bash
     env:
       BASE: '${{ json_parse(sequence.prepare.outputs.stdout).base }}'
       CANDIDATE: '${{ json_parse(sequence.prepare.outputs.stdout).candidate }}'
-    run: bash standalone-squash-history.sh hidden
+    run: bash standalone-squash-history.sh restored
 - id: squash
   op: squash
   inputs:

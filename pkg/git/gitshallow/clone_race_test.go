@@ -1,15 +1,19 @@
 //go:build linux
 
-package gitshallow
+package gitshallow_test
 
 import (
 	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/colony-2/c2j/pkg/git/gitshallow"
+	"github.com/colony-2/c2j/pkg/git/gitstate"
 )
 
 // TestCloneDuringRepack synchronizes real Git at loose-object access, then
@@ -28,7 +32,7 @@ func TestCloneDuringRepack(t *testing.T) {
 	for _, tc := range []struct {
 		name                            string
 		helper, transport, deleteSource bool
-		cancel                          bool
+		cancel, managed                 bool
 	}{
 		{name: "filesystem-control"},
 		{name: "transport-control", transport: true},
@@ -36,6 +40,9 @@ func TestCloneDuringRepack(t *testing.T) {
 		{name: "deleted-filesystem-source", deleteSource: true},
 		{name: "deleted-transport-source", transport: true, deleteSource: true},
 		{name: "cancelled-helper", helper: true, cancel: true},
+		{name: "managed-repack", managed: true, transport: true},
+		{name: "deleted-managed-source", managed: true, transport: true, deleteSource: true},
+		{name: "cancelled-managed", managed: true, transport: true, cancel: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			root := t.TempDir()
@@ -85,8 +92,13 @@ func TestCloneDuringRepack(t *testing.T) {
 			var cloneErr error
 			done := make(chan error, 1)
 			go func() {
-				if tc.helper {
-					_, err := GitShallowClone(ctx, GitShallowCloneInput{SourceDir: source, TargetDir: target, CommitHash: commit})
+				if tc.managed {
+					done <- gitstate.NewController(nil).Restore(ctx, &gitstate.GitTaskContext{
+						GlobalGitTaskContext: &gitstate.GlobalGitTaskContext{BaseRepo: source, BaseRef: commit, ResolvedBaseHash: commit, ParentHash: commit, PersistHash: commit},
+						WorktreePath:         target,
+					}, nil)
+				} else if tc.helper {
+					_, err := gitshallow.GitShallowClone(ctx, gitshallow.GitShallowCloneInput{SourceDir: source, TargetDir: target, CommitHash: commit})
 					done <- err
 				} else {
 					args := []string{"clone", "--depth", "1", "--no-single-branch"}
@@ -156,6 +168,14 @@ func TestCloneDuringRepack(t *testing.T) {
 				}
 				if tc.cancel {
 					git(source, "fsck", "--full")
+				}
+				if tc.managed {
+					if tc.cancel && !errors.Is(cloneErr, context.Canceled) {
+						t.Fatalf("managed clone lost cancellation cause: %v", cloneErr)
+					}
+					if _, err := os.Stat(target); !os.IsNotExist(err) {
+						t.Fatalf("failed managed clone did not clean destination: %v", err)
+					}
 				}
 				t.Logf("expected clone failure: %v", cloneErr)
 				return

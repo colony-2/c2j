@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/colony-2/c2j/pkg/git/common"
+	"github.com/colony-2/c2j/pkg/git/gitstate"
 	"github.com/colony-2/c2j/pkg/ops"
 	"github.com/stretchr/testify/require"
 )
@@ -493,4 +495,58 @@ func TestReplaySelectionProvesShallowCandidateHistory(t *testing.T) {
 			require.Empty(t, runGitOutput(t, workspace, "git", "status", "--porcelain"))
 		})
 	}
+}
+
+func TestRebaseMissingTargetRetainsCompleteHistory(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+	remote := filepath.Join(root, "source")
+	initRepo(t, remote)
+	original := gitRevParse(t, remote, "HEAD:README.md")
+	require.NoError(t, os.WriteFile(filepath.Join(remote, "README.md"), []byte("selected base\n"), 0644))
+	runGit(t, remote, "git", "commit", "-am", "base")
+	base := gitRevParse(t, remote, "HEAD")
+	workspace := filepath.Join(root, "workspace")
+	task := &gitstate.GitTaskContext{
+		GlobalGitTaskContext: &gitstate.GlobalGitTaskContext{BaseRepo: remote, BaseRef: base, ResolvedBaseHash: base, ParentHash: base, PersistHash: base},
+		WorktreePath:         workspace,
+	}
+	require.NoError(t, gitstate.NewController(nil).Restore(ctx, task, nil))
+	require.NoError(t, os.WriteFile(filepath.Join(workspace, "feature.txt"), []byte("feature\n"), 0644))
+	runGit(t, workspace, "git", "add", "feature.txt")
+	runGit(t, workspace, "git", "commit", "-m", "candidate")
+	candidate := gitRevParse(t, workspace, "HEAD")
+
+	require.NoError(t, os.WriteFile(filepath.Join(remote, "README.md"), []byte("intermediate\n"), 0644))
+	runGit(t, remote, "git", "commit", "-am", "intermediate")
+	intermediate := gitRevParse(t, remote, "HEAD")
+	intermediateBlob := gitRevParse(t, remote, "HEAD:README.md")
+	require.NoError(t, os.WriteFile(filepath.Join(remote, "README.md"), []byte("tip\n"), 0644))
+	runGit(t, remote, "git", "commit", "-am", "advanced target")
+	target := gitRevParse(t, remote, "HEAD")
+	require.NoError(t, os.WriteFile(filepath.Join(remote, "feature.txt"), []byte("feature\n"), 0644))
+	runGit(t, remote, "git", "add", "feature.txt")
+	tree := strings.TrimSpace(runGitOutput(t, remote, "git", "write-tree"))
+	runGit(t, remote, "git", "reset", "--hard", target)
+	require.False(t, common.CommitExists(ctx, workspace, target))
+	require.False(t, common.CommitExists(ctx, workspace, intermediate))
+	_, err := common.ExecuteGitCommand(ctx, workspace, "cat-file", "-e", intermediateBlob)
+	require.Error(t, err)
+
+	input := ThinpackRebaseInput{RepoPath: workspace, TargetBaseHash: target, BaseHash: base, PersistHash: candidate, BaseRepo: remote, UpstreamRemote: "origin"}
+	output, err := Run(ctx, input)
+	require.NoError(t, err)
+	require.Equal(t, target, output.NewBaseHash)
+	require.Equal(t, target, gitRevParse(t, workspace, "HEAD^"))
+	t.Logf("base=%s target=%s intermediate=%s originalBlob=%s intermediateBlob=%s tree=%s; reflog expire then gc --prune=now", base, target, intermediate, original, intermediateBlob, tree)
+	runGit(t, workspace, "git", "reflog", "expire", "--expire=now", "--expire-unreachable=now", "--all")
+	runGit(t, workspace, "git", "gc", "--prune=now")
+	for _, ancestor := range []string{base, intermediate} {
+		runGit(t, workspace, "git", "merge-base", "--is-ancestor", ancestor, "HEAD")
+	}
+	for _, blob := range []string{original, intermediateBlob} {
+		runGit(t, workspace, "git", "cat-file", "-e", blob+"^{blob}")
+	}
+	require.Equal(t, tree, gitRevParse(t, workspace, "HEAD^{tree}"))
+	require.Equal(t, "false", gitRevParse(t, workspace, "--is-shallow-repository"))
 }

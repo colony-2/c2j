@@ -2,7 +2,7 @@
   "recipe": "standalone-squash-history.yaml",
   "cases": [
     {
-      "id": "hidden-history-reopened-refresh",
+      "id": "retained-history-reopened-refresh",
       "type": "integration_case",
       "inputs": {
         "negative": false
@@ -103,7 +103,7 @@
           "type": "cel_true"
         },
         {
-          "expr": "calls.exists(c, c.node_path == \"standalone-history/hidden\" && c.outputs.exit_code == 0)",
+          "expr": "calls.exists(c, c.node_path == \"standalone-history/restored\" && c.outputs.exit_code == 0)",
           "type": "cel_true"
         },
         {
@@ -115,7 +115,7 @@
           "type": "cel_true"
         },
         {
-          "expr": "calls.exists(a, a.node_path == \"standalone-history/hidden\" && calls.exists(b, b.node_path == \"standalone-history/check\" && a.outputs.stdout != b.outputs.stdout))",
+          "expr": "calls.exists(a, a.node_path == \"standalone-history/restored\" && calls.exists(b, b.node_path == \"standalone-history/check\" && a.outputs.stdout != b.outputs.stdout))",
           "type": "cel_true"
         }
       ]
@@ -158,7 +158,7 @@
           "type": "cel_true"
         },
         {
-          "expr": "calls.exists(c, c.node_path == \"standalone-history/hidden\" && c.outputs.exit_code == 0)",
+          "expr": "calls.exists(c, c.node_path == \"standalone-history/restored\" && c.outputs.exit_code == 0)",
           "type": "cel_true"
         },
         {

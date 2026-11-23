@@ -11,7 +11,7 @@ import (
 
 	"github.com/colony-2/c2j/pkg/git/common"
 	"github.com/colony-2/c2j/pkg/git/gitcommit"
-	"github.com/colony-2/c2j/pkg/git/gitshallow"
+	"github.com/colony-2/c2j/pkg/git/internal/transportclone"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 )
 
@@ -158,7 +158,7 @@ func (c *Controller) Restore(ctx context.Context, task *GitTaskContext, thinPack
 	// A shallow checkout can contain the candidate without its recorded base.
 	// Retrieve only a missing base, including when no thin pack needs replaying.
 	if !common.CommitExists(ctx, task.GetWorktreePath(), rootHash) {
-		if _, err := common.ExecuteGitCommand(ctx, task.GetWorktreePath(), "fetch", "--depth", "1", "origin", rootHash); err != nil {
+		if _, err := common.ExecuteGitCommand(ctx, task.GetWorktreePath(), "fetch", "origin", rootHash); err != nil {
 			return fmt.Errorf("fetch snapshot base %s from origin: %w", rootHash, err)
 		}
 		if !common.CommitExists(ctx, task.GetWorktreePath(), rootHash) {
@@ -618,12 +618,7 @@ func (c *Controller) cloneIfNeeded(ctx context.Context, task *GitTaskContext) er
 	if task.ParentHash != "" && task.ParentHash == task.PersistHash {
 		cloneRef = task.ParentHash
 	}
-	input := gitshallow.GitShallowCloneInput{
-		SourceDir:  source,
-		TargetDir:  task.GetWorktreePath(),
-		CommitHash: cloneRef,
-	}
-	if _, err := gitshallow.GitShallowClone(ctx, input); err != nil {
+	if err := transportclone.Clone(ctx, source, task.GetWorktreePath(), cloneRef, transportclone.RetainHistory); err != nil {
 		return fmt.Errorf("clone workspace: %w", err)
 	}
 

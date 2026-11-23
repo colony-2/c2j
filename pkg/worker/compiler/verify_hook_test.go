@@ -692,25 +692,37 @@ func cloneGateEvidence(mode string) []byte {
 		return []byte("not JSON\n")
 	}
 	var evidence strings.Builder
-	for _, name := range []string{"filesystem-control", "transport-control", "helper", "deleted-filesystem-source", "deleted-transport-source", "cancelled-helper"} {
+	for _, name := range []string{"filesystem-control", "transport-control", "helper", "deleted-filesystem-source", "deleted-transport-source", "cancelled-helper", "managed-repack", "deleted-managed-source", "cancelled-managed"} {
 		if mode == "missing/"+name {
 			continue
 		}
 		test := "TestCloneDuringRepack/" + name
-		if mode != "unstarted" {
-			fmt.Fprintf(&evidence, "{\"Action\":\"run\",\"Package\":\"github.com/colony-2/c2j/pkg/git/gitshallow\",\"Test\":%q}\n", test)
+		pkg := "github.com/colony-2/c2j/pkg/git/gitshallow"
+		fixture := mode
+		if name != "cancelled-managed" {
+			fixture = "passed"
 		}
-		if mode != "unfinished" {
+		if fixture == "wrong-package" {
+			pkg = "example.test/other"
+		}
+		emit := func(action string) {
+			fmt.Fprintf(&evidence, "{\"Action\":%q,\"Package\":%q,\"Test\":%q}\n", action, pkg, test)
+		}
+		if fixture != "unstarted" && fixture != "out-of-order" {
+			emit("run")
+		}
+		if fixture != "unfinished" {
 			action := "pass"
-			if name == "helper" {
-				switch mode {
-				case "skipped":
-					action = "skip"
-				case "failed":
-					action = "fail"
-				}
+			switch fixture {
+			case "skipped":
+				action = "skip"
+			case "failed":
+				action = "fail"
 			}
-			fmt.Fprintf(&evidence, "{\"Action\":%q,\"Package\":\"github.com/colony-2/c2j/pkg/git/gitshallow\",\"Test\":%q}\n", action, test)
+			emit(action)
+		}
+		if fixture == "out-of-order" {
+			emit("run")
 		}
 	}
 	return []byte(evidence.String())
@@ -732,8 +744,10 @@ func TestVerifyHookCloneEvidenceGuard(t *testing.T) {
 	code = code[:end]
 	for _, mode := range []string{
 		"passed", "empty", "malformed", "unstarted", "unfinished", "skipped", "failed",
+		"wrong-package", "out-of-order",
 		"missing/filesystem-control", "missing/transport-control", "missing/helper",
 		"missing/deleted-filesystem-source", "missing/deleted-transport-source", "missing/cancelled-helper",
+		"missing/managed-repack", "missing/deleted-managed-source", "missing/cancelled-managed",
 	} {
 		t.Run(mode, func(t *testing.T) {
 			path := filepath.Join(t.TempDir(), "events.json")
