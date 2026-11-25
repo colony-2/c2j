@@ -56,7 +56,7 @@ func (r *Runtime) selfProvider(tc jobworkflow.TaskContext, original *lease, acce
 		if len(policies) > 0 {
 			i.Permissions.InheritedDenials = policies[0].InheritedDenials()
 		}
-		if len(policies) > 0 && len(policies[0].ChildPolicy) > 0 {
+		if len(policies) > 0 && policies[0].HasHookLineage() {
 			ceiling := grant
 			if policies[0].ChildGrant != nil {
 				ceiling = hookpolicy.Intersect(grant, *policies[0].ChildGrant)

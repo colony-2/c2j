@@ -3,10 +3,12 @@ package starter
 import (
 	"context"
 	"encoding/json"
+	"testing"
+
+	"github.com/colony-2/c2j/pkg/permissions"
 	"github.com/colony-2/c2j/pkg/workflowctl"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	"github.com/stretchr/testify/require"
-	"testing"
 )
 
 func TestExactJobPreparationVersionAndRejections(t *testing.T) {
@@ -39,6 +41,7 @@ func TestExactJobPreparationVersionAndRejections(t *testing.T) {
 // Format-1 reconciliation resends the original operation and validates its
 // complete receipt; it never strips mode or re-prepares mutable inputs.
 func TestExactJobLegacyDescriptorReplaysOriginal(t *testing.T) {
+	t.Setenv("C2J_WRITE_EXECUTION_HOOK_POLICY", "true")
 	input := json.RawMessage(`{"tenantId":"t","recipe":"build","inputs":{"n":9007199254740993}}`)
 	d := Descriptor{Version: 1, Operation: "submit", Job: jobdb.SubmitJob{TenantId: "t", JobID: "reserved", GoalID: "original-goal", Cell: "app", CellRepo: "example.test/app"}, Input: input}
 	frozen, err := json.Marshal(d)
@@ -55,4 +58,35 @@ func TestExactJobLegacyDescriptorReplaysOriginal(t *testing.T) {
 	after, err := json.Marshal(d)
 	require.NoError(t, err)
 	require.Equal(t, frozen, after)
+}
+
+func TestHookPolicyWriteGate(t *testing.T) {
+	for _, value := range []string{"", "true"} {
+		t.Run("write="+value, func(t *testing.T) {
+			t.Setenv("C2J_WRITE_EXECUTION_HOOK_POLICY", value)
+			ctx := context.Background()
+			start := workflowctl.StartJob{TenantId: "tenant", Cell: "app", CellRepo: "example.test/app", RecipeName: "build", HookPolicyVersion: 99}
+			job, err := PrepareRecipeJob(ctx, start, StartRecipeJobOptions{})
+			require.NoError(t, err)
+			var fields map[string]json.RawMessage
+			require.NoError(t, json.Unmarshal(job.Data.GetDataOrPanic(), &fields))
+			if value == "true" {
+				require.Equal(t, "1", string(fields["hook_policy_version"]))
+			} else {
+				require.NotContains(t, fields, "hook_policy_version")
+			}
+			require.NotContains(t, string(fields["context"]), "child_hook_lineage")
+			start.JobContext.InheritedPermissions = &permissions.State{Version: 1, ChildPolicy: json.RawMessage(`{"revision":"retained"}`)}
+			legacy, err := PrepareRecipeJob(ctx, start, StartRecipeJobOptions{})
+			require.NoError(t, err)
+			require.NotContains(t, string(legacy.Data.GetDataOrPanic()), "hook_policy_version")
+			require.Contains(t, string(legacy.Data.GetDataOrPanic()), "child_policy")
+			start.JobContext.InheritedPermissions.ChildHookLineage = &permissions.HookLineage{Repository: "example.test/forged"}
+			_, err = PrepareRecipeJob(ctx, start, StartRecipeJobOptions{})
+			require.ErrorContains(t, err, "assigned by the controller")
+			start.GoalID = "existing"
+			_, err = PrepareRecipeJob(ctx, start, StartRecipeJobOptions{})
+			require.ErrorContains(t, err, "goal selection is unsupported")
+		})
+	}
 }

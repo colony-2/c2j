@@ -86,6 +86,38 @@ func decodeRecipeInput(data []byte, artifacts []jobdb.Artifact) (workflowctl.Sta
 		return start, nil, fmt.Errorf("contradictory job_semantics_version in stored context")
 	}
 	start.JobContext.JobSemanticsVersion = start.JobSemanticsVersion
+	marker, marked := snapshot["hook_policy_version"]
+	if marked && string(marker) != "1" {
+		return start, nil, fmt.Errorf("hook_policy_version must be integer 1")
+	}
+	var storedContext struct {
+		Permissions map[string]json.RawMessage `json:"inherited_permissions"`
+	}
+	if raw, present := snapshot["context"]; present {
+		if err := json.Unmarshal(raw, &storedContext); err != nil {
+			return start, nil, err
+		}
+	}
+	if raw, present := storedContext.Permissions["child_hook_lineage"]; present {
+		state := start.JobContext.InheritedPermissions
+		var fields map[string]json.RawMessage
+		if err := json.Unmarshal(raw, &fields); err != nil || len(fields) != 1 || fields["repository"] == nil || state.ChildHookLineage == nil {
+			return start, nil, fmt.Errorf("malformed child_hook_lineage")
+		}
+		if !marked || len(state.ChildPolicy) > 0 || state.Version != 1 || state.Grant == nil || state.Limit == nil || state.Inputs == nil || !state.Inputs.Foreign {
+			return start, nil, fmt.Errorf("child_hook_lineage requires execution hook policy and an inherited ceiling, without child_policy")
+		}
+		if err := state.ChildHookLineage.Validate(); err != nil {
+			return start, nil, err
+		}
+	} else if state := start.JobContext.InheritedPermissions; marked && state != nil && len(state.ChildPolicy) > 0 {
+		return start, nil, fmt.Errorf("child_policy is incompatible with execution hook policy")
+	} else if state != nil && state.ChildHookLineage != nil {
+		return start, nil, fmt.Errorf("malformed child_hook_lineage")
+	}
+	if !marked && start.HookPolicyVersion != 0 {
+		return start, nil, fmt.Errorf("malformed hook_policy_version")
+	}
 	if start.Inputs != nil {
 		start.Inputs = jsonexact.Native(start.Inputs).(map[string]any)
 	}

@@ -27,7 +27,7 @@ func TestHookChildSubmissionReplacesForgedAuthority(t *testing.T) {
 	data, err := jobdb.NewTaskData(start, artifact)
 	require.NoError(t, err)
 	grant := permissions.JobDB{Secrets: permissions.SecretPermissions{Resolve: []string{"allowed"}}}
-	job, err := constrainHookChild(jobdb.SubmitJob{JobType: "recipe", Data: data, Cell: "test", CellRepo: "example.test/test"}, grant, json.RawMessage(`{"revision":"1"}`))
+	job, err := constrainHookChild(jobdb.SubmitJob{JobType: "recipe", Data: data, Cell: "test", CellRepo: "example.test/test"}, grant, permissions.State{ChildPolicy: json.RawMessage(`{"revision":"1"}`)})
 	require.NoError(t, err)
 	raw, err := job.Data.GetData()
 	require.NoError(t, err)
@@ -40,7 +40,7 @@ func TestHookChildSubmissionReplacesForgedAuthority(t *testing.T) {
 	arts, err := job.Data.GetArtifacts()
 	require.NoError(t, err)
 	require.Len(t, arts, 1)
-	_, err = constrainHookChild(jobdb.SubmitJob{JobType: "other", Data: data, Cell: "test", CellRepo: "example.test/test"}, grant, nil)
+	_, err = constrainHookChild(jobdb.SubmitJob{JobType: "other", Data: data, Cell: "test", CellRepo: "example.test/test"}, grant, permissions.State{})
 	require.Error(t, err)
 }
 
@@ -55,6 +55,19 @@ func (i *hookLeaseCapture) IssueRestrictedLease(ctx context.Context, tc permissi
 	return lease, err
 }
 func TestHookRemoteTokenCannotBypassControllerOrReadConfiguration(t *testing.T) {
+	for _, fixture := range []struct {
+		name      string
+		authority permissions.State
+	}{
+		{"legacy", permissions.State{Version: 1, ChildPolicy: json.RawMessage(`{"revision":"1"}`)}},
+		{"execution", permissions.State{Version: 1, ChildHookLineage: &permissions.HookLineage{Repository: "example.test/test"}}},
+	} {
+		t.Run(fixture.name, func(t *testing.T) { testHookRemoteTokenCannotBypassControllerOrReadConfiguration(t, fixture.authority) })
+	}
+}
+
+func testHookRemoteTokenCannotBypassControllerOrReadConfiguration(t *testing.T, authority permissions.State) {
+	t.Helper()
 	ctx := celltest.Context(context.Background())
 	base := toy.New(toy.WithProjects(jobdbcelltest.UnrestrictedProjects{}), toy.WithSecretProvider(&freshGitProvider{}))
 	server := httptest.NewServer(celltest.Handler(remote.NewConsumerServer(base)))
@@ -69,7 +82,7 @@ func TestHookRemoteTokenCannotBypassControllerOrReadConfiguration(t *testing.T) 
 		owner := rt.leases[tc.JobKey]
 		rt.mu.Unlock()
 		grant := permissions.JobDB{Secrets: permissions.SecretPermissions{Resolve: []string{"model"}}, Jobs: permissions.JobPermissions{Submit: true}}
-		access, _, cancel, err := rt.restrictedAccess(local, tc, owner, grant, nil, permissions.State{Version: 1, ChildPolicy: json.RawMessage(`{"revision":"1"}`)})
+		access, _, cancel, err := rt.restrictedAccess(local, tc, owner, grant, nil, authority)
 		require.NoError(t, err)
 		defer cancel()
 		_, err = access.Resolve(local, []string{"model"})
@@ -77,11 +90,16 @@ func TestHookRemoteTokenCannotBypassControllerOrReadConfiguration(t *testing.T) 
 		require.NotNil(t, capture.lease)
 		_, err = capture.lease.GetConfiguration(local)
 		require.ErrorIs(t, err, jobdb.ErrLeasePermissionDenied)
-		child := jobdb.SubmitJob{TenantId: "test", JobType: "recipe", Data: jobdb.NewTaskDataOrPanic(workflowctl.StartJob{RecipeName: "child", Cell: "test", CellRepo: celltest.Repo("")}), Cell: "test", CellRepo: "example.test/test"}
+		child := jobdb.SubmitJob{TenantId: "test", JobType: "recipe", Data: jobdb.NewTaskDataOrPanic(workflowctl.StartJob{TenantId: "test", RecipeName: "child", Cell: "test", CellRepo: celltest.Repo("")}), Cell: "test", CellRepo: "example.test/test"}
 		_, err = capture.lease.SubmitJob(local, jobdb.SubmitJobRequest{Job: child})
+		require.ErrorIs(t, err, jobdb.ErrLeasePermissionDenied)
+		appendRequest := jobdb.StartOrAppendJob{Job: child, AppendKey: "check", Append: json.RawMessage(`{"content":{},"artifacts":[]}`)}
+		_, err = capture.lease.StartOrAppendJob(local, jobdb.StartOrAppendJobRequest{Job: appendRequest})
 		require.ErrorIs(t, err, jobdb.ErrLeasePermissionDenied)
 		_, err = access.Submit(local, child)
 		require.NoError(t, err, "controller must still permit constrained submission")
+		_, err = access.StartOrAppend(local, appendRequest)
+		require.NoError(t, err, "controller must still permit constrained append")
 		return in, nil
 	})
 	worker := wf.ExecutionWorker{JobType: "hook-delegation", Execute: func(c wf.ExecutionContext, in jobdb.JobData) (jobdb.JobData, error) {

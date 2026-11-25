@@ -82,20 +82,84 @@ outputs:
 }
 
 func TestLateIncludeCanIntroduceOrdinaryHooks(t *testing.T) {
-	ws := workspaceTestWorker(t)
-	f := newLateGitFixture(t)
-	f.initial = commitHookFile(t, f.dir, ".c2/hooks/check.yaml", "id: check\nsequence: []\noutputs: {value: hook}\n")
-	commit := commitHookFile(t, f.dir, "selected.yaml", "id: selected\nsequence:\n- id: hook\n  include: cell://.c2/hooks/check.yaml\noutputs: {value: '${{ sequence.hook.outputs.value }}'}\n")
-	rec := f.expand(t, fmt.Sprintf("id: root\nsource_hooks: from_current\nsequence:\n- id: call\n  include: {bind: late, recipe: %q}\noutputs: {value: '${{ sequence.call.outputs.value }}'}\n", f.selector("selected.yaml", commit)))
-	rt := newTimeoutReproRuntime(t, "sqlite")
-	guard := lateGuard(rt)
-	w := lateRealWorker(t, rec, f)
-	key := probeSubmit(t, rt, w)
-	out := lateRun(t, guard, key, w, lateRealTasks(t, guard, ws)...)
-	require.Equal(t, jobworkflow.JobRunCompleted, out.Status, "%v", out.JobError)
-	require.Equal(t, "hook", lateJobOutput(t, rt, key)["value"])
-	f.available.Store(false)
-	require.NoError(t, probeReplay(t, rt, key, w))
+	for _, mode := range []string{"legacy", "execution"} {
+		t.Run(mode, func(t *testing.T) {
+			ws := workspaceTestWorker(t)
+			f := newLateGitFixture(t)
+			f.initial = commitHookFile(t, f.dir, ".c2/hooks/check.yaml", "id: check\nsequence: []\noutputs: {value: hook}\n")
+			commit := commitHookFile(t, f.dir, "selected.yaml", "id: selected\nsequence:\n- id: hook\n  include: cell://.c2/hooks/check.yaml\noutputs: {value: '${{ sequence.hook.outputs.value }}'}\n")
+			rec := f.expand(t, fmt.Sprintf("id: root\nsource_hooks: from_current\nsequence:\n- id: call\n  include: {bind: late, recipe: %q}\noutputs: {value: '${{ sequence.call.outputs.value }}'}\n", f.selector("selected.yaml", commit)))
+			rt := newTimeoutReproRuntime(t, "sqlite")
+			guard := lateGuard(rt)
+			w := lateHookFormatWorker(t, rec, f, mode == "execution")
+			key := probeSubmit(t, rt, w)
+			out := lateRun(t, guard, key, w, lateRealTasks(t, guard, ws)...)
+			require.Equal(t, jobworkflow.JobRunCompleted, out.Status, "%v", out.JobError)
+			require.Equal(t, "hook", lateJobOutput(t, rt, key)["value"])
+			history, err := jobdb.GetJobRun(lateTestContext(), rt, jobdb.GetJobRunRequest{JobKey: key})
+			require.NoError(t, err)
+			var policyTask bool
+			for _, task := range executionTaskRuns(history) {
+				policyTask = policyTask || task.TaskType == hookPolicyTaskType
+			}
+			require.Equal(t, mode == "legacy", policyTask)
+			f.available.Store(false)
+			require.NoError(t, probeReplay(t, rt, key, w))
+		})
+	}
+}
+
+func TestLateIncludeKeepsHookRepositoryAcrossFormats(t *testing.T) {
+	for _, fixture := range []struct {
+		name, want string
+		rootHook   bool
+	}{
+		{name: "first-hooks-use-caller-workspace", want: "foreign"},
+		{name: "existing-binding-keeps-root", want: "root", rootHook: true},
+	} {
+		for _, mode := range []string{"legacy", "execution"} {
+			t.Run(fixture.name+"/"+mode, func(t *testing.T) {
+				workers := workspaceTestWorker(t)
+				root := newLateGitFixture(t)
+				foreign := newLateGitFixture(t)
+				const verifyHook = ".c2/recipes/hooks/build/verify.yaml"
+				root.initial = commitHookFile(t, root.dir, verifyHook, "id: verify\nsequence: []\noutputs: {repository: root}\n")
+				foreign.initial = commitHookFile(t, foreign.dir, verifyHook, "id: verify\nsequence: []\noutputs: {repository: foreign}\n")
+				selected := commitHookFile(t, root.dir, "selected.yaml", fmt.Sprintf(`id: selected
+sequence:
+- id: verify
+  include: cell://%s
+outputs: {repository: '${{ sequence.verify.outputs.repository }}'}
+`, verifyHook))
+				rootBinding := ""
+				if fixture.rootHook {
+					rootBinding = fmt.Sprintf("- id: root-verify\n  when: 'false'\n  include: cell://%s\n", verifyHook)
+				}
+				rec := root.expand(t, fmt.Sprintf(`id: root
+source_hooks: from_current
+sequence:
+%s- id: foreign
+  workspace: {cell: foreign, repo: %q, ref: %q}
+  sequence:
+  - id: call
+    include: {bind: late, recipe: %q}
+  outputs: {repository: '${{ sequence.call.outputs.repository }}'}
+outputs: {repository: '${{ sequence.foreign.outputs.repository }}'}
+`, rootBinding, foreign.url, foreign.initial, root.selector("selected.yaml", selected)))
+				runtime := newTimeoutReproRuntime(t, "sqlite")
+				celltest.Create(t, runtime, "scope-tests", "foreign", celltest.Repo(foreign.url))
+				guard := lateGuard(runtime)
+				worker := lateHookFormatWorker(t, rec, root, mode == "execution")
+				key := probeSubmit(t, runtime, worker)
+				outcome := lateRun(t, guard, key, worker, lateRealTasks(t, guard, workers)...)
+				require.Equal(t, jobworkflow.JobRunCompleted, outcome.Status, "%v", outcome.JobError)
+				require.Equal(t, fixture.want, lateJobOutput(t, runtime, key)["repository"])
+				root.available.Store(false)
+				foreign.available.Store(false)
+				require.NoError(t, probeReplay(t, runtime, key, worker))
+			})
+		}
+	}
 }
 
 func TestLateIncludeExplicitWorkspaceRetryMatchesEager(t *testing.T) {

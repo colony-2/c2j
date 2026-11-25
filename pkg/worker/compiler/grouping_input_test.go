@@ -12,6 +12,7 @@ import (
 	recipeops "github.com/colony-2/c2j/pkg/ops/recipe"
 	"github.com/colony-2/c2j/pkg/recipe"
 	"github.com/colony-2/c2j/pkg/template"
+	"github.com/colony-2/c2j/pkg/workflowctl"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
@@ -44,6 +45,19 @@ func TestGroupedInputNamespacesAndPresence(t *testing.T) {
 	for _, bad := range []string{`{"start":{}}`, `{"appends":[]}`, `{"start":null,"appends":[{}]}`, `{"start":{},"appends":[]}`, `{"start":{},"appends":[null]}`, `{"start":{},"appends":[{"content":null,"artifacts":[]}]}`, `{"start":{},"appends":[{"content":{}}]}`} {
 		_, _, err := decodeRecipeInput([]byte(bad), nil)
 		require.Error(t, err, bad)
+	}
+}
+
+func TestGroupedInputExecutionHookPolicy(t *testing.T) {
+	const prefix = `{"start":{"recipe":"batch","hook_policy_version":1,"context":{"inherited_permissions":{"version":1,"grant":{},"limit":{},"inputs":{"foreign":true},"child_hook_lineage":`
+	const suffix = `}}},"appends":[{"content":{},"artifacts":[]}]}`
+	start, _, err := decodeRecipeInput([]byte(prefix+`{"repository":"example.test/app"}`+suffix), nil)
+	require.NoError(t, err)
+	require.Equal(t, workflowctl.ExecutionHookPolicyVersion, start.HookPolicyVersion)
+	require.Equal(t, "example.test/app", start.JobContext.InheritedPermissions.ChildHookLineage.Repository)
+	for _, invalid := range []string{`null`, `{}`, `{"repository":"https://example.test/app.git"}`, `{"repository":"example.test/app","extra":true}`} {
+		_, _, err := decodeRecipeInput([]byte(prefix+invalid+suffix), nil)
+		require.Error(t, err)
 	}
 }
 

@@ -291,7 +291,7 @@ func (j recipeJobWorker) Run(ctx jobworkflow.ExecutionContext, jobData jobdb.Job
 		return nil, err
 	}
 
-	wCtx := workflow.Context{JobContext: ctx, BeforeScope: j.beforeScope, Logger: logger}
+	wCtx := workflow.Context{JobContext: ctx, BeforeScope: j.beforeScope, Logger: logger, ExecutionHookPolicy: input.HookPolicyVersion == workflowctl.ExecutionHookPolicyVersion}
 	if input.Execution != nil {
 		wCtx.JobPackages = func() []string { return input.Execution.JobRequirements.Packages }
 		wCtx.JobPython = func() *execution.Python { return execution.ChoosePython(nil, input.Execution.JobRequirements.Python) }

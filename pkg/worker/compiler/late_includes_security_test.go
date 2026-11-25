@@ -28,9 +28,14 @@ import (
 
 func lateRealWorker(t *testing.T, rec recipe.Recipe, f *lateGitFixture) jobworkflow.ExecutionWorker {
 	t.Helper()
+	return lateHookFormatWorker(t, rec, f, false)
+}
+
+func lateHookFormatWorker(t *testing.T, rec recipe.Recipe, f *lateGitFixture, executionHookPolicy bool) jobworkflow.ExecutionWorker {
+	t.Helper()
 	job := contextual.JobContext{Workflow: contextual.WorkflowContext{CellName: "test"}, GitBase: contextual.GitBaseContext{BaseRepo: f.dir, BaseRef: f.initial, ResolvedBaseHash: f.initial}}
 	return jobworkflow.ExecutionWorker{JobType: "late-include-test", Execute: func(exec jobworkflow.ExecutionContext, _ jobdb.JobData) (jobdb.JobData, error) {
-		out, arts, err := ExecuteRecipe(workflow.Context{JobContext: exec, ServiceDependencies2: catchWorkflowContext(exec).ServiceDependencies2}, rec, map[string]any{}, job, contextual.GitCommitContext{ParentRef: f.initial, ParentHash: f.initial, PersistHash: f.initial})
+		out, arts, err := ExecuteRecipe(workflow.Context{JobContext: exec, ExecutionHookPolicy: executionHookPolicy, ServiceDependencies2: catchWorkflowContext(exec).ServiceDependencies2}, rec, map[string]any{}, job, contextual.GitCommitContext{ParentRef: f.initial, ParentHash: f.initial, PersistHash: f.initial})
 		if err != nil {
 			return nil, err
 		}

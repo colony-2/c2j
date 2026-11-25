@@ -161,3 +161,11 @@ func RepositoryIdentity(source string) string {
 		}
 	}
 }
+
+func validHookRepository(repository string) bool {
+	if path, ok := strings.CutPrefix(repository, "file://"); ok {
+		return filepath.IsAbs(path) && filepath.Clean(path) == path && !strings.ContainsAny(path, "\x00\r\n")
+	}
+	id, err := jobdb.NormalizeCellRepo(repository)
+	return err == nil && id == repository
+}

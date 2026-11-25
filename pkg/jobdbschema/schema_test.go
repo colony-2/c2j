@@ -247,7 +247,7 @@ func TestExactJobSchema(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if hash != "sha256:649def981380e3c981d0b8ddcd651ea06af5889a01a9885ca08710397c913532" {
+	if hash != "sha256:ffb30a5e9baac303627fd62833ab4e4cad2ff625daa711c7dfed06b3a43010f0" {
 		t.Fatalf("unexpected schema hash: %s", hash)
 	}
 	for _, extra := range []string{"", `,"available_at":"2027-01-01T12:20:00.123456789Z"`, `,"available_at":12`, `,"goal_id":"stale"`, `,"unknown":true`, `,"job_id":12`} {

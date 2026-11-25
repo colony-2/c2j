@@ -16,7 +16,7 @@ import (
 
 var c2jJobSchema = json.RawMessage(`{
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "description": "c2j recipe execution chapter schema v7 (exact-job interpretation)",
+  "description": "c2j recipe execution chapter schema v8 (execution hook policy)",
   "firstChapterShape": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "type": "object",
@@ -342,6 +342,14 @@ var c2jJobSchema = json.RawMessage(`{
           "child_policy": {
             "type": "object"
           },
+          "child_hook_lineage": {
+            "type": "object",
+            "required": ["repository"],
+            "properties": {
+              "repository": { "type": "string", "pattern": "^(file:///[^\\r\\n]+|[^:/@?#\\s]+/[^:@?#\\s]+)$" }
+            },
+            "additionalProperties": false
+          },
           "inputs": {
             "type": "object",
             "properties": {
@@ -360,6 +368,12 @@ var c2jJobSchema = json.RawMessage(`{
             },
             "additionalProperties": false
           }
+        },
+        "if": { "required": ["child_hook_lineage"] },
+        "then": {
+          "required": ["grant", "limit", "inputs"],
+          "not": { "required": ["child_policy"] },
+          "properties": { "inputs": { "required": ["foreign"], "properties": { "foreign": { "const": true } } } }
         },
         "additionalProperties": false
       },
@@ -504,6 +518,7 @@ var c2jJobSchema = json.RawMessage(`{
         ],
         "properties": {
           "job_semantics_version": { "type": "integer", "enum": [1, 2] },
+          "hook_policy_version": { "type": "integer", "const": 1 },
           "available_at": {
             "type": "string",
             "format": "date-time"
@@ -564,6 +579,9 @@ var c2jJobSchema = json.RawMessage(`{
             "type": "string"
           }
         },
+        "if": { "required": ["hook_policy_version"] },
+        "then": { "properties": { "context": { "properties": { "inherited_permissions": { "not": { "required": ["child_policy"] } } } } } },
+        "else": { "properties": { "context": { "properties": { "inherited_permissions": { "not": { "required": ["child_hook_lineage"] } } } } } },
         "additionalProperties": false
       },
       "storedArtifact": {

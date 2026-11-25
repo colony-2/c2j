@@ -68,6 +68,46 @@ func TestGroupedAppendSchema(t *testing.T) {
 	}
 }
 
+func TestHookPolicySchemaAdmission(t *testing.T) {
+	const start = `"tenantId":"tenant","cell":"test","recipe":"build"`
+	const lineage = `"child_hook_lineage":{"repository":"example.test/test"}`
+	const ceiling = `"version":1,"grant":{},"limit":{},"inputs":{"foreign":true}`
+	for _, scenario := range []struct {
+		name, payload string
+		valid         bool
+	}{
+		{"legacy", `"context":{}`, true},
+		{"legacy-child", `"context":{"inherited_permissions":{"version":1,"child_policy":{}}}`, true},
+		{"execution", `"hook_policy_version":1,"context":{}`, true},
+		{"execution-child", `"hook_policy_version":1,"context":{"inherited_permissions":{` + ceiling + `,` + lineage + `}}`, true},
+		{"unknown-version", `"hook_policy_version":2,"context":{}`, false},
+		{"null-version", `"hook_policy_version":null,"context":{}`, false},
+		{"unmarked-lineage", `"context":{"inherited_permissions":{` + ceiling + `,` + lineage + `}}`, false},
+		{"missing-ceiling", `"hook_policy_version":1,"context":{"inherited_permissions":{"version":1,` + lineage + `}}`, false},
+		{"malformed-lineage", `"hook_policy_version":1,"context":{"inherited_permissions":{` + ceiling + `,"child_hook_lineage":{"repository":""}}}`, false},
+		{"legacy-policy-with-marker", `"hook_policy_version":1,"context":{"inherited_permissions":{"version":1,"child_policy":{}}}`, false},
+		{"conflicting-lineage", `"hook_policy_version":1,"context":{"inherited_permissions":{` + ceiling + `,` + lineage + `,"child_policy":{}}}`, false},
+	} {
+		t.Run(scenario.name, func(t *testing.T) {
+			ctx := celltest.Context(context.Background())
+			runtime := toy.New(toy.WithProjects(jobdbcelltest.UnrestrictedProjects{}))
+			celltest.Create(t, runtime, "tenant", "test", "example.test/test")
+			require.NoError(t, Register(ctx, runtime, "tenant"))
+			job := jobdb.SubmitJob{TenantId: "tenant", Cell: "test", JobType: "recipe", Data: jobdb.NewTaskDataOrPanic(json.RawMessage(`{` + start + `,` + scenario.payload + `}`))}
+			require.NoError(t, SetSubmitJobSchema(&job))
+			_, submitErr := runtime.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: job})
+			_, appendErr := runtime.StartOrAppendJob(ctx, jobdb.StartOrAppendJobRequest{Job: jobdb.StartOrAppendJob{Job: job, AppendKey: "batch", Append: json.RawMessage(`{"content":{},"artifacts":[]}`)}})
+			if scenario.valid {
+				require.NoError(t, submitErr)
+				require.NoError(t, appendErr)
+			} else {
+				require.Error(t, submitErr)
+				require.Error(t, appendErr)
+			}
+		})
+	}
+}
+
 func TestGroupedSchemaKeepsOrdinaryStartClosed(t *testing.T) {
 	ctx := celltest.Context(context.Background())
 	rt := toy.New(toy.WithProjects(jobdbcelltest.UnrestrictedProjects{}))

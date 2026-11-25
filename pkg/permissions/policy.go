@@ -218,12 +218,28 @@ type State struct {
 	ChildGrant *JobDB `json:"child_grant,omitempty"`
 	// ChildPolicy is controller-captured configuration. Its presence requires
 	// child submission through the runtime path that installs the ceiling.
-	ChildPolicy json.RawMessage  `json:"child_policy,omitempty"`
-	Version     int              `json:"version"`
-	Grant       *JobDB           `json:"grant,omitempty"`
-	Limit       *JobDB           `json:"limit,omitempty"`
-	Inputs      *InputPolicy     `json:"inputs,omitempty"`
-	Overrides   []JobDBOverrides `json:"overrides,omitempty"`
+	ChildPolicy      json.RawMessage  `json:"child_policy,omitempty"`
+	ChildHookLineage *HookLineage     `json:"child_hook_lineage,omitempty"`
+	Version          int              `json:"version"`
+	Grant            *JobDB           `json:"grant,omitempty"`
+	Limit            *JobDB           `json:"limit,omitempty"`
+	Inputs           *InputPolicy     `json:"inputs,omitempty"`
+	Overrides        []JobDBOverrides `json:"overrides,omitempty"`
+}
+
+type HookLineage struct {
+	Repository string `json:"repository"`
+}
+
+func (lineage HookLineage) Validate() error {
+	if validHookRepository(lineage.Repository) {
+		return nil
+	}
+	return fmt.Errorf("invalid hook lineage repository %q", lineage.Repository)
+}
+
+func (state State) HasHookLineage() bool {
+	return state.ChildHookLineage != nil || len(state.ChildPolicy) > 0
 }
 
 func (s State) Enter(spec *Spec, boundary bool) (State, error) {

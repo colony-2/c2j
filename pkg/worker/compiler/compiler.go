@@ -126,7 +126,8 @@ func (d DefaultRecipeExecutor) ExecuteRecipe(ctx workflow.Context, r recipe.Reci
 	// we forward thin packs from one task to the next to maintain state.
 	forwarder := newThinPackForwardingJobContext(ctx.JobContext)
 	// Dynamically loaded definitions can introduce workspaces absent from the caller.
-	forwarder.scopedMode = recipe.HasWorkspaces(r) || hasCellHooks(r) || recipeHasInclude(r, func(n *recipe.NodeInclude) bool { return n.Include.Bind == "late" }) || execCtx.Workspace != nil
+	rootHasHooks := hasCellHooks(r)
+	forwarder.scopedMode = recipe.HasWorkspaces(r) || rootHasHooks || recipeHasInclude(r, func(n *recipe.NodeInclude) bool { return n.Include.Bind == "late" }) || execCtx.Workspace != nil
 	if execCtx.InitialCommit != nil {
 		commitContext = *execCtx.InitialCommit
 	}
@@ -149,12 +150,18 @@ func (d DefaultRecipeExecutor) ExecuteRecipe(ctx workflow.Context, r recipe.Reci
 	if execOpts.CELOptionsProvider == nil && d.celProvider != nil {
 		execOpts.CELOptionsProvider = d.celProvider
 	}
-	if execCtx.InheritedPermissions != nil && len(execCtx.InheritedPermissions.ChildPolicy) > 0 {
+	if ctx.ExecutionHookPolicy {
+		if inherited := execCtx.InheritedPermissions; inherited != nil && inherited.ChildHookLineage != nil {
+			ctx.HookRepository = inherited.ChildHookLineage.Repository
+		} else if rootHasHooks {
+			ctx.HookRepository = execCtx.GitBase.BaseRepo
+		}
+	} else if execCtx.InheritedPermissions != nil && len(execCtx.InheritedPermissions.ChildPolicy) > 0 {
 		if err := json.Unmarshal(execCtx.InheritedPermissions.ChildPolicy, &ctx.HookPolicy); err != nil {
 			return nil, nil, err
 		}
 	}
-	if ctx.HookPolicy == nil && hasCellHooks(r) && execOpts.Mode != ExecutionModeValidate {
+	if !ctx.ExecutionHookPolicy && ctx.HookPolicy == nil && rootHasHooks && execOpts.Mode != ExecutionModeValidate {
 		out, e := workflow.ValueCall(ctx.JobContext, "hook-policy", hookPolicyTaskType, jobdb.RunPolicy{}, map[string]string{"repository": execCtx.GitBase.BaseRepo})
 		if e != nil {
 			return nil, nil, e
@@ -244,7 +251,7 @@ func (d DefaultRecipeExecutor) ExecuteRecipe(ctx workflow.Context, r recipe.Reci
 	if err := rCtx.SelectGitProfile(metadata.GitProfile, ""); err != nil {
 		return nil, nil, err
 	}
-	if ctx.SourceHooks == recipe.HooksFromBase && hasCellHooks(r) {
+	if ctx.SourceHooks == recipe.HooksFromBase && rootHasHooks {
 		ctx.HookBase, err = initialHookBase(ctx, rCtx)
 		if err != nil {
 			return nil, nil, err

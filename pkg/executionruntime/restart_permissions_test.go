@@ -131,11 +131,16 @@ func TestLeaseBoundRestartHelperSubmission(t *testing.T) {
 				wrongTenant.Job.PriorJobKey.TenantId = "other"
 				_, e = access.Restart(ctx, wrongTenant)
 				require.ErrorIs(t, e, jobdb.ErrLeasePermissionDenied)
-				hooked, _, stopHook, e := rt.restrictedAccess(local, tc, owner, grant, nil, permissions.State{ChildPolicy: json.RawMessage(`{}`)})
-				require.NoError(t, e)
-				defer stopHook()
-				_, e = hooked.Restart(ctx, request)
-				require.ErrorContains(t, e, "inherited hook policy")
+				for _, authority := range []permissions.State{
+					{ChildPolicy: json.RawMessage(`{}`)},
+					{ChildHookLineage: &permissions.HookLineage{Repository: "example.test/test"}},
+				} {
+					hooked, _, stopHook, err := rt.restrictedAccess(local, tc, owner, grant, nil, authority)
+					require.NoError(t, err)
+					_, err = hooked.Restart(ctx, request)
+					stopHook()
+					require.ErrorContains(t, err, "inherited hook policy")
+				}
 
 				after, e := jobdb.GetJobRun(ctx, rt, jobdb.GetJobRunRequest{JobKey: source.JobKey})
 				require.NoError(t, e)

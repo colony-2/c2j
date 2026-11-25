@@ -480,15 +480,18 @@ func latePreparationCatchFilter(preparing *bool) func(error) bool {
 	return func(error) bool { return *preparing }
 }
 
-// A deferred definition may introduce ordinary cell hooks. Capture the caller's
-// policy on this enabled entry, without adding tasks to eager/historical jobs.
 func lateHookPolicy(ctx workflow.Context, parent *template.ResolutionContext, wrapper recipe.Node) (workflow.Context, error) {
 	seq := wrapper.NodeImpl.(*recipe.NodeSequence)
 	rec := recipe.Recipe{RecipeImpl: &recipe.RecipeSequence{SequenceData: seq.SequenceData}}
-	if ctx.HookPolicy != nil || parent.Options.Mode == template.ModeValidate || !hasCellHooks(rec) {
+	if ctx.HookRepository != "" || ctx.HookPolicy != nil || parent.Options.Mode == template.ModeValidate || !hasCellHooks(rec) {
 		return ctx, nil
 	}
-	out, err := workflow.ValueCall(ctx.JobContext, "hook-policy", hookPolicyTaskType, jobdb.RunPolicy{}, map[string]string{"repository": parent.TaskExecutionContext().GitTask.BaseRepo})
+	repository := parent.TaskExecutionContext().GitTask.BaseRepo
+	if ctx.ExecutionHookPolicy {
+		ctx.HookRepository = repository
+		return ctx, nil
+	}
+	out, err := workflow.ValueCall(ctx.JobContext, "hook-policy", hookPolicyTaskType, jobdb.RunPolicy{}, map[string]string{"repository": repository})
 	if err != nil {
 		return ctx, err
 	}

@@ -266,9 +266,24 @@ each granted capability. Changing existing trust through `add` requires
 Storage uses `_c2j_hook_policy_tenant` and one
 `_c2j_hook_policy_cell_<sha256(canonical repository identity)>` value per configured
 cell. Documents contain `version: 1`, a `hooks` map, and, for cells, a `repository`
-binding. Malformed relevant documents fail closed. The trusted controller records
-both documents and their revision during job preparation. Changes apply to new
-jobs; immediate credential revocation belongs at the secret provider.
+binding. Malformed relevant documents fail closed.
+
+With execution-scoped hook policy, an enabled hook uses the same configuration
+snapshot as ordinary `context.config` inputs. JobDB caches the first successful
+read for one live execution. A hook that has not finished loading can see edits
+when the job resumes in a new execution. A completed load records its decision
+and replays it without reading configuration. Validation and disabled hooks do
+not resolve hook policy. An edit does not revoke an already recorded decision;
+immediate credential revocation belongs at the secret provider.
+
+To roll out this format, deploy readers for both formats and make the updated
+recipe admission schema available. Drain or stop all old workers that can claim
+`recipe` jobs, and prevent old images from returning, before setting
+`C2J_WRITE_EXECUTION_HOOK_POLICY=true` in every submitter, including workers that
+submit children. The setting defaults to off. Unmarked jobs retain their
+recorded policy and task sequence. Restarts retain the original start format.
+Turning off new writes does not convert already accepted jobs or make a worker
+downgrade safe.
 
 Delegated tokens cannot read or write configuration. Administration commands
 reject an execution context before discovering provisioning credentials. No
@@ -288,12 +303,14 @@ must currently be fetchable by the extension source loader. Ordinary ops and
 relative recipe includes support unpushed candidates.
 
 Hooks may submit recipe children through c2j's controller. The controller replaces
-any claimed inherited authority with the actual ceiling and captured hook policy.
+any claimed inherited authority with the actual ceiling and consuming-repository
+binding. Execution-scoped children resolve their own hook policy; children of
+legacy hooks keep the captured legacy policy even after activation.
 Raw delegated tokens have job submission disabled for this path. Arbitrary child
 job types are rejected. Candidate-code grants may propagate within that ceiling;
 commit-bound grants authorize the recorded invocation and are withheld from
-arbitrary child bodies. A child's hook callback must independently satisfy its
-recorded policy and inherited ceiling.
+arbitrary child bodies. A child's hook callback must satisfy both its applicable
+hook policy and its inherited ceiling.
 
 Hooks and their included recipes may declare `extensions.functions` using the
 same CEL package loader as other recipes. Floating package references are resolved

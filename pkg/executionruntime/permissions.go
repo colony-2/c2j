@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/colony-2/c2j/internal/dispatchtest"
+	"github.com/colony-2/c2j/internal/jsonexact"
 	"github.com/colony-2/c2j/pkg/executioncatalog"
 	"github.com/colony-2/c2j/pkg/hookpolicy"
 	"github.com/colony-2/c2j/pkg/jobdbschema"
@@ -43,18 +44,22 @@ func (r *Runtime) restrictedAccess(parent context.Context, tc jobworkflow.TaskCo
 		}
 		return current.ExecutionLease.CreateCell(call, req)
 	})
-	var hookPolicy json.RawMessage
+	var authority permissions.State
 	if len(policies) > 0 {
-		hookPolicy = policies[0].ChildPolicy
+		authority = policies[0]
+	}
+	hookChild := authority.HasHookLineage()
+	constrain := func(job jobdb.SubmitJob) (jobdb.SubmitJob, error) {
+		childGrant := grant
+		if authority.ChildGrant != nil {
+			childGrant = hookpolicy.Intersect(grant, *authority.ChildGrant)
+		}
+		return constrainHookChild(job, childGrant, authority)
 	}
 	submit := permissions.SubmitFunc(func(call context.Context, job jobdb.SubmitJob) (jobref.Ref, error) {
-		if len(hookPolicy) > 0 {
+		if hookChild {
 			var err error
-			childGrant := grant
-			if policies[0].ChildGrant != nil {
-				childGrant = hookpolicy.Intersect(grant, *policies[0].ChildGrant)
-			}
-			job, err = constrainHookChild(job, childGrant, hookPolicy)
+			job, err = constrain(job)
 			if err != nil {
 				return jobref.Ref{}, err
 			}
@@ -69,13 +74,9 @@ func (r *Runtime) restrictedAccess(parent context.Context, tc jobworkflow.TaskCo
 		if req.Job.TenantId != tc.JobKey.TenantId {
 			return jobref.Ref{}, jobdb.ErrLeasePermissionDenied
 		}
-		if len(hookPolicy) > 0 {
-			childGrant := grant
-			if policies[0].ChildGrant != nil {
-				childGrant = hookpolicy.Intersect(grant, *policies[0].ChildGrant)
-			}
+		if hookChild {
 			var err error
-			req.Job, err = constrainHookChild(req.Job, childGrant, hookPolicy)
+			req.Job, err = constrain(req.Job)
 			if err != nil {
 				return jobref.Ref{}, err
 			}
@@ -96,7 +97,7 @@ func (r *Runtime) restrictedAccess(parent context.Context, tc jobworkflow.TaskCo
 	// the trusted controller, behind Access.Restart's grant/cell checks and the
 	// current owner lease, just like controller-managed hook child submissions.
 	restart := permissions.RestartFunc(func(call context.Context, req jobdb.SubmitRestartJobRequest) (jobref.Ref, error) {
-		if len(hookPolicy) > 0 {
+		if hookChild {
 			return jobref.Ref{}, fmt.Errorf("restart submission unavailable under inherited hook policy; restart from an authorized operator context")
 		}
 		r.mu.Lock()
@@ -138,7 +139,7 @@ func (r *Runtime) restrictedAccess(parent context.Context, tc jobworkflow.TaskCo
 					delegatedGrant := grant
 					// Hook child jobs must go through the controller's submission
 					// path, which installs the ceiling. A raw token cannot bypass it.
-					if len(hookPolicy) > 0 {
+					if hookChild {
 						delegatedGrant.Jobs.Submit = false
 						delegatedGrant.Jobs.CellNames = nil
 					}
@@ -167,7 +168,7 @@ func (r *Runtime) restrictedAccess(parent context.Context, tc jobworkflow.TaskCo
 				}
 				return child.CreateCell(call, req)
 			}
-			if len(hookPolicy) == 0 {
+			if !hookChild {
 				appendJob = func(call context.Context, req jobdb.StartOrAppendJob) (jobref.Ref, error) {
 					if req.Job.TenantId != tc.JobKey.TenantId {
 						return jobref.Ref{}, jobdb.ErrLeasePermissionDenied
@@ -240,7 +241,7 @@ func (r *Runtime) restrictedAccess(parent context.Context, tc jobworkflow.TaskCo
 	return access, selfinfo.WithProvider(inspectionCtx, provider), cancel, nil
 }
 
-func constrainHookChild(job jobdb.SubmitJob, grant permissions.JobDB, policy json.RawMessage) (jobdb.SubmitJob, error) {
+func constrainHookChild(job jobdb.SubmitJob, grant permissions.JobDB, authority permissions.State) (jobdb.SubmitJob, error) {
 	if job.JobType != "recipe" {
 		return job, fmt.Errorf("hook child submission requires a recipe job that enforces inherited permissions")
 	}
@@ -252,11 +253,26 @@ func constrainHookChild(job jobdb.SubmitJob, grant permissions.JobDB, policy jso
 		return job, err
 	}
 	var start workflowctl.StartJob
-	if err = json.Unmarshal(raw, &start); err != nil {
+	decode := json.Unmarshal
+	if authority.ChildHookLineage != nil {
+		if err := authority.ChildHookLineage.Validate(); err != nil {
+			return job, err
+		}
+		decode = jsonexact.Unmarshal
+	}
+	if err = decode(raw, &start); err != nil {
 		return job, err
 	}
 	// Replace any claimed lineage authority, rather than merging untrusted input.
-	start.JobContext.InheritedPermissions = &permissions.State{Version: permissions.Version, Grant: &grant, Limit: &grant, Inputs: &permissions.InputPolicy{Foreign: true, Allowed: append([]string(nil), grant.Secrets.Resolve...)}, ChildPolicy: append(json.RawMessage(nil), policy...)}
+	state := &permissions.State{Version: permissions.Version, Grant: &grant, Limit: &grant, Inputs: &permissions.InputPolicy{Foreign: true, Allowed: append([]string(nil), grant.Secrets.Resolve...)}}
+	start.JobContext.InheritedPermissions = state
+	start.HookPolicyVersion = 0
+	if authority.ChildHookLineage != nil {
+		start.HookPolicyVersion = workflowctl.ExecutionHookPolicyVersion
+		state.ChildHookLineage = authority.ChildHookLineage
+	} else {
+		state.ChildPolicy = append(json.RawMessage(nil), authority.ChildPolicy...)
+	}
 	arts, err := job.Data.GetArtifacts()
 	if err != nil {
 		return job, err

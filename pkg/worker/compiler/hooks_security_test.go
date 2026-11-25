@@ -298,3 +298,121 @@ func TestHookChildJobsCannotBroadenAuthority(t *testing.T) {
 		})
 	}
 }
+
+func TestHookChildCallbackPolicyTracksStoredFormat(t *testing.T) {
+	for _, mode := range []string{"legacy-after-activation", "execution-deny", "execution-ceiling", "execution-foreign-repo"} {
+		t.Run(mode, func(t *testing.T) {
+			legacy := mode == "legacy-after-activation"
+			if legacy {
+				t.Setenv("C2J_WRITE_EXECUTION_HOOK_POLICY", "")
+			} else {
+				t.Setenv("C2J_WRITE_EXECUTION_HOOK_POLICY", "true")
+			}
+			repo := filepath.Join(t.TempDir(), "repo")
+			workspaceRepo(t, repo, "parent")
+			const parentHook = ".c2/hooks/submit.yaml"
+			const callback = ".c2/hooks/callback.yaml"
+			const callbackYAML = "id: callback\nsequence:\n- id: check\n  op: hook_callback_grants\noutputs: {grants: '${{ sequence.check.outputs.grants }}'}\n"
+			commitHookFile(t, repo, parentHook, "id: submit\nsequence:\n- id: submit\n  op: hook_submit_callback\n")
+			commitHookFile(t, repo, callback, callbackYAML)
+			childRepo, childCell := repo, "test"
+			if mode == "execution-foreign-repo" {
+				childRepo, childCell = filepath.Join(t.TempDir(), "foreign"), "foreign"
+				workspaceRepo(t, childRepo, childCell)
+				commitHookFile(t, childRepo, callback, callbackYAML)
+			}
+			childRecipe, err := recipe.LoadRecipeFromString([]byte("id: child\nsequence:\n- id: callback\n  include: cell://" + callback + "\noutputs: {grants: '${{ sequence.callback.outputs.grants }}'}\n"))
+			require.NoError(t, err)
+			children := make(chan jobdb.JobKey, 1)
+			var amend func() error
+			submit := coreops.NewActivityMappedOpV2[struct{}, struct{}](coreops.OpMetadata{Type: "hook_submit_callback"}, func(deps coreops.OpDependencies, ctx context.Context, _ struct{}) (struct{}, error) {
+				if err := amend(); err != nil {
+					return struct{}{}, err
+				}
+				if legacy {
+					if err := os.Setenv("C2J_WRITE_EXECUTION_HOOK_POLICY", "true"); err != nil {
+						return struct{}{}, err
+					}
+				} else if mode == "execution-deny" {
+					if err := os.Unsetenv("C2J_WRITE_EXECUTION_HOOK_POLICY"); err != nil {
+						return struct{}{}, err
+					}
+				}
+				start := workflowctl.StartJob{TenantId: deps.JobTool().GetJobKey().TenantId, RecipeName: "child", GitRef: "main", Cell: childCell, CellRepo: celltest.Repo(childRepo), JobContext: contextual.JobContext{GitBase: contextual.GitBaseContext{BaseRepo: childRepo, BaseRef: "main"}}}
+				ref, err := starter.StartRecipeJob(ctx, start, hookChildSubmitter{permissions.FromContext(ctx)}, *childRecipe)
+				if err == nil {
+					children <- ref.Key()
+				}
+				return struct{}{}, err
+			})
+			type probeOutput struct {
+				Grants string `json:"grants"`
+			}
+			probe := coreops.NewActivityMappedOpV2[struct{}, probeOutput](coreops.OpMetadata{Type: "hook_callback_grants"}, func(_ coreops.OpDependencies, ctx context.Context, _ struct{}) (probeOutput, error) {
+				return probeOutput{Grants: strings.Join(permissions.FromContext(ctx).Grant().Secrets.Resolve, ",")}, nil
+			})
+			ctx, eng, rt, _ := hookTestEngine(t, workspaceTestWorker(t, submit, probe))
+			if childCell != "test" {
+				celltest.Create(t, rt, "hooks", childCell, celltest.Repo(childRepo))
+			}
+			entry := func(submit bool, secrets ...string) hookpolicy.Entry {
+				trust := hookpolicy.Trust{Mode: "candidate"}
+				result := hookpolicy.Entry{Perms: permissions.Spec{JobDB: &permissions.JobDB{Jobs: permissions.JobPermissions{Submit: submit}, Secrets: permissions.SecretPermissions{Resolve: secrets}}}, Trust: hookpolicy.SourceTrust{Secrets: map[string]hookpolicy.Trust{}}}
+				if submit {
+					result.Trust.Submit = &trust
+				}
+				for _, name := range secrets {
+					result.Trust.Secrets[name] = trust
+				}
+				return result
+			}
+			set := func(callbackEntry hookpolicy.Entry) error {
+				policy := hookpolicy.Document{Version: 1, Hooks: map[string]hookpolicy.Entry{parentHook: entry(true, "token"), callback: callbackEntry}}
+				raw, err := json.Marshal(policy)
+				if err != nil {
+					return err
+				}
+				_, err = rt.SetTenantConfigurationValue(ctx, jobdb.SetTenantConfigurationValueRequest{TenantID: "hooks", Name: hookpolicy.TenantKey, Value: raw})
+				return err
+			}
+			require.NoError(t, set(entry(false, "token")))
+			amend = func() error {
+				if mode == "execution-ceiling" {
+					return set(entry(false, "token", "added"))
+				}
+				return set(hookpolicy.Empty())
+			}
+			parent := startHookTest(t, ctx, eng, repo, "id: parent\nsequence:\n- id: hook\n  include: cell://"+parentHook+"\n")
+			_, err = swfutil.JobResult(ctx, eng, parent)
+			require.NoError(t, err)
+			child := <-children
+			require.NoError(t, jobworkflow.WaitForJobToComplete(ctx, time.Minute, child, eng))
+			history, err := eng.GetJobRun(ctx, jobdb.GetJobRunRequest{JobKey: child, IncludeInputs: true})
+			require.NoError(t, err)
+			require.NotNil(t, history.Start.Input)
+			raw := history.Start.Input.Data
+			var start workflowctl.StartJob
+			require.NoError(t, json.Unmarshal(raw, &start))
+			if legacy {
+				require.Zero(t, start.HookPolicyVersion)
+				require.NotEmpty(t, start.JobContext.InheritedPermissions.ChildPolicy)
+				require.NotContains(t, string(raw), "child_hook_lineage")
+			} else {
+				require.Equal(t, workflowctl.ExecutionHookPolicyVersion, start.HookPolicyVersion)
+				require.Equal(t, celltest.Repo(repo), start.JobContext.InheritedPermissions.ChildHookLineage.Repository)
+				require.NotContains(t, string(raw), "child_policy")
+			}
+			result, err := swfutil.JobResult(ctx, eng, child)
+			if mode == "execution-foreign-repo" {
+				require.ErrorContains(t, err, "consuming repository workspace is unavailable")
+				return
+			}
+			require.NoError(t, err)
+			want := "token"
+			if mode == "execution-deny" {
+				want = ""
+			}
+			requireJobOutputJSONEq(t, fmt.Sprintf(`{"grants":%q}`, want), result.GetDataOrPanic())
+		})
+	}
+}

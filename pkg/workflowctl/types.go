@@ -42,8 +42,11 @@ type JobInspection struct {
 	FinishedAt     time.Time
 }
 
+const ExecutionHookPolicyVersion = 1
+
 type StartJob struct {
 	JobSemanticsVersion int `json:"job_semantics_version,omitempty"`
+	HookPolicyVersion   int `json:"hook_policy_version,omitempty"`
 	// AvailableAt is an earliest execution instant, resolved before preparation.
 	AvailableAt *time.Time `json:"available_at,omitempty"`
 	// Title labels the job metadata without adding a recipe input.

@@ -163,6 +163,13 @@ type hookResolution struct {
 	ContentSHA256             string                       `json:"content_sha256,omitempty"`
 	Source                    recipe.RecipeSourceSnapshot  `json:"source"`
 	Functions                 WithinRecipeResolutionResult `json:"functions,omitempty"`
+	Decision                  *hookDecision                `json:"decision,omitempty"`
+}
+
+type hookDecision struct {
+	Authority permissions.State `json:"authority"`
+	Revision  string            `json:"revision"`
+	Scope     string            `json:"scope"`
 }
 type hookResolveWorker struct {
 	control workflowctl.WorkflowControl
@@ -276,6 +283,20 @@ func (w hookResolveWorker) RunTask(ctx context.Context, tc jobworkflow.TaskConte
 		if req.GitTaskContext.PersistHash == "" || head != req.GitTaskContext.PersistHash {
 			return nil, fmt.Errorf("hook load requires the recorded candidate")
 		}
+		var entry hookpolicy.Entry
+		if req.Input["execution_hook_policy"] == true {
+			snapshot, err := tc.GetConfiguration(ctx)
+			if err != nil {
+				return nil, err
+			}
+			policy, err := hookpolicy.Capture(snapshot, id)
+			if err != nil {
+				return nil, err
+			}
+			selected, scope := policy.Select(hook)
+			entry = selected
+			result.Decision = &hookDecision{Revision: policy.Revision, Scope: scope}
+		}
 		// Only this disposable source checkout changes. The returned Git state and
 		// thin pack still describe the candidate that will execute the hook.
 		if source != head {
@@ -292,32 +313,31 @@ func (w hookResolveWorker) RunTask(ctx context.Context, tc jobworkflow.TaskConte
 		if errors.Is(err, os.ErrNotExist) {
 			result.Absent = true
 			result.SkipAbsentWorkspace, _ = req.Input["skip_absent_workspace"].(bool)
+			if result.Decision != nil {
+				result.Decision.Scope = "missing"
+				result.Decision.Authority, err = hookAuthority(req, hookpolicy.Empty(), head)
+				if err != nil {
+					return nil, err
+				}
+			}
 		} else if err != nil {
 			return nil, err
 		} else {
-			var entry hookpolicy.Entry
-			encoded, err := json.Marshal(req.Input["policy"])
+			if result.Decision == nil {
+				encoded, err := json.Marshal(req.Input["policy"])
+				if err != nil {
+					return nil, err
+				}
+				if err = json.Unmarshal(encoded, &entry); err != nil {
+					return nil, err
+				}
+			}
+			authority, err := hookAuthority(req, entry, head)
 			if err != nil {
 				return nil, err
 			}
-			if err = json.Unmarshal(encoded, &entry); err != nil {
-				return nil, err
-			}
-			parent := permissions.State{Version: permissions.Version}
-			if req.Permissions != nil {
-				parent = *req.Permissions
-			}
-			var call *permissions.Spec
-			encoded, err = json.Marshal(req.Input["perms"])
-			if err != nil {
-				return nil, err
-			}
-			if err = json.Unmarshal(encoded, &call); err != nil {
-				return nil, err
-			}
-			authority, err := entry.Authority(head, parent, call)
-			if err != nil {
-				return nil, err
+			if result.Decision != nil {
+				result.Decision.Authority = authority
 			}
 			ctx = gitprofile.WithSecretLimit(ctx, authority.Limit.Secrets.Resolve)
 			rec, err := recipe.LoadRecipeFromString(contents)
@@ -375,6 +395,22 @@ func (w hookResolveWorker) RunTask(ctx context.Context, tc jobworkflow.TaskConte
 		return nil, err
 	}
 	return jobdb.NewTaskData(env, outputArts...)
+}
+
+func hookAuthority(req workerops.ActivityInvocationRequest, entry hookpolicy.Entry, candidate string) (permissions.State, error) {
+	parent := permissions.State{Version: permissions.Version}
+	if req.Permissions != nil {
+		parent = *req.Permissions
+	}
+	encoded, err := json.Marshal(req.Input["perms"])
+	if err != nil {
+		return permissions.State{}, err
+	}
+	var call *permissions.Spec
+	if err := json.Unmarshal(encoded, &call); err != nil {
+		return permissions.State{}, err
+	}
+	return entry.Authority(candidate, parent, call)
 }
 
 type candidateRecipeResolver struct {
@@ -449,8 +485,17 @@ func prepareHook(ctx workflow.Context, parent *template.ResolutionContext, n *re
 		}
 		return recipe.Node{NodeImpl: &recipe.NodeSequence{NodeMetadata: meta, SequenceData: recipe.SequenceData{Outputs: outputs}}}, nil
 	}
-	if ctx.HookPolicy == nil {
+	var repository string
+	if ctx.ExecutionHookPolicy {
+		var err error
+		repository, err = hookpolicy.Identity(ctx.HookRepository)
+		if err != nil {
+			return recipe.Node{}, err
+		}
+	} else if ctx.HookPolicy == nil {
 		return recipe.Node{}, fmt.Errorf("hook policy was not captured during job preparation")
+	} else {
+		repository = ctx.HookPolicy.Repository
 	}
 	// Workspace boundaries retain their enclosing resolver and its snapshot.
 	// Load from the nearest consuming-repository workspace, even when execution
@@ -458,7 +503,7 @@ func prepareHook(ctx workflow.Context, parent *template.ResolutionContext, n *re
 	source := parent
 	for source != nil {
 		id, e := hookpolicy.Identity(source.TaskExecutionContext().GitTask.BaseRepo)
-		if e == nil && id == ctx.HookPolicy.Repository {
+		if e == nil && id == repository {
 			break
 		}
 		source = source.Parent
@@ -479,8 +524,15 @@ func prepareHook(ctx workflow.Context, parent *template.ResolutionContext, n *re
 	// by retries of this invocation; a new visit advances the local invocation ID.
 	invocation := parent.NextWorkspaceID("hook:" + template.ScopeID(n.NodeMetadata, "", template.ScopeSequence))
 	p := parent.Permissions
-	e, _ := ctx.HookPolicy.Select(hook)
-	req := workerops.ActivityInvocationRequest{Input: map[string]any{"hook": hook, "policy": e, "perms": n.Perms, "repository": ctx.HookPolicy.Repository, "policy_revision": ctx.HookPolicy.Revision}, Permissions: &p, GitProfile: parent.GitProfile}
+	var entry hookpolicy.Entry
+	req := workerops.ActivityInvocationRequest{Input: map[string]any{"hook": hook, "perms": n.Perms, "repository": repository}, Permissions: &p, GitProfile: parent.GitProfile}
+	if ctx.ExecutionHookPolicy {
+		req.Input["execution_hook_policy"] = true
+	} else {
+		entry, _ = ctx.HookPolicy.Select(hook)
+		req.Input["policy"] = entry
+		req.Input["policy_revision"] = ctx.HookPolicy.Revision
+	}
 	req.Input["source_hooks"] = ctx.SourceHooks
 	req.Input["initial_base"] = ctx.HookBase
 	var result hookResolution
@@ -542,16 +594,28 @@ func prepareHook(ctx workflow.Context, parent *template.ResolutionContext, n *re
 		}
 		source.UpdateGitState(decoded.Activity.GitResult)
 	}
-	if result.Absent {
-		e = hookpolicy.Empty()
-	}
-	authority, err := e.Authority(result.Candidate, parent.Permissions, n.Perms)
-	if err != nil {
-		return recipe.Node{}, err
-	}
-	authority.ChildPolicy, err = json.Marshal(ctx.HookPolicy)
-	if err != nil {
-		return recipe.Node{}, err
+	var authority permissions.State
+	if ctx.ExecutionHookPolicy {
+		if result.Decision == nil {
+			return recipe.Node{}, fmt.Errorf("hook load did not record an execution policy decision")
+		}
+		authority = result.Decision.Authority
+		if authority.Version != permissions.Version || authority.Grant == nil || authority.Limit == nil || authority.ChildGrant == nil || authority.Inputs == nil || !authority.Inputs.Foreign || authority.HasHookLineage() {
+			return recipe.Node{}, fmt.Errorf("invalid recorded hook authority")
+		}
+		authority.ChildHookLineage = &permissions.HookLineage{Repository: repository}
+	} else {
+		if result.Absent {
+			entry = hookpolicy.Empty()
+		}
+		authority, err = entry.Authority(result.Candidate, parent.Permissions, n.Perms)
+		if err != nil {
+			return recipe.Node{}, err
+		}
+		authority.ChildPolicy, err = json.Marshal(ctx.HookPolicy)
+		if err != nil {
+			return recipe.Node{}, err
+		}
 	}
 	var rec recipe.Recipe
 	var recipeYAML []byte

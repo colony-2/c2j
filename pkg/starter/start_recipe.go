@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -195,6 +196,14 @@ func PrepareRecipeJob(ctx context.Context, startJob workflowctl.StartJob, opts S
 	}
 	if opts.GoalID != "" || startJob.GoalID != "" {
 		return jobdb.SubmitJob{}, fmt.Errorf("goal selection is unsupported; submit an independent job")
+	}
+	startJob.HookPolicyVersion = 0
+	inherited := startJob.JobContext.InheritedPermissions
+	if inherited != nil && inherited.ChildHookLineage != nil {
+		return jobdb.SubmitJob{}, fmt.Errorf("hook child lineage must be assigned by the controller")
+	}
+	if (inherited == nil || !inherited.HasHookLineage()) && os.Getenv("C2J_WRITE_EXECUTION_HOOK_POLICY") == "true" {
+		startJob.HookPolicyVersion = workflowctl.ExecutionHookPolicyVersion
 	}
 	if opts.JobID != "" {
 		startJob.JobID = opts.JobID
