@@ -95,6 +95,33 @@ func TestResolveJobDBTargetUsesProjectConfig(t *testing.T) {
 	}
 }
 
+func TestProjectCatalogTargetPrecedence(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+	configDir := filepath.Join(root, ".c2")
+	if err := os.Mkdir(configDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(configDir, "config.yaml"), []byte("jobdb: https://config.example\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct{ explicit, env, want string }{
+		{"https://explicit.example/old-id", "https://env.example", "https://explicit.example"},
+		{"embed:///", "https://env.example", "embed:///"},
+		{"", "https://env.example", "https://env.example"},
+		{"", "", "https://config.example"},
+	} {
+		t.Setenv(JobDBEnv, test.env)
+		target, err := ResolveProjectCatalogTarget(ctx, root, test.explicit)
+		if err != nil || target.RuntimeURL != test.want || target.TenantID != "" {
+			t.Fatalf("ResolveProjectCatalogTarget(%q, env %q) = %#v, %v; want %q with no scope", test.explicit, test.env, target, err, test.want)
+		}
+	}
+	if _, err := ResolveJobDBTarget(ctx, root, ""); err == nil {
+		t.Fatal("ordinary command accepted the bare server URL from config")
+	}
+}
+
 func TestResolveJobDBTargetUsesEmbeddedProjectConfig(t *testing.T) {
 	t.Setenv(JobDBEnv, "")
 

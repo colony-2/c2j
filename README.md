@@ -197,6 +197,37 @@ Fresh embedded stores initialize the local `0` and `c2` projects. Existing store
 require explicit offline JobDB migration and project installation; see
 [embedded upgrade requirements](pkg/executionruntime/README.md#resource-backoff).
 
+#### Create and list projects
+
+Projects are identified by immutable IDs, not names. To create a local project,
+list the catalog, then register a cell in that project:
+
+```bash
+c2j project create --embed --name reports --request-id create-reports-1
+c2j project list --embed --name reports
+c2j cell create <cell-name> --repo <repository> --jobdb embed:///PROJECT_ID
+```
+
+Creation accepts `--description` and repeatable typed metadata, for example
+`--metadata 'retentionDays=30' --metadata 'department="finance"'`. If you omit
+`--request-id`, c2j prints a generated ID to stderr before creating anything.
+If a response is lost, repeat the same command with identical project inputs
+and that request ID. Use `--json` for the creation receipt or a list page.
+List returns one page; pass the next token with `--page-token`, keeping the same
+`--name` filter and `--page-size` (default 50).
+
+For remote catalog commands, `--jobdb https://jobdb.example.com` and
+`--jobdb https://jobdb.example.com/PROJECT_ID` target the same catalog. Ordinary
+remote commands still use `https://jobdb.example.com/PROJECT_ID`; bare
+`embed:///` still selects local project `0` for ordinary commands. An explicit
+`--jobdb` or `--embed` takes precedence over `C2J_JOBDB` and then repository
+config. Remote catalog access requires authorization at the existing JobDB
+administrative ingress and uses `JOBDB_BEARER_TOKEN` when set. Neither command
+is available inside a task or through its broker. Embedded list does not
+initialize or repair a database.
+
+#### Submit the build
+
 Configuration alone does not register a cell. Submissions use the build recipe:
 
 ```bash

@@ -15,6 +15,16 @@ type Target struct {
 }
 
 func Parse(raw string) (Target, error) {
+	return parse(raw, false)
+}
+
+func ParseCatalog(raw string) (Target, error) {
+	target, err := parse(raw, true)
+	target.TenantID = ""
+	return target, err
+}
+
+func parse(raw string, catalog bool) (Target, error) {
 	// Rejected URIs may contain credentials, including in malformed URL text.
 	// Describe the violated rule without echoing raw input or URL parser errors.
 	raw = strings.TrimSpace(raw)
@@ -30,7 +40,10 @@ func Parse(raw string) (Target, error) {
 	case "embed":
 		return parseEmbeddedJobDBURI(parsed)
 	case "http", "https":
-		return parseRemoteJobDBURI(parsed)
+		if catalog && parsed.ForceQuery {
+			return Target{}, fmt.Errorf("remote JobDB URI must not include query or fragment")
+		}
+		return parseRemoteJobDBURI(parsed, catalog)
 	default:
 		return Target{}, fmt.Errorf("unsupported JobDB URI scheme: use http, https, or embed")
 	}
@@ -42,18 +55,26 @@ func IsEmbeddedJobDBURI(raw string) bool {
 }
 
 func parseEmbeddedJobDBURI(parsed *url.URL) (Target, error) {
-	if parsed.Host != "" || parsed.RawQuery != "" || parsed.Fragment != "" || (parsed.Path != "" && parsed.Path != "/") {
-		return Target{}, fmt.Errorf("unsupported embedded JobDB URI: only embed:/// is supported")
+	if parsed.Host != "" || parsed.User != nil || parsed.Opaque != "" || parsed.RawQuery != "" || parsed.ForceQuery || parsed.Fragment != "" {
+		return Target{}, fmt.Errorf("unsupported embedded JobDB URI: use embed:/// or embed:///PROJECT_ID")
+	}
+	id, uri := "0", "embed:///"
+	if parsed.Path != "" && parsed.Path != "/" {
+		id = strings.TrimSpace(strings.TrimPrefix(parsed.Path, "/"))
+		if !strings.HasPrefix(parsed.EscapedPath(), "/") || id == "" || strings.Contains(id, "/") {
+			return Target{}, fmt.Errorf("embedded JobDB URI must use exactly one project ID segment")
+		}
+		uri = "embed:///" + url.PathEscape(id)
 	}
 	return Target{
-		URI:        "embed:///",
+		URI:        uri,
 		RuntimeURL: "embed:///",
-		TenantID:   "0",
+		TenantID:   id,
 		Embedded:   true,
 	}, nil
 }
 
-func parseRemoteJobDBURI(parsed *url.URL) (Target, error) {
+func parseRemoteJobDBURI(parsed *url.URL, catalog bool) (Target, error) {
 	if parsed.Host == "" {
 		return Target{}, fmt.Errorf("remote JobDB URI requires a host")
 	}
@@ -66,7 +87,11 @@ func parseRemoteJobDBURI(parsed *url.URL) (Target, error) {
 
 	escapedPath := parsed.EscapedPath()
 	tenantPath := strings.TrimPrefix(escapedPath, "/")
+	runtimeURL := (&url.URL{Scheme: parsed.Scheme, Host: parsed.Host}).String()
 	if tenantPath == "" {
+		if catalog {
+			return Target{URI: runtimeURL, RuntimeURL: runtimeURL}, nil
+		}
 		return Target{}, fmt.Errorf("remote JobDB URI requires tenant path /<tenant-id>")
 	}
 	if strings.Contains(tenantPath, "/") {
@@ -84,7 +109,6 @@ func parseRemoteJobDBURI(parsed *url.URL) (Target, error) {
 		return Target{}, fmt.Errorf("remote JobDB URI must use exactly one tenant path segment")
 	}
 
-	runtimeURL := (&url.URL{Scheme: parsed.Scheme, Host: parsed.Host}).String()
 	return Target{
 		URI:        (&url.URL{Scheme: parsed.Scheme, Host: parsed.Host, Path: "/" + tenantID}).String(),
 		RuntimeURL: runtimeURL,

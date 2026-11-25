@@ -13,6 +13,14 @@ import (
 type JobDBTarget = jobdbtarget.Target
 
 func ResolveJobDBTarget(ctx context.Context, workingDir string, explicit string) (JobDBTarget, error) {
+	return resolveJobDBTarget(ctx, workingDir, explicit, jobdbtarget.Parse)
+}
+
+func ResolveProjectCatalogTarget(ctx context.Context, workingDir string, explicit string) (JobDBTarget, error) {
+	return resolveJobDBTarget(ctx, workingDir, explicit, jobdbtarget.ParseCatalog)
+}
+
+func resolveJobDBTarget(ctx context.Context, workingDir, explicit string, parse func(string) (JobDBTarget, error)) (JobDBTarget, error) {
 	raw := strings.TrimSpace(explicit)
 	if raw == "" {
 		raw = strings.TrimSpace(os.Getenv(JobDBEnv))
@@ -32,7 +40,7 @@ func ResolveJobDBTarget(ctx context.Context, workingDir string, explicit string)
 	if strings.TrimSpace(raw) == "" {
 		return JobDBTarget{}, nil
 	}
-	return ParseJobDBURI(raw)
+	return parse(raw)
 }
 
 func ParseJobDBURI(raw string) (JobDBTarget, error) { return jobdbtarget.Parse(raw) }

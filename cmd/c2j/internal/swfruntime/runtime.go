@@ -224,8 +224,16 @@ type embedLock struct {
 }
 
 func acquireEmbedLock(root string) (*embedLock, error) {
+	return lockEmbedRoot(root, true)
+}
+
+func lockEmbedRoot(root string, writeOwner bool) (*embedLock, error) {
 	lockPath := filepath.Join(root, "lock")
-	file, err := os.OpenFile(lockPath, os.O_RDWR|os.O_CREATE, 0o644)
+	flags := os.O_RDONLY
+	if writeOwner {
+		flags = os.O_RDWR | os.O_CREATE
+	}
+	file, err := os.OpenFile(lockPath, flags, 0o644)
 	if err != nil {
 		return nil, fmt.Errorf("open runtime lock %s: %w", lockPath, err)
 	}
@@ -235,6 +243,9 @@ func acquireEmbedLock(root string) (*embedLock, error) {
 			return nil, fmt.Errorf("embedded JobDB runtime at %s is already in use", root)
 		}
 		return nil, fmt.Errorf("lock runtime file %s: %w", lockPath, err)
+	}
+	if !writeOwner {
+		return &embedLock{file: file}, nil
 	}
 	if err := file.Truncate(0); err != nil {
 		_ = file.Close()
