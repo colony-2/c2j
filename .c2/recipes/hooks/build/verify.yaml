@@ -492,6 +492,8 @@ state:
           # Keep cancelled grouped reads and definite append rejections distinct
           # from infrastructure failures when adopting the JobDB preservation fix.
           go test -count=1 -v -timeout=2m ./pkg/worker/compiler -run '^TestGrouping(SuccessorWaitsAndNoWriteLease|BackendRejectionsNeverFallBack|TransportFailureDoesNotResubmit)$'
+          go test -mod=readonly -count=1 -v -timeout=2m ./pkg/recipe ./pkg/worker/compiler -run '^TestParallel'
+          go test -mod=readonly -race -count=1 -v -timeout=2m ./pkg/worker/compiler -run '^TestParallel(LaunchErrorClassification|RetriesUnavailableLaunchPreflight|InheritsTransition|InheritsScopedExecutionNeeds)$'
           # Retained-goal adoption, explicit legacy-copy migration and optional inbox reads.
           go test -mod=readonly -count=1 -v -tags=integration -timeout=5m ./internal/consumerfixture ./internal/localruntime ./pkg/executionruntime ./pkg/input ./pkg/joblist ./pkg/story ./pkg/story/live ./pkg/story/internal/service ./pkg/worker/compiler -run '^(TestC05RetainedServerCapabilities|TestSelectedSubmissionUsesTrustedLocalAdministrator|TestDAGPersistedSubmissionRelationships|TestHistorySQLiteCompilerLineage|TestIncludeHiddenSQLiteHTTP|TestInbox|TestStoryServicePreservesReconstructionErrorCauses|TestStoryReplay|TestRestartContinuesGoalAndReconcilesAfterWinning|TestGoalBrokerRestartReceiptReplay|TestRestartPreFix|TestResumePreFix|TestRestartContextUnfinishedHistory|TestHistoricalGoalIdentityExecutionRestartAndReplay|TestHookAbsentLegacy)'
           # Allow ancestor replies before child creation; reserve targets across provenance gaps.

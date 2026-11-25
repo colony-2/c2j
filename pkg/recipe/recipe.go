@@ -26,6 +26,8 @@ func (r Recipe) GetMetdata() RecipeMetadata {
 		return t.RecipeMetadata
 	case *RecipeSequence:
 		return t.RecipeMetadata
+	case *RecipeParallel:
+		return t.RecipeMetadata
 	case *RecipeOp:
 		return t.RecipeMetadata
 	case *RecipeChildGroup:
@@ -50,6 +52,9 @@ func (n *Recipe) UnmarshalYAML(node *yamlv3.Node) error {
 	if err := node.Decode(&raw); err != nil {
 		return err
 	}
+	if err := validateParallelDiscriminator(raw); err != nil {
+		return err
+	}
 
 	var impl RecipeImpl
 	switch {
@@ -57,6 +62,8 @@ func (n *Recipe) UnmarshalYAML(node *yamlv3.Node) error {
 		impl = &RecipeState{}
 	case raw["sequence"] != nil:
 		impl = &RecipeSequence{}
+	case raw["parallel"] != nil:
+		impl = &RecipeParallel{}
 	case raw["op"] != nil:
 		impl = &RecipeOp{}
 	case raw["child_group"] != nil:
@@ -64,7 +71,7 @@ func (n *Recipe) UnmarshalYAML(node *yamlv3.Node) error {
 	default:
 		// update to include line/col
 
-		return fmt.Errorf("root node must either be an op, sequence, state, or child_group at %d:%d", node.Line, node.Column)
+		return fmt.Errorf("root node must either be an op, sequence, state, child_group, or parallel at %d:%d", node.Line, node.Column)
 	}
 
 	_, isOp := impl.(*RecipeOp)

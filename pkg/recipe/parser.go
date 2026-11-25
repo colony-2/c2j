@@ -88,6 +88,8 @@ func rejectInternalMetadataRecipeImpl(impl RecipeImpl) error {
 		if node.NodeMetadata.Internal != nil {
 			return fmt.Errorf("__c2j_internal metadata is reserved for compiler-generated recipe snapshots")
 		}
+	case *RecipeParallel:
+		return rejectInternalMetadataNode(Node{NodeImpl: &NodeParallel{NodeMetadata: node.NodeMetadata, ParallelData: node.ParallelData}})
 	case *RecipeSequence:
 		if node.NodeMetadata.Internal != nil {
 			return fmt.Errorf("__c2j_internal metadata is reserved for compiler-generated recipe snapshots")
@@ -133,6 +135,15 @@ func rejectInternalMetadataNode(node Node) error {
 			return fmt.Errorf("__c2j_internal metadata is reserved for compiler-generated recipe snapshots")
 		}
 		for _, child := range n.Sequence {
+			if err := rejectInternalMetadataNode(child); err != nil {
+				return err
+			}
+		}
+	case *NodeParallel:
+		if n.Internal != nil {
+			return fmt.Errorf("__c2j_internal metadata is reserved for compiler-generated recipe snapshots")
+		}
+		for _, child := range n.Parallel.Branches {
 			if err := rejectInternalMetadataNode(child); err != nil {
 				return err
 			}

@@ -98,10 +98,11 @@ func NewRecipeWorkerWithOptions(dependencies ops.ServiceDependencies2, activityR
 	}
 	taskWorkers = append(taskWorkers, newWithinRecipeResolutionTaskWorker(), NewWorkspaceResolutionTaskWorker(), cellContextWorker{}, hookPolicyWorker{}, hookResolveWorker{control: dependencies.WorkflowControl()})
 	taskWorkers = append(taskWorkers, lateSelectWorker{}, lateCaptureWorker{resolver: opts.RootSourceResolver}, extensionEagainWaitWorker{})
+	taskWorkers = append(taskWorkers, parallelWorker{name: parallelPinTask}, parallelWorker{name: parallelLaunchTask}, parallelWorker{name: parallelCollectTask, control: dependencies.WorkflowControl()})
 	for i, worker := range taskWorkers {
 		kind := coretask.OutputKindActivityInvocationOutput
 		switch worker.Name() {
-		case RootSourceResolutionTaskType, WithinRecipeResolutionTaskType, WorkspaceResolutionTaskType, CellContextTaskType, hookPolicyTaskType, lateSelectTaskType, lateCaptureTaskType, extensionEagainWaitType:
+		case RootSourceResolutionTaskType, WithinRecipeResolutionTaskType, WorkspaceResolutionTaskType, CellContextTaskType, hookPolicyTaskType, lateSelectTaskType, lateCaptureTaskType, extensionEagainWaitType, parallelPinTask, parallelLaunchTask, parallelCollectTask:
 			kind = coretask.OutputKindInternalResult
 		}
 		if opts.WrapTaskWorker != nil {
@@ -249,6 +250,16 @@ func (j recipeJobWorker) Run(ctx jobworkflow.ExecutionContext, jobData jobdb.Job
 	)
 
 	runContext := input.JobContext
+	var branch *parallelBranchContext
+	if input.Parent != nil && input.Parent.OpTaskType == parallelLaunchTask {
+		if !hasEmbeddedRecipeArtifact {
+			return nil, fmt.Errorf("invalid parallel branch submission")
+		}
+		branch, err = readParallelContext(ctx.Context(), artifacts)
+		if err != nil {
+			return nil, err
+		}
+	}
 	if name := runContext.RestoreArtifactName; name != "" {
 		if runContext.RestoreArtifact != nil {
 			return nil, fmt.Errorf("workspace restore cannot specify both artifact name and key")
@@ -279,7 +290,9 @@ func (j recipeJobWorker) Run(ctx jobworkflow.ExecutionContext, jobData jobdb.Job
 		return nil, err
 	}
 	runContext.Artifacts = submittedRefs
-	applyRootRecipeSource(&runContext, resolution)
+	if branch == nil {
+		applyRootRecipeSource(&runContext, resolution)
+	}
 	if err := ensureEnvironmentSentinels(&runContext.Environment); err != nil {
 		logger.Debug("recipe job: invalid environment sentinel",
 			"error", err,
@@ -300,7 +313,11 @@ func (j recipeJobWorker) Run(ctx jobworkflow.ExecutionContext, jobData jobdb.Job
 		wCtx.JobPython = func() *execution.Python { return execution.ChoosePython(nil, input.Execution.JobRequirements.Python) }
 	}
 	if !j.readOnlyReplay {
-		session, err := j.executionSession(ctx, r, input.Execution)
+		var inherited execution.Requirements
+		if branch != nil {
+			inherited = branch.ExecutionNeeds
+		}
+		session, err := j.executionSession(ctx, r, input.Execution, inherited)
 		if err != nil {
 			return nil, err
 		}
@@ -311,11 +328,14 @@ func (j recipeJobWorker) Run(ctx jobworkflow.ExecutionContext, jobData jobdb.Job
 		wCtx.StageNodeExecution = session.stageNode
 		wCtx.ContinuationRoute = j.continuationRoute
 	}
-	opts := ExecutionOptions{}
+	opts := ExecutionOptions{parallelBranch: branch}
 	if j.celProvider != nil {
 		opts.CELOptionsProvider = j.celProvider
 	}
 	opts.ResolvedGitRefs = gitRefPinsFromRecipeSource(resolution)
+	if branch != nil {
+		opts.ResolvedGitRefs = cloneResolvedGitRefs(branch.ResolvedRefs)
+	}
 
 	exec := j.executor
 	if j.executorFactory != nil {
@@ -400,7 +420,7 @@ func submittedArtifactRefs(input workflowctl.StartJob, jobArtifacts []jobdb.Arti
 		if artifact == nil {
 			continue
 		}
-		if artifact.Name() == input.JobContext.RestoreArtifactName || (hasEmbeddedRecipeArtifact && artifact.Name() == internalRecipeArtifactName) {
+		if artifact.Name() == input.JobContext.RestoreArtifactName || (hasEmbeddedRecipeArtifact && artifact.Name() == internalRecipeArtifactName) || (input.Parent != nil && input.Parent.OpTaskType == parallelLaunchTask && artifact.Name() == parallelContextArtifact) {
 			continue
 		}
 		artifactRef, err := recipeartifacts.RefFromArtifact(artifact)

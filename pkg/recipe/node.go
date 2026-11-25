@@ -41,6 +41,9 @@ func (n *Node) UnmarshalYAML(node *yamlv3.Node) error {
 	if err := node.Decode(&raw); err != nil {
 		return err
 	}
+	if err := validateParallelDiscriminator(raw); err != nil {
+		return err
+	}
 
 	var nodeOp *NodeOp
 	var impl NodeImpl
@@ -49,6 +52,8 @@ func (n *Node) UnmarshalYAML(node *yamlv3.Node) error {
 		impl = &NodeState{}
 	case raw["sequence"] != nil:
 		impl = &NodeSequence{}
+	case raw["parallel"] != nil:
+		impl = &NodeParallel{}
 	case raw["op"] != nil:
 		nodeOp = &NodeOp{}
 		impl = nodeOp
@@ -60,7 +65,7 @@ func (n *Node) UnmarshalYAML(node *yamlv3.Node) error {
 		impl = &NodeInclude{}
 	default:
 		foo, _ := yamlv3.Marshal(node)
-		return fmt.Errorf("intermediate node must either be a op, sequence, state, include, shared reference, or a child_group at %d:%d. tree: %s", node.Line, node.Column, foo)
+		return fmt.Errorf("intermediate node must either be a op, sequence, state, include, shared reference, child_group, or parallel at %d:%d. tree: %s", node.Line, node.Column, foo)
 	}
 
 	if err := checkOptionalInputsField(raw, nodeOp != nil); err != nil {

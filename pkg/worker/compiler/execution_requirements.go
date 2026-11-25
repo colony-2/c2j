@@ -24,7 +24,7 @@ type executionSession struct {
 	guarded   bool
 }
 
-func (j recipeJobWorker) executionSession(ctx jobworkflow.ExecutionContext, r recipe.Recipe, initial *execution.Submission) (*executionSession, error) {
+func (j recipeJobWorker) executionSession(ctx jobworkflow.ExecutionContext, r recipe.Recipe, initial *execution.Submission, inherited execution.Requirements) (*executionSession, error) {
 	// Permission enforcement is checked by each live task worker. Embedders may
 	// register wrapped workers separately; read-only replay needs no capabilities.
 	s := &executionSession{ctx: ctx, stage: j.stageExecution, guarded: j.stageExecution != nil && j.taskGuardConfigured}
@@ -46,7 +46,7 @@ func (j recipeJobWorker) executionSession(ctx jobworkflow.ExecutionContext, r re
 	if _, err := s.effective().Normalize(); err != nil {
 		return nil, err
 	}
-	if (recipe.HasExecutionConstraints(r) || needsAllocation(s.effective())) && !s.guarded {
+	if (recipe.HasExecutionConstraints(r) || needsAllocation(s.effective()) || needsAllocation(inherited)) && !s.guarded {
 		return nil, fmt.Errorf("execution requirements require an execution-aware runtime and guarded task workers")
 	}
 	s.stageCurrent()

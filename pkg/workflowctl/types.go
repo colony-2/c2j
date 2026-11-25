@@ -33,6 +33,7 @@ type JobInspection struct {
 	// Deprecated: empty in current views; retained for historical JSON decoding.
 	OtherGoalIDs   []string
 	JobKey         jobdb.JobKey
+	JobStatus      jobdb.JobStatus
 	Terminal       bool
 	Status         string
 	FailureKind    string

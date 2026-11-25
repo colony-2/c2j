@@ -147,6 +147,9 @@ func enterWorkspace(ctx workflow.Context, parent *template.ResolutionContext, me
 	if spec == nil {
 		return parent, nil
 	}
+	if ctx.ConstBranch {
+		return nil, fmt.Errorf("parallel branches cannot switch workspaces")
+	}
 	render := func(value string, required bool) (string, error) {
 		if value == "" && !required {
 			return "", nil

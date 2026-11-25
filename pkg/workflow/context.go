@@ -15,6 +15,9 @@ import (
 )
 
 type Context struct {
+	ParallelDefinition recipe.RecipeMetadata
+	ConstBranch        bool
+	SkipNodeWhen       bool
 	// OnObservation is optional synchronous, observation-only instrumentation.
 	OnObservation       ObservationCallback
 	SourceHooks         recipe.HookSource

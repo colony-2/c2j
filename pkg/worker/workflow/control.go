@@ -67,7 +67,8 @@ func (s *SWFWorkflowControl) InspectJob(ctx context.Context, key jobdb.JobKey) (
 	}
 
 	inspection := workflowctl.JobInspection{
-		JobKey: key,
+		JobKey:    key,
+		JobStatus: run.Job.Status,
 
 		Status:    normalizeInspectionStatus(run.Job.Status),
 		Terminal:  isTerminalInspectionStatus(run.Job.Status),

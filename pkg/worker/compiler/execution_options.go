@@ -32,6 +32,7 @@ type ExecutionOptions struct {
 	ResolvedSelectors map[string]string
 	// ResolvedGitRefs carries internal repo/ref pins for the current recipe run.
 	ResolvedGitRefs map[string]string
+	parallelBranch  *parallelBranchContext
 }
 
 func normalizeExecutionOptions(opts []ExecutionOptions) ExecutionOptions {

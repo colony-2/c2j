@@ -102,6 +102,12 @@ func hasExecutionNeeds(r Recipe, matches func(*ExecutionNeeds) bool) bool {
 			return true
 		}
 		switch v := n.NodeImpl.(type) {
+		case *NodeParallel:
+			for _, child := range v.Parallel.Branches {
+				if nodeHas(child) {
+					return true
+				}
+			}
 		case *NodeSequence:
 			for _, child := range v.Sequence {
 				if nodeHas(child) {
@@ -120,6 +126,12 @@ func hasExecutionNeeds(r Recipe, matches func(*ExecutionNeeds) bool) bool {
 		return false
 	}
 	switch v := r.RecipeImpl.(type) {
+	case *RecipeParallel:
+		for _, child := range v.Parallel.Branches {
+			if nodeHas(child) {
+				return true
+			}
+		}
 	case *RecipeSequence:
 		for _, child := range v.Sequence {
 			if nodeHas(child) {

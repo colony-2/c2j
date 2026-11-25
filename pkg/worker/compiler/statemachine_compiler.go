@@ -444,6 +444,12 @@ func (d DefaultRecipeExecutor) runStateBody(ctx workflow.Context, stateResCtx *t
 
 func nodeWithoutVars(node recipe.Node) recipe.Node {
 	switch n := node.NodeImpl.(type) {
+	case *recipe.NodeParallel:
+		copy := *n
+		copy.Workspace = nil
+		copy.Vars = nil
+		copy.Catch = nil
+		return recipe.Node{NodeImpl: &copy}
 	case *recipe.NodeOp:
 		clone := *n
 		clone.NodeMetadata.Workspace = nil
@@ -481,6 +487,12 @@ func nodeWithoutVars(node recipe.Node) recipe.Node {
 
 func nodeWithoutPolicy(node recipe.Node) recipe.Node {
 	switch n := node.NodeImpl.(type) {
+	case *recipe.NodeParallel:
+		copy := *n
+		copy.Retry = nil
+		copy.Timeout = 0
+		copy.Catch = nil
+		node.NodeImpl = &copy
 	case *recipe.NodeOp:
 		v := *n
 		v.Retry = nil
@@ -517,6 +529,10 @@ func nodeWithoutPolicy(node recipe.Node) recipe.Node {
 
 func nodeWithoutRetry(node recipe.Node) recipe.Node {
 	switch n := node.NodeImpl.(type) {
+	case *recipe.NodeParallel:
+		copy := *n
+		copy.Retry = nil
+		node.NodeImpl = &copy
 	case *recipe.NodeOp:
 		v := *n
 		v.Retry = nil

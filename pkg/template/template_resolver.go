@@ -41,8 +41,9 @@ const (
 
 // templateData is the root context for both Go templates and CEL
 type templateData struct {
-	ContainerInputs map[string]interface{}          `json:"container_inputs"`  // ContainerInputs map if this is a sequence or state machine.
-	Sequence        map[string]StepOutput           `json:"sequence"`          // Sibling nodes in sequence
+	ContainerInputs map[string]interface{}          `json:"container_inputs"` // ContainerInputs map if this is a sequence or state machine.
+	Sequence        map[string]StepOutput           `json:"sequence"`         // Sibling nodes in sequence
+	Parallel        map[string]StepOutput           `json:"parallel,omitempty"`
 	States          map[string]StepOutput           `json:"states"`            // Completed states in state machine
 	Vars            map[string]interface{}          `json:"vars"`              // Scoped computed values
 	Outputs         map[string]interface{}          `json:"outputs"`           // Current source outputs for transition evaluation/payloads.
@@ -194,6 +195,7 @@ func (rc *ResolutionContext) initializeCEL() (*ResolutionContext, error) {
 		cel.OptionalTypes(),
 		cel.Variable("inputs", cel.MapType(cel.StringType, cel.DynType)),
 		cel.Variable("sequence", cel.MapType(cel.StringType, cel.MapType(cel.StringType, cel.DynType))),
+		cel.Variable("parallel", cel.MapType(cel.StringType, cel.MapType(cel.StringType, cel.DynType))),
 		cel.Variable("states", cel.MapType(cel.StringType, cel.MapType(cel.StringType, cel.DynType))),
 		cel.Variable("vars", cel.MapType(cel.StringType, cel.DynType)),
 		cel.Variable("outputs", cel.MapType(cel.StringType, cel.DynType)),
@@ -617,6 +619,7 @@ func (rc *ResolutionContext) evaluateCELValue(expr string) (any, error) {
 	activation := map[string]interface{}{
 		"inputs":     rc.TemplateData.ContainerInputs,
 		"sequence":   rc.celSequenceValue(),
+		"parallel":   rc.celParallelValue(),
 		"states":     rc.celStatesValue(),
 		"vars":       rc.TemplateData.Vars,
 		"outputs":    rc.TemplateData.Outputs,

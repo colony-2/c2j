@@ -160,12 +160,17 @@ func objectEngine(t *testing.T) jobworkflow.Engine {
 	eng, _ := objectEngineAt(t, filepath.Join(t.TempDir(), "jobs.db"))
 	return eng
 }
-func objectEngineAt(t *testing.T, dbPath string) (jobworkflow.Engine, func()) {
+func objectEngineAt(t *testing.T, dbPath string, wrap ...func(jobworkflow.TaskWorker) jobworkflow.TaskWorker) (jobworkflow.Engine, func()) {
+	t.Helper()
+	return objectEngineAtWithAllocation(t, dbPath, execution.Allocation{SchemaVersion: 1}, wrap...)
+}
+
+func objectEngineAtWithAllocation(t *testing.T, dbPath string, allocation execution.Allocation, wrap ...func(jobworkflow.TaskWorker) jobworkflow.TaskWorker) (jobworkflow.Engine, func()) {
 	t.Helper()
 	ctx, cancel := context.WithCancel(celltest.Context(context.Background()))
 	rt, err := sqliteruntime.NewFromConfig(ctx, sqliteruntime.Config{DBPath: dbPath, Projects: jobdbcelltest.UnrestrictedProjects{}})
 	require.NoError(t, err)
-	guard := executionruntime.New(rt, execution.Allocation{SchemaVersion: 1})
+	guard := executionruntime.New(rt, allocation)
 	eng, err := jobworkflow.NewEngineBuilder().WithRuntime(guard).WithWorkerTenantId("object-tests").BuildEngine()
 	require.NoError(t, err)
 	eng = jobdbschema.WorkflowEngine{Engine: eng, Registry: rt}
@@ -173,7 +178,13 @@ func objectEngineAt(t *testing.T, dbPath string) (jobworkflow.Engine, func()) {
 	deps := coreops.NewServiceDepsBuilder().WithWorkflowControl(ctl).Build()
 	registry, err := workerops.NewActivityRegistry()
 	require.NoError(t, err)
-	ws, err := NewRecipeWorkerWithOptions(deps, registry, RecipeJobWorkerOptions{WrapTaskWorker: guard.WrapTaskWorker, RootSourceResolver: NewRecipeSourceResolver(RecipeSourceResolverOptions{})})
+	wrapTask := func(worker jobworkflow.TaskWorker) jobworkflow.TaskWorker {
+		for _, wrapper := range wrap {
+			worker = wrapper(worker)
+		}
+		return guard.WrapTaskWorker(worker)
+	}
+	ws, err := NewRecipeWorkerWithOptions(deps, registry, RecipeJobWorkerOptions{StageExecution: guard.Stage, WrapTaskWorker: wrapTask, RootSourceResolver: NewRecipeSourceResolver(RecipeSourceResolverOptions{})})
 	require.NoError(t, err)
 	require.NoError(t, eng.RegisterWorkers(ws))
 	done := make(chan struct{})

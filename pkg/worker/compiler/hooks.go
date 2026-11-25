@@ -113,6 +113,12 @@ func recipeHasInclude(r recipe.Recipe, match func(*recipe.NodeInclude) bool) boo
 	var walk func(recipe.Node) bool
 	walk = func(n recipe.Node) bool {
 		switch v := n.NodeImpl.(type) {
+		case *recipe.NodeParallel:
+			for _, branch := range v.Parallel.Branches {
+				if walk(branch) {
+					return true
+				}
+			}
 		case *recipe.NodeInclude:
 			return match(v)
 		case *recipe.NodeSequence:
@@ -133,6 +139,12 @@ func recipeHasInclude(r recipe.Recipe, match func(*recipe.NodeInclude) bool) boo
 		return false
 	}
 	switch v := r.RecipeImpl.(type) {
+	case *recipe.RecipeParallel:
+		for _, branch := range v.Parallel.Branches {
+			if walk(branch) {
+				return true
+			}
+		}
 	case *recipe.RecipeSequence:
 		for _, n := range v.Sequence {
 			if walk(n) {

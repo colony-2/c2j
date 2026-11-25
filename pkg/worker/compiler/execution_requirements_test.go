@@ -73,7 +73,7 @@ func TestCapabilityOnlyRequirementsRequireGuardedRuntime(t *testing.T) {
 	} {
 		r, err := recipe.LoadRecipeFromString([]byte(source))
 		require.NoError(t, err)
-		_, err = (recipeJobWorker{}).executionSession(ctx, *r, nil)
+		_, err = (recipeJobWorker{}).executionSession(ctx, *r, nil, execution.Requirements{})
 		require.ErrorContains(t, err, "guarded task workers")
 	}
 	s := executionSession{}

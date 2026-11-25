@@ -114,6 +114,7 @@ func (d DefaultRecipeExecutor) ExecuteRecipe(ctx workflow.Context, r recipe.Reci
 		return nil, nil, err
 	}
 	ctx.SourceHooks = r.GetMetadata().SourceHooks
+	ctx.ParallelDefinition = r.GetMetadata()
 	if err := ctx.SourceHooks.Validate(); err != nil {
 		return nil, nil, err
 	}
@@ -142,6 +143,7 @@ func (d DefaultRecipeExecutor) ExecuteRecipe(ctx workflow.Context, r recipe.Reci
 	ctx.WorkspaceSnapshots = true
 
 	execOpts := normalizeExecutionOptions(opts)
+	ctx.ConstBranch = execOpts.parallelBranch != nil
 	var err error
 	ctx.RecipeDigest, err = recipe.ExecutionDigest(r)
 	if err != nil {
@@ -240,6 +242,18 @@ func (d DefaultRecipeExecutor) ExecuteRecipe(ctx workflow.Context, r recipe.Reci
 	if execCtx.InheritedPermissions != nil {
 		rCtx.Permissions = *execCtx.InheritedPermissions
 	}
+	if branch := execOpts.parallelBranch; branch != nil {
+		rCtx.EffectiveConst = true
+		if branch.Inputs != nil {
+			rCtx.TemplateData.ContainerInputs = branch.Inputs
+		}
+		rCtx.TemplateData.Vars = branch.Vars
+		if branch.Transition != nil {
+			rCtx.TemplateData.Transition = *branch.Transition
+		}
+		rCtx.ExecutionNeeds = branch.ExecutionNeeds
+		rCtx.ToolScopes = append(rCtx.ToolScopes, branch.ToolScopes...)
+	}
 	rCtx.Permissions.Version = permissions.Version
 	rootRepository := execCtx.RecipeSource.Repo
 	if metadata.Internal != nil && metadata.Internal.RootRepository != nil {
@@ -267,7 +281,17 @@ func (d DefaultRecipeExecutor) ExecuteRecipe(ctx workflow.Context, r recipe.Reci
 			}
 		}
 		meta.Vars = nil
+		if ctx.ConstBranch {
+			branch, ok := r.RecipeImpl.(*recipe.RecipeSequence)
+			if !ok || len(branch.Sequence) != 1 || meta.Workspace != nil {
+				return fmt.Errorf("invalid parallel branch recipe")
+			}
+			inner.SkipNodeWhen = true
+			return d.self().ExecuteNode(inner, scoped, &branch.Sequence[0])
+		}
 		switch t := r.RecipeImpl.(type) {
+		case *recipe.RecipeParallel:
+			return d.executeParallel(inner, scoped, meta, t.ParallelData)
 		case *recipe.RecipeState:
 			return d.self().ExecuteStateMachine(inner, scoped, meta, t.Outputs, t.StateMachineData.States, execOpts)
 		case *recipe.RecipeOp:
@@ -287,6 +311,13 @@ func (d DefaultRecipeExecutor) ExecuteRecipe(ctx workflow.Context, r recipe.Reci
 	}
 	if err != nil {
 		return nil, nil, err
+	}
+	if ctx.ConstBranch {
+		refs := make(map[string]recipeartifacts.Ref)
+		for _, ref := range rCtx.GetLastArtifactRefs() {
+			refs[ref.NameValue()] = ref
+		}
+		return map[string]any{"output": rCtx.GetLastExecution(), "artifact_refs": refs}, nil, nil
 	}
 	return rCtx.GetLastExecution(), forwarder.resultArtifacts(rCtx.GetLastArtifacts()), nil
 }
@@ -340,13 +371,19 @@ func (d DefaultRecipeExecutor) ExecuteNode(ctx workflow.Context, parentResCtx *t
 	metadata := n.GetMetadata()
 	// Conditions use the enclosing scope, before resolving the node's inputs or
 	// entering its workspace. Validation of all paths still visits false nodes.
-	shouldRun, err := parentResCtx.EvaluateCEL(metadata.When.String())
-	if err != nil {
-		return fmt.Errorf("failed to evaluate when for node %q: %w", metadata.ID, err)
+	if !ctx.SkipNodeWhen {
+		shouldRun, err := parentResCtx.EvaluateCEL(metadata.When.String())
+		if err != nil {
+			return fmt.Errorf("failed to evaluate when for node %q: %w", metadata.ID, err)
+		}
+		validateAll := parentResCtx.Options.Mode == template.ModeValidate && parentResCtx.Options.ValidationMode == string(ValidateAll)
+		if !shouldRun && !validateAll {
+			return nil
+		}
 	}
-	validateAll := parentResCtx.Options.Mode == template.ModeValidate && parentResCtx.Options.ValidationMode == string(ValidateAll)
-	if !shouldRun && !validateAll {
-		return nil
+	ctx.SkipNodeWhen = false
+	if ctx.ConstBranch && metadata.Workspace != nil {
+		return fmt.Errorf("parallel branches cannot switch workspaces")
 	}
 	if metadata.Internal != nil && metadata.Internal.Inline != nil && metadata.Internal.Inline.Execution != nil && !metadata.Internal.Inline.Execution.Empty() && ctx.UpdateExecution != nil {
 		patch := *metadata.Internal.Inline.Execution
@@ -359,6 +396,8 @@ func (d DefaultRecipeExecutor) ExecuteNode(ctx workflow.Context, parentResCtx *t
 		}
 	}
 	switch t := n.NodeImpl.(type) {
+	case *recipe.NodeParallel:
+		return d.executeParallel(ctx, parentResCtx, metadata, t.ParallelData)
 	case *recipe.NodeState:
 		return d.self().ExecuteStateMachine(ctx, parentResCtx, metadata, t.Outputs, t.StateMachineData.States)
 	case *recipe.NodeOp:
@@ -405,6 +444,9 @@ func (d DefaultRecipeExecutor) executeOpBody(ctx workflow.Context, parentResolut
 
 // executeOperation executes a single operation node attempt.
 func (d DefaultRecipeExecutor) executeOpAttempt(ctx workflow.Context, parentResolutionContext *template.ResolutionContext, metadata recipe.NodeMetadata, op string) error {
+	if ctx.ConstBranch && parallelDisallowedOp(op) {
+		return fmt.Errorf("operation %q requires Git writes outside a parallel branch workspace", op)
+	}
 	if metadata.Inputs == nil {
 		metadata.Inputs = map[string]interface{}{}
 	}

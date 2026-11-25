@@ -188,6 +188,8 @@ func collectSelectorsNeedingResolution(rec *recipe.Recipe) []string {
 	}
 
 	switch typed := rec.RecipeImpl.(type) {
+	case *recipe.RecipeParallel:
+		collectSelectorsInNodes(typed.Parallel.Branches, collect)
 	case *recipe.RecipeOp:
 		collect(typed.OpData.Op)
 	case *recipe.RecipeSequence:
@@ -221,6 +223,8 @@ func collectSelectorsInNode(node *recipe.Node, collect func(string)) {
 		return
 	}
 	switch typed := node.NodeImpl.(type) {
+	case *recipe.NodeParallel:
+		collectSelectorsInNodes(typed.Parallel.Branches, collect)
 	case *recipe.NodeOp:
 		collect(typed.OpData.Op)
 	case *recipe.NodeSequence:

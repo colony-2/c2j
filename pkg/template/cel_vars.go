@@ -13,6 +13,13 @@ func (rc *ResolutionContext) celSequenceValue() interface{} {
 	return clampStepOutputs(rc.TemplateData.Sequence, rc.CELEnv.CELTypeAdapter())
 }
 
+func (rc *ResolutionContext) celParallelValue() interface{} {
+	if !rc.Options.ClampSliceIndex {
+		return rc.TemplateData.Parallel
+	}
+	return clampStepOutputs(rc.TemplateData.Parallel, rc.CELEnv.CELTypeAdapter())
+}
+
 func (rc *ResolutionContext) celStatesValue() interface{} {
 	if !rc.Options.ClampSliceIndex {
 		return rc.TemplateData.States

@@ -54,6 +54,7 @@ func cloneRestartData(v templateData) templateData {
 	v.Outputs = cloneTemplateVars(v.Outputs)
 	v.Locals = cloneTemplateVars(v.Locals)
 	v.Sequence = cloneRestartSteps(v.Sequence)
+	v.Parallel = cloneRestartSteps(v.Parallel)
 	v.States = cloneRestartSteps(v.States)
 	v.Transition.Payload = cloneTemplateVars(v.Transition.Payload)
 	v.Transition.Failure = cloneRestartFailure(v.Transition.Failure)

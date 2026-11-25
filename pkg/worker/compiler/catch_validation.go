@@ -29,6 +29,8 @@ func validateCatchSemantics(r recipe.Recipe, rootCtx *template.ResolutionContext
 			return err
 		}
 		return validateSequenceCatchSemantics(rootCtx, t.NodeMetadata, t.Sequence, nil, true)
+	case *recipe.RecipeParallel:
+		return validateParallelCatchSemantics(rootCtx, t.NodeMetadata, t.Parallel.Branches, nil)
 	case *recipe.RecipeState:
 		stateNames := stateNameSet(t.StateMachineData.States)
 		if err := validateCatchClauses(t.NodeMetadata.Catch, rootCtx, stateNames); err != nil {
@@ -82,6 +84,8 @@ func validateNodeCatchSemantics(parent *template.ResolutionContext, node recipe.
 			return err
 		}
 		return validateSequenceCatchSemantics(parent, n.NodeMetadata, n.Sequence, stateNames, true)
+	case *recipe.NodeParallel:
+		return validateParallelCatchSemantics(parent, n.NodeMetadata, n.Parallel.Branches, stateNames)
 	case *recipe.NodeState:
 		nestedNames := stateNameSet(n.StateMachineData.States)
 		if err := validateCatchClauses(n.NodeMetadata.Catch, parent, nestedNames); err != nil {
@@ -95,6 +99,33 @@ func validateNodeCatchSemantics(parent *template.ResolutionContext, node recipe.
 	default:
 		return nil
 	}
+}
+
+func validateParallelCatchSemantics(parent *template.ResolutionContext, metadata recipe.NodeMetadata, branches []recipe.Node, stateNames map[string]struct{}) error {
+	if err := validateCatchClauses(metadata.Catch, parent, stateNames); err != nil {
+		return err
+	}
+	inputs, err := parent.ResolveCompositeInputs(metadata.Inputs)
+	if err != nil {
+		return err
+	}
+	inputs, err = prepareCompositeInputs(metadata, inputs)
+	if err != nil {
+		return err
+	}
+	scope, err := parent.NewChildContext(template.ScopeSequence, metadata, "parallel", inputs)
+	if err != nil {
+		return err
+	}
+	if err := scope.ResolveVars(metadata.Vars); err != nil {
+		return err
+	}
+	for _, branch := range branches {
+		if err := validateNodeCatchSemantics(scope, branch, nil); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func validateSequenceCatchSemantics(parent *template.ResolutionContext, metadata recipe.NodeMetadata, sequence []recipe.Node, stateNames map[string]struct{}, skipSelf bool) error {

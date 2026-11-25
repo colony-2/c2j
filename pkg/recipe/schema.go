@@ -145,6 +145,13 @@ func getNodeSchema(r *jsonschema.Reflector) (*jsonschema.Schema, error) {
 	// Require presence of the sequence key to avoid oneOf ambiguity
 	seq.Required = append(seq.Required, "sequence")
 	items = append(items, seq)
+	parallel := stripSchema(r.Reflect(NodeParallel{}))
+	parallel.Title = "Parallel"
+	parallel.Required = append(parallel.Required, "parallel")
+	items = append(items, parallel)
+	shared := stripSchema(r.Reflect(NodeShared{}))
+	shared.Required = append(shared.Required, "shared")
+	items = append(items, shared)
 	state := stripSchema(r.Reflect(NodeState{}))
 	state.Title = "State"
 	// Require presence of the state key to avoid oneOf ambiguity
@@ -219,6 +226,8 @@ func (Recipe) JSONSchema() *jsonschema.Schema {
 	reflector.Anonymous = true
 	seq := stripSchema(reflector.Reflect(RecipeSequence{}))
 	seq.Required = append(seq.Required, "sequence")
+	parallel := stripSchema(reflector.Reflect(RecipeParallel{}))
+	parallel.Required = append(parallel.Required, "parallel")
 	state := stripSchema(reflector.Reflect(RecipeState{}))
 	state.Required = append(state.Required, "state")
 	op := stripSchema(reflector.Reflect(RecipeOp{}))
@@ -227,7 +236,7 @@ func (Recipe) JSONSchema() *jsonschema.Schema {
 	childGroup := stripSchema(reflector.Reflect(RecipeChildGroup{}))
 	childGroup.Required = append(childGroup.Required, "child_group")
 	reflector.Anonymous = false
-	return &jsonschema.Schema{Title: "recipe", OneOf: []*jsonschema.Schema{seq, state, op, childGroup}}
+	return &jsonschema.Schema{Title: "recipe", OneOf: []*jsonschema.Schema{seq, state, op, childGroup, parallel}}
 }
 
 //func (Node) JSONSchema() *jsonschema.Schema {

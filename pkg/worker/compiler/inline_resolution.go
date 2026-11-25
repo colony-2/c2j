@@ -82,6 +82,8 @@ func ResolveInlineRecipes(ctx context.Context, rec recipe.Recipe, opts InlineRes
 		}
 	}
 	switch v := expanded.RecipeImpl.(type) {
+	case *recipe.RecipeParallel:
+		setRoot(&v.NodeMetadata)
 	case *recipe.RecipeSequence:
 		setRoot(&v.NodeMetadata)
 	case *recipe.RecipeState:
@@ -219,6 +221,15 @@ func (r *inlineRecipeResolver) expandRecipe(ctx context.Context, rec recipe.Reci
 		recipeMetadataPtr(&rec).Extensions.Functions = imports
 	}
 	switch node := rec.RecipeImpl.(type) {
+	case *recipe.RecipeParallel:
+		expanded, err := r.expandNodeList(ctx, node.Parallel.Branches, source, []string{"root", "parallel"})
+		if err != nil {
+			return recipe.Recipe{}, err
+		}
+		out := *node
+		out.Parallel.Branches = expanded
+		mergeRecipeExtensions(&out.RecipeMetadata, r.extensions)
+		return recipe.Recipe{RecipeImpl: &out}, nil
 	case *recipe.RecipeSequence:
 		expanded, err := r.expandNodeList(ctx, node.Sequence, source, []string{"root"})
 		if err != nil {
@@ -306,6 +317,14 @@ func (r *inlineRecipeResolver) expandNode(ctx context.Context, node recipe.Node,
 	switch n := node.NodeImpl.(type) {
 	case *recipe.NodeInclude:
 		return r.expandInclude(ctx, n, source, pathParts, stateKey)
+	case *recipe.NodeParallel:
+		expanded, err := r.expandNodeList(ctx, n.Parallel.Branches, source, pathParts)
+		if err != nil {
+			return recipe.Node{}, err
+		}
+		out := *n
+		out.Parallel.Branches = expanded
+		return recipe.Node{NodeImpl: &out}, nil
 	case *recipe.NodeSequence:
 		expanded, err := r.expandNodeList(ctx, n.Sequence, source, pathParts)
 		if err != nil {
@@ -682,6 +701,9 @@ func sourceRepositoryIdentity(source inlineRecipeSourceContext) string {
 
 func includedRecipeRootNode(rec recipe.Recipe) (recipe.Node, map[string]interface{}, recipe.RecipeMetadata, error) {
 	switch root := rec.RecipeImpl.(type) {
+	case *recipe.RecipeParallel:
+		node := &recipe.NodeParallel{NodeMetadata: root.NodeMetadata, ParallelData: root.ParallelData}
+		return recipe.Node{NodeImpl: node}, root.Outputs, root.RecipeMetadata, nil
 	case *recipe.RecipeSequence:
 		meta := root.RecipeMetadata
 		node := &recipe.NodeSequence{
@@ -707,6 +729,10 @@ func includedRecipeRootNode(rec recipe.Recipe) (recipe.Node, map[string]interfac
 
 func withNodeID(node recipe.Node, id string) recipe.Node {
 	switch n := node.NodeImpl.(type) {
+	case *recipe.NodeParallel:
+		out := *n
+		out.ID = id
+		return recipe.Node{NodeImpl: &out}
 	case *recipe.NodeOp:
 		out := *n
 		out.ID = id

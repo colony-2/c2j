@@ -11,6 +11,7 @@ type NodeVisitor interface {
 	VisitRecipe(recipe *Recipe) (Recipe, error)
 	VisitRecipeOp(node *RecipeOp, path []string) (*RecipeOp, error)
 	VisitRecipeSequence(node *RecipeSequence, path []string) (*RecipeSequence, error)
+	VisitRecipeParallel(node *RecipeParallel, path []string) (*RecipeParallel, error)
 	VisitRecipeState(node *RecipeState, path []string) (*RecipeState, error)
 	VisitRecipeChildGroup(node *RecipeChildGroup, path []string) (*RecipeChildGroup, error)
 
@@ -20,6 +21,7 @@ type NodeVisitor interface {
 	VisitNodeInclude(node *NodeInclude, path []string) (Node, error)
 	VisitNodeShared(node *NodeShared, path []string) (Node, error)
 	VisitNodeSequence(node *NodeSequence, path []string) (Node, error)
+	VisitNodeParallel(node *NodeParallel, path []string) (Node, error)
 	VisitNodeState(node *NodeState, path []string) (Node, error)
 
 	// Control whether to traverse children of container nodes
@@ -59,6 +61,9 @@ func (b *BaseVisitor) VisitRecipe(recipe *Recipe) (Recipe, error) {
 			return Recipe{}, err
 		}
 		return Recipe{RecipeImpl: newGroup}, nil
+	case *RecipeParallel:
+		newParallel, err := b.VisitRecipeParallel(r, []string{"root"})
+		return Recipe{RecipeImpl: newParallel}, err
 	default:
 		return Recipe{}, fmt.Errorf("unknown recipe type: %T", recipe.RecipeImpl)
 	}
@@ -72,6 +77,22 @@ func (b *BaseVisitor) VisitNodeOp(node *NodeOp, path []string) (Node, error) {
 
 func (b *BaseVisitor) VisitNodeChildGroup(node *NodeChildGroup, path []string) (Node, error) {
 	return Node{NodeImpl: node}, nil
+}
+
+func (b *BaseVisitor) VisitNodeParallel(node *NodeParallel, path []string) (Node, error) {
+	result := *node
+	result.Parallel.Branches = make(NodeList, len(node.Parallel.Branches))
+	for index, child := range node.Parallel.Branches {
+		resolved, err := b.walker.WalkNode(child, append(path, fmt.Sprintf("branches[%d]", index)))
+		if err != nil {
+			return Node{}, err
+		}
+		result.Parallel.Branches[index] = resolved
+	}
+	if err := result.Parallel.Validate(); err != nil {
+		return Node{}, err
+	}
+	return Node{NodeImpl: &result}, nil
 }
 
 func (b *BaseVisitor) VisitNodeInclude(node *NodeInclude, path []string) (Node, error) {
@@ -142,6 +163,20 @@ func (b *BaseVisitor) VisitRecipeOp(node *RecipeOp, path []string) (*RecipeOp, e
 
 func (b *BaseVisitor) VisitRecipeChildGroup(node *RecipeChildGroup, path []string) (*RecipeChildGroup, error) {
 	return node, nil
+}
+
+func (b *BaseVisitor) VisitRecipeParallel(node *RecipeParallel, path []string) (*RecipeParallel, error) {
+	result, err := b.walker.WalkNode(Node{NodeImpl: &NodeParallel{NodeMetadata: node.NodeMetadata, ParallelData: node.ParallelData}}, path)
+	if err != nil {
+		return nil, err
+	}
+	parallel, ok := result.NodeImpl.(*NodeParallel)
+	if !ok {
+		return nil, fmt.Errorf("parallel root visitor returned %T", result.NodeImpl)
+	}
+	copy := *node
+	copy.NodeMetadata, copy.ParallelData = parallel.NodeMetadata, parallel.ParallelData
+	return &copy, nil
 }
 
 func (b *BaseVisitor) VisitRecipeSequence(node *RecipeSequence, path []string) (*RecipeSequence, error) {
@@ -246,6 +281,12 @@ func (w *NodeWalker) Walk(recipe Recipe) (Recipe, error) {
 			return recipe, err
 		}
 		return Recipe{RecipeImpl: newGroup}, nil
+	case *RecipeParallel:
+		newParallel, err := w.visitor.VisitRecipeParallel(r, []string{"root"})
+		if err != nil {
+			return recipe, err
+		}
+		return Recipe{RecipeImpl: newParallel}, nil
 	}
 	return recipe, fmt.Errorf("unknown recipe type: %T", recipe.RecipeImpl)
 }
@@ -261,6 +302,8 @@ func (w *NodeWalker) WalkNode(node Node, path []string) (Node, error) {
 
 	case *NodeChildGroup:
 		return w.visitor.VisitNodeChildGroup(n, path)
+	case *NodeParallel:
+		return w.visitor.VisitNodeParallel(n, path)
 
 	case *NodeInclude:
 		return w.visitor.VisitNodeInclude(n, path)
@@ -335,6 +378,8 @@ func (r *SharedNodeResolver) VisitNodeShared(node *NodeShared, path []string) (N
 // walkAndResolveNode recursively walks a node to resolve any nested shared nodes
 func (r *SharedNodeResolver) walkAndResolveNode(node Node, path []string) (Node, error) {
 	switch n := node.NodeImpl.(type) {
+	case *NodeParallel:
+		return r.VisitNodeParallel(n, path)
 	case *NodeSequence:
 		newSeq := &NodeSequence{
 			NodeMetadata: n.NodeMetadata,

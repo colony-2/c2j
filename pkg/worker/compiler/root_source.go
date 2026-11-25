@@ -556,6 +556,8 @@ func loadEmbeddedRecipeYAML(raw []byte) (recipe.Recipe, error) {
 
 func recipeMetadataPtr(rec *recipe.Recipe) *recipe.RecipeMetadata {
 	switch typed := rec.RecipeImpl.(type) {
+	case *recipe.RecipeParallel:
+		return &typed.RecipeMetadata
 	case *recipe.RecipeOp:
 		return &typed.RecipeMetadata
 	case *recipe.RecipeSequence:

@@ -58,6 +58,9 @@ func lastSequenceArtifacts(resCtx *template.ResolutionContext, sequence []recipe
 		fallback = t.OpData.Op
 	case *recipe.NodeSequence, *recipe.NodeInclude:
 		scopeType = template.ScopeSequence
+	case *recipe.NodeParallel:
+		scopeType = template.ScopeSequence
+		fallback = "parallel"
 	case *recipe.NodeState:
 		scopeType = template.ScopeStateMachine
 	default:

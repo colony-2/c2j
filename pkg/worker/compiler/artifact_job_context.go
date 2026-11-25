@@ -39,6 +39,18 @@ func (a *thinpackForwarder) adopt(src *thinpackForwarder) {
 	a.initialRestore = src.initialRestore
 	a.rootArtifacts = src.rootArtifacts
 }
+
+func (a *thinpackForwarder) parallelRestore(scope string) (*jobdb.ArtifactKey, error) {
+	snapshot := a.lastThinpack
+	if scope != "" {
+		snapshot = a.workspaces[scope]
+	}
+	if snapshot == nil {
+		return a.initialRestore[scope], nil
+	}
+	key, err := snapshot.ArtifactKey()
+	return &key, err
+}
 func (a *thinpackForwarder) DoTask(call jobworkflow.TaskCall, build func(context.Context) (jobdb.TaskData, error)) (jobdb.TaskData, error) {
 	out, err := a.ExecutionContext.DoTask(call, func(ctx context.Context) (jobdb.TaskData, error) {
 		data, err := build(ctx)

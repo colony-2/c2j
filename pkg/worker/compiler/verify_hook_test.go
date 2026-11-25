@@ -118,6 +118,7 @@ func TestVerifyHookSubmissionEnvironmentAndGate(t *testing.T) {
 		{name: "packaged-artifact-gate", failGate: "TestRealNixArtifactFiles"},
 		{name: "fixture-source-gate", failGate: "Test(FixtureSource|NativeRuntimeFixtureSourceModes)"},
 		{name: "parentage-gate", failGate: "TestLeaseParentage"},
+		{name: "parallel-gate", failGate: "^TestParallel(LaunchErrorClassification"},
 		{name: "response-legacy-isolation-gate", failGate: "TestResponsePersistenceLegacyIsolation"},
 		{name: "full-suite", failGate: "-tags=integration -p 2"},
 		{name: "missing-wait-help", missingWaitGoal: true},
@@ -329,6 +330,8 @@ fi
 				"^Test(FixtureSource|NativeRuntimeFixtureSourceModes)",
 				"^(TestSubmitterDependency|TestLeaseParentage|",
 				"./internal/localruntime ./cmd/c2j/internal/swfruntime ./cmd/c2j/internal/deletejobs",
+				"^TestParallel\n",
+				"^TestParallel(LaunchErrorClassification|RetriesUnavailableLaunchPreflight|InheritsTransition|InheritsScopedExecutionNeeds)$",
 			}
 			previous, stopped := -1, false
 			for _, gate := range gates {
@@ -372,6 +375,10 @@ fi
 				require.Contains(t, string(raw), "go build -mod=readonly -o ")
 				require.NotContains(t, string(raw), "./internal/pathutil")
 				require.NotContains(t, string(raw), "./internal/retirementcheck")
+				require.NotContains(t, string(raw), "-tags=integration -p 2")
+			} else if fixture.failGate == "^TestParallel(LaunchErrorClassification" {
+				lines := strings.Split(strings.TrimSpace(string(raw)), "\n")
+				require.Contains(t, lines[len(lines)-1], "go test -mod=readonly -race -count=1")
 				require.NotContains(t, string(raw), "-tags=integration -p 2")
 			} else if fixture.failGate == "TestResponsePersistenceLegacyIsolation" {
 				lines := strings.Split(strings.TrimSpace(string(raw)), "\n")

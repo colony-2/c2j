@@ -38,6 +38,7 @@ const (
 	syntaxNode
 	syntaxNodeMap
 	syntaxState
+	syntaxParallel
 	syntaxCondition
 	syntaxChildGroup
 	syntaxChild
@@ -105,6 +106,8 @@ func childJobSyntax(parent jobSyntax, key string) jobSyntax {
 		switch key {
 		case "sequence":
 			return syntaxNode
+		case "parallel":
+			return syntaxParallel
 		case "defs":
 			return syntaxNodeMap
 		case "state":
@@ -113,6 +116,10 @@ func childJobSyntax(parent jobSyntax, key string) jobSyntax {
 			return syntaxCondition
 		case "child_group":
 			return syntaxChildGroup
+		}
+	case syntaxParallel:
+		if key == "branches" {
+			return syntaxNode
 		}
 	case syntaxState:
 		switch key {
@@ -149,6 +156,8 @@ func checkRawJobExpressions(value any) error {
 		children = []any{v.RecipeMetadata}
 	case *RecipeSequence:
 		children = []any{v.RecipeMetadata, v.SequenceData}
+	case *RecipeParallel:
+		children = []any{v.RecipeMetadata, v.Parallel}
 	case *RecipeState:
 		children = []any{v.RecipeMetadata, v.StateMachineData}
 	case *RecipeChildGroup:
@@ -169,12 +178,21 @@ func checkRawJobExpressions(value any) error {
 		children = []any{v.NodeMetadata}
 	case *NodeSequence:
 		children = []any{v.NodeMetadata, v.SequenceData}
+	case *NodeParallel:
+		children = []any{v.NodeMetadata, v.Parallel}
 	case *NodeState:
 		children = []any{v.NodeMetadata, v.StateMachineData}
 	case *NodeChildGroup:
 		children = []any{v.NodeMetadata, v.ChildGroup}
 	case SequenceData:
 		for _, node := range v.Sequence {
+			children = append(children, node.NodeImpl)
+		}
+	case ParallelBranches:
+		if err := v.Validate(); err != nil {
+			return err
+		}
+		for _, node := range v.Branches {
 			children = append(children, node.NodeImpl)
 		}
 	case StateMachineData:

@@ -22,6 +22,11 @@ type recipeJobOutput struct {
 	ArtifactsAvailable bool
 }
 
+func ReadRecipeResult(data jobdb.JobData) (map[string]any, map[string]recipeartifacts.Ref, error) {
+	result, err := decodeRecipeJobOutput(nil, data)
+	return result.Outputs, result.Artifacts, err
+}
+
 func decodeRecipeJobOutput(deps ops.OpDependencies, data jobdb.JobData) (recipeJobOutput, error) {
 	out := recipeJobOutput{
 		Outputs:   map[string]interface{}{},

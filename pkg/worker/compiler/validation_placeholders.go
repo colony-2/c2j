@@ -66,6 +66,8 @@ func nodePlaceholder(resCtx *template.ResolutionContext, node recipe.Node) (stri
 		outputs := zeroOutputsFromTemplateMap(t.Outputs)
 		key := template.ScopeID(metadata, "", template.ScopeSequence)
 		return key, outputs, nil
+	case *recipe.NodeParallel:
+		return template.ScopeID(metadata, "parallel", template.ScopeSequence), zeroOutputsFromTemplateMap(t.Outputs), nil
 	case *recipe.NodeState:
 		outputs := zeroOutputsFromTemplateMap(t.Outputs)
 		key := template.ScopeID(metadata, "", template.ScopeStateMachine)
@@ -87,6 +89,8 @@ func nodeOutputPlaceholder(resCtx *template.ResolutionContext, node recipe.Node)
 	case *recipe.NodeInclude:
 		return hookOutputPlaceholder(t), nil
 	case *recipe.NodeSequence:
+		return zeroOutputsFromTemplateMap(t.Outputs), nil
+	case *recipe.NodeParallel:
 		return zeroOutputsFromTemplateMap(t.Outputs), nil
 	case *recipe.NodeState:
 		return zeroOutputsFromTemplateMap(t.Outputs), nil
