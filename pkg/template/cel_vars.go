@@ -77,13 +77,17 @@ func jobsContextValue(jobs jobcontext.StartedJobsContext) map[string]interface{}
 
 	items := make([]interface{}, 0, len(jobs.Items))
 	for _, item := range jobs.Items {
-		items = append(items, map[string]interface{}{
+		value := map[string]interface{}{
 			"tenant_id":              item.TenantID,
 			"job_id":                 item.JobID,
 			"recipe":                 item.RecipeName,
 			"status":                 item.Status,
 			"parent_invocation_hash": item.ParentInvocationHash,
-		})
+		}
+		if item.SubmitterDependency != nil {
+			value["submitter_dependency"] = *item.SubmitterDependency
+		}
+		items = append(items, value)
 	}
 
 	return map[string]interface{}{

@@ -371,12 +371,12 @@ state:
           # bits intact, then run without permission repairs or new commits.
           go test -count=1 -v -timeout=5m ./pkg/recipetest ./cmd/c2j/internal/testjob -run '^Test(FixtureSource|NativeRuntimeFixtureSourceModes)'
           go test -mod=readonly -count=1 -v -timeout=5m ./cmd/c2j/internal/submitjob -run '^TestSubmission'
-          # Lease parentage must pass real runtime, CLI and worker checks without skips.
+          # Lease parentage and dependency metadata must pass real runtime, CLI and worker checks without skips.
           go build -mod=readonly -o "$scratch/c2j-parentage" ./cmd/c2j
           export C2J_TEST_SUBMIT_BINARY="$scratch/c2j-parentage"
           # Export failed test events before the scratch cleanup removes them.
           parentage_status=0
-          go test -mod=readonly -count=1 -json -tags=integration -timeout=10m ./cmd/c2j/internal/submitjob ./pkg/childbroker ./pkg/executionruntime ./pkg/worker/compiler ./cmd/c2j/internal/cmd -run '^(TestLeaseParentage|TestSubmissionRoute|TestSubmissionWaitBrokerLeaseRoutes|TestBrokerOnlyCLI|TestSelectedCLI|TestSelectedBroker|TestWorkerBrokerSubmitsIncomingAndLiveWorkspace|TestRun_BrokerSubmissionAndConfiguredImmediateExecution|TestSubmitHelp)' > "$scratch/parentage.json" 2> "$scratch/parentage.stderr" || parentage_status=$?
+          go test -mod=readonly -count=1 -json -tags=integration -timeout=10m ./cmd/c2j/internal/submitjob ./pkg/childbroker ./pkg/executionruntime ./pkg/worker/compiler ./cmd/c2j/internal/cmd ./pkg/jobcontext ./pkg/worker/ops -run '^(TestSubmitterDependency|TestLeaseParentage|TestSubmissionRoute|TestSubmissionWaitBrokerLeaseRoutes|TestBrokerOnlyCLI|TestSelectedCLI|TestSelectedBroker|TestWorkerBrokerSubmitsIncomingAndLiveWorkspace|TestRun_BrokerSubmissionAndConfiguredImmediateExecution|TestSubmitHelp)' > "$scratch/parentage.json" 2> "$scratch/parentage.stderr" || parentage_status=$?
           cat "$scratch/parentage.json"
           cat "$scratch/parentage.stderr"
           if [ "$parentage_status" -ne 0 ]; then exit "$parentage_status"; fi
@@ -384,18 +384,20 @@ state:
           const fs = require('node:fs');
           const events = fs.readFileSync(process.argv[2], 'utf8').trim().split('\n').filter(Boolean).map(JSON.parse);
           const required = {
-            'cmd/c2j/internal/submitjob': ['TestLeaseParentageMissingBroker', 'TestLeaseParentageStandalone', 'TestLeaseParentageBrokerBoundaries', 'TestSubmissionWaitBrokerLeaseRoutes', 'TestRun_BrokerSubmissionAndConfiguredImmediateExecution'],
-            'pkg/childbroker': ['TestBrokerOnlyCLI', 'TestLeaseParentageLostOrdinaryResponse'],
+            'cmd/c2j/internal/submitjob': ['TestLeaseParentageMissingBroker', 'TestLeaseParentageStandalone', 'TestLeaseParentageBrokerBoundaries', 'TestSubmissionWaitBrokerLeaseRoutes', 'TestRun_BrokerSubmissionAndConfiguredImmediateExecution', 'TestSubmitterDependencyOptions'],
+            'pkg/childbroker': ['TestBrokerOnlyCLI', 'TestLeaseParentageLostOrdinaryResponse', 'TestSubmitterDependencyBrokerValidation', 'TestSubmitterDependencyCLI', 'TestSubmitterDependencyRouteUsesURLPath'],
             'pkg/executionruntime': ['TestLeaseParentageSuppliedLease'],
-            'pkg/worker/compiler': ['TestLeaseParentageWorkerCLI', 'TestWorkerBrokerSubmitsIncomingAndLiveWorkspace'],
-            'cmd/c2j/internal/cmd': ['TestSubmitHelpPromotesConventions']
+            'pkg/worker/compiler': ['TestLeaseParentageWorkerCLI', 'TestWorkerBrokerSubmitsIncomingAndLiveWorkspace', 'TestSubmitterDependencyTaskContext', 'TestSubmitterDependencyWorkspace'],
+            'cmd/c2j/internal/cmd': ['TestSubmitHelpPromotesConventions'],
+            'pkg/jobcontext': ['TestSubmitterDependencyMerge'],
+            'pkg/worker/ops': ['TestSubmitterDependencyCollection']
           };
           for (const [suffix, names] of Object.entries(required)) {
             const pkg = 'github.com/colony-2/c2j/' + suffix;
             for (const name of names) {
               const rows = events.filter(e => e.Package === pkg && (e.Test === name || (e.Test || '').startsWith(name + '/')));
               if (!rows.some(e => e.Test === name && e.Action === 'pass') || rows.some(e => e.Action === 'skip' || e.Action === 'fail')) {
-                throw new Error('Lease parentage acceptance missing, skipped or failed: ' + pkg + '/' + name);
+                throw new Error('Lease parentage or dependency metadata acceptance missing, skipped or failed: ' + pkg + '/' + name);
               }
             }
           }
@@ -518,7 +520,7 @@ state:
           # every supported wait option in the executable being reviewed.
           go build -buildvcs=false -o "$scratch/c2j" ./cmd/c2j
           "$scratch/c2j" submit --help > "$scratch/submit-help.txt"
-          for flag in --wait-job --wait-job-success --wait-goal --wait-until; do
+          for flag in --wait-job --wait-job-success --wait-goal --wait-until --submitter-dependency; do
             grep -q -- "$flag " "$scratch/submit-help.txt"
           done
           cat "$scratch/submit-help.txt"

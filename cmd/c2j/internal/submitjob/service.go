@@ -219,6 +219,10 @@ func Run(ctx context.Context, opts Options) error {
 			req.WorkspaceMode = workspacesubmit.Now
 		}
 		req.ExplicitTarget = strings.TrimSpace(opts.Cell) != ""
+		if opts.SubmitterDependencySet {
+			value := opts.SubmitterDependency == "true"
+			req.SubmitterDependency = &value
+		}
 		resp, err := childbroker.Submit(ctx, broker, req)
 		if err != nil {
 			return err

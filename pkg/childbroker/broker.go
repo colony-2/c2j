@@ -87,14 +87,17 @@ type EmbeddedRecipePayload struct {
 	YAML   []byte `json:"yaml"`
 }
 
+const submitterDependencyPath = "/submitter-dependency"
+
 type SubmitRequest struct {
-	prepare         *starter.Descriptor
-	Descriptor      *starter.Descriptor     `json:"descriptor,omitempty"`
-	WorkspaceMode   string                  `json:"workspace_mode,omitempty"`
-	ExplicitTarget  bool                    `json:"explicit_target,omitempty"`
-	Start           workflowctl.StartJob    `json:"start"`
-	Artifacts       []ArtifactPayload       `json:"artifacts,omitempty"`
-	EmbeddedRecipes []EmbeddedRecipePayload `json:"embedded_recipes,omitempty"`
+	SubmitterDependency *bool `json:"submitter_dependency,omitempty"`
+	prepare             *starter.Descriptor
+	Descriptor          *starter.Descriptor     `json:"descriptor,omitempty"`
+	WorkspaceMode       string                  `json:"workspace_mode,omitempty"`
+	ExplicitTarget      bool                    `json:"explicit_target,omitempty"`
+	Start               workflowctl.StartJob    `json:"start"`
+	Artifacts           []ArtifactPayload       `json:"artifacts,omitempty"`
+	EmbeddedRecipes     []EmbeddedRecipePayload `json:"embedded_recipes,omitempty"`
 }
 
 type SubmitResponse struct {
@@ -168,6 +171,7 @@ func start(ctx context.Context, opts Options, openListener func() (net.Listener,
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc(submitPath, broker.handleSubmit)
+	mux.HandleFunc(submitPath+submitterDependencyPath, broker.handleSubmit)
 	mux.HandleFunc(submitPath+"/prepare", broker.handlePrepare)
 	mux.HandleFunc(submitPath+"/primary-goal", broker.handleSubmit)
 	mux.HandleFunc(submitPath+"/primary-goal/prepare", broker.handlePrepareSelected)
@@ -282,6 +286,20 @@ func (s *Server) handleSubmit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if r.URL.Path == submitPath+submitterDependencyPath {
+		if req.SubmitterDependency == nil {
+			http.Error(w, "submitter_dependency must be a JSON boolean", http.StatusBadRequest)
+			return
+		}
+	} else if req.SubmitterDependency != nil {
+		http.Error(w, "submitter_dependency requires its dedicated submit route", http.StatusBadRequest)
+		return
+	}
+	if err := req.validateSubmitterDependency(); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
 	selected := req.Start.GoalID != ""
 	if req.Descriptor != nil {
 		selected = req.Descriptor.Job.GoalID != ""
@@ -318,7 +336,17 @@ func (s *Server) authorized(r *http.Request) bool {
 	return strings.TrimSpace(strings.TrimPrefix(auth, "Bearer ")) == s.token
 }
 
+func (req SubmitRequest) validateSubmitterDependency() error {
+	if req.SubmitterDependency != nil && (req.Start.GoalID != "" || req.Descriptor != nil || req.prepare != nil) {
+		return fmt.Errorf("submitter_dependency is only supported for fresh child submissions")
+	}
+	return nil
+}
+
 func (s *Server) submit(ctx context.Context, req SubmitRequest) (SubmitResponse, error) {
+	if err := req.validateSubmitterDependency(); err != nil {
+		return SubmitResponse{}, err
+	}
 	if req.Start.GoalID != "" && req.Descriptor == nil {
 		return SubmitResponse{}, jobdb.ErrPrimaryGoalSelectionUnsupported
 	}
@@ -384,7 +412,7 @@ func (s *Server) submit(ctx context.Context, req SubmitRequest) (SubmitResponse,
 			return SubmitResponse{}, err
 		}
 	}
-	job, err := starter.PrepareRecipeJob(ctx, start, starter.StartRecipeJobOptions{}, recipes...)
+	job, err := starter.PrepareRecipeJob(ctx, start, starter.StartRecipeJobOptions{SubmitterDependency: req.SubmitterDependency}, recipes...)
 	if err != nil {
 		return SubmitResponse{}, err
 	}
@@ -407,7 +435,7 @@ func (s *Server) submit(ctx context.Context, req SubmitRequest) (SubmitResponse,
 		return SubmitResponse{}, fmt.Errorf("submit child job: %w", err)
 	}
 
-	s.record(key, start)
+	s.record(key, start, req.SubmitterDependency)
 	return SubmitResponse{
 		Cell: key.Cell, CellID: key.CellID, CellRepo: key.CellRepo,
 		TenantID: key.TenantID,
@@ -416,7 +444,11 @@ func (s *Server) submit(ctx context.Context, req SubmitRequest) (SubmitResponse,
 	}, nil
 }
 
-func (s *Server) record(key jobref.Ref, start workflowctl.StartJob) {
+func (s *Server) record(key jobref.Ref, start workflowctl.StartJob, submitterDependency *bool) {
+	if submitterDependency != nil {
+		value := *submitterDependency
+		submitterDependency = &value
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.started = append(s.started, jobcontext.StartedJobContext{
@@ -424,6 +456,7 @@ func (s *Server) record(key jobref.Ref, start workflowctl.StartJob) {
 		TenantID:             key.TenantID,
 		JobID:                key.JobID,
 		RecipeName:           start.RecipeName,
+		SubmitterDependency:  submitterDependency,
 		ParentInvocationHash: s.current.InvocationHash,
 	})
 }
@@ -454,6 +487,9 @@ func Submit(ctx context.Context, broker jobcontext.ChildJobBroker, req SubmitReq
 }
 
 func submit(ctx context.Context, broker jobcontext.ChildJobBroker, req SubmitRequest, client *http.Client) (SubmitResponse, error) {
+	if err := req.validateSubmitterDependency(); err != nil {
+		return SubmitResponse{}, err
+	}
 	if req.Start.GoalID != "" && req.Descriptor == nil {
 		return SubmitResponse{}, jobdb.ErrPrimaryGoalSelectionUnsupported
 	}
@@ -486,6 +522,8 @@ func submit(ctx context.Context, broker jobcontext.ChildJobBroker, req SubmitReq
 	}
 	if req.Start.GoalID != "" {
 		endpoint += "/primary-goal"
+	} else if req.SubmitterDependency != nil {
+		endpoint = parsed.JoinPath(submitterDependencyPath).String()
 	}
 	body, err := json.Marshal(req)
 	if err != nil {
@@ -502,7 +540,7 @@ func submit(ctx context.Context, broker jobcontext.ChildJobBroker, req SubmitReq
 	httpReq.Header.Set("Authorization", "Bearer "+broker.Token)
 	httpReq.Header.Set(sessionHeader, broker.SessionID)
 
-	if req.Start.GoalID != "" {
+	if req.Start.GoalID != "" || req.SubmitterDependency != nil {
 		copyClient := *client
 		copyClient.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 		client = &copyClient
@@ -519,6 +557,12 @@ func submit(ctx context.Context, broker jobcontext.ChildJobBroker, req SubmitReq
 		msg := strings.TrimSpace(buf.String())
 		if msg == "" {
 			msg = resp.Status
+		}
+		if req.SubmitterDependency != nil && (resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusMethodNotAllowed) {
+			return SubmitResponse{}, fmt.Errorf("child job broker does not support --submitter-dependency; use a matching worker (HTTP %d)", resp.StatusCode)
+		}
+		if req.SubmitterDependency != nil && resp.StatusCode >= 300 && resp.StatusCode < 400 {
+			return SubmitResponse{}, fmt.Errorf("child job broker redirect rejected for --submitter-dependency (HTTP %d)", resp.StatusCode)
 		}
 		return SubmitResponse{}, decodeSelectionError(resp.StatusCode, msg, req.Start.GoalID != "")
 	}

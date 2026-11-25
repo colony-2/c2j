@@ -3,6 +3,7 @@ package childbroker
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strings"
 
@@ -14,6 +15,9 @@ import (
 // Prepare resolves an ordinary child operation without publication. Persist
 // the complete descriptor before calling SubmitPrepared to recover uncertainty.
 func Prepare(ctx context.Context, broker jobcontext.ChildJobBroker, req SubmitRequest) (starter.Descriptor, error) {
+	if req.SubmitterDependency != nil {
+		return starter.Descriptor{}, fmt.Errorf("submitter_dependency is only supported for fresh child submissions")
+	}
 	if req.Start.GoalID != "" || req.Descriptor != nil {
 		return starter.Descriptor{}, jobdb.ErrPrimaryGoalSelectionUnsupported
 	}
@@ -37,6 +41,10 @@ func (s *Server) handlePrepare(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.Start.GoalID != "" || req.Descriptor != nil {
 		writeSelectionError(w, jobdb.ErrPrimaryGoalSelectionUnsupported)
+		return
+	}
+	if req.SubmitterDependency != nil {
+		http.Error(w, "submitter_dependency is only supported for fresh child submissions", http.StatusBadRequest)
 		return
 	}
 	var descriptor starter.Descriptor

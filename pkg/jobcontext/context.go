@@ -74,6 +74,7 @@ type Parent struct {
 }
 
 type StartedJobContext struct {
+	SubmitterDependency  *bool  `json:"submitter_dependency,omitempty"`
 	Cell                 string `json:"cell,omitempty"`
 	CellID               string `json:"cell_id,omitempty"`
 	CellRepo             string `json:"cell_repo,omitempty"`
@@ -280,6 +281,9 @@ func MergeStartedJobs(groups ...StartedJobsContext) (StartedJobsContext, error) 
 			if idx, ok := seen[key]; ok {
 				if out.Items[idx].Cell != item.Cell || out.Items[idx].CellID != item.CellID || out.Items[idx].CellRepo != item.CellRepo {
 					return out, fmt.Errorf("conflicting captured identities for job %s", item.JobID)
+				}
+				if out.Items[idx].SubmitterDependency == nil {
+					out.Items[idx].SubmitterDependency = item.SubmitterDependency
 				}
 				continue
 			}

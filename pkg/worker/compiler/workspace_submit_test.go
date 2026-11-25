@@ -34,6 +34,15 @@ type workspaceSubmitProbeOutput struct {
 }
 
 func TestWorkerBrokerSubmitsIncomingAndLiveWorkspace(t *testing.T) {
+	testWorkerBrokerWorkspace(t, false)
+}
+
+func TestSubmitterDependencyWorkspace(t *testing.T) {
+	testWorkerBrokerWorkspace(t, true)
+}
+
+func testWorkerBrokerWorkspace(t *testing.T, flagged bool) {
+	t.Helper()
 	for _, scoped := range []bool{false, true} {
 		for _, mode := range []string{"start", "now"} {
 			t.Run(fmt.Sprintf("%s/scoped=%t", mode, scoped), func(t *testing.T) {
@@ -62,6 +71,10 @@ outputs:
 						return workspaceSubmitProbeOutput{}, err
 					}
 					req.WorkspaceMode = in.Mode
+					if flagged {
+						value := in.Mode == "start"
+						req.SubmitterDependency = &value
+					}
 					resp, err := childbroker.SubmitLocal(ctx, req)
 					return workspaceSubmitProbeOutput{JobID: resp.JobID}, err
 				})
@@ -116,6 +129,13 @@ outputs:
 				children, err := eng.ListJobs(celltest.Context(context.Background()), jobdb.ListJobsRequest{TenantIds: []string{ref.TenantID}, ParentJobIDs: []string{ref.JobID}})
 				require.NoError(t, err)
 				require.Len(t, children.Jobs, 1)
+				var stored map[string]json.RawMessage
+				require.NoError(t, json.Unmarshal(children.Jobs[0].Metadata, &stored))
+				if flagged {
+					require.Equal(t, fmt.Sprint(mode == "start"), string(stored["submitter_dependency"]))
+				} else {
+					require.NotContains(t, stored, "submitter_dependency")
+				}
 				parentagetest.Check(t, celltest.Context(context.Background()), eng.(*guardedTestEngine).guard, ref.Key(), children.Jobs[0].JobKey.JobId)
 			})
 		}

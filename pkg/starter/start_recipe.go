@@ -128,6 +128,7 @@ func StartRecipeJob(ctx context.Context, startJob workflowctl.StartJob, engine a
 }
 
 type StartRecipeJobOptions struct {
+	SubmitterDependency   *bool
 	BaseCatalog           *executioncatalog.Policy
 	ExecutionRequirements execution.Requirements
 	GoalID                string
@@ -269,7 +270,10 @@ func PrepareRecipeJob(ctx context.Context, startJob workflowctl.StartJob, opts S
 		return jobdb.SubmitJob{}, err
 	}
 
-	meta := JobMetadataFromStartJob(startJob)
+	meta := struct {
+		JobMetadata
+		SubmitterDependency *bool `json:"submitter_dependency,omitempty"`
+	}{JobMetadata: JobMetadataFromStartJob(startJob), SubmitterDependency: opts.SubmitterDependency}
 	metaRaw, err := json.Marshal(meta)
 	if err != nil {
 		return jobdb.SubmitJob{}, err

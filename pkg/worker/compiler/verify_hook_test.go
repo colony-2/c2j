@@ -176,7 +176,9 @@ if [[ "$*" == *'-run ^TestExtensionWait' ]]; then
   done
 fi
 if [[ "$*" == *TestLeaseParentage* ]]; then
-  for item in cmd/c2j/internal/submitjob:TestLeaseParentageMissingBroker cmd/c2j/internal/submitjob:TestLeaseParentageStandalone cmd/c2j/internal/submitjob:TestLeaseParentageBrokerBoundaries cmd/c2j/internal/submitjob:TestSubmissionWaitBrokerLeaseRoutes cmd/c2j/internal/submitjob:TestRun_BrokerSubmissionAndConfiguredImmediateExecution pkg/childbroker:TestBrokerOnlyCLI pkg/childbroker:TestLeaseParentageLostOrdinaryResponse pkg/executionruntime:TestLeaseParentageSuppliedLease pkg/worker/compiler:TestLeaseParentageWorkerCLI pkg/worker/compiler:TestWorkerBrokerSubmitsIncomingAndLiveWorkspace cmd/c2j/internal/cmd:TestSubmitHelpPromotesConventions; do
+  for item in cmd/c2j/internal/submitjob:TestLeaseParentageMissingBroker cmd/c2j/internal/submitjob:TestLeaseParentageStandalone cmd/c2j/internal/submitjob:TestLeaseParentageBrokerBoundaries cmd/c2j/internal/submitjob:TestSubmissionWaitBrokerLeaseRoutes cmd/c2j/internal/submitjob:TestRun_BrokerSubmissionAndConfiguredImmediateExecution pkg/childbroker:TestBrokerOnlyCLI pkg/childbroker:TestLeaseParentageLostOrdinaryResponse pkg/executionruntime:TestLeaseParentageSuppliedLease pkg/worker/compiler:TestLeaseParentageWorkerCLI pkg/worker/compiler:TestWorkerBrokerSubmitsIncomingAndLiveWorkspace cmd/c2j/internal/cmd:TestSubmitHelpPromotesConventions \
+    cmd/c2j/internal/submitjob:TestSubmitterDependencyOptions pkg/childbroker:TestSubmitterDependencyBrokerValidation pkg/childbroker:TestSubmitterDependencyCLI pkg/childbroker:TestSubmitterDependencyRouteUsesURLPath \
+    pkg/worker/compiler:TestSubmitterDependencyTaskContext pkg/worker/compiler:TestSubmitterDependencyWorkspace pkg/jobcontext:TestSubmitterDependencyMerge pkg/worker/ops:TestSubmitterDependencyCollection; do
     pkg="${item%%:*}"; test_name="${item#*:}"
     printf '{"Action":"run","Package":"github.com/colony-2/c2j/%s","Test":"%s"}\n' "$pkg" "$test_name"
     printf '{"Action":"pass","Package":"github.com/colony-2/c2j/%s","Test":"%s"}\n' "$pkg" "$test_name"
@@ -229,7 +231,7 @@ if [[ "$*" == *'test run --file testdata/repros/native-response-persistence/unex
 fi
 if [ "$1" = submit ]; then
   test "$#" = 2 && test "$2" = --help
-  for flag in --wait-job --wait-job-success --wait-goal --wait-until; do
+  for flag in --wait-job --wait-job-success --wait-goal --wait-until --submitter-dependency; do
     if [ "$MISSING_WAIT_GOAL" = true ] && [ "$flag" = --wait-goal ]; then continue; fi
     printf '  %s value\n' "$flag"
   done
@@ -325,7 +327,7 @@ fi
 				"^TestRealNixArtifactFiles$",
 				"^TestBrokerOnlyCLI",
 				"^Test(FixtureSource|NativeRuntimeFixtureSourceModes)",
-				"^(TestLeaseParentage|",
+				"^(TestSubmitterDependency|TestLeaseParentage|",
 				"./internal/localruntime ./cmd/c2j/internal/swfruntime ./cmd/c2j/internal/deletejobs",
 			}
 			previous, stopped := -1, false
@@ -632,11 +634,13 @@ func TestVerifyHookLeaseParentageEvidenceGuard(t *testing.T) {
 	require.NotEqual(t, -1, end)
 	code = code[:end]
 	required := map[string][]string{
-		"cmd/c2j/internal/submitjob": {"TestLeaseParentageMissingBroker", "TestLeaseParentageStandalone", "TestLeaseParentageBrokerBoundaries", "TestSubmissionWaitBrokerLeaseRoutes", "TestRun_BrokerSubmissionAndConfiguredImmediateExecution"},
-		"pkg/childbroker":            {"TestBrokerOnlyCLI", "TestLeaseParentageLostOrdinaryResponse"},
+		"cmd/c2j/internal/submitjob": {"TestLeaseParentageMissingBroker", "TestLeaseParentageStandalone", "TestLeaseParentageBrokerBoundaries", "TestSubmissionWaitBrokerLeaseRoutes", "TestRun_BrokerSubmissionAndConfiguredImmediateExecution", "TestSubmitterDependencyOptions"},
+		"pkg/childbroker":            {"TestBrokerOnlyCLI", "TestLeaseParentageLostOrdinaryResponse", "TestSubmitterDependencyBrokerValidation", "TestSubmitterDependencyCLI", "TestSubmitterDependencyRouteUsesURLPath"},
 		"pkg/executionruntime":       {"TestLeaseParentageSuppliedLease"},
-		"pkg/worker/compiler":        {"TestLeaseParentageWorkerCLI", "TestWorkerBrokerSubmitsIncomingAndLiveWorkspace"},
+		"pkg/worker/compiler":        {"TestLeaseParentageWorkerCLI", "TestWorkerBrokerSubmitsIncomingAndLiveWorkspace", "TestSubmitterDependencyTaskContext", "TestSubmitterDependencyWorkspace"},
 		"cmd/c2j/internal/cmd":       {"TestSubmitHelpPromotesConventions"},
+		"pkg/jobcontext":             {"TestSubmitterDependencyMerge"},
+		"pkg/worker/ops":             {"TestSubmitterDependencyCollection"},
 	}
 	for _, mode := range []string{"passed", "missing", "skipped", "failed", "unfinished", "subcase-skipped", "malformed"} {
 		t.Run(mode, func(t *testing.T) {
@@ -644,7 +648,7 @@ func TestVerifyHookLeaseParentageEvidenceGuard(t *testing.T) {
 			for pkg, names := range required {
 				for _, name := range names {
 					action := "pass"
-					if name == "TestLeaseParentageWorkerCLI" {
+					if name == "TestSubmitterDependencyTaskContext" {
 						switch mode {
 						case "missing":
 							continue
@@ -660,7 +664,7 @@ func TestVerifyHookLeaseParentageEvidenceGuard(t *testing.T) {
 				}
 			}
 			if mode == "subcase-skipped" {
-				evidence.WriteString("{\"Action\":\"skip\",\"Package\":\"github.com/colony-2/c2j/pkg/executionruntime\",\"Test\":\"TestLeaseParentageSuppliedLease/remote\"}\n")
+				evidence.WriteString("{\"Action\":\"skip\",\"Package\":\"github.com/colony-2/c2j/pkg/childbroker\",\"Test\":\"TestSubmitterDependencyCLI/no-downgrade/true/307\"}\n")
 			}
 			if mode == "malformed" {
 				evidence.WriteString("{bad json\n")

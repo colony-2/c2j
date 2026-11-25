@@ -323,6 +323,22 @@ The runtime attempts collection on failed op execution too, but a failed or
 interrupted op is not a guarantee of a usable downstream output. Use explicit
 child listing to investigate submissions made before a failure.
 
+### Record dependency intent at submission
+
+Inside a running task, use `c2j submit --submitter-dependency=true` or
+`--submitter-dependency=false` on a fresh submission, including either workspace
+mode. This stores a c2j application metadata marker on the accepted child. It
+changes neither submission completion nor any execution prerequisite, wait, or
+cancellation. The flag requires a matching worker; the CLI rejects unsupported
+or redirected requests without resubmitting on another route. Standalone,
+selected-goal, retained, and replay submissions do not accept it.
+
+Select the child by job ID in `sequence.<node>.jobs.items` or
+`states.<state>.jobs.items`. The record contains `submitter_dependency` only
+when the submitter made a valid choice; absence and explicit `false` differ.
+A consumer that wants to include unmarked children can use
+`!has(item.submitter_dependency) || item.submitter_dependency`.
+
 ## 7. Waiting, results, and native recipe children
 
 Parentage and waiting are separate. To wait for a known child job, use a

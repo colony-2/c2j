@@ -47,6 +47,9 @@ type Options struct {
 
 	ArtifactSpecs []string
 
+	SubmitterDependency    string
+	SubmitterDependencySet bool
+
 	FromWorkspace    bool
 	FromWorkspaceNow bool
 	Self             bool
@@ -103,6 +106,17 @@ func (o *Options) Complete(ctx context.Context) error {
 }
 
 func (o Options) Validate() error {
+	if o.SubmitterDependencySet {
+		if o.SubmitterDependency != "true" && o.SubmitterDependency != "false" {
+			return fmt.Errorf("--submitter-dependency requires true or false")
+		}
+		if o.GoalID != "" || o.RequestFile != "" || o.ReplayFile != "" {
+			return fmt.Errorf("--submitter-dependency is not supported with --goal, --request-file, or --replay")
+		}
+		if o.route == nil || !o.route.hasBroker {
+			return fmt.Errorf("--submitter-dependency requires a live task child job broker")
+		}
+	}
 	if o.GoalID != "" {
 		return fmt.Errorf("--goal is unsupported; jobs are independent")
 	}

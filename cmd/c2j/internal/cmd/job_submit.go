@@ -50,6 +50,7 @@ need another worker. A runner timeout leaves the durable submission pending.`,
 			runOpts.PromptSet = false
 			runOpts.PromptFileSet = cmd.Flags().Changed("prompt-file")
 			runOpts.TitleSet = cmd.Flags().Changed("title")
+			runOpts.SubmitterDependencySet = cmd.Flags().Changed("submitter-dependency")
 			if useEmbed {
 				runOpts.JobDBURI = defaults.EmbedURL
 			}
@@ -82,6 +83,7 @@ need another worker. A runner timeout leaves the durable submission pending.`,
 	flags.StringVar(&opts.PromptFile, "prompt-file", "", "Read the prompt from a UTF-8 text file (exclusive with positional prompt or inputs.prompt)")
 	flags.StringVar(&opts.Title, "title", "", "Optional job title, inserted as inputs.title")
 	flags.StringArrayVar(&opts.ArtifactSpecs, "artifact", nil, "Attach a local file as a job artifact; repeatable, accepts PATH or NAME=PATH")
+	flags.StringVar(&opts.SubmitterDependency, "submitter-dependency", "", "Record true or false on a fresh task-broker child without changing waits")
 	flags.BoolVar(&opts.FromWorkspace, "from-workspace", false, "Start from the current task's incoming workspace snapshot")
 	flags.BoolVar(&opts.FromWorkspaceNow, "from-workspace-now", false, "Start from the workspace's current commits and file contents")
 	cmd.MarkFlagsMutuallyExclusive("from-workspace", "from-workspace-now")

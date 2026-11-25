@@ -59,7 +59,7 @@ func (s *Server) handleRestart(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), 500)
 			return
 		}
-		s.record(*result.Ref, workflowctl.StartJob{})
+		s.record(*result.Ref, workflowctl.StartJob{}, nil)
 	}
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Content-Type", "application/json")

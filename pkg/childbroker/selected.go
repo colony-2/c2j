@@ -56,7 +56,7 @@ func (s *Server) submitDescriptor(ctx context.Context, d starter.Descriptor) (Su
 	if err != nil {
 		return SubmitResponse{}, err
 	}
-	s.record(ref, start)
+	s.record(ref, start, nil)
 	response := SubmitResponse{Cell: ref.Cell, CellID: ref.CellID, CellRepo: ref.CellRepo, TenantID: ref.TenantID, JobID: ref.JobID, Recipe: start.RecipeName}
 	if d.Version == 1 && job.GoalID != "" {
 		response.GoalID = ref.GoalID

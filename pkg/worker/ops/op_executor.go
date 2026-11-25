@@ -157,6 +157,7 @@ func collectStartedJobs(ctx context.Context, lister childJobLister, current jobc
 				TenantID:             summary.JobKey.TenantId,
 				JobID:                jobID,
 				RecipeName:           recipeNameFromMetadata(summary.Metadata),
+				SubmitterDependency:  submitterDependencyFromMetadata(summary.Metadata),
 				Status:               string(summary.Status),
 				ParentInvocationHash: current.InvocationHash,
 			})
@@ -167,6 +168,16 @@ func collectStartedJobs(ctx context.Context, lister childJobLister, current jobc
 		req.PageToken = nextPage
 	}
 	return out, nil
+}
+
+func submitterDependencyFromMetadata(raw json.RawMessage) *bool {
+	var meta struct {
+		SubmitterDependency *bool `json:"submitter_dependency"`
+	}
+	if json.Unmarshal(raw, &meta) != nil {
+		return nil
+	}
+	return meta.SubmitterDependency
 }
 
 func recipeNameFromMetadata(raw json.RawMessage) string {
