@@ -16,6 +16,7 @@ type ExtensionResolutionRequest struct {
 	RawInputs       map[string]any        `json:"raw_inputs,omitempty"`
 	Selector        string                `json:"selector"`
 	Options         extops.ResolveOptions `json:"options"`
+	PinnedNix       *toolenv.NixPackage   `json:"pinned_nix,omitempty"`
 }
 type ToolSetupRequest struct {
 	Scopes       []toolenv.Scope    `json:"scopes,omitempty"`

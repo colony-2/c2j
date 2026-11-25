@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/colony-2/c2j/internal/dispatchtest"
+	"github.com/colony-2/c2j/internal/extensioneagain"
 	"github.com/colony-2/c2j/internal/preparedtest"
 	"github.com/colony-2/c2j/internal/resourceretry"
 	recipeartifacts "github.com/colony-2/c2j/pkg/artifacts"
@@ -313,6 +314,10 @@ func (t opExecutor) doPrepared(ctx context.Context, jobTool ops.JobTool, req Act
 	}
 
 	defer func() {
+		if req.capture != nil && req.capture.request.Valid() {
+			err = errors.Join(err, os.RemoveAll(workDir))
+			return
+		}
 		if resourceretry.Is(err) {
 			// A restart never reuses a partially expanded workspace. Cleanup must
 			// finish before the outer worker can request durable rescheduling.
@@ -325,6 +330,15 @@ func (t opExecutor) doPrepared(ctx context.Context, jobTool ops.JobTool, req Act
 	}()
 
 	incomingGitContext := req.GitTaskContext
+	if resume := req.Continuation; resume != nil {
+		if !resume.valid(req.GitTaskContext, jobTool.GetJobKey().JobId) {
+			return zero, nil, fmt.Errorf("invalid extension EAGAIN workspace state")
+		}
+		req.WorkspaceManaged, req.RestoreArtifact = true, resume.Pack
+		req.GitTaskContext.PersistHash = resume.Checkout.HeadCommit
+		req.GitTaskContext.ParentHash = resume.Checkout.BaseCommit
+		req.GitTaskContext.ResolvedBaseHash = resume.Checkout.BaseCommit
+	}
 	if req.GitTaskContext.Workspace != nil {
 		defer func() { output.WorkspaceScopeID = req.GitTaskContext.Workspace.ScopeID }()
 	}
@@ -424,13 +438,31 @@ func (t opExecutor) doPrepared(ctx context.Context, jobTool ops.JobTool, req Act
 		},
 	}
 	objectStore := objects.NewStore(objectConfig)
-	defer func() { outputArtifacts = append(outputArtifacts, objectArtifacts...) }()
+	defer func() {
+		if req.capture == nil || !req.capture.request.Valid() {
+			outputArtifacts = append(outputArtifacts, objectArtifacts...)
+		}
+	}()
 	defer os.RemoveAll(filepath.Join(workDir, "objects"))
 	defer os.RemoveAll(filepath.Join(workDir, "objects-out"))
 	if dispatchtest.Enabled(ctx) {
 		ctx = preparedtest.WithBindings(ctx, req.Artifacts, inbox)
 	}
-	if len(req.Artifacts) > 0 {
+	if resume := req.Continuation; resume != nil {
+		control := deps.WorkflowControl()
+		if control == nil {
+			return zero, nil, fmt.Errorf("workflow control required for extension EAGAIN restore")
+		}
+		tenant := jobTool.GetJobKey().TenantId
+		if err := restoreContinuationFiles(ctx, control.GetArtifactLazy(ctx, tenant, resume.Inbox), inbox); err != nil {
+			return zero, nil, fmt.Errorf("restore extension EAGAIN inbox: %w", err)
+		}
+		if resume.Outbox != nil {
+			if err := restoreContinuationFiles(ctx, control.GetArtifactLazy(ctx, tenant, *resume.Outbox), outbox); err != nil {
+				return zero, nil, fmt.Errorf("restore extension EAGAIN outbox: %w", err)
+			}
+		}
+	} else if len(req.Artifacts) > 0 {
 		if err := materializeArtifactBindings(ctx, inbox, req.Artifacts, artifactByKey); err != nil {
 			return zero, nil, err
 		}
@@ -482,6 +514,9 @@ func (t opExecutor) doPrepared(ctx context.Context, jobTool ops.JobTool, req Act
 	before := coretask.WorkspaceState{Repository: fullContext.BaseRepo, Cell: fullContext.GetWorkspaceCellName(), BaseRef: fullContext.BaseRef, BaseCommit: fullContext.ResolvedBaseHash, HeadCommit: observedHead, EmptyBase: fullContext.Workspace.HasEmptyBase(fullContext.ResolvedBaseHash, fullContext.ParentHash)}
 	if fullContext.Workspace != nil {
 		before.ScopeID = fullContext.Workspace.ScopeID
+	}
+	if resume := req.Continuation; resume != nil && (before.HeadCommit != resume.Checkout.HeadCommit || before.BaseCommit != resume.Checkout.BaseCommit || before.EmptyBase != resume.Checkout.EmptyBase) {
+		return zero, nil, fmt.Errorf("restored checkout does not match extension EAGAIN state")
 	}
 	defer func() {
 		if resourceretry.Is(err) {
@@ -567,7 +602,7 @@ func (t opExecutor) doPrepared(ctx context.Context, jobTool ops.JobTool, req Act
 			return zero, nil, fmt.Errorf("start child job broker: %w", err)
 		}
 		defer func() {
-			if closeErr := broker.Close(); closeErr != nil && (extensionwait.IsDiscard(err) || resourceretry.Is(err)) {
+			if closeErr := broker.Close(); closeErr != nil && (extensionwait.IsDiscard(err) || resourceretry.Is(err) || (req.capture != nil && req.capture.request.Valid())) {
 				err = errors.Join(err, errors.New("restart control broker cleanup failed"))
 			}
 		}()
@@ -635,7 +670,7 @@ func (t opExecutor) doPrepared(ctx context.Context, jobTool ops.JobTool, req Act
 	// Protected runner metadata retains precedence over user-supplied env.
 	var unset []string
 	for _, name := range unsetEnv {
-		if _, protected := protectedEnv[name]; !protected {
+		if _, protected := protectedEnv[name]; !protected && name != extensioneagain.CapabilityEnv && name != extensioneagain.ResumeEnv {
 			unset = append(unset, name)
 		}
 	}
@@ -645,10 +680,33 @@ func (t opExecutor) doPrepared(ctx context.Context, jobTool ops.JobTool, req Act
 	if err := opCtx.Err(); err != nil {
 		return zero, nil, err
 	}
+	var inboxCaptureErr error
+	if req.capture != nil {
+		req.capture.inbox, inboxCaptureErr = snapshotContinuationFiles(opCtx, inbox, inboxName, false)
+	}
 	finishInput(nil, false)
 	metricsruntime.Execution(opCtx)
 	logger.Debug("Op body started", "event", "op.body.started")
 	outputData, stepErr := reg.Step.Invoke(opDeps, opCtx, hydratedInput)
+	var continuation *extensioneagain.Control
+	if errors.As(stepErr, &continuation) {
+		if stepErr != continuation || req.capture == nil {
+			return zero, nil, fmt.Errorf("extension EAGAIN did not complete cleanly: %w", stepErr)
+		}
+		if err := opCtx.Err(); err != nil {
+			return zero, nil, err
+		}
+		if inboxCaptureErr != nil {
+			return zero, nil, fmt.Errorf("record extension EAGAIN inbox: %w", inboxCaptureErr)
+		}
+		if err := validateContinuationInputs(continuation.Request, workDir, secrets.FromContext(opCtx)); err != nil {
+			return zero, nil, err
+		}
+		if err := captureContinuation(opCtx, controller, fullContext, before, thinPackArtifact, outbox, req, continuation.Request); err != nil {
+			return zero, nil, err
+		}
+		return zero, nil, nil
+	}
 	if resourceretry.Is(stepErr) {
 		if stop := context.Cause(opCtx); stop != nil {
 			return zero, nil, stop
@@ -819,6 +877,9 @@ func (t opExecutor) doPrepared(ctx context.Context, jobTool ops.JobTool, req Act
 			// No changes, but we had an input thin pack - pass through the SAME artifact
 			// This avoids re-uploading; SWF can reuse the existing artifact
 			outputArtifacts = append(outputArtifacts, thinPackArtifact)
+			if req.Continuation != nil {
+				gitResult = contextual.GitCommitContext{PersistHash: before.HeadCommit, ParentHash: before.BaseCommit}
+			}
 		}
 	}
 

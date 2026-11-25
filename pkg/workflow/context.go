@@ -42,6 +42,7 @@ type Context struct {
 	WorkspaceSnapshots bool
 	UpdateExecution    func(execution.Requirements) error
 	StageNodeExecution func(execution.Requirements)
+	ContinuationRoute  func(jobworkflow.ExecutionContext, int64) error
 	JobContext         jobworkflow.ExecutionContext
 	ops.ServiceDependencies2
 }

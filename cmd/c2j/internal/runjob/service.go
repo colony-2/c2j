@@ -257,6 +257,7 @@ func newStoryJobWorker(deps *runnerDeps, recorder *storylive.Recorder, replay ..
 	return compiler.NewRecipeJobWorker(compiler.RecipeJobWorkerOptions{
 		Allocation:             deps.executionRuntime.Allocation,
 		StageExecution:         deps.executionRuntime.Stage,
+		ContinuationRoute:      deps.executionRuntime.ContinuationRoute,
 		WrapTaskWorker:         deps.executionRuntime.WrapTaskWorker,
 		ReadOnlyReplay:         len(replay) > 0 && replay[0],
 		CELOptionsProvider:     deps.celProvider,

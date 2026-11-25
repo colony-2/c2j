@@ -541,6 +541,8 @@ func (d DefaultRecipeExecutor) executeOpAttempt(ctx workflow.Context, parentReso
 	var stepArtifacts map[string]recipeartifacts.Ref
 	var stepOutputArtifacts []jobdb.Artifact
 	var stepJobs jobcontext.StartedJobsContext
+	var continuation *workerops.ActivityInvocationRequest
+	var continuationCount uint64
 	for i := 0; i < 64; i++ { // guard against accidental loops
 		done := false
 		{
@@ -551,6 +553,9 @@ func (d DefaultRecipeExecutor) executeOpAttempt(ctx workflow.Context, parentReso
 			}
 			if i > 0 {
 				commandInput["prior"] = stepInput
+			}
+			if continuation != nil {
+				commandInput["eagain_count"] = continuationCount
 			}
 			command, err := json.Marshal(commandInput)
 			if err != nil {
@@ -565,6 +570,12 @@ func (d DefaultRecipeExecutor) executeOpAttempt(ctx workflow.Context, parentReso
 			// approving the contract-version change; approval of other changes
 			// (including timeout policies or execution setup) is not sufficient.
 			out, err := ctx.DoTask(jobworkflow.TaskCall{Site: taskType, TaskType: taskType, ContractVersion: 1, Command: command, Policy: runPolicy, Alternate: taskAlternate}, func(buildContext context.Context) (jobdb.TaskData, error) {
+				if continuation != nil {
+					if err := buildContext.Err(); err != nil {
+						return nil, err
+					}
+					return workerops.NewInvocationTaskData(*continuation)
+				}
 				// Input builders are serial orchestration; the worker receives
 				// only the serialized TaskData produced below.
 				buildResolver := resCtx
@@ -728,6 +739,31 @@ func (d DefaultRecipeExecutor) executeOpAttempt(ctx workflow.Context, parentReso
 				if ws := resCtx.TaskExecutionContext().Workspace; ws != nil && ws.ScopeID != "" && resCtx.Options.Mode != template.ModeValidate && decoded.Activity.WorkspaceScopeID != ws.ScopeID {
 					return fmt.Errorf("activity result belongs to workspace %q, expected %q", decoded.Activity.WorkspaceScopeID, ws.ScopeID)
 				}
+				if marker := decoded.Activity.Continuation; marker != nil {
+					if extensionRequest == nil || decoded.Activity.NextTask != "" || len(decoded.Activity.OpOutput) != 0 || len(decoded.Activity.ArtifactRefs) != 0 || continuationCount == ^uint64(0) {
+						return continuationInfrastructure(fmt.Errorf("invalid extension EAGAIN task result"))
+					}
+					continuationCount++
+					invocation, err := workerops.ReadContinuation(ctx.JobContext.Context(), out, *marker, ctx.GetJobKey(), continuationCount, *gitstate.NewGlobalGitTaskContext(resCtx.TaskExecutionContext()), resCtx.EffectiveConst)
+					if err != nil {
+						return continuationInfrastructure(err)
+					}
+					if ctx.ContinuationRoute != nil {
+						if err := ctx.ContinuationRoute(ctx.JobContext, invocation.Continuation.Inbox.TaskOrdinal); err != nil {
+							return err
+						}
+					}
+					if _, err := workflow.ValueCall(ctx.JobContext, extensionEagainWaitType, extensionEagainWaitType, jobdb.RunPolicy{}, struct{ Count uint64 }{continuationCount}); err != nil {
+						return err
+					}
+					if err := ctx.JobContext.Context().Err(); err != nil {
+						return err
+					}
+					continuation = &invocation
+					i--
+					continue
+				}
+				continuation = nil
 				resCtx.UpdateGitState(decoded.Activity.GitResult)
 				if decoded.Activity.Execution != nil && ctx.UpdateExecution != nil {
 					if err := ctx.UpdateExecution(*decoded.Activity.Execution); err != nil {

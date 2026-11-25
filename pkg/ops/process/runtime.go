@@ -397,3 +397,8 @@ type unsetEnvKey struct{}
 func WithUnsetEnv(ctx context.Context, names []string) context.Context {
 	return context.WithValue(ctx, unsetEnvKey{}, append([]string(nil), names...))
 }
+
+func WithAdditionalUnsetEnv(ctx context.Context, name string) context.Context {
+	names, _ := ctx.Value(unsetEnvKey{}).([]string)
+	return WithUnsetEnv(ctx, append(append([]string(nil), names...), name))
+}

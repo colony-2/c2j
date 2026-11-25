@@ -89,6 +89,9 @@ func (a *thinpackForwarder) prepareInput(taskType string, data jobdb.TaskData) (
 	if err = decode(payload, &req); err != nil {
 		return nil, err
 	}
+	if req.Continuation != nil {
+		return data, nil
+	}
 	if req.GitTaskContext.Workspace != nil {
 		scope = req.GitTaskContext.Workspace.ScopeID
 	}
@@ -146,6 +149,9 @@ func (a *thinpackForwarder) recordOutput(out jobdb.TaskData) (jobdb.TaskData, er
 		return nil, err
 	}
 	if decoded, e := decodeTaskOutput(raw); e == nil {
+		if decoded.Activity.Continuation != nil {
+			return out, nil
+		}
 		scope = decoded.Activity.WorkspaceScopeID
 	}
 	outputArtifacts, err2 := out.GetArtifacts()

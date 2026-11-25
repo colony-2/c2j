@@ -39,14 +39,24 @@ func ResolveInvocation(ctx context.Context, inv *ActivityInvocationRequest) (Too
 	req := ToolSetupRequest{Scopes: append([]toolenv.Scope(nil), inv.Preparation.Scopes...)}
 	if extension := inv.Preparation.Extension; extension != nil {
 		start := time.Now()
-		resolved, err := extops.Resolve(ctx, extension.Selector, extension.Options)
+		var resolved *extops.ResolvedOp
+		var err error
+		if inv.Continuation != nil && extension.PinnedNix != nil {
+			resolved, err = extops.RestoreNixDescription(extension.Selector, extension.PinnedNix)
+		} else {
+			resolved, err = extops.Resolve(ctx, extension.Selector, extension.Options)
+		}
 		if err != nil {
 			return req, fmt.Errorf("extension setup failed: %w", err)
 		}
 		req.ResolutionMS = time.Since(start).Milliseconds()
 		req.Extension = resolved
 		inputs, _ := inv.Input["inputs"].(map[string]any)
-		if len(extension.TemplateContext) > 0 {
+		if inv.Continuation != nil {
+			if continuationSelector(resolved) != inv.Continuation.Selector || configuration.Contains(inv.Input) {
+				return req, fmt.Errorf("extension EAGAIN selector or inputs no longer match the recorded invocation")
+			}
+		} else if len(extension.TemplateContext) > 0 {
 			raw, err := json.Marshal(extension.RawInputs)
 			if err != nil {
 				return req, err

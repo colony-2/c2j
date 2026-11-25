@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/colony-2/c2j/internal/extensioneagain"
 	"github.com/colony-2/c2j/internal/resourceretry"
 	"github.com/colony-2/c2j/pkg/execution"
 	"github.com/colony-2/c2j/pkg/executioncatalog"
@@ -430,6 +431,8 @@ func (w *guardedTask) RunTask(local context.Context, ctx jobworkflow.TaskContext
 	local = r.activityContext(local, ctx.JobKey, l.leaseState)
 	_, port := l.ExecutionLease.(jobdb.ResourceBackoffLease)
 	local = resourceretry.WithSupport(local, port && l.ExecutionState().ResourceBackoff.Validate(true) == nil)
+	local = context.WithValue(local, continuationLeaseKey{}, continuationLease{l.Route(), l.ExecutionState()})
+	local = extensioneagain.WithWait(local, WaitForContinuation)
 	out, err := w.runWithGitProfile(local, ctx, input, l)
 	if extensionwait.IsDiscard(err) {
 		if _, eligible := extensionwait.Eligible(err); !eligible {

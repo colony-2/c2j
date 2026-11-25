@@ -495,3 +495,33 @@ workers treat exit 76 as an ordinary failure and may capture edits. The capabili
 environment variable is controlled by c2j, overriding manifest and invocation
 environment settings. Exit 0 retains its business-output meaning (including a
 business property named `wait`); exit 75 retains execution negotiation semantics.
+
+## Rerun with JobDB Backoff (EAGAIN)
+
+When `C2J_EXTENSION_EAGAIN_VERSION=1`, an extension can exit 77 with exactly
+one JSON control object on stdout. Without that advertised capability, exit 77
+remains an ordinary process failure.
+
+```json
+{"eagain":{"version":1,"mode":"persist","next_inputs":{"cursor":"page-2"}}}
+```
+
+- **Persist** applies the required `next_inputs` object as a top-level input
+  patch (`{}` keeps all inputs). The next launch gets the original inbox,
+  the ending Git snapshot, and a fresh outbox populated with the previous
+  launch's regular files. A `const` operation still discards new Git changes.
+- **Abandon** uses `{"eagain":{"version":1,"mode":"abandon"}}`. It reuses that
+  launch's original inputs, inbox, and incoming checkout, but starts with an
+  empty outbox. It does not undo external effects such as pushes or API calls.
+
+On a continuation, `C2J_EXTENSION_EAGAIN_RESUME` is a JSON object containing
+`version`, the previous `mode`, and a one-based `count`. It is absent on the
+first launch. The stdin schema does not change; c2j still resolves symbolic
+secrets and worker-local paths for each launch. Do not return secret values or
+paths from the current worker in your input patch.
+
+JobDB's default durable backoff governs each wake. Enclosing deadlines and
+cancellation still apply; only terminal success publishes downstream results.
+Use a selector-backed extension with a pinned Git or Nix source and upgrade both
+worker roles before using the protocol. Exit 0 with a business output named
+`eagain` remains an ordinary success.

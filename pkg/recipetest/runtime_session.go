@@ -84,7 +84,7 @@ func (f *runtimeFixture) buildSession(rt caseRuntime, tenant string, collector *
 				return dispatchTaskWorker{guarded, f}
 			}
 			return guarded
-		}, StageExecution: scopedRuntime.Stage,
+		}, StageExecution: scopedRuntime.Stage, ContinuationRoute: scopedRuntime.ContinuationRoute,
 	})
 	if err == nil {
 		if f.hasResponseSubmissions() {

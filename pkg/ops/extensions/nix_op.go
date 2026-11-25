@@ -21,6 +21,16 @@ func describeNixOp(ctx context.Context, selector string, opts ResolveOptions) (*
 	if err != nil {
 		return nil, err
 	}
+	return RestoreNixDescription(selector, p)
+}
+
+func RestoreNixDescription(selector string, p *toolenv.NixPackage) (*ResolvedOp, error) {
+	if p == nil || !IsNixSelector(selector) {
+		return nil, fmt.Errorf("invalid pinned Nix extension")
+	}
+	if err := p.Validate(); err != nil {
+		return nil, err
+	}
 	if err := validateExtensionOpManifest(p.Manifest); err != nil {
 		return nil, err
 	}

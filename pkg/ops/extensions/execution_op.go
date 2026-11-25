@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"strings"
 
+	"github.com/colony-2/c2j/internal/extensioneagain"
 	"github.com/colony-2/c2j/internal/preparedtest"
 	"github.com/colony-2/c2j/internal/resourceretry"
 	recipeartifacts "github.com/colony-2/c2j/pkg/artifacts"
@@ -57,7 +58,8 @@ func executeExtension(deps ops.OpDependencies, ctx context.Context, input Execut
 	report.Selector = input.Selector
 	processFailure := false
 	defer func() {
-		if extensionwait.IsDiscard(runErr) || execution.IsRequired(runErr) || resourceretry.Is(runErr) {
+		var continuation *extensioneagain.Control
+		if errors.As(runErr, &continuation) || extensionwait.IsDiscard(runErr) || execution.IsRequired(runErr) || resourceretry.Is(runErr) {
 			return
 		}
 		exit := 0
@@ -154,7 +156,11 @@ func executeExtension(deps ops.OpDependencies, ctx context.Context, input Execut
 	if err != nil {
 		return nil, err
 	}
-	defer func() { runErr = errors.Join(runErr, cleanup()) }()
+	defer func() {
+		if err := cleanup(); err != nil {
+			runErr = errors.Join(runErr, err)
+		}
+	}()
 	inJSON, err := json.Marshal(payload)
 	if err != nil {
 		return nil, fmt.Errorf("marshal extension input: %w", err)
@@ -179,6 +185,23 @@ func executeExtension(deps ops.OpDependencies, ctx context.Context, input Execut
 	if process.CheckedTreeCleanupSupported {
 		env[extensionwait.CapabilityEnv] = "1"
 	}
+	delete(env, extensioneagain.ResumeEnv)
+	env[extensioneagain.CapabilityEnv] = "0"
+	resume, eagainSupported := extensioneagain.Supported(ctx)
+	eagainSupported = eagainSupported && process.CheckedTreeCleanupSupported
+	if eagainSupported {
+		env[extensioneagain.CapabilityEnv] = "1"
+		if resume != nil {
+			raw, err := json.Marshal(resume)
+			if err != nil {
+				return nil, err
+			}
+			env[extensioneagain.ResumeEnv] = string(raw)
+		}
+	}
+	if _, ok := env[extensioneagain.ResumeEnv]; !ok {
+		ctx = process.WithAdditionalUnsetEnv(ctx, extensioneagain.ResumeEnv)
+	}
 	if err := prepareObjectOutbox(deps, env); err != nil {
 		return nil, err
 	}
@@ -186,7 +209,7 @@ func executeExtension(deps ops.OpDependencies, ctx context.Context, input Execut
 	runReq := extensionRunRequest(resolved, env, inJSON)
 	// The exit status is available before output EOF. Stop the managed group
 	// on a possible resource control exit, even if it still holds the pipes.
-	runReq.StopTreeOnFailure = resourceControlSupported
+	runReq.StopTreeOnFailure = resourceControlSupported || eagainSupported
 	runReq = report.Prepare(runReq)
 	stdout, scripted, err := preparedtest.Complete(ctx, preparedtest.Invocation{
 		Selector: input.Selector, ResolvedSelector: resolved.ResolvedSelector,
@@ -214,6 +237,23 @@ func executeExtension(deps ops.OpDependencies, ctx context.Context, input Execut
 		}
 	}
 	var exit *exec.ExitError
+	if eagainSupported && ctx.Err() == nil && errors.As(err, &exit) && exit.ExitCode() == extensioneagain.ExitCode {
+		if !cleanExit(err, extensioneagain.ExitCode) || report.Capture.TreeCleanupError != nil || report.Capture.Truncated(0) || report.Capture.Truncated(1) {
+			return nil, fmt.Errorf("extension EAGAIN process did not stop cleanly")
+		}
+		raw := stdout
+		if !scripted {
+			raw = report.Capture.RawBytes(0)
+		}
+		request, err := extensioneagain.Decode(raw, process.CaptureLimit)
+		if err != nil {
+			return nil, err
+		}
+		if err := secrets.FromContext(ctx).CheckOutput(request); err != nil {
+			return nil, err
+		}
+		return nil, &extensioneagain.Control{Request: request}
+	}
 	if ctx.Err() == nil && errors.As(err, &exit) && exit.ExitCode() == extensionwait.ExitCode {
 		if report.Capture.Truncated(0) {
 			return nil, fmt.Errorf("extension wait response exceeded execution capture limit")

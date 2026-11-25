@@ -30,6 +30,7 @@ type RecipeJobWorkerOptions struct {
 	Allocation         execution.Allocation
 	ReadOnlyReplay     bool
 	StageExecution     func(jobdb.JobKey, execution.Demand)
+	ContinuationRoute  func(jobworkflow.ExecutionContext, int64) error
 	WrapTaskWorker     func(jobworkflow.TaskWorker) jobworkflow.TaskWorker
 	CELOptionsProvider template.CELOptionsProvider
 	BeforeScope        func(context.Context, string, *template.ResolutionContext) error
@@ -53,6 +54,7 @@ type recipeJobWorker struct {
 	taskGuardConfigured bool
 	readOnlyReplay      bool
 	stageExecution      func(jobdb.JobKey, execution.Demand)
+	continuationRoute   func(jobworkflow.ExecutionContext, int64) error
 	celProvider         template.CELOptionsProvider
 	beforeScope         func(context.Context, string, *template.ResolutionContext) error
 	executor            RecipeExecutor
@@ -68,6 +70,7 @@ func NewRecipeJobWorker(opts RecipeJobWorkerOptions) jobworkflow.ExecutionWorker
 		taskGuardConfigured: opts.WrapTaskWorker != nil,
 		readOnlyReplay:      opts.ReadOnlyReplay,
 		stageExecution:      opts.StageExecution,
+		continuationRoute:   opts.ContinuationRoute,
 		celProvider:         opts.CELOptionsProvider,
 		beforeScope:         opts.BeforeScope,
 		executor:            opts.Executor,
@@ -94,11 +97,11 @@ func NewRecipeWorkerWithOptions(dependencies ops.ServiceDependencies2, activityR
 		taskWorkers = append(taskWorkers, resolutionWorker)
 	}
 	taskWorkers = append(taskWorkers, newWithinRecipeResolutionTaskWorker(), NewWorkspaceResolutionTaskWorker(), cellContextWorker{}, hookPolicyWorker{}, hookResolveWorker{control: dependencies.WorkflowControl()})
-	taskWorkers = append(taskWorkers, lateSelectWorker{}, lateCaptureWorker{resolver: opts.RootSourceResolver})
+	taskWorkers = append(taskWorkers, lateSelectWorker{}, lateCaptureWorker{resolver: opts.RootSourceResolver}, extensionEagainWaitWorker{})
 	for i, worker := range taskWorkers {
 		kind := coretask.OutputKindActivityInvocationOutput
 		switch worker.Name() {
-		case RootSourceResolutionTaskType, WithinRecipeResolutionTaskType, WorkspaceResolutionTaskType, CellContextTaskType, hookPolicyTaskType, lateSelectTaskType, lateCaptureTaskType:
+		case RootSourceResolutionTaskType, WithinRecipeResolutionTaskType, WorkspaceResolutionTaskType, CellContextTaskType, hookPolicyTaskType, lateSelectTaskType, lateCaptureTaskType, extensionEagainWaitType:
 			kind = coretask.OutputKindInternalResult
 		}
 		if opts.WrapTaskWorker != nil {
@@ -306,6 +309,7 @@ func (j recipeJobWorker) Run(ctx jobworkflow.ExecutionContext, jobData jobdb.Job
 		wCtx.JobPython = func() *execution.Python { return execution.ChoosePython(nil, session.overrides.Python) }
 		wCtx.CurrentExecution = session.effective
 		wCtx.StageNodeExecution = session.stageNode
+		wCtx.ContinuationRoute = j.continuationRoute
 	}
 	opts := ExecutionOptions{}
 	if j.celProvider != nil {

@@ -48,6 +48,8 @@ type ActivityInvocationRequest struct {
 	ArtifactKeys     []jobdb.ArtifactKey            `json:"artifact_keys,omitempty"`
 	Artifacts        map[string]recipeartifacts.Ref `json:"artifacts,omitempty"`
 	Deps             ops.OpDependencies             `json:"-"`
+	Continuation     *ContinuationInput             `json:"eagain_resume,omitempty"`
+	capture          *continuationCapture
 }
 
 // ActivityInvocationOutput wraps the raw op output alongside workspace results.
@@ -70,6 +72,7 @@ type ActivityInvocationOutput struct {
 	OpOutput          map[string]interface{}          `json:"output"`
 	ArtifactRefs      map[string]recipeartifacts.Ref  `json:"artifact_refs,omitempty"`
 	Jobs              jobcontext.StartedJobsContext   `json:"jobs,omitempty"`
+	Continuation      *ContinuationResult             `json:"eagain,omitempty"`
 }
 
 // variation of ActivityInvocationOutput that allows arbitrary output types to avoid double serialization

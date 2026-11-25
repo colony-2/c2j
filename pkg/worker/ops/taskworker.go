@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/colony-2/c2j/internal/extensioneagain"
 	"github.com/colony-2/c2j/internal/jsonexact"
 	"github.com/colony-2/c2j/internal/resourceretry"
 	"github.com/colony-2/c2j/pkg/configuration"
@@ -18,6 +19,7 @@ import (
 	"github.com/colony-2/c2j/pkg/metricsruntime"
 	"github.com/colony-2/c2j/pkg/ops"
 	extops "github.com/colony-2/c2j/pkg/ops/extensions"
+	"github.com/colony-2/c2j/pkg/ops/process"
 	"github.com/colony-2/c2j/pkg/permissions"
 	"github.com/colony-2/c2j/pkg/secrets"
 	coretask "github.com/colony-2/c2j/pkg/task"
@@ -235,6 +237,24 @@ func (t *taskWorker) RunTask(local context.Context, ctx jobworkflow.TaskContext,
 	}
 	finishSecrets(nil, false)
 	opCtx = secrets.WithSession(opCtx, session)
+	canContinue := continuationSelector(req.Extension) != "" && resourceretry.Supported(opCtx) && process.CheckedTreeCleanupSupported
+	if air.Continuation != nil && (!canContinue || !air.Continuation.valid(air.GitTaskContext, ctx.JobKey.JobId)) {
+		return nil, errors.New("invalid or unsupported extension EAGAIN invocation")
+	}
+	if canContinue {
+		var resume *extensioneagain.Resume
+		if air.Continuation != nil {
+			resume = &air.Continuation.Resume
+		}
+		air.capture = &continuationCapture{}
+		opCtx = extensioneagain.WithSupport(opCtx, resume)
+	}
+	retained := false
+	defer func() {
+		if air.capture != nil && !retained {
+			air.capture.cleanup()
+		}
+	}()
 	if err := opCtx.Err(); err != nil {
 		return nil, err
 	}
@@ -251,6 +271,7 @@ func (t *taskWorker) RunTask(local context.Context, ctx jobworkflow.TaskContext,
 			"restored_revision", provenance.Snapshot)
 	}
 	jobTool := &ops.TaskBasedJobTool{TaskContext: ctx, Restricted: access}
+	logical := air
 	out, outArt, err := t.doer.doPrepared(opCtx, jobTool, air, inArt, logger, func(bodyCtx context.Context, restored *gitstate.GitTaskContext) (context.Context, error) {
 		air.GitTaskContext = *restored.GlobalGitTaskContext
 		if err := InstallWorkspaceInvocation(bodyCtx, &air, req, restored.WorktreePath, PrepareTools); err != nil {
@@ -268,6 +289,23 @@ func (t *taskWorker) RunTask(local context.Context, ctx jobworkflow.TaskContext,
 		prepared = true
 		return bodyCtx, nil
 	})
+	if err == nil && air.capture != nil && air.capture.request.Valid() {
+		if stop := opCtx.Err(); stop != nil {
+			return nil, stop
+		}
+		marker, artifacts, err := air.capture.result(opCtx, logical, req.Extension)
+		if err != nil {
+			return nil, err
+		}
+		output := ActivityInvocationOutput{Continuation: marker, WorkspaceScopeID: out.WorkspaceScopeID}
+		envelope, err := coretask.NewOutputEnvelope(coretask.OutputKindActivityInvocationOutput, output)
+		if err != nil {
+			return nil, err
+		}
+		result, err := jobdb.NewTaskData(envelope, artifacts...)
+		retained = err == nil
+		return result, err
+	}
 	if extensionwait.IsDiscard(err) {
 		return nil, err
 	}
