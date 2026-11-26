@@ -438,7 +438,7 @@ state:
           }
           // Require named recovery and review repairs even if selectors change.
           const regressions = {
-            'pkg/jobinspect': ['TestWorkspaceDiffPatchlessObserverEvidence', 'TestWorkspaceDiffNativePatchlessObservers', 'TestWorkspaceDiffNativePatchlessObserverRejections', 'TestWorkspaceDiffNativePatchlessObserverSources', 'TestWorkspaceDiffNativePatchlessObserverAttemptsAndCutoffs'],
+            'pkg/jobinspect': ['TestWorkspaceDiffPatchlessObserverEvidence', 'TestWorkspaceDiffNativePatchlessObservers', 'TestWorkspaceDiffNativePatchlessObserverRejections', 'TestWorkspaceDiffNativePatchlessObserverSources', 'TestWorkspaceDiffNativePatchlessObserverAttemptsAndCutoffs', 'TestWorkspaceDiffNativeSerialHandoff/default', 'TestWorkspaceDiffNativeSerialHandoff/main', 'TestWorkspaceDiffNativeSerialHandoffRejections'],
             'pkg/worker/compiler': ['TestWorkspaceDiffCompilerReviewScopeWorkspace', 'TestWorkspaceDiffCompilerReviewFailedScope'],
             'pkg/childbroker': ['TestWorkspaceDiffHelperReviewResponseContract']
           };

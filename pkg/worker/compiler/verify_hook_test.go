@@ -197,7 +197,8 @@ if [[ "$*" == *TestWorkspaceDiff* ]]; then
     printf '{"Action":"run","Package":"github.com/colony-2/c2j/%s","Test":"%s"}\n' "$pkg" "$test_name"
     printf '{"Action":"pass","Package":"github.com/colony-2/c2j/%s","Test":"%s"}\n' "$pkg" "$test_name"
   done
-  for item in pkg/jobinspect:TestWorkspaceDiffPatchlessObserverEvidence pkg/jobinspect:TestWorkspaceDiffNativePatchlessObservers pkg/jobinspect:TestWorkspaceDiffNativePatchlessObserverRejections pkg/jobinspect:TestWorkspaceDiffNativePatchlessObserverSources pkg/jobinspect:TestWorkspaceDiffNativePatchlessObserverAttemptsAndCutoffs pkg/worker/compiler:TestWorkspaceDiffCompilerReviewScopeWorkspace pkg/worker/compiler:TestWorkspaceDiffCompilerReviewFailedScope pkg/childbroker:TestWorkspaceDiffHelperReviewResponseContract; do
+  for item in pkg/jobinspect:TestWorkspaceDiffPatchlessObserverEvidence pkg/jobinspect:TestWorkspaceDiffNativePatchlessObservers pkg/jobinspect:TestWorkspaceDiffNativePatchlessObserverRejections pkg/jobinspect:TestWorkspaceDiffNativePatchlessObserverSources pkg/jobinspect:TestWorkspaceDiffNativePatchlessObserverAttemptsAndCutoffs pkg/worker/compiler:TestWorkspaceDiffCompilerReviewScopeWorkspace pkg/worker/compiler:TestWorkspaceDiffCompilerReviewFailedScope pkg/childbroker:TestWorkspaceDiffHelperReviewResponseContract \
+    pkg/jobinspect:TestWorkspaceDiffNativeSerialHandoff/default pkg/jobinspect:TestWorkspaceDiffNativeSerialHandoff/main pkg/jobinspect:TestWorkspaceDiffNativeSerialHandoffRejections; do
     pkg="${item%%:*}"; test_name="${item#*:}"
     printf '{"Action":"run","Package":"github.com/colony-2/c2j/%s","Test":"%s"}\n' "$pkg" "$test_name"
     printf '{"Action":"pass","Package":"github.com/colony-2/c2j/%s","Test":"%s"}\n' "$pkg" "$test_name"
@@ -529,7 +530,7 @@ func TestVerifyHookWorkspaceDiffEvidenceGuard(t *testing.T) {
 	end := strings.Index(code, "\nJS\n")
 	require.NotEqual(t, -1, end)
 	code = code[:end]
-	modes := []string{"passed", "missing", "skipped", "failed", "malformed", "missing-native", "unfinished", "missing-regression", "skipped-regression", "missing-observer", "skipped-observer-selection", "failed-observer-selection", "unfinished-observer-selection"}
+	modes := []string{"passed", "missing", "skipped", "failed", "malformed", "missing-native", "unfinished", "missing-regression", "skipped-regression", "missing-observer", "skipped-observer-selection", "failed-observer-selection", "unfinished-observer-selection", "missing-serial-handoff"}
 	var observerSelections []string
 	for _, backend := range []string{"SQLite", "HTTP"} {
 		for _, variant := range []string{"omitted-parent", "parent-present"} {
@@ -565,12 +566,13 @@ func TestVerifyHookWorkspaceDiffEvidenceGuard(t *testing.T) {
 			}
 			if mode != "missing-regression" {
 				for pkg, names := range map[string][]string{
-					"pkg/jobinspect":      {"TestWorkspaceDiffPatchlessObserverEvidence", "TestWorkspaceDiffNativePatchlessObservers", "TestWorkspaceDiffNativePatchlessObserverRejections", "TestWorkspaceDiffNativePatchlessObserverSources", "TestWorkspaceDiffNativePatchlessObserverAttemptsAndCutoffs"},
+					"pkg/jobinspect":      {"TestWorkspaceDiffPatchlessObserverEvidence", "TestWorkspaceDiffNativePatchlessObservers", "TestWorkspaceDiffNativePatchlessObserverRejections", "TestWorkspaceDiffNativePatchlessObserverSources", "TestWorkspaceDiffNativePatchlessObserverAttemptsAndCutoffs", "TestWorkspaceDiffNativeSerialHandoff/default", "TestWorkspaceDiffNativeSerialHandoff/main", "TestWorkspaceDiffNativeSerialHandoffRejections"},
 					"pkg/worker/compiler": {"TestWorkspaceDiffCompilerReviewScopeWorkspace", "TestWorkspaceDiffCompilerReviewFailedScope"},
 					"pkg/childbroker":     {"TestWorkspaceDiffHelperReviewResponseContract"},
 				} {
 					for _, name := range names {
-						if mode == "missing-observer" && name == "TestWorkspaceDiffPatchlessObserverEvidence" {
+						if mode == "missing-observer" && name == "TestWorkspaceDiffPatchlessObserverEvidence" ||
+							mode == "missing-serial-handoff" && name == "TestWorkspaceDiffNativeSerialHandoff/main" {
 							continue
 						}
 						action := "pass"
@@ -616,6 +618,8 @@ func TestVerifyHookWorkspaceDiffEvidenceGuard(t *testing.T) {
 				require.Error(t, err, string(out))
 				if mode == "missing-observer" {
 					require.Contains(t, string(out), "Saved workspace-diff review regression missing: TestWorkspaceDiffPatchlessObserverEvidence")
+				} else if mode == "missing-serial-handoff" {
+					require.Contains(t, string(out), "Saved workspace-diff review regression missing: TestWorkspaceDiffNativeSerialHandoff/main")
 				} else if name, missing := strings.CutPrefix(mode, "missing-selection/"); missing {
 					require.Contains(t, string(out), "Patchless observer recovery missing: "+name)
 				} else if strings.HasSuffix(mode, "-observer-selection") {

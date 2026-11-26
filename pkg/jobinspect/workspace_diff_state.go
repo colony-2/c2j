@@ -447,6 +447,9 @@ func (d *diffHistory) reaches(v, target *diffState) bool {
 		if v.a == target.a {
 			return true
 		}
+		if d.provesCleanFirstEdit(v, target) {
+			return true
+		}
 		// A recognized successful no-work rebase establishes a new active
 		// empty base, including a floating workspace resolved during the task.
 		// Older empty observations of that workspace cannot contradict it.
@@ -472,6 +475,90 @@ func (d *diffHistory) reaches(v, target *diffState) bool {
 	}
 	return false
 }
+
+func (d *diffHistory) provesCleanFirstEdit(edit, clean *diffState) bool {
+	if edit.before || clean.before || edit.issue != "" || clean.issue != "" ||
+		!diffStateValid(edit.w) || !diffStateValid(clean.w) || diffEmpty(edit) || !diffEmpty(clean) || clean.w.Cell == "" {
+		return false
+	}
+	incoming := incomingDiffState(edit.a)
+	bundle, conflict := incomingBundleEvidence(edit.a)
+	return incoming != nil && bundle == nil && !conflict && sameDiffState(*incoming, clean.w) &&
+		d.recordedSerialScopes(clean.a, edit.a)
+}
+
+func (d *diffHistory) recordedSerialScopes(prior, next *diffAttempt) bool {
+	if prior.end < 0 || next.start <= prior.end || next.end <= next.start {
+		return false
+	}
+	left, right := splitNativePath(prior.task.ID), splitNativePath(next.task.ID)
+	shared := 0
+	for shared < len(left) && shared < len(right) && left[shared] == right[shared] {
+		shared++
+	}
+	if shared < 2 || shared+1 >= len(left) || shared+1 >= len(right) ||
+		!serialScopeChildren(nativeScopeSite(left[shared-2]), nativeScopeSite(left[shared]), nativeScopeSite(right[shared])) {
+		return false
+	}
+	parent := d.recordedScopeAttempt(left[:shared])
+	first := d.recordedScopeAttempt(left[:shared+2])
+	second := d.recordedScopeAttempt(right[:shared+2])
+	if parent == nil || first == nil || second == nil ||
+		parent.start >= first.start || first.start >= prior.end || prior.end >= second.start || second.start >= next.start {
+		return false
+	}
+	for _, entry := range d.h.run.Execution[second.start:next.end] {
+		id := entry.Record.ID
+		if id == first.id || strings.HasPrefix(id, first.id+"/") {
+			return false
+		}
+	}
+	return true
+}
+
+func (d *diffHistory) recordedScopeAttempt(parts []string) *diffScope {
+	last := parts[len(parts)-1]
+	number, err := strconv.Atoi(strings.TrimPrefix(last, "attempt:"))
+	if err != nil || !strings.HasPrefix(last, "attempt:") {
+		return nil
+	}
+	scope := d.scopes["/"+strings.Join(parts[:len(parts)-1], "/")][number]
+	if scope == nil {
+		return nil
+	}
+	record := d.h.run.Execution[scope.start].Record
+	if record.Kind != "attempt" || record.ID != "/"+strings.Join(parts, "/") {
+		return nil
+	}
+	return scope
+}
+
+func nativeScopeSite(part string) string {
+	end := strings.LastIndexByte(part, '#')
+	if !strings.HasPrefix(part, "scope:") || end <= len("scope:") {
+		return ""
+	}
+	site, _ := strconv.Unquote(part[len("scope:"):end])
+	return site
+}
+
+func serialScopeChildren(parent, left, right string) bool {
+	switch {
+	case strings.HasPrefix(parent, "state_machine:"):
+		state := func(site string) bool {
+			return strings.HasPrefix(site, "state:") || strings.HasPrefix(site, "state_machine:state-policy:")
+		}
+		return state(left) && state(right)
+	case strings.HasPrefix(parent, "sequence:"):
+		node := func(site string) bool {
+			return strings.HasPrefix(site, "op:") || strings.HasPrefix(site, "sequence:") || strings.HasPrefix(site, "state_machine:")
+		}
+		return node(left) && node(right)
+	default:
+		return false
+	}
+}
+
 func diffConcurrent(a, b string) bool {
 	x, y := splitNativePath(a), splitNativePath(b)
 	for i := 0; i < len(x) && i < len(y); i++ {

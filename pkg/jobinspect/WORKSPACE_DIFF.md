@@ -110,6 +110,8 @@ For example, the status-specific fields of an available response are `"status":"
 
 Completed points exclude later retries/producers. Open scopes expose durable progress with `in_progress`; failed recorded after-states use `diagnostic`. Discovery lists scope attempts and endpoint evidence independently of restart eligibility. Missing/conflicting evidence remains unavailable.
 
+An edit can follow a recorded clean state without a saved clean snapshot when native sequence or state-machine execution proves the handoff was serial and the edit's incoming repository, workspace, cell, base, and head match that state. This resolves competing observations; it does not establish a source for patch bytes.
+
 The reader prefers `diff_from_base.diff`. A parent-only file requires recognized version-1 managed producer endpoint proof. A task-context `parent_hash`, a filename or cumulative-file absence cannot provide that proof. Ordinary history-advanced tasks without actual-parent proof remain unavailable. Explicit empty bases retain absent hashes.
 
 Patchless unchanged observers may omit the legacy output parent hash only when
