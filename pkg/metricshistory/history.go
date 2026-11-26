@@ -85,6 +85,14 @@ func Records(run jobdb.GetJobRunResponse) []metrics.Record {
 	tasks := map[string]bool{}
 	for _, entry := range run.Execution {
 		if entry.Record.Kind == "task" {
+			var descriptor struct {
+				Call struct {
+					TaskType string `json:"task_type"`
+				} `json:"call"`
+			}
+			if json.Unmarshal(entry.Record.Descriptor, &descriptor) == nil && descriptor.Call.TaskType == task.RecipeStatusTaskType {
+				continue
+			}
 			tasks[entry.Record.ID] = true
 		}
 	}

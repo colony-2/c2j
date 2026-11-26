@@ -110,6 +110,7 @@ func NewRecipeWorkerWithOptions(dependencies ops.ServiceDependencies2, activityR
 		}
 		taskWorkers[i] = metricsruntime.WrapWorker(worker, kind)
 	}
+	taskWorkers = append(taskWorkers, recipeStatusWorker{})
 	return jobworkflow.AsWorkSetWithOptions(job, jobworkflow.WorkRegistrationOptions{ConsumerVersions: ExecutionConsumerVersions(opts.ConsumerVersions)}, taskWorkers...)
 }
 
@@ -308,6 +309,10 @@ func (j recipeJobWorker) Run(ctx jobworkflow.ExecutionContext, jobData jobdb.Job
 	}
 
 	wCtx := workflow.Context{JobContext: ctx, BeforeScope: j.beforeScope, Logger: logger, ExecutionHookPolicy: input.HookPolicyVersion == workflowctl.ExecutionHookPolicyVersion}
+	if input.StatusHistoryVersion == workflowctl.StatusHistoryVersion {
+		status := recipeStatusHistory{readOnly: j.readOnlyReplay, logger: logger}
+		wCtx.RecordStatus = status.record
+	}
 	if input.Execution != nil {
 		wCtx.JobPackages = func() []string { return input.Execution.JobRequirements.Packages }
 		wCtx.JobPython = func() *execution.Python { return execution.ChoosePython(nil, input.Execution.JobRequirements.Python) }

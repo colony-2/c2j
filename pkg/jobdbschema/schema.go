@@ -14,9 +14,11 @@ import (
 	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
 )
 
+const PreStatusHistorySchemaHash = "sha256:ffb30a5e9baac303627fd62833ab4e4cad2ff625daa711c7dfed06b3a43010f0"
+
 var c2jJobSchema = json.RawMessage(`{
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "description": "c2j recipe execution chapter schema v8 (execution hook policy)",
+  "description": "c2j recipe execution chapter schema v9 (recipe status history)",
   "firstChapterShape": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "type": "object",
@@ -519,6 +521,7 @@ var c2jJobSchema = json.RawMessage(`{
         "properties": {
           "job_semantics_version": { "type": "integer", "enum": [1, 2] },
           "hook_policy_version": { "type": "integer", "const": 1 },
+          "status_history_version": { "type": "integer", "const": 1 },
           "available_at": {
             "type": "string",
             "format": "date-time"

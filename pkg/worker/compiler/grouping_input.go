@@ -79,6 +79,9 @@ func decodeRecipeInput(data []byte, artifacts []jobdb.Artifact) (workflowctl.Sta
 	if raw, ok := snapshot["job_semantics_version"]; ok && string(raw) != "1" && string(raw) != "2" {
 		return start, nil, fmt.Errorf("job_semantics_version must be integer 1 or 2")
 	}
+	if raw, ok := snapshot["status_history_version"]; ok && string(raw) != "1" {
+		return start, nil, fmt.Errorf("status_history_version must be integer 1")
+	}
 	if err := jobsemantics.Validate(start.JobSemanticsVersion); err != nil {
 		return start, nil, err
 	}

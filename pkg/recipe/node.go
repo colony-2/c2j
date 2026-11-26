@@ -76,6 +76,7 @@ func (n *Node) UnmarshalYAML(node *yamlv3.Node) error {
 	if err := node.Decode(impl); err != nil {
 		return err
 	}
+	impl.preserveNullStatus(raw)
 	if err := decodeGitProfile(node, impl); err != nil {
 		return err
 	}
@@ -166,6 +167,7 @@ func isTemplateString(value string) bool {
 }
 
 type NodeImpl interface {
+	preserveNullStatus(map[string]any)
 	isNode()
 	GetMetadata() NodeMetadata
 }
@@ -173,7 +175,8 @@ type NodeImpl interface {
 type NodeList []Node
 
 type NodeShared struct {
-	Shared string `yaml:"shared"`
+	Shared string          `yaml:"shared"`
+	Status *StatusTemplate `yaml:"status,omitempty" json:"status,omitempty"`
 }
 
 func (n *NodeShared) GetMetadata() NodeMetadata {
@@ -344,6 +347,7 @@ func (NodeOp) JSONSchema() *jsonschema.Schema {
 func (n *NodeOp) isNode() {}
 
 type NodeMetadata struct {
+	Status         *StatusTemplate        `yaml:"status,omitempty" json:"status,omitempty"`
 	ExpectOutputs  map[string]interface{} `yaml:"expect_outputs,omitempty" json:"expect_outputs,omitempty"`
 	Perms          *permissions.Spec      `yaml:"perms,omitempty" json:"perms,omitempty"`
 	GitProfile     *GitProfileSpec        `yaml:"git_profile,omitempty" json:"git_profile,omitempty"`

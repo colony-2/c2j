@@ -781,6 +781,43 @@ sequence:
 
 `context.workflow.cell` remains the owning job's cell; `context.workspace.cell` and `context.git.*` describe the active workspace. See [Run a recipe node in another cell](GUIDE-Node-Workspaces.md) for scope, replay, child-job, and deployment details.
 
+## Recipe status
+
+Set optional `status` on the recipe root or a node to record a human-readable
+phase in run history. Use a string, a JSON-shaped value, or existing CEL
+templates. For example:
+
+```yaml
+status:
+  phase: Checking results
+  checks: '${{ inputs.check_count }}'
+```
+
+c2j records status beside the payload in its completion task's output envelope,
+after accepting the logical node's output. Skipped nodes and failed attempts
+without accepted output do not update status. An omitted declaration records
+the prior value again if one exists; `status: null` explicitly sets it to `null`.
+Shared and include calls can override the reused root's status. Descendants
+retain their declarations, and separately submitted child jobs start with no
+status. The encoded JSON value may be at most 1,024 bytes, including quotes and
+escapes. Invalid or oversized values warn and leave the previous value in place.
+Status is not a business output or a place to store secrets.
+
+### Upgrading workers for recipe status
+
+New c2j submitters mark the status history format automatically. The existing
+`recipe` job route does not distinguish it from older history. Stage upgraded
+workers and submitters without allowing them to run or submit work. Stop or
+drain old workers and make sure they cannot poll or resume jobs in any affected
+pool. Register the updated c2j submission contract for the affected tenants
+using the existing schema registration path, and confirm its selector is
+available. Then start upgraded workers and submitters. Workers that launch
+parallel branches are also submitters. Upgraded workers replay unmarked runs
+without adding status history. Unmarked parallel runs keep using the pre-status
+submission contract for their branches so a retry can reuse an already-created
+child. Keep that contract registered and active while unmarked runs can still
+launch branches. Do not return old workers to pools that can lease marked jobs.
+
 ## Testing Recipes
 
 `c2j test` compiles, validates, and runs recipe test suites locally. It does not call the old Colony2 API.

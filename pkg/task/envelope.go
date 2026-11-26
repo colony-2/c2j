@@ -18,12 +18,14 @@ type OutputEnvelope struct {
 	Kind    OutputKind        `json:"kind"`
 	Metrics *metrics.Channels `json:"metrics,omitempty"`
 	Payload json.RawMessage   `json:"payload,omitempty"`
+	Status  json.RawMessage   `json:"status,omitempty"`
 }
 
 type OutputKind string
 
 const (
 	OutputEnvelopeVersion = 2
+	RecipeStatusTaskType  = "c2j-recipe-status"
 )
 
 const (

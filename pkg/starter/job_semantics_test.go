@@ -38,6 +38,17 @@ func TestExactJobPreparationVersionAndRejections(t *testing.T) {
 	require.ErrorContains(t, err, "goal sharing")
 }
 
+func TestRecipeStatusAutomaticallySelectsHistoryFormat(t *testing.T) {
+	start := workflowctl.StartJob{TenantId: "tenant", Cell: "test", RecipeName: "build"}
+	job, err := PrepareRecipeJob(context.Background(), start, StartRecipeJobOptions{})
+	require.NoError(t, err)
+	require.Equal(t, RecipeJobType, job.JobType)
+	require.NotNil(t, job.Schema)
+	var persisted workflowctl.StartJob
+	require.NoError(t, json.Unmarshal(job.Data.GetDataOrPanic(), &persisted))
+	require.Equal(t, workflowctl.StatusHistoryVersion, persisted.StatusHistoryVersion)
+}
+
 // Format-1 reconciliation resends the original operation and validates its
 // complete receipt; it never strips mode or re-prepares mutable inputs.
 func TestExactJobLegacyDescriptorReplaysOriginal(t *testing.T) {

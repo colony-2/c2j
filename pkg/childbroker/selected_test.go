@@ -79,6 +79,7 @@ func TestSelectedBrokerRealDispatchAndReplay(t *testing.T) {
 	var canonicalHistorical map[string]any
 	require.NoError(t, json.Unmarshal(rawHistorical, &canonicalHistorical))
 	delete(canonicalHistorical, "job_semantics_version")
+	delete(canonicalHistorical, "status_history_version")
 	if context, ok := canonicalHistorical["context"].(map[string]any); ok {
 		delete(context, "job_semantics_version")
 	}
@@ -140,6 +141,7 @@ func TestSelectedBrokerRealDispatchAndReplay(t *testing.T) {
 	require.True(t, ok)
 	var submitted workflowctl.StartJob
 	require.NoError(t, json.Unmarshal(submittedChapter.Input.Data, &submitted))
+	require.Equal(t, workflowctl.StatusHistoryVersion, submitted.StatusHistoryVersion)
 	require.Equal(t, req.Start.Title, submitted.Title)
 	require.Equal(t, req.Start.Inputs, submitted.Inputs)
 	summaries, err := rt.ListJobs(ctx, jobdb.ListJobsRequest{TenantIds: []string{"tenant"}, JobKeys: []jobdb.JobKey{jobdb.JobKey{TenantId: ref.TenantID, JobId: ref.JobID}}})

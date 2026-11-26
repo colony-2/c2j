@@ -177,7 +177,7 @@ func (worker parallelWorker) launch(ctx context.Context, task jobworkflow.TaskCo
 		return parallelStartRejected(err)
 	}
 	start.Artifacts = []jobdb.Artifact{jobdb.NewArtifactFromBytes(parallelContextArtifact, lexical)}
-	job, err := starter.PrepareRecipeJob(ctx, start, starter.StartRecipeJobOptions{}, *embedded)
+	job, err := starter.PrepareParallelBranchJob(ctx, start, *embedded)
 	if err != nil {
 		return parallelStartRejected(err)
 	}
@@ -452,6 +452,9 @@ func launchParallelBranches(ctx workflow.Context, scope *template.ResolutionCont
 	}
 	for _, branch := range branches {
 		id := branch.GetMetadata().ID
+		if ctx.RecordStatus == nil {
+			branch = recipe.WithoutNodeStatus(branch)
+		}
 		branchName := "parallel-branch"
 		meta := recipe.RecipeMetadata{NodeMetadata: recipe.NodeMetadata{ID: branchName, Internal: ctx.ParallelDefinition.Internal}, Version: "1", Extensions: ctx.ParallelDefinition.Extensions, SchemaVersion: ctx.ParallelDefinition.SchemaVersion, SourceHooks: ctx.SourceHooks}
 		embedded := recipe.Recipe{RecipeImpl: &recipe.RecipeSequence{RecipeMetadata: meta, SequenceData: recipe.SequenceData{Sequence: []recipe.Node{branch}}}}
@@ -461,6 +464,9 @@ func launchParallelBranches(ctx workflow.Context, scope *template.ResolutionCont
 		}
 		start := workflowctl.StartJob{Title: "Parallel branch: " + id, TenantId: ctx.GetJobKey().TenantId, RecipeName: branchName, JobContext: job,
 			Cell: state.Workspace.Cell, CellRepo: state.Base.BaseRepo, GitRef: state.Commit.ParentRef}
+		if ctx.RecordStatus != nil {
+			start.StatusHistoryVersion = workflowctl.StatusHistoryVersion
+		}
 		for _, name := range sortedRefMapKeys(exec.Artifacts) {
 			start.ArtifactRefs = append(start.ArtifactRefs, exec.Artifacts[name])
 		}

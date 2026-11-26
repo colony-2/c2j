@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/colony-2/c2j/pkg/recipe"
 	"github.com/colony-2/c2j/pkg/template"
@@ -155,6 +156,65 @@ func TestScopeOutputPublishedOnlyAfterAcceptance(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+func TestRecipeStatusScopeAcceptance(t *testing.T) {
+	for _, test := range []struct {
+		name       string
+		firstError error
+		retry      bool
+		want       []string
+	}{
+		{name: "accepted", want: []string{`"attempt 1"`}},
+		{name: "rejected", firstError: fmt.Errorf("result rejected at scope boundary")},
+		{name: "cancelled", firstError: context.Canceled},
+		{name: "retried", firstError: fmt.Errorf("retry at scope boundary"), retry: true, want: []string{`"attempt 2"`}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			runtime := toy.New(toy.WithProjects(jobdbcelltest.UnrestrictedProjects{}))
+			job, git := GenerateTestContext()
+			var observedErr error
+			worker := jobworkflow.ExecutionWorker{JobType: "status-scope-acceptance", Execute: func(exec jobworkflow.ExecutionContext, _ jobdb.JobData) (jobdb.JobData, error) {
+				root, err := template.NewRecipeResolutionContext(&git, nil, job)
+				if err != nil {
+					return nil, err
+				}
+				history := recipeStatusHistory{logger: exec.Logger()}
+				attempts := 0
+				ctx := catchWorkflowContext(scopeDecisionProbe{exec, func(string) error {
+					require.Nil(t, history.current, "an unaccepted result must not set status")
+					if attempts == 1 {
+						return test.firstError
+					}
+					return nil
+				}})
+				ctx.RecordStatus = history.record
+				meta := recipe.NodeMetadata{ID: "work"}
+				if test.retry {
+					meta.Retry = &recipe.RetryPolicy{MaximumAttempts: 2, InitialInterval: jobdb.Duration(time.Millisecond)}
+				}
+				observedErr = executeNodeScope(ctx, root, meta, template.ScopeSequence, "", func(inner workflow.Context, entry *template.ResolutionContext, meta recipe.NodeMetadata) error {
+					attempts++
+					state, err := entry.NewChildContext(template.ScopeSequence, meta, "", map[string]any{})
+					if err != nil {
+						return err
+					}
+					inner.ScopeStatus(workflow.CompletionStatus{Declaration: &recipe.StatusTemplate{Value: fmt.Sprintf("attempt %d", attempts)}})
+					return completeNodeScope(inner, state, template.ExecutionOutput{})
+				})
+				return jobdb.NewTaskData(nil)
+			}}
+			key := probeSubmit(t, runtime, worker)
+			require.Equal(t, jobworkflow.JobRunCompleted, probeRun(t, runtime, key, worker, recipeStatusWorker{}).Status)
+			if len(test.want) == 0 {
+				require.Error(t, observedErr)
+				require.Empty(t, recipeStatusRecords(t, runtime, key))
+			} else {
+				require.NoError(t, observedErr)
+				require.Equal(t, test.want, recipeStatusValues(t, recipeStatusRecords(t, runtime, key)))
+			}
+		})
 	}
 }
 

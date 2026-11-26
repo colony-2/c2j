@@ -354,7 +354,10 @@ func (r *SharedNodeResolver) VisitNodeShared(node *NodeShared, path []string) (N
 			if len(r.stack) > 0 {
 				r.stack = r.stack[:len(r.stack)-1]
 			}
-			return resolved, err
+			if err != nil {
+				return Node{}, err
+			}
+			return overrideSharedStatus(resolved, node.Status), nil
 		}
 
 		// For container nodes (Sequence, State), we need to walk their children
@@ -370,7 +373,7 @@ func (r *SharedNodeResolver) VisitNodeShared(node *NodeShared, path []string) (N
 			return Node{}, err
 		}
 
-		return resolvedDef, nil
+		return overrideSharedStatus(resolvedDef, node.Status), nil
 	}
 	return Node{}, fmt.Errorf("shared node '%s' not found", node.Shared)
 }

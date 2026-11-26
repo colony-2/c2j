@@ -243,6 +243,7 @@ state:
           go test -mod=readonly -count=1 -v -timeout=5m ./pkg/executionruntime -run '^TestTaskInspectionUsesBackendReadPermissions$'
           # Keep helper and inspection first; probe task/lease transitions and prompt cancellation.
           go test -mod=readonly -race -count=1 -v -timeout=10m ./cmd/c2j/internal/cmd ./cmd/c2j/internal/runjob ./pkg/task ./pkg/executionruntime ./pkg/worker/ops ./pkg/ops/extensions -run '^TestHealth|^TestPrompt'
+          go test -mod=readonly -count=1 -v -timeout=5m ./pkg/recipe ./pkg/task ./pkg/jobdbschema ./pkg/starter ./pkg/worker/compiler -run '^TestRecipeStatus'
           # Workspace preparation must retain spawn causes and failed Git diagnostics.
           go test -mod=readonly -count=1 -v -timeout=5m ./pkg/git/common -run '^TestResourceRetryValidation'
           # Race-check durable backoff, process-tree cleanup and real Git child-fork failure.

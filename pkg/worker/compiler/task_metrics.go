@@ -6,6 +6,7 @@ import (
 
 	"github.com/colony-2/c2j/pkg/metrics"
 	"github.com/colony-2/c2j/pkg/metricshistory"
+	"github.com/colony-2/c2j/pkg/task"
 	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
 )
 
@@ -19,6 +20,9 @@ type taskMetricsKey struct{}
 func ObserveTaskMetrics(ctx context.Context) (context.Context, func(jobworkflow.TaskEndEvent)) {
 	a := metrics.NewAccumulator()
 	return context.WithValue(ctx, taskMetricsKey{}, a), func(event jobworkflow.TaskEndEvent) {
+		if event.TaskType == task.RecipeStatusTaskType {
+			return
+		}
 		channels := metricshistory.Decode(nil)
 		if event.Output != nil {
 			if raw, err := event.Output.GetData(); err == nil {

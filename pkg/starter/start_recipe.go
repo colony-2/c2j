@@ -170,6 +170,27 @@ func StartRecipeJobWithOptions(ctx context.Context, startJob workflowctl.StartJo
 // PrepareRecipeJob resolves the complete semantic request without publishing it.
 // Retain this value through Descriptor before attempting publication.
 func PrepareRecipeJob(ctx context.Context, startJob workflowctl.StartJob, opts StartRecipeJobOptions, recipes ...recipe.Recipe) (jobdb.SubmitJob, error) {
+	startJob.StatusHistoryVersion = workflowctl.StatusHistoryVersion
+	return prepareRecipeJob(ctx, startJob, opts, recipes...)
+}
+
+func PrepareParallelBranchJob(ctx context.Context, startJob workflowctl.StartJob, branch recipe.Recipe) (jobdb.SubmitJob, error) {
+	switch startJob.StatusHistoryVersion {
+	case 0:
+		job, err := prepareRecipeJob(ctx, startJob, StartRecipeJobOptions{}, branch)
+		if err != nil {
+			return jobdb.SubmitJob{}, err
+		}
+		job.Schema = &jobdb.JobSchemaSelector{Hash: jobdbschema.PreStatusHistorySchemaHash}
+		return job, nil
+	case workflowctl.StatusHistoryVersion:
+		return PrepareRecipeJob(ctx, startJob, StartRecipeJobOptions{}, branch)
+	default:
+		return jobdb.SubmitJob{}, fmt.Errorf("unsupported parallel branch status history version %d", startJob.StatusHistoryVersion)
+	}
+}
+
+func prepareRecipeJob(ctx context.Context, startJob workflowctl.StartJob, opts StartRecipeJobOptions, recipes ...recipe.Recipe) (jobdb.SubmitJob, error) {
 	if startJob.JobSemanticsVersion != 0 && startJob.JobSemanticsVersion != jobsemantics.Current {
 		return jobdb.SubmitJob{}, fmt.Errorf("fresh preparation requires job_semantics_version 2; replay retained descriptors unchanged")
 	}

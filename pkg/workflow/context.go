@@ -32,7 +32,10 @@ type Context struct {
 	ScopeState     func(*template.ResolutionContext)
 	// ScopeOutput returns a prepared result to the owning scope executor.
 	// The callback does not publish to the enclosing template context.
-	ScopeOutput func(*template.ResolutionContext, template.ExecutionOutput) error
+	ScopeOutput      func(*template.ResolutionContext, template.ExecutionOutput) error
+	ScopeStatus      func(CompletionStatus)
+	InlineRootStatus func(CompletionStatus)
+	RecordStatus     func(jobworkflow.ExecutionContext, string, CompletionStatus) error
 	// DeferScopeOutput lets a transparent preparation scope publish the accepted
 	// body result only after its own outcome is accepted.
 	DeferScopeOutput bool
@@ -48,6 +51,11 @@ type Context struct {
 	ContinuationRoute  func(jobworkflow.ExecutionContext, int64) error
 	JobContext         jobworkflow.ExecutionContext
 	ops.ServiceDependencies2
+}
+
+type CompletionStatus struct {
+	Declaration *recipe.StatusTemplate
+	Resolver    *template.ResolutionContext
 }
 
 func (c Context) GetJobId() string {

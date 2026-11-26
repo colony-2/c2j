@@ -26,6 +26,7 @@ type scopeOutcome struct {
 type scopeCompletion struct {
 	scope  *template.ResolutionContext
 	output template.ExecutionOutput
+	status workflow.CompletionStatus
 }
 
 // completeNodeScope hands the result to the executor. Callers without a durable
@@ -167,9 +168,12 @@ func executeNodeScopeWithCatchFilter(ctx workflow.Context, parent *template.Reso
 		view.Options.MetricsScope = metricView
 		inner := ctx
 		inner.DeferScopeOutput = false
+		inner.InlineRootStatus = nil
 		inner.JobContext = exec
 		inner.CatchStateName = ""
 		completion := &scopeCompletion{}
+		completion.status.Declaration = meta.Status
+		inner.ScopeStatus = func(status workflow.CompletionStatus) { completion.status = status }
 		inner.ScopeOutput = func(scope *template.ResolutionContext, output template.ExecutionOutput) error {
 			if err := exec.Context().Err(); err != nil {
 				return err
@@ -179,6 +183,9 @@ func executeNodeScopeWithCatchFilter(ctx workflow.Context, parent *template.Reso
 			}
 			completion.scope = scope
 			completion.output = output
+			if ctx.RecordStatus != nil && completion.status.Declaration != nil && completion.status.Resolver == nil {
+				completion.status.Resolver = scope.ExecutionView()
+			}
 			return nil
 		}
 		var f *thinpackForwarder
@@ -265,6 +272,9 @@ func executeNodeScopeWithCatchFilter(ctx workflow.Context, parent *template.Reso
 					}
 				} else if err = recordSyntheticNodeOutput(inner, state, kind, meta, fallback, decision.Outputs); err != nil {
 					return jobworkflow.CatchResult{}, err
+				}
+				if completion.status.Resolver != nil {
+					completion.status.Resolver = completion.status.Resolver.WithFailure(failure)
 				}
 			case catchDecisionRoute:
 				route := template.NewFailureTransitionData(sourceState, decision.To, decision.Payload, decision.Failure)
@@ -356,6 +366,13 @@ func executeNodeScopeWithCatchFilter(ctx workflow.Context, parent *template.Reso
 			if e := frame.completion.scope.PublishExecution(frame.completion.output); e != nil {
 				return e
 			}
+			if ctx.InlineRootStatus != nil {
+				ctx.InlineRootStatus(frame.completion.status)
+			} else if ctx.RecordStatus != nil {
+				if e := ctx.RecordStatus(ctx.JobContext, site, frame.completion.status); e != nil {
+					return e
+				}
+			}
 		}
 		if entry != original {
 			parent.AdoptRestart(frame.resolver)
@@ -385,6 +402,9 @@ func executeNodeScopeWithCatchFilter(ctx workflow.Context, parent *template.Reso
 	}
 	if !ok {
 		return fmt.Errorf("scope %s outcome has no reconstructed frame %d", site, result.Frame)
+	}
+	if frame.completion.scope != nil && (deferToOuter || deferToState) && ctx.ScopeStatus != nil {
+		ctx.ScopeStatus(frame.completion.status)
 	}
 	if deferToOuter && frame.completion.scope != nil {
 		if e := completeNodeScope(ctx, frame.completion.scope, frame.completion.output); e != nil {

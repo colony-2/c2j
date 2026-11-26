@@ -8,6 +8,7 @@ import (
 )
 
 type RecipeImpl interface {
+	preserveNullStatus(map[string]any)
 	isRecipe()
 	GetMetadata() RecipeMetadata
 }
@@ -83,6 +84,7 @@ func (n *Recipe) UnmarshalYAML(node *yamlv3.Node) error {
 	if err := node.Decode(impl); err != nil {
 		return err
 	}
+	impl.preserveNullStatus(raw)
 	if err := decodeGitProfile(node, impl); err != nil {
 		return err
 	}

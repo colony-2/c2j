@@ -18,3 +18,19 @@ func TestEnvelopeExactGenericNumbersAndTypedFields(t *testing.T) {
 	env.Payload = append(env.Payload, []byte(` {}`)...)
 	require.Error(t, env.DecodePayload(&out))
 }
+
+func TestRecipeStatusEnvelope(t *testing.T) {
+	for _, status := range []json.RawMessage{nil, json.RawMessage(`null`), json.RawMessage(`{"count":9007199254740993,"nested":[true,"ready"]}`)} {
+		envelope, err := NewOutputEnvelope(OutputKindInternalResult, struct{}{})
+		require.NoError(t, err)
+		envelope.Status = status
+		raw, err := json.Marshal(envelope)
+		require.NoError(t, err)
+		var decoded OutputEnvelope
+		require.NoError(t, json.Unmarshal(raw, &decoded))
+		require.Equal(t, status, decoded.Status)
+		payload, err := UnwrapInternal(raw)
+		require.NoError(t, err)
+		require.Equal(t, `{}`, string(payload))
+	}
+}

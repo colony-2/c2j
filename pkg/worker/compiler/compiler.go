@@ -860,7 +860,7 @@ func (d DefaultRecipeExecutor) executeOpAttempt(ctx workflow.Context, parentReso
 	return completeNodeScope(ctx, resCtx, template.ExecutionOutput{Outputs: stepInput, ArtifactRefs: stepArtifacts, Artifacts: stepOutputArtifacts, Jobs: stepJobs})
 }
 
-func (d DefaultRecipeExecutor) innerSequence(ctx workflow.Context, parentCtx *template.ResolutionContext, metadata recipe.NodeMetadata, outputTemplate map[string]interface{}, sequence []recipe.Node) error {
+func (d DefaultRecipeExecutor) innerSequence(ctx workflow.Context, parentCtx *template.ResolutionContext, metadata recipe.NodeMetadata, outputTemplate map[string]interface{}, sequence []recipe.Node, inheritRootStatus bool) error {
 	// Create resolution context for this sequence
 	var resolvedInputs map[string]interface{}
 	var err error
@@ -897,9 +897,17 @@ func (d DefaultRecipeExecutor) innerSequence(ctx workflow.Context, parentCtx *te
 		return err
 	}
 
+	childContext := ctx
+	if ctx.RecordStatus != nil && isIncludeWrapper(metadata, sequence) {
+		childContext.InlineRootStatus = func(status workflow.CompletionStatus) {
+			if inheritRootStatus && ctx.ScopeStatus != nil {
+				ctx.ScopeStatus(status)
+			}
+		}
+	}
 	for _, node := range sequence {
 		// Execute the node
-		err := d.self().ExecuteNode(ctx, resCtx, &node)
+		err := d.self().ExecuteNode(childContext, resCtx, &node)
 		if isExecutionControlError(err) {
 			return err
 		}
@@ -929,14 +937,22 @@ func (d DefaultRecipeExecutor) innerSequence(ctx workflow.Context, parentCtx *te
 }
 
 func (d DefaultRecipeExecutor) ExecuteSequence(ctx workflow.Context, rCtx *template.ResolutionContext, metadata recipe.NodeMetadata, outputTemplate map[string]interface{}, sequence []recipe.Node) error {
+	inheritRootStatus := isIncludeWrapper(metadata, sequence) && metadata.Status == nil
+	if inheritRootStatus {
+		metadata.Status = sequence[0].GetMetadata().Status
+	}
 	return executeNodeScope(ctx, rCtx, metadata, template.ScopeSequence, "", func(inner workflow.Context, state *template.ResolutionContext, meta recipe.NodeMetadata) error {
 		if meta.Workspace != nil {
 			return withNodeWorkspace(inner, state, meta, func(inner workflow.Context, state *template.ResolutionContext, meta recipe.NodeMetadata) error {
-				return d.innerSequence(inner, state, meta, outputTemplate, sequence)
+				return d.innerSequence(inner, state, meta, outputTemplate, sequence, inheritRootStatus)
 			})
 		}
-		return d.innerSequence(inner, state, meta, outputTemplate, sequence)
+		return d.innerSequence(inner, state, meta, outputTemplate, sequence, inheritRootStatus)
 	})
+}
+
+func isIncludeWrapper(meta recipe.NodeMetadata, sequence []recipe.Node) bool {
+	return meta.Internal != nil && meta.Internal.Inline != nil && len(sequence) == 1
 }
 
 func effectiveOpTimeout(metadata recipe.NodeMetadata, registeredOp ops.RegisterableOp) time.Duration {

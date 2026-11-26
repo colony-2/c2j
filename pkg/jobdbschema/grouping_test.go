@@ -131,3 +131,31 @@ func TestGroupedSchemaKeepsOrdinaryStartClosed(t *testing.T) {
 		}
 	}
 }
+
+func TestRecipeStatusSchemaAdmission(t *testing.T) {
+	ctx := celltest.Context(context.Background())
+	runtime := toy.New(toy.WithProjects(jobdbcelltest.UnrestrictedProjects{}))
+	celltest.Create(t, runtime, "tenant", "test", "example.test/test")
+	require.NoError(t, Register(ctx, runtime, "tenant"))
+	for _, scenario := range []struct {
+		field string
+		valid bool
+	}{
+		{"", true},
+		{`,"status_history_version":1`, true},
+		{`,"status_history_version":0`, false},
+		{`,"status_history_version":2`, false},
+		{`,"status_history_version":null`, false},
+		{`,"status_history_version":"1"`, false},
+	} {
+		payload := json.RawMessage(`{"tenantId":"tenant","cell":"test","recipe":"build","context":{}` + scenario.field + `}`)
+		job := jobdb.SubmitJob{TenantId: "tenant", Cell: "test", JobType: "recipe", Data: jobdb.NewTaskDataOrPanic(payload)}
+		require.NoError(t, SetSubmitJobSchema(&job))
+		_, err := runtime.SubmitJob(ctx, jobdb.SubmitJobRequest{Job: job})
+		if scenario.valid {
+			require.NoError(t, err)
+		} else {
+			require.ErrorIs(t, err, jobdb.ErrJobSchemaValidation)
+		}
+	}
+}
