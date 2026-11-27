@@ -15,7 +15,7 @@ import (
 )
 
 func newCellCmd() *cobra.Command {
-	group := &cobra.Command{Use: "cell", Short: "Create and list JobDB cells or configure dependent routes"}
+	group := &cobra.Command{Use: "cell", Short: "Manage JobDB cells or configure dependent routes"}
 	var description string
 	var stdoutOnly bool
 	add := &cobra.Command{
@@ -37,7 +37,7 @@ func newCellCmd() *cobra.Command {
 	add.Flags().BoolVar(&stdoutOnly, "stdout", false, "Print proposed config YAML without writing")
 	list := newCellsCmd()
 	list.Use = "list"
-	group.AddCommand(add, newCellCreateCmd(), list)
+	group.AddCommand(add, newCellCreateCmd(), list, newCellLifecycleCmd(false), newCellLifecycleCmd(true))
 	return group
 }
 

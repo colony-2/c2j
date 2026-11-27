@@ -30,6 +30,7 @@ const (
 
 type Handle struct {
 	Runtime       jobdb.ConsumerRuntime
+	CellRestore   jobdb.CellRestoreRuntime
 	Engine        jobworkflow.Engine
 	Configuration jobdb.ConfigurationAdmin
 	Secrets       SecretAdmin
@@ -108,6 +109,7 @@ func openRemote(swfURL string, workerTenantID string) (*Handle, error) {
 	engine = owned
 	return &Handle{
 		Runtime:       runtime,
+		CellRestore:   baseRuntime,
 		Engine:        engine,
 		ImportLease:   baseRuntime.ImportLease,
 		Configuration: baseRuntime,
@@ -184,8 +186,13 @@ func openEmbed(ctx context.Context, parsed *url.URL, rawURL string, workerTenant
 		)
 	}
 
+	var restore jobdb.CellRestoreRuntime
+	if workerTenantID == "" {
+		restore = localruntime.NewAdminCellRestore(baseRuntime)
+	}
 	return &Handle{
 		Runtime:       runtime,
+		CellRestore:   restore,
 		Engine:        engine,
 		Configuration: baseRuntime,
 		Secrets:       baseRuntime,

@@ -26,6 +26,31 @@ client or a live execution lease. A repository assertion cannot create a missing
 `root` is an ordinary name: it can be renamed or retired and grants no special
 authority. Recipe operations require an explicit `cells.create` grant.
 
+## Archive and unarchive
+
+```sh
+c2j cell archive payments --jobdb https://jobdb.example/tenant
+c2j cell unarchive payments --jobdb https://jobdb.example/tenant --restore-supported --json
+```
+
+Archiving retires a cell: it leaves the active registry list but keeps its ID and
+job history. Unarchiving reactivates that same cell. Both commands run outside
+tasks, use the configured JobDB target unless `--jobdb` overrides it, and accept
+`--json` to return the updated cell. Both require `cells.list` and `cells.get`
+for lookup, the applicable `cells.retire` or `cells.restore` grant, and
+project-write admission.
+
+Use `--restore-supported` only after confirming that the remote deployment has
+both the restore route and backend support. Confirmation is not authorization.
+The bundled embedded SQLite backend supports restore without the flag. If the
+revision is stale, review the current cell state before retrying. If an
+unarchive outcome is unconfirmed (for example, an old server returns a routing
+404), verify deployment support and cell state before trying again.
+
+Go applications can pass the exact `jobdb.CellKey` and strong `If-Match` they
+confirmed to `pkg/cellregistry.ArchiveCell` or `pkg/cellregistry.UnarchiveCell`.
+Unarchive takes a separate optional restore port and explicit support confirmation.
+
 ## Create cells from recipes
 
 Grant cell creation on the operation that runs the CLI or extension:
