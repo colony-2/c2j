@@ -57,6 +57,14 @@ func (r *chapterVisibilityRuntime) ListLeaseEvents(ctx context.Context, req jobd
 	return jobdb.ListLeaseEvents(ctx, r.ConsumerRuntime, req)
 }
 
+func (r *chapterVisibilityRuntime) EditJobMetadata(ctx context.Context, job jobdb.JobKey, edit jobdb.JobMetadataEdit) (jobdb.JobMetadataEntry, error) {
+	port, ok := r.ConsumerRuntime.(jobdb.JobMetadataRuntime)
+	if !ok {
+		return jobdb.JobMetadataEntry{}, jobdb.ErrJobMetadataUnsupported
+	}
+	return port.EditJobMetadata(ctx, job, edit)
+}
+
 func (r *chapterVisibilityRuntime) RegisterJobSchema(ctx context.Context, req jobdb.RegisterJobSchemaRequest) (jobdb.JobSchemaInfo, error) {
 	registry, err := r.schemaRegistry()
 	if err != nil {

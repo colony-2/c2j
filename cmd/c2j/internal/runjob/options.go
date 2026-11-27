@@ -18,25 +18,27 @@ import (
 
 type Options struct {
 	// HealthPort is zero for library callers; CLI flags default to 8080.
-	HealthPort     int
-	ExecutionFlags executionflags.Options
-	Allocation     execution.Allocation
-	JobID          string
-	JobDBURI       string
-	TenantID       string
-	SWFURL         string
-	WorkerID       string
-	OnNotReady     string
-	InputMode      string
-	WaitTimeout    time.Duration
-	PollInterval   time.Duration
-	LeaseDuration  time.Duration
-	AwaitThreshold time.Duration
-	CI             bool
-	WorkingDir     string
-	Stdin          io.Reader
-	Stdout         io.Writer
-	Stderr         io.Writer
+	HealthPort             int
+	ExecutionFlags         executionflags.Options
+	Allocation             execution.Allocation
+	JobID                  string
+	AllowJobLabelNode      string
+	AllowJobLabelExtension string
+	JobDBURI               string
+	TenantID               string
+	SWFURL                 string
+	WorkerID               string
+	OnNotReady             string
+	InputMode              string
+	WaitTimeout            time.Duration
+	PollInterval           time.Duration
+	LeaseDuration          time.Duration
+	AwaitThreshold         time.Duration
+	CI                     bool
+	WorkingDir             string
+	Stdin                  io.Reader
+	Stdout                 io.Writer
+	Stderr                 io.Writer
 
 	// Private injection points let tests use ephemeral listeners and setup barriers.
 	healthListen      func(string, string) (net.Listener, error)

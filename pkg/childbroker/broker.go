@@ -70,6 +70,7 @@ type Server struct {
 
 	mu      sync.Mutex
 	started []jobcontext.StartedJobContext
+	labels  *labelSession
 }
 
 type ArtifactPayload struct {
@@ -186,6 +187,7 @@ func start(ctx context.Context, opts Options, openListener func() (net.Listener,
 	mux.HandleFunc(submitPath+"/inspect/download", broker.handleJobInspection)
 	mux.HandleFunc(submitPath+"/inspect/changes", broker.handleChanges)
 	mux.HandleFunc(submitPath+"/inspect/diff", broker.handleChanges)
+	mux.HandleFunc(submitPath+labelEditPath, broker.handleLabelEdit)
 	broker.server = &http.Server{
 		Handler:           mux,
 		ReadHeaderTimeout: 5 * time.Second,

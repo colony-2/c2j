@@ -6,6 +6,11 @@ runtime. It contains two disposable jobs in `object-tests`, with no external
 repository or credentials. The submitted YAML is retained verbatim so it still
 contains the `status` keys the old parser ignored.
 
+The archive keeps its original SQLite format 14. Before opening it, the tests
+use JobDB's explicit SQLite migrator on a temporary copy. The migration updates
+the storage format, not the recipe history schema; the tests still replay and
+recover the original pre-status records.
+
 - `replay` ran to completion on the old worker. The new worker replays its
   recorded cell and workspace tasks without task workers, rendering status, or
   changing history, and produces the original business output.

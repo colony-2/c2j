@@ -23,7 +23,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func preStatusHistoryPath(t *testing.T) string {
+func preStatusHistoryPath(t *testing.T, ctx context.Context) string {
 	t.Helper()
 	compressed, err := os.Open(filepath.Join("testdata", "pre-status-history", "history.db.gz"))
 	require.NoError(t, err)
@@ -37,12 +37,14 @@ func preStatusHistoryPath(t *testing.T) string {
 	_, copyErr := io.Copy(output, input)
 	require.NoError(t, output.Close())
 	require.NoError(t, copyErr)
+	_, err = sqlite.MigrateGoals(ctx, path)
+	require.NoError(t, err, "upgrade the disposable pre-status SQLite fixture")
 	return path
 }
 
 func TestRecipeStatusReplaysPreFeatureHistory(t *testing.T) {
 	ctx := celltest.Context(context.Background())
-	runtime, err := sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: preStatusHistoryPath(t), Projects: jobdbcelltest.UnrestrictedProjects{}})
+	runtime, err := sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: preStatusHistoryPath(t, ctx), Projects: jobdbcelltest.UnrestrictedProjects{}})
 	require.NoError(t, err)
 	defer runtime.Close(ctx)
 	key := jobdb.JobKey{TenantId: "object-tests", JobId: "replay"}
@@ -86,7 +88,7 @@ func TestRecipeStatusReplaysPreFeatureHistory(t *testing.T) {
 
 func TestRecipeStatusRecoversPreFeatureParallelLaunch(t *testing.T) {
 	ctx := celltest.Context(context.Background())
-	path := preStatusHistoryPath(t)
+	path := preStatusHistoryPath(t, ctx)
 	parent := jobdb.JobKey{TenantId: "object-tests", JobId: "interrupted"}
 	list := jobdb.ListJobsRequest{TenantIds: []string{parent.TenantId}, ParentJobIDs: []string{parent.JobId}, Stores: []jobdb.JobStore{jobdb.JobStoreActive, jobdb.JobStoreArchived}}
 	runtime, err := sqlite.NewFromConfig(ctx, sqlite.Config{DBPath: path, Projects: jobdbcelltest.UnrestrictedProjects{}})

@@ -360,6 +360,12 @@ func WithToolEnvironment(ctx context.Context, path string, variables map[string]
 	return context.WithValue(ctx, toolPathKey{}, toolEnvironment{path, copy})
 }
 
+func HasPreparedLaunchEnvironment(ctx context.Context) bool {
+	tools, _ := ctx.Value(toolPathKey{}).(toolEnvironment)
+	python, _ := ctx.Value(pythonEnvironmentKey{}).(string)
+	return tools.path != "" || len(tools.variables) != 0 || python != ""
+}
+
 func withContextEnv(ctx context.Context, env map[string]string) map[string]string {
 	tools, ok := ctx.Value(toolPathKey{}).(toolEnvironment)
 	if !ok {

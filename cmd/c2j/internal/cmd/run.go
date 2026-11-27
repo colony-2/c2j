@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"fmt"
 	"os"
 	"time"
 
@@ -53,6 +54,9 @@ func newRunOneSpecificCmd(use string) *cobra.Command {
 		Use:   use,
 		Short: "Run or continue one existing job through JobDB",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if cmd.Flags().Changed("allow-job-label-node") && opts.AllowJobLabelNode == "" || cmd.Flags().Changed("allow-job-label-extension") && opts.AllowJobLabelExtension == "" {
+				return fmt.Errorf("job label grant cannot be empty")
+			}
 			runOpts := opts
 			if useEmbed {
 				runOpts.JobDBURI = defaults.EmbedURL
@@ -66,6 +70,9 @@ func newRunOneSpecificCmd(use string) *cobra.Command {
 	opts.ExecutionFlags.AddFlags(flags)
 	flags.IntVar(&opts.HealthPort, "health-port", 8080, "Run health HTTP port on 0.0.0.0; 0 disables hosting")
 	flags.StringVar(&opts.JobID, "job-id", "", "Job ID to execute")
+	flags.StringVar(&opts.AllowJobLabelNode, "allow-job-label-node", "", "Grant job_label_edit to this exact node of --job-id")
+	flags.StringVar(&opts.AllowJobLabelExtension, "allow-job-label-extension", "", "Grant a label broker session to NODE=PINNED_GIT_SELECTOR")
+	cmd.MarkFlagsMutuallyExclusive("allow-job-label-node", "allow-job-label-extension")
 	flags.StringVar(&opts.JobDBURI, "jobdb", "", "JobDB URI (http(s)://host/tenant or embed:///)")
 	flags.DurationVar(&opts.WaitTimeout, "wait-timeout", 15*time.Minute, "How long to wait on external blocking work before exiting")
 	flags.DurationVar(&opts.PollInterval, "poll-interval", 5*time.Second, "Polling interval while waiting on external blocking work")

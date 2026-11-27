@@ -25,9 +25,10 @@ const (
 	CurrentInvocationSequenceEnv = "C2J_CURRENT_INVOCATION_SEQUENCE"
 	CurrentInvocationHashEnv     = "C2J_CURRENT_INVOCATION_HASH"
 
-	ChildJobEndpointEnv  = "C2J_CHILD_JOB_ENDPOINT"
-	ChildJobTokenEnv     = "C2J_CHILD_JOB_TOKEN"
-	ChildJobSessionIDEnv = "C2J_CHILD_JOB_SESSION_ID"
+	ChildJobEndpointEnv   = "C2J_CHILD_JOB_ENDPOINT"
+	ChildJobTokenEnv      = "C2J_CHILD_JOB_TOKEN"
+	ChildJobSessionIDEnv  = "C2J_CHILD_JOB_SESSION_ID"
+	ChildJobLabelTokenEnv = "C2J_CHILD_JOB_LABEL_TOKEN"
 
 	// TenantIDEnv is kept as a convenience for child tools that still consume a
 	// tenant-only environment default. The current c2j CLI resolves through
@@ -93,9 +94,10 @@ type StartedJobsContext struct {
 }
 
 type ChildJobBroker struct {
-	Endpoint  string `json:"endpoint,omitempty"`
-	Token     string `json:"token,omitempty"`
-	SessionID string `json:"session_id,omitempty"`
+	LabelToken string `json:"-"`
+	Endpoint   string `json:"endpoint,omitempty"`
+	Token      string `json:"token,omitempty"`
+	SessionID  string `json:"session_id,omitempty"`
 }
 
 func EmptyStartedJobsContext() StartedJobsContext {
@@ -218,11 +220,12 @@ func ChildJobBrokerFromEnv(getenv func(string) string) (ChildJobBroker, bool, er
 		return ChildJobBroker{}, false, nil
 	}
 	broker := ChildJobBroker{
-		Endpoint:  strings.TrimSpace(getenv(ChildJobEndpointEnv)),
-		Token:     strings.TrimSpace(getenv(ChildJobTokenEnv)),
-		SessionID: strings.TrimSpace(getenv(ChildJobSessionIDEnv)),
+		LabelToken: strings.TrimSpace(getenv(ChildJobLabelTokenEnv)),
+		Endpoint:   strings.TrimSpace(getenv(ChildJobEndpointEnv)),
+		Token:      strings.TrimSpace(getenv(ChildJobTokenEnv)),
+		SessionID:  strings.TrimSpace(getenv(ChildJobSessionIDEnv)),
 	}
-	if broker.Endpoint == "" && broker.Token == "" && broker.SessionID == "" {
+	if broker.Endpoint == "" && broker.Token == "" && broker.SessionID == "" && broker.LabelToken == "" {
 		return ChildJobBroker{}, false, nil
 	}
 	if broker.Endpoint == "" || broker.Token == "" || broker.SessionID == "" {

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"os/exec"
 	"path"
 	"path/filepath"
 	"reflect"
@@ -487,6 +488,57 @@ func (s gitOpSelector) WithRef(ref string) string {
 
 func isGitOpSelector(selector string) bool {
 	return strings.HasPrefix(strings.TrimSpace(selector), "git+")
+}
+
+func IsPinnedGitSelector(selector string) bool {
+	parsed, err := parseGitOpSelector(selector)
+	if err != nil || selector != parsed.WithRef(parsed.Ref) || (len(parsed.Ref) != 40 && len(parsed.Ref) != 64) {
+		return false
+	}
+	for _, char := range parsed.Ref {
+		if !(char >= '0' && char <= '9' || char >= 'a' && char <= 'f') {
+			return false
+		}
+	}
+	return true
+}
+
+func verifiedLabelSelector(ctx context.Context, resolved *ResolvedOp, pinned string) bool {
+	if resolved == nil || resolved.Nix != nil || !isGitOpSelector(resolved.Selector) || resolved.ResolvedSelector != pinned || !IsPinnedGitSelector(pinned) {
+		return false
+	}
+	actual, err := resolveGitSelectorPath(ctx, pinned, ResolveOptions{})
+	if err != nil || actual.ResolvedCommit != resolved.ResolvedCommit || actual.ProjectRoot != resolved.ProjectRoot || actual.Dir != resolved.OpDir {
+		return false
+	}
+	for _, name := range []string{resolved.OpDir, resolved.SpecPath, resolved.WorkingDir()} {
+		real, err := filepath.EvalSymlinks(name)
+		rel, relErr := filepath.Rel(actual.ProjectRoot, name)
+		if err != nil || relErr != nil || real != filepath.Clean(name) || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			return false
+		}
+	}
+	head := exec.CommandContext(ctx, "git", "-C", actual.ProjectRoot, "rev-parse", "HEAD")
+	commit, err := head.Output()
+	if err != nil || strings.TrimSpace(string(commit)) != actual.ResolvedCommit {
+		return false
+	}
+	parsed, err := parseGitOpSelector(pinned)
+	if err != nil {
+		return false
+	}
+	origin := exec.CommandContext(ctx, "git", "-C", actual.ProjectRoot, "config", "--local", "--get", "remote.origin.url")
+	repository, err := origin.Output()
+	if err != nil || strings.TrimSpace(string(repository)) != parsed.RepositoryURL {
+		return false
+	}
+	status := exec.CommandContext(ctx, "git", "--no-optional-locks", "-C", actual.ProjectRoot, "-c", "core.fsmonitor=false", "status", "--porcelain", "-z", "--untracked-files=all", "--ignored")
+	dirty, err := status.Output()
+	if err != nil || (len(dirty) != 0 && string(dirty) != "?? .c2j-source-cache.json\x00") {
+		return false
+	}
+	manifest, err := loadResolvedOpFromPath(actual)
+	return err == nil && manifest.SpecPath == resolved.SpecPath && reflect.DeepEqual(manifest.Spec, resolved.Spec)
 }
 
 func GitSelectorRepoRefKey(selector string) (string, bool, error) {

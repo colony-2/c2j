@@ -14,6 +14,7 @@ import (
 	"github.com/colony-2/c2j/pkg/artifacts"
 	"github.com/colony-2/c2j/pkg/contextual"
 	"github.com/colony-2/c2j/pkg/git/gitstate"
+	"github.com/colony-2/c2j/pkg/joblabel"
 	"github.com/colony-2/c2j/pkg/metrics"
 	"github.com/colony-2/c2j/pkg/metricshistory"
 	"github.com/colony-2/c2j/pkg/starter"
@@ -92,10 +93,15 @@ func (s *Service) load(ctx context.Context, id string) (*history, error) {
 	var meta starter.JobMetadata
 	_ = json.Unmarshal(run.Job.Metadata, &meta)
 	h.job = Job{ID: id, Tenant: s.Tenant, Parent: meta.ParentJobID, Status: string(run.Job.Status), CompletionStatus: run.Job.CompletionStatus, CompletionDetail: run.Job.CompletionDetail, CreatedAt: run.Job.CreatedAt}
+	labels := joblabel.FromProjection(nil)
 	if page, e := s.Runtime.ListJobs(ctx, jobdb.ListJobsRequest{TenantIds: []string{s.Tenant}, JobKeys: []jobdb.JobKey{run.Job.JobKey}, IncludeHidden: true, PageSize: 1}); e == nil && len(page.Jobs) == 1 {
 		h.job.Cell = page.Jobs[0].Cell
 		h.job.Parent = page.Jobs[0].ParentJobID
+		if page.Jobs[0].JobKey == run.Job.JobKey {
+			labels = joblabel.FromProjection(page.Jobs[0].ExtendedMetadata)
+		}
 	}
+	h.job.Labels, h.job.LabelsProjection = labels.Labels, labels.Projection
 	// Use JobDB's persisted execution projection; no worker or recipe is loaded.
 	projected, err := swfutil.ExecutionTasks(run)
 	if err != nil {
@@ -799,7 +805,8 @@ func (s *Service) list(ctx context.Context, q Request) (*Response, error) {
 	}
 	r := &Response{Version: Version, NextCursor: page.NextPageToken, Jobs: []Job{}}
 	for _, j := range page.Jobs {
-		r.Jobs = append(r.Jobs, Job{ID: j.JobKey.JobId, Tenant: j.JobKey.TenantId, Cell: j.Cell, Parent: j.ParentJobID, Status: string(j.Status), CompletionStatus: j.CompletionStatus, CreatedAt: j.CreatedAt})
+		labels := joblabel.FromProjection(j.ExtendedMetadata)
+		r.Jobs = append(r.Jobs, Job{ID: j.JobKey.JobId, Tenant: j.JobKey.TenantId, Cell: j.Cell, Parent: j.ParentJobID, Status: string(j.Status), CompletionStatus: j.CompletionStatus, CreatedAt: j.CreatedAt, Labels: labels.Labels, LabelsProjection: labels.Projection})
 	}
 	return r, nil
 }

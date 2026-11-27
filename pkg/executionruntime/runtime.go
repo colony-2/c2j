@@ -39,6 +39,7 @@ type Runtime struct {
 	mu         sync.Mutex
 	leases     map[jobdb.JobKey]*lease
 	activity   *runActivity
+	jobLabels  jobLabelPolicy
 }
 
 func New(runtime jobdb.ConsumerRuntime, allocation execution.Allocation) *Runtime {

@@ -10,6 +10,7 @@ import (
 
 	"github.com/colony-2/c2j/pkg/execution"
 	"github.com/colony-2/c2j/pkg/jobcontext"
+	"github.com/colony-2/c2j/pkg/joblabel"
 	"github.com/colony-2/c2j/pkg/joblist"
 	"github.com/colony-2/c2j/pkg/starter"
 	"github.com/colony-2/c2j/pkg/workflowctl"
@@ -69,6 +70,8 @@ type GetRecipeJobRequest struct {
 }
 
 type RecipeJob struct {
+	Labels              []joblabel.Label             `json:"labels"`
+	LabelsProjection    joblabel.Projection          `json:"labels_projection"`
 	BlockingWaitSummary *jobdb.DependencyWaitSummary `json:"blocking_wait_summary,omitempty"`
 	Metadata            json.RawMessage              `json:"metadata,omitempty"`
 	SchemaHash          string                       `json:"schema_hash,omitempty"`
@@ -356,6 +359,8 @@ func GetRecipeJob(ctx context.Context, lister Lister, req GetRecipeJobRequest) (
 		return RecipeJob{}, err
 	}
 	job.Status = info.Status
+	labels := joblabel.FromProjection(info.ExtendedMetadata)
+	job.Labels, job.LabelsProjection = labels.Labels, labels.Projection
 	job.BlockingWait = info.BlockingWait
 	job.BlockingWaitSummary = nil
 	if info.BlockingWait != nil {
@@ -383,7 +388,9 @@ func RecipeJobFromSummary(summary jobdb.JobSummary) (RecipeJob, bool, error) {
 		return RecipeJob{}, false, err
 	}
 
+	labels := joblabel.FromProjection(summary.ExtendedMetadata)
 	job := RecipeJob{
+		Labels: labels.Labels, LabelsProjection: labels.Projection,
 		CellID: summary.CellID, CellName: summary.Cell, RepositorySource: summary.CellRepo,
 		BlockingWaitSummary:   joblist.CloneBlockingWaitSummary(summary.BlockingWaitSummary),
 		Metadata:              append(json.RawMessage(nil), summary.Metadata...),

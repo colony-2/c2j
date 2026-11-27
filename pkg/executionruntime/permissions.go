@@ -25,6 +25,10 @@ import (
 	jobworkflow "github.com/colony-2/jobdb/pkg/workflow"
 )
 
+func labelPolicyAllows(policy permissions.State) bool {
+	return policy.Version == permissions.Version && policy.Grant == nil && policy.Limit == nil && policy.ChildGrant == nil && len(policy.Overrides) == 0 && !policy.HasHookLineage() && (policy.Inputs == nil || !policy.Inputs.Foreign)
+}
+
 func (r *Runtime) restrictedAccess(parent context.Context, tc jobworkflow.TaskContext, original *lease, grant permissions.JobDB, fresh permissions.ResolveFunc, policies ...permissions.State) (*permissions.Access, context.Context, context.CancelFunc, error) {
 	// Keep the live TaskContext: JobDB attaches its authoritative execution
 	// bounds when creating a child. Embedded execution uses in-process guards.

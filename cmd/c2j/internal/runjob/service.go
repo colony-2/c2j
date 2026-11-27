@@ -66,6 +66,9 @@ func Run(ctx context.Context, opts Options) (runErr error) {
 	defer func() { runErr = reportExecutionFailure(ctx, opts, deps.runtime, runErr) }()
 
 	jobKey := jobdb.JobKey{TenantId: opts.TenantID, JobId: opts.JobID}
+	if err := configureJobLabelEdits(deps.executionRuntime, jobKey, opts); err != nil {
+		return exitError{code: exitCodeInvalidIdentity, err: err}
+	}
 	renderer := newStoryProgressRenderer(opts.Stdout, "cached", !opts.CI && isTerminalWriter(opts.Stdout))
 
 	if err := replayCachedHistory(ctx, deps, jobKey, renderer, opts.Stderr); err != nil {
@@ -133,6 +136,20 @@ func Run(ctx context.Context, opts Options) (runErr error) {
 			return nil
 		}
 	}
+}
+
+func configureJobLabelEdits(runtime *executionruntime.Runtime, job jobdb.JobKey, opts Options) error {
+	if opts.AllowJobLabelNode == "" && opts.AllowJobLabelExtension == "" {
+		return nil
+	}
+	if opts.AllowJobLabelExtension == "" {
+		return runtime.ConfigureJobLabelEdits(job, opts.AllowJobLabelNode, "")
+	}
+	node, selector, found := strings.Cut(opts.AllowJobLabelExtension, "=")
+	if !found || selector == "" || opts.AllowJobLabelNode != "" {
+		return fmt.Errorf("use exactly one job label grant; extension grants require NODE=PINNED_GIT_SELECTOR")
+	}
+	return runtime.ConfigureJobLabelEdits(job, node, selector)
 }
 
 type runnerDeps struct {

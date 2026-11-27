@@ -106,6 +106,9 @@ func (w *guardedTask) runWithGitProfile(base context.Context, tc jobworkflow.Tas
 	var request struct {
 		Permissions *permissions.State   `json:"permissions,omitempty"`
 		GitProfile  gitprofile.Selection `json:"git_profile"`
+		Context     struct {
+			NodePath string `json:"node_path"`
+		} `json:"context"`
 	}
 	raw, err := input.GetData()
 	if err != nil {
@@ -162,6 +165,7 @@ func (w *guardedTask) runWithGitProfile(base context.Context, tc jobworkflow.Tas
 		return nil, err
 	}
 	defer cancel()
+	scopeContext = w.runtime.bindJobLabelEdit(scopeContext, tc, original, request.Context.NodePath, w.Name(), policy)
 	fresh := resolve
 	scopeContext = permissions.WithInputResolver(scopeContext, func(ctx context.Context, names []string) (jobdb.SecretResolveResult, error) {
 		values, err := fresh(ctx, names)

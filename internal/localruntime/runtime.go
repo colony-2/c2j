@@ -55,6 +55,12 @@ func (r Runtime) SubmitRestartJob(ctx context.Context, req jobdb.SubmitRestartJo
 func (r Runtime) ListJobs(ctx context.Context, req jobdb.ListJobsRequest) (jobdb.ListJobsResponse, error) {
 	return r.ConsumerRuntime.ListJobs(Context(ctx), req)
 }
+func (r Runtime) GetJob(ctx context.Context, key jobdb.JobKey) (jobdb.JobInfo, error) {
+	if _, scoped := jobdb.CellAuthorityFromContext(ctx); !scoped {
+		ctx = jobdb.WithCellAuthority(ctx, jobdb.CellAuthority{Principal: "c2j-local-admin", TenantID: key.TenantId, Permissions: map[string]bool{"jobs.list": true}})
+	}
+	return r.ConsumerRuntime.GetJob(ctx, key)
+}
 func (r Runtime) GetJobLease(ctx context.Context, req jobdb.GetJobLeaseRequest) (jobdb.ExecutionLease, error) {
 	return r.ConsumerRuntime.GetJobLease(Context(ctx), req)
 }
@@ -64,4 +70,12 @@ func (r Runtime) PollWork(ctx context.Context, req jobdb.PollWorkRequest) ([]job
 
 func (r Runtime) ListLeaseEvents(ctx context.Context, req jobdb.ListLeaseEventsRequest) (jobdb.ListLeaseEventsResponse, error) {
 	return jobdb.ListLeaseEvents(Context(ctx), r.ConsumerRuntime, req)
+}
+
+func (r Runtime) EditJobMetadata(ctx context.Context, job jobdb.JobKey, edit jobdb.JobMetadataEdit) (jobdb.JobMetadataEntry, error) {
+	port, ok := r.ConsumerRuntime.(jobdb.JobMetadataRuntime)
+	if !ok {
+		return jobdb.JobMetadataEntry{}, jobdb.ErrJobMetadataUnsupported
+	}
+	return port.EditJobMetadata(ctx, job, edit)
 }

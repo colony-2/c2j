@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/colony-2/c2j/internal/extensioneagain"
+	"github.com/colony-2/c2j/internal/joblabelscope"
 	"github.com/colony-2/c2j/internal/preparedtest"
 	"github.com/colony-2/c2j/internal/resourceretry"
 	recipeartifacts "github.com/colony-2/c2j/pkg/artifacts"
@@ -219,7 +220,26 @@ func executeExtension(deps ops.OpDependencies, ctx context.Context, input Execut
 		if err != nil {
 			return nil, fmt.Errorf("prepared completion selection: %w", err)
 		}
-		stdout, _, err = process.ExecuteProcess(ctx, runReq)
+		if grant, launch := joblabelscope.ExtensionGrant(ctx), joblabelscope.Launch(ctx); len(input.Env) == 0 && !process.HasPreparedLaunchEnvironment(ctx) && launch != nil && verifiedLabelSelector(ctx, resolved, grant.Selector) {
+			settings, closeSession, sessionErr := launch(ctx, resolved.ResolvedSelector)
+			if sessionErr != nil {
+				return nil, sessionErr
+			}
+			redactor := secrets.RedactorFromContext(ctx)
+			if redactor == nil {
+				closeSession()
+				return nil, jobdb.ErrLeasePermissionDenied
+			}
+			if err := redactor.Register(settings[jobcontext.ChildJobLabelTokenEnv]); err != nil {
+				closeSession()
+				return nil, err
+			}
+			runReq.Env = jobcontext.MergeProtectedEnv(runReq.Env, settings)
+			stdout, _, err = process.ExecuteProcess(ctx, runReq)
+			closeSession()
+		} else {
+			stdout, _, err = process.ExecuteProcess(ctx, runReq)
+		}
 	} else {
 		// A scripted completion never claims to have launched a process. Keep
 		// normal protocol decoding/publication below, including bounded output.

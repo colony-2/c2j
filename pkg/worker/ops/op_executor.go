@@ -24,6 +24,7 @@ import (
 
 	"github.com/colony-2/c2j/internal/dispatchtest"
 	"github.com/colony-2/c2j/internal/extensioneagain"
+	"github.com/colony-2/c2j/internal/joblabelscope"
 	"github.com/colony-2/c2j/internal/preparedtest"
 	"github.com/colony-2/c2j/internal/resourceretry"
 	recipeartifacts "github.com/colony-2/c2j/pkg/artifacts"
@@ -586,6 +587,7 @@ func (t opExecutor) doPrepared(ctx context.Context, jobTool ops.JobTool, req Act
 		protectedEnv[extensionwait.CapabilityEnv] = "1"
 	}
 	protectedEnv["C2J_WORKSPACE_CELL_NAME"] = req.GitTaskContext.GetWorkspaceCellName()
+	protectedEnv[jobcontext.ChildJobLabelTokenEnv] = ""
 	if req.GitTaskContext.Workspace != nil {
 		protectedEnv["C2J_WORKSPACE_SCOPE_ID"] = req.GitTaskContext.Workspace.ScopeID
 	}
@@ -609,6 +611,14 @@ func (t opExecutor) doPrepared(ctx context.Context, jobTool ops.JobTool, req Act
 		ctx = childbroker.WithLocalSubmitter(ctx, broker)
 		opCtx = childbroker.WithLocalSubmitter(opCtx, broker)
 		protectedEnv = jobcontext.MergeProtectedEnv(protectedEnv, broker.Env())
+		if grant := joblabelscope.ExtensionGrant(opCtx); grant.Edit != nil && extensionHasNoEnvOverride(hydratedInput) {
+			opCtx = joblabelscope.WithLaunch(opCtx, func(call context.Context, selector string) (map[string]string, func(), error) {
+				if selector != grant.Selector {
+					return nil, nil, jobdb.ErrLeasePermissionDenied
+				}
+				return broker.BeginLabelSession(call, grant.Edit)
+			})
+		}
 	}
 
 	// Build OpDependencies with WorktreePath and filtered artifacts (thin pack hidden from operation)
@@ -894,6 +904,19 @@ func (t opExecutor) doPrepared(ctx context.Context, jobTool ops.JobTool, req Act
 		return output, outputArtifacts, stepErr
 	}
 	return output, outputArtifacts, nil
+}
+
+func extensionHasNoEnvOverride(input map[string]interface{}) bool {
+	switch env := input["env"].(type) {
+	case nil:
+		return true
+	case map[string]interface{}:
+		return len(env) == 0
+	case map[string]string:
+		return len(env) == 0
+	default:
+		return false
+	}
 }
 
 // replaceSentinels recursively walks the input map and replaces sentinel values with actual worktree path

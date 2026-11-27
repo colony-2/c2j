@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/colony-2/c2j/pkg/execution"
+	"github.com/colony-2/c2j/pkg/joblabel"
 	"github.com/colony-2/jobdb/pkg/jobdb"
 )
 
@@ -17,6 +18,8 @@ type Page struct {
 // Job is the CLI-compatible typed projection, with repository identity added.
 // Stored row fields pass through; evaluated waits and extra memberships are not loaded.
 type Job struct {
+	Labels              []joblabel.Label             `json:"labels"`
+	LabelsProjection    joblabel.Projection          `json:"labels_projection"`
 	Cell                string                       `json:"cell"`
 	CellID              string                       `json:"cell_id"`
 	BlockingWaitSummary *jobdb.DependencyWaitSummary `json:"blocking_wait_summary,omitempty"`
@@ -86,7 +89,9 @@ func JobFromSummary(job jobdb.JobSummary) Job {
 	// Unrelated metadata does not prevent projecting job state. ExecutionView
 	// independently reports malformed execution metadata for waiting jobs.
 	_ = json.Unmarshal(job.Metadata, &meta)
+	labels := joblabel.FromProjection(job.ExtendedMetadata)
 	return Job{
+		Labels: labels.Labels, LabelsProjection: labels.Projection,
 		Cell: job.Cell, CellID: job.CellID,
 		BlockingWaitSummary: CloneBlockingWaitSummary(job.BlockingWaitSummary),
 		Metadata:            append(json.RawMessage(nil), job.Metadata...),

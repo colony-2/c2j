@@ -172,6 +172,9 @@ func (c JobClient) callPayload(ctx context.Context, q any, suffix string, typedE
 	}
 	req.Header.Set("Authorization", "Bearer "+c.Broker.Token)
 	req.Header.Set(sessionHeader, c.Broker.SessionID)
+	if suffix == labelEditPath {
+		req.Header.Set(labelTokenHeader, c.Broker.LabelToken)
+	}
 	req.Header.Set("Content-Type", "application/json")
 	transport := &http.Transport{Proxy: nil}
 	client := &http.Client{Transport: transport, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
@@ -190,6 +193,9 @@ func (c JobClient) callPayload(ctx context.Context, q any, suffix string, typedE
 	if resp.StatusCode != http.StatusOK {
 		defer resp.Body.Close()
 		b, readErr := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		if suffix == labelEditPath {
+			return nil, labelResponseError(resp.StatusCode, b)
+		}
 		if _, ok := q.(jobinputs.Request); ok {
 			if readErr != nil {
 				return nil, jobinputs.Diagnostic("transport", "cannot read history diagnostic", readErr)

@@ -40,6 +40,17 @@ inputs:
 
 Outputs include `start_time`, `end_time`, `actual_duration`, `completed`, `interrupted`, and `error_message`.
 
+### `job_label_edit`
+
+Set or remove a label on the current job. Inputs: `action` (`set` or `remove`),
+`key`, and `expected_version` (a quoted decimal string, such as `"0"`). For
+`set`, also supply `value` and `color`; omit both for `remove`. The op returns
+the keyed label state and version.
+
+The host must grant this exact job and node via `--allow-job-label-node` or its
+trusted startup policy. Recipe permissions do not grant label edits. The op
+uses the active task's live ordinary job lease and has no operator fallback.
+
 ### `extension_execution`
 
 Run a selector-backed extension op.

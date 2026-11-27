@@ -5,6 +5,9 @@ invocation. c2j supports local directories, Git selectors, and prebuilt Nix
 packages. Nix packages expose a small manifest before their executable contents
 are downloaded; the original application source can remain private.
 
+See [Job labels](GUIDE-Job-Labels.md#recipe-and-extension-automation) for the
+host opt-in that lets a pinned Git extension edit its current job's labels.
+
 Extensions can emit optional tagged metric deltas in their output wrapper,
 including known usage before an ordinary failure. See [task metrics](GUIDE-Task-Metrics.md#emit-from-an-extension)
 for the versioned wire format, limits and failure behavior.
