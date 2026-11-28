@@ -195,14 +195,6 @@ func TestJobLabelsUnsupportedAndDenied(t *testing.T) {
 			require.ErrorIs(t, err, entry.err)
 		})
 	}
-	t.Run("omitted-projection", func(t *testing.T) {
-		state, err := joblabel.GetJobLabel(ctx, db, key, "label")
-		require.NoError(t, err)
-		require.Equal(t, joblabel.State{Status: joblabel.Unknown}, state)
-		view, err := joblabel.ListJobLabels(ctx, db, key)
-		require.NoError(t, err)
-		require.Equal(t, joblabel.ProjectionUnknown, view.Projection)
-	})
 }
 
 func TestJobLabelsStaleEdits(t *testing.T) {

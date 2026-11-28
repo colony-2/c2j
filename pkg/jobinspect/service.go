@@ -98,10 +98,11 @@ func (s *Service) load(ctx context.Context, id string) (*history, error) {
 		h.job.Cell = page.Jobs[0].Cell
 		h.job.Parent = page.Jobs[0].ParentJobID
 		if page.Jobs[0].JobKey == run.Job.JobKey {
-			labels = joblabel.FromProjection(page.Jobs[0].ExtendedMetadata)
+			labels = joblabel.FromMetadata(page.Jobs[0].ExtendedMetadata, page.Jobs[0].ExtendedMetadataComplete)
 		}
 	}
 	h.job.Labels, h.job.LabelsProjection = labels.Labels, labels.Projection
+	h.job.LabelsComplete, h.job.LabelStates = labels.Complete, labels.States
 	// Use JobDB's persisted execution projection; no worker or recipe is loaded.
 	projected, err := swfutil.ExecutionTasks(run)
 	if err != nil {
@@ -805,8 +806,8 @@ func (s *Service) list(ctx context.Context, q Request) (*Response, error) {
 	}
 	r := &Response{Version: Version, NextCursor: page.NextPageToken, Jobs: []Job{}}
 	for _, j := range page.Jobs {
-		labels := joblabel.FromProjection(j.ExtendedMetadata)
-		r.Jobs = append(r.Jobs, Job{ID: j.JobKey.JobId, Tenant: j.JobKey.TenantId, Cell: j.Cell, Parent: j.ParentJobID, Status: string(j.Status), CompletionStatus: j.CompletionStatus, CreatedAt: j.CreatedAt, Labels: labels.Labels, LabelsProjection: labels.Projection})
+		labels := joblabel.FromMetadata(j.ExtendedMetadata, j.ExtendedMetadataComplete)
+		r.Jobs = append(r.Jobs, Job{ID: j.JobKey.JobId, Tenant: j.JobKey.TenantId, Cell: j.Cell, Parent: j.ParentJobID, Status: string(j.Status), CompletionStatus: j.CompletionStatus, CreatedAt: j.CreatedAt, Labels: labels.Labels, LabelsProjection: labels.Projection, LabelsComplete: labels.Complete, LabelStates: labels.States})
 	}
 	return r, nil
 }

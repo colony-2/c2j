@@ -72,6 +72,8 @@ type GetRecipeJobRequest struct {
 type RecipeJob struct {
 	Labels              []joblabel.Label             `json:"labels"`
 	LabelsProjection    joblabel.Projection          `json:"labels_projection"`
+	LabelsComplete      bool                         `json:"labels_complete,omitempty"`
+	LabelStates         map[string]joblabel.State    `json:"label_states,omitempty"`
 	BlockingWaitSummary *jobdb.DependencyWaitSummary `json:"blocking_wait_summary,omitempty"`
 	Metadata            json.RawMessage              `json:"metadata,omitempty"`
 	SchemaHash          string                       `json:"schema_hash,omitempty"`
@@ -359,8 +361,9 @@ func GetRecipeJob(ctx context.Context, lister Lister, req GetRecipeJobRequest) (
 		return RecipeJob{}, err
 	}
 	job.Status = info.Status
-	labels := joblabel.FromProjection(info.ExtendedMetadata)
+	labels := joblabel.FromMetadata(info.ExtendedMetadata, info.ExtendedMetadataComplete)
 	job.Labels, job.LabelsProjection = labels.Labels, labels.Projection
+	job.LabelsComplete, job.LabelStates = labels.Complete, labels.States
 	job.BlockingWait = info.BlockingWait
 	job.BlockingWaitSummary = nil
 	if info.BlockingWait != nil {
@@ -388,9 +391,10 @@ func RecipeJobFromSummary(summary jobdb.JobSummary) (RecipeJob, bool, error) {
 		return RecipeJob{}, false, err
 	}
 
-	labels := joblabel.FromProjection(summary.ExtendedMetadata)
+	labels := joblabel.FromMetadata(summary.ExtendedMetadata, summary.ExtendedMetadataComplete)
 	job := RecipeJob{
 		Labels: labels.Labels, LabelsProjection: labels.Projection,
+		LabelsComplete: labels.Complete, LabelStates: labels.States,
 		CellID: summary.CellID, CellName: summary.Cell, RepositorySource: summary.CellRepo,
 		BlockingWaitSummary:   joblist.CloneBlockingWaitSummary(summary.BlockingWaitSummary),
 		Metadata:              append(json.RawMessage(nil), summary.Metadata...),

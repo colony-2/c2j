@@ -20,6 +20,8 @@ type Page struct {
 type Job struct {
 	Labels              []joblabel.Label             `json:"labels"`
 	LabelsProjection    joblabel.Projection          `json:"labels_projection"`
+	LabelsComplete      bool                         `json:"labels_complete,omitempty"`
+	LabelStates         map[string]joblabel.State    `json:"label_states,omitempty"`
 	Cell                string                       `json:"cell"`
 	CellID              string                       `json:"cell_id"`
 	BlockingWaitSummary *jobdb.DependencyWaitSummary `json:"blocking_wait_summary,omitempty"`
@@ -89,9 +91,10 @@ func JobFromSummary(job jobdb.JobSummary) Job {
 	// Unrelated metadata does not prevent projecting job state. ExecutionView
 	// independently reports malformed execution metadata for waiting jobs.
 	_ = json.Unmarshal(job.Metadata, &meta)
-	labels := joblabel.FromProjection(job.ExtendedMetadata)
+	labels := joblabel.FromMetadata(job.ExtendedMetadata, job.ExtendedMetadataComplete)
 	return Job{
 		Labels: labels.Labels, LabelsProjection: labels.Projection,
+		LabelsComplete: labels.Complete, LabelStates: labels.States,
 		Cell: job.Cell, CellID: job.CellID,
 		BlockingWaitSummary: CloneBlockingWaitSummary(job.BlockingWaitSummary),
 		Metadata:            append(json.RawMessage(nil), job.Metadata...),

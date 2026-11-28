@@ -41,14 +41,18 @@ optional edit port is unsupported; a masked or ambiguous 404 stays not-found.
 | `present` | Valid label and its version. |
 | `malformed` | Entry version, but no raw payload. Use that version to repair or remove a malformed value. An invalid key suffix requires an authorized raw client. |
 | `tombstone` | Removed label and the version to use to recreate it. |
-| `absent` | Missing key in a nonempty projection; version `0`. |
-| `unknown` | No usable metadata projection; no version. Not proof of an empty set, denial, or unsupported capability. |
+| `absent` | Missing key in a metadata object explicitly attested complete for this read; version `0`. |
+| `unknown` | The key was not observed and the metadata object was missing or not attested complete; no version. |
 
 The compact list, recipe get/list/children, and job inspection JSON expose
 `labels` (valid present labels, sorted by key) and `labels_projection`
-(`projected` or `unknown`). Ordinary CLI text is unchanged. The dedicated
-commands show the projection or keyed status in text and JSON. Malformed
-records are neither modified nor printed during reads.
+(`projected` or `unknown`). `projected` does not imply completeness. Only
+`labels_complete: true` confirms absence for keys not listed in `labels` or
+`label_states`. `label_states` carries observed tombstone and malformed states
+without exposing raw metadata values. Observed versions remain usable even
+without `labels_complete`; completeness grants no write authority. Ordinary CLI
+text is unchanged. The dedicated commands show the projection or keyed status
+in text and JSON.
 
 ## Recipe and extension automation
 

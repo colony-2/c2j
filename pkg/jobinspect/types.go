@@ -63,18 +63,20 @@ type Response struct {
 }
 
 type Job struct {
-	Labels           []joblabel.Label    `json:"labels"`
-	LabelsProjection joblabel.Projection `json:"labels_projection"`
-	Metrics          *metrics.Snapshot   `json:"metrics,omitempty"`
-	ID               string              `json:"id"`
-	Tenant           string              `json:"tenant"`
-	Cell             string              `json:"cell,omitempty"`
-	Goal             string              `json:"goal,omitempty"`
-	Parent           string              `json:"parent,omitempty"`
-	Status           string              `json:"status"`
-	CompletionStatus string              `json:"completion_status,omitempty"`
-	CompletionDetail string              `json:"completion_detail,omitempty"`
-	CreatedAt        time.Time           `json:"created_at"`
+	Labels           []joblabel.Label          `json:"labels"`
+	LabelsProjection joblabel.Projection       `json:"labels_projection"`
+	LabelsComplete   bool                      `json:"labels_complete,omitempty"`
+	LabelStates      map[string]joblabel.State `json:"label_states,omitempty"`
+	Metrics          *metrics.Snapshot         `json:"metrics,omitempty"`
+	ID               string                    `json:"id"`
+	Tenant           string                    `json:"tenant"`
+	Cell             string                    `json:"cell,omitempty"`
+	Goal             string                    `json:"goal,omitempty"`
+	Parent           string                    `json:"parent,omitempty"`
+	Status           string                    `json:"status"`
+	CompletionStatus string                    `json:"completion_status,omitempty"`
+	CompletionDetail string                    `json:"completion_detail,omitempty"`
+	CreatedAt        time.Time                 `json:"created_at"`
 }
 
 type Field struct {

@@ -21,7 +21,7 @@ buildGoModule {
       ../skills
     ];
   };
-  vendorHash = "sha256-YTAxpVvgiKgLQahzH0tvcfrW31C44f5smlNGLMjIhh8=";
+  vendorHash = "sha256-eiShEeCqDkWpk2E9wBPV2negRABE8f1cv/D6/Q+cukY=";
   subPackages = [ "cmd/c2j" ];
   env.CGO_ENABLED = "0";
   ldflags = [ "-s" "-w" "-X github.com/colony-2/c2j/internal/buildinfo.version=${version}" "-X github.com/colony-2/c2j/internal/buildinfo.commit=${revision}" ];

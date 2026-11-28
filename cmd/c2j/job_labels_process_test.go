@@ -95,7 +95,11 @@ func TestJobLabelsCLIRoundTrip(t *testing.T) {
 				return out
 			}
 			baselineShow, baselineList := ok(t, "show", id), ok(t, "list")
-			require.Contains(t, ok(t, "labels", "get", id, "friend", "--json"), `"status":"unknown"`)
+			wantEmpty := `{"status":"unknown"}`
+			if transport == "http" {
+				wantEmpty = `{"status":"absent","version":"0"}`
+			}
+			require.JSONEq(t, wantEmpty, ok(t, "labels", "get", id, "friend", "--json"))
 			for _, invalid := range []string{"", "-0", "-1", "01", "+0", " 0", "9223372036854775808"} {
 				_, stdErr, err := run(nil, []string{"--jobdb", trap.URL + "/labels"}, "labels", "set", id, "friend", "foe", "--color", "blue", "--if-version="+invalid)
 				require.Error(t, err)

@@ -36,7 +36,7 @@ func TestC04ConsumerMethodInventory(t *testing.T) {
 	if err := json.Unmarshal(moduleBytes, &dependency); err != nil {
 		t.Fatal(err)
 	}
-	if dependency.Version != "v0.0.99-0.20261127024642-d19d81d57e25" || dependency.Replace != nil {
+	if dependency.Version != "v0.0.99-0.20261128034740-f1491c13eb50" || dependency.Replace != nil {
 		t.Fatalf("unexpected JobDB resolution: %s", moduleBytes)
 	}
 	cmd := exec.Command("go", "list", "-p=2", "-tags=integration", "-deps", "-test", "-export", "-json", "./...")

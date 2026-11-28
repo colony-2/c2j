@@ -63,8 +63,10 @@ type Label struct {
 }
 
 type View struct {
-	Labels     []Label    `json:"labels"`
-	Projection Projection `json:"labels_projection"`
+	Labels     []Label          `json:"labels"`
+	Projection Projection       `json:"labels_projection"`
+	Complete   bool             `json:"labels_complete,omitempty"`
+	States     map[string]State `json:"label_states,omitempty"`
 }
 
 type State struct {
@@ -138,20 +140,54 @@ func decode(key string, entry jobdb.JobMetadataEntry) State {
 }
 
 func FromProjection(projection map[string]jobdb.JobMetadataEntry) View {
-	view := View{Projection: ProjectionUnknown, Labels: []Label{}}
-	if len(projection) == 0 {
+	return FromMetadata(projection, false)
+}
+
+func FromMetadata(projection map[string]jobdb.JobMetadataEntry, attested bool) View {
+	view := View{Projection: ProjectionUnknown, Labels: []Label{}, Complete: projection != nil && attested}
+	if len(projection) == 0 && !view.Complete {
 		return view
 	}
 	view.Projection = Projected
 	for name, entry := range projection {
-		if key, ok := strings.CutPrefix(name, prefix); ok {
-			if label := decode(key, entry).Label; label != nil {
-				view.Labels = append(view.Labels, *label)
+		key, ok := strings.CutPrefix(name, prefix)
+		if !ok || ValidateKey(key) != nil {
+			continue
+		}
+		state := decode(key, entry)
+		if state.Label != nil {
+			view.Labels = append(view.Labels, *state.Label)
+		} else {
+			if view.States == nil {
+				view.States = make(map[string]State)
 			}
+			view.States[key] = state
 		}
 	}
 	sort.Slice(view.Labels, func(i, j int) bool { return view.Labels[i].Key < view.Labels[j].Key })
 	return view
+}
+
+func (view View) StateFor(key string) (State, error) {
+	if err := ValidateKey(key); err != nil {
+		return State{}, err
+	}
+	if state, ok := view.States[key]; ok {
+		return state, nil
+	}
+	for _, label := range view.Labels {
+		if label.Key == key {
+			return State{Status: Present, Version: &label.Version, Label: &label}, nil
+		}
+	}
+	return missingState(view.Complete), nil
+}
+
+func missingState(complete bool) State {
+	if complete {
+		return State{Status: Absent, Version: new(Version)}
+	}
+	return State{Status: Unknown}
 }
 
 func ListJobLabels(ctx context.Context, reader Reader, job jobdb.JobKey) (View, error) {
@@ -159,7 +195,7 @@ func ListJobLabels(ctx context.Context, reader Reader, job jobdb.JobKey) (View, 
 	if err != nil {
 		return View{}, err
 	}
-	return FromProjection(info.ExtendedMetadata), nil
+	return FromMetadata(info.ExtendedMetadata, info.ExtendedMetadataComplete), nil
 }
 
 func GetJobLabel(ctx context.Context, reader Reader, job jobdb.JobKey, key string) (State, error) {
@@ -170,11 +206,8 @@ func GetJobLabel(ctx context.Context, reader Reader, job jobdb.JobKey, key strin
 	if err != nil {
 		return State{}, err
 	}
-	if len(info.ExtendedMetadata) == 0 {
-		return State{Status: Unknown}, nil
-	}
 	if entry, ok := info.ExtendedMetadata[prefix+key]; ok {
 		return decode(key, entry), nil
 	}
-	return State{Status: Absent, Version: new(Version)}, nil
+	return missingState(info.ExtendedMetadata != nil && info.ExtendedMetadataComplete), nil
 }
