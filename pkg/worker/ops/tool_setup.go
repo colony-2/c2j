@@ -32,6 +32,7 @@ type ToolSetupResult struct {
 	Environment *toolenv.Environment `json:"environment,omitempty"`
 	Extension   *extops.ResolvedOp   `json:"extension,omitempty"`
 	Diagnostics toolenv.Diagnostics  `json:"diagnostics"`
+	cause       error
 }
 
 // PrepareTools is shared by task workers and native recipe-test passthrough.
@@ -51,6 +52,7 @@ func PrepareTools(ctx context.Context, req ToolSetupRequest) ToolSetupResult {
 		}
 		if e != nil {
 			outcome = "failed"
+			result.cause = e
 			result.Diagnostics.Error = e.Error()
 		} else {
 			result.Extension = prepared
@@ -83,9 +85,11 @@ func PrepareTools(ctx context.Context, req ToolSetupRequest) ToolSetupResult {
 	if len(req.Scopes) > 0 && result.Diagnostics.Error == "" {
 		manager, e := toolenv.Default()
 		if e != nil {
+			result.cause = e
 			result.Diagnostics.Error = e.Error()
 		} else {
-			env, diag, _ := manager.Prepare(ctx, req.Scopes)
+			env, diag, e := manager.Prepare(ctx, req.Scopes)
+			result.cause = e
 			result.Environment = &env
 			result.Diagnostics.Tools = append(result.Diagnostics.Tools, diag.Tools...)
 			result.Diagnostics.Error = diag.Error

@@ -248,6 +248,8 @@ state:
           go test -mod=readonly -count=1 -v -timeout=5m ./pkg/git/common -run '^TestResourceRetryValidation'
           # Race-check durable backoff, process-tree cleanup and real Git child-fork failure.
           go test -mod=readonly -race -count=1 -v -timeout=5m ./internal/resourceretry ./pkg/ops/process ./pkg/ops/extensions ./pkg/worker/ops ./pkg/worker/compiler ./pkg/executionruntime ./pkg/metricsruntime -run '^TestResourceRetry'
+          # Require healthy Nix resume, configured-store setup, and checked prefetch cleanup.
+          C2J_REQUIRE_TOOL_DISK_NIX=1 go test -mod=readonly -race -count=1 -v -timeout=5m ./pkg/toolenv ./pkg/ops/process ./pkg/executionruntime ./cmd/c2j/internal/runjob -run '^TestToolDisk'
           go test -mod=readonly -count=2 -v -tags=integration -timeout=5m ./internal/extensioneagain ./pkg/ops/extensions ./pkg/worker/compiler ./pkg/worker/ops ./pkg/executionruntime -run '^TestExtensionEAGAIN'
           # Repeat cancellation, timeout and scheduler readiness regressions before the full suite.
           go test -mod=readonly -count=3 -v -tags=integration -timeout=5m ./pkg/childbroker ./pkg/worker/compiler ./pkg/executionruntime -run '^Test(JobInspectionExpiredLifetimeBeforeDispatch|MetricsHelperAuthenticationExactnessAndIncompleteHistory|ExtensionWaitManifestTimeout|InputHistoryHelperExpiredLifetimeBeforeDispatch|ExtensionWaitReadinessClockRecheck)$'

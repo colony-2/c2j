@@ -11,6 +11,7 @@ import (
 	"io"
 	"log/slog"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/colony-2/c2j/cmd/c2j/internal/c2jops"
@@ -66,6 +67,14 @@ func Run(ctx context.Context, opts Options) (runErr error) {
 	defer func() { runErr = reportExecutionFailure(ctx, opts, deps.runtime, runErr) }()
 
 	jobKey := jobdb.JobKey{TenantId: opts.TenantID, JobId: opts.JobID}
+	var toolDiskHandoff atomic.Bool
+	if deps.executionRuntime != nil {
+		deps.executionRuntime.OnToolDiskHandoff = func(key jobdb.JobKey) {
+			if key == jobKey {
+				toolDiskHandoff.Store(true)
+			}
+		}
+	}
 	if err := configureJobLabelEdits(deps.executionRuntime, jobKey, opts); err != nil {
 		return exitError{code: exitCodeInvalidIdentity, err: err}
 	}
@@ -121,6 +130,9 @@ func Run(ctx context.Context, opts Options) (runErr error) {
 		renderer.Flush()
 		if err != nil {
 			return exitError{code: exitCodeFailure, err: err}
+		}
+		if outcome.Status == jobworkflow.JobRunSuspended && toolDiskHandoff.Load() {
+			return writeSuspendedOutcome(opts.Stdout, jobKey, outcome)
 		}
 		if event, err := compiler.ExecutionHandoffFromOutcome(outcome); err != nil {
 			return exitError{code: exitCodeFailure, err: err}
@@ -338,6 +350,13 @@ func replayCachedHistory(ctx context.Context, deps *runnerDeps, jobKey jobdb.Job
 		fmt.Fprintf(stderr, "warning: replay unavailable: %v\n", err)
 	}
 	return nil
+}
+
+func writeSuspendedOutcome(w io.Writer, jobKey jobdb.JobKey, outcome jobworkflow.JobRunOutcome) error {
+	return json.NewEncoder(w).Encode(map[string]any{
+		"kind": "job_suspended", "job_id": jobKey.JobId, "tenant_id": jobKey.TenantId,
+		"outcome": outcome,
+	})
 }
 
 func handleOutcome(ctx context.Context, opts Options, deps *runnerDeps, jobKey jobdb.JobKey, outcome jobworkflow.JobRunOutcome, deadline time.Time) (bool, error) {

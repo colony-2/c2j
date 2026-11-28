@@ -174,6 +174,9 @@ func InstallInvocation(ctx context.Context, inv *ActivityInvocationRequest, req 
 			return err
 		}
 		if setup.Diagnostics.Error != "" {
+			if setup.cause != nil {
+				return fmt.Errorf("tool setup failed: %w", setup.cause)
+			}
 			return fmt.Errorf("tool setup failed: %s", setup.Diagnostics.Error)
 		}
 	}

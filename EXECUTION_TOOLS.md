@@ -353,6 +353,30 @@ package lock service.
 This execution format targets fresh databases; there is no legacy setup-history
 compatibility path or `tool_setup_version` switch.
 
+## Disk exhaustion during setup
+
+If the worker confirms disk exhaustion while preparing tools, before the op
+body starts, it stops the launch without recording a failed op. A durable
+JobDB resource handoff keeps prior results and gives another compatible worker
+the pending attempt. If a resource checkpoint is already selected, or the
+backend does not support durable backoff, the worker leaves recovery to lease
+expiry and the existing crash budget instead of replenishing it. Operators can
+correlate `task.tool_setup.disk_exhausted` with the job, launch ID (when available),
+task, affected path, and original diagnostic.
+For Nix, disk recovery accepts a terminal write error only from the worker's
+isolated prefetch of an explicitly pinned GitHub source. With `NIX_REMOTE=local`,
+the worker checks that Nix reports an unqualified `local` URI and the default
+local store directories. Custom URIs, directory overrides that change the
+layout, and unavailable or unrecognized layout probes bypass prefetch without
+changing ordinary setup. Prefetch does not evaluate expressions or run
+builders. If it exits normally with an unconfirmed error and checked cleanup
+succeeds, ordinary setup uses its caches or reports its own error regardless
+of the prefetch exit code. Cancellation, signal termination, and uncertain
+cleanup stop setup instead. Evaluation and realization output never authorizes
+replay, even if the store is full and the text matches.
+A handoff passes the remaining acquired crash allowance unchanged; an unknown
+or exhausted allowance leaves recovery to lease expiry.
+
 ## Nix integration test
 
 `go test ./...` automatically tests the real installer in a disposable

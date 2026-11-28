@@ -33,6 +33,9 @@ type Runtime struct {
 	// InputHistory constructs a native history adapter for each helper authority.
 	InputHistory jobinputs.Factory
 	jobdb.ConsumerRuntime
+	// OnToolDiskHandoff lets a CLI waiting for jobs exit after durable handoff.
+	// Set it before starting execution.
+	OnToolDiskHandoff func(jobdb.JobKey)
 	// Issuer translates recipe grants into task-scoped delegation requests.
 	Issuer     permissions.Issuer
 	Allocation execution.Allocation
@@ -152,6 +155,7 @@ type leaseState struct {
 	historyChanged  chan struct{} // guarded by runtime.mu; wakes expiry/renewal watchers
 	metricsSnapshot *jobdb.ChapterMetadataValue
 	demand          *execution.Demand
+	diskWaits       map[string]bool
 	pendingWait     *waitGate
 	retireWait      bool
 	blocked         error
@@ -339,6 +343,12 @@ func (l *lease) RescheduleResourceBackoff(ctx context.Context, req jobdb.Resourc
 	}
 	req.ClientPayloadUpdate = prepared.ClientPayloadUpdate
 	receipt, err := port.RescheduleResourceBackoff(ctx, req)
+	l.runtime.mu.Lock()
+	diskWait := l.diskWaits[req.Invocation]
+	l.runtime.mu.Unlock()
+	if err == nil && diskWait && l.runtime.OnToolDiskHandoff != nil {
+		l.runtime.OnToolDiskHandoff(l.Job().JobKey)
+	}
 	l.forget()
 	return receipt, err
 }
@@ -456,10 +466,31 @@ func (w *guardedTask) RunTask(local context.Context, ctx jobworkflow.TaskContext
 		if !resourceretry.Supported(local) {
 			return nil, jobdb.ClassifyExecutionInfrastructure(jobdb.ErrResourceBackoffUnsupported, jobdb.ExecutionInfrastructureRuntimeIO, "resource_backoff", nil, nil)
 		}
+		var backoff []jobworkflow.ResourceBackoffOption
+		if resourceretry.IsToolDiskRestart(err) {
+			if l.ExecutionState().ResourceResume != nil {
+				return nil, jobdb.ClassifyExecutionInfrastructure(
+					errors.New("worker disk exhausted again after resource handoff; preserving the crash budget"),
+					jobdb.ExecutionInfrastructureRuntimeIO, "tool_setup_disk", &ctx.JobKey, &ctx.Step)
+			}
+			remaining, known := jobworkflow.CrashBudgetRemaining(ctx)
+			if !known || remaining <= 0 {
+				return nil, jobdb.ClassifyExecutionInfrastructure(errors.New("cannot preserve remaining crash allowance on disk handoff"),
+					jobdb.ExecutionInfrastructureRuntimeIO, "tool_setup_disk", &ctx.JobKey, &ctx.Step)
+			}
+			backoff = append(backoff, jobworkflow.WithCrashBudget(remaining))
+			attemptID := fmt.Sprintf("%s/attempt:%d", ctx.InvocationID, ctx.AttemptNumber)
+			r.mu.Lock()
+			if l.diskWaits == nil {
+				l.diskWaits = make(map[string]bool)
+			}
+			l.diskWaits[attemptID] = true
+			r.mu.Unlock()
+		}
 		if ctx.Logger != nil {
 			ctx.Logger.Info("Waiting for temporary resource shortage", "reason", jobdb.ResourceBackoffReason)
 		}
-		return nil, jobworkflow.EAGAINWait(ctx)
+		return nil, jobworkflow.EAGAINWait(ctx, backoff...)
 	}
 	var required *execution.Required
 	if !errors.As(err, &required) {

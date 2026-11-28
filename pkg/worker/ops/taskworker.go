@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
+	"os"
 	"time"
 
 	"github.com/colony-2/c2j/internal/extensioneagain"
@@ -171,6 +173,9 @@ func (t *taskWorker) RunTask(local context.Context, ctx jobworkflow.TaskContext,
 	req, err := ResolveInvocation(opCtx, &air)
 	resolved = req.Extension
 	if err != nil {
+		if retry := toolDiskRestart(opCtx, logger, err); retry != nil {
+			return nil, retry
+		}
 		if opCtx.Err() == nil && resourceretry.CreationFailure(err) {
 			return nil, resourceretry.Restart("preparation_diagnostic", "preparation")
 		}
@@ -275,6 +280,11 @@ func (t *taskWorker) RunTask(local context.Context, ctx jobworkflow.TaskContext,
 	out, outArt, err := t.doer.doPrepared(opCtx, jobTool, air, inArt, logger, func(bodyCtx context.Context, restored *gitstate.GitTaskContext) (context.Context, error) {
 		air.GitTaskContext = *restored.GlobalGitTaskContext
 		if err := InstallWorkspaceInvocation(bodyCtx, &air, req, restored.WorktreePath, PrepareTools); err != nil {
+			if air.Setup != nil && air.Setup.cause != nil {
+				if retry := toolDiskRestart(bodyCtx, logger, err); retry != nil {
+					return bodyCtx, retry
+				}
+			}
 			return bodyCtx, err
 		}
 		if air.Setup != nil {
@@ -352,6 +362,20 @@ func (t *taskWorker) RunTask(local context.Context, ctx jobworkflow.TaskContext,
 }
 
 var _ jobworkflow.TaskWorker = &taskWorker{}
+
+func toolDiskRestart(ctx context.Context, logger *slog.Logger, err error) error {
+	if ctx.Err() != nil {
+		return nil
+	}
+	path, confirmed := toolenv.DiskExhaustion(err)
+	if !confirmed {
+		return nil
+	}
+	logger.Warn("Worker disk exhausted before operation started",
+		"event", "task.tool_setup.disk_exhausted", "launch_id", os.Getenv("PULSE_LAUNCH_ID"),
+		"path", path, "diagnostic", err.Error())
+	return resourceretry.ToolDiskRestart()
+}
 
 func failedTaskData(output ActivityInvocationOutput, artifacts []jobdb.Artifact) (jobdb.TaskData, error) {
 	if !hasFailedActivityPayload(output, artifacts) {

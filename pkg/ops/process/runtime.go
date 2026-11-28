@@ -25,7 +25,8 @@ type RunRequest struct {
 	ResourceRetry bool
 	// StopTreeOnFailure also ends managed children after exit 1, which can
 	// carry a negotiated resource control. Output may still be in the pipes.
-	StopTreeOnFailure bool
+	StopTreeOnFailure    bool
+	StopTreeOnAnyFailure bool
 	// CleanEnv is for preparation subprocesses that must not inherit worker state.
 	// Commands in this mode must use an absolute executable path.
 	CleanEnv bool
@@ -152,7 +153,7 @@ func executeOnHost(ctx context.Context, req RunRequest, workingDir string) ([]by
 	// background child can keep those pipes open after a control exit.
 	var readers, writers []*os.File
 	var destinations []io.Writer
-	if req.StopTreeOnExitCode > 0 || req.StopTreeOnFailure {
+	if req.StopTreeOnExitCode > 0 || req.StopTreeOnFailure || req.StopTreeOnAnyFailure {
 		destinations = []io.Writer{cmd.Stdout, cmd.Stderr}
 		for i := range destinations {
 			r, w, e := os.Pipe()
@@ -199,9 +200,9 @@ func executeOnHost(ctx context.Context, req RunRequest, workingDir string) ([]by
 	go func() {
 		err := cmd.Wait()
 		var exit *exec.ExitError
-		if errors.As(err, &exit) && (req.StopTreeOnFailure && exit.ExitCode() == 1 ||
+		if errors.As(err, &exit) && (req.StopTreeOnAnyFailure || req.StopTreeOnFailure && exit.ExitCode() == 1 ||
 			req.StopTreeOnExitCode > 0 && exit.ExitCode() == req.StopTreeOnExitCode) {
-			cleanupErr := stopExitedProcessTree(cmd)
+			cleanupErr := cleanupExitedProcessTree(ctx, cmd)
 			if req.Capture != nil {
 				req.Capture.TreeCleanupError = cleanupErr
 				req.Capture.TreeCleanupComplete = cleanupErr == nil
@@ -248,6 +249,15 @@ func startProcess(ctx context.Context, cmd *exec.Cmd) error {
 		return start(cmd)
 	}
 	return cmd.Start()
+}
+
+type stopExitedProcessTreeKey struct{}
+
+func cleanupExitedProcessTree(ctx context.Context, cmd *exec.Cmd) error {
+	if stop, ok := ctx.Value(stopExitedProcessTreeKey{}).(func(*exec.Cmd) error); ok {
+		return stop(cmd)
+	}
+	return stopExitedProcessTree(cmd)
 }
 
 func BuildProcessEnv(env map[string]string) []string {

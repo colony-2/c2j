@@ -113,10 +113,7 @@ func RunWithLease(ctx context.Context, opts Options, leaseFile string) (runErr e
 		if _, err := handlePendingInput(ctx, opts, deps.inputRuntime, jobKey); err != nil {
 			return err
 		}
-		return json.NewEncoder(opts.Stdout).Encode(map[string]any{
-			"kind": "job_suspended", "job_id": jobKey.JobId, "tenant_id": jobKey.TenantId,
-			"outcome": outcome,
-		})
+		return writeSuspendedOutcome(opts.Stdout, jobKey, outcome)
 	default:
 		return exitError{code: exitCodeFailure, err: fmt.Errorf("unexpected supplied-lease outcome %s", outcome.Status)}
 	}

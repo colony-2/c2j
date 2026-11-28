@@ -89,6 +89,9 @@ const nixToolMetadata = `p: {
 var nixOutputName = regexp.MustCompile(`^[a-zA-Z0-9_+-]+$`)
 
 func prepareNixTool(ctx context.Context, dir, spec string, tool *Tool) error {
+	if err := prefetchNixSource(ctx, dir, spec); err != nil {
+		return err
+	}
 	raw, err := runNix(ctx, dir, "eval", "--json", "--apply", nixToolMetadata, "--", spec)
 	if err != nil {
 		return err

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"runtime"
@@ -55,6 +56,9 @@ func DescribeNixPackage(ctx context.Context, reference, baseDir string) (*NixPac
 	}
 	if manager != "nix" {
 		return nil, fmt.Errorf("expected a nix: package reference")
+	}
+	if err := prefetchNixSource(ctx, baseDir, spec); err != nil {
+		return nil, fmt.Errorf("prefetch %s: %w", reference, err)
 	}
 	out, err := runNix(ctx, baseDir, "eval", "--json",
 		"--option", "allow-import-from-derivation", "false",
@@ -109,13 +113,92 @@ func (m *Manager) PrepareNixPackage(ctx context.Context, p NixPackage) (root str
 }
 
 func runNix(ctx context.Context, dir string, args ...string) ([]byte, error) {
-	out, stderr, err := process.ExecuteProcess(ctx, process.RunRequest{WorkingDir: dir, Command: nixSetupCommand(args...)})
+	out, stderr, err := process.ExecuteProcess(ctx, process.RunRequest{
+		WorkingDir: dir, Command: nixSetupCommand(args...), Env: map[string]string{"LC_ALL": "C"},
+		StopTreeOnFailure: process.CheckedTreeCleanupSupported,
+	})
 	if err != nil {
-		detail := strings.TrimSpace(string(stderr))
-		if len(detail) > 4096 {
-			detail = detail[len(detail)-4096:]
-		}
-		return nil, fmt.Errorf("%w: %s", err, detail)
+		return nil, nixProcessError(err, string(stderr))
 	}
 	return out, nil
+}
+
+func nixProcessError(err error, detail string) error {
+	detail = strings.TrimSpace(detail)
+	if len(detail) > 4096 {
+		detail = detail[len(detail)-4096:]
+	}
+	return fmt.Errorf("%w: %s", err, detail)
+}
+
+var pinnedGitHubSource = regexp.MustCompile(`^github:[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+/[0-9a-f]{40}$`)
+
+// prefetchNixSource is a worker-owned store write that cannot evaluate the
+// flake or run a builder. Error records from evaluation (including throw) are
+// intentionally never considered evidence, even if they match verbatim.
+func prefetchNixSource(ctx context.Context, dir, spec string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	source, _, _ := strings.Cut(spec, "#")
+	if !pinnedGitHubSource.MatchString(source) || os.Getenv("NIX_REMOTE") != "local" || !process.CheckedTreeCleanupSupported {
+		return nil
+	}
+	verified := defaultLocalNixLayout(ctx, dir)
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if !verified {
+		return nil
+	}
+	_, stderr, err := process.ExecuteProcess(ctx, process.RunRequest{
+		WorkingDir: dir, Env: map[string]string{"LC_ALL": "C"}, StopTreeOnAnyFailure: true,
+		Command: nixSetupCommand("--log-format", "internal-json", "flake", "prefetch", "--json", "--", source),
+	})
+	return nixPrefetchResult(ctx, stderr, err)
+}
+
+func defaultLocalNixLayout(ctx context.Context, dir string) bool {
+	store, err := runNix(ctx, dir, "config", "show", "store")
+	uri := strings.TrimSpace(string(store))
+	if err != nil || ctx.Err() != nil || uri != "local" && uri != "local://" {
+		return false
+	}
+	layout, _, err := process.ExecuteProcess(ctx, process.RunRequest{
+		WorkingDir: dir, Command: []string{"nix", "__dump-cli"}, Env: map[string]string{"LC_ALL": "C"},
+		StopTreeOnAnyFailure: true,
+	})
+	if err != nil {
+		return false
+	}
+	var cli struct {
+		Stores map[string]struct {
+			Settings map[string]struct{ Value json.RawMessage }
+		}
+	}
+	if json.Unmarshal(layout, &cli) != nil {
+		return false
+	}
+	settings := cli.Stores["Local Store"].Settings
+	return string(settings["root"].Value) == "null" &&
+		string(settings["store"].Value) == `"/nix/store"` &&
+		string(settings["real"].Value) == `"/nix/store"` &&
+		string(settings["state"].Value) == `"/nix/var/nix"` &&
+		string(settings["log"].Value) == `"/nix/var/log/nix"`
+}
+
+func nixPrefetchResult(ctx context.Context, stderr []byte, err error) error {
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return ctxErr
+	}
+	if err == nil {
+		return nil
+	}
+	if path, message, confirmed := nixPrefetchDiskFailure(err, stderr); confirmed {
+		return &nixDiskError{error: nixProcessError(err, message), path: path}
+	}
+	if exit, ok := err.(*exec.ExitError); ok && exit.ExitCode() > 0 {
+		return nil
+	}
+	return nixProcessError(err, string(stderr))
 }

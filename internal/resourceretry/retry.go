@@ -29,6 +29,17 @@ func Restart(source, phase string) error {
 	return &signal{source, phase}
 }
 
+// ToolDiskRestart is reserved for confirmed disk exhaustion before the op
+// body starts. Keep raw diagnostics out of the control signal.
+func ToolDiskRestart() error {
+	return &signal{"tool_disk", "preparation"}
+}
+
+func IsToolDiskRestart(err error) bool {
+	var s *signal
+	return Is(err) && errors.As(err, &s) && s.source == "tool_disk"
+}
+
 // Is requires every cause to authorize restart. In particular, a joined cleanup,
 // capture, cancellation or timeout error vetoes a previously safe signal.
 func Is(err error) bool { return onlySignal(err, 0) }

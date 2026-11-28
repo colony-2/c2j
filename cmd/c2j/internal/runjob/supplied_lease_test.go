@@ -47,6 +47,11 @@ type suppliedCLI struct {
 
 func newSuppliedCLI(t *testing.T, yaml string, duration time.Duration, providers ...jobdb.SecretProvider) *suppliedCLI {
 	t.Helper()
+	return newSuppliedCLIWithServerOptions(t, yaml, duration, nil, providers...)
+}
+
+func newSuppliedCLIWithServerOptions(t *testing.T, yaml string, duration time.Duration, options *remote.ServerOptions, providers ...jobdb.SecretProvider) *suppliedCLI {
+	t.Helper()
 	c2jops.Register()
 	ctx := celltest.Context(context.Background())
 	cfg := sqlite.Config{DBPath: filepath.Join(t.TempDir(), "jobs.db"), Projects: jobdbcelltest.UnrestrictedProjects{}}
@@ -57,7 +62,13 @@ func newSuppliedCLI(t *testing.T, yaml string, duration time.Duration, providers
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, rt.Close(ctx)) })
 	f := &suppliedCLI{backend: rt}
-	handler := remote.NewConsumerServer(rt)
+	var handler http.Handler
+	if options == nil {
+		handler = remote.NewConsumerServer(rt)
+	} else {
+		handler, err = remote.NewConsumerServerWithOptions(rt, *options)
+		require.NoError(t, err)
+	}
 	server := httptest.NewServer(celltest.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !strings.HasSuffix(r.URL.Path, "/keepalive") {
 			f.nonHeartbeatRequests.Add(1)

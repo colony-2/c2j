@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -17,6 +18,28 @@ import (
 	"github.com/colony-2/jobdb/pkg/jobdb"
 	"github.com/stretchr/testify/require"
 )
+
+func TestToolDiskProcessCleanupOnFailedExit(t *testing.T) {
+	if !CheckedTreeCleanupSupported {
+		t.Skip("requires checked process tree cleanup")
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	_, _, err := ExecuteProcess(ctx, RunRequest{
+		Command: []string{"sh", "-c", "sleep 30 & exit 2"}, StopTreeOnAnyFailure: true,
+	})
+	exit, ok := err.(*exec.ExitError)
+	require.True(t, ok, "expected clean exit after closing inherited output pipes, got %v", err)
+	require.Equal(t, 2, exit.ExitCode())
+
+	cleanupErr := errors.New("test cleanup failed")
+	ctx = context.WithValue(ctx, stopExitedProcessTreeKey{}, func(*exec.Cmd) error { return cleanupErr })
+	_, _, err = ExecuteProcess(ctx, RunRequest{Command: []string{"sh", "-c", "exit 2"}, StopTreeOnAnyFailure: true})
+	require.ErrorIs(t, err, cleanupErr)
+	require.ErrorAs(t, err, &exit)
+	require.Equal(t, 2, exit.ExitCode())
+	require.IsNotType(t, &exec.ExitError{}, err)
+}
 
 func TestExecuteProcessMasksDynamicallyResolvedGitCredentials(t *testing.T) {
 	profile := gitprofile.Profile{Version: 1, Entries: []gitprofile.Entry{{URL: "https://git.example/", Username: "bot", SecretRef: "token"}}}
